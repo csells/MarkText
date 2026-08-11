@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createDocumentCore,
   DocumentCoreError,
+  type CriticMarkupAnnotation,
   type DocumentCore,
   type DocumentRevision,
   type ProjectionCoordinateMap
@@ -92,6 +93,38 @@ function observableRevision(
         )
       }
     }
+  }
+}
+
+function observableComment(
+  core: DocumentCore,
+  revision: DocumentRevision,
+  comment: CriticMarkupAnnotation
+): unknown {
+  const projection = core.projectComment(revision, comment)
+  return {
+    kind: projection.kind,
+    annotationRange: projection.annotationRange,
+    markdown: projection.markdown,
+    ast: projection.ast,
+    origins: Array.from(
+      { length: projection.markdown.length },
+      (_, offset) => projection.coordinates.originAt(offset)
+    ),
+    projectedPositions: Array.from(
+      { length: projection.markdown.length + 1 },
+      (_, offset) => ({
+        previous: projection.coordinates.toSource(offset, 'previous'),
+        next: projection.coordinates.toSource(offset, 'next')
+      })
+    ),
+    sourcePositions: Array.from(
+      { length: revision.source.length + 1 },
+      (_, offset) => ({
+        previous: projection.coordinates.toProjected(offset, 'previous'),
+        next: projection.coordinates.toProjected(offset, 'next')
+      })
+    )
   }
 }
 
@@ -281,6 +314,56 @@ describe('document-core facade', () => {
     expect(markup.syntax.coordinates.toSource(5, 'next')).toBe(9)
   })
 
+  it('does not pair Markdown delimiters from distinct Addition arms', () => {
+    const cases = [
+      {
+        source: '{++*++}x{++*++}',
+        project: (core: DocumentCore, revision: DocumentRevision) =>
+          core.project(revision, 'revised'),
+        firstStar: 3,
+        middle: 7,
+        lastStar: 11
+      },
+      {
+        source: '{>>{++*++}x{++*++}<<}',
+        project: (core: DocumentCore, revision: DocumentRevision) => {
+          const comment = revision.annotations[0]
+          if (comment === undefined) throw new Error('Expected one Comment')
+          return core.projectComment(revision, comment)
+        },
+        firstStar: 6,
+        middle: 10,
+        lastStar: 14
+      }
+    ] as const
+
+    for (const testCase of cases) {
+      const core = createDocumentCore()
+      const revision = core.open(testCase.source)
+      const projection = testCase.project(core, revision)
+      const nodeKinds = markdownNodes(projection.ast.root).map(node =>
+        (node as { readonly kind: string }).kind
+      )
+
+      expect(nodeKinds).not.toContain('emphasis')
+      expect(projection.markdown).toBe('\\*x*')
+      expect(Array.from(
+        { length: projection.markdown.length },
+        (_, offset) => projection.coordinates.originAt(offset)
+      )).toEqual([
+        {
+          kind: 'generated',
+          sourcePosition: testCase.firstStar,
+          affinity: 'next'
+        },
+        { kind: 'source', sourceOffset: testCase.firstStar },
+        { kind: 'source', sourceOffset: testCase.middle },
+        { kind: 'source', sourceOffset: testCase.lastStar }
+      ])
+      expect(revision.source).toBe(testCase.source)
+    }
+  })
+
   it('emits balanced marks for empty unary and substitution arms', () => {
     const source = '{++++}{----}{====}{~~~>~~}{~~~>new~~}{~~old~>~~}'
     const core = createDocumentCore()
@@ -338,6 +421,711 @@ describe('document-core facade', () => {
     const before = inspectDocumentCore(core).intrinsicSourceUnits
 
     core.project(revision, 'markup')
+
+    expect(before).toBeGreaterThanOrEqual(source.length)
+    expect(inspectDocumentCore(core).intrinsicSourceUnits).toBe(before)
+  })
+
+  it('projects a Comment as an isolated full Markdown subdocument', () => {
+    const payload = [
+      '# Note',
+      '',
+      'See [inside][ref] {++now++}.',
+      '',
+      '[ref]: </comment%20path> "Local"',
+      ''
+    ].join('\n')
+    const source = `[ref]: /root\n\n{>>${payload}<<}\n`
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const comment = revision.annotations.find(annotation =>
+      annotation.kind === 'comment'
+    )
+    if (comment === undefined) throw new Error('Expected one Comment')
+
+    const projection = core.projectComment(revision, comment)
+    const expectedMarkdown = payload.replace('{++', '').replace('++}', '')
+    const nodes = markdownNodes(projection.ast.root) as ReadonlyArray<{
+      readonly kind: string
+      readonly range: Readonly<{ start: number; end: number }>
+      readonly attributes: Readonly<Record<string, string | number | boolean>>
+      readonly children: readonly unknown[]
+    }>
+    const definition = nodes.find(node => node.kind === 'definition')
+    const link = nodes.find(node => node.kind === 'link')
+    const payloadStart = source.indexOf('{>>') + 3
+    const payloadEnd = source.indexOf('<<}', payloadStart)
+    const additionStart = source.indexOf('{++', payloadStart)
+    const retainedSourceOffsets = [
+      ...Array.from(
+        { length: additionStart - payloadStart },
+        (_, index) => payloadStart + index
+      ),
+      ...Array.from({ length: 3 }, (_, index) => additionStart + 3 + index),
+      ...Array.from(
+        { length: payloadEnd - (additionStart + 9) },
+        (_, index) => additionStart + 9 + index
+      )
+    ]
+
+    expect(projection).toMatchObject({
+      kind: 'comment',
+      annotationRange: comment.range,
+      markdown: expectedMarkdown
+    })
+    expect(nodes.map(node => node.kind)).toEqual(expect.arrayContaining([
+      'document',
+      'heading',
+      'paragraph',
+      'link',
+      'definition'
+    ]))
+    expect(link?.attributes).toMatchObject({
+      referenceLabel: 'ref',
+      rawDestination: '/comment%20path',
+      rawTitle: 'Local',
+      resolvedDefinitionStart: definition?.range.start,
+      resolvedDefinitionEnd: definition?.range.end
+    })
+    expect(Array.from(
+      { length: projection.markdown.length },
+      (_, offset) => projection.coordinates.originAt(offset)
+    )).toEqual(retainedSourceOffsets.map(sourceOffset => ({
+      kind: 'source',
+      sourceOffset
+    })))
+    expect(projection.coordinates.toSource(0, 'previous')).toBe(0)
+    expect(projection.coordinates.toSource(0, 'next')).toBe(payloadStart)
+    expect(projection.coordinates.toSource(projection.markdown.length, 'previous'))
+      .toBe(payloadEnd)
+    expect(projection.coordinates.toSource(projection.markdown.length, 'next'))
+      .toBe(source.length)
+    expect(core.projectComment(revision, comment)).toBe(projection)
+  })
+
+  it('does not inherit an outer block container into a Comment', () => {
+    const source = '- before {>># Local\n\n> quote\n\n- item\n<<} after\n'
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const comment = revision.annotations[0]
+    if (comment === undefined) throw new Error('Expected one Comment')
+    const commentKinds = markdownNodes(
+      core.projectComment(revision, comment).ast.root
+    ).map(node => (node as Readonly<{ kind: string }>).kind)
+    const outerKinds = markdownNodes(
+      core.project(revision, 'revised').ast.root
+    ).map(node => (node as Readonly<{ kind: string }>).kind)
+
+    expect(commentKinds).toEqual(expect.arrayContaining([
+      'heading',
+      'blockquote',
+      'list'
+    ]))
+    expect(commentKinds[1]).toBe('heading')
+    expect(outerKinds.filter(kind => kind === 'list')).toHaveLength(1)
+    expect(core.project(revision, 'revised').markdown)
+      .toBe('- before  after\n')
+  })
+
+  it('keeps Comment reference and footnote definitions local', () => {
+    const payload = [
+      'Inside [local][ref], unresolved [outer][root], note[^n], and missing[^outer].',
+      '',
+      '[ref]: /comment',
+      '',
+      '[^n]: Comment footnote',
+      '',
+      '# End',
+      ''
+    ].join('\n')
+    const source = [
+      '[root]: /root',
+      '',
+      '[^outer]: Root footnote',
+      '',
+      `Before [root][root] and root[^outer]. {>>${payload}<<}`,
+      '',
+      'After [missing][local].',
+      ''
+    ].join('\n')
+    const core = createDocumentCore()
+    const revision = core.open(source, { footnotes: true })
+    const comment = revision.annotations[0]
+    if (comment === undefined) throw new Error('Expected one Comment')
+    const commentNodes = markdownNodes(
+      core.projectComment(revision, comment).ast.root
+    ) as ReadonlyArray<{
+      readonly kind: string
+      readonly attributes: Readonly<Record<string, string | number | boolean>>
+      readonly children: readonly unknown[]
+    }>
+    const outerNodes = markdownNodes(
+      core.project(revision, 'revised').ast.root
+    ) as ReadonlyArray<{
+      readonly kind: string
+      readonly attributes: Readonly<Record<string, string | number | boolean>>
+      readonly children: readonly unknown[]
+    }>
+
+    expect(commentNodes.filter(node => node.kind === 'link').map(node =>
+      node.attributes['rawDestination']
+    )).toEqual(['/comment'])
+    expect(commentNodes.find(node => node.kind === 'footnote-reference')?.attributes)
+      .toMatchObject({ resolved: true })
+    expect(commentNodes.filter(node => node.kind === 'footnote-reference').map(
+      node => node.attributes['resolved']
+    )).toEqual([true, false])
+    expect(outerNodes.filter(node => node.kind === 'link').map(node =>
+      node.attributes['rawDestination']
+    )).toEqual(['/root'])
+    expect(outerNodes.filter(node => node.kind === 'footnote-definition'))
+      .toHaveLength(1)
+
+    const plainCore = createDocumentCore()
+    const plain = plainCore.open(source, { footnotes: false })
+    const plainComment = plain.annotations[0]
+    if (plainComment === undefined) throw new Error('Expected plain Comment')
+    expect(markdownNodes(plainCore.projectComment(plain, plainComment).ast.root)
+      .some(node => (node as Readonly<{ kind: string }>).kind.startsWith('footnote')))
+      .toBe(false)
+  })
+
+  it('does not resolve definitions across distinct Comment Addition arms', () => {
+    const linkCore = createDocumentCore()
+    const linkRevision = linkCore.open(
+      '{>>{++[x][r]++}\n\n{++[r]: /u\n++}<<}'
+    )
+    const linkComment = linkRevision.annotations[0]
+    if (linkComment === undefined) throw new Error('Expected link Comment')
+    const linkNodes = markdownNodes(
+      linkCore.projectComment(linkRevision, linkComment).ast.root
+    ) as ReadonlyArray<{
+      readonly kind: string
+      readonly attributes: Readonly<Record<string, string | number | boolean>>
+      readonly children: readonly unknown[]
+    }>
+
+    expect(linkNodes.some(node => node.kind === 'link')).toBe(false)
+    expect(linkNodes.some(node => node.kind === 'definition')).toBe(true)
+
+    const footnoteCore = createDocumentCore()
+    const footnoteRevision = footnoteCore.open(
+      '{>>{++note[^r]++}\n\n{++[^r]: body\n++}<<}',
+      { footnotes: true }
+    )
+    const footnoteComment = footnoteRevision.annotations[0]
+    if (footnoteComment === undefined) {
+      throw new Error('Expected footnote Comment')
+    }
+    const footnoteNodes = markdownNodes(
+      footnoteCore.projectComment(footnoteRevision, footnoteComment).ast.root
+    ) as ReadonlyArray<{
+      readonly kind: string
+      readonly attributes: Readonly<Record<string, string | number | boolean>>
+      readonly children: readonly unknown[]
+    }>
+
+    expect(footnoteNodes.find(node => node.kind === 'footnote-reference')?.attributes)
+      .toMatchObject({ resolved: false })
+    expect(footnoteNodes.some(node => node.kind === 'footnote-definition'))
+      .toBe(true)
+  })
+
+  it('selects the first same-scope definition for projected references', () => {
+    const duplicateSource = [
+      '{++[r]: /arm1\n++}',
+      '',
+      '{++[x][r]\n',
+      '[r]: /arm2\n++}'
+    ].join('\n')
+    const sources = [duplicateSource, `{>>${duplicateSource}<<}`]
+
+    for (const source of sources) {
+      const core = createDocumentCore()
+      const revision = core.open(source)
+      const projection = source.startsWith('{>>')
+        ? (() => {
+          const comment = revision.annotations[0]
+          if (comment === undefined) throw new Error('Expected one Comment')
+          return core.projectComment(revision, comment)
+        })()
+        : core.project(revision, 'revised')
+      const link = markdownNodes(projection.ast.root).find(node =>
+        (node as Readonly<{ kind: string }>).kind === 'link'
+      ) as Readonly<{
+        readonly attributes: Readonly<Record<string, string | number | boolean>>
+      }> | undefined
+
+      expect(link?.attributes).toMatchObject({ rawDestination: '/arm2' })
+    }
+
+    const negativeSource = '{++[r]: /inner\n++}\n\n[x][r]'
+    for (const source of [negativeSource, `{>>${negativeSource}<<}`]) {
+      const negativeCore = createDocumentCore()
+      const negative = negativeCore.open(source)
+      const projection = source.startsWith('{>>')
+        ? (() => {
+          const comment = negative.annotations[0]
+          if (comment === undefined) throw new Error('Expected one Comment')
+          return negativeCore.projectComment(negative, comment)
+        })()
+        : negativeCore.project(negative, 'revised')
+      expect(markdownNodes(projection.ast.root).some(node =>
+        (node as Readonly<{ kind: string }>).kind === 'link'
+      )).toBe(false)
+      expect(projection.markdown).toContain('\\[x]\\[r]')
+      const guardStart = projection.markdown.indexOf('\\[x]')
+      expect(projection.coordinates.originAt(guardStart)).toEqual({
+        kind: 'generated',
+        sourcePosition: source.lastIndexOf('[x][r]'),
+        affinity: 'next'
+      })
+      const shortcutGuardStart = projection.markdown.indexOf('\\[r]', guardStart + 1)
+      expect(projection.coordinates.originAt(shortcutGuardStart)).toEqual({
+        kind: 'generated',
+        sourcePosition: source.lastIndexOf('[r]'),
+        affinity: 'next'
+      })
+      const materializedCore = createDocumentCore()
+      const materialized = materializedCore.open(projection.markdown)
+      expect(markdownNodes(
+        materializedCore.project(materialized, 'revised').ast.root
+      ).some(node => (node as Readonly<{ kind: string }>).kind === 'link'))
+        .toBe(false)
+    }
+
+    const positiveCore = createDocumentCore()
+    const positive = positiveCore.open(
+      '{++[x][r]\n\n[r]: /same\n++}'
+    )
+    const positiveLink = markdownNodes(
+      positiveCore.project(positive, 'revised').ast.root
+    ).find(node => (node as Readonly<{ kind: string }>).kind === 'link') as
+      | Readonly<{
+        readonly attributes: Readonly<Record<string, string | number | boolean>>
+      }>
+      | undefined
+    expect(positiveLink?.attributes).toMatchObject({ rawDestination: '/same' })
+  })
+
+  it('selects the first same-scope footnote definition', () => {
+    const source = [
+      '{++[^r]: first\n++}',
+      '',
+      '{++note[^r]\n',
+      '[^r]: second\n++}'
+    ].join('\n')
+    const core = createDocumentCore()
+    const revision = core.open(source, { footnotes: true })
+    const projection = core.project(revision, 'revised')
+    const nodes = markdownNodes(projection.ast.root) as ReadonlyArray<{
+      readonly kind: string
+      readonly attributes: Readonly<Record<string, string | number | boolean>>
+      readonly range: Readonly<{ start: number; end: number }>
+      readonly children: readonly unknown[]
+    }>
+    const definitions = nodes.filter(node => node.kind === 'footnote-definition')
+    const reference = nodes.find(node => node.kind === 'footnote-reference')
+
+    expect(definitions).toHaveLength(2)
+    expect(reference?.attributes).toMatchObject({ resolved: true })
+
+    const negativeSource = '{++[^r]: one\n++}\n\nnote[^r]'
+    for (const candidate of [negativeSource, `{>>${negativeSource}<<}`]) {
+      const negativeCore = createDocumentCore()
+      const negative = negativeCore.open(candidate, { footnotes: true })
+      const negativeProjection = candidate.startsWith('{>>')
+        ? (() => {
+          const comment = negative.annotations[0]
+          if (comment === undefined) throw new Error('Expected one Comment')
+          return negativeCore.projectComment(negative, comment)
+        })()
+        : negativeCore.project(negative, 'revised')
+      const negativeReference = markdownNodes(
+        negativeProjection.ast.root
+      ).find(node =>
+        (node as Readonly<{ kind: string }>).kind === 'footnote-reference'
+      ) as Readonly<{
+        readonly attributes: Readonly<Record<string, string | number | boolean>>
+      }> | undefined
+
+      expect(negativeReference?.attributes).toMatchObject({
+        label: 'r',
+        resolved: false
+      })
+      expect(negativeProjection.markdown).toContain('note\\[^r]')
+      // `[` is escapable ASCII punctuation, so a Markdown sink exposes the
+      // author-visible spelling without leaking the engine-added slash.
+      expect(negativeProjection.markdown.replace('\\[', '['))
+        .toContain('note[^r]')
+      const guardStart = negativeProjection.markdown.indexOf('\\[^r]')
+      expect(negativeProjection.coordinates.originAt(guardStart)).toEqual({
+        kind: 'generated',
+        sourcePosition: candidate.lastIndexOf('[^r]'),
+        affinity: 'next'
+      })
+      const materializedCore = createDocumentCore()
+      const materialized = materializedCore.open(
+        negativeProjection.markdown,
+        { footnotes: true }
+      )
+      const materializedReference = markdownNodes(
+        materializedCore.project(materialized, 'revised').ast.root
+      ).find(node =>
+        (node as Readonly<{ kind: string }>).kind === 'footnote-reference'
+      ) as Readonly<{
+        readonly attributes: Readonly<Record<string, string | number | boolean>>
+      }> | undefined
+      expect(materializedReference).toBeUndefined()
+    }
+
+    const bomPayload = `{--x--}\uFEFF# Heading\n\n${negativeSource}`
+    for (const candidate of [bomPayload, `{>>${bomPayload}<<}`]) {
+      const bomCore = createDocumentCore()
+      const bomRevision = bomCore.open(candidate, { footnotes: true })
+      const bomProjection = candidate.startsWith('{>>')
+        ? (() => {
+          const comment = bomRevision.annotations[0]
+          if (comment === undefined) throw new Error('Expected one Comment')
+          return bomCore.projectComment(bomRevision, comment)
+        })()
+        : bomCore.project(bomRevision, 'revised')
+      const bomNodes = markdownNodes(bomProjection.ast.root) as ReadonlyArray<{
+        readonly kind: string
+        readonly attributes: Readonly<Record<string, string | number | boolean>>
+        readonly children: readonly unknown[]
+      }>
+
+      expect(bomProjection.markdown).toContain('&#xFEFF;# Heading')
+      expect(bomNodes.some(node => node.kind === 'heading')).toBe(false)
+      expect(bomNodes.find(node => node.kind === 'footnote-reference')?.attributes)
+        .toMatchObject({ label: 'r', resolved: false })
+    }
+
+    const initialSource = `A\n\n${negativeSource}`
+    const nextSource = `B\n\n${negativeSource}`
+    const incrementalCore = createDocumentCore()
+    const initial = incrementalCore.open(initialSource, { footnotes: true })
+    const reopened = incrementalCore.reopen(initial, nextSource, [{
+      start: 0,
+      end: 1,
+      insert: 'B'
+    }])
+    const fullCore = createDocumentCore()
+    const full = fullCore.open(nextSource, { footnotes: true })
+    expect(observableRevision(incrementalCore, reopened))
+      .toEqual(observableRevision(fullCore, full))
+  })
+
+  it('preserves literal and malformed Markdown-looking text inside Comments', () => {
+    const payload = [
+      '# Heading',
+      '',
+      '```md',
+      '{++literal++}',
+      '```',
+      '',
+      'unfinished {++ opener',
+      ''
+    ].join('\n')
+    const source = `{>>${payload}<<}`
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const comment = revision.annotations[0]
+    if (comment === undefined) throw new Error('Expected one Comment')
+    const projection = core.projectComment(revision, comment)
+    const unfinishedStart = payload.lastIndexOf('{++')
+    const guardedPayload =
+      payload.slice(0, unfinishedStart) +
+      '\\' +
+      payload.slice(unfinishedStart)
+    const nodeKinds = markdownNodes(projection.ast.root).map(node =>
+      (node as Readonly<{ kind: string }>).kind
+    )
+
+    expect(projection.markdown).toBe(guardedPayload)
+    expect(projection.coordinates.originAt(unfinishedStart)).toMatchObject({
+      kind: 'generated',
+      sourcePosition: source.indexOf('{++', source.indexOf('unfinished')),
+      affinity: 'next'
+    })
+    expect(nodeKinds).toEqual(expect.arrayContaining([
+      'heading',
+      'code-block',
+      'paragraph'
+    ]))
+    expect(comment.arms[0]?.annotations).toEqual([])
+    expect(revision.source).toBe(source)
+  })
+
+  it('does not let an unfinished nested opener swallow a Comment closer', () => {
+    const cases = [
+      { source: '{>>{++<<}after', remainder: 'after' },
+      { source: '{>>{++<<}after \\++}', remainder: 'after \\++}' },
+      {
+        source: '{>>{++<<}after [x](<++}>)',
+        remainder: 'after [x](<++}>)'
+      }
+    ] as const
+
+    for (const testCase of cases) {
+      const core = createDocumentCore()
+      const revision = core.open(testCase.source)
+      const comment = revision.annotations[0]
+      if (comment === undefined) {
+        throw new Error(`Expected one Comment for ${testCase.source}`)
+      }
+
+      expect(revision.annotations).toHaveLength(1)
+      expect(comment).toMatchObject({
+        kind: 'comment',
+        range: { start: 0, end: 9 }
+      })
+      const projection = core.projectComment(revision, comment)
+      expect(projection.markdown).toBe('\\{++')
+      expect(projection.coordinates.originAt(0)).toEqual({
+        kind: 'generated',
+        sourcePosition: 3,
+        affinity: 'next'
+      })
+      expect(core.project(revision, 'revised').markdown)
+        .toBe(testCase.remainder)
+      expect(revision.diagnostics).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          code: 'CM_UNTERMINATED_OPENER',
+          range: { start: 3, end: 6 }
+        })
+      ]))
+    }
+
+    const initialSource = '{>>{++<<}after [x](<abc>)'
+    const nextSource = '{>>{++<<}after [x](<++}>)'
+    const editStart = initialSource.indexOf('abc')
+    const incrementalCore = createDocumentCore()
+    const initial = incrementalCore.open(initialSource)
+    const reopened = incrementalCore.reopen(initial, nextSource, [{
+      start: editStart,
+      end: editStart + 3,
+      insert: '++}'
+    }])
+    const fullCore = createDocumentCore()
+    const full = fullCore.open(nextSource)
+
+    expect(observableRevision(incrementalCore, reopened))
+      .toEqual(observableRevision(fullCore, full))
+  })
+
+  it('publishes malformed nested closer prefixes without recovery failure', () => {
+    const source = '{--{=={--{~~==}--}~~}'
+    expect(source).toHaveLength(21)
+
+    const core = createDocumentCore()
+    const revision = core.open(source)
+
+    expect(revision.source).toBe(source)
+    expect(revision.annotations).toEqual([
+      expect.objectContaining({
+        kind: 'deletion',
+        range: { start: 0, end: 18 }
+      })
+    ])
+    expect(() => core.project(revision, 'revised')).not.toThrow()
+
+    const blockerDepth = 256
+    const deepSource =
+      '{--{==' +
+      '{++'.repeat(blockerDepth) +
+      '==}' +
+      '++}'.repeat(blockerDepth) +
+      '--}'
+    const deepCore = createDocumentCore()
+    const deepRevision = deepCore.open(deepSource)
+
+    expect(deepRevision.source).toBe(deepSource)
+    expect(inspectDocumentCore(deepCore).intrinsicSourceUnits)
+      .toBeLessThanOrEqual(deepSource.length * 2)
+
+    const cascadeDepth = 32
+    const cascadeSource =
+      '{--{=='.repeat(cascadeDepth) +
+      '{--{~~==}--}~~}'
+    const cascadeCore = createDocumentCore()
+    const cascadeRevision = cascadeCore.open(cascadeSource)
+
+    expect(cascadeRevision.source).toBe(cascadeSource)
+    expect(inspectDocumentCore(cascadeCore).intrinsicSourceUnits)
+      .toBeLessThanOrEqual(cascadeSource.length * 2)
+
+    const fourPassSource = '{--{>>{--{=={--{>>--}==}<<}'
+    expect(fourPassSource).toHaveLength(27)
+    const fourPassCore = createDocumentCore()
+    const fourPassRevision = fourPassCore.open(fourPassSource)
+
+    expect(fourPassRevision.annotations).toEqual([
+      expect.objectContaining({
+        kind: 'comment',
+        range: { start: 15, end: 27 }
+      })
+    ])
+    expect(inspectDocumentCore(fourPassCore).intrinsicSourceUnits)
+      .toBeLessThanOrEqual(fourPassSource.length * 2)
+  })
+
+  it('keeps Comment-looking closers inside completed local literal owners', () => {
+    const cases = [
+      {
+        name: 'fenced code',
+        payload: '```md\n<<}\n```\nlast\n',
+        options: {},
+        expectedKind: 'code-block'
+      },
+      {
+        name: 'front matter',
+        payload: '---\na: <<}\n---\nlast\n',
+        options: { frontMatter: true },
+        expectedKind: 'front-matter'
+      },
+      {
+        name: 'direct link destination',
+        payload: '[x](a<<}b) tail',
+        options: {},
+        expectedKind: 'link'
+      },
+      {
+        name: 'reference definition title',
+        payload: '[r]: /a "t <<} u"\n\n# end\n',
+        options: {},
+        expectedKind: 'definition'
+      },
+      {
+        name: 'inline HTML',
+        payload: '<span title="<<}">ok</span> tail',
+        options: {},
+        expectedKind: 'inline-html'
+      },
+      {
+        name: 'double-dollar math block',
+        payload: '$$\ninside <<}\n$$\nlast\n',
+        options: { math: true },
+        expectedKind: 'math-block'
+      }
+    ] as const
+
+    for (const testCase of cases) {
+      const source = `{>>${testCase.payload}<<}after`
+      const core = createDocumentCore()
+      const revision = core.open(source, testCase.options)
+      const comment = revision.annotations[0]
+      if (comment === undefined) throw new Error('Expected one Comment')
+
+      expect(comment.range.end, testCase.name)
+        .toBe(source.lastIndexOf('<<}') + 3)
+      const projection = core.projectComment(revision, comment)
+      expect(projection.markdown).toBe(testCase.payload)
+      expect(markdownNodes(projection.ast.root).some(node =>
+        (node as Readonly<{ kind: string }>).kind === testCase.expectedKind
+      )).toBe(true)
+      expect(core.project(revision, 'revised').markdown).toBe('after')
+    }
+  })
+
+  it('lets a Comment closer stand against unfinished inline code and math', () => {
+    const cases = [
+      {
+        source: '{>>a `x<<}` after<<}',
+        options: {},
+        payload: 'a `x',
+        excludedKind: 'inline-code'
+      },
+      {
+        source: '{>>a $x<<}$ after<<}',
+        options: { math: true },
+        payload: 'a $x',
+        excludedKind: 'inline-math'
+      }
+    ] as const
+
+    for (const testCase of cases) {
+      const core = createDocumentCore()
+      const revision = core.open(testCase.source, testCase.options)
+      const comment = revision.annotations[0]
+      if (comment === undefined) throw new Error('Expected one Comment')
+      const firstCloserEnd = testCase.source.indexOf('<<}') + 3
+      const projection = core.projectComment(revision, comment)
+
+      expect(comment.range.end).toBe(firstCloserEnd)
+      expect(projection.markdown).toBe(testCase.payload)
+      expect(markdownNodes(projection.ast.root).some(node =>
+        (node as Readonly<{ kind: string }>).kind === testCase.excludedKind
+      )).toBe(false)
+    }
+  })
+
+  it('projects nested CriticMarkup and empty Comments independently', () => {
+    const source =
+      '{>>before {++add++} {--drop--} {~~old~>new~~} {==mark==} {>>nested<<}<<} {>><<}'
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const outer = revision.annotations[0]
+    const empty = revision.annotations[1]
+    const nested = outer?.arms[0]?.annotations.find(annotation =>
+      annotation.kind === 'comment'
+    )
+    if (outer === undefined || empty === undefined || nested === undefined) {
+      throw new Error('Expected outer, nested, and empty Comments')
+    }
+
+    expect(core.projectComment(revision, outer).markdown)
+      .toBe('before add  new mark ')
+    expect(core.projectComment(revision, nested).markdown).toBe('nested')
+    expect(core.projectComment(revision, empty).markdown).toBe('')
+    expect(core.projectComment(revision, empty).ast.root).toMatchObject({
+      kind: 'document',
+      range: { start: 0, end: 0 }
+    })
+  })
+
+  it('rejects foreign and non-Comment annotations without advancing the head', () => {
+    const source = 'A {++B++} {>>note<<}'
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const addition = revision.annotations.find(annotation =>
+      annotation.kind === 'addition'
+    )
+    const comment = revision.annotations.find(annotation =>
+      annotation.kind === 'comment'
+    )
+    const foreignCore = createDocumentCore()
+    const foreignRevision = foreignCore.open('{>>foreign<<}')
+    const foreignComment = foreignRevision.annotations[0]
+    if (addition === undefined || comment === undefined || foreignComment === undefined) {
+      throw new Error('Expected test annotations')
+    }
+
+    expect(() => core.projectComment(revision, addition)).toThrow(/not a Comment/)
+    expect(() => core.projectComment(revision, foreignComment))
+      .toThrow(/does not belong to this revision/)
+    expect(() => core.projectComment(revision, { ...comment }))
+      .toThrow(/does not belong to this revision/)
+
+    const nextSource = `${source}!`
+    const reopened = core.reopen(revision, nextSource, [{
+      start: source.length,
+      end: source.length,
+      insert: '!'
+    }])
+    expect(reopened.source).toBe(nextSource)
+  })
+
+  it('materializes a Comment without another intrinsic parse', () => {
+    const source = '{>># Note\n\nSee [inside][ref].\n\n[ref]: /local\n<<}'
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const comment = revision.annotations[0]
+    if (comment === undefined) throw new Error('Expected one Comment')
+    const before = inspectDocumentCore(core).intrinsicSourceUnits
+
+    core.projectComment(revision, comment)
 
     expect(before).toBeGreaterThanOrEqual(source.length)
     expect(inspectDocumentCore(core).intrinsicSourceUnits).toBe(before)
@@ -704,6 +1492,40 @@ describe('document-core facade', () => {
     expect(incrementalCore.project(opened, 'markup')).toBe(openedMarkup)
     expect(fullSpent).toBeGreaterThanOrEqual(nextSource.length)
     expect(spent).toBeLessThan(fullSpent)
+  })
+
+  it('reopens Comment projections with full-parse-equivalent products', () => {
+    const source = '{>># Note\n\nSee [inside][ref].\n\n[ref]: /old\n<<}\n\ntail\n'
+    const start = source.indexOf('/old')
+    const edit = { start, end: start + 4, insert: '/new-path' }
+    const nextSource =
+      source.slice(0, edit.start) + edit.insert + source.slice(edit.end)
+    const incrementalCore = createDocumentCore()
+    const opened = incrementalCore.open(source)
+    const openedComment = opened.annotations[0]
+    if (openedComment === undefined) throw new Error('Expected old Comment')
+    const openedProjection = incrementalCore.projectComment(
+      opened,
+      openedComment
+    )
+
+    const reopened = incrementalCore.reopen(opened, nextSource, [edit])
+    const reopenedComment = reopened.annotations[0]
+    const fullCore = createDocumentCore()
+    const full = fullCore.open(nextSource)
+    const fullComment = full.annotations[0]
+    if (reopenedComment === undefined || fullComment === undefined) {
+      throw new Error('Expected reopened Comments')
+    }
+
+    expect(observableComment(incrementalCore, reopened, reopenedComment))
+      .toEqual(observableComment(fullCore, full, fullComment))
+    expect(incrementalCore.projectComment(opened, openedComment))
+      .toBe(openedProjection)
+    expect(() => incrementalCore.projectComment(reopened, openedComment))
+      .toThrow(/does not belong to this revision/)
+    expect(incrementalCore.projectComment(reopened, reopenedComment).markdown)
+      .toContain('/new-path')
   })
 
   it('merges partial reopen options over the previous revision options', () => {
