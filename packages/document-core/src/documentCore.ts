@@ -12,8 +12,14 @@ import {
   type PlainParagraphIndexRecorder,
   type PlainParagraphRetainedIndex
 } from './internal/profile1/plainParagraphRetainedIndex.js'
+import {
+  createPersistentCanonicalSource,
+  type CanonicalSourceMaterializationReason,
+  type PersistentCanonicalSource,
+  type PersistentCanonicalSourceRecorder
+} from './internal/persistentCanonicalSource.js'
 import { registerDocumentCoreInspection } from './internal/documentCoreInspection.js'
-import { applyExactSourceEdits } from './exactSourceEdits.js'
+import { DOCUMENT_RESOURCE_POLICY_V1 } from './resourcePolicy.js'
 import type {
   CriticMarkupNode,
   ExecutionBudgetId,
@@ -63,8 +69,17 @@ export interface DocumentDiagnostic {
 }
 
 export interface DocumentRevision {
-  /** The exact decoded UTF-16 source supplied to open. */
+  /**
+   * Exact canonical UTF-16 source for this revision. This compatibility
+   * accessor materializes and caches the full source on first read, so use
+   * sourceLength for length-only work. The revision is engine-local; value
+   * enumeration, JSON serialization, spreading, or cloning may invoke this
+   * enumerable getter and perform O(N) work. DocumentChange is the portable
+   * transport contract.
+   */
   readonly source: string
+  /** Exact UTF-16 source length without forcing source materialization. */
+  readonly sourceLength: number
   /** Top-level CriticMarkup annotations in canonical source order. */
   readonly annotations: readonly CriticMarkupAnnotation[]
   /** Recoverable syntax diagnostics in canonical source order. */
@@ -293,6 +308,7 @@ export type DocumentProjectionFallbackReason =
   | 'criticmarkup-facts-present'
   | 'definition-or-reference-facts'
   | 'markdown-options-changed'
+  | 'source-fragmentation-rebase'
   | 'structural-region-ineligible'
 
 export interface MarkupDocumentProjectionChange {
@@ -1099,12 +1115,14 @@ interface RevisionFacts {
 
 interface FullRevisionState extends RevisionFacts {
   readonly kind: 'full'
+  readonly source: PersistentCanonicalSource
   readonly markdownOptions: MarkdownOptionsV1
   readonly retainedIndex: PlainParagraphRetainedIndex | undefined
 }
 
 interface RegionalRevisionState {
   readonly kind: 'regional'
+  readonly source: PersistentCanonicalSource
   readonly markdownOptions: MarkdownOptionsV1
   readonly retainedIndex: PlainParagraphRetainedIndex
   readonly ensureProducts: () => RevisionFacts
@@ -1138,7 +1156,42 @@ interface MutableDocumentCoreInspection {
   retainedCommittedUpdates: number
   retainedLocalIndexUnitsCopied: number
   retainedOverlayMaximumDepth: number
-  sourceReconstructionOutputUnits: number
+  sourceRopeNodeVisits: number
+  sourceRopeNodesAllocated: number
+  sourceRopePiecesAllocated: number
+  sourceRopeCoalesces: number
+  sourceRopeRebalances: number
+  sourceRopeMaximumDepth: number
+  sourceRopeMaximumHeight: number
+  sourceRopeCurrentHeight: number
+  sourceRopeCurrentPieces: number
+  sourceRopeMaximumPieces: number
+  sourceSliceCalls: number
+  sourceSlicePieces: number
+  sourceSliceUnits: number
+  sourceMaterializations: number
+  sourceMaterializationPieces: number
+  sourceMaterializationOutputUnits: number
+  sourceGetterHits: number
+  sourceGetterMisses: number
+  sourceCompactions: number
+  sourceCompactionInputPieces: number
+  sourceCompactionRetainedUpperBoundReductionUnits: number
+  sourceGetterMaterializations: number
+  sourceGetterMaterializationOutputUnits: number
+  sourceFallbackMaterializations: number
+  sourceFallbackMaterializationOutputUnits: number
+  sourceRebaseMaterializations: number
+  sourceRebaseMaterializationOutputUnits: number
+  sourceProjectionMaterializations: number
+  sourceProjectionMaterializationOutputUnits: number
+  sourceReopenMaterializations: number
+  sourceReopenMaterializationOutputUnits: number
+  sourceReopenComparisonUnits: number
+  sourceRopeRootsAttempted: number
+  sourceRopeRootsCommitted: number
+  sourceRebases: number
+  sourceCurrentRetainedBufferUnitsUpperBound: number
 }
 
 export function createDocumentCore(): DocumentCore {
@@ -1184,8 +1237,124 @@ export function createDocumentCore(): DocumentCore {
     retainedCommittedUpdates: 0,
     retainedLocalIndexUnitsCopied: 0,
     retainedOverlayMaximumDepth: 0,
-    sourceReconstructionOutputUnits: 0
+    sourceRopeNodeVisits: 0,
+    sourceRopeNodesAllocated: 0,
+    sourceRopePiecesAllocated: 0,
+    sourceRopeCoalesces: 0,
+    sourceRopeRebalances: 0,
+    sourceRopeMaximumDepth: 0,
+    sourceRopeMaximumHeight: 0,
+    sourceRopeCurrentHeight: 0,
+    sourceRopeCurrentPieces: 0,
+    sourceRopeMaximumPieces: 0,
+    sourceSliceCalls: 0,
+    sourceSlicePieces: 0,
+    sourceSliceUnits: 0,
+    sourceMaterializations: 0,
+    sourceMaterializationPieces: 0,
+    sourceMaterializationOutputUnits: 0,
+    sourceGetterHits: 0,
+    sourceGetterMisses: 0,
+    sourceCompactions: 0,
+    sourceCompactionInputPieces: 0,
+    sourceCompactionRetainedUpperBoundReductionUnits: 0,
+    sourceGetterMaterializations: 0,
+    sourceGetterMaterializationOutputUnits: 0,
+    sourceFallbackMaterializations: 0,
+    sourceFallbackMaterializationOutputUnits: 0,
+    sourceRebaseMaterializations: 0,
+    sourceRebaseMaterializationOutputUnits: 0,
+    sourceProjectionMaterializations: 0,
+    sourceProjectionMaterializationOutputUnits: 0,
+    sourceReopenMaterializations: 0,
+    sourceReopenMaterializationOutputUnits: 0,
+    sourceReopenComparisonUnits: 0,
+    sourceRopeRootsAttempted: 0,
+    sourceRopeRootsCommitted: 0,
+    sourceRebases: 0,
+    sourceCurrentRetainedBufferUnitsUpperBound: 0
   }
+  const sourceRecorder: PersistentCanonicalSourceRecorder = Object.freeze({
+    recordNodeVisit: (depth: number): void => {
+      inspection.sourceRopeNodeVisits += 1
+      inspection.sourceRopeMaximumDepth = Math.max(
+        inspection.sourceRopeMaximumDepth,
+        depth
+      )
+    },
+    recordRootShape: (height: number, pieces: number): void => {
+      inspection.sourceRopeMaximumHeight = Math.max(
+        inspection.sourceRopeMaximumHeight,
+        height
+      )
+      inspection.sourceRopeMaximumPieces = Math.max(
+        inspection.sourceRopeMaximumPieces,
+        pieces
+      )
+    },
+    recordNodeAllocation: (piece: boolean): void => {
+      inspection.sourceRopeNodesAllocated += 1
+      if (piece) inspection.sourceRopePiecesAllocated += 1
+    },
+    recordCoalesce: (): void => {
+      inspection.sourceRopeCoalesces += 1
+    },
+    recordRebalance: (): void => {
+      inspection.sourceRopeRebalances += 1
+    },
+    recordSlice: (pieces: number, units: number): void => {
+      inspection.sourceSliceCalls += 1
+      inspection.sourceSlicePieces += pieces
+      inspection.sourceSliceUnits += units
+    },
+    recordMaterialization: (
+      reason: CanonicalSourceMaterializationReason,
+      pieces: number,
+      units: number
+    ): void => {
+      inspection.sourceMaterializations += 1
+      inspection.sourceMaterializationPieces += pieces
+      inspection.sourceMaterializationOutputUnits += units
+      if (reason === 'getter') {
+        inspection.sourceGetterMaterializations += 1
+        inspection.sourceGetterMaterializationOutputUnits += units
+      } else if (reason === 'fallback') {
+        inspection.sourceFallbackMaterializations += 1
+        inspection.sourceFallbackMaterializationOutputUnits += units
+      } else if (reason === 'projection') {
+        inspection.sourceProjectionMaterializations += 1
+        inspection.sourceProjectionMaterializationOutputUnits += units
+      } else if (reason === 'rebase') {
+        inspection.sourceRebaseMaterializations += 1
+        inspection.sourceRebaseMaterializationOutputUnits += units
+      } else {
+        inspection.sourceReopenMaterializations += 1
+        inspection.sourceReopenMaterializationOutputUnits += units
+      }
+    },
+    recordGetterHit: (): void => {
+      inspection.sourceGetterHits += 1
+    },
+    recordGetterMiss: (): void => {
+      inspection.sourceGetterMisses += 1
+    },
+    recordCompaction: (
+      pieces: number,
+      retainedUpperBoundReductionUnits: number,
+      fragmentationRebase: boolean
+    ): void => {
+      inspection.sourceCompactions += 1
+      inspection.sourceCompactionInputPieces += pieces
+      inspection.sourceCompactionRetainedUpperBoundReductionUnits +=
+        retainedUpperBoundReductionUnits
+      if (fragmentationRebase) {
+        inspection.sourceRebases += 1
+      }
+    },
+    recordAttemptedRoot: (): void => {
+      inspection.sourceRopeRootsAttempted += 1
+    }
+  })
   const retainedIndexRecorder: PlainParagraphIndexRecorder = Object.freeze({
     recordInitialBuildUnit: (): void => {
       inspection.retainedInitialBuildUnits += 1
@@ -1252,7 +1421,7 @@ export function createDocumentCore(): DocumentCore {
   }
 
   const publish = (
-    source: string,
+    source: PersistentCanonicalSource,
     products: Profile1DocumentProducts,
     resolvedOptions: MarkdownOptionsV1
   ): DocumentRevision => {
@@ -1273,12 +1442,16 @@ export function createDocumentCore(): DocumentCore {
         )
         : undefined
       const revision = Object.freeze({
-        source,
+        get source(): string {
+          return source.materialize('getter')
+        },
+        sourceLength: source.length,
         annotations: materializedAnnotations.annotations,
         diagnostics: diagnosticsOf(products)
       })
       stateByRevision.set(revision, Object.freeze({
         kind: 'full',
+        source,
         products,
         markdownOptions: resolvedOptions,
         retainedIndex,
@@ -1286,6 +1459,7 @@ export function createDocumentCore(): DocumentCore {
         nodeIdByAnnotation: materializedAnnotations.nodeIdByAnnotation
       }))
       currentRevision = revision
+      inspection.sourceRopeRootsCommitted += 1
       return revision
     } catch (error) {
       // Parsing updates provenance state before facade materialization. If
@@ -1327,27 +1501,32 @@ export function createDocumentCore(): DocumentCore {
   }
 
   const publishRegional = (
-    source: string,
+    source: PersistentCanonicalSource,
     retainedIndex: PlainParagraphRetainedIndex,
     resolvedOptions: MarkdownOptionsV1
   ): DocumentRevision => {
     const revision = Object.freeze({
-      source,
+      get source(): string {
+        return source.materialize('getter')
+      },
+      sourceLength: source.length,
       annotations: Object.freeze([]),
       diagnostics: Object.freeze([])
     })
     let facts: RevisionFacts | undefined
     const ensureProducts = Object.freeze((): RevisionFacts => {
-      facts ??= isolatedFacts(source, resolvedOptions)
+      facts ??= isolatedFacts(source.materialize('projection'), resolvedOptions)
       return facts
     })
     stateByRevision.set(revision, Object.freeze({
       kind: 'regional',
+      source,
       markdownOptions: resolvedOptions,
       retainedIndex,
       ensureProducts
     }))
     currentRevision = revision
+    inspection.sourceRopeRootsCommitted += 1
     inspection.retainedCommittedUpdates += 1
     return revision
   }
@@ -1357,9 +1536,8 @@ export function createDocumentCore(): DocumentCore {
     : state.ensureProducts()
 
   const tryRegionalMarkupApply = (
-    previous: DocumentRevision,
     previousState: RevisionState,
-    source: string,
+    source: PersistentCanonicalSource,
     stableEdits: readonly DocumentSourceEdit[],
     options: DocumentApplyOptions | undefined
   ): Readonly<{
@@ -1389,6 +1567,12 @@ export function createDocumentCore(): DocumentCore {
       return Object.freeze({
         kind: 'fallback',
         reason: 'markdown-options-changed'
+      })
+    }
+    if (source.requiresFragmentationRebase) {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: 'source-fragmentation-rebase'
       })
     }
     const retained = previousState.kind === 'full'
@@ -1421,7 +1605,7 @@ export function createDocumentCore(): DocumentCore {
       })
     }
     const admission = admitProfile1PlainParagraphRegion(
-      previous.source,
+      previousState.source,
       source,
       retainedIndex,
       stableEdits,
@@ -1437,10 +1621,7 @@ export function createDocumentCore(): DocumentCore {
     }
     const previousEventStart = admission.bracket.previousEventStart
     const previousEventEnd = admission.bracket.previousEventEnd
-    const regionSource = source.slice(
-      admission.bracket.start,
-      admission.bracket.endNext
-    )
+    const regionSource = admission.nextWindow
     const regionalOptions = Object.freeze({
       ...resolvedOptions,
       frontMatter: false
@@ -1621,7 +1802,7 @@ export function createDocumentCore(): DocumentCore {
       const result = markupProjectionOf(
         facts.products,
         facts.annotationRangeByNodeId,
-        revision.source.length
+        state.source.length
       )
       inspection.documentMarkupEventUnits += result.events.length
       inspection.documentAstMaterializedNodes += countMarkdownAstNodes(
@@ -1640,7 +1821,7 @@ export function createDocumentCore(): DocumentCore {
       name: projection,
       markdown: projected.source,
       ast: markdownAstOf(projected),
-      coordinates: projectionCoordinatesOf(projected, revision.source.length)
+      coordinates: projectionCoordinatesOf(projected, state.source.length)
     })
     inspection.documentAstMaterializedNodes += countMarkdownAstNodes(
       result.ast.root
@@ -1679,7 +1860,7 @@ export function createDocumentCore(): DocumentCore {
       facts.products,
       nodeId,
       comment.range,
-      revision.source.length
+      state.source.length
     )
     cachedByComment.set(comment, result)
     return result
@@ -1691,6 +1872,14 @@ export function createDocumentCore(): DocumentCore {
     if (!Array.isArray(edits)) {
       throw new DocumentSourceEditError(
         'Document core source edits must be an array'
+      )
+    }
+    if (
+      edits.length >
+      DOCUMENT_RESOURCE_POLICY_V1.maximumSourceEditsPerTransaction
+    ) {
+      throw new DocumentSourceEditError(
+        'Document core source edits exceed the transaction limit'
       )
     }
     const stable: DocumentSourceEdit[] = []
@@ -1733,11 +1922,43 @@ export function createDocumentCore(): DocumentCore {
     return previousState
   }
 
+  const preflightSourceEdits = (
+    sourceLength: number,
+    edits: readonly DocumentSourceEdit[]
+  ): number => {
+    let previousEnd = 0
+    let nextLength = sourceLength
+    for (let index = 0; index < edits.length; index += 1) {
+      const edit = edits[index]
+      if (
+        edit === undefined ||
+        edit.start < previousEnd ||
+        edit.end > sourceLength
+      ) {
+        throw new DocumentSourceEditError(
+          `Document core source edit ${String(index)} is invalid`
+        )
+      }
+      nextLength += edit.insert.length - (edit.end - edit.start)
+      previousEnd = edit.end
+    }
+    if (nextLength > DOCUMENT_RESOURCE_POLICY_V1.maximumSourceUnits) {
+      const limit = DOCUMENT_RESOURCE_POLICY_V1.maximumSourceUnits
+      throw new DocumentCoreError(
+        'CM_RESOURCE_SOURCE_UNITS_EXCEEDED',
+        Object.freeze({ start: limit, end: limit }),
+        Object.freeze({ limit: String(limit), observed: String(nextLength) })
+      )
+    }
+    return nextLength
+  }
+
   const applyCandidate = (
     previousState: RevisionState,
-    source: string,
+    source: PersistentCanonicalSource,
     stableEdits: readonly DocumentSourceEdit[],
-    options?: Readonly<Partial<MarkdownOptions>>
+    options?: Readonly<Partial<MarkdownOptions>>,
+    materializationReason: CanonicalSourceMaterializationReason = 'fallback'
   ): DocumentRevision => {
     const resolvedOptions = options === undefined
       ? previousState.markdownOptions
@@ -1751,9 +1972,10 @@ export function createDocumentCore(): DocumentCore {
     const previousPass = retained === undefined
       ? undefined
       : Object.freeze({ retained, edits: stableEdits })
+    const materialized = source.materialize(materializationReason)
     return publish(
       source,
-      parse(source, resolvedOptions, previousPass),
+      parse(materialized, resolvedOptions, previousPass),
       resolvedOptions
     )
   }
@@ -1767,7 +1989,12 @@ export function createDocumentCore(): DocumentCore {
         throw new TypeError('Document source must be a string')
       }
       const resolvedOptions = markdownOptions(options)
-      return publish(source, parse(source, resolvedOptions), resolvedOptions)
+      const products = parse(source, resolvedOptions)
+      return publish(
+        createPersistentCanonicalSource(source, sourceRecorder),
+        products,
+        resolvedOptions
+      )
     },
 
     apply(
@@ -1777,10 +2004,10 @@ export function createDocumentCore(): DocumentCore {
     ): DocumentCommit {
       const previousState = currentStateOf(previous)
       const stableEdits = stableSourceEdits(edits)
-      let source: string
+      preflightSourceEdits(previousState.source.length, stableEdits)
+      let source: PersistentCanonicalSource
       try {
-        source = applyExactSourceEdits(
-          previous.source,
+        source = previousState.source.applyExact(
           stableEdits,
           'Document core source edit'
         )
@@ -1790,9 +2017,7 @@ export function createDocumentCore(): DocumentCore {
         }
         throw error
       }
-      inspection.sourceReconstructionOutputUnits += source.length
       const regional = tryRegionalMarkupApply(
-        previous,
         previousState,
         source,
         stableEdits,
@@ -1811,7 +2036,11 @@ export function createDocumentCore(): DocumentCore {
         previousState,
         source,
         stableEdits,
-        options?.markdown
+        options?.markdown,
+        regional?.kind === 'fallback' &&
+        regional.reason === 'source-fragmentation-rebase'
+          ? 'rebase'
+          : 'fallback'
       )
       return Object.freeze({
         revision,
@@ -1840,11 +2069,21 @@ export function createDocumentCore(): DocumentCore {
       }
 
       const stableEdits = stableSourceEdits(edits)
-      const reproduced = applyExactSourceEdits(
-        previous.source,
-        stableEdits,
-        'Document core source edit'
-      )
+      preflightSourceEdits(previousState.source.length, stableEdits)
+      let candidate: PersistentCanonicalSource
+      try {
+        candidate = previousState.source.applyExact(
+          stableEdits,
+          'Document core source edit'
+        )
+      } catch (error) {
+        if (error instanceof RangeError) {
+          throw new DocumentSourceEditError(error.message)
+        }
+        throw error
+      }
+      const reproduced = candidate.materialize('reopen')
+      inspection.sourceReopenComparisonUnits += reproduced.length
       if (reproduced !== source) {
         throw new Error(
           'Document core reopen source does not match its exact edits'
@@ -1852,9 +2091,10 @@ export function createDocumentCore(): DocumentCore {
       }
       return applyCandidate(
         previousState,
-        source,
+        candidate,
         stableEdits,
-        options
+        options,
+        'reopen'
       )
     },
 
@@ -1864,8 +2104,15 @@ export function createDocumentCore(): DocumentCore {
   registerDocumentCoreInspection(core, () => {
     const documentPhysical = physicalRecorder.counts()
     const regionalPhysical = regionalPhysicalRecorder.counts()
+    const currentState = currentRevision === undefined
+      ? undefined
+      : stateByRevision.get(currentRevision)
     return Object.freeze({
       ...inspection,
+      sourceRopeCurrentHeight: currentState?.source.height ?? 0,
+      sourceRopeCurrentPieces: currentState?.source.pieceCount ?? 0,
+      sourceCurrentRetainedBufferUnitsUpperBound:
+        currentState?.source.retainedBufferUnitsUpperBound ?? 0,
       intrinsicSourceUnits: documentPhysical.intrinsicSourceUnits,
       regionalIntrinsicSourceUnits: regionalPhysical.intrinsicSourceUnits,
       retainedFactInputStructuralUnits:
