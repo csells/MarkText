@@ -59,8 +59,8 @@ export interface LaunchOptions {
   // should opt in — otherwise existing specs would silently ignore renderer
   // exceptions that previously surfaced as a dialog (a hidden regression risk).
   suppressErrorDialog?: boolean
-  // Variables that override the inherited environment of the app process.
-  env?: Record<string, string>
+  /** Per-launch environment overrides; `undefined` removes an inherited key. */
+  env?: Readonly<Record<string, string | undefined>>
   // Preferences seeded into the throwaway user data directory before launch.
   // Preference.init() fills in every key that is left out.
   preferences?: Record<string, unknown>
@@ -87,7 +87,10 @@ export const launchElectron = async(
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   if (options.suppressErrorDialog) env.MARKTEXT_ERROR_INTERACTION = '1'
-  Object.assign(env, options.env)
+  for (const [key, value] of Object.entries(options.env ?? {})) {
+    if (value === undefined) delete env[key]
+    else env[key] = value
+  }
   const app = await _electron.launch({
     executablePath,
     args,
