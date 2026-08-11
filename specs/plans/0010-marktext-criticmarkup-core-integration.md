@@ -1,5 +1,5 @@
 # MarkText CriticMarkup core integration
-- **Status:** Active — Phase 0 baseline and salvage inventory in progress
+- **Status:** Active — Phase 0 baseline work and the bounded Phase 1 Shadow are in progress
 
 - **Working upstream baseline:** `43bd8b77795fb27b1a9512737c000f7362031ea0`
 
@@ -211,6 +211,8 @@ files are reproducible implementation baselines; they do not add product or lang
 2. Define the narrow MarkText integration facade.
 
 3. Run the core as a diagnostic shadow on representative documents. It may report divergence but does not control user-visible output during this phase.
+
+   Shadow instrumentation is opt-in and bounded. It may coalesce samples or stop reporting when observation would perturb the editor, but it must never synchronously gate input, add unbounded renderer work, gate save, or affect source, history, rendering, or file output. Shadow results do not satisfy the Phase 1A authority or latency exit criteria.
 
 4. Prove full-parse and incremental results equivalent for accepted edits, and prove stale or invalid edits fail without partial publication.
 
