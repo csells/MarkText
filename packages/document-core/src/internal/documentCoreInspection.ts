@@ -13,6 +13,9 @@ export interface DocumentCoreInspection {
   readonly regionalMarkupEventUnits: number
   readonly regionalAstMaterializedNodes: number
   readonly regionalCoordinateSegments: number
+  readonly regionalCommentProjectionPreparationUnits: number
+  readonly regionalCommentAstMaterializedNodes: number
+  readonly regionalCommentCoordinateSegments: number
   readonly retainedFactInputStructuralUnits: number
   readonly retainedFactOutputStructuralUnits: number
   readonly retainedInitialBuildUnits: number

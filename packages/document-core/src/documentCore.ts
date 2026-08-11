@@ -13,6 +13,11 @@ import {
   type CriticMarkupRegionalIndex
 } from './internal/profile1/criticMarkupRegional.js'
 import {
+  admitCommentRegionalChange,
+  createCommentRegionalIndex,
+  type CommentRegionalIndex
+} from './internal/profile1/commentRegional.js'
+import {
   createPlainParagraphRetainedIndex,
   type PlainParagraphIndexRecorder,
   type PlainParagraphRetainedIndex
@@ -309,6 +314,71 @@ export interface MarkupRegionProjectionChange {
   readonly replacements: readonly MarkupRegionReplacement[]
 }
 
+export interface CommentProjectionRequest {
+  readonly name: 'comment'
+  /** Exact full annotation range in the previous revision. */
+  readonly annotationRange: SourceRange
+}
+
+export type DocumentProjectionRequest = 'markup' | CommentProjectionRequest
+
+export interface CommentProjectionSpan {
+  /** Full canonical range including the enclosing Comment markers. */
+  readonly annotation: SourceRange
+  /** Canonical Comment payload range excluding its markers. */
+  readonly payload: SourceRange
+  /** Range in the isolated Comment Display projection. */
+  readonly projection: SourceRange
+}
+
+export interface CommentRegionReplacement {
+  readonly previous: CommentProjectionSpan
+  readonly next: CommentProjectionSpan
+  /** Full portable annotation subtree in the next revision. */
+  readonly annotation: CriticMarkupAnnotationSnapshot
+  readonly markdown: string
+  readonly ast: MarkdownAst
+  readonly coordinates: readonly CommentCoordinateSegment[]
+}
+
+export interface CriticMarkupAnnotationSnapshotArm {
+  readonly name: CriticMarkupArm['name']
+  readonly range: SourceRange
+  /** Direct child ordinals into the containing snapshot's node table. */
+  readonly children: readonly number[]
+}
+
+export interface CriticMarkupAnnotationSnapshotNode {
+  readonly kind: CriticMarkupKind
+  readonly range: SourceRange
+  readonly arms: readonly CriticMarkupAnnotationSnapshotArm[]
+}
+
+/** Depth-independent portable encoding of one CriticMarkup annotation tree. */
+export interface CriticMarkupAnnotationSnapshot {
+  readonly root: number
+  readonly nodes: readonly CriticMarkupAnnotationSnapshotNode[]
+}
+
+export type CommentCoordinateSegment =
+  | Readonly<{
+    readonly kind: 'source'
+    readonly projected: SourceRange
+    readonly source: SourceRange
+  }>
+  | Readonly<{
+    readonly kind: 'generated'
+    readonly projected: SourceRange
+    readonly sourcePosition: number
+    readonly affinity: ProjectionAffinity
+  }>
+
+export interface CommentRegionProjectionChange {
+  readonly name: 'comment'
+  readonly scope: 'regions'
+  readonly replacements: readonly CommentRegionReplacement[]
+}
+
 export type DocumentProjectionFallbackReason =
   | 'criticmarkup-facts-present'
   | 'definition-or-reference-facts'
@@ -322,9 +392,18 @@ export interface MarkupDocumentProjectionChange {
   readonly reason: DocumentProjectionFallbackReason
 }
 
+export interface CommentDocumentProjectionChange {
+  readonly name: 'comment'
+  readonly scope: 'document'
+  readonly targets: readonly SourceRange[]
+  readonly reason: DocumentProjectionFallbackReason
+}
+
 export type DocumentProjectionChange =
   | MarkupRegionProjectionChange
   | MarkupDocumentProjectionChange
+  | CommentRegionProjectionChange
+  | CommentDocumentProjectionChange
 
 /**
  * One atomically admitted canonical-source transaction. The core owns source
@@ -346,7 +425,7 @@ export interface DocumentApplyOptions {
   /** Partial language options inherited over the previous revision. */
   readonly markdown?: Readonly<Partial<MarkdownOptions>>
   /** Projection deltas requested atomically with admission. */
-  readonly projections?: readonly ['markup']
+  readonly projections?: readonly DocumentProjectionRequest[]
 }
 
 export interface MarkdownOptions {
@@ -765,21 +844,103 @@ function shiftCriticMarkupAnnotation(
   annotation: CriticMarkupAnnotation,
   delta: number
 ): CriticMarkupAnnotation {
-  return Object.freeze({
-    kind: annotation.kind,
-    range: Object.freeze({
-      start: annotation.range.start + delta,
-      end: annotation.range.end + delta
-    }),
-    arms: Object.freeze(annotation.arms.map(arm => Object.freeze({
-      name: arm.name,
+  const shifted = new Map<CriticMarkupAnnotation, CriticMarkupAnnotation>()
+  const pending = [{ annotation, ready: false }]
+  while (pending.length > 0) {
+    const task = pending.pop()
+    if (task === undefined) break
+    if (!task.ready) {
+      pending.push({ annotation: task.annotation, ready: true })
+      for (
+        let armIndex = task.annotation.arms.length - 1;
+        armIndex >= 0;
+        armIndex -= 1
+      ) {
+        const arm = task.annotation.arms[armIndex]
+        if (arm === undefined) continue
+        for (
+          let childIndex = arm.annotations.length - 1;
+          childIndex >= 0;
+          childIndex -= 1
+        ) {
+          const child = arm.annotations[childIndex]
+          if (child !== undefined) {
+            pending.push({ annotation: child, ready: false })
+          }
+        }
+      }
+      continue
+    }
+    const materialized: CriticMarkupAnnotation = Object.freeze({
+      kind: task.annotation.kind,
       range: Object.freeze({
-        start: arm.range.start + delta,
-        end: arm.range.end + delta
+        start: task.annotation.range.start + delta,
+        end: task.annotation.range.end + delta
       }),
-      annotations: Object.freeze(arm.annotations.map(
-        child => shiftCriticMarkupAnnotation(child, delta)
-      ))
+      arms: Object.freeze(task.annotation.arms.map(arm => Object.freeze({
+        name: arm.name,
+        range: Object.freeze({
+          start: arm.range.start + delta,
+          end: arm.range.end + delta
+        }),
+        annotations: Object.freeze(arm.annotations.map(child => {
+          const materializedChild = shifted.get(child)
+          if (materializedChild === undefined) {
+            throw new Error('CriticMarkup child was not shifted')
+          }
+          return materializedChild
+        }))
+      })))
+    })
+    shifted.set(task.annotation, materialized)
+  }
+  const root = shifted.get(annotation)
+  if (root === undefined) {
+    throw new Error('CriticMarkup annotation was not shifted')
+  }
+  return root
+}
+
+function annotationSnapshotOf(
+  annotation: CriticMarkupAnnotation
+): CriticMarkupAnnotationSnapshot {
+  const nodes: CriticMarkupAnnotation[] = []
+  const ordinalByNode = new Map<CriticMarkupAnnotation, number>()
+  const pending = [annotation]
+  while (pending.length > 0) {
+    const node = pending.pop()
+    if (node === undefined || ordinalByNode.has(node)) continue
+    ordinalByNode.set(node, nodes.length)
+    nodes.push(node)
+    for (let armIndex = node.arms.length - 1; armIndex >= 0; armIndex -= 1) {
+      const arm = node.arms[armIndex]
+      if (arm === undefined) continue
+      for (
+        let childIndex = arm.annotations.length - 1;
+        childIndex >= 0;
+        childIndex -= 1
+      ) {
+        const child = arm.annotations[childIndex]
+        if (child !== undefined) pending.push(child)
+      }
+    }
+  }
+  return Object.freeze({
+    root: 0,
+    nodes: Object.freeze(nodes.map(node => Object.freeze({
+      kind: node.kind,
+      range: node.range,
+      arms: Object.freeze(node.arms.map(arm => Object.freeze({
+        name: arm.name,
+        range: arm.range,
+        children: Object.freeze(arm.annotations.map(child => {
+          const ordinal = ordinalByNode.get(child)
+          if (ordinal === undefined) {
+            throw new Error('CriticMarkup child was not snapshotted')
+          }
+          return ordinal
+        }))
+      })))
     })))
   })
 }
@@ -1071,6 +1232,105 @@ function projectionCoordinatesOf(
   return Object.freeze({ originAt, toSource, toProjected, intersectsSource })
 }
 
+function shiftedRegionalProjectionCoordinatesOf(
+  projection: FacadeProjectedMarkdown,
+  localSourceLength: number,
+  sourceDelta: number,
+  documentSourceLength: number
+): ProjectionCoordinateMap {
+  const local = projectionCoordinatesOf(projection, localSourceLength)
+  const originAt = Object.freeze((projectedOffset: number): ProjectionOrigin => {
+    const origin = local.originAt(projectedOffset)
+    return origin.kind === 'source'
+      ? Object.freeze({
+        kind: 'source' as const,
+        sourceOffset: origin.sourceOffset + sourceDelta
+      })
+      : Object.freeze({
+        kind: 'generated' as const,
+        sourcePosition: origin.sourcePosition + sourceDelta,
+        affinity: origin.affinity
+      })
+  })
+  const toSource = Object.freeze((
+    projectedPosition: number,
+    affinity: ProjectionAffinity
+  ): number => {
+    if (projectedPosition === 0 && affinity === 'previous') return 0
+    if (
+      projectedPosition === projection.source.length &&
+      affinity === 'next'
+    ) {
+      return documentSourceLength
+    }
+    return local.toSource(projectedPosition, affinity) + sourceDelta
+  })
+  const toProjected = Object.freeze((
+    sourcePosition: number,
+    affinity: ProjectionAffinity
+  ): number => {
+    const source = position(sourcePosition, documentSourceLength, 'Source')
+    coordinateAffinity(affinity)
+    if (source < sourceDelta) return 0
+    if (source > sourceDelta + localSourceLength) {
+      return projection.source.length
+    }
+    return local.toProjected(source - sourceDelta, affinity)
+  })
+  const intersectsSource = Object.freeze((sourceRange: SourceRange): boolean => {
+    if (
+      !Number.isInteger(sourceRange.start) ||
+      !Number.isInteger(sourceRange.end) ||
+      sourceRange.start < 0 ||
+      sourceRange.end < sourceRange.start ||
+      sourceRange.end > documentSourceLength
+    ) {
+      throw new RangeError('Source range is outside its document')
+    }
+    if (
+      sourceRange.start === sourceRange.end ||
+      sourceRange.end <= sourceDelta ||
+      sourceRange.start >= sourceDelta + localSourceLength
+    ) {
+      return false
+    }
+    return local.intersectsSource(Object.freeze({
+      start: Math.max(0, sourceRange.start - sourceDelta),
+      end: Math.min(localSourceLength, sourceRange.end - sourceDelta)
+    }))
+  })
+  return Object.freeze({ originAt, toSource, toProjected, intersectsSource })
+}
+
+function commentCoordinateSegmentsOf(
+  projection: FacadeProjectedMarkdown,
+  sourceDelta: number
+): readonly CommentCoordinateSegment[] {
+  return Object.freeze(projection.mappedTape.map(segment => {
+    const projected = Object.freeze({
+      start: segment.projectedStart,
+      end: segment.projectedEnd
+    })
+    if (segment.kind === 'canonical') {
+      return Object.freeze({
+        kind: 'source' as const,
+        projected,
+        source: Object.freeze({
+          start: sourceDelta + segment.sourceStart,
+          end: sourceDelta + segment.sourceStart +
+            segment.projectedEnd - segment.projectedStart
+        })
+      })
+    }
+    return Object.freeze({
+      kind: 'generated' as const,
+      projected,
+      sourcePosition: sourceDelta + segment.sourcePosition,
+      affinity: segment.affinity
+    })
+  }))
+}
+
 function markupProjectionOf(
   products: Profile1DocumentProducts,
   annotationRangeByNodeId: ReadonlyMap<NodeId, SourceRange>,
@@ -1197,6 +1457,51 @@ function sameMarkdownOptions(
     left.subscriptAndSuperscript === right.subscriptAndSuperscript
 }
 
+interface NormalizedProjectionRequests {
+  readonly markup: boolean
+  readonly comments: readonly SourceRange[]
+}
+
+function normalizeProjectionRequests(
+  requests: readonly DocumentProjectionRequest[] | undefined
+): NormalizedProjectionRequests | undefined {
+  if (requests === undefined) return undefined
+  if (!Array.isArray(requests)) {
+    throw new TypeError('Document core projection requests must be an array')
+  }
+  let markup = false
+  const comments = new Map<string, SourceRange>()
+  for (const request of requests) {
+    if (request === 'markup') {
+      markup = true
+      continue
+    }
+    if (
+      request === null ||
+      typeof request !== 'object' ||
+      request.name !== 'comment' ||
+      request.annotationRange === null ||
+      typeof request.annotationRange !== 'object' ||
+      !Number.isInteger(request.annotationRange.start) ||
+      !Number.isInteger(request.annotationRange.end) ||
+      request.annotationRange.start < 0 ||
+      request.annotationRange.end < request.annotationRange.start
+    ) {
+      throw new TypeError('Document core projection request is malformed')
+    }
+    const stable = Object.freeze({
+      start: request.annotationRange.start,
+      end: request.annotationRange.end
+    })
+    comments.set(`${stable.start}:${stable.end}`, stable)
+  }
+  const orderedComments = Object.freeze([...comments.values()].sort(
+    (left, right) => left.start - right.start || left.end - right.end
+  ))
+  if (!markup && orderedComments.length === 0) return undefined
+  return Object.freeze({ markup, comments: orderedComments })
+}
+
 interface RevisionFacts {
   readonly products: Profile1DocumentProducts
   readonly annotationRangeByNodeId: ReadonlyMap<NodeId, SourceRange>
@@ -1209,6 +1514,7 @@ interface FullRevisionState extends RevisionFacts {
   readonly markdownOptions: MarkdownOptionsV1
   readonly retainedIndex: PlainParagraphRetainedIndex | undefined
   readonly criticMarkupIndex: CriticMarkupRegionalIndex | undefined
+  readonly commentIndex: CommentRegionalIndex | undefined
 }
 
 interface RegionalRevisionState {
@@ -1217,6 +1523,11 @@ interface RegionalRevisionState {
   readonly markdownOptions: MarkdownOptionsV1
   readonly retainedIndex: PlainParagraphRetainedIndex | undefined
   readonly criticMarkupIndex: CriticMarkupRegionalIndex | undefined
+  readonly commentIndex: CommentRegionalIndex | undefined
+  readonly regionalComment: Readonly<{
+    readonly annotation: CriticMarkupAnnotation
+    readonly projection: CommentProjection
+  }> | undefined
   readonly ensureProducts: () => RevisionFacts
 }
 
@@ -1237,6 +1548,9 @@ interface MutableDocumentCoreInspection {
   regionalMarkupEventUnits: number
   regionalAstMaterializedNodes: number
   regionalCoordinateSegments: number
+  regionalCommentProjectionPreparationUnits: number
+  regionalCommentAstMaterializedNodes: number
+  regionalCommentCoordinateSegments: number
   retainedFactInputStructuralUnits: number
   retainedFactOutputStructuralUnits: number
   retainedInitialBuildUnits: number
@@ -1318,6 +1632,9 @@ export function createDocumentCore(): DocumentCore {
     regionalMarkupEventUnits: 0,
     regionalAstMaterializedNodes: 0,
     regionalCoordinateSegments: 0,
+    regionalCommentProjectionPreparationUnits: 0,
+    regionalCommentAstMaterializedNodes: 0,
+    regionalCommentCoordinateSegments: 0,
     retainedFactInputStructuralUnits: 0,
     retainedFactOutputStructuralUnits: 0,
     retainedInitialBuildUnits: 0,
@@ -1534,6 +1851,7 @@ export function createDocumentCore(): DocumentCore {
         )
         : undefined
       const criticMarkupIndex = createCriticMarkupRegionalIndex(products)
+      const commentIndex = createCommentRegionalIndex(products)
       const revision = Object.freeze({
         get source(): string {
           return source.materialize('getter')
@@ -1549,6 +1867,7 @@ export function createDocumentCore(): DocumentCore {
         markdownOptions: resolvedOptions,
         retainedIndex,
         criticMarkupIndex,
+        commentIndex,
         annotationRangeByNodeId: materializedAnnotations.rangeByNodeId,
         nodeIdByAnnotation: materializedAnnotations.nodeIdByAnnotation
       }))
@@ -1599,7 +1918,9 @@ export function createDocumentCore(): DocumentCore {
     resolvedOptions: MarkdownOptionsV1,
     retainedIndex: PlainParagraphRetainedIndex | undefined,
     criticMarkupIndex: CriticMarkupRegionalIndex | undefined,
-    annotations: readonly CriticMarkupAnnotation[] = Object.freeze([])
+    annotations: readonly CriticMarkupAnnotation[] = Object.freeze([]),
+    commentIndex: CommentRegionalIndex | undefined = undefined,
+    regionalComment: RegionalRevisionState['regionalComment'] = undefined
   ): DocumentRevision => {
     const revision = Object.freeze({
       get source(): string {
@@ -1620,6 +1941,8 @@ export function createDocumentCore(): DocumentCore {
       markdownOptions: resolvedOptions,
       retainedIndex,
       criticMarkupIndex,
+      commentIndex,
+      regionalComment,
       ensureProducts
     }))
     currentRevision = revision
@@ -1753,11 +2076,188 @@ export function createDocumentCore(): DocumentCore {
     })
   }
 
+  const tryCommentRegionalApply = (
+    previousState: RevisionState,
+    source: PersistentCanonicalSource,
+    stableEdits: readonly DocumentSourceEdit[],
+    resolvedOptions: MarkdownOptionsV1,
+    requests: NormalizedProjectionRequests
+  ): Readonly<{
+    readonly revision: DocumentRevision
+    readonly projections: readonly DocumentProjectionChange[]
+  }> | undefined => {
+    const index = previousState.commentIndex
+    const requestedAnnotation = requests.comments[0]
+    if (
+      index === undefined ||
+      requestedAnnotation === undefined ||
+      requests.comments.length !== 1
+    ) {
+      return undefined
+    }
+    const admission = admitCommentRegionalChange(
+      previousState.source,
+      source,
+      index,
+      requestedAnnotation,
+      stableEdits,
+      EXECUTION_BUDGET,
+      resolvedOptions,
+      regionalPhysicalRecorder
+    )
+    if (admission === undefined) return undefined
+    if (admission.kind === 'resource-failure') {
+      throw documentCoreError(admission.fatalDiagnostic)
+    }
+    const materialized = annotationsOf(admission.nextProducts)
+    const localAnnotation = materialized.annotations[0]
+    if (
+      localAnnotation === undefined ||
+      localAnnotation.kind !== 'comment' ||
+      materialized.annotations.length !== 1
+    ) {
+      return undefined
+    }
+    const annotation = shiftCriticMarkupAnnotation(
+      localAnnotation,
+      admission.nextIndex.source.start
+    )
+    const ast = markdownAstOf(admission.nextDisplay)
+    const commentCoordinates = commentCoordinateSegmentsOf(
+      admission.nextDisplay,
+      admission.nextIndex.source.start
+    )
+    const commentProjection: CommentProjection = Object.freeze({
+      kind: 'comment',
+      annotationRange: annotation.range,
+      markdown: admission.nextDisplay.source,
+      ast,
+      coordinates: shiftedRegionalProjectionCoordinatesOf(
+        admission.nextDisplay,
+        admission.nextWindow.length,
+        admission.nextIndex.source.start,
+        source.length
+      )
+    })
+    const commentReplacement = Object.freeze({
+      previous: Object.freeze({
+        annotation: index.annotation,
+        payload: index.payload,
+        projection: index.projection
+      }),
+      next: Object.freeze({
+        annotation: admission.nextIndex.annotation,
+        payload: admission.nextIndex.payload,
+        projection: admission.nextIndex.projection
+      }),
+      annotation: annotationSnapshotOf(annotation),
+      markdown: admission.nextDisplay.source,
+      ast,
+      coordinates: commentCoordinates
+    }) satisfies CommentRegionReplacement
+    const projections: DocumentProjectionChange[] = []
+    if (requests.markup) {
+      const markup = markupProjectionOf(
+        admission.nextProducts,
+        materialized.rangeByNodeId,
+        admission.nextWindow.length
+      )
+      const events = shiftRegionalMarkupEvents(
+        markup.events,
+        admission.nextIndex.source.start
+      )
+      const syntaxBlocks = Object.freeze(markup.syntax.ast.root.children.map(
+        child => shiftMarkdownAstNode(child, admission.nextIndex.syntax.start)
+      ))
+      const coordinates: MarkupCoordinateSegment[] = []
+      for (const segment of admission.nextProducts.editing().mappedTape) {
+        if (segment.kind !== 'canonical') return undefined
+        const length = segment.projectedEnd - segment.projectedStart
+        coordinates.push(Object.freeze({
+          projected: Object.freeze({
+            start: admission.nextIndex.syntax.start + segment.projectedStart,
+            end: admission.nextIndex.syntax.start + segment.projectedEnd
+          }),
+          source: Object.freeze({
+            start: admission.nextIndex.source.start + segment.sourceStart,
+            end: admission.nextIndex.source.start + segment.sourceStart + length
+          })
+        }))
+      }
+      if (
+        events.length !== index.events.end - index.events.start ||
+        coordinates.length === 0
+      ) {
+        return undefined
+      }
+      const replacement = Object.freeze({
+        previous: Object.freeze({
+          source: index.source,
+          syntax: index.syntax,
+          events: index.events
+        }),
+        next: Object.freeze({
+          source: admission.nextIndex.source,
+          syntax: admission.nextIndex.syntax,
+          events: Object.freeze({
+            start: index.events.start,
+            end: index.events.start + events.length
+          })
+        }),
+        events,
+        syntaxBlocks,
+        coordinates: Object.freeze(coordinates)
+      }) satisfies MarkupRegionReplacement
+      projections.push(Object.freeze({
+        name: 'markup',
+        scope: 'regions',
+        replacements: Object.freeze([replacement])
+      }))
+      inspection.regionalMarkupEventUnits += events.reduce(
+        (total, event) => total +
+          (event.kind === 'text' ? event.text.length : 1),
+        0
+      )
+      inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
+        (total, block) => total + countMarkdownAstNodes(block),
+        0
+      )
+      inspection.regionalCoordinateSegments += coordinates.length
+    }
+    projections.push(Object.freeze({
+      name: 'comment',
+      scope: 'regions',
+      replacements: Object.freeze([commentReplacement])
+    }))
+    const revision = publishRegional(
+      source,
+      resolvedOptions,
+      undefined,
+      undefined,
+      Object.freeze([annotation]),
+      admission.nextIndex,
+      Object.freeze({ annotation, projection: commentProjection })
+    )
+    inspection.regionalFastApplies += 1
+    inspection.regionalProjectionPreparationUnits +=
+      admission.previousWindow.length + admission.nextWindow.length
+    inspection.regionalAstMaterializedNodes += countMarkdownAstNodes(ast.root)
+    inspection.regionalCoordinateSegments += commentCoordinates.length
+    inspection.regionalCommentAstMaterializedNodes += countMarkdownAstNodes(
+      ast.root
+    )
+    inspection.regionalCommentCoordinateSegments += commentCoordinates.length
+    return Object.freeze({
+      revision,
+      projections: Object.freeze(projections)
+    })
+  }
+
   const tryRegionalMarkupApply = (
     previousState: RevisionState,
     source: PersistentCanonicalSource,
     stableEdits: readonly DocumentSourceEdit[],
-    options: DocumentApplyOptions | undefined
+    resolvedOptions: MarkdownOptionsV1
   ): Readonly<{
     readonly kind: 'applied'
     readonly revision: DocumentRevision
@@ -1766,33 +2266,6 @@ export function createDocumentCore(): DocumentCore {
     readonly kind: 'fallback'
     readonly reason: DocumentProjectionFallbackReason
   }> | undefined => {
-    if (options?.projections === undefined) {
-      return undefined
-    }
-    if (
-      !Array.isArray(options.projections) ||
-      options.projections.length !== 1 ||
-      options.projections[0] !== 'markup'
-    ) {
-      throw new TypeError(
-        'Document core projection request must be exactly ["markup"]'
-      )
-    }
-    const resolvedOptions = options.markdown === undefined
-      ? previousState.markdownOptions
-      : markdownOptions(options.markdown, previousState.markdownOptions)
-    if (!sameMarkdownOptions(previousState.markdownOptions, resolvedOptions)) {
-      return Object.freeze({
-        kind: 'fallback',
-        reason: 'markdown-options-changed'
-      })
-    }
-    if (source.requiresFragmentationRebase) {
-      return Object.freeze({
-        kind: 'fallback',
-        reason: 'source-fragmentation-rebase'
-      })
-    }
     if (previousState.criticMarkupIndex !== undefined) {
       const applied = tryCriticMarkupRegionalApply(
         previousState,
@@ -1988,6 +2461,102 @@ export function createDocumentCore(): DocumentCore {
     })
   }
 
+  const fallbackProjectionChanges = (
+    requests: NormalizedProjectionRequests,
+    reason: DocumentProjectionFallbackReason
+  ): readonly DocumentProjectionChange[] => {
+    const projections: DocumentProjectionChange[] = []
+    if (requests.markup) {
+      projections.push(Object.freeze({
+        name: 'markup',
+        scope: 'document',
+        reason
+      }))
+    }
+    if (requests.comments.length > 0) {
+      projections.push(Object.freeze({
+        name: 'comment',
+        scope: 'document',
+        targets: requests.comments,
+        reason
+      }))
+    }
+    return Object.freeze(projections)
+  }
+
+  const tryRegionalApply = (
+    previousState: RevisionState,
+    source: PersistentCanonicalSource,
+    stableEdits: readonly DocumentSourceEdit[],
+    options: DocumentApplyOptions | undefined,
+    requests: NormalizedProjectionRequests | undefined
+  ): Readonly<{
+    readonly kind: 'applied'
+    readonly revision: DocumentRevision
+    readonly projections: readonly DocumentProjectionChange[]
+  }> | Readonly<{
+    readonly kind: 'fallback'
+    readonly reason: DocumentProjectionFallbackReason
+    readonly projections: readonly DocumentProjectionChange[]
+  }> | undefined => {
+    if (requests === undefined) return undefined
+    const resolvedOptions = options?.markdown === undefined
+      ? previousState.markdownOptions
+      : markdownOptions(options.markdown, previousState.markdownOptions)
+    let fallbackReason: DocumentProjectionFallbackReason | undefined
+    if (!sameMarkdownOptions(previousState.markdownOptions, resolvedOptions)) {
+      fallbackReason = 'markdown-options-changed'
+    } else if (source.requiresFragmentationRebase) {
+      fallbackReason = 'source-fragmentation-rebase'
+    }
+    if (fallbackReason !== undefined) {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: fallbackReason,
+        projections: fallbackProjectionChanges(requests, fallbackReason)
+      })
+    }
+    if (requests.comments.length > 0) {
+      const applied = tryCommentRegionalApply(
+        previousState,
+        source,
+        stableEdits,
+        resolvedOptions,
+        requests
+      )
+      if (applied !== undefined) {
+        return Object.freeze({ kind: 'applied', ...applied })
+      }
+      const reason = 'structural-region-ineligible'
+      return Object.freeze({
+        kind: 'fallback',
+        reason,
+        projections: fallbackProjectionChanges(requests, reason)
+      })
+    }
+    const markup = tryRegionalMarkupApply(
+      previousState,
+      source,
+      stableEdits,
+      resolvedOptions
+    )
+    if (markup?.kind === 'applied') {
+      return Object.freeze({
+        kind: 'applied',
+        revision: markup.revision,
+        projections: Object.freeze([markup.projection])
+      })
+    }
+    if (markup?.kind === 'fallback') {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: markup.reason,
+        projections: fallbackProjectionChanges(requests, markup.reason)
+      })
+    }
+    return undefined
+  }
+
   function projectRevision(
     revision: DocumentRevision,
     projection: MarkdownProjectionName
@@ -2075,6 +2644,13 @@ export function createDocumentCore(): DocumentCore {
     }
     if (comment.kind !== 'comment') {
       throw new RangeError('CriticMarkup annotation is not a Comment')
+    }
+    if (
+      state.kind === 'regional' &&
+      state.regionalComment !== undefined &&
+      state.regionalComment.annotation === comment
+    ) {
+      return state.regionalComment.projection
     }
     const facts = factsOf(state)
     const nodeId = facts.nodeIdByAnnotation.get(comment)
@@ -2239,6 +2815,9 @@ export function createDocumentCore(): DocumentCore {
       const previousState = currentStateOf(previous)
       const stableEdits = stableSourceEdits(edits)
       preflightSourceEdits(previousState.source.length, stableEdits)
+      const projectionRequests = normalizeProjectionRequests(
+        options?.projections
+      )
       let source: PersistentCanonicalSource
       try {
         source = previousState.source.applyExact(
@@ -2251,18 +2830,19 @@ export function createDocumentCore(): DocumentCore {
         }
         throw error
       }
-      const regional = tryRegionalMarkupApply(
+      const regional = tryRegionalApply(
         previousState,
         source,
         stableEdits,
-        options
+        options,
+        projectionRequests
       )
       if (regional?.kind === 'applied') {
         return Object.freeze({
           revision: regional.revision,
           change: Object.freeze({
             appliedEdits: stableEdits,
-            projections: Object.freeze([regional.projection])
+            projections: regional.projections
           })
         })
       }
@@ -2281,11 +2861,7 @@ export function createDocumentCore(): DocumentCore {
         change: Object.freeze({
           appliedEdits: stableEdits,
           projections: regional?.kind === 'fallback'
-            ? Object.freeze([Object.freeze({
-              name: 'markup' as const,
-              scope: 'document' as const,
-              reason: regional.reason
-            })])
+            ? regional.projections
             : Object.freeze([])
         })
       })
@@ -2349,6 +2925,8 @@ export function createDocumentCore(): DocumentCore {
         currentState?.source.retainedBufferUnitsUpperBound ?? 0,
       intrinsicSourceUnits: documentPhysical.intrinsicSourceUnits,
       regionalIntrinsicSourceUnits: regionalPhysical.intrinsicSourceUnits,
+      regionalCommentProjectionPreparationUnits:
+        regionalPhysical.commentProjectionPreparationUnits,
       retainedFactInputStructuralUnits:
         documentPhysical.retainedFactInputStructuralUnits +
         regionalPhysical.retainedFactInputStructuralUnits,
