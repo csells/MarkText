@@ -78,6 +78,10 @@ export const launchElectron = async(
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   env.PERF_TESTING = 'true'
+  // Repository Core authority tracers deliberately hold Worker replies so
+  // pending-save/recovery races are deterministic. Packaged and performance
+  // runners launch the built binary directly and omit this test-only flag.
+  env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS = '1'
   if (options.suppressErrorDialog) env.MARKTEXT_ERROR_INTERACTION = '1'
   for (const [key, value] of Object.entries(options.env ?? {})) {
     if (value === undefined) delete env[key]

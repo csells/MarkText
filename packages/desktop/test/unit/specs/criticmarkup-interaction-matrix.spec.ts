@@ -1,8 +1,12 @@
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
+  type CriticMarkupInteractionEvidenceManifest,
+  requireGreenCriticMarkupInteractionEvidence,
   readCriticMarkupInteractionMatrix,
+  validateCriticMarkupInteractionEvidence,
   validateCriticMarkupInteractionMatrix
 } from '../../../../../scripts/criticmarkupInteractionMatrix'
 
@@ -10,6 +14,10 @@ const repoRoot = resolve(import.meta.dirname, '../../../../..')
 const matrixPath = resolve(
   repoRoot,
   'specs/baselines/criticmarkup-interaction-matrix.json'
+)
+const evidencePath = resolve(
+  repoRoot,
+  'specs/baselines/criticmarkup-interaction-evidence.json'
 )
 
 describe('CriticMarkup interaction matrix', () => {
@@ -41,6 +49,17 @@ describe('CriticMarkup interaction matrix', () => {
 
     expect(() => validateCriticMarkupInteractionMatrix(matrix)).toThrow(
       /must remain proposed-unratified/
+    )
+  })
+
+  it('cannot mark a matrix row green while its production oracle is planned', () => {
+    const matrix = structuredClone(readCriticMarkupInteractionMatrix(matrixPath))
+    const row = matrix.rows[0]
+    if (row === undefined) throw new Error('Interaction matrix is empty')
+    row.status = 'green'
+
+    expect(() => validateCriticMarkupInteractionMatrix(matrix)).toThrow(
+      /green row .* requires a named production oracle/
     )
   })
 
@@ -98,5 +117,75 @@ describe('CriticMarkup interaction matrix', () => {
     expect(() => validateCriticMarkupInteractionMatrix(matrix)).toThrow(
       /has an invalid resolve action/
     )
+  })
+
+  it('maps every row to named production evidence or a concrete missing seam', () => {
+    const matrix = readCriticMarkupInteractionMatrix(matrixPath)
+    const evidence = JSON.parse(
+      readFileSync(evidencePath, 'utf8')
+    ) as CriticMarkupInteractionEvidenceManifest
+
+    expect(() => validateCriticMarkupInteractionEvidence(
+      repoRoot,
+      matrix,
+      evidence
+    )).not.toThrow()
+    expect(evidence.rows).toHaveLength(25)
+    expect(Object.fromEntries(['existing-partial', 'missing-production-oracle'].map(status => [
+      status,
+      evidence.rows.filter(row => row.status === status).length
+    ]))).toEqual({
+      'existing-partial': 21,
+      'missing-production-oracle': 4
+    })
+    expect(evidence.rows.some(row => row.status === 'green')).toBe(false)
+    expect(evidence.rows.filter(row =>
+      row.productionOracle?.path ===
+        'packages/desktop/test/e2e/installed-core-review.spec.ts' &&
+      row.productionOracle.testName === 'follows the installed interaction matrix'
+    ).map(row => row.id)).toEqual([
+      'addition.literal.resolve',
+      'addition.nested-comment.save-reopen',
+      'addition.paragraph.render',
+      'addition.reference-footnote.source-round-trip',
+      'comment.block-boundary.source-round-trip',
+      'comment.literal.save-reopen',
+      'comment.nested-comment.render',
+      'comment.reference-footnote.resolve',
+      'deletion.block-boundary.resolve',
+      'deletion.literal.source-round-trip',
+      'deletion.paragraph.save-reopen',
+      'deletion.reference-footnote.render',
+      'highlight.block-boundary.save-reopen',
+      'highlight.literal.render',
+      'highlight.nested-comment.resolve',
+      'highlight.paragraph.source-round-trip',
+      'substitution.block-boundary.render',
+      'substitution.nested-comment.source-round-trip',
+      'substitution.paragraph.resolve',
+      'substitution.reference-footnote.save-reopen'
+    ])
+    expect(() => requireGreenCriticMarkupInteractionEvidence(
+      repoRoot,
+      matrix,
+      evidence
+    )).toThrow(/25 interaction rows are not green/)
+  })
+
+  it('rejects a green claim without a named installed oracle and execution record', () => {
+    const matrix = readCriticMarkupInteractionMatrix(matrixPath)
+    const evidence = JSON.parse(
+      readFileSync(evidencePath, 'utf8')
+    ) as CriticMarkupInteractionEvidenceManifest
+    const falseGreen = structuredClone(evidence)
+    const row = falseGreen.rows[0]
+    if (row === undefined) throw new Error('Interaction evidence fixture is empty')
+    row.status = 'green'
+
+    expect(() => validateCriticMarkupInteractionEvidence(
+      repoRoot,
+      matrix,
+      falseGreen
+    )).toThrow(/green evidence requires an installed production oracle/)
   })
 })

@@ -227,6 +227,7 @@ const fontsAPI = {
 }
 
 const electronAPI = {
+  buildCommit: bootInfo?.buildCommit ?? 'unavailable',
   ipcRenderer: ipcWrapper,
   shell: shellAPI,
   clipboard: clipboardAPI,

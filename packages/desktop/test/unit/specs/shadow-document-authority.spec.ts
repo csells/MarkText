@@ -18,6 +18,7 @@ import { createShadowActor } from '@/documentAuthority/shadowActor'
 
 const markdownOptions = (overrides: Partial<{
   gfm: boolean
+  gfmAutolinks: boolean
   gfmTagFilter: boolean
   frontMatter: boolean
   math: boolean
@@ -26,6 +27,7 @@ const markdownOptions = (overrides: Partial<{
   subscriptAndSuperscript: boolean
 }> = {}) => Object.freeze({
   gfm: true,
+  gfmAutolinks: true,
   gfmTagFilter: true,
   frontMatter: true,
   math: true,

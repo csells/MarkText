@@ -11,6 +11,10 @@
 
 import type { Muya } from '@muyajs/core'
 import { MarkdownToHtml } from '@muyajs/core'
+import {
+  renderProjectedDocumentHtml,
+  type DocumentConsumerProjection
+} from '@/documentConsumers/documentProjectionConsumers'
 import { sanitize, EXPORT_DOMPURIFY_CONFIG } from './dompurify'
 import { resolveLocalImageSrc } from './resolveImageSrc'
 import { resolveLocalLinkHref } from './resolveLinkHref'
@@ -168,33 +172,25 @@ const rewriteAnchorHrefs = (html: string): string =>
  * at the `[TOC]` marker, and — when a header/footer is supplied — wraps the
  * article in the page-container table for paged PDF / print export.
  */
-export const exportStyledHTML = async(
-  muya: Muya,
-  markdown: string,
-  options: ExportStyledHtmlOptions = {}
-): Promise<string> => {
-  const { title = '', toc = '', header, footer, headerFooterStyled, dir } = options
+const optionsWithHeaderFooterCss = (
+  options: ExportStyledHtmlOptions
+): ExportStyledHtmlOptions => {
+  const { header, footer } = options
   let { extraCss = '' } = options
-
-  // The header/footer page table needs its own stylesheet — fold it into
-  // extraCss (which `generate` injects into <head>) up front so we only render
-  // the document once.
-  const appendHeaderFooter = !!header || !!footer
-  if (appendHeaderFooter) {
+  if (header || footer) {
     extraCss = extraCss ? HEADER_FOOTER_CSS + extraCss : HEADER_FOOTER_CSS
   }
+  return { ...options, extraCss }
+}
 
-  // Render the engine's full HTML document. We re-extract its <article> body so
-  // we can inject the TOC / header-footer, then re-emit the document shell.
-  const fullDoc = await new MarkdownToHtml(markdown, muya).generate({
-    title,
-    extraCSS: extraCss,
-    dir
-  })
-
-  const articleMatch = /<article class="markdown-body">([\s\S]*)<\/article>/.exec(fullDoc)
-  let article = articleMatch ? articleMatch[1] : fullDoc
-
+const finalizeStyledHtml = (
+  fullDoc: string,
+  projectedArticle: string,
+  options: ExportStyledHtmlOptions
+): string => {
+  const { toc = '', header, footer, headerFooterStyled } = options
+  const appendHeaderFooter = !!header || !!footer
+  let article = projectedArticle
   // Resolve relative image paths to absolute file:// URLs so the saved document
   // still shows its images when opened from a different folder (issue 230).
   article = rewriteImageSrcs(article)
@@ -231,4 +227,49 @@ export const exportStyledHTML = async(
 
   // Re-emit the engine document shell with the (possibly augmented) body.
   return fullDoc.replace(/<body>[\s\S]*<\/body>/, `<body>\n  ${bodyHtml}\n</body>`)
+}
+
+export const exportStyledHTML = async(
+  muya: Muya,
+  markdown: string,
+  options: ExportStyledHtmlOptions = {}
+): Promise<string> => {
+  const prepared = optionsWithHeaderFooterCss(options)
+  const { title = '', extraCss = '', dir } = prepared
+
+  // Legacy authority path: the Muya engine parses its own Markdown model.
+  const fullDoc = await new MarkdownToHtml(markdown, muya).generate({
+    title,
+    extraCSS: extraCss,
+    dir
+  })
+  const articleMatch = /<article class="markdown-body">([\s\S]*)<\/article>/.exec(fullDoc)
+  return finalizeStyledHtml(
+    fullDoc,
+    articleMatch ? articleMatch[1] : fullDoc,
+    prepared
+  )
+}
+
+/**
+ * Core authority path. The document body comes only from the parser-owned AST;
+ * Muya generates an empty styled shell and never receives document Markdown.
+ */
+export const exportStyledHTMLFromProjection = async(
+  muya: Muya,
+  projection: DocumentConsumerProjection,
+  options: ExportStyledHtmlOptions = {}
+): Promise<string> => {
+  const prepared = optionsWithHeaderFooterCss(options)
+  const { title = '', extraCss = '', dir } = prepared
+  const shell = await new MarkdownToHtml('', muya).generate({
+    title,
+    extraCSS: extraCss,
+    dir
+  })
+  return finalizeStyledHtml(
+    shell,
+    renderProjectedDocumentHtml(projection),
+    prepared
+  )
 }

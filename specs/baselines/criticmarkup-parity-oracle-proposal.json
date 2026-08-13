@@ -1,0 +1,76 @@
+{
+  "schema": "marktext-criticmarkup-parity-oracle-proposal-v1",
+  "status": "proposed-unapproved",
+  "baselineCommit": "43bd8b77795fb27b1a9512737c000f7362031ea0",
+  "evidenceCommit": "177a13f24fe5e5c265dcef468f71988186d1f85e",
+  "groups": [
+    {
+      "id": "active-surfaces-need-production-path-tests",
+      "kinds": [
+        "command",
+        "preference",
+        "editorPlugin",
+        "route",
+        "menuEntry",
+        "readmeFeature",
+        "muyaReadmeFeature"
+      ],
+      "sourceRelations": ["unchanged", "changed"],
+      "proposedOracle": "new-production-path-test",
+      "rationale": "A registered surface or documentation promise is not itself executable evidence. Each item needs a named equivalent production-path oracle unless the owner separately approves it as unaffected.",
+      "refs": ["specs/plans/0010-marktext-criticmarkup-core-integration.md#phase-3--migrate-full-marktext-parity"],
+      "expectedCount": 364,
+      "itemIdsSha256": "719356f9efa031956bbb900f21d10cb9791309b972b072bbc93367a0bc0f9995"
+    },
+    {
+      "id": "unchanged-upstream-test-files",
+      "kinds": [
+        "desktopUnitTest",
+        "desktopE2eTest",
+        "muyaUnitTest",
+        "muyaE2eTest"
+      ],
+      "sourceRelations": ["unchanged"],
+      "proposedOracle": "retained-upstream-test",
+      "rationale": "The test source Git object is byte-identical at the pinned baseline and evidence commits. This proves retention only; a current release-candidate pass is still required before any row becomes green.",
+      "refs": ["specs/baselines/runs/2026-08-10-upstream-develop.md"],
+      "expectedCount": 392,
+      "itemIdsSha256": "1c79ac12397e974ecc3ec0fcce43049d72ea02eb125ace9b95da22ef0e0b5ffa"
+    },
+    {
+      "id": "changed-upstream-test-files",
+      "kinds": [
+        "desktopUnitTest",
+        "desktopE2eTest",
+        "muyaUnitTest",
+        "muyaE2eTest"
+      ],
+      "sourceRelations": ["changed"],
+      "proposedOracle": "new-production-path-test",
+      "rationale": "These upstream test files differ at the evidence commit, so file presence cannot establish unchanged retention. Each needs an equivalence review and a named production-path oracle.",
+      "refs": ["specs/plans/0010-marktext-criticmarkup-core-integration.md#compatibility-contract"],
+      "expectedCount": 3,
+      "itemIdsSha256": "812a11ed653290f54252662344765656dd8267fe08caa9726021121ad69f0234"
+    },
+    {
+      "id": "retained-manual-oracles",
+      "kinds": ["manualParityCase"],
+      "sourceRelations": ["unchanged"],
+      "proposedOracle": "retained-manual-oracle",
+      "rationale": "The upstream manual QA definitions are byte-identical, but each still requires a recorded supported-platform execution before it can be green.",
+      "refs": ["packages/desktop/test/PARITY_QA.md"],
+      "expectedCount": 4,
+      "itemIdsSha256": "544d9a5a37f97375e1d8bf1afb6ac01686fa064194e0413cdca3c889500ec067"
+    },
+    {
+      "id": "known-gaps-need-owner-decisions",
+      "kinds": ["deferredTest", "backlogItem", "disabledCommand"],
+      "sourceRelations": ["unchanged"],
+      "proposedOracle": "owner-decision",
+      "rationale": "Skipped tests, backlog entries, and disabled commands cannot become green through executable evidence without first deciding whether they belong to this compatibility interval.",
+      "refs": ["specs/baselines/criticmarkup-phase0-approval.json#parity-manifest"],
+      "expectedCount": 66,
+      "itemIdsSha256": "99cc30285bfcf27a5c2e7c74be936d52826e876876ca5f0514d657cb7503cb12"
+    }
+  ]
+}

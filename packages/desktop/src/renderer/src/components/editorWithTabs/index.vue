@@ -14,6 +14,7 @@
         :platform="platform"
         :core-lease="wysiwygCoreLease"
         :core-plain-text-view="corePlainTextView"
+        :core-performance-trace="corePerformanceTrace"
         :core-test-crash-worker="coreTestCrashWorker"
         :core-test-stale-next-transaction="coreTestStaleNextTransaction"
         @core-fault="handleCoreWysiwygFault"
@@ -25,6 +26,7 @@
         :muya-index-cursor="muyaIndexCursor"
         :text-direction="textDirection"
         :core-lease="activeCoreLease"
+        :core-performance-trace="corePerformanceTrace"
       />
       <div
         v-if="coreMode && coreViewState === 'reconciling'"
@@ -49,9 +51,13 @@ import {
   coreDocumentRecoveryAuthority,
   coreDocumentReloadAuthority,
   coreDocumentSaveAuthority,
+  createCoreAuthorityPerformanceTrace,
+  measureCoreDocumentOpen,
+  resolveCoreDocumentLaunchPolicy,
   handoffCorePlainTextView,
   leaseCorePlainTextView,
   type CoreDocumentViewLease,
+  type CoreAuthorityPerformanceTrace,
   type CoreWorkerTestControl
 } from '@/documentAuthority'
 import { teardownCoreDocumentSessions } from '@/documentAuthority/coreDocumentSessionTeardown'
@@ -85,19 +91,21 @@ const { effectiveSideBarWidth } = storeToRefs(useLayoutStore())
 const editorStore = useEditorStore()
 const preferencesStore = usePreferencesStore()
 const { currentFile } = storeToRefs(editorStore)
-const coreMode = window.electron.process.env.PERF_TESTING === 'true' &&
-  window.electron.process.env.MARKTEXT_DOCUMENT_CORE_MODE === '1'
+const coreLaunchPolicy = resolveCoreDocumentLaunchPolicy(window.electron.process.env)
+const coreMode = coreLaunchPolicy.coreEnabled
 const coreWorkerTestControls = new Map<string, CoreWorkerTestControl>()
 const coreManager = coreMode
   ? createCoreDocumentSessionManager({
     createBinding: documentId => createEditorCoreBinding(createWorkerCorePort(
       undefined,
-      {
-        responseDelayMs: 250,
-        registerTestControl: control => {
-          coreWorkerTestControls.set(documentId, control)
+      coreLaunchPolicy.testControlsEnabled
+        ? {
+          responseDelayMs: 250,
+          registerTestControl: control => {
+            coreWorkerTestControls.set(documentId, control)
+          }
         }
-      }
+        : undefined
     ))
   })
   : undefined
@@ -112,6 +120,10 @@ const coreProjectionMarkdown = ref<string>()
 const corePlainTextView = shallowRef<
   Extract<MuyaPlainTextViewResult, { kind: 'view' }>
 >()
+const corePerformanceTrace: CoreAuthorityPerformanceTrace | undefined =
+  coreMode && window.electron.process.env.PERF_TESTING === 'true'
+    ? createCoreAuthorityPerformanceTrace()
+    : undefined
 const coreViewState = ref<CoreDocumentViewState>(
   props.sourceCode ? 'source' : 'wysiwyg'
 )
@@ -135,7 +147,7 @@ const coreSourceVisible = computed(() =>
 )
 const coreTestCrashWorker = computed<(() => void) | undefined>(() => {
   const documentId = coreLease.value?.documentId
-  if (!coreMode || documentId === undefined) return undefined
+  if (!coreLaunchPolicy.testControlsEnabled || documentId === undefined) return undefined
   return () => {
     const control = coreWorkerTestControls.get(documentId)
     if (control === undefined) throw new Error('Core Worker test control is unavailable')
@@ -144,7 +156,7 @@ const coreTestCrashWorker = computed<(() => void) | undefined>(() => {
 })
 const coreTestStaleNextTransaction = computed<(() => void) | undefined>(() => {
   const documentId = coreLease.value?.documentId
-  if (!coreMode || documentId === undefined) return undefined
+  if (!coreLaunchPolicy.testControlsEnabled || documentId === undefined) return undefined
   return () => {
     const control = coreWorkerTestControls.get(documentId)
     if (control === undefined) throw new Error('Core Worker test control is unavailable')
@@ -202,11 +214,13 @@ watch(
       const prior = coreLease.value
       if (!sourceMode && prior === undefined && target !== undefined) {
         if (!openedCoreDocuments.has(target.id)) {
-          await coreManager.open({
-            documentId: target.id,
-            source: target.source,
-            lineEnding: target.lineEnding
-          })
+          await measureCoreDocumentOpen(corePerformanceTrace, target.id, () =>
+            coreManager.open({
+              documentId: target.id,
+              source: target.source,
+              lineEnding: target.lineEnding
+            })
+          )
           openedCoreDocuments.add(target.id)
         }
         const incoming = await leaseCorePlainTextView(coreManager, target.id)
@@ -238,11 +252,13 @@ watch(
         })
         if (target === undefined) return
         if (!openedCoreDocuments.has(target.id)) {
-          await coreManager.open({
-            documentId: target.id,
-            source: target.source,
-            lineEnding: target.lineEnding
-          })
+          await measureCoreDocumentOpen(corePerformanceTrace, target.id, () =>
+            coreManager.open({
+              documentId: target.id,
+              source: target.source,
+              lineEnding: target.lineEnding
+            })
+          )
           openedCoreDocuments.add(target.id)
         }
         const incoming = await leaseCorePlainTextView(coreManager, target.id)
@@ -355,11 +371,13 @@ watch(
       }
       if (target === undefined) return
       if (!openedCoreDocuments.has(target.id)) {
-        await coreManager.open({
-          documentId: target.id,
-          source: target.source,
-          lineEnding: target.lineEnding
-        })
+        await measureCoreDocumentOpen(corePerformanceTrace, target.id, () =>
+          coreManager.open({
+            documentId: target.id,
+            source: target.source,
+            lineEnding: target.lineEnding
+          })
+        )
         openedCoreDocuments.add(target.id)
       }
       await coreManager.activate(target.id)

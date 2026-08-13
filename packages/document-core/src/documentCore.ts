@@ -458,6 +458,8 @@ export type DocumentResolutionDecision = 'accept' | 'reject'
 
 export interface MarkdownOptions {
   readonly gfm: boolean
+  /** GFM's extended-autolink extension, independently selectable. */
+  readonly gfmAutolinks: boolean
   /** GFM's disallowed-raw-HTML extension, independently selectable. */
   readonly gfmTagFilter: boolean
   readonly frontMatter: boolean
@@ -560,6 +562,7 @@ export interface DocumentCore {
 
 const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = Object.freeze({
   gfm: true,
+  gfmAutolinks: true,
   gfmTagFilter: true,
   frontMatter: true,
   math: true,
@@ -581,6 +584,7 @@ function markdownOptions(
 ): MarkdownOptionsV1 {
   const resolved = Object.freeze({
     gfm: inherited.gfm,
+    gfmAutolinks: inherited.gfmAutolinks,
     gfmTagFilter: inherited.gfmTagFilter,
     frontMatter: inherited.frontMatter,
     math: inherited.math,
@@ -1633,6 +1637,7 @@ function sameMarkdownOptions(
   right: MarkdownOptionsV1
 ): boolean {
   return left.gfm === right.gfm &&
+    left.gfmAutolinks === right.gfmAutolinks &&
     left.gfmTagFilter === right.gfmTagFilter &&
     left.frontMatter === right.frontMatter &&
     left.math === right.math &&

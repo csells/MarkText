@@ -10,7 +10,12 @@ import type {
   EditorCoreSubmitInput
 } from './editorCoreBinding'
 import type { CoreHistorySnapshot } from './coreProtocol'
-import type { CorePlainTextViewReply } from './coreProtocol'
+import type {
+  CoreConsumerSearchReplacement,
+  CoreConsumerProjection,
+  CorePlainTextViewReply
+} from './coreProtocol'
+import { createCoreConsumerProjectionRegistry } from './coreConsumerProjectionRegistry'
 import type { CanonicalLineEnding } from './canonicalEolIndex'
 import type { DocumentSaveIdentity } from '@shared/types/files'
 
@@ -30,6 +35,16 @@ export interface CoreDocumentViewLease {
   readonly identity: DocumentSaveIdentity
   readonly binding: EditorCoreBinding
   readonly lineEnding: CanonicalLineEnding
+  consumerProjection(): CoreConsumerProjection | undefined
+  consumerProjectionAtBarrier(): Promise<CoreConsumerProjection>
+  selectionProjectionAtBarrier(range: Readonly<{
+    readonly start: number
+    readonly end: number
+  }>): Promise<CoreConsumerProjection>
+  replaceConsumerSearchAtBarrier(
+    identity: DocumentSaveIdentity,
+    replacements: readonly CoreConsumerSearchReplacement[]
+  ): Promise<EditorCoreApplyOutcome>
   projectAcknowledgedPlainTextView(
     revision: number
   ): Promise<CorePlainTextViewReply>
@@ -132,6 +147,42 @@ const copySubmitInput = (input: EditorCoreSubmitInput): EditorCoreSubmitInput =>
       projections
     })
   }
+  if (!('edits' in input) && input.kind === 'replace-consumer-search') {
+    return Object.freeze({
+      kind: input.kind,
+      authoredRevision: input.authoredRevision,
+      replacements: Object.freeze(input.replacements.map(replacement => Object.freeze({
+        match: Object.freeze({
+          ...replacement.match,
+          path: Object.freeze([...replacement.match.path])
+        }),
+        insert: replacement.insert
+      }))),
+      projections
+    })
+  }
+  if (!('edits' in input) && input.kind === 'resolve-all') {
+    return Object.freeze({ kind: input.kind, decision: input.decision, projections })
+  }
+  if (!('edits' in input) && input.kind === 'edit-comment') {
+    return Object.freeze({
+      kind: 'edit-comment',
+      authoredRevision: input.authoredRevision,
+      annotation: input.annotation.kind === 'commented-span'
+        ? Object.freeze({
+          kind: input.annotation.kind,
+          range: Object.freeze({ ...input.annotation.range }),
+          highlightRange: Object.freeze({ ...input.annotation.highlightRange }),
+          commentRange: Object.freeze({ ...input.annotation.commentRange })
+        })
+        : Object.freeze({
+          kind: input.annotation.kind,
+          range: Object.freeze({ ...input.annotation.range })
+        }),
+      text: input.text,
+      projections
+    })
+  }
   if (!('edits' in input) && input.kind === 'author') {
     return Object.freeze({
       kind: 'author',
@@ -162,7 +213,9 @@ const copySubmitInput = (input: EditorCoreSubmitInput): EditorCoreSubmitInput =>
 const recoveryReplayInput = (
   input: EditorCoreSubmitInput,
   revision: number
-): EditorCoreSubmitInput => !('edits' in input) && input.kind === 'resolve'
+): EditorCoreSubmitInput => !('edits' in input) &&
+  (input.kind === 'resolve' || input.kind === 'edit-comment' ||
+    input.kind === 'replace-consumer-search')
   ? Object.freeze({ ...input, authoredRevision: revision })
   : input
 
@@ -179,6 +232,7 @@ export function createCoreDocumentSessionManager(
   options: CoreDocumentSessionManagerOptions
 ): CoreDocumentSessionManager {
   const sessions = new Map<string, Session>()
+  const consumerProjections = createCoreConsumerProjectionRegistry()
   const openingDocumentIds = new Set<string>()
   const releaseLease = new WeakMap<CoreDocumentViewLease, () => void>()
   const leaseSession = new WeakMap<CoreDocumentViewLease, Session>()
@@ -284,10 +338,14 @@ export function createCoreDocumentSessionManager(
                   outcome.reason === 'no-change' ||
                   (outcome.reason === 'history-resource' &&
                     !('edits' in journalInput) && journalInput.kind !== 'track') ||
-                  (outcome.reason === 'stale-base' && journalInput.kind === 'resolve') ||
+                  (outcome.reason === 'stale-base' &&
+                  (journalInput.kind === 'resolve' ||
+                      journalInput.kind === 'edit-comment' ||
+                      journalInput.kind === 'replace-consumer-search')) ||
                   outcome.reason === 'annotation-not-found' ||
                   outcome.reason === 'resolution-invalid' ||
-                  outcome.reason === 'author-invalid')
+                  outcome.reason === 'author-invalid' ||
+                  outcome.reason === 'consumer-search-match-invalid')
               )
             ) {
               session.barrierFailure = new Error(
@@ -309,6 +367,12 @@ export function createCoreDocumentSessionManager(
         ),
         plainTextViewAtBarrier: () => Promise.reject(
           new Error('Core view cannot bypass the session projection barrier')
+        ),
+        consumerProjectionAtBarrier: () => Promise.reject(
+          new Error('Core view cannot bypass the session consumer projection barrier')
+        ),
+        selectionProjectionAtBarrier: () => Promise.reject(
+          new Error('Core view cannot bypass the session selection projection barrier')
         ),
         reviewItemAtBarrier: (
           direction: 'next' | 'previous',
@@ -339,6 +403,95 @@ export function createCoreDocumentSessionManager(
         },
         binding: viewBinding,
         lineEnding: session.lineEnding,
+        consumerProjection(): CoreConsumerProjection | undefined {
+          if (released || sessions.get(documentId) !== session) return undefined
+          return consumerProjections.read(documentId, session.currentIdentity)
+        },
+        async consumerProjectionAtBarrier(): Promise<CoreConsumerProjection> {
+          if (released) throw new Error('Core document view lease is released')
+          if (session.recovery !== undefined || session.terminalFault !== undefined) {
+            throw new Error('Core document Worker recovery is required')
+          }
+          await session.settleView?.()
+          await settle(session)
+          if (released || sessions.get(documentId) !== session) {
+            throw new Error('Core document consumer projection generation changed')
+          }
+          if (session.barrierFailure !== undefined) throw session.barrierFailure
+          const barrier = session.binding.consumerProjectionAtBarrier
+          if (barrier === undefined) {
+            throw new Error('Core document consumer projection is unavailable')
+          }
+          const identity = session.currentIdentity
+          const result = await barrier()
+          if (
+            result.type !== 'consumer-projection' ||
+            result.session !== identity.generation ||
+            result.revision !== identity.revision || released ||
+            sessions.get(documentId) !== session ||
+            session.currentIdentity.generation !== identity.generation ||
+            session.currentIdentity.revision !== identity.revision
+          ) {
+            throw new Error('Core document consumer projection barrier is stale')
+          }
+          consumerProjections.publish(documentId, identity, result.projection)
+          return result.projection
+        },
+        async selectionProjectionAtBarrier(range: Readonly<{
+          readonly start: number
+          readonly end: number
+        }>): Promise<CoreConsumerProjection> {
+          if (released) throw new Error('Core document view lease is released')
+          if (session.recovery !== undefined || session.terminalFault !== undefined) {
+            throw new Error('Core document Worker recovery is required')
+          }
+          await session.settleView?.()
+          await settle(session)
+          if (released || sessions.get(documentId) !== session) {
+            throw new Error('Core document selection projection generation changed')
+          }
+          if (session.barrierFailure !== undefined) throw session.barrierFailure
+          const identity = session.currentIdentity
+          const result = await session.binding.selectionProjectionAtBarrier(range)
+          if (
+            result.type !== 'selection-projection' ||
+            result.session !== identity.generation ||
+            result.revision !== identity.revision || released ||
+            sessions.get(documentId) !== session ||
+            session.currentIdentity.generation !== identity.generation ||
+            session.currentIdentity.revision !== identity.revision
+          ) {
+            throw new Error('Core document selection projection barrier is stale')
+          }
+          return result.projection
+        },
+        async replaceConsumerSearchAtBarrier(
+          identity: DocumentSaveIdentity,
+          replacements: readonly CoreConsumerSearchReplacement[]
+        ): Promise<EditorCoreApplyOutcome> {
+          if (released) throw new Error('Core document view lease is released')
+          if (session.recovery !== undefined || session.terminalFault !== undefined) {
+            throw new Error('Core document Worker recovery is required')
+          }
+          if (
+            identity.generation !== session.currentIdentity.generation ||
+            consumerProjections.read(documentId, identity) === undefined
+          ) {
+            throw new Error('Core document consumer search identity is unavailable')
+          }
+          await session.settleView?.()
+          await settle(session)
+          if (released || sessions.get(documentId) !== session) {
+            throw new Error('Core document consumer search generation changed')
+          }
+          if (session.barrierFailure !== undefined) throw session.barrierFailure
+          return viewBinding.submit({
+            kind: 'replace-consumer-search',
+            authoredRevision: identity.revision,
+            replacements,
+            projections: []
+          }).acknowledged
+        },
         async projectAcknowledgedPlainTextView(
           revision: number
         ): Promise<CorePlainTextViewReply> {
@@ -506,6 +659,7 @@ export function createCoreDocumentSessionManager(
         releaseLease.get(lease)?.()
         previous.releaseView = undefined
         previous.binding.dispose()
+        consumerProjections.retire(input.documentId)
         sessions.set(input.documentId, replacement)
         committed = true
         return manager.lease(input.documentId)
@@ -591,6 +745,7 @@ export function createCoreDocumentSessionManager(
           releaseLease.get(lease)?.()
           previous.releaseView = undefined
           previous.binding.dispose()
+          consumerProjections.retire(previous.documentId)
           sessions.set(previous.documentId, replacement)
           return manager.lease(previous.documentId)
         } catch (error) {
@@ -690,6 +845,7 @@ export function createCoreDocumentSessionManager(
     abort(documentId: string): void {
       const session = sessionOf(documentId)
       sessions.delete(documentId)
+      consumerProjections.retire(documentId)
       const cleanup = session.handoffCleanup
       session.settleView = undefined
       session.handoffCleanup = undefined
@@ -717,6 +873,7 @@ export function createCoreDocumentSessionManager(
         await settle(session)
         if (session.barrierFailure !== undefined) throw session.barrierFailure
         sessions.delete(documentId)
+        consumerProjections.retire(documentId)
         session.binding.dispose()
         if (activeDocumentId === documentId) activeDocumentId = undefined
       })()

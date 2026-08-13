@@ -314,6 +314,7 @@ export interface KeyboardInfo {
 }
 
 export interface BootInfo {
+  buildCommit: string
   platform: NodeJS.Platform
   arch: string
   versions: Record<string, string>

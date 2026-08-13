@@ -26,19 +26,59 @@ literal, reference/footnote, and nested-Comment contexts. Each row records its e
 expected product behavior, planned production oracle, and current evidence status; the validator
 checks structure and completeness but never generates expected results.
 
+`criticmarkup-interaction-evidence.json` maps every matrix row to an exact missing production seam
+or a named partial production test. A partial test does not make a row green. Green requires a
+named installed E2E oracle, a SHA-256-pinned passing execution record for a full build commit, and a
+matching green matrix row. The current proposal contains six partial mappings, 19 missing oracles,
+and zero green claims.
+
+```bash
+node_modules/.bin/tsx scripts/criticmarkupInteractionMatrix.ts --validate-evidence
+node_modules/.bin/tsx scripts/criticmarkupInteractionMatrix.ts --require-green
+```
+
+The first command validates the complete evidence disposition; the second intentionally fails until
+all 25 exact interactions have installed passing evidence.
+
 `criticmarkup-performance-targets.json` freezes the proposed measurement protocol and candidate
 p95 thresholds on the recorded reference host. Its status remains `proposed-unratified` until the
 upstream shell and Core candidates have been measured under that protocol and the owner approves
 the targets; numeric proposals are not evidence that either implementation meets them.
 
+`criticmarkup-performance-measurements.json` pins the raw evidence denominator for the five Core
+timings used in target ratification. The current `awaiting-raw-runs` record is intentionally empty:
+it documents that neither an upstream-baseline nor Core-candidate measurement run has been checked
+in. Raw evidence belongs under `runs/performance/`; validators reject absent files, stale digests,
+wrong environments or documents, incomplete sample counts, and impossible timing order.
+
 `criticmarkup-parity-rows.json` is the human-owned parity-row manifest. A `parity-row` disposition
 references a row by ID; validation fails when that row does not exist. The generator never creates
 rows or dispositions.
+
+`criticmarkup-parity-proposal.json` is an unapproved preparation aid for that human review. It
+partitions the complete generated denominator by source kind, records the proposed disposition,
+and pins each selected item set by count and SHA-256 digest. It does not populate or replace the
+human-owned disposition and row files.
+
+`criticmarkup-parity-oracle-proposal.json` adds a separate Git-backed evidence classification. It
+distinguishes byte-identical retained test sources from changed tests, manual definitions, surfaces
+that still require a production-path test, and known gaps requiring an owner decision. Retention is
+not execution evidence, and the manifest deliberately proposes no item as `unaffected`.
 
 `criticmarkup-salvage-candidates.json` is the generated, Git-object-backed inventory of every
 snapshot/path change from the recorded upstream base to the native and research snapshots. Its
 human-owned companion, `criticmarkup-salvage-dispositions.json`, must partition every candidate
 exactly once as import, adapt, supersede, or reject. The generator never writes decisions.
+
+`criticmarkup-salvage-proposal.json` partitions the same denominator by snapshot change and its
+exact Git-object relation to the pinned evidence commit. Exact snapshot objects are proposed for
+import, objects unchanged from upstream for rejection, and divergent objects for adaptation. This
+is content-lineage evidence only: it does not assert semantic equivalence or owner acceptance.
+
+`criticmarkup-phase0-approval.json` pins the complete review packet by file digest and names the
+eight explicit decisions still owned by the product owner. Its `proposed-unapproved` status and
+`pending-owner-decision` rows are intentional. Agents and structural validators must not turn
+mechanical completeness into ratification.
 
 Regenerate it at an explicit upstream rebase checkpoint:
 
@@ -65,3 +105,31 @@ pnpm criticmarkup:salvage -- --write <upstream-commit> <native-commit> <research
 `pnpm criticmarkup:salvage:check` detects drift in the generated inventory.
 `pnpm criticmarkup:salvage:validate` also requires a complete human disposition partition and is
 expected to fail while the Phase 0 salvage review is incomplete.
+
+Validate the mechanically complete, explicitly unapproved review packet with:
+
+```bash
+node_modules/.bin/tsx scripts/criticmarkupPhase0Review.ts --validate-proposal
+```
+
+The approval gate is separate and is expected to fail until every recorded owner decision is made:
+
+```bash
+node_modules/.bin/tsx scripts/criticmarkupPhase0Review.ts --require-approval
+```
+
+Validate the performance evidence record, then exercise its separate ratification prerequisite:
+
+```bash
+node_modules/.bin/tsx scripts/criticmarkupPerformanceMeasurements.ts --validate
+node_modules/.bin/tsx scripts/criticmarkupPerformanceMeasurements.ts --require-ratification-evidence
+```
+
+The first command accepts the honest empty record. The second is expected to fail until both pinned
+raw run roles are complete; once complete, it derives nearest-rank p95 rows per run, document, and
+metric against the proposed targets. Schema validity alone cannot approve the numeric targets.
+
+The same script exports a pure `materializeCriticMarkupPhase0Dispositions` function for the eventual
+approved transition. It refuses the pending packet before deriving output, performs no file writes,
+and returns item-level parity dispositions, planned parity rows, and salvage assets in the existing
+final-overlay schemas only after every approval row is explicit and the packet status is `ratified`.
