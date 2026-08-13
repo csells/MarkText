@@ -38,10 +38,11 @@ const authenticatedProvenance = Object.freeze({
   producerSha256: '6'.repeat(64),
   probeSha256: '7'.repeat(64),
   launcherSha256: '8'.repeat(64),
-  measurementBoundary: 'core-authority-browser-compositor-v5',
-  presentationBoundary: 'electron-webcontents-capture-page-hidden-v1',
-  launchBoundary: 'playwright-electron-packaged-v1',
-  windowVisibility: 'hidden-unfocused',
+  measurementBoundary: 'core-authority-browser-compositor-v6',
+  presentationBoundary: 'electron-webcontents-capture-page-transparent-v2',
+  launchBoundary: 'playwright-electron-packaged-transparent-v2',
+  windowPresentationPolicy: 'transparent-render-active-inactive-v1',
+  windowPresentationPlatform: 'darwin',
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
 })
 
@@ -100,7 +101,7 @@ describe('Core authority raw performance producer', () => {
       documents: [{ id: 'doc', sourceSha256: digest }],
       samples
     })).toEqual({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v5',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v6',
       evidenceClass: 'smoke-non-ratifying',
       runId: 'core-2026-08-13',
       implementation: 'core-candidate',
@@ -164,7 +165,7 @@ describe('Core authority raw performance producer', () => {
       ]
     })
     expect(smoke).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v5',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v6',
       evidenceClass: 'smoke-non-ratifying'
     })
   })
@@ -404,7 +405,8 @@ describe('Core authority raw performance producer', () => {
     ['measurementBoundary', 'legacy-core-timing'],
     ['presentationBoundary', 'request-animation-frame'],
     ['launchBoundary', 'development-preview'],
-    ['windowVisibility', 'visible']
+    ['windowPresentationPolicy', 'hidden-unfocused'],
+    ['windowPresentationPlatform', 'linux']
   ] as const)('rejects unauthenticated %s provenance', (field, value) => {
     const provenance = {
       ...authenticatedProvenance,
