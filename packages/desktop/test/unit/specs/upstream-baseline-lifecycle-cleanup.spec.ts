@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   closeUpstreamPerformanceApplication,
+  findUpstreamPerformanceProcessId,
   finalizeUpstreamPerformanceRun,
   removeUpstreamPerformanceRunRoot
 } from '../../e2e/helpers/upstreamBaselineLifecycleCleanup'
@@ -48,6 +49,64 @@ describe('upstream baseline lifecycle cleanup', () => {
       'application-exited',
       'terminate-47002',
       'launcher-exited'
+    ])
+  })
+
+  it('finds only the exact unique profile-owned application process', () => {
+    const executable = '/Volumes/MarkText/MarkText.app/Contents/MacOS/marktext'
+    const profile = '/tmp/mt-upstream-performance-red/profile-prose'
+    const processTable = [
+      ` 47001 ${executable} --user-data-dir ${profile}`,
+      ` 47002 ${executable} --user-data-dir /tmp/unrelated`,
+      ` 47003 /usr/bin/open -W /Volumes/MarkText/MarkText.app --args ${profile}`,
+      ` 47004 ${executable} --user-data-dir ${profile}-other`
+    ].join('\n')
+
+    expect(findUpstreamPerformanceProcessId(
+      processTable,
+      executable,
+      profile
+    )).toBe(47001)
+    expect(findUpstreamPerformanceProcessId(
+      processTable,
+      executable,
+      '/tmp/missing-profile'
+    )).toBeUndefined()
+    expect(() => findUpstreamPerformanceProcessId(
+      `${processTable}\n 47005 ${executable} --user-data-dir=${profile}`,
+      executable,
+      profile
+    )).toThrow(/at most one upstream main process/i)
+  })
+
+  it('cleans a pre-sample launch failure with no connected browser', async() => {
+    const events: string[] = []
+    let applicationRunning = true
+    let launcherRunning = true
+
+    await closeUpstreamPerformanceApplication({
+      closeBrowser: async() => { events.push('no-browser') },
+      processId: 47001,
+      launcher: { pid: 47002 }
+    }, {
+      terminate: processId => events.push(`terminate-${String(processId)}`),
+      isRunning: processId => processId === 47001
+        ? applicationRunning
+        : launcherRunning,
+      sleep: async() => {
+        if (applicationRunning) applicationRunning = false
+        else launcherRunning = false
+      },
+      now: (() => {
+        let now = 0
+        return () => ++now
+      })()
+    })
+
+    expect(events).toEqual([
+      'no-browser',
+      'terminate-47001',
+      'terminate-47002'
     ])
   })
 

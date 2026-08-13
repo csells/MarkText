@@ -303,6 +303,7 @@
       "muya-readme-feature:422f2e921e62": "packages/desktop/test/unit/specs/criticmarkup-readme-production-capabilities.spec.ts#muya-readme-feature:422f2e921e62 proves every objective subclaim at its public production seam",
       "muya-readme-feature:9bf7137484d1": "packages/desktop/test/unit/specs/criticmarkup-readme-production-capabilities.spec.ts#muya-readme-feature:9bf7137484d1 proves every objective subclaim at its public production seam",
       "muya-readme-feature:6618a086adb9": "packages/desktop/test/unit/specs/criticmarkup-readme-production-capabilities.spec.ts#muya-readme-feature:6618a086adb9 proves every objective subclaim at its public production seam",
+      "muya-readme-feature:699bf0b6de54": "packages/desktop/test/unit/specs/criticmarkup-muya-package-consumer.spec.ts#ships self-contained public types to a blank TypeScript consumer",
       "muya-readme-feature:f0ccce744042": "packages/desktop/test/unit/specs/criticmarkup-readme-production-capabilities.spec.ts#muya-readme-feature:f0ccce744042 proves every objective subclaim at its public production seam",
       "preference:autoCheck": "packages/desktop/test/unit/specs/criticmarkup-preference-production-surfaces.spec.ts#registers and initializes every production preference surface with exact schema/default coverage",
       "preference:autoGuessEncoding": "packages/desktop/test/unit/specs/criticmarkup-preference-production-surfaces.spec.ts#registers and initializes every production preference surface with exact schema/default coverage",
