@@ -286,6 +286,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-delete-paragraph-production-surfaces.spec.ts#routes registered Delete Paragraph command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.031b864764d6a2c693d32752':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-replace-production-surfaces.spec.ts#routes registered Replace command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.0638d0ddbe6fd90a70040c16':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-superscript-production-surfaces.spec.ts#routes registered Superscript command and Format menu surface through the renderer format-action channel',
       'phase0.item.160937548f3fa957d900f04b':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-navigation-production-surfaces.spec.ts#routes registered Find Next and Find Previous command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.397314c6348fc4ee45514620':
@@ -300,6 +302,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes Edit menu Undo and Redo through the renderer edit-action channel',
       'phase0.item.503ba3b99614737f7f991c9e':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-create-paragraph-production-surfaces.spec.ts#routes registered Create Paragraph command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.4c3b89bf6f9ec79ffc815408':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-subscript-production-surfaces.spec.ts#routes registered Subscript command and Format menu surface through the renderer format-action channel',
       'phase0.item.5a233c1c0b730f92c8b26b77':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-native-copy-production-surfaces.spec.ts#routes registered Copy command and Edit menu surfaces through the Electron native copy runtime',
       'phase0.item.5e0446eed3c50b067a946808':
@@ -308,6 +312,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-production-surfaces.spec.ts#routes registered Find command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.5fdd30f820d652e48f5b4528':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes Edit menu Copy as Rich and Copy as HTML entries to the editor',
+      'phase0.item.5614a9e6297e94476c2f1d25':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-subscript-production-surfaces.spec.ts#routes registered Subscript command and Format menu surface through the renderer format-action channel',
       'phase0.item.6503ef62074e1a51ee15fb38':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-navigation-production-surfaces.spec.ts#routes registered Find Next and Find Previous command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.6c5fc1de22b21cbc5e138455':
@@ -324,6 +330,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
       'phase0.item.780b8aabf4e014404fab9b58':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-cut-production-surfaces.spec.ts#routes registered Cut command and Edit menu surfaces through the Electron native cut runtime',
+      'phase0.item.783cca6a91eab34cc239b0cb':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-superscript-production-surfaces.spec.ts#routes registered Superscript command and Format menu surface through the renderer format-action channel',
       'phase0.item.831628c66c7632b18ae126fd':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes registered Undo and Redo commands to the renderer edit-action channel',
       'phase0.item.867cc6c717a7baf2684a9c87':
@@ -385,7 +393,7 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     })
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('required-new-production-path-test:')
-    ))).toHaveLength(316)
+    ))).toHaveLength(312)
     expect(() => validateCriticMarkupParityDispositions(
       parityBaseline,
       materialized.parityOverlay,
