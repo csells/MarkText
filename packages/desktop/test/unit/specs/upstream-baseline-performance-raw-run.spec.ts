@@ -55,7 +55,8 @@ const input = (
     launcherSha256: '1'.repeat(64),
     measurementBoundary: 'external-browser-dom-v1' as const,
     launchBoundary: 'external-inspector-hidden-cdp-v1' as const,
-    windowVisibility: 'hidden-unfocused' as const
+    windowVisibility: 'hidden-unfocused' as const,
+    chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1' as const
   },
   samples: [
     ...Array.from({ length: warmupSamples }, (_, index) =>
@@ -88,7 +89,8 @@ describe('upstream baseline raw performance producer', () => {
         launcherSha256: '1'.repeat(64),
         measurementBoundary: 'external-browser-dom-v1',
         launchBoundary: 'external-inspector-hidden-cdp-v1',
-        windowVisibility: 'hidden-unfocused'
+        windowVisibility: 'hidden-unfocused',
+        chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
       },
       metricDefinitions: {
         t_echo: 'Elapsed time from beforeinput to the exact matching Muya DOM state.',
@@ -143,6 +145,26 @@ describe('upstream baseline raw performance producer', () => {
       ...input('smoke-non-ratifying', 1, 2),
       samples: input('smoke-non-ratifying', 1, 2).samples.slice(0, 2)
     })).toThrow(/measured sample count must be 2/i)
+  })
+
+  it('rejects absent or mismatched hidden Chromium scheduling provenance', () => {
+    const absent = input('smoke-non-ratifying', 1, 2)
+    const absentProvenance = {
+      ...absent.provenance
+    } as Record<string, unknown>
+    delete absentProvenance.chromiumSchedulingPolicy
+    expect(() => createUpstreamBaselinePerformanceRawRun({
+      ...absent,
+      provenance: absentProvenance
+    } as never)).toThrow(/Chromium scheduling/i)
+
+    expect(() => createUpstreamBaselinePerformanceRawRun({
+      ...input('smoke-non-ratifying', 1, 2),
+      provenance: {
+        ...input('smoke-non-ratifying', 1, 2).provenance,
+        chromiumSchedulingPolicy: 'default-background-scheduling'
+      }
+    } as never)).toThrow(/Chromium scheduling/i)
   })
 
   it('writes exclusively and never allows smoke into the ratification directory', () => {

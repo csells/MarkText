@@ -30,6 +30,10 @@ import {
   removeUpstreamPerformanceRunRoot
 } from './helpers/upstreamBaselineLifecycleCleanup'
 import {
+  PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
+  withPerformanceChromiumScheduling
+} from './helpers/performanceChromiumLaunchPolicy'
+import {
   placeCaretInEditor,
   waitForEditor
 } from './helpers'
@@ -316,12 +320,14 @@ const launchHiddenUpstreamApplication = async(
     '-W',
     appBundle,
     '--args',
-    `--inspect-brk=${String(inspectorPort)}`,
-    `--remote-debugging-port=${String(browserPort)}`,
-    '--remote-allow-origins=*',
-    '--user-data-dir',
-    profile,
-    bootstrapFile
+    ...withPerformanceChromiumScheduling([
+      `--inspect-brk=${String(inspectorPort)}`,
+      `--remote-debugging-port=${String(browserPort)}`,
+      '--remote-allow-origins=*',
+      '--user-data-dir',
+      profile,
+      bootstrapFile
+    ])
   ], {
     env: {
       ...process.env,
@@ -600,7 +606,8 @@ test.describe('pinned upstream baseline raw performance producer', () => {
           launcherSha256: requiredValue('MARKTEXT_UPSTREAM_LAUNCHER_SHA256'),
           measurementBoundary: 'external-browser-dom-v1',
           launchBoundary: 'external-inspector-hidden-cdp-v1',
-          windowVisibility: 'hidden-unfocused'
+          windowVisibility: 'hidden-unfocused',
+          chromiumSchedulingPolicy: PERFORMANCE_CHROMIUM_SCHEDULING_POLICY
         },
         samples
       })
