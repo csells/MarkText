@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   createCoreAuthorityPerformanceRawRun,
+  formatMacHardwareFingerprint,
   type CoreAuthorityPerformanceRawSample
 } from '../../e2e/helpers/coreAuthorityPerformanceRawRun'
 
@@ -20,6 +21,15 @@ const report = (
 })
 
 describe('Core authority raw performance producer', () => {
+  it('formats the frozen Mac hardware fingerprint exactly', () => {
+    expect(formatMacHardwareFingerprint({
+      machineName: 'MacBook Pro',
+      machineModel: 'Mac17,6',
+      chipType: 'Apple M5 Max',
+      physicalMemory: '128 GB'
+    })).toBe('MacBook Pro Mac17,6, Apple M5 Max, 128 GB')
+  })
+
   it('assembles exact per-document distributions and queue/correction evidence', () => {
     const digest = 'a'.repeat(64)
     const samples: CoreAuthorityPerformanceRawSample[] = [
