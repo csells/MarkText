@@ -369,13 +369,15 @@ function markdownTopology(
     const node = pending.pop()
     if (node === undefined) break
     recorder?.recordBuildUnit()
-    const attributes = Object.entries(node.attributes).map(([name, value]) => {
-      const normalized = typeof value === 'number' &&
-        (name.endsWith('Start') || name.endsWith('End'))
-        ? value - rangeDelta
-        : value
-      return `${name}=${String(normalized)}`
-    }).join('\u0001')
+    const attributes = Object.entries(node.attributes)
+      .filter(([name]) => name !== 'semanticStart' && name !== 'semanticEnd')
+      .map(([name, value]) => {
+        const normalized = typeof value === 'number' &&
+          (name.endsWith('Start') || name.endsWith('End'))
+          ? value - rangeDelta
+          : value
+        return `${name}=${String(normalized)}`
+      }).join('\u0001')
     result.push(`${node.kind}:${node.childCount}:${attributes}`)
     for (let ordinal = node.childCount - 1; ordinal >= 0; ordinal -= 1) {
       pending.push(node.childAt(ordinal))

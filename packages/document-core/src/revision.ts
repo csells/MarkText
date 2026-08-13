@@ -431,6 +431,7 @@ export type LiveHtmlSafetyProfileId = 'live-html-sanitized-v1'
 export interface MarkdownOptionsV1 {
   readonly schema: 'markdown-options-1'
   readonly gfm: boolean
+  readonly gfmTagFilter: boolean
   readonly frontMatter: boolean
   readonly math: boolean
   readonly gitLabMath: boolean
