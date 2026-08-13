@@ -21,7 +21,8 @@ import {
   type CoreRequest,
   type CoreActor,
   type EditorCoreBinding,
-  type CoreDocumentViewLease
+  type CoreDocumentViewLease,
+  type CoreAuthorityPerformanceEvent
 } from '@/documentAuthority'
 import codeMirror from '@/codeMirror'
 import { inspectCodeMirrorCoreAdapter } from '@/documentAuthority/codeMirrorCoreAdapter'
@@ -57,6 +58,9 @@ const testBinding = (
   sourceAtBarrier: () => Promise.reject(new Error('unexpected source barrier')),
   plainTextViewAtBarrier: () => Promise.reject(
     new Error('unexpected plain-text view barrier')
+  ),
+  selectionProjectionAtBarrier: () => Promise.reject(
+    new Error('unexpected selection projection barrier')
   ),
   reviewItemAtBarrier: () => Promise.reject(
     new Error('unexpected Review item barrier')
@@ -687,6 +691,7 @@ describe('Core actor protocol', () => {
 
     expect(item).toMatchObject({
       type: 'review-item',
+      commentText: 'outer {++nested++}',
       item: {
         kind: 'commented-span',
         range: { start: 7, end: 41 },
@@ -793,6 +798,584 @@ describe('Core actor protocol', () => {
       baseRevision: 3,
       projections: []
     })).resolves.toMatchObject({ type: 'applied', revision: 4 })
+    port.dispose()
+  })
+
+  it('edits an anchored Comment as one actor-owned history entry', async() => {
+    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const original = 'before {==text==}{>>old note<<} after\n'
+    const edited = 'before {==text==}{>>new note<<} after\n'
+    const opened = await port.request({
+      type: 'open',
+      session: 813,
+      sequence: 1,
+      source: original
+    })
+
+    await expect(port.request({
+      type: 'edit-comment',
+      session: 813,
+      sequence: 2,
+      baseRevision: opened.revision,
+      annotation: {
+        kind: 'commented-span',
+        range: { start: 7, end: 31 },
+        highlightRange: { start: 7, end: 17 },
+        commentRange: { start: 17, end: 31 }
+      },
+      text: 'new note',
+      projections: []
+    })).resolves.toMatchObject({
+      type: 'applied',
+      revision: 2,
+      change: {
+        appliedEdits: [{ start: 17, end: 31, insert: '{>>new note<<}' }]
+      }
+    })
+    await expect(port.request({
+      type: 'source-at-barrier',
+      session: 813,
+      sequence: 3,
+      baseRevision: 2
+    })).resolves.toMatchObject({ type: 'source', source: edited })
+    await expect(port.request({
+      type: 'undo',
+      session: 813,
+      sequence: 4,
+      baseRevision: 2,
+      projections: []
+    })).resolves.toMatchObject({ type: 'applied', revision: 3 })
+    await expect(port.request({
+      type: 'source-at-barrier',
+      session: 813,
+      sequence: 5,
+      baseRevision: 3
+    })).resolves.toMatchObject({ type: 'source', source: original })
+    await expect(port.request({
+      type: 'redo',
+      session: 813,
+      sequence: 6,
+      baseRevision: 3,
+      projections: []
+    })).resolves.toMatchObject({ type: 'applied', revision: 4 })
+    await expect(port.request({
+      type: 'source-at-barrier',
+      session: 813,
+      sequence: 7,
+      baseRevision: 4
+    })).resolves.toMatchObject({ type: 'source', source: edited })
+    port.dispose()
+  })
+
+  it('preserves nested Comment ownership while protecting a hostile edited closer', async() => {
+    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const original = 'before {==text==}{>>old<<} after\n'
+    const payload = 'outer {>>inner<<} plus <<} literal'
+    const protectedPayload = 'outer {>>inner<<} plus \\<<} literal'
+    const opened = await port.request({
+      type: 'open',
+      session: 816,
+      sequence: 1,
+      source: original
+    })
+    await expect(port.request({
+      type: 'edit-comment',
+      session: 816,
+      sequence: 2,
+      baseRevision: opened.revision,
+      annotation: {
+        kind: 'commented-span',
+        range: { start: 7, end: 26 },
+        highlightRange: { start: 7, end: 17 },
+        commentRange: { start: 17, end: 26 }
+      },
+      text: payload,
+      projections: []
+    })).resolves.toMatchObject({
+      type: 'applied',
+      revision: 2,
+      change: {
+        appliedEdits: [{
+          start: 17,
+          end: 26,
+          insert: `{>>${protectedPayload}<<}`
+        }]
+      }
+    })
+    await expect(port.request({
+      type: 'review-item-at-barrier',
+      session: 816,
+      sequence: 3,
+      baseRevision: 2,
+      direction: 'next',
+      from: 0
+    })).resolves.toMatchObject({
+      type: 'review-item',
+      commentText: protectedPayload
+    })
+    await expect(port.request({
+      type: 'undo',
+      session: 816,
+      sequence: 4,
+      baseRevision: 2,
+      projections: []
+    })).resolves.toMatchObject({ type: 'applied', revision: 3 })
+    await expect(port.request({
+      type: 'source-at-barrier',
+      session: 816,
+      sequence: 5,
+      baseRevision: 3
+    })).resolves.toMatchObject({ type: 'source', source: original })
+    port.dispose()
+  })
+
+  it('edits a Comment payload to empty without deleting the Comment', async() => {
+    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const original = 'before {==text==}{>>note<<} after\n'
+    const emptied = 'before {==text==}{>><<} after\n'
+    const opened = await port.request({
+      type: 'open',
+      session: 821,
+      sequence: 1,
+      source: original
+    })
+    await expect(port.request({
+      type: 'edit-comment',
+      session: 821,
+      sequence: 2,
+      baseRevision: opened.revision,
+      annotation: {
+        kind: 'commented-span',
+        range: { start: 7, end: 27 },
+        highlightRange: { start: 7, end: 17 },
+        commentRange: { start: 17, end: 27 }
+      },
+      text: '',
+      projections: []
+    })).resolves.toMatchObject({
+      type: 'applied',
+      revision: 2,
+      change: {
+        appliedEdits: [{ start: 17, end: 27, insert: '{>><<}' }]
+      }
+    })
+    await expect(port.request({
+      type: 'source-at-barrier',
+      session: 821,
+      sequence: 3,
+      baseRevision: 2
+    })).resolves.toMatchObject({ type: 'source', source: emptied })
+    await expect(port.request({
+      type: 'undo',
+      session: 821,
+      sequence: 4,
+      baseRevision: 2,
+      projections: []
+    })).resolves.toMatchObject({ type: 'applied', revision: 3 })
+    await expect(port.request({
+      type: 'source-at-barrier',
+      session: 821,
+      sequence: 5,
+      baseRevision: 3
+    })).resolves.toMatchObject({ type: 'source', source: original })
+    port.dispose()
+  })
+
+  it('edits an imported standalone Comment without synthesizing an Anchor', async() => {
+    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const original = 'before {>>old<<} after\n'
+    const edited = 'before {>>new<<} after\n'
+    const opened = await port.request({
+      type: 'open',
+      session: 823,
+      sequence: 1,
+      source: original
+    })
+    const reviewed = await port.request({
+      type: 'review-item-at-barrier',
+      session: 823,
+      sequence: 2,
+      baseRevision: opened.revision,
+      direction: 'next',
+      from: 0
+    })
+    expect(reviewed).toMatchObject({
+      type: 'review-item',
+      commentText: 'old',
+      item: { kind: 'comment', range: { start: 7, end: 16 } }
+    })
+    if (reviewed.type !== 'review-item' || reviewed.item === null) {
+      throw new Error('Expected standalone Comment')
+    }
+    await expect(port.request({
+      type: 'edit-comment',
+      session: 823,
+      sequence: 3,
+      baseRevision: reviewed.revision,
+      annotation: reviewed.item,
+      text: 'new',
+      projections: []
+    })).resolves.toMatchObject({
+      type: 'applied',
+      revision: 2,
+      change: {
+        appliedEdits: [{ start: 7, end: 16, insert: '{>>new<<}' }]
+      }
+    })
+    await expect(port.request({
+      type: 'source-at-barrier',
+      session: 823,
+      sequence: 4,
+      baseRevision: 2
+    })).resolves.toMatchObject({ type: 'source', source: edited })
+    port.dispose()
+  })
+
+  it('authors a standalone Highlight as one actor-owned history entry', async() => {
+    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const original = 'before selected after\n'
+    const highlighted = 'before {==selected==} after\n'
+    const opened = await port.request({
+      type: 'open',
+      session: 814,
+      sequence: 1,
+      source: original
+    })
+    await expect(port.request({
+      type: 'author',
+      session: 814,
+      sequence: 2,
+      baseRevision: opened.revision,
+      form: 'highlight',
+      range: { start: 7, end: 15 },
+      text: '',
+      projections: []
+    })).resolves.toMatchObject({
+      type: 'applied',
+      revision: 2,
+      change: {
+        appliedEdits: [{ start: 7, end: 15, insert: '{==selected==}' }]
+      }
+    })
+    await expect(port.request({
+      type: 'source-at-barrier',
+      session: 814,
+      sequence: 3,
+      baseRevision: 2
+    })).resolves.toMatchObject({ type: 'source', source: highlighted })
+    await expect(port.request({
+      type: 'undo',
+      session: 814,
+      sequence: 4,
+      baseRevision: 2,
+      projections: []
+    })).resolves.toMatchObject({ type: 'applied', revision: 3 })
+    await expect(port.request({
+      type: 'source-at-barrier',
+      session: 814,
+      sequence: 5,
+      baseRevision: 3
+    })).resolves.toMatchObject({ type: 'source', source: original })
+    port.dispose()
+  })
+
+  it('authors an anchored Comment whose payload is empty', async() => {
+    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const original = 'before selected after\n'
+    const commented = 'before {==selected==}{>><<} after\n'
+    const opened = await port.request({
+      type: 'open',
+      session: 818,
+      sequence: 1,
+      source: original
+    })
+    await expect(port.request({
+      type: 'author',
+      session: 818,
+      sequence: 2,
+      baseRevision: opened.revision,
+      form: 'comment',
+      range: { start: 7, end: 15 },
+      text: '',
+      projections: []
+    })).resolves.toMatchObject({
+      type: 'applied',
+      revision: 2,
+      change: {
+        appliedEdits: [{
+          start: 7,
+          end: 15,
+          insert: '{==selected==}{>><<}'
+        }]
+      }
+    })
+    await expect(port.request({
+      type: 'source-at-barrier',
+      session: 818,
+      sequence: 3,
+      baseRevision: 2
+    })).resolves.toMatchObject({ type: 'source', source: commented })
+    await expect(port.request({
+      type: 'undo',
+      session: 818,
+      sequence: 4,
+      baseRevision: 2,
+      projections: []
+    })).resolves.toMatchObject({ type: 'applied', revision: 3 })
+    await expect(port.request({
+      type: 'source-at-barrier',
+      session: 818,
+      sequence: 5,
+      baseRevision: 3
+    })).resolves.toMatchObject({ type: 'source', source: original })
+    port.dispose()
+  })
+
+  it('accepts or rejects every Review suggestion atomically', async() => {
+    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const original = 'A {++new++} B {--old--} C {~~left~>right~~}\n'
+    const accepted = 'A new B  C right\n'
+    const opened = await port.request({
+      type: 'open',
+      session: 815,
+      sequence: 1,
+      source: original
+    })
+    await expect(port.request({
+      type: 'resolve-all',
+      session: 815,
+      sequence: 2,
+      baseRevision: opened.revision,
+      decision: 'accept',
+      projections: []
+    })).resolves.toMatchObject({
+      type: 'applied',
+      revision: 2,
+      change: {
+        appliedEdits: [
+          { start: 2, end: 11, insert: 'new' },
+          { start: 14, end: 23, insert: '' },
+          { start: 26, end: 43, insert: 'right' }
+        ]
+      }
+    })
+    await expect(port.request({
+      type: 'source-at-barrier',
+      session: 815,
+      sequence: 3,
+      baseRevision: 2
+    })).resolves.toMatchObject({ type: 'source', source: accepted })
+    await expect(port.request({
+      type: 'undo',
+      session: 815,
+      sequence: 4,
+      baseRevision: 2,
+      projections: []
+    })).resolves.toMatchObject({ type: 'applied', revision: 3 })
+    await expect(port.request({
+      type: 'source-at-barrier',
+      session: 815,
+      sequence: 5,
+      baseRevision: 3
+    })).resolves.toMatchObject({ type: 'source', source: original })
+    await expect(port.request({
+      type: 'resolve-all',
+      session: 815,
+      sequence: 6,
+      baseRevision: 3,
+      decision: 'reject',
+      projections: []
+    })).resolves.toMatchObject({ type: 'applied', revision: 4 })
+    await expect(port.request({
+      type: 'source-at-barrier',
+      session: 815,
+      sequence: 7,
+      baseRevision: 4
+    })).resolves.toMatchObject({ type: 'source', source: 'A  B old C left\n' })
+    port.dispose()
+  })
+
+  it('bulk-resolves a nested visible suggestion without removing its Highlight', async() => {
+    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const original = 'A {==outer {++inner++}==} Z\n'
+    const accepted = 'A {==outer inner==} Z\n'
+    const opened = await port.request({
+      type: 'open',
+      session: 817,
+      sequence: 1,
+      source: original
+    })
+    await expect(port.request({
+      type: 'resolve-all',
+      session: 817,
+      sequence: 2,
+      baseRevision: opened.revision,
+      decision: 'accept',
+      projections: []
+    })).resolves.toMatchObject({
+      type: 'applied',
+      revision: 2,
+      change: {
+        appliedEdits: [{ start: 11, end: 22, insert: 'inner' }]
+      }
+    })
+    await expect(port.request({
+      type: 'source-at-barrier',
+      session: 817,
+      sequence: 3,
+      baseRevision: 2
+    })).resolves.toMatchObject({ type: 'source', source: accepted })
+    await expect(port.request({
+      type: 'undo',
+      session: 817,
+      sequence: 4,
+      baseRevision: 2,
+      projections: []
+    })).resolves.toMatchObject({ type: 'applied', revision: 3 })
+    await expect(port.request({
+      type: 'source-at-barrier',
+      session: 817,
+      sequence: 5,
+      baseRevision: 3
+    })).resolves.toMatchObject({ type: 'source', source: original })
+    port.dispose()
+  })
+
+  it('rejects an oversized bulk Review decision without partial publication', () => {
+    const actor = createCoreActor(undefined, { maximumHistoryEditsPerEntry: 2 })
+    const source = '{++a++} {++b++} {++c++}\n'
+    expect(actor.handle({
+      type: 'open',
+      session: 822,
+      sequence: 1,
+      source
+    })).toMatchObject({ type: 'opened', revision: 1 })
+    expect(actor.handle({
+      type: 'resolve-all',
+      session: 822,
+      sequence: 2,
+      baseRevision: 1,
+      decision: 'accept',
+      projections: []
+    })).toMatchObject({
+      type: 'rejected',
+      reason: 'history-resource',
+      revision: 1
+    })
+    expect(actor.handle({
+      type: 'source-at-barrier',
+      session: 822,
+      sequence: 3,
+      baseRevision: 1
+    })).toMatchObject({ type: 'source', source, revision: 1 })
+    expect(actor.handle({
+      type: 'undo',
+      session: 822,
+      sequence: 4,
+      baseRevision: 1,
+      projections: []
+    })).toMatchObject({ type: 'rejected', reason: 'history-empty' })
+    actor.dispose()
+  })
+
+  it('navigates the deepest visible nested Review item before its parent', async() => {
+    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const opened = await port.request({
+      type: 'open',
+      session: 819,
+      sequence: 1,
+      source: 'A {==outer {++inner++}==} Z\n'
+    })
+    const nested = await port.request({
+      type: 'review-item-at-barrier',
+      session: 819,
+      sequence: 2,
+      baseRevision: opened.revision,
+      direction: 'next',
+      from: 0
+    })
+    expect(nested).toMatchObject({
+      type: 'review-item',
+      item: { kind: 'addition', range: { start: 11, end: 22 } }
+    })
+    if (nested.type !== 'review-item' || nested.item === null) {
+      throw new Error('Expected nested Review item')
+    }
+    await expect(port.request({
+      type: 'review-item-at-barrier',
+      session: 819,
+      sequence: 3,
+      baseRevision: opened.revision,
+      direction: 'next',
+      from: nested.item.range.end
+    })).resolves.toMatchObject({
+      type: 'review-item',
+      item: { kind: 'highlight', range: { start: 2, end: 25 } }
+    })
+    await expect(port.request({
+      type: 'review-item-at-barrier',
+      session: 819,
+      sequence: 4,
+      baseRevision: opened.revision,
+      direction: 'previous',
+      from: nested.item.range.start
+    })).resolves.toMatchObject({
+      type: 'review-item',
+      item: { kind: 'highlight', range: { start: 2, end: 25 } }
+    })
+    port.dispose()
+  })
+
+  it('derives a nested visible Highlight and Comment as one Commented span', async() => {
+    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const opened = await port.request({
+      type: 'open',
+      session: 820,
+      sequence: 1,
+      source: 'A {==outer {==text==}{>>note<<}==} Z\n'
+    })
+    const reviewed = await port.request({
+      type: 'review-item-at-barrier',
+      session: 820,
+      sequence: 2,
+      baseRevision: opened.revision,
+      direction: 'next',
+      from: 0
+    })
+    expect(reviewed).toMatchObject({
+      type: 'review-item',
+      commentText: 'note',
+      item: {
+        kind: 'commented-span',
+        range: { start: 11, end: 31 },
+        highlightRange: { start: 11, end: 21 },
+        commentRange: { start: 21, end: 31 }
+      }
+    })
+    if (reviewed.type !== 'review-item' || reviewed.item === null) {
+      throw new Error('Expected nested Commented span')
+    }
+    await expect(port.request({
+      type: 'resolve',
+      session: 820,
+      sequence: 3,
+      baseRevision: reviewed.revision,
+      annotation: reviewed.item,
+      decision: 'remove',
+      projections: []
+    })).resolves.toMatchObject({
+      type: 'applied',
+      revision: 2,
+      change: {
+        appliedEdits: [{ start: 11, end: 31, insert: 'text' }]
+      }
+    })
+    await expect(port.request({
+      type: 'source-at-barrier',
+      session: 820,
+      sequence: 4,
+      baseRevision: 2
+    })).resolves.toMatchObject({ source: 'A {==outer text==} Z\n' })
     port.dispose()
   })
 
@@ -4758,6 +5341,87 @@ describe('Core document session manager', () => {
     await manager.close('recover-author.md')
   })
 
+  it('replays acknowledged Comment editing with its undo history on recovery', async() => {
+    const manager = createCoreDocumentSessionManager({
+      createBinding: () => createEditorCoreBinding(
+        createWorkerCorePort(new ActorBackedCoreWorker())
+      )
+    })
+    const source = 'before {==text==}{>>old note<<} after\n'
+    const edited = 'before {==text==}{>>new note<<} after\n'
+    await manager.open({
+      documentId: 'recover-edit-comment.md',
+      source,
+      lineEnding: '\n'
+    })
+    const oldLease = manager.lease('recover-edit-comment.md')
+    await expect(oldLease.binding.submit({
+      kind: 'edit-comment',
+      authoredRevision: 1,
+      annotation: {
+        kind: 'commented-span',
+        range: { start: 7, end: 31 },
+        highlightRange: { start: 7, end: 17 },
+        commentRange: { start: 17, end: 31 }
+      },
+      text: 'new note',
+      projections: []
+    }).acknowledged).resolves.toMatchObject({ type: 'applied', revision: 2 })
+
+    oldLease.faultView(new Error('Comment presentation requires recovery'))
+    const replacement = await manager.recover(oldLease)
+    await expect(
+      manager.saveBarrier('recover-edit-comment.md')
+    ).resolves.toMatchObject({ source: edited, revision: 2 })
+    await expect(replacement.binding.submit({
+      kind: 'undo',
+      projections: []
+    }).acknowledged).resolves.toMatchObject({ type: 'applied', revision: 3 })
+    await expect(
+      manager.saveBarrier('recover-edit-comment.md')
+    ).resolves.toMatchObject({ source, revision: 3 })
+
+    await manager.handoff(replacement)
+    await manager.close('recover-edit-comment.md')
+  })
+
+  it('replays atomic bulk Review resolution with its undo history on recovery', async() => {
+    const manager = createCoreDocumentSessionManager({
+      createBinding: () => createEditorCoreBinding(
+        createWorkerCorePort(new ActorBackedCoreWorker())
+      )
+    })
+    const source = 'A {++new++} B {--old--} C {~~left~>right~~}\n'
+    const accepted = 'A new B  C right\n'
+    await manager.open({
+      documentId: 'recover-resolve-all.md',
+      source,
+      lineEnding: '\n'
+    })
+    const oldLease = manager.lease('recover-resolve-all.md')
+    await expect(oldLease.binding.submit({
+      kind: 'resolve-all',
+      decision: 'accept',
+      projections: []
+    }).acknowledged).resolves.toMatchObject({ type: 'applied', revision: 2 })
+
+    oldLease.faultView(new Error('Bulk Review presentation requires recovery'))
+    const replacement = await manager.recover(oldLease)
+    await expect(
+      manager.saveBarrier('recover-resolve-all.md')
+    ).resolves.toMatchObject({ source: accepted, revision: 2 })
+    await expect(replacement.binding.submit({
+      kind: 'undo',
+      projections: []
+    }).acknowledged).resolves.toMatchObject({ type: 'applied', revision: 3 })
+    await expect(
+      manager.saveBarrier('recover-resolve-all.md')
+    ).resolves.toMatchObject({ source, revision: 3 })
+
+    await manager.handoff(replacement)
+    await manager.close('recover-resolve-all.md')
+  })
+
   it('keeps a faulted session retryable when recovery handoff cleanup fails', async() => {
     const workers: ActorBackedCoreWorker[] = []
     const manager = createCoreDocumentSessionManager({
@@ -4927,6 +5591,9 @@ describe('Core document session manager', () => {
       plainTextViewAtBarrier: () => Promise.reject(
         new Error('unexpected plain-text view barrier')
       ),
+      selectionProjectionAtBarrier: () => Promise.reject(
+        new Error('unexpected selection projection barrier')
+      ),
       reviewItemAtBarrier: () => Promise.reject(
         new Error('unexpected Review item barrier')
       ),
@@ -5072,6 +5739,52 @@ describe('Core document session manager', () => {
 })
 
 describe('CodeMirror Core adapter', () => {
+  it('records one Source dispatch, acknowledgement, and reconciliation', async() => {
+    const source = 'abc'
+    const worker = new ActorBackedCoreWorker()
+    const binding = createEditorCoreBinding(createWorkerCorePort(worker))
+    await binding.open({ documentId: 'source-performance.md', source })
+    const editor = new codeMirror.Doc(source)
+    const recorded: CoreAuthorityPerformanceEvent[] = []
+    const clock = [10, 14, 18]
+    const adapter = createCodeMirrorCoreAdapter(editor, binding, {
+      ...sourceCodeCoreAdapterOptions(source, '\n'),
+      performanceTrace: {
+        documentId: 'source-performance.md',
+        clock: () => clock.shift() ?? Number.NaN,
+        record: event => recorded.push(event)
+      }
+    })
+
+    editor.replaceRange('!', { line: 0, ch: 3 }, { line: 0, ch: 3 }, '+input')
+    await adapter.settled()
+
+    expect(recorded).toEqual([
+      {
+        phase: 'dispatch',
+        documentId: 'source-performance.md',
+        transaction: 2,
+        pendingDepth: 1,
+        at: 10
+      },
+      {
+        phase: 'ack',
+        documentId: 'source-performance.md',
+        transaction: 2,
+        at: 14
+      },
+      {
+        phase: 'reconcile',
+        documentId: 'source-performance.md',
+        transaction: 2,
+        corrected: false,
+        at: 18
+      }
+    ])
+    adapter.dispose()
+    binding.dispose()
+  })
+
   it('uses the normalized LF renderer domain under a CRLF host save policy', () => {
     const options = sourceCodeCoreAdapterOptions('a\nb', '\r\n')
 

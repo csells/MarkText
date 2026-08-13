@@ -1,5 +1,9 @@
 import { defineConfig } from '@playwright/test'
 
+const installedArtifactSpecs = [
+  '**/installed-core-review.spec.ts'
+]
+
 // Must stay at the package root: Playwright only auto-loads a config from the
 // directory it is invoked in, and every entry point (`pnpm test:e2e`, a single
 // `playwright test <spec>` run, CI) invokes it from packages/desktop. Kept in
@@ -7,11 +11,23 @@ import { defineConfig } from '@playwright/test'
 // Playwright's defaults — notably ~half the cores as workers instead of 1.
 export default defineConfig({
   testDir: './test/e2e',
+  forbidOnly: true,
+  retries: 0,
   workers: 1,
   testMatch: '**/*.spec.ts',
+  projects: [
+    {
+      name: 'unpacked',
+      testIgnore: installedArtifactSpecs
+    },
+    {
+      name: 'installed',
+      testMatch: installedArtifactSpecs
+    }
+  ],
   use: {
     headless: true,
     viewport: { width: 1280, height: 720 }
   },
-  timeout: 30000
+  timeout: process.env.CI === 'true' ? 120000 : 30000
 })

@@ -115,7 +115,7 @@
       "form": "comment",
       "context": "reference-footnote",
       "operation": "resolve",
-      "source": "Claim.[^n]\n\n{>>Review [evidence][ref].\n\n[ref]: https://example.com/local<<}\n\n[^n]: Main note.",
+      "source": "Claim.[^n]\n\n{>>Review [evidence][ref].\n\n[ref]: https://example.com/local\n<<}\n\n[^n]: Main note.",
       "action": { "kind": "resolve", "decision": "accept", "targetOrdinal": 0, "outcome": "applied" },
       "expectedSource": "Claim.[^n]\n\n\n\n[^n]: Main note.",
       "expected": "Resolving the Comment removes its local payload and definition while the main footnote remains independent.",
