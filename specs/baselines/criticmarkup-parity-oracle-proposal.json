@@ -50,6 +50,8 @@
       "command:format.underline": "packages/desktop/test/unit/specs/criticmarkup-underline-production-surfaces.spec.ts#routes registered Underline command and Format menu surface through the renderer format-action channel",
       "command:paragraph.bullet-list": "packages/desktop/test/unit/specs/criticmarkup-bullet-list-production-surfaces.spec.ts#routes registered Bullet List command and Paragraph menu surface through the renderer paragraph-action channel",
       "command:paragraph.order-list": "packages/desktop/test/unit/specs/criticmarkup-ordered-list-production-surfaces.spec.ts#routes registered Ordered List command and Paragraph menu surface through the renderer paragraph-action channel",
+      "command:paragraph.quote-block": "packages/desktop/test/unit/specs/criticmarkup-quote-block-production-surfaces.spec.ts#routes registered Quote Block command and Paragraph menu surface through the renderer paragraph-action channel",
+      "command:paragraph.task-list": "packages/desktop/test/unit/specs/criticmarkup-task-list-production-surfaces.spec.ts#routes registered Task List command and Paragraph menu surface through the renderer paragraph-action channel",
         "command:file.save": "packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers",
         "command:file.save-as": "packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers",
         "menu-entry:menu.edit.copy": "packages/desktop/test/unit/specs/criticmarkup-native-copy-production-surfaces.spec.ts#routes registered Copy command and Edit menu surfaces through the Electron native copy runtime",
@@ -84,6 +86,8 @@
       "menu-entry:menu.format.underline": "packages/desktop/test/unit/specs/criticmarkup-underline-production-surfaces.spec.ts#routes registered Underline command and Format menu surface through the renderer format-action channel",
       "menu-entry:menu.paragraph.bulletList": "packages/desktop/test/unit/specs/criticmarkup-bullet-list-production-surfaces.spec.ts#routes registered Bullet List command and Paragraph menu surface through the renderer paragraph-action channel",
       "menu-entry:menu.paragraph.orderedList": "packages/desktop/test/unit/specs/criticmarkup-ordered-list-production-surfaces.spec.ts#routes registered Ordered List command and Paragraph menu surface through the renderer paragraph-action channel",
+      "menu-entry:menu.paragraph.quoteBlock": "packages/desktop/test/unit/specs/criticmarkup-quote-block-production-surfaces.spec.ts#routes registered Quote Block command and Paragraph menu surface through the renderer paragraph-action channel",
+      "menu-entry:menu.paragraph.taskList": "packages/desktop/test/unit/specs/criticmarkup-task-list-production-surfaces.spec.ts#routes registered Task List command and Paragraph menu surface through the renderer paragraph-action channel",
       "menu-entry:menu.file.save": "packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers",
         "menu-entry:menu.file.saveAs": "packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers"
       },
