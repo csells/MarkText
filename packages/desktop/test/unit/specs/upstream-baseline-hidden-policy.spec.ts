@@ -72,8 +72,10 @@ describe('upstream baseline external hidden policy', () => {
       returnByValue: true
     })
     expect(calls[3]?.params.expression).toContain("require('electron')")
+    expect(calls[3]?.params.expression).toContain('app.setActivationPolicy')
+    expect(calls[3]?.params.expression).toContain('accessory')
     expect(calls[3]?.params.expression).toContain(
-      "app.setActivationPolicy('accessory')"
+      'external-inspector-transparent-render-active-v2'
     )
   })
 
@@ -129,6 +131,7 @@ describe('upstream baseline external hidden policy', () => {
   it('installs exact hidden capture for existing target WebContents', async() => {
     const exactContents = {
       isDestroyed: () => false,
+      setBackgroundThrottling: () => {},
       capturePage: vi.fn(async(
         rect: unknown,
         options: Readonly<Record<string, boolean>>
@@ -139,8 +142,28 @@ describe('upstream baseline external hidden policy', () => {
       })
     }
     const otherContents = { isDestroyed: () => false }
-    const exactWindow = { isDestroyed: () => false }
+    let visible = false
+    let opacity = 1
+    let focusable = true
+    const exactWindow = {
+      webContents: exactContents,
+      isDestroyed: () => false,
+      setOpacity: (value: number) => { opacity = value },
+      setFocusable: (value: boolean) => { focusable = value },
+      setIgnoreMouseEvents: () => {},
+      setHiddenInMissionControl: () => {},
+      setSkipTaskbar: () => {},
+      showInactive: () => { visible = true },
+      isVisible: () => visible,
+      getOpacity: () => opacity,
+      isFocused: () => false,
+      isFocusable: () => focusable,
+      isAlwaysOnTop: () => false,
+      getTitle: () => 'sample.md — MarkText',
+      getBounds: () => ({ x: 20, y: 30, width: 900, height: 700 })
+    }
     const app = Object.assign(new EventEmitter(), {
+      isActive: () => false,
       isReady: () => false,
       setActivationPolicy: () => {},
       whenReady: async() => {}
@@ -162,22 +185,27 @@ describe('upstream baseline external hidden policy', () => {
     expect(runInNewContext(upstreamExternalHiddenPolicyExpression, context))
       .toBe(true)
     const installed = context.__marktextUpstreamHiddenLaunch as Readonly<{
+      readonly activate: (targetId: string) => unknown
       readonly capturePage: (targetId: string) => Promise<{
         readonly empty: boolean
       }>
     }>
 
     await expect(installed.capturePage('renderer-target-7'))
+      .rejects.toThrow(/transparent render-active inactive state/i)
+    expect(exactContents.capturePage).not.toHaveBeenCalled()
+    installed.activate('renderer-target-7')
+    await expect(installed.capturePage('renderer-target-7'))
       .resolves.toEqual({ empty: false })
     expect(exactContents.capturePage).toHaveBeenCalledOnce()
   })
 
-  it('conceals window and application activation without focus reentrancy', async() => {
+  it('exposes exact transparent render-active lifecycle without focus calls', () => {
     const lifecycle: string[] = []
-    class HiddenWindow extends EventEmitter {
-      skipTaskbarCalls = 0
-      hideCalls = 0
-      blurCalls = 0
+    let visible = false
+    let opacity = 1
+    let focusable = true
+    class TransparentWindow extends EventEmitter {
       readonly webContents = {
         isDestroyed: (): boolean => false,
         setBackgroundThrottling: (enabled: boolean): void => {
@@ -186,58 +214,123 @@ describe('upstream baseline external hidden policy', () => {
       }
 
       isDestroyed(): boolean { return false }
-      setSkipTaskbar(): void { this.skipTaskbarCalls += 1 }
-      hide(): void {
-        lifecycle.push('hide')
-        this.hideCalls += 1
+      setOpacity(value: number): void {
+        opacity = value
+        lifecycle.push(`opacity:${String(value)}`)
       }
 
-      blur(): void { this.blurCalls += 1 }
+      setFocusable(value: boolean): void {
+        focusable = value
+        lifecycle.push(`focusable:${String(value)}`)
+      }
+
+      setIgnoreMouseEvents(value: boolean): void {
+        lifecycle.push(`ignore-mouse:${String(value)}`)
+      }
+
+      setHiddenInMissionControl(value: boolean): void {
+        lifecycle.push(`mission-control:${String(value)}`)
+      }
+
+      setSkipTaskbar(value: boolean): void {
+        lifecycle.push(`skip-taskbar:${String(value)}`)
+      }
+
+      showInactive(): void {
+        visible = true
+        lifecycle.push('show-inactive')
+      }
+
+      hide(): void {
+        visible = false
+        lifecycle.push('hide')
+      }
+
+      close(): void { lifecycle.push('close') }
+      focus(): void { throw new Error('Window focus is prohibited') }
+      isVisible(): boolean { return visible }
+      getOpacity(): number { return opacity }
+      isFocused(): boolean { return false }
+      isFocusable(): boolean { return focusable }
+      isAlwaysOnTop(): boolean { return false }
+      getTitle(): string { return 'sample.md — MarkText' }
+      getBounds(): Readonly<{ x: number; y: number; width: number; height: number }> {
+        return { x: 20, y: 30, width: 900, height: 700 }
+      }
     }
 
-    class HiddenApplication extends EventEmitter {
+    class TransparentApplication extends EventEmitter {
       activationPolicies: string[] = []
-      hideCalls = 0
-      dockHideCalls = 0
-      readonly dock = { hide: (): void => { this.dockHideCalls += 1 } }
 
       setActivationPolicy(policy: string): void {
         this.activationPolicies.push(policy)
       }
 
-      hide(): void {
-        this.hideCalls += 1
-        this.emit('activate')
-      }
-
-      isReady(): boolean { return true }
-      async whenReady(): Promise<void> {}
+      isActive(): boolean { return false }
+      isReady(): boolean { return false }
+      whenReady(): Promise<void> { return new Promise(() => {}) }
+      focus(): void { throw new Error('Application focus is prohibited') }
     }
 
-    const app = new HiddenApplication()
-    const window = new HiddenWindow()
-    expect(runInNewContext(upstreamExternalHiddenPolicyExpression, {
+    const app = new TransparentApplication()
+    const window = new TransparentWindow()
+    const context = {
       require: () => ({
         app,
-        BrowserWindow: { getAllWindows: () => [window] }
+        BrowserWindow: {
+          getAllWindows: () => [window],
+          fromWebContents: () => window
+        },
+        webContents: {
+          fromDevToolsTargetId: () => window.webContents
+        }
       })
-    })).toBe(true)
-    await Promise.resolve()
+    } as Record<string, unknown>
+    expect(runInNewContext(upstreamExternalHiddenPolicyExpression, context))
+      .toBe(true)
+    const installed = context.__marktextUpstreamHiddenLaunch as Readonly<{
+      activate: (targetId: string) => unknown
+      inspect: (targetId: string) => unknown
+      close: (targetId: string) => boolean
+    }>
 
-    app.emit('browser-window-created', {}, window)
-    window.emit('show')
-    window.emit('focus')
-    app.emit('browser-window-focus', {}, window)
-    app.emit('activate')
+    expect(installed.activate('renderer-target-7')).toEqual({
+      visible: true,
+      opacity: 0,
+      focused: false,
+      focusable: false,
+      alwaysOnTop: false,
+      appActive: false,
+      title: 'sample.md — MarkText',
+      bounds: { x: 20, y: 30, width: 900, height: 700 }
+    })
+    expect(installed.inspect('renderer-target-7')).toEqual({
+      visible: true,
+      opacity: 0,
+      focused: false,
+      focusable: false,
+      alwaysOnTop: false,
+      appActive: false,
+      title: 'sample.md — MarkText',
+      bounds: { x: 20, y: 30, width: 900, height: 700 }
+    })
+    expect(installed.close('renderer-target-7')).toBe(true)
 
     expect(app.activationPolicies).toEqual(['accessory'])
-    expect(app.hideCalls).toBe(6)
-    expect(app.dockHideCalls).toBe(6)
-    expect(window.skipTaskbarCalls).toBe(1)
-    expect(window.hideCalls).toBe(6)
-    expect(window.blurCalls).toBe(6)
-    expect(lifecycle.slice(0, 2)).toEqual(['schedule:false', 'hide'])
-    expect(lifecycle.lastIndexOf('schedule:false'))
-      .toBeLessThan(lifecycle.lastIndexOf('hide'))
+    expect(lifecycle.indexOf('opacity:0'))
+      .toBeLessThan(lifecycle.indexOf('show-inactive'))
+    expect(lifecycle.indexOf('focusable:false'))
+      .toBeLessThan(lifecycle.indexOf('show-inactive'))
+    expect(lifecycle.indexOf('ignore-mouse:true'))
+      .toBeLessThan(lifecycle.indexOf('show-inactive'))
+    expect(lifecycle.slice(-7)).toEqual([
+      'hide',
+      'opacity:1',
+      'focusable:true',
+      'ignore-mouse:false',
+      'mission-control:false',
+      'skip-taskbar:false',
+      'close'
+    ])
   })
 })

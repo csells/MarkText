@@ -44,7 +44,7 @@ The spike records these timestamps and counters for each input transaction:
 - dispatch to the engine (`t_dispatch`);
 - authoritative acknowledgement (`t_ack`);
 - reconciliation complete (`t_reconcile`);
-- one Electron `WebContents.capturePage` call with `stayHidden` and `stayAwake` after the exact acknowledged view checkpoint, followed immediately by retained-state validation (`t_present`); this is a captured compositor-surface upper bound, while the post-capture checkpoint proves only that view state was retained—not screenshot pixel equality, physical display, vsync, or next-frame time;
+- one Electron `WebContents.capturePage` call with `stayHidden` and `stayAwake` after the exact acknowledged view checkpoint while the exact macOS measurement window is render-active but opacity-zero, nonfocusable, noninteractive, inactive, and not frontmost, followed immediately by retained-state validation (`t_present`); this is a captured compositor-surface upper bound, while the post-capture checkpoint proves only that view state was retained—not screenshot pixel equality, physical display, vsync, or next-frame time;
 - pending-input depth, correction count, and source/view checksums.
 
 The minimum scenario set is ordinary prose typing, a burst with no artificial delay, IME composition,
@@ -54,10 +54,10 @@ plan 0010.
 
 Numeric acknowledgement and open targets remain intentionally unset until the upstream shell and
 the two bounded Phase 1A candidates have been measured on the same recorded hardware. The
-ordinary-input exact DOM-echo criterion is fixed. The hidden compositor-surface capture target
-remains calibration-required until comparable upstream and Core distributions support a frozen
-positive p95 target; it does not claim physical visibility. Sustained queue growth and routine
-corrective paint remain disallowed.
+ordinary-input exact DOM-echo criterion is fixed. The transparent render-active compositor-surface
+capture target remains calibration-required until comparable upstream and Core distributions support
+a frozen positive p95 target; it does not claim physical visibility. Sustained queue growth and
+routine corrective paint remain disallowed.
 
 ## Execution record
 

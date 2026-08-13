@@ -53,10 +53,11 @@ const input = (
     producerSha256: 'e'.repeat(64),
     probeSha256: 'f'.repeat(64),
     launcherSha256: '1'.repeat(64),
-    measurementBoundary: 'external-browser-compositor-v3' as const,
-    presentationBoundary: 'electron-webcontents-capture-page-hidden-v1' as const,
-    launchBoundary: 'external-inspector-hidden-cdp-v1' as const,
-    windowVisibility: 'hidden-unfocused' as const,
+    measurementBoundary: 'external-browser-compositor-v4' as const,
+    presentationBoundary: 'electron-webcontents-capture-page-transparent-v2' as const,
+    launchBoundary: 'external-inspector-transparent-render-active-v2' as const,
+    windowPresentationPolicy: 'transparent-render-active-inactive-v1' as const,
+    windowPresentationPlatform: 'darwin' as const,
     chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2' as const
   },
   samples: [
@@ -68,13 +69,13 @@ const input = (
 })
 
 describe('upstream baseline raw performance producer', () => {
-  it('creates an accepted v3 shape only for pinned 20/200 ratification evidence', () => {
+  it('creates an accepted v4 shape only for pinned 20/200 ratification evidence', () => {
     const run = createUpstreamBaselinePerformanceRawRun(
       input('ratification', 20, 200)
     )
 
     expect(run).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-run-v3',
+      schema: 'marktext-criticmarkup-raw-performance-run-v4',
       runId: 'upstream-ratification',
       implementation: 'upstream-baseline',
       baselineCommit: PINNED_BASELINE,
@@ -88,10 +89,11 @@ describe('upstream baseline raw performance producer', () => {
         producerSha256: 'e'.repeat(64),
         probeSha256: 'f'.repeat(64),
         launcherSha256: '1'.repeat(64),
-        measurementBoundary: 'external-browser-compositor-v3',
-        presentationBoundary: 'electron-webcontents-capture-page-hidden-v1',
-        launchBoundary: 'external-inspector-hidden-cdp-v1',
-        windowVisibility: 'hidden-unfocused',
+        measurementBoundary: 'external-browser-compositor-v4',
+        presentationBoundary: 'electron-webcontents-capture-page-transparent-v2',
+        launchBoundary: 'external-inspector-transparent-render-active-v2',
+        windowPresentationPolicy: 'transparent-render-active-inactive-v1',
+        windowPresentationPlatform: 'darwin',
         chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
       },
       metricDefinitions: {
@@ -113,7 +115,7 @@ describe('upstream baseline raw performance producer', () => {
     )
 
     expect(smoke).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v3',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v4',
       evidenceClass: 'smoke-non-ratifying',
       sampling: { warmupSamples: 1, measuredSamples: 2 }
     })
@@ -182,7 +184,7 @@ describe('upstream baseline raw performance producer', () => {
       ...input('smoke-non-ratifying', 1, 2),
       provenance: {
         ...input('smoke-non-ratifying', 1, 2).provenance,
-        measurementBoundary: 'external-browser-compositor-v2'
+        measurementBoundary: 'external-browser-compositor-v3'
       }
     } as never)).toThrow(/measurement boundary/i)
 
@@ -190,9 +192,25 @@ describe('upstream baseline raw performance producer', () => {
       ...input('smoke-non-ratifying', 1, 2),
       provenance: {
         ...input('smoke-non-ratifying', 1, 2).provenance,
-        presentationBoundary: 'cdp-page-capture-screenshot-v1'
+        presentationBoundary: 'electron-webcontents-capture-page-hidden-v1'
       }
     } as never)).toThrow(/presentation boundary/i)
+
+    expect(() => createUpstreamBaselinePerformanceRawRun({
+      ...input('smoke-non-ratifying', 1, 2),
+      provenance: {
+        ...input('smoke-non-ratifying', 1, 2).provenance,
+        windowPresentationPolicy: 'hidden-unfocused'
+      }
+    } as never)).toThrow(/window presentation/i)
+
+    expect(() => createUpstreamBaselinePerformanceRawRun({
+      ...input('smoke-non-ratifying', 1, 2),
+      provenance: {
+        ...input('smoke-non-ratifying', 1, 2).provenance,
+        windowPresentationPlatform: 'linux'
+      }
+    } as never)).toThrow(/window presentation platform/i)
   })
 
   it('writes exclusively and never allows smoke into the ratification directory', () => {

@@ -21,7 +21,10 @@ import {
 } from './helpers/upstreamBaselineInputProbe'
 import { readUpstreamBaselineMachineEnvironment } from './helpers/upstreamBaselineEnvironment'
 import {
+  activateUpstreamPerformanceWindow,
   captureUpstreamElectronHiddenPage,
+  closeUpstreamPerformanceWindow,
+  inspectUpstreamPerformanceWindow,
   installUpstreamExternalHiddenPolicy,
   type UpstreamInspectorChannel,
   type UpstreamInspectorResponse
@@ -32,12 +35,14 @@ import {
   removeUpstreamPerformanceRunRoot
 } from './helpers/upstreamBaselineLifecycleCleanup'
 import {
+  assertMacWindowServerPresentation,
   PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
+  PERFORMANCE_WINDOW_PRESENTATION_POLICY,
   withPerformanceChromiumScheduling
 } from './helpers/performanceChromiumLaunchPolicy'
 import {
-  bindExactElectronPageCapture,
   PERFORMANCE_PRESENTATION_BOUNDARY,
+  resolveExactElectronPageTargetId,
   type PerformanceHiddenPageCapture
 } from './helpers/performancePresentationCheckpoint'
 import {
@@ -90,12 +95,13 @@ interface ExternalOpenTimings {
   readonly first_viewport: number
 }
 
-interface HiddenUpstreamApplication {
+interface RenderActiveUpstreamApplication {
   readonly browser: Browser
   readonly page: Page
   readonly processId: number
   readonly launcher: ChildProcess
   readonly inspector: UpstreamInspectorChannel & { readonly close: () => void }
+  readonly targetId: string
 }
 
 const readJson = <Value>(filePath: string): Value =>
@@ -321,11 +327,11 @@ const installExternalHiddenPolicy = async(
   }
 }
 
-const launchHiddenUpstreamApplication = async(
+const launchRenderActiveUpstreamApplication = async(
   appBundle: string,
   profile: string,
   bootstrapFile: string
-): Promise<HiddenUpstreamApplication> => {
+): Promise<RenderActiveUpstreamApplication> => {
   const browserPort = await reserveTcpPort()
   const inspectorPort = await reserveTcpPort()
   const launcher = spawn('/usr/bin/open', [
@@ -365,10 +371,19 @@ const launchHiddenUpstreamApplication = async(
       .toBeGreaterThan(0)
     const page = context.pages()[0]
     if (page === undefined) throw new Error('Upstream renderer page is missing')
+    const targetId = await resolveExactElectronPageTargetId(page)
+    await activateUpstreamPerformanceWindow(inspector, targetId)
     await page.waitForLoadState('domcontentloaded')
     await waitForEditor(page, 60_000)
     const processId = processIdForProfile(appBundle, profile)
-    return Object.freeze({ browser, page, processId, launcher, inspector })
+    return Object.freeze({
+      browser,
+      page,
+      processId,
+      launcher,
+      inspector,
+      targetId
+    })
   } catch (error) {
     inspector?.close()
     launcher.kill('SIGTERM')
@@ -376,17 +391,22 @@ const launchHiddenUpstreamApplication = async(
   }
 }
 
-const expectHiddenUnfocused = (processId: number): void => {
-  const visible = execFileSync('/usr/bin/osascript', [
-    '-e',
-    `tell application "System Events" to get visible of first process whose unix id is ${String(processId)}`
-  ], { encoding: 'utf8' }).trim()
-  expect(visible).toBe('false')
-  expect(frontmostApplicationProcessId()).not.toBe(processId)
+const expectRenderActiveInactive = async(
+  application: RenderActiveUpstreamApplication,
+  includeWindowServerEvidence = false
+): Promise<void> => {
+  const state = await inspectUpstreamPerformanceWindow(
+    application.inspector,
+    application.targetId
+  )
+  expect(frontmostApplicationProcessId()).not.toBe(application.processId)
+  if (includeWindowServerEvidence) {
+    assertMacWindowServerPresentation(application.processId, state)
+  }
 }
 
-const closeHiddenUpstreamApplication = async(
-  application: HiddenUpstreamApplication
+const closeRenderActiveUpstreamApplication = async(
+  application: RenderActiveUpstreamApplication
 ): Promise<void> => {
   const isRunning = (processId: number): boolean => {
     try {
@@ -399,25 +419,36 @@ const closeHiddenUpstreamApplication = async(
       throw error
     }
   }
-  application.inspector.close()
-  await closeUpstreamPerformanceApplication({
-    closeBrowser: () => application.browser.close(),
-    processId: application.processId,
-    launcher: application.launcher
-  }, {
-    terminate: processId => {
-      try {
-        process.kill(processId, 'SIGTERM')
-      } catch (error) {
-        if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) {
-          throw error
+  let lifecycleFailure: unknown
+  try {
+    await closeUpstreamPerformanceWindow(
+      application.inspector,
+      application.targetId
+    )
+  } catch (error) {
+    lifecycleFailure = error
+  } finally {
+    application.inspector.close()
+    await closeUpstreamPerformanceApplication({
+      closeBrowser: () => application.browser.close(),
+      processId: application.processId,
+      launcher: application.launcher
+    }, {
+      terminate: processId => {
+        try {
+          process.kill(processId, 'SIGTERM')
+        } catch (error) {
+          if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) {
+            throw error
+          }
         }
-      }
-    },
-    isRunning,
-    sleep: () => new Promise(resolve => setTimeout(resolve, 50)),
-    now: Date.now
-  })
+      },
+      isRunning,
+      sleep: () => new Promise(resolve => setTimeout(resolve, 50)),
+      now: Date.now
+    })
+  }
+  if (lifecycleFailure !== undefined) throw lifecycleFailure
 }
 
 const waitForEditableViewport = async(
@@ -550,31 +581,30 @@ test.describe('pinned upstream baseline raw performance producer', () => {
         const bootstrapFile = sampleFiles[0]
         if (bootstrapFile === undefined) throw new Error('Bootstrap sample is missing')
         const profile = path.join(runRoot, `profile-${document.id}`)
-        const app = await launchHiddenUpstreamApplication(
+        const app = await launchRenderActiveUpstreamApplication(
           appBundle,
           profile,
           bootstrapFile
         )
         try {
           const { page } = app
-          const capturePage = await bindExactElectronPageCapture(
-            page,
-            targetId => captureUpstreamElectronHiddenPage(
-              app.inspector,
-              targetId
-            )
+          const capturePage = () => captureUpstreamElectronHiddenPage(
+            app.inspector,
+            app.targetId
           )
-          expectHiddenUnfocused(app.processId)
+          await expectRenderActiveInactive(app, true)
           expect(await page.evaluate(() =>
             (window as Window & { __marktextDocumentCore?: unknown })
               .__marktextDocumentCore)).toBeUndefined()
           await closeActiveTab(page)
 
           for (let index = 1; index < sampleFiles.length; index += 1) {
+            await expectRenderActiveInactive(app)
             const filePath = sampleFiles[index]
             if (filePath === undefined) throw new Error('Sample path is missing')
             const opened = await openSample(page, filePath)
             const edit = await measureInput(page, capturePage)
+            await expectRenderActiveInactive(app)
             samples.push(Object.freeze({
               documentId: document.id,
               phase: index <= sampling.warmupSamples ? 'warmup' : 'measured',
@@ -589,13 +619,14 @@ test.describe('pinned upstream baseline raw performance producer', () => {
               `[${String(completed)}/${String(totalSamples)}] ` +
               `${document.id} ${index <= sampling.warmupSamples
                 ? 'warmup'
-                : 'measured'} ${String(index)} external-browser-compositor-v3\n`
+                : 'measured'} ${String(index)} external-browser-compositor-v4\n`
             )
             await closeActiveTab(page)
+            await expectRenderActiveInactive(app)
           }
-          expectHiddenUnfocused(app.processId)
+          await expectRenderActiveInactive(app, true)
         } finally {
-          await closeHiddenUpstreamApplication(app)
+          await closeRenderActiveUpstreamApplication(app)
         }
       }
 
@@ -631,10 +662,11 @@ test.describe('pinned upstream baseline raw performance producer', () => {
           producerSha256: requiredValue('MARKTEXT_UPSTREAM_PRODUCER_SHA256'),
           probeSha256: requiredValue('MARKTEXT_UPSTREAM_PROBE_SHA256'),
           launcherSha256: requiredValue('MARKTEXT_UPSTREAM_LAUNCHER_SHA256'),
-          measurementBoundary: 'external-browser-compositor-v3',
+          measurementBoundary: 'external-browser-compositor-v4',
           presentationBoundary: PERFORMANCE_PRESENTATION_BOUNDARY,
-          launchBoundary: 'external-inspector-hidden-cdp-v1',
-          windowVisibility: 'hidden-unfocused',
+          launchBoundary: 'external-inspector-transparent-render-active-v2',
+          windowPresentationPolicy: PERFORMANCE_WINDOW_PRESENTATION_POLICY,
+          windowPresentationPlatform: 'darwin',
           chromiumSchedulingPolicy: PERFORMANCE_CHROMIUM_SCHEDULING_POLICY
         },
         samples
