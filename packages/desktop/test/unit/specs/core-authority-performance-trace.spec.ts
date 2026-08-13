@@ -18,7 +18,9 @@ describe('Core authority performance trace', () => {
     now = 14
     trace.record('open-ack', 'document.md')
     now = 18
-    trace.record('first-editable-viewport', 'document.md')
+    trace.record('first-editable-viewport', 'document.md', {
+      surface: 'wysiwyg'
+    })
     now = 20
     trace.record('dispatch', 'document.md', {
       transaction: 1,
@@ -35,7 +37,12 @@ describe('Core authority performance trace', () => {
     expect(trace.events()).toEqual<readonly CoreAuthorityPerformanceEvent[]>([
       { phase: 'open-request', documentId: 'document.md', at: 10 },
       { phase: 'open-ack', documentId: 'document.md', at: 14 },
-      { phase: 'first-editable-viewport', documentId: 'document.md', at: 18 },
+      {
+        phase: 'first-editable-viewport',
+        surface: 'wysiwyg',
+        documentId: 'document.md',
+        at: 18
+      },
       {
         phase: 'dispatch',
         documentId: 'document.md',

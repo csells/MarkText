@@ -1,6 +1,9 @@
 import type {
   CoreAuthorityPerformanceEvent
 } from '../../../src/renderer/src/documentAuthority/coreAuthorityPerformanceTrace'
+import type {
+  CoreAuthorityPerformanceSurface
+} from './coreAuthorityPerformanceRawRun'
 
 export interface CoreAuthorityInputEvent {
   readonly sequence: number
@@ -18,6 +21,7 @@ export interface CoreAuthorityPerformanceReport {
 }
 
 export function reportCoreAuthorityPerformance(input: Readonly<{
+  readonly surface: CoreAuthorityPerformanceSurface
   readonly inputEvents: readonly CoreAuthorityInputEvent[]
   readonly authorityEvents: readonly CoreAuthorityPerformanceEvent[]
 }>): CoreAuthorityPerformanceReport {
@@ -36,7 +40,15 @@ export function reportCoreAuthorityPerformance(input: Readonly<{
   }
   const openRequest = singleton('open-request')
   const openAcknowledgement = singleton('open-ack')
-  const firstViewport = singleton('first-editable-viewport')
+  const viewportEvents = input.authorityEvents.filter(event =>
+    event.phase === 'first-editable-viewport' && event.surface === input.surface
+  )
+  if (viewportEvents.length !== 1) {
+    throw new Error(
+      'Core authority performance first-editable-viewport is missing or duplicate'
+    )
+  }
+  const firstViewport = viewportEvents[0]!.at
   if (openRequest > openAcknowledgement || openAcknowledgement > firstViewport) {
     throw new Error('Core authority open timestamp order is invalid')
   }

@@ -11,7 +11,12 @@ type CoreAuthorityPerformanceTransactionFact = Readonly<{
 }>
 
 export type CoreAuthorityPerformanceEvent = Readonly<{
-  readonly phase: 'open-request' | 'open-ack' | 'first-editable-viewport'
+  readonly phase: 'open-request' | 'open-ack'
+  readonly documentId: string
+  readonly at: number
+}> | Readonly<{
+  readonly phase: 'first-editable-viewport'
+  readonly surface: 'wysiwyg' | 'source'
   readonly documentId: string
   readonly at: number
 }> | Readonly<{
@@ -35,8 +40,13 @@ export type CoreAuthorityPerformanceEvent = Readonly<{
 
 export interface CoreAuthorityPerformanceTrace {
   record(
-    phase: 'open-request' | 'open-ack' | 'first-editable-viewport',
+    phase: 'open-request' | 'open-ack',
     documentId: string
+  ): void
+  record(
+    phase: 'first-editable-viewport',
+    documentId: string,
+    fact: Readonly<{ readonly surface: 'wysiwyg' | 'source' }>
   ): void
   capture(event: CoreAuthorityPerformanceEvent): void
   record(
@@ -92,9 +102,13 @@ export function createCoreAuthorityPerformanceTrace(options: Readonly<{
       !Number.isFinite(event.at) || event.at < 0
     ) return
     if (
-      event.phase === 'open-request' || event.phase === 'open-ack' ||
-      event.phase === 'first-editable-viewport'
+      event.phase === 'open-request' || event.phase === 'open-ack'
     ) {
+      recorded.push(Object.freeze({ ...event }))
+      return
+    }
+    if (event.phase === 'first-editable-viewport') {
+      if (event.surface !== 'wysiwyg' && event.surface !== 'source') return
       recorded.push(Object.freeze({ ...event }))
       return
     }
@@ -115,16 +129,21 @@ export function createCoreAuthorityPerformanceTrace(options: Readonly<{
     fact?: CoreAuthorityPerformanceTransactionFact & Readonly<{
       readonly pendingDepth?: number
       readonly corrected?: boolean
+      readonly surface?: 'wysiwyg' | 'source'
     }>
   ): void => {
     if (recorded.length >= maximumEvents || documentId.length === 0) return
     const at = clock()
     if (!Number.isFinite(at) || at < 0) return
     if (
-      phase === 'open-request' || phase === 'open-ack' ||
-      phase === 'first-editable-viewport'
+      phase === 'open-request' || phase === 'open-ack'
     ) {
       capture(Object.freeze({ phase, documentId, at }))
+      return
+    }
+    if (phase === 'first-editable-viewport') {
+      if (fact?.surface !== 'wysiwyg' && fact?.surface !== 'source') return
+      capture(Object.freeze({ phase, documentId, surface: fact.surface, at }))
       return
     }
     if (!Number.isSafeInteger(fact?.transaction) || fact!.transaction < 1) return
