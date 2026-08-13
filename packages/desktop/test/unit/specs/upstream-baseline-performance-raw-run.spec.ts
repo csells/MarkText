@@ -48,7 +48,13 @@ const input = (
     packageVersion: '0.20.0-dev',
     packageManager: 'pnpm@10.33.4',
     nodeVersion: 'v22.20.0',
+    playwrightVersion: '1.61.0',
+    lockfileSha256: 'd'.repeat(64),
+    producerSha256: 'e'.repeat(64),
+    probeSha256: 'f'.repeat(64),
+    launcherSha256: '1'.repeat(64),
     measurementBoundary: 'external-browser-dom-v1' as const,
+    launchBoundary: 'external-inspector-hidden-cdp-v1' as const,
     windowVisibility: 'hidden-unfocused' as const
   },
   samples: [
@@ -75,7 +81,12 @@ describe('upstream baseline raw performance producer', () => {
       provenance: {
         detachedWorktreeHead: PINNED_BASELINE,
         detachedWorktreeClean: true,
+        lockfileSha256: 'd'.repeat(64),
+        producerSha256: 'e'.repeat(64),
+        probeSha256: 'f'.repeat(64),
+        launcherSha256: '1'.repeat(64),
         measurementBoundary: 'external-browser-dom-v1',
+        launchBoundary: 'external-inspector-hidden-cdp-v1',
         windowVisibility: 'hidden-unfocused'
       },
       metricDefinitions: {
@@ -110,11 +121,20 @@ describe('upstream baseline raw performance producer', () => {
       ...input('smoke-non-ratifying', 1, 2),
       buildCommit: 'd'.repeat(40)
     })).toThrow(/build commit.*pinned baseline/i)
+    expect(() => createUpstreamBaselinePerformanceRawRun({
+      ...input('smoke-non-ratifying', 1, 2),
+      provenance: {
+        ...input('smoke-non-ratifying', 1, 2).provenance,
+        launcherSha256: 'not-a-digest'
+      }
+    })).toThrow(/launcher digest/i)
 
     const invalid = input('smoke-non-ratifying', 1, 2)
+    const invalidSample = invalid.samples[0]
+    if (invalidSample === undefined) throw new Error('Synthetic sample is missing')
     invalid.samples[0] = {
-      ...invalid.samples[0]!,
-      report: { ...invalid.samples[0]!.report, t_reconcile: 0 }
+      ...invalidSample,
+      report: { ...invalidSample.report, t_reconcile: 0 }
     }
     expect(() => createUpstreamBaselinePerformanceRawRun(invalid))
       .toThrow(/timing order/i)
