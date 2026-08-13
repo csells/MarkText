@@ -244,7 +244,8 @@ const withGitAuthenticatedUpstreamRun = (
       'upstream raw-run helper\n',
       'upstream environment helper\n',
       'upstream playwright config\n',
-      'upstream hidden-policy helper\n'
+      'upstream hidden-policy helper\n',
+      'upstream lifecycle-cleanup helper\n'
     ] as const
     const probeSource = 'upstream input probe\n'
     const launcherSource = '#!/bin/sh\necho launch\n'
@@ -257,6 +258,7 @@ const withGitAuthenticatedUpstreamRun = (
     write(`${prefix}helpers/upstreamBaselineEnvironment.ts`, producerSources[2])
     write(`${prefix}playwright.upstream-baseline-performance.config.ts`, producerSources[3])
     write(`${prefix}helpers/upstreamBaselineHiddenPolicy.ts`, producerSources[4])
+    write(`${prefix}helpers/upstreamBaselineLifecycleCleanup.ts`, producerSources[5])
     write(`${prefix}helpers/upstreamBaselineInputProbe.ts`, probeSource)
     write(`${prefix}run-upstream-baseline-performance.sh`, launcherSource)
     write(`${prefix}helpers/upstreamBaselinePerformanceRunner.sh`, launcherHelperSource)
