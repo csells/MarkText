@@ -15,7 +15,7 @@ import {
   CORE_PERFORMANCE_PRODUCER_PATHS,
   type CriticMarkupPerformanceMeasurementManifest,
   type CriticMarkupRawPerformanceRun,
-  type CriticMarkupUpstreamRawPerformanceRunV5,
+  type CriticMarkupUpstreamRawPerformanceRunV6,
   UPSTREAM_PERFORMANCE_PRODUCER_PATHS,
   requireCriticMarkupPerformanceEvidenceForRatification,
   validateCriticMarkupPerformanceMeasurements
@@ -64,7 +64,7 @@ const authenticatedCoreProvenance = {
   measurementBoundary: 'core-authority-browser-compositor-v6',
   presentationBoundary: 'electron-webcontents-capture-page-transparent-v2',
   launchBoundary: 'playwright-electron-packaged-transparent-v3',
-  windowPresentationPolicy: 'transparent-render-active-inactive-v2',
+  windowPresentationPolicy: 'transparent-render-active-inactive-v3',
   windowPresentationPlatform: 'darwin',
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
 } as const
@@ -86,7 +86,7 @@ const authenticatedUpstreamProvenance = {
   measurementBoundary: 'external-browser-compositor-v4',
   presentationBoundary: 'electron-webcontents-capture-page-transparent-v2',
   launchBoundary: 'external-inspector-transparent-render-active-v3',
-  windowPresentationPolicy: 'transparent-render-active-inactive-v2',
+  windowPresentationPolicy: 'transparent-render-active-inactive-v3',
   windowPresentationPlatform: 'darwin',
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
 } as const
@@ -123,8 +123,8 @@ const rawRun = (
   implementation: 'upstream-baseline' | 'core-candidate'
 ): CriticMarkupRawPerformanceRun => ({
   schema: implementation === 'core-candidate'
-    ? 'marktext-criticmarkup-raw-performance-run-v7'
-    : 'marktext-criticmarkup-raw-performance-run-v5',
+    ? 'marktext-criticmarkup-raw-performance-run-v8'
+    : 'marktext-criticmarkup-raw-performance-run-v6',
   runId: `${implementation}-synthetic-validator-fixture`,
   implementation,
   ...(implementation === 'core-candidate'
@@ -287,7 +287,7 @@ const withGitAuthenticatedUpstreamRun = (
     ).trim()
     const upstream = structuredClone(
       rawRun('upstream-baseline')
-    ) as CriticMarkupUpstreamRawPerformanceRunV5
+    ) as CriticMarkupUpstreamRawPerformanceRunV6
     upstream.baselineCommit = harnessCommit
     upstream.buildCommit = harnessCommit
     upstream.provenance = {
@@ -580,7 +580,7 @@ describe('CriticMarkup raw performance evidence', () => {
     ],
     [
       'windowPresentationPolicy',
-      'transparent-render-active-inactive-v1',
+      'transparent-render-active-inactive-v2',
       /window presentation policy/i
     ],
     ['windowPresentationPlatform', 'linux', /window presentation platform/i]
@@ -607,7 +607,7 @@ describe('CriticMarkup raw performance evidence', () => {
     })
   })
 
-  it('rejects Core v7 evidence without exact per-document authority metadata', () => {
+  it('rejects Core v8 evidence without exact per-document authority metadata', () => {
     withSyntheticRuns((root, measured) => {
       const coreRef = measured.runs.find(run => run.implementation === 'core-candidate')
       if (coreRef === undefined) throw new Error('Synthetic Core run is missing')
@@ -625,7 +625,7 @@ describe('CriticMarkup raw performance evidence', () => {
     })
   })
 
-  it('rejects Core v7 evidence without authenticated build provenance', () => {
+  it('rejects Core v8 evidence without authenticated build provenance', () => {
     withSyntheticRuns((root, measured) => {
       const coreRef = measured.runs.find(run => run.implementation === 'core-candidate')
       if (coreRef === undefined) throw new Error('Synthetic Core run is missing')
@@ -654,7 +654,7 @@ describe('CriticMarkup raw performance evidence', () => {
     ],
     [
       'windowPresentationPolicy',
-      'transparent-render-active-inactive-v1',
+      'transparent-render-active-inactive-v2',
       /window presentation policy/i
     ],
     ['windowPresentationPlatform', 'linux', /window presentation platform/i],
