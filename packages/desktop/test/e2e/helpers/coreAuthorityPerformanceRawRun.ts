@@ -2,7 +2,8 @@ import type {
   CoreAuthorityPerformanceReport
 } from './coreAuthorityPerformanceReport'
 import {
-  PERFORMANCE_CHROMIUM_SCHEDULING_POLICY
+  PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
+  PERFORMANCE_WINDOW_PRESENTATION_POLICY
 } from './performanceChromiumLaunchPolicy'
 import {
   PERFORMANCE_PRESENTATION_BOUNDARY
@@ -47,10 +48,11 @@ export interface CoreAuthorityPerformanceBuildProvenance {
   readonly producerSha256: string
   readonly probeSha256: string
   readonly launcherSha256: string
-  readonly measurementBoundary: 'core-authority-browser-compositor-v5'
+  readonly measurementBoundary: 'core-authority-browser-compositor-v6'
   readonly presentationBoundary: typeof PERFORMANCE_PRESENTATION_BOUNDARY
-  readonly launchBoundary: 'playwright-electron-packaged-v1'
-  readonly windowVisibility: 'hidden-unfocused'
+  readonly launchBoundary: 'playwright-electron-packaged-transparent-v2'
+  readonly windowPresentationPolicy: typeof PERFORMANCE_WINDOW_PRESENTATION_POLICY
+  readonly windowPresentationPlatform: 'darwin'
   readonly chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
 }
 
@@ -169,18 +171,29 @@ export function createCoreAuthorityPerformanceRawRun(
   requireNonEmpty(input.provenance.playwrightVersion, 'Raw performance Playwright version')
   if (
     input.provenance.measurementBoundary !==
-      'core-authority-browser-compositor-v5'
+      'core-authority-browser-compositor-v6'
   ) {
     throw new Error('Raw performance measurement boundary provenance is invalid')
   }
   if (input.provenance.presentationBoundary !== PERFORMANCE_PRESENTATION_BOUNDARY) {
     throw new Error('Raw performance presentation boundary provenance is invalid')
   }
-  if (input.provenance.launchBoundary !== 'playwright-electron-packaged-v1') {
+  if (
+    input.provenance.launchBoundary !==
+      'playwright-electron-packaged-transparent-v2'
+  ) {
     throw new Error('Raw performance launch boundary provenance is invalid')
   }
-  if (input.provenance.windowVisibility !== 'hidden-unfocused') {
-    throw new Error('Raw performance window visibility provenance is invalid')
+  if (
+    input.provenance.windowPresentationPolicy !==
+      PERFORMANCE_WINDOW_PRESENTATION_POLICY
+  ) {
+    throw new Error('Raw performance window presentation provenance is invalid')
+  }
+  if (input.provenance.windowPresentationPlatform !== 'darwin') {
+    throw new Error(
+      'Raw performance window presentation platform provenance is invalid'
+    )
   }
   if (
     input.provenance.chromiumSchedulingPolicy !==
@@ -348,11 +361,11 @@ export function createCoreAuthorityPerformanceRawRun(
   })
   return input.evidenceClass === 'ratification'
     ? Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-run-v5' as const,
+      schema: 'marktext-criticmarkup-raw-performance-run-v6' as const,
       ...base
     })
     : Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v5' as const,
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v6' as const,
       evidenceClass: 'smoke-non-ratifying' as const,
       ...base
     })

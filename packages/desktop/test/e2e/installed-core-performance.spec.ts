@@ -15,8 +15,13 @@ import {
 import type { CoreAuthorityPerformanceSurface } from './helpers/coreAuthorityPerformanceRawRun'
 import { reportCoreAuthorityPerformance } from './helpers/coreAuthorityPerformanceReport'
 import {
+  activateInstalledPerformanceWindow,
+  assertMacWindowServerPresentation,
+  closeInstalledPerformanceWindow,
   firstWindowWithPerformanceScheduling,
+  inspectInstalledPerformanceWindow,
   PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
+  PERFORMANCE_WINDOW_PRESENTATION_POLICY,
   withPerformanceChromiumScheduling
 } from './helpers/performanceChromiumLaunchPolicy'
 import {
@@ -30,14 +35,13 @@ import {
   waitForInputLatencyEcho
 } from './helpers/inputLatencyTrace'
 import {
-  bindExactElectronPageCapture,
   captureInstalledElectronHiddenPage,
   PERFORMANCE_PRESENTATION_BOUNDARY,
+  resolveExactElectronPageTargetId,
   type PerformanceHiddenPageCapture
 } from './helpers/performancePresentationCheckpoint'
 import {
   expectEditorNotFrontmost,
-  expectEditorWindowHidden,
   enterSourceMode,
   waitForEditor,
   waitForMenuReady
@@ -448,24 +452,41 @@ test.describe('installed Core authority raw performance producer', () => {
           },
           timeout: 60_000
         })
+        const applicationProcessId = app.process().pid
+        if (applicationProcessId === undefined) {
+          throw new Error('Installed performance process ID is unavailable')
+        }
+        let performanceTargetId: string | undefined
         try {
           const page = await firstWindowWithPerformanceScheduling(app)
+          const targetId = await resolveExactElectronPageTargetId(page)
+          performanceTargetId = targetId
+          await activateInstalledPerformanceWindow(app, targetId)
           await page.waitForLoadState('domcontentloaded')
           await waitForEditor(page, 60_000)
           await waitForMenuReady(app, 60_000)
           await expectInstalledArtifactCommit(page)
-          await expectEditorWindowHidden(app)
+          const initialWindowState = await inspectInstalledPerformanceWindow(
+            app,
+            targetId
+          )
           expectEditorNotFrontmost(app)
+          assertMacWindowServerPresentation(
+            applicationProcessId,
+            initialWindowState
+          )
           expect(await page.evaluate(() =>
             window.electron.process.env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
           )).toBeUndefined()
-          const capturePage = await bindExactElectronPageCapture(
-            page,
-            targetId => captureInstalledElectronHiddenPage(app, targetId)
+          const capturePage = () => captureInstalledElectronHiddenPage(
+            app,
+            targetId
           )
           await closeActiveTab(page)
 
           for (let index = 1; index < sampleFiles.length; index += 1) {
+            await inspectInstalledPerformanceWindow(app, targetId)
+            expectEditorNotFrontmost(app)
             const filePath = sampleFiles[index]!
             const opened = await openSample(app, page, filePath)
             const measurement = await measureSample(
@@ -474,6 +495,8 @@ test.describe('installed Core authority raw performance producer', () => {
               capturePage,
               opened
             )
+            await inspectInstalledPerformanceWindow(app, targetId)
+            expectEditorNotFrontmost(app)
             const sampleIndex = index - 1
             samples.push(Object.freeze({
               documentId: document.id,
@@ -492,9 +515,26 @@ test.describe('installed Core authority raw performance producer', () => {
               `${measurement.surface}\n`
             )
             await closeActiveTab(page)
+            await inspectInstalledPerformanceWindow(app, targetId)
+            expectEditorNotFrontmost(app)
           }
+          const finalWindowState = await inspectInstalledPerformanceWindow(
+            app,
+            targetId
+          )
+          expectEditorNotFrontmost(app)
+          assertMacWindowServerPresentation(
+            applicationProcessId,
+            finalWindowState
+          )
         } finally {
-          await app.close()
+          try {
+            if (performanceTargetId !== undefined) {
+              await closeInstalledPerformanceWindow(app, performanceTargetId)
+            }
+          } finally {
+            await app.close()
+          }
         }
       }
 
@@ -523,10 +563,11 @@ test.describe('installed Core authority raw performance producer', () => {
           producerSha256: requiredValue('MARKTEXT_CORE_PRODUCER_SHA256'),
           probeSha256: requiredValue('MARKTEXT_CORE_PROBE_SHA256'),
           launcherSha256: requiredValue('MARKTEXT_CORE_LAUNCHER_SHA256'),
-          measurementBoundary: 'core-authority-browser-compositor-v5',
+          measurementBoundary: 'core-authority-browser-compositor-v6',
           presentationBoundary: PERFORMANCE_PRESENTATION_BOUNDARY,
-          launchBoundary: 'playwright-electron-packaged-v1',
-          windowVisibility: 'hidden-unfocused',
+          launchBoundary: 'playwright-electron-packaged-transparent-v2',
+          windowPresentationPolicy: PERFORMANCE_WINDOW_PRESENTATION_POLICY,
+          windowPresentationPlatform: 'darwin',
           chromiumSchedulingPolicy: PERFORMANCE_CHROMIUM_SCHEDULING_POLICY
         },
         documents: representatives.documents.map(document => ({
