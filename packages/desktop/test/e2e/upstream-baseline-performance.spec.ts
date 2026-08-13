@@ -34,6 +34,9 @@ import {
   withPerformanceChromiumScheduling
 } from './helpers/performanceChromiumLaunchPolicy'
 import {
+  PERFORMANCE_PRESENTATION_BOUNDARY
+} from './helpers/performancePresentationCheckpoint'
+import {
   placeCaretInEditor,
   waitForEditor
 } from './helpers'
@@ -444,7 +447,7 @@ const measureInput = async(
   page: Page
 ): Promise<Readonly<{
   readonly t_echo: number
-  readonly t_frame: number
+  readonly t_present: number
 }>> => {
   await placeCaretInEditor(page)
   await startUpstreamBaselineInputProbe(page)
@@ -562,7 +565,7 @@ test.describe('pinned upstream baseline raw performance producer', () => {
               `[${String(completed)}/${String(totalSamples)}] ` +
               `${document.id} ${index <= sampling.warmupSamples
                 ? 'warmup'
-                : 'measured'} ${String(index)} external-browser-dom-v1\n`
+                : 'measured'} ${String(index)} external-browser-compositor-v2\n`
             )
             await closeActiveTab(page)
           }
@@ -604,7 +607,8 @@ test.describe('pinned upstream baseline raw performance producer', () => {
           producerSha256: requiredValue('MARKTEXT_UPSTREAM_PRODUCER_SHA256'),
           probeSha256: requiredValue('MARKTEXT_UPSTREAM_PROBE_SHA256'),
           launcherSha256: requiredValue('MARKTEXT_UPSTREAM_LAUNCHER_SHA256'),
-          measurementBoundary: 'external-browser-dom-v1',
+          measurementBoundary: 'external-browser-compositor-v2',
+          presentationBoundary: PERFORMANCE_PRESENTATION_BOUNDARY,
           launchBoundary: 'external-inspector-hidden-cdp-v1',
           windowVisibility: 'hidden-unfocused',
           chromiumSchedulingPolicy: PERFORMANCE_CHROMIUM_SCHEDULING_POLICY

@@ -44,7 +44,7 @@ The spike records these timestamps and counters for each input transaction:
 - dispatch to the engine (`t_dispatch`);
 - authoritative acknowledgement (`t_ack`);
 - reconciliation complete (`t_reconcile`);
-- the next rendered frame (`t_frame`);
+- one external Chromium compositor-surface capture after the exact acknowledged view checkpoint, followed immediately by retained-checkpoint validation (`t_present`); this is an upper bound and not physical display, vsync, or next-frame time;
 - pending-input depth, correction count, and source/view checksums.
 
 The minimum scenario set is ordinary prose typing, a burst with no artificial delay, IME composition,
@@ -53,9 +53,11 @@ after input. Open and first-editable-viewport timing use the representative docu
 plan 0010.
 
 Numeric acknowledgement and open targets remain intentionally unset until the upstream shell and
-the two bounded Phase 1A candidates have been measured on the same recorded hardware. The product
-criterion is already fixed: ordinary input is visible by the next rendered frame at p95, with no
-sustained queue growth or routine corrective paint.
+the two bounded Phase 1A candidates have been measured on the same recorded hardware. The
+ordinary-input exact DOM-echo criterion is fixed. The hidden compositor-surface capture target
+remains calibration-required until comparable upstream and Core distributions support a frozen
+positive p95 target; it does not claim physical visibility. Sustained queue growth and routine
+corrective paint remain disallowed.
 
 ## Execution record
 
