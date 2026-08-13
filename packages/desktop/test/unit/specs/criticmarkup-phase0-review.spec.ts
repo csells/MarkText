@@ -290,6 +290,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-superscript-production-surfaces.spec.ts#routes registered Superscript command and Format menu surface through the renderer format-action channel',
       'phase0.item.0ea03df77040817824e2a636':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-hyperlink-production-surfaces.spec.ts#routes registered Hyperlink command and Format menu surface through the renderer format-action channel',
+      'phase0.item.117f9c6207e3742be266b4a4':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-clear-format-production-surfaces.spec.ts#routes registered Clear Format command and Format menu surface through the renderer format-action channel',
       'phase0.item.160937548f3fa957d900f04b':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-navigation-production-surfaces.spec.ts#routes registered Find Next and Find Previous command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.2e64fc29fc59f5b4a906ea56':
@@ -378,6 +380,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes Edit menu Copy as Rich and Copy as HTML entries to the editor',
       'phase0.item.b9a01f70d274b7ff1480da76':
         'named-production-path-test: packages/desktop/test/unit/specs/flush-before-save.spec.ts#waits for Core authority and saves its acknowledged source instead of Pinia',
+      'phase0.item.c8a0caaadc6be3cf5bcd988e':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-clear-format-production-surfaces.spec.ts#routes registered Clear Format command and Format menu surface through the renderer format-action channel',
       'phase0.item.cff33de8534ca261ad97a843':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-create-paragraph-production-surfaces.spec.ts#routes registered Create Paragraph command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.cc96e4605186ca739bb0a3e1':
@@ -413,7 +417,7 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     })
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('required-new-production-path-test:')
-    ))).toHaveLength(302)
+    ))).toHaveLength(300)
     expect(() => validateCriticMarkupParityDispositions(
       parityBaseline,
       materialized.parityOverlay,
