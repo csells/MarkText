@@ -17,6 +17,7 @@ export interface InputLatencySample {
   readonly tFrame?: number
   readonly expectedDomCheckpoint: InputDomCheckpoint
   readonly echoDomCheckpoint?: InputDomCheckpoint
+  readonly frameDomCheckpoint?: InputDomCheckpoint
 }
 
 export interface InputLatencyTraceOptions {
@@ -39,6 +40,7 @@ interface MutableInputLatencySample {
   tFrame?: number
   expectedDomCheckpoint: InputDomCheckpoint
   echoDomCheckpoint?: InputDomCheckpoint
+  frameDomCheckpoint?: InputDomCheckpoint
   expectedText?: string
   observedElement: Element
   targetIndex: number
@@ -181,12 +183,28 @@ export const startInputLatencyTrace = async(
         if (
           current !== undefined &&
           sample.expectedText !== undefined &&
-          current.text === sample.expectedText
+          current.text === sample.expectedText &&
+          sample.tEcho === undefined
         ) {
+          const exactText = sample.expectedText
           sample.tEcho = observedAt
           sample.echoDomCheckpoint = current.checkpoint
-          sample.expectedText = undefined
-        } else {
+          requestAnimationFrame(() => {
+            const frameTarget = editor
+              .querySelectorAll(targetSelector)
+              .item(sample.targetIndex)
+            const frameText = frameTarget?.textContent ?? ''
+            if (frameText !== exactText) return
+            sample.tFrame = performance.now()
+            sample.frameDomCheckpoint = checkpointFor(
+              sample.targetIndex,
+              frameText
+            )
+            sample.expectedText = undefined
+          })
+          pending[retained] = sample
+          retained += 1
+        } else if (sample.expectedText !== undefined) {
           pending[retained] = sample
           retained += 1
         }
@@ -275,10 +293,6 @@ export const startInputLatencyTrace = async(
       }
       samples.push(sample)
       pending.push(sample)
-      requestAnimationFrame(() => {
-        sample.tFrame = performance.now()
-      })
-
       if (samples.length >= capacity) {
         stopAccepting('capacity', true)
       }
@@ -347,7 +361,8 @@ export const readInputLatencyTrace = async(
       tEcho: sample.tEcho,
       tFrame: sample.tFrame,
       expectedDomCheckpoint: sample.expectedDomCheckpoint,
-      echoDomCheckpoint: sample.echoDomCheckpoint
+      echoDomCheckpoint: sample.echoDomCheckpoint,
+      frameDomCheckpoint: sample.frameDomCheckpoint
     }))
   })
 

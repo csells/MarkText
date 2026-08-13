@@ -43,6 +43,44 @@ const documents = JSON.parse(documentsSource) as {
   documents: Array<{ id: string, sha256: string }>
 }
 
+const authenticatedCoreProvenance = {
+  checkoutHead: 'a'.repeat(40),
+  checkoutClean: true,
+  harnessCommit: 'a'.repeat(40),
+  packageArtifactSha256: '1'.repeat(64),
+  executableSha256: '2'.repeat(64),
+  packageVersion: '0.17.0',
+  packageManager: 'pnpm@10.14.0',
+  nodeVersion: 'v22.18.0',
+  playwrightVersion: '1.61.0',
+  lockfileSha256: '3'.repeat(64),
+  producerSha256: '4'.repeat(64),
+  probeSha256: '5'.repeat(64),
+  launcherSha256: '6'.repeat(64),
+  measurementBoundary: 'core-authority-browser-external-v3',
+  launchBoundary: 'playwright-electron-packaged-v1',
+  windowVisibility: 'hidden-unfocused'
+} as const
+
+const authenticatedUpstreamProvenance = {
+  detachedWorktreeHead: manifest.baselineCommit,
+  detachedWorktreeClean: true,
+  harnessCommit: 'b'.repeat(40),
+  packageArtifactSha256: '1'.repeat(64),
+  executableSha256: '2'.repeat(64),
+  packageVersion: '0.17.0',
+  packageManager: 'pnpm@10.14.0',
+  nodeVersion: 'v22.18.0',
+  playwrightVersion: '1.61.0',
+  lockfileSha256: '3'.repeat(64),
+  producerSha256: '4'.repeat(64),
+  probeSha256: '5'.repeat(64),
+  launcherSha256: '6'.repeat(64),
+  measurementBoundary: 'external-browser-dom-v1',
+  launchBoundary: 'external-inspector-hidden-cdp-v1',
+  windowVisibility: 'hidden-unfocused'
+} as const
+
 const sha256 = (source: string): string => createHash('sha256')
   .update(source)
   .digest('hex')
@@ -53,19 +91,25 @@ const first = <Value>(values: Value[]): Value => {
   return value
 }
 
-const sampleRecord = (length: number, base: number) => ({
-  t_dispatch: Array.from({ length }, (_, index) => base + index / 1000),
-  t_ack: Array.from({ length }, (_, index) => base + 10 + index / 1000),
-  t_reconcile: Array.from({ length }, (_, index) => base + 20 + index / 1000),
+const commonSampleRecord = (length: number, base: number) => ({
+  t_echo: Array.from({ length }, (_, index) => base + index / 1000),
+  t_frame: Array.from({ length }, (_, index) => base + 10 + index / 1000),
   open: Array.from({ length }, (_, index) => base + 100 + index / 1000),
   first_viewport: Array.from({ length }, (_, index) => base + 200 + index / 1000)
+})
+
+const coreSampleRecord = (length: number, base: number) => ({
+  ...commonSampleRecord(length, base),
+  t_dispatch: Array.from({ length }, (_, index) => base + index / 1000),
+  t_ack: Array.from({ length }, (_, index) => base + 10 + index / 1000),
+  t_reconcile: Array.from({ length }, (_, index) => base + 20 + index / 1000)
 })
 
 const rawRun = (
   implementation: 'upstream-baseline' | 'core-candidate'
 ): CriticMarkupRawPerformanceRun => ({
   schema: implementation === 'core-candidate'
-    ? 'marktext-criticmarkup-raw-performance-run-v2'
+    ? 'marktext-criticmarkup-raw-performance-run-v3'
     : 'marktext-criticmarkup-raw-performance-run-v1',
   runId: `${implementation}-synthetic-validator-fixture`,
   implementation,
@@ -82,6 +126,17 @@ const rawRun = (
     warmupSamples: targets.sampling.warmupSamples,
     measuredSamples: targets.sampling.measuredSamples
   },
+  ...(implementation === 'core-candidate'
+    ? { provenance: authenticatedCoreProvenance }
+    : {
+      provenance: authenticatedUpstreamProvenance,
+      metricDefinitions: {
+        t_echo: 'Exact DOM echo from browser event.',
+        t_frame: 'Next stable animation frame.',
+        open: 'External open request to active tab.',
+        first_viewport: 'External open request to editable viewport.'
+      }
+    }),
   documents: documents.documents.map((document, documentIndex) => ({
     id: document.id,
     sourceSha256: document.sha256,
@@ -112,8 +167,12 @@ const rawRun = (
         }
       }
       : {}),
-    warmup: sampleRecord(targets.sampling.warmupSamples, documentIndex + 1),
-    measured: sampleRecord(targets.sampling.measuredSamples, documentIndex + 1)
+    warmup: implementation === 'core-candidate'
+      ? coreSampleRecord(targets.sampling.warmupSamples, documentIndex + 1)
+      : commonSampleRecord(targets.sampling.warmupSamples, documentIndex + 1),
+    measured: implementation === 'core-candidate'
+      ? coreSampleRecord(targets.sampling.measuredSamples, documentIndex + 1)
+      : commonSampleRecord(targets.sampling.measuredSamples, documentIndex + 1)
   }))
 } as unknown as CriticMarkupRawPerformanceRun)
 
@@ -160,13 +219,18 @@ describe('CriticMarkup raw performance evidence', () => {
     expect(manifest).toMatchObject({
       status: 'awaiting-raw-runs',
       runs: [],
-      requiredMetrics: [
-        't_dispatch',
-        't_ack',
-        't_reconcile',
-        'open',
-        'first_viewport'
-      ]
+      requiredMetrics: {
+        'upstream-baseline': ['t_echo', 't_frame', 'open', 'first_viewport'],
+        'core-candidate': [
+          't_echo',
+          't_dispatch',
+          't_ack',
+          't_reconcile',
+          't_frame',
+          'open',
+          'first_viewport'
+        ]
+      }
     })
     expect(() => validateCriticMarkupPerformanceMeasurements(repoRoot, manifest))
       .not.toThrow()
@@ -181,13 +245,13 @@ describe('CriticMarkup raw performance evidence', () => {
       expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
         .not.toThrow()
       const summary = requireCriticMarkupPerformanceEvidenceForRatification(root, measured)
-      expect(summary.rows).toHaveLength(50)
+      expect(summary.rows).toHaveLength(55)
       expect(first(summary.rows)).toMatchObject({
         runId: 'upstream-baseline-synthetic-validator-fixture',
         implementation: 'upstream-baseline',
         documentId: 'all-blocks',
-        metric: 't_dispatch',
-        targetP95Ms: 8,
+        metric: 't_echo',
+        targetP95Ms: 16.7,
         meetsTarget: true
       })
       expect(first(summary.rows).p95Ms).toBeCloseTo(1.189)
@@ -209,6 +273,48 @@ describe('CriticMarkup raw performance evidence', () => {
       coreRef.sha256 = sha256(source)
       expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
         .toThrow(/authority evidence/i)
+    })
+  })
+
+  it('rejects Core v2 evidence without authenticated build provenance', () => {
+    withSyntheticRuns((root, measured) => {
+      const coreRef = measured.runs.find(run => run.implementation === 'core-candidate')
+      if (coreRef === undefined) throw new Error('Synthetic Core run is missing')
+      const raw = JSON.parse(
+        readFileSync(resolve(root, coreRef.path), 'utf8')
+      ) as unknown as { provenance?: unknown }
+      delete raw.provenance
+      const source = `${JSON.stringify(raw, null, 2)}\n`
+      writeFileSync(resolve(root, coreRef.path), source)
+      coreRef.sha256 = sha256(source)
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .toThrow(/provenance/i)
+    })
+  })
+
+  it.each([
+    ['checkoutClean', false, /clean checkout/i],
+    ['checkoutHead', 'b'.repeat(40), /checkout head/i],
+    ['packageArtifactSha256', 'not-a-digest', /lowercase SHA-256/i],
+    ['measurementBoundary', 'legacy-core-timing', /measurement boundary/i],
+    ['windowVisibility', 'visible', /window visibility/i]
+  ] as const)('rejects unauthenticated Core %s provenance', (
+    field,
+    value,
+    message
+  ) => {
+    withSyntheticRuns((root, measured) => {
+      const coreRef = measured.runs.find(run => run.implementation === 'core-candidate')
+      if (coreRef === undefined) throw new Error('Synthetic Core run is missing')
+      const raw = JSON.parse(
+        readFileSync(resolve(root, coreRef.path), 'utf8')
+      ) as unknown as { provenance: Record<string, unknown> }
+      raw.provenance[field] = value
+      const source = `${JSON.stringify(raw, null, 2)}\n`
+      writeFileSync(resolve(root, coreRef.path), source)
+      coreRef.sha256 = sha256(source)
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .toThrow(message)
     })
   })
 
@@ -236,12 +342,22 @@ describe('CriticMarkup raw performance evidence', () => {
       const raw = JSON.parse(
         readFileSync(resolve(root, rawPath), 'utf8')
       ) as CriticMarkupRawPerformanceRun
-      first(raw.documents).measured.t_ack.pop()
+      first(raw.documents).measured.t_echo?.pop()
       const source = `${JSON.stringify(raw, null, 2)}\n`
       writeFileSync(resolve(root, rawPath), source)
       firstRun.sha256 = sha256(source)
       expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
-        .toThrow(/t_ack .*measured sample count must be 200/)
+        .toThrow(/t_echo .*measured sample count must be 200/)
+    })
+  })
+
+  it('requires exactly one raw run for each implementation', () => {
+    withSyntheticRuns((root, measured) => {
+      const duplicate = structuredClone(first(measured.runs))
+      duplicate.id = `${duplicate.id}-duplicate`
+      measured.runs.push(duplicate)
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .toThrow(/exactly one run for upstream-baseline/i)
     })
   })
 
