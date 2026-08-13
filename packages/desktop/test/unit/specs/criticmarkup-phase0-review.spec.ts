@@ -282,12 +282,16 @@ describe('CriticMarkup Phase 0 review proposal', () => {
       .map(row => [row.id, row.productionPathTest]))).toEqual({
       'phase0.item.0030c6e658a95827b05f3e99':
         'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
+      'phase0.item.0dc124b6c9a5fafc29d6a3e7':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-task-list-production-surfaces.spec.ts#routes registered Task List command and Paragraph menu surface through the renderer paragraph-action channel',
       'phase0.item.00966777ae933ce5d7bb44d9':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-delete-paragraph-production-surfaces.spec.ts#routes registered Delete Paragraph command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.031b864764d6a2c693d32752':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-replace-production-surfaces.spec.ts#routes registered Replace command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.0638d0ddbe6fd90a70040c16':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-superscript-production-surfaces.spec.ts#routes registered Superscript command and Format menu surface through the renderer format-action channel',
+      'phase0.item.08438adb7eca10e737d1b0cc':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-quote-block-production-surfaces.spec.ts#routes registered Quote Block command and Paragraph menu surface through the renderer paragraph-action channel',
       'phase0.item.0ea03df77040817824e2a636':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-hyperlink-production-surfaces.spec.ts#routes registered Hyperlink command and Format menu surface through the renderer format-action channel',
       'phase0.item.117f9c6207e3742be266b4a4':
@@ -302,6 +306,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-hyperlink-production-surfaces.spec.ts#routes registered Hyperlink command and Format menu surface through the renderer format-action channel',
       'phase0.item.397314c6348fc4ee45514620':
         'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
+      'phase0.item.3b0a8c667e97401b255c8159':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-code-fence-production-surfaces.spec.ts#routes registered Code Fence command and Paragraph menu surface through the renderer paragraph-action channel',
       'phase0.item.420fdfa5c193f0633abca434':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-native-copy-production-surfaces.spec.ts#routes registered Copy command and Edit menu surfaces through the Electron native copy runtime',
       'phase0.item.4ef010cbe4725cb0d16df008':
@@ -346,6 +352,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-cut-production-surfaces.spec.ts#routes registered Cut command and Edit menu surfaces through the Electron native cut runtime',
       'phase0.item.783cca6a91eab34cc239b0cb':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-superscript-production-surfaces.spec.ts#routes registered Superscript command and Format menu surface through the renderer format-action channel',
+      'phase0.item.802547d06b5147447bb1e3aa':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-quote-block-production-surfaces.spec.ts#routes registered Quote Block command and Paragraph menu surface through the renderer paragraph-action channel',
       'phase0.item.831628c66c7632b18ae126fd':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes registered Undo and Redo commands to the renderer edit-action channel',
       'phase0.item.84fbe7795c97058036d7c916':
@@ -374,6 +382,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-paste-production-surfaces.spec.ts#routes registered Paste command and Edit menu surfaces through the Electron native paste runtime',
       'phase0.item.9e5d6d94a3bc45defd8913a9':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-strikethrough-production-surfaces.spec.ts#routes registered Strike-through command and Format menu Strikethrough surface through the renderer format-action channel',
+      'phase0.item.a02a5319ea4d3a876f538622':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-task-list-production-surfaces.spec.ts#routes registered Task List command and Paragraph menu surface through the renderer paragraph-action channel',
       'phase0.item.a67f9710d62840c4950ffff5':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes registered Copy as Rich and Copy as HTML commands to the editor',
       'phase0.item.a70ae367e06aa43a2191dc2e':
@@ -390,6 +400,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-clear-format-production-surfaces.spec.ts#routes registered Clear Format command and Format menu surface through the renderer format-action channel',
       'phase0.item.cff33de8534ca261ad97a843':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-create-paragraph-production-surfaces.spec.ts#routes registered Create Paragraph command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.ca1601efc9e96edae53113c4':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-code-fence-production-surfaces.spec.ts#routes registered Code Fence command and Paragraph menu surface through the renderer paragraph-action channel',
       'phase0.item.cc96e4605186ca739bb0a3e1':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-image-format-production-surfaces.spec.ts#routes registered Image command and Format menu surface through the renderer format-action channel',
       'phase0.item.d2ee99917de52f08a9d7d9e8':
@@ -425,7 +437,7 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     })
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('required-new-production-path-test:')
-    ))).toHaveLength(296)
+    ))).toHaveLength(290)
     expect(() => validateCriticMarkupParityDispositions(
       parityBaseline,
       materialized.parityOverlay,
