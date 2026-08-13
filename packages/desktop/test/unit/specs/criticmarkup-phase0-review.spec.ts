@@ -280,16 +280,40 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     expect(Object.fromEntries(materialized.parityRows.rows
       .filter(row => row.productionPathTest.startsWith('named-production-path-test:'))
       .map(row => [row.id, row.productionPathTest]))).toEqual({
+      'phase0.item.0030c6e658a95827b05f3e99':
+        'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
+      'phase0.item.397314c6348fc4ee45514620':
+        'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
+      'phase0.item.49512fbea5ebc0a05d0e8023':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes Edit menu Undo and Redo through the renderer edit-action channel',
+      'phase0.item.5fdd30f820d652e48f5b4528':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes Edit menu Copy as Rich and Copy as HTML entries to the editor',
+      'phase0.item.6ef94e99e33b332cdce273ec':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes Edit menu Undo and Redo through the renderer edit-action channel',
+      'phase0.item.7b2afe2c3851e9bbb08c500d':
+        'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
+      'phase0.item.831628c66c7632b18ae126fd':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes registered Undo and Redo commands to the renderer edit-action channel',
       'phase0.item.82b57f93ae32b97bc090d680':
         'named-production-path-test: packages/desktop/test/unit/specs/file-change-content-check.spec.ts#does not compare disk bytes with stale Pinia while Core owns the document',
+      'phase0.item.a67f9710d62840c4950ffff5':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes registered Copy as Rich and Copy as HTML commands to the editor',
+      'phase0.item.b327952319820e0956248ea0':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes Edit menu Copy as Rich and Copy as HTML entries to the editor',
       'phase0.item.b9a01f70d274b7ff1480da76':
         'named-production-path-test: packages/desktop/test/unit/specs/flush-before-save.spec.ts#waits for Core authority and saves its acknowledged source instead of Pinia',
+      'phase0.item.d47275960775bbd34457e2ed':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes registered Undo and Redo commands to the renderer edit-action channel',
       'phase0.item.dbad87f3a634df371ca034af':
-        'named-production-path-test: packages/desktop/test/unit/specs/source-code-image-action.spec.ts#rewrites ![id](old) to ![alt](result) on the matched line'
+        'named-production-path-test: packages/desktop/test/unit/specs/source-code-image-action.spec.ts#rewrites ![id](old) to ![alt](result) on the matched line',
+      'phase0.item.deb8142f7f05d1825bfcbaac':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes registered Copy as Rich and Copy as HTML commands to the editor',
+      'phase0.item.e5b3aa0ed74e8f679eb30fc7':
+        'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers'
     })
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('required-new-production-path-test:')
-    ))).toHaveLength(364)
+    ))).toHaveLength(352)
     expect(() => validateCriticMarkupParityDispositions(
       parityBaseline,
       materialized.parityOverlay,
