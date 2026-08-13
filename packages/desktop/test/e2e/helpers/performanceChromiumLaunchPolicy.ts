@@ -13,9 +13,10 @@ export const PERFORMANCE_CHROMIUM_SCHEDULING_POLICY =
   'hidden-unthrottled-rendering-v2' as const
 
 export const PERFORMANCE_WINDOW_PRESENTATION_POLICY =
-  'transparent-render-active-inactive-v2' as const
+  'transparent-render-active-inactive-v3' as const
 
 export interface PerformanceWindowPresentationState {
+  readonly windowNumber: number
   readonly visible: boolean
   readonly opacity: number
   readonly focused: boolean
@@ -32,18 +33,20 @@ export interface PerformanceWindowPresentationState {
 }
 
 export interface MacWindowServerPresentationState {
-  readonly windowNumber: number
+  readonly windowNumber: number | null
   readonly ownerProcessId: number
-  readonly bounds: PerformanceWindowPresentationState['bounds']
-  readonly title: string
-  readonly alpha: number
-  readonly layer: number
-  readonly onScreen: boolean
+  readonly bounds: PerformanceWindowPresentationState['bounds'] | null
+  readonly title: string | null
+  readonly alpha: number | null
+  readonly layer: number | null
+  readonly onScreen: boolean | null
 }
 
 export interface MacWindowServerPresentationDiagnostic {
+  readonly reason: 'exact-window-id-count' | 'exact-window-state'
   readonly expected: Readonly<{
     readonly processId: number
+    readonly windowNumber: number
     readonly title: string
     readonly bounds: PerformanceWindowPresentationState['bounds']
   }>
@@ -57,8 +60,11 @@ export class MacWindowServerPresentationInvariantError extends Error {
 
   constructor(diagnostic: MacWindowServerPresentationDiagnostic) {
     super(
-      'WindowServer presentation invariant failed: expected exactly one ' +
-      `matching window; diagnostic=${JSON.stringify(diagnostic)}`
+      diagnostic.reason === 'exact-window-id-count'
+        ? 'WindowServer presentation invariant failed: expected exactly one ' +
+          `matching window ID; diagnostic=${JSON.stringify(diagnostic)}`
+        : 'WindowServer presentation invariant failed: exact window state ' +
+          `is invalid; diagnostic=${JSON.stringify(diagnostic)}`
     )
     this.name = 'MacWindowServerPresentationInvariantError'
     this.diagnostic = diagnostic
@@ -67,10 +73,19 @@ export class MacWindowServerPresentationInvariantError extends Error {
 
 const MAC_WINDOW_SERVER_DIAGNOSTIC_TITLE_LIMIT = 160
 
-const boundedMacWindowServerDiagnosticTitle = (title: string): string =>
-  title.length <= MAC_WINDOW_SERVER_DIAGNOSTIC_TITLE_LIMIT
+function boundedMacWindowServerDiagnosticTitle(title: string): string
+function boundedMacWindowServerDiagnosticTitle(title: null): null
+function boundedMacWindowServerDiagnosticTitle(
+  title: string | null
+): string | null
+function boundedMacWindowServerDiagnosticTitle(
+  title: string | null
+): string | null {
+  if (title == null) return null
+  return title.length <= MAC_WINDOW_SERVER_DIAGNOSTIC_TITLE_LIMIT
     ? title
     : `${title.slice(0, MAC_WINDOW_SERVER_DIAGNOSTIC_TITLE_LIMIT - 1)}…`
+}
 
 interface PerformanceWindowLifecycleApi {
   readonly activate: (
@@ -133,16 +148,27 @@ export function installPerformanceWindowScheduling(
   }
   const inspectWindow = (
     window: Electron.BrowserWindow
-  ): PerformanceWindowPresentationState => Object.freeze({
-    visible: window.isVisible(),
-    opacity: window.getOpacity(),
-    focused: window.isFocused(),
-    focusable: window.isFocusable(),
-    alwaysOnTop: window.isAlwaysOnTop(),
-    appActive: app.isActive(),
-    title: window.getTitle(),
-    bounds: Object.freeze(window.getBounds())
-  })
+  ): PerformanceWindowPresentationState => {
+    const mediaSourceId = window.getMediaSourceId()
+    const match = /^window:([1-9][0-9]*):/u.exec(mediaSourceId)
+    const windowNumber = Number(match?.[1])
+    if (!Number.isSafeInteger(windowNumber) || windowNumber < 1) {
+      throw new Error(
+        `Measured renderer CGWindow identity is invalid: ${JSON.stringify(mediaSourceId)}`
+      )
+    }
+    return Object.freeze({
+      windowNumber,
+      visible: window.isVisible(),
+      opacity: window.getOpacity(),
+      focused: window.isFocused(),
+      focusable: window.isFocusable(),
+      alwaysOnTop: window.isAlwaysOnTop(),
+      appActive: app.isActive(),
+      title: window.getTitle(),
+      bounds: Object.freeze(window.getBounds())
+    })
+  }
   const settleTurn = async(): Promise<void> => new Promise(resolve => {
     setImmediate(resolve)
   })
@@ -229,6 +255,8 @@ export const assertTransparentRenderActiveInactive: (
   const state = value as Partial<PerformanceWindowPresentationState> | null
   if (
     state == null || state.visible !== true || state.opacity !== 0 ||
+    typeof state.windowNumber !== 'number' ||
+    !Number.isSafeInteger(state.windowNumber) || state.windowNumber < 1 ||
     state.focused !== false || state.focusable !== false ||
     state.alwaysOnTop !== false || state.appActive !== false ||
     typeof state.title !== 'string' ||
@@ -247,47 +275,71 @@ export const assertTransparentRenderActiveInactive: (
 export const assertMacWindowServerTransparentRenderActive = (
   windows: readonly MacWindowServerPresentationState[],
   expectedProcessId: number,
-  expectedWindow: Pick<PerformanceWindowPresentationState, 'bounds' | 'title'>
+  expectedWindow: Pick<
+    PerformanceWindowPresentationState,
+    'bounds' | 'title' | 'windowNumber'
+  >
 ): void => {
   const expectedBounds = expectedWindow.bounds
   const matchingWindows = windows.filter(window =>
-    window.ownerProcessId === expectedProcessId &&
-    window.title === expectedWindow.title &&
-    window.bounds.x === expectedBounds.x &&
-    window.bounds.y === expectedBounds.y &&
-    window.bounds.width === expectedBounds.width &&
-    window.bounds.height === expectedBounds.height
+    window.windowNumber === expectedWindow.windowNumber
   )
-  if (matchingWindows.length !== 1) {
-    const candidateRows = windows
+  const diagnostic = (
+    reason: MacWindowServerPresentationDiagnostic['reason']
+  ): MacWindowServerPresentationDiagnostic => {
+    const runOwnedWindows = windows
       .filter(window => window.ownerProcessId === expectedProcessId)
+    const candidateRows = [
+      ...runOwnedWindows.filter(window =>
+        window.windowNumber === expectedWindow.windowNumber
+      ),
+      ...runOwnedWindows.filter(window =>
+        window.windowNumber !== expectedWindow.windowNumber
+      )
+    ]
       .slice(0, 8)
       .map(window => Object.freeze({
         ...window,
         title: boundedMacWindowServerDiagnosticTitle(window.title),
-        bounds: Object.freeze({ ...window.bounds })
+        bounds: window.bounds == null
+          ? null
+          : Object.freeze({ ...window.bounds })
       }))
-    const diagnostic = Object.freeze({
+    return Object.freeze({
+      reason,
       expected: Object.freeze({
         processId: expectedProcessId,
+        windowNumber: expectedWindow.windowNumber,
         title: boundedMacWindowServerDiagnosticTitle(expectedWindow.title),
         bounds: Object.freeze({ ...expectedBounds })
       }),
-      candidateRowCount: windows.filter(
-        window => window.ownerProcessId === expectedProcessId
-      ).length,
+      candidateRowCount: runOwnedWindows.length,
       exactMatchCount: matchingWindows.length,
       candidateRows: Object.freeze(candidateRows)
     })
-    throw new MacWindowServerPresentationInvariantError(diagnostic)
+  }
+  if (matchingWindows.length !== 1) {
+    throw new MacWindowServerPresentationInvariantError(
+      diagnostic('exact-window-id-count')
+    )
   }
   const [window] = matchingWindows
-  if (
-    !Number.isSafeInteger(window.windowNumber) || window.windowNumber < 1 ||
-    window.onScreen !== true || window.alpha !== 0 || window.layer !== 0
-  ) {
+  if (window.ownerProcessId !== expectedProcessId) {
     throw new Error(
       `WindowServer presentation invariant failed: ${JSON.stringify(window)}`
+    )
+  }
+  if (
+    window.title !== expectedWindow.title ||
+    window.bounds == null ||
+    window.bounds.x !== expectedBounds.x ||
+    window.bounds.y !== expectedBounds.y ||
+    window.bounds.width !== expectedBounds.width ||
+    window.bounds.height !== expectedBounds.height ||
+    window.onScreen !== true || window.alpha !== 0 || window.layer !== 0
+  ) {
+    throw new MacWindowServerPresentationInvariantError(
+      diagnostic('exact-window-state')
     )
   }
 }
@@ -298,51 +350,79 @@ import Foundation
 
 let ownerProcessId = Int32(CommandLine.arguments.last!)!
 let rawRows = CGWindowListCopyWindowInfo(
-  [.optionOnScreenOnly, .excludeDesktopElements],
+  [.optionAll, .excludeDesktopElements],
   kCGNullWindowID
 ) as! [[String: Any]]
-let rows: [[String: Any]] = rawRows.compactMap { row in
-  guard
-    let rowOwnerProcessId = row[kCGWindowOwnerPID as String] as? Int,
-    rowOwnerProcessId == Int(ownerProcessId),
-    let windowNumber = row[kCGWindowNumber as String] as? Int,
-    let alpha = row[kCGWindowAlpha as String] as? Double,
-    let layer = row[kCGWindowLayer as String] as? Int,
-    let onScreen = row[kCGWindowIsOnscreen as String] as? Bool,
-    let title = row[kCGWindowName as String] as? String,
-    let bounds = row[kCGWindowBounds as String] as? [String: Any],
+let rows: [[String: Any]] = rawRows.filter { row in
+  row[kCGWindowOwnerPID as String] as? Int == Int(ownerProcessId)
+}.map { row in
+  let rawBounds = row[kCGWindowBounds as String] as? [String: Any]
+  let encodedBounds: Any
+  if
+    let bounds = rawBounds,
     let x = bounds["X"] as? Double,
     let y = bounds["Y"] as? Double,
     let width = bounds["Width"] as? Double,
     let height = bounds["Height"] as? Double
-  else { return nil }
+  {
+    encodedBounds = ["x": x, "y": y, "width": width, "height": height]
+  } else {
+    encodedBounds = NSNull()
+  }
   return [
-    "windowNumber": windowNumber,
-    "ownerProcessId": rowOwnerProcessId,
-    "title": title,
-    "bounds": ["x": x, "y": y, "width": width, "height": height],
-    "alpha": alpha,
-    "layer": layer,
-    "onScreen": onScreen
+    "windowNumber": (row[kCGWindowNumber as String] as? Int)
+      .map { $0 as Any } ?? NSNull(),
+    "ownerProcessId": Int(ownerProcessId),
+    "title": (row[kCGWindowName as String] as? String)
+      .map { $0 as Any } ?? NSNull(),
+    "bounds": encodedBounds,
+    "alpha": (row[kCGWindowAlpha as String] as? Double)
+      .map { $0 as Any } ?? NSNull(),
+    "layer": (row[kCGWindowLayer as String] as? Int)
+      .map { $0 as Any } ?? NSNull(),
+    "onScreen": (row[kCGWindowIsOnscreen as String] as? Bool)
+      .map { $0 as Any } ?? NSNull()
   ]
 }
 let output = try! JSONSerialization.data(withJSONObject: rows)
 print(String(data: output, encoding: .utf8)!)
 `
 
+export type MacWindowServerProbe = (
+  executable: string,
+  arguments_: readonly string[]
+) => string
+
+const executeMacWindowServerProbe: MacWindowServerProbe = (
+  executable,
+  arguments_
+) => execFileSync(executable, [...arguments_], { encoding: 'utf8' })
+
+export const queryMacWindowServerPresentation = (
+  expectedProcessId: number,
+  execute: MacWindowServerProbe = executeMacWindowServerProbe
+): readonly MacWindowServerPresentationState[] => {
+  if (!Number.isSafeInteger(expectedProcessId) || expectedProcessId < 1) {
+    throw new Error('WindowServer presentation process identity is invalid')
+  }
+  const output = execute(
+    '/usr/bin/swift',
+    ['-e', MAC_WINDOW_SERVER_PROBE_SOURCE, String(expectedProcessId)]
+  )
+  return JSON.parse(output) as readonly MacWindowServerPresentationState[]
+}
+
 export const assertMacWindowServerPresentation = (
   expectedProcessId: number,
-  expectedWindow: Pick<PerformanceWindowPresentationState, 'bounds' | 'title'>
+  expectedWindow: Pick<
+    PerformanceWindowPresentationState,
+    'bounds' | 'title' | 'windowNumber'
+  >
 ): void => {
   if (process.platform !== 'darwin') {
     throw new Error('Transparent render-active performance evidence requires macOS')
   }
-  const output = execFileSync(
-    '/usr/bin/swift',
-    ['-e', MAC_WINDOW_SERVER_PROBE_SOURCE, String(expectedProcessId)],
-    { encoding: 'utf8' }
-  )
-  const windows = JSON.parse(output) as readonly MacWindowServerPresentationState[]
+  const windows = queryMacWindowServerPresentation(expectedProcessId)
   assertMacWindowServerTransparentRenderActive(
     windows,
     expectedProcessId,
