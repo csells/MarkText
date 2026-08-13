@@ -90,14 +90,25 @@ describe('upstream baseline external hidden policy', () => {
   })
 
   it('conceals window and application activation without focus reentrancy', async() => {
+    const lifecycle: string[] = []
     class HiddenWindow extends EventEmitter {
       skipTaskbarCalls = 0
       hideCalls = 0
       blurCalls = 0
+      readonly webContents = {
+        isDestroyed: (): boolean => false,
+        setBackgroundThrottling: (enabled: boolean): void => {
+          lifecycle.push(`schedule:${String(enabled)}`)
+        }
+      }
 
       isDestroyed(): boolean { return false }
       setSkipTaskbar(): void { this.skipTaskbarCalls += 1 }
-      hide(): void { this.hideCalls += 1 }
+      hide(): void {
+        lifecycle.push('hide')
+        this.hideCalls += 1
+      }
+
       blur(): void { this.blurCalls += 1 }
     }
 
@@ -142,5 +153,8 @@ describe('upstream baseline external hidden policy', () => {
     expect(window.skipTaskbarCalls).toBe(1)
     expect(window.hideCalls).toBe(6)
     expect(window.blurCalls).toBe(6)
+    expect(lifecycle.slice(0, 2)).toEqual(['schedule:false', 'hide'])
+    expect(lifecycle.lastIndexOf('schedule:false'))
+      .toBeLessThan(lifecycle.lastIndexOf('hide'))
   })
 })
