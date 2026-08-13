@@ -23,23 +23,22 @@ separately at the Phase 0 gate.
 `criticmarkup-interaction-matrix.json` is the finite, human-authored release-risk denominator for
 CriticMarkup interactions. Its 25 rows cross all five forms with paragraph, block-boundary,
 literal, reference/footnote, and nested-Comment contexts. Each row records its exact fixture,
-expected product behavior, planned production oracle, and current evidence status; the validator
+expected product behavior, named production oracle, and current evidence status; the validator
 checks structure and completeness but never generates expected results.
 
-`criticmarkup-interaction-evidence.json` maps every matrix row to an exact missing production seam
-or a named partial production test. A partial test does not make a row green. Green requires a
-named installed E2E oracle, a SHA-256-pinned passing execution record for a full build commit, and a
-matching green matrix row. All 25 rows now name the installed matrix oracle and remain partial, with
-zero green claims. The remaining mechanical evidence gap is a clean, stable-commit installed run
-record; status remains partial until that record exists and is pinned.
+`criticmarkup-interaction-evidence.json` maps every matrix row to its named production test. Green
+requires a named installed E2E oracle, a SHA-256-pinned passing execution record for a full build
+commit, and a matching green matrix row. All 25 rows are green against the installed matrix oracle
+and share one authenticated stable-commit execution record containing the exact 25 unique passing
+row IDs. The matrix and evidence artifacts remain proposed and do not record owner ratification.
 
 ```bash
 node_modules/.bin/tsx scripts/criticmarkupInteractionMatrix.ts --validate-evidence
 node_modules/.bin/tsx scripts/criticmarkupInteractionMatrix.ts --require-green
 ```
 
-The first command validates the complete evidence disposition; the second intentionally fails until
-all 25 exact interactions have installed passing evidence.
+The first command validates the complete evidence disposition; the second requires all 25 exact
+interactions to retain installed passing evidence.
 
 On a clean stable commit, the installed runner can create that record after Playwright passes all 25
 exact, unique matrix rows. The destination directory must already exist and the JSON path must not:
