@@ -50,7 +50,7 @@ export interface UpstreamBaselineBuildProvenance {
   readonly launcherSha256: string
   readonly measurementBoundary: 'external-browser-compositor-v4'
   readonly presentationBoundary: typeof PERFORMANCE_PRESENTATION_BOUNDARY
-  readonly launchBoundary: 'external-inspector-transparent-render-active-v2'
+  readonly launchBoundary: 'external-inspector-transparent-render-active-v3'
   readonly windowPresentationPolicy: typeof PERFORMANCE_WINDOW_PRESENTATION_POLICY
   readonly windowPresentationPlatform: 'darwin'
   readonly chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
@@ -103,12 +103,12 @@ interface UpstreamBaselinePerformanceRawRunBase {
 
 export interface UpstreamBaselinePerformanceRatificationRun
   extends UpstreamBaselinePerformanceRawRunBase {
-  readonly schema: 'marktext-criticmarkup-raw-performance-run-v4'
+  readonly schema: 'marktext-criticmarkup-raw-performance-run-v5'
 }
 
 export interface UpstreamBaselinePerformanceSmokeRun
   extends UpstreamBaselinePerformanceRawRunBase {
-  readonly schema: 'marktext-criticmarkup-raw-performance-smoke-v4'
+  readonly schema: 'marktext-criticmarkup-raw-performance-smoke-v5'
   readonly evidenceClass: 'smoke-non-ratifying'
 }
 
@@ -211,7 +211,7 @@ const validateProvenance = (
   }
   if (
     input.provenance.launchBoundary !==
-      'external-inspector-transparent-render-active-v2'
+      'external-inspector-transparent-render-active-v3'
   ) {
     throw new Error('Upstream launch boundary is invalid')
   }
@@ -325,11 +325,11 @@ export const createUpstreamBaselinePerformanceRawRun = (
   })
   return input.evidenceClass === 'ratification'
     ? Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-run-v4' as const,
+      schema: 'marktext-criticmarkup-raw-performance-run-v5' as const,
       ...base
     })
     : Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v4' as const,
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v5' as const,
       evidenceClass: 'smoke-non-ratifying' as const,
       ...base
     })
@@ -350,7 +350,7 @@ export const writeUpstreamBaselinePerformanceRawRun = (
   run: UpstreamBaselinePerformanceRawRun
 ): void => {
   if (
-    run.schema === 'marktext-criticmarkup-raw-performance-smoke-v4' &&
+    run.schema === 'marktext-criticmarkup-raw-performance-smoke-v5' &&
     isRatificationDirectory(outputPath)
   ) {
     throw new Error('Smoke output cannot be written to the ratification directory')
