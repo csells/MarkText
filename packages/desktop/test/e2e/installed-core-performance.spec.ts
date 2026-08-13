@@ -7,6 +7,7 @@ import { _electron as electron, expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 
 import {
+  chooseCoreAuthorityPerformanceSurface,
   createCoreAuthorityPerformanceRawRun,
   formatMacHardwareFingerprint,
   type CoreAuthorityPerformanceRawSample
@@ -191,8 +192,10 @@ const measureSample = async(
   const wysiwygEditable = page.locator(
     'span.mu-paragraph-content[contenteditable="true"]'
   ).first()
-  const surface: CoreAuthorityPerformanceSurface =
-    await wysiwygEditable.count() > 0 ? 'wysiwyg' : 'source'
+  const surface = chooseCoreAuthorityPerformanceSurface({
+    sourceActive: await page.locator('.source-code .CodeMirror').count() > 0,
+    wysiwygEditable: await wysiwygEditable.count() > 0
+  })
   if (surface === 'source') await enterSourceMode(page, app)
 
   await page.waitForFunction(expected => {
