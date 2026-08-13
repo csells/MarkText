@@ -1,12 +1,15 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { relative, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
+  createCriticMarkupInstalledInteractionRunRecord,
   type CriticMarkupInteractionEvidenceManifest,
   requireGreenCriticMarkupInteractionEvidence,
   readCriticMarkupInteractionMatrix,
   validateCriticMarkupInteractionEvidence,
+  validateCriticMarkupInstalledInteractionRunRecord,
+  writeCriticMarkupInstalledInteractionRunRecord,
   validateCriticMarkupInteractionMatrix
 } from '../../../../../scripts/criticmarkupInteractionMatrix'
 
@@ -21,6 +24,23 @@ const evidencePath = resolve(
 )
 
 describe('CriticMarkup interaction matrix', () => {
+  const passingPlaywrightReport = () => {
+    const matrix = readCriticMarkupInteractionMatrix(matrixPath)
+    return {
+      suites: [{
+        title: 'installed interaction suite',
+        specs: matrix.rows.map(row => ({
+          title: `${row.id} follows the installed interaction matrix`,
+          ok: true,
+          tests: [{
+            projectName: 'installed',
+            results: [{ status: 'passed' }]
+          }]
+        }))
+      }]
+    }
+  }
+
   it('freezes a finite human-authored release-risk denominator', () => {
     const matrix = readCriticMarkupInteractionMatrix(matrixPath)
 
@@ -207,5 +227,120 @@ describe('CriticMarkup interaction matrix', () => {
       matrix,
       falseGreen
     )).toThrow(/green evidence requires an installed production oracle/)
+  })
+
+  it('materializes exactly one passing installed result for every matrix row', () => {
+    const matrix = readCriticMarkupInteractionMatrix(matrixPath)
+    const record = createCriticMarkupInstalledInteractionRunRecord(
+      matrix,
+      passingPlaywrightReport(),
+      {
+        buildCommit: '0123456789abcdef0123456789abcdef01234567',
+        recordedAt: '2026-08-13T19:20:21.000Z'
+      }
+    )
+
+    expect(() => validateCriticMarkupInstalledInteractionRunRecord(
+      matrix,
+      record
+    )).not.toThrow()
+    expect(record).toEqual({
+      schema: 'marktext-criticmarkup-installed-interaction-run-v1',
+      buildCommit: '0123456789abcdef0123456789abcdef01234567',
+      recordedAt: '2026-08-13T19:20:21.000Z',
+      result: 'pass',
+      rows: matrix.rows.map(row => ({ id: row.id, result: 'pass' }))
+        .sort((left, right) => left.id.localeCompare(right.id))
+    })
+  })
+
+  it.each([
+    ['a missing row', (report: ReturnType<typeof passingPlaywrightReport>) => {
+      report.suites[0]?.specs.pop()
+    }],
+    ['a duplicated row', (report: ReturnType<typeof passingPlaywrightReport>) => {
+      const first = report.suites[0]?.specs[0]
+      if (first !== undefined) report.suites[0]?.specs.push(structuredClone(first))
+    }],
+    ['a failed row', (report: ReturnType<typeof passingPlaywrightReport>) => {
+      const result = report.suites[0]?.specs[0]?.tests[0]?.results[0]
+      if (result !== undefined) result.status = 'failed'
+    }]
+  ])('refuses to materialize %s from Playwright output', (_label, mutate) => {
+    const matrix = readCriticMarkupInteractionMatrix(matrixPath)
+    const report = passingPlaywrightReport()
+    mutate(report)
+
+    expect(() => createCriticMarkupInstalledInteractionRunRecord(
+      matrix,
+      report,
+      {
+        buildCommit: '0123456789abcdef0123456789abcdef01234567',
+        recordedAt: '2026-08-13T19:20:21.000Z'
+      }
+    )).toThrow(/installed interaction run/)
+  })
+
+  it('writes a hash-pinned record once and validates its execution metadata', () => {
+    const matrix = structuredClone(readCriticMarkupInteractionMatrix(matrixPath))
+    const evidence = JSON.parse(
+      readFileSync(evidencePath, 'utf8')
+    ) as CriticMarkupInteractionEvidenceManifest
+    const record = createCriticMarkupInstalledInteractionRunRecord(
+      matrix,
+      passingPlaywrightReport(),
+      {
+        buildCommit: '0123456789abcdef0123456789abcdef01234567',
+        recordedAt: '2026-08-13T19:20:21.000Z'
+      }
+    )
+    const temporaryDirectory = mkdtempSync(resolve(repoRoot, '.criticmarkup-run-test-'))
+    const recordPath = resolve(temporaryDirectory, 'installed-interaction.json')
+
+    try {
+      const recordSha256 = writeCriticMarkupInstalledInteractionRunRecord(
+        recordPath,
+        matrix,
+        record
+      )
+      const matrixRow = matrix.rows[0]
+      const evidenceRow = evidence.rows[0]
+      if (matrixRow === undefined || evidenceRow === undefined) {
+        throw new Error('Interaction fixture is empty')
+      }
+      matrixRow.status = 'green'
+      matrixRow.productionOracle = 'installed interaction matrix oracle'
+      evidenceRow.status = 'green'
+      evidenceRow.execution = {
+        buildCommit: record.buildCommit,
+        recordedAt: record.recordedAt,
+        result: record.result,
+        recordPath: relative(repoRoot, recordPath),
+        recordSha256
+      }
+
+      expect(() => validateCriticMarkupInteractionEvidence(
+        repoRoot,
+        matrix,
+        evidence
+      )).not.toThrow()
+      expect(() => writeCriticMarkupInstalledInteractionRunRecord(
+        recordPath,
+        matrix,
+        record
+      )).toThrow(/already exists/)
+
+      evidenceRow.execution = {
+        ...evidenceRow.execution,
+        buildCommit: 'fedcba9876543210fedcba9876543210fedcba98'
+      }
+      expect(() => validateCriticMarkupInteractionEvidence(
+        repoRoot,
+        matrix,
+        evidence
+      )).toThrow(/execution metadata does not match its run record/)
+    } finally {
+      rmSync(temporaryDirectory, { recursive: true, force: true })
+    }
   })
 })
