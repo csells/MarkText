@@ -4,13 +4,16 @@ import type {
 import {
   PERFORMANCE_CHROMIUM_SCHEDULING_POLICY
 } from './performanceChromiumLaunchPolicy'
+import {
+  PERFORMANCE_PRESENTATION_BOUNDARY
+} from './performancePresentationCheckpoint'
 
 const METRICS = [
   't_echo',
   't_dispatch',
   't_ack',
   't_reconcile',
-  't_frame',
+  't_present',
   'open',
   'first_viewport'
 ] as const
@@ -44,7 +47,8 @@ export interface CoreAuthorityPerformanceBuildProvenance {
   readonly producerSha256: string
   readonly probeSha256: string
   readonly launcherSha256: string
-  readonly measurementBoundary: 'core-authority-browser-external-v3'
+  readonly measurementBoundary: 'core-authority-browser-compositor-v4'
+  readonly presentationBoundary: typeof PERFORMANCE_PRESENTATION_BOUNDARY
   readonly launchBoundary: 'playwright-electron-packaged-v1'
   readonly windowVisibility: 'hidden-unfocused'
   readonly chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
@@ -101,7 +105,7 @@ const emptyDistribution = (): Record<Metric, number[]> => ({
   t_dispatch: [],
   t_ack: [],
   t_reconcile: [],
-  t_frame: [],
+  t_present: [],
   open: [],
   first_viewport: []
 })
@@ -113,7 +117,7 @@ const frozenDistribution = (
   t_dispatch: Object.freeze([...distribution.t_dispatch]),
   t_ack: Object.freeze([...distribution.t_ack]),
   t_reconcile: Object.freeze([...distribution.t_reconcile]),
-  t_frame: Object.freeze([...distribution.t_frame]),
+  t_present: Object.freeze([...distribution.t_present]),
   open: Object.freeze([...distribution.open]),
   first_viewport: Object.freeze([...distribution.first_viewport])
 })
@@ -163,8 +167,14 @@ export function createCoreAuthorityPerformanceRawRun(
   requireNonEmpty(input.provenance.packageManager, 'Raw performance package manager')
   requireNonEmpty(input.provenance.nodeVersion, 'Raw performance Node version')
   requireNonEmpty(input.provenance.playwrightVersion, 'Raw performance Playwright version')
-  if (input.provenance.measurementBoundary !== 'core-authority-browser-external-v3') {
+  if (
+    input.provenance.measurementBoundary !==
+      'core-authority-browser-compositor-v4'
+  ) {
     throw new Error('Raw performance measurement boundary provenance is invalid')
+  }
+  if (input.provenance.presentationBoundary !== PERFORMANCE_PRESENTATION_BOUNDARY) {
+    throw new Error('Raw performance presentation boundary provenance is invalid')
   }
   if (input.provenance.launchBoundary !== 'playwright-electron-packaged-v1') {
     throw new Error('Raw performance launch boundary provenance is invalid')
@@ -227,12 +237,26 @@ export function createCoreAuthorityPerformanceRawRun(
       throw new Error(`${document.id} sample editor surface is invalid`)
     }
     for (const sample of samples) {
+      const reportFields = Object.keys(sample.report).sort()
+      const expectedReportFields = [
+        ...METRICS,
+        'pendingDepthMaximum',
+        'correctionCount'
+      ].sort()
+      if (
+        JSON.stringify(reportFields) !== JSON.stringify(expectedReportFields)
+      ) {
+        throw new Error(
+          `${document.id} ${sample.phase} report metrics must be exactly: ` +
+          expectedReportFields.join(', ')
+        )
+      }
       if (
         sample.report.t_dispatch.length !== 1 ||
         sample.report.t_ack.length !== 1 ||
         sample.report.t_reconcile.length !== 1 ||
         sample.report.t_echo.length !== 1 ||
-        sample.report.t_frame.length !== 1
+        sample.report.t_present.length !== 1
       ) {
         throw new Error(
           `${document.id} ${sample.phase} sample must contain one browser transaction`
@@ -243,7 +267,7 @@ export function createCoreAuthorityPerformanceRawRun(
         sample.report.t_dispatch[0]!,
         sample.report.t_ack[0]!,
         sample.report.t_reconcile[0]!,
-        sample.report.t_frame[0]!,
+        sample.report.t_present[0]!,
         sample.report.open,
         sample.report.first_viewport
       ]
@@ -253,7 +277,7 @@ export function createCoreAuthorityPerformanceRawRun(
       if (
         sample.report.t_ack[0]! < sample.report.t_dispatch[0]! ||
         sample.report.t_reconcile[0]! < sample.report.t_ack[0]! ||
-        sample.report.t_frame[0]! < sample.report.t_echo[0]! ||
+        sample.report.t_present[0]! < sample.report.t_echo[0]! ||
         sample.report.first_viewport < sample.report.open
       ) {
         throw new Error(`${document.id} ${sample.phase} sample timing order is invalid`)
@@ -271,7 +295,7 @@ export function createCoreAuthorityPerformanceRawRun(
       distribution.t_dispatch.push(sample.report.t_dispatch[0]!)
       distribution.t_ack.push(sample.report.t_ack[0]!)
       distribution.t_reconcile.push(sample.report.t_reconcile[0]!)
-      distribution.t_frame.push(sample.report.t_frame[0]!)
+      distribution.t_present.push(sample.report.t_present[0]!)
       distribution.open.push(sample.report.open)
       distribution.first_viewport.push(sample.report.first_viewport)
       evidence[sample.phase].pendingDepthMaximum.push(
@@ -324,11 +348,11 @@ export function createCoreAuthorityPerformanceRawRun(
   })
   return input.evidenceClass === 'ratification'
     ? Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-run-v3' as const,
+      schema: 'marktext-criticmarkup-raw-performance-run-v4' as const,
       ...base
     })
     : Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v3' as const,
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v4' as const,
       evidenceClass: 'smoke-non-ratifying' as const,
       ...base
     })

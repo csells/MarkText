@@ -1,5 +1,9 @@
 import type { Page } from 'playwright'
 
+import {
+  captureExactCompositorPresentation
+} from './performancePresentationCheckpoint'
+
 export interface BrowserInputEventSample {
   readonly sequence: number
   readonly data: string
@@ -256,6 +260,76 @@ export const waitForBrowserInputEventTrace = async(
       ) === true,
   count,
   { timeout })
+}
+
+export const waitForBrowserInputEventEcho = async(
+  page: Page,
+  count: number,
+  timeout = 5000
+): Promise<void> => {
+  await page.waitForFunction(expected =>
+    (window as TracedWindow).__marktextBrowserInputEventProbe?.samples.length ===
+      expected &&
+      (window as TracedWindow).__marktextBrowserInputEventProbe?.samples.every(
+        sample => sample.tEcho !== undefined
+      ) === true,
+  count,
+  { timeout })
+}
+
+export const captureBrowserInputEventPresentation = async(
+  page: Page,
+  sampleIndex = 0,
+  timeout = 30_000
+): Promise<Readonly<{
+  readonly sequence: number
+  readonly tEvent: number
+  readonly tEcho: number
+  readonly tPresent: number
+}>> => {
+  const presentation = await captureExactCompositorPresentation(page, {
+    readAcknowledged: () => page.evaluate(index => {
+      const sample = (window as TracedWindow)
+        .__marktextBrowserInputEventProbe?.samples[index]
+      if (sample?.tEcho === undefined ||
+          sample.echoDocumentCheckpoint === undefined) {
+        throw new Error('Browser input event trace has no acknowledged sample')
+      }
+      return Object.freeze({
+        tEvent: sample.tEvent,
+        tAcknowledged: sample.tEcho,
+        expectedCheckpoint: sample.expectedDocumentCheckpoint,
+        acknowledgedCheckpoint: sample.echoDocumentCheckpoint
+      })
+    }, sampleIndex),
+    readPresented: () => page.evaluate(index => {
+      const sample = (window as TracedWindow)
+        .__marktextBrowserInputEventProbe?.samples[index]
+      if (sample === undefined) throw new Error('Browser input event sample is missing')
+      const host = document.querySelector('.source-code .CodeMirror') as
+        | (Element & { CodeMirror?: { getValue(): string } })
+        | null
+      const value = host?.CodeMirror?.getValue() ?? ''
+      let hash = 0x811c9dc5
+      for (let offset = 0; offset < value.length; offset += 1) {
+        hash ^= value.charCodeAt(offset)
+        hash = Math.imul(hash, 0x01000193)
+      }
+      return Object.freeze({
+        observedAt: performance.now(),
+        checkpoint: Object.freeze({
+          valueLength: value.length,
+          valueHash: (hash >>> 0).toString(16).padStart(8, '0')
+        })
+      })
+    }, sampleIndex)
+  }, timeout)
+  return Object.freeze({
+    sequence: sampleIndex + 1,
+    tEvent: presentation.tEvent,
+    tEcho: presentation.tAcknowledged,
+    tPresent: presentation.tPresented
+  })
 }
 
 export const readBrowserInputEventTrace = async(

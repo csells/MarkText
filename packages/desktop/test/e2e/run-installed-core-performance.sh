@@ -141,7 +141,8 @@ PRODUCER_SHA256="$(
       "${SCRIPT_DIR}/helpers/coreAuthorityPerformanceReport.ts" \
       "${SCRIPT_DIR}/installedArtifactProvenance.ts" \
       "${SCRIPT_DIR}/playwright.installed-core-performance.config.ts" \
-      "${SCRIPT_DIR}/helpers/performanceChromiumLaunchPolicy.ts"; do
+      "${SCRIPT_DIR}/helpers/performanceChromiumLaunchPolicy.ts" \
+      "${SCRIPT_DIR}/helpers/performancePresentationCheckpoint.ts"; do
       shasum -a 256 "${producer_part}" | awk '{print $1}'
     done
   } | shasum -a 256 | awk '{print $1}'
