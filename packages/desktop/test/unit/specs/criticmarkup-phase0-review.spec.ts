@@ -288,10 +288,14 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-replace-production-surfaces.spec.ts#routes registered Replace command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.0638d0ddbe6fd90a70040c16':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-superscript-production-surfaces.spec.ts#routes registered Superscript command and Format menu surface through the renderer format-action channel',
+      'phase0.item.0ea03df77040817824e2a636':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-hyperlink-production-surfaces.spec.ts#routes registered Hyperlink command and Format menu surface through the renderer format-action channel',
       'phase0.item.160937548f3fa957d900f04b':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-navigation-production-surfaces.spec.ts#routes registered Find Next and Find Previous command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.2e64fc29fc59f5b4a906ea56':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-highlight-format-production-surfaces.spec.ts#routes registered Highlight command and Format menu surface through the renderer format-action channel',
+      'phase0.item.27ab3556877c1891af1381db':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-hyperlink-production-surfaces.spec.ts#routes registered Hyperlink command and Format menu surface through the renderer format-action channel',
       'phase0.item.397314c6348fc4ee45514620':
         'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
       'phase0.item.420fdfa5c193f0633abca434':
@@ -314,6 +318,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-production-surfaces.spec.ts#routes registered Find command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.5fdd30f820d652e48f5b4528':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes Edit menu Copy as Rich and Copy as HTML entries to the editor',
+      'phase0.item.61e86d3cf0ee4ad1f9ea3faa':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-inline-math-production-surfaces.spec.ts#routes registered Inline Math command and Format menu surface through the renderer format-action channel',
       'phase0.item.5614a9e6297e94476c2f1d25':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-subscript-production-surfaces.spec.ts#routes registered Subscript command and Format menu surface through the renderer format-action channel',
       'phase0.item.6503ef62074e1a51ee15fb38':
@@ -336,8 +342,12 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-superscript-production-surfaces.spec.ts#routes registered Superscript command and Format menu surface through the renderer format-action channel',
       'phase0.item.831628c66c7632b18ae126fd':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes registered Undo and Redo commands to the renderer edit-action channel',
+      'phase0.item.865771ab05fea47f0b4e86fd':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-image-format-production-surfaces.spec.ts#routes registered Image command and Format menu surface through the renderer format-action channel',
       'phase0.item.867cc6c717a7baf2684a9c87':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-replace-production-surfaces.spec.ts#routes registered Replace command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.8aaa24678c1a92cf623b43b0':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-inline-math-production-surfaces.spec.ts#routes registered Inline Math command and Format menu surface through the renderer format-action channel',
       'phase0.item.82b57f93ae32b97bc090d680':
         'named-production-path-test: packages/desktop/test/unit/specs/file-change-content-check.spec.ts#does not compare disk bytes with stale Pinia while Core owns the document',
       'phase0.item.91c0c4cd322d1531a3e7c9ea':
@@ -370,6 +380,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/flush-before-save.spec.ts#waits for Core authority and saves its acknowledged source instead of Pinia',
       'phase0.item.cff33de8534ca261ad97a843':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-create-paragraph-production-surfaces.spec.ts#routes registered Create Paragraph command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.cc96e4605186ca739bb0a3e1':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-image-format-production-surfaces.spec.ts#routes registered Image command and Format menu surface through the renderer format-action channel',
       'phase0.item.d2ee99917de52f08a9d7d9e8':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-emphasis-production-surfaces.spec.ts#routes registered Emphasis command and Format menu Italic surface through the renderer format-action channel',
       'phase0.item.d47275960775bbd34457e2ed':
@@ -401,7 +413,7 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     })
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('required-new-production-path-test:')
-    ))).toHaveLength(308)
+    ))).toHaveLength(302)
     expect(() => validateCriticMarkupParityDispositions(
       parityBaseline,
       materialized.parityOverlay,
