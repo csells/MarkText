@@ -282,6 +282,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
       .map(row => [row.id, row.productionPathTest]))).toEqual({
       'phase0.item.0030c6e658a95827b05f3e99':
         'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
+      'phase0.item.00966777ae933ce5d7bb44d9':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-delete-paragraph-production-surfaces.spec.ts#routes registered Delete Paragraph command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.031b864764d6a2c693d32752':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-replace-production-surfaces.spec.ts#routes registered Replace command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.160937548f3fa957d900f04b':
@@ -292,6 +294,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-native-copy-production-surfaces.spec.ts#routes registered Copy command and Edit menu surfaces through the Electron native copy runtime',
       'phase0.item.49512fbea5ebc0a05d0e8023':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes Edit menu Undo and Redo through the renderer edit-action channel',
+      'phase0.item.503ba3b99614737f7f991c9e':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-create-paragraph-production-surfaces.spec.ts#routes registered Create Paragraph command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.5a233c1c0b730f92c8b26b77':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-native-copy-production-surfaces.spec.ts#routes registered Copy command and Edit menu surfaces through the Electron native copy runtime',
       'phase0.item.5e0446eed3c50b067a946808':
@@ -332,6 +336,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes Edit menu Copy as Rich and Copy as HTML entries to the editor',
       'phase0.item.b9a01f70d274b7ff1480da76':
         'named-production-path-test: packages/desktop/test/unit/specs/flush-before-save.spec.ts#waits for Core authority and saves its acknowledged source instead of Pinia',
+      'phase0.item.cff33de8534ca261ad97a843':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-create-paragraph-production-surfaces.spec.ts#routes registered Create Paragraph command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.d47275960775bbd34457e2ed':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes registered Undo and Redo commands to the renderer edit-action channel',
       'phase0.item.d4a789b1042d4eadeabe24d1':
@@ -340,6 +346,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-navigation-production-surfaces.spec.ts#routes registered Find Next and Find Previous command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.dbad87f3a634df371ca034af':
         'named-production-path-test: packages/desktop/test/unit/specs/source-code-image-action.spec.ts#rewrites ![id](old) to ![alt](result) on the matched line',
+      'phase0.item.db1ac2550683023a41679b46':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-delete-paragraph-production-surfaces.spec.ts#routes registered Delete Paragraph command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.deb8142f7f05d1825bfcbaac':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes registered Copy as Rich and Copy as HTML commands to the editor',
       'phase0.item.e5b3aa0ed74e8f679eb30fc7':
@@ -353,7 +361,7 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     })
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('required-new-production-path-test:')
-    ))).toHaveLength(332)
+    ))).toHaveLength(328)
     expect(() => validateCriticMarkupParityDispositions(
       parityBaseline,
       materialized.parityOverlay,
