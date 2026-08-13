@@ -37,7 +37,9 @@
       "command:edit.select-all": "packages/desktop/test/unit/specs/criticmarkup-select-all-production-surfaces.spec.ts#routes registered Select All command and Edit menu surfaces through the renderer edit-action channel",
       "command:edit.undo": "packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes registered Undo and Redo commands to the renderer edit-action channel",
       "command:format.emphasis": "packages/desktop/test/unit/specs/criticmarkup-emphasis-production-surfaces.spec.ts#routes registered Emphasis command and Format menu Italic surface through the renderer format-action channel",
+      "command:format.strike": "packages/desktop/test/unit/specs/criticmarkup-strikethrough-production-surfaces.spec.ts#routes registered Strike-through command and Format menu Strikethrough surface through the renderer format-action channel",
       "command:format.strong": "packages/desktop/test/unit/specs/criticmarkup-strong-format-production-surfaces.spec.ts#routes registered Strong command and Bold menu surfaces through the renderer format-action channel",
+      "command:format.underline": "packages/desktop/test/unit/specs/criticmarkup-underline-production-surfaces.spec.ts#routes registered Underline command and Format menu surface through the renderer format-action channel",
         "command:file.save": "packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers",
         "command:file.save-as": "packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers",
         "menu-entry:menu.edit.copy": "packages/desktop/test/unit/specs/criticmarkup-native-copy-production-surfaces.spec.ts#routes registered Copy command and Edit menu surfaces through the Electron native copy runtime",
@@ -60,6 +62,8 @@
       "menu-entry:menu.edit.undo": "packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes Edit menu Undo and Redo through the renderer edit-action channel",
       "menu-entry:menu.format.bold": "packages/desktop/test/unit/specs/criticmarkup-strong-format-production-surfaces.spec.ts#routes registered Strong command and Bold menu surfaces through the renderer format-action channel",
       "menu-entry:menu.format.italic": "packages/desktop/test/unit/specs/criticmarkup-emphasis-production-surfaces.spec.ts#routes registered Emphasis command and Format menu Italic surface through the renderer format-action channel",
+      "menu-entry:menu.format.strikethrough": "packages/desktop/test/unit/specs/criticmarkup-strikethrough-production-surfaces.spec.ts#routes registered Strike-through command and Format menu Strikethrough surface through the renderer format-action channel",
+      "menu-entry:menu.format.underline": "packages/desktop/test/unit/specs/criticmarkup-underline-production-surfaces.spec.ts#routes registered Underline command and Format menu surface through the renderer format-action channel",
       "menu-entry:menu.file.save": "packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers",
         "menu-entry:menu.file.saveAs": "packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers"
       },
