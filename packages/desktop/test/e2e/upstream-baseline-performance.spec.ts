@@ -25,6 +25,11 @@ import {
   type UpstreamInspectorResponse
 } from './helpers/upstreamBaselineHiddenPolicy'
 import {
+  closeUpstreamPerformanceApplication,
+  finalizeUpstreamPerformanceRun,
+  removeUpstreamPerformanceRunRoot
+} from './helpers/upstreamBaselineLifecycleCleanup'
+import {
   placeCaretInEditor,
   waitForEditor
 } from './helpers'
@@ -359,17 +364,35 @@ const expectHiddenUnfocused = (processId: number): void => {
 const closeHiddenUpstreamApplication = async(
   application: HiddenUpstreamApplication
 ): Promise<void> => {
-  await application.browser.close().catch(() => undefined)
-  try {
-    process.kill(application.processId, 'SIGTERM')
-  } catch (error) {
-    if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) {
+  const isRunning = (processId: number): boolean => {
+    try {
+      process.kill(processId, 0)
+      return true
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ESRCH') {
+        return false
+      }
       throw error
     }
   }
-  if (application.launcher.exitCode === null) {
-    application.launcher.kill('SIGTERM')
-  }
+  await closeUpstreamPerformanceApplication({
+    closeBrowser: () => application.browser.close(),
+    processId: application.processId,
+    launcher: application.launcher
+  }, {
+    terminate: processId => {
+      try {
+        process.kill(processId, 'SIGTERM')
+      } catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) {
+          throw error
+        }
+      }
+    },
+    isRunning,
+    sleep: () => new Promise(resolve => setTimeout(resolve, 50)),
+    now: Date.now
+  })
 }
 
 const waitForEditableViewport = async(
@@ -490,6 +513,7 @@ test.describe('pinned upstream baseline raw performance producer', () => {
     const samples: UpstreamBaselinePerformanceRawSample[] = []
     const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-upstream-performance-'))
     let completed = 0
+    let finalizationStarted = false
     try {
       for (const document of representatives.documents) {
         const sampleFiles = sampleFilesFor(
@@ -542,6 +566,7 @@ test.describe('pinned upstream baseline raw performance producer', () => {
         }
       }
 
+      expect(completed).toBe(totalSamples)
       const run = createUpstreamBaselinePerformanceRawRun({
         evidenceClass: classification,
         runId: requiredValue('MARKTEXT_UPSTREAM_RUN_ID'),
@@ -566,7 +591,9 @@ test.describe('pinned upstream baseline raw performance producer', () => {
           packageVersion: requiredValue('MARKTEXT_UPSTREAM_PACKAGE_VERSION'),
           packageManager: requiredValue('MARKTEXT_UPSTREAM_PACKAGE_MANAGER'),
           nodeVersion: requiredValue('MARKTEXT_UPSTREAM_NODE_VERSION'),
-          playwrightVersion: requiredValue('MARKTEXT_UPSTREAM_PLAYWRIGHT_VERSION'),
+          playwrightVersion: requiredValue(
+            'MARKTEXT_UPSTREAM_PLAYWRIGHT_VERSION'
+          ),
           lockfileSha256: requiredValue('MARKTEXT_UPSTREAM_LOCKFILE_SHA256'),
           producerSha256: requiredValue('MARKTEXT_UPSTREAM_PRODUCER_SHA256'),
           probeSha256: requiredValue('MARKTEXT_UPSTREAM_PROBE_SHA256'),
@@ -577,10 +604,12 @@ test.describe('pinned upstream baseline raw performance producer', () => {
         },
         samples
       })
-      writeUpstreamBaselinePerformanceRawRun(outputPath, run)
-      expect(completed).toBe(totalSamples)
+      finalizationStarted = true
+      await finalizeUpstreamPerformanceRun(runRoot, () => {
+        writeUpstreamBaselinePerformanceRawRun(outputPath, run)
+      })
     } finally {
-      fs.rmSync(runRoot, { recursive: true, force: true })
+      if (!finalizationStarted) await removeUpstreamPerformanceRunRoot(runRoot)
     }
   })
 })
