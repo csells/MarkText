@@ -263,6 +263,7 @@ const measureSample = async(
   return Object.freeze({
     surface,
     report: reportCoreAuthorityPerformance({
+      surface,
       inputEvents: [{ sequence: input.sequence, tEvent: input.tEvent }],
       authorityEvents
     })
