@@ -14,10 +14,18 @@ import App from './app'
 import { t } from './i18n'
 import { registerSandboxIpcHandlers } from './ipc'
 import { setPlantumlServerSource } from './ipc/diagram'
+import { isHiddenE2eWindow } from './windows/windowActivationPolicy'
 
 // Set version strings into global and process.versions
 process.env.MARKTEXT_VERSION = MARKTEXT_VERSION
 process.env.MARKTEXT_VERSION_STRING = MARKTEXT_VERSION_STRING
+
+// Hidden Playwright runs must never activate MarkText or steal keyboard focus
+// from the user's foreground application. The double guard makes this policy
+// unavailable to ordinary production launches.
+if (process.platform === 'darwin' && isHiddenE2eWindow()) {
+  app.setActivationPolicy('prohibited')
+}
 
 // -----------------------------------------------
 // Exception handling and logging setup

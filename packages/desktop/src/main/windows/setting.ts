@@ -7,6 +7,7 @@ import type Accessor from '../app/accessor'
 import { centerWindowOptions } from './utils'
 import { TITLE_BAR_HEIGHT, preferencesWinOptions, isLinux, isOsx } from '../config'
 import log from 'electron-log'
+import { isHiddenE2eWindow } from './windowActivationPolicy'
 
 class SettingWindow extends BaseWindow {
   /**
@@ -25,6 +26,7 @@ class SettingWindow extends BaseWindow {
   createWindow(category: string | null = null): BrowserWindow {
     const { menu: appMenu, env, keybindings, preferences } = this._accessor
     const winOptions: BrowserWindowConstructorOptions = Object.assign({}, preferencesWinOptions)
+    if (isHiddenE2eWindow()) winOptions.show = false
     centerWindowOptions(
       winOptions as BrowserWindowConstructorOptions & {
         width: number

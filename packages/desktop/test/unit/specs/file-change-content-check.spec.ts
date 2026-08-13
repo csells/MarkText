@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 vi.hoisted(() => {
@@ -22,12 +22,20 @@ vi.mock('@/store/bufferedState', () => ({ debouncedSendBufferedState: vi.fn() })
 
 import { useEditorStore } from '@/store/editor'
 import { usePreferencesStore } from '@/store/preferences'
+import { coreDocumentReloadAuthority } from '@/documentAuthority/coreDocumentReloadAuthority'
 
 describe('useEditorStore LISTEN_FOR_FILE_CHANGE — a file changed on disk', () => {
+  let unregister: (() => void) | undefined
+
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
     ;(window.electron.ipcRenderer.on as Mock).mockReset()
+  })
+
+  afterEach(() => {
+    unregister?.()
+    unregister = undefined
   })
 
   const makeTab = (store: ReturnType<typeof useEditorStore>, isSaved = true) => {
@@ -123,5 +131,21 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — a file changed on disk', () 
 
     expect(tab.markdown).toBe('hello')
     expect(notifySpy).toHaveBeenCalledTimes(1)
+  })
+
+  // A saved tab reloads silently (#3652). While Core owns the document, the
+  // reload goes through Core even when Pinia's stale copy matches the disk.
+  it('does not compare disk bytes with stale Pinia while Core owns the document', () => {
+    const store = useEditorStore()
+    const tab = makeTab(store)
+    const reload = vi.fn(async() => () => {})
+    unregister = coreDocumentReloadAuthority.register(tab.id, reload)
+    const notifySpy = vi.spyOn(store, 'pushTabNotification').mockImplementation(() => {})
+    store.LISTEN_FOR_FILE_CHANGE()
+
+    fire(captureHandler(), 'hello')
+
+    expect(notifySpy).not.toHaveBeenCalled()
+    expect(reload).toHaveBeenCalledTimes(1)
   })
 })

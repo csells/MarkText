@@ -152,6 +152,8 @@ export interface MarkdownCheckpoint {
   readonly bracketPath: MarkdownBracketPath | undefined
   readonly pendingLinkLabel: MarkdownPendingLinkLabel | undefined
   readonly fixedInline: MarkdownFixedInlineState | undefined
+  /** End of an angle-delimited text region that cannot own a GFM autolink. */
+  readonly extendedAutolinkSuppressedUntil?: number | undefined
   readonly activeContainers: readonly ActiveBlockContainer[]
   readonly paragraphOpen: boolean
   readonly lastLineLazy: boolean
@@ -2544,6 +2546,8 @@ export function createMarkdownLaneState(
     let bracketPath = checkpoint.bracketPath
     let pendingLinkLabel = checkpoint.pendingLinkLabel
     let fixedInline = checkpoint.fixedInline
+    let extendedAutolinkSuppressedUntil =
+      checkpoint.extendedAutolinkSuppressedUntil ?? 0
     let activeContainers = checkpoint.activeContainers
     let paragraphOpen = checkpoint.paragraphOpen
     let lastLineLazy = checkpoint.lastLineLazy
@@ -2975,13 +2979,33 @@ export function createMarkdownLaneState(
             checkpoint.trailingBackslashOdd
           )
           ) {
+            if (
+              gfmEnabled &&
+              offset >= extendedAutolinkSuppressedUntil &&
+              source.charCodeAt(offset) === 60
+            ) {
+              let close = offset + 1
+              while (
+                close < laneEnd &&
+                source.charCodeAt(close) !== 10 &&
+                source.charCodeAt(close) !== 13 &&
+                source.charCodeAt(close) !== 62
+              ) {
+                close += 1
+              }
+              if (close < laneEnd && source.charCodeAt(close) === 62) {
+                extendedAutolinkSuppressedUntil = close + 1
+              }
+            }
             if (gfmEnabled) {
-              const extendedAutolink = findGfmExtendedAutolink(
-                source,
-                offset,
-                laneEnd,
-                Math.max(laneStart, lineStart)
-              )
+              const extendedAutolink = offset >= extendedAutolinkSuppressedUntil
+                ? findGfmExtendedAutolink(
+                  source,
+                  offset,
+                  laneEnd,
+                  Math.max(laneStart, lineStart)
+                )
+                : undefined
               if (extendedAutolink !== undefined) {
                 fixedInline = Object.freeze({
                   kind: 'autolink',
@@ -3558,6 +3582,7 @@ export function createMarkdownLaneState(
         bracketPath,
         pendingLinkLabel,
         fixedInline,
+        extendedAutolinkSuppressedUntil,
         activeContainers,
         paragraphOpen,
         lastLineLazy,

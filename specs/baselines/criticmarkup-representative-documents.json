@@ -1,0 +1,83 @@
+{
+  "schema": "marktext-criticmarkup-representative-documents-v1",
+  "status": "proposed-unratified",
+  "documents": [
+    {
+      "id": "all-blocks",
+      "path": "packages/desktop/test/e2e/data/all-blocks.md",
+      "sha256": "cb4b13c85a29c0f7bce0bf02503a964ede06f03dc8b63c56365dce332fcbefdf",
+      "sourceUnits": 637,
+      "coverage": [
+        "plain-prose",
+        "tables",
+        "code"
+      ],
+      "evidence": [
+        { "coverage": "plain-prose", "anchor": "A plain paragraph with" },
+        { "coverage": "tables", "anchor": "| Name | Role | Score |" },
+        { "coverage": "code", "anchor": "```js" }
+      ]
+    },
+    {
+      "id": "dense-criticmarkup",
+      "path": "specs/baselines/representative-documents/dense-criticmarkup.md",
+      "sha256": "29668f3d77e9e3a887df9c7f9c589531257467f1946149b08803c71764bb3c79",
+      "sourceUnits": 855,
+      "coverage": [
+        "dense-criticmarkup"
+      ],
+      "evidence": [
+        { "coverage": "dense-criticmarkup", "anchor": "{~~tentative~>decisive~~}" }
+      ]
+    },
+    {
+      "id": "long-markdown-guide",
+      "path": "packages/website/content/docs/end-user/MARKDOWN_SYNTAX.md",
+      "sha256": "34c4425c5c352fdf5daeb210e068ff99a139900bff0f0a77035f4c2cec9373f9",
+      "sourceUnits": 20397,
+      "coverage": [
+        "long-document",
+        "plain-prose"
+      ],
+      "evidence": [
+        { "coverage": "long-document", "anchor": "## Table of contents" },
+        { "coverage": "plain-prose", "anchor": "Markdown is a easy-to-use markup language" }
+      ]
+    },
+    {
+      "id": "math-and-diagram",
+      "path": "specs/baselines/representative-documents/math-diagram-image.md",
+      "sha256": "16108c0ab2167807e042d685835beece036433a1a3f1dafa8bea1517ee7d55a6",
+      "sourceUnits": 270,
+      "coverage": [
+        "math",
+        "diagrams",
+        "images"
+      ],
+      "evidence": [
+        { "coverage": "math", "anchor": "\\int_0^1" },
+        { "coverage": "diagrams", "anchor": "flowchart LR" },
+        { "coverage": "images", "anchor": "../../../packages/website/public/favicon.png" }
+      ],
+      "dependentAssets": [
+        {
+          "path": "packages/website/public/favicon.png",
+          "reference": "../../../packages/website/public/favicon.png",
+          "sha256": "27ef0b9185f38bdf516db32fa8900e3bfd182937bb14f63a978713d74ad97fa2"
+        }
+      ]
+    },
+    {
+      "id": "unicode-prose",
+      "path": "specs/baselines/representative-documents/unicode-prose.md",
+      "sha256": "a9bb3ad5161fb039bcdde58612357b4302b297b714515cc456d907861b2c1d08",
+      "sourceUnits": 273,
+      "coverage": [
+        "unicode"
+      ],
+      "evidence": [
+        { "coverage": "unicode", "anchor": "Astral symbols stay paired: 😀 𝄞 🚀" }
+      ]
+    }
+  ]
+}
