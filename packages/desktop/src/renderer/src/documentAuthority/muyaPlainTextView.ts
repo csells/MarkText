@@ -8,6 +8,7 @@ export type MuyaPlainTextViewBinding = Readonly<{
   readonly path: readonly [blockIndex: number, field: 'text']
   readonly sourceRange: SourceRange
   readonly text: string
+  readonly editable?: false
 }>
 
 export type MuyaPlainTextViewResult =
@@ -25,6 +26,9 @@ const isPlainParagraph = (node: MarkdownAstNode): boolean => {
     child.range.end === node.range.end
 }
 
+const containsLink = (node: MarkdownAstNode): boolean =>
+  node.kind === 'link' || node.children.some(containsLink)
+
 /**
  * Detaches the smallest currently proven Muya view map from a public Core
  * projection. Plain projected paragraphs whose bytes map one-to-one to source
@@ -41,7 +45,8 @@ export function createMuyaPlainTextView(
 
   const bindings: MuyaPlainTextViewBinding[] = []
   for (const [blockIndex, child] of children.entries()) {
-    if (!isPlainParagraph(child)) continue
+    const editable = isPlainParagraph(child)
+    if (!editable && !(child.kind === 'paragraph' && containsLink(child))) continue
     const text = projection.markdown.slice(child.range.start, child.range.end)
     const start = projection.coordinates.toSource(child.range.start, 'next')
     const end = projection.coordinates.toSource(child.range.end, 'previous')
@@ -58,7 +63,8 @@ export function createMuyaPlainTextView(
     bindings.push(Object.freeze({
       path: Object.freeze([blockIndex, 'text'] as const),
       sourceRange: Object.freeze({ start, end }),
-      text
+      text,
+      ...(editable ? {} : { editable: false as const })
     }))
   }
 

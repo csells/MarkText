@@ -1423,6 +1423,47 @@ describe('Core actor protocol', () => {
     })
   })
 
+  it('expands a visible reference label to its complete link before authoring', () => {
+    const actor = createCoreActor()
+    const source =
+      'See [important][ref].[^n]\n\n[ref]: https://example.com\n[^n]: Note.'
+    const authored =
+      'See {==[important][ref]==}.[^n]\n\n[ref]: https://example.com\n[^n]: Note.'
+    expect(actor.handle({
+      type: 'open',
+      session: 7781,
+      sequence: 1,
+      source
+    })).toMatchObject({ type: 'opened', revision: 1 })
+
+    expect(actor.handle({
+      type: 'author',
+      session: 7781,
+      sequence: 2,
+      baseRevision: 1,
+      form: 'highlight',
+      range: { start: 5, end: 14 },
+      text: '',
+      projections: []
+    })).toMatchObject({
+      type: 'applied',
+      revision: 2,
+      change: {
+        appliedEdits: [{
+          start: 4,
+          end: 20,
+          insert: '{==[important][ref]==}'
+        }]
+      }
+    })
+    expect(actor.handle({
+      type: 'source-at-barrier',
+      session: 7781,
+      sequence: 3,
+      baseRevision: 2
+    })).toMatchObject({ type: 'source', source: authored })
+  })
+
   it('keeps Critic-looking replacement text visible when authoring', () => {
     const actor = createCoreActor()
     const source = 'alpha selected omega\n'

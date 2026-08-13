@@ -15,6 +15,17 @@
     >
       <button
         type="button"
+        data-testid="critic-review-mark-addition"
+        :disabled="coreReviewResolving || (
+          coreAuthorSelection === undefined && coreAuthorInvocationSelection === undefined
+        )"
+        @mousedown.prevent="captureCoreAuthorSelection"
+        @click="beginCoreAuthorReview('addition')"
+      >
+        {{ t('editor.coreReview.markAddition') }}
+      </button>
+      <button
+        type="button"
         data-testid="critic-review-add-comment"
         :disabled="coreReviewResolving || (
           coreAuthorSelection === undefined && coreAuthorInvocationSelection === undefined
@@ -472,7 +483,7 @@ let coreAuthorityPerformanceTrace: CoreAuthorityPerformanceTrace | undefined
 const coreAuthorSelection = ref<MuyaPlainTextAuthorSelection>()
 const coreAuthorInvocationSelection = ref<MuyaPlainTextAuthorSelection>()
 let coreAuthorDraft: Readonly<{
-  readonly form: 'comment' | 'highlight' | 'substitution'
+  readonly form: 'addition' | 'comment' | 'highlight' | 'substitution'
   readonly selection: MuyaPlainTextAuthorSelection
   readonly text: string
 }> | undefined
@@ -1375,9 +1386,10 @@ const applyCorePlainTextEditability = (
   bindings: readonly MuyaPlainTextSourceBinding[]
 ): void => {
   const muya = editor.value
-  coreEditableBindingCount.value = bindings.length
+  const editable = bindings.filter(binding => binding.editable !== false)
+  coreEditableBindingCount.value = editable.length
   if (muya === null) return
-  muya.setEditablePaths(bindings.map(binding => binding.path))
+  muya.setEditablePaths(editable.map(binding => binding.path))
 }
 
 const reconcileCoreHistoryView = async (
@@ -1550,9 +1562,9 @@ const resolveAllCoreReviewItems = async (
 }
 
 const authorCoreReview = async (
-  form: 'comment' | 'highlight' | 'substitution',
+  form: 'addition' | 'comment' | 'highlight' | 'substitution',
   invocationSelection: MuyaPlainTextAuthorSelection | undefined =
-    coreAuthorInvocationSelection.value
+  coreAuthorInvocationSelection.value
 ): Promise<void> => {
   const adapter = corePlainTextAdapter
   const muya = editor.value
@@ -1578,15 +1590,15 @@ const authorCoreReview = async (
       : Array.isArray(cachedAnchorPath) && Array.isArray(cachedFocusPath) &&
           typeof cachedAnchorOffset === 'number' && typeof cachedFocusOffset === 'number'
         ? Object.freeze({
-        anchor: Object.freeze({
-          path: Object.freeze([...cachedAnchorPath]),
-          offset: cachedAnchorOffset
-        }),
-        focus: Object.freeze({
-          path: Object.freeze([...cachedFocusPath]),
-          offset: cachedFocusOffset
+          anchor: Object.freeze({
+            path: Object.freeze([...cachedAnchorPath]),
+            offset: cachedAnchorOffset
+          }),
+          focus: Object.freeze({
+            path: Object.freeze([...cachedFocusPath]),
+            offset: cachedFocusOffset
+          })
         })
-      })
         : null
   )
   if (
@@ -1614,7 +1626,7 @@ const authorCoreReview = async (
     sameSelection(coreAuthorDraft.selection, selection)
     ? coreAuthorDraft.text
     : ''
-  const text = form === 'highlight'
+  const text = form === 'addition' || form === 'highlight'
     ? ''
     : window.prompt(
       form === 'comment'
@@ -1654,10 +1666,12 @@ const authorCoreReview = async (
 }
 
 const beginCoreAuthorReview = (
-  form: 'comment' | 'highlight' | 'substitution'
+  form: 'addition' | 'comment' | 'highlight' | 'substitution'
 ): void => {
   coreAuthorInvocationSelection.value ??= coreAuthorSelection.value
-  void authorCoreReview(form, coreAuthorInvocationSelection.value)
+  authorCoreReview(form, coreAuthorInvocationSelection.value).catch(error => {
+    emit('core-fault', error)
+  })
 }
 
 const captureCoreAuthorSelection = (): void => {
@@ -1674,7 +1688,9 @@ const handleCoreHistory = (command: 'undo' | 'redo'): boolean => {
       outcome,
       state: adapter.state()
     })
-    void refreshCoreReviewItem('next', 0)
+    refreshCoreReviewItem('next', 0).catch(error => {
+      emit('core-fault', error)
+    })
   }).catch(error => {
     emit('core-fault', error)
   })
@@ -2712,9 +2728,9 @@ onMounted(() => {
       coreAuthorityPerformanceTrace === undefined
         ? undefined
         : {
-          documentId: props.coreLease.documentId,
-          record: event => coreAuthorityPerformanceTrace?.capture(event)
-        }
+            documentId: props.coreLease.documentId,
+            record: event => coreAuthorityPerformanceTrace?.capture(event)
+          }
     )
     coreTrackChangesMode = createCoreTrackChangesMode({
       accept: change => corePlainTextAdapter?.accept(change) ?? 'unsupported',
@@ -2724,7 +2740,9 @@ onMounted(() => {
       ) ?? 'unsupported'
     })
     applyCorePlainTextEditability(props.corePlainTextView.bindings)
-    void refreshCoreReviewItem('next', 0)
+    refreshCoreReviewItem('next', 0).catch(error => {
+      emit('core-fault', error)
+    })
     coreCompositionRoot = editor.value.domNode as HTMLElement
     coreSearchPresentation = createProjectedSearchPresentation({
       isProvenMatch: match => {

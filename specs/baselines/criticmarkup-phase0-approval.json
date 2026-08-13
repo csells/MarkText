@@ -102,12 +102,12 @@
     {
       "id": "interaction-matrix",
       "path": "specs/baselines/criticmarkup-interaction-matrix.json",
-      "sha256": "b74fc711847deb963927242ae80c95b12661d3fd80d586d581889c45621b1c9f"
+      "sha256": "484f238c9705df46b59ce38dfac240f1e1c96826fee1cdf54872346ee4f4469a"
     },
     {
       "id": "interaction-evidence",
       "path": "specs/baselines/criticmarkup-interaction-evidence.json",
-      "sha256": "5d9d73efdc9b584e707e65f008caa41dd7f5fd482292d888e04769dfbbb7f713"
+      "sha256": "c270bb1a4aee4e6f2097dbfaf5eff66257ee0e795d4e29da4f117d2f0074163c"
     },
     {
       "id": "representative-documents",
@@ -173,7 +173,7 @@
       "id": "interaction-matrix",
       "status": "pending-owner-decision",
       "question": "Approve or amend the 25-row CriticMarkup interaction matrix as the release-risk denominator?",
-      "proposal": "Keep the structurally complete matrix proposed-unratified until its expected product behaviors are accepted. Twenty-one rows have partial production seams, including a table-driven installed oracle for all 20 resolve, save/reopen, Source round-trip, and render rows; four rows have no named production oracle; zero rows have pinned passing installed execution evidence.",
+      "proposal": "Keep the structurally complete matrix proposed-unratified until its expected product behaviors are accepted. All 25 rows have named table-driven installed oracles through visible controls and exact source/history/save/reopen checks, including the CONTEXT-defined Commented-span result for Add Comment; zero rows have pinned passing installed execution evidence.",
       "evidenceRefs": ["interaction-matrix", "interaction-evidence"]
     },
     {
