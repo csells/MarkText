@@ -125,6 +125,15 @@ export interface SaveOptions {
 }
 
 /**
+ * Names one durable document state across actor replacement and recovery.
+ * Revisions are only ordered within their originating actor generation.
+ */
+export interface DocumentSaveIdentity {
+  readonly generation: number
+  readonly revision: number
+}
+
+/**
  * Per-tab payload sent with `mt::close-window-confirm` / `mt::save-tabs` /
  * `mt::save-and-close-tabs` when the renderer asks main to surface a
  * "save unsaved changes?" dialog. Mirrors the runtime shape consumed by
@@ -137,6 +146,7 @@ export interface UnsavedFile {
   markdown: string
   options: SaveOptions
   defaultPath?: string
+  saveIdentity?: DocumentSaveIdentity
 }
 
 export interface BootstrapEditorConfig {

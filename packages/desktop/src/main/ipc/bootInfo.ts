@@ -11,16 +11,19 @@ const ENV_ALLOWLIST = [
   'APPIMAGE',
   'MARKTEXT_VERSION',
   'MARKTEXT_VERSION_STRING',
+  'MARKTEXT_DOCUMENT_CORE_MODE',
   'MARKTEXT_DOCUMENT_CORE_SHADOW',
   'MARKTEXT_RIPGREP_PATH',
   'PATH',
   'HOME'
 ]
 
-const pickEnv = (): Record<string, string> => {
+export const pickRendererEnvironment = (
+  environment: Readonly<Record<string, string | undefined>> = process.env
+): Record<string, string> => {
   const out: Record<string, string> = {}
   for (const key of ENV_ALLOWLIST) {
-    const value = process.env[key]
+    const value = environment[key]
     if (value !== undefined) out[key] = value
   }
   return out
@@ -60,7 +63,7 @@ const buildBootInfo = (): BootInfo => ({
     chrome: process.versions.chrome,
     electron: process.versions.electron
   },
-  env: pickEnv(),
+  env: pickRendererEnvironment(),
   paths: {
     ripgrepBinary: resolveRipgrepBinary(),
     resources: process.resourcesPath,

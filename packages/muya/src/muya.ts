@@ -13,6 +13,7 @@ import { canTurnInto, insertBlockBelowByLabel, insertFrontMatterAtStart, replace
 import { ScrollPage } from './block/scrollPage';
 import emptyStates from './config/emptyStates';
 import {
+    BLOCK_DOM_PROPERTY,
     CLASS_NAMES,
     DATA_URL_REG,
     MUYA_DEFAULT_OPTIONS,
@@ -145,6 +146,7 @@ export class Muya {
     public i18n: I18n;
 
     private _uiPlugins: Record<string, unknown> = {};
+    private _editablePaths: readonly (readonly (string | number)[])[] | null = null;
 
     constructor(element: HTMLElement, options?: Partial<IMuyaOptions>) {
         this.options = Object.assign({}, MUYA_DEFAULT_OPTIONS, options ?? {});
@@ -267,6 +269,40 @@ export class Muya {
 
     setContent(content: TState[] | string, autoFocus = false) {
         this.editor.setContent(content, autoFocus);
+        this._applyEditablePaths();
+    }
+
+    /**
+     * Restrict editing to the exact content-block paths owned by a host
+     * projection. Passing `null` restores Muya's ordinary all-editable policy.
+     * The policy survives whole-document rebuilds such as `setContent`.
+     */
+    setEditablePaths(paths: readonly (readonly (string | number)[])[] | null) {
+        this._editablePaths = paths === null
+            ? null
+            : Object.freeze(paths.map(path => Object.freeze([...path])));
+        this._applyEditablePaths();
+    }
+
+    private _applyEditablePaths() {
+        const paths = this._editablePaths;
+        if (!this.editor.scrollPage)
+            return;
+        this.domNode.querySelectorAll<HTMLElement>('.mu-content').forEach(node => {
+            const block = node[BLOCK_DOM_PROPERTY] as Content | undefined;
+            if (block?.isContent())
+                block.attributes.contenteditable = paths === null;
+            node.setAttribute('contenteditable', paths === null ? 'true' : 'false');
+        });
+        if (paths === null)
+            return;
+        for (const path of paths) {
+            const block = this.editor.scrollPage.queryBlock([...path]);
+            if (block?.isContent() && block.domNode) {
+                block.attributes.contenteditable = true;
+                block.domNode.setAttribute('contenteditable', 'true');
+            }
+        }
     }
 
     /**
@@ -310,6 +346,7 @@ export class Muya {
         history.suppressRecording(() => {
             this.editor.rebuildContents(op, selection, 'api');
         });
+        this._applyEditablePaths();
 
         return true;
     }
@@ -358,6 +395,8 @@ export class Muya {
             if (cursorBlock && cursorBlock.isContent())
                 cursorBlock.setCursor(begin, end, true);
         }
+
+        this._applyEditablePaths();
     }
 
     /** Update list indentation and re-render so it takes effect. */

@@ -2,7 +2,9 @@
 
 This inventory records what the integration branch will carry forward from the two CriticMarkup
 implementation snapshots. It is an implementation baseline for plan 0010, not a new product or
-language specification.
+language specification. The exhaustive denominator and human decisions live in
+`criticmarkup-salvage-candidates.json` and `criticmarkup-salvage-dispositions.json`; this document
+is only their review narrative.
 
 ## Lineage
 
@@ -18,7 +20,7 @@ language specification.
 
 Paths below refer to the named snapshot unless they also exist on this integration branch.
 
-## Import unchanged
+## Import
 
 | Asset | Snapshot and path | Why it survives |
 | --- | --- | --- |
@@ -28,8 +30,8 @@ Paths below refer to the named snapshot unless they also exist on this integrati
 | Review vocabulary and localization | research: `packages/desktop/src/common/commands/review.ts`, Review locale entries | The user-facing commands remain part of the target UX. Import only entries that still match plan 0010 terminology. |
 | Installed-app fixture mechanics | research: `packages/desktop/test/e2e/installedDocumentCoreE2e.ts`, `installedArtifactProvenance.ts` | The launch and fixture techniques fill an upstream oracle gap. Assertions must be rewritten against the restored MarkText shell. |
 
-“Import unchanged” means the asset's intent and data survive. Normal path, build, and naming edits are
-still expected on this branch.
+An `import` disposition means the selected snapshot bytes survive, although relocation is allowed.
+Any source, data, behavior, build, or naming change is instead an `adapt` disposition.
 
 ## Adapt behind the new core facade
 
@@ -48,7 +50,7 @@ still expected on this branch.
 | Asset | Replacement |
 | --- | --- |
 | Native sidecar CriticMarkup scan and the modified `marked` path | One Markdown+CriticMarkup parse in `document-core`, with upstream rendering used only in Shadow comparison. |
-| Native per-flow authority selection | One authority mode for an entire document session, as required by ADR 0005 and plan 0010. |
+| Native per-flow authority selection | One authority mode for an entire document session, as required by [ADR 0001](../adr/0001-core-document-authority.md) and plan 0010. |
 | Research `document-view` editor replacement | The upstream MarkText/Muya shell plus a bounded core adapter. A replacement may be reconsidered only after the Phase 1A measured spike. |
 | Research main-process, per-keystroke session route | A renderer-reachable engine actor; main remains responsible for file and process effects without joining the synchronous typing path. |
 | Hash, wire, checkpoint, journal, resource-profile, and syntax-accounting protocols | Private implementation choices made only when a measured requirement needs them. Observable atomicity, bounded failure, exact source, and incremental/full equivalence remain requirements. |

@@ -46,6 +46,36 @@ export interface CriticMarkupParityDispositionOverlay {
   dispositions: Record<string, CriticMarkupParityDisposition>
 }
 
+export interface CriticMarkupParityRow {
+  id: string
+  upstreamBehavior: string
+  existingOracle: string
+  productionPathTest: string
+  status: 'planned' | 'red' | 'green'
+}
+
+export interface CriticMarkupParityRowManifest {
+  schema: 'marktext-criticmarkup-parity-rows-v1'
+  baselineCommit: string
+  rows: CriticMarkupParityRow[]
+}
+
+const requireArtifactSchema = <Artifact>(
+  artifact: unknown,
+  schema: string,
+  errorMessage: string
+): Artifact => {
+  if (
+    typeof artifact !== 'object' ||
+    artifact === null ||
+    !('schema' in artifact) ||
+    artifact.schema !== schema
+  ) {
+    throw new Error(errorMessage)
+  }
+  return artifact as Artifact
+}
+
 const readAtCommit = (
   repoRoot: string,
   baselineCommit: string,
@@ -372,11 +402,50 @@ export const collectCriticMarkupParityBaseline = (
 }
 
 export const validateCriticMarkupParityDispositions = (
-  baseline: CriticMarkupParityBaseline,
-  overlay: CriticMarkupParityDispositionOverlay
+  baselineArtifact: unknown,
+  overlayArtifact: unknown,
+  manifestArtifact: unknown
 ): void => {
+  const baseline = requireArtifactSchema<CriticMarkupParityBaseline>(
+    baselineArtifact,
+    'marktext-criticmarkup-parity-baseline-v1',
+    'CriticMarkup parity baseline schema is invalid'
+  )
+  const overlay = requireArtifactSchema<CriticMarkupParityDispositionOverlay>(
+    overlayArtifact,
+    'marktext-criticmarkup-parity-dispositions-v1',
+    'Parity disposition overlay schema is invalid'
+  )
+  const manifest = requireArtifactSchema<CriticMarkupParityRowManifest>(
+    manifestArtifact,
+    'marktext-criticmarkup-parity-rows-v1',
+    'Parity row manifest schema is invalid'
+  )
   if (baseline.baselineCommit !== overlay.baselineCommit) {
     throw new Error('Parity disposition overlay targets a different upstream baseline')
+  }
+  if (baseline.baselineCommit !== manifest.baselineCommit) {
+    throw new Error('Parity row manifest targets a different upstream baseline')
+  }
+
+  const rowById = new Map<string, CriticMarkupParityRow>()
+  for (const row of manifest.rows) {
+    if (!row.id.trim() || rowById.has(row.id)) {
+      throw new Error(`Parity row ID is missing or duplicated: ${row.id}`)
+    }
+    if (!row.upstreamBehavior.trim()) {
+      throw new Error(`Parity row ${row.id} requires an upstream behavior`)
+    }
+    if (!row.existingOracle.trim()) {
+      throw new Error(`Parity row ${row.id} requires an existing oracle`)
+    }
+    if (!row.productionPathTest.trim()) {
+      throw new Error(`Parity row ${row.id} requires a production-path test`)
+    }
+    if (!(['planned', 'red', 'green'] as const).includes(row.status)) {
+      throw new Error(`Parity row ${row.id} has invalid status ${String(row.status)}`)
+    }
+    rowById.set(row.id, row)
   }
 
   const itemIds = new Set(baseline.items.map(entry => entry.id))
@@ -391,21 +460,53 @@ export const validateCriticMarkupParityDispositions = (
     throw new Error(`${undisposed.length} upstream parity items are undisposed`)
   }
 
+  const referencedRows = new Set<string>()
   for (const [id, disposition] of Object.entries(overlay.dispositions)) {
+    if (!(['parity-row', 'unaffected', 'approved-decision'] as const).includes(disposition.kind)) {
+      throw new Error(`Parity disposition ${id} has invalid kind ${String(disposition.kind)}`)
+    }
     if (disposition.kind === 'unaffected' && !disposition.rationale?.trim()) {
       throw new Error(`Unaffected parity disposition ${id} requires a rationale`)
     }
     if (disposition.kind !== 'unaffected' && !disposition.ref?.trim()) {
       throw new Error(`Parity disposition ${id} requires a reference`)
     }
+    if (
+      disposition.kind === 'parity-row' &&
+      !rowById.has(disposition.ref ?? '')
+    ) {
+      throw new Error(`Parity disposition ${id} has unresolved parity row ${disposition.ref}`)
+    }
+    if (disposition.kind === 'parity-row') referencedRows.add(disposition.ref ?? '')
+  }
+
+  for (const rowId of rowById.keys()) {
+    if (!referencedRows.has(rowId)) {
+      throw new Error(`Parity row ${rowId} is not referenced by an upstream item`)
+    }
   }
 }
 
 const readBaseline = (path: string): CriticMarkupParityBaseline =>
-  JSON.parse(readFileSync(path, 'utf8')) as CriticMarkupParityBaseline
+  requireArtifactSchema<CriticMarkupParityBaseline>(
+    JSON.parse(readFileSync(path, 'utf8')),
+    'marktext-criticmarkup-parity-baseline-v1',
+    'CriticMarkup parity baseline schema is invalid'
+  )
 
 const readDispositionOverlay = (path: string): CriticMarkupParityDispositionOverlay =>
-  JSON.parse(readFileSync(path, 'utf8')) as CriticMarkupParityDispositionOverlay
+  requireArtifactSchema<CriticMarkupParityDispositionOverlay>(
+    JSON.parse(readFileSync(path, 'utf8')),
+    'marktext-criticmarkup-parity-dispositions-v1',
+    'Parity disposition overlay schema is invalid'
+  )
+
+const readParityRowManifest = (path: string): CriticMarkupParityRowManifest =>
+  requireArtifactSchema<CriticMarkupParityRowManifest>(
+    JSON.parse(readFileSync(path, 'utf8')),
+    'marktext-criticmarkup-parity-rows-v1',
+    'Parity row manifest schema is invalid'
+  )
 
 const writeBaseline = (
   repoRoot: string,
@@ -430,6 +531,7 @@ const runCli = (): void => {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
   const path = resolve(repoRoot, 'specs/baselines/criticmarkup-upstream-parity.json')
   const overlayPath = resolve(repoRoot, 'specs/baselines/criticmarkup-parity-dispositions.json')
+  const rowManifestPath = resolve(repoRoot, 'specs/baselines/criticmarkup-parity-rows.json')
   const [command, baselineCommit] = process.argv.slice(2)
 
   if (command === '--write' && baselineCommit) {
@@ -443,7 +545,8 @@ const runCli = (): void => {
   if (command === '--validate') {
     validateCriticMarkupParityDispositions(
       checkBaseline(repoRoot, path),
-      readDispositionOverlay(overlayPath)
+      readDispositionOverlay(overlayPath),
+      readParityRowManifest(rowManifestPath)
     )
     return
   }

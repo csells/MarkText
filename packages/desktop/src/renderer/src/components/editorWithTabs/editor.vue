@@ -9,6 +9,97 @@
       class="editor-component"
     />
     <div
+      v-if="coreLease !== undefined && !sourceCode"
+      class="core-review-author-bar"
+      :aria-label="t('editor.coreReview.authorTitle')"
+    >
+      <button
+        type="button"
+        data-testid="critic-review-add-comment"
+        :disabled="coreReviewResolving || (
+          coreAuthorSelection === undefined && coreAuthorInvocationSelection === undefined
+        )"
+        @mousedown.prevent="captureCoreAuthorSelection"
+        @click="beginCoreAuthorReview('comment')"
+      >
+        {{ t('editor.coreReview.addComment') }}
+      </button>
+      <button
+        type="button"
+        data-testid="critic-review-track-replacement"
+        :disabled="coreReviewResolving || (
+          coreAuthorSelection === undefined && coreAuthorInvocationSelection === undefined
+        )"
+        @mousedown.prevent="captureCoreAuthorSelection"
+        @click="beginCoreAuthorReview('substitution')"
+      >
+        {{ t('editor.coreReview.suggestReplacement') }}
+      </button>
+      <button
+        type="button"
+        data-testid="critic-review-track-changes"
+        :aria-pressed="coreTrackNextInsertion"
+        :disabled="coreReviewResolving || coreEditableBindingCount === 0"
+        :title="t('editor.coreReview.trackNextChangeDescription')"
+        @click="coreTrackNextInsertion = !coreTrackNextInsertion"
+      >
+        {{ t('editor.coreReview.trackNextChange') }}
+      </button>
+    </div>
+    <div
+      v-if="coreReviewItem !== null && coreLease !== undefined && !sourceCode"
+      class="core-review-bar"
+      role="toolbar"
+      :aria-label="t('editor.coreReview.title')"
+    >
+      <button
+        type="button"
+        data-testid="critic-review-previous"
+        :disabled="coreReviewResolving"
+        @click="refreshCoreReviewItem('previous', coreReviewItem.range.start)"
+      >
+        {{ t('editor.coreReview.previous') }}
+      </button>
+      <span data-testid="critic-review-kind">
+        {{ coreReviewItem.kind }}
+      </span>
+      <button
+        v-if="!coreReviewUsesRemove"
+        type="button"
+        data-testid="critic-review-accept"
+        :disabled="coreReviewResolving"
+        @click="resolveCoreReviewItem('accept')"
+      >
+        {{ t('editor.coreReview.accept') }}
+      </button>
+      <button
+        v-if="!coreReviewUsesRemove"
+        type="button"
+        data-testid="critic-review-reject"
+        :disabled="coreReviewResolving"
+        @click="resolveCoreReviewItem('reject')"
+      >
+        {{ t('editor.coreReview.reject') }}
+      </button>
+      <button
+        v-if="coreReviewUsesRemove"
+        type="button"
+        data-testid="critic-review-remove"
+        :disabled="coreReviewResolving"
+        @click="resolveCoreReviewItem('remove')"
+      >
+        {{ coreReviewRemoveLabel }}
+      </button>
+      <button
+        type="button"
+        data-testid="critic-review-next"
+        :disabled="coreReviewResolving"
+        @click="refreshCoreReviewItem('next', coreReviewItem.range.end)"
+      >
+        {{ t('editor.coreReview.next') }}
+      </button>
+    </div>
+    <div
       v-show="imageViewerVisible"
       class="image-viewer"
     >
@@ -77,7 +168,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, onMounted, onBeforeUnmount, nextTick, markRaw } from 'vue'
+import {
+  computed,
+  ref,
+  reactive,
+  watch,
+  onMounted,
+  onBeforeUnmount,
+  nextTick,
+  markRaw
+} from 'vue'
 import log from 'electron-log'
 import {
   Muya,
@@ -133,11 +233,22 @@ import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { SyntheticHistory, type IFileHistoryLike } from './syntheticHistory'
 import {
+  createMuyaPlainTextCoreAdapter,
   createEditorShadowBinding,
   createShadowDocumentAuthority,
   createWorkerShadowPort,
+  type CoreAppliedReply,
+  type CoreDocumentViewLease,
+  type CoreReviewDecision,
+  type CoreReviewItemReply,
   type EditorShadowBinding
 } from '@/documentAuthority'
+import type { MuyaPlainTextViewResult } from '@/documentAuthority/muyaPlainTextView'
+import type {
+  MuyaPlainTextAuthorSelection,
+  MuyaPlainTextCoreAdapter,
+  MuyaPlainTextSourceBinding
+} from '@/documentAuthority/muyaPlainTextCoreAdapter'
 
 // Importing the engine entrypoint auto-injects its editor CSS (the muya.ts
 // module imports its stylesheets at load time). Desktop themes still target the
@@ -202,8 +313,16 @@ interface MuyaChange {
 const props = defineProps<{
   markdown?: string
   cursor?: unknown
+  muyaIndexCursor?: unknown
   textDirection: string
   platform?: string
+  coreLease?: CoreDocumentViewLease
+  corePlainTextView?: Extract<MuyaPlainTextViewResult, { kind: 'view' }>
+  coreTestCrashWorker?: () => void
+  coreTestStaleNextTransaction?: () => void
+}>()
+const emit = defineEmits<{
+  (event: 'core-fault', error: unknown): void
 }>()
 
 // Get stores
@@ -271,6 +390,33 @@ const resolveEditorFont = (family: string): string =>
 const resolveCodeFont = (family: string): string => `${family}, ${DEFAULT_CODE_FONT_FAMILY}`
 const selectionChange = ref<unknown>(null)
 const editor = ref<MuyaInstance>(null)
+let corePlainTextAdapter: MuyaPlainTextCoreAdapter | undefined
+let latestCorePlainTextChange: unknown
+const coreAuthorSelection = ref<MuyaPlainTextAuthorSelection>()
+const coreAuthorInvocationSelection = ref<MuyaPlainTextAuthorSelection>()
+let coreAuthorDraft: Readonly<{
+  readonly form: 'comment' | 'substitution'
+  readonly selection: MuyaPlainTextAuthorSelection
+  readonly text: string
+}> | undefined
+const coreReviewItem = ref<CoreReviewItemReply['item']>(null)
+const coreReviewRevision = ref<number>()
+const coreReviewResolving = ref(false)
+const coreTrackNextInsertion = ref(false)
+const coreEditableBindingCount = ref(0)
+const coreReviewUsesRemove = computed(() =>
+  coreReviewItem.value?.kind === 'highlight' ||
+  coreReviewItem.value?.kind === 'comment' ||
+  coreReviewItem.value?.kind === 'commented-span'
+)
+const coreReviewRemoveLabel = computed(() =>
+  coreReviewItem.value?.kind === 'highlight'
+    ? t('editor.coreReview.removeHighlight')
+    : t('editor.coreReview.removeComment')
+)
+let coreCompositionRoot: HTMLElement | undefined
+let coreCompositionStart: (() => void) | undefined
+let coreCompositionEnd: (() => void) | undefined
 const isShowClose = ref(false)
 const dialogTableVisible = ref(false)
 const imageViewerVisible = ref<boolean | null>(null)
@@ -323,6 +469,7 @@ const startDocumentCoreShadow = (): void => {
               source,
               options: {
                 gfm: true,
+                gfmTagFilter: true,
                 frontMatter: true,
                 math: true,
                 gitLabMath,
@@ -1126,10 +1273,249 @@ const replaceMisspelling = (payload: unknown) => {
   }
 }
 
+const applyCorePlainTextEditability = (
+  bindings: readonly MuyaPlainTextSourceBinding[]
+): void => {
+  const muya = editor.value
+  coreEditableBindingCount.value = bindings.length
+  if (muya === null) return
+  muya.setEditablePaths(bindings.map(binding => binding.path))
+}
+
+const reconcileCoreHistoryView = async (
+  outcome: CoreAppliedReply
+): Promise<readonly MuyaPlainTextSourceBinding[]> => {
+  const lease = props.coreLease
+  const muya = editor.value
+  if (lease === undefined || muya === null) {
+    throw new Error('Core Muya history view is unavailable')
+  }
+  const reply = await lease.projectAcknowledgedPlainTextView(outcome.revision)
+  if (reply.view.kind !== 'view') {
+    throw new Error('Core Muya history projection is unsupported')
+  }
+  muya.setContent(reply.view.markdown)
+  editorStore.UPDATE_TOC(muya.getTOC())
+  applyCorePlainTextEditability(reply.view.bindings)
+
+  const appliedEdit = outcome.change.appliedEdits.at(-1)
+  if (appliedEdit !== undefined) {
+    const caret = appliedEdit.start + appliedEdit.insert.length
+    const binding = reply.view.bindings.find(item =>
+      item.sourceRange.start <= caret && caret <= item.sourceRange.end
+    )
+    if (binding !== undefined) {
+      // Muya's lookup consumes the array while descending; the actor-owned
+      // binding must remain intact for the adapter's atomic rebind below.
+      const block = muya.editor?.scrollPage?.queryBlock([...binding.path])
+      if (block !== undefined && block !== null && block.isContent?.()) {
+        const offset = Math.max(
+          0,
+          Math.min(binding.text.length, caret - binding.sourceRange.start)
+        )
+        block.setCursor(offset, offset, true)
+      }
+    }
+  }
+  return reply.view.bindings
+}
+
+const refreshCoreReviewItem = async (
+  direction: 'next' | 'previous',
+  from: number
+): Promise<void> => {
+  const adapter = corePlainTextAdapter
+  const lease = props.coreLease
+  if (adapter === undefined || lease === undefined) {
+    coreReviewItem.value = null
+    return
+  }
+  try {
+    await adapter.settled()
+    let reply = await lease.binding.reviewItemAtBarrier(direction, from)
+    if (reply.type !== 'review-item') {
+      throw new Error('Core Review navigation became stale')
+    }
+    if (reply.item === null) {
+      const wrappedFrom = direction === 'next' ? 0 : reply.sourceLength
+      if (wrappedFrom !== from) {
+        reply = await lease.binding.reviewItemAtBarrier(direction, wrappedFrom)
+        if (reply.type !== 'review-item') {
+          throw new Error('Core Review navigation became stale')
+        }
+      }
+    }
+    coreReviewItem.value = reply.item
+    coreReviewRevision.value = reply.revision
+  } catch (error) {
+    emit('core-fault', error)
+  }
+}
+
+const resolveCoreReviewItem = async (
+  decision: CoreReviewDecision
+): Promise<void> => {
+  const adapter = corePlainTextAdapter
+  const item = coreReviewItem.value
+  const authoredRevision = coreReviewRevision.value
+  if (
+    adapter === undefined || item === null || authoredRevision === undefined ||
+    coreReviewResolving.value
+  ) return
+  coreReviewResolving.value = true
+  try {
+    const outcome = await adapter.resolve(
+      item,
+      authoredRevision,
+      decision,
+      reconcileCoreHistoryView
+    )
+    if (outcome === undefined) {
+      await refreshCoreReviewItem('next', 0)
+      return
+    }
+    await refreshCoreReviewItem('next', item.range.start)
+  } catch (error) {
+    emit('core-fault', error)
+  } finally {
+    coreReviewResolving.value = false
+  }
+}
+
+const authorCoreReview = async (
+  form: 'comment' | 'substitution',
+  invocationSelection: MuyaPlainTextAuthorSelection | undefined =
+    coreAuthorInvocationSelection.value
+): Promise<void> => {
+  const adapter = corePlainTextAdapter
+  const muya = editor.value
+  if (adapter === undefined || muya === null || coreReviewResolving.value) return
+  const liveSelection = muya.getSelection()
+  const cached = selectionChange.value as MuyaChange | null
+  const cachedAnchorPath = cached?.anchorPath
+  const cachedFocusPath = cached?.focusPath
+  const cachedAnchorOffset = cached?.anchor?.offset
+  const cachedFocusOffset = cached?.focus?.offset
+  const selection = invocationSelection ?? coreAuthorSelection.value ?? (
+    liveSelection !== null
+      ? Object.freeze({
+        anchor: Object.freeze({
+          path: Object.freeze([...liveSelection.anchor.path]),
+          offset: liveSelection.anchor.offset
+        }),
+        focus: Object.freeze({
+          path: Object.freeze([...liveSelection.focus.path]),
+          offset: liveSelection.focus.offset
+        })
+      })
+      : Array.isArray(cachedAnchorPath) && Array.isArray(cachedFocusPath) &&
+          typeof cachedAnchorOffset === 'number' && typeof cachedFocusOffset === 'number'
+        ? Object.freeze({
+        anchor: Object.freeze({
+          path: Object.freeze([...cachedAnchorPath]),
+          offset: cachedAnchorOffset
+        }),
+        focus: Object.freeze({
+          path: Object.freeze([...cachedFocusPath]),
+          offset: cachedFocusOffset
+        })
+      })
+        : null
+  )
+  if (
+    selection === null ||
+    (selection.anchor.offset === selection.focus.offset &&
+      selection.anchor.path.join('/') === selection.focus.path.join('/'))
+  ) {
+    latestCorePlainTextChange = Object.freeze({
+      result: 'author-unavailable',
+      selection
+    })
+    coreAuthorInvocationSelection.value = undefined
+    return
+  }
+  const sameSelection = (
+    left: MuyaPlainTextAuthorSelection,
+    right: MuyaPlainTextAuthorSelection
+  ): boolean => left.anchor.offset === right.anchor.offset &&
+    left.focus.offset === right.focus.offset &&
+    left.anchor.path.length === right.anchor.path.length &&
+    left.focus.path.length === right.focus.path.length &&
+    left.anchor.path.every((part, index) => part === right.anchor.path[index]) &&
+    left.focus.path.every((part, index) => part === right.focus.path[index])
+  const priorDraft = coreAuthorDraft?.form === form &&
+    sameSelection(coreAuthorDraft.selection, selection)
+    ? coreAuthorDraft.text
+    : ''
+  const text = window.prompt(
+    form === 'comment'
+      ? t('editor.coreReview.commentPrompt')
+      : t('editor.coreReview.replacementPrompt'),
+    priorDraft
+  )
+  if (text === null || text.length === 0) {
+    coreAuthorInvocationSelection.value = undefined
+    return
+  }
+  coreReviewResolving.value = true
+  try {
+    const outcome = await adapter.author(form, Object.freeze({
+      anchor: selection.anchor,
+      focus: selection.focus
+    }), text, reconcileCoreHistoryView)
+    latestCorePlainTextChange = Object.freeze({
+      result: 'author',
+      form,
+      outcome,
+      state: adapter.state()
+    })
+    if (outcome !== undefined) {
+      coreAuthorDraft = undefined
+      coreAuthorSelection.value = undefined
+      await refreshCoreReviewItem('next', 0)
+    } else {
+      coreAuthorDraft = Object.freeze({ form, selection, text })
+    }
+  } catch (error) {
+    emit('core-fault', error)
+  } finally {
+    coreAuthorInvocationSelection.value = undefined
+    coreReviewResolving.value = false
+  }
+}
+
+const beginCoreAuthorReview = (form: 'comment' | 'substitution'): void => {
+  coreAuthorInvocationSelection.value ??= coreAuthorSelection.value
+  void authorCoreReview(form, coreAuthorInvocationSelection.value)
+}
+
+const captureCoreAuthorSelection = (): void => {
+  coreAuthorInvocationSelection.value = coreAuthorSelection.value
+}
+
+const handleCoreHistory = (command: 'undo' | 'redo'): boolean => {
+  const adapter = corePlainTextAdapter
+  if (adapter === undefined) return false
+  adapter.history(command, reconcileCoreHistoryView).then(outcome => {
+    latestCorePlainTextChange = Object.freeze({
+      result: 'history',
+      command,
+      outcome,
+      state: adapter.state()
+    })
+    void refreshCoreReviewItem('next', 0)
+  }).catch(error => {
+    emit('core-fault', error)
+  })
+  return true
+}
+
 const handleUndo = () => {
   if (sourceCode.value) {
     return
   }
+
+  if (handleCoreHistory('undo')) return
 
   if (editor.value) {
     editor.value.undo()
@@ -1140,6 +1526,8 @@ const handleRedo = () => {
   if (sourceCode.value) {
     return
   }
+
+  if (handleCoreHistory('redo')) return
 
   if (editor.value) {
     editor.value.redo()
@@ -1792,7 +2180,7 @@ onMounted(() => {
 
   const options: Record<string, unknown> = {
     focusMode: focus.value,
-    markdown: props.markdown,
+    markdown: props.corePlainTextView?.markdown ?? props.markdown,
     locale: getMuyaLocale(language.value),
     preferLooseListItem: preferLooseListItem.value,
     autoPairBracket: autoPairBracket.value,
@@ -1858,13 +2246,16 @@ onMounted(() => {
   // The first document's content is set via constructor options, so no
   // `file-loaded` / `setMarkdownToEditor` runs for it — seed its TOC here.
   editorStore.UPDATE_TOC(muya.getTOC())
+  if (props.coreLease !== undefined && isIndexCursor(props.muyaIndexCursor)) {
+    muya.setCursorByOffset(props.muyaIndexCursor)
+  }
 
   // Seed the save-tracking baseline for the mount-loaded document (from the
   // engine's OWN serialization, same reason as setMarkdownToEditor). Without
   // this the allocator is created lazily on the first `json-change` — i.e.
   // after the first edit — so the pristine content never maps to id 0 and
   // undoing back to the on-disk content can never read as clean again (PG15).
-  if (currentFile.value?.id) {
+  if (props.coreLease === undefined && currentFile.value?.id) {
     getSyntheticHistory(currentFile.value.id, muya.getMarkdown())
   }
 
@@ -1923,12 +2314,390 @@ onMounted(() => {
   // derived document snapshot (markdown / word count / cursor / history / TOC /
   // block AST), so we compute it here — mirroring the legacy engine's
   // `dispatchChange` payload.
-  editor.value.on('json-change', () => {
+  if (props.coreLease !== undefined && props.corePlainTextView !== undefined) {
+    corePlainTextAdapter = createMuyaPlainTextCoreAdapter(
+      props.corePlainTextView.bindings,
+      props.coreLease.binding
+    )
+    applyCorePlainTextEditability(props.corePlainTextView.bindings)
+    void refreshCoreReviewItem('next', 0)
+    coreCompositionRoot = editor.value.domNode as HTMLElement
+    coreCompositionStart = () => {
+      try {
+        corePlainTextAdapter?.compositionStart()
+      } catch (error) {
+        emit('core-fault', error)
+      }
+    }
+    coreCompositionEnd = () => {
+      // Muya's earlier root listener has already queued the committed native
+      // operation. Flush it synchronously so the adapter observes that edit
+      // while its composition barrier is still active.
+      editor.value?.flush()
+      corePlainTextAdapter?.compositionEnd().catch(error => {
+        emit('core-fault', error)
+      })
+    }
+    coreCompositionRoot.addEventListener('compositionstart', coreCompositionStart)
+    coreCompositionRoot.addEventListener('compositionend', coreCompositionEnd)
+    const stopObserving = props.coreLease.binding.observe(event => {
+      if (event.outcome.type !== 'applied') return
+      editorStore.LISTEN_FOR_CORE_CONTENT_CHANGE(
+        props.coreLease?.documentId ?? '',
+        Object.freeze({
+          generation: event.identity.generation,
+          revision: event.outcome.revision
+        })
+      )
+      void refreshCoreReviewItem(
+        'next',
+        coreReviewItem.value?.range.start ?? 0
+      )
+    })
+    props.coreLease.settleView(async () => {
+      await corePlainTextAdapter?.settled()
+    })
+    props.coreLease.onHandoff(() => {
+      if (coreCompositionStart !== undefined) {
+        coreCompositionRoot?.removeEventListener(
+          'compositionstart',
+          coreCompositionStart
+        )
+      }
+      if (coreCompositionEnd !== undefined) {
+        coreCompositionRoot?.removeEventListener(
+          'compositionend',
+          coreCompositionEnd
+        )
+      }
+      coreCompositionRoot = undefined
+      coreCompositionStart = undefined
+      coreCompositionEnd = undefined
+      stopObserving()
+      corePlainTextAdapter?.dispose()
+      corePlainTextAdapter = undefined
+      coreAuthorSelection.value = undefined
+      coreAuthorInvocationSelection.value = undefined
+      coreAuthorDraft = undefined
+      coreTrackNextInsertion.value = false
+      coreEditableBindingCount.value = 0
+      delete window.__marktextDocumentCore
+    })
+    if (window.electron.process.env.PERF_TESTING === 'true') {
+      window.__marktextDocumentCore = Object.freeze({
+        mode: 'core',
+        documentId: props.coreLease.documentId,
+        generation: props.coreLease.identity.generation,
+        ...(props.coreTestCrashWorker === undefined
+          ? {}
+          : { crashWorker: props.coreTestCrashWorker }),
+        ...(props.coreTestStaleNextTransaction === undefined
+          ? {}
+          : { staleNextTransaction: props.coreTestStaleNextTransaction }),
+        async settled (): Promise<void> {
+          await corePlainTextAdapter?.settled()
+        },
+        latest: () => latestCorePlainTextChange,
+        selectPlainText (blockIndex: number, start: number, end: number): void {
+          const block = editor.value?.editor?.scrollPage?.queryBlock([
+            blockIndex,
+            'text'
+          ])
+          if (block === undefined || block === null || !block.isContent?.()) {
+            throw new Error('Core Muya paragraph content block is unavailable')
+          }
+          if (
+            !Number.isSafeInteger(start) || !Number.isSafeInteger(end) ||
+            start < 0 || end <= start || end > block.text.length
+          ) {
+            throw new RangeError('Core Muya test selection is invalid')
+          }
+          block.setCursor(start, end)
+          coreAuthorSelection.value = Object.freeze({
+            anchor: Object.freeze({
+              path: Object.freeze([blockIndex, 'text'] as const),
+              offset: start
+            }),
+            focus: Object.freeze({
+              path: Object.freeze([blockIndex, 'text'] as const),
+              offset: end
+            })
+          })
+          latestCorePlainTextChange = Object.freeze({
+            result: 'selection',
+            selection: coreAuthorSelection.value
+          })
+        },
+        async authorPlainText (
+          form: 'comment' | 'substitution',
+          blockIndex: number,
+          start: number,
+          end: number,
+          text: string
+        ): Promise<void> {
+          const adapter = corePlainTextAdapter
+          if (adapter === undefined) throw new Error('Core Muya adapter is unavailable')
+          const selection = Object.freeze({
+            anchor: Object.freeze({
+              path: Object.freeze([blockIndex, 'text'] as const),
+              offset: start
+            }),
+            focus: Object.freeze({
+              path: Object.freeze([blockIndex, 'text'] as const),
+              offset: end
+            })
+          })
+          const outcome = await adapter.author(
+            form,
+            selection,
+            text,
+            reconcileCoreHistoryView
+          )
+          latestCorePlainTextChange = Object.freeze({
+            result: 'author',
+            form,
+            outcome,
+            state: adapter.state()
+          })
+          if (outcome !== undefined) await refreshCoreReviewItem('next', 0)
+        },
+        inputPlainText (blockIndex: number, text: string, cursor: number): void {
+          const block = editor.value?.editor?.scrollPage?.queryBlock([
+            blockIndex,
+            'text'
+          ])
+          if (block === undefined || block === null || !block.isContent?.()) {
+            throw new Error('Core Muya paragraph content block is unavailable')
+          }
+          if (block.domNode === null) {
+            throw new Error('Core Muya paragraph is not mounted')
+          }
+          editor.value.editor.activeContentBlock = block
+          block.domNode.textContent = text
+          block.setCursor(cursor, cursor)
+          block.inputHandler(new InputEvent('input', {
+            bubbles: true,
+            data: text,
+            inputType: 'insertText'
+          }))
+          editor.value.flush()
+        },
+        composePlainText (blockIndex: number, candidates: readonly string[]): void {
+          const block = editor.value?.editor?.scrollPage?.queryBlock([
+            blockIndex,
+            'text'
+          ])
+          if (
+            block === undefined || block === null || !block.isContent?.() ||
+            block.domNode === null || candidates.length === 0 ||
+            candidates.some(candidate => candidate.length === 0)
+          ) throw new Error('Core Muya composition block is unavailable')
+          const initialText = block.text
+          editor.value.editor.activeContentBlock = block
+          block.setCursor(initialText.length, initialText.length)
+          block.domNode.dispatchEvent(new CompositionEvent('compositionstart', {
+            bubbles: true,
+            data: ''
+          }))
+          for (const candidate of candidates) {
+            const text = initialText + candidate
+            block.domNode.textContent = text
+            block.setCursor(text.length, text.length)
+            block.domNode.dispatchEvent(new InputEvent('input', {
+              bubbles: true,
+              data: candidate,
+              inputType: 'insertCompositionText',
+              isComposing: true
+            }))
+          }
+          block.domNode.dispatchEvent(new CompositionEvent('compositionend', {
+            bubbles: true,
+            data: candidates[candidates.length - 1]
+          }))
+        },
+        inputMathBlock (blockIndex: number, formula: string): void {
+          const muyaEditor = editor.value?.editor
+          const paragraph = muyaEditor?.scrollPage?.queryBlock([
+            blockIndex,
+            'text'
+          ])
+          if (
+            muyaEditor === undefined || paragraph === undefined ||
+            paragraph === null || !paragraph.isContent?.() ||
+            paragraph.domNode === null || formula.length === 0
+          ) throw new Error('Core Muya math paragraph is unavailable')
+          muyaEditor.activeContentBlock = paragraph
+          paragraph.domNode.textContent = '$$'
+          paragraph.setCursor(2, 2)
+          paragraph.inputHandler(new InputEvent('input', {
+            bubbles: true,
+            data: '$$',
+            inputType: 'insertText'
+          }))
+          paragraph.enterHandler(new KeyboardEvent('keydown', {
+            bubbles: true,
+            cancelable: true,
+            key: 'Enter'
+          }))
+          editor.value.flush()
+          const math = muyaEditor.scrollPage?.queryBlock([blockIndex, 'text'])
+          if (
+            math === undefined || math === null || !math.isContent?.() ||
+            math.domNode === null
+          ) throw new Error('Core Muya math content is unavailable')
+          muyaEditor.activeContentBlock = math
+          math.domNode.textContent = formula
+          math.setCursor(formula.length, formula.length)
+          math.inputHandler(new InputEvent('input', {
+            bubbles: true,
+            data: formula,
+            inputType: 'insertText'
+          }))
+          editor.value.flush()
+        },
+        async pasteMarkdownTable (
+          blockIndex: number,
+          markdown: string
+        ): Promise<void> {
+          const muyaEditor = editor.value?.editor
+          const block = muyaEditor?.scrollPage?.queryBlock([blockIndex, 'text'])
+          if (
+            muyaEditor === undefined || block === undefined || block === null ||
+            !block.isContent?.() || markdown.length === 0
+          ) throw new Error('Core Muya table-paste paragraph is unavailable')
+          const path = block.path
+          const selection = muyaEditor.selection
+          const readSelection = selection.getSelection.bind(selection)
+          selection.getSelection = () => ({
+            anchor: { offset: 0, block, path },
+            focus: { offset: block.text.length, block, path },
+            isCollapsed: false,
+            isSelectionInSameBlock: true,
+            direction: 'forward' as never,
+            type: 'Range' as never
+          })
+          const event = {
+            preventDefault () {},
+            stopPropagation () {},
+            clipboardData: {
+              getData: (type: string) => type === 'text/plain' ? markdown : '',
+              files: [],
+              items: []
+            }
+          } as unknown as ClipboardEvent
+          try {
+            await muyaEditor.clipboard.pasteHandler(event, markdown, '')
+            editor.value.flush()
+          } finally {
+            selection.getSelection = readSelection
+          }
+        },
+        replacePlainTextAcrossBlocks (
+          startBlockIndex: number,
+          startOffset: number,
+          endBlockIndex: number,
+          endOffset: number,
+          text: string
+        ): void {
+          const muyaEditor = editor.value?.editor
+          const startBlock = muyaEditor?.scrollPage?.queryBlock([
+            startBlockIndex,
+            'text'
+          ])
+          const endBlock = muyaEditor?.scrollPage?.queryBlock([
+            endBlockIndex,
+            'text'
+          ])
+          if (
+            muyaEditor === undefined || startBlock === undefined ||
+            startBlock === null || !startBlock.isContent?.() ||
+            endBlock === undefined || endBlock === null ||
+            !endBlock.isContent?.() ||
+            !Number.isSafeInteger(startOffset) || startOffset < 0 ||
+            startOffset > startBlock.text.length ||
+            !Number.isSafeInteger(endOffset) || endOffset < 0 ||
+            endOffset > endBlock.text.length ||
+            startBlockIndex >= endBlockIndex
+          ) {
+            throw new Error('Core Muya cross-block selection is unavailable')
+          }
+          const startPath = startBlock.path
+          const endPath = endBlock.path
+          const selection = muyaEditor.selection
+          const readSelection = selection.getSelection.bind(selection)
+          selection.getSelection = () => ({
+            anchor: { offset: startOffset, block: startBlock, path: startPath },
+            focus: { offset: endOffset, block: endBlock, path: endPath },
+            isCollapsed: false,
+            isSelectionInSameBlock: false,
+            direction: 'forward' as never,
+            type: 'Range' as never
+          })
+          try {
+            muyaEditor.clipboard.cutHandler()
+          } finally {
+            selection.getSelection = readSelection
+          }
+          const merged = muyaEditor.scrollPage?.queryBlock([
+            startBlockIndex,
+            'text'
+          ])
+          if (
+            merged === undefined || merged === null ||
+            !merged.isContent?.() || merged.domNode === null
+          ) throw new Error('Core Muya merged paragraph is unavailable')
+          const nextText = merged.text.slice(0, startOffset) + text +
+            merged.text.slice(startOffset)
+          muyaEditor.activeContentBlock = merged
+          merged.domNode.textContent = nextText
+          const cursor = startOffset + text.length
+          merged.setCursor(cursor, cursor)
+          merged.inputHandler(new InputEvent('input', {
+            bubbles: true,
+            data: text,
+            inputType: 'insertText'
+          }))
+          editor.value.flush()
+        }
+      })
+    }
+  }
+
+  editor.value.on('json-change', (change: unknown) => {
     // There is a chance that this event is fired AFTER the tab is switched. If we purely rely on this.currentFile later on
     // it can cause invalid updates. Hence, we need the id to identify changes as part of each tab
     if (!currentFile.value || !editor.value) return
     const { id } = currentFile.value
     if (!id) return
+    if (corePlainTextAdapter !== undefined) {
+      const trackNextInsertion = coreTrackNextInsertion.value
+      if (trackNextInsertion) {
+        coreTrackNextInsertion.value = false
+        applyCorePlainTextEditability(Object.freeze([]))
+      }
+      const result = trackNextInsertion
+        ? corePlainTextAdapter.acceptTracked(change, reconcileCoreHistoryView)
+        : corePlainTextAdapter.accept(change)
+      latestCorePlainTextChange = Object.freeze({
+        result,
+        tracked: trackNextInsertion,
+        state: corePlainTextAdapter.state(),
+        change: structuredClone(change)
+      })
+      if (result === 'unsupported') {
+        const error = new Error('Core Muya operation requires reconciliation')
+        emit('core-fault', error)
+      } else {
+        const observedAdapter = corePlainTextAdapter
+        observedAdapter.settled().catch(error => {
+          if (
+            corePlainTextAdapter === observedAdapter &&
+            observedAdapter.state().status === 'faulted'
+          ) emit('core-fault', error)
+        })
+      }
+      return
+    }
     const markdown = editor.value.getMarkdown()
     // Stash the real engine history for in-session tab-switch restoration. The
     // synthetic save-tracking id is derived from the live document content (a
@@ -2023,6 +2792,32 @@ onMounted(() => {
     }
 
     selectionChange.value = changes
+    if (
+      corePlainTextAdapter !== undefined &&
+      Array.isArray(changes.anchorPath) && Array.isArray(changes.focusPath) &&
+      typeof changes.anchor?.offset === 'number' &&
+      typeof changes.focus?.offset === 'number' &&
+      (
+        changes.anchor.offset !== changes.focus.offset ||
+        changes.anchorPath.join('/') !== changes.focusPath.join('/')
+      )
+    ) {
+      coreAuthorSelection.value = Object.freeze({
+        anchor: Object.freeze({
+          path: Object.freeze([...changes.anchorPath]),
+          offset: changes.anchor.offset
+        }),
+        focus: Object.freeze({
+          path: Object.freeze([...changes.focusPath]),
+          offset: changes.focus.offset
+        })
+      })
+    } else if (
+      corePlainTextAdapter !== undefined &&
+      coreAuthorInvocationSelection.value === undefined
+    ) {
+      coreAuthorSelection.value = undefined
+    }
     // Persist the caret so a click/arrow-key move (which never fires
     // `json-change`) survives an in-session tab switch — `tab.cursor` is what
     // `handleFileChange` replays on re-activation. Cheap: serialized caret only.
@@ -2041,16 +2836,19 @@ onMounted(() => {
   // editor startup or input handling.
   // Wait through one complete browser frame before even constructing the
   // diagnostic Worker. The upstream editor gets the first paint unopposed.
-  documentCoreShadowStartFrame = requestAnimationFrame(() => {
-    documentCoreShadowStartFrame = null
-    documentCoreShadowSecondFrame = requestAnimationFrame(() => {
-      documentCoreShadowSecondFrame = null
-      startDocumentCoreShadow()
+  if (props.coreLease === undefined) {
+    documentCoreShadowStartFrame = requestAnimationFrame(() => {
+      documentCoreShadowStartFrame = null
+      documentCoreShadowSecondFrame = requestAnimationFrame(() => {
+        documentCoreShadowSecondFrame = null
+        startDocumentCoreShadow()
+      })
     })
-  })
+  }
 })
 
 onBeforeUnmount(() => {
+  if (props.coreLease !== undefined) delete window.__marktextDocumentCore
   if (documentCoreShadowStartFrame !== null) {
     cancelAnimationFrame(documentCoreShadowStartFrame)
     documentCoreShadowStartFrame = null
@@ -2175,6 +2973,38 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
   cursor: default;
   overflow-anchor: none !important;
+}
+
+.core-review-bar,
+.core-review-author-bar {
+  position: absolute;
+  top: 12px;
+  right: 18px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--floatBorderColor);
+  border-radius: 6px;
+  background: var(--floatBgColor);
+  color: var(--editorColor);
+  box-shadow: var(--floatShadow);
+}
+
+.core-review-author-bar {
+  right: auto;
+  left: 18px;
+}
+
+.core-review-bar button,
+.core-review-author-bar button {
+  border: 0;
+  border-radius: 4px;
+  padding: 4px 8px;
+  background: var(--buttonBgColor);
+  color: inherit;
+  cursor: pointer;
 }
 
 .editor-component .mu-container {

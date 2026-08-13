@@ -37,10 +37,17 @@ const loadComponent = (deps: Record<string, unknown>) => {
   const compiled = compileScript(descriptor, { id: 'test' })
   // Drop every import; bindings come from the injected `__deps` object so the
   // store/codeMirror/muya/config modules never load.
-  const noImports = compiled.content
-    .split('\n')
-    .filter((l) => !/^\s*import\s/.test(l))
-    .join('\n')
+  const compiledFile = ts.createSourceFile(
+    'sourceCode.compiled.ts',
+    compiled.content,
+    ts.ScriptTarget.ES2020,
+    true,
+    ts.ScriptKind.TS
+  )
+  const noImports = compiledFile.statements
+    .filter(statement => !ts.isImportDeclaration(statement))
+    .map(statement => statement.getFullText(compiledFile))
+    .join('')
   // esbuild's transformSync trips over jsdom's TextEncoder realm, so transpile
   // the TS away with the (pure-JS) typescript compiler.
   const js = ts.transpileModule(noImports, {
@@ -56,7 +63,9 @@ const loadComponent = (deps: Record<string, unknown>) => {
     `const { _defineComponent, ref, watch, onMounted, onBeforeUnmount, nextTick,
       useEditorStore, usePreferencesStore, storeToRefs, codeMirror,
       setCursorAtFirstLine, setTextDirection, getWordCount, adjustCursor, bus,
-      oneDarkThemes, railscastsThemes } = __deps
+      oneDarkThemes, railscastsThemes, findMarkdownHeadingLine,
+      scrollSourceEditorToLine, createCodeMirrorCoreAdapter,
+      coreDocumentRecoveryAuthority, sourceCodeCoreAdapterOptions } = __deps
     ${js}
     return module.exports`
   ) as (deps: Record<string, unknown>, exports: object, module: object) => SetupModule
@@ -83,6 +92,11 @@ const makeDeps = (over: Record<string, unknown> = {}) => ({
   bus: { on: () => {}, off: () => {}, emit: () => {} },
   oneDarkThemes: [],
   railscastsThemes: [],
+  findMarkdownHeadingLine: () => -1,
+  scrollSourceEditorToLine: () => {},
+  createCodeMirrorCoreAdapter: () => ({}),
+  coreDocumentRecoveryAuthority: { recover: () => Promise.resolve() },
+  sourceCodeCoreAdapterOptions: () => ({}),
   ...over
 })
 

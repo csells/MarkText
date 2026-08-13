@@ -25,6 +25,7 @@ export {
   type DocumentProjection,
   type DocumentProjectionName,
   type DocumentProjectionRequest,
+  type DocumentResolutionDecision,
   type DocumentRevision,
   type DocumentSourceEdit,
   type MarkdownAst,
@@ -50,3 +51,4 @@ export {
   type ProjectionOrigin,
   type SourceRange
 } from './documentCore.js'
+export { DOCUMENT_RESOURCE_POLICY_V1 } from './resourcePolicy.js'

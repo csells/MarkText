@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 vi.hoisted(() => {
@@ -21,6 +21,7 @@ vi.mock('@/services/notification', () => ({
 vi.mock('@/store/bufferedState', () => ({ debouncedSendBufferedState: vi.fn() }))
 
 import { useEditorStore } from '@/store/editor'
+import { coreDocumentReloadAuthority } from '@/documentAuthority/coreDocumentReloadAuthority'
 
 // #1861: a watcher 'change' event fires even when only the file's mtime changed
 // (e.g. a git checkout that left the content byte-identical). The handler then
@@ -28,10 +29,17 @@ import { useEditorStore } from '@/store/editor'
 // no-op change. Skip the handling when the new on-disk content equals the
 // tab's current content.
 describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1861)', () => {
+  let unregister: (() => void) | undefined
+
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
     ;(window.electron.ipcRenderer.on as Mock).mockReset()
+  })
+
+  afterEach(() => {
+    unregister?.()
+    unregister = undefined
   })
 
   const makeSavedTab = (store: ReturnType<typeof useEditorStore>) => {
@@ -69,6 +77,22 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — content-identical change (#1
     store.LISTEN_FOR_FILE_CHANGE()
 
     fire(captureHandler(), 'hello world')
+
+    expect(notifySpy).toHaveBeenCalledTimes(1)
+    expect(tab.isSaved).toBe(false)
+  })
+
+  it('does not compare disk bytes with stale Pinia while Core owns the document', () => {
+    const store = useEditorStore()
+    const tab = makeSavedTab(store)
+    unregister = coreDocumentReloadAuthority.register(
+      tab.id,
+      async() => () => {}
+    )
+    const notifySpy = vi.spyOn(store, 'pushTabNotification').mockImplementation(() => {})
+    store.LISTEN_FOR_FILE_CHANGE()
+
+    fire(captureHandler(), 'hello')
 
     expect(notifySpy).toHaveBeenCalledTimes(1)
     expect(tab.isSaved).toBe(false)

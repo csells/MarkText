@@ -13,6 +13,10 @@ import type {
 import type { MenuTemplate, MenuPopupPosition } from '@shared/types/menu'
 import type { SerializedStat } from '@shared/types/files'
 import type { ShadowReport } from '@/documentAuthority'
+import type {
+  CriticMarkupKind,
+  DocumentResolutionDecision
+} from '@marktext/document-core'
 
 declare global {
   // ---- Build-time defines (electron-vite `define`) ----
@@ -194,6 +198,43 @@ declare global {
       readonly diagnosticOnly: true
       settled(): Promise<void>
       reports(): readonly ShadowReport[]
+    }
+    __marktextDocumentCore?: {
+      readonly mode: 'core'
+      readonly documentId?: string
+      readonly generation?: number
+      settled(): Promise<void>
+      latest(): unknown
+      crashWorker?(): void
+      staleNextTransaction?(): void
+      resolveCriticMarkup?(
+        kind: CriticMarkupKind,
+        start: number,
+        end: number,
+        decision: DocumentResolutionDecision
+      ): Promise<void>
+      selectPlainText?(blockIndex: number, start: number, end: number): void
+      authorPlainText?(
+        form: 'comment' | 'substitution',
+        blockIndex: number,
+        start: number,
+        end: number,
+        text: string
+      ): Promise<void>
+      inputPlainText?(blockIndex: number, text: string, cursor: number): void
+      composePlainText?(
+        blockIndex: number,
+        candidates: readonly string[]
+      ): void
+      inputMathBlock?(blockIndex: number, formula: string): void
+      pasteMarkdownTable?(blockIndex: number, markdown: string): Promise<void>
+      replacePlainTextAcrossBlocks?(
+        startBlockIndex: number,
+        startOffset: number,
+        endBlockIndex: number,
+        endOffset: number,
+        text: string
+      ): void
     }
     marktext?: {
       env?: { windowId: number; [key: string]: unknown }

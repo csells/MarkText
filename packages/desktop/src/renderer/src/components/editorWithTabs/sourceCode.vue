@@ -16,6 +16,13 @@ import { wordCount as getWordCount } from '@muyajs/core'
 import { adjustCursor } from '../../util'
 import bus from '../../bus'
 import { oneDarkThemes, railscastsThemes } from '@/config'
+import {
+  createCodeMirrorCoreAdapter,
+  coreDocumentRecoveryAuthority,
+  type CodeMirrorCoreAdapter,
+  type CoreDocumentViewLease
+} from '@/documentAuthority'
+import { sourceCodeCoreAdapterOptions } from '@/documentAuthority/sourceCodeCoreAdapterOptions'
 
 // CodeMirror 5 ships no first-party types; the wrapper in src/renderer/src/
 // codeMirror/index.ts also keeps the surface intentionally loose.
@@ -31,6 +38,7 @@ const props = defineProps<{
   markdown?: string
   muyaIndexCursor?: unknown
   textDirection: string
+  coreLease?: CoreDocumentViewLease
 }>()
 
 const editorStore = useEditorStore()
@@ -42,6 +50,12 @@ const editor = ref<CMInstance>(null)
 const commitTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const viewDestroyed = ref(false)
 const tabId = ref<string | null>(null)
+let coreAdapter: CodeMirrorCoreAdapter | undefined
+let coreCompositionInput: HTMLElement | undefined
+let coreCompositionStart: (() => void) | undefined
+let coreCompositionEnd: (() => void) | undefined
+let coreSettlementCheck: (() => void) | undefined
+let requestedSourceSnapshots = 0
 
 const { theme, sourceCode } = storeToRefs(preferencesStore)
 const { currentFile: currentTab } = storeToRefs(editorStore)
@@ -60,11 +74,9 @@ watch(
   }
 )
 
-const getMarkdownAndCursor = (cm: CMInstance) => {
+const getMuyaCursor = (cm: CMInstance): MuyaIndexCursorLike => {
   let focus = cm.getCursor('head')
   let anchor = cm.getCursor('anchor')
-
-  const markdown: string = cm.getValue()
   const convertToMuyaCursor = (cursor: CMCursor) => {
     const line = cm.getLine(cursor.line)
     const preLine = cm.getLine(cursor.line - 1)
@@ -91,7 +103,14 @@ const getMarkdownAndCursor = (cm: CMInstance) => {
     focus = anchor
     anchor = tmpCursor
   }
-  return { cursor: { focus, anchor }, markdown }
+  return { focus, anchor }
+}
+
+const getMarkdownAndCursor = (cm: CMInstance) => {
+  const cursor = getMuyaCursor(cm)
+  requestedSourceSnapshots += 1
+  const markdown: string = cm.getValue()
+  return { cursor, markdown }
 }
 
 /**
@@ -99,6 +118,7 @@ const getMarkdownAndCursor = (cm: CMInstance) => {
  * @param id
  */
 const prepareTabSwitch = () => {
+  if (props.coreLease !== undefined) return
   if (commitTimer.value) clearTimeout(commitTimer.value)
   if (tabId.value) {
     const { cursor, markdown: newMarkdown } = getMarkdownAndCursor(editor.value)
@@ -118,6 +138,7 @@ interface FileChangePayloadLike {
 }
 
 const handleFileChange = (payload: unknown) => {
+  if (props.coreLease !== undefined) return
   const { id, markdown: newMarkdown, muyaIndexCursor } = payload as FileChangePayloadLike
   if (!editor.value) return
 
@@ -211,7 +232,14 @@ const handleUndo = () => {
   }
 
   if (editor.value) {
-    editor.value.execCommand('undo')
+    if (coreAdapter !== undefined) {
+      coreAdapter.history('undo').catch(error => {
+        console.error('Core undo failed', error)
+        requestCoreRecovery(error)
+      })
+    } else {
+      editor.value.execCommand('undo')
+    }
   }
 }
 
@@ -221,8 +249,37 @@ const handleRedo = () => {
   }
 
   if (editor.value) {
-    editor.value.execCommand('redo')
+    if (coreAdapter !== undefined) {
+      coreAdapter.history('redo').catch(error => {
+        console.error('Core redo failed', error)
+        requestCoreRecovery(error)
+      })
+    } else {
+      editor.value.execCommand('redo')
+    }
   }
+}
+
+const requestCoreRecovery = (error: unknown): void => {
+  const adapter = coreAdapter
+  const lease = props.coreLease
+  if (
+    adapter === undefined || lease === undefined ||
+    adapter.state().status !== 'faulted'
+  ) return
+  lease.faultView(error)
+  const recovering = coreDocumentRecoveryAuthority.recover({
+    documentId: lease.documentId,
+    lease,
+    error
+  })
+  if (recovering === undefined) {
+    console.error('Core document recovery authority is unavailable', error)
+    return
+  }
+  recovering.catch(recoveryError => {
+    console.error('Core document recovery failed', recoveryError)
+  })
 }
 
 interface ImageActionPayload {
@@ -232,6 +289,7 @@ interface ImageActionPayload {
 }
 
 const handleImageAction = (payload: unknown) => {
+  if (props.coreLease !== undefined) return
   const { id, result, alt } = payload as ImageActionPayload
   const value: string = editor.value.getValue()
   const focus = editor.value.getCursor('focus')
@@ -282,6 +340,7 @@ const handleImageAction = (payload: unknown) => {
 }
 
 const saveContent = (cm: CMInstance) => {
+  if (props.coreLease !== undefined) return
   const { cursor, markdown: newMarkdown } = getMarkdownAndCursor(cm)
   // Attention: the cursor may be `{focus: null, anchor: null}` when press `backspace`
   const wordCount = getWordCount(newMarkdown)
@@ -311,6 +370,7 @@ const listenChange = () => {
 // `scroll-to-header` bus event (emitted when a TOC entry is clicked) must scroll
 // CodeMirror instead. Resolve the TOC entry to its heading line in the source.
 const handleScrollToHeader = (slug: unknown) => {
+  if (props.coreLease !== undefined) return
   if (!editor.value) return
   const index = editorStore.listToc.findIndex(item => item.slug === slug)
   if (index < 0) return
@@ -389,11 +449,135 @@ onMounted(() => {
   editor.value = codeMirrorInstance
   tabId.value = id
 
-  listenChange()
+  if (props.coreLease !== undefined) {
+    coreAdapter = createCodeMirrorCoreAdapter(
+      codeMirrorInstance.getDoc(),
+      props.coreLease.binding,
+      sourceCodeCoreAdapterOptions(props.markdown ?? '', props.coreLease.lineEnding)
+    )
+    const input = codeMirrorInstance.getInputField?.() as HTMLElement | undefined
+    if (input !== undefined) {
+      coreCompositionInput = input
+      coreCompositionStart = () => {
+        try {
+          coreAdapter?.compositionStart()
+        } catch (error) {
+          console.error('Core composition start failed', error)
+          requestCoreRecovery(error)
+        }
+      }
+      coreCompositionEnd = () => {
+        coreAdapter?.compositionEnd().catch(error => {
+          console.error('Core composition commit failed', error)
+          requestCoreRecovery(error)
+        })
+      }
+      input.addEventListener('compositionstart', coreCompositionStart)
+      input.addEventListener('compositionend', coreCompositionEnd)
+    }
+    let latest: unknown
+    const stopObserving = props.coreLease.binding.observe(event => {
+      if (event.outcome.type !== 'applied') return
+      editorStore.LISTEN_FOR_CORE_CONTENT_CHANGE(
+        props.coreLease?.documentId ?? '',
+        Object.freeze({
+          generation: event.identity.generation,
+          revision: event.outcome.revision
+        })
+      )
+      latest = Object.freeze({
+        mode: 'core',
+        worker: 'dedicated',
+        revision: event.outcome.revision,
+        sourceLength: event.outcome.sourceLength,
+        requestedSourceSnapshots,
+        change: event.outcome.change
+      })
+    })
+    codeMirrorInstance.on('cursorActivity', (cm: CMInstance) => {
+      editorStore.LISTEN_FOR_CORE_CURSOR_CHANGE(
+        props.coreLease?.documentId ?? '',
+        getMuyaCursor(cm)
+      )
+    })
+    editorStore.LISTEN_FOR_CORE_CURSOR_CHANGE(
+      props.coreLease.documentId,
+      getMuyaCursor(codeMirrorInstance)
+    )
+    coreSettlementCheck = () => {
+      const adapter = coreAdapter
+      if (adapter === undefined) return
+      adapter.settled().catch(requestCoreRecovery)
+    }
+    codeMirrorInstance.on('change', coreSettlementCheck)
+    props.coreLease.settleView(async () => {
+      try {
+        await coreAdapter?.settled()
+      } catch (error) {
+        requestCoreRecovery(error)
+        throw error
+      }
+    })
+    props.coreLease.onHandoff(() => {
+      if (coreSettlementCheck !== undefined) {
+        codeMirrorInstance.off('change', coreSettlementCheck)
+        coreSettlementCheck = undefined
+      }
+      if (coreCompositionStart !== undefined) {
+        coreCompositionInput?.removeEventListener(
+          'compositionstart',
+          coreCompositionStart
+        )
+      }
+      if (coreCompositionEnd !== undefined) {
+        coreCompositionInput?.removeEventListener(
+          'compositionend',
+          coreCompositionEnd
+        )
+      }
+      coreCompositionInput = undefined
+      coreCompositionStart = undefined
+      coreCompositionEnd = undefined
+      stopObserving()
+      coreAdapter?.dispose()
+      coreAdapter = undefined
+      delete window.__marktextDocumentCore
+    })
+    if (window.electron.process.env.PERF_TESTING === 'true') {
+      window.__marktextDocumentCore = Object.freeze({
+        mode: 'core',
+        async settled (): Promise<void> { await coreAdapter?.settled() },
+        latest: () => latest,
+        async resolveCriticMarkup (kind, start, end, decision): Promise<void> {
+          const adapter = coreAdapter
+          if (adapter === undefined) {
+            throw new Error('Core Source adapter is unavailable')
+          }
+          try {
+            const state = adapter.state()
+            if (state.status !== 'ready') {
+              throw new Error('Core Source adapter is not ready')
+            }
+            await adapter.resolve(
+              { kind, range: { start, end } },
+              state.lastAcceptedRevision,
+              decision
+            )
+          } catch (error) {
+            requestCoreRecovery(error)
+            throw error
+          }
+        }
+      })
+    }
+  } else {
+    listenChange()
+  }
 })
 
 onBeforeUnmount(() => {
   viewDestroyed.value = true
+  if (props.coreLease !== undefined) delete window.__marktextDocumentCore
   if (commitTimer.value) clearTimeout(commitTimer.value)
 
   bus.off('file-loaded', handleFileChange)
@@ -405,13 +589,15 @@ onBeforeUnmount(() => {
   bus.off('image-action', handleImageAction)
   bus.off('scroll-to-header', handleScrollToHeader)
 
-  const { cursor, markdown: newMarkdown } = getMarkdownAndCursor(editor.value)
-  bus.emit('file-changed', {
-    id: tabId.value,
-    markdown: newMarkdown,
-    muyaIndexCursor: cursor,
-    renderCursor: true
-  })
+  if (props.coreLease === undefined) {
+    const { cursor, markdown: newMarkdown } = getMarkdownAndCursor(editor.value)
+    bus.emit('file-changed', {
+      id: tabId.value,
+      markdown: newMarkdown,
+      muyaIndexCursor: cursor,
+      renderCursor: true
+    })
+  }
 })
 </script>
 

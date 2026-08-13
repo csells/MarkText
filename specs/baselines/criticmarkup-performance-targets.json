@@ -1,0 +1,53 @@
+{
+  "schema": "marktext-criticmarkup-performance-targets-v1",
+  "status": "proposed-unratified",
+  "ratificationBasis": null,
+  "representativeDocuments": {
+    "schema": "marktext-criticmarkup-representative-documents-v1",
+    "path": "specs/baselines/criticmarkup-representative-documents.json"
+  },
+  "environment": {
+    "hardware": "MacBook Pro Mac17,6, Apple M5 Max, 128 GB",
+    "os": "macOS 26.5.1 (25F80), arm64",
+    "build": "MarkText production Electron bundle"
+  },
+  "sampling": {
+    "warmupSamples": 20,
+    "measuredSamples": 200,
+    "percentiles": [50, 95, 99],
+    "scenarios": "Run every Phase 1A scenario on every representative document; report each distribution separately without pooling documents."
+  },
+  "metrics": {
+    "t_event": {
+      "definition": "Browser beforeinput timestamp; trace origin, not physical-input time."
+    },
+    "t_echo": {
+      "definition": "Elapsed time from t_event to the exact speculative DOM checkpoint.",
+      "targetP95Ms": 16.7
+    },
+    "t_dispatch": {
+      "definition": "Elapsed time from t_event until the edit transaction is dispatched to the authority actor.",
+      "targetP95Ms": 8
+    },
+    "t_ack": {
+      "definition": "Elapsed time from t_event until the authority actor acknowledges the transaction.",
+      "targetP95Ms": 50
+    },
+    "t_reconcile": {
+      "definition": "Elapsed time from t_event until authoritative reconciliation completes.",
+      "targetP95Ms": 50
+    },
+    "t_frame": {
+      "definition": "Elapsed time from t_event to the next requestAnimationFrame render opportunity.",
+      "targetP95Ms": 16.7
+    },
+    "open": {
+      "definition": "Elapsed time from the open request until the authoritative document session is accepted.",
+      "targetP95Ms": 500
+    },
+    "first_viewport": {
+      "definition": "Elapsed time from the open request until the first viewport is editable.",
+      "targetP95Ms": 1500
+    }
+  }
+}

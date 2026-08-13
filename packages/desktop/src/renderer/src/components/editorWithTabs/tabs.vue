@@ -78,12 +78,9 @@ const selectFile = (file: IFileState) => {
 }
 
 const removeFileInTab = (file: IFileState) => {
-  const { isSaved } = file
-  if (isSaved) {
-    editorStore.FORCE_CLOSE_TAB(file)
-  } else {
-    editorStore.CLOSE_UNSAVED_TAB(file)
-  }
+  editorStore.CLOSE_TAB(file)?.catch(error => {
+    console.error('Failed to close document through its authority barrier', error)
+  })
 }
 
 // Original methods
@@ -130,19 +127,24 @@ const closeTab = (tabId: unknown) => {
   }
 }
 
+const handleAggregateClose = (closing: void | Promise<void>): void | Promise<void> =>
+  closing?.catch(error => {
+    console.error('Failed to close documents through their authority barriers', error)
+  })
+
 const closeOthers = (tabId: unknown) => {
   const tab = tabs.value.find((f) => f.id === tabId)
   if (tab) {
-    editorStore.CLOSE_OTHER_TABS(tab)
+    return handleAggregateClose(editorStore.CLOSE_OTHER_TABS(tab))
   }
 }
 
 const closeSaved = () => {
-  editorStore.CLOSE_SAVED_TABS()
+  return handleAggregateClose(editorStore.CLOSE_SAVED_TABS())
 }
 
 const closeAll = () => {
-  editorStore.CLOSE_ALL_TABS()
+  return handleAggregateClose(editorStore.CLOSE_ALL_TABS())
 }
 
 const changeMaxWidth = (width: unknown) => {
