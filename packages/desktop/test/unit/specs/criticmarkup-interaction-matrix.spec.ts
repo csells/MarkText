@@ -43,6 +43,21 @@ describe('CriticMarkup interaction matrix', () => {
     ]))
   })
 
+  it('authors a selected Comment as the product Commented span', () => {
+    const matrix = readCriticMarkupInteractionMatrix(matrixPath)
+    const row = matrix.rows.find(candidate => candidate.id === 'comment.paragraph.author')
+
+    expect(row?.action).toEqual({
+      kind: 'author',
+      selection: 'review this claim',
+      replacement: 'note',
+      outcome: 'applied'
+    })
+    expect(row?.expectedSource).toBe(
+      'Alpha {==review this claim==}{>>note<<} omega.'
+    )
+  })
+
   it('cannot imply owner ratification through row status alone', () => {
     const matrix = structuredClone(readCriticMarkupInteractionMatrix(matrixPath))
     Object.assign(matrix, { status: 'ratified' })
@@ -135,8 +150,8 @@ describe('CriticMarkup interaction matrix', () => {
       status,
       evidence.rows.filter(row => row.status === status).length
     ]))).toEqual({
-      'existing-partial': 21,
-      'missing-production-oracle': 4
+      'existing-partial': 25,
+      'missing-production-oracle': 0
     })
     expect(evidence.rows.some(row => row.status === 'green')).toBe(false)
     expect(evidence.rows.filter(row =>
@@ -144,6 +159,7 @@ describe('CriticMarkup interaction matrix', () => {
         'packages/desktop/test/e2e/installed-core-review.spec.ts' &&
       row.productionOracle.testName === 'follows the installed interaction matrix'
     ).map(row => row.id)).toEqual([
+      'addition.block-boundary.author',
       'addition.literal.resolve',
       'addition.nested-comment.save-reopen',
       'addition.paragraph.render',
@@ -151,16 +167,20 @@ describe('CriticMarkup interaction matrix', () => {
       'comment.block-boundary.source-round-trip',
       'comment.literal.save-reopen',
       'comment.nested-comment.render',
+      'comment.paragraph.author',
       'comment.reference-footnote.resolve',
       'deletion.block-boundary.resolve',
       'deletion.literal.source-round-trip',
+      'deletion.nested-comment.author',
       'deletion.paragraph.save-reopen',
       'deletion.reference-footnote.render',
       'highlight.block-boundary.save-reopen',
       'highlight.literal.render',
       'highlight.nested-comment.resolve',
       'highlight.paragraph.source-round-trip',
+      'highlight.reference-footnote.author',
       'substitution.block-boundary.render',
+      'substitution.literal.author',
       'substitution.nested-comment.source-round-trip',
       'substitution.paragraph.resolve',
       'substitution.reference-footnote.save-reopen'

@@ -166,6 +166,51 @@ const installedRenderRows = installedRenderCases.map(testCase => {
   return { row, testCase }
 })
 
+const installedAuthorCases = [{
+  id: 'addition.block-boundary.author',
+  mode: 'selection-control',
+  renderedSelection: 'Added block.',
+  actionTestId: 'critic-review-mark-addition',
+  promptText: null,
+  reviewKind: 'addition'
+}, {
+  id: 'comment.paragraph.author',
+  mode: 'selection-control',
+  renderedSelection: 'review this claim',
+  actionTestId: 'critic-review-add-comment',
+  promptText: 'note',
+  reviewKind: 'commented-span'
+}, {
+  id: 'deletion.nested-comment.author',
+  mode: 'edit-comment',
+  promptText: 'A local {--deletion--} in a comment.',
+  reviewKind: 'deletion'
+}, {
+  id: 'highlight.reference-footnote.author',
+  mode: 'selection-control',
+  renderedSelection: 'important',
+  actionTestId: 'critic-review-mark-highlight',
+  promptText: null,
+  reviewKind: 'highlight'
+}, {
+  id: 'substitution.literal.author',
+  mode: 'selection-control',
+  renderedSelection: 'old',
+  actionTestId: 'critic-review-track-replacement',
+  promptText: 'new',
+  reviewKind: null
+}] as const
+
+const installedAuthorRows = installedAuthorCases.map(testCase => {
+  const id = testCase.id
+  const row = interactionMatrix.rows.find(candidate => candidate.id === id)
+  if (row === undefined) throw new Error(`Installed interaction row is absent: ${id}`)
+  if (row.action.kind !== 'author') {
+    throw new Error(`Installed interaction row is not an author action: ${id}`)
+  }
+  return { row, testCase, actionOutcome: row.action.outcome }
+})
+
 const installedBinary = (): string => {
   const configured = process.env.MARKTEXT_PACKAGED_APP
   if (configured === undefined || configured.trim().length === 0) {
@@ -201,6 +246,39 @@ const launchInstalled = async(
   await waitForMenuReady(app, 60_000)
   await expectInstalledArtifactCommit(page)
   return { app, page }
+}
+
+const selectRenderedText = async(page: Page, text: string): Promise<void> => {
+  const selected = await page.evaluate(value => {
+    const root = document.querySelector('.editor-component') as HTMLElement | null
+    if (root === null) return undefined
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    let node = walker.nextNode()
+    while (node !== null) {
+      const start = node.textContent?.indexOf(value) ?? -1
+      if (start >= 0) {
+        root.focus()
+        const range = document.createRange()
+        range.setStart(node, start)
+        range.setEnd(node, start + value.length)
+        const selection = window.getSelection()
+        if (selection === null) return undefined
+        selection.removeAllRanges()
+        selection.addRange(range)
+        document.dispatchEvent(new Event('selectionchange'))
+        root.dispatchEvent(new KeyboardEvent('keyup', {
+          key: 'ArrowRight',
+          bubbles: true,
+          cancelable: true
+        }))
+        return selection.toString()
+      }
+      node = walker.nextNode()
+    }
+    return undefined
+  }, text)
+  expect(selected).toBe(text)
+  await page.waitForTimeout(150)
 }
 
 test.describe('installed Core Review authority', () => {
@@ -404,6 +482,90 @@ test.describe('installed Core Review authority', () => {
         await expectEditorWindowHidden(launched.app)
         expectEditorNotFrontmost(launched.app)
         expect(fs.readFileSync(filePath, 'utf8')).toBe(row.expectedSource)
+      } finally {
+        if (launched !== undefined) await launched.app.close()
+        fs.rmSync(root, { recursive: true, force: true })
+      }
+    })
+  }
+
+  for (const { row, testCase, actionOutcome } of installedAuthorRows) {
+    test(`${row.id} follows the installed interaction matrix`, async() => {
+      const binary = installedBinary()
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-matrix-'))
+      const filePath = path.join(root, 'interaction.md')
+      const userDataDir = path.join(root, 'profile')
+      fs.writeFileSync(filePath, row.source, 'utf8')
+      let launched: { app: ElectronApplication, page: Page } | undefined
+      try {
+        launched = await launchInstalled(binary, userDataDir, filePath)
+        const { app, page } = launched
+        await expectEditorWindowHidden(app)
+        expectEditorNotFrontmost(app)
+        expect(await page.evaluate(() =>
+          window.electron.process.env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
+        )).toBeUndefined()
+
+        if (testCase.mode === 'selection-control') {
+          await selectRenderedText(page, testCase.renderedSelection)
+        } else {
+          await expect(page.getByTestId('critic-review-kind')).toHaveText('comment')
+        }
+        if (testCase.promptText !== null) {
+          await page.evaluate(text => { window.prompt = () => text }, testCase.promptText)
+        }
+        const control = page.getByTestId(testCase.mode === 'selection-control'
+          ? testCase.actionTestId
+          : 'critic-review-edit-comment')
+        await expect(control).toBeEnabled()
+        await control.click()
+        await expect.poll(() => page.evaluate(() =>
+          (window.__marktextDocumentCore?.latest() as {
+            result?: string
+          })?.result
+        )).toBe(testCase.mode === 'selection-control' ? 'author' : 'edit-comment')
+        const authorResult = await page.evaluate(() =>
+          window.__marktextDocumentCore?.latest()
+        ) as { outcome?: { type?: string } }
+        if (actionOutcome === 'applied') {
+          expect(authorResult).toMatchObject({ outcome: { type: 'applied' } })
+        } else {
+          expect(authorResult.outcome).toBeUndefined()
+        }
+        await page.evaluate(() => window.__marktextDocumentCore?.settled())
+        if (testCase.reviewKind === null) {
+          await expect(page.getByTestId('critic-review-kind')).toHaveCount(0)
+        } else {
+          await expect(page.getByTestId('critic-review-kind'))
+            .toHaveText(testCase.reviewKind)
+        }
+        await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+        await expect.poll(() => fs.readFileSync(filePath, 'utf8'))
+          .toBe(row.expectedSource)
+
+        await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+        await page.evaluate(() => window.__marktextDocumentCore?.settled())
+        await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+        await expect.poll(() => fs.readFileSync(filePath, 'utf8')).toBe(row.source)
+
+        await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
+        await page.evaluate(() => window.__marktextDocumentCore?.settled())
+        await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+        await expect.poll(() => fs.readFileSync(filePath, 'utf8'))
+          .toBe(row.expectedSource)
+        await app.close()
+        launched = undefined
+
+        launched = await launchInstalled(binary, userDataDir, filePath)
+        await expectEditorWindowHidden(launched.app)
+        expectEditorNotFrontmost(launched.app)
+        expect(fs.readFileSync(filePath, 'utf8')).toBe(row.expectedSource)
+        if (testCase.reviewKind === null) {
+          await expect(launched.page.getByTestId('critic-review-kind')).toHaveCount(0)
+        } else {
+          await expect(launched.page.getByTestId('critic-review-kind'))
+            .toHaveText(testCase.reviewKind)
+        }
       } finally {
         if (launched !== undefined) await launched.app.close()
         fs.rmSync(root, { recursive: true, force: true })

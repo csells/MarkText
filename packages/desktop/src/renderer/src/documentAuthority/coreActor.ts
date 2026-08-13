@@ -800,7 +800,7 @@ export function createCoreActor(
     request: Extract<CoreRequest, { readonly type: 'author' }>
   ): DocumentSourceEdit | undefined => {
     if (
-      (request.form !== 'comment' && request.form !== 'highlight' &&
+      (request.form !== 'addition' && request.form !== 'comment' && request.form !== 'highlight' &&
         request.form !== 'substitution') ||
       request.range === null || typeof request.range !== 'object' ||
       typeof request.text !== 'string' ||
@@ -810,14 +810,37 @@ export function createCoreActor(
       request.range.end > activeRevision.sourceLength ||
       (request.form === 'substitution' && request.text.length === 0)
     ) return undefined
+    const projection = activeCore.project(activeRevision, 'revised')
+    let authoredRange = request.range
+    const visitForCompleteLink = (node: MarkdownAstNode): void => {
+      if (node.kind === 'link' && node.children.length > 0) {
+        const first = node.children[0]
+        const last = node.children.at(-1)
+        if (first !== undefined && last !== undefined) {
+          const contentStart = projection.coordinates.toSource(first.range.start, 'next')
+          const contentEnd = projection.coordinates.toSource(last.range.end, 'previous')
+          if (
+            contentStart === request.range.start && contentEnd === request.range.end
+          ) {
+            authoredRange = Object.freeze({
+              start: projection.coordinates.toSource(node.range.start, 'next'),
+              end: projection.coordinates.toSource(node.range.end, 'previous')
+            })
+            return
+          }
+        }
+      }
+      for (const child of node.children) visitForCompleteLink(child)
+    }
+    visitForCompleteLink(projection.ast.root)
     const pendingAnnotations = [...activeRevision.annotations]
     while (pendingAnnotations.length > 0) {
       const annotation = pendingAnnotations.pop()
       if (annotation === undefined) break
-      const overlaps = request.range.start < annotation.range.end &&
-        request.range.end > annotation.range.start
-      const contains = request.range.start <= annotation.range.start &&
-        request.range.end >= annotation.range.end
+      const overlaps = authoredRange.start < annotation.range.end &&
+        authoredRange.end > annotation.range.start
+      const contains = authoredRange.start <= annotation.range.start &&
+        authoredRange.end >= annotation.range.end
       if (overlaps && !contains) return undefined
       for (const arm of annotation.arms) {
         pendingAnnotations.push(...arm.annotations)
@@ -833,8 +856,8 @@ export function createCoreActor(
         const annotation = pending.pop()
         if (annotation === undefined) break
         if (
-          annotation.range.start >= request.range.start &&
-          annotation.range.end <= request.range.end
+          annotation.range.start >= authoredRange.start &&
+          annotation.range.end <= authoredRange.end
         ) {
           protectedAnnotations.push(annotation.range)
           continue
@@ -851,8 +874,8 @@ export function createCoreActor(
       const parts: string[] = []
       let offset = 0
       for (const range of protectedAnnotations) {
-        const start = range.start - request.range.start
-        const end = range.end - request.range.start
+        const start = range.start - authoredRange.start
+        const end = range.end - authoredRange.start
         if (start < offset) continue
         parts.push(escapeUnowned(source.slice(offset, start)))
         parts.push(source.slice(start, end))
@@ -861,27 +884,29 @@ export function createCoreActor(
       parts.push(escapeUnowned(source.slice(offset)))
       return parts.join('')
     }
-    const rawSelected = activeCore.sourceSlice(activeRevision, request.range)
+    const rawSelected = activeCore.sourceSlice(activeRevision, authoredRange)
     const prefix = activeCore.sourceSlice(activeRevision, {
       start: 0,
-      end: request.range.start
+      end: authoredRange.start
     })
     const suffix = activeCore.sourceSlice(activeRevision, {
-      start: request.range.end,
+      start: authoredRange.end,
       end: activeRevision.sourceLength
     })
     const candidateFor = (
       selected: string,
       authoredText: string
     ): DocumentSourceEdit | undefined => {
-      const insert = request.form === 'comment'
-        ? `{==${selected}==}{>>${authoredText}<<}`
-        : request.form === 'highlight'
-          ? `{==${selected}==}`
-          : `{~~${selected}~>${authoredText}~~}`
+      const insert = request.form === 'addition'
+        ? `{++${selected}++}`
+        : request.form === 'comment'
+          ? `{==${selected}==}{>>${authoredText}<<}`
+          : request.form === 'highlight'
+            ? `{==${selected}==}`
+            : `{~~${selected}~>${authoredText}~~}`
       const edit = Object.freeze({
-        start: request.range.start,
-        end: request.range.end,
+        start: authoredRange.start,
+        end: authoredRange.end,
         insert
       })
 
@@ -890,16 +915,16 @@ export function createCoreActor(
       // it is already unambiguous (including code/HTML/math literal ownership).
       const candidateCore = createDocumentCore()
       const candidate = candidateCore.open(prefix + insert + suffix, markdownOptions)
-      const authoredEnd = request.range.start + insert.length
+      const authoredEnd = authoredRange.start + insert.length
       if (candidate.diagnostics.some(diagnostic =>
         diagnostic.range.start < authoredEnd &&
-        diagnostic.range.end > request.range.start
+        diagnostic.range.end > authoredRange.start
       )) return undefined
       if (request.form === 'substitution') {
         const annotation = candidate.annotations.find(item =>
           item.kind === 'substitution' &&
-          item.range.start === request.range.start &&
-          item.range.end === request.range.start + insert.length
+          item.range.start === authoredRange.start &&
+          item.range.end === authoredRange.start + insert.length
         )
         const oldArm = annotation?.arms.find(arm => arm.name === 'old')
         const newArm = annotation?.arms.find(arm => arm.name === 'new')
@@ -910,11 +935,11 @@ export function createCoreActor(
           ? edit
           : undefined
       }
-      if (request.form === 'highlight') {
+      if (request.form === 'addition' || request.form === 'highlight') {
         const annotation = candidate.annotations.find(item =>
-          item.kind === 'highlight' &&
-          item.range.start === request.range.start &&
-          item.range.end === request.range.start + insert.length
+          item.kind === request.form &&
+          item.range.start === authoredRange.start &&
+          item.range.end === authoredRange.start + insert.length
         )
         const content = annotation?.arms.find(arm => arm.name === 'content')
         return annotation !== undefined && content !== undefined &&
@@ -924,11 +949,11 @@ export function createCoreActor(
       }
       const highlight = candidate.annotations.find(item =>
         item.kind === 'highlight' &&
-        item.range.start === request.range.start
+        item.range.start === authoredRange.start
       )
       const comment = candidate.annotations.find(item =>
         item.kind === 'comment' &&
-        item.range.end === request.range.start + insert.length
+        item.range.end === authoredRange.start + insert.length
       )
       const highlightContent = highlight?.arms.find(arm => arm.name === 'content')
       const commentContent = comment?.arms.find(arm => arm.name === 'comment')
@@ -948,7 +973,7 @@ export function createCoreActor(
       const selectedCandidate = candidateFor(protectedSelected, request.text)
       if (selectedCandidate !== undefined) return selectedCandidate
     }
-    if (request.form === 'highlight') return undefined
+    if (request.form === 'addition' || request.form === 'highlight') return undefined
     const protectedText = request.text.replace(
       /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<</g,
       token => `\\${token}`

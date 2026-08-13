@@ -104,9 +104,9 @@
       "context": "paragraph",
       "operation": "author",
       "source": "Alpha review this claim omega.",
-      "action": { "kind": "author", "selection": "review this claim", "outcome": "applied" },
-      "expectedSource": "Alpha {>>review this claim<<} omega.",
-      "expected": "Authoring over 'review this claim' creates one Comment without changing the surrounding paragraph text.",
+      "action": { "kind": "author", "selection": "review this claim", "replacement": "note", "outcome": "applied" },
+      "expectedSource": "Alpha {==review this claim==}{>>note<<} omega.",
+      "expected": "Add Comment over 'review this claim' creates the conventional Commented span without changing the surrounding paragraph text.",
       "productionOracle": "planned: installed interaction matrix / comment paragraph author",
       "status": "planned"
     },
