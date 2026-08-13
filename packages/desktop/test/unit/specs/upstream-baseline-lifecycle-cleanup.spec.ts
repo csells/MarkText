@@ -1,14 +1,24 @@
 import { constants } from 'node:fs'
-import { access, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  symlink,
+  writeFile
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
+  closeFailedUpstreamPerformanceLaunch,
   closeUpstreamPerformanceApplication,
   findUpstreamPerformanceProcessId,
   finalizeUpstreamPerformanceRun,
-  removeUpstreamPerformanceRunRoot
+  removeUpstreamPerformanceRunRoot,
+  resolveUpstreamPerformanceProcessIdentity
 } from '../../e2e/helpers/upstreamBaselineLifecycleCleanup'
 
 describe('upstream baseline lifecycle cleanup', () => {
@@ -62,21 +72,51 @@ describe('upstream baseline lifecycle cleanup', () => {
       ` 47004 ${executable} --user-data-dir ${profile}-other`
     ].join('\n')
 
-    expect(findUpstreamPerformanceProcessId(
-      processTable,
+    expect(findUpstreamPerformanceProcessId(processTable, {
       executable,
       profile
-    )).toBe(47001)
-    expect(findUpstreamPerformanceProcessId(
-      processTable,
+    })).toBe(47001)
+    expect(findUpstreamPerformanceProcessId(processTable, {
       executable,
-      '/tmp/missing-profile'
-    )).toBeUndefined()
+      profile: '/tmp/missing-profile'
+    })).toBeUndefined()
     expect(() => findUpstreamPerformanceProcessId(
       `${processTable}\n 47005 ${executable} --user-data-dir=${profile}`,
-      executable,
-      profile
+      { executable, profile }
     )).toThrow(/at most one upstream main process/i)
+  })
+
+  it('matches the executable by canonical filesystem identity while preserving the exact profile argument', async() => {
+    const root = await mkdtemp(join(tmpdir(), 'mt-upstream-process-identity-'))
+    try {
+      const canonicalBundle = join(root, 'canonical', 'marktext.app')
+      const canonicalExecutable = join(
+        canonicalBundle,
+        'Contents/MacOS/marktext'
+      )
+      const aliasBundle = join(root, 'alias-marktext.app')
+      const aliasExecutable = join(aliasBundle, 'Contents/MacOS/marktext')
+      const profile = '/var/folders/run/profile-all-blocks'
+      await mkdir(join(canonicalBundle, 'Contents/MacOS'), { recursive: true })
+      await writeFile(canonicalExecutable, 'test executable')
+      await symlink(canonicalBundle, aliasBundle, 'dir')
+      const expectedExecutable = await realpath(canonicalExecutable)
+
+      const identity = resolveUpstreamPerformanceProcessIdentity(
+        aliasBundle,
+        profile
+      )
+
+      expect(identity).toEqual({ executable: expectedExecutable, profile })
+      expect(identity.executable).not.toBe(aliasExecutable)
+      expect(findUpstreamPerformanceProcessId([
+        ` 47001 ${expectedExecutable} --user-data-dir ${profile}`,
+        ` 47002 ${expectedExecutable} --user-data-dir ${profile}-other`,
+        ` 47003 ${aliasExecutable} --user-data-dir ${profile}`
+      ].join('\n'), identity)).toBe(47001)
+    } finally {
+      await rm(root, { recursive: true })
+    }
   })
 
   it('cleans a pre-sample launch failure with no connected browser', async() => {
@@ -108,6 +148,47 @@ describe('upstream baseline lifecycle cleanup', () => {
       'terminate-47001',
       'terminate-47002'
     ])
+  })
+
+  it('rejects ambiguous identity after cleaning every exact run-owned process and launcher', async() => {
+    const aliasBundle = '/var/folders/run/mounted-dmg/marktext.app'
+    const canonicalExecutable =
+      `/private${aliasBundle}/Contents/MacOS/marktext`
+    const profile = '/var/folders/run/profile-all-blocks'
+    const identity = resolveUpstreamPerformanceProcessIdentity(
+      aliasBundle,
+      profile,
+      () => canonicalExecutable
+    )
+    const running = new Set([47001, 47002, 47003])
+    const events: string[] = []
+
+    await expect(closeFailedUpstreamPerformanceLaunch({
+      closeBrowser: async() => { events.push('browser-close') },
+      launcher: { pid: 47003 },
+      processTable: [
+        ` 47001 ${canonicalExecutable} --user-data-dir ${profile}`,
+        ` 47002 ${canonicalExecutable} --user-data-dir=${profile}`,
+        ` 47004 ${canonicalExecutable} --user-data-dir ${profile}-other`
+      ].join('\n'),
+      identity
+    }, {
+      terminate: processId => {
+        events.push(`terminate-${String(processId)}`)
+        running.delete(processId)
+      },
+      isRunning: processId => running.has(processId),
+      sleep: async() => undefined,
+      now: Date.now
+    })).rejects.toThrow(/at most one upstream main process/i)
+
+    expect(events).toEqual([
+      'browser-close',
+      'terminate-47001',
+      'terminate-47002',
+      'terminate-47003'
+    ])
+    expect(running).toEqual(new Set())
   })
 
   it('retries only transient removal races for a run-owned root', async() => {
