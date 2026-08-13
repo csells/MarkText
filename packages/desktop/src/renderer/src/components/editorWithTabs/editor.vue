@@ -2719,7 +2719,8 @@ onMounted(() => {
     if (props.corePlainTextView.bindings.length > 0) {
       coreAuthorityPerformanceTrace?.record(
         'first-editable-viewport',
-        props.coreLease.documentId
+        props.coreLease.documentId,
+        { surface: 'wysiwyg' }
       )
     }
     corePlainTextAdapter = createMuyaPlainTextCoreAdapter(

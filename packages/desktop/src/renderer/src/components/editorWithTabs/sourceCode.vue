@@ -463,11 +463,11 @@ onMounted(() => {
         ...(props.corePerformanceTrace === undefined
           ? {}
           : {
-            performanceTrace: {
-              documentId: props.coreLease.documentId,
-              record: event => props.corePerformanceTrace?.capture(event)
-            }
-          })
+              performanceTrace: {
+                documentId: props.coreLease.documentId,
+                record: event => props.corePerformanceTrace?.capture(event)
+              }
+            })
       }
     )
     const input = codeMirrorInstance.getInputField?.() as HTMLElement | undefined
@@ -535,7 +535,8 @@ onMounted(() => {
     })
     props.corePerformanceTrace?.record(
       'first-editable-viewport',
-      props.coreLease.documentId
+      props.coreLease.documentId,
+      { surface: 'source' }
     )
     props.coreLease.onHandoff(() => {
       if (coreSettlementCheck !== undefined) {
