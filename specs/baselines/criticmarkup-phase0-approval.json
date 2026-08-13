@@ -17,7 +17,7 @@
     {
       "id": "parity-oracle-proposal",
       "path": "specs/baselines/criticmarkup-parity-oracle-proposal.json",
-      "sha256": "77af9c37bac9d9d10128236238d4e5fb8bba1b49c16502edea03e1564870021c"
+      "sha256": "eab40010deb40a39fe71dd49351bcde5318e306d88b2a92001c91a27bee559a0"
     },
     {
       "id": "parity-decisions",
