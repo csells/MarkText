@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { resolve, dirname } from 'path'
 import type { PluginOption } from 'vite'
 import { defineConfig } from 'electron-vite'
@@ -9,6 +10,21 @@ import { fileURLToPath } from 'url'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
+const repositoryRoot = resolve(__dirname, '../..')
+
+const buildCommit = (): string => {
+  const commit = execFileSync(
+    'git',
+    ['rev-parse', '--verify', 'HEAD'],
+    { cwd: repositoryRoot, encoding: 'utf8' }
+  ).trim()
+  if (!/^[0-9a-f]{40}$/.test(commit)) {
+    throw new Error('MarkText builds require one full checked-out Git commit identity')
+  }
+  return commit
+}
+
+const BUILD_COMMIT = buildCommit()
 
 export default defineConfig({
   main: {
@@ -28,6 +44,7 @@ export default defineConfig({
       }
     },
     define: {
+      MARKTEXT_BUILD_COMMIT: JSON.stringify(BUILD_COMMIT),
       MARKTEXT_VERSION: JSON.stringify(packageJson.version),
       MARKTEXT_VERSION_STRING: JSON.stringify(`v${packageJson.version}`)
     },

@@ -11,11 +11,12 @@ import type {
   EditorCoreSubmitInput,
   EditorCoreSubmission
 } from '@/documentAuthority/editorCoreBinding'
+import type { CoreAuthorityPerformanceEvent } from '@/documentAuthority/coreAuthorityPerformanceTrace'
 
 const applied = (
   revision: number,
   edit: DocumentSourceEdit
-): EditorCoreApplyOutcome => Object.freeze({
+): Extract<EditorCoreApplyOutcome, { readonly type: 'applied' }> => Object.freeze({
   type: 'applied',
   session: 1,
   sequence: revision,
@@ -31,6 +32,163 @@ const applied = (
 })
 
 describe('Muya plain-text Core command lane', () => {
+  it('adopts an externally authorized applied revision only through reconciliation', async() => {
+    const adapter = createMuyaPlainTextCoreAdapter(Object.freeze([{
+      path: Object.freeze([0, 'text'] as const),
+      sourceRange: Object.freeze({ start: 0, end: 3 }),
+      text: 'cat'
+    }]), {} as Pick<EditorCoreBinding, 'submit'>)
+
+    await expect(adapter.reconcileApplied(
+      applied(2, { start: 0, end: 3, insert: 'dog' }),
+      () => Promise.resolve(Object.freeze([{
+        path: Object.freeze([0, 'text'] as const),
+        sourceRange: Object.freeze({ start: 0, end: 3 }),
+        text: 'dog'
+      }]))
+    )).resolves.toBeUndefined()
+    expect(adapter.state()).toEqual({ status: 'ready', revision: 2 })
+    expect(adapter.selectionSourceRange({
+      anchor: { path: [0, 'text'], offset: 0 },
+      focus: { path: [0, 'text'], offset: 3 }
+    })).toEqual({ start: 0, end: 3 })
+    adapter.dispose()
+  })
+
+  it('maps a live bound selection to canonical source coordinates without widening scope', () => {
+    const adapter = createMuyaPlainTextCoreAdapter(Object.freeze([{
+      path: Object.freeze([0, 'text'] as const),
+      sourceRange: Object.freeze({ start: 11, end: 15 }),
+      text: 'seed'
+    }, {
+      path: Object.freeze([1, 'text'] as const),
+      sourceRange: Object.freeze({ start: 17, end: 21 }),
+      text: 'next'
+    }]), {} as Pick<EditorCoreBinding, 'submit'>)
+
+    expect(adapter.selectionSourceRange({
+      anchor: { path: [0, 'text'], offset: 4 },
+      focus: { path: [0, 'text'], offset: 1 }
+    })).toEqual({ start: 12, end: 15 })
+    expect(adapter.selectionSourceRange({
+      anchor: { path: [0, 'text'], offset: 1 },
+      focus: { path: [1, 'text'], offset: 2 }
+    })).toBeUndefined()
+    expect(adapter.selectionSourceRange({
+      anchor: { path: [0, 'text'], offset: 1 },
+      focus: { path: [0, 'text'], offset: 1 }
+    })).toBeUndefined()
+
+    adapter.dispose()
+  })
+
+  it('submits an empty Comment payload and distinguishes it from cancellation', async() => {
+    const submissions: EditorCoreSubmitInput[] = []
+    const binding = {
+      submit(input: EditorCoreSubmitInput): EditorCoreSubmission {
+        submissions.push(structuredClone(input))
+        return Object.freeze({
+          identity: Object.freeze({
+            documentId: 'empty-comment.md',
+            generation: 1,
+            transactionId: 1
+          }),
+          acknowledged: Promise.resolve(applied(2, {
+            start: 0,
+            end: 4,
+            insert: '{==seed==}{>><<}'
+          }))
+        })
+      }
+    } as Pick<EditorCoreBinding, 'submit'>
+    const adapter = createMuyaPlainTextCoreAdapter(Object.freeze([{
+      path: Object.freeze([0, 'text'] as const),
+      sourceRange: Object.freeze({ start: 0, end: 4 }),
+      text: 'seed'
+    }]), binding)
+
+    await expect(adapter.author('comment', {
+      anchor: { path: [0, 'text'], offset: 0 },
+      focus: { path: [0, 'text'], offset: 4 }
+    }, '', () => Promise.resolve(Object.freeze([])))).resolves.toMatchObject({
+      type: 'applied',
+      revision: 2
+    })
+    expect(submissions).toEqual([{
+      kind: 'author',
+      form: 'comment',
+      range: { start: 0, end: 4 },
+      text: '',
+      projections: []
+    }])
+  })
+
+  it('reports bounded dispatch, acknowledgement, and reconciliation phases', async() => {
+    const events: CoreAuthorityPerformanceEvent[] = []
+    let now = 10
+    const binding = {
+      submit(): EditorCoreSubmission {
+        return Object.freeze({
+          identity: Object.freeze({
+            documentId: 'latency.md',
+            generation: 1,
+            transactionId: 7
+          }),
+          acknowledged: Promise.resolve(applied(2, {
+            start: 4,
+            end: 4,
+            insert: '!'
+          }))
+        })
+      }
+    } as Pick<EditorCoreBinding, 'submit'>
+    const adapter = createMuyaPlainTextCoreAdapter(Object.freeze([{
+      path: Object.freeze([0, 'text'] as const),
+      sourceRange: Object.freeze({ start: 0, end: 4 }),
+      text: 'seed'
+    }]), binding, {
+      documentId: 'latency.md',
+      record(event) {
+        events.push(Object.freeze({ ...event }))
+      },
+      clock: () => now
+    })
+
+    expect(adapter.accept({
+      source: 'user',
+      prevDoc: [{ name: 'paragraph', text: 'seed' }],
+      doc: [{ name: 'paragraph', text: 'seed!' }],
+      op: [0, 'text', { es: [4, '!'] }]
+    })).toBe('accepted')
+    now = 13
+    await Promise.resolve()
+    now = 15
+    await expect(adapter.settled()).resolves.toBeUndefined()
+
+    expect(events).toEqual([
+      {
+        phase: 'dispatch',
+        documentId: 'latency.md',
+        transaction: 7,
+        pendingDepth: 1,
+        at: 10
+      },
+      {
+        phase: 'ack',
+        documentId: 'latency.md',
+        transaction: 7,
+        at: 13
+      },
+      {
+        phase: 'reconcile',
+        documentId: 'latency.md',
+        transaction: 7,
+        corrected: false,
+        at: 13
+      }
+    ])
+  })
+
   it('routes one native insertion through actor-owned Track Changes and rebinds before settlement', async() => {
     const submissions: EditorCoreSubmitInput[] = []
     let release: ((outcome: EditorCoreApplyOutcome) => void) | undefined
@@ -123,6 +281,86 @@ describe('Muya plain-text Core command lane', () => {
       text: 'X',
       projections: []
     }])
+  })
+
+  it('retains a second tracked keystroke while the first acknowledgement is pending', async() => {
+    const submissions: EditorCoreSubmitInput[] = []
+    const releases: Array<(outcome: EditorCoreApplyOutcome) => void> = []
+    const binding = {
+      submit(input: EditorCoreSubmitInput): EditorCoreSubmission {
+        submissions.push(structuredClone(input))
+        return Object.freeze({
+          identity: Object.freeze({
+            documentId: 'track-fast-typing.md',
+            generation: 1,
+            transactionId: submissions.length
+          }),
+          acknowledged: new Promise<EditorCoreApplyOutcome>(resolve => {
+            releases.push(resolve)
+          })
+        })
+      }
+    } as Pick<EditorCoreBinding, 'submit'>
+    const initialBindings = Object.freeze([{
+      path: Object.freeze([0, 'text'] as const),
+      sourceRange: Object.freeze({ start: 0, end: 4 }),
+      text: 'seed'
+    }])
+    const afterFirst = Object.freeze([{
+      path: Object.freeze([0, 'text'] as const),
+      sourceRange: Object.freeze({ start: 3, end: 8 }),
+      text: 'seed!'
+    }])
+    const afterSecond = Object.freeze([{
+      path: Object.freeze([0, 'text'] as const),
+      sourceRange: Object.freeze({ start: 3, end: 9 }),
+      text: 'seed!?'
+    }])
+    const adapter = createMuyaPlainTextCoreAdapter(initialBindings, binding)
+    let reconciliation = 0
+    const reconcile = () => Promise.resolve(
+      reconciliation++ === 0 ? afterFirst : afterSecond
+    )
+
+    expect(adapter.acceptTracked({
+      source: 'user',
+      prevDoc: [{ name: 'paragraph', text: 'seed' }],
+      doc: [{ name: 'paragraph', text: 'seed!' }],
+      op: [0, 'text', { es: [4, '!'] }]
+    }, reconcile)).toBe('accepted')
+    expect(adapter.acceptTracked({
+      source: 'user',
+      prevDoc: [{ name: 'paragraph', text: 'seed!' }],
+      doc: [{ name: 'paragraph', text: 'seed!?' }],
+      op: [0, 'text', { es: [5, '?'] }]
+    }, reconcile)).toBe('accepted')
+
+    expect(submissions).toEqual([{
+      kind: 'track',
+      range: { start: 4, end: 4 },
+      text: '!',
+      projections: []
+    }])
+    releases[0]?.(applied(2, { start: 4, end: 4, insert: '{++!++}' }))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(submissions).toEqual([
+      {
+        kind: 'track',
+        range: { start: 4, end: 4 },
+        text: '!',
+        projections: []
+      },
+      {
+        kind: 'track',
+        range: { start: 8, end: 8 },
+        text: '?',
+        projections: []
+      }
+    ])
+    releases[1]?.(applied(3, { start: 8, end: 8, insert: '?' }))
+    await expect(adapter.settled()).resolves.toBeUndefined()
+    expect(adapter.state()).toEqual({ status: 'ready', revision: 3 })
   })
 
   it('commits one native composition as one actor-owned tracked change', async() => {
@@ -229,6 +467,143 @@ describe('Muya plain-text Core command lane', () => {
     await expect(resolving).resolves.toMatchObject({ revision: 2 })
     await expect(barrier).resolves.toBeUndefined()
     expect(adapter.state()).toEqual({ status: 'ready', revision: 2 })
+  })
+
+  it('resolves all Review suggestions through one atomic actor command', async() => {
+    const submissions: EditorCoreSubmitInput[] = []
+    const binding = {
+      submit(input: EditorCoreSubmitInput): EditorCoreSubmission {
+        submissions.push(structuredClone(input))
+        return Object.freeze({
+          identity: Object.freeze({
+            documentId: 'resolve-all.md',
+            generation: 1,
+            transactionId: 1
+          }),
+          acknowledged: Promise.resolve(applied(2, {
+            start: 2,
+            end: 11,
+            insert: 'new'
+          }))
+        })
+      }
+    } as Pick<EditorCoreBinding, 'submit'>
+    const bindings = Object.freeze([{
+      path: Object.freeze([0, 'text'] as const),
+      sourceRange: Object.freeze({ start: 0, end: 3 }),
+      text: 'new'
+    }])
+    const adapter = createMuyaPlainTextCoreAdapter(bindings, binding)
+
+    await expect(adapter.resolveAll(
+      'accept',
+      () => Promise.resolve(bindings)
+    )).resolves.toMatchObject({ type: 'applied', revision: 2 })
+    expect(submissions).toEqual([{
+      kind: 'resolve-all',
+      decision: 'accept',
+      projections: []
+    }])
+  })
+
+  it('edits one Review Comment through the actor lane before settlement', async() => {
+    const submissions: EditorCoreSubmitInput[] = []
+    const binding = {
+      submit(input: EditorCoreSubmitInput): EditorCoreSubmission {
+        submissions.push(structuredClone(input))
+        return Object.freeze({
+          identity: Object.freeze({
+            documentId: 'edit-comment.md',
+            generation: 1,
+            transactionId: 1
+          }),
+          acknowledged: Promise.resolve(applied(2, {
+            start: 17,
+            end: 31,
+            insert: '{>>new note<<}'
+          }))
+        })
+      }
+    } as Pick<EditorCoreBinding, 'submit'>
+    const bindings = Object.freeze([{
+      path: Object.freeze([0, 'text'] as const),
+      sourceRange: Object.freeze({ start: 10, end: 14 }),
+      text: 'text'
+    }])
+    const adapter = createMuyaPlainTextCoreAdapter(bindings, binding)
+    let reconciled = false
+
+    await expect(adapter.editComment({
+      kind: 'commented-span',
+      range: { start: 7, end: 31 },
+      highlightRange: { start: 7, end: 17 },
+      commentRange: { start: 17, end: 31 }
+    }, 1, 'new note', () => {
+      reconciled = true
+      return Promise.resolve(bindings)
+    })).resolves.toMatchObject({ type: 'applied', revision: 2 })
+
+    expect(submissions).toEqual([{
+      kind: 'edit-comment',
+      authoredRevision: 1,
+      annotation: {
+        kind: 'commented-span',
+        range: { start: 7, end: 31 },
+        highlightRange: { start: 7, end: 17 },
+        commentRange: { start: 17, end: 31 }
+      },
+      text: 'new note',
+      projections: []
+    }])
+    expect(reconciled).toBe(true)
+    expect(adapter.state()).toEqual({ status: 'ready', revision: 2 })
+  })
+
+  it('keeps Comment editing ready after a no-change or stale target refusal', async() => {
+    const submissions: EditorCoreSubmitInput[] = []
+    const reasons = ['no-change', 'annotation-not-found'] as const
+    const binding = {
+      submit(input: EditorCoreSubmitInput): EditorCoreSubmission {
+        submissions.push(structuredClone(input))
+        const reason = reasons[submissions.length - 1]
+        if (reason === undefined) throw new Error('Unexpected Comment edit')
+        return Object.freeze({
+          identity: Object.freeze({
+            documentId: 'edit-comment-refusal.md',
+            generation: 1,
+            transactionId: submissions.length
+          }),
+          acknowledged: Promise.resolve(Object.freeze({
+            type: 'rejected' as const,
+            session: 1,
+            sequence: submissions.length,
+            revision: 1,
+            accepted: false as const,
+            reason,
+            sourceLength: 31
+          }))
+        })
+      }
+    } as Pick<EditorCoreBinding, 'submit'>
+    const adapter = createMuyaPlainTextCoreAdapter(Object.freeze([]), binding)
+    const locator = Object.freeze({
+      kind: 'comment' as const,
+      range: Object.freeze({ start: 17, end: 31 })
+    })
+    let reconciliations = 0
+    const reconcile = () => {
+      reconciliations += 1
+      return Promise.resolve(Object.freeze([]))
+    }
+
+    await expect(adapter.editComment(locator, 1, 'same', reconcile))
+      .resolves.toBeUndefined()
+    await expect(adapter.editComment(locator, 1, 'stale', reconcile))
+      .resolves.toBeUndefined()
+    await expect(adapter.settled()).resolves.toBeUndefined()
+    expect(reconciliations).toBe(0)
+    expect(adapter.state()).toEqual({ status: 'ready', revision: 1 })
+    expect(submissions).toHaveLength(2)
   })
 
   it('keeps WYSIWYG authority ready after a stale Review locator is rejected', async() => {
@@ -937,6 +1312,45 @@ describe('Muya plain-text Core command lane', () => {
       projections: []
     }])
     expect(adapter.state()).toEqual({ status: 'ready', revision: 2 })
+  })
+
+  it('maps Mark Highlight without inventing a text payload', async() => {
+    const submissions: EditorCoreSubmitInput[] = []
+    const binding = {
+      submit(input: EditorCoreSubmitInput): EditorCoreSubmission {
+        submissions.push(structuredClone(input))
+        return Object.freeze({
+          identity: Object.freeze({
+            documentId: 'highlight.md',
+            generation: 1,
+            transactionId: 1
+          }),
+          acknowledged: Promise.resolve(applied(2, {
+            start: 1,
+            end: 4,
+            insert: '{==eed==}'
+          }))
+        })
+      }
+    } as Pick<EditorCoreBinding, 'submit'>
+    const bindings = Object.freeze([{
+      path: Object.freeze([0, 'text'] as const),
+      sourceRange: Object.freeze({ start: 0, end: 4 }),
+      text: 'seed'
+    }])
+    const adapter = createMuyaPlainTextCoreAdapter(bindings, binding)
+
+    await expect(adapter.author('highlight', {
+      anchor: { path: [0, 'text'], offset: 1 },
+      focus: { path: [0, 'text'], offset: 4 }
+    }, '', () => Promise.resolve(bindings))).resolves.toMatchObject({ revision: 2 })
+    expect(submissions).toEqual([{
+      kind: 'author',
+      form: 'highlight',
+      range: { start: 1, end: 4 },
+      text: '',
+      projections: []
+    }])
   })
 
   it('holds save settlement through IME and submits only the committed text', async() => {

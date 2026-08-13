@@ -37,13 +37,28 @@
       </button>
       <button
         type="button"
-        data-testid="critic-review-track-changes"
-        :aria-pressed="coreTrackNextInsertion"
-        :disabled="coreReviewResolving || coreEditableBindingCount === 0"
-        :title="t('editor.coreReview.trackNextChangeDescription')"
-        @click="coreTrackNextInsertion = !coreTrackNextInsertion"
+        data-testid="critic-review-mark-highlight"
+        :disabled="coreReviewResolving || (
+          coreAuthorSelection === undefined && coreAuthorInvocationSelection === undefined
+        )"
+        @mousedown.prevent="captureCoreAuthorSelection"
+        @click="beginCoreAuthorReview('highlight')"
       >
-        {{ t('editor.coreReview.trackNextChange') }}
+        {{ t('editor.coreReview.markHighlight') }}
+      </button>
+      <button
+        type="button"
+        data-testid="critic-review-track-changes"
+        :aria-pressed="coreTrackChangesEnabled"
+        :disabled="!canToggleCoreTrackChanges({
+          enabled: coreTrackChangesEnabled,
+          editableBindingCount: coreEditableBindingCount,
+          resolving: coreReviewResolving
+        })"
+        :title="t('editor.coreReview.trackChangesDescription')"
+        @click="toggleCoreTrackChanges"
+      >
+        {{ t('editor.coreReview.trackChanges') }}
       </button>
     </div>
     <div
@@ -55,7 +70,7 @@
       <button
         type="button"
         data-testid="critic-review-previous"
-        :disabled="coreReviewResolving"
+        :disabled="coreReviewBusy"
         @click="refreshCoreReviewItem('previous', coreReviewItem.range.start)"
       >
         {{ t('editor.coreReview.previous') }}
@@ -63,11 +78,17 @@
       <span data-testid="critic-review-kind">
         {{ coreReviewItem.kind }}
       </span>
+      <span
+        v-if="coreReviewCommentText !== undefined"
+        data-testid="critic-review-comment-text"
+      >
+        {{ coreReviewCommentText }}
+      </span>
       <button
         v-if="!coreReviewUsesRemove"
         type="button"
         data-testid="critic-review-accept"
-        :disabled="coreReviewResolving"
+        :disabled="coreReviewBusy"
         @click="resolveCoreReviewItem('accept')"
       >
         {{ t('editor.coreReview.accept') }}
@@ -76,24 +97,49 @@
         v-if="!coreReviewUsesRemove"
         type="button"
         data-testid="critic-review-reject"
-        :disabled="coreReviewResolving"
+        :disabled="coreReviewBusy"
         @click="resolveCoreReviewItem('reject')"
       >
         {{ t('editor.coreReview.reject') }}
       </button>
       <button
+        v-if="coreReviewHasComment"
+        type="button"
+        data-testid="critic-review-edit-comment"
+        :disabled="coreReviewBusy"
+        @click="editCoreReviewComment"
+      >
+        {{ t('editor.coreReview.editComment') }}
+      </button>
+      <button
         v-if="coreReviewUsesRemove"
         type="button"
         data-testid="critic-review-remove"
-        :disabled="coreReviewResolving"
+        :disabled="coreReviewBusy"
         @click="resolveCoreReviewItem('remove')"
       >
         {{ coreReviewRemoveLabel }}
       </button>
       <button
         type="button"
+        data-testid="critic-review-accept-all"
+        :disabled="coreReviewBusy"
+        @click="resolveAllCoreReviewItems('accept')"
+      >
+        {{ t('editor.coreReview.acceptAll') }}
+      </button>
+      <button
+        type="button"
+        data-testid="critic-review-reject-all"
+        :disabled="coreReviewBusy"
+        @click="resolveAllCoreReviewItems('reject')"
+      >
+        {{ t('editor.coreReview.rejectAll') }}
+      </button>
+      <button
+        type="button"
         data-testid="critic-review-next"
-        :disabled="coreReviewResolving"
+        :disabled="coreReviewBusy"
         @click="refreshCoreReviewItem('next', coreReviewItem.range.end)"
       >
         {{ t('editor.coreReview.next') }}
@@ -211,7 +257,32 @@ import {
   zhTW,
   type ILocale
 } from '@muyajs/core'
-import { exportStyledHTML, type HeaderFooterPart } from '@/util/exportHtml'
+import {
+  exportStyledHTML,
+  exportStyledHTMLFromProjection,
+  type ExportStyledHtmlOptions,
+  type HeaderFooterPart
+} from '@/util/exportHtml'
+import {
+  countProjectedDocument,
+  searchProjectedDocument,
+  tocProjectedDocument,
+  type ProjectedSearchOptions
+} from '@/documentConsumers/documentProjectionConsumers'
+import {
+  executeProjectedSearchReplacement,
+  type ProjectedSearchSnapshot
+} from '@/documentConsumers/projectedSearchReplacementAuthority'
+import { installProjectedSelectionClipboardGuard } from '@/documentConsumers/projectedClipboardGuard'
+import {
+  createProjectedSelectionClipboardAuthority,
+  type ProjectedSelectionClipboardAuthority
+} from '@/documentConsumers/projectedSelectionClipboardAuthority'
+import { acceptsRendererDocumentPayload } from '@/documentConsumers/rendererDocumentPayloadPolicy'
+import {
+  createProjectedSearchPresentation,
+  type ProjectedSearchPresentation
+} from '@/documentConsumers/projectedSearchPresentation'
 import { applyCursor, isIndexCursor } from '@/util/cursor'
 import EditorSearch from '../search/index.vue'
 import bus from '@/bus'
@@ -234,11 +305,15 @@ import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { SyntheticHistory, type IFileHistoryLike } from './syntheticHistory'
 import {
+  canToggleCoreTrackChanges,
+  createCoreAuthorityPerformanceTrace,
+  createCoreTrackChangesMode,
   createMuyaPlainTextCoreAdapter,
   createEditorShadowBinding,
   createShadowDocumentAuthority,
   createWorkerShadowPort,
   type CoreAppliedReply,
+  type CoreAuthorityPerformanceTrace,
   type CoreDocumentViewLease,
   type CoreReviewDecision,
   type CoreReviewItemReply,
@@ -319,6 +394,7 @@ const props = defineProps<{
   platform?: string
   coreLease?: CoreDocumentViewLease
   corePlainTextView?: Extract<MuyaPlainTextViewResult, { kind: 'view' }>
+  corePerformanceTrace?: CoreAuthorityPerformanceTrace
   coreTestCrashWorker?: () => void
   coreTestStaleNextTransaction?: () => void
 }>()
@@ -393,20 +469,35 @@ const selectionChange = ref<unknown>(null)
 const editor = ref<MuyaInstance>(null)
 let corePlainTextAdapter: MuyaPlainTextCoreAdapter | undefined
 let latestCorePlainTextChange: unknown
+let coreAuthorityPerformanceTrace: CoreAuthorityPerformanceTrace | undefined
 const coreAuthorSelection = ref<MuyaPlainTextAuthorSelection>()
 const coreAuthorInvocationSelection = ref<MuyaPlainTextAuthorSelection>()
 let coreAuthorDraft: Readonly<{
-  readonly form: 'comment' | 'substitution'
+  readonly form: 'comment' | 'highlight' | 'substitution'
   readonly selection: MuyaPlainTextAuthorSelection
   readonly text: string
 }> | undefined
 const coreReviewItem = ref<CoreReviewItemReply['item']>(null)
 const coreReviewRevision = ref<number>()
+const coreReviewCommentText = ref<string>()
 const coreReviewResolving = ref(false)
-const coreTrackNextInsertion = ref(false)
+const coreReviewNavigating = ref(false)
+const coreReviewBusy = computed(() =>
+  coreReviewResolving.value || coreReviewNavigating.value
+)
+let coreReviewRefreshGeneration = 0
+const coreTrackChangesEnabled = ref(false)
+let coreTrackChangesMode: ReturnType<typeof createCoreTrackChangesMode> | undefined
+const toggleCoreTrackChanges = (): void => {
+  coreTrackChangesEnabled.value = coreTrackChangesMode?.toggle() ?? false
+}
 const coreEditableBindingCount = ref(0)
 const coreReviewUsesRemove = computed(() =>
   coreReviewItem.value?.kind === 'highlight' ||
+  coreReviewItem.value?.kind === 'comment' ||
+  coreReviewItem.value?.kind === 'commented-span'
+)
+const coreReviewHasComment = computed(() =>
   coreReviewItem.value?.kind === 'comment' ||
   coreReviewItem.value?.kind === 'commented-span'
 )
@@ -418,6 +509,12 @@ const coreReviewRemoveLabel = computed(() =>
 let coreCompositionRoot: HTMLElement | undefined
 let coreCompositionStart: (() => void) | undefined
 let coreCompositionEnd: (() => void) | undefined
+let uninstallCoreSelectionClipboardGuard: (() => void) | undefined
+let coreSelectionClipboardAuthority: ProjectedSelectionClipboardAuthority | undefined
+let coreSearchPresentation: ProjectedSearchPresentation | undefined
+let coreConsumerInputEpoch = 0
+let coreSearchProjectionEpoch = -1
+let coreSearchSnapshot: ProjectedSearchSnapshot | undefined
 const isShowClose = ref(false)
 const dialogTableVisible = ref(false)
 const imageViewerVisible = ref<boolean | null>(null)
@@ -470,6 +567,7 @@ const startDocumentCoreShadow = (): void => {
               source,
               options: {
                 gfm: true,
+                gfmAutolinks: true,
                 gfmTagFilter: true,
                 frontMatter: true,
                 math: true,
@@ -1306,7 +1404,6 @@ const reconcileCoreHistoryView = async (
     throw new Error('Core Muya history projection is unsupported')
   }
   muya.setContent(reply.view.markdown)
-  editorStore.UPDATE_TOC(muya.getTOC())
   applyCorePlainTextEditability(reply.view.bindings)
 
   const appliedEdit = outcome.change.appliedEdits.at(-1)
@@ -1333,17 +1430,25 @@ const reconcileCoreHistoryView = async (
 
 const refreshCoreReviewItem = async (
   direction: 'next' | 'previous',
-  from: number
+  from: number,
+  automatic = false
 ): Promise<void> => {
+  if (automatic && coreReviewNavigating.value) return
+  const refreshGeneration = ++coreReviewRefreshGeneration
+  coreReviewNavigating.value = true
   const adapter = corePlainTextAdapter
   const lease = props.coreLease
   if (adapter === undefined || lease === undefined) {
     coreReviewItem.value = null
+    coreReviewCommentText.value = undefined
+    coreReviewNavigating.value = false
     return
   }
   try {
     await adapter.settled()
+    if (refreshGeneration !== coreReviewRefreshGeneration) return
     let reply = await lease.binding.reviewItemAtBarrier(direction, from)
+    if (refreshGeneration !== coreReviewRefreshGeneration) return
     if (reply.type !== 'review-item') {
       throw new Error('Core Review navigation became stale')
     }
@@ -1351,6 +1456,7 @@ const refreshCoreReviewItem = async (
       const wrappedFrom = direction === 'next' ? 0 : reply.sourceLength
       if (wrappedFrom !== from) {
         reply = await lease.binding.reviewItemAtBarrier(direction, wrappedFrom)
+        if (refreshGeneration !== coreReviewRefreshGeneration) return
         if (reply.type !== 'review-item') {
           throw new Error('Core Review navigation became stale')
         }
@@ -1358,8 +1464,47 @@ const refreshCoreReviewItem = async (
     }
     coreReviewItem.value = reply.item
     coreReviewRevision.value = reply.revision
+    coreReviewCommentText.value = reply.commentText
   } catch (error) {
     emit('core-fault', error)
+  } finally {
+    if (refreshGeneration === coreReviewRefreshGeneration) {
+      coreReviewNavigating.value = false
+    }
+  }
+}
+
+const editCoreReviewComment = async (): Promise<void> => {
+  const adapter = corePlainTextAdapter
+  const item = coreReviewItem.value
+  const authoredRevision = coreReviewRevision.value
+  if (
+    adapter === undefined || item === null || authoredRevision === undefined ||
+    !coreReviewHasComment.value || coreReviewResolving.value
+  ) return
+  const text = window.prompt(
+    t('editor.coreReview.editCommentPrompt'),
+    coreReviewCommentText.value ?? ''
+  )
+  if (text === null) return
+  coreReviewResolving.value = true
+  try {
+    const outcome = await adapter.editComment(
+      item,
+      authoredRevision,
+      text,
+      reconcileCoreHistoryView
+    )
+    latestCorePlainTextChange = Object.freeze({
+      result: 'edit-comment',
+      outcome,
+      state: adapter.state()
+    })
+    await refreshCoreReviewItem('next', item.range.start)
+  } catch (error) {
+    emit('core-fault', error)
+  } finally {
+    coreReviewResolving.value = false
   }
 }
 
@@ -1393,8 +1538,30 @@ const resolveCoreReviewItem = async (
   }
 }
 
+const resolveAllCoreReviewItems = async (
+  decision: 'accept' | 'reject'
+): Promise<void> => {
+  const adapter = corePlainTextAdapter
+  if (adapter === undefined || coreReviewResolving.value) return
+  coreReviewResolving.value = true
+  try {
+    const outcome = await adapter.resolveAll(decision, reconcileCoreHistoryView)
+    latestCorePlainTextChange = Object.freeze({
+      result: 'resolve-all',
+      decision,
+      outcome,
+      state: adapter.state()
+    })
+    await refreshCoreReviewItem('next', 0)
+  } catch (error) {
+    emit('core-fault', error)
+  } finally {
+    coreReviewResolving.value = false
+  }
+}
+
 const authorCoreReview = async (
-  form: 'comment' | 'substitution',
+  form: 'comment' | 'highlight' | 'substitution',
   invocationSelection: MuyaPlainTextAuthorSelection | undefined =
     coreAuthorInvocationSelection.value
 ): Promise<void> => {
@@ -1458,13 +1625,15 @@ const authorCoreReview = async (
     sameSelection(coreAuthorDraft.selection, selection)
     ? coreAuthorDraft.text
     : ''
-  const text = window.prompt(
-    form === 'comment'
-      ? t('editor.coreReview.commentPrompt')
-      : t('editor.coreReview.replacementPrompt'),
-    priorDraft
-  )
-  if (text === null || text.length === 0) {
+  const text = form === 'highlight'
+    ? ''
+    : window.prompt(
+      form === 'comment'
+        ? t('editor.coreReview.commentPrompt')
+        : t('editor.coreReview.replacementPrompt'),
+      priorDraft
+    )
+  if (text === null || (form === 'substitution' && text.length === 0)) {
     coreAuthorInvocationSelection.value = undefined
     return
   }
@@ -1495,7 +1664,9 @@ const authorCoreReview = async (
   }
 }
 
-const beginCoreAuthorReview = (form: 'comment' | 'substitution'): void => {
+const beginCoreAuthorReview = (
+  form: 'comment' | 'highlight' | 'substitution'
+): void => {
   coreAuthorInvocationSelection.value ??= coreAuthorSelection.value
   void authorCoreReview(form, coreAuthorInvocationSelection.value)
 }
@@ -1564,6 +1735,59 @@ const handleSelectAll = () => {
   }
 }
 
+const coreProjectionAtBarrier = async () => {
+  const lease = props.coreLease
+  if (lease === undefined) {
+    throw new Error('Core consumer projection is unavailable')
+  }
+  const inputEpoch = coreConsumerInputEpoch
+  const projection = await lease.consumerProjectionAtBarrier()
+  const identity = Object.freeze({ ...lease.identity })
+  if (
+    inputEpoch !== coreConsumerInputEpoch ||
+    lease.consumerProjection() !== projection
+  ) {
+    throw new Error('Core consumer projection identity changed')
+  }
+  return Object.freeze({ lease, identity, projection })
+}
+
+const refreshCoreConsumerCount = async (): Promise<void> => {
+  if (props.coreLease === undefined) return
+  const inputEpoch = coreConsumerInputEpoch
+  try {
+    const { lease, identity, projection } = await coreProjectionAtBarrier()
+    editorStore.UPDATE_CORE_CONSUMER_COUNT(
+      lease.documentId,
+      identity,
+      countProjectedDocument(projection)
+    )
+    editorStore.UPDATE_CORE_CONSUMER_TOC(
+      lease.documentId,
+      identity,
+      [...tocProjectedDocument(projection)]
+    )
+  } catch (error) {
+    if (inputEpoch === coreConsumerInputEpoch) emit('core-fault', error)
+  }
+}
+
+const prepareCoreSelectionClipboard = async (
+  selection: MuyaPlainTextAuthorSelection,
+  flavor: 'html' | 'rich'
+): Promise<boolean> => {
+  const authority = coreSelectionClipboardAuthority
+  if (authority === undefined) return false
+  const inputEpoch = coreConsumerInputEpoch
+  try {
+    const payload = await authority.prepare(selection, flavor)
+    return inputEpoch === coreConsumerInputEpoch && payload !== undefined
+  } catch (error) {
+    if (inputEpoch === coreConsumerInputEpoch) emit('core-fault', error)
+    return false
+  }
+}
+
 // Custom copyAsRich copyAsHtml pasteAsPlainText.
 // `copyAsRich` writes the rendered HTML to `text/html` AND the plain text to
 // `text/plain`, so pasting into Word/email yields formatted rich text (whereas
@@ -1573,10 +1797,20 @@ const COPY_PASTE_METHOD_MAP: Record<string, 'copyAsRich' | 'copyAsHtml' | 'paste
   copyAsHtml: 'copyAsHtml',
   pasteAsPlainText: 'pasteAsPlainText'
 }
-const handleCopyPaste = (type: unknown) => {
+const handleCopyPaste = async (type: unknown): Promise<void> => {
   if (editor.value) {
     const method = COPY_PASTE_METHOD_MAP[type as string]
-    if (method) editor.value[method]()
+    if (method === undefined) return
+    if (props.coreLease !== undefined && method !== 'pasteAsPlainText') {
+      const selection = coreAuthorSelection.value
+      if (selection === undefined) return
+      if (await prepareCoreSelectionClipboard(
+        selection,
+        method === 'copyAsHtml' ? 'html' : 'rich'
+      )) document.execCommand('copy')
+      return
+    }
+    editor.value[method]()
   }
 }
 
@@ -1603,13 +1837,116 @@ const toSearchMatches = (result: unknown) => {
   }
 }
 
-const handleSearch = (payload: unknown) => {
+const handleSearch = async (payload: unknown): Promise<void> => {
   const { value, opt } = payload as { value: string; opt: unknown }
+  if (props.coreLease !== undefined) {
+    const inputEpoch = coreConsumerInputEpoch
+    coreSearchSnapshot = undefined
+    try {
+      const { lease, identity, projection } = await coreProjectionAtBarrier()
+      const result = searchProjectedDocument(
+        projection,
+        value,
+        (opt ?? {}) as ProjectedSearchOptions
+      )
+      coreSearchSnapshot = Object.freeze({
+        identity,
+        result,
+        options: Object.freeze({ ...((opt ?? {}) as ProjectedSearchOptions) })
+      })
+      coreSearchPresentation?.present(result)
+      coreSearchProjectionEpoch = inputEpoch
+      editorStore.UPDATE_CORE_CONSUMER_SEARCH(
+        lease.documentId,
+        identity,
+        toSearchMatches(result)
+      )
+      scrollToHighlight()
+    } catch (error) {
+      if (inputEpoch === coreConsumerInputEpoch) emit('core-fault', error)
+    }
+    return
+  }
   editorStore.SEARCH(toSearchMatches(editor.value.search(value, opt)))
   scrollToHighlight()
 }
 
+const replaceCoreSearch = async (payload: unknown): Promise<void> => {
+  const lease = props.coreLease
+  const adapter = corePlainTextAdapter
+  const snapshot = coreSearchSnapshot
+  if (lease === undefined || adapter === undefined || snapshot === undefined) return
+  const { value, opt } = payload as {
+    value: string
+    opt?: Readonly<{ isSingle?: boolean; isRegexp?: boolean }>
+  }
+  const inputEpoch = coreConsumerInputEpoch
+  try {
+    const outcome = await executeProjectedSearchReplacement({
+      snapshot,
+      value,
+      options: {
+        isSingle: opt?.isSingle !== false,
+        isRegexp: opt?.isRegexp === true
+      },
+      settle: () => adapter.settled(),
+      isCurrent: () => inputEpoch === coreConsumerInputEpoch &&
+        coreSearchSnapshot === snapshot,
+      replace: (identity, replacements) =>
+        lease.replaceConsumerSearchAtBarrier(identity, replacements)
+    })
+    if (outcome === undefined) return
+    if (outcome.type !== 'applied') {
+      coreSearchSnapshot = undefined
+      coreSearchProjectionEpoch = -1
+      coreSearchPresentation?.clear()
+      editorStore.UPDATE_CORE_CONSUMER_SEARCH(
+        lease.documentId,
+        lease.identity,
+        { index: -1, matches: [], value: '' }
+      )
+      return
+    }
+    await adapter.reconcileApplied(outcome, reconcileCoreHistoryView)
+    const refreshed = await coreProjectionAtBarrier()
+    const result = searchProjectedDocument(
+      refreshed.projection,
+      snapshot.result.value,
+      snapshot.options
+    )
+    coreSearchSnapshot = Object.freeze({
+      identity: refreshed.identity,
+      result,
+      options: snapshot.options
+    })
+    coreSearchProjectionEpoch = coreConsumerInputEpoch
+    coreSearchPresentation?.present(result)
+    editorStore.UPDATE_CORE_CONSUMER_SEARCH(
+      refreshed.lease.documentId,
+      refreshed.identity,
+      toSearchMatches(result)
+    )
+    editorStore.UPDATE_CORE_CONSUMER_COUNT(
+      refreshed.lease.documentId,
+      refreshed.identity,
+      countProjectedDocument(refreshed.projection)
+    )
+    editorStore.UPDATE_CORE_CONSUMER_TOC(
+      refreshed.lease.documentId,
+      refreshed.identity,
+      [...tocProjectedDocument(refreshed.projection)]
+    )
+    scrollToHighlight()
+  } catch (error) {
+    if (props.coreLease === lease) emit('core-fault', error)
+  }
+}
+
 const handReplace = (payload: unknown) => {
+  if (props.coreLease !== undefined) {
+    replaceCoreSearch(payload).catch(error => emit('core-fault', error))
+    return
+  }
   const { value, opt } = payload as { value: string; opt: unknown }
   editorStore.SEARCH(toSearchMatches(editor.value.replace(value, opt)))
 }
@@ -1717,6 +2054,27 @@ const scrollToElement = (selector: string) => {
 }
 
 const handleFindAction = (action: unknown) => {
+  if (props.coreLease !== undefined) {
+    const direction = action === 'prev' ? 'previous' : action
+    if (direction !== 'next' && direction !== 'previous') return
+    if (
+      coreSearchProjectionEpoch !== coreConsumerInputEpoch ||
+      props.coreLease.consumerProjection() === undefined
+    ) {
+      coreSearchSnapshot = undefined
+      coreSearchPresentation?.clear()
+      return
+    }
+    const result = coreSearchPresentation?.navigate(direction)
+    if (result === undefined) return
+    editorStore.UPDATE_CORE_CONSUMER_SEARCH(
+      props.coreLease.documentId,
+      props.coreLease.identity,
+      toSearchMatches(result)
+    )
+    scrollToHighlight()
+    return
+  }
   editorStore.SEARCH(toSearchMatches(editor.value.find(action)))
   scrollToHighlight()
 }
@@ -1743,19 +2101,37 @@ const handleExport = async (options: unknown) => {
   }
 
   const extraCss = await getCssForOptions(opts as unknown as PdfCssOptions)
-  const htmlToc = getHtmlToc(editor.value.getTOC(), opts as unknown as HtmlTocOptions)
-  const markdown = editor.value.getMarkdown()
   const header = (opts.header ?? null) as HeaderFooterPart | null
   const footer = (opts.footer ?? null) as HeaderFooterPart | null
+  const renderExportHtml = async (
+    exportOptions: Omit<ExportStyledHtmlOptions, 'toc'>
+  ): Promise<string> => {
+    if (props.coreLease !== undefined) {
+      const { projection } = await coreProjectionAtBarrier()
+      return exportStyledHTMLFromProjection(editor.value, projection, {
+        ...exportOptions,
+        toc: getHtmlToc(
+          [...tocProjectedDocument(projection)],
+          opts as unknown as HtmlTocOptions
+        )
+      })
+    }
+    return exportStyledHTML(editor.value, editor.value.getMarkdown(), {
+      ...exportOptions,
+      toc: getHtmlToc(
+        editor.value.getTOC(),
+        opts as unknown as HtmlTocOptions
+      )
+    })
+  }
 
   switch (type) {
     case 'styledHtml': {
       try {
-        const content = await exportStyledHTML(editor.value, markdown, {
+        const content = await renderExportHtml({
           title: htmlTitle || '',
           printOptimization: false,
           extraCss,
-          toc: htmlToc,
           dir: props.textDirection
         })
         editorStore.EXPORT({ type, content })
@@ -1781,11 +2157,10 @@ const handleExport = async (options: unknown) => {
           isLandscape
         }
 
-        const html = await exportStyledHTML(editor.value, markdown, {
+        const html = await renderExportHtml({
           title: '',
           printOptimization: true,
           extraCss,
-          toc: htmlToc,
           header,
           footer,
           headerFooterStyled: headerFooterStyled as boolean | undefined,
@@ -1807,11 +2182,10 @@ const handleExport = async (options: unknown) => {
     case 'print': {
       // NOTE: Print doesn't support page size or orientation.
       try {
-        const html = await exportStyledHTML(editor.value, markdown, {
+        const html = await renderExportHtml({
           title: '',
           printOptimization: true,
           extraCss,
-          toc: htmlToc,
           header,
           footer,
           headerFooterStyled: headerFooterStyled as boolean | undefined,
@@ -1920,6 +2294,9 @@ interface FileLoadedPayload {
 
 // listen for `open-single-file` event, it will call this method only when open a new file.
 const setMarkdownToEditor = (payload: unknown) => {
+  if (!acceptsRendererDocumentPayload(
+    props.coreLease === undefined ? 'legacy' : 'core'
+  )) return
   const { id, markdown: newMarkdown, cursor: newCursor } = (payload ?? {}) as FileLoadedPayload
   if (editor.value) {
     // `setContent` resets the document and clears the undo history; only set a
@@ -1965,6 +2342,9 @@ interface FileChangePayload {
 
 // listen for markdown change form source mode or change tabs etc
 const handleFileChange = (payload: unknown) => {
+  if (!acceptsRendererDocumentPayload(
+    props.coreLease === undefined ? 'legacy' : 'core'
+  )) return
   const {
     id,
     markdown: newMarkdown,
@@ -2257,7 +2637,7 @@ onMounted(() => {
   editor.value = muya
   // The first document's content is set via constructor options, so no
   // `file-loaded` / `setMarkdownToEditor` runs for it — seed its TOC here.
-  editorStore.UPDATE_TOC(muya.getTOC())
+  if (props.coreLease === undefined) editorStore.UPDATE_TOC(muya.getTOC())
   if (props.coreLease !== undefined && isIndexCursor(props.muyaIndexCursor)) {
     muya.setCursorByOffset(props.muyaIndexCursor)
   }
@@ -2327,13 +2707,69 @@ onMounted(() => {
   // block AST), so we compute it here — mirroring the legacy engine's
   // `dispatchChange` payload.
   if (props.coreLease !== undefined && props.corePlainTextView !== undefined) {
+    const activeCoreLease = props.coreLease
+    coreAuthorityPerformanceTrace = props.corePerformanceTrace ??
+      (window.electron.process.env.PERF_TESTING === 'true'
+        ? createCoreAuthorityPerformanceTrace()
+        : undefined)
+    if (props.corePlainTextView.bindings.length > 0) {
+      coreAuthorityPerformanceTrace?.record(
+        'first-editable-viewport',
+        props.coreLease.documentId
+      )
+    }
     corePlainTextAdapter = createMuyaPlainTextCoreAdapter(
       props.corePlainTextView.bindings,
-      props.coreLease.binding
+      props.coreLease.binding,
+      coreAuthorityPerformanceTrace === undefined
+        ? undefined
+        : {
+          documentId: props.coreLease.documentId,
+          record: event => coreAuthorityPerformanceTrace?.capture(event)
+        }
     )
+    coreTrackChangesMode = createCoreTrackChangesMode({
+      accept: change => corePlainTextAdapter?.accept(change) ?? 'unsupported',
+      acceptTracked: change => corePlainTextAdapter?.acceptTracked(
+        change,
+        reconcileCoreHistoryView
+      ) ?? 'unsupported'
+    })
     applyCorePlainTextEditability(props.corePlainTextView.bindings)
     void refreshCoreReviewItem('next', 0)
     coreCompositionRoot = editor.value.domNode as HTMLElement
+    coreSearchPresentation = createProjectedSearchPresentation({
+      isProvenMatch: match => {
+        const blockIndex = match.path[0]
+        if (match.path.length !== 1 || typeof blockIndex !== 'number') return false
+        return corePlainTextAdapter?.selectionSourceRange({
+          anchor: Object.freeze({
+            path: Object.freeze([blockIndex, 'text'] as const),
+            offset: match.start
+          }),
+          focus: Object.freeze({
+            path: Object.freeze([blockIndex, 'text'] as const),
+            offset: match.end
+          })
+        }) !== undefined
+      },
+      blockAtPath: path => {
+        const block = editor.value?.editor?.scrollPage?.queryBlock([...path])
+        return block?.isContent?.() ? block : undefined
+      }
+    })
+    coreSelectionClipboardAuthority = createProjectedSelectionClipboardAuthority({
+      settle: () => corePlainTextAdapter?.settled() ?? Promise.resolve(),
+      selectionSourceRange: selection =>
+        corePlainTextAdapter?.selectionSourceRange(selection),
+      selectionProjectionAtBarrier: range =>
+        activeCoreLease.selectionProjectionAtBarrier(range)
+    })
+    uninstallCoreSelectionClipboardGuard =
+      installProjectedSelectionClipboardGuard(
+        coreCompositionRoot,
+        () => coreSelectionClipboardAuthority?.payload()
+      )
     coreCompositionStart = () => {
       try {
         corePlainTextAdapter?.compositionStart()
@@ -2354,22 +2790,44 @@ onMounted(() => {
     coreCompositionRoot.addEventListener('compositionend', coreCompositionEnd)
     const stopObserving = props.coreLease.binding.observe(event => {
       if (event.outcome.type !== 'applied') return
+      coreConsumerInputEpoch += 1
+      coreSearchProjectionEpoch = -1
+      coreSearchSnapshot = undefined
+      const documentId = props.coreLease?.documentId ?? ''
+      const identity = Object.freeze({
+        generation: event.identity.generation,
+        revision: event.outcome.revision
+      })
       editorStore.LISTEN_FOR_CORE_CONTENT_CHANGE(
-        props.coreLease?.documentId ?? '',
-        Object.freeze({
-          generation: event.identity.generation,
-          revision: event.outcome.revision
-        })
+        documentId,
+        identity
       )
-      void refreshCoreReviewItem(
+      coreSearchPresentation?.clear()
+      editorStore.UPDATE_CORE_CONSUMER_SEARCH(documentId, identity, {
+        index: -1,
+        matches: [],
+        value: ''
+      })
+      refreshCoreConsumerCount()
+      refreshCoreReviewItem(
         'next',
-        coreReviewItem.value?.range.start ?? 0
+        coreReviewItem.value?.range.start ?? 0,
+        true
       )
     })
     props.coreLease.settleView(async () => {
       await corePlainTextAdapter?.settled()
     })
+    refreshCoreConsumerCount()
     props.coreLease.onHandoff(() => {
+      uninstallCoreSelectionClipboardGuard?.()
+      uninstallCoreSelectionClipboardGuard = undefined
+      coreSelectionClipboardAuthority?.reset()
+      coreSelectionClipboardAuthority = undefined
+      coreSearchPresentation?.clear()
+      coreSearchPresentation = undefined
+      coreSearchProjectionEpoch = -1
+      coreSearchSnapshot = undefined
       if (coreCompositionStart !== undefined) {
         coreCompositionRoot?.removeEventListener(
           'compositionstart',
@@ -2388,10 +2846,13 @@ onMounted(() => {
       stopObserving()
       corePlainTextAdapter?.dispose()
       corePlainTextAdapter = undefined
+      coreAuthorityPerformanceTrace = undefined
+      coreTrackChangesMode?.reset()
+      coreTrackChangesMode = undefined
       coreAuthorSelection.value = undefined
       coreAuthorInvocationSelection.value = undefined
       coreAuthorDraft = undefined
-      coreTrackNextInsertion.value = false
+      coreTrackChangesEnabled.value = false
       coreEditableBindingCount.value = 0
       delete window.__marktextDocumentCore
     })
@@ -2410,6 +2871,11 @@ onMounted(() => {
           await corePlainTextAdapter?.settled()
         },
         latest: () => latestCorePlainTextChange,
+        performanceEvents: () => coreAuthorityPerformanceTrace?.events() ?? [],
+        performanceStatus: () => coreAuthorityPerformanceTrace?.status() ?? {
+          accepting: false,
+          eventCount: 0
+        },
         selectPlainText (blockIndex: number, start: number, end: number): void {
           const block = editor.value?.editor?.scrollPage?.queryBlock([
             blockIndex,
@@ -2682,17 +3148,26 @@ onMounted(() => {
     const { id } = currentFile.value
     if (!id) return
     if (corePlainTextAdapter !== undefined) {
-      const trackNextInsertion = coreTrackNextInsertion.value
-      if (trackNextInsertion) {
-        coreTrackNextInsertion.value = false
-        applyCorePlainTextEditability(Object.freeze([]))
+      coreConsumerInputEpoch += 1
+      coreSearchProjectionEpoch = -1
+      coreSearchSnapshot = undefined
+      coreSearchPresentation?.clear()
+      coreSelectionClipboardAuthority?.reset()
+      if (coreTrackChangesMode?.enabled() === true) {
+        // A tracked native change is reconciled from actor-authored marker
+        // bytes. Freeze every proven editor path before admission so another
+        // paragraph cannot publish a speculative draft while that transformed
+        // command is pending; reconciliation restores the next proven paths.
+        applyCorePlainTextEditability([])
       }
-      const result = trackNextInsertion
-        ? corePlainTextAdapter.acceptTracked(change, reconcileCoreHistoryView)
-        : corePlainTextAdapter.accept(change)
+      const route = coreTrackChangesMode?.accept(change) ?? Object.freeze({
+        result: corePlainTextAdapter.accept(change),
+        tracked: false
+      })
+      const { result } = route
       latestCorePlainTextChange = Object.freeze({
         result,
-        tracked: trackNextInsertion,
+        tracked: route.tracked,
         state: corePlainTextAdapter.state(),
         change: structuredClone(change)
       })
@@ -2804,6 +3279,9 @@ onMounted(() => {
     }
 
     selectionChange.value = changes
+    if (corePlainTextAdapter !== undefined) {
+      coreSelectionClipboardAuthority?.reset()
+    }
     if (
       corePlainTextAdapter !== undefined &&
       Array.isArray(changes.anchorPath) && Array.isArray(changes.focusPath) &&
@@ -2823,6 +3301,9 @@ onMounted(() => {
           path: Object.freeze([...changes.focusPath]),
           offset: changes.focus.offset
         })
+      })
+      prepareCoreSelectionClipboard(coreAuthorSelection.value, 'rich').catch(error => {
+        emit('core-fault', error)
       })
     } else if (
       corePlainTextAdapter !== undefined &&
@@ -2861,6 +3342,14 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (props.coreLease !== undefined) delete window.__marktextDocumentCore
+  uninstallCoreSelectionClipboardGuard?.()
+  uninstallCoreSelectionClipboardGuard = undefined
+  coreSelectionClipboardAuthority?.reset()
+  coreSelectionClipboardAuthority = undefined
+  coreSearchPresentation?.clear()
+  coreSearchPresentation = undefined
+  coreSearchProjectionEpoch = -1
+  coreSearchSnapshot = undefined
   if (documentCoreShadowStartFrame !== null) {
     cancelAnimationFrame(documentCoreShadowStartFrame)
     documentCoreShadowStartFrame = null
@@ -3020,7 +3509,10 @@ onBeforeUnmount(() => {
 }
 
 .editor-component .mu-container {
-  padding-top: 20px;
+  /* The Core Review toolbars are real editing UI, not transient popovers.
+     Reserve their row so the first document block remains pointer-accessible
+     at normal window sizes and under installed-app automation. */
+  padding-top: 70px;
   padding-bottom: 100vh;
 }
 

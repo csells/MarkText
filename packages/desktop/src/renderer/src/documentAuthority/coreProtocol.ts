@@ -6,6 +6,7 @@ import type {
   DocumentSourceEdit,
   CriticMarkupKind,
   DocumentResolutionDecision,
+  MarkdownAst,
   MarkdownOptions
 } from '@marktext/document-core'
 
@@ -22,7 +23,19 @@ export type CoreHistorySnapshot = Readonly<{
 }>
 
 export type CoreReviewDecision = DocumentResolutionDecision | 'remove'
-export type CoreAuthorForm = 'comment' | 'substitution'
+export type CoreAuthorForm = 'comment' | 'highlight' | 'substitution'
+
+export type CoreConsumerSearchMatch = Readonly<{
+  readonly path: readonly number[]
+  readonly start: number
+  readonly end: number
+  readonly match: string
+}>
+
+export type CoreConsumerSearchReplacement = Readonly<{
+  readonly match: CoreConsumerSearchMatch
+  readonly insert: string
+}>
 
 export type CoreReviewItemLocator = Readonly<{
   readonly kind: CriticMarkupKind
@@ -64,6 +77,27 @@ export type CoreRequest =
     readonly baseRevision: number
   }>
   | Readonly<{
+    readonly type: 'consumer-projection-at-barrier'
+    readonly session: number
+    readonly sequence: number
+    readonly baseRevision: number
+  }>
+  | Readonly<{
+    readonly type: 'selection-projection-at-barrier'
+    readonly session: number
+    readonly sequence: number
+    readonly baseRevision: number
+    readonly range: Readonly<{ readonly start: number; readonly end: number }>
+  }>
+  | Readonly<{
+    readonly type: 'replace-consumer-search'
+    readonly session: number
+    readonly sequence: number
+    readonly baseRevision: number
+    readonly replacements: readonly CoreConsumerSearchReplacement[]
+    readonly projections: readonly DocumentProjectionRequest[]
+  }>
+  | Readonly<{
     readonly type: 'review-item-at-barrier'
     readonly session: number
     readonly sequence: number
@@ -88,12 +122,29 @@ export type CoreRequest =
     readonly projections: readonly DocumentProjectionRequest[]
   }>
   | Readonly<{
+    readonly type: 'resolve-all'
+    readonly session: number
+    readonly sequence: number
+    readonly baseRevision: number
+    readonly decision: DocumentResolutionDecision
+    readonly projections: readonly DocumentProjectionRequest[]
+  }>
+  | Readonly<{
     readonly type: 'author'
     readonly session: number
     readonly sequence: number
     readonly baseRevision: number
     readonly form: CoreAuthorForm
     readonly range: Readonly<{ readonly start: number; readonly end: number }>
+    readonly text: string
+    readonly projections: readonly DocumentProjectionRequest[]
+  }>
+  | Readonly<{
+    readonly type: 'edit-comment'
+    readonly session: number
+    readonly sequence: number
+    readonly baseRevision: number
+    readonly annotation: CoreReviewItemLocator
     readonly text: string
     readonly projections: readonly DocumentProjectionRequest[]
   }>
@@ -144,6 +195,7 @@ export type CoreRejectedReply = Readonly<{
     | 'annotation-not-found'
     | 'resolution-invalid'
     | 'author-invalid'
+    | 'consumer-search-match-invalid'
   readonly sourceLength: number
 }>
 export type CoreResourceReply = Readonly<{
@@ -179,6 +231,30 @@ export type CorePlainTextViewReply = Readonly<{
   readonly source: string
   readonly view: MuyaPlainTextViewResult
 }>
+export type CoreConsumerProjection = Readonly<{
+  readonly kind: 'markdown-consumer-projection'
+  readonly name: 'revised'
+  readonly markdown: string
+  readonly ast: MarkdownAst
+}>
+export type CoreConsumerProjectionReply = Readonly<{
+  readonly type: 'consumer-projection'
+  readonly session: number
+  readonly sequence: number
+  readonly revision: number
+  readonly accepted: true
+  readonly sourceLength: number
+  readonly projection: CoreConsumerProjection
+}>
+export type CoreSelectionProjectionReply = Readonly<{
+  readonly type: 'selection-projection'
+  readonly session: number
+  readonly sequence: number
+  readonly revision: number
+  readonly accepted: true
+  readonly sourceLength: number
+  readonly projection: CoreConsumerProjection
+}>
 export type CoreReviewItemReply = Readonly<{
   readonly type: 'review-item'
   readonly session: number
@@ -187,6 +263,7 @@ export type CoreReviewItemReply = Readonly<{
   readonly accepted: true
   readonly sourceLength: number
   readonly item: CoreReviewItemLocator | null
+  readonly commentText?: string
 }>
 export type CoreReply =
   | CoreOpenedReply
@@ -195,6 +272,8 @@ export type CoreReply =
   | CoreResourceReply
   | CoreSourceReply
   | CorePlainTextViewReply
+  | CoreConsumerProjectionReply
+  | CoreSelectionProjectionReply
   | CoreReviewItemReply
 
 export interface CoreActorPort {

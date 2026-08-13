@@ -1,0 +1,157 @@
+{
+  "schema": "marktext-criticmarkup-parity-proposal-v1",
+  "status": "proposed-unapproved",
+  "baselineCommit": "43bd8b77795fb27b1a9512737c000f7362031ea0",
+  "groups": [
+    {
+      "id": "commands",
+      "kinds": ["command"],
+      "proposedDisposition": "parity-row",
+      "proposedRef": "phase0.commands",
+      "rationale": "Treat every registered upstream command as observable compatibility behavior until the owner approves a narrower disposition.",
+      "refs": ["specs/baselines/criticmarkup-upstream-oracles.md"],
+      "expectedCount": 99,
+      "itemIdsSha256": "7ec55ed0091afd807f69f3d679f8f41fbe14a9c19c18f494c232d22aaedbc47b"
+    },
+    {
+      "id": "preferences",
+      "kinds": ["preference"],
+      "proposedDisposition": "parity-row",
+      "proposedRef": "phase0.preferences",
+      "rationale": "Treat every upstream preference as observable compatibility behavior until its Core interaction is reviewed.",
+      "refs": ["specs/baselines/criticmarkup-upstream-oracles.md"],
+      "expectedCount": 72,
+      "itemIdsSha256": "bcae8f7a4ccc8ca80ad9169ead0bbe17b40c9adea404d258c4dc6c49c45c16c6"
+    },
+    {
+      "id": "editor-plugins",
+      "kinds": ["editorPlugin"],
+      "proposedDisposition": "parity-row",
+      "proposedRef": "phase0.editor-plugins",
+      "rationale": "Preserve each installed upstream editor plugin through a production-path parity row unless the owner approves a compatibility change.",
+      "refs": ["specs/baselines/criticmarkup-upstream-oracles.md"],
+      "expectedCount": 17,
+      "itemIdsSha256": "9305308ef916005a4b5a946516dac73a6f85f267b3f43628a246362a713a65c8"
+    },
+    {
+      "id": "routes",
+      "kinds": ["route"],
+      "proposedDisposition": "parity-row",
+      "proposedRef": "phase0.routes",
+      "rationale": "Treat every upstream route as an application-shell compatibility surface.",
+      "refs": ["specs/baselines/criticmarkup-upstream-oracles.md"],
+      "expectedCount": 11,
+      "itemIdsSha256": "3553b6337913e42375fb094c30e19bf2934b392a22fff8b4ed8e30130a2c138f"
+    },
+    {
+      "id": "menu-entries",
+      "kinds": ["menuEntry"],
+      "proposedDisposition": "parity-row",
+      "proposedRef": "phase0.menu-entries",
+      "rationale": "Treat each upstream menu and context-menu entry as user-visible behavior.",
+      "refs": ["specs/baselines/criticmarkup-upstream-oracles.md"],
+      "expectedCount": 146,
+      "itemIdsSha256": "a71960588dc6d3baba65ae6e2aa06cf78f9b83a847cb28eaa3148501180a6ba8"
+    },
+    {
+      "id": "readme-features",
+      "kinds": ["readmeFeature"],
+      "proposedDisposition": "parity-row",
+      "proposedRef": "phase0.readme-features",
+      "rationale": "Retain the upstream product promises as compatibility rows pending owner review.",
+      "refs": ["README.md"],
+      "expectedCount": 8,
+      "itemIdsSha256": "e69774ca8374e95a567eb747801197a91c0906c9abe0536dab09e66f1a727db1"
+    },
+    {
+      "id": "muya-readme-features",
+      "kinds": ["muyaReadmeFeature"],
+      "proposedDisposition": "parity-row",
+      "proposedRef": "phase0.muya-readme-features",
+      "rationale": "Retain Muya's documented editor promises as compatibility rows pending owner review.",
+      "refs": ["packages/muya/README.md"],
+      "expectedCount": 11,
+      "itemIdsSha256": "19455c833a99febdafa8bacd052f7817c3ed0b72dbb11e543a07b07f02cb0a5f"
+    },
+    {
+      "id": "desktop-unit-tests",
+      "kinds": ["desktopUnitTest"],
+      "proposedDisposition": "parity-row",
+      "proposedRef": "phase0.desktop-unit-tests",
+      "rationale": "Keep each upstream desktop unit-test file as an oracle until equivalent production-path coverage is accepted.",
+      "refs": ["specs/baselines/runs/2026-08-10-upstream-develop.md"],
+      "expectedCount": 50,
+      "itemIdsSha256": "3c44fbe59c78abc4177880a5d2cd6f1c5f6de9432640c391c11de530b97dbf6c"
+    },
+    {
+      "id": "desktop-e2e-tests",
+      "kinds": ["desktopE2eTest"],
+      "proposedDisposition": "parity-row",
+      "proposedRef": "phase0.desktop-e2e-tests",
+      "rationale": "Keep each upstream installed desktop test file as an oracle until equivalent production-path coverage is accepted.",
+      "refs": ["specs/baselines/runs/2026-08-10-upstream-develop.md"],
+      "expectedCount": 59,
+      "itemIdsSha256": "fdd96c3bc2e328cd9a47e92800017ca4a836cf58a8cacab7eb39cf65dedaacbc"
+    },
+    {
+      "id": "muya-unit-tests",
+      "kinds": ["muyaUnitTest"],
+      "proposedDisposition": "parity-row",
+      "proposedRef": "phase0.muya-unit-tests",
+      "rationale": "Keep each upstream Muya unit-test file as an oracle until equivalent coverage is accepted.",
+      "refs": ["specs/baselines/runs/2026-08-10-upstream-develop.md"],
+      "expectedCount": 216,
+      "itemIdsSha256": "1c897b3085ea2659c1ce09acdf6f077573485b1bc84ec182358885353adeadf6"
+    },
+    {
+      "id": "muya-e2e-tests",
+      "kinds": ["muyaE2eTest"],
+      "proposedDisposition": "parity-row",
+      "proposedRef": "phase0.muya-e2e-tests",
+      "rationale": "Keep each upstream Muya browser-test file as an oracle until equivalent production-path coverage is accepted.",
+      "refs": ["specs/baselines/runs/2026-08-10-upstream-develop.md"],
+      "expectedCount": 70,
+      "itemIdsSha256": "f8ebf75abd5ad601ce515c0d4862b016067939ac95200b16989827d470323bc1"
+    },
+    {
+      "id": "deferred-tests",
+      "kinds": ["deferredTest"],
+      "proposedDisposition": "approved-decision",
+      "proposedRef": "owner:deferred-tests",
+      "rationale": "Do not silently inherit or discard skipped, fixme, and todo tests; the owner must accept a named decision for this known-gap group.",
+      "refs": ["specs/baselines/criticmarkup-upstream-oracles.md"],
+      "expectedCount": 25,
+      "itemIdsSha256": "75b54264910d9910972f0c151660a41804f5b506c9c38099ecfa1133e489319c"
+    },
+    {
+      "id": "backlog-items",
+      "kinds": ["backlogItem"],
+      "proposedDisposition": "approved-decision",
+      "proposedRef": "owner:upstream-backlog",
+      "rationale": "Treat upstream backlog state as a product-owner decision rather than silently expanding the integration contract.",
+      "refs": ["packages/muya/e2e/BACKLOG.md"],
+      "expectedCount": 39,
+      "itemIdsSha256": "577a98107371a5e4d799caa1fdb26494ebf0d04d047a4205ab2945d2b0ce2d92"
+    },
+    {
+      "id": "manual-parity-cases",
+      "kinds": ["manualParityCase"],
+      "proposedDisposition": "parity-row",
+      "proposedRef": "phase0.manual-parity-cases",
+      "rationale": "Keep each upstream manual operating-system integration flow as an explicit parity row.",
+      "refs": ["packages/desktop/test/PARITY_QA.md"],
+      "expectedCount": 4,
+      "itemIdsSha256": "544d9a5a37f97375e1d8bf1afb6ac01686fa064194e0413cdca3c889500ec067"
+    },
+    {
+      "id": "disabled-commands",
+      "kinds": ["disabledCommand"],
+      "proposedDisposition": "approved-decision",
+      "proposedRef": "owner:disabled-commands",
+      "rationale": "Require an explicit owner decision for commands already disabled upstream instead of presenting them as active parity promises.",
+      "refs": ["specs/baselines/criticmarkup-upstream-oracles.md"],
+      "expectedCount": 2,
+      "itemIdsSha256": "bfc18c79e734ff25fd5a92f623f3ee93463e8e33b97057d31fb043a9c1a5ee5d"
+    }
+  ]
+}

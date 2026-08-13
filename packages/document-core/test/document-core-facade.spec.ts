@@ -591,6 +591,95 @@ describe('document-core facade', () => {
       .toBe(false)
   })
 
+  it('keeps definition precedence and resolves a separately closed multiline Comment', () => {
+    const sameLineSource = [
+      '{>>Review [evidence][ref].',
+      '',
+      '[ref]: https://example.com/local<<}'
+    ].join('\n')
+    const sameLineCore = createDocumentCore()
+    const sameLine = sameLineCore.open(sameLineSource)
+    const sameLineNodes = markdownNodes(
+      sameLineCore.project(sameLine, 'revised').ast.root
+    ) as ReadonlyArray<{
+      readonly kind: string
+      readonly attributes: Readonly<Record<string, string | number | boolean>>
+      readonly children: readonly unknown[]
+    }>
+    const ownedDefinition = sameLineNodes.find(node => node.kind === 'definition')
+    const destinationStart = ownedDefinition?.attributes['destinationStart']
+    const destinationEnd = ownedDefinition?.attributes['destinationEnd']
+    expect(sameLine.annotations).toEqual([])
+    expect(sameLine.diagnostics.map(diagnostic => diagnostic.code))
+      .toContain('CM_UNTERMINATED_OPENER')
+    expect(ownedDefinition?.attributes).toMatchObject({ label: 'ref' })
+    expect(sameLineSource.slice(
+      typeof destinationStart === 'number' ? destinationStart : 0,
+      typeof destinationEnd === 'number' ? destinationEnd : 0
+    )).toBe('https://example.com/local<<}')
+
+    const source = [
+      'Claim.[^n]',
+      '',
+      '{>>Review [evidence][ref].',
+      '',
+      '[ref]: https://example.com/local',
+      '<<}',
+      '',
+      '[^n]: Main note.'
+    ].join('\n')
+    const expectedSource = 'Claim.[^n]\n\n\n\n[^n]: Main note.'
+    const expectedPayload = [
+      'Review [evidence][ref].',
+      '',
+      '[ref]: https://example.com/local',
+      ''
+    ].join('\n')
+    const core = createDocumentCore()
+    const revision = core.open(source, { footnotes: true })
+    const comment = revision.annotations.find(annotation => (
+      annotation.kind === 'comment'
+    ))
+    if (comment === undefined) throw new Error('Expected one Comment')
+
+    const commentStart = source.indexOf('{>>')
+    const commentEnd = source.indexOf('<<}', commentStart) + 3
+    expect(comment.range).toEqual({ start: commentStart, end: commentEnd })
+    expect(source.slice(comment.range.start, comment.range.end))
+      .toBe(`{>>${expectedPayload}<<}`)
+
+    const projection = core.projectComment(revision, comment)
+    const commentNodes = markdownNodes(projection.ast.root) as ReadonlyArray<{
+      readonly kind: string
+      readonly range: Readonly<{ start: number; end: number }>
+      readonly attributes: Readonly<Record<string, string | number | boolean>>
+      readonly children: readonly unknown[]
+    }>
+    const definition = commentNodes.find(node => node.kind === 'definition')
+    expect(projection.markdown).toBe(expectedPayload)
+    expect(commentNodes.find(node => node.kind === 'link')?.attributes)
+      .toMatchObject({
+        referenceLabel: 'ref',
+        rawDestination: 'https://example.com/local',
+        resolvedDefinitionStart: definition?.range.start,
+        resolvedDefinitionEnd: definition?.range.end
+      })
+
+    const resolved = core.resolve(revision, comment, 'accept')
+    expect(resolved.revision.source).toBe(expectedSource)
+    const mainNodes = markdownNodes(
+      core.project(resolved.revision, 'revised').ast.root
+    ) as ReadonlyArray<{
+      readonly kind: string
+      readonly attributes: Readonly<Record<string, string | number | boolean>>
+      readonly children: readonly unknown[]
+    }>
+    expect(mainNodes.find(node => node.kind === 'footnote-reference')?.attributes)
+      .toMatchObject({ resolved: true })
+    expect(mainNodes.filter(node => node.kind === 'footnote-definition'))
+      .toHaveLength(1)
+  })
+
   it('does not resolve definitions across distinct Comment Addition arms', () => {
     const linkCore = createDocumentCore()
     const linkRevision = linkCore.open(

@@ -1,4 +1,7 @@
-import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, isAbsolute, relative, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export type CriticMarkupInteractionForm =
   | 'addition'
@@ -55,6 +58,42 @@ export interface CriticMarkupInteractionMatrix {
   schema: 'marktext-criticmarkup-interaction-matrix-v1'
   status: 'proposed-unratified'
   rows: CriticMarkupInteractionRow[]
+}
+
+export type CriticMarkupInteractionEvidenceStatus =
+  | 'missing-production-oracle'
+  | 'existing-partial'
+  | 'red'
+  | 'green'
+
+export interface CriticMarkupInteractionEvidenceRow {
+  id: string
+  status: CriticMarkupInteractionEvidenceStatus
+  existingEvidence: ReadonlyArray<Readonly<{
+    path: string
+    scope: string
+  }>>
+  missingSeam: string | null
+  productionOracle: Readonly<{
+    kind: 'installed' | 'production-path'
+    path: string
+    testName: string
+  }> | null
+  execution: Readonly<{
+    buildCommit: string
+    recordedAt: string
+    result: 'pass' | 'fail'
+    recordPath: string
+    recordSha256: string
+  }> | null
+}
+
+export interface CriticMarkupInteractionEvidenceManifest {
+  schema: 'marktext-criticmarkup-interaction-evidence-v1'
+  status: 'proposed-unapproved'
+  matrixPath: string
+  matrixSha256: string
+  rows: CriticMarkupInteractionEvidenceRow[]
 }
 
 const FORMS: readonly CriticMarkupInteractionForm[] = [
@@ -162,6 +201,11 @@ export const validateCriticMarkupInteractionMatrix = (
     if (!(['planned', 'red', 'green'] as const).includes(row.status)) {
       throw new Error(`CriticMarkup interaction row ${row.id} has invalid status`)
     }
+    if (row.status === 'green' && row.productionOracle.startsWith('planned:')) {
+      throw new Error(
+        `CriticMarkup interaction green row ${row.id} requires a named production oracle`
+      )
+    }
     pairings.add(`${row.form}:${row.context}`)
   }
 
@@ -200,4 +244,195 @@ export const validateCriticMarkupInteractionMatrix = (
       throw new Error(`CriticMarkup interaction pairwise coverage is missing: ${absent.join(', ')}`)
     }
   }
+}
+
+const resolveRepositoryPath = (
+  repoRoot: string,
+  path: string,
+  label = 'CriticMarkup interaction evidence'
+): string => {
+  if (!path.trim() || isAbsolute(path)) throw new Error(`${label} path is invalid`)
+  const absolutePath = resolve(repoRoot, path)
+  const withinRepo = relative(repoRoot, absolutePath)
+  if (withinRepo.startsWith('..') || isAbsolute(withinRepo) || !existsSync(absolutePath)) {
+    throw new Error(`${label} file is absent: ${path}`)
+  }
+  return absolutePath
+}
+
+const requireRepoFileDigest = (
+  repoRoot: string,
+  path: string,
+  expectedDigest: string,
+  label: string
+): void => {
+  const absolutePath = resolveRepositoryPath(repoRoot, path, label)
+  if (!/^[0-9a-f]{64}$/u.test(expectedDigest)) {
+    throw new Error(`${label} digest is invalid`)
+  }
+  const actualDigest = createHash('sha256')
+    .update(readFileSync(absolutePath))
+    .digest('hex')
+  if (actualDigest !== expectedDigest) throw new Error(`${label} digest is stale: ${path}`)
+}
+
+export const validateCriticMarkupInteractionEvidence = (
+  repoRoot: string,
+  matrix: CriticMarkupInteractionMatrix,
+  evidence: CriticMarkupInteractionEvidenceManifest
+): void => {
+  validateCriticMarkupInteractionMatrix(matrix)
+  if (evidence.schema !== 'marktext-criticmarkup-interaction-evidence-v1') {
+    throw new Error('CriticMarkup interaction evidence schema is invalid')
+  }
+  if (evidence.status !== 'proposed-unapproved') {
+    throw new Error('CriticMarkup interaction evidence must remain proposed-unapproved')
+  }
+  requireRepoFileDigest(
+    repoRoot,
+    evidence.matrixPath,
+    evidence.matrixSha256,
+    'CriticMarkup interaction matrix'
+  )
+  const matrixById = new Map(matrix.rows.map(row => [row.id, row]))
+  const evidenceIds = new Set<string>()
+  for (const row of evidence.rows) {
+    if (!row.id.trim() || evidenceIds.has(row.id) || !matrixById.has(row.id)) {
+      throw new Error(`CriticMarkup interaction evidence row is stale or duplicated: ${row.id}`)
+    }
+    evidenceIds.add(row.id)
+    if (!([
+      'missing-production-oracle',
+      'existing-partial',
+      'red',
+      'green'
+    ] as const).includes(row.status)) {
+      throw new Error(`CriticMarkup interaction evidence ${row.id} has invalid status`)
+    }
+    if (!Array.isArray(row.existingEvidence)) {
+      throw new Error(`CriticMarkup interaction evidence ${row.id} requires an evidence array`)
+    }
+    for (const existing of row.existingEvidence) {
+      if (!existing.scope.trim()) {
+        throw new Error(`CriticMarkup interaction evidence ${row.id} requires an exact scope`)
+      }
+      const path = resolveRepositoryPath(repoRoot, existing.path)
+      if (!existsSync(path)) {
+        throw new Error(`CriticMarkup interaction evidence ${row.id} file is absent`)
+      }
+    }
+    if (
+      (row.status === 'missing-production-oracle' || row.status === 'existing-partial') &&
+      !row.missingSeam?.trim()
+    ) {
+      throw new Error(`CriticMarkup interaction evidence ${row.id} requires a missing seam`)
+    }
+    if (row.status === 'missing-production-oracle' && row.productionOracle !== null) {
+      throw new Error(`Missing interaction evidence ${row.id} cannot name an implemented oracle`)
+    }
+    if (row.productionOracle !== null) {
+      if (
+        !(['installed', 'production-path'] as const).includes(row.productionOracle.kind) ||
+        !row.productionOracle.testName.trim()
+      ) {
+        throw new Error(`CriticMarkup interaction evidence ${row.id} oracle is invalid`)
+      }
+      if (
+        !row.productionOracle.path.startsWith('packages/desktop/test/e2e/') ||
+        !row.productionOracle.path.endsWith('.spec.ts')
+      ) {
+        throw new Error(
+          `CriticMarkup interaction evidence ${row.id} oracle is not a production E2E test`
+        )
+      }
+      const oracleSource = readFileSync(resolve(repoRoot, row.productionOracle.path), 'utf8')
+      if (!oracleSource.includes(row.productionOracle.testName)) {
+        throw new Error(`CriticMarkup interaction evidence ${row.id} test name is stale`)
+      }
+    }
+    if (
+      row.status === 'green' &&
+      (row.productionOracle?.kind !== 'installed' || row.execution?.result !== 'pass')
+    ) {
+      throw new Error(
+        `CriticMarkup interaction ${row.id} green evidence requires an installed production oracle and passing execution record`
+      )
+    }
+    if (
+      row.status === 'red' &&
+      (row.productionOracle?.kind !== 'installed' || row.execution?.result !== 'fail')
+    ) {
+      throw new Error(
+        `CriticMarkup interaction ${row.id} red evidence requires an installed production oracle and failing execution record`
+      )
+    }
+    if (row.status === 'green' || row.status === 'red') {
+      if (row.execution === null) {
+        throw new Error(`CriticMarkup interaction ${row.id} requires an execution record`)
+      }
+      if (!/^[0-9a-f]{40}$/u.test(row.execution.buildCommit)) {
+        throw new Error(`CriticMarkup interaction ${row.id} execution commit is invalid`)
+      }
+      if (Number.isNaN(Date.parse(row.execution.recordedAt))) {
+        throw new Error(`CriticMarkup interaction ${row.id} execution timestamp is invalid`)
+      }
+      requireRepoFileDigest(
+        repoRoot,
+        row.execution.recordPath,
+        row.execution.recordSha256,
+        `CriticMarkup interaction execution ${row.id}`
+      )
+    }
+    if (row.status === 'green') {
+      if (matrixById.get(row.id)?.status !== 'green') {
+        throw new Error(`CriticMarkup interaction ${row.id} evidence is green but its matrix row is not`)
+      }
+    } else if (row.status !== 'red' && row.execution !== null) {
+      throw new Error(`Non-green interaction evidence ${row.id} cannot claim an execution record`)
+    }
+  }
+  const missing = matrix.rows.filter(row => !evidenceIds.has(row.id))
+  if (missing.length > 0) {
+    throw new Error(`${missing.length} interaction rows have no evidence disposition`)
+  }
+}
+
+export const requireGreenCriticMarkupInteractionEvidence = (
+  repoRoot: string,
+  matrix: CriticMarkupInteractionMatrix,
+  evidence: CriticMarkupInteractionEvidenceManifest
+): void => {
+  validateCriticMarkupInteractionEvidence(repoRoot, matrix, evidence)
+  const notGreen = evidence.rows.filter(row => row.status !== 'green')
+  if (notGreen.length > 0) {
+    throw new Error(`${notGreen.length} interaction rows are not green`)
+  }
+}
+
+const runCli = (): void => {
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+  const matrix = readCriticMarkupInteractionMatrix(resolve(
+    repoRoot,
+    'specs/baselines/criticmarkup-interaction-matrix.json'
+  ))
+  const evidence = JSON.parse(readFileSync(resolve(
+    repoRoot,
+    'specs/baselines/criticmarkup-interaction-evidence.json'
+  ), 'utf8')) as CriticMarkupInteractionEvidenceManifest
+  if (process.argv[2] === '--validate-evidence') {
+    validateCriticMarkupInteractionEvidence(repoRoot, matrix, evidence)
+    return
+  }
+  if (process.argv[2] === '--require-green') {
+    requireGreenCriticMarkupInteractionEvidence(repoRoot, matrix, evidence)
+    return
+  }
+  throw new Error(
+    'Usage: tsx scripts/criticmarkupInteractionMatrix.ts ' +
+    '--validate-evidence | --require-green'
+  )
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  runCli()
 }

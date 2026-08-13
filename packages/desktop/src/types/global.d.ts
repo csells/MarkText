@@ -22,6 +22,7 @@ declare global {
   // ---- Build-time defines (electron-vite `define`) ----
   const MARKTEXT_VERSION: string
   const MARKTEXT_VERSION_STRING: string
+  const MARKTEXT_BUILD_COMMIT: string
   const __static: string
 
   // ---- contextBridge surface ----
@@ -83,6 +84,7 @@ declare global {
   }
 
   interface ElectronAPI {
+    buildCommit: string
     ipcRenderer: ElectronIpcRenderer
     shell: ElectronShellAPI
     clipboard: ElectronClipboardAPI
@@ -235,6 +237,12 @@ declare global {
         endOffset: number,
         text: string
       ): void
+      performanceEvents?(): readonly import('@/documentAuthority/coreAuthorityPerformanceTrace').CoreAuthorityPerformanceEvent[]
+      performanceStatus?(): Readonly<{
+        readonly accepting: boolean
+        readonly eventCount: number
+        readonly stopReason?: 'capacity'
+      }>
     }
     marktext?: {
       env?: { windowId: number; [key: string]: unknown }

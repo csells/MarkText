@@ -1,0 +1,370 @@
+{
+  "schema": "marktext-criticmarkup-interaction-evidence-v1",
+  "status": "proposed-unapproved",
+  "matrixPath": "specs/baselines/criticmarkup-interaction-matrix.json",
+  "matrixSha256": "b74fc711847deb963927242ae80c95b12661d3fd80d586d581889c45621b1c9f",
+  "rows": [
+    {
+      "id": "addition.block-boundary.author",
+      "status": "missing-production-oracle",
+      "existingEvidence": [],
+      "missingSeam": "Installed WYSIWYG authoring of exactly one selected block-boundary Addition with exact source and neighboring blank lines.",
+      "productionOracle": null,
+      "execution": null
+    },
+    {
+      "id": "addition.literal.resolve",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle opens the exact literal fixture, proves no Review resolution control exists, saves unchanged bytes, and reopens with no Review item."
+      }],
+      "missingSeam": "Pin a passing installed execution after matrix ratification; the checked-in oracle alone is not an execution record.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    },
+    {
+      "id": "addition.nested-comment.save-reopen",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle saves and reopens the exact nested-Addition Comment bytes and rediscovers the nested Addition through Review."
+      }],
+      "missingSeam": "Pin a passing installed execution after matrix ratification; the checked-in oracle alone is not an execution record.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    },
+    {
+      "id": "addition.paragraph.render",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle renders the exact Addition in Revised text, rejects it to the exact original paragraph, undoes back to exact marker bytes, saves, and reopens."
+      }],
+      "missingSeam": "The visible UI has no independent Original/Revised projection switch; pin a passing installed execution after matrix ratification.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    },
+    {
+      "id": "addition.reference-footnote.source-round-trip",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle round-trips the exact Addition, reference definition, and footnote through Source and WYSIWYG, saves exact bytes, and reopens them."
+      }],
+      "missingSeam": "Pin a passing installed execution after matrix ratification; the checked-in oracle alone is not an execution record.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    },
+    {
+      "id": "comment.block-boundary.source-round-trip",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle round-trips the exact block Comment through Source and WYSIWYG, retains its Review identity, saves exact surrounding bytes, and reopens them."
+      }],
+      "missingSeam": "The visible UI does not expose the isolated Comment block AST; retain the public-engine oracle and pin a passing installed execution after ratification.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    },
+    {
+      "id": "comment.literal.save-reopen",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle saves and reopens the exact inline-code and fenced-code Comment markers while proving Review remains absent."
+      }],
+      "missingSeam": "Pin a passing installed execution after matrix ratification; the checked-in oracle alone is not an execution record.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    },
+    {
+      "id": "comment.nested-comment.render",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle exposes the exact inner and outer Comment payloads through visible Review navigation, then saves and reopens exact nested bytes."
+      }],
+      "missingSeam": "Pin a passing installed execution after matrix ratification; the checked-in oracle alone is not an execution record.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    },
+    {
+      "id": "comment.paragraph.author",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/document-core-wysiwyg-mode.spec.ts",
+        "scope": "Visible selection control authors a Commented span and saves actor-owned source. Current product source includes a Highlight target and a prompted note, unlike this row's expected bare Comment source."
+      }],
+      "missingSeam": "Resolve the matrix/product contract mismatch, then assert the approved exact source and unchanged surrounding paragraph through the visible production control.",
+      "productionOracle": {
+        "kind": "production-path",
+        "path": "packages/desktop/test/e2e/document-core-wysiwyg-mode.spec.ts",
+        "testName": "Core WYSIWYG authors a Comment through the visible selection control"
+      },
+      "execution": null
+    },
+    {
+      "id": "comment.reference-footnote.resolve",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/document-core/test/criticmarkup-interaction-matrix.spec.ts",
+        "scope": "The public-engine matrix sweep opens and resolves the exact Profile-valid multiline Comment fixture to the expected source bytes."
+      }, {
+        "path": "packages/document-core/test/document-core-facade.spec.ts",
+        "scope": "The public facade proves a same-line closer remains owned by a valid bare reference destination, while a separate-line closer emits the exact Comment range, isolated local link resolution, and independent main-footnote resolution after resolving the Comment."
+      }, {
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle removes the exact Comment through visible Review, saves the expected independent main-footnote bytes, undoes, redoes, and reopens the resolved source."
+      }],
+      "missingSeam": "Pin a passing installed execution after matrix ratification; the checked-in oracle alone is not an execution record.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    },
+    {
+      "id": "deletion.block-boundary.resolve",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/document-core-wysiwyg-mode.spec.ts",
+        "scope": "Hidden Electron Review rejects one paragraph-inline Deletion through undo, redo, and save."
+      }, {
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle accepts the exact block-boundary Deletion through visible Review, preserves neighboring blank-line bytes, undoes, redoes, and reopens the resolved source."
+      }],
+      "missingSeam": "The installed matrix row exercises its specified accept action; a separate exact reject-row fixture would require a denominator decision. Pin a passing installed execution after ratification.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    },
+    {
+      "id": "deletion.literal.source-round-trip",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle round-trips both exact literal Deletion marker spellings through Source and WYSIWYG, proves Review remains absent, saves, and reopens exact bytes."
+      }],
+      "missingSeam": "Pin a passing installed execution after matrix ratification; the checked-in oracle alone is not an execution record.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    },
+    {
+      "id": "deletion.nested-comment.author",
+      "status": "missing-production-oracle",
+      "existingEvidence": [],
+      "missingSeam": "Production author control for a Deletion inside a Comment payload with exact outer-boundary preservation.",
+      "productionOracle": null,
+      "execution": null
+    },
+    {
+      "id": "deletion.paragraph.save-reopen",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle saves and reopens the exact paragraph Deletion bytes and rediscovers its Review identity."
+      }],
+      "missingSeam": "The visible UI does not expose a separate Original projection assertion; pin a passing installed execution after matrix ratification.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    },
+    {
+      "id": "deletion.reference-footnote.render",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle renders the exact Deletion fixture in Revised text, rejects it to the exact linked original plus independent definitions, undoes, saves, and reopens exact marker bytes."
+      }],
+      "missingSeam": "The visible UI does not expose reference/footnote AST identity; retain the public-engine oracle and pin a passing installed execution after ratification.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    },
+    {
+      "id": "highlight.block-boundary.save-reopen",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle saves and reopens the exact block-boundary Highlight with unchanged surrounding blank lines and Review identity."
+      }],
+      "missingSeam": "Pin a passing installed execution after matrix ratification; the checked-in oracle alone is not an execution record.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    },
+    {
+      "id": "highlight.literal.render",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle visibly renders the Highlight marker spelling as literal code, proves Review has no target, saves, and reopens exact inline and fenced bytes."
+      }],
+      "missingSeam": "Pin a passing installed execution after matrix ratification; the checked-in oracle alone is not an execution record.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    },
+    {
+      "id": "highlight.nested-comment.resolve",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle discovers the nested Highlight before its outer Comment, removes only its markers through visible Review, saves exact outer-Comment bytes, undoes, redoes, and reopens."
+      }],
+      "missingSeam": "Pin a passing installed execution after matrix ratification; the checked-in oracle alone is not an execution record.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    },
+    {
+      "id": "highlight.paragraph.source-round-trip",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/document-core-wysiwyg-mode.spec.ts",
+        "scope": "The Core Review lifecycle carries a paragraph Highlight through Source/WYSIWYG switching and later save/reopen as part of a multi-form source."
+      }, {
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle round-trips the exact isolated Highlight row through Source and WYSIWYG, retains its Review identity, saves exact bytes, and reopens them."
+      }],
+      "missingSeam": "Pin a passing installed execution after matrix ratification; the checked-in oracle alone is not an execution record.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    },
+    {
+      "id": "highlight.reference-footnote.author",
+      "status": "missing-production-oracle",
+      "existingEvidence": [],
+      "missingSeam": "Visible production author command for Highlight over an exact reference while preserving reference and footnote definitions.",
+      "productionOracle": null,
+      "execution": null
+    },
+    {
+      "id": "substitution.block-boundary.render",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle renders the new Substitution block in Revised text, rejects to the exact old block with surrounding blank lines, undoes, saves, and reopens exact marker bytes."
+      }],
+      "missingSeam": "The visible UI has no independent Original/Revised projection switch; pin a passing installed execution after matrix ratification.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    },
+    {
+      "id": "substitution.literal.author",
+      "status": "missing-production-oracle",
+      "existingEvidence": [],
+      "missingSeam": "Visible author-control unavailability over literal Substitution markers with exact no-change source.",
+      "productionOracle": null,
+      "execution": null
+    },
+    {
+      "id": "substitution.nested-comment.source-round-trip",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle discovers the nested Substitution, round-trips its exact ordered arms and outer Comment through Source and WYSIWYG, saves, and reopens exact bytes."
+      }],
+      "missingSeam": "Pin a passing installed execution after matrix ratification; the checked-in oracle alone is not an execution record.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    },
+    {
+      "id": "substitution.paragraph.resolve",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/document-core-wysiwyg-mode.spec.ts",
+        "scope": "The Review lifecycle navigates to a paragraph Substitution after resolving preceding items, but does not resolve the Substitution."
+      }, {
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle accepts the exact paragraph Substitution through visible Review, saves the new arm only, undoes, redoes, and reopens the resolved source."
+      }],
+      "missingSeam": "The installed matrix row exercises its specified accept action; a separate exact reject-row fixture would require a denominator decision. Pin a passing installed execution after ratification.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    },
+    {
+      "id": "substitution.reference-footnote.save-reopen",
+      "status": "existing-partial",
+      "existingEvidence": [{
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "scope": "The table-driven installed oracle saves and reopens the exact ordered Substitution arms, both reference definitions, and adjacent footnote with unchanged Review identity."
+      }],
+      "missingSeam": "Pin a passing installed execution after matrix ratification; the checked-in oracle alone is not an execution record.",
+      "productionOracle": {
+        "kind": "installed",
+        "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+        "testName": "follows the installed interaction matrix"
+      },
+      "execution": null
+    }
+  ]
+}

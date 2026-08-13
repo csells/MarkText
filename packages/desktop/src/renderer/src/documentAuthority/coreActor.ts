@@ -7,6 +7,9 @@ import {
   type DocumentRevision,
   type DocumentSourceEdit,
   type CriticMarkupAnnotation,
+  type MarkdownAst,
+  type MarkdownAstNode,
+  type MarkdownAttribute,
   type MarkdownOptions,
   type MarkdownProjection
 } from '@marktext/document-core'
@@ -14,6 +17,7 @@ import {
 import type {
   CoreHistoryEntry,
   CoreHistorySnapshot,
+  CoreConsumerSearchMatch,
   CoreReply,
   CoreRequest,
   CoreReviewItemLocator
@@ -38,6 +42,200 @@ const diagnosticsOf = (revision: DocumentRevision) => Object.freeze({
   diagnosticCount: revision.diagnostics.length,
   diagnostics: Object.freeze(revision.diagnostics.slice(0, DIAGNOSTIC_SAMPLE_LIMIT))
 })
+
+const consumerSearchBlockKinds = new Set<MarkdownAstNode['kind']>([
+  'paragraph',
+  'heading',
+  'code-block',
+  'html-block',
+  'front-matter',
+  'math-block',
+  'diagram',
+  'table-cell'
+])
+
+const consumerSemanticTextOf = (node: MarkdownAstNode): string => {
+  const stringAttribute = (name: string): string => {
+    const value = node.attributes[name]
+    return typeof value === 'string' ? value : ''
+  }
+  switch (node.kind) {
+    case 'text':
+      return stringAttribute('semanticText')
+    case 'soft-break':
+    case 'hard-break':
+      return '\n'
+    case 'inline-code':
+      return stringAttribute('semanticContent') || stringAttribute('content')
+    case 'code-block':
+    case 'html-block':
+    case 'front-matter':
+    case 'math-block':
+    case 'diagram':
+      return stringAttribute('content')
+    case 'definition':
+      return ''
+    default:
+      return node.children.map(consumerSemanticTextOf).join('')
+  }
+}
+
+const nodeAtConsumerPath = (
+  ast: MarkdownAst,
+  path: readonly number[]
+): MarkdownAstNode | undefined => {
+  let node = ast.root
+  for (const index of path) {
+    if (!Number.isSafeInteger(index) || index < 0) return undefined
+    const child = node.children[index]
+    if (child === undefined) return undefined
+    node = child
+  }
+  return node
+}
+
+const projectedRangeForConsumerMatch = (
+  projection: MarkdownProjection,
+  match: CoreConsumerSearchMatch
+): Readonly<{ readonly start: number; readonly end: number }> | undefined => {
+  if (
+    match === null || typeof match !== 'object' ||
+    !Array.isArray(match.path) || match.path.length === 0 ||
+    !Number.isSafeInteger(match.start) || !Number.isSafeInteger(match.end) ||
+    match.start < 0 || match.end <= match.start || typeof match.match !== 'string' ||
+    match.match.length !== match.end - match.start
+  ) return undefined
+  const block = nodeAtConsumerPath(projection.ast, match.path)
+  if (block === undefined || !consumerSearchBlockKinds.has(block.kind)) return undefined
+  if (consumerSemanticTextOf(block).slice(match.start, match.end) !== match.match) {
+    return undefined
+  }
+
+  let semanticOffset = 0
+  let resolved: Readonly<{ readonly start: number; readonly end: number }> | undefined
+  const visit = (node: MarkdownAstNode): void => {
+    if (resolved !== undefined) return
+    if (node.kind === 'text') {
+      const semantic = consumerSemanticTextOf(node)
+      const leafStart = semanticOffset
+      const leafEnd = leafStart + semantic.length
+      if (match.start >= leafStart && match.end <= leafEnd) {
+        const raw = projection.markdown.slice(node.range.start, node.range.end)
+        if (raw === semantic) {
+          resolved = Object.freeze({
+            start: node.range.start + match.start - leafStart,
+            end: node.range.start + match.end - leafStart
+          })
+        }
+      }
+      semanticOffset = leafEnd
+      return
+    }
+    if (
+      node.kind === 'soft-break' || node.kind === 'hard-break' ||
+      node.kind === 'inline-code' || node.kind === 'code-block' ||
+      node.kind === 'html-block' || node.kind === 'front-matter' ||
+      node.kind === 'math-block' || node.kind === 'diagram' ||
+      node.kind === 'definition'
+    ) {
+      semanticOffset += consumerSemanticTextOf(node).length
+      return
+    }
+    for (const child of node.children) visit(child)
+  }
+  visit(block)
+  if (
+    resolved === undefined ||
+    projection.markdown.slice(resolved.start, resolved.end) !== match.match
+  ) return undefined
+  return resolved
+}
+
+const selectionAstOf = (
+  projection: MarkdownProjection,
+  start: number,
+  end: number
+): MarkdownAst | undefined => {
+  const selected = new Map<MarkdownAstNode, MarkdownAstNode>()
+  let supported = true
+  const intersects = (node: MarkdownAstNode): boolean =>
+    node.kind === 'document' || (node.range.start < end && node.range.end > start)
+  const pending: Array<Readonly<{
+    readonly node: MarkdownAstNode
+    readonly ready: boolean
+  }>> = [{ node: projection.ast.root, ready: false }]
+
+  while (pending.length > 0 && supported) {
+    const task = pending.pop()
+    if (task === undefined) break
+    if (!task.ready) {
+      pending.push({ node: task.node, ready: true })
+      for (let index = task.node.children.length - 1; index >= 0; index -= 1) {
+        const child = task.node.children[index]
+        if (child !== undefined && intersects(child)) {
+          pending.push({ node: child, ready: false })
+        }
+      }
+      continue
+    }
+
+    const rangeStart = Math.max(start, task.node.range.start)
+    const rangeEnd = Math.min(end, task.node.range.end)
+    const fullySelected = task.node.range.start >= start && task.node.range.end <= end
+    const attributes: Record<string, MarkdownAttribute> = {
+      ...task.node.attributes
+    }
+    for (const name of Object.keys(attributes)) {
+      if (!name.endsWith('Start')) continue
+      const base = name.slice(0, -'Start'.length)
+      const endName = `${base}End`
+      const attributeStart = attributes[name]
+      const attributeEnd = attributes[endName]
+      if (typeof attributeStart !== 'number' || typeof attributeEnd !== 'number') {
+        continue
+      }
+      if (attributeStart < start || attributeEnd > end) {
+        delete attributes[name]
+        delete attributes[endName]
+      } else {
+        attributes[name] = attributeStart - start
+        attributes[endName] = attributeEnd - start
+      }
+    }
+
+    if (!fullySelected && task.node.children.length === 0) {
+      if (task.node.kind !== 'text') {
+        supported = false
+        break
+      }
+      const raw = projection.markdown.slice(task.node.range.start, task.node.range.end)
+      if (attributes.semanticText !== raw) {
+        supported = false
+        break
+      }
+      attributes.semanticText = raw.slice(
+        rangeStart - task.node.range.start,
+        rangeEnd - task.node.range.start
+      )
+    }
+
+    selected.set(task.node, Object.freeze({
+      kind: task.node.kind,
+      range: Object.freeze({
+        start: rangeStart - start,
+        end: rangeEnd - start
+      }),
+      attributes: Object.freeze(attributes),
+      children: Object.freeze(task.node.children.flatMap(child => {
+        const item = selected.get(child)
+        return item === undefined ? [] : [item]
+      }))
+    }))
+  }
+
+  const root = selected.get(projection.ast.root)
+  return supported && root !== undefined ? Object.freeze({ root }) : undefined
+}
 
 export function createCoreActor(
   createCore: () => DocumentCore = createDocumentCore,
@@ -284,6 +482,102 @@ export function createCoreActor(
     const items: CoreReviewItemLocator[] = []
     const annotations = activeRevision.annotations
     let revisedProjection: MarkdownProjection | undefined
+    const appendVisibleNestedItems = (annotation: CriticMarkupAnnotation): void => {
+      if (annotation.kind !== 'highlight') return
+      const content = annotation.arms.find(arm => arm.name === 'content')
+      if (content === undefined) return
+      type PendingVisible = Readonly<{
+        readonly kind: 'annotations'
+        readonly annotations: readonly CriticMarkupAnnotation[]
+      }> | Readonly<{
+        readonly kind: 'item'
+        readonly annotation: CriticMarkupAnnotation
+      }> | Readonly<{
+        readonly kind: 'pair'
+        readonly highlight: CriticMarkupAnnotation
+        readonly comment: CriticMarkupAnnotation
+      }>
+      const pending: PendingVisible[] = [{
+        kind: 'annotations',
+        annotations: content.annotations
+      }]
+      while (pending.length > 0) {
+        const next = pending.pop()
+        if (next === undefined) break
+        if (next.kind === 'annotations') {
+          for (let index = next.annotations.length - 1; index >= 0; index -= 1) {
+            const current = next.annotations[index]
+            if (current === undefined) continue
+            const prior = next.annotations[index - 1]
+            const pair = current.kind === 'comment' && prior?.kind === 'highlight' &&
+              prior.range.end === current.range.start
+            if (pair) {
+              pending.push({ kind: 'pair', highlight: prior, comment: current })
+              const nestedContent = prior.arms.find(arm => arm.name === 'content')
+              if (nestedContent !== undefined) {
+                pending.push({
+                  kind: 'annotations',
+                  annotations: nestedContent.annotations
+                })
+              }
+              index -= 1
+              continue
+            }
+            pending.push({ kind: 'item', annotation: current })
+            if (current.kind === 'highlight') {
+              const nestedContent = current.arms.find(arm => arm.name === 'content')
+              if (nestedContent !== undefined) {
+                pending.push({
+                  kind: 'annotations',
+                  annotations: nestedContent.annotations
+                })
+              }
+            }
+          }
+          continue
+        }
+        if (next.kind === 'pair') {
+          const nestedContent = next.highlight.arms.find(arm => arm.name === 'content')
+          revisedProjection ??= activeCore.project(activeRevision, 'revised')
+          if (
+            nestedContent !== undefined &&
+            revisedProjection.coordinates.intersectsSource(nestedContent.range)
+          ) {
+            items.push(Object.freeze({
+              kind: 'commented-span',
+              range: Object.freeze({
+                start: next.highlight.range.start,
+                end: next.comment.range.end
+              }),
+              highlightRange: Object.freeze({ ...next.highlight.range }),
+              commentRange: Object.freeze({ ...next.comment.range })
+            }))
+            continue
+          }
+        }
+        const visible = next.kind === 'pair' ? next.highlight : next.annotation
+        items.push(Object.freeze({
+          kind: visible.kind,
+          range: Object.freeze({ ...visible.range })
+        }))
+      }
+    }
+    const appendCommentNestedItems = (annotation: CriticMarkupAnnotation): void => {
+      if (annotation.kind !== 'comment') return
+      const comment = annotation.arms.find(arm => arm.name === 'comment')
+      if (comment === undefined) return
+      const pending = [...comment.annotations].reverse()
+      while (pending.length > 0) {
+        const nested = pending.pop()
+        if (nested === undefined) continue
+        appendVisibleNestedItems(nested)
+        appendCommentNestedItems(nested)
+        items.push(Object.freeze({
+          kind: nested.kind,
+          range: Object.freeze({ ...nested.range })
+        }))
+      }
+    }
     for (let index = 0; index < annotations.length; index += 1) {
       const annotation = annotations[index]
       if (annotation === undefined) continue
@@ -297,6 +591,7 @@ export function createCoreActor(
       ) {
         revisedProjection ??= activeCore.project(activeRevision, 'revised')
         if (revisedProjection.coordinates.intersectsSource(content.range)) {
+          appendVisibleNestedItems(annotation)
           items.push(Object.freeze({
             kind: 'commented-span',
             range: Object.freeze({
@@ -310,6 +605,8 @@ export function createCoreActor(
           continue
         }
       }
+      appendVisibleNestedItems(annotation)
+      appendCommentNestedItems(annotation)
       items.push(Object.freeze({
         kind: annotation.kind,
         range: Object.freeze({ ...annotation.range })
@@ -325,26 +622,176 @@ export function createCoreActor(
     from: number
   ): CoreReviewItemLocator | undefined => {
     let best: CoreReviewItemLocator | undefined
-    for (const annotation of reviewItemsFor(activeCore, activeRevision)) {
+    const items = reviewItemsFor(activeCore, activeRevision)
+    for (const annotation of items) {
       if (direction === 'next') {
-        if (annotation.range.start < from) continue
+        const containsCursor = annotation.range.start < from &&
+          annotation.range.end > from
+        if (annotation.range.start < from && !containsCursor) continue
         if (
           best === undefined ||
-          annotation.range.start < best.range.start ||
+          (containsCursor && !(best.range.start < from && best.range.end > from)) ||
+          (containsCursor === (best.range.start < from && best.range.end > from) &&
+            annotation.range.start < best.range.start) ||
           (annotation.range.start === best.range.start &&
             annotation.range.end < best.range.end)
         ) best = annotation
       } else {
-        if (annotation.range.end > from) continue
+        const containsCursor = annotation.range.start < from &&
+          annotation.range.end > from
+        if (annotation.range.end > from && !containsCursor) continue
         if (
           best === undefined ||
-          annotation.range.start > best.range.start ||
+          (containsCursor && !(best.range.start < from && best.range.end > from)) ||
+          (containsCursor === (best.range.start < from && best.range.end > from) &&
+            annotation.range.start > best.range.start) ||
           (annotation.range.start === best.range.start &&
             annotation.range.end > best.range.end)
         ) best = annotation
       }
     }
+    if (direction === 'next' && best !== undefined) {
+      for (const candidate of items) {
+        if (
+          candidate !== best && candidate.range.start >= from &&
+          candidate.range.start >= best.range.start &&
+          candidate.range.end <= best.range.end &&
+          (candidate.range.start > best.range.start ||
+            candidate.range.end < best.range.end)
+        ) best = candidate
+      }
+    }
     return best
+  }
+
+  const commentAnnotationFor = (
+    activeCore: DocumentCore,
+    activeRevision: DocumentRevision,
+    locator: CoreReviewItemLocator
+  ): CriticMarkupAnnotation | undefined => {
+    if (locator.kind === 'comment') return annotationFor(activeRevision, locator)
+    if (locator.kind !== 'commented-span') return undefined
+    const span = reviewItemsFor(activeCore, activeRevision).find(item =>
+      item.kind === 'commented-span' &&
+      item.range.start === locator.range.start &&
+      item.range.end === locator.range.end &&
+      item.highlightRange.start === locator.highlightRange.start &&
+      item.highlightRange.end === locator.highlightRange.end &&
+      item.commentRange.start === locator.commentRange.start &&
+      item.commentRange.end === locator.commentRange.end
+    )
+    return span?.kind === 'commented-span'
+      ? annotationFor(activeRevision, {
+        kind: 'comment',
+        range: span.commentRange
+      })
+      : undefined
+  }
+
+  const editedCommentFor = (
+    activeCore: DocumentCore,
+    activeRevision: DocumentRevision,
+    annotation: CriticMarkupAnnotation,
+    text: string
+  ): DocumentSourceEdit | undefined => {
+    if (annotation.kind !== 'comment' || typeof text !== 'string') return undefined
+    const prefix = activeCore.sourceSlice(activeRevision, {
+      start: 0,
+      end: annotation.range.start
+    })
+    const suffix = activeCore.sourceSlice(activeRevision, {
+      start: annotation.range.end,
+      end: activeRevision.sourceLength
+    })
+    const candidateFor = (payload: string): DocumentSourceEdit | undefined => {
+      const insert = `{>>${payload}<<}`
+      const candidateCore = createDocumentCore()
+      const candidate = candidateCore.open(prefix + insert + suffix, markdownOptions)
+      const end = annotation.range.start + insert.length
+      if (candidate.diagnostics.some(diagnostic =>
+        diagnostic.range.start < end &&
+        diagnostic.range.end > annotation.range.start
+      )) return undefined
+      const edited = candidate.annotations.find(item =>
+        item.kind === 'comment' &&
+        item.range.start === annotation.range.start &&
+        item.range.end === end
+      )
+      const arm = edited?.arms.find(item => item.name === 'comment')
+      return arm !== undefined && candidateCore.sourceSlice(candidate, arm.range) === payload
+        ? Object.freeze({ ...annotation.range, insert })
+        : undefined
+    }
+    const raw = candidateFor(text)
+    if (raw !== undefined) return raw
+    const payloadCore = createDocumentCore()
+    const payload = payloadCore.open(text, markdownOptions)
+    const selectivelyProtectedText = text.replace(
+      /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<</g,
+      (token: string, offset: number) => payload.diagnostics.some(diagnostic =>
+        diagnostic.range.start < offset + token.length &&
+        diagnostic.range.end > offset
+      )
+        ? `\\${token}`
+        : token
+    )
+    if (selectivelyProtectedText !== text) {
+      const selective = candidateFor(selectivelyProtectedText)
+      if (selective !== undefined) return selective
+    }
+    const protectedText = text.replace(
+      /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<</g,
+      token => `\\${token}`
+    )
+    return protectedText === text ? undefined : candidateFor(protectedText)
+  }
+
+  const resolutionEditFor = (
+    activeCore: DocumentCore,
+    activeRevision: DocumentRevision,
+    annotation: CriticMarkupAnnotation,
+    decision: 'accept' | 'reject'
+  ): DocumentSourceEdit | undefined => {
+    const armSource = (name: string): string | undefined => {
+      const arm = annotation.arms.find(candidate => candidate.name === name)
+      return arm === undefined
+        ? undefined
+        : activeCore.sourceSlice(activeRevision, arm.range)
+    }
+    const insert = annotation.kind === 'addition'
+      ? decision === 'accept' ? armSource('content') : ''
+      : annotation.kind === 'deletion'
+        ? decision === 'accept' ? '' : armSource('content')
+        : annotation.kind === 'substitution'
+          ? armSource(decision === 'accept' ? 'new' : 'old')
+          : undefined
+    return insert === undefined
+      ? undefined
+      : Object.freeze({ ...annotation.range, insert })
+  }
+
+  const bulkResolutionAnnotationsFor = (
+    activeRevision: DocumentRevision
+  ): readonly CriticMarkupAnnotation[] => {
+    const suggestions: CriticMarkupAnnotation[] = []
+    const visit = (annotations: readonly CriticMarkupAnnotation[]): void => {
+      for (const annotation of annotations) {
+        if (
+          annotation.kind === 'addition' || annotation.kind === 'deletion' ||
+          annotation.kind === 'substitution'
+        ) {
+          // The parent edit owns this complete source range. Nested forms in
+          // that range cannot be emitted as overlapping sibling edits.
+          suggestions.push(annotation)
+          continue
+        }
+        if (annotation.kind !== 'highlight') continue
+        const content = annotation.arms.find(arm => arm.name === 'content')
+        if (content !== undefined) visit(content.annotations)
+      }
+    }
+    visit(activeRevision.annotations)
+    return Object.freeze(suggestions)
   }
 
   const authoredEditFor = (
@@ -353,14 +800,15 @@ export function createCoreActor(
     request: Extract<CoreRequest, { readonly type: 'author' }>
   ): DocumentSourceEdit | undefined => {
     if (
-      (request.form !== 'comment' && request.form !== 'substitution') ||
+      (request.form !== 'comment' && request.form !== 'highlight' &&
+        request.form !== 'substitution') ||
       request.range === null || typeof request.range !== 'object' ||
       typeof request.text !== 'string' ||
       !Number.isSafeInteger(request.range.start) ||
       !Number.isSafeInteger(request.range.end) ||
       request.range.start < 0 || request.range.end <= request.range.start ||
       request.range.end > activeRevision.sourceLength ||
-      request.text.length === 0
+      (request.form === 'substitution' && request.text.length === 0)
     ) return undefined
     const pendingAnnotations = [...activeRevision.annotations]
     while (pendingAnnotations.length > 0) {
@@ -428,7 +876,9 @@ export function createCoreActor(
     ): DocumentSourceEdit | undefined => {
       const insert = request.form === 'comment'
         ? `{==${selected}==}{>>${authoredText}<<}`
-        : `{~~${selected}~>${authoredText}~~}`
+        : request.form === 'highlight'
+          ? `{==${selected}==}`
+          : `{~~${selected}~>${authoredText}~~}`
       const edit = Object.freeze({
         start: request.range.start,
         end: request.range.end,
@@ -460,6 +910,18 @@ export function createCoreActor(
           ? edit
           : undefined
       }
+      if (request.form === 'highlight') {
+        const annotation = candidate.annotations.find(item =>
+          item.kind === 'highlight' &&
+          item.range.start === request.range.start &&
+          item.range.end === request.range.start + insert.length
+        )
+        const content = annotation?.arms.find(arm => arm.name === 'content')
+        return annotation !== undefined && content !== undefined &&
+          candidateCore.sourceSlice(candidate, content.range) === selected
+          ? edit
+          : undefined
+      }
       const highlight = candidate.annotations.find(item =>
         item.kind === 'highlight' &&
         item.range.start === request.range.start
@@ -486,6 +948,7 @@ export function createCoreActor(
       const selectedCandidate = candidateFor(protectedSelected, request.text)
       if (selectedCandidate !== undefined) return selectedCandidate
     }
+    if (request.form === 'highlight') return undefined
     const protectedText = request.text.replace(
       /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<</g,
       token => `\\${token}`
@@ -1087,6 +1550,82 @@ export function createCoreActor(
           view: createMuyaPlainTextView(core.project(revision, 'revised'))
         })
       }
+      if (request.type === 'consumer-projection-at-barrier') {
+        const projection = core.project(revision, 'revised')
+        return Object.freeze({
+          type: 'consumer-projection',
+          session,
+          sequence,
+          revision: revisionNumber,
+          accepted: true,
+          sourceLength: revision.sourceLength,
+          projection: Object.freeze({
+            kind: 'markdown-consumer-projection',
+            name: 'revised',
+            markdown: projection.markdown,
+            ast: projection.ast
+          })
+        })
+      }
+      if (request.type === 'selection-projection-at-barrier') {
+        if (
+          request.range === null || typeof request.range !== 'object' ||
+          !Number.isSafeInteger(request.range.start) ||
+          !Number.isSafeInteger(request.range.end) ||
+          request.range.start < 0 || request.range.end <= request.range.start ||
+          request.range.end > revision.sourceLength
+        ) {
+          return Object.freeze({
+            type: 'rejected',
+            session,
+            sequence,
+            revision: revisionNumber,
+            accepted: false,
+            reason: 'invalid-edit',
+            sourceLength: revision.sourceLength
+          })
+        }
+        const documentProjection = core.project(revision, 'revised')
+        const start = documentProjection.coordinates.toProjected(
+          request.range.start,
+          'next'
+        )
+        const end = documentProjection.coordinates.toProjected(
+          request.range.end,
+          'previous'
+        )
+        const markdown = documentProjection.markdown.slice(start, Math.max(start, end))
+        const selectionAst = selectionAstOf(
+          documentProjection,
+          start,
+          Math.max(start, end)
+        )
+        if (selectionAst === undefined) {
+          return Object.freeze({
+            type: 'rejected',
+            session,
+            sequence,
+            revision: revisionNumber,
+            accepted: false,
+            reason: 'invalid-edit',
+            sourceLength: revision.sourceLength
+          })
+        }
+        return Object.freeze({
+          type: 'selection-projection',
+          session,
+          sequence,
+          revision: revisionNumber,
+          accepted: true,
+          sourceLength: revision.sourceLength,
+          projection: Object.freeze({
+            kind: 'markdown-consumer-projection',
+            name: 'revised',
+            markdown,
+            ast: selectionAst
+          })
+        })
+      }
       if (request.type === 'review-item-at-barrier') {
         if (
           (request.direction !== 'next' && request.direction !== 'previous') ||
@@ -1104,6 +1643,10 @@ export function createCoreActor(
           })
         }
         const annotation = reviewItemFor(core, revision, request.direction, request.from)
+        const comment = annotation === undefined
+          ? undefined
+          : commentAnnotationFor(core, revision, annotation)
+        const commentArm = comment?.arms.find(arm => arm.name === 'comment')
         return Object.freeze({
           type: 'review-item',
           session,
@@ -1122,7 +1665,10 @@ export function createCoreActor(
                   commentRange: Object.freeze({ ...annotation.commentRange })
                 }
                 : {})
-            })
+            }),
+          ...(commentArm === undefined
+            ? {}
+            : { commentText: core.sourceSlice(revision, commentArm.range) })
         })
       }
       const historyEntry = request.type === 'undo'
@@ -1221,6 +1767,157 @@ export function createCoreActor(
           sourceLength: revision.sourceLength
         })
       }
+      let consumerSearchEdits: readonly DocumentSourceEdit[] | undefined
+      if (request.type === 'replace-consumer-search') {
+        const activeCore = core
+        const activeRevision = revision
+        const projection = activeCore.project(activeRevision, 'revised')
+        if (
+          !Array.isArray(request.replacements) ||
+          request.replacements.length === 0
+        ) {
+          return Object.freeze({
+            type: 'rejected',
+            session,
+            sequence,
+            revision: revisionNumber,
+            accepted: false,
+            reason: 'consumer-search-match-invalid',
+            sourceLength: revision.sourceLength
+          })
+        }
+        const resolved = request.replacements.flatMap(replacement => {
+          if (
+            replacement === null || typeof replacement !== 'object' ||
+            typeof replacement.insert !== 'string'
+          ) return []
+          const range = projectedRangeForConsumerMatch(projection, replacement.match)
+          if (range === undefined) return []
+          const start = projection.coordinates.toSource(range.start, 'next')
+          const end = projection.coordinates.toSource(range.end, 'previous')
+          if (
+            end < start ||
+            activeCore.sourceSlice(activeRevision, { start, end }) !==
+              replacement.match.match
+          ) return []
+          return [Object.freeze({ start, end, insert: replacement.insert })]
+        }).sort((left, right) => left.start - right.start || left.end - right.end)
+        if (
+          resolved.length !== request.replacements.length ||
+          resolved.some((edit, index) => {
+            const previous = resolved[index - 1]
+            return previous !== undefined && edit.start < previous.end
+          })
+        ) {
+          return Object.freeze({
+            type: 'rejected',
+            session,
+            sequence,
+            revision: revisionNumber,
+            accepted: false,
+            reason: 'consumer-search-match-invalid',
+            sourceLength: revision.sourceLength
+          })
+        }
+        consumerSearchEdits = Object.freeze(resolved.filter(edit =>
+          activeCore.sourceSlice(activeRevision, edit) !== edit.insert
+        ))
+        if (consumerSearchEdits.length === 0) {
+          return Object.freeze({
+            type: 'rejected',
+            session,
+            sequence,
+            revision: revisionNumber,
+            accepted: false,
+            reason: 'no-change',
+            sourceLength: revision.sourceLength
+          })
+        }
+      }
+      let editedComment: DocumentSourceEdit | undefined
+      if (request.type === 'edit-comment') {
+        const locator = request.annotation
+        if (
+          locator === null || typeof locator !== 'object' ||
+          (locator.kind !== 'comment' && locator.kind !== 'commented-span')
+        ) {
+          return Object.freeze({
+            type: 'rejected',
+            session,
+            sequence,
+            revision: revisionNumber,
+            accepted: false,
+            reason: 'author-invalid',
+            sourceLength: revision.sourceLength
+          })
+        }
+        const comment = commentAnnotationFor(core, revision, locator)
+        if (comment === undefined) {
+          return Object.freeze({
+            type: 'rejected',
+            session,
+            sequence,
+            revision: revisionNumber,
+            accepted: false,
+            reason: 'annotation-not-found',
+            sourceLength: revision.sourceLength
+          })
+        }
+        const arm = comment.arms.find(candidate => candidate.name === 'comment')
+        if (typeof request.text !== 'string' || arm === undefined) {
+          return Object.freeze({
+            type: 'rejected',
+            session,
+            sequence,
+            revision: revisionNumber,
+            accepted: false,
+            reason: 'author-invalid',
+            sourceLength: revision.sourceLength
+          })
+        }
+        if (core.sourceSlice(revision, arm.range) === request.text) {
+          return Object.freeze({
+            type: 'rejected',
+            session,
+            sequence,
+            revision: revisionNumber,
+            accepted: false,
+            reason: 'no-change',
+            sourceLength: revision.sourceLength
+          })
+        }
+        try {
+          editedComment = editedCommentFor(core, revision, comment, request.text)
+        } catch (error) {
+          if (error instanceof DocumentCoreError) {
+            return Object.freeze({
+              type: 'resource',
+              session,
+              sequence,
+              revision: revisionNumber,
+              accepted: false,
+              sourceLength: revision.sourceLength,
+              resource: Object.freeze({
+                code: error.code,
+                range: Object.freeze({ ...error.range }),
+                metadata: Object.freeze({ ...error.metadata })
+              })
+            })
+          }
+          throw error
+        }
+        if (editedComment === undefined) {
+          return Object.freeze({
+            type: 'rejected',
+            session,
+            sequence,
+            revision: revisionNumber,
+            accepted: false,
+            reason: 'author-invalid',
+            sourceLength: revision.sourceLength
+          })
+        }
+      }
       if (
         (request.type === 'undo' || request.type === 'redo') &&
         historyEntry === undefined
@@ -1287,16 +1984,29 @@ export function createCoreActor(
           sourceLength: revision.sourceLength
         })
       }
+      if (
+        request.type === 'resolve-all' &&
+        request.decision !== 'accept' && request.decision !== 'reject'
+      ) {
+        return Object.freeze({
+          type: 'rejected',
+          session,
+          sequence,
+          revision: revisionNumber,
+          accepted: false,
+          reason: 'resolution-invalid',
+          sourceLength: revision.sourceLength
+        })
+      }
       const resolutionEdit = request.type === 'resolve'
         ? resolutionCommentedSpan?.kind === 'commented-span'
           ? (() => {
             const activeCore = core
             const activeRevision = revision
-            const highlight = revision.annotations.find(annotation =>
-              annotation.kind === 'highlight' &&
-              annotation.range.start === resolutionCommentedSpan.highlightRange.start &&
-              annotation.range.end === resolutionCommentedSpan.highlightRange.end
-            )
+            const highlight = annotationFor(activeRevision, {
+              kind: 'highlight',
+              range: resolutionCommentedSpan.highlightRange
+            })
             const content = highlight?.arms.find(arm => arm.name === 'content')
             return content === undefined
               ? undefined
@@ -1334,6 +2044,34 @@ export function createCoreActor(
               : Object.freeze({ ...annotation.range, insert })
           })()
         : undefined
+      const bulkResolutionEdits = request.type === 'resolve-all'
+        ? (() => {
+          const activeCore = core
+          const activeRevision = revision
+          return Object.freeze(bulkResolutionAnnotationsFor(activeRevision).flatMap(
+            annotation => {
+              const edit = resolutionEditFor(
+                activeCore,
+                activeRevision,
+                annotation,
+                request.decision
+              )
+              return edit === undefined ? [] : [edit]
+            }
+          ))
+        })()
+        : undefined
+      if (request.type === 'resolve-all' && bulkResolutionEdits?.length === 0) {
+        return Object.freeze({
+          type: 'rejected',
+          session,
+          sequence,
+          revision: revisionNumber,
+          accepted: false,
+          reason: 'no-change',
+          sourceLength: revision.sourceLength
+        })
+      }
       const effectiveApplyEdits = request.type === 'apply'
         ? (() => {
           const activeCore = core
@@ -1369,17 +2107,24 @@ export function createCoreActor(
       }
       const edits = request.type === 'apply'
         ? effectiveApplyEdits!
-        : request.type === 'author'
-          ? Object.freeze([authoredEdit!])
-          : request.type === 'track'
-            ? Object.freeze([trackedEdit!])
-            : request.type === 'resolve'
-              ? Object.freeze([resolutionEdit!])
-              : request.type === 'undo'
-                ? historyEntry!.undo
-                : historyEntry!.redo
+        : request.type === 'replace-consumer-search'
+          ? consumerSearchEdits!
+          : request.type === 'author'
+            ? Object.freeze([authoredEdit!])
+            : request.type === 'track'
+              ? Object.freeze([trackedEdit!])
+              : request.type === 'edit-comment'
+                ? Object.freeze([editedComment!])
+                : request.type === 'resolve-all'
+                  ? bulkResolutionEdits!
+                  : request.type === 'resolve'
+                    ? Object.freeze([resolutionEdit!])
+                    : request.type === 'undo'
+                      ? historyEntry!.undo
+                      : historyEntry!.redo
       if (
-        request.type === 'apply' &&
+        (request.type === 'apply' || request.type === 'resolve-all' ||
+          request.type === 'replace-consumer-search') &&
         edits!.length > maximumHistoryEditsPerEntry
       ) {
         return Object.freeze({
@@ -1392,7 +2137,10 @@ export function createCoreActor(
           sourceLength: revision.sourceLength
         })
       }
-      if (request.type === 'apply' && edits!.length > 1) {
+      if (
+        (request.type === 'apply' || request.type === 'replace-consumer-search') &&
+        edits!.length > 1
+      ) {
         const prospectiveSource = applyRecoveryEdits(revision.source, edits!)
         if (prospectiveSource === revision.source) {
           return Object.freeze({
@@ -1410,8 +2158,10 @@ export function createCoreActor(
       let prospectiveEntry: HistoryEntry | undefined
       let commit
       try {
-        inverse = request.type === 'apply' || request.type === 'author' ||
-          request.type === 'track' || request.type === 'resolve'
+        inverse = request.type === 'apply' ||
+          request.type === 'replace-consumer-search' || request.type === 'author' ||
+          request.type === 'track' || request.type === 'edit-comment' ||
+          request.type === 'resolve' || request.type === 'resolve-all'
           ? inverseEdits(core, revision, edits!)
           : undefined
         if (inverse !== undefined) {
@@ -1469,8 +2219,10 @@ export function createCoreActor(
       revision = commit.revision
       revisionNumber += 1
       if (
-        request.type === 'apply' || request.type === 'resolve' ||
-        request.type === 'author' || request.type === 'track'
+        request.type === 'apply' || request.type === 'replace-consumer-search' ||
+        request.type === 'resolve' ||
+        request.type === 'author' || request.type === 'track' ||
+        request.type === 'edit-comment' || request.type === 'resolve-all'
       ) {
         const entry = prospectiveEntry!
         redoStack.splice(0)

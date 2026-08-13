@@ -8,6 +8,9 @@ import type {
   CoreActorPort,
   CoreAppliedReply,
   CoreAuthorForm,
+  CoreConsumerProjectionReply,
+  CoreConsumerSearchReplacement,
+  CoreSelectionProjectionReply,
   CoreOpenedReply,
   CorePlainTextViewReply,
   CoreReviewItemReply,
@@ -35,6 +38,13 @@ export interface EditorCoreBinding {
   submit(input: EditorCoreSubmitInput): EditorCoreSubmission
   sourceAtBarrier(): Promise<CoreSourceReply | CoreRejectedReply>
   plainTextViewAtBarrier(): Promise<CorePlainTextViewReply | CoreRejectedReply>
+  consumerProjectionAtBarrier?(): Promise<
+    CoreConsumerProjectionReply | CoreRejectedReply
+  >
+  selectionProjectionAtBarrier(range: Readonly<{
+    readonly start: number
+    readonly end: number
+  }>): Promise<CoreSelectionProjectionReply | CoreRejectedReply>
   reviewItemAtBarrier(
     direction: 'next' | 'previous',
     from: number
@@ -48,6 +58,11 @@ export type EditorCoreSubmitInput = Readonly<{
   readonly edits: readonly DocumentSourceEdit[]
   readonly projections: readonly DocumentProjectionRequest[]
 }> | Readonly<{
+  readonly kind: 'replace-consumer-search'
+  readonly authoredRevision: number
+  readonly replacements: readonly CoreConsumerSearchReplacement[]
+  readonly projections: readonly DocumentProjectionRequest[]
+}> | Readonly<{
   readonly kind: 'undo' | 'redo'
   readonly projections: readonly DocumentProjectionRequest[]
 }> | Readonly<{
@@ -57,9 +72,19 @@ export type EditorCoreSubmitInput = Readonly<{
   readonly decision: CoreReviewDecision
   readonly projections: readonly DocumentProjectionRequest[]
 }> | Readonly<{
+  readonly kind: 'resolve-all'
+  readonly decision: 'accept' | 'reject'
+  readonly projections: readonly DocumentProjectionRequest[]
+}> | Readonly<{
   readonly kind: 'author'
   readonly form: CoreAuthorForm
   readonly range: Readonly<{ readonly start: number; readonly end: number }>
+  readonly text: string
+  readonly projections: readonly DocumentProjectionRequest[]
+}> | Readonly<{
+  readonly kind: 'edit-comment'
+  readonly authoredRevision: number
+  readonly annotation: CoreReviewItemLocator
   readonly text: string
   readonly projections: readonly DocumentProjectionRequest[]
 }> | Readonly<{
@@ -211,6 +236,15 @@ export function createEditorCoreBinding(port: CoreActorPort): EditorCoreBinding 
             annotationRange: Object.freeze({ ...projection.annotationRange })
           })
       ))
+      const copyConsumerSearchReplacements = (
+        replacements: readonly CoreConsumerSearchReplacement[]
+      ) => Object.freeze(replacements.map(replacement => Object.freeze({
+        match: Object.freeze({
+          ...replacement.match,
+          path: Object.freeze([...replacement.match.path])
+        }),
+        insert: replacement.insert
+      })))
       let requested: Promise<EditorCoreApplyOutcome>
       try {
         const request = 'edits' in input
@@ -222,54 +256,92 @@ export function createEditorCoreBinding(port: CoreActorPort): EditorCoreBinding 
             edits: Object.freeze(input.edits.map(edit => Object.freeze({ ...edit }))),
             projections
           })
-          : input.kind === 'resolve'
+          : input.kind === 'replace-consumer-search'
             ? Object.freeze({
-              type: 'resolve' as const,
+              type: 'replace-consumer-search' as const,
               session,
               sequence: transactionId,
               baseRevision: input.authoredRevision,
-              annotation: input.annotation.kind === 'commented-span'
-                ? Object.freeze({
-                  kind: input.annotation.kind,
-                  range: Object.freeze({ ...input.annotation.range }),
-                  highlightRange: Object.freeze({ ...input.annotation.highlightRange }),
-                  commentRange: Object.freeze({ ...input.annotation.commentRange })
-                })
-                : Object.freeze({
-                  kind: input.annotation.kind,
-                  range: Object.freeze({ ...input.annotation.range })
-                }),
-              decision: input.decision,
+              replacements: copyConsumerSearchReplacements(input.replacements),
               projections
             })
-            : input.kind === 'author'
+            : input.kind === 'resolve'
               ? Object.freeze({
-                type: 'author' as const,
+                type: 'resolve' as const,
                 session,
                 sequence: transactionId,
-                baseRevision: revision,
-                form: input.form,
-                range: Object.freeze({ ...input.range }),
-                text: input.text,
+                baseRevision: input.authoredRevision,
+                annotation: input.annotation.kind === 'commented-span'
+                  ? Object.freeze({
+                    kind: input.annotation.kind,
+                    range: Object.freeze({ ...input.annotation.range }),
+                    highlightRange: Object.freeze({ ...input.annotation.highlightRange }),
+                    commentRange: Object.freeze({ ...input.annotation.commentRange })
+                  })
+                  : Object.freeze({
+                    kind: input.annotation.kind,
+                    range: Object.freeze({ ...input.annotation.range })
+                  }),
+                decision: input.decision,
                 projections
               })
-              : input.kind === 'track'
+              : input.kind === 'resolve-all'
                 ? Object.freeze({
-                  type: 'track' as const,
+                  type: 'resolve-all' as const,
                   session,
                   sequence: transactionId,
                   baseRevision: revision,
-                  range: Object.freeze({ ...input.range }),
-                  text: input.text,
+                  decision: input.decision,
                   projections
                 })
-                : Object.freeze({
-                  type: input.kind,
-                  session,
-                  sequence: transactionId,
-                  baseRevision: revision,
-                  projections
-                })
+                : input.kind === 'edit-comment'
+                  ? Object.freeze({
+                    type: 'edit-comment' as const,
+                    session,
+                    sequence: transactionId,
+                    baseRevision: input.authoredRevision,
+                    annotation: input.annotation.kind === 'commented-span'
+                      ? Object.freeze({
+                        kind: input.annotation.kind,
+                        range: Object.freeze({ ...input.annotation.range }),
+                        highlightRange: Object.freeze({ ...input.annotation.highlightRange }),
+                        commentRange: Object.freeze({ ...input.annotation.commentRange })
+                      })
+                      : Object.freeze({
+                        kind: input.annotation.kind,
+                        range: Object.freeze({ ...input.annotation.range })
+                      }),
+                    text: input.text,
+                    projections
+                  })
+                  : input.kind === 'author'
+                    ? Object.freeze({
+                      type: 'author' as const,
+                      session,
+                      sequence: transactionId,
+                      baseRevision: revision,
+                      form: input.form,
+                      range: Object.freeze({ ...input.range }),
+                      text: input.text,
+                      projections
+                    })
+                    : input.kind === 'track'
+                      ? Object.freeze({
+                        type: 'track' as const,
+                        session,
+                        sequence: transactionId,
+                        baseRevision: revision,
+                        range: Object.freeze({ ...input.range }),
+                        text: input.text,
+                        projections
+                      })
+                      : Object.freeze({
+                        type: input.kind,
+                        session,
+                        sequence: transactionId,
+                        baseRevision: revision,
+                        projections
+                      })
         requested = port.request(request).then(reply => {
           if (
             reply.type !== 'applied' && reply.type !== 'rejected' &&
@@ -284,10 +356,13 @@ export function createEditorCoreBinding(port: CoreActorPort): EditorCoreBinding 
               reply.reason === 'no-change' ||
               (reply.reason === 'history-resource' &&
                 input.kind !== 'source-edits' && input.kind !== 'track') ||
-              (reply.reason === 'stale-base' && input.kind === 'resolve') ||
+              (reply.reason === 'stale-base' &&
+                (input.kind === 'resolve' || input.kind === 'edit-comment' ||
+                  input.kind === 'replace-consumer-search')) ||
               reply.reason === 'annotation-not-found' ||
               reply.reason === 'resolution-invalid' ||
-              reply.reason === 'author-invalid')
+              reply.reason === 'author-invalid' ||
+              reply.reason === 'consumer-search-match-invalid')
           )) {
             reconciliationRequired = true
           }
@@ -351,6 +426,50 @@ export function createEditorCoreBinding(port: CoreActorPort): EditorCoreBinding 
       }))
       if (reply.type !== 'plain-text-view' && reply.type !== 'rejected') {
         throw new Error('Core plain-text-view barrier reply is invalid')
+      }
+      return reply
+    },
+    async consumerProjectionAtBarrier(): Promise<
+      CoreConsumerProjectionReply | CoreRejectedReply
+    > {
+      if (disposed) throw new Error('Editor Core binding is disposed')
+      if (!opened) throw new Error('Editor Core document is not open')
+      if (reconciliationRequired) {
+        throw new Error('Editor Core reconciliation is required')
+      }
+      if (inFlight) throw new Error('Core edit transaction is already in flight')
+      sequence += 1
+      const reply = await port.request(Object.freeze({
+        type: 'consumer-projection-at-barrier',
+        session,
+        sequence,
+        baseRevision: revision
+      }))
+      if (reply.type !== 'consumer-projection' && reply.type !== 'rejected') {
+        throw new Error('Core consumer projection barrier reply is invalid')
+      }
+      return reply
+    },
+    async selectionProjectionAtBarrier(range: Readonly<{
+      readonly start: number
+      readonly end: number
+    }>): Promise<CoreSelectionProjectionReply | CoreRejectedReply> {
+      if (disposed) throw new Error('Editor Core binding is disposed')
+      if (!opened) throw new Error('Editor Core document is not open')
+      if (reconciliationRequired) {
+        throw new Error('Editor Core reconciliation is required')
+      }
+      if (inFlight) throw new Error('Core edit transaction is already in flight')
+      sequence += 1
+      const reply = await port.request(Object.freeze({
+        type: 'selection-projection-at-barrier',
+        session,
+        sequence,
+        baseRevision: revision,
+        range: Object.freeze({ ...range })
+      }))
+      if (reply.type !== 'selection-projection' && reply.type !== 'rejected') {
+        throw new Error('Core selection projection barrier reply is invalid')
       }
       return reply
     },

@@ -20,7 +20,8 @@ import {
   createCodeMirrorCoreAdapter,
   coreDocumentRecoveryAuthority,
   type CodeMirrorCoreAdapter,
-  type CoreDocumentViewLease
+  type CoreDocumentViewLease,
+  type CoreAuthorityPerformanceTrace
 } from '@/documentAuthority'
 import { sourceCodeCoreAdapterOptions } from '@/documentAuthority/sourceCodeCoreAdapterOptions'
 
@@ -39,6 +40,7 @@ const props = defineProps<{
   muyaIndexCursor?: unknown
   textDirection: string
   coreLease?: CoreDocumentViewLease
+  corePerformanceTrace?: CoreAuthorityPerformanceTrace
 }>()
 
 const editorStore = useEditorStore()
@@ -452,7 +454,20 @@ onMounted(() => {
     coreAdapter = createCodeMirrorCoreAdapter(
       codeMirrorInstance.getDoc(),
       props.coreLease.binding,
-      sourceCodeCoreAdapterOptions(props.markdown ?? '', props.coreLease.lineEnding)
+      {
+        ...sourceCodeCoreAdapterOptions(
+          props.markdown ?? '',
+          props.coreLease.lineEnding
+        ),
+        ...(props.corePerformanceTrace === undefined
+          ? {}
+          : {
+            performanceTrace: {
+              documentId: props.coreLease.documentId,
+              record: event => props.corePerformanceTrace?.capture(event)
+            }
+          })
+      }
     )
     const input = codeMirrorInstance.getInputField?.() as HTMLElement | undefined
     if (input !== undefined) {
@@ -517,6 +532,10 @@ onMounted(() => {
         throw error
       }
     })
+    props.corePerformanceTrace?.record(
+      'first-editable-viewport',
+      props.coreLease.documentId
+    )
     props.coreLease.onHandoff(() => {
       if (coreSettlementCheck !== undefined) {
         codeMirrorInstance.off('change', coreSettlementCheck)
@@ -545,8 +564,15 @@ onMounted(() => {
     if (window.electron.process.env.PERF_TESTING === 'true') {
       window.__marktextDocumentCore = Object.freeze({
         mode: 'core',
+        documentId: props.coreLease.documentId,
+        generation: props.coreLease.identity.generation,
         async settled (): Promise<void> { await coreAdapter?.settled() },
         latest: () => latest,
+        performanceEvents: () => props.corePerformanceTrace?.events() ?? [],
+        performanceStatus: () => props.corePerformanceTrace?.status() ?? {
+          accepting: false,
+          eventCount: 0
+        },
         async resolveCriticMarkup (kind, start, end, decision): Promise<void> {
           const adapter = coreAdapter
           if (adapter === undefined) {

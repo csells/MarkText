@@ -1784,6 +1784,50 @@ export const useEditorStore = defineStore('editor', {
       coreIdentityByTab.set(id, Object.freeze({ ...identity }))
     },
 
+    UPDATE_CORE_CONSUMER_COUNT(
+      id: string,
+      identity: DocumentSaveIdentity,
+      wordCount: IFileState['wordCount']
+    ): void {
+      const registeredIdentity = coreIdentityByTab.get(id)
+      if (
+        registeredIdentity === undefined ||
+        !saveIdentitiesEqual(registeredIdentity, identity)
+      ) return
+      const tab = this.tabs.find(candidate => candidate.id === id) ??
+        (this.currentFile?.id === id ? this.currentFile : undefined)
+      if (tab !== undefined) tab.wordCount = wordCount
+    },
+
+    UPDATE_CORE_CONSUMER_SEARCH(
+      id: string,
+      identity: DocumentSaveIdentity,
+      searchMatches: IFileState['searchMatches']
+    ): void {
+      const registeredIdentity = coreIdentityByTab.get(id)
+      if (
+        registeredIdentity === undefined ||
+        !saveIdentitiesEqual(registeredIdentity, identity)
+      ) return
+      const tab = this.tabs.find(candidate => candidate.id === id) ??
+        (this.currentFile?.id === id ? this.currentFile : undefined)
+      if (tab !== undefined) tab.searchMatches = deepClone(searchMatches)
+    },
+
+    UPDATE_CORE_CONSUMER_TOC(
+      id: string,
+      identity: DocumentSaveIdentity,
+      toc: TocItem[]
+    ): void {
+      const registeredIdentity = coreIdentityByTab.get(id)
+      if (
+        registeredIdentity === undefined ||
+        !saveIdentitiesEqual(registeredIdentity, identity) ||
+        this.currentFile?.id !== id
+      ) return
+      this.UPDATE_TOC(toc)
+    },
+
     LISTEN_FOR_CORE_CURSOR_CHANGE(id: string, cursor: unknown): void {
       const tab = this.tabs.find(candidate => candidate.id === id) ??
         (this.currentFile?.id === id ? this.currentFile : undefined)
