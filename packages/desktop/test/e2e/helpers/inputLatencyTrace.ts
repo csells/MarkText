@@ -1,7 +1,8 @@
 import type { Page } from 'playwright'
 
 import {
-  captureExactCompositorPresentation
+  captureExactCompositorPresentation,
+  type PerformanceHiddenPageCapture
 } from './performancePresentationCheckpoint'
 
 export interface InputDomCheckpoint {
@@ -370,6 +371,7 @@ export const waitForInputLatencyEcho = async(
 
 export const captureInputLatencyPresentation = async(
   page: Page,
+  capturePage: PerformanceHiddenPageCapture,
   sampleIndex = 0,
   timeout = 30_000
 ): Promise<Readonly<{
@@ -378,7 +380,7 @@ export const captureInputLatencyPresentation = async(
   readonly tEcho: number
   readonly tPresent: number
 }>> => {
-  const presentation = await captureExactCompositorPresentation(page, {
+  const presentation = await captureExactCompositorPresentation(capturePage, {
     readAcknowledged: () => page.evaluate(index => {
       const sample = (window as TracedWindow)
         .__marktextInputLatencyProbe?.samples[index]

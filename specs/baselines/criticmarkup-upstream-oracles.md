@@ -44,7 +44,7 @@ The spike records these timestamps and counters for each input transaction:
 - dispatch to the engine (`t_dispatch`);
 - authoritative acknowledgement (`t_ack`);
 - reconciliation complete (`t_reconcile`);
-- one external Chromium compositor-surface capture after the exact acknowledged view checkpoint, followed immediately by retained-checkpoint validation (`t_present`); this is an upper bound and not physical display, vsync, or next-frame time;
+- one Electron `WebContents.capturePage` call with `stayHidden` and `stayAwake` after the exact acknowledged view checkpoint, followed immediately by retained-state validation (`t_present`); this is a captured compositor-surface upper bound, while the post-capture checkpoint proves only that view state was retained—not screenshot pixel equality, physical display, vsync, or next-frame time;
 - pending-input depth, correction count, and source/view checksums.
 
 The minimum scenario set is ordinary prose typing, a burst with no artificial delay, IME composition,

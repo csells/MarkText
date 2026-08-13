@@ -1,7 +1,8 @@
 import type { Page } from 'playwright'
 
 import {
-  captureExactCompositorPresentation
+  captureExactCompositorPresentation,
+  type PerformanceHiddenPageCapture
 } from './performancePresentationCheckpoint'
 
 export interface UpstreamBaselineInputObservation {
@@ -374,9 +375,10 @@ export const waitForUpstreamBaselineInputProbe = async(
 }
 
 export const readUpstreamBaselineInputProbe = async(
-  page: Page
+  page: Page,
+  capturePage: PerformanceHiddenPageCapture
 ): Promise<UpstreamBaselineInputTiming> => captureExactCompositorPresentation(
-  page,
+  capturePage,
   {
     readAcknowledged: () => page.evaluate(() => {
       const probe = (window as ProbedWindow).__marktextUpstreamBaselineInputProbe

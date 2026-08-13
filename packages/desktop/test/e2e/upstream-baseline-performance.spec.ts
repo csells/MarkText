@@ -21,7 +21,9 @@ import {
 } from './helpers/upstreamBaselineInputProbe'
 import { readUpstreamBaselineMachineEnvironment } from './helpers/upstreamBaselineEnvironment'
 import {
+  captureUpstreamElectronHiddenPage,
   installUpstreamExternalHiddenPolicy,
+  type UpstreamInspectorChannel,
   type UpstreamInspectorResponse
 } from './helpers/upstreamBaselineHiddenPolicy'
 import {
@@ -34,7 +36,9 @@ import {
   withPerformanceChromiumScheduling
 } from './helpers/performanceChromiumLaunchPolicy'
 import {
-  PERFORMANCE_PRESENTATION_BOUNDARY
+  bindExactElectronPageCapture,
+  PERFORMANCE_PRESENTATION_BOUNDARY,
+  type PerformanceHiddenPageCapture
 } from './helpers/performancePresentationCheckpoint'
 import {
   placeCaretInEditor,
@@ -91,6 +95,7 @@ interface HiddenUpstreamApplication {
   readonly page: Page
   readonly processId: number
   readonly launcher: ChildProcess
+  readonly inspector: UpstreamInspectorChannel & { readonly close: () => void }
 }
 
 const readJson = <Value>(filePath: string): Value =>
@@ -249,7 +254,7 @@ const waitForInspectorTarget = async(
 const installExternalHiddenPolicy = async(
   endpoint: string,
   launcher: ChildProcess
-): Promise<void> => {
+): Promise<UpstreamInspectorChannel & { readonly close: () => void }> => {
   const socketUrl = await waitForInspectorTarget(endpoint, launcher)
   const socket = new WebSocket(socketUrl)
   await new Promise<void>((resolve, reject) => {
@@ -302,10 +307,17 @@ const installExternalHiddenPolicy = async(
     }
     socket.addEventListener('message', handleMessage)
   })
+  const channel = Object.freeze({
+    send,
+    waitForPaused,
+    close: () => socket.close()
+  })
   try {
-    await installUpstreamExternalHiddenPolicy({ send, waitForPaused })
-  } finally {
+    await installUpstreamExternalHiddenPolicy(channel)
+    return channel
+  } catch (error) {
     socket.close()
+    throw error
   }
 }
 
@@ -341,8 +353,10 @@ const launchHiddenUpstreamApplication = async(
   })
   const browserEndpoint = `http://127.0.0.1:${String(browserPort)}`
   const inspectorEndpoint = `http://127.0.0.1:${String(inspectorPort)}`
+  let inspector: (UpstreamInspectorChannel & { readonly close: () => void }) |
+    undefined
   try {
-    await installExternalHiddenPolicy(inspectorEndpoint, launcher)
+    inspector = await installExternalHiddenPolicy(inspectorEndpoint, launcher)
     await waitForCdpEndpoint(browserEndpoint, launcher)
     const browser = await chromium.connectOverCDP(browserEndpoint)
     const context = browser.contexts()[0]
@@ -354,8 +368,9 @@ const launchHiddenUpstreamApplication = async(
     await page.waitForLoadState('domcontentloaded')
     await waitForEditor(page, 60_000)
     const processId = processIdForProfile(appBundle, profile)
-    return Object.freeze({ browser, page, processId, launcher })
+    return Object.freeze({ browser, page, processId, launcher, inspector })
   } catch (error) {
+    inspector?.close()
     launcher.kill('SIGTERM')
     throw error
   }
@@ -384,6 +399,7 @@ const closeHiddenUpstreamApplication = async(
       throw error
     }
   }
+  application.inspector.close()
   await closeUpstreamPerformanceApplication({
     closeBrowser: () => application.browser.close(),
     processId: application.processId,
@@ -444,7 +460,8 @@ const openSample = async(
 }
 
 const measureInput = async(
-  page: Page
+  page: Page,
+  capturePage: PerformanceHiddenPageCapture
 ): Promise<Readonly<{
   readonly t_echo: number
   readonly t_present: number
@@ -453,7 +470,7 @@ const measureInput = async(
   await startUpstreamBaselineInputProbe(page)
   await page.keyboard.type('x', { delay: 0 })
   await waitForUpstreamBaselineInputProbe(page)
-  return readUpstreamBaselineInputProbe(page)
+  return readUpstreamBaselineInputProbe(page, capturePage)
 }
 
 const sampleFilesFor = (
@@ -540,6 +557,13 @@ test.describe('pinned upstream baseline raw performance producer', () => {
         )
         try {
           const { page } = app
+          const capturePage = await bindExactElectronPageCapture(
+            page,
+            targetId => captureUpstreamElectronHiddenPage(
+              app.inspector,
+              targetId
+            )
+          )
           expectHiddenUnfocused(app.processId)
           expect(await page.evaluate(() =>
             (window as Window & { __marktextDocumentCore?: unknown })
@@ -550,7 +574,7 @@ test.describe('pinned upstream baseline raw performance producer', () => {
             const filePath = sampleFiles[index]
             if (filePath === undefined) throw new Error('Sample path is missing')
             const opened = await openSample(page, filePath)
-            const edit = await measureInput(page)
+            const edit = await measureInput(page, capturePage)
             samples.push(Object.freeze({
               documentId: document.id,
               phase: index <= sampling.warmupSamples ? 'warmup' : 'measured',
@@ -565,7 +589,7 @@ test.describe('pinned upstream baseline raw performance producer', () => {
               `[${String(completed)}/${String(totalSamples)}] ` +
               `${document.id} ${index <= sampling.warmupSamples
                 ? 'warmup'
-                : 'measured'} ${String(index)} external-browser-compositor-v2\n`
+                : 'measured'} ${String(index)} external-browser-compositor-v3\n`
             )
             await closeActiveTab(page)
           }
@@ -607,7 +631,7 @@ test.describe('pinned upstream baseline raw performance producer', () => {
           producerSha256: requiredValue('MARKTEXT_UPSTREAM_PRODUCER_SHA256'),
           probeSha256: requiredValue('MARKTEXT_UPSTREAM_PROBE_SHA256'),
           launcherSha256: requiredValue('MARKTEXT_UPSTREAM_LAUNCHER_SHA256'),
-          measurementBoundary: 'external-browser-compositor-v2',
+          measurementBoundary: 'external-browser-compositor-v3',
           presentationBoundary: PERFORMANCE_PRESENTATION_BOUNDARY,
           launchBoundary: 'external-inspector-hidden-cdp-v1',
           windowVisibility: 'hidden-unfocused',
