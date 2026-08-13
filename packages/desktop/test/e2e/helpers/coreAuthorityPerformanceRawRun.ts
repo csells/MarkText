@@ -3,15 +3,20 @@ import type {
 } from './coreAuthorityPerformanceReport'
 
 const METRICS = [
+  't_echo',
   't_dispatch',
   't_ack',
   't_reconcile',
+  't_frame',
   'open',
   'first_viewport'
 ] as const
 
 type Metric = typeof METRICS[number]
 type SamplePhase = 'warmup' | 'measured'
+export type CoreAuthorityPerformanceEvidenceClass =
+  | 'ratification'
+  | 'smoke-non-ratifying'
 export type CoreAuthorityPerformanceSurface = 'wysiwyg' | 'source'
 type Distribution = Record<Metric, readonly number[]>
 
@@ -22,7 +27,27 @@ export interface CoreAuthorityPerformanceRawSample {
   readonly report: CoreAuthorityPerformanceReport
 }
 
+export interface CoreAuthorityPerformanceBuildProvenance {
+  readonly checkoutHead: string
+  readonly checkoutClean: boolean
+  readonly harnessCommit: string
+  readonly packageArtifactSha256: string
+  readonly executableSha256: string
+  readonly packageVersion: string
+  readonly packageManager: string
+  readonly nodeVersion: string
+  readonly playwrightVersion: string
+  readonly lockfileSha256: string
+  readonly producerSha256: string
+  readonly probeSha256: string
+  readonly launcherSha256: string
+  readonly measurementBoundary: 'core-authority-browser-external-v3'
+  readonly launchBoundary: 'playwright-electron-packaged-v1'
+  readonly windowVisibility: 'hidden-unfocused'
+}
+
 export interface CoreAuthorityPerformanceRawRunInput {
+  readonly evidenceClass: CoreAuthorityPerformanceEvidenceClass
   readonly runId: string
   readonly baselineCommit: string
   readonly buildCommit: string
@@ -32,6 +57,7 @@ export interface CoreAuthorityPerformanceRawRunInput {
     readonly warmupSamples: number
     readonly measuredSamples: number
   }>
+  readonly provenance: CoreAuthorityPerformanceBuildProvenance
   readonly documents: readonly Readonly<{
     readonly id: string
     readonly sourceSha256: string
@@ -67,9 +93,11 @@ export function chooseCoreAuthorityPerformanceSurface(input: Readonly<{
 }
 
 const emptyDistribution = (): Record<Metric, number[]> => ({
+  t_echo: [],
   t_dispatch: [],
   t_ack: [],
   t_reconcile: [],
+  t_frame: [],
   open: [],
   first_viewport: []
 })
@@ -77,9 +105,11 @@ const emptyDistribution = (): Record<Metric, number[]> => ({
 const frozenDistribution = (
   distribution: Record<Metric, number[]>
 ): Distribution => Object.freeze({
+  t_echo: Object.freeze([...distribution.t_echo]),
   t_dispatch: Object.freeze([...distribution.t_dispatch]),
   t_ack: Object.freeze([...distribution.t_ack]),
   t_reconcile: Object.freeze([...distribution.t_reconcile]),
+  t_frame: Object.freeze([...distribution.t_frame]),
   open: Object.freeze([...distribution.open]),
   first_viewport: Object.freeze([...distribution.first_viewport])
 })
@@ -90,12 +120,54 @@ const requireIdentity = (value: string, units: number, label: string): void => {
   }
 }
 
+const requireNonEmpty = (value: string, label: string): void => {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`${label} provenance is required`)
+  }
+}
+
 export function createCoreAuthorityPerformanceRawRun(
   input: CoreAuthorityPerformanceRawRunInput
 ) {
   if (!input.runId.trim()) throw new Error('Raw performance run ID is required')
   requireIdentity(input.baselineCommit, 40, 'Raw performance baseline commit')
   requireIdentity(input.buildCommit, 40, 'Raw performance build commit')
+  if (!input.provenance.checkoutClean) {
+    throw new Error('Raw performance evidence requires a clean checkout')
+  }
+  if (input.provenance.checkoutHead !== input.buildCommit) {
+    throw new Error('Raw performance checkout head must equal the build commit')
+  }
+  if (input.provenance.harnessCommit !== input.buildCommit) {
+    throw new Error('Raw performance harness commit must equal the build commit')
+  }
+  requireIdentity(
+    input.provenance.packageArtifactSha256,
+    64,
+    'Raw performance package artifact digest'
+  )
+  requireIdentity(
+    input.provenance.executableSha256,
+    64,
+    'Raw performance executable digest'
+  )
+  requireIdentity(input.provenance.lockfileSha256, 64, 'Raw performance lockfile digest')
+  requireIdentity(input.provenance.producerSha256, 64, 'Raw performance producer digest')
+  requireIdentity(input.provenance.probeSha256, 64, 'Raw performance probe digest')
+  requireIdentity(input.provenance.launcherSha256, 64, 'Raw performance launcher digest')
+  requireNonEmpty(input.provenance.packageVersion, 'Raw performance package version')
+  requireNonEmpty(input.provenance.packageManager, 'Raw performance package manager')
+  requireNonEmpty(input.provenance.nodeVersion, 'Raw performance Node version')
+  requireNonEmpty(input.provenance.playwrightVersion, 'Raw performance Playwright version')
+  if (input.provenance.measurementBoundary !== 'core-authority-browser-external-v3') {
+    throw new Error('Raw performance measurement boundary provenance is invalid')
+  }
+  if (input.provenance.launchBoundary !== 'playwright-electron-packaged-v1') {
+    throw new Error('Raw performance launch boundary provenance is invalid')
+  }
+  if (input.provenance.windowVisibility !== 'hidden-unfocused') {
+    throw new Error('Raw performance window visibility provenance is invalid')
+  }
   if (Number.isNaN(Date.parse(input.measuredAt))) {
     throw new Error('Raw performance timestamp is invalid')
   }
@@ -105,6 +177,14 @@ export function createCoreAuthorityPerformanceRawRun(
     !Number.isSafeInteger(input.sampling.measuredSamples) ||
     input.sampling.measuredSamples < 1
   ) throw new Error('Raw performance sample counts must be positive integers')
+  if (
+    input.evidenceClass === 'ratification' &&
+    (input.sampling.warmupSamples !== 20 || input.sampling.measuredSamples !== 200)
+  ) {
+    throw new Error(
+      'Ratification evidence requires exactly 20 warmup and 200 measured samples'
+    )
+  }
 
   const samplesByDocument = new Map<string, CoreAuthorityPerformanceRawSample[]>()
   for (const sample of input.samples) {
@@ -140,16 +220,20 @@ export function createCoreAuthorityPerformanceRawRun(
       if (
         sample.report.t_dispatch.length !== 1 ||
         sample.report.t_ack.length !== 1 ||
-        sample.report.t_reconcile.length !== 1
+        sample.report.t_reconcile.length !== 1 ||
+        sample.report.t_echo.length !== 1 ||
+        sample.report.t_frame.length !== 1
       ) {
         throw new Error(
           `${document.id} ${sample.phase} sample must contain one browser transaction`
         )
       }
       const values = [
+        sample.report.t_echo[0]!,
         sample.report.t_dispatch[0]!,
         sample.report.t_ack[0]!,
         sample.report.t_reconcile[0]!,
+        sample.report.t_frame[0]!,
         sample.report.open,
         sample.report.first_viewport
       ]
@@ -159,6 +243,7 @@ export function createCoreAuthorityPerformanceRawRun(
       if (
         sample.report.t_ack[0]! < sample.report.t_dispatch[0]! ||
         sample.report.t_reconcile[0]! < sample.report.t_ack[0]! ||
+        sample.report.t_frame[0]! < sample.report.t_echo[0]! ||
         sample.report.first_viewport < sample.report.open
       ) {
         throw new Error(`${document.id} ${sample.phase} sample timing order is invalid`)
@@ -172,9 +257,11 @@ export function createCoreAuthorityPerformanceRawRun(
         throw new Error(`${document.id} ${sample.phase} authority evidence is invalid`)
       }
       const distribution = sample.phase === 'warmup' ? warmup : measured
+      distribution.t_echo.push(sample.report.t_echo[0]!)
       distribution.t_dispatch.push(sample.report.t_dispatch[0]!)
       distribution.t_ack.push(sample.report.t_ack[0]!)
       distribution.t_reconcile.push(sample.report.t_reconcile[0]!)
+      distribution.t_frame.push(sample.report.t_frame[0]!)
       distribution.open.push(sample.report.open)
       distribution.first_viewport.push(sample.report.first_viewport)
       evidence[sample.phase].pendingDepthMaximum.push(
@@ -211,8 +298,7 @@ export function createCoreAuthorityPerformanceRawRun(
     })
   })
 
-  return Object.freeze({
-    schema: 'marktext-criticmarkup-raw-performance-run-v2' as const,
+  const base = Object.freeze({
     runId: input.runId,
     implementation: 'core-candidate' as const,
     surfaces: Object.freeze([
@@ -223,6 +309,17 @@ export function createCoreAuthorityPerformanceRawRun(
     measuredAt: input.measuredAt,
     environment: Object.freeze({ ...input.environment }),
     sampling: Object.freeze({ ...input.sampling }),
+    provenance: Object.freeze({ ...input.provenance }),
     documents: Object.freeze(documents)
   })
+  return input.evidenceClass === 'ratification'
+    ? Object.freeze({
+      schema: 'marktext-criticmarkup-raw-performance-run-v3' as const,
+      ...base
+    })
+    : Object.freeze({
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v3' as const,
+      evidenceClass: 'smoke-non-ratifying' as const,
+      ...base
+    })
 }
