@@ -292,6 +292,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
       'phase0.item.420fdfa5c193f0633abca434':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-native-copy-production-surfaces.spec.ts#routes registered Copy command and Edit menu surfaces through the Electron native copy runtime',
+      'phase0.item.4ef010cbe4725cb0d16df008':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-screenshot-production-surfaces.spec.ts#routes registered Screenshot command and Edit menu surfaces through the screen-capture application event',
       'phase0.item.49512fbea5ebc0a05d0e8023':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes Edit menu Undo and Redo through the renderer edit-action channel',
       'phase0.item.503ba3b99614737f7f991c9e':
@@ -308,6 +310,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-navigation-production-surfaces.spec.ts#routes registered Find Next and Find Previous command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.6ef94e99e33b332cdce273ec':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes Edit menu Undo and Redo through the renderer edit-action channel',
+      'phase0.item.7abd6a5e7e44b8e599d728e5':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-in-folder-production-surfaces.spec.ts#routes registered Find in Folder command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.786d2dd4acf6a54342a51eda':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-duplicate-production-surfaces.spec.ts#routes registered Duplicate command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.7b2afe2c3851e9bbb08c500d':
@@ -324,6 +328,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-paste-as-plain-text-production-surfaces.spec.ts#routes registered Paste as Plain Text command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.94245f0a016ba18f4cd75b5a':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-navigation-production-surfaces.spec.ts#routes registered Find Next and Find Previous command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.9b98e936eca2f77816b46eb3':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-screenshot-production-surfaces.spec.ts#routes registered Screenshot command and Edit menu surfaces through the screen-capture application event',
       'phase0.item.9dfc8781faf2ca756f7e6525':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-select-all-production-surfaces.spec.ts#routes registered Select All command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.9dfe4b390547e294c1e9f277':
@@ -332,6 +338,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes registered Copy as Rich and Copy as HTML commands to the editor',
       'phase0.item.a70ae367e06aa43a2191dc2e':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-production-surfaces.spec.ts#routes registered Find command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.a31d9a0b8efebb43304be453':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-in-folder-production-surfaces.spec.ts#routes registered Find in Folder command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.b327952319820e0956248ea0':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes Edit menu Copy as Rich and Copy as HTML entries to the editor',
       'phase0.item.b9a01f70d274b7ff1480da76':
@@ -361,7 +369,7 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     })
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('required-new-production-path-test:')
-    ))).toHaveLength(328)
+    ))).toHaveLength(324)
     expect(() => validateCriticMarkupParityDispositions(
       parityBaseline,
       materialized.parityOverlay,
