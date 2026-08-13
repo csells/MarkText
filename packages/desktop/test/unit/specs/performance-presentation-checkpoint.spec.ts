@@ -1,9 +1,12 @@
-import type { Page } from 'playwright'
+import type { ElectronApplication, Page } from 'playwright'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  bindExactElectronPageCapture,
   captureExactCompositorPresentation,
-  PERFORMANCE_PRESENTATION_BOUNDARY
+  captureInstalledElectronHiddenPage,
+  PERFORMANCE_PRESENTATION_BOUNDARY,
+  type PerformanceHiddenPageCapture
 } from '../../e2e/helpers/performancePresentationCheckpoint'
 import {
   captureBrowserInputEventPresentation
@@ -12,18 +15,28 @@ import {
   captureInputLatencyPresentation
 } from '../../e2e/helpers/inputLatencyTrace'
 
+const acknowledged = Object.freeze({
+  tEvent: 100,
+  tAcknowledged: 104,
+  expectedCheckpoint: Object.freeze({ length: 12, hash: 'deadbeef' }),
+  acknowledgedCheckpoint: Object.freeze({ length: 12, hash: 'deadbeef' })
+})
+
+const capture = (
+  result: Readonly<{ readonly empty: boolean }> = { empty: false }
+): PerformanceHiddenPageCapture => vi.fn(async() => result)
+
 describe('hidden compositor presentation checkpoint', () => {
-  it('captures one compositor surface and validates the retained checkpoint', async() => {
+  it('binds the exact renderer target before measuring and always detaches', async() => {
     const order: string[] = []
+    const targetCapture = vi.fn(async(targetId: string) => {
+      order.push(`capture:${targetId}`)
+      return Object.freeze({ empty: false })
+    })
     const session = {
-      send: vi.fn(async(method: string, params: unknown) => {
+      send: vi.fn(async(method: string) => {
         order.push(`send:${method}`)
-        expect(params).toEqual({
-          format: 'png',
-          fromSurface: true,
-          captureBeyondViewport: false
-        })
-        return { data: 'captured-png' }
+        return { targetInfo: { targetId: 'renderer-target-7' } }
       }),
       detach: vi.fn(async() => { order.push('detach') })
     }
@@ -36,15 +49,107 @@ describe('hidden compositor presentation checkpoint', () => {
       })
     } as unknown as Page
 
-    await expect(captureExactCompositorPresentation(page, {
+    const bound = await bindExactElectronPageCapture(page, targetCapture)
+    await expect(bound()).resolves.toEqual({ empty: false })
+    expect(order).toEqual([
+      'attach',
+      'send:Target.getTargetInfo',
+      'detach',
+      'capture:renderer-target-7'
+    ])
+  })
+
+  it('preserves target lookup failure when CDP detach also fails', async() => {
+    const lookupCause = new Error('target lookup unavailable')
+    const page = {
+      context: () => ({
+        newCDPSession: async() => ({
+          send: async() => { throw lookupCause },
+          detach: async() => { throw new Error('detach unavailable') }
+        })
+      })
+    } as unknown as Page
+
+    await expect(bindExactElectronPageCapture(page, vi.fn()))
+      .rejects.toMatchObject({ code: 'capture-failed', cause: lookupCause })
+  })
+
+  it('types target-session attachment failure as capture-failed', async() => {
+    const cause = new Error('CDP session unavailable')
+    const page = {
+      context: () => ({
+        newCDPSession: async() => { throw cause }
+      })
+    } as unknown as Page
+
+    await expect(bindExactElectronPageCapture(page, vi.fn()))
+      .rejects.toMatchObject({ code: 'capture-failed', cause })
+  })
+
+  it('surfaces target-session detach failure when lookup succeeds', async() => {
+    const detachCause = new Error('detach unavailable')
+    const page = {
+      context: () => ({
+        newCDPSession: async() => ({
+          send: async() => ({ targetInfo: { targetId: 'renderer-target-7' } }),
+          detach: async() => { throw detachCause }
+        })
+      })
+    } as unknown as Page
+
+    await expect(bindExactElectronPageCapture(page, vi.fn()))
+      .rejects.toMatchObject({ code: 'capture-failed', cause: detachCause })
+  })
+
+  it('resolves the exact Electron window and uses hidden capture options', async() => {
+    const exactContents = {
+      isDestroyed: () => false,
+      capturePage: vi.fn(async(
+        rect: unknown,
+        options: Readonly<Record<string, boolean>>
+      ) => {
+        expect(rect).toBeUndefined()
+        expect(options).toEqual({ stayHidden: true, stayAwake: true })
+        return { isEmpty: () => false }
+      })
+    }
+    const otherContents = { isDestroyed: () => false }
+    const exactWindow = { isDestroyed: () => false }
+    const application = {
+      evaluate: vi.fn(async(
+        evaluator: (electron: unknown, input: unknown) => Promise<unknown>,
+        input: unknown
+      ) => evaluator({
+        BrowserWindow: {
+          getAllWindows: () => [{ webContents: otherContents }],
+          fromWebContents: (contents: unknown) =>
+            contents === exactContents ? exactWindow : undefined
+        },
+        webContents: {
+          fromDevToolsTargetId: (targetId: string) =>
+            targetId === 'renderer-target-7' ? exactContents : undefined
+        }
+      }, input))
+    } as unknown as ElectronApplication
+
+    await expect(captureInstalledElectronHiddenPage(
+      application,
+      'renderer-target-7'
+    )).resolves.toEqual({ empty: false })
+    expect(exactContents.capturePage).toHaveBeenCalledOnce()
+  })
+
+  it('captures one hidden compositor surface then validates retained state', async() => {
+    const order: string[] = []
+    const hiddenCapture: PerformanceHiddenPageCapture = vi.fn(async() => {
+      order.push('capture-hidden-page')
+      return { empty: false }
+    })
+
+    await expect(captureExactCompositorPresentation(hiddenCapture, {
       readAcknowledged: async() => {
         order.push('read-acknowledged')
-        return {
-          tEvent: 100,
-          tAcknowledged: 104,
-          expectedCheckpoint: { length: 12, hash: 'deadbeef' },
-          acknowledgedCheckpoint: { length: 12, hash: 'deadbeef' }
-        }
+        return acknowledged
       },
       readPresented: async() => {
         order.push('read-presented')
@@ -63,56 +168,27 @@ describe('hidden compositor presentation checkpoint', () => {
     })
     expect(order).toEqual([
       'read-acknowledged',
-      'attach',
-      'send:Page.captureScreenshot',
-      'read-presented',
-      'detach'
+      'capture-hidden-page',
+      'read-presented'
     ])
   })
 
   it('rejects a view checkpoint that changes across compositor capture', async() => {
-    const detach = vi.fn(async() => {})
-    const page = {
-      context: () => ({
-        newCDPSession: async() => ({
-          send: async() => ({ data: 'captured-png' }),
-          detach
-        })
-      })
-    } as unknown as Page
-
-    await expect(captureExactCompositorPresentation(page, {
-      readAcknowledged: async() => ({
-        tEvent: 100,
-        tAcknowledged: 104,
-        expectedCheckpoint: { length: 12, hash: 'deadbeef' },
-        acknowledgedCheckpoint: { length: 12, hash: 'deadbeef' }
-      }),
+    await expect(captureExactCompositorPresentation(capture(), {
+      readAcknowledged: async() => acknowledged,
       readPresented: async() => ({
         observedAt: 118,
         checkpoint: { length: 13, hash: 'cafebabe' }
       })
     })).rejects.toMatchObject({ code: 'checkpoint-changed' })
-    expect(detach).toHaveBeenCalledOnce()
   })
 
-  it('fails one compositor capture at the exact deadline without retrying', async() => {
+  it('fails one hidden compositor capture at the exact deadline without retrying', async() => {
     vi.useFakeTimers()
-    const send = vi.fn(() => new Promise<never>(() => {}))
-    const detach = vi.fn(async() => {})
-    const page = {
-      context: () => ({
-        newCDPSession: async() => ({ send, detach })
-      })
-    } as unknown as Page
+    const hiddenCapture = vi.fn(() => new Promise<never>(() => {}))
     try {
-      const presentation = captureExactCompositorPresentation(page, {
-        readAcknowledged: async() => ({
-          tEvent: 100,
-          tAcknowledged: 104,
-          expectedCheckpoint: { length: 12, hash: 'deadbeef' },
-          acknowledgedCheckpoint: { length: 12, hash: 'deadbeef' }
-        }),
+      const presentation = captureExactCompositorPresentation(hiddenCapture, {
+        readAcknowledged: async() => acknowledged,
         readPresented: async() => {
           throw new Error('A timed-out capture must not be admitted')
         }
@@ -121,11 +197,9 @@ describe('hidden compositor presentation checkpoint', () => {
         code: 'deadline-exceeded'
       })
       await vi.advanceTimersByTimeAsync(29_995)
-      expect(detach).not.toHaveBeenCalled()
       await vi.advanceTimersByTimeAsync(1)
       await rejected
-      expect(send).toHaveBeenCalledOnce()
-      expect(detach).toHaveBeenCalledOnce()
+      expect(hiddenCapture).toHaveBeenCalledOnce()
     } finally {
       vi.useRealTimers()
     }
@@ -133,23 +207,9 @@ describe('hidden compositor presentation checkpoint', () => {
 
   it('holds post-capture checkpoint validation inside the same exact deadline', async() => {
     vi.useFakeTimers()
-    const detach = vi.fn(async() => {})
-    const page = {
-      context: () => ({
-        newCDPSession: async() => ({
-          send: async() => ({ data: 'captured-png' }),
-          detach
-        })
-      })
-    } as unknown as Page
     try {
-      const presentation = captureExactCompositorPresentation(page, {
-        readAcknowledged: async() => ({
-          tEvent: 100,
-          tAcknowledged: 104,
-          expectedCheckpoint: { length: 12, hash: 'deadbeef' },
-          acknowledgedCheckpoint: { length: 12, hash: 'deadbeef' }
-        }),
+      const presentation = captureExactCompositorPresentation(capture(), {
+        readAcknowledged: async() => acknowledged,
         readPresented: () => new Promise<never>(() => {})
       }, 30_000)
       const rejected = expect(presentation).rejects.toMatchObject({
@@ -157,29 +217,14 @@ describe('hidden compositor presentation checkpoint', () => {
       })
       await vi.advanceTimersByTimeAsync(29_996)
       await rejected
-      expect(detach).toHaveBeenCalledOnce()
     } finally {
       vi.useRealTimers()
     }
   })
 
   it('rejects a completed capture observed after the input deadline', async() => {
-    const page = {
-      context: () => ({
-        newCDPSession: async() => ({
-          send: async() => ({ data: 'captured-png' }),
-          detach: async() => {}
-        })
-      })
-    } as unknown as Page
-
-    await expect(captureExactCompositorPresentation(page, {
-      readAcknowledged: async() => ({
-        tEvent: 100,
-        tAcknowledged: 104,
-        expectedCheckpoint: { length: 12, hash: 'deadbeef' },
-        acknowledgedCheckpoint: { length: 12, hash: 'deadbeef' }
-      }),
+    await expect(captureExactCompositorPresentation(capture(), {
+      readAcknowledged: async() => acknowledged,
       readPresented: async() => ({
         observedAt: 30_101,
         checkpoint: { length: 12, hash: 'deadbeef' }
@@ -187,100 +232,56 @@ describe('hidden compositor presentation checkpoint', () => {
     }, 30_000)).rejects.toMatchObject({ code: 'deadline-exceeded' })
   })
 
-  it('surfaces one failed capture with its cause after detaching', async() => {
-    const cause = new Error('Page.captureScreenshot unavailable')
-    const detach = vi.fn(async() => {})
-    const page = {
-      context: () => ({
-        newCDPSession: async() => ({
-          send: async() => { throw cause },
-          detach
-        })
-      })
-    } as unknown as Page
-
-    await expect(captureExactCompositorPresentation(page, {
-      readAcknowledged: async() => ({
-        tEvent: 100,
-        tAcknowledged: 104,
-        expectedCheckpoint: { length: 12, hash: 'deadbeef' },
-        acknowledgedCheckpoint: { length: 12, hash: 'deadbeef' }
-      }),
-      readPresented: async() => {
-        throw new Error('Failed capture must not be admitted')
+  it('surfaces one failed hidden capture with its cause', async() => {
+    const cause = new Error('capturePage unavailable')
+    await expect(captureExactCompositorPresentation(
+      vi.fn(async() => { throw cause }),
+      {
+        readAcknowledged: async() => acknowledged,
+        readPresented: async() => {
+          throw new Error('Failed capture must not be admitted')
+        }
       }
-    })).rejects.toMatchObject({ code: 'capture-failed', cause })
-    expect(detach).toHaveBeenCalledOnce()
+    )).rejects.toMatchObject({ code: 'capture-failed', cause })
   })
 
-  it('types an empty compositor capture as capture-failed', async() => {
-    const page = {
-      context: () => ({
-        newCDPSession: async() => ({
-          send: async() => ({ data: '' }),
-          detach: async() => {}
-        })
+  it('types an empty NativeImage as capture-failed', async() => {
+    await expect(captureExactCompositorPresentation(capture({ empty: true }), {
+      readAcknowledged: async() => acknowledged,
+      readPresented: async() => ({
+        observedAt: 118,
+        checkpoint: acknowledged.expectedCheckpoint
       })
-    } as unknown as Page
-    const checkpoint = { length: 12, hash: 'deadbeef' }
-
-    await expect(captureExactCompositorPresentation(page, {
-      readAcknowledged: async() => ({
-        tEvent: 100,
-        tAcknowledged: 104,
-        expectedCheckpoint: checkpoint,
-        acknowledgedCheckpoint: checkpoint
-      }),
-      readPresented: async() => ({ observedAt: 118, checkpoint })
     })).rejects.toMatchObject({ code: 'capture-failed' })
   })
 
-  it('preserves a primary typed failure when CDP detach also fails', async() => {
-    const detachCause = new Error('detach unavailable')
-    const page = {
-      context: () => ({
-        newCDPSession: async() => ({
-          send: async() => ({ data: 'captured-png' }),
-          detach: async() => { throw detachCause }
+  it('carries Electron NativeImage emptiness into the typed transaction', async() => {
+    const contents = {
+      isDestroyed: () => false,
+      capturePage: async() => ({ isEmpty: () => true })
+    }
+    const application = {
+      evaluate: async(
+        evaluator: (electron: unknown, input: unknown) => Promise<unknown>,
+        input: unknown
+      ) => evaluator({
+        BrowserWindow: {
+          fromWebContents: () => ({ isDestroyed: () => false })
+        },
+        webContents: { fromDevToolsTargetId: () => contents }
+      }, input)
+    } as unknown as ElectronApplication
+
+    await expect(captureExactCompositorPresentation(
+      () => captureInstalledElectronHiddenPage(application, 'renderer-target-7'),
+      {
+        readAcknowledged: async() => acknowledged,
+        readPresented: async() => ({
+          observedAt: 118,
+          checkpoint: acknowledged.expectedCheckpoint
         })
-      })
-    } as unknown as Page
-
-    await expect(captureExactCompositorPresentation(page, {
-      readAcknowledged: async() => ({
-        tEvent: 100,
-        tAcknowledged: 104,
-        expectedCheckpoint: { length: 12, hash: 'deadbeef' },
-        acknowledgedCheckpoint: { length: 12, hash: 'deadbeef' }
-      }),
-      readPresented: async() => ({
-        observedAt: 118,
-        checkpoint: { length: 13, hash: 'cafebabe' }
-      })
-    })).rejects.toMatchObject({ code: 'checkpoint-changed' })
-  })
-
-  it('surfaces CDP detach failure when capture and checkpoint succeed', async() => {
-    const detachCause = new Error('detach unavailable')
-    const checkpoint = { length: 12, hash: 'deadbeef' }
-    const page = {
-      context: () => ({
-        newCDPSession: async() => ({
-          send: async() => ({ data: 'captured-png' }),
-          detach: async() => { throw detachCause }
-        })
-      })
-    } as unknown as Page
-
-    await expect(captureExactCompositorPresentation(page, {
-      readAcknowledged: async() => ({
-        tEvent: 100,
-        tAcknowledged: 104,
-        expectedCheckpoint: checkpoint,
-        acknowledgedCheckpoint: checkpoint
-      }),
-      readPresented: async() => ({ observedAt: 118, checkpoint })
-    })).rejects.toMatchObject({ code: 'capture-failed', cause: detachCause })
+      }
+    )).rejects.toMatchObject({ code: 'capture-failed' })
   })
 
   it.each([
@@ -295,10 +296,10 @@ describe('hidden compositor presentation checkpoint', () => {
       checkpoint: { valueLength: 8, valueHash: 'deadbeef' }
     }
   ])('maps the $label exact-echo adapter to the shared compositor seam', async({
-    capture,
+    capture: captureTrace,
     checkpoint
   }) => {
-    const detach = vi.fn(async() => {})
+    const hiddenCapture = capture()
     const evaluate = vi.fn()
       .mockResolvedValueOnce({
         tEvent: 100,
@@ -307,23 +308,15 @@ describe('hidden compositor presentation checkpoint', () => {
         acknowledgedCheckpoint: checkpoint
       })
       .mockResolvedValueOnce({ observedAt: 118, checkpoint })
-    const page = {
-      evaluate,
-      context: () => ({
-        newCDPSession: async() => ({
-          send: async() => ({ data: 'captured-png' }),
-          detach
-        })
-      })
-    } as unknown as Page
+    const page = { evaluate } as unknown as Page
 
-    await expect(capture(page, 0, 30_000)).resolves.toEqual({
+    await expect(captureTrace(page, hiddenCapture, 0, 30_000)).resolves.toEqual({
       sequence: 1,
       tEvent: 100,
       tEcho: 104,
       tPresent: 118
     })
     expect(evaluate).toHaveBeenCalledTimes(2)
-    expect(detach).toHaveBeenCalledOnce()
+    expect(hiddenCapture).toHaveBeenCalledOnce()
   })
 })

@@ -30,7 +30,10 @@ import {
   waitForInputLatencyEcho
 } from './helpers/inputLatencyTrace'
 import {
-  PERFORMANCE_PRESENTATION_BOUNDARY
+  bindExactElectronPageCapture,
+  captureInstalledElectronHiddenPage,
+  PERFORMANCE_PRESENTATION_BOUNDARY,
+  type PerformanceHiddenPageCapture
 } from './helpers/performancePresentationCheckpoint'
 import {
   expectEditorNotFrontmost,
@@ -199,6 +202,7 @@ const openSample = async(
 const measureSample = async(
   app: ElectronApplication,
   page: Page,
+  capturePage: PerformanceHiddenPageCapture,
   opened: Readonly<{
     readonly documentId: string
     readonly requestedAt: number
@@ -320,8 +324,8 @@ const measureSample = async(
   }
   await page.evaluate(() => window.__marktextDocumentCore?.settled())
   const input = surface === 'wysiwyg'
-    ? await captureInputLatencyPresentation(page, 0, 30_000)
-    : await captureBrowserInputEventPresentation(page, 0, 30_000)
+    ? await captureInputLatencyPresentation(page, capturePage, 0, 30_000)
+    : await captureBrowserInputEventPresentation(page, capturePage, 0, 30_000)
   const authorityEvents = await page.evaluate(expected =>
     (window.__marktextDocumentCore?.performanceEvents?.() ?? [])
       .filter(event => event.documentId === expected), documentId)
@@ -455,6 +459,10 @@ test.describe('installed Core authority raw performance producer', () => {
           expect(await page.evaluate(() =>
             window.electron.process.env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
           )).toBeUndefined()
+          const capturePage = await bindExactElectronPageCapture(
+            page,
+            targetId => captureInstalledElectronHiddenPage(app, targetId)
+          )
           await closeActiveTab(page)
 
           for (let index = 1; index < sampleFiles.length; index += 1) {
@@ -463,6 +471,7 @@ test.describe('installed Core authority raw performance producer', () => {
             const measurement = await measureSample(
               app,
               page,
+              capturePage,
               opened
             )
             const sampleIndex = index - 1
@@ -514,7 +523,7 @@ test.describe('installed Core authority raw performance producer', () => {
           producerSha256: requiredValue('MARKTEXT_CORE_PRODUCER_SHA256'),
           probeSha256: requiredValue('MARKTEXT_CORE_PROBE_SHA256'),
           launcherSha256: requiredValue('MARKTEXT_CORE_LAUNCHER_SHA256'),
-          measurementBoundary: 'core-authority-browser-compositor-v4',
+          measurementBoundary: 'core-authority-browser-compositor-v5',
           presentationBoundary: PERFORMANCE_PRESENTATION_BOUNDARY,
           launchBoundary: 'playwright-electron-packaged-v1',
           windowVisibility: 'hidden-unfocused',

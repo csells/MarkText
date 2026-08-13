@@ -15,9 +15,14 @@ contains no raw runs. The evidence gate currently requires both:
 - a `core-candidate` production-bundle run at a recorded 40-character build commit.
 
 Each run must cover all five representative documents with 20 warmup and 200 measured samples per
-document for `t_dispatch`, `t_ack`, `t_reconcile`, `open`, and `first_viewport`. The raw JSON must
-record the exact proposed hardware, OS, build, timestamp, document hashes, and ordered timing data,
-and must be checked in under `specs/baselines/runs/performance/` with a matching SHA-256 reference.
+document for the common `t_echo`, `t_present`, `open`, and `first_viewport` metrics; Core additionally
+records `t_dispatch`, `t_ack`, and `t_reconcile`. `t_present` ends at one hidden Electron
+`WebContents.capturePage` call with `stayHidden` and `stayAwake`, followed by retained-state
+validation. It is a captured compositor-surface upper bound—not screenshot pixel equality, physical
+display, vsync, or next-frame evidence—and its p95 target remains calibration-required. The raw JSON
+must record the exact proposed hardware, OS, build, timestamp, document hashes, and ordered timing
+data, and must be checked in under `specs/baselines/runs/performance/` with a matching SHA-256
+reference.
 
 The following command is expected to fail until that evidence exists:
 
@@ -29,9 +34,11 @@ No numbers in the target manifest are measurements. Current proposed p95 limits 
 
 | Metric | Proposed p95 |
 | --- | ---: |
+| `t_echo` | 16.7 ms |
 | `t_dispatch` | 8 ms |
 | `t_ack` | 50 ms |
 | `t_reconcile` | 50 ms |
+| `t_present` | Calibration required |
 | `open` | 500 ms |
 | `first_viewport` | 1,500 ms |
 
