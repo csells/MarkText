@@ -226,7 +226,8 @@ const withGitAuthenticatedUpstreamRun = (
     measured: CriticMarkupPerformanceMeasurementManifest,
     upstream: CriticMarkupRawPerformanceRun,
     update: (raw: CriticMarkupRawPerformanceRun) => void,
-    launcherSource: string
+    launcherSource: string,
+    producerSources: readonly string[]
   ) => void
 ): void => {
   const root = mkdtempSync(resolve(tmpdir(), 'marktext-performance-git-'))
@@ -242,7 +243,8 @@ const withGitAuthenticatedUpstreamRun = (
       'upstream producer\n',
       'upstream raw-run helper\n',
       'upstream environment helper\n',
-      'upstream playwright config\n'
+      'upstream playwright config\n',
+      'upstream hidden-policy helper\n'
     ] as const
     const probeSource = 'upstream input probe\n'
     const launcherSource = '#!/bin/sh\necho launch\n'
@@ -254,6 +256,7 @@ const withGitAuthenticatedUpstreamRun = (
     write(`${prefix}helpers/upstreamBaselinePerformanceRawRun.ts`, producerSources[1])
     write(`${prefix}helpers/upstreamBaselineEnvironment.ts`, producerSources[2])
     write(`${prefix}playwright.upstream-baseline-performance.config.ts`, producerSources[3])
+    write(`${prefix}helpers/upstreamBaselineHiddenPolicy.ts`, producerSources[4])
     write(`${prefix}helpers/upstreamBaselineInputProbe.ts`, probeSource)
     write(`${prefix}run-upstream-baseline-performance.sh`, launcherSource)
     write(`${prefix}helpers/upstreamBaselinePerformanceRunner.sh`, launcherHelperSource)
@@ -300,7 +303,7 @@ const withGitAuthenticatedUpstreamRun = (
       first(measured.runs).sha256 = sha256(source)
     }
     update(upstream)
-    action(root, measured, upstream, update, launcherSource)
+    action(root, measured, upstream, update, launcherSource, producerSources)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -359,6 +362,27 @@ describe('CriticMarkup raw performance evidence', () => {
       update(upstream)
       expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
         .toThrow(/launcher digest differs from its harness commit/i)
+    })
+  })
+
+  it('authenticates the upstream hidden policy as producer code', () => {
+    withGitAuthenticatedUpstreamRun((
+      root,
+      measured,
+      upstream,
+      update,
+      _launcherSource,
+      producerSources
+    ) => {
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .not.toThrow()
+
+      upstream.provenance.producerSha256 = compositeSha256(
+        producerSources.slice(0, -1)
+      )
+      update(upstream)
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .toThrow(/producer digest differs from its harness commit/i)
     })
   })
 

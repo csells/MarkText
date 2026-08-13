@@ -285,7 +285,8 @@ const validateHarnessDigests = (
       `${prefix}upstream-baseline-performance.spec.ts`,
       `${prefix}helpers/upstreamBaselinePerformanceRawRun.ts`,
       `${prefix}helpers/upstreamBaselineEnvironment.ts`,
-      `${prefix}playwright.upstream-baseline-performance.config.ts`
+      `${prefix}playwright.upstream-baseline-performance.config.ts`,
+      `${prefix}helpers/upstreamBaselineHiddenPolicy.ts`
     ]),
     `${label} producer digest`
   )
