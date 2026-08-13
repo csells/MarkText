@@ -3,17 +3,24 @@ export interface ProjectedSelectionClipboardPayload {
   readonly html: string
 }
 
+export type ProjectedSelectionClipboardOperation = 'copy' | 'cut'
+
 export function installProjectedSelectionClipboardGuard(
   target: EventTarget,
   payload: () => ProjectedSelectionClipboardPayload | undefined,
-  onCut?: () => void
+  onCut?: () => void,
+  onPayloadMissing?: (operation: ProjectedSelectionClipboardOperation) => void
 ): () => void {
   const guard = (event: Event): void => {
     event.preventDefault()
     event.stopImmediatePropagation()
     const projected = payload()
     const clipboardData = (event as ClipboardEvent).clipboardData
-    if (projected === undefined || clipboardData === null) return
+    if (projected === undefined) {
+      onPayloadMissing?.(event.type as ProjectedSelectionClipboardOperation)
+      return
+    }
+    if (clipboardData === null) return
     clipboardData.setData('text/plain', projected.text)
     clipboardData.setData('text/html', projected.html)
     if (event.type === 'cut') onCut?.()
