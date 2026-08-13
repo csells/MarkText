@@ -30,10 +30,13 @@ import {
   type UpstreamInspectorResponse
 } from './helpers/upstreamBaselineHiddenPolicy'
 import {
+  closeFailedUpstreamPerformanceLaunch,
   closeUpstreamPerformanceApplication,
   findUpstreamPerformanceProcessId,
   finalizeUpstreamPerformanceRun,
-  removeUpstreamPerformanceRunRoot
+  removeUpstreamPerformanceRunRoot,
+  resolveUpstreamPerformanceProcessIdentity,
+  type UpstreamPerformanceProcessIdentity
 } from './helpers/upstreamBaselineLifecycleCleanup'
 import {
   assertMacWindowServerPresentation,
@@ -192,19 +195,21 @@ const reserveTcpPort = async(): Promise<number> => new Promise((resolve, reject)
   })
 })
 
-const optionalProcessIdForProfile = (
-  appBundle: string,
-  profile: string
-): number | undefined => {
-  const executable = path.join(appBundle, 'Contents/MacOS/marktext')
-  const output = execFileSync('/bin/ps', ['-ax', '-o', 'pid=', '-o', 'command='], {
+const upstreamProcessTable = (): string => execFileSync(
+  '/bin/ps',
+  ['-ax', '-o', 'pid=', '-o', 'command='],
+  {
     encoding: 'utf8'
-  })
-  return findUpstreamPerformanceProcessId(output, executable, profile)
-}
+  }
+)
 
-const processIdForProfile = (appBundle: string, profile: string): number => {
-  const processId = optionalProcessIdForProfile(appBundle, profile)
+const processIdForIdentity = (
+  identity: Readonly<UpstreamPerformanceProcessIdentity>
+): number => {
+  const processId = findUpstreamPerformanceProcessId(
+    upstreamProcessTable(),
+    identity
+  )
   if (processId === undefined) throw new Error('Upstream process ID is missing')
   return processId
 }
@@ -330,6 +335,10 @@ const launchRenderActiveUpstreamApplication = async(
   profile: string,
   bootstrapFile: string
 ): Promise<RenderActiveUpstreamApplication> => {
+  const processIdentity = resolveUpstreamPerformanceProcessIdentity(
+    appBundle,
+    profile
+  )
   const browserPort = await reserveTcpPort()
   const inspectorPort = await reserveTcpPort()
   const launcher = spawn('/usr/bin/open', [
@@ -372,7 +381,7 @@ const launchRenderActiveUpstreamApplication = async(
     const page = context.pages()[0]
     if (page === undefined) throw new Error('Upstream renderer page is missing')
     const targetId = await resolveExactElectronPageTargetId(page)
-    processId = processIdForProfile(appBundle, profile)
+    processId = processIdForIdentity(processIdentity)
     await activateUpstreamPerformanceWindow(inspector, targetId)
     await page.waitForLoadState('domcontentloaded')
     await waitForEditor(page, 60_000)
@@ -386,21 +395,14 @@ const launchRenderActiveUpstreamApplication = async(
     })
   } catch (error) {
     inspector?.close()
-    let discoveryError: unknown
-    if (processId === undefined) {
-      try {
-        processId = optionalProcessIdForProfile(appBundle, profile)
-      } catch (candidateError) {
-        discoveryError = candidateError
-      }
-    }
     try {
-      await closeUpstreamPerformanceApplication({
+      await closeFailedUpstreamPerformanceLaunch({
         closeBrowser: async() => {
           if (browser !== undefined) await browser.close()
         },
-        processId,
-        launcher
+        launcher,
+        processTable: upstreamProcessTable(),
+        identity: processIdentity
       }, {
         terminate: ownedProcessId => {
           try {
@@ -429,16 +431,8 @@ const launchRenderActiveUpstreamApplication = async(
       })
     } catch (cleanupError) {
       throw new AggregateError(
-        [error, discoveryError, cleanupError].filter(
-          candidate => candidate !== undefined
-        ),
+        [error, cleanupError],
         'Upstream performance launch and cleanup both failed'
-      )
-    }
-    if (discoveryError !== undefined) {
-      throw new AggregateError(
-        [error, discoveryError],
-        'Upstream performance launch failed and process ownership was ambiguous'
       )
     }
     throw error
