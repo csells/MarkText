@@ -361,11 +361,11 @@ export function createCoreAuthorityPerformanceRawRun(
   })
   return input.evidenceClass === 'ratification'
     ? Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-run-v7' as const,
+      schema: 'marktext-criticmarkup-raw-performance-run-v8' as const,
       ...base
     })
     : Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v7' as const,
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v8' as const,
       evidenceClass: 'smoke-non-ratifying' as const,
       ...base
     })

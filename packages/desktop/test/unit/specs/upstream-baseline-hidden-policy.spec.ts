@@ -159,6 +159,7 @@ describe('upstream baseline external hidden policy', () => {
       isFocused: () => false,
       isFocusable: () => focusable,
       isAlwaysOnTop: () => false,
+      getMediaSourceId: () => 'window:81:0',
       getTitle: () => 'sample.md — MarkText',
       getBounds: () => ({ x: 20, y: 30, width: 900, height: 700 })
     }
@@ -258,6 +259,7 @@ describe('upstream baseline external hidden policy', () => {
       isFocused(): boolean { return false }
       isFocusable(): boolean { return focusable }
       isAlwaysOnTop(): boolean { return false }
+      getMediaSourceId(): string { return 'window:81:0' }
       getTitle(): string { return 'sample.md — MarkText' }
       getBounds(): Readonly<{ x: number; y: number; width: number; height: number }> {
         return { x: 20, y: 30, width: 900, height: 700 }
@@ -305,6 +307,7 @@ describe('upstream baseline external hidden policy', () => {
     }>
 
     await expect(installed.activate('renderer-target-7')).resolves.toEqual({
+      windowNumber: 81,
       visible: true,
       opacity: 0,
       focused: false,
@@ -315,6 +318,7 @@ describe('upstream baseline external hidden policy', () => {
       bounds: { x: 20, y: 30, width: 900, height: 700 }
     })
     expect(installed.inspect('renderer-target-7')).toEqual({
+      windowNumber: 81,
       visible: true,
       opacity: 0,
       focused: false,

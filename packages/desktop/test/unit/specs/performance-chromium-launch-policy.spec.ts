@@ -12,6 +12,7 @@ import {
   PERFORMANCE_CHROMIUM_SCHEDULING_SWITCHES,
   PERFORMANCE_WINDOW_PRESENTATION_POLICY,
   PERFORMANCE_WINDOW_SCHEDULING_INSTALLER_SOURCE,
+  queryMacWindowServerPresentation,
   inspectInstalledPerformanceWindow,
   withPerformanceChromiumScheduling
 } from '../../e2e/helpers/performanceChromiumLaunchPolicy'
@@ -44,6 +45,7 @@ describe('hidden performance Chromium launch policy', () => {
       isFocused: () => false,
       isFocusable: () => false,
       isAlwaysOnTop: () => false,
+      getMediaSourceId: () => 'window:81:0',
       getTitle: () => 'sample.md — MarkText',
       getBounds: () => ({ x: 20, y: 30, width: 900, height: 700 })
     }
@@ -86,7 +88,7 @@ describe('hidden performance Chromium launch policy', () => {
     const state = await lifecycle.activate('renderer-target-7')
 
     expect(PERFORMANCE_WINDOW_PRESENTATION_POLICY)
-      .toBe('transparent-render-active-inactive-v2')
+      .toBe('transparent-render-active-inactive-v3')
     expect(calls).toEqual([
       'policy:accessory',
       'schedule:false',
@@ -99,6 +101,7 @@ describe('hidden performance Chromium launch policy', () => {
       'app-show',
       'show-inactive'
     ])
+    expect(state).toMatchObject({ windowNumber: 81 })
     expect(() => assertTransparentRenderActiveInactive(state))
       .not.toThrow()
   })
@@ -106,6 +109,7 @@ describe('hidden performance Chromium launch policy', () => {
   it('checks and closes the same exact installed renderer lifecycle', async() => {
     const calls: string[] = []
     const state = Object.freeze({
+      windowNumber: 81,
       visible: true,
       opacity: 0,
       focused: false,
@@ -235,6 +239,7 @@ describe('hidden performance Chromium launch policy', () => {
       isFocused: () => false,
       isFocusable: () => false,
       isAlwaysOnTop: () => false,
+      getMediaSourceId: () => 'window:81:0',
       getTitle: () => 'sample.md — MarkText',
       getBounds: () => ({ x: 20, y: 30, width: 900, height: 700 })
     }
@@ -276,6 +281,7 @@ describe('hidden performance Chromium launch policy', () => {
 
   it('rejects any window that is not render-active, transparent, and inactive', () => {
     expect(() => assertTransparentRenderActiveInactive({
+      windowNumber: 81,
       visible: false,
       opacity: 0,
       focused: false,
@@ -286,6 +292,7 @@ describe('hidden performance Chromium launch policy', () => {
       bounds: { x: 20, y: 30, width: 900, height: 700 }
     })).toThrow(/presentation invariant failed/i)
     expect(() => assertTransparentRenderActiveInactive({
+      windowNumber: 81,
       visible: true,
       opacity: 0.01,
       focused: false,
@@ -296,6 +303,7 @@ describe('hidden performance Chromium launch policy', () => {
       bounds: { x: 20, y: 30, width: 900, height: 700 }
     })).toThrow(/presentation invariant failed/i)
     expect(() => assertTransparentRenderActiveInactive({
+      windowNumber: 81,
       visible: true,
       opacity: 0,
       focused: true,
@@ -310,6 +318,7 @@ describe('hidden performance Chromium launch policy', () => {
   it('requires one exact on-screen layer-zero alpha-zero WindowServer match', () => {
     const expected = Object.freeze({ x: 20, y: 30, width: 900, height: 700 })
     const expectedWindow = Object.freeze({
+      windowNumber: 81,
       bounds: expected,
       title: 'sample.md — MarkText'
     })
@@ -364,11 +373,196 @@ describe('hidden performance Chromium launch policy', () => {
         layer: 0,
         onScreen: true
       }
-    ], 1234, expectedWindow)).toThrow(/exactly one matching window/i)
+    ], 1234, expectedWindow)).not.toThrow()
+  })
+
+  it('selects the exact CGWindow ID before checking native presentation invariants', () => {
+    const expectedWindow = {
+      windowNumber: 82,
+      title: 'sample.md — MarkText',
+      bounds: { x: 20, y: 30, width: 900, height: 700 }
+    }
+    const otherwiseIdenticalRows = [81, 82].map(windowNumber => ({
+      windowNumber,
+      ownerProcessId: 1234,
+      title: expectedWindow.title,
+      bounds: { ...expectedWindow.bounds },
+      alpha: 0,
+      layer: 0,
+      onScreen: true
+    }))
+
+    expect(() => assertMacWindowServerTransparentRenderActive(
+      otherwiseIdenticalRows,
+      1234,
+      expectedWindow
+    )).not.toThrow()
+  })
+
+  it('retains an exact optionAll row with missing native metadata as a precise red', () => {
+    const expectedWindow = {
+      windowNumber: 82,
+      title: 'sample.md — MarkText',
+      bounds: { x: 20, y: 30, width: 900, height: 700 }
+    }
+    let thrown: unknown
+    try {
+      assertMacWindowServerTransparentRenderActive([{
+        windowNumber: 82,
+        ownerProcessId: 1234,
+        title: null,
+        bounds: null,
+        alpha: 0,
+        layer: 0,
+        onScreen: null
+      }], 1234, expectedWindow)
+    } catch (error) {
+      thrown = error
+    }
+
+    const diagnostic = (thrown as Error & {
+      readonly diagnostic?: Readonly<{
+        readonly candidateRowCount: number
+        readonly exactMatchCount: number
+        readonly candidateRows: readonly unknown[]
+      }>
+    }).diagnostic
+    expect((thrown as Error).name)
+      .toBe('MacWindowServerPresentationInvariantError')
+    expect(diagnostic).toMatchObject({
+      candidateRowCount: 1,
+      exactMatchCount: 1,
+      candidateRows: [{
+        windowNumber: 82,
+        ownerProcessId: 1234,
+        title: null,
+        bounds: null,
+        alpha: 0,
+        layer: 0,
+        onScreen: null
+      }]
+    })
+  })
+
+  it('reports the exact offscreen CGWindow row instead of treating it as absent', () => {
+    const row = {
+      windowNumber: 82,
+      ownerProcessId: 1234,
+      title: 'sample.md — MarkText',
+      bounds: { x: 20, y: 30, width: 900, height: 700 },
+      alpha: 0,
+      layer: 0,
+      onScreen: false
+    }
+    let thrown: unknown
+    try {
+      assertMacWindowServerTransparentRenderActive([row], 1234, {
+        windowNumber: 82,
+        title: row.title,
+        bounds: row.bounds
+      })
+    } catch (error) {
+      thrown = error
+    }
+
+    expect((thrown as Error & {
+      readonly diagnostic?: unknown
+    }).diagnostic).toMatchObject({
+      reason: 'exact-window-state',
+      candidateRowCount: 1,
+      exactMatchCount: 1,
+      candidateRows: [{ windowNumber: 82, onScreen: false }]
+    })
+  })
+
+  it('keeps the exact invalid CGWindow row inside the bounded diagnostic cap', () => {
+    const unrelatedRows = Array.from({ length: 9 }, (_, index) => ({
+      windowNumber: 100 + index,
+      ownerProcessId: 1234,
+      title: `other-${String(index)}`,
+      bounds: { x: index, y: 0, width: 100, height: 100 },
+      alpha: 0,
+      layer: 0,
+      onScreen: true
+    }))
+    const exactOffscreenRow = {
+      windowNumber: 82,
+      ownerProcessId: 1234,
+      title: 'sample.md — MarkText',
+      bounds: { x: 20, y: 30, width: 900, height: 700 },
+      alpha: 0,
+      layer: 0,
+      onScreen: false
+    }
+    let thrown: unknown
+    try {
+      assertMacWindowServerTransparentRenderActive(
+        [...unrelatedRows, exactOffscreenRow],
+        1234,
+        {
+          windowNumber: 82,
+          title: exactOffscreenRow.title,
+          bounds: exactOffscreenRow.bounds
+        }
+      )
+    } catch (error) {
+      thrown = error
+    }
+
+    const diagnostic = (thrown as Error & {
+      readonly diagnostic?: Readonly<{
+        readonly candidateRows: readonly Readonly<{
+          readonly windowNumber: number | null
+          readonly onScreen: boolean | null
+        }>[]
+      }>
+    }).diagnostic
+    expect(diagnostic?.candidateRows).toHaveLength(8)
+    expect(diagnostic?.candidateRows[0])
+      .toMatchObject({ windowNumber: 82, onScreen: false })
+  })
+
+  it('queries optionAll and transports every PID row without eliding null metadata', () => {
+    const calls: Array<Readonly<{
+      executable: string
+      arguments: readonly string[]
+    }>> = []
+    const rows = queryMacWindowServerPresentation(1234, (
+      executable,
+      arguments_
+    ) => {
+      calls.push({ executable, arguments: arguments_ })
+      return JSON.stringify([{
+        windowNumber: 82,
+        ownerProcessId: 1234,
+        title: null,
+        bounds: null,
+        alpha: 0,
+        layer: 0,
+        onScreen: null
+      }])
+    })
+
+    expect(rows).toEqual([{
+      windowNumber: 82,
+      ownerProcessId: 1234,
+      title: null,
+      bounds: null,
+      alpha: 0,
+      layer: 0,
+      onScreen: null
+    }])
+    expect(calls).toHaveLength(1)
+    expect(calls[0].executable).toBe('/usr/bin/swift')
+    expect(calls[0].arguments.at(-1)).toBe('1234')
+    expect(calls[0].arguments[1]).toContain('.optionAll')
+    expect(calls[0].arguments[1]).not.toContain('.optionOnScreenOnly')
+    expect(calls[0].arguments[1]).not.toContain('rawRows.compactMap')
   })
 
   it('reports one bounded frozen snapshot of only the run-owned WindowServer candidates', () => {
     const expectedWindow = Object.freeze({
+      windowNumber: 10_000,
       title: 'sample.md — MarkText',
       bounds: Object.freeze({ x: 20, y: 30, width: 900, height: 700 })
     })
@@ -404,6 +598,7 @@ describe('hidden performance Chromium launch policy', () => {
       readonly diagnostic?: Readonly<{
         readonly expected: Readonly<{
           readonly processId: number
+          readonly windowNumber: number
           readonly title: string
           readonly bounds: Readonly<{
             readonly x: number
@@ -424,6 +619,7 @@ describe('hidden performance Chromium launch policy', () => {
     expect(diagnostic).toMatchObject({
       expected: {
         processId: 1234,
+        windowNumber: 10_000,
         title: 'sample.md — MarkText',
         bounds: { x: 20, y: 30, width: 900, height: 700 }
       },
@@ -459,6 +655,7 @@ describe('hidden performance Chromium launch policy', () => {
         layer: 0,
         onScreen: true
       }], 1234, {
+        windowNumber: 81,
         title: longExpectedTitle,
         bounds: { x: 20, y: 30, width: 900, height: 700 }
       })
@@ -479,13 +676,14 @@ describe('hidden performance Chromium launch policy', () => {
 
   it('reports duplicate exact WindowServer matches without discarding either row', () => {
     const expectedWindow = {
+      windowNumber: 81,
       title: 'sample.md — MarkText',
       bounds: { x: 20, y: 30, width: 900, height: 700 }
     }
-    const rows = [81, 82].map(windowNumber => ({
-      windowNumber,
+    const rows = [81, 82].map(sourceRow => ({
+      windowNumber: 81,
       ownerProcessId: 1234,
-      title: expectedWindow.title,
+      title: `${expectedWindow.title}-${String(sourceRow)}`,
       bounds: { ...expectedWindow.bounds },
       alpha: 0,
       layer: 0,
@@ -514,7 +712,7 @@ describe('hidden performance Chromium launch policy', () => {
     expect(diagnostic).toMatchObject({
       candidateRowCount: 2,
       exactMatchCount: 2,
-      candidateRows: [{ windowNumber: 81 }, { windowNumber: 82 }]
+      candidateRows: [{ windowNumber: 81 }, { windowNumber: 81 }]
     })
     expect(Object.isFrozen(diagnostic.candidateRows)).toBe(true)
   })
