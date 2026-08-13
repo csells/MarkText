@@ -11,8 +11,8 @@
       "action": { "kind": "author", "selection": "Added block.", "outcome": "applied" },
       "expectedSource": "Before.\n\n{++Added block.++}\n\nAfter.",
       "expected": "Authoring creates one Addition between intact neighboring paragraphs and preserves the exact marker spelling.",
-      "productionOracle": "planned: installed interaction matrix / addition block-boundary author",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "addition.literal.resolve",
@@ -23,8 +23,8 @@
       "action": { "kind": "resolve", "decision": "accept", "targetOrdinal": null, "outcome": "no-target" },
       "expectedSource": "`{++literal++}`\n\n```text\n{++literal++}\n```",
       "expected": "Code-span and fenced-code markers remain literal text; Review exposes no Addition to resolve.",
-      "productionOracle": "planned: installed interaction matrix / addition literal resolve",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "addition.nested-comment.save-reopen",
@@ -35,8 +35,8 @@
       "action": { "kind": "save-reopen" },
       "expectedSource": "{>>A local {++addition++} in a comment.<<}",
       "expected": "Save and reopen preserve the outer Comment and its isolated nested Addition byte for byte.",
-      "productionOracle": "planned: installed interaction matrix / addition nested-comment save-reopen",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "addition.paragraph.render",
@@ -47,8 +47,8 @@
       "action": { "kind": "render" },
       "expectedSource": "Alpha {++new words++} omega.",
       "expected": "Editing view identifies one Addition while Revised includes and Original omits 'new words'.",
-      "productionOracle": "planned: installed interaction matrix / addition paragraph render",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "addition.reference-footnote.source-round-trip",
@@ -59,8 +59,8 @@
       "action": { "kind": "source-round-trip" },
       "expectedSource": "See {++[new][ref]++}.[^n]\n\n[ref]: https://example.com\n[^n]: Note.",
       "expected": "Source and WYSIWYG round-trip retain the Addition, reference definition, and footnote without reordering or normalization.",
-      "productionOracle": "planned: installed interaction matrix / addition reference-footnote source-round-trip",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "comment.block-boundary.source-round-trip",
@@ -71,8 +71,8 @@
       "action": { "kind": "source-round-trip" },
       "expectedSource": "Before.\n\n{>>## Local heading\n\nLocal paragraph.<<}\n\nAfter.",
       "expected": "The Comment remains one isolated Markdown subdocument and does not change surrounding block structure across mode switches.",
-      "productionOracle": "planned: installed interaction matrix / comment block-boundary source-round-trip",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "comment.literal.save-reopen",
@@ -83,8 +83,8 @@
       "action": { "kind": "save-reopen" },
       "expectedSource": "`{>>literal note<<}`\n\n```text\n{>>literal note<<}\n```",
       "expected": "Save and reopen retain both marker spellings as literal code and create no Review comment.",
-      "productionOracle": "planned: installed interaction matrix / comment literal save-reopen",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "comment.nested-comment.render",
@@ -95,8 +95,8 @@
       "action": { "kind": "render" },
       "expectedSource": "{>>Outer note with {>>inner note<<}.<<}",
       "expected": "Review presents one outer Comment whose isolated payload contains one nested Comment with distinct ranges.",
-      "productionOracle": "planned: installed interaction matrix / comment nested-comment render",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "comment.paragraph.author",
@@ -107,8 +107,8 @@
       "action": { "kind": "author", "selection": "review this claim", "replacement": "note", "outcome": "applied" },
       "expectedSource": "Alpha {==review this claim==}{>>note<<} omega.",
       "expected": "Add Comment over 'review this claim' creates the conventional Commented span without changing the surrounding paragraph text.",
-      "productionOracle": "planned: installed interaction matrix / comment paragraph author",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "comment.reference-footnote.resolve",
@@ -119,8 +119,8 @@
       "action": { "kind": "resolve", "decision": "accept", "targetOrdinal": 0, "outcome": "applied" },
       "expectedSource": "Claim.[^n]\n\n\n\n[^n]: Main note.",
       "expected": "Resolving the Comment removes its local payload and definition while the main footnote remains independent.",
-      "productionOracle": "planned: installed interaction matrix / comment reference-footnote resolve",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "deletion.block-boundary.resolve",
@@ -131,8 +131,8 @@
       "action": { "kind": "resolve", "decision": "accept", "targetOrdinal": 0, "outcome": "applied" },
       "expectedSource": "Before.\n\n\n\nAfter.",
       "expected": "Reject restores the deleted block; accept removes only that block while preserving neighboring blank-line structure.",
-      "productionOracle": "planned: installed interaction matrix / deletion block-boundary resolve",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "deletion.literal.source-round-trip",
@@ -143,8 +143,8 @@
       "action": { "kind": "source-round-trip" },
       "expectedSource": "`{--literal--}`\n\n```text\n{--literal--}\n```",
       "expected": "Mode switching retains both literal marker sequences and does not create a Deletion.",
-      "productionOracle": "planned: installed interaction matrix / deletion literal source-round-trip",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "deletion.nested-comment.author",
@@ -155,8 +155,8 @@
       "action": { "kind": "author", "selection": "deletion", "outcome": "applied" },
       "expectedSource": "{>>A local {--deletion--} in a comment.<<}",
       "expected": "Editing the Comment payload can author one nested Deletion without changing the outer Comment boundary.",
-      "productionOracle": "planned: installed interaction matrix / deletion nested-comment author",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "deletion.paragraph.save-reopen",
@@ -167,8 +167,8 @@
       "action": { "kind": "save-reopen" },
       "expectedSource": "Alpha {--old words--} omega.",
       "expected": "Save and reopen preserve exact Deletion source; Original includes and Revised omits 'old words'.",
-      "productionOracle": "planned: installed interaction matrix / deletion paragraph save-reopen",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "deletion.reference-footnote.render",
@@ -179,8 +179,8 @@
       "action": { "kind": "render" },
       "expectedSource": "See {--[old][ref]--}.[^n]\n\n[ref]: https://example.com\n[^n]: Note.",
       "expected": "Editing identifies the Deletion without consuming or retargeting the adjacent reference and footnote definitions.",
-      "productionOracle": "planned: installed interaction matrix / deletion reference-footnote render",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "highlight.block-boundary.save-reopen",
@@ -191,8 +191,8 @@
       "action": { "kind": "save-reopen" },
       "expectedSource": "Before.\n\n{==Highlighted block.==}\n\nAfter.",
       "expected": "Save and reopen preserve one Highlight at the block boundary and the exact surrounding blank lines.",
-      "productionOracle": "planned: installed interaction matrix / highlight block-boundary save-reopen",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "highlight.literal.render",
@@ -203,8 +203,8 @@
       "action": { "kind": "render" },
       "expectedSource": "`{==literal==}`\n\n```text\n{==literal==}\n```",
       "expected": "Both code contexts render literal marker text and expose no Highlight annotation.",
-      "productionOracle": "planned: installed interaction matrix / highlight literal render",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "highlight.nested-comment.resolve",
@@ -215,8 +215,8 @@
       "action": { "kind": "resolve", "decision": "accept", "targetOrdinal": 0, "outcome": "applied" },
       "expectedSource": "{>>A local highlight in a comment.<<}",
       "expected": "Resolving the nested Highlight changes only the isolated Comment payload and preserves the outer Comment.",
-      "productionOracle": "planned: installed interaction matrix / highlight nested-comment resolve",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "highlight.paragraph.source-round-trip",
@@ -227,8 +227,8 @@
       "action": { "kind": "source-round-trip" },
       "expectedSource": "Alpha {==important words==} omega.",
       "expected": "Source and WYSIWYG retain one Highlight over the selected words without changing surrounding source.",
-      "productionOracle": "planned: installed interaction matrix / highlight paragraph source-round-trip",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "highlight.reference-footnote.author",
@@ -239,8 +239,8 @@
       "action": { "kind": "author", "selection": "[important][ref]", "outcome": "applied" },
       "expectedSource": "See {==[important][ref]==}.[^n]\n\n[ref]: https://example.com\n[^n]: Note.",
       "expected": "Authoring over '[important][ref]' creates one Highlight while retaining the independent reference and footnote definitions exactly.",
-      "productionOracle": "planned: installed interaction matrix / highlight reference-footnote author",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "substitution.block-boundary.render",
@@ -251,8 +251,8 @@
       "action": { "kind": "render" },
       "expectedSource": "Before.\n\n{~~Old block.~>New block.~~}\n\nAfter.",
       "expected": "Original shows only the old arm, Revised only the new arm, and Editing preserves one paired Substitution.",
-      "productionOracle": "planned: installed interaction matrix / substitution block-boundary render",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "substitution.literal.author",
@@ -263,8 +263,8 @@
       "action": { "kind": "author", "selection": "old", "replacement": "new", "outcome": "unavailable" },
       "expectedSource": "`{~~old~>new~~}`\n\n```text\n{~~old~>new~~}\n```",
       "expected": "Code contexts retain literal markers; ordinary authoring commands do not reinterpret the code as a Substitution.",
-      "productionOracle": "planned: installed interaction matrix / substitution literal author",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "substitution.nested-comment.source-round-trip",
@@ -275,8 +275,8 @@
       "action": { "kind": "source-round-trip" },
       "expectedSource": "{>>A local {~~old~>new~~} in a comment.<<}",
       "expected": "Mode switching preserves the outer Comment and both ordered arms of its isolated nested Substitution.",
-      "productionOracle": "planned: installed interaction matrix / substitution nested-comment source-round-trip",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "substitution.paragraph.resolve",
@@ -287,8 +287,8 @@
       "action": { "kind": "resolve", "decision": "accept", "targetOrdinal": 0, "outcome": "applied" },
       "expectedSource": "Alpha new words omega.",
       "expected": "Accept leaves only 'new words'; reject leaves only 'old words'; either operation is one undoable actor transaction.",
-      "productionOracle": "planned: installed interaction matrix / substitution paragraph resolve",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     },
     {
       "id": "substitution.reference-footnote.save-reopen",
@@ -299,8 +299,8 @@
       "action": { "kind": "save-reopen" },
       "expectedSource": "See {~~[old][oldref]~>[new][newref]~~}.[^n]\n\n[oldref]: https://old.example\n[newref]: https://new.example\n[^n]: Note.",
       "expected": "Save and reopen preserve arm order, both reference definitions, the footnote, and the exact Substitution source.",
-      "productionOracle": "planned: installed interaction matrix / substitution reference-footnote save-reopen",
-      "status": "planned"
+      "productionOracle": "packages/desktop/test/e2e/installed-core-review.spec.ts: follows the installed interaction matrix",
+      "status": "green"
     }
   ]
 }
