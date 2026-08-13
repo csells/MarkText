@@ -168,10 +168,12 @@ RAW_RUN_FILE="${SCRIPT_DIR}/helpers/upstreamBaselinePerformanceRawRun.ts"
 ENVIRONMENT_FILE="${SCRIPT_DIR}/helpers/upstreamBaselineEnvironment.ts"
 CONFIG_FILE="${SCRIPT_DIR}/playwright.upstream-baseline-performance.config.ts"
 PROBE_FILE="${SCRIPT_DIR}/helpers/upstreamBaselineInputProbe.ts"
+HIDDEN_POLICY_FILE="${SCRIPT_DIR}/helpers/upstreamBaselineHiddenPolicy.ts"
 PRODUCER_SHA256="$(
   {
     for producer_part in \
-      "${PRODUCER_FILE}" "${RAW_RUN_FILE}" "${ENVIRONMENT_FILE}" "${CONFIG_FILE}"; do
+      "${PRODUCER_FILE}" "${RAW_RUN_FILE}" "${ENVIRONMENT_FILE}" \
+      "${CONFIG_FILE}" "${HIDDEN_POLICY_FILE}"; do
       shasum -a 256 "${producer_part}" | awk '{print $1}'
     done
   } | shasum -a 256 | awk '{print $1}'
