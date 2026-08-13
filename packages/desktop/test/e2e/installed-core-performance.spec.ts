@@ -565,7 +565,7 @@ test.describe('installed Core authority raw performance producer', () => {
           launcherSha256: requiredValue('MARKTEXT_CORE_LAUNCHER_SHA256'),
           measurementBoundary: 'core-authority-browser-compositor-v6',
           presentationBoundary: PERFORMANCE_PRESENTATION_BOUNDARY,
-          launchBoundary: 'playwright-electron-packaged-transparent-v2',
+          launchBoundary: 'playwright-electron-packaged-transparent-v3',
           windowPresentationPolicy: PERFORMANCE_WINDOW_PRESENTATION_POLICY,
           windowPresentationPlatform: 'darwin',
           chromiumSchedulingPolicy: PERFORMANCE_CHROMIUM_SCHEDULING_POLICY

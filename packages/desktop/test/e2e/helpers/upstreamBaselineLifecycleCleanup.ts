@@ -4,7 +4,7 @@ import { basename, dirname, resolve } from 'node:path'
 
 interface UpstreamPerformanceApplicationLifecycle {
   readonly closeBrowser: () => Promise<void>
-  readonly processId: number
+  readonly processId?: number
   readonly launcher: Readonly<{ readonly pid?: number }>
 }
 
@@ -43,15 +43,49 @@ export const closeUpstreamPerformanceApplication = async(
   lifecycle: UpstreamProcessLifecycle
 ): Promise<void> => {
   await application.closeBrowser().catch(() => undefined)
-  if (lifecycle.isRunning(application.processId)) {
-    lifecycle.terminate(application.processId)
-    await waitForExit(application.processId, lifecycle)
+  const processId = application.processId
+  if (processId !== undefined && lifecycle.isRunning(processId)) {
+    lifecycle.terminate(processId)
+    await waitForExit(processId, lifecycle)
   }
   const launcherId = application.launcher.pid
   if (launcherId !== undefined && lifecycle.isRunning(launcherId)) {
     lifecycle.terminate(launcherId)
     await waitForExit(launcherId, lifecycle)
   }
+}
+
+export const findUpstreamPerformanceProcessId = (
+  processTable: string,
+  executable: string,
+  profile: string
+): number | undefined => {
+  const candidates = processTable.split('\n').flatMap(line => {
+    const match = /^\s*(\d+)\s+(.+)$/u.exec(line)
+    const command = match?.[2]
+    if (
+      command === undefined ||
+      (command !== executable && !command.startsWith(`${executable} `))
+    ) return []
+    const profileArguments = [
+      `--user-data-dir ${profile}`,
+      `--user-data-dir=${profile}`
+    ]
+    if (!profileArguments.some(argument => {
+      const offset = command.indexOf(argument)
+      if (offset < 0) return false
+      const following = command[offset + argument.length]
+      return following === undefined || following === ' '
+    })) return []
+    return match?.[1] === undefined ? [] : [Number(match[1])]
+  }).filter(candidate => Number.isSafeInteger(candidate) && candidate > 0)
+  if (candidates.length > 1) {
+    throw new Error(
+      'Expected at most one upstream main process for the unique profile; ' +
+      `found ${String(candidates.length)}`
+    )
+  }
+  return candidates[0]
 }
 
 const transientRemovalRace = (error: unknown): boolean => error instanceof Error &&

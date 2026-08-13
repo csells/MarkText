@@ -17,8 +17,9 @@ import {
 } from '../../e2e/helpers/performanceChromiumLaunchPolicy'
 
 describe('hidden performance Chromium launch policy', () => {
-  it('makes the exact measured window transparent and noninteractive before showInactive', () => {
+  it('deactivates, restores, and settles the exact transparent window without focus', async() => {
     const calls: string[] = []
+    let active = true
     const exactContents = {
       isDestroyed: () => false,
       setBackgroundThrottling: (enabled: boolean) => {
@@ -47,8 +48,16 @@ describe('hidden performance Chromium launch policy', () => {
       getBounds: () => ({ x: 20, y: 30, width: 900, height: 700 })
     }
     const app = Object.assign(new EventEmitter(), {
-      isActive: () => false,
+      isActive: () => active,
       setActivationPolicy: (policy: string) => calls.push(`policy:${policy}`),
+      hide: () => {
+        calls.push('app-hide')
+        queueMicrotask(() => {
+          active = false
+          app.emit('did-resign-active')
+        })
+      },
+      show: () => calls.push('app-show'),
       focus: () => { throw new Error('Application focus is prohibited') }
     })
     const context = {
@@ -61,7 +70,10 @@ describe('hidden performance Chromium launch policy', () => {
       webContents: {
         fromDevToolsTargetId: (targetId: string) =>
           targetId === 'renderer-target-7' ? exactContents : undefined
-      }
+      },
+      clearTimeout,
+      setImmediate,
+      setTimeout
     } as Record<string, unknown>
 
     expect(runInNewContext(
@@ -69,12 +81,12 @@ describe('hidden performance Chromium launch policy', () => {
       context
     )).toBe(true)
     const lifecycle = context.__marktextPerformanceWindowLifecycle as Readonly<{
-      readonly activate: (targetId: string) => unknown
+      readonly activate: (targetId: string) => Promise<unknown>
     }>
-    const state = lifecycle.activate('renderer-target-7')
+    const state = await lifecycle.activate('renderer-target-7')
 
     expect(PERFORMANCE_WINDOW_PRESENTATION_POLICY)
-      .toBe('transparent-render-active-inactive-v1')
+      .toBe('transparent-render-active-inactive-v2')
     expect(calls).toEqual([
       'policy:accessory',
       'schedule:false',
@@ -83,6 +95,8 @@ describe('hidden performance Chromium launch policy', () => {
       'ignore-mouse:true',
       'mission-control:true',
       'skip-taskbar:true',
+      'app-hide',
+      'app-show',
       'show-inactive'
     ])
     expect(() => assertTransparentRenderActiveInactive(state))
@@ -152,6 +166,112 @@ describe('hidden performance Chromium launch policy', () => {
       'inspect:renderer-target-7',
       'close:renderer-target-7'
     ])
+  })
+
+  it('fails closed when an active app never resigns before presentation', async() => {
+    const calls: string[] = []
+    const contents = {
+      isDestroyed: () => false,
+      setBackgroundThrottling: () => undefined
+    }
+    const window = {
+      webContents: contents,
+      isDestroyed: () => false,
+      setOpacity: () => undefined,
+      setFocusable: () => undefined,
+      setIgnoreMouseEvents: () => undefined,
+      setHiddenInMissionControl: () => undefined,
+      showInactive: () => calls.push('show-inactive')
+    }
+    const app = Object.assign(new EventEmitter(), {
+      isActive: () => true,
+      hide: () => calls.push('app-hide'),
+      show: () => calls.push('app-show')
+    })
+    const context = {
+      app,
+      BrowserWindow: {
+        getAllWindows: () => [],
+        fromWebContents: () => window
+      },
+      webContents: { fromDevToolsTargetId: () => contents },
+      clearTimeout: () => undefined,
+      setImmediate,
+      setTimeout: (callback: () => void) => {
+        queueMicrotask(callback)
+        return 1
+      }
+    } as Record<string, unknown>
+    runInNewContext(
+      `(${PERFORMANCE_WINDOW_SCHEDULING_INSTALLER_SOURCE})({ app, BrowserWindow, webContents })`,
+      context
+    )
+    const lifecycle = context.__marktextPerformanceWindowLifecycle as Readonly<{
+      readonly activate: (targetId: string) => Promise<unknown>
+    }>
+
+    await expect(lifecycle.activate('renderer-target-7'))
+      .rejects.toThrow(/did-resign-active/i)
+    expect(calls).toEqual(['app-hide'])
+  })
+
+  it('rejects restoration that reactivates the app after a real resign', async() => {
+    const calls: string[] = []
+    let active = true
+    const contents = {
+      isDestroyed: () => false,
+      setBackgroundThrottling: () => undefined
+    }
+    const window = {
+      webContents: contents,
+      isDestroyed: () => false,
+      setOpacity: () => undefined,
+      setFocusable: () => undefined,
+      setIgnoreMouseEvents: () => undefined,
+      setHiddenInMissionControl: () => undefined,
+      showInactive: () => calls.push('show-inactive'),
+      isVisible: () => true,
+      getOpacity: () => 0,
+      isFocused: () => false,
+      isFocusable: () => false,
+      isAlwaysOnTop: () => false,
+      getTitle: () => 'sample.md — MarkText',
+      getBounds: () => ({ x: 20, y: 30, width: 900, height: 700 })
+    }
+    const app = Object.assign(new EventEmitter(), {
+      isActive: () => active,
+      hide: () => {
+        calls.push('app-hide')
+        active = false
+        app.emit('did-resign-active')
+      },
+      show: () => {
+        calls.push('app-show')
+        active = true
+      }
+    })
+    const context = {
+      app,
+      BrowserWindow: {
+        getAllWindows: () => [],
+        fromWebContents: () => window
+      },
+      webContents: { fromDevToolsTargetId: () => contents },
+      clearTimeout,
+      setImmediate,
+      setTimeout
+    } as Record<string, unknown>
+    runInNewContext(
+      `(${PERFORMANCE_WINDOW_SCHEDULING_INSTALLER_SOURCE})({ app, BrowserWindow, webContents })`,
+      context
+    )
+    const lifecycle = context.__marktextPerformanceWindowLifecycle as Readonly<{
+      readonly activate: (targetId: string) => Promise<unknown>
+    }>
+
+    await expect(lifecycle.activate('renderer-target-7'))
+      .rejects.toThrow(/did not settle inactive/i)
+    expect(calls).toEqual(['app-hide', 'app-show', 'show-inactive'])
   })
 
   it('rejects any window that is not render-active, transparent, and inactive', () => {

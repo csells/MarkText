@@ -17,7 +17,7 @@
     {
       "id": "parity-oracle-proposal",
       "path": "specs/baselines/criticmarkup-parity-oracle-proposal.json",
-      "sha256": "768e3cebd8c8aeb062eb7c08c7e90950b50549e6fc8e6591e36ca8260238733c"
+      "sha256": "fe9c2eb40b9780ff0e35d3b31daac137413ee42abbeff6cfd62e94e62563ac57"
     },
     {
       "id": "parity-decisions",
@@ -122,7 +122,7 @@
     {
       "id": "performance-measurements",
       "path": "specs/baselines/criticmarkup-performance-measurements.json",
-      "sha256": "6b8958a2b630c4a5067c012b26c88b0d09f5a71295b979fc2afd92d60f4ce229"
+      "sha256": "ca06870a92f468d0b29f0298d04bf838c2b8bbc4634ec252ca1bd5abd00cda57"
     },
     {
       "id": "salvage-baseline",

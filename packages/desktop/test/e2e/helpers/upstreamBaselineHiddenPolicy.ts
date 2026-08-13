@@ -43,7 +43,7 @@ export const upstreamExternalHiddenPolicyExpression = `(() => {
     throw new Error('Performance window lifecycle is unavailable')
   }
   globalThis.__marktextUpstreamHiddenLaunch = Object.freeze({
-    boundary: 'external-inspector-transparent-render-active-v2',
+    boundary: 'external-inspector-transparent-render-active-v3',
     activate: targetId => lifecycle.activate(targetId),
     inspect: targetId => lifecycle.inspect(targetId),
     close: targetId => lifecycle.close(targetId),

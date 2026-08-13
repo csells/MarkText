@@ -31,6 +31,7 @@ import {
 } from './helpers/upstreamBaselineHiddenPolicy'
 import {
   closeUpstreamPerformanceApplication,
+  findUpstreamPerformanceProcessId,
   finalizeUpstreamPerformanceRun,
   removeUpstreamPerformanceRunRoot
 } from './helpers/upstreamBaselineLifecycleCleanup'
@@ -191,22 +192,19 @@ const reserveTcpPort = async(): Promise<number> => new Promise((resolve, reject)
   })
 })
 
-const processIdForProfile = (appBundle: string, profile: string): number => {
+const optionalProcessIdForProfile = (
+  appBundle: string,
+  profile: string
+): number | undefined => {
   const executable = path.join(appBundle, 'Contents/MacOS/marktext')
   const output = execFileSync('/bin/ps', ['-ax', '-o', 'pid=', '-o', 'command='], {
     encoding: 'utf8'
   })
-  const candidates = output.split('\n').flatMap(line => {
-    if (!line.includes(executable) || !line.includes(profile)) return []
-    const match = /^\s*(\d+)\s/u.exec(line)
-    return match?.[1] === undefined ? [] : [Number(match[1])]
-  }).filter(candidate => Number.isSafeInteger(candidate) && candidate > 0)
-  if (candidates.length !== 1) {
-    throw new Error(
-      `Expected one upstream main process for the unique profile; found ${String(candidates.length)}`
-    )
-  }
-  const processId = candidates[0]
+  return findUpstreamPerformanceProcessId(output, executable, profile)
+}
+
+const processIdForProfile = (appBundle: string, profile: string): number => {
+  const processId = optionalProcessIdForProfile(appBundle, profile)
   if (processId === undefined) throw new Error('Upstream process ID is missing')
   return processId
 }
@@ -361,10 +359,12 @@ const launchRenderActiveUpstreamApplication = async(
   const inspectorEndpoint = `http://127.0.0.1:${String(inspectorPort)}`
   let inspector: (UpstreamInspectorChannel & { readonly close: () => void }) |
     undefined
+  let browser: Browser | undefined
+  let processId: number | undefined
   try {
     inspector = await installExternalHiddenPolicy(inspectorEndpoint, launcher)
     await waitForCdpEndpoint(browserEndpoint, launcher)
-    const browser = await chromium.connectOverCDP(browserEndpoint)
+    browser = await chromium.connectOverCDP(browserEndpoint)
     const context = browser.contexts()[0]
     if (context === undefined) throw new Error('Upstream CDP context is missing')
     await expect.poll(() => context.pages().length, { timeout: 60_000 })
@@ -372,10 +372,10 @@ const launchRenderActiveUpstreamApplication = async(
     const page = context.pages()[0]
     if (page === undefined) throw new Error('Upstream renderer page is missing')
     const targetId = await resolveExactElectronPageTargetId(page)
+    processId = processIdForProfile(appBundle, profile)
     await activateUpstreamPerformanceWindow(inspector, targetId)
     await page.waitForLoadState('domcontentloaded')
     await waitForEditor(page, 60_000)
-    const processId = processIdForProfile(appBundle, profile)
     return Object.freeze({
       browser,
       page,
@@ -386,7 +386,61 @@ const launchRenderActiveUpstreamApplication = async(
     })
   } catch (error) {
     inspector?.close()
-    launcher.kill('SIGTERM')
+    let discoveryError: unknown
+    if (processId === undefined) {
+      try {
+        processId = optionalProcessIdForProfile(appBundle, profile)
+      } catch (candidateError) {
+        discoveryError = candidateError
+      }
+    }
+    try {
+      await closeUpstreamPerformanceApplication({
+        closeBrowser: async() => {
+          if (browser !== undefined) await browser.close()
+        },
+        processId,
+        launcher
+      }, {
+        terminate: ownedProcessId => {
+          try {
+            process.kill(ownedProcessId, 'SIGTERM')
+          } catch (terminationError) {
+            if (!(
+              terminationError instanceof Error &&
+              'code' in terminationError && terminationError.code === 'ESRCH'
+            )) throw terminationError
+          }
+        },
+        isRunning: ownedProcessId => {
+          try {
+            process.kill(ownedProcessId, 0)
+            return true
+          } catch (runningError) {
+            if (
+              runningError instanceof Error && 'code' in runningError &&
+              runningError.code === 'ESRCH'
+            ) return false
+            throw runningError
+          }
+        },
+        sleep: () => new Promise(resolve => setTimeout(resolve, 50)),
+        now: Date.now
+      })
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, discoveryError, cleanupError].filter(
+          candidate => candidate !== undefined
+        ),
+        'Upstream performance launch and cleanup both failed'
+      )
+    }
+    if (discoveryError !== undefined) {
+      throw new AggregateError(
+        [error, discoveryError],
+        'Upstream performance launch failed and process ownership was ambiguous'
+      )
+    }
     throw error
   }
 }
@@ -664,7 +718,7 @@ test.describe('pinned upstream baseline raw performance producer', () => {
           launcherSha256: requiredValue('MARKTEXT_UPSTREAM_LAUNCHER_SHA256'),
           measurementBoundary: 'external-browser-compositor-v4',
           presentationBoundary: PERFORMANCE_PRESENTATION_BOUNDARY,
-          launchBoundary: 'external-inspector-transparent-render-active-v2',
+          launchBoundary: 'external-inspector-transparent-render-active-v3',
           windowPresentationPolicy: PERFORMANCE_WINDOW_PRESENTATION_POLICY,
           windowPresentationPlatform: 'darwin',
           chromiumSchedulingPolicy: PERFORMANCE_CHROMIUM_SCHEDULING_POLICY
