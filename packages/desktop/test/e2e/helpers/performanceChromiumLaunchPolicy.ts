@@ -41,6 +41,37 @@ export interface MacWindowServerPresentationState {
   readonly onScreen: boolean
 }
 
+export interface MacWindowServerPresentationDiagnostic {
+  readonly expected: Readonly<{
+    readonly processId: number
+    readonly title: string
+    readonly bounds: PerformanceWindowPresentationState['bounds']
+  }>
+  readonly candidateRowCount: number
+  readonly exactMatchCount: number
+  readonly candidateRows: readonly MacWindowServerPresentationState[]
+}
+
+export class MacWindowServerPresentationInvariantError extends Error {
+  readonly diagnostic: MacWindowServerPresentationDiagnostic
+
+  constructor(diagnostic: MacWindowServerPresentationDiagnostic) {
+    super(
+      'WindowServer presentation invariant failed: expected exactly one ' +
+      `matching window; diagnostic=${JSON.stringify(diagnostic)}`
+    )
+    this.name = 'MacWindowServerPresentationInvariantError'
+    this.diagnostic = diagnostic
+  }
+}
+
+const MAC_WINDOW_SERVER_DIAGNOSTIC_TITLE_LIMIT = 160
+
+const boundedMacWindowServerDiagnosticTitle = (title: string): string =>
+  title.length <= MAC_WINDOW_SERVER_DIAGNOSTIC_TITLE_LIMIT
+    ? title
+    : `${title.slice(0, MAC_WINDOW_SERVER_DIAGNOSTIC_TITLE_LIMIT - 1)}…`
+
 interface PerformanceWindowLifecycleApi {
   readonly activate: (
     targetId: string
@@ -228,9 +259,27 @@ export const assertMacWindowServerTransparentRenderActive = (
     window.bounds.height === expectedBounds.height
   )
   if (matchingWindows.length !== 1) {
-    throw new Error(
-      'WindowServer presentation invariant failed: expected exactly one matching window'
-    )
+    const candidateRows = windows
+      .filter(window => window.ownerProcessId === expectedProcessId)
+      .slice(0, 8)
+      .map(window => Object.freeze({
+        ...window,
+        title: boundedMacWindowServerDiagnosticTitle(window.title),
+        bounds: Object.freeze({ ...window.bounds })
+      }))
+    const diagnostic = Object.freeze({
+      expected: Object.freeze({
+        processId: expectedProcessId,
+        title: boundedMacWindowServerDiagnosticTitle(expectedWindow.title),
+        bounds: Object.freeze({ ...expectedBounds })
+      }),
+      candidateRowCount: windows.filter(
+        window => window.ownerProcessId === expectedProcessId
+      ).length,
+      exactMatchCount: matchingWindows.length,
+      candidateRows: Object.freeze(candidateRows)
+    })
+    throw new MacWindowServerPresentationInvariantError(diagnostic)
   }
   const [window] = matchingWindows
   if (
