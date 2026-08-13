@@ -39,6 +39,25 @@ export interface CoreAuthorityPerformanceRawRunInput {
   readonly samples: readonly CoreAuthorityPerformanceRawSample[]
 }
 
+export function formatMacHardwareFingerprint(input: Readonly<{
+  readonly machineName?: string
+  readonly machineModel?: string
+  readonly chipType?: string
+  readonly physicalMemory?: string
+}>): string {
+  const product = [input.machineName, input.machineModel]
+    .filter((value): value is string =>
+      typeof value === 'string' && value.length > 0
+    )
+    .join(' ')
+
+  return [product, input.chipType, input.physicalMemory]
+    .filter((value): value is string =>
+      typeof value === 'string' && value.length > 0
+    )
+    .join(', ')
+}
+
 const emptyDistribution = (): Record<Metric, number[]> => ({
   t_dispatch: [],
   t_ack: [],
