@@ -58,6 +58,14 @@ export function formatMacHardwareFingerprint(input: Readonly<{
     .join(', ')
 }
 
+export function chooseCoreAuthorityPerformanceSurface(input: Readonly<{
+  readonly sourceActive: boolean
+  readonly wysiwygEditable: boolean
+}>): CoreAuthorityPerformanceSurface {
+  if (input.sourceActive) return 'source'
+  return input.wysiwygEditable ? 'wysiwyg' : 'source'
+}
+
 const emptyDistribution = (): Record<Metric, number[]> => ({
   t_dispatch: [],
   t_ack: [],
