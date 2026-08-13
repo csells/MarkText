@@ -284,7 +284,10 @@ import {
   executeProjectedSearchReplacement,
   type ProjectedSearchSnapshot
 } from '@/documentConsumers/projectedSearchReplacementAuthority'
-import { installProjectedSelectionClipboardGuard } from '@/documentConsumers/projectedClipboardGuard'
+import {
+  installProjectedSelectionClipboardGuard,
+  type ProjectedSelectionClipboardOperation
+} from '@/documentConsumers/projectedClipboardGuard'
 import {
   createProjectedSelectionClipboardAuthority,
   type ProjectedSelectionClipboardAuthority
@@ -1804,6 +1807,27 @@ const prepareCoreSelectionClipboard = async (
   }
 }
 
+const retryCoreSelectionClipboard = (
+  operation: ProjectedSelectionClipboardOperation
+): void => {
+  const selection = coreAuthorSelection.value
+  if (selection === undefined) return
+  const inputEpoch = coreConsumerInputEpoch
+  prepareCoreSelectionClipboard(selection, 'rich')
+    .then(prepared => {
+      if (
+        prepared && inputEpoch === coreConsumerInputEpoch &&
+        coreAuthorSelection.value === selection
+      ) document.execCommand(operation)
+    })
+    .catch(error => {
+      if (
+        inputEpoch === coreConsumerInputEpoch &&
+        coreAuthorSelection.value === selection
+      ) emit('core-fault', error)
+    })
+}
+
 // Custom copyAsRich copyAsHtml pasteAsPlainText.
 // `copyAsRich` writes the rendered HTML to `text/html` AND the plain text to
 // `text/plain`, so pasting into Word/email yields formatted rich text (whereas
@@ -2790,7 +2814,8 @@ onMounted(() => {
         () => coreSelectionClipboardAuthority?.payload(),
         () => {
           editor.value?.editor.clipboard.cutHandler()
-        }
+        },
+        retryCoreSelectionClipboard
       )
     coreCompositionStart = () => {
       try {

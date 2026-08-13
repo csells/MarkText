@@ -21,6 +21,10 @@ import {
 } from './helpers/upstreamBaselineInputProbe'
 import { readUpstreamBaselineMachineEnvironment } from './helpers/upstreamBaselineEnvironment'
 import {
+  installUpstreamExternalHiddenPolicy,
+  type UpstreamInspectorResponse
+} from './helpers/upstreamBaselineHiddenPolicy'
+import {
   placeCaretInEditor,
   waitForEditor
 } from './helpers'
@@ -208,14 +212,6 @@ interface InspectorTarget {
   readonly webSocketDebuggerUrl?: string
 }
 
-interface InspectorResponse {
-  readonly id?: number
-  readonly error?: { readonly message?: string }
-  readonly result?: {
-    readonly exceptionDetails?: { readonly text?: string }
-  }
-}
-
 const waitForInspectorTarget = async(
   endpoint: string,
   launcher: ChildProcess
@@ -251,12 +247,15 @@ const installExternalHiddenPolicy = async(
     }, { once: true })
   })
   let nextId = 0
-  const send = async(method: string, params: Record<string, unknown> = {}) => {
+  const send = async(
+    method: string,
+    params: Readonly<Record<string, unknown>> = {}
+  ) => {
     const id = ++nextId
-    const response = new Promise<InspectorResponse>((resolve, reject) => {
+    const response = new Promise<UpstreamInspectorResponse>((resolve, reject) => {
       const handleMessage = (event: MessageEvent): void => {
         if (typeof event.data !== 'string') return
-        const candidate = JSON.parse(event.data) as InspectorResponse
+        const candidate = JSON.parse(event.data) as UpstreamInspectorResponse
         if (candidate.id !== id) return
         socket.removeEventListener('message', handleMessage)
         if (candidate.error !== undefined) {
@@ -270,38 +269,29 @@ const installExternalHiddenPolicy = async(
     socket.send(JSON.stringify({ id, method, params }))
     return response
   }
-  try {
-    await send('Runtime.enable')
-    const installed = await send('Runtime.evaluate', {
-      expression: `(() => {
-        const { app } = require('electron')
-        app.setActivationPolicy('prohibited')
-        globalThis.__marktextUpstreamHiddenLaunch = Object.freeze({
-          boundary: 'external-inspector-hidden-cdp-v1'
-        })
-        app.on('browser-window-created', (_event, window) => {
-          const conceal = () => {
-            if (window.isDestroyed()) return
-            window.hide()
-            window.blur()
-          }
-          window.setSkipTaskbar(true)
-          conceal()
-          window.on('show', conceal)
-        })
-        app.whenReady().then(() => app.dock?.hide())
-        return true
-      })()`,
-      includeCommandLineAPI: true,
-      returnByValue: true
-    })
-    if (installed.result?.exceptionDetails !== undefined) {
-      throw new Error(
-        installed.result.exceptionDetails.text ??
-          'External hidden-window policy could not be installed'
-      )
+  const waitForPaused = async(): Promise<Readonly<{
+    readonly callFrames: readonly Readonly<{ readonly callFrameId: string }>[]
+  }>> => new Promise(resolve => {
+    const handleMessage = (event: MessageEvent): void => {
+      if (typeof event.data !== 'string') return
+      const candidate = JSON.parse(event.data) as Readonly<{
+        readonly method?: string
+        readonly params?: {
+          readonly callFrames?: readonly Readonly<{
+            readonly callFrameId: string
+          }>[]
+        }
+      }>
+      if (candidate.method !== 'Debugger.paused') return
+      socket.removeEventListener('message', handleMessage)
+      resolve(Object.freeze({
+        callFrames: Object.freeze(candidate.params?.callFrames ?? [])
+      }))
     }
-    await send('Runtime.runIfWaitingForDebugger')
+    socket.addEventListener('message', handleMessage)
+  })
+  try {
+    await installUpstreamExternalHiddenPolicy({ send, waitForPaused })
   } finally {
     socket.close()
   }
