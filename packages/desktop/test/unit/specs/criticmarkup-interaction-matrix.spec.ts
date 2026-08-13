@@ -22,6 +22,11 @@ const evidencePath = resolve(
   repoRoot,
   'specs/baselines/criticmarkup-interaction-evidence.json'
 )
+const installedRunPath =
+  'specs/baselines/runs/' +
+  'installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json'
+const installedRunSha256 =
+  'a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53'
 
 describe('CriticMarkup interaction matrix', () => {
   const passingPlaywrightReport = () => {
@@ -92,6 +97,7 @@ describe('CriticMarkup interaction matrix', () => {
     const row = matrix.rows[0]
     if (row === undefined) throw new Error('Interaction matrix is empty')
     row.status = 'green'
+    row.productionOracle = 'planned: missing installed interaction oracle'
 
     expect(() => validateCriticMarkupInteractionMatrix(matrix)).toThrow(
       /green row .* requires a named production oracle/
@@ -154,26 +160,33 @@ describe('CriticMarkup interaction matrix', () => {
     )
   })
 
-  it('maps every row to named production evidence or a concrete missing seam', () => {
+  it('pins passing authenticated installed evidence for every matrix row', () => {
     const matrix = readCriticMarkupInteractionMatrix(matrixPath)
     const evidence = JSON.parse(
       readFileSync(evidencePath, 'utf8')
     ) as CriticMarkupInteractionEvidenceManifest
+    const installedRun = JSON.parse(
+      readFileSync(resolve(repoRoot, installedRunPath), 'utf8')
+    ) as unknown
 
     expect(() => validateCriticMarkupInteractionEvidence(
       repoRoot,
       matrix,
       evidence
     )).not.toThrow()
+    expect(() => validateCriticMarkupInstalledInteractionRunRecord(
+      matrix,
+      installedRun
+    )).not.toThrow()
     expect(evidence.rows).toHaveLength(25)
-    expect(Object.fromEntries(['existing-partial', 'missing-production-oracle'].map(status => [
-      status,
-      evidence.rows.filter(row => row.status === status).length
-    ]))).toEqual({
-      'existing-partial': 25,
-      'missing-production-oracle': 0
-    })
-    expect(evidence.rows.some(row => row.status === 'green')).toBe(false)
+    expect(matrix.rows.every(row => (
+      row.status === 'green' &&
+      row.productionOracle ===
+        'packages/desktop/test/e2e/installed-core-review.spec.ts: ' +
+        'follows the installed interaction matrix'
+    ))).toBe(true)
+    expect(evidence.rows.filter(row => row.status === 'green')).toHaveLength(25)
+    expect(evidence.rows.every(row => row.missingSeam === null)).toBe(true)
     expect(evidence.rows.filter(row =>
       row.productionOracle?.path ===
         'packages/desktop/test/e2e/installed-core-review.spec.ts' &&
@@ -205,11 +218,19 @@ describe('CriticMarkup interaction matrix', () => {
       'substitution.paragraph.resolve',
       'substitution.reference-footnote.save-reopen'
     ])
+    expect(evidence.rows.every(row => (
+      row.execution?.buildCommit ===
+        'addd76f29ac28b0efc13db33868b1f62dd0f9724' &&
+      row.execution.recordedAt === '2026-08-13T17:48:22.569Z' &&
+      row.execution.result === 'pass' &&
+      row.execution.recordPath === installedRunPath &&
+      row.execution.recordSha256 === installedRunSha256
+    ))).toBe(true)
     expect(() => requireGreenCriticMarkupInteractionEvidence(
       repoRoot,
       matrix,
       evidence
-    )).toThrow(/25 interaction rows are not green/)
+    )).not.toThrow()
   })
 
   it('rejects a green claim without a named installed oracle and execution record', () => {
@@ -221,6 +242,8 @@ describe('CriticMarkup interaction matrix', () => {
     const row = falseGreen.rows[0]
     if (row === undefined) throw new Error('Interaction evidence fixture is empty')
     row.status = 'green'
+    row.productionOracle = null
+    row.execution = null
 
     expect(() => validateCriticMarkupInteractionEvidence(
       repoRoot,

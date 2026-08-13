@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import {
   mkdirSync,
   mkdtempSync,
@@ -13,6 +14,7 @@ import { describe, expect, it } from 'vitest'
 import {
   type CriticMarkupPerformanceMeasurementManifest,
   type CriticMarkupRawPerformanceRun,
+  type CriticMarkupRawPerformanceRunV1,
   requireCriticMarkupPerformanceEvidenceForRatification,
   validateCriticMarkupPerformanceMeasurements
 } from '../../../../../scripts/criticmarkupPerformanceMeasurements'
@@ -84,6 +86,10 @@ const authenticatedUpstreamProvenance = {
 const sha256 = (source: string): string => createHash('sha256')
   .update(source)
   .digest('hex')
+
+const compositeSha256 = (sources: readonly string[]): string => sha256(sources
+  .map(source => `${sha256(source)}\n`)
+  .join(''))
 
 const first = <Value>(values: Value[]): Value => {
   const value = values[0]
@@ -214,6 +220,92 @@ const withSyntheticRuns = (
   }
 }
 
+const withGitAuthenticatedUpstreamRun = (
+  action: (
+    root: string,
+    measured: CriticMarkupPerformanceMeasurementManifest,
+    upstream: CriticMarkupRawPerformanceRun,
+    update: (raw: CriticMarkupRawPerformanceRun) => void,
+    launcherSource: string
+  ) => void
+): void => {
+  const root = mkdtempSync(resolve(tmpdir(), 'marktext-performance-git-'))
+  try {
+    const write = (path: string, source: string): void => {
+      const absolute = resolve(root, path)
+      mkdirSync(dirname(absolute), { recursive: true })
+      writeFileSync(absolute, source)
+    }
+    const prefix = 'packages/desktop/test/e2e/'
+    const lockfileSource = 'lockfileVersion: 9\n'
+    const producerSources = [
+      'upstream producer\n',
+      'upstream raw-run helper\n',
+      'upstream environment helper\n',
+      'upstream playwright config\n'
+    ] as const
+    const probeSource = 'upstream input probe\n'
+    const launcherSource = '#!/bin/sh\necho launch\n'
+    const launcherHelperSource = '#!/bin/sh\necho helper\n'
+    write(manifest.targetManifest.path, targetsSource)
+    write(manifest.representativeDocuments.path, documentsSource)
+    write('pnpm-lock.yaml', lockfileSource)
+    write(`${prefix}upstream-baseline-performance.spec.ts`, producerSources[0])
+    write(`${prefix}helpers/upstreamBaselinePerformanceRawRun.ts`, producerSources[1])
+    write(`${prefix}helpers/upstreamBaselineEnvironment.ts`, producerSources[2])
+    write(`${prefix}playwright.upstream-baseline-performance.config.ts`, producerSources[3])
+    write(`${prefix}helpers/upstreamBaselineInputProbe.ts`, probeSource)
+    write(`${prefix}run-upstream-baseline-performance.sh`, launcherSource)
+    write(`${prefix}helpers/upstreamBaselinePerformanceRunner.sh`, launcherHelperSource)
+    execFileSync('git', ['-C', root, 'init', '--quiet'])
+    execFileSync('git', ['-C', root, 'add', '.'])
+    execFileSync('git', [
+      '-C', root,
+      '-c', 'user.name=MarkText Test',
+      '-c', 'user.email=marktext-test@example.invalid',
+      'commit', '--quiet', '-m', 'fixture'
+    ])
+    const harnessCommit = execFileSync(
+      'git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }
+    ).trim()
+    const upstream = structuredClone(
+      rawRun('upstream-baseline')
+    ) as CriticMarkupRawPerformanceRunV1
+    upstream.baselineCommit = harnessCommit
+    upstream.buildCommit = harnessCommit
+    upstream.provenance = {
+      ...upstream.provenance,
+      detachedWorktreeHead: harnessCommit,
+      harnessCommit,
+      lockfileSha256: sha256(lockfileSource),
+      producerSha256: compositeSha256(producerSources),
+      probeSha256: sha256(probeSource),
+      launcherSha256: compositeSha256([launcherSource, launcherHelperSource])
+    }
+    const rawPath = 'specs/baselines/runs/performance/upstream-git-fixture.json'
+    const measured: CriticMarkupPerformanceMeasurementManifest = {
+      ...structuredClone(manifest),
+      status: 'measured-unratified',
+      baselineCommit: harnessCommit,
+      runs: [{
+        id: upstream.runId,
+        implementation: 'upstream-baseline',
+        path: rawPath,
+        sha256: ''
+      }]
+    }
+    const update = (raw: CriticMarkupRawPerformanceRun): void => {
+      const source = `${JSON.stringify(raw, null, 2)}\n`
+      write(rawPath, source)
+      first(measured.runs).sha256 = sha256(source)
+    }
+    update(upstream)
+    action(root, measured, upstream, update, launcherSource)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
 describe('CriticMarkup raw performance evidence', () => {
   it('records the missing Core measurement denominator without inventing samples', () => {
     expect(manifest).toMatchObject({
@@ -255,6 +347,18 @@ describe('CriticMarkup raw performance evidence', () => {
         meetsTarget: true
       })
       expect(first(summary.rows).p95Ms).toBeCloseTo(1.189)
+    })
+  })
+
+  it('requires the composite committed upstream launcher digest', () => {
+    withGitAuthenticatedUpstreamRun((root, measured, upstream, update, launcherSource) => {
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .not.toThrow()
+
+      upstream.provenance.launcherSha256 = sha256(launcherSource)
+      update(upstream)
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .toThrow(/launcher digest differs from its harness commit/i)
     })
   })
 

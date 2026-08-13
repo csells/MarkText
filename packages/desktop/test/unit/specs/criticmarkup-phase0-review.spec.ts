@@ -49,6 +49,10 @@ const salvageProposal = readJson<CriticMarkupSalvageProposal>(
 const approval = readJson<CriticMarkupPhase0Approval>(
   'specs/baselines/criticmarkup-phase0-approval.json'
 )
+const reviewPacket = readFileSync(resolve(
+  repoRoot,
+  'specs/baselines/criticmarkup-phase0-review.md'
+), 'utf8')
 const finalParityOverlay = readJson<CriticMarkupParityDispositionOverlay>(
   'specs/baselines/criticmarkup-parity-dispositions.json'
 )
@@ -190,6 +194,20 @@ describe('CriticMarkup Phase 0 review proposal', () => {
       .not.toThrow()
     expect(() => requireCriticMarkupPhase0Approval(repoRoot, approval))
       .toThrow(/8 Phase 0 decisions require explicit owner approval/)
+  })
+
+  it('records authenticated interaction execution without owner ratification', () => {
+    const interactionDecision = approval.decisions.find(
+      decision => decision.id === 'interaction-matrix'
+    )
+
+    expect(interactionDecision?.status).toBe('pending-owner-decision')
+    expect(interactionDecision?.proposal).toContain(
+      'hash-pinned stable-commit installed execution record authenticates all 25 rows as passing'
+    )
+    expect(reviewPacket).toContain('25 green installed executions')
+    expect(reviewPacket).toContain('addd76f29ac28b0efc13db33868b1f62dd0f9724')
+    expect(reviewPacket).toContain('still-unratified expected behavior')
   })
 
   it('rejects stale evidence and an unsupported ratification claim', () => {

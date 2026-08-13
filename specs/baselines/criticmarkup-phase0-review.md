@@ -60,13 +60,14 @@ The performance decision does not approve the rest of Phase 0. The owner must al
 7. **Language profile and ADRs:** ratify, amend, or supersede Profile 1 and the pinned CriticMarkup and
    parser ADR set after reviewing semantic rules separately from implementation machinery.
 8. **Interaction matrix:** approve or amend the 25 expected product behaviors. The current evidence
-   map has 25 partial production seams, no rows without a named production oracle, and zero green
-   installed executions. A table-driven installed oracle now exercises all 25 rows through visible
-   controls and exact source/history/save/reopen checks, but no stable-commit execution record is
-   pinned. The Comment author row follows `CONTEXT.md`: Add Comment creates the conventional
-   Commented span rather than a Point comment. That still-unratified expected behavior remains part
-   of the pending matrix decision. Completion requires recording a passing installed run after
-   ratification. The
+   map has 25 green installed executions and no rows without a named production oracle. A
+   table-driven installed oracle exercised all 25 rows through visible controls and exact
+   source/history/save/reopen checks at stable build commit
+   `addd76f29ac28b0efc13db33868b1f62dd0f9724`; the exact unique passing row IDs and run provenance
+   are preserved in a SHA-256-pinned execution record. That mechanical evidence does not ratify the
+   expected product behaviors. The Comment author row follows `CONTEXT.md`: Add Comment creates the
+   conventional Commented span rather than a Point comment. That still-unratified expected behavior
+   remains part of the pending matrix decision. The
    `comment.reference-footnote.resolve` fixture now follows Profile definition precedence by placing
    its Comment closer on a separate line and is covered at the public engine seam; its installed
    Review oracle is included in the table-driven installed suite.
@@ -80,9 +81,10 @@ The performance decision does not approve the rest of Phase 0. The owner must al
 ```bash
 node_modules/.bin/tsx scripts/criticmarkupPhase0Review.ts --validate-proposal
 node_modules/.bin/tsx scripts/criticmarkupPerformanceMeasurements.ts --validate
+node_modules/.bin/tsx scripts/criticmarkupInteractionMatrix.ts --require-green
 node_modules/.bin/tsx scripts/criticmarkupPhase0Review.ts --require-approval
 ```
 
-The first two commands must pass. The final command must continue to fail with eight pending owner
-decisions until the review is complete and the approved artifacts contain the owner's identity,
-timestamp, and rationale.
+The first three commands must pass. The final command must continue to fail with eight pending
+owner decisions until the review is complete and the approved artifacts contain the owner's
+identity, timestamp, and rationale.

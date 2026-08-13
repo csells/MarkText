@@ -2787,7 +2787,10 @@ onMounted(() => {
     uninstallCoreSelectionClipboardGuard =
       installProjectedSelectionClipboardGuard(
         coreCompositionRoot,
-        () => coreSelectionClipboardAuthority?.payload()
+        () => coreSelectionClipboardAuthority?.payload(),
+        () => {
+          editor.value?.editor.clipboard.cutHandler()
+        }
       )
     coreCompositionStart = () => {
       try {
