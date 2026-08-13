@@ -302,6 +302,10 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes registered Undo and Redo commands to the renderer edit-action channel',
       'phase0.item.82b57f93ae32b97bc090d680':
         'named-production-path-test: packages/desktop/test/unit/specs/file-change-content-check.spec.ts#does not compare disk bytes with stale Pinia while Core owns the document',
+      'phase0.item.91c0c4cd322d1531a3e7c9ea':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-paste-as-plain-text-production-surfaces.spec.ts#routes registered Paste as Plain Text command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.9dfc8781faf2ca756f7e6525':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-select-all-production-surfaces.spec.ts#routes registered Select All command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.9dfe4b390547e294c1e9f277':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-paste-production-surfaces.spec.ts#routes registered Paste command and Edit menu surfaces through the Electron native paste runtime',
       'phase0.item.a67f9710d62840c4950ffff5':
@@ -312,6 +316,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/flush-before-save.spec.ts#waits for Core authority and saves its acknowledged source instead of Pinia',
       'phase0.item.d47275960775bbd34457e2ed':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes registered Undo and Redo commands to the renderer edit-action channel',
+      'phase0.item.d4a789b1042d4eadeabe24d1':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-paste-as-plain-text-production-surfaces.spec.ts#routes registered Paste as Plain Text command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.dbad87f3a634df371ca034af':
         'named-production-path-test: packages/desktop/test/unit/specs/source-code-image-action.spec.ts#rewrites ![id](old) to ![alt](result) on the matched line',
       'phase0.item.deb8142f7f05d1825bfcbaac':
@@ -321,11 +327,13 @@ describe('CriticMarkup Phase 0 review proposal', () => {
       'phase0.item.e37d7c32ed645c4702548f07':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-cut-production-surfaces.spec.ts#routes registered Cut command and Edit menu surfaces through the Electron native cut runtime',
       'phase0.item.ed75c2e03726b7d71723d712':
-        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-paste-production-surfaces.spec.ts#routes registered Paste command and Edit menu surfaces through the Electron native paste runtime'
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-paste-production-surfaces.spec.ts#routes registered Paste command and Edit menu surfaces through the Electron native paste runtime',
+      'phase0.item.fa4e61798208bb8ac4978df6':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-select-all-production-surfaces.spec.ts#routes registered Select All command and Edit menu surfaces through the renderer edit-action channel'
     })
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('required-new-production-path-test:')
-    ))).toHaveLength(346)
+    ))).toHaveLength(342)
     expect(() => validateCriticMarkupParityDispositions(
       parityBaseline,
       materialized.parityOverlay,
