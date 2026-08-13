@@ -75,7 +75,7 @@ describe('upstream baseline external hidden policy', () => {
     expect(calls[3]?.params.expression).toContain('app.setActivationPolicy')
     expect(calls[3]?.params.expression).toContain('accessory')
     expect(calls[3]?.params.expression).toContain(
-      'external-inspector-transparent-render-active-v2'
+      'external-inspector-transparent-render-active-v3'
     )
   })
 
@@ -164,6 +164,8 @@ describe('upstream baseline external hidden policy', () => {
     }
     const app = Object.assign(new EventEmitter(), {
       isActive: () => false,
+      hide: () => {},
+      show: () => {},
       isReady: () => false,
       setActivationPolicy: () => {},
       whenReady: async() => {}
@@ -180,12 +182,15 @@ describe('upstream baseline external hidden policy', () => {
           fromDevToolsTargetId: (targetId: string) =>
             targetId === 'renderer-target-7' ? exactContents : otherContents
         }
-      })
+      }),
+      clearTimeout,
+      setImmediate,
+      setTimeout
     } as Record<string, unknown>
     expect(runInNewContext(upstreamExternalHiddenPolicyExpression, context))
       .toBe(true)
     const installed = context.__marktextUpstreamHiddenLaunch as Readonly<{
-      readonly activate: (targetId: string) => unknown
+      readonly activate: (targetId: string) => Promise<unknown>
       readonly capturePage: (targetId: string) => Promise<{
         readonly empty: boolean
       }>
@@ -194,13 +199,13 @@ describe('upstream baseline external hidden policy', () => {
     await expect(installed.capturePage('renderer-target-7'))
       .rejects.toThrow(/transparent render-active inactive state/i)
     expect(exactContents.capturePage).not.toHaveBeenCalled()
-    installed.activate('renderer-target-7')
+    await installed.activate('renderer-target-7')
     await expect(installed.capturePage('renderer-target-7'))
       .resolves.toEqual({ empty: false })
     expect(exactContents.capturePage).toHaveBeenCalledOnce()
   })
 
-  it('exposes exact transparent render-active lifecycle without focus calls', () => {
+  it('exposes exact transparent render-active lifecycle without focus calls', async() => {
     const lifecycle: string[] = []
     let visible = false
     let opacity = 1
@@ -267,6 +272,8 @@ describe('upstream baseline external hidden policy', () => {
       }
 
       isActive(): boolean { return false }
+      hide(): void { lifecycle.push('app-hide') }
+      show(): void { lifecycle.push('app-show') }
       isReady(): boolean { return false }
       whenReady(): Promise<void> { return new Promise(() => {}) }
       focus(): void { throw new Error('Application focus is prohibited') }
@@ -284,17 +291,20 @@ describe('upstream baseline external hidden policy', () => {
         webContents: {
           fromDevToolsTargetId: () => window.webContents
         }
-      })
+      }),
+      clearTimeout,
+      setImmediate,
+      setTimeout
     } as Record<string, unknown>
     expect(runInNewContext(upstreamExternalHiddenPolicyExpression, context))
       .toBe(true)
     const installed = context.__marktextUpstreamHiddenLaunch as Readonly<{
-      activate: (targetId: string) => unknown
+      activate: (targetId: string) => Promise<unknown>
       inspect: (targetId: string) => unknown
       close: (targetId: string) => boolean
     }>
 
-    expect(installed.activate('renderer-target-7')).toEqual({
+    await expect(installed.activate('renderer-target-7')).resolves.toEqual({
       visible: true,
       opacity: 0,
       focused: false,

@@ -939,11 +939,13 @@ describe('CriticMarkup Phase 0 review proposal', () => {
       'phase0.item.7265e41fc785d5c77dd18db5':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-readme-production-capabilities.spec.ts#muya-readme-feature:6618a086adb9 proves every objective subclaim at its public production seam',
       'phase0.item.112b59f0d798550476e4c0c8':
-        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-readme-production-capabilities.spec.ts#muya-readme-feature:f0ccce744042 proves every objective subclaim at its public production seam'
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-readme-production-capabilities.spec.ts#muya-readme-feature:f0ccce744042 proves every objective subclaim at its public production seam',
+      'phase0.item.0c53ef6a10be597a5a1146cb':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-muya-package-consumer.spec.ts#ships self-contained public types to a blank TypeScript consumer'
     })
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('required-new-production-path-test:')
-    ))).toHaveLength(4)
+    ))).toHaveLength(3)
     expect(() => validateCriticMarkupParityDispositions(
       parityBaseline,
       materialized.parityOverlay,

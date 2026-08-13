@@ -50,7 +50,7 @@ export interface CoreAuthorityPerformanceBuildProvenance {
   readonly launcherSha256: string
   readonly measurementBoundary: 'core-authority-browser-compositor-v6'
   readonly presentationBoundary: typeof PERFORMANCE_PRESENTATION_BOUNDARY
-  readonly launchBoundary: 'playwright-electron-packaged-transparent-v2'
+  readonly launchBoundary: 'playwright-electron-packaged-transparent-v3'
   readonly windowPresentationPolicy: typeof PERFORMANCE_WINDOW_PRESENTATION_POLICY
   readonly windowPresentationPlatform: 'darwin'
   readonly chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
@@ -180,7 +180,7 @@ export function createCoreAuthorityPerformanceRawRun(
   }
   if (
     input.provenance.launchBoundary !==
-      'playwright-electron-packaged-transparent-v2'
+      'playwright-electron-packaged-transparent-v3'
   ) {
     throw new Error('Raw performance launch boundary provenance is invalid')
   }
@@ -361,11 +361,11 @@ export function createCoreAuthorityPerformanceRawRun(
   })
   return input.evidenceClass === 'ratification'
     ? Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-run-v6' as const,
+      schema: 'marktext-criticmarkup-raw-performance-run-v7' as const,
       ...base
     })
     : Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v6' as const,
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v7' as const,
       evidenceClass: 'smoke-non-ratifying' as const,
       ...base
     })
