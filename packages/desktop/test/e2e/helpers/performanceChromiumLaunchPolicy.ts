@@ -13,7 +13,7 @@ export const PERFORMANCE_CHROMIUM_SCHEDULING_POLICY =
   'hidden-unthrottled-rendering-v2' as const
 
 export const PERFORMANCE_WINDOW_PRESENTATION_POLICY =
-  'transparent-render-active-inactive-v1' as const
+  'transparent-render-active-inactive-v2' as const
 
 export interface PerformanceWindowPresentationState {
   readonly visible: boolean
@@ -42,7 +42,9 @@ export interface MacWindowServerPresentationState {
 }
 
 interface PerformanceWindowLifecycleApi {
-  readonly activate: (targetId: string) => PerformanceWindowPresentationState
+  readonly activate: (
+    targetId: string
+  ) => Promise<PerformanceWindowPresentationState>
   readonly inspect: (targetId: string) => PerformanceWindowPresentationState
   readonly close: (targetId: string) => boolean
 }
@@ -110,14 +112,55 @@ export function installPerformanceWindowScheduling(
     title: window.getTitle(),
     bounds: Object.freeze(window.getBounds())
   })
+  const settleTurn = async(): Promise<void> => new Promise(resolve => {
+    setImmediate(resolve)
+  })
+  const deactivateApplication = async(): Promise<void> => {
+    if (typeof app.hide !== 'function' || typeof app.show !== 'function') {
+      throw new Error('Performance application cannot be deactivated')
+    }
+    if (app.isActive()) {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          app.removeListener('did-resign-active', resigned)
+          reject(new Error(
+            'Performance application did not emit did-resign-active'
+          ))
+        }, 5_000)
+        const resigned = (): void => {
+          clearTimeout(timeout)
+          resolve()
+        }
+        app.once('did-resign-active', resigned)
+        app.hide()
+      })
+    } else {
+      app.hide()
+    }
+    if (app.isActive()) {
+      throw new Error('Performance application remained active after hide')
+    }
+    app.show()
+  }
   const lifecycle: PerformanceWindowLifecycleApi = Object.freeze({
-    activate: (targetId: string) => {
+    activate: async(targetId: string) => {
       const window = exactWindow(targetId)
       if (!prepareWindow(window) || typeof window.showInactive !== 'function') {
         throw new Error('Measured renderer BrowserWindow cannot be prepared')
       }
+      await deactivateApplication()
       window.showInactive()
-      return inspectWindow(window)
+      await settleTurn()
+      const state = inspectWindow(window)
+      if (
+        !state.visible || state.opacity !== 0 || state.focused ||
+        state.focusable || state.alwaysOnTop || state.appActive
+      ) {
+        throw new Error(
+          `Performance window did not settle inactive: ${JSON.stringify(state)}`
+        )
+      }
+      return state
     },
     inspect: (targetId: string) => inspectWindow(exactWindow(targetId)),
     close: (targetId: string) => {
