@@ -1,6 +1,9 @@
 import type {
   CoreAuthorityPerformanceReport
 } from './coreAuthorityPerformanceReport'
+import {
+  PERFORMANCE_CHROMIUM_SCHEDULING_POLICY
+} from './performanceChromiumLaunchPolicy'
 
 const METRICS = [
   't_echo',
@@ -44,6 +47,7 @@ export interface CoreAuthorityPerformanceBuildProvenance {
   readonly measurementBoundary: 'core-authority-browser-external-v3'
   readonly launchBoundary: 'playwright-electron-packaged-v1'
   readonly windowVisibility: 'hidden-unfocused'
+  readonly chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
 }
 
 export interface CoreAuthorityPerformanceRawRunInput {
@@ -167,6 +171,12 @@ export function createCoreAuthorityPerformanceRawRun(
   }
   if (input.provenance.windowVisibility !== 'hidden-unfocused') {
     throw new Error('Raw performance window visibility provenance is invalid')
+  }
+  if (
+    input.provenance.chromiumSchedulingPolicy !==
+      PERFORMANCE_CHROMIUM_SCHEDULING_POLICY
+  ) {
+    throw new Error('Raw performance Chromium scheduling provenance is invalid')
   }
   if (Number.isNaN(Date.parse(input.measuredAt))) {
     throw new Error('Raw performance timestamp is invalid')

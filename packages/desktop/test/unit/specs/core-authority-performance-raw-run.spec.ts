@@ -40,7 +40,8 @@ const authenticatedProvenance = Object.freeze({
   launcherSha256: '8'.repeat(64),
   measurementBoundary: 'core-authority-browser-external-v3',
   launchBoundary: 'playwright-electron-packaged-v1',
-  windowVisibility: 'hidden-unfocused'
+  windowVisibility: 'hidden-unfocused',
+  chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
 })
 
 describe('Core authority raw performance producer', () => {
@@ -308,6 +309,34 @@ describe('Core authority raw performance producer', () => {
         }
       ]
     })).toThrow(/checkout head must equal the build commit/i)
+  })
+
+  it('rejects absent or mismatched hidden Chromium scheduling provenance', () => {
+    const absent = {
+      ...authenticatedProvenance
+    } as Record<string, unknown>
+    delete absent.chromiumSchedulingPolicy
+    const run = (provenance: unknown) => createCoreAuthorityPerformanceRawRun({
+      runId: 'core',
+      evidenceClass: 'smoke-non-ratifying',
+      baselineCommit: '1'.repeat(40),
+      buildCommit: '2'.repeat(40),
+      measuredAt: '2026-08-13T12:00:00.000Z',
+      environment: { build: 'packaged' },
+      sampling: { warmupSamples: 1, measuredSamples: 1 },
+      provenance: provenance as CoreAuthorityPerformanceBuildProvenance,
+      documents: [{ id: 'doc', sourceSha256: 'a'.repeat(64) }],
+      samples: [
+        { documentId: 'doc', phase: 'warmup', surface: 'source', report: report(1) },
+        { documentId: 'doc', phase: 'measured', surface: 'source', report: report(2) }
+      ]
+    })
+
+    expect(() => run(absent)).toThrow(/Chromium scheduling/i)
+    expect(() => run({
+      ...authenticatedProvenance,
+      chromiumSchedulingPolicy: 'default-background-scheduling'
+    })).toThrow(/Chromium scheduling/i)
   })
 
   it.each([

@@ -29,6 +29,27 @@ const CORE_METRICS = [
   'first_viewport'
 ] as const
 
+const PERFORMANCE_E2E_PREFIX = 'packages/desktop/test/e2e/'
+
+export const CORE_PERFORMANCE_PRODUCER_PATHS = Object.freeze([
+  `${PERFORMANCE_E2E_PREFIX}installed-core-performance.spec.ts`,
+  `${PERFORMANCE_E2E_PREFIX}helpers/coreAuthorityPerformanceRawRun.ts`,
+  `${PERFORMANCE_E2E_PREFIX}helpers/coreAuthorityPerformanceReport.ts`,
+  `${PERFORMANCE_E2E_PREFIX}installedArtifactProvenance.ts`,
+  `${PERFORMANCE_E2E_PREFIX}playwright.installed-core-performance.config.ts`,
+  `${PERFORMANCE_E2E_PREFIX}helpers/performanceChromiumLaunchPolicy.ts`
+] as const)
+
+export const UPSTREAM_PERFORMANCE_PRODUCER_PATHS = Object.freeze([
+  `${PERFORMANCE_E2E_PREFIX}upstream-baseline-performance.spec.ts`,
+  `${PERFORMANCE_E2E_PREFIX}helpers/upstreamBaselinePerformanceRawRun.ts`,
+  `${PERFORMANCE_E2E_PREFIX}helpers/upstreamBaselineEnvironment.ts`,
+  `${PERFORMANCE_E2E_PREFIX}playwright.upstream-baseline-performance.config.ts`,
+  `${PERFORMANCE_E2E_PREFIX}helpers/upstreamBaselineHiddenPolicy.ts`,
+  `${PERFORMANCE_E2E_PREFIX}helpers/upstreamBaselineLifecycleCleanup.ts`,
+  `${PERFORMANCE_E2E_PREFIX}helpers/performanceChromiumLaunchPolicy.ts`
+] as const)
+
 type CommonMetric = typeof COMMON_METRICS[number]
 type CoreAuthorityMetric = typeof CORE_AUTHORITY_METRICS[number]
 type PerformanceMetric = CommonMetric | CoreAuthorityMetric
@@ -127,6 +148,7 @@ export interface CriticMarkupCorePerformanceProvenance {
   measurementBoundary: 'core-authority-browser-external-v3'
   launchBoundary: 'playwright-electron-packaged-v1'
   windowVisibility: 'hidden-unfocused'
+  chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
 }
 
 export interface CriticMarkupUpstreamPerformanceProvenance {
@@ -146,6 +168,7 @@ export interface CriticMarkupUpstreamPerformanceProvenance {
   measurementBoundary: 'external-browser-dom-v1'
   launchBoundary: 'external-inspector-hidden-cdp-v1'
   windowVisibility: 'hidden-unfocused'
+  chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
 }
 
 export interface CriticMarkupPerformanceAuthoritySamples {
@@ -237,7 +260,7 @@ const validateHarnessDigests = (
     provenance.harnessCommit,
     `${label} harness commit`
   )
-  const prefix = 'packages/desktop/test/e2e/'
+  const prefix = PERFORMANCE_E2E_PREFIX
   if (implementation === 'core-candidate') {
     requireHarnessDigest(
       provenance.lockfileSha256,
@@ -246,13 +269,7 @@ const validateHarnessDigests = (
     )
     requireHarnessDigest(
       provenance.producerSha256,
-      compositeGitDigest(repoRoot, harnessCommit, [
-        `${prefix}installed-core-performance.spec.ts`,
-        `${prefix}helpers/coreAuthorityPerformanceRawRun.ts`,
-        `${prefix}helpers/coreAuthorityPerformanceReport.ts`,
-        `${prefix}installedArtifactProvenance.ts`,
-        `${prefix}playwright.installed-core-performance.config.ts`
-      ]),
+      compositeGitDigest(repoRoot, harnessCommit, CORE_PERFORMANCE_PRODUCER_PATHS),
       `${label} producer digest`
     )
     requireHarnessDigest(
@@ -281,14 +298,7 @@ const validateHarnessDigests = (
   )
   requireHarnessDigest(
     provenance.producerSha256,
-    compositeGitDigest(repoRoot, harnessCommit, [
-      `${prefix}upstream-baseline-performance.spec.ts`,
-      `${prefix}helpers/upstreamBaselinePerformanceRawRun.ts`,
-      `${prefix}helpers/upstreamBaselineEnvironment.ts`,
-      `${prefix}playwright.upstream-baseline-performance.config.ts`,
-      `${prefix}helpers/upstreamBaselineHiddenPolicy.ts`,
-      `${prefix}helpers/upstreamBaselineLifecycleCleanup.ts`
-    ]),
+    compositeGitDigest(repoRoot, harnessCommit, UPSTREAM_PERFORMANCE_PRODUCER_PATHS),
     `${label} producer digest`
   )
   requireHarnessDigest(
@@ -418,6 +428,7 @@ const validateUpstreamProvenance = (
 ): void => {
   const provenance = requireRecord(value, `${label} provenance`)
   exactList(Object.keys(provenance).sort(), [
+    'chromiumSchedulingPolicy',
     'detachedWorktreeClean',
     'detachedWorktreeHead',
     'executableSha256',
@@ -468,6 +479,9 @@ const validateUpstreamProvenance = (
   if (provenance.windowVisibility !== 'hidden-unfocused') {
     throw new Error(`${label} provenance window visibility is invalid`)
   }
+  if (provenance.chromiumSchedulingPolicy !== 'hidden-unthrottled-rendering-v1') {
+    throw new Error(`${label} provenance Chromium scheduling policy is invalid`)
+  }
 }
 
 const validateAuthoritySamples = (
@@ -508,6 +522,7 @@ const validateCoreProvenance = (
   exactList(Object.keys(provenance).sort(), [
     'checkoutClean',
     'checkoutHead',
+    'chromiumSchedulingPolicy',
     'executableSha256',
     'harnessCommit',
     'launchBoundary',
@@ -562,6 +577,9 @@ const validateCoreProvenance = (
   }
   if (provenance.windowVisibility !== 'hidden-unfocused') {
     throw new Error(`${label} provenance window visibility is invalid`)
+  }
+  if (provenance.chromiumSchedulingPolicy !== 'hidden-unthrottled-rendering-v1') {
+    throw new Error(`${label} provenance Chromium scheduling policy is invalid`)
   }
 }
 

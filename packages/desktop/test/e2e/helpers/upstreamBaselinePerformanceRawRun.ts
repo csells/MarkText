@@ -1,6 +1,10 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, normalize, sep } from 'node:path'
 
+import {
+  PERFORMANCE_CHROMIUM_SCHEDULING_POLICY
+} from './performanceChromiumLaunchPolicy'
+
 const PINNED_UPSTREAM_BASELINE =
   '43bd8b77795fb27b1a9512737c000f7362031ea0'
 const RATIFICATION_SAMPLING = Object.freeze({
@@ -43,6 +47,7 @@ export interface UpstreamBaselineBuildProvenance {
   readonly measurementBoundary: 'external-browser-dom-v1'
   readonly launchBoundary: 'external-inspector-hidden-cdp-v1'
   readonly windowVisibility: 'hidden-unfocused'
+  readonly chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
 }
 
 export interface UpstreamBaselinePerformanceRawRunInput {
@@ -192,6 +197,12 @@ const validateProvenance = (
   }
   if (input.provenance.windowVisibility !== 'hidden-unfocused') {
     throw new Error('Upstream window visibility evidence is invalid')
+  }
+  if (
+    input.provenance.chromiumSchedulingPolicy !==
+      PERFORMANCE_CHROMIUM_SCHEDULING_POLICY
+  ) {
+    throw new Error('Upstream Chromium scheduling provenance is invalid')
   }
 }
 
