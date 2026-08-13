@@ -604,6 +604,7 @@ onMounted(() => {
         async settled (): Promise<void> { await coreAdapter?.settled() },
         latest: () => latest,
         performanceEvents: () => props.corePerformanceTrace?.events() ?? [],
+        performanceSurface: () => 'source' as const,
         performanceStatus: () => props.corePerformanceTrace?.status() ?? {
           accepting: false,
           eventCount: 0

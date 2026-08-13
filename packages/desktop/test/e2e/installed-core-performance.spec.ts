@@ -16,6 +16,7 @@ import type { CoreAuthorityPerformanceSurface } from './helpers/coreAuthorityPer
 import { reportCoreAuthorityPerformance } from './helpers/coreAuthorityPerformanceReport'
 import {
   readBrowserInputEventTrace,
+  requireCompleteBrowserInputEventSample,
   startBrowserInputEventTrace,
   waitForBrowserInputEventTrace
 } from './helpers/browserInputEventTrace'
@@ -70,6 +71,8 @@ interface PerformanceMeasurementManifest {
   readonly baselineCommit: string
 }
 
+type CorePerformanceEvidenceClass = 'ratification' | 'smoke-non-ratifying'
+
 const readJson = <T>(filePath: string): T =>
   JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
 
@@ -77,13 +80,15 @@ const sha256 = (source: Buffer): string => createHash('sha256')
   .update(source)
   .digest('hex')
 
-const requiredPath = (name: string): string => {
+const requiredValue = (name: string): string => {
   const configured = process.env[name]
   if (configured === undefined || configured.trim().length === 0) {
     throw new Error(`${name} is required`)
   }
-  return path.resolve(configured)
+  return configured
 }
+
+const requiredPath = (name: string): string => path.resolve(requiredValue(name))
 
 const installedBinary = (): string => {
   const binary = requiredPath('MARKTEXT_PACKAGED_APP')
@@ -163,7 +168,12 @@ const openSample = async(
   app: ElectronApplication,
   page: Page,
   filePath: string
-): Promise<string> => {
+): Promise<Readonly<{
+  readonly documentId: string
+  readonly requestedAt: number
+  readonly open: number
+}>> => {
+  const requestedAt = performance.now()
   await app.evaluate(({ BrowserWindow, ipcMain }, target) => {
     const window = BrowserWindow.getAllWindows()[0]
     if (window === undefined) throw new Error('Editor window is unavailable')
@@ -172,48 +182,99 @@ const openSample = async(
   await expect.poll(() => activeDocumentId(page), { timeout: 60_000 }).not.toBeNull()
   const documentId = await activeDocumentId(page)
   if (documentId === null) throw new Error('Installed performance document did not open')
-  await page.waitForFunction(
-    expected => window.__marktextDocumentCore?.documentId === expected,
+  return Object.freeze({
     documentId,
-    { timeout: 60_000 }
-  )
-  return documentId
+    requestedAt,
+    open: performance.now() - requestedAt
+  })
 }
 
 const measureSample = async(
   app: ElectronApplication,
   page: Page,
-  documentId: string,
+  opened: Readonly<{
+    readonly documentId: string
+    readonly requestedAt: number
+    readonly open: number
+  }>,
   representativeId: string
 ): Promise<Readonly<{
   readonly surface: CoreAuthorityPerformanceSurface
   readonly report: ReturnType<typeof reportCoreAuthorityPerformance>
 }>> => {
+  const { documentId } = opened
+  await page.waitForFunction(expected =>
+    window.__marktextDocumentCore?.documentId === expected &&
+    window.__marktextDocumentCore.performanceSurface?.() !== undefined,
+  documentId,
+  { timeout: 60_000 })
   const wysiwygEditable = page.locator(
     'span.mu-paragraph-content[contenteditable="true"]'
   ).first()
+  const initialSurface = await page.evaluate(() =>
+    window.__marktextDocumentCore?.performanceSurface?.())
   const surface = chooseCoreAuthorityPerformanceSurface({
-    sourceActive: await page.locator('.source-code .CodeMirror').count() > 0,
-    wysiwygEditable: await wysiwygEditable.count() > 0
+    sourceActive: initialSurface === 'source' || initialSurface === 'source-required',
+    wysiwygEditable: initialSurface === 'wysiwyg'
   })
   if (surface === 'source') await enterSourceMode(page, app)
 
-  await page.waitForFunction(expected => {
+  await page.waitForFunction(({ expected, expectedSurface }) => {
     const events = window.__marktextDocumentCore?.performanceEvents?.() ?? []
     return events.some(event =>
-      event.documentId === expected && event.phase === 'first-editable-viewport'
+      event.documentId === expected && event.phase === 'first-editable-viewport' &&
+      event.surface === expectedSurface
     )
-  }, documentId, { timeout: 60_000 })
+  }, { expected: documentId, expectedSurface: surface }, { timeout: 60_000 })
+  if (surface === 'source') {
+    await page.waitForSelector('.source-code .CodeMirror', {
+      state: 'attached',
+      timeout: 60_000
+    })
+    await page.waitForFunction(() => {
+      const host = document.querySelector('.source-code .CodeMirror') as
+        | (Element & { CodeMirror?: { focus(): void; hasFocus(): boolean } })
+        | null
+      const codeMirror = host?.CodeMirror
+      if (codeMirror === undefined) return false
+      codeMirror.focus()
+      return codeMirror.hasFocus()
+    }, undefined, { timeout: 60_000 })
+  } else {
+    await expect(wysiwygEditable).toBeEditable({ timeout: 60_000 })
+  }
+  const firstViewport = performance.now() - opened.requestedAt
 
-  let input: Readonly<{ readonly sequence: number; readonly tEvent: number }> |
-    undefined
+  let input: Readonly<{
+    readonly sequence: number
+    readonly tEvent: number
+    readonly tEcho: number
+    readonly tFrame: number
+  }> | undefined
   if (surface === 'wysiwyg') {
     await wysiwygEditable.click()
     await page.keyboard.press('End')
     await startInputLatencyTrace(page, { maxSamples: 1 })
     await page.keyboard.type('x', { delay: 0 })
     await waitForInputLatencyTrace(page, 1, 30_000)
-    ;[input] = await readInputLatencyTrace(page)
+    const [wysiwygInput] = await readInputLatencyTrace(page)
+    if (
+      wysiwygInput?.tEcho === undefined || wysiwygInput.tFrame === undefined ||
+      wysiwygInput.echoDomCheckpoint === undefined ||
+      wysiwygInput.frameDomCheckpoint === undefined ||
+      JSON.stringify(wysiwygInput.expectedDomCheckpoint) !==
+        JSON.stringify(wysiwygInput.echoDomCheckpoint) ||
+      JSON.stringify(wysiwygInput.expectedDomCheckpoint) !==
+        JSON.stringify(wysiwygInput.frameDomCheckpoint)
+    ) {
+      throw new Error('WYSIWYG browser input trace is incomplete')
+    }
+    input = Object.freeze({
+      sequence: wysiwygInput.sequence,
+      tEvent: wysiwygInput.tEvent,
+      tEcho: wysiwygInput.tEcho,
+      tFrame: wysiwygInput.tFrame
+    })
   } else {
     await page.waitForSelector(
       '.source-code .CodeMirror',
@@ -254,7 +315,11 @@ const measureSample = async(
         | null
       return host?.CodeMirror?.getValue() !== expected
     }, sourceBeforeInput, { timeout: 30_000 })
-    ;[input] = await readBrowserInputEventTrace(page)
+    const [sourceInput] = await readBrowserInputEventTrace(page)
+    if (sourceInput === undefined) {
+      throw new Error('Source browser input trace is missing')
+    }
+    input = requireCompleteBrowserInputEventSample(sourceInput)
   }
   try {
     await page.waitForFunction(expected => {
@@ -295,11 +360,18 @@ const measureSample = async(
   const authorityEvents = await page.evaluate(expected =>
     (window.__marktextDocumentCore?.performanceEvents?.() ?? [])
       .filter(event => event.documentId === expected), documentId)
+  const browserInput = Object.freeze({
+    sequence: input.sequence,
+    tEvent: input.tEvent,
+    tEcho: input.tEcho,
+    tFrame: input.tFrame
+  })
   return Object.freeze({
     surface,
     report: reportCoreAuthorityPerformance({
       surface,
-      inputEvents: [{ sequence: input.sequence, tEvent: input.tEvent }],
+      externalOpen: { open: opened.open, firstViewport },
+      inputEvents: [browserInput],
       authorityEvents
     })
   })
@@ -340,7 +412,7 @@ test.describe('installed Core authority raw performance producer', () => {
     'Dedicated packaged performance launch only'
   )
 
-  test('writes five unpooled 20/200 production-bundle distributions', async() => {
+  test('writes five unpooled authenticated production-bundle distributions', async() => {
     if (process.platform !== 'darwin') {
       throw new Error('Pinned Core performance evidence requires the recorded macOS host')
     }
@@ -354,6 +426,22 @@ test.describe('installed Core authority raw performance producer', () => {
     const measurements = readJson<PerformanceMeasurementManifest>(
       PERFORMANCE_MEASUREMENTS
     )
+    const evidenceClass = requiredValue('MARKTEXT_CORE_EVIDENCE_CLASS') as
+      CorePerformanceEvidenceClass
+    if (
+      evidenceClass !== 'ratification' &&
+      evidenceClass !== 'smoke-non-ratifying'
+    ) throw new Error('MARKTEXT_CORE_EVIDENCE_CLASS is invalid')
+    const sampling = evidenceClass === 'ratification'
+      ? targets.sampling
+      : {
+        warmupSamples: Number(requiredValue('MARKTEXT_CORE_WARMUP_SAMPLES')),
+        measuredSamples: Number(requiredValue('MARKTEXT_CORE_MEASURED_SAMPLES'))
+      }
+    if (
+      !Number.isSafeInteger(sampling.warmupSamples) || sampling.warmupSamples < 1 ||
+      !Number.isSafeInteger(sampling.measuredSamples) || sampling.measuredSamples < 1
+    ) throw new Error('Core smoke sample counts must be positive integers')
     expect(representatives.documents).toHaveLength(5)
     expect(targets.sampling).toEqual({
       warmupSamples: 20,
@@ -364,15 +452,14 @@ test.describe('installed Core authority raw performance producer', () => {
     expect(machineEnvironment()).toEqual(targets.environment)
 
     const totalSamples = representatives.documents.length *
-      (targets.sampling.warmupSamples + targets.sampling.measuredSamples)
+      (sampling.warmupSamples + sampling.measuredSamples)
     const samples: CoreAuthorityPerformanceRawSample[] = []
     const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-core-performance-'))
     let completed = 0
     try {
       for (const document of representatives.documents) {
-        const count = targets.sampling.warmupSamples +
-          targets.sampling.measuredSamples
-        const sampleFiles = sampleFilesFor(runRoot, document, count)
+        const count = sampling.warmupSamples + sampling.measuredSamples
+        const sampleFiles = sampleFilesFor(runRoot, document, count + 1)
         const profile = path.join(runRoot, `profile-${document.id}`)
         const launchEnvironment = { ...process.env }
         delete launchEnvironment.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
@@ -399,34 +486,21 @@ test.describe('installed Core authority raw performance producer', () => {
           expect(await page.evaluate(() =>
             window.electron.process.env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
           )).toBeUndefined()
+          await closeActiveTab(page)
 
-          for (let index = 0; index < sampleFiles.length; index += 1) {
+          for (let index = 1; index < sampleFiles.length; index += 1) {
             const filePath = sampleFiles[index]!
-            const documentId = index === 0
-              ? await (async() => {
-                await expect.poll(
-                  () => activeDocumentId(page),
-                  { timeout: 60_000 }
-                ).not.toBeNull()
-                const active = await activeDocumentId(page)
-                if (active === null) throw new Error('Initial sample did not open')
-                await page.waitForFunction(
-                  expected => window.__marktextDocumentCore?.documentId === expected,
-                  active,
-                  { timeout: 60_000 }
-                )
-                return active
-              })()
-              : await openSample(app, page, filePath)
+            const opened = await openSample(app, page, filePath)
             const measurement = await measureSample(
               app,
               page,
-              documentId,
+              opened,
               document.id
             )
+            const sampleIndex = index - 1
             samples.push(Object.freeze({
               documentId: document.id,
-              phase: index < targets.sampling.warmupSamples
+              phase: sampleIndex < sampling.warmupSamples
                 ? 'warmup'
                 : 'measured',
               surface: measurement.surface,
@@ -435,9 +509,9 @@ test.describe('installed Core authority raw performance producer', () => {
             completed += 1
             process.stdout.write(
               `[${String(completed)}/${String(totalSamples)}] ` +
-              `${document.id} ${index < targets.sampling.warmupSamples
+              `${document.id} ${sampleIndex < sampling.warmupSamples
                 ? 'warmup'
-                : 'measured'} ${String(index + 1)} ` +
+                : 'measured'} ${String(sampleIndex + 1)} ` +
               `${measurement.surface}\n`
             )
             await closeActiveTab(page)
@@ -448,13 +522,34 @@ test.describe('installed Core authority raw performance producer', () => {
       }
 
       const run = createCoreAuthorityPerformanceRawRun({
+        evidenceClass,
         runId: process.env.MARKTEXT_PERFORMANCE_RUN_ID ??
           `core-candidate-${buildCommit.slice(0, 12)}`,
         baselineCommit: measurements.baselineCommit,
         buildCommit,
         measuredAt: new Date().toISOString(),
         environment: targets.environment,
-        sampling: targets.sampling,
+        sampling,
+        provenance: {
+          checkoutHead: requiredValue('MARKTEXT_CORE_CHECKOUT_HEAD'),
+          checkoutClean: requiredValue('MARKTEXT_CORE_CHECKOUT_CLEAN') === 'true',
+          harnessCommit: requiredValue('MARKTEXT_CORE_HARNESS_COMMIT'),
+          packageArtifactSha256: requiredValue(
+            'MARKTEXT_CORE_PACKAGE_SHA256'
+          ),
+          executableSha256: requiredValue('MARKTEXT_CORE_EXECUTABLE_SHA256'),
+          packageVersion: requiredValue('MARKTEXT_CORE_PACKAGE_VERSION'),
+          packageManager: requiredValue('MARKTEXT_CORE_PACKAGE_MANAGER'),
+          nodeVersion: requiredValue('MARKTEXT_CORE_NODE_VERSION'),
+          playwrightVersion: requiredValue('MARKTEXT_CORE_PLAYWRIGHT_VERSION'),
+          lockfileSha256: requiredValue('MARKTEXT_CORE_LOCKFILE_SHA256'),
+          producerSha256: requiredValue('MARKTEXT_CORE_PRODUCER_SHA256'),
+          probeSha256: requiredValue('MARKTEXT_CORE_PROBE_SHA256'),
+          launcherSha256: requiredValue('MARKTEXT_CORE_LAUNCHER_SHA256'),
+          measurementBoundary: 'core-authority-browser-external-v3',
+          launchBoundary: 'playwright-electron-packaged-v1',
+          windowVisibility: 'hidden-unfocused'
+        },
         documents: representatives.documents.map(document => ({
           id: document.id,
           sourceSha256: document.sha256
