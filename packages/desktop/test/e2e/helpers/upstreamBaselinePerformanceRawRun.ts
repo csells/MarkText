@@ -47,7 +47,7 @@ export interface UpstreamBaselineBuildProvenance {
   readonly producerSha256: string
   readonly probeSha256: string
   readonly launcherSha256: string
-  readonly measurementBoundary: 'external-browser-compositor-v2'
+  readonly measurementBoundary: 'external-browser-compositor-v3'
   readonly presentationBoundary: typeof PERFORMANCE_PRESENTATION_BOUNDARY
   readonly launchBoundary: 'external-inspector-hidden-cdp-v1'
   readonly windowVisibility: 'hidden-unfocused'
@@ -101,12 +101,12 @@ interface UpstreamBaselinePerformanceRawRunBase {
 
 export interface UpstreamBaselinePerformanceRatificationRun
   extends UpstreamBaselinePerformanceRawRunBase {
-  readonly schema: 'marktext-criticmarkup-raw-performance-run-v2'
+  readonly schema: 'marktext-criticmarkup-raw-performance-run-v3'
 }
 
 export interface UpstreamBaselinePerformanceSmokeRun
   extends UpstreamBaselinePerformanceRawRunBase {
-  readonly schema: 'marktext-criticmarkup-raw-performance-smoke-v2'
+  readonly schema: 'marktext-criticmarkup-raw-performance-smoke-v3'
   readonly evidenceClass: 'smoke-non-ratifying'
 }
 
@@ -116,7 +116,7 @@ export type UpstreamBaselinePerformanceRawRun =
 
 const METRIC_DEFINITIONS = Object.freeze({
   t_echo: 'Elapsed time from beforeinput to the exact matching Muya DOM state.',
-  t_present: 'Elapsed time from beforeinput through one external Chromium compositor-surface capture issued after the exact matching Muya DOM state and immediately revalidated; an upper bound, not physical display or vsync.',
+  t_present: 'Elapsed time from beforeinput through Electron WebContents.capturePage with stayHidden and stayAwake after the exact matching Muya DOM state and immediate retained-state validation; a captured compositor-surface upper bound, not pixel equality, physical display, vsync, or next-frame evidence.',
   open: 'External elapsed time from file-open request until its tab is active.',
   first_viewport: 'External elapsed time from file-open request until its editor is editable.'
 }) satisfies Readonly<Record<Metric, string>>
@@ -200,7 +200,7 @@ const validateProvenance = (
   requireIdentity(input.provenance.launcherSha256, 64, 'Launcher digest')
   if (
     input.provenance.measurementBoundary !==
-      'external-browser-compositor-v2'
+      'external-browser-compositor-v3'
   ) {
     throw new Error('Upstream measurement boundary is invalid')
   }
@@ -314,11 +314,11 @@ export const createUpstreamBaselinePerformanceRawRun = (
   })
   return input.evidenceClass === 'ratification'
     ? Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-run-v2' as const,
+      schema: 'marktext-criticmarkup-raw-performance-run-v3' as const,
       ...base
     })
     : Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v2' as const,
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v3' as const,
       evidenceClass: 'smoke-non-ratifying' as const,
       ...base
     })
@@ -339,7 +339,7 @@ export const writeUpstreamBaselinePerformanceRawRun = (
   run: UpstreamBaselinePerformanceRawRun
 ): void => {
   if (
-    run.schema === 'marktext-criticmarkup-raw-performance-smoke-v2' &&
+    run.schema === 'marktext-criticmarkup-raw-performance-smoke-v3' &&
     isRatificationDirectory(outputPath)
   ) {
     throw new Error('Smoke output cannot be written to the ratification directory')

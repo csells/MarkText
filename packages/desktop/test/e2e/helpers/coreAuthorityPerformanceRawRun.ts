@@ -47,7 +47,7 @@ export interface CoreAuthorityPerformanceBuildProvenance {
   readonly producerSha256: string
   readonly probeSha256: string
   readonly launcherSha256: string
-  readonly measurementBoundary: 'core-authority-browser-compositor-v4'
+  readonly measurementBoundary: 'core-authority-browser-compositor-v5'
   readonly presentationBoundary: typeof PERFORMANCE_PRESENTATION_BOUNDARY
   readonly launchBoundary: 'playwright-electron-packaged-v1'
   readonly windowVisibility: 'hidden-unfocused'
@@ -169,7 +169,7 @@ export function createCoreAuthorityPerformanceRawRun(
   requireNonEmpty(input.provenance.playwrightVersion, 'Raw performance Playwright version')
   if (
     input.provenance.measurementBoundary !==
-      'core-authority-browser-compositor-v4'
+      'core-authority-browser-compositor-v5'
   ) {
     throw new Error('Raw performance measurement boundary provenance is invalid')
   }
@@ -348,11 +348,11 @@ export function createCoreAuthorityPerformanceRawRun(
   })
   return input.evidenceClass === 'ratification'
     ? Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-run-v4' as const,
+      schema: 'marktext-criticmarkup-raw-performance-run-v5' as const,
       ...base
     })
     : Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v4' as const,
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v5' as const,
       evidenceClass: 'smoke-non-ratifying' as const,
       ...base
     })

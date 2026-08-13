@@ -280,12 +280,106 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     expect(Object.fromEntries(materialized.parityRows.rows
       .filter(row => row.productionPathTest.startsWith('named-production-path-test:'))
       .map(row => [row.id, row.productionPathTest]))).toEqual({
+      'phase0.item.02646b29196eb59a5e2af71e':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining registered File command to its exact application boundary',
+      'phase0.item.093caad34fd0476546efc6a0':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining registered File command to its exact application boundary',
+      'phase0.item.164a52750fa0c5198a12fe68':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining registered File command to its exact application boundary',
+      'phase0.item.179877faa563ae6aa4efac05':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#exposes every remaining non-executable File menu container',
+      'phase0.item.19ad0b49c2b9a723f6f9c52b':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining registered File command to its exact application boundary',
+      'phase0.item.19f8532519c9e9fdcc61b298':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining registered File command to its exact application boundary',
+      'phase0.item.240a26f84edfc7568a7e8be5':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#exposes every remaining non-executable File menu container',
+      'phase0.item.29771eb08f2d31eadf3c07bf':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining executable File menu surface to its exact application boundary',
+      'phase0.item.2980f90cc3a5fdfb4a20d0dc':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining executable File menu surface to its exact application boundary',
+      'phase0.item.2bf44a037fcb88b59f815aa6':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining registered File command to its exact application boundary',
+      'phase0.item.2c61834a7ea7189b0891578a':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining registered File command to its exact application boundary',
+      'phase0.item.305d0a3c8f0f597fa98e997b':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining registered File command to its exact application boundary',
+      'phase0.item.34e5f76587817f4aa7eeab90':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining executable File menu surface to its exact application boundary',
+      'phase0.item.3ae7268a790327a7b847d938':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining executable File menu surface to its exact application boundary',
+      'phase0.item.44521896c8fa9e3b9386fbd1':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining registered File command to its exact application boundary',
+      'phase0.item.484e54a1530979a5839b6db4':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining registered File command to its exact application boundary',
+      'phase0.item.4d2b8ae36dab93b56c7bfe39':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining executable File menu surface to its exact application boundary',
+      'phase0.item.54f292af21b05e87639abdbd':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining executable File menu surface to its exact application boundary',
+      'phase0.item.72b4d008ae7e81aff2c4d50f':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining executable File menu surface to its exact application boundary',
+      'phase0.item.758d26acfcf3549f5cd0cefe':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#exposes every remaining non-executable File menu container',
+      'phase0.item.766e7ec3540e1bee41f8934b':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining executable File menu surface to its exact application boundary',
+      'phase0.item.87f713d25537e7fb8eb77d09':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining executable File menu surface to its exact application boundary',
+      'phase0.item.88e3c2cea87379690fab1939':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining registered File command to its exact application boundary',
+      'phase0.item.897a6d57000cc3c84da77daa':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining registered File command to its exact application boundary',
+      'phase0.item.933af3bde51ca332ea032131':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining executable File menu surface to its exact application boundary',
+      'phase0.item.97072a58533a28194713bad9':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining executable File menu surface to its exact application boundary',
+      'phase0.item.a961686c94c8f5f9884d9c4a':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining registered File command to its exact application boundary',
+      'phase0.item.a9b994376d2c462acc255a96':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining registered File command to its exact application boundary',
+      'phase0.item.ae7aeeb6d3547002ecdd4da3':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining executable File menu surface to its exact application boundary',
+      'phase0.item.ba5e2d32211e2d30ac2b26f8':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining registered File command to its exact application boundary',
+      'phase0.item.dc8744cfdb39bedc3d252cdd':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining registered File command to its exact application boundary',
+      'phase0.item.e991e55172b2dbc02e2f5ed8':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining executable File menu surface to its exact application boundary',
+      'phase0.item.f2449f622073142c6d77484b':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining executable File menu surface to its exact application boundary',
+      'phase0.item.fe1bf64a369c33cfccc6ee04':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining executable File menu surface to its exact application boundary',
+      'phase0.item.fffe9c6cf88d6c10ee87857a':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining executable File menu surface to its exact application boundary',
       'phase0.item.004c0d7dbf1b45de1e90757c':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.0401b5efadfa1bfa72b14844':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.0030c6e658a95827b05f3e99':
         'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
+      'phase0.item.0431c3e8f43d336fc52f2754':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-window-production-surfaces.spec.ts#routes every registered Window command and paired menu surface to its exact runtime effect',
+      'phase0.item.0c3f77e6f42037a3bf316770':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-window-production-surfaces.spec.ts#routes Bring All to Front and exposes the Window root menu',
+      'phase0.item.0ff76b77054c2ac391d415df':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-window-production-surfaces.spec.ts#routes every registered Window command and paired menu surface to its exact runtime effect',
+      'phase0.item.177c2f14659cb7980911856c':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-window-production-surfaces.spec.ts#routes every registered Window command and paired menu surface to its exact runtime effect',
+      'phase0.item.5941785b7ce149b6044cdacb':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-window-production-surfaces.spec.ts#routes every registered Window command and paired menu surface to its exact runtime effect',
+      'phase0.item.b0a448c7bf4ec499976de97d':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-window-production-surfaces.spec.ts#routes every registered Window command and paired menu surface to its exact runtime effect',
+      'phase0.item.c930300f69bf605add7a58fb':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-window-production-surfaces.spec.ts#routes every registered Window command and paired menu surface to its exact runtime effect',
+      'phase0.item.d33714f91311f5995d7caa89':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-window-production-surfaces.spec.ts#routes every registered Window command and paired menu surface to its exact runtime effect',
+      'phase0.item.d33edcb476067b74d3f67a48':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-window-production-surfaces.spec.ts#routes every registered Window command and paired menu surface to its exact runtime effect',
+      'phase0.item.d5a7ccd63f56a0e8ea0b9cfc':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-window-production-surfaces.spec.ts#routes Bring All to Front and exposes the Window root menu',
+      'phase0.item.e2705e62da0fc23e90ac3b11':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-window-production-surfaces.spec.ts#routes every registered Window command and paired menu surface to its exact runtime effect',
+      'phase0.item.fd45a116caf5cd97418ea7a9':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-window-production-surfaces.spec.ts#routes every registered Window command and paired menu surface to its exact runtime effect',
       'phase0.item.0062e8c85215bf4db73a8172':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
       'phase0.item.0f12831319a9fb31c39ce63d':
@@ -541,7 +635,7 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     })
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('required-new-production-path-test:')
-    ))).toHaveLength(238)
+    ))).toHaveLength(191)
     expect(() => validateCriticMarkupParityDispositions(
       parityBaseline,
       materialized.parityOverlay,

@@ -1,5 +1,5 @@
 {
-  "schema": "marktext-criticmarkup-performance-targets-v2",
+  "schema": "marktext-criticmarkup-performance-targets-v3",
   "status": "proposed-unratified",
   "ratificationBasis": null,
   "representativeDocuments": {
@@ -38,7 +38,7 @@
       "targetP95Ms": 50
     },
     "t_present": {
-      "definition": "Elapsed time from t_event through one external Chromium compositor-surface capture issued after the exact acknowledged view checkpoint and followed immediately by retained-checkpoint validation; an upper bound, not physical display, vsync, or next-frame time.",
+      "definition": "Elapsed time from t_event through Electron WebContents.capturePage with stayHidden and stayAwake after the exact acknowledged view checkpoint and immediate retained-state validation; a captured compositor-surface upper bound, not proof of pixel equality, physical display, vsync, or next-frame time.",
       "targetP95Ms": null,
       "targetStatus": "baseline-calibration-required"
     },

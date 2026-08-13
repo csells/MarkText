@@ -53,8 +53,8 @@ const input = (
     producerSha256: 'e'.repeat(64),
     probeSha256: 'f'.repeat(64),
     launcherSha256: '1'.repeat(64),
-    measurementBoundary: 'external-browser-compositor-v2' as const,
-    presentationBoundary: 'cdp-page-capture-screenshot-v1' as const,
+    measurementBoundary: 'external-browser-compositor-v3' as const,
+    presentationBoundary: 'electron-webcontents-capture-page-hidden-v1' as const,
     launchBoundary: 'external-inspector-hidden-cdp-v1' as const,
     windowVisibility: 'hidden-unfocused' as const,
     chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2' as const
@@ -68,13 +68,13 @@ const input = (
 })
 
 describe('upstream baseline raw performance producer', () => {
-  it('creates an accepted v2 shape only for pinned 20/200 ratification evidence', () => {
+  it('creates an accepted v3 shape only for pinned 20/200 ratification evidence', () => {
     const run = createUpstreamBaselinePerformanceRawRun(
       input('ratification', 20, 200)
     )
 
     expect(run).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-run-v2',
+      schema: 'marktext-criticmarkup-raw-performance-run-v3',
       runId: 'upstream-ratification',
       implementation: 'upstream-baseline',
       baselineCommit: PINNED_BASELINE,
@@ -88,15 +88,17 @@ describe('upstream baseline raw performance producer', () => {
         producerSha256: 'e'.repeat(64),
         probeSha256: 'f'.repeat(64),
         launcherSha256: '1'.repeat(64),
-        measurementBoundary: 'external-browser-compositor-v2',
-        presentationBoundary: 'cdp-page-capture-screenshot-v1',
+        measurementBoundary: 'external-browser-compositor-v3',
+        presentationBoundary: 'electron-webcontents-capture-page-hidden-v1',
         launchBoundary: 'external-inspector-hidden-cdp-v1',
         windowVisibility: 'hidden-unfocused',
         chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
       },
       metricDefinitions: {
         t_echo: 'Elapsed time from beforeinput to the exact matching Muya DOM state.',
-        t_present: expect.stringMatching(/compositor-surface capture/i),
+        t_present: expect.stringMatching(
+          /WebContents\.capturePage.*stayHidden.*stayAwake.*upper bound/i
+        ),
         open: 'External elapsed time from file-open request until its tab is active.',
         first_viewport: 'External elapsed time from file-open request until its editor is editable.'
       }
@@ -111,7 +113,7 @@ describe('upstream baseline raw performance producer', () => {
     )
 
     expect(smoke).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v2',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v3',
       evidenceClass: 'smoke-non-ratifying',
       sampling: { warmupSamples: 1, measuredSamples: 2 }
     })
@@ -175,6 +177,22 @@ describe('upstream baseline raw performance producer', () => {
         chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
       }
     } as never)).toThrow(/Chromium scheduling/i)
+
+    expect(() => createUpstreamBaselinePerformanceRawRun({
+      ...input('smoke-non-ratifying', 1, 2),
+      provenance: {
+        ...input('smoke-non-ratifying', 1, 2).provenance,
+        measurementBoundary: 'external-browser-compositor-v2'
+      }
+    } as never)).toThrow(/measurement boundary/i)
+
+    expect(() => createUpstreamBaselinePerformanceRawRun({
+      ...input('smoke-non-ratifying', 1, 2),
+      provenance: {
+        ...input('smoke-non-ratifying', 1, 2).provenance,
+        presentationBoundary: 'cdp-page-capture-screenshot-v1'
+      }
+    } as never)).toThrow(/presentation boundary/i)
   })
 
   it('writes exclusively and never allows smoke into the ratification directory', () => {
