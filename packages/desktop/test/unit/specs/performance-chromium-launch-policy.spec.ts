@@ -367,6 +367,158 @@ describe('hidden performance Chromium launch policy', () => {
     ], 1234, expectedWindow)).toThrow(/exactly one matching window/i)
   })
 
+  it('reports one bounded frozen snapshot of only the run-owned WindowServer candidates', () => {
+    const expectedWindow = Object.freeze({
+      title: 'sample.md — MarkText',
+      bounds: Object.freeze({ x: 20, y: 30, width: 900, height: 700 })
+    })
+    const runOwnedCandidates = Array.from({ length: 10 }, (_, index) => ({
+      windowNumber: 80 + index,
+      ownerProcessId: 1234,
+      title: `candidate-${String(index)}.md — MarkText`,
+      bounds: { x: 20 + index, y: 30, width: 900, height: 700 },
+      alpha: 0,
+      layer: 0,
+      onScreen: true
+    }))
+    const otherProcess = {
+      ...runOwnedCandidates[0],
+      windowNumber: 999,
+      ownerProcessId: 9999,
+      title: 'private-other-process-window'
+    }
+
+    let thrown: unknown
+    try {
+      assertMacWindowServerTransparentRenderActive(
+        [otherProcess, ...runOwnedCandidates],
+        1234,
+        expectedWindow
+      )
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(thrown).toBeInstanceOf(Error)
+    const diagnostic = (thrown as Error & {
+      readonly diagnostic?: Readonly<{
+        readonly expected: Readonly<{
+          readonly processId: number
+          readonly title: string
+          readonly bounds: Readonly<{
+            readonly x: number
+            readonly y: number
+            readonly width: number
+            readonly height: number
+          }>
+        }>
+        readonly candidateRowCount: number
+        readonly exactMatchCount: number
+        readonly candidateRows: readonly Readonly<{
+          readonly ownerProcessId: number
+          readonly title: string
+          readonly bounds: Readonly<Record<string, number>>
+        }>[]
+      }>
+    }).diagnostic
+    expect(diagnostic).toMatchObject({
+      expected: {
+        processId: 1234,
+        title: 'sample.md — MarkText',
+        bounds: { x: 20, y: 30, width: 900, height: 700 }
+      },
+      candidateRowCount: 10,
+      exactMatchCount: 0
+    })
+    expect(diagnostic?.candidateRows).toHaveLength(8)
+    expect(diagnostic?.candidateRows.every(row =>
+      row.ownerProcessId === 1234 &&
+      !row.title.includes('private-other-process-window')
+    )).toBe(true)
+    expect(Object.isFrozen(diagnostic)).toBe(true)
+    expect(Object.isFrozen(diagnostic?.expected)).toBe(true)
+    expect(Object.isFrozen(diagnostic?.expected.bounds)).toBe(true)
+    expect(Object.isFrozen(diagnostic?.candidateRows)).toBe(true)
+    expect(diagnostic?.candidateRows.every(row =>
+      Object.isFrozen(row) && Object.isFrozen(row.bounds)
+    )).toBe(true)
+    expect((thrown as Error).message).toContain('"candidateRowCount":10')
+  })
+
+  it('bounds WindowServer diagnostic titles without weakening exact title matching', () => {
+    const longExpectedTitle = `${'expected'.repeat(2_000)} — MarkText`
+    const longCandidateTitle = `${'candidate'.repeat(2_000)} — MarkText`
+    let thrown: unknown
+    try {
+      assertMacWindowServerTransparentRenderActive([{
+        windowNumber: 81,
+        ownerProcessId: 1234,
+        title: longCandidateTitle,
+        bounds: { x: 20, y: 30, width: 900, height: 700 },
+        alpha: 0,
+        layer: 0,
+        onScreen: true
+      }], 1234, {
+        title: longExpectedTitle,
+        bounds: { x: 20, y: 30, width: 900, height: 700 }
+      })
+    } catch (error) {
+      thrown = error
+    }
+
+    const diagnostic = (thrown as Error & {
+      readonly diagnostic: Readonly<{
+        readonly expected: Readonly<{ readonly title: string }>
+        readonly candidateRows: readonly Readonly<{ readonly title: string }>[]
+      }>
+    }).diagnostic
+    expect(diagnostic.expected.title.length).toBeLessThanOrEqual(160)
+    expect(diagnostic.candidateRows[0].title.length).toBeLessThanOrEqual(160)
+    expect((thrown as Error).message.length).toBeLessThan(4_096)
+  })
+
+  it('reports duplicate exact WindowServer matches without discarding either row', () => {
+    const expectedWindow = {
+      title: 'sample.md — MarkText',
+      bounds: { x: 20, y: 30, width: 900, height: 700 }
+    }
+    const rows = [81, 82].map(windowNumber => ({
+      windowNumber,
+      ownerProcessId: 1234,
+      title: expectedWindow.title,
+      bounds: { ...expectedWindow.bounds },
+      alpha: 0,
+      layer: 0,
+      onScreen: true
+    }))
+    let thrown: unknown
+    try {
+      assertMacWindowServerTransparentRenderActive(
+        rows,
+        1234,
+        expectedWindow
+      )
+    } catch (error) {
+      thrown = error
+    }
+
+    const diagnostic = (thrown as Error & {
+      readonly diagnostic: Readonly<{
+        readonly candidateRowCount: number
+        readonly exactMatchCount: number
+        readonly candidateRows: readonly Readonly<{
+          readonly windowNumber: number
+        }>[]
+      }>
+    }).diagnostic
+    expect(diagnostic).toMatchObject({
+      candidateRowCount: 2,
+      exactMatchCount: 2,
+      candidateRows: [{ windowNumber: 81 }, { windowNumber: 82 }]
+    })
+    expect(Object.isFrozen(diagnostic.candidateRows)).toBe(true)
+  })
+
   it('hides, restores, and closes the exact window without focusing it', () => {
     const calls: string[] = []
     const contents = {
