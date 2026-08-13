@@ -47,7 +47,7 @@ export interface UpstreamBaselineBuildProvenance {
   readonly measurementBoundary: 'external-browser-dom-v1'
   readonly launchBoundary: 'external-inspector-hidden-cdp-v1'
   readonly windowVisibility: 'hidden-unfocused'
-  readonly chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
+  readonly chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
 }
 
 export interface UpstreamBaselinePerformanceRawRunInput {

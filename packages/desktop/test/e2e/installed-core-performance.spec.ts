@@ -15,6 +15,7 @@ import {
 import type { CoreAuthorityPerformanceSurface } from './helpers/coreAuthorityPerformanceRawRun'
 import { reportCoreAuthorityPerformance } from './helpers/coreAuthorityPerformanceReport'
 import {
+  firstWindowWithPerformanceScheduling,
   PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
   withPerformanceChromiumScheduling
 } from './helpers/performanceChromiumLaunchPolicy'
@@ -484,7 +485,7 @@ test.describe('installed Core authority raw performance producer', () => {
           timeout: 60_000
         })
         try {
-          const page = await app.firstWindow()
+          const page = await firstWindowWithPerformanceScheduling(app)
           await page.waitForLoadState('domcontentloaded')
           await waitForEditor(page, 60_000)
           await waitForMenuReady(app, 60_000)

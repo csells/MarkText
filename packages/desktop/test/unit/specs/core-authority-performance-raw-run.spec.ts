@@ -41,7 +41,7 @@ const authenticatedProvenance = Object.freeze({
   measurementBoundary: 'core-authority-browser-external-v3',
   launchBoundary: 'playwright-electron-packaged-v1',
   windowVisibility: 'hidden-unfocused',
-  chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
+  chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
 })
 
 describe('Core authority raw performance producer', () => {
@@ -335,7 +335,7 @@ describe('Core authority raw performance producer', () => {
     expect(() => run(absent)).toThrow(/Chromium scheduling/i)
     expect(() => run({
       ...authenticatedProvenance,
-      chromiumSchedulingPolicy: 'default-background-scheduling'
+      chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
     })).toThrow(/Chromium scheduling/i)
   })
 

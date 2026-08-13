@@ -56,7 +56,7 @@ const input = (
     measurementBoundary: 'external-browser-dom-v1' as const,
     launchBoundary: 'external-inspector-hidden-cdp-v1' as const,
     windowVisibility: 'hidden-unfocused' as const,
-    chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1' as const
+    chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2' as const
   },
   samples: [
     ...Array.from({ length: warmupSamples }, (_, index) =>
@@ -90,7 +90,7 @@ describe('upstream baseline raw performance producer', () => {
         measurementBoundary: 'external-browser-dom-v1',
         launchBoundary: 'external-inspector-hidden-cdp-v1',
         windowVisibility: 'hidden-unfocused',
-        chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
+        chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
       },
       metricDefinitions: {
         t_echo: 'Elapsed time from beforeinput to the exact matching Muya DOM state.',
@@ -162,7 +162,7 @@ describe('upstream baseline raw performance producer', () => {
       ...input('smoke-non-ratifying', 1, 2),
       provenance: {
         ...input('smoke-non-ratifying', 1, 2).provenance,
-        chromiumSchedulingPolicy: 'default-background-scheduling'
+        chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
       }
     } as never)).toThrow(/Chromium scheduling/i)
   })
