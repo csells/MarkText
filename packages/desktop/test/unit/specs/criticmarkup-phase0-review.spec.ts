@@ -294,6 +294,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-clear-format-production-surfaces.spec.ts#routes registered Clear Format command and Format menu surface through the renderer format-action channel',
       'phase0.item.160937548f3fa957d900f04b':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-navigation-production-surfaces.spec.ts#routes registered Find Next and Find Previous command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.20a0482a18ee9492c64be652':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-bullet-list-production-surfaces.spec.ts#routes registered Bullet List command and Paragraph menu surface through the renderer paragraph-action channel',
       'phase0.item.2e64fc29fc59f5b4a906ea56':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-highlight-format-production-surfaces.spec.ts#routes registered Highlight command and Format menu surface through the renderer format-action channel',
       'phase0.item.27ab3556877c1891af1381db':
@@ -324,6 +326,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-inline-math-production-surfaces.spec.ts#routes registered Inline Math command and Format menu surface through the renderer format-action channel',
       'phase0.item.5614a9e6297e94476c2f1d25':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-subscript-production-surfaces.spec.ts#routes registered Subscript command and Format menu surface through the renderer format-action channel',
+      'phase0.item.59db1e63aacaf4964b8df1b1':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-ordered-list-production-surfaces.spec.ts#routes registered Ordered List command and Paragraph menu surface through the renderer paragraph-action channel',
       'phase0.item.6503ef62074e1a51ee15fb38':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-navigation-production-surfaces.spec.ts#routes registered Find Next and Find Previous command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.6c5fc1de22b21cbc5e138455':
@@ -344,6 +348,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-superscript-production-surfaces.spec.ts#routes registered Superscript command and Format menu surface through the renderer format-action channel',
       'phase0.item.831628c66c7632b18ae126fd':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes registered Undo and Redo commands to the renderer edit-action channel',
+      'phase0.item.84fbe7795c97058036d7c916':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-ordered-list-production-surfaces.spec.ts#routes registered Ordered List command and Paragraph menu surface through the renderer paragraph-action channel',
       'phase0.item.865771ab05fea47f0b4e86fd':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-image-format-production-surfaces.spec.ts#routes registered Image command and Format menu surface through the renderer format-action channel',
       'phase0.item.867cc6c717a7baf2684a9c87':
@@ -406,6 +412,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
       'phase0.item.e9ed537dc5b08910ab2e2406':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-underline-production-surfaces.spec.ts#routes registered Underline command and Format menu surface through the renderer format-action channel',
+      'phase0.item.ec98d87a0d244b1a3df19848':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-bullet-list-production-surfaces.spec.ts#routes registered Bullet List command and Paragraph menu surface through the renderer paragraph-action channel',
       'phase0.item.eba6acc288c5b6b240e283f7':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-highlight-format-production-surfaces.spec.ts#routes registered Highlight command and Format menu surface through the renderer format-action channel',
       'phase0.item.e37d7c32ed645c4702548f07':
@@ -417,7 +425,7 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     })
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('required-new-production-path-test:')
-    ))).toHaveLength(300)
+    ))).toHaveLength(296)
     expect(() => validateCriticMarkupParityDispositions(
       parityBaseline,
       materialized.parityOverlay,
