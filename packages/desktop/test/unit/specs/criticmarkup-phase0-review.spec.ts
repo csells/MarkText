@@ -284,8 +284,12 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
       'phase0.item.397314c6348fc4ee45514620':
         'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
+      'phase0.item.420fdfa5c193f0633abca434':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-native-copy-production-surfaces.spec.ts#routes registered Copy command and Edit menu surfaces through the Electron native copy runtime',
       'phase0.item.49512fbea5ebc0a05d0e8023':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes Edit menu Undo and Redo through the renderer edit-action channel',
+      'phase0.item.5a233c1c0b730f92c8b26b77':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-native-copy-production-surfaces.spec.ts#routes registered Copy command and Edit menu surfaces through the Electron native copy runtime',
       'phase0.item.5fdd30f820d652e48f5b4528':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes Edit menu Copy as Rich and Copy as HTML entries to the editor',
       'phase0.item.6ef94e99e33b332cdce273ec':
@@ -298,6 +302,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes registered Undo and Redo commands to the renderer edit-action channel',
       'phase0.item.82b57f93ae32b97bc090d680':
         'named-production-path-test: packages/desktop/test/unit/specs/file-change-content-check.spec.ts#does not compare disk bytes with stale Pinia while Core owns the document',
+      'phase0.item.9dfe4b390547e294c1e9f277':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-paste-production-surfaces.spec.ts#routes registered Paste command and Edit menu surfaces through the Electron native paste runtime',
       'phase0.item.a67f9710d62840c4950ffff5':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes registered Copy as Rich and Copy as HTML commands to the editor',
       'phase0.item.b327952319820e0956248ea0':
@@ -313,11 +319,13 @@ describe('CriticMarkup Phase 0 review proposal', () => {
       'phase0.item.e5b3aa0ed74e8f679eb30fc7':
         'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
       'phase0.item.e37d7c32ed645c4702548f07':
-        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-cut-production-surfaces.spec.ts#routes registered Cut command and Edit menu surfaces through the Electron native cut runtime'
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-cut-production-surfaces.spec.ts#routes registered Cut command and Edit menu surfaces through the Electron native cut runtime',
+      'phase0.item.ed75c2e03726b7d71723d712':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-paste-production-surfaces.spec.ts#routes registered Paste command and Edit menu surfaces through the Electron native paste runtime'
     })
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('required-new-production-path-test:')
-    ))).toHaveLength(350)
+    ))).toHaveLength(346)
     expect(() => validateCriticMarkupParityDispositions(
       parityBaseline,
       materialized.parityOverlay,
