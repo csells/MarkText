@@ -1,7 +1,10 @@
+import { EventEmitter } from 'node:events'
+import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
 
 import {
   installUpstreamExternalHiddenPolicy,
+  upstreamExternalHiddenPolicyExpression,
   upstreamInspectorExceptionMessage,
   type UpstreamInspectorResponse
 } from '../../e2e/helpers/upstreamBaselineHiddenPolicy'
@@ -84,5 +87,60 @@ describe('upstream baseline external hidden policy', () => {
         }
       }
     })).toBe('ReferenceError: require is not defined')
+  })
+
+  it('conceals window and application activation without focus reentrancy', async() => {
+    class HiddenWindow extends EventEmitter {
+      skipTaskbarCalls = 0
+      hideCalls = 0
+      blurCalls = 0
+
+      isDestroyed(): boolean { return false }
+      setSkipTaskbar(): void { this.skipTaskbarCalls += 1 }
+      hide(): void { this.hideCalls += 1 }
+      blur(): void { this.blurCalls += 1 }
+    }
+
+    class HiddenApplication extends EventEmitter {
+      activationPolicies: string[] = []
+      hideCalls = 0
+      dockHideCalls = 0
+      readonly dock = { hide: (): void => { this.dockHideCalls += 1 } }
+
+      setActivationPolicy(policy: string): void {
+        this.activationPolicies.push(policy)
+      }
+
+      hide(): void {
+        this.hideCalls += 1
+        this.emit('activate')
+      }
+
+      isReady(): boolean { return true }
+      async whenReady(): Promise<void> {}
+    }
+
+    const app = new HiddenApplication()
+    const window = new HiddenWindow()
+    expect(runInNewContext(upstreamExternalHiddenPolicyExpression, {
+      require: () => ({
+        app,
+        BrowserWindow: { getAllWindows: () => [window] }
+      })
+    })).toBe(true)
+    await Promise.resolve()
+
+    app.emit('browser-window-created', {}, window)
+    window.emit('show')
+    window.emit('focus')
+    app.emit('browser-window-focus', {}, window)
+    app.emit('activate')
+
+    expect(app.activationPolicies).toEqual(['accessory'])
+    expect(app.hideCalls).toBe(6)
+    expect(app.dockHideCalls).toBe(6)
+    expect(window.skipTaskbarCalls).toBe(1)
+    expect(window.hideCalls).toBe(6)
+    expect(window.blurCalls).toBe(6)
   })
 })

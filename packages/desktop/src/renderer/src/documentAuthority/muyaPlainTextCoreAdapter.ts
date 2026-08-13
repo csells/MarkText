@@ -507,19 +507,20 @@ export function createMuyaPlainTextCoreAdapter(
     )
     if (
       anchorBinding === undefined || focusBinding === undefined ||
-      anchorBinding !== focusBinding ||
       !Number.isSafeInteger(selection.anchor.offset) ||
       !Number.isSafeInteger(selection.focus.offset) ||
       selection.anchor.offset < 0 || selection.focus.offset < 0 ||
       selection.anchor.offset > anchorBinding.text.length ||
-      selection.focus.offset > anchorBinding.text.length
+      selection.focus.offset > focusBinding.text.length
     ) return undefined
-    const startOffset = Math.min(selection.anchor.offset, selection.focus.offset)
-    const endOffset = Math.max(selection.anchor.offset, selection.focus.offset)
-    if (startOffset === endOffset) return undefined
+    const anchor = anchorBinding.sourceRange.start + selection.anchor.offset
+    const focus = focusBinding.sourceRange.start + selection.focus.offset
+    const start = Math.min(anchor, focus)
+    const end = Math.max(anchor, focus)
+    if (start === end) return undefined
     return Object.freeze({
-      start: anchorBinding.sourceRange.start + startOffset,
-      end: anchorBinding.sourceRange.start + endOffset
+      start,
+      end
     })
   }
 

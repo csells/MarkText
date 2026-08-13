@@ -277,9 +277,19 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('retained-manual-oracle:')
     ))).toHaveLength(4)
+    expect(Object.fromEntries(materialized.parityRows.rows
+      .filter(row => row.productionPathTest.startsWith('named-production-path-test:'))
+      .map(row => [row.id, row.productionPathTest]))).toEqual({
+      'phase0.item.82b57f93ae32b97bc090d680':
+        'named-production-path-test: packages/desktop/test/unit/specs/file-change-content-check.spec.ts#does not compare disk bytes with stale Pinia while Core owns the document',
+      'phase0.item.b9a01f70d274b7ff1480da76':
+        'named-production-path-test: packages/desktop/test/unit/specs/flush-before-save.spec.ts#waits for Core authority and saves its acknowledged source instead of Pinia',
+      'phase0.item.dbad87f3a634df371ca034af':
+        'named-production-path-test: packages/desktop/test/unit/specs/source-code-image-action.spec.ts#rewrites ![id](old) to ![alt](result) on the matched line'
+    })
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('required-new-production-path-test:')
-    ))).toHaveLength(367)
+    ))).toHaveLength(364)
     expect(() => validateCriticMarkupParityDispositions(
       parityBaseline,
       materialized.parityOverlay,

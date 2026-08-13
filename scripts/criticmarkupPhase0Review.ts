@@ -59,6 +59,7 @@ export interface CriticMarkupParityOracleProposalGroup {
   kinds: string[]
   sourceRelations: CriticMarkupParitySourceRelation[]
   proposedOracle: CriticMarkupParityProposedOracle
+  namedProductionPathTests?: Record<string, string>
   rationale: string
   refs: string[]
   expectedCount: number
@@ -392,6 +393,26 @@ export const validateCriticMarkupParityOracleProposal = (
     if (identifierDigest(selected.map(item => item.id)) !== group.itemIdsSha256) {
       throw new Error(`Parity oracle proposal ${group.id} item-ID digest is stale`)
     }
+    const namedProductionPathTests = group.namedProductionPathTests ?? {}
+    if (
+      typeof namedProductionPathTests !== 'object' ||
+      namedProductionPathTests === null ||
+      Array.isArray(namedProductionPathTests)
+    ) {
+      throw new Error(`Parity oracle proposal ${group.id} named production paths are invalid`)
+    }
+    const selectedIds = new Set(selected.map(item => item.id))
+    for (const [itemId, productionPathTest] of Object.entries(namedProductionPathTests)) {
+      if (group.proposedOracle !== 'new-production-path-test' || !selectedIds.has(itemId)) {
+        throw new Error(
+          `Parity oracle proposal ${group.id} has a named production path for an unselected item`
+        )
+      }
+      nonEmpty(
+        productionPathTest,
+        `Parity oracle proposal ${group.id} named production path for ${itemId}`
+      )
+    }
     for (const item of selected) {
       if (selectedItems.has(item.id)) {
         throw new Error(`Parity item has more than one oracle proposal: ${item.id}`)
@@ -680,6 +701,7 @@ export const materializeCriticMarkupPhase0Dispositions = (
       const line = typeof item.attributes?.line === 'number'
         ? `:${item.attributes.line}`
         : ''
+      const namedProductionPathTest = oracleGroup.namedProductionPathTests?.[item.id]
       rows.push({
         id: rowId,
         upstreamBehavior: `${item.kind}: ${item.label}`,
@@ -688,7 +710,9 @@ export const materializeCriticMarkupPhase0Dispositions = (
           ? `retained-upstream-test: ${item.source}; release-candidate execution pending`
           : oracleGroup.proposedOracle === 'retained-manual-oracle'
             ? `retained-manual-oracle: ${item.source}; supported-platform execution pending`
-            : `required-new-production-path-test: ${item.id}; no oracle is claimed`,
+            : namedProductionPathTest === undefined
+              ? `required-new-production-path-test: ${item.id}; no oracle is claimed`
+              : `named-production-path-test: ${namedProductionPathTest}`,
         status: 'planned'
       })
       dispositions[item.id] = { kind: 'parity-row', ref: rowId }
