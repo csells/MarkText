@@ -9,7 +9,7 @@ export interface CoreAuthorityInputEvent {
   readonly sequence: number
   readonly tEvent: number
   readonly tEcho: number
-  readonly tFrame: number
+  readonly tPresent: number
 }
 
 export interface CoreAuthorityPerformanceReport {
@@ -17,7 +17,7 @@ export interface CoreAuthorityPerformanceReport {
   readonly t_dispatch: readonly number[]
   readonly t_ack: readonly number[]
   readonly t_reconcile: readonly number[]
-  readonly t_frame: readonly number[]
+  readonly t_present: readonly number[]
   readonly open: number
   readonly first_viewport: number
   readonly pendingDepthMaximum: number
@@ -82,7 +82,7 @@ export function reportCoreAuthorityPerformance(input: Readonly<{
   const tAck: number[] = []
   const tReconcile: number[] = []
   const tEcho: number[] = []
-  const tFrame: number[] = []
+  const tPresent: number[] = []
   let maximumDepth = 0
   let correctionCount = 0
   for (let index = 0; index < ordered.length; index += 1) {
@@ -99,7 +99,7 @@ export function reportCoreAuthorityPerformance(input: Readonly<{
     }
     if (
       browserInput.tEvent > browserInput.tEcho ||
-      browserInput.tEcho > browserInput.tFrame
+      browserInput.tEcho > browserInput.tPresent
     ) throw new Error('Core authority browser input timestamp order is invalid')
     if (
       browserInput.tEvent > dispatch.at || dispatch.at > acknowledgement.at ||
@@ -109,7 +109,7 @@ export function reportCoreAuthorityPerformance(input: Readonly<{
     tDispatch.push(dispatch.at - browserInput.tEvent)
     tAck.push(acknowledgement.at - browserInput.tEvent)
     tReconcile.push(reconciliation.at - browserInput.tEvent)
-    tFrame.push(browserInput.tFrame - browserInput.tEvent)
+    tPresent.push(browserInput.tPresent - browserInput.tEvent)
     maximumDepth = Math.max(maximumDepth, dispatch.pendingDepth)
     if (reconciliation.corrected) correctionCount += 1
   }
@@ -123,7 +123,7 @@ export function reportCoreAuthorityPerformance(input: Readonly<{
     t_dispatch: Object.freeze(tDispatch),
     t_ack: Object.freeze(tAck),
     t_reconcile: Object.freeze(tReconcile),
-    t_frame: Object.freeze(tFrame),
+    t_present: Object.freeze(tPresent),
     open: input.externalOpen.open,
     first_viewport: input.externalOpen.firstViewport,
     pendingDepthMaximum: maximumDepth,

@@ -12,7 +12,7 @@ const manifestPath = resolve(
 )
 
 describe('CriticMarkup performance target protocol', () => {
-  it('keeps every required target numeric and explicitly unratified', () => {
+  it('keeps presentation explicitly calibration-required and the protocol unratified', () => {
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as unknown
 
     expect(() => validateCriticMarkupPerformanceTargets(manifest)).not.toThrow()
@@ -26,6 +26,16 @@ describe('CriticMarkup performance target protocol', () => {
     })
     expect((manifest as { metrics: { t_event: object } }).metrics.t_event)
       .not.toHaveProperty('targetP95Ms')
+    expect(manifest).toMatchObject({
+      schema: 'marktext-criticmarkup-performance-targets-v2',
+      metrics: {
+        t_present: {
+          definition: expect.stringMatching(/compositor-surface capture/i),
+          targetP95Ms: null,
+          targetStatus: 'baseline-calibration-required'
+        }
+      }
+    })
 
     const missing = structuredClone(manifest) as {
       metrics: { t_ack: { targetP95Ms?: unknown } }
@@ -42,5 +52,31 @@ describe('CriticMarkup performance target protocol', () => {
     expect(() => validateCriticMarkupPerformanceTargets(nonNumeric)).toThrow(
       /first_viewport targetP95Ms must be a finite positive number/
     )
+
+    const inventedPresentationTarget = structuredClone(manifest) as {
+      metrics: { t_present: { targetP95Ms: unknown } }
+    }
+    inventedPresentationTarget.metrics.t_present.targetP95Ms = 16.7
+    expect(() => validateCriticMarkupPerformanceTargets(inventedPresentationTarget))
+      .toThrow(/t_present.*calibration/i)
+
+    const calibrated = structuredClone(manifest) as {
+      metrics: {
+        t_present: { targetP95Ms: unknown, targetStatus: string }
+      }
+    }
+    calibrated.metrics.t_present.targetP95Ms = 50
+    calibrated.metrics.t_present.targetStatus = 'frozen'
+    expect(() => validateCriticMarkupPerformanceTargets(calibrated))
+      .not.toThrow()
+
+    const prematurelyRatified = structuredClone(manifest) as {
+      status: string
+      ratificationBasis: string
+    }
+    prematurelyRatified.status = 'ratified'
+    prematurelyRatified.ratificationBasis = 'Synthetic basis'
+    expect(() => validateCriticMarkupPerformanceTargets(prematurelyRatified))
+      .toThrow(/t_present.*frozen positive target/i)
   })
 })

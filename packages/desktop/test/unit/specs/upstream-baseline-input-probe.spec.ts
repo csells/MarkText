@@ -7,17 +7,17 @@ import {
 } from '../../e2e/helpers/upstreamBaselineInputProbe'
 
 describe('upstream baseline external input observation', () => {
-  it('reports elapsed browser-visible echo and stable frame', () => {
+  it('reports exact DOM echo and the compositor capture upper bound', () => {
     expect(reportUpstreamBaselineInputObservation({
       tEvent: 100,
       tAcknowledged: 104.25,
-      tStableFrame: 116.75,
+      tCaptureComplete: 118,
       expectedTextHash: 'deadbeef',
       acknowledgedTextHash: 'deadbeef',
-      stableFrameTextHash: 'deadbeef'
+      retainedTextHash: 'deadbeef'
     })).toEqual({
       t_echo: 4.25,
-      t_frame: 16.75
+      t_present: 18
     })
   })
 
@@ -25,25 +25,25 @@ describe('upstream baseline external input observation', () => {
     expect(() => reportUpstreamBaselineInputObservation({
       tEvent: 100,
       tAcknowledged: 99,
-      tStableFrame: 120,
+      tCaptureComplete: 120,
       expectedTextHash: 'deadbeef',
       acknowledgedTextHash: 'deadbeef',
-      stableFrameTextHash: 'deadbeef'
+      retainedTextHash: 'deadbeef'
     })).toThrow(/acknowledgement.*dispatch/i)
     expect(() => reportUpstreamBaselineInputObservation({
       tEvent: 100,
       tAcknowledged: 105,
       expectedTextHash: 'deadbeef',
       acknowledgedTextHash: 'deadbeef'
-    })).toThrow(/stable rendered frame/i)
+    })).toThrow(/compositor capture completion/i)
     expect(() => reportUpstreamBaselineInputObservation({
       tEvent: 100,
       tAcknowledged: 105,
-      tStableFrame: 120,
+      tCaptureComplete: 120,
       expectedTextHash: 'deadbeef',
       acknowledgedTextHash: 'deadbeef',
-      stableFrameTextHash: 'cafebabe'
-    })).toThrow(/stable frame.*checkpoint/i)
+      retainedTextHash: 'cafebabe'
+    })).toThrow(/post-capture.*checkpoint/i)
   })
 
   it('identifies a later lifecycle whose exact input checkpoint was not observed', async() => {
@@ -86,39 +86,22 @@ describe('upstream baseline external input observation', () => {
     })
   })
 
-  it('retains the exact acknowledged checkpoint when the stable frame is lost', async() => {
-    let checkpoint = {
+  it('releases an exact DOM acknowledgement without waiting for renderer rAF', async() => {
+    const checkpoint = {
       installed: true,
       sampleCount: 1,
       tEvent: 200,
-      tAcknowledged: 203,
-      tStableFrame: 217 as number | undefined
+      tAcknowledged: 203
     }
     const page = {
       evaluate: vi.fn(async() => checkpoint),
       waitForFunction: vi.fn(async() => {
-        if (checkpoint.tStableFrame === undefined) {
-          throw new Error('page.waitForFunction: Timeout 30000ms exceeded.')
-        }
+        throw new Error('Acknowledged input must not wait for renderer rAF')
       })
     } as unknown as Page
 
     await waitForUpstreamBaselineInputProbe(page)
-
-    checkpoint = { ...checkpoint, tStableFrame: undefined }
-    const failure = waitForUpstreamBaselineInputProbe(page)
-    await expect(failure).rejects.toMatchObject({
-      name: 'UpstreamBaselineInputProbeCheckpointError',
-      code: 'deadline-exceeded',
-      state: 'awaiting-stable-frame',
-      checkpoint: {
-        installed: true,
-        sampleCount: 1,
-        tEvent: 200,
-        tAcknowledged: 203,
-        tStableFrame: undefined
-      }
-    })
+    expect(page.waitForFunction).not.toHaveBeenCalled()
   })
 
   it('rejects a checkpoint that becomes ready only after the wait deadline', async() => {
@@ -130,15 +113,13 @@ describe('upstream baseline external input observation', () => {
         installed: true,
         sampleCount: 1,
         tEvent: 400,
-        tAcknowledged: 405,
-        tStableFrame: undefined
+        tAcknowledged: undefined
       },
       {
         installed: true,
         sampleCount: 1,
         tEvent: 400,
-        tAcknowledged: 405,
-        tStableFrame: 30_408
+        tAcknowledged: 30_408
       }
     ]
     const page = {
@@ -157,36 +138,12 @@ describe('upstream baseline external input observation', () => {
         installed: true,
         sampleCount: 1,
         tEvent: 400,
-        tAcknowledged: 405,
-        tStableFrame: 30_408
+        tAcknowledged: 30_408
       },
       cause: timeoutCause
     })
     await expect(failure).rejects.toThrow(
-      /tEvent=400, tAcknowledged=405, tStableFrame=30408/u
+      /tEvent=400, tAcknowledged=30408/u
     )
-  })
-
-  it('does not admit an already-ready checkpoint past the exact deadline', async() => {
-    const page = {
-      evaluate: vi.fn(async() => ({
-        installed: true,
-        sampleCount: 1,
-        tEvent: 500,
-        tAcknowledged: 505,
-        tStableFrame: 30_501
-      }))
-    } as unknown as Page
-
-    await expect(waitForUpstreamBaselineInputProbe(page)).rejects.toMatchObject({
-      name: 'UpstreamBaselineInputProbeCheckpointError',
-      code: 'deadline-exceeded',
-      state: 'ready',
-      checkpoint: {
-        tEvent: 500,
-        tAcknowledged: 505,
-        tStableFrame: 30_501
-      }
-    })
   })
 })

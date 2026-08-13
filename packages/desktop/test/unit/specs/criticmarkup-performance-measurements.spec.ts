@@ -15,7 +15,7 @@ import {
   CORE_PERFORMANCE_PRODUCER_PATHS,
   type CriticMarkupPerformanceMeasurementManifest,
   type CriticMarkupRawPerformanceRun,
-  type CriticMarkupRawPerformanceRunV1,
+  type CriticMarkupUpstreamRawPerformanceRunV2,
   UPSTREAM_PERFORMANCE_PRODUCER_PATHS,
   requireCriticMarkupPerformanceEvidenceForRatification,
   validateCriticMarkupPerformanceMeasurements
@@ -61,7 +61,8 @@ const authenticatedCoreProvenance = {
   producerSha256: '4'.repeat(64),
   probeSha256: '5'.repeat(64),
   launcherSha256: '6'.repeat(64),
-  measurementBoundary: 'core-authority-browser-external-v3',
+  measurementBoundary: 'core-authority-browser-compositor-v4',
+  presentationBoundary: 'cdp-page-capture-screenshot-v1',
   launchBoundary: 'playwright-electron-packaged-v1',
   windowVisibility: 'hidden-unfocused',
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
@@ -81,7 +82,8 @@ const authenticatedUpstreamProvenance = {
   producerSha256: '4'.repeat(64),
   probeSha256: '5'.repeat(64),
   launcherSha256: '6'.repeat(64),
-  measurementBoundary: 'external-browser-dom-v1',
+  measurementBoundary: 'external-browser-compositor-v2',
+  presentationBoundary: 'cdp-page-capture-screenshot-v1',
   launchBoundary: 'external-inspector-hidden-cdp-v1',
   windowVisibility: 'hidden-unfocused',
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
@@ -103,7 +105,7 @@ const first = <Value>(values: Value[]): Value => {
 
 const commonSampleRecord = (length: number, base: number) => ({
   t_echo: Array.from({ length }, (_, index) => base + index / 1000),
-  t_frame: Array.from({ length }, (_, index) => base + 10 + index / 1000),
+  t_present: Array.from({ length }, (_, index) => base + 10 + index / 1000),
   open: Array.from({ length }, (_, index) => base + 100 + index / 1000),
   first_viewport: Array.from({ length }, (_, index) => base + 200 + index / 1000)
 })
@@ -119,8 +121,8 @@ const rawRun = (
   implementation: 'upstream-baseline' | 'core-candidate'
 ): CriticMarkupRawPerformanceRun => ({
   schema: implementation === 'core-candidate'
-    ? 'marktext-criticmarkup-raw-performance-run-v3'
-    : 'marktext-criticmarkup-raw-performance-run-v1',
+    ? 'marktext-criticmarkup-raw-performance-run-v4'
+    : 'marktext-criticmarkup-raw-performance-run-v2',
   runId: `${implementation}-synthetic-validator-fixture`,
   implementation,
   ...(implementation === 'core-candidate'
@@ -142,7 +144,7 @@ const rawRun = (
       provenance: authenticatedUpstreamProvenance,
       metricDefinitions: {
         t_echo: 'Exact DOM echo from browser event.',
-        t_frame: 'Next stable animation frame.',
+        t_present: 'External compositor-surface capture upper bound.',
         open: 'External open request to active tab.',
         first_viewport: 'External open request to editable viewport.'
       }
@@ -250,7 +252,8 @@ const withGitAuthenticatedUpstreamRun = (
       'upstream playwright config\n',
       'upstream hidden-policy helper\n',
       'upstream lifecycle-cleanup helper\n',
-      'shared Chromium scheduling policy\n'
+      'shared Chromium scheduling policy\n',
+      'shared compositor presentation checkpoint\n'
     ] as const
     const probeSource = 'upstream input probe\n'
     const launcherSource = '#!/bin/sh\necho launch\n'
@@ -265,6 +268,7 @@ const withGitAuthenticatedUpstreamRun = (
     write(`${prefix}helpers/upstreamBaselineHiddenPolicy.ts`, producerSources[4])
     write(`${prefix}helpers/upstreamBaselineLifecycleCleanup.ts`, producerSources[5])
     write(`${prefix}helpers/performanceChromiumLaunchPolicy.ts`, producerSources[6])
+    write(`${prefix}helpers/performancePresentationCheckpoint.ts`, producerSources[7])
     write(`${prefix}helpers/upstreamBaselineInputProbe.ts`, probeSource)
     write(`${prefix}run-upstream-baseline-performance.sh`, launcherSource)
     write(`${prefix}helpers/upstreamBaselinePerformanceRunner.sh`, launcherHelperSource)
@@ -281,7 +285,7 @@ const withGitAuthenticatedUpstreamRun = (
     ).trim()
     const upstream = structuredClone(
       rawRun('upstream-baseline')
-    ) as CriticMarkupRawPerformanceRunV1
+    ) as CriticMarkupUpstreamRawPerformanceRunV2
     upstream.baselineCommit = harnessCommit
     upstream.buildCommit = harnessCommit
     upstream.provenance = {
@@ -318,7 +322,7 @@ const withGitAuthenticatedUpstreamRun = (
 }
 
 describe('CriticMarkup raw performance evidence', () => {
-  it('authenticates the shared Chromium policy in both producer composites', () => {
+  it('authenticates shared Chromium and compositor policies in both producer composites', () => {
     const policy =
       'packages/desktop/test/e2e/helpers/performanceChromiumLaunchPolicy.ts'
     expect(UPSTREAM_PERFORMANCE_PRODUCER_PATHS).toEqual([
@@ -328,7 +332,8 @@ describe('CriticMarkup raw performance evidence', () => {
       'packages/desktop/test/e2e/playwright.upstream-baseline-performance.config.ts',
       'packages/desktop/test/e2e/helpers/upstreamBaselineHiddenPolicy.ts',
       'packages/desktop/test/e2e/helpers/upstreamBaselineLifecycleCleanup.ts',
-      policy
+      policy,
+      'packages/desktop/test/e2e/helpers/performancePresentationCheckpoint.ts'
     ])
     expect(CORE_PERFORMANCE_PRODUCER_PATHS).toEqual([
       'packages/desktop/test/e2e/installed-core-performance.spec.ts',
@@ -336,7 +341,8 @@ describe('CriticMarkup raw performance evidence', () => {
       'packages/desktop/test/e2e/helpers/coreAuthorityPerformanceReport.ts',
       'packages/desktop/test/e2e/installedArtifactProvenance.ts',
       'packages/desktop/test/e2e/playwright.installed-core-performance.config.ts',
-      policy
+      policy,
+      'packages/desktop/test/e2e/helpers/performancePresentationCheckpoint.ts'
     ])
 
     const expectShellOrder = (
@@ -365,13 +371,13 @@ describe('CriticMarkup raw performance evidence', () => {
       status: 'awaiting-raw-runs',
       runs: [],
       requiredMetrics: {
-        'upstream-baseline': ['t_echo', 't_frame', 'open', 'first_viewport'],
+        'upstream-baseline': ['t_echo', 't_present', 'open', 'first_viewport'],
         'core-candidate': [
           't_echo',
           't_dispatch',
           't_ack',
           't_reconcile',
-          't_frame',
+          't_present',
           'open',
           'first_viewport'
         ]
@@ -385,11 +391,30 @@ describe('CriticMarkup raw performance evidence', () => {
       )
   })
 
-  it('accepts complete synthetic raw runs for both required implementations', () => {
+  it('validates complete synthetic raw runs but refuses uncalibrated ratification', () => {
     withSyntheticRuns((root, measured) => {
       expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
         .not.toThrow()
-      const summary = requireCriticMarkupPerformanceEvidenceForRatification(root, measured)
+      expect(() => requireCriticMarkupPerformanceEvidenceForRatification(
+        root,
+        measured
+      )).toThrow(/t_present.*calibration/i)
+
+      const calibratedTargets = JSON.parse(targetsSource) as {
+        metrics: {
+          t_present: { targetP95Ms: number | null, targetStatus: string }
+        }
+      }
+      calibratedTargets.metrics.t_present.targetP95Ms = 50
+      calibratedTargets.metrics.t_present.targetStatus = 'frozen'
+      const calibratedSource = `${JSON.stringify(calibratedTargets, null, 2)}\n`
+      writeFileSync(resolve(root, measured.targetManifest.path), calibratedSource)
+      measured.targetManifest.sha256 = sha256(calibratedSource)
+
+      const summary = requireCriticMarkupPerformanceEvidenceForRatification(
+        root,
+        measured
+      )
       expect(summary.rows).toHaveLength(55)
       expect(first(summary.rows)).toMatchObject({
         runId: 'upstream-baseline-synthetic-validator-fixture',
@@ -400,6 +425,29 @@ describe('CriticMarkup raw performance evidence', () => {
         meetsTarget: true
       })
       expect(first(summary.rows).p95Ms).toBeCloseTo(1.189)
+    })
+  })
+
+  it('rejects stale t_frame raw samples instead of silently admitting them', () => {
+    withSyntheticRuns((root, measured) => {
+      const upstreamRef = measured.runs.find(
+        run => run.implementation === 'upstream-baseline'
+      )
+      if (upstreamRef === undefined) throw new Error('Synthetic upstream run is missing')
+      const raw = JSON.parse(
+        readFileSync(resolve(root, upstreamRef.path), 'utf8')
+      ) as unknown as {
+        documents: Array<{ measured: Record<string, number[]> }>
+      }
+      const measuredSamples = first(raw.documents).measured
+      measuredSamples.t_frame = measuredSamples.t_present ?? []
+      delete measuredSamples.t_present
+      const source = `${JSON.stringify(raw, null, 2)}\n`
+      writeFileSync(resolve(root, upstreamRef.path), source)
+      upstreamRef.sha256 = sha256(source)
+
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .toThrow(/metrics must be exactly.*t_present/i)
     })
   })
 
@@ -449,6 +497,27 @@ describe('CriticMarkup raw performance evidence', () => {
         .not.toThrow()
 
       upstream.provenance.producerSha256 = compositeSha256(
+        producerSources.filter((_source, index) => index !== 6)
+      )
+      update(upstream)
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .toThrow(/producer digest differs from its harness commit/i)
+    })
+  })
+
+  it('authenticates the shared compositor checkpoint as upstream producer code', () => {
+    withGitAuthenticatedUpstreamRun((
+      root,
+      measured,
+      upstream,
+      update,
+      _launcherSource,
+      producerSources
+    ) => {
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .not.toThrow()
+
+      upstream.provenance.producerSha256 = compositeSha256(
         producerSources.slice(0, -1)
       )
       update(upstream)
@@ -476,7 +545,7 @@ describe('CriticMarkup raw performance evidence', () => {
     })
   })
 
-  it('rejects Core v2 evidence without exact per-document authority metadata', () => {
+  it('rejects Core v4 evidence without exact per-document authority metadata', () => {
     withSyntheticRuns((root, measured) => {
       const coreRef = measured.runs.find(run => run.implementation === 'core-candidate')
       if (coreRef === undefined) throw new Error('Synthetic Core run is missing')
@@ -494,7 +563,7 @@ describe('CriticMarkup raw performance evidence', () => {
     })
   })
 
-  it('rejects Core v2 evidence without authenticated build provenance', () => {
+  it('rejects Core v4 evidence without authenticated build provenance', () => {
     withSyntheticRuns((root, measured) => {
       const coreRef = measured.runs.find(run => run.implementation === 'core-candidate')
       if (coreRef === undefined) throw new Error('Synthetic Core run is missing')
@@ -515,6 +584,7 @@ describe('CriticMarkup raw performance evidence', () => {
     ['checkoutHead', 'b'.repeat(40), /checkout head/i],
     ['packageArtifactSha256', 'not-a-digest', /lowercase SHA-256/i],
     ['measurementBoundary', 'legacy-core-timing', /measurement boundary/i],
+    ['presentationBoundary', 'request-animation-frame', /presentation boundary/i],
     ['windowVisibility', 'visible', /window visibility/i],
     [
       'chromiumSchedulingPolicy',
