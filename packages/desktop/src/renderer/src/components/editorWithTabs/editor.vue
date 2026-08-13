@@ -2891,6 +2891,9 @@ onMounted(() => {
         },
         latest: () => latestCorePlainTextChange,
         performanceEvents: () => coreAuthorityPerformanceTrace?.events() ?? [],
+        performanceSurface: () => coreEditableBindingCount.value > 0
+          ? 'wysiwyg' as const
+          : 'source-required' as const,
         performanceStatus: () => coreAuthorityPerformanceTrace?.status() ?? {
           accepting: false,
           eventCount: 0

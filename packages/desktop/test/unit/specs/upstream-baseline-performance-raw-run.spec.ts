@@ -19,9 +19,8 @@ const sample = (
   documentId,
   phase,
   report: {
-    t_dispatch: 0,
-    t_ack: value + 1,
-    t_reconcile: value + 2,
+    t_echo: value + 1,
+    t_frame: value + 2,
     open: value + 3,
     first_viewport: value + 4
   }
@@ -43,6 +42,7 @@ const input = (
   provenance: {
     detachedWorktreeHead: PINNED_BASELINE,
     detachedWorktreeClean: true,
+    harnessCommit: '2'.repeat(40),
     packageArtifactSha256: 'b'.repeat(64),
     executableSha256: 'c'.repeat(64),
     packageVersion: '0.20.0-dev',
@@ -81,6 +81,7 @@ describe('upstream baseline raw performance producer', () => {
       provenance: {
         detachedWorktreeHead: PINNED_BASELINE,
         detachedWorktreeClean: true,
+        harnessCommit: '2'.repeat(40),
         lockfileSha256: 'd'.repeat(64),
         producerSha256: 'e'.repeat(64),
         probeSha256: 'f'.repeat(64),
@@ -90,15 +91,14 @@ describe('upstream baseline raw performance producer', () => {
         windowVisibility: 'hidden-unfocused'
       },
       metricDefinitions: {
-        t_dispatch: 'Captured beforeinput dispatch origin; elapsed value is zero.',
-        t_ack: 'First exact matching Muya DOM state observed after dispatch.',
-        t_reconcile: 'Next animation frame whose matching Muya DOM state remains stable.',
+        t_echo: 'Elapsed time from beforeinput to the exact matching Muya DOM state.',
+        t_frame: 'Next animation frame whose matching Muya DOM state remains stable.',
         open: 'External elapsed time from file-open request until its tab is active.',
         first_viewport: 'External elapsed time from file-open request until its editor is editable.'
       }
     })
-    expect(run.documents[0]?.warmup.t_dispatch).toEqual(Array(20).fill(0))
-    expect(run.documents[0]?.measured.t_ack).toHaveLength(200)
+    expect(run.documents[0]?.warmup.t_echo).toHaveLength(20)
+    expect(run.documents[0]?.measured.t_frame).toHaveLength(200)
   })
 
   it('marks configurable smoke output with a schema rejected by ratification', () => {
@@ -134,7 +134,7 @@ describe('upstream baseline raw performance producer', () => {
     if (invalidSample === undefined) throw new Error('Synthetic sample is missing')
     invalid.samples[0] = {
       ...invalidSample,
-      report: { ...invalidSample.report, t_reconcile: 0 }
+      report: { ...invalidSample.report, t_frame: 0 }
     }
     expect(() => createUpstreamBaselinePerformanceRawRun(invalid))
       .toThrow(/timing order/i)

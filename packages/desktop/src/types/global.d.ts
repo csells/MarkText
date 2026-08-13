@@ -243,6 +243,7 @@ declare global {
         readonly eventCount: number
         readonly stopReason?: 'capacity'
       }>
+      performanceSurface?(): 'wysiwyg' | 'source' | 'source-required'
     }
     marktext?: {
       env?: { windowId: number; [key: string]: unknown }

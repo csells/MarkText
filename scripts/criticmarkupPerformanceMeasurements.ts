@@ -1,21 +1,37 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 import {
   validateCriticMarkupPerformanceTargets
 } from './criticmarkupPerformanceTargets'
 
-const CORE_METRICS = [
-  't_dispatch',
-  't_ack',
-  't_reconcile',
+const COMMON_METRICS = [
+  't_echo',
+  't_frame',
   'open',
   'first_viewport'
 ] as const
 
-type CoreMetric = typeof CORE_METRICS[number]
+const CORE_AUTHORITY_METRICS = [
+  't_dispatch',
+  't_ack',
+  't_reconcile'
+] as const
+
+const CORE_METRICS = [
+  't_echo',
+  ...CORE_AUTHORITY_METRICS,
+  't_frame',
+  'open',
+  'first_viewport'
+] as const
+
+type CommonMetric = typeof COMMON_METRICS[number]
+type CoreAuthorityMetric = typeof CORE_AUTHORITY_METRICS[number]
+type PerformanceMetric = CommonMetric | CoreAuthorityMetric
 type PerformanceImplementation = 'upstream-baseline' | 'core-candidate'
 
 const REQUIRED_IMPLEMENTATIONS: readonly PerformanceImplementation[] = [
@@ -35,17 +51,17 @@ export interface CriticMarkupRawPerformanceRunRef
 }
 
 export interface CriticMarkupPerformanceMeasurementManifest {
-  schema: 'marktext-criticmarkup-performance-measurements-v1'
+  schema: 'marktext-criticmarkup-performance-measurements-v2'
   status: 'awaiting-raw-runs' | 'measured-unratified'
   baselineCommit: string
   targetManifest: CriticMarkupPerformanceArtifactRef
   representativeDocuments: CriticMarkupPerformanceArtifactRef
-  requiredMetrics: CoreMetric[]
+  requiredMetrics: Record<PerformanceImplementation, PerformanceMetric[]>
   requiredImplementations: PerformanceImplementation[]
   runs: CriticMarkupRawPerformanceRunRef[]
 }
 
-export type CriticMarkupPerformanceSamples = Record<CoreMetric, number[]>
+export type CriticMarkupPerformanceSamples = Partial<Record<PerformanceMetric, number[]>>
 
 interface CriticMarkupRawPerformanceRunBase {
   runId: string
@@ -69,15 +85,18 @@ interface CriticMarkupRawPerformanceRunBase {
 export interface CriticMarkupRawPerformanceRunV1
   extends CriticMarkupRawPerformanceRunBase {
   schema: 'marktext-criticmarkup-raw-performance-run-v1'
+  provenance: CriticMarkupUpstreamPerformanceProvenance
+  metricDefinitions: Record<CommonMetric, string>
 }
 
 export type CriticMarkupPerformanceSurface = 'wysiwyg' | 'source'
 
 export interface CriticMarkupRawPerformanceRunV2
   extends Omit<CriticMarkupRawPerformanceRunBase, 'implementation' | 'documents'> {
-  schema: 'marktext-criticmarkup-raw-performance-run-v2'
+  schema: 'marktext-criticmarkup-raw-performance-run-v3'
   implementation: 'core-candidate'
   surfaces: CriticMarkupPerformanceSurface[]
+  provenance: CriticMarkupCorePerformanceProvenance
   documents: Array<{
     id: string
     sourceSha256: string
@@ -89,6 +108,44 @@ export interface CriticMarkupRawPerformanceRunV2
       measured: CriticMarkupPerformanceAuthoritySamples
     }
   }>
+}
+
+export interface CriticMarkupCorePerformanceProvenance {
+  checkoutHead: string
+  checkoutClean: boolean
+  harnessCommit: string
+  packageArtifactSha256: string
+  executableSha256: string
+  packageVersion: string
+  packageManager: string
+  nodeVersion: string
+  playwrightVersion: string
+  lockfileSha256: string
+  producerSha256: string
+  probeSha256: string
+  launcherSha256: string
+  measurementBoundary: 'core-authority-browser-external-v3'
+  launchBoundary: 'playwright-electron-packaged-v1'
+  windowVisibility: 'hidden-unfocused'
+}
+
+export interface CriticMarkupUpstreamPerformanceProvenance {
+  detachedWorktreeHead: string
+  detachedWorktreeClean: boolean
+  harnessCommit: string
+  packageArtifactSha256: string
+  executableSha256: string
+  packageVersion: string
+  packageManager: string
+  nodeVersion: string
+  playwrightVersion: string
+  lockfileSha256: string
+  producerSha256: string
+  probeSha256: string
+  launcherSha256: string
+  measurementBoundary: 'external-browser-dom-v1'
+  launchBoundary: 'external-inspector-hidden-cdp-v1'
+  windowVisibility: 'hidden-unfocused'
 }
 
 export interface CriticMarkupPerformanceAuthoritySamples {
@@ -106,7 +163,7 @@ interface PerformanceTargets {
   representativeDocuments: { schema: string, path: string }
   environment: Record<string, string>
   sampling: { warmupSamples: number, measuredSamples: number }
-  metrics: Record<CoreMetric, { targetP95Ms: number }>
+  metrics: Record<PerformanceMetric, { targetP95Ms: number }>
 }
 
 interface RepresentativeDocuments {
@@ -119,7 +176,7 @@ export interface CriticMarkupPerformanceP95Row {
   runId: string
   implementation: PerformanceImplementation
   documentId: string
-  metric: CoreMetric
+  metric: PerformanceMetric
   p95Ms: number
   targetP95Ms: number
   meetsTarget: boolean
@@ -133,6 +190,124 @@ export interface CriticMarkupPerformanceRatificationEvidence {
 const sha256 = (source: Buffer): string => createHash('sha256')
   .update(source)
   .digest('hex')
+
+const gitBlob = (repoRoot: string, commit: string, path: string): Buffer =>
+  execFileSync('git', ['-C', repoRoot, 'show', `${commit}:${path}`], {
+    encoding: 'buffer',
+    maxBuffer: 64 * 1024 * 1024
+  })
+
+const compositeGitDigest = (
+  repoRoot: string,
+  commit: string,
+  paths: readonly string[]
+): string => sha256(Buffer.from(paths
+  .map(path => `${sha256(gitBlob(repoRoot, commit, path))}\n`)
+  .join('')))
+
+const canAuthenticateGitEvidence = (repoRoot: string): boolean => {
+  try {
+    return execFileSync(
+      'git',
+      ['-C', repoRoot, 'rev-parse', '--is-inside-work-tree'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+    ).trim() === 'true'
+  } catch {
+    return false
+  }
+}
+
+const requireHarnessDigest = (
+  actual: unknown,
+  expected: string,
+  label: string
+): void => {
+  if (actual !== expected) throw new Error(`${label} differs from its harness commit`)
+}
+
+const validateHarnessDigests = (
+  repoRoot: string,
+  implementation: PerformanceImplementation,
+  buildCommit: string,
+  provenance: Record<string, unknown>,
+  label: string
+): void => {
+  if (!canAuthenticateGitEvidence(repoRoot)) return
+  const harnessCommit = requireNonEmpty(
+    provenance.harnessCommit,
+    `${label} harness commit`
+  )
+  const prefix = 'packages/desktop/test/e2e/'
+  if (implementation === 'core-candidate') {
+    requireHarnessDigest(
+      provenance.lockfileSha256,
+      sha256(gitBlob(repoRoot, buildCommit, 'pnpm-lock.yaml')),
+      `${label} lockfile digest`
+    )
+    requireHarnessDigest(
+      provenance.producerSha256,
+      compositeGitDigest(repoRoot, harnessCommit, [
+        `${prefix}installed-core-performance.spec.ts`,
+        `${prefix}helpers/coreAuthorityPerformanceRawRun.ts`,
+        `${prefix}helpers/coreAuthorityPerformanceReport.ts`,
+        `${prefix}installedArtifactProvenance.ts`,
+        `${prefix}playwright.installed-core-performance.config.ts`
+      ]),
+      `${label} producer digest`
+    )
+    requireHarnessDigest(
+      provenance.probeSha256,
+      compositeGitDigest(repoRoot, harnessCommit, [
+        `${prefix}helpers/browserInputEventTrace.ts`,
+        `${prefix}helpers/inputLatencyTrace.ts`
+      ]),
+      `${label} probe digest`
+    )
+    requireHarnessDigest(
+      provenance.launcherSha256,
+      sha256(gitBlob(
+        repoRoot,
+        harnessCommit,
+        `${prefix}run-installed-core-performance.sh`
+      )),
+      `${label} launcher digest`
+    )
+    return
+  }
+  requireHarnessDigest(
+    provenance.lockfileSha256,
+    sha256(gitBlob(repoRoot, buildCommit, 'pnpm-lock.yaml')),
+    `${label} lockfile digest`
+  )
+  requireHarnessDigest(
+    provenance.producerSha256,
+    compositeGitDigest(repoRoot, harnessCommit, [
+      `${prefix}upstream-baseline-performance.spec.ts`,
+      `${prefix}helpers/upstreamBaselinePerformanceRawRun.ts`,
+      `${prefix}helpers/upstreamBaselineEnvironment.ts`,
+      `${prefix}playwright.upstream-baseline-performance.config.ts`
+    ]),
+    `${label} producer digest`
+  )
+  requireHarnessDigest(
+    provenance.probeSha256,
+    sha256(gitBlob(
+      repoRoot,
+      harnessCommit,
+      `${prefix}helpers/upstreamBaselineInputProbe.ts`
+    )),
+    `${label} probe digest`
+  )
+  requireHarnessDigest(
+    provenance.launcherSha256,
+    sha256(gitBlob(
+      repoRoot,
+      harnessCommit,
+      `${prefix}run-upstream-baseline-performance.sh`
+    )),
+    `${label} launcher digest`
+  )
+}
 
 const requireRecord = (value: unknown, label: string): Record<string, unknown> => {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -195,11 +370,12 @@ const exactList = (
 const validateSampleSet = (
   value: unknown,
   expectedCount: number,
+  expectedMetrics: readonly PerformanceMetric[],
   label: string
 ): CriticMarkupPerformanceSamples => {
   const samples = requireRecord(value, label)
-  exactList(Object.keys(samples).sort(), [...CORE_METRICS].sort(), `${label} metrics`)
-  for (const metric of CORE_METRICS) {
+  exactList(Object.keys(samples).sort(), [...expectedMetrics].sort(), `${label} metrics`)
+  for (const metric of expectedMetrics) {
     const values = samples[metric]
     if (!Array.isArray(values) || values.length !== expectedCount) {
       throw new Error(`${metric} ${label} sample count must be ${expectedCount}`)
@@ -212,17 +388,85 @@ const validateSampleSet = (
   }
   const typed = samples as CriticMarkupPerformanceSamples
   for (let index = 0; index < expectedCount; index += 1) {
-    if ((typed.t_ack[index] ?? 0) < (typed.t_dispatch[index] ?? 0)) {
+    if ((typed.t_frame?.[index] ?? 0) < (typed.t_echo?.[index] ?? 0)) {
+      throw new Error(`${label} sample ${index} frames before exact browser echo`)
+    }
+    if (
+      expectedMetrics.includes('t_dispatch') &&
+      (typed.t_ack?.[index] ?? 0) < (typed.t_dispatch?.[index] ?? 0)
+    ) {
       throw new Error(`${label} sample ${index} acknowledges before dispatch`)
     }
-    if ((typed.t_reconcile[index] ?? 0) < (typed.t_ack[index] ?? 0)) {
+    if (
+      expectedMetrics.includes('t_reconcile') &&
+      (typed.t_reconcile?.[index] ?? 0) < (typed.t_ack?.[index] ?? 0)
+    ) {
       throw new Error(`${label} sample ${index} reconciles before acknowledgement`)
     }
-    if ((typed.first_viewport[index] ?? 0) < (typed.open[index] ?? 0)) {
+    if ((typed.first_viewport?.[index] ?? 0) < (typed.open?.[index] ?? 0)) {
       throw new Error(`${label} sample ${index} makes the viewport editable before open`)
     }
   }
   return typed
+}
+
+const validateUpstreamProvenance = (
+  value: unknown,
+  buildCommit: string,
+  label: string
+): void => {
+  const provenance = requireRecord(value, `${label} provenance`)
+  exactList(Object.keys(provenance).sort(), [
+    'detachedWorktreeClean',
+    'detachedWorktreeHead',
+    'executableSha256',
+    'harnessCommit',
+    'launchBoundary',
+    'launcherSha256',
+    'lockfileSha256',
+    'measurementBoundary',
+    'nodeVersion',
+    'packageArtifactSha256',
+    'packageManager',
+    'packageVersion',
+    'playwrightVersion',
+    'probeSha256',
+    'producerSha256',
+    'windowVisibility'
+  ].sort(), `${label} provenance fields`)
+  if (provenance.detachedWorktreeHead !== buildCommit) {
+    throw new Error(`${label} provenance detached worktree head differs from build commit`)
+  }
+  if (provenance.detachedWorktreeClean !== true) {
+    throw new Error(`${label} provenance requires a clean detached worktree`)
+  }
+  for (const field of [
+    'packageArtifactSha256',
+    'executableSha256',
+    'lockfileSha256',
+    'producerSha256',
+    'probeSha256',
+    'launcherSha256'
+  ] as const) requireDigest(provenance[field], `${label} provenance ${field}`)
+  if (
+    typeof provenance.harnessCommit !== 'string' ||
+    !/^[0-9a-f]{40}$/u.test(provenance.harnessCommit)
+  ) throw new Error(`${label} provenance harness commit is invalid`)
+  for (const field of [
+    'packageVersion',
+    'packageManager',
+    'nodeVersion',
+    'playwrightVersion'
+  ] as const) requireNonEmpty(provenance[field], `${label} provenance ${field}`)
+  if (provenance.measurementBoundary !== 'external-browser-dom-v1') {
+    throw new Error(`${label} provenance measurement boundary is invalid`)
+  }
+  if (provenance.launchBoundary !== 'external-inspector-hidden-cdp-v1') {
+    throw new Error(`${label} provenance launch boundary is invalid`)
+  }
+  if (provenance.windowVisibility !== 'hidden-unfocused') {
+    throw new Error(`${label} provenance window visibility is invalid`)
+  }
 }
 
 const validateAuthoritySamples = (
@@ -254,7 +498,74 @@ const validateAuthoritySamples = (
   }
 }
 
+const validateCoreProvenance = (
+  value: unknown,
+  buildCommit: string,
+  label: string
+): void => {
+  const provenance = requireRecord(value, `${label} provenance`)
+  exactList(Object.keys(provenance).sort(), [
+    'checkoutClean',
+    'checkoutHead',
+    'executableSha256',
+    'harnessCommit',
+    'launchBoundary',
+    'launcherSha256',
+    'lockfileSha256',
+    'measurementBoundary',
+    'nodeVersion',
+    'packageArtifactSha256',
+    'packageManager',
+    'packageVersion',
+    'playwrightVersion',
+    'probeSha256',
+    'producerSha256',
+    'windowVisibility'
+  ].sort(), `${label} provenance fields`)
+  if (provenance.checkoutHead !== buildCommit) {
+    throw new Error(`${label} provenance checkout head differs from its build commit`)
+  }
+  if (provenance.harnessCommit !== buildCommit) {
+    throw new Error(`${label} provenance harness commit differs from build commit`)
+  }
+  if (
+    typeof provenance.harnessCommit !== 'string' ||
+    !/^[0-9a-f]{40}$/u.test(provenance.harnessCommit)
+  ) throw new Error(`${label} provenance harness commit is invalid`)
+  if (provenance.checkoutClean !== true) {
+    throw new Error(`${label} provenance requires a clean checkout`)
+  }
+  for (const field of [
+    'packageArtifactSha256',
+    'executableSha256',
+    'lockfileSha256',
+    'producerSha256',
+    'probeSha256',
+    'launcherSha256'
+  ] as const) {
+    requireDigest(provenance[field], `${label} provenance ${field}`)
+  }
+  for (const field of [
+    'packageVersion',
+    'packageManager',
+    'nodeVersion',
+    'playwrightVersion'
+  ] as const) {
+    requireNonEmpty(provenance[field], `${label} provenance ${field}`)
+  }
+  if (provenance.measurementBoundary !== 'core-authority-browser-external-v3') {
+    throw new Error(`${label} provenance measurement boundary is invalid`)
+  }
+  if (provenance.launchBoundary !== 'playwright-electron-packaged-v1') {
+    throw new Error(`${label} provenance launch boundary is invalid`)
+  }
+  if (provenance.windowVisibility !== 'hidden-unfocused') {
+    throw new Error(`${label} provenance window visibility is invalid`)
+  }
+}
+
 const validateRawRun = (
+  repoRoot: string,
   value: unknown,
   ref: CriticMarkupRawPerformanceRunRef,
   manifest: CriticMarkupPerformanceMeasurementManifest,
@@ -263,7 +574,7 @@ const validateRawRun = (
 ): void => {
   const raw = requireRecord(value, `Raw performance run ${ref.id}`)
   const expectedSchema = ref.implementation === 'core-candidate'
-    ? 'marktext-criticmarkup-raw-performance-run-v2'
+    ? 'marktext-criticmarkup-raw-performance-run-v3'
     : 'marktext-criticmarkup-raw-performance-run-v1'
   if (raw.schema !== expectedSchema) {
     throw new Error(`Raw performance run ${ref.id} schema is invalid`)
@@ -301,7 +612,19 @@ const validateRawRun = (
     throw new Error(`Raw performance run ${ref.id} documents must be an array`)
   }
   const declaredSurfaces = new Set<CriticMarkupPerformanceSurface>()
-  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v2') {
+  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v3') {
+    validateCoreProvenance(
+      raw.provenance,
+      raw.buildCommit as string,
+      `Raw performance run ${ref.id}`
+    )
+    validateHarnessDigests(
+      repoRoot,
+      ref.implementation,
+      raw.buildCommit as string,
+      requireRecord(raw.provenance, `Raw performance run ${ref.id} provenance`),
+      `Raw performance run ${ref.id}`
+    )
     if (!Array.isArray(raw.surfaces) || raw.surfaces.length === 0) {
       throw new Error(`Raw performance run ${ref.id} editor surfaces are invalid`)
     }
@@ -314,7 +637,35 @@ const validateRawRun = (
       }
       declaredSurfaces.add(surface)
     }
+  } else {
+    validateUpstreamProvenance(
+      raw.provenance,
+      raw.buildCommit as string,
+      `Raw performance run ${ref.id}`
+    )
+    validateHarnessDigests(
+      repoRoot,
+      ref.implementation,
+      raw.buildCommit as string,
+      requireRecord(raw.provenance, `Raw performance run ${ref.id} provenance`),
+      `Raw performance run ${ref.id}`
+    )
+    const definitions = requireRecord(
+      raw.metricDefinitions,
+      `Raw performance run ${ref.id} metric definitions`
+    )
+    exactList(
+      Object.keys(definitions).sort(),
+      [...COMMON_METRICS].sort(),
+      `Raw performance run ${ref.id} metric definitions`
+    )
+    for (const metric of COMMON_METRICS) {
+      requireNonEmpty(definitions[metric], `Raw performance run ${ref.id} ${metric} definition`)
+    }
   }
+  const expectedMetrics = ref.implementation === 'core-candidate'
+    ? CORE_METRICS
+    : COMMON_METRICS
   const expectedDocuments = new Map(
     representativeDocuments.documents.map(document => [document.id, document])
   )
@@ -330,7 +681,7 @@ const validateRawRun = (
     if (document.sourceSha256 !== expected.sha256) {
       throw new Error(`Raw performance run ${ref.id} document digest is stale: ${id}`)
     }
-    if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v2') {
+    if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v3') {
       const surface = document.surface
       if (
         (surface !== 'wysiwyg' && surface !== 'source') ||
@@ -361,11 +712,13 @@ const validateRawRun = (
     validateSampleSet(
       document.warmup,
       targets.sampling.warmupSamples,
+      expectedMetrics,
       `${id} warmup`
     )
     validateSampleSet(
       document.measured,
       targets.sampling.measuredSamples,
+      expectedMetrics,
       `${id} measured`
     )
   }
@@ -373,7 +726,7 @@ const validateRawRun = (
   if (missing.length > 0) {
     throw new Error(`Raw performance run ${ref.id} is missing documents: ${missing.join(', ')}`)
   }
-  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v2') {
+  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v3') {
     const usedSurfaces = new Set(raw.documents.map(document => (
       requireRecord(document, `Raw performance run ${ref.id} document`).surface
     )))
@@ -390,7 +743,7 @@ export const validateCriticMarkupPerformanceMeasurements = (
   repoRoot: string,
   manifest: CriticMarkupPerformanceMeasurementManifest
 ): void => {
-  if (manifest.schema !== 'marktext-criticmarkup-performance-measurements-v1') {
+  if (manifest.schema !== 'marktext-criticmarkup-performance-measurements-v2') {
     throw new Error('Performance measurement manifest schema is invalid')
   }
   if (
@@ -402,7 +755,21 @@ export const validateCriticMarkupPerformanceMeasurements = (
   if (!/^[0-9a-f]{40}$/u.test(manifest.baselineCommit)) {
     throw new Error('Performance measurement baseline commit is invalid')
   }
-  exactList(manifest.requiredMetrics, CORE_METRICS, 'Required Core performance metrics')
+  exactList(
+    Object.keys(manifest.requiredMetrics),
+    REQUIRED_IMPLEMENTATIONS,
+    'Required performance metric implementations'
+  )
+  exactList(
+    manifest.requiredMetrics['upstream-baseline'],
+    COMMON_METRICS,
+    'Required upstream performance metrics'
+  )
+  exactList(
+    manifest.requiredMetrics['core-candidate'],
+    CORE_METRICS,
+    'Required Core performance metrics'
+  )
   exactList(
     manifest.requiredImplementations,
     REQUIRED_IMPLEMENTATIONS,
@@ -442,6 +809,7 @@ export const validateCriticMarkupPerformanceMeasurements = (
   }
 
   const ids = new Set<string>()
+  const implementations = new Set<PerformanceImplementation>()
   for (const ref of manifest.runs) {
     if (!ref.id.trim() || ids.has(ref.id)) {
       throw new Error(`Raw performance run ID is missing or duplicated: ${ref.id}`)
@@ -450,11 +818,17 @@ export const validateCriticMarkupPerformanceMeasurements = (
     if (!REQUIRED_IMPLEMENTATIONS.includes(ref.implementation)) {
       throw new Error(`Raw performance run ${ref.id} implementation is invalid`)
     }
+    if (implementations.has(ref.implementation)) {
+      throw new Error(
+        `Performance evidence must contain exactly one run for ${ref.implementation}`
+      )
+    }
+    implementations.add(ref.implementation)
     if (!ref.path.startsWith('specs/baselines/runs/performance/')) {
       throw new Error('Raw performance evidence must be checked in under the performance run directory')
     }
     const raw = readPinnedJson<unknown>(repoRoot, ref, 'Raw performance evidence')
-    validateRawRun(raw, ref, manifest, targets, representativeDocuments)
+    validateRawRun(repoRoot, raw, ref, manifest, targets, representativeDocuments)
   }
 }
 
@@ -486,8 +860,15 @@ export const requireCriticMarkupPerformanceEvidenceForRatification = (
       'Raw performance evidence'
     )
     for (const document of raw.documents) {
-      for (const metric of CORE_METRICS) {
-        const sorted = [...document.measured[metric]].sort((left, right) => left - right)
+      const metrics = raw.implementation === 'core-candidate'
+        ? CORE_METRICS
+        : COMMON_METRICS
+      for (const metric of metrics) {
+        const values = document.measured[metric]
+        if (values === undefined) {
+          throw new Error(`Raw performance run ${ref.id} has no ${metric} samples`)
+        }
+        const sorted = [...values].sort((left, right) => left - right)
         const rank = Math.ceil(sorted.length * 0.95) - 1
         const p95Ms = sorted[rank]
         if (p95Ms === undefined) {

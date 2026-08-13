@@ -424,9 +424,8 @@ const openSample = async(
 const measureInput = async(
   page: Page
 ): Promise<Readonly<{
-  readonly t_dispatch: 0
-  readonly t_ack: number
-  readonly t_reconcile: number
+  readonly t_echo: number
+  readonly t_frame: number
 }>> => {
   await placeCaretInEditor(page)
   await startUpstreamBaselineInputProbe(page)
@@ -569,6 +568,7 @@ test.describe('pinned upstream baseline raw performance producer', () => {
           detachedWorktreeHead: requiredValue('MARKTEXT_UPSTREAM_WORKTREE_HEAD'),
           detachedWorktreeClean:
             requiredValue('MARKTEXT_UPSTREAM_WORKTREE_CLEAN') === 'true',
+          harnessCommit: requiredValue('MARKTEXT_UPSTREAM_HARNESS_COMMIT'),
           packageArtifactSha256: requiredValue(
             'MARKTEXT_UPSTREAM_PACKAGE_SHA256'
           ),
