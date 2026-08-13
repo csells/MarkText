@@ -117,7 +117,7 @@ const machineEnvironment = (): Readonly<Record<string, string>> => {
       item?.machine_model,
       item?.chip_type,
       item?.physical_memory
-    ].join(' '),
+    ].join(', '),
     os: `macOS ${productVersion} (${buildVersion}), ${process.arch}`,
     build: 'MarkText production Electron bundle'
   })
