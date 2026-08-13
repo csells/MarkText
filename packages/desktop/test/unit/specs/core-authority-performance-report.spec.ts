@@ -8,7 +8,11 @@ describe('Core authority performance report', () => {
   it('joins ordered browser inputs to exact authority transactions', () => {
     expect(reportCoreAuthorityPerformance({
       surface: 'source',
-      inputEvents: [{ sequence: 1, tEvent: 10 }, { sequence: 2, tEvent: 20 }],
+      externalOpen: { open: 3, firstViewport: 9 },
+      inputEvents: [
+        { sequence: 1, tEvent: 10, tEcho: 12, tFrame: 16 },
+        { sequence: 2, tEvent: 20, tEcho: 24, tFrame: 27 }
+      ],
       authorityEvents: [
         { phase: 'open-request', documentId: 'a.md', at: 1 },
         { phase: 'open-ack', documentId: 'a.md', at: 4 },
@@ -32,18 +36,21 @@ describe('Core authority performance report', () => {
         { phase: 'reconcile', documentId: 'a.md', transaction: 5, corrected: true, at: 25 }
       ]
     })).toEqual({
+      t_echo: [2, 4],
       t_dispatch: [1, 2],
       t_ack: [4, 3],
       t_reconcile: [5, 5],
+      t_frame: [6, 7],
       open: 3,
-      first_viewport: 6,
+      first_viewport: 9,
       pendingDepthMaximum: 1,
       correctionCount: 1
     })
   })
 
   it('rejects missing, duplicate, misordered, or cross-document phases', () => {
-    const inputEvents = [{ sequence: 1, tEvent: 10 }]
+    const inputEvents = [{ sequence: 1, tEvent: 10, tEcho: 12, tFrame: 16 }]
+    const externalOpen = { open: 3, firstViewport: 9 }
     const base = [
       { phase: 'open-request' as const, documentId: 'a.md', at: 1 },
       { phase: 'open-ack' as const, documentId: 'a.md', at: 4 },
@@ -59,16 +66,19 @@ describe('Core authority performance report', () => {
     ]
     expect(() => reportCoreAuthorityPerformance({
       inputEvents,
+      externalOpen,
       surface: 'source',
       authorityEvents: base.slice(0, -1)
     })).toThrow(/complete transaction/i)
     expect(() => reportCoreAuthorityPerformance({
       inputEvents,
+      externalOpen,
       surface: 'source',
       authorityEvents: [...base, { ...base[4]!, at: 16 }]
     })).toThrow(/duplicate/i)
     expect(() => reportCoreAuthorityPerformance({
       inputEvents,
+      externalOpen,
       surface: 'source',
       authorityEvents: base.map(event => event.phase === 'ack'
         ? { ...event, at: 9 }
@@ -76,10 +86,23 @@ describe('Core authority performance report', () => {
     })).toThrow(/timestamp order/i)
     expect(() => reportCoreAuthorityPerformance({
       inputEvents,
+      externalOpen,
       surface: 'source',
       authorityEvents: base.map(event => event.phase === 'reconcile'
         ? { ...event, documentId: 'b.md' }
         : event)
     })).toThrow(/one document/i)
+    expect(() => reportCoreAuthorityPerformance({
+      inputEvents: [{ sequence: 1, tEvent: 10, tEcho: 17, tFrame: 16 }],
+      externalOpen,
+      surface: 'source',
+      authorityEvents: base
+    })).toThrow(/browser input timestamp order/i)
+    expect(() => reportCoreAuthorityPerformance({
+      inputEvents,
+      externalOpen: { open: 10, firstViewport: 9 },
+      surface: 'source',
+      authorityEvents: base
+    })).toThrow(/external open timestamp order/i)
   })
 })

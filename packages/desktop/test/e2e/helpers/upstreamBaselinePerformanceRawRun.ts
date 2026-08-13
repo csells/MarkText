@@ -14,9 +14,8 @@ export type UpstreamBaselineEvidenceClass =
   | 'smoke-non-ratifying'
 
 export interface UpstreamBaselinePerformanceReport {
-  readonly t_dispatch: number
-  readonly t_ack: number
-  readonly t_reconcile: number
+  readonly t_echo: number
+  readonly t_frame: number
   readonly open: number
   readonly first_viewport: number
 }
@@ -30,6 +29,7 @@ export interface UpstreamBaselinePerformanceRawSample {
 export interface UpstreamBaselineBuildProvenance {
   readonly detachedWorktreeHead: string
   readonly detachedWorktreeClean: boolean
+  readonly harnessCommit: string
   readonly packageArtifactSha256: string
   readonly executableSha256: string
   readonly packageVersion: string
@@ -106,9 +106,8 @@ export type UpstreamBaselinePerformanceRawRun =
   | UpstreamBaselinePerformanceSmokeRun
 
 const METRIC_DEFINITIONS = Object.freeze({
-  t_dispatch: 'Captured beforeinput dispatch origin; elapsed value is zero.',
-  t_ack: 'First exact matching Muya DOM state observed after dispatch.',
-  t_reconcile: 'Next animation frame whose matching Muya DOM state remains stable.',
+  t_echo: 'Elapsed time from beforeinput to the exact matching Muya DOM state.',
+  t_frame: 'Next animation frame whose matching Muya DOM state remains stable.',
   open: 'External elapsed time from file-open request until its tab is active.',
   first_viewport: 'External elapsed time from file-open request until its editor is editable.'
 }) satisfies Readonly<Record<Metric, string>>
@@ -124,9 +123,8 @@ const requireNonEmpty = (value: string, label: string): void => {
 }
 
 const emptyDistribution = (): Record<Metric, number[]> => ({
-  t_dispatch: [],
-  t_ack: [],
-  t_reconcile: [],
+  t_echo: [],
+  t_frame: [],
   open: [],
   first_viewport: []
 })
@@ -134,9 +132,8 @@ const emptyDistribution = (): Record<Metric, number[]> => ({
 const freezeDistribution = (
   distribution: Record<Metric, number[]>
 ): Distribution => Object.freeze({
-  t_dispatch: Object.freeze([...distribution.t_dispatch]),
-  t_ack: Object.freeze([...distribution.t_ack]),
-  t_reconcile: Object.freeze([...distribution.t_reconcile]),
+  t_echo: Object.freeze([...distribution.t_echo]),
+  t_frame: Object.freeze([...distribution.t_frame]),
   open: Object.freeze([...distribution.open]),
   first_viewport: Object.freeze([...distribution.first_viewport])
 })
@@ -149,12 +146,8 @@ const validateReport = (
   if (values.some(value => !Number.isFinite(value) || value < 0)) {
     throw new Error(`${label} contains an invalid timing`)
   }
-  if (report.t_dispatch !== 0) {
-    throw new Error(`${label} dispatch must be the zero elapsed-time origin`)
-  }
   if (
-    report.t_ack < report.t_dispatch ||
-    report.t_reconcile < report.t_ack ||
+    report.t_frame < report.t_echo ||
     report.first_viewport < report.open
   ) {
     throw new Error(`${label} timing order is invalid`)
@@ -176,6 +169,7 @@ const validateProvenance = (
   if (!input.provenance.detachedWorktreeClean) {
     throw new Error('Detached upstream worktree must be clean')
   }
+  requireIdentity(input.provenance.harnessCommit, 40, 'Harness commit')
   requireIdentity(
     input.provenance.packageArtifactSha256,
     64,

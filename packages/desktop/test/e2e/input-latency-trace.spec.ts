@@ -43,6 +43,9 @@ test.describe('upstream editor input-to-render-opportunity trace', () => {
     expect(sample?.echoDomCheckpoint).toEqual(
       sample?.expectedDomCheckpoint
     )
+    expect(sample?.frameDomCheckpoint).toEqual(
+      sample?.expectedDomCheckpoint
+    )
   })
 
   test('preserves a zero-delay unique-token burst through the next frame', async() => {
@@ -66,6 +69,9 @@ test.describe('upstream editor input-to-render-opportunity trace', () => {
       expect(sample.tEvent).toBeLessThanOrEqual(sample.tEcho)
       expect(sample.tEcho).toBeLessThanOrEqual(sample.tFrame)
       expect(sample.echoDomCheckpoint).toEqual(
+        sample.expectedDomCheckpoint
+      )
+      expect(sample.frameDomCheckpoint).toEqual(
         sample.expectedDomCheckpoint
       )
     }
@@ -118,7 +124,7 @@ test.describe('upstream editor input-to-render-opportunity trace', () => {
     const [pendingSample] = await readInputLatencyTrace(page)
     const status = await readInputLatencyTraceStatus(page)
     expect(pendingSample?.data, JSON.stringify(status)).toBe('x')
-    expect(pendingSample?.tFrame).toBeDefined()
+    expect(pendingSample?.tFrame).toBeUndefined()
     expect(pendingSample?.tEcho).toBeUndefined()
     expect(pendingSample?.echoDomCheckpoint).toBeUndefined()
 
@@ -138,8 +144,11 @@ test.describe('upstream editor input-to-render-opportunity trace', () => {
     ) {
       throw new Error('Expected a completed late input latency sample')
     }
-    expect(completedSample.tEcho).toBeGreaterThan(completedSample.tFrame)
+    expect(completedSample.tEcho).toBeLessThanOrEqual(completedSample.tFrame)
     expect(completedSample.echoDomCheckpoint).toEqual(
+      completedSample.expectedDomCheckpoint
+    )
+    expect(completedSample.frameDomCheckpoint).toEqual(
       completedSample.expectedDomCheckpoint
     )
     await stopInputLatencyTrace(page)

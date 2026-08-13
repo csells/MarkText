@@ -10,9 +10,8 @@ export interface UpstreamBaselineInputObservation {
 }
 
 export interface UpstreamBaselineInputTiming {
-  readonly t_dispatch: 0
-  readonly t_ack: number
-  readonly t_reconcile: number
+  readonly t_echo: number
+  readonly t_frame: number
 }
 
 interface BrowserProbeSample extends UpstreamBaselineInputObservation {
@@ -61,9 +60,8 @@ export const reportUpstreamBaselineInputObservation = (
     throw new Error('Stable frame does not retain the expected DOM checkpoint')
   }
   return Object.freeze({
-    t_dispatch: 0 as const,
-    t_ack: acknowledgedAt - observation.tEvent,
-    t_reconcile: stableFrameAt - observation.tEvent
+    t_echo: acknowledgedAt - observation.tEvent,
+    t_frame: stableFrameAt - observation.tEvent
   })
 }
 
