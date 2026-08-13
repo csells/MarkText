@@ -22,23 +22,40 @@ interface UpstreamInspectorChannel {
   readonly waitForPaused: () => Promise<UpstreamInspectorPausedEvent>
 }
 
-const HIDDEN_POLICY_EXPRESSION = `(() => {
-  const { app } = require('electron')
-  app.setActivationPolicy('accessory')
+export const upstreamExternalHiddenPolicyExpression = `(() => {
+  const { app, BrowserWindow } = require('electron')
+  let concealmentActive = false
+  const concealWindow = window => {
+    if (window.isDestroyed()) return
+    window.hide()
+    window.blur()
+  }
+  const concealApplication = () => {
+    if (concealmentActive) return
+    concealmentActive = true
+    try {
+      for (const window of BrowserWindow.getAllWindows()) concealWindow(window)
+      if (app.isReady()) {
+        app.hide()
+        app.dock?.hide()
+      }
+    } finally {
+      concealmentActive = false
+    }
+  }
   globalThis.__marktextUpstreamHiddenLaunch = Object.freeze({
     boundary: 'external-inspector-hidden-cdp-v1'
   })
   app.on('browser-window-created', (_event, window) => {
-    const conceal = () => {
-      if (window.isDestroyed()) return
-      window.hide()
-      window.blur()
-    }
     window.setSkipTaskbar(true)
-    conceal()
-    window.on('show', conceal)
+    window.on('show', concealApplication)
+    window.on('focus', concealApplication)
+    concealApplication()
   })
-  app.whenReady().then(() => app.dock?.hide())
+  app.on('browser-window-focus', concealApplication)
+  app.on('activate', concealApplication)
+  app.setActivationPolicy('accessory')
+  app.whenReady().then(concealApplication)
   return true
 })()`
 
@@ -61,7 +78,7 @@ export const installUpstreamExternalHiddenPolicy = async(
   }
   const installed = await channel.send('Debugger.evaluateOnCallFrame', {
     callFrameId,
-    expression: HIDDEN_POLICY_EXPRESSION,
+    expression: upstreamExternalHiddenPolicyExpression,
     returnByValue: true
   })
   const failure = upstreamInspectorExceptionMessage(installed)
