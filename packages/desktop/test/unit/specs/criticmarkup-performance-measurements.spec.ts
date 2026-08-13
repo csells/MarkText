@@ -12,9 +12,11 @@ import { dirname, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
+  CORE_PERFORMANCE_PRODUCER_PATHS,
   type CriticMarkupPerformanceMeasurementManifest,
   type CriticMarkupRawPerformanceRun,
   type CriticMarkupRawPerformanceRunV1,
+  UPSTREAM_PERFORMANCE_PRODUCER_PATHS,
   requireCriticMarkupPerformanceEvidenceForRatification,
   validateCriticMarkupPerformanceMeasurements
 } from '../../../../../scripts/criticmarkupPerformanceMeasurements'
@@ -61,7 +63,8 @@ const authenticatedCoreProvenance = {
   launcherSha256: '6'.repeat(64),
   measurementBoundary: 'core-authority-browser-external-v3',
   launchBoundary: 'playwright-electron-packaged-v1',
-  windowVisibility: 'hidden-unfocused'
+  windowVisibility: 'hidden-unfocused',
+  chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
 } as const
 
 const authenticatedUpstreamProvenance = {
@@ -80,7 +83,8 @@ const authenticatedUpstreamProvenance = {
   launcherSha256: '6'.repeat(64),
   measurementBoundary: 'external-browser-dom-v1',
   launchBoundary: 'external-inspector-hidden-cdp-v1',
-  windowVisibility: 'hidden-unfocused'
+  windowVisibility: 'hidden-unfocused',
+  chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
 } as const
 
 const sha256 = (source: string): string => createHash('sha256')
@@ -245,7 +249,8 @@ const withGitAuthenticatedUpstreamRun = (
       'upstream environment helper\n',
       'upstream playwright config\n',
       'upstream hidden-policy helper\n',
-      'upstream lifecycle-cleanup helper\n'
+      'upstream lifecycle-cleanup helper\n',
+      'shared Chromium scheduling policy\n'
     ] as const
     const probeSource = 'upstream input probe\n'
     const launcherSource = '#!/bin/sh\necho launch\n'
@@ -259,6 +264,7 @@ const withGitAuthenticatedUpstreamRun = (
     write(`${prefix}playwright.upstream-baseline-performance.config.ts`, producerSources[3])
     write(`${prefix}helpers/upstreamBaselineHiddenPolicy.ts`, producerSources[4])
     write(`${prefix}helpers/upstreamBaselineLifecycleCleanup.ts`, producerSources[5])
+    write(`${prefix}helpers/performanceChromiumLaunchPolicy.ts`, producerSources[6])
     write(`${prefix}helpers/upstreamBaselineInputProbe.ts`, probeSource)
     write(`${prefix}run-upstream-baseline-performance.sh`, launcherSource)
     write(`${prefix}helpers/upstreamBaselinePerformanceRunner.sh`, launcherHelperSource)
@@ -312,6 +318,48 @@ const withGitAuthenticatedUpstreamRun = (
 }
 
 describe('CriticMarkup raw performance evidence', () => {
+  it('authenticates the shared Chromium policy in both producer composites', () => {
+    const policy =
+      'packages/desktop/test/e2e/helpers/performanceChromiumLaunchPolicy.ts'
+    expect(UPSTREAM_PERFORMANCE_PRODUCER_PATHS).toEqual([
+      'packages/desktop/test/e2e/upstream-baseline-performance.spec.ts',
+      'packages/desktop/test/e2e/helpers/upstreamBaselinePerformanceRawRun.ts',
+      'packages/desktop/test/e2e/helpers/upstreamBaselineEnvironment.ts',
+      'packages/desktop/test/e2e/playwright.upstream-baseline-performance.config.ts',
+      'packages/desktop/test/e2e/helpers/upstreamBaselineHiddenPolicy.ts',
+      'packages/desktop/test/e2e/helpers/upstreamBaselineLifecycleCleanup.ts',
+      policy
+    ])
+    expect(CORE_PERFORMANCE_PRODUCER_PATHS).toEqual([
+      'packages/desktop/test/e2e/installed-core-performance.spec.ts',
+      'packages/desktop/test/e2e/helpers/coreAuthorityPerformanceRawRun.ts',
+      'packages/desktop/test/e2e/helpers/coreAuthorityPerformanceReport.ts',
+      'packages/desktop/test/e2e/installedArtifactProvenance.ts',
+      'packages/desktop/test/e2e/playwright.installed-core-performance.config.ts',
+      policy
+    ])
+
+    const expectShellOrder = (
+      runner: string,
+      producerPaths: readonly string[]
+    ): void => {
+      const source = readFileSync(resolve(repoRoot, runner), 'utf8')
+      const positions = producerPaths.map(path => source.indexOf(
+        path.replace('packages/desktop/test/e2e/', '')
+      ))
+      expect(positions.every(position => position >= 0)).toBe(true)
+      expect(positions).toEqual([...positions].sort((left, right) => left - right))
+    }
+    expectShellOrder(
+      'packages/desktop/test/e2e/run-upstream-baseline-performance.sh',
+      UPSTREAM_PERFORMANCE_PRODUCER_PATHS
+    )
+    expectShellOrder(
+      'packages/desktop/test/e2e/run-installed-core-performance.sh',
+      CORE_PERFORMANCE_PRODUCER_PATHS
+    )
+  })
+
   it('records the missing Core measurement denominator without inventing samples', () => {
     expect(manifest).toMatchObject({
       status: 'awaiting-raw-runs',
@@ -380,11 +428,51 @@ describe('CriticMarkup raw performance evidence', () => {
         .not.toThrow()
 
       upstream.provenance.producerSha256 = compositeSha256(
+        producerSources.filter((_source, index) => index !== 4)
+      )
+      update(upstream)
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .toThrow(/producer digest differs from its harness commit/i)
+    })
+  })
+
+  it('authenticates the shared Chromium scheduling policy as upstream producer code', () => {
+    withGitAuthenticatedUpstreamRun((
+      root,
+      measured,
+      upstream,
+      update,
+      _launcherSource,
+      producerSources
+    ) => {
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .not.toThrow()
+
+      upstream.provenance.producerSha256 = compositeSha256(
         producerSources.slice(0, -1)
       )
       update(upstream)
       expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
         .toThrow(/producer digest differs from its harness commit/i)
+    })
+  })
+
+  it('rejects upstream evidence without the authenticated Chromium scheduling policy', () => {
+    withSyntheticRuns((root, measured) => {
+      const upstreamRef = measured.runs.find(
+        run => run.implementation === 'upstream-baseline'
+      )
+      if (upstreamRef === undefined) throw new Error('Synthetic upstream run is missing')
+      const raw = JSON.parse(
+        readFileSync(resolve(root, upstreamRef.path), 'utf8')
+      ) as unknown as { provenance: Record<string, unknown> }
+      raw.provenance.chromiumSchedulingPolicy = 'default-background-scheduling'
+      const source = `${JSON.stringify(raw, null, 2)}\n`
+      writeFileSync(resolve(root, upstreamRef.path), source)
+      upstreamRef.sha256 = sha256(source)
+
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .toThrow(/Chromium scheduling/i)
     })
   })
 
@@ -427,7 +515,12 @@ describe('CriticMarkup raw performance evidence', () => {
     ['checkoutHead', 'b'.repeat(40), /checkout head/i],
     ['packageArtifactSha256', 'not-a-digest', /lowercase SHA-256/i],
     ['measurementBoundary', 'legacy-core-timing', /measurement boundary/i],
-    ['windowVisibility', 'visible', /window visibility/i]
+    ['windowVisibility', 'visible', /window visibility/i],
+    [
+      'chromiumSchedulingPolicy',
+      'default-background-scheduling',
+      /Chromium scheduling/i
+    ]
   ] as const)('rejects unauthenticated Core %s provenance', (
     field,
     value,

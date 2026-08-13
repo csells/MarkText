@@ -27,6 +27,7 @@ export type UpstreamBaselineInputProbeCheckpointErrorCode =
   | 'input-not-observed'
   | 'dom-acknowledgement-missing'
   | 'stable-frame-missing'
+  | 'deadline-exceeded'
   | 'unsupported-input'
   | 'unstable-checkpoint'
 
@@ -48,18 +49,21 @@ export class UpstreamBaselineInputProbeCheckpointError extends Error {
   readonly code: UpstreamBaselineInputProbeCheckpointErrorCode
   readonly state: UpstreamBaselineInputProbeCheckpointState
   readonly checkpoint: UpstreamBaselineInputProbeCheckpoint
+  override readonly cause?: unknown
 
   constructor(
     code: UpstreamBaselineInputProbeCheckpointErrorCode,
     state: UpstreamBaselineInputProbeCheckpointState,
     detail: string,
-    checkpoint: UpstreamBaselineInputProbeCheckpoint
+    checkpoint: UpstreamBaselineInputProbeCheckpoint,
+    cause?: unknown
   ) {
     super(`Upstream input probe checkpoint ${state}: ${detail}`)
     this.name = 'UpstreamBaselineInputProbeCheckpointError'
     this.code = code
     this.state = state
     this.checkpoint = Object.freeze({ ...checkpoint })
+    this.cause = cause
   }
 }
 
@@ -156,6 +160,8 @@ const checkpointError = (
         return `exact DOM acknowledgement was not observed${timeoutDetail}`
       case 'stable-frame-missing':
         return `next stable rendered frame was not observed${timeoutDetail}`
+      case 'deadline-exceeded':
+        return `measurement deadline was exceeded${timeoutDetail}`
       case 'unsupported-input':
         return 'browser input did not target one supported Muya paragraph'
       case 'unstable-checkpoint':
@@ -169,6 +175,33 @@ const checkpointError = (
     checkpoint
   )
 }
+
+const deadlineExceededError = (
+  checkpoint: UpstreamBaselineInputProbeCheckpoint,
+  timeout: number,
+  cause: unknown
+): UpstreamBaselineInputProbeCheckpointError => {
+  const state = inspectUpstreamBaselineInputProbeCheckpoint(checkpoint).state
+  const timing = [
+    `tEvent=${String(checkpoint.tEvent)}`,
+    `tAcknowledged=${String(checkpoint.tAcknowledged)}`,
+    `tStableFrame=${String(checkpoint.tStableFrame)}`
+  ].join(', ')
+  return new UpstreamBaselineInputProbeCheckpointError(
+    'deadline-exceeded',
+    state,
+    `measurement did not complete within ${String(timeout)}ms; ${timing}`,
+    checkpoint,
+    cause
+  )
+}
+
+const checkpointExceededDeadline = (
+  checkpoint: UpstreamBaselineInputProbeCheckpoint,
+  timeout: number
+): boolean => checkpoint.tEvent !== undefined &&
+  checkpoint.tStableFrame !== undefined &&
+  checkpoint.tStableFrame - checkpoint.tEvent > timeout
 
 export const reportUpstreamBaselineInputObservation = (
   observation: UpstreamBaselineInputObservation
@@ -347,7 +380,12 @@ export const waitForUpstreamBaselineInputProbe = async(
   ) {
     throw checkpointError(initial)
   }
-  if (initialState.state === 'ready') return
+  if (initialState.state === 'ready') {
+    if (checkpointExceededDeadline(initial, timeout)) {
+      throw deadlineExceededError(initial, timeout, undefined)
+    }
+    return
+  }
 
   try {
     await page.waitForFunction(() => {
@@ -358,14 +396,17 @@ export const waitForUpstreamBaselineInputProbe = async(
         (sample?.tAcknowledged !== undefined &&
           sample.tStableFrame !== undefined)
     }, undefined, { timeout })
-  } catch {
-    const timedOut = await readUpstreamBaselineInputProbeCheckpoint(page)
-    throw checkpointError(timedOut, timeout)
+  } catch (cause) {
+    const atDeadline = await readUpstreamBaselineInputProbeCheckpoint(page)
+    throw deadlineExceededError(atDeadline, timeout, cause)
   }
 
   const completed = await readUpstreamBaselineInputProbeCheckpoint(page)
   if (inspectUpstreamBaselineInputProbeCheckpoint(completed).state !== 'ready') {
     throw checkpointError(completed)
+  }
+  if (checkpointExceededDeadline(completed, timeout)) {
+    throw deadlineExceededError(completed, timeout, undefined)
   }
 }
 
