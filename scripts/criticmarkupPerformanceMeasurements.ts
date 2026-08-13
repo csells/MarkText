@@ -148,7 +148,7 @@ export interface CriticMarkupCorePerformanceProvenance {
   measurementBoundary: 'core-authority-browser-external-v3'
   launchBoundary: 'playwright-electron-packaged-v1'
   windowVisibility: 'hidden-unfocused'
-  chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
+  chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
 }
 
 export interface CriticMarkupUpstreamPerformanceProvenance {
@@ -168,7 +168,7 @@ export interface CriticMarkupUpstreamPerformanceProvenance {
   measurementBoundary: 'external-browser-dom-v1'
   launchBoundary: 'external-inspector-hidden-cdp-v1'
   windowVisibility: 'hidden-unfocused'
-  chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
+  chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
 }
 
 export interface CriticMarkupPerformanceAuthoritySamples {
@@ -479,7 +479,7 @@ const validateUpstreamProvenance = (
   if (provenance.windowVisibility !== 'hidden-unfocused') {
     throw new Error(`${label} provenance window visibility is invalid`)
   }
-  if (provenance.chromiumSchedulingPolicy !== 'hidden-unthrottled-rendering-v1') {
+  if (provenance.chromiumSchedulingPolicy !== 'hidden-unthrottled-rendering-v2') {
     throw new Error(`${label} provenance Chromium scheduling policy is invalid`)
   }
 }
@@ -578,7 +578,7 @@ const validateCoreProvenance = (
   if (provenance.windowVisibility !== 'hidden-unfocused') {
     throw new Error(`${label} provenance window visibility is invalid`)
   }
-  if (provenance.chromiumSchedulingPolicy !== 'hidden-unthrottled-rendering-v1') {
+  if (provenance.chromiumSchedulingPolicy !== 'hidden-unthrottled-rendering-v2') {
     throw new Error(`${label} provenance Chromium scheduling policy is invalid`)
   }
 }

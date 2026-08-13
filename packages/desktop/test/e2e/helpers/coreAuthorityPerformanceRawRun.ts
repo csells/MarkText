@@ -47,7 +47,7 @@ export interface CoreAuthorityPerformanceBuildProvenance {
   readonly measurementBoundary: 'core-authority-browser-external-v3'
   readonly launchBoundary: 'playwright-electron-packaged-v1'
   readonly windowVisibility: 'hidden-unfocused'
-  readonly chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
+  readonly chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
 }
 
 export interface CoreAuthorityPerformanceRawRunInput {

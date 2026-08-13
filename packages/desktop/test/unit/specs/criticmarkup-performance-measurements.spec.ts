@@ -64,7 +64,7 @@ const authenticatedCoreProvenance = {
   measurementBoundary: 'core-authority-browser-external-v3',
   launchBoundary: 'playwright-electron-packaged-v1',
   windowVisibility: 'hidden-unfocused',
-  chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
+  chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
 } as const
 
 const authenticatedUpstreamProvenance = {
@@ -84,7 +84,7 @@ const authenticatedUpstreamProvenance = {
   measurementBoundary: 'external-browser-dom-v1',
   launchBoundary: 'external-inspector-hidden-cdp-v1',
   windowVisibility: 'hidden-unfocused',
-  chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
+  chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
 } as const
 
 const sha256 = (source: string): string => createHash('sha256')
@@ -466,7 +466,7 @@ describe('CriticMarkup raw performance evidence', () => {
       const raw = JSON.parse(
         readFileSync(resolve(root, upstreamRef.path), 'utf8')
       ) as unknown as { provenance: Record<string, unknown> }
-      raw.provenance.chromiumSchedulingPolicy = 'default-background-scheduling'
+      raw.provenance.chromiumSchedulingPolicy = 'hidden-unthrottled-rendering-v1'
       const source = `${JSON.stringify(raw, null, 2)}\n`
       writeFileSync(resolve(root, upstreamRef.path), source)
       upstreamRef.sha256 = sha256(source)
