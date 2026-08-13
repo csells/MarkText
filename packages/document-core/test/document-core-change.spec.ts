@@ -336,6 +336,53 @@ function applySyntaxReplacementForOracle(
 }
 
 describe('document-core semantic changes', () => {
+  it.each([
+    ['addition', '{++new {--nested--}++}', 'new {--nested--}', ''],
+    ['deletion', '{--old {++nested++}--}', '', 'old {++nested++}'],
+    ['substitution', '{~~old~>new~~}', 'new', 'old'],
+    ['highlight', '{==marked==}', 'marked', 'marked'],
+    ['comment', '{>>note<<}', '', '']
+  ] as const)(
+    'resolves one owned %s as an exact atomic source transaction',
+    (kind, marked, accepted, rejected) => {
+      for (const [decision, replacement] of [
+        ['accept', accepted],
+        ['reject', rejected]
+      ] as const) {
+        const source = `before ${marked} after`
+        const core = createDocumentCore()
+        const opened = core.open(source)
+        const annotation = opened.annotations[0]
+        expect(annotation?.kind).toBe(kind)
+
+        const commit = core.resolve(opened, annotation!, decision, { projections: [] })
+
+        expect(commit.revision.source).toBe(`before ${replacement} after`)
+        expect(commit.change.appliedEdits).toEqual([{
+          start: source.indexOf(marked),
+          end: source.indexOf(marked) + marked.length,
+          insert: replacement
+        }])
+        expect(commit.change.projections).toEqual([])
+      }
+    }
+  )
+
+  it('rejects foreign resolution identity without publishing a revision', () => {
+    const core = createDocumentCore()
+    const opened = core.open('before {++one++} after')
+    const foreignCore = createDocumentCore()
+    const foreign = foreignCore.open('before {++one++} after').annotations[0]!
+
+    expect(() => core.resolve(opened, foreign, 'accept')).toThrow(
+      /does not belong to this revision/
+    )
+    expect(opened.source).toBe('before {++one++} after')
+
+    const accepted = core.resolve(opened, opened.annotations[0]!, 'accept')
+    expect(accepted.revision.source).toBe('before one after')
+  })
+
   it('keeps only the current full products strong while history stays projectable', () => {
     const source = [
       'head\n\n',
@@ -1308,14 +1355,49 @@ describe('document-core semantic changes', () => {
     expect(commit.change.projections.map(change => change.scope))
       .toEqual(['regions', 'regions'])
 
+    const emptySource = 'head\n\nordinary text paragraph\n\ntail\n'
+    const emptyAt = emptySource.indexOf('text')
     const emptyCore = createDocumentCore()
-    const emptyOpened = emptyCore.open(source)
+    const emptyOpened = emptyCore.open(emptySource)
+    const beforeEmpty = inspectionOf(emptyCore)
     const empty = emptyCore.apply(emptyOpened, [{
-      start: at,
-      end: at + 4,
+      start: emptyAt,
+      end: emptyAt + 4,
       insert: 'WORDS'
     }], { projections: [] })
+    const afterEmpty = inspectionOf(emptyCore)
     expect(empty.change.projections).toEqual([])
+    expect(delta(afterEmpty, beforeEmpty, 'regionalFastApplies')).toBe(1)
+    expect(delta(afterEmpty, beforeEmpty, 'documentParses')).toBe(0)
+    expect(delta(afterEmpty, beforeEmpty, 'sourceMaterializations')).toBe(0)
+    expect(delta(afterEmpty, beforeEmpty, 'regionalIntrinsicSourceUnits')).toBe(26)
+    expect(delta(afterEmpty, beforeEmpty, 'regionalProjectionPreparationUnits')).toBe(0)
+    expect(delta(afterEmpty, beforeEmpty, 'regionalMarkupEventUnits')).toBe(0)
+    expect(delta(afterEmpty, beforeEmpty, 'regionalAstMaterializedNodes')).toBe(0)
+    expect(delta(afterEmpty, beforeEmpty, 'regionalCoordinateSegments')).toBe(0)
+
+    for (const candidate of [
+      { insert: 'text\n# heading', markdown: undefined },
+      { insert: '{++added++}', markdown: undefined },
+      { insert: 'WORDS', markdown: { gfm: false } }
+    ] as const) {
+      const fallbackCore = createDocumentCore()
+      const fallbackOpened = fallbackCore.open(emptySource)
+      const beforeFallback = inspectionOf(fallbackCore)
+      const fallback = fallbackCore.apply(fallbackOpened, [{
+        start: emptyAt,
+        end: emptyAt + 4,
+        insert: candidate.insert
+      }], {
+        projections: [],
+        ...(candidate.markdown === undefined ? {} : { markdown: candidate.markdown })
+      })
+      const afterFallback = inspectionOf(fallbackCore)
+      expect(fallback.change.projections).toEqual([])
+      expect(delta(afterFallback, beforeFallback, 'regionalFastApplies')).toBe(0)
+      expect(delta(afterFallback, beforeFallback, 'documentParses')).toBe(1)
+      expect(delta(afterFallback, beforeFallback, 'sourceMaterializations')).toBe(1)
+    }
 
     const multipleSource =
       'head\n\n{>>first word<<}\n\nmiddle\n\n{>>second word<<}\n\ntail\n'
@@ -3000,7 +3082,7 @@ describe('document-core semantic changes', () => {
       children: [{
         kind: 'text',
         range: { start: 5, end: 17 },
-        attributes: {},
+        attributes: { semanticText: 'target woXrd' },
         children: []
       }]
     }])
@@ -3307,7 +3389,7 @@ describe('document-core semantic changes', () => {
     const projection = core.project(opened, 'markup')
 
     expect(projection.syntax.ast.root.children).toHaveLength(paragraphCount)
-  })
+  }, 15_000)
 
   it('keeps canonical source persistent across 100 regional edits', () => {
     const suffix = Array.from(

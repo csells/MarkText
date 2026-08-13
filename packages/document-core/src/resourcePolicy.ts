@@ -10,6 +10,8 @@ export const DOCUMENT_RESOURCE_POLICY_V1 = Object.freeze({
   maximumSourceEditsPerTransaction: 16_384,
   maximumHistoryEntries: 256,
   maximumHistoryInsertUnits: 64_000_000,
+  maximumHistoryEditRecords: 8_192,
+  maximumHistoryEditsPerEntry: 256,
   maximumJournalIngress: 4_096,
   maximumJournalOutcomes: 256
 })
