@@ -1,0 +1,108 @@
+{
+  "schema": "marktext-criticmarkup-installed-interaction-run-v1",
+  "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
+  "recordedAt": "2026-08-13T17:48:22.569Z",
+  "result": "pass",
+  "rows": [
+    {
+      "id": "addition.block-boundary.author",
+      "result": "pass"
+    },
+    {
+      "id": "addition.literal.resolve",
+      "result": "pass"
+    },
+    {
+      "id": "addition.nested-comment.save-reopen",
+      "result": "pass"
+    },
+    {
+      "id": "addition.paragraph.render",
+      "result": "pass"
+    },
+    {
+      "id": "addition.reference-footnote.source-round-trip",
+      "result": "pass"
+    },
+    {
+      "id": "comment.block-boundary.source-round-trip",
+      "result": "pass"
+    },
+    {
+      "id": "comment.literal.save-reopen",
+      "result": "pass"
+    },
+    {
+      "id": "comment.nested-comment.render",
+      "result": "pass"
+    },
+    {
+      "id": "comment.paragraph.author",
+      "result": "pass"
+    },
+    {
+      "id": "comment.reference-footnote.resolve",
+      "result": "pass"
+    },
+    {
+      "id": "deletion.block-boundary.resolve",
+      "result": "pass"
+    },
+    {
+      "id": "deletion.literal.source-round-trip",
+      "result": "pass"
+    },
+    {
+      "id": "deletion.nested-comment.author",
+      "result": "pass"
+    },
+    {
+      "id": "deletion.paragraph.save-reopen",
+      "result": "pass"
+    },
+    {
+      "id": "deletion.reference-footnote.render",
+      "result": "pass"
+    },
+    {
+      "id": "highlight.block-boundary.save-reopen",
+      "result": "pass"
+    },
+    {
+      "id": "highlight.literal.render",
+      "result": "pass"
+    },
+    {
+      "id": "highlight.nested-comment.resolve",
+      "result": "pass"
+    },
+    {
+      "id": "highlight.paragraph.source-round-trip",
+      "result": "pass"
+    },
+    {
+      "id": "highlight.reference-footnote.author",
+      "result": "pass"
+    },
+    {
+      "id": "substitution.block-boundary.render",
+      "result": "pass"
+    },
+    {
+      "id": "substitution.literal.author",
+      "result": "pass"
+    },
+    {
+      "id": "substitution.nested-comment.source-round-trip",
+      "result": "pass"
+    },
+    {
+      "id": "substitution.paragraph.resolve",
+      "result": "pass"
+    },
+    {
+      "id": "substitution.reference-footnote.save-reopen",
+      "result": "pass"
+    }
+  ]
+}

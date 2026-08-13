@@ -102,12 +102,12 @@
     {
       "id": "interaction-matrix",
       "path": "specs/baselines/criticmarkup-interaction-matrix.json",
-      "sha256": "484f238c9705df46b59ce38dfac240f1e1c96826fee1cdf54872346ee4f4469a"
+      "sha256": "93a3b9f600ec21a5875b7875e17854d5bc12bd516ad8bba94611833e321e0a64"
     },
     {
       "id": "interaction-evidence",
       "path": "specs/baselines/criticmarkup-interaction-evidence.json",
-      "sha256": "c270bb1a4aee4e6f2097dbfaf5eff66257ee0e795d4e29da4f117d2f0074163c"
+      "sha256": "eccdcc4ab39104b2757ec6b4bba67e60a949c3b2c92a65323f6537e163913a7a"
     },
     {
       "id": "representative-documents",
@@ -173,7 +173,7 @@
       "id": "interaction-matrix",
       "status": "pending-owner-decision",
       "question": "Approve or amend the 25-row CriticMarkup interaction matrix as the release-risk denominator?",
-      "proposal": "Keep the structurally complete matrix proposed-unratified until its expected product behaviors are accepted. All 25 rows have named table-driven installed oracles through visible controls and exact source/history/save/reopen checks, including the CONTEXT-defined Commented-span result for Add Comment; zero rows have pinned passing installed execution evidence.",
+      "proposal": "Keep the structurally complete matrix proposed-unratified until its expected product behaviors are accepted. All 25 rows have named table-driven installed oracles through visible controls and exact source/history/save/reopen checks, including the CONTEXT-defined Commented-span result for Add Comment; one hash-pinned stable-commit installed execution record authenticates all 25 rows as passing. Execution evidence does not approve the still-pending product-behavior decision.",
       "evidenceRefs": ["interaction-matrix", "interaction-evidence"]
     },
     {

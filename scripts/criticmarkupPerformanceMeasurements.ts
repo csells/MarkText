@@ -300,11 +300,10 @@ const validateHarnessDigests = (
   )
   requireHarnessDigest(
     provenance.launcherSha256,
-    sha256(gitBlob(
-      repoRoot,
-      harnessCommit,
-      `${prefix}run-upstream-baseline-performance.sh`
-    )),
+    compositeGitDigest(repoRoot, harnessCommit, [
+      `${prefix}run-upstream-baseline-performance.sh`,
+      `${prefix}helpers/upstreamBaselinePerformanceRunner.sh`
+    ]),
     `${label} launcher digest`
   )
 }
