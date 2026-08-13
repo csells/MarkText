@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  chooseCoreAuthorityPerformanceSurface,
   createCoreAuthorityPerformanceRawRun,
   formatMacHardwareFingerprint,
   type CoreAuthorityPerformanceRawSample
@@ -28,6 +29,21 @@ describe('Core authority raw performance producer', () => {
       chipType: 'Apple M5 Max',
       physicalMemory: '128 GB'
     })).toBe('MacBook Pro Mac17,6, Apple M5 Max, 128 GB')
+  })
+
+  it('keeps an active Source surface ahead of hidden WYSIWYG bindings', () => {
+    expect(chooseCoreAuthorityPerformanceSurface({
+      sourceActive: true,
+      wysiwygEditable: true
+    })).toBe('source')
+    expect(chooseCoreAuthorityPerformanceSurface({
+      sourceActive: false,
+      wysiwygEditable: true
+    })).toBe('wysiwyg')
+    expect(chooseCoreAuthorityPerformanceSurface({
+      sourceActive: false,
+      wysiwygEditable: false
+    })).toBe('source')
   })
 
   it('assembles exact per-document distributions and queue/correction evidence', () => {
