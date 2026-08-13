@@ -14,6 +14,55 @@ export interface UpstreamBaselineInputTiming {
   readonly t_frame: number
 }
 
+export type UpstreamBaselineInputProbeCheckpointState =
+  | 'probe-missing'
+  | 'awaiting-input'
+  | 'awaiting-acknowledgement'
+  | 'awaiting-stable-frame'
+  | 'ready'
+  | 'stopped'
+
+export type UpstreamBaselineInputProbeCheckpointErrorCode =
+  | 'probe-not-installed'
+  | 'input-not-observed'
+  | 'dom-acknowledgement-missing'
+  | 'stable-frame-missing'
+  | 'unsupported-input'
+  | 'unstable-checkpoint'
+
+export interface UpstreamBaselineInputProbeCheckpoint {
+  readonly installed: boolean
+  readonly sampleCount: number
+  readonly stopReason?: BrowserProbe['stopReason']
+  readonly tEvent?: number
+  readonly tAcknowledged?: number
+  readonly tStableFrame?: number
+}
+
+interface InspectedUpstreamBaselineInputProbeCheckpoint {
+  readonly state: UpstreamBaselineInputProbeCheckpointState
+  readonly code?: UpstreamBaselineInputProbeCheckpointErrorCode
+}
+
+export class UpstreamBaselineInputProbeCheckpointError extends Error {
+  readonly code: UpstreamBaselineInputProbeCheckpointErrorCode
+  readonly state: UpstreamBaselineInputProbeCheckpointState
+  readonly checkpoint: UpstreamBaselineInputProbeCheckpoint
+
+  constructor(
+    code: UpstreamBaselineInputProbeCheckpointErrorCode,
+    state: UpstreamBaselineInputProbeCheckpointState,
+    detail: string,
+    checkpoint: UpstreamBaselineInputProbeCheckpoint
+  ) {
+    super(`Upstream input probe checkpoint ${state}: ${detail}`)
+    this.name = 'UpstreamBaselineInputProbeCheckpointError'
+    this.code = code
+    this.state = state
+    this.checkpoint = Object.freeze({ ...checkpoint })
+  }
+}
+
 interface BrowserProbeSample extends UpstreamBaselineInputObservation {
   readonly expectedText: string
   readonly targetIndex: number
@@ -34,6 +83,91 @@ const finiteTimestamp = (value: number | undefined, label: string): number => {
     throw new Error(`${label} is missing or invalid`)
   }
   return value
+}
+
+export const inspectUpstreamBaselineInputProbeCheckpoint = (
+  checkpoint: UpstreamBaselineInputProbeCheckpoint
+): InspectedUpstreamBaselineInputProbeCheckpoint => {
+  if (!checkpoint.installed) {
+    return Object.freeze({
+      state: 'probe-missing',
+      code: 'probe-not-installed'
+    })
+  }
+  if (checkpoint.stopReason !== undefined) {
+    return Object.freeze({
+      state: 'stopped',
+      code: checkpoint.stopReason
+    })
+  }
+  if (checkpoint.sampleCount === 0) {
+    return Object.freeze({
+      state: 'awaiting-input',
+      code: 'input-not-observed'
+    })
+  }
+  if (checkpoint.tAcknowledged === undefined) {
+    return Object.freeze({
+      state: 'awaiting-acknowledgement',
+      code: 'dom-acknowledgement-missing'
+    })
+  }
+  if (checkpoint.tStableFrame === undefined) {
+    return Object.freeze({
+      state: 'awaiting-stable-frame',
+      code: 'stable-frame-missing'
+    })
+  }
+  return Object.freeze({ state: 'ready' })
+}
+
+const readUpstreamBaselineInputProbeCheckpoint = async(
+  page: Page
+): Promise<UpstreamBaselineInputProbeCheckpoint> => page.evaluate(() => {
+  const probe = (window as ProbedWindow).__marktextUpstreamBaselineInputProbe
+  const sample = probe?.samples[0]
+  return {
+    installed: probe !== undefined,
+    sampleCount: probe?.samples.length ?? 0,
+    stopReason: probe?.stopReason,
+    tEvent: sample?.tEvent,
+    tAcknowledged: sample?.tAcknowledged,
+    tStableFrame: sample?.tStableFrame
+  }
+})
+
+const checkpointError = (
+  checkpoint: UpstreamBaselineInputProbeCheckpoint,
+  timeout?: number
+): UpstreamBaselineInputProbeCheckpointError => {
+  const inspected = inspectUpstreamBaselineInputProbeCheckpoint(checkpoint)
+  const code = inspected.code
+  if (code === undefined) {
+    throw new Error('Cannot reject a complete upstream input checkpoint')
+  }
+  const timeoutDetail = timeout === undefined ? '' : ` after ${String(timeout)}ms`
+  const detail = (() => {
+    switch (code) {
+      case 'probe-not-installed':
+        return 'probe is absent after browser input dispatch'
+      case 'input-not-observed':
+        return 'beforeinput was not observed after browser input dispatch'
+      case 'dom-acknowledgement-missing':
+        return `exact DOM acknowledgement was not observed${timeoutDetail}`
+      case 'stable-frame-missing':
+        return `next stable rendered frame was not observed${timeoutDetail}`
+      case 'unsupported-input':
+        return 'browser input did not target one supported Muya paragraph'
+      case 'unstable-checkpoint':
+        return 'the acknowledged DOM checkpoint changed before the next frame'
+    }
+  })()
+  return new UpstreamBaselineInputProbeCheckpointError(
+    code,
+    inspected.state,
+    detail,
+    checkpoint
+  )
 }
 
 export const reportUpstreamBaselineInputObservation = (
@@ -204,15 +338,35 @@ export const waitForUpstreamBaselineInputProbe = async(
   page: Page,
   timeout = 30_000
 ): Promise<void> => {
-  await page.waitForFunction(() => {
-    const probe = (window as ProbedWindow).__marktextUpstreamBaselineInputProbe
-    if (probe?.stopReason !== undefined) {
-      throw new Error(`Upstream input probe stopped: ${probe.stopReason}`)
-    }
-    const sample = probe?.samples[0]
-    return sample?.tAcknowledged !== undefined &&
-      sample.tStableFrame !== undefined
-  }, undefined, { timeout })
+  const initial = await readUpstreamBaselineInputProbeCheckpoint(page)
+  const initialState = inspectUpstreamBaselineInputProbeCheckpoint(initial)
+  if (
+    initialState.state === 'probe-missing' ||
+    initialState.state === 'awaiting-input' ||
+    initialState.state === 'stopped'
+  ) {
+    throw checkpointError(initial)
+  }
+  if (initialState.state === 'ready') return
+
+  try {
+    await page.waitForFunction(() => {
+      const probe = (window as ProbedWindow).__marktextUpstreamBaselineInputProbe
+      const sample = probe?.samples[0]
+      return probe === undefined ||
+        probe.stopReason !== undefined ||
+        (sample?.tAcknowledged !== undefined &&
+          sample.tStableFrame !== undefined)
+    }, undefined, { timeout })
+  } catch {
+    const timedOut = await readUpstreamBaselineInputProbeCheckpoint(page)
+    throw checkpointError(timedOut, timeout)
+  }
+
+  const completed = await readUpstreamBaselineInputProbeCheckpoint(page)
+  if (inspectUpstreamBaselineInputProbeCheckpoint(completed).state !== 'ready') {
+    throw checkpointError(completed)
+  }
 }
 
 export const readUpstreamBaselineInputProbe = async(
