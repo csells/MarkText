@@ -10,6 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 PNPM=(corepack pnpm)
 TOOL_SHIM_DIR="$(mktemp -d "${TMPDIR:-/tmp}/marktext-installed-tools-XXXXXX")"
+RUN_RECORD_PATH="${MARKTEXT_INTERACTION_RUN_RECORD:-}"
 
 # electron-builder discovers the package manager from the workspace and then
 # spawns `pnpm` directly. Homebrew's Node distribution installs Corepack but
@@ -24,6 +25,25 @@ cleanup_tools() {
   rmdir "${TOOL_SHIM_DIR}" 2>/dev/null || true
 }
 trap cleanup_tools EXIT
+
+if [[ -n "${RUN_RECORD_PATH}" ]]; then
+  if [[ "${RUN_RECORD_PATH}" != /* ]]; then
+    RUN_RECORD_PATH="${REPO_ROOT}/${RUN_RECORD_PATH}"
+  fi
+  RUN_RECORD_PARENT="$(cd "$(dirname "${RUN_RECORD_PATH}")" && pwd -P)"
+  RUN_RECORD_PATH="${RUN_RECORD_PARENT}/$(basename "${RUN_RECORD_PATH}")"
+  case "${RUN_RECORD_PATH}" in
+    "${REPO_ROOT}"/*) ;;
+    *)
+      echo "Installed interaction run record must be inside the repository." >&2
+      exit 1
+      ;;
+  esac
+  if [[ -e "${RUN_RECORD_PATH}" || -L "${RUN_RECORD_PATH}" ]]; then
+    echo "Installed interaction run record already exists: ${RUN_RECORD_PATH}" >&2
+    exit 1
+  fi
+fi
 
 if [[ "${MARKTEXT_ALLOW_DIRTY_PACKAGE:-0}" != "1" ]]; then
   if ! git -C "${REPO_ROOT}" diff --quiet ||
@@ -61,8 +81,13 @@ if [[ ! -f "${DMG}" ]]; then
 fi
 
 MOUNTPOINT="$(mktemp -d "${TMPDIR:-/tmp}/marktext-installed-core-XXXXXX")"
+RUN_REPORT_DIR=""
 cleanup() {
   hdiutil detach "${MOUNTPOINT}" -quiet || true
+  if [[ -n "${RUN_REPORT_DIR}" ]]; then
+    rm -f "${RUN_REPORT_DIR}/playwright-report.json"
+    rmdir "${RUN_REPORT_DIR}" 2>/dev/null || true
+  fi
   rmdir "${MOUNTPOINT}" 2>/dev/null || true
   cleanup_tools
 }
@@ -76,8 +101,29 @@ if [[ ! -x "${APP_BINARY}" ]]; then
 fi
 
 cd "${REPO_ROOT}/packages/desktop"
-MARKTEXT_PACKAGED_APP="${APP_BINARY}" \
-MARKTEXT_EXPECTED_COMMIT="${EXPECTED_COMMIT}" \
-PATH="/opt/homebrew/opt/node@22/bin:${PATH}" \
-  "${PNPM[@]}" exec playwright test --config test/e2e/playwright.config.ts \
-  --project=installed --workers=1 --reporter=line "$@"
+if [[ -n "${RUN_RECORD_PATH}" ]]; then
+  RUN_REPORT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/marktext-interaction-report-XXXXXX")"
+  PLAYWRIGHT_JSON_OUTPUT_FILE="${RUN_REPORT_DIR}/playwright-report.json" \
+  MARKTEXT_PACKAGED_APP="${APP_BINARY}" \
+  MARKTEXT_EXPECTED_COMMIT="${EXPECTED_COMMIT}" \
+  PATH="/opt/homebrew/opt/node@22/bin:${PATH}" \
+    "${PNPM[@]}" exec playwright test --config test/e2e/playwright.config.ts \
+    --project=installed --workers=1 --reporter=line,json "$@"
+
+  RECORDED_AT="$(PATH="/opt/homebrew/opt/node@22/bin:${PATH}" node -p \
+    'new Date().toISOString()')"
+  PATH="/opt/homebrew/opt/node@22/bin:${PATH}" \
+    "${REPO_ROOT}/node_modules/.bin/tsx" \
+    "${REPO_ROOT}/scripts/criticmarkupInteractionMatrix.ts" \
+    --write-installed-run \
+    "${RUN_REPORT_DIR}/playwright-report.json" \
+    "${RUN_RECORD_PATH}" \
+    "${EXPECTED_COMMIT}" \
+    "${RECORDED_AT}"
+else
+  MARKTEXT_PACKAGED_APP="${APP_BINARY}" \
+  MARKTEXT_EXPECTED_COMMIT="${EXPECTED_COMMIT}" \
+  PATH="/opt/homebrew/opt/node@22/bin:${PATH}" \
+    "${PNPM[@]}" exec playwright test --config test/e2e/playwright.config.ts \
+    --project=installed --workers=1 --reporter=line "$@"
+fi
