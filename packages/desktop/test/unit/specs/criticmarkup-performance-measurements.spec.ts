@@ -15,7 +15,7 @@ import {
   CORE_PERFORMANCE_PRODUCER_PATHS,
   type CriticMarkupPerformanceMeasurementManifest,
   type CriticMarkupRawPerformanceRun,
-  type CriticMarkupUpstreamRawPerformanceRunV2,
+  type CriticMarkupUpstreamRawPerformanceRunV3,
   UPSTREAM_PERFORMANCE_PRODUCER_PATHS,
   requireCriticMarkupPerformanceEvidenceForRatification,
   validateCriticMarkupPerformanceMeasurements
@@ -61,8 +61,8 @@ const authenticatedCoreProvenance = {
   producerSha256: '4'.repeat(64),
   probeSha256: '5'.repeat(64),
   launcherSha256: '6'.repeat(64),
-  measurementBoundary: 'core-authority-browser-compositor-v4',
-  presentationBoundary: 'cdp-page-capture-screenshot-v1',
+  measurementBoundary: 'core-authority-browser-compositor-v5',
+  presentationBoundary: 'electron-webcontents-capture-page-hidden-v1',
   launchBoundary: 'playwright-electron-packaged-v1',
   windowVisibility: 'hidden-unfocused',
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
@@ -82,8 +82,8 @@ const authenticatedUpstreamProvenance = {
   producerSha256: '4'.repeat(64),
   probeSha256: '5'.repeat(64),
   launcherSha256: '6'.repeat(64),
-  measurementBoundary: 'external-browser-compositor-v2',
-  presentationBoundary: 'cdp-page-capture-screenshot-v1',
+  measurementBoundary: 'external-browser-compositor-v3',
+  presentationBoundary: 'electron-webcontents-capture-page-hidden-v1',
   launchBoundary: 'external-inspector-hidden-cdp-v1',
   windowVisibility: 'hidden-unfocused',
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
@@ -121,8 +121,8 @@ const rawRun = (
   implementation: 'upstream-baseline' | 'core-candidate'
 ): CriticMarkupRawPerformanceRun => ({
   schema: implementation === 'core-candidate'
-    ? 'marktext-criticmarkup-raw-performance-run-v4'
-    : 'marktext-criticmarkup-raw-performance-run-v2',
+    ? 'marktext-criticmarkup-raw-performance-run-v5'
+    : 'marktext-criticmarkup-raw-performance-run-v3',
   runId: `${implementation}-synthetic-validator-fixture`,
   implementation,
   ...(implementation === 'core-candidate'
@@ -285,7 +285,7 @@ const withGitAuthenticatedUpstreamRun = (
     ).trim()
     const upstream = structuredClone(
       rawRun('upstream-baseline')
-    ) as CriticMarkupUpstreamRawPerformanceRunV2
+    ) as CriticMarkupUpstreamRawPerformanceRunV3
     upstream.baselineCommit = harnessCommit
     upstream.buildCommit = harnessCommit
     upstream.provenance = {
@@ -389,6 +389,31 @@ describe('CriticMarkup raw performance evidence', () => {
       .toThrow(
         /requires checked-in raw runs for: upstream-baseline, core-candidate/
       )
+  })
+
+  it('rejects the superseded CDP capture schema and presentation boundary', () => {
+    const staleManifest = structuredClone(manifest) as unknown as { schema: string }
+    staleManifest.schema = 'marktext-criticmarkup-performance-measurements-v3'
+    expect(() => validateCriticMarkupPerformanceMeasurements(
+      repoRoot,
+      staleManifest as CriticMarkupPerformanceMeasurementManifest
+    )).toThrow(/schema is invalid/i)
+
+    withSyntheticRuns((root, measured) => {
+      const upstreamRef = measured.runs.find(
+        run => run.implementation === 'upstream-baseline'
+      )
+      if (upstreamRef === undefined) throw new Error('Synthetic upstream run is missing')
+      const raw = JSON.parse(
+        readFileSync(resolve(root, upstreamRef.path), 'utf8')
+      ) as unknown as { schema: string }
+      raw.schema = 'marktext-criticmarkup-raw-performance-run-v2'
+      const source = `${JSON.stringify(raw, null, 2)}\n`
+      writeFileSync(resolve(root, upstreamRef.path), source)
+      upstreamRef.sha256 = sha256(source)
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .toThrow(/schema is invalid/i)
+    })
   })
 
   it('validates complete synthetic raw runs but refuses uncalibrated ratification', () => {
@@ -545,7 +570,7 @@ describe('CriticMarkup raw performance evidence', () => {
     })
   })
 
-  it('rejects Core v4 evidence without exact per-document authority metadata', () => {
+  it('rejects Core v5 evidence without exact per-document authority metadata', () => {
     withSyntheticRuns((root, measured) => {
       const coreRef = measured.runs.find(run => run.implementation === 'core-candidate')
       if (coreRef === undefined) throw new Error('Synthetic Core run is missing')
@@ -563,7 +588,7 @@ describe('CriticMarkup raw performance evidence', () => {
     })
   })
 
-  it('rejects Core v4 evidence without authenticated build provenance', () => {
+  it('rejects Core v5 evidence without authenticated build provenance', () => {
     withSyntheticRuns((root, measured) => {
       const coreRef = measured.runs.find(run => run.implementation === 'core-candidate')
       if (coreRef === undefined) throw new Error('Synthetic Core run is missing')

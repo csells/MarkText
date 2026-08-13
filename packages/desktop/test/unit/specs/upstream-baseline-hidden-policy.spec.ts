@@ -1,8 +1,9 @@
 import { EventEmitter } from 'node:events'
 import { runInNewContext } from 'node:vm'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
+  captureUpstreamElectronHiddenPage,
   installUpstreamExternalHiddenPolicy,
   upstreamExternalHiddenPolicyExpression,
   upstreamInspectorExceptionMessage,
@@ -87,6 +88,88 @@ describe('upstream baseline external hidden policy', () => {
         }
       }
     })).toBe('ReferenceError: require is not defined')
+  })
+
+  it('captures the exact target through the retained main-process policy', async() => {
+    const sends: Array<Readonly<{
+      readonly method: string
+      readonly params: Readonly<Record<string, unknown>>
+    }>> = []
+    const channel = {
+      send: async(
+        method: string,
+        params: Readonly<Record<string, unknown>> = {}
+      ): Promise<UpstreamInspectorResponse> => {
+        sends.push(Object.freeze({ method, params }))
+        return Object.freeze({
+          result: Object.freeze({
+            result: Object.freeze({
+              value: Object.freeze({ empty: false })
+            })
+          })
+        })
+      },
+      waitForPaused: async() => ({ callFrames: [] })
+    }
+
+    await expect(captureUpstreamElectronHiddenPage(
+      channel,
+      'renderer-target-7'
+    )).resolves.toEqual({ empty: false })
+    expect(sends).toEqual([{
+      method: 'Runtime.evaluate',
+      params: {
+        expression: expect.stringContaining('renderer-target-7'),
+        awaitPromise: true,
+        returnByValue: true
+      }
+    }])
+  })
+
+  it('installs exact hidden capture for existing target WebContents', async() => {
+    const exactContents = {
+      isDestroyed: () => false,
+      capturePage: vi.fn(async(
+        rect: unknown,
+        options: Readonly<Record<string, boolean>>
+      ) => {
+        expect(rect).toBeUndefined()
+        expect(options).toEqual({ stayHidden: true, stayAwake: true })
+        return { isEmpty: () => false }
+      })
+    }
+    const otherContents = { isDestroyed: () => false }
+    const exactWindow = { isDestroyed: () => false }
+    const app = Object.assign(new EventEmitter(), {
+      isReady: () => false,
+      setActivationPolicy: () => {},
+      whenReady: async() => {}
+    })
+    const context = {
+      require: () => ({
+        app,
+        BrowserWindow: {
+          getAllWindows: () => [],
+          fromWebContents: (contents: unknown) =>
+            contents === exactContents ? exactWindow : undefined
+        },
+        webContents: {
+          fromDevToolsTargetId: (targetId: string) =>
+            targetId === 'renderer-target-7' ? exactContents : otherContents
+        }
+      })
+    } as Record<string, unknown>
+    expect(runInNewContext(upstreamExternalHiddenPolicyExpression, context))
+      .toBe(true)
+    const installed = context.__marktextUpstreamHiddenLaunch as Readonly<{
+      readonly capturePage: (targetId: string) => Promise<{
+        readonly empty: boolean
+      }>
+    }>
+
+    await expect(installed.capturePage('renderer-target-7'))
+      .resolves.toEqual({ empty: false })
+    expect(exactContents.capturePage).toHaveBeenCalledOnce()
   })
 
   it('conceals window and application activation without focus reentrancy', async() => {

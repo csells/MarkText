@@ -1,6 +1,10 @@
 import {
   PERFORMANCE_WINDOW_SCHEDULING_INSTALLER_SOURCE
 } from './performanceChromiumLaunchPolicy'
+import {
+  PERFORMANCE_PRESENTATION_CAPTURE_OPTIONS,
+  type PerformanceHiddenPageCaptureResult
+} from './performancePresentationCheckpoint'
 
 export interface UpstreamInspectorResponse {
   readonly id?: number
@@ -18,7 +22,7 @@ interface UpstreamInspectorPausedEvent {
   readonly callFrames: readonly Readonly<{ readonly callFrameId: string }>[]
 }
 
-interface UpstreamInspectorChannel {
+export interface UpstreamInspectorChannel {
   readonly send: (
     method: string,
     params?: Readonly<Record<string, unknown>>
@@ -27,7 +31,7 @@ interface UpstreamInspectorChannel {
 }
 
 export const upstreamExternalHiddenPolicyExpression = `(() => {
-  const { app, BrowserWindow } = require('electron')
+  const { app, BrowserWindow, webContents } = require('electron')
   const installPerformanceWindowScheduling = (
     ${PERFORMANCE_WINDOW_SCHEDULING_INSTALLER_SOURCE}
   )
@@ -52,7 +56,22 @@ export const upstreamExternalHiddenPolicyExpression = `(() => {
     }
   }
   globalThis.__marktextUpstreamHiddenLaunch = Object.freeze({
-    boundary: 'external-inspector-hidden-cdp-v1'
+    boundary: 'external-inspector-hidden-cdp-v1',
+    capturePage: async targetId => {
+      const contents = webContents.fromDevToolsTargetId(targetId)
+      if (contents === undefined || contents.isDestroyed()) {
+        throw new Error('Measured renderer WebContents is unavailable')
+      }
+      const window = BrowserWindow.fromWebContents(contents)
+      if (window == null || window.isDestroyed()) {
+        throw new Error('Measured renderer BrowserWindow is unavailable')
+      }
+      const image = await contents.capturePage(
+        undefined,
+        ${JSON.stringify(PERFORMANCE_PRESENTATION_CAPTURE_OPTIONS)}
+      )
+      return Object.freeze({ empty: image.isEmpty() })
+    }
   })
   app.on('browser-window-created', (_event, window) => {
     window.setSkipTaskbar(true)
@@ -71,6 +90,27 @@ export const upstreamInspectorExceptionMessage = (
   response: UpstreamInspectorResponse
 ): string | undefined => response.result?.exceptionDetails?.exception?.description ??
   response.result?.exceptionDetails?.text
+
+export const captureUpstreamElectronHiddenPage = async(
+  channel: UpstreamInspectorChannel,
+  targetId: string
+): Promise<Readonly<PerformanceHiddenPageCaptureResult>> => {
+  const response = await channel.send('Runtime.evaluate', {
+    expression: 'globalThis.__marktextUpstreamHiddenLaunch.capturePage(' +
+      `${JSON.stringify(targetId)})`,
+    awaitPromise: true,
+    returnByValue: true
+  })
+  const failure = upstreamInspectorExceptionMessage(response)
+  if (failure !== undefined) throw new Error(failure)
+  const value = response.result?.result?.value as Readonly<{
+    readonly empty?: unknown
+  }> | undefined
+  if (typeof value?.empty !== 'boolean') {
+    throw new Error('Upstream hidden capture result is invalid')
+  }
+  return Object.freeze({ empty: value.empty })
+}
 
 export const installUpstreamExternalHiddenPolicy = async(
   channel: UpstreamInspectorChannel
