@@ -8,6 +8,7 @@ import type { ElectronApplication, Page } from 'playwright'
 
 import {
   createCoreAuthorityPerformanceRawRun,
+  formatMacHardwareFingerprint,
   type CoreAuthorityPerformanceRawSample
 } from './helpers/coreAuthorityPerformanceRawRun'
 import type { CoreAuthorityPerformanceSurface } from './helpers/coreAuthorityPerformanceRawRun'
@@ -112,12 +113,12 @@ const machineEnvironment = (): Readonly<Record<string, string>> => {
     encoding: 'utf8'
   }).trim()
   return Object.freeze({
-    hardware: [
-      item?.machine_name,
-      item?.machine_model,
-      item?.chip_type,
-      item?.physical_memory
-    ].join(', '),
+    hardware: formatMacHardwareFingerprint({
+      machineName: item?.machine_name,
+      machineModel: item?.machine_model,
+      chipType: item?.chip_type,
+      physicalMemory: item?.physical_memory
+    }),
     os: `macOS ${productVersion} (${buildVersion}), ${process.arch}`,
     build: 'MarkText production Electron bundle'
   })
