@@ -10,6 +10,13 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
+HARNESS_COMMIT="$(git -C "${REPO_ROOT}" rev-parse --verify HEAD)"
+if ! git -C "${REPO_ROOT}" diff --quiet ||
+   ! git -C "${REPO_ROOT}" diff --cached --quiet ||
+   [[ -n "$(git -C "${REPO_ROOT}" ls-files --others --exclude-standard)" ]]; then
+  echo "Upstream performance evidence requires a clean harness checkout." >&2
+  exit 1
+fi
 NODE_BIN_DIR="${MARKTEXT_NODE_BIN_DIR:-/opt/homebrew/opt/node@22/bin}"
 if [[ -d "${NODE_BIN_DIR}" ]]; then
   export PATH="${NODE_BIN_DIR}:${PATH}"
@@ -190,6 +197,7 @@ MARKTEXT_UPSTREAM_MEASURED_SAMPLES="${MEASURED_SAMPLES}" \
 MARKTEXT_UPSTREAM_BUILD_COMMIT="${WORKTREE_HEAD}" \
 MARKTEXT_UPSTREAM_WORKTREE_HEAD="${WORKTREE_HEAD}" \
 MARKTEXT_UPSTREAM_WORKTREE_CLEAN="true" \
+MARKTEXT_UPSTREAM_HARNESS_COMMIT="${HARNESS_COMMIT}" \
 MARKTEXT_UPSTREAM_PACKAGE_SHA256="${PACKAGE_SHA256}" \
 MARKTEXT_UPSTREAM_EXECUTABLE_SHA256="${EXECUTABLE_SHA256}" \
 MARKTEXT_UPSTREAM_PACKAGE_VERSION="${PACKAGE_VERSION}" \

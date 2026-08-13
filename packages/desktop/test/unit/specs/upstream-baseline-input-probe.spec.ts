@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { reportUpstreamBaselineInputObservation } from '../../e2e/helpers/upstreamBaselineInputProbe'
 
 describe('upstream baseline external input observation', () => {
-  it('reports elapsed browser-boundary dispatch, acknowledgement, and stable frame', () => {
+  it('reports elapsed browser-visible echo and stable frame', () => {
     expect(reportUpstreamBaselineInputObservation({
       tEvent: 100,
       tAcknowledged: 104.25,
@@ -12,9 +12,8 @@ describe('upstream baseline external input observation', () => {
       acknowledgedTextHash: 'deadbeef',
       stableFrameTextHash: 'deadbeef'
     })).toEqual({
-      t_dispatch: 0,
-      t_ack: 4.25,
-      t_reconcile: 16.75
+      t_echo: 4.25,
+      t_frame: 16.75
     })
   })
 

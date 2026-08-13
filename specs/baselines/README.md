@@ -29,8 +29,9 @@ checks structure and completeness but never generates expected results.
 `criticmarkup-interaction-evidence.json` maps every matrix row to an exact missing production seam
 or a named partial production test. A partial test does not make a row green. Green requires a
 named installed E2E oracle, a SHA-256-pinned passing execution record for a full build commit, and a
-matching green matrix row. The current proposal contains six partial mappings, 19 missing oracles,
-and zero green claims.
+matching green matrix row. All 25 rows now name the installed matrix oracle and remain partial, with
+zero green claims. The remaining mechanical evidence gap is a clean, stable-commit installed run
+record; status remains partial until that record exists and is pinned.
 
 ```bash
 node_modules/.bin/tsx scripts/criticmarkupInteractionMatrix.ts --validate-evidence
@@ -40,13 +41,25 @@ node_modules/.bin/tsx scripts/criticmarkupInteractionMatrix.ts --require-green
 The first command validates the complete evidence disposition; the second intentionally fails until
 all 25 exact interactions have installed passing evidence.
 
+On a clean stable commit, the installed runner can create that record after Playwright passes all 25
+exact, unique matrix rows. The destination directory must already exist and the JSON path must not:
+
+```bash
+MARKTEXT_INTERACTION_RUN_RECORD=specs/baselines/runs/<record-name>.json \
+  packages/desktop/test/e2e/run-installed-core-review.sh
+```
+
+The runner prints the repository-relative path and SHA-256 pin. Missing, duplicated, non-installed,
+or non-passing rows prevent materialization; an existing destination is never overwritten.
+
 `criticmarkup-performance-targets.json` freezes the proposed measurement protocol and candidate
 p95 thresholds on the recorded reference host. Its status remains `proposed-unratified` until the
 upstream shell and Core candidates have been measured under that protocol and the owner approves
 the targets; numeric proposals are not evidence that either implementation meets them.
 
-`criticmarkup-performance-measurements.json` pins the raw evidence denominator for the five Core
-timings used in target ratification. The current `awaiting-raw-runs` record is intentionally empty:
+`criticmarkup-performance-measurements.json` pins four common product-boundary timings for both
+implementations and three additional authority timings for Core. The current `awaiting-raw-runs`
+record is intentionally empty:
 it documents that neither an upstream-baseline nor Core-candidate measurement run has been checked
 in. Raw evidence belongs under `runs/performance/`; validators reject absent files, stale digests,
 wrong environments or documents, incomplete sample counts, and impossible timing order.
