@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -94,6 +94,17 @@ export interface CriticMarkupInteractionEvidenceManifest {
   matrixPath: string
   matrixSha256: string
   rows: CriticMarkupInteractionEvidenceRow[]
+}
+
+export interface CriticMarkupInstalledInteractionRunRecord {
+  schema: 'marktext-criticmarkup-installed-interaction-run-v1'
+  buildCommit: string
+  recordedAt: string
+  result: 'pass'
+  rows: Array<{
+    id: string
+    result: 'pass'
+  }>
 }
 
 const FORMS: readonly CriticMarkupInteractionForm[] = [
@@ -246,6 +257,160 @@ export const validateCriticMarkupInteractionMatrix = (
   }
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+)
+
+const hasExactKeys = (value: Record<string, unknown>, keys: readonly string[]): boolean => {
+  const actual = Object.keys(value).sort()
+  const expected = [...keys].sort()
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index])
+}
+
+export const validateCriticMarkupInstalledInteractionRunRecord = (
+  matrix: CriticMarkupInteractionMatrix,
+  candidate: unknown
+): void => {
+  validateCriticMarkupInteractionMatrix(matrix)
+  if (
+    !isRecord(candidate) ||
+    !hasExactKeys(candidate, ['schema', 'buildCommit', 'recordedAt', 'result', 'rows']) ||
+    candidate.schema !== 'marktext-criticmarkup-installed-interaction-run-v1'
+  ) {
+    throw new Error('CriticMarkup installed interaction run schema is invalid')
+  }
+  if (!/^[0-9a-f]{40}$/u.test(String(candidate.buildCommit))) {
+    throw new Error('CriticMarkup installed interaction run build commit is invalid')
+  }
+  if (
+    typeof candidate.recordedAt !== 'string' ||
+    Number.isNaN(Date.parse(candidate.recordedAt)) ||
+    new Date(candidate.recordedAt).toISOString() !== candidate.recordedAt
+  ) {
+    throw new Error('CriticMarkup installed interaction run timestamp is invalid')
+  }
+  if (candidate.result !== 'pass' || !Array.isArray(candidate.rows)) {
+    throw new Error('CriticMarkup installed interaction run must be passing')
+  }
+
+  const expectedIds = matrix.rows.map(row => row.id).sort()
+  const observedIds: string[] = []
+  const uniqueIds = new Set<string>()
+  for (const row of candidate.rows) {
+    if (
+      !isRecord(row) ||
+      !hasExactKeys(row, ['id', 'result']) ||
+      typeof row.id !== 'string' ||
+      row.result !== 'pass' ||
+      uniqueIds.has(row.id)
+    ) {
+      throw new Error('CriticMarkup installed interaction run rows must be unique and passing')
+    }
+    uniqueIds.add(row.id)
+    observedIds.push(row.id)
+  }
+  if (
+    observedIds.length !== expectedIds.length ||
+    observedIds.some((id, index) => id !== expectedIds[index])
+  ) {
+    throw new Error('CriticMarkup installed interaction run must contain the exact matrix row IDs')
+  }
+}
+
+const playwrightInteractionSpecs = (report: unknown): Array<Record<string, unknown>> => {
+  if (!isRecord(report) || !Array.isArray(report.suites)) {
+    throw new Error('CriticMarkup installed interaction run Playwright report is invalid')
+  }
+  const specs: Array<Record<string, unknown>> = []
+  const visitSuite = (suite: unknown): void => {
+    if (!isRecord(suite)) {
+      throw new Error('CriticMarkup installed interaction run Playwright suite is invalid')
+    }
+    if (suite.specs !== undefined) {
+      if (!Array.isArray(suite.specs)) {
+        throw new Error('CriticMarkup installed interaction run Playwright specs are invalid')
+      }
+      for (const spec of suite.specs) {
+        if (!isRecord(spec)) {
+          throw new Error('CriticMarkup installed interaction run Playwright spec is invalid')
+        }
+        if (
+          typeof spec.title === 'string' &&
+          spec.title.endsWith(' follows the installed interaction matrix')
+        ) {
+          specs.push(spec)
+        }
+      }
+    }
+    if (suite.suites !== undefined) {
+      if (!Array.isArray(suite.suites)) {
+        throw new Error('CriticMarkup installed interaction run Playwright suites are invalid')
+      }
+      suite.suites.forEach(visitSuite)
+    }
+  }
+  report.suites.forEach(visitSuite)
+  return specs
+}
+
+export const createCriticMarkupInstalledInteractionRunRecord = (
+  matrix: CriticMarkupInteractionMatrix,
+  playwrightReport: unknown,
+  metadata: Readonly<{ buildCommit: string, recordedAt: string }>
+): CriticMarkupInstalledInteractionRunRecord => {
+  validateCriticMarkupInteractionMatrix(matrix)
+  const titleSuffix = ' follows the installed interaction matrix'
+  const rows = playwrightInteractionSpecs(playwrightReport).map(spec => {
+    const tests = spec.tests
+    const passing = (
+      spec.ok === true &&
+      Array.isArray(tests) &&
+      tests.length === 1 &&
+      tests.every(test => {
+        if (!isRecord(test) || test.projectName !== 'installed' || !Array.isArray(test.results)) {
+          return false
+        }
+        const finalResult = test.results.at(-1)
+        return isRecord(finalResult) && finalResult.status === 'passed'
+      })
+    )
+    if (!passing) {
+      throw new Error('CriticMarkup installed interaction run contains a non-passing row')
+    }
+    return {
+      id: String(spec.title).slice(0, -titleSuffix.length),
+      result: 'pass' as const
+    }
+  }).sort((left, right) => left.id.localeCompare(right.id))
+  const record: CriticMarkupInstalledInteractionRunRecord = {
+    schema: 'marktext-criticmarkup-installed-interaction-run-v1',
+    buildCommit: metadata.buildCommit,
+    recordedAt: metadata.recordedAt,
+    result: 'pass',
+    rows
+  }
+  validateCriticMarkupInstalledInteractionRunRecord(matrix, record)
+  return record
+}
+
+export const writeCriticMarkupInstalledInteractionRunRecord = (
+  outputPath: string,
+  matrix: CriticMarkupInteractionMatrix,
+  record: CriticMarkupInstalledInteractionRunRecord
+): string => {
+  validateCriticMarkupInstalledInteractionRunRecord(matrix, record)
+  const contents = `${JSON.stringify(record, null, 2)}\n`
+  try {
+    writeFileSync(outputPath, contents, { encoding: 'utf8', flag: 'wx' })
+  } catch (error) {
+    if (isRecord(error) && error.code === 'EEXIST') {
+      throw new Error(`CriticMarkup installed interaction run already exists: ${outputPath}`)
+    }
+    throw error
+  }
+  return createHash('sha256').update(contents).digest('hex')
+}
+
 const resolveRepositoryPath = (
   repoRoot: string,
   path: string,
@@ -382,6 +547,24 @@ export const validateCriticMarkupInteractionEvidence = (
         row.execution.recordSha256,
         `CriticMarkup interaction execution ${row.id}`
       )
+      if (row.status === 'green') {
+        const runRecord = JSON.parse(readFileSync(resolveRepositoryPath(
+          repoRoot,
+          row.execution.recordPath,
+          `CriticMarkup interaction execution ${row.id}`
+        ), 'utf8')) as unknown
+        validateCriticMarkupInstalledInteractionRunRecord(matrix, runRecord)
+        if (
+          !isRecord(runRecord) ||
+          row.execution.buildCommit !== runRecord.buildCommit ||
+          row.execution.recordedAt !== runRecord.recordedAt ||
+          row.execution.result !== runRecord.result
+        ) {
+          throw new Error(
+            `CriticMarkup interaction ${row.id} execution metadata does not match its run record`
+          )
+        }
+      }
     }
     if (row.status === 'green') {
       if (matrixById.get(row.id)?.status !== 'green') {
@@ -415,6 +598,41 @@ const runCli = (): void => {
     repoRoot,
     'specs/baselines/criticmarkup-interaction-matrix.json'
   ))
+  if (process.argv[2] === '--write-installed-run') {
+    const [, , , playwrightReportPath, outputPath, buildCommit, recordedAt] = process.argv
+    if (
+      playwrightReportPath === undefined ||
+      outputPath === undefined ||
+      buildCommit === undefined ||
+      recordedAt === undefined
+    ) {
+      throw new Error(
+        'Usage: tsx scripts/criticmarkupInteractionMatrix.ts ' +
+        '--write-installed-run <playwright-report> <output> <build-commit> <recorded-at>'
+      )
+    }
+    const absoluteOutputPath = resolve(outputPath)
+    const outputWithinRepo = relative(repoRoot, absoluteOutputPath)
+    if (outputWithinRepo.startsWith('..') || isAbsolute(outputWithinRepo)) {
+      throw new Error('CriticMarkup installed interaction run output must be inside the repository')
+    }
+    const playwrightReport = JSON.parse(readFileSync(resolve(playwrightReportPath), 'utf8')) as unknown
+    const record = createCriticMarkupInstalledInteractionRunRecord(
+      matrix,
+      playwrightReport,
+      { buildCommit, recordedAt }
+    )
+    const recordSha256 = writeCriticMarkupInstalledInteractionRunRecord(
+      absoluteOutputPath,
+      matrix,
+      record
+    )
+    process.stdout.write(`${JSON.stringify({
+      recordPath: outputWithinRepo,
+      recordSha256
+    })}\n`)
+    return
+  }
   const evidence = JSON.parse(readFileSync(resolve(
     repoRoot,
     'specs/baselines/criticmarkup-interaction-evidence.json'
@@ -429,7 +647,8 @@ const runCli = (): void => {
   }
   throw new Error(
     'Usage: tsx scripts/criticmarkupInteractionMatrix.ts ' +
-    '--validate-evidence | --require-green'
+    '--validate-evidence | --require-green | ' +
+    '--write-installed-run <playwright-report> <output> <build-commit> <recorded-at>'
   )
 }
 
