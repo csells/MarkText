@@ -1,6 +1,6 @@
+import type { Config } from 'dompurify';
 import type { Diff } from 'fast-diff';
 import type Content from '../block/base/content';
-import type { Config } from './dompurify';
 import { EVENT_KEYS } from '../config';
 import runSanitize from './dompurify';
 

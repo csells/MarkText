@@ -55,8 +55,8 @@ const input = (
     launcherSha256: '1'.repeat(64),
     measurementBoundary: 'external-browser-compositor-v4' as const,
     presentationBoundary: 'electron-webcontents-capture-page-transparent-v2' as const,
-    launchBoundary: 'external-inspector-transparent-render-active-v2' as const,
-    windowPresentationPolicy: 'transparent-render-active-inactive-v1' as const,
+    launchBoundary: 'external-inspector-transparent-render-active-v3' as const,
+    windowPresentationPolicy: 'transparent-render-active-inactive-v2' as const,
     windowPresentationPlatform: 'darwin' as const,
     chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2' as const
   },
@@ -75,7 +75,7 @@ describe('upstream baseline raw performance producer', () => {
     )
 
     expect(run).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-run-v4',
+      schema: 'marktext-criticmarkup-raw-performance-run-v5',
       runId: 'upstream-ratification',
       implementation: 'upstream-baseline',
       baselineCommit: PINNED_BASELINE,
@@ -91,8 +91,8 @@ describe('upstream baseline raw performance producer', () => {
         launcherSha256: '1'.repeat(64),
         measurementBoundary: 'external-browser-compositor-v4',
         presentationBoundary: 'electron-webcontents-capture-page-transparent-v2',
-        launchBoundary: 'external-inspector-transparent-render-active-v2',
-        windowPresentationPolicy: 'transparent-render-active-inactive-v1',
+        launchBoundary: 'external-inspector-transparent-render-active-v3',
+        windowPresentationPolicy: 'transparent-render-active-inactive-v2',
         windowPresentationPlatform: 'darwin',
         chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
       },
@@ -115,7 +115,7 @@ describe('upstream baseline raw performance producer', () => {
     )
 
     expect(smoke).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v4',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v5',
       evidenceClass: 'smoke-non-ratifying',
       sampling: { warmupSamples: 1, measuredSamples: 2 }
     })
@@ -200,7 +200,15 @@ describe('upstream baseline raw performance producer', () => {
       ...input('smoke-non-ratifying', 1, 2),
       provenance: {
         ...input('smoke-non-ratifying', 1, 2).provenance,
-        windowPresentationPolicy: 'hidden-unfocused'
+        launchBoundary: 'external-inspector-transparent-render-active-v2'
+      }
+    } as never)).toThrow(/launch boundary/i)
+
+    expect(() => createUpstreamBaselinePerformanceRawRun({
+      ...input('smoke-non-ratifying', 1, 2),
+      provenance: {
+        ...input('smoke-non-ratifying', 1, 2).provenance,
+        windowPresentationPolicy: 'transparent-render-active-inactive-v1'
       }
     } as never)).toThrow(/window presentation/i)
 
