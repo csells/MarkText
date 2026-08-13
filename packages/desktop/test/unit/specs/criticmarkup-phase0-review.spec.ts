@@ -280,8 +280,54 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     expect(Object.fromEntries(materialized.parityRows.rows
       .filter(row => row.productionPathTest.startsWith('named-production-path-test:'))
       .map(row => [row.id, row.productionPathTest]))).toEqual({
+      'phase0.item.004c0d7dbf1b45de1e90757c':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
+      'phase0.item.0401b5efadfa1bfa72b14844':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.0030c6e658a95827b05f3e99':
         'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
+      'phase0.item.0062e8c85215bf4db73a8172':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
+      'phase0.item.0f12831319a9fb31c39ce63d':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
+      'phase0.item.17a77761faa6c4e43bbf8668':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
+      'phase0.item.1ac4f8bf4ddf2c05d8ae6f0c':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
+      'phase0.item.2b531adebe3f2e57844bad74':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
+      'phase0.item.53a6f52051297bb89866fe94':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
+      'phase0.item.66c15b99288be17e8e983aed':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
+      'phase0.item.74d0d0eb7cc96e516a808134':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
+      'phase0.item.7f733b9309f2ecba26ce5afa':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
+      'phase0.item.81ce51f45b6fc3d957c6c8f6':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
+      'phase0.item.821fb7b4817f15f7d5bc6c1b':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#exposes the View root menu as the container for the proven leaf surfaces',
+      'phase0.item.8e03af58b31e92080783f5f8':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
+      'phase0.item.8e2180191dc303cd1251b04e':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
+      'phase0.item.b5731f14828adf87e5dbd127':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
+      'phase0.item.b972f462fff3bdcce1dff867':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
+      'phase0.item.bcce0f26984f9e152a104eff':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
+      'phase0.item.bd5e737dee6dcd3c25a7c516':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
+      'phase0.item.ce9a0daa431f8d49597e8920':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
+      'phase0.item.d6fc25194c9f1b57c28c33a1':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
+      'phase0.item.f46f9a684c549a8e546d36eb':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
+      'phase0.item.fd9152e5c0b1c4f1dac7fb6e':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-view-production-surfaces.spec.ts#routes every registered View command and leaf menu surface to its exact runtime effect',
       'phase0.item.0dc124b6c9a5fafc29d6a3e7':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-task-list-production-surfaces.spec.ts#routes registered Task List command and Paragraph menu surface through the renderer paragraph-action channel',
       'phase0.item.00966777ae933ce5d7bb44d9':
@@ -298,10 +344,20 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-clear-format-production-surfaces.spec.ts#routes registered Clear Format command and Format menu surface through the renderer format-action channel',
       'phase0.item.160937548f3fa957d900f04b':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-navigation-production-surfaces.spec.ts#routes registered Find Next and Find Previous command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.1fa6d85bb93a1f355b2d7b66':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
+      'phase0.item.220a0e4a8db52e189763ec20':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
+      'phase0.item.27b5e2258afa39003e0174f6':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.20a0482a18ee9492c64be652':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-bullet-list-production-surfaces.spec.ts#routes registered Bullet List command and Paragraph menu surface through the renderer paragraph-action channel',
       'phase0.item.2e64fc29fc59f5b4a906ea56':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-highlight-format-production-surfaces.spec.ts#routes registered Highlight command and Format menu surface through the renderer format-action channel',
+      'phase0.item.2f11fb7d15e0d7e577c50c70':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
+      'phase0.item.357277714bd0705ceab0b50e':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.27ab3556877c1891af1381db':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-hyperlink-production-surfaces.spec.ts#routes registered Hyperlink command and Format menu surface through the renderer format-action channel',
       'phase0.item.397314c6348fc4ee45514620':
@@ -314,14 +370,20 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-screenshot-production-surfaces.spec.ts#routes registered Screenshot command and Edit menu surfaces through the screen-capture application event',
       'phase0.item.4b89002fa4e9a6375165935c':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-underline-production-surfaces.spec.ts#routes registered Underline command and Format menu surface through the renderer format-action channel',
+      'phase0.item.4ab6377ef62019a975c04706':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.49512fbea5ebc0a05d0e8023':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes Edit menu Undo and Redo through the renderer edit-action channel',
       'phase0.item.503ba3b99614737f7f991c9e':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-create-paragraph-production-surfaces.spec.ts#routes registered Create Paragraph command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.5028e68819c2ca0038acd48b':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.4c3b89bf6f9ec79ffc815408':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-subscript-production-surfaces.spec.ts#routes registered Subscript command and Format menu surface through the renderer format-action channel',
       'phase0.item.5a233c1c0b730f92c8b26b77':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-native-copy-production-surfaces.spec.ts#routes registered Copy command and Edit menu surfaces through the Electron native copy runtime',
+      'phase0.item.5a8cf05b8c8edefc7276bc74':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.5e0446eed3c50b067a946808':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-duplicate-production-surfaces.spec.ts#routes registered Duplicate command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.5eeff02652f96f31549bd069':
@@ -332,16 +394,24 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-inline-math-production-surfaces.spec.ts#routes registered Inline Math command and Format menu surface through the renderer format-action channel',
       'phase0.item.5614a9e6297e94476c2f1d25':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-subscript-production-surfaces.spec.ts#routes registered Subscript command and Format menu surface through the renderer format-action channel',
+      'phase0.item.563693cba8f54e15f6d952b4':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-math-formula-production-surfaces.spec.ts#routes registered Math Formula command and Paragraph menu surface through the renderer paragraph-action channel',
       'phase0.item.59db1e63aacaf4964b8df1b1':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-ordered-list-production-surfaces.spec.ts#routes registered Ordered List command and Paragraph menu surface through the renderer paragraph-action channel',
       'phase0.item.6503ef62074e1a51ee15fb38':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-navigation-production-surfaces.spec.ts#routes registered Find Next and Find Previous command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.6bd96d39e9a19e9a966fdf6b':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
+      'phase0.item.6c1d347e7132dff437483daf':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.6c5fc1de22b21cbc5e138455':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-strikethrough-production-surfaces.spec.ts#routes registered Strike-through command and Format menu Strikethrough surface through the renderer format-action channel',
       'phase0.item.6dc202f2b36d66fa10d2dbb3':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-strong-format-production-surfaces.spec.ts#routes registered Strong command and Bold menu surfaces through the renderer format-action channel',
       'phase0.item.6ef94e99e33b332cdce273ec':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes Edit menu Undo and Redo through the renderer edit-action channel',
+      'phase0.item.71f47d065b7c49e2a03cd18a':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.7abd6a5e7e44b8e599d728e5':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-in-folder-production-surfaces.spec.ts#routes registered Find in Folder command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.786d2dd4acf6a54342a51eda':
@@ -354,6 +424,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-superscript-production-surfaces.spec.ts#routes registered Superscript command and Format menu surface through the renderer format-action channel',
       'phase0.item.802547d06b5147447bb1e3aa':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-quote-block-production-surfaces.spec.ts#routes registered Quote Block command and Paragraph menu surface through the renderer paragraph-action channel',
+      'phase0.item.82a578e423359fe5960ee572':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.831628c66c7632b18ae126fd':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes registered Undo and Redo commands to the renderer edit-action channel',
       'phase0.item.84fbe7795c97058036d7c916':
@@ -362,8 +434,12 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-image-format-production-surfaces.spec.ts#routes registered Image command and Format menu surface through the renderer format-action channel',
       'phase0.item.867cc6c717a7baf2684a9c87':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-replace-production-surfaces.spec.ts#routes registered Replace command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.885a254b4b1cb4fc9b603be9':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.8aaa24678c1a92cf623b43b0':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-inline-math-production-surfaces.spec.ts#routes registered Inline Math command and Format menu surface through the renderer format-action channel',
+      'phase0.item.9064d8fa0c44f1775ad60a59':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.82b57f93ae32b97bc090d680':
         'named-production-path-test: packages/desktop/test/unit/specs/file-change-content-check.spec.ts#does not compare disk bytes with stale Pinia while Core owns the document',
       'phase0.item.91c0c4cd322d1531a3e7c9ea':
@@ -372,6 +448,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-inline-code-production-surfaces.spec.ts#routes registered Inline Code command and Format menu surface through the renderer format-action channel',
       'phase0.item.94245f0a016ba18f4cd75b5a':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-navigation-production-surfaces.spec.ts#routes registered Find Next and Find Previous command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.9825d103298403255f22149b':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-html-block-production-surfaces.spec.ts#routes registered HTML Block command and Paragraph menu surface through the renderer paragraph-action channel',
       'phase0.item.9b98e936eca2f77816b46eb3':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-screenshot-production-surfaces.spec.ts#routes registered Screenshot command and Edit menu surfaces through the screen-capture application event',
       'phase0.item.9f3ac53aabb0eba18bc56a9d':
@@ -388,16 +466,30 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes registered Copy as Rich and Copy as HTML commands to the editor',
       'phase0.item.a70ae367e06aa43a2191dc2e':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-production-surfaces.spec.ts#routes registered Find command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.aeb1112a9cdd35de9d811549':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.ae9c22aeff42460c77efb79b':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-strong-format-production-surfaces.spec.ts#routes registered Strong command and Bold menu surfaces through the renderer format-action channel',
+      'phase0.item.afff07fa9d4d4992e0f4af41':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-html-block-production-surfaces.spec.ts#routes registered HTML Block command and Paragraph menu surface through the renderer paragraph-action channel',
       'phase0.item.a31d9a0b8efebb43304be453':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-in-folder-production-surfaces.spec.ts#routes registered Find in Folder command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.b327952319820e0956248ea0':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes Edit menu Copy as Rich and Copy as HTML entries to the editor',
       'phase0.item.b9a01f70d274b7ff1480da76':
         'named-production-path-test: packages/desktop/test/unit/specs/flush-before-save.spec.ts#waits for Core authority and saves its acknowledged source instead of Pinia',
+      'phase0.item.b45b71868eb09afeb8e668ef':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-math-formula-production-surfaces.spec.ts#routes registered Math Formula command and Paragraph menu surface through the renderer paragraph-action channel',
+      'phase0.item.b5f01e00fd5f530b5a538989':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
+      'phase0.item.bb1045ece7bd5b5ae4acaa55':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.c8a0caaadc6be3cf5bcd988e':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-clear-format-production-surfaces.spec.ts#routes registered Clear Format command and Format menu surface through the renderer format-action channel',
+      'phase0.item.c735ce5f439de584976e0414':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
+      'phase0.item.c890bd520351f0194d9cae66':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.cff33de8534ca261ad97a843':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-create-paragraph-production-surfaces.spec.ts#routes registered Create Paragraph command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.ca1601efc9e96edae53113c4':
@@ -410,6 +502,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes registered Undo and Redo commands to the renderer edit-action channel',
       'phase0.item.d4a789b1042d4eadeabe24d1':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-paste-as-plain-text-production-surfaces.spec.ts#routes registered Paste as Plain Text command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.d67038c93ede2dfc8a17c89e':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.da95faaeb7a2d182fd99425f':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-navigation-production-surfaces.spec.ts#routes registered Find Next and Find Previous command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.dbad87f3a634df371ca034af':
@@ -420,10 +514,14 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-emphasis-production-surfaces.spec.ts#routes registered Emphasis command and Format menu Italic surface through the renderer format-action channel',
       'phase0.item.deb8142f7f05d1825bfcbaac':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes registered Copy as Rich and Copy as HTML commands to the editor',
+      'phase0.item.dc86ff19be75e8821827baca':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.e5b3aa0ed74e8f679eb30fc7':
         'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
       'phase0.item.e9ed537dc5b08910ab2e2406':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-underline-production-surfaces.spec.ts#routes registered Underline command and Format menu surface through the renderer format-action channel',
+      'phase0.item.e6535358877c2140948a2e91':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.ec98d87a0d244b1a3df19848':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-bullet-list-production-surfaces.spec.ts#routes registered Bullet List command and Paragraph menu surface through the renderer paragraph-action channel',
       'phase0.item.eba6acc288c5b6b240e283f7':
@@ -432,12 +530,18 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-cut-production-surfaces.spec.ts#routes registered Cut command and Edit menu surfaces through the Electron native cut runtime',
       'phase0.item.ed75c2e03726b7d71723d712':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-paste-production-surfaces.spec.ts#routes registered Paste command and Edit menu surfaces through the Electron native paste runtime',
+      'phase0.item.f2ed7455148ce0b51f98f2cf':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
+      'phase0.item.f45865bed4e34a14fbb94d8f':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
+      'phase0.item.f78f04d7f9fa96caccc33e59':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.fa4e61798208bb8ac4978df6':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-select-all-production-surfaces.spec.ts#routes registered Select All command and Edit menu surfaces through the renderer edit-action channel'
     })
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('required-new-production-path-test:')
-    ))).toHaveLength(290)
+    ))).toHaveLength(238)
     expect(() => validateCriticMarkupParityDispositions(
       parityBaseline,
       materialized.parityOverlay,

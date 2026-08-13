@@ -1,24 +1,27 @@
 import type { Page } from 'playwright'
 
+import {
+  captureExactCompositorPresentation
+} from './performancePresentationCheckpoint'
+
 export interface UpstreamBaselineInputObservation {
   readonly tEvent: number
   readonly tAcknowledged?: number
-  readonly tStableFrame?: number
+  readonly tCaptureComplete?: number
   readonly expectedTextHash: string
   readonly acknowledgedTextHash?: string
-  readonly stableFrameTextHash?: string
+  readonly retainedTextHash?: string
 }
 
 export interface UpstreamBaselineInputTiming {
   readonly t_echo: number
-  readonly t_frame: number
+  readonly t_present: number
 }
 
 export type UpstreamBaselineInputProbeCheckpointState =
   | 'probe-missing'
   | 'awaiting-input'
   | 'awaiting-acknowledgement'
-  | 'awaiting-stable-frame'
   | 'ready'
   | 'stopped'
 
@@ -26,10 +29,8 @@ export type UpstreamBaselineInputProbeCheckpointErrorCode =
   | 'probe-not-installed'
   | 'input-not-observed'
   | 'dom-acknowledgement-missing'
-  | 'stable-frame-missing'
   | 'deadline-exceeded'
   | 'unsupported-input'
-  | 'unstable-checkpoint'
 
 export interface UpstreamBaselineInputProbeCheckpoint {
   readonly installed: boolean
@@ -37,7 +38,6 @@ export interface UpstreamBaselineInputProbeCheckpoint {
   readonly stopReason?: BrowserProbe['stopReason']
   readonly tEvent?: number
   readonly tAcknowledged?: number
-  readonly tStableFrame?: number
 }
 
 interface InspectedUpstreamBaselineInputProbeCheckpoint {
@@ -74,7 +74,7 @@ interface BrowserProbeSample extends UpstreamBaselineInputObservation {
 
 interface BrowserProbe {
   readonly samples: BrowserProbeSample[]
-  readonly stopReason?: 'unsupported-input' | 'unstable-checkpoint'
+  readonly stopReason?: 'unsupported-input'
   disconnect(): void
 }
 
@@ -116,12 +116,6 @@ export const inspectUpstreamBaselineInputProbeCheckpoint = (
       code: 'dom-acknowledgement-missing'
     })
   }
-  if (checkpoint.tStableFrame === undefined) {
-    return Object.freeze({
-      state: 'awaiting-stable-frame',
-      code: 'stable-frame-missing'
-    })
-  }
   return Object.freeze({ state: 'ready' })
 }
 
@@ -135,8 +129,7 @@ const readUpstreamBaselineInputProbeCheckpoint = async(
     sampleCount: probe?.samples.length ?? 0,
     stopReason: probe?.stopReason,
     tEvent: sample?.tEvent,
-    tAcknowledged: sample?.tAcknowledged,
-    tStableFrame: sample?.tStableFrame
+    tAcknowledged: sample?.tAcknowledged
   }
 })
 
@@ -158,14 +151,10 @@ const checkpointError = (
         return 'beforeinput was not observed after browser input dispatch'
       case 'dom-acknowledgement-missing':
         return `exact DOM acknowledgement was not observed${timeoutDetail}`
-      case 'stable-frame-missing':
-        return `next stable rendered frame was not observed${timeoutDetail}`
       case 'deadline-exceeded':
         return `measurement deadline was exceeded${timeoutDetail}`
       case 'unsupported-input':
         return 'browser input did not target one supported Muya paragraph'
-      case 'unstable-checkpoint':
-        return 'the acknowledged DOM checkpoint changed before the next frame'
     }
   })()
   return new UpstreamBaselineInputProbeCheckpointError(
@@ -184,8 +173,7 @@ const deadlineExceededError = (
   const state = inspectUpstreamBaselineInputProbeCheckpoint(checkpoint).state
   const timing = [
     `tEvent=${String(checkpoint.tEvent)}`,
-    `tAcknowledged=${String(checkpoint.tAcknowledged)}`,
-    `tStableFrame=${String(checkpoint.tStableFrame)}`
+    `tAcknowledged=${String(checkpoint.tAcknowledged)}`
   ].join(', ')
   return new UpstreamBaselineInputProbeCheckpointError(
     'deadline-exceeded',
@@ -196,13 +184,6 @@ const deadlineExceededError = (
   )
 }
 
-const checkpointExceededDeadline = (
-  checkpoint: UpstreamBaselineInputProbeCheckpoint,
-  timeout: number
-): boolean => checkpoint.tEvent !== undefined &&
-  checkpoint.tStableFrame !== undefined &&
-  checkpoint.tStableFrame - checkpoint.tEvent > timeout
-
 export const reportUpstreamBaselineInputObservation = (
   observation: UpstreamBaselineInputObservation
 ): UpstreamBaselineInputTiming => {
@@ -210,25 +191,25 @@ export const reportUpstreamBaselineInputObservation = (
     observation.tAcknowledged,
     'DOM acknowledgement timestamp'
   )
-  const stableFrameAt = finiteTimestamp(
-    observation.tStableFrame,
-    'Stable rendered frame timestamp'
+  const captureCompleteAt = finiteTimestamp(
+    observation.tCaptureComplete,
+    'Compositor capture completion timestamp'
   )
   if (acknowledgedAt < observation.tEvent) {
     throw new Error('DOM acknowledgement precedes browser input dispatch')
   }
-  if (stableFrameAt < acknowledgedAt) {
-    throw new Error('Stable rendered frame precedes DOM acknowledgement')
+  if (captureCompleteAt < acknowledgedAt) {
+    throw new Error('Compositor capture completion precedes DOM acknowledgement')
   }
   if (observation.acknowledgedTextHash !== observation.expectedTextHash) {
     throw new Error('DOM acknowledgement does not match the expected checkpoint')
   }
-  if (observation.stableFrameTextHash !== observation.expectedTextHash) {
-    throw new Error('Stable frame does not retain the expected DOM checkpoint')
+  if (observation.retainedTextHash !== observation.expectedTextHash) {
+    throw new Error('Post-capture view does not retain the expected DOM checkpoint')
   }
   return Object.freeze({
     t_echo: acknowledgedAt - observation.tEvent,
-    t_frame: stableFrameAt - observation.tEvent
+    t_present: captureCompleteAt - observation.tEvent
   })
 }
 
@@ -299,17 +280,6 @@ export const startUpstreamBaselineInputProbe = async(
       ;(sample as { tAcknowledged?: number }).tAcknowledged = performance.now()
       ;(sample as { acknowledgedTextHash?: string }).acknowledgedTextHash =
         acknowledgedHash
-      requestAnimationFrame(() => {
-        const stableTarget = targetAt(sample.targetIndex)
-        const stableText = stableTarget?.textContent ?? ''
-        if (stableText !== sample.expectedText) {
-          stopReason = 'unstable-checkpoint'
-          return
-        }
-        ;(sample as { tStableFrame?: number }).tStableFrame = performance.now()
-        ;(sample as { stableFrameTextHash?: string }).stableFrameTextHash =
-          hashText(stableText)
-      })
     })
     observer.observe(editor, {
       characterData: true,
@@ -381,9 +351,6 @@ export const waitForUpstreamBaselineInputProbe = async(
     throw checkpointError(initial)
   }
   if (initialState.state === 'ready') {
-    if (checkpointExceededDeadline(initial, timeout)) {
-      throw deadlineExceededError(initial, timeout, undefined)
-    }
     return
   }
 
@@ -393,8 +360,7 @@ export const waitForUpstreamBaselineInputProbe = async(
       const sample = probe?.samples[0]
       return probe === undefined ||
         probe.stopReason !== undefined ||
-        (sample?.tAcknowledged !== undefined &&
-          sample.tStableFrame !== undefined)
+        sample?.tAcknowledged !== undefined
     }, undefined, { timeout })
   } catch (cause) {
     const atDeadline = await readUpstreamBaselineInputProbeCheckpoint(page)
@@ -405,26 +371,61 @@ export const waitForUpstreamBaselineInputProbe = async(
   if (inspectUpstreamBaselineInputProbeCheckpoint(completed).state !== 'ready') {
     throw checkpointError(completed)
   }
-  if (checkpointExceededDeadline(completed, timeout)) {
-    throw deadlineExceededError(completed, timeout, undefined)
-  }
 }
 
 export const readUpstreamBaselineInputProbe = async(
   page: Page
-): Promise<UpstreamBaselineInputTiming> => {
-  const observation = await page.evaluate(() => {
-    const probe = (window as ProbedWindow).__marktextUpstreamBaselineInputProbe
-    const sample = probe?.samples[0]
-    if (sample === undefined) throw new Error('Upstream input probe has no sample')
-    return {
-      tEvent: sample.tEvent,
-      tAcknowledged: sample.tAcknowledged,
-      tStableFrame: sample.tStableFrame,
-      expectedTextHash: sample.expectedTextHash,
-      acknowledgedTextHash: sample.acknowledgedTextHash,
-      stableFrameTextHash: sample.stableFrameTextHash
-    }
-  })
-  return reportUpstreamBaselineInputObservation(observation)
-}
+): Promise<UpstreamBaselineInputTiming> => captureExactCompositorPresentation(
+  page,
+  {
+    readAcknowledged: () => page.evaluate(() => {
+      const probe = (window as ProbedWindow).__marktextUpstreamBaselineInputProbe
+      const sample = probe?.samples[0]
+      if (sample?.tAcknowledged === undefined ||
+          sample.acknowledgedTextHash === undefined) {
+        throw new Error('Upstream input probe has no acknowledged sample')
+      }
+      const expectedCheckpoint = Object.freeze({
+        targetIndex: sample.targetIndex,
+        length: sample.expectedText.length,
+        hash: sample.expectedTextHash
+      })
+      return Object.freeze({
+        tEvent: sample.tEvent,
+        tAcknowledged: sample.tAcknowledged,
+        expectedCheckpoint,
+        acknowledgedCheckpoint: Object.freeze({
+          targetIndex: sample.targetIndex,
+          length: sample.expectedText.length,
+          hash: sample.acknowledgedTextHash
+        })
+      })
+    }),
+    readPresented: () => page.evaluate(() => {
+      const probe = (window as ProbedWindow).__marktextUpstreamBaselineInputProbe
+      const sample = probe?.samples[0]
+      if (sample === undefined) throw new Error('Upstream input probe has no sample')
+      const editor = document.querySelector('.editor-component')
+      const target = editor?.querySelectorAll('.mu-paragraph-content')
+        .item(sample.targetIndex)
+      const text = target?.textContent ?? ''
+      let hash = 0x811c9dc5
+      for (let index = 0; index < text.length; index += 1) {
+        hash ^= text.charCodeAt(index)
+        hash = Math.imul(hash, 0x01000193)
+      }
+      return Object.freeze({
+        observedAt: performance.now(),
+        checkpoint: Object.freeze({
+          targetIndex: sample.targetIndex,
+          length: text.length,
+          hash: (hash >>> 0).toString(16).padStart(8, '0')
+        })
+      })
+    })
+  },
+  30_000
+).then(presentation => Object.freeze({
+  t_echo: presentation.t_echo,
+  t_present: presentation.t_present
+}))

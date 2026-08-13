@@ -20,16 +20,18 @@ import {
   withPerformanceChromiumScheduling
 } from './helpers/performanceChromiumLaunchPolicy'
 import {
-  readBrowserInputEventTrace,
-  requireCompleteBrowserInputEventSample,
+  captureBrowserInputEventPresentation,
   startBrowserInputEventTrace,
-  waitForBrowserInputEventTrace
+  waitForBrowserInputEventEcho
 } from './helpers/browserInputEventTrace'
 import {
-  readInputLatencyTrace,
+  captureInputLatencyPresentation,
   startInputLatencyTrace,
-  waitForInputLatencyTrace
+  waitForInputLatencyEcho
 } from './helpers/inputLatencyTrace'
+import {
+  PERFORMANCE_PRESENTATION_BOUNDARY
+} from './helpers/performancePresentationCheckpoint'
 import {
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
@@ -201,8 +203,7 @@ const measureSample = async(
     readonly documentId: string
     readonly requestedAt: number
     readonly open: number
-  }>,
-  representativeId: string
+  }>
 ): Promise<Readonly<{
   readonly surface: CoreAuthorityPerformanceSurface
   readonly report: ReturnType<typeof reportCoreAuthorityPerformance>
@@ -250,46 +251,19 @@ const measureSample = async(
   }
   const firstViewport = performance.now() - opened.requestedAt
 
-  let input: Readonly<{
-    readonly sequence: number
-    readonly tEvent: number
-    readonly tEcho: number
-    readonly tFrame: number
-  }> | undefined
   if (surface === 'wysiwyg') {
     await wysiwygEditable.click()
     await page.keyboard.press('End')
     await startInputLatencyTrace(page, { maxSamples: 1 })
     await page.keyboard.type('x', { delay: 0 })
-    await waitForInputLatencyTrace(page, 1, 30_000)
-    const [wysiwygInput] = await readInputLatencyTrace(page)
-    if (
-      wysiwygInput?.tEcho === undefined || wysiwygInput.tFrame === undefined ||
-      wysiwygInput.echoDomCheckpoint === undefined ||
-      wysiwygInput.frameDomCheckpoint === undefined ||
-      JSON.stringify(wysiwygInput.expectedDomCheckpoint) !==
-        JSON.stringify(wysiwygInput.echoDomCheckpoint) ||
-      JSON.stringify(wysiwygInput.expectedDomCheckpoint) !==
-        JSON.stringify(wysiwygInput.frameDomCheckpoint)
-    ) {
-      throw new Error('WYSIWYG browser input trace is incomplete')
-    }
-    input = Object.freeze({
-      sequence: wysiwygInput.sequence,
-      tEvent: wysiwygInput.tEvent,
-      tEcho: wysiwygInput.tEcho,
-      tFrame: wysiwygInput.tFrame
-    })
+    await waitForInputLatencyEcho(page, 1, 30_000)
   } else {
     await page.waitForSelector(
       '.source-code .CodeMirror',
       { state: 'attached', timeout: 60_000 }
     )
-    await page.evaluate(() => new Promise<void>(resolve => {
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-    }))
     await startBrowserInputEventTrace(page, '.source-code')
-    const sourceBeforeInput = await page.evaluate(() => {
+    await page.evaluate(() => {
       const host = document.querySelector('.source-code .CodeMirror') as
         | (Element & {
           CodeMirror?: {
@@ -310,21 +284,9 @@ const measureSample = async(
       if (!codeMirror.hasFocus()) {
         throw new Error('Core Source performance surface did not receive focus')
       }
-      return codeMirror.getValue()
     })
     await page.keyboard.insertText('x')
-    await waitForBrowserInputEventTrace(page, 1, 30_000)
-    await page.waitForFunction(expected => {
-      const host = document.querySelector('.source-code .CodeMirror') as
-        | (Element & { CodeMirror?: { getValue(): string } })
-        | null
-      return host?.CodeMirror?.getValue() !== expected
-    }, sourceBeforeInput, { timeout: 30_000 })
-    const [sourceInput] = await readBrowserInputEventTrace(page)
-    if (sourceInput === undefined) {
-      throw new Error('Source browser input trace is missing')
-    }
-    input = requireCompleteBrowserInputEventSample(sourceInput)
+    await waitForBrowserInputEventEcho(page, 1, 30_000)
   }
   try {
     await page.waitForFunction(expected => {
@@ -357,11 +319,9 @@ const measureSample = async(
     )
   }
   await page.evaluate(() => window.__marktextDocumentCore?.settled())
-  if (input === undefined) {
-    throw new Error(
-      `Browser input trace is missing for ${representativeId} ${surface}`
-    )
-  }
+  const input = surface === 'wysiwyg'
+    ? await captureInputLatencyPresentation(page, 0, 30_000)
+    : await captureBrowserInputEventPresentation(page, 0, 30_000)
   const authorityEvents = await page.evaluate(expected =>
     (window.__marktextDocumentCore?.performanceEvents?.() ?? [])
       .filter(event => event.documentId === expected), documentId)
@@ -369,7 +329,7 @@ const measureSample = async(
     sequence: input.sequence,
     tEvent: input.tEvent,
     tEcho: input.tEcho,
-    tFrame: input.tFrame
+    tPresent: input.tPresent
   })
   return Object.freeze({
     surface,
@@ -503,8 +463,7 @@ test.describe('installed Core authority raw performance producer', () => {
             const measurement = await measureSample(
               app,
               page,
-              opened,
-              document.id
+              opened
             )
             const sampleIndex = index - 1
             samples.push(Object.freeze({
@@ -555,7 +514,8 @@ test.describe('installed Core authority raw performance producer', () => {
           producerSha256: requiredValue('MARKTEXT_CORE_PRODUCER_SHA256'),
           probeSha256: requiredValue('MARKTEXT_CORE_PROBE_SHA256'),
           launcherSha256: requiredValue('MARKTEXT_CORE_LAUNCHER_SHA256'),
-          measurementBoundary: 'core-authority-browser-external-v3',
+          measurementBoundary: 'core-authority-browser-compositor-v4',
+          presentationBoundary: PERFORMANCE_PRESENTATION_BOUNDARY,
           launchBoundary: 'playwright-electron-packaged-v1',
           windowVisibility: 'hidden-unfocused',
           chromiumSchedulingPolicy: PERFORMANCE_CHROMIUM_SCHEDULING_POLICY

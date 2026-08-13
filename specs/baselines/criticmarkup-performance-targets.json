@@ -1,5 +1,5 @@
 {
-  "schema": "marktext-criticmarkup-performance-targets-v1",
+  "schema": "marktext-criticmarkup-performance-targets-v2",
   "status": "proposed-unratified",
   "ratificationBasis": null,
   "representativeDocuments": {
@@ -37,9 +37,10 @@
       "definition": "Elapsed time from t_event until authoritative reconciliation completes.",
       "targetP95Ms": 50
     },
-    "t_frame": {
-      "definition": "Elapsed time from t_event to the next requestAnimationFrame render opportunity.",
-      "targetP95Ms": 16.7
+    "t_present": {
+      "definition": "Elapsed time from t_event through one external Chromium compositor-surface capture issued after the exact acknowledged view checkpoint and followed immediately by retained-checkpoint validation; an upper bound, not physical display, vsync, or next-frame time.",
+      "targetP95Ms": null,
+      "targetStatus": "baseline-calibration-required"
     },
     "open": {
       "definition": "Elapsed time from the open request until the authoritative document session is accepted.",
