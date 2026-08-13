@@ -1,7 +1,8 @@
 import type { Page } from 'playwright'
 
 import {
-  captureExactCompositorPresentation
+  captureExactCompositorPresentation,
+  type PerformanceHiddenPageCapture
 } from './performancePresentationCheckpoint'
 
 export interface BrowserInputEventSample {
@@ -279,6 +280,7 @@ export const waitForBrowserInputEventEcho = async(
 
 export const captureBrowserInputEventPresentation = async(
   page: Page,
+  capturePage: PerformanceHiddenPageCapture,
   sampleIndex = 0,
   timeout = 30_000
 ): Promise<Readonly<{
@@ -287,7 +289,7 @@ export const captureBrowserInputEventPresentation = async(
   readonly tEcho: number
   readonly tPresent: number
 }>> => {
-  const presentation = await captureExactCompositorPresentation(page, {
+  const presentation = await captureExactCompositorPresentation(capturePage, {
     readAcknowledged: () => page.evaluate(index => {
       const sample = (window as TracedWindow)
         .__marktextBrowserInputEventProbe?.samples[index]
