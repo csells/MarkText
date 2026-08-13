@@ -310,6 +310,7 @@ export interface MappedMarkdownLane {
   readonly source: string
   /** Profile configuration consumed by the block grammar. */
   readonly gfmEnabled?: boolean
+  readonly gfmAutolinksEnabled?: boolean
   readonly gfmTagFilterEnabled?: boolean
   readonly frontMatterEnabled?: boolean
   readonly mathEnabled?: boolean
@@ -437,6 +438,7 @@ interface ActiveMarkdownSyntaxIdentity {
 
 let activeMarkdownSyntaxIdentity: ActiveMarkdownSyntaxIdentity | undefined
 let activeMarkdownGfmEnabled = true
+let activeMarkdownGfmAutolinksEnabled = true
 let activeMarkdownGfmTagFilterEnabled = true
 let activeMarkdownFootnotesEnabled = true
 let activeMarkdownSubscriptAndSuperscriptEnabled = false
@@ -1677,7 +1679,7 @@ function appendInlineRange(
     }
     const codeUnit = source.charCodeAt(offset)
     if (
-      activeMarkdownGfmEnabled &&
+      activeMarkdownGfmAutolinksEnabled &&
       offset >= extendedAutolinkSuppressedUntil &&
       codeUnit === 60
     ) {
@@ -1761,7 +1763,7 @@ function appendInlineRange(
       }
     }
     const extendedAutolink =
-      activeMarkdownGfmEnabled && offset >= extendedAutolinkSuppressedUntil
+      activeMarkdownGfmAutolinksEnabled && offset >= extendedAutolinkSuppressedUntil
         ? findGfmExtendedAutolink(
           source,
           offset,
@@ -5418,6 +5420,7 @@ function withMappedMarkdownIdentity<Value>(
   }
   const previousIdentity = activeMarkdownSyntaxIdentity
   const previousGfmEnabled = activeMarkdownGfmEnabled
+  const previousGfmAutolinksEnabled = activeMarkdownGfmAutolinksEnabled
   const previousGfmTagFilterEnabled = activeMarkdownGfmTagFilterEnabled
   const previousFootnotesEnabled = activeMarkdownFootnotesEnabled
   const previousSubscriptAndSuperscriptEnabled =
@@ -5428,6 +5431,7 @@ function withMappedMarkdownIdentity<Value>(
     sourceAt: syntaxIdentity.sourceAt
   }
   activeMarkdownGfmEnabled = lane.gfmEnabled ?? true
+  activeMarkdownGfmAutolinksEnabled = lane.gfmAutolinksEnabled ?? true
   activeMarkdownGfmTagFilterEnabled = lane.gfmTagFilterEnabled ?? true
   activeMarkdownFootnotesEnabled = lane.footnotesEnabled ?? true
   activeMarkdownSubscriptAndSuperscriptEnabled =
@@ -5438,6 +5442,7 @@ function withMappedMarkdownIdentity<Value>(
   } finally {
     activeMarkdownSyntaxIdentity = previousIdentity
     activeMarkdownGfmEnabled = previousGfmEnabled
+    activeMarkdownGfmAutolinksEnabled = previousGfmAutolinksEnabled
     activeMarkdownGfmTagFilterEnabled = previousGfmTagFilterEnabled
     activeMarkdownFootnotesEnabled = previousFootnotesEnabled
     activeMarkdownSubscriptAndSuperscriptEnabled =
@@ -6831,6 +6836,7 @@ function sliceIntrinsicForkRegionLane(
       forkView,
       frontMatterEnabled: (lane.frontMatterEnabled ?? true) && start === 0,
       gfmEnabled: lane.gfmEnabled ?? true,
+      gfmAutolinksEnabled: lane.gfmAutolinksEnabled ?? true,
       gfmTagFilterEnabled: lane.gfmTagFilterEnabled ?? true,
       mathEnabled: lane.mathEnabled ?? true,
       gitLabMathEnabled: lane.gitLabMathEnabled ?? true,
@@ -7200,6 +7206,7 @@ function parseIntrinsicForkRegionFacts(
       lane.source,
       lane.frontMatterEnabled ?? true,
       lane.gfmEnabled ?? true,
+      lane.gfmAutolinksEnabled ?? true,
       lane.gfmTagFilterEnabled ?? true,
       lane.mathEnabled ?? true,
       lane.gitLabMathEnabled ?? true,
@@ -7227,6 +7234,7 @@ function parseIntrinsicForkRegionFacts(
       boundary.matchingScopePolicy,
       lane.frontMatterEnabled ?? true,
       lane.gfmEnabled ?? true,
+      lane.gfmAutolinksEnabled ?? true,
       lane.mathEnabled ?? true,
       lane.gitLabMathEnabled ?? true,
       lane.footnotesEnabled ?? true,

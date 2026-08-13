@@ -1,0 +1,155 @@
+{
+  "schema": "marktext-criticmarkup-salvage-proposal-v1",
+  "status": "proposed-unapproved",
+  "baselineCommit": "43bd8b77795fb27b1a9512737c000f7362031ea0",
+  "snapshots": {
+    "native": "9a5b6d8e0d8dcd1131f07eb1a8a2cf621ccd7d28",
+    "research": "37ea7e842fb16dfb8ee9fd0c0d0ac07f3e3626b9"
+  },
+  "evidenceCommit": "177a13f24fe5e5c265dcef468f71988186d1f85e",
+  "groups": [
+    {
+      "id": "native-added-diverged",
+      "snapshot": "native",
+      "change": "added",
+      "evidenceRelation": "diverged",
+      "proposedDisposition": "adapt",
+      "rationale": "The evidence commit contains the path with different bytes, so review the current form as a possible adaptation rather than importing the snapshot bytes.",
+      "refs": ["specs/baselines/criticmarkup-salvage-candidates.json", "specs/plans/0010-marktext-criticmarkup-core-integration.md"],
+      "expectedCount": 25,
+      "candidateIdsSha256": "5ca37339650947e806167eb2dc9a319efdf1adb48a6c54bd5281d60b4095fc94"
+    },
+    {
+      "id": "native-added-matches-snapshot",
+      "snapshot": "native",
+      "change": "added",
+      "evidenceRelation": "matches-snapshot",
+      "proposedDisposition": "import",
+      "rationale": "The evidence commit contains the exact snapshot Git object, making import the mechanically supported proposal; semantic acceptance remains an owner decision.",
+      "refs": ["specs/baselines/criticmarkup-salvage-candidates.json", "specs/plans/0010-marktext-criticmarkup-core-integration.md"],
+      "expectedCount": 10,
+      "candidateIdsSha256": "cf0b5cbb49a1a29d96ab7fd8b35f209a4945e345dff88973d86d4900e26ef841"
+    },
+    {
+      "id": "native-added-matches-upstream",
+      "snapshot": "native",
+      "change": "added",
+      "evidenceRelation": "matches-upstream",
+      "proposedDisposition": "reject",
+      "rationale": "The evidence commit retains the upstream absence, so reject the snapshot bytes unless review identifies behavior that must instead be adapted.",
+      "refs": ["specs/baselines/criticmarkup-salvage-candidates.json", "specs/plans/0010-marktext-criticmarkup-core-integration.md"],
+      "expectedCount": 412,
+      "candidateIdsSha256": "33b0943d78263a4d7f01d547abe59b273b01da895894f2c112a1fb1fa8f30086"
+    },
+    {
+      "id": "native-deleted-matches-upstream",
+      "snapshot": "native",
+      "change": "deleted",
+      "evidenceRelation": "matches-upstream",
+      "proposedDisposition": "reject",
+      "rationale": "The evidence commit retains the upstream object, so reject the snapshot deletion unless the owner explicitly chooses it.",
+      "refs": ["specs/baselines/criticmarkup-salvage-candidates.json", "specs/plans/0010-marktext-criticmarkup-core-integration.md"],
+      "expectedCount": 2,
+      "candidateIdsSha256": "9edaf59326993d9c1ebb17c0cd2add0ffc5bd6da7e057caaf40fe309fc594b88"
+    },
+    {
+      "id": "native-modified-diverged",
+      "snapshot": "native",
+      "change": "modified",
+      "evidenceRelation": "diverged",
+      "proposedDisposition": "adapt",
+      "rationale": "The evidence commit differs from both upstream and snapshot objects, so review the current form as a possible adaptation.",
+      "refs": ["specs/baselines/criticmarkup-salvage-candidates.json", "specs/plans/0010-marktext-criticmarkup-core-integration.md"],
+      "expectedCount": 21,
+      "candidateIdsSha256": "5ad306682271eae7515dbc71e82529ae291f3c0701db96354d749d3e61ae5b3e"
+    },
+    {
+      "id": "native-modified-matches-upstream",
+      "snapshot": "native",
+      "change": "modified",
+      "evidenceRelation": "matches-upstream",
+      "proposedDisposition": "reject",
+      "rationale": "The evidence commit retains the upstream object, so reject the snapshot modification unless review identifies behavior to adapt.",
+      "refs": ["specs/baselines/criticmarkup-salvage-candidates.json", "specs/plans/0010-marktext-criticmarkup-core-integration.md"],
+      "expectedCount": 283,
+      "candidateIdsSha256": "92b5ecb477b112837eae67d3b8436e185cb9d0a87ed31de4bfed383121c282f3"
+    },
+    {
+      "id": "research-added-diverged",
+      "snapshot": "research",
+      "change": "added",
+      "evidenceRelation": "diverged",
+      "proposedDisposition": "adapt",
+      "rationale": "The evidence commit contains the path with different bytes, so review the current form as a possible adaptation rather than importing the research bytes.",
+      "refs": ["specs/baselines/criticmarkup-salvage-candidates.json", "specs/plans/0010-marktext-criticmarkup-core-integration.md"],
+      "expectedCount": 21,
+      "candidateIdsSha256": "daff01b1036c837c2749cec3bce42515339ea1f9992c84a71c0e1cf83204ab9c"
+    },
+    {
+      "id": "research-added-matches-snapshot",
+      "snapshot": "research",
+      "change": "added",
+      "evidenceRelation": "matches-snapshot",
+      "proposedDisposition": "import",
+      "rationale": "The evidence commit contains the exact research Git object, making import the mechanically supported proposal; semantic acceptance remains an owner decision.",
+      "refs": ["specs/baselines/criticmarkup-salvage-candidates.json", "specs/plans/0010-marktext-criticmarkup-core-integration.md"],
+      "expectedCount": 31,
+      "candidateIdsSha256": "49cd910df787de6615de84a8d231619cd332ff51df164cae9ba1f29d3ffabf0b"
+    },
+    {
+      "id": "research-added-matches-upstream",
+      "snapshot": "research",
+      "change": "added",
+      "evidenceRelation": "matches-upstream",
+      "proposedDisposition": "reject",
+      "rationale": "The evidence commit retains the upstream absence, so reject the research bytes unless review identifies behavior that must instead be adapted.",
+      "refs": ["specs/baselines/criticmarkup-salvage-candidates.json", "specs/plans/0010-marktext-criticmarkup-core-integration.md"],
+      "expectedCount": 657,
+      "candidateIdsSha256": "b1c6200a0fe72aae849421345476aab837b14aed5aa81131fbc3dbf27d3eef2f"
+    },
+    {
+      "id": "research-deleted-diverged",
+      "snapshot": "research",
+      "change": "deleted",
+      "evidenceRelation": "diverged",
+      "proposedDisposition": "adapt",
+      "rationale": "The evidence commit contains a replacement object rather than the upstream object or research deletion, so review the current form as an adaptation.",
+      "refs": ["specs/baselines/criticmarkup-salvage-candidates.json", "specs/plans/0010-marktext-criticmarkup-core-integration.md"],
+      "expectedCount": 2,
+      "candidateIdsSha256": "51d7ca2a51cdb05da0aec5af46f5a9b036ec15f9555c248c3184836e1a667f0d"
+    },
+    {
+      "id": "research-deleted-matches-upstream",
+      "snapshot": "research",
+      "change": "deleted",
+      "evidenceRelation": "matches-upstream",
+      "proposedDisposition": "reject",
+      "rationale": "The evidence commit retains the upstream object, so reject the research deletion unless the owner explicitly chooses it.",
+      "refs": ["specs/baselines/criticmarkup-salvage-candidates.json", "specs/plans/0010-marktext-criticmarkup-core-integration.md"],
+      "expectedCount": 1194,
+      "candidateIdsSha256": "5a8d4533cf052e5b4698b3736c0d507d6a8f7b3ecea046674ca2222fe1265015"
+    },
+    {
+      "id": "research-modified-diverged",
+      "snapshot": "research",
+      "change": "modified",
+      "evidenceRelation": "diverged",
+      "proposedDisposition": "adapt",
+      "rationale": "The evidence commit differs from both upstream and research objects, so review the current form as a possible adaptation.",
+      "refs": ["specs/baselines/criticmarkup-salvage-candidates.json", "specs/plans/0010-marktext-criticmarkup-core-integration.md"],
+      "expectedCount": 28,
+      "candidateIdsSha256": "f03a96e6a807fee76d5de775c5ff78da9c3c24c38da058f996d8aa0fe3be727c"
+    },
+    {
+      "id": "research-modified-matches-upstream",
+      "snapshot": "research",
+      "change": "modified",
+      "evidenceRelation": "matches-upstream",
+      "proposedDisposition": "reject",
+      "rationale": "The evidence commit retains the upstream object, so reject the research modification unless review identifies behavior to adapt.",
+      "refs": ["specs/baselines/criticmarkup-salvage-candidates.json", "specs/plans/0010-marktext-criticmarkup-core-integration.md"],
+      "expectedCount": 255,
+      "candidateIdsSha256": "b34a940e7df64c911fc73d067532aa6e5fa8d71d31917d9f8c124ed56b071cc1"
+    }
+  ]
+}
