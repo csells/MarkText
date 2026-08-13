@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import type { Page } from 'playwright'
+import { describe, expect, it, vi } from 'vitest'
 
-import { reportUpstreamBaselineInputObservation } from '../../e2e/helpers/upstreamBaselineInputProbe'
+import {
+  reportUpstreamBaselineInputObservation,
+  waitForUpstreamBaselineInputProbe
+} from '../../e2e/helpers/upstreamBaselineInputProbe'
 
 describe('upstream baseline external input observation', () => {
   it('reports elapsed browser-visible echo and stable frame', () => {
@@ -40,5 +44,78 @@ describe('upstream baseline external input observation', () => {
       acknowledgedTextHash: 'deadbeef',
       stableFrameTextHash: 'cafebabe'
     })).toThrow(/stable frame.*checkpoint/i)
+  })
+
+  it('identifies a later lifecycle whose exact input checkpoint was not observed', async() => {
+    type Checkpoint = Readonly<{
+      readonly installed: boolean
+      readonly sampleCount: number
+      readonly tEvent?: number
+      readonly tAcknowledged?: number
+      readonly tStableFrame?: number
+    }>
+    let checkpoint: Checkpoint = {
+      installed: true,
+      sampleCount: 1,
+      tEvent: 100,
+      tAcknowledged: 104,
+      tStableFrame: 116
+    }
+    const page = {
+      evaluate: vi.fn(async() => checkpoint),
+      waitForFunction: vi.fn(async() => {
+        if (
+          checkpoint.sampleCount === 0 ||
+          checkpoint.tAcknowledged === undefined ||
+          checkpoint.tStableFrame === undefined
+        ) {
+          throw new Error('page.waitForFunction: Timeout 30000ms exceeded.')
+        }
+      })
+    } as unknown as Page
+
+    await waitForUpstreamBaselineInputProbe(page)
+    await waitForUpstreamBaselineInputProbe(page)
+
+    checkpoint = { installed: true, sampleCount: 0 }
+    await expect(waitForUpstreamBaselineInputProbe(page)).rejects.toMatchObject({
+      name: 'UpstreamBaselineInputProbeCheckpointError',
+      code: 'input-not-observed',
+      state: 'awaiting-input'
+    })
+  })
+
+  it('retains the exact acknowledged checkpoint when the stable frame is lost', async() => {
+    let checkpoint = {
+      installed: true,
+      sampleCount: 1,
+      tEvent: 200,
+      tAcknowledged: 203,
+      tStableFrame: 217 as number | undefined
+    }
+    const page = {
+      evaluate: vi.fn(async() => checkpoint),
+      waitForFunction: vi.fn(async() => {
+        if (checkpoint.tStableFrame === undefined) {
+          throw new Error('page.waitForFunction: Timeout 30000ms exceeded.')
+        }
+      })
+    } as unknown as Page
+
+    await waitForUpstreamBaselineInputProbe(page)
+
+    checkpoint = { ...checkpoint, tStableFrame: undefined }
+    await expect(waitForUpstreamBaselineInputProbe(page)).rejects.toMatchObject({
+      name: 'UpstreamBaselineInputProbeCheckpointError',
+      code: 'stable-frame-missing',
+      state: 'awaiting-stable-frame',
+      checkpoint: {
+        installed: true,
+        sampleCount: 1,
+        tEvent: 200,
+        tAcknowledged: 203,
+        tStableFrame: undefined
+      }
+    })
   })
 })
