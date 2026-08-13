@@ -290,6 +290,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-superscript-production-surfaces.spec.ts#routes registered Superscript command and Format menu surface through the renderer format-action channel',
       'phase0.item.160937548f3fa957d900f04b':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-navigation-production-surfaces.spec.ts#routes registered Find Next and Find Previous command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.2e64fc29fc59f5b4a906ea56':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-highlight-format-production-surfaces.spec.ts#routes registered Highlight command and Format menu surface through the renderer format-action channel',
       'phase0.item.397314c6348fc4ee45514620':
         'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
       'phase0.item.420fdfa5c193f0633abca434':
@@ -340,10 +342,14 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/file-change-content-check.spec.ts#does not compare disk bytes with stale Pinia while Core owns the document',
       'phase0.item.91c0c4cd322d1531a3e7c9ea':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-paste-as-plain-text-production-surfaces.spec.ts#routes registered Paste as Plain Text command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.919af8120487b9e837e1ea14':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-inline-code-production-surfaces.spec.ts#routes registered Inline Code command and Format menu surface through the renderer format-action channel',
       'phase0.item.94245f0a016ba18f4cd75b5a':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-navigation-production-surfaces.spec.ts#routes registered Find Next and Find Previous command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.9b98e936eca2f77816b46eb3':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-screenshot-production-surfaces.spec.ts#routes registered Screenshot command and Edit menu surfaces through the screen-capture application event',
+      'phase0.item.9f3ac53aabb0eba18bc56a9d':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-inline-code-production-surfaces.spec.ts#routes registered Inline Code command and Format menu surface through the renderer format-action channel',
       'phase0.item.9dfc8781faf2ca756f7e6525':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-select-all-production-surfaces.spec.ts#routes registered Select All command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.9dfe4b390547e294c1e9f277':
@@ -384,6 +390,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
       'phase0.item.e9ed537dc5b08910ab2e2406':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-underline-production-surfaces.spec.ts#routes registered Underline command and Format menu surface through the renderer format-action channel',
+      'phase0.item.eba6acc288c5b6b240e283f7':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-highlight-format-production-surfaces.spec.ts#routes registered Highlight command and Format menu surface through the renderer format-action channel',
       'phase0.item.e37d7c32ed645c4702548f07':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-cut-production-surfaces.spec.ts#routes registered Cut command and Edit menu surfaces through the Electron native cut runtime',
       'phase0.item.ed75c2e03726b7d71723d712':
@@ -393,7 +401,7 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     })
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('required-new-production-path-test:')
-    ))).toHaveLength(312)
+    ))).toHaveLength(308)
     expect(() => validateCriticMarkupParityDispositions(
       parityBaseline,
       materialized.parityOverlay,
