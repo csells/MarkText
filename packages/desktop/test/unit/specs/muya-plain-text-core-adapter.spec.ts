@@ -73,10 +73,22 @@ describe('Muya plain-text Core command lane', () => {
     expect(adapter.selectionSourceRange({
       anchor: { path: [0, 'text'], offset: 1 },
       focus: { path: [1, 'text'], offset: 2 }
-    })).toBeUndefined()
+    })).toEqual({ start: 12, end: 19 })
+    expect(adapter.selectionSourceRange({
+      anchor: { path: [1, 'text'], offset: 2 },
+      focus: { path: [0, 'text'], offset: 1 }
+    })).toEqual({ start: 12, end: 19 })
     expect(adapter.selectionSourceRange({
       anchor: { path: [0, 'text'], offset: 1 },
       focus: { path: [0, 'text'], offset: 1 }
+    })).toBeUndefined()
+    expect(adapter.selectionSourceRange({
+      anchor: { path: [0, 'text'], offset: 1 },
+      focus: { path: [2, 'text'], offset: 1 }
+    })).toBeUndefined()
+    expect(adapter.selectionSourceRange({
+      anchor: { path: [0, 'text'], offset: 1 },
+      focus: { path: [1, 'text'], offset: 5 }
     })).toBeUndefined()
 
     adapter.dispose()
