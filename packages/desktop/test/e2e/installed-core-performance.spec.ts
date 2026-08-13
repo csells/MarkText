@@ -219,12 +219,17 @@ const measureSample = async(
       '.source-code .CodeMirror',
       { state: 'attached', timeout: 60_000 }
     )
+    await page.evaluate(() => new Promise<void>(resolve => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+    }))
     await startBrowserInputEventTrace(page, '.source-code')
-    await page.evaluate(() => {
+    const sourceBeforeInput = await page.evaluate(() => {
       const host = document.querySelector('.source-code .CodeMirror') as
         | (Element & {
           CodeMirror?: {
             focus(): void
+            hasFocus(): boolean
+            getValue(): string
             getLine(line: number): string
             setCursor(position: { line: number; ch: number }): void
           }
@@ -236,22 +241,52 @@ const measureSample = async(
       }
       codeMirror.focus()
       codeMirror.setCursor({ line: 0, ch: codeMirror.getLine(0).length })
+      if (!codeMirror.hasFocus()) {
+        throw new Error('Core Source performance surface did not receive focus')
+      }
+      return codeMirror.getValue()
     })
-    await page.keyboard.type('x', { delay: 0 })
+    await page.keyboard.insertText('x')
     await waitForBrowserInputEventTrace(page, 1, 30_000)
+    await page.waitForFunction(expected => {
+      const host = document.querySelector('.source-code .CodeMirror') as
+        | (Element & { CodeMirror?: { getValue(): string } })
+        | null
+      return host?.CodeMirror?.getValue() !== expected
+    }, sourceBeforeInput, { timeout: 30_000 })
     ;[input] = await readBrowserInputEventTrace(page)
   }
+  try {
+    await page.waitForFunction(expected => {
+      const events = (window.__marktextDocumentCore?.performanceEvents?.() ?? [])
+        .filter(event => event.documentId === expected)
+      const dispatch = events.find(event => event.phase === 'dispatch')
+      return dispatch !== undefined &&
+        events.some(event => event.phase === 'ack' &&
+          event.transaction === dispatch.transaction) &&
+        events.some(event => event.phase === 'reconcile' &&
+          event.transaction === dispatch.transaction)
+    }, documentId, { timeout: 30_000 })
+  } catch (error) {
+    const diagnostic = await page.evaluate(expected => {
+      const codeMirrorHost = document.querySelector('.source-code .CodeMirror') as
+        | (Element & { CodeMirror?: { getValue(): string } })
+        | null
+      return Object.freeze({
+        documentId: window.__marktextDocumentCore?.documentId,
+        expected,
+        state: window.__marktextDocumentCore?.latest(),
+        events: window.__marktextDocumentCore?.performanceEvents?.() ?? [],
+        activeElement: document.activeElement?.outerHTML.slice(0, 500),
+        codeMirrorValue: codeMirrorHost?.CodeMirror?.getValue()
+      })
+    }, documentId)
+    throw new Error(
+      `Core authority transaction timeout: ${JSON.stringify(diagnostic)}`,
+      { cause: error }
+    )
+  }
   await page.evaluate(() => window.__marktextDocumentCore?.settled())
-  await page.waitForFunction(expected => {
-    const events = (window.__marktextDocumentCore?.performanceEvents?.() ?? [])
-      .filter(event => event.documentId === expected)
-    const dispatch = events.find(event => event.phase === 'dispatch')
-    return dispatch !== undefined &&
-      events.some(event => event.phase === 'ack' &&
-        event.transaction === dispatch.transaction) &&
-      events.some(event => event.phase === 'reconcile' &&
-        event.transaction === dispatch.transaction)
-  }, documentId, { timeout: 30_000 })
   if (input === undefined) {
     throw new Error(
       `Browser input trace is missing for ${representativeId} ${surface}`
