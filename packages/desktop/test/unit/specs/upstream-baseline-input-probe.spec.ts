@@ -78,7 +78,8 @@ describe('upstream baseline external input observation', () => {
     await waitForUpstreamBaselineInputProbe(page)
 
     checkpoint = { installed: true, sampleCount: 0 }
-    await expect(waitForUpstreamBaselineInputProbe(page)).rejects.toMatchObject({
+    const failure = waitForUpstreamBaselineInputProbe(page)
+    await expect(failure).rejects.toMatchObject({
       name: 'UpstreamBaselineInputProbeCheckpointError',
       code: 'input-not-observed',
       state: 'awaiting-input'
@@ -105,9 +106,10 @@ describe('upstream baseline external input observation', () => {
     await waitForUpstreamBaselineInputProbe(page)
 
     checkpoint = { ...checkpoint, tStableFrame: undefined }
-    await expect(waitForUpstreamBaselineInputProbe(page)).rejects.toMatchObject({
+    const failure = waitForUpstreamBaselineInputProbe(page)
+    await expect(failure).rejects.toMatchObject({
       name: 'UpstreamBaselineInputProbeCheckpointError',
-      code: 'stable-frame-missing',
+      code: 'deadline-exceeded',
       state: 'awaiting-stable-frame',
       checkpoint: {
         installed: true,
@@ -115,6 +117,75 @@ describe('upstream baseline external input observation', () => {
         tEvent: 200,
         tAcknowledged: 203,
         tStableFrame: undefined
+      }
+    })
+  })
+
+  it('rejects a checkpoint that becomes ready only after the wait deadline', async() => {
+    const timeoutCause = new Error(
+      'page.waitForFunction: Timeout 30000ms exceeded.'
+    )
+    const checkpoints = [
+      {
+        installed: true,
+        sampleCount: 1,
+        tEvent: 400,
+        tAcknowledged: 405,
+        tStableFrame: undefined
+      },
+      {
+        installed: true,
+        sampleCount: 1,
+        tEvent: 400,
+        tAcknowledged: 405,
+        tStableFrame: 30_408
+      }
+    ]
+    const page = {
+      evaluate: vi.fn(async() => checkpoints.shift()),
+      waitForFunction: vi.fn(async() => {
+        throw timeoutCause
+      })
+    } as unknown as Page
+
+    const failure = waitForUpstreamBaselineInputProbe(page)
+    await expect(failure).rejects.toMatchObject({
+      name: 'UpstreamBaselineInputProbeCheckpointError',
+      code: 'deadline-exceeded',
+      state: 'ready',
+      checkpoint: {
+        installed: true,
+        sampleCount: 1,
+        tEvent: 400,
+        tAcknowledged: 405,
+        tStableFrame: 30_408
+      },
+      cause: timeoutCause
+    })
+    await expect(failure).rejects.toThrow(
+      /tEvent=400, tAcknowledged=405, tStableFrame=30408/u
+    )
+  })
+
+  it('does not admit an already-ready checkpoint past the exact deadline', async() => {
+    const page = {
+      evaluate: vi.fn(async() => ({
+        installed: true,
+        sampleCount: 1,
+        tEvent: 500,
+        tAcknowledged: 505,
+        tStableFrame: 30_501
+      }))
+    } as unknown as Page
+
+    await expect(waitForUpstreamBaselineInputProbe(page)).rejects.toMatchObject({
+      name: 'UpstreamBaselineInputProbeCheckpointError',
+      code: 'deadline-exceeded',
+      state: 'ready',
+      checkpoint: {
+        tEvent: 500,
+        tAcknowledged: 505,
+        tStableFrame: 30_501
       }
     })
   })

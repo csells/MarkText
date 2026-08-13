@@ -15,6 +15,10 @@ import {
 import type { CoreAuthorityPerformanceSurface } from './helpers/coreAuthorityPerformanceRawRun'
 import { reportCoreAuthorityPerformance } from './helpers/coreAuthorityPerformanceReport'
 import {
+  PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
+  withPerformanceChromiumScheduling
+} from './helpers/performanceChromiumLaunchPolicy'
+import {
   readBrowserInputEventTrace,
   requireCompleteBrowserInputEventSample,
   startBrowserInputEventTrace,
@@ -465,7 +469,11 @@ test.describe('installed Core authority raw performance producer', () => {
         delete launchEnvironment.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
         const app = await electron.launch({
           executablePath: binary,
-          args: ['--user-data-dir', profile, sampleFiles[0]!],
+          args: [...withPerformanceChromiumScheduling([
+            '--user-data-dir',
+            profile,
+            sampleFiles[0]!
+          ])],
           env: {
             ...launchEnvironment,
             PERF_TESTING: 'true',
@@ -548,7 +556,8 @@ test.describe('installed Core authority raw performance producer', () => {
           launcherSha256: requiredValue('MARKTEXT_CORE_LAUNCHER_SHA256'),
           measurementBoundary: 'core-authority-browser-external-v3',
           launchBoundary: 'playwright-electron-packaged-v1',
-          windowVisibility: 'hidden-unfocused'
+          windowVisibility: 'hidden-unfocused',
+          chromiumSchedulingPolicy: PERFORMANCE_CHROMIUM_SCHEDULING_POLICY
         },
         documents: representatives.documents.map(document => ({
           id: document.id,
