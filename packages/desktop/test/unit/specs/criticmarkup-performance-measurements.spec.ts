@@ -15,7 +15,7 @@ import {
   CORE_PERFORMANCE_PRODUCER_PATHS,
   type CriticMarkupPerformanceMeasurementManifest,
   type CriticMarkupRawPerformanceRun,
-  type CriticMarkupUpstreamRawPerformanceRunV3,
+  type CriticMarkupUpstreamRawPerformanceRunV4,
   UPSTREAM_PERFORMANCE_PRODUCER_PATHS,
   requireCriticMarkupPerformanceEvidenceForRatification,
   validateCriticMarkupPerformanceMeasurements
@@ -61,10 +61,11 @@ const authenticatedCoreProvenance = {
   producerSha256: '4'.repeat(64),
   probeSha256: '5'.repeat(64),
   launcherSha256: '6'.repeat(64),
-  measurementBoundary: 'core-authority-browser-compositor-v5',
-  presentationBoundary: 'electron-webcontents-capture-page-hidden-v1',
-  launchBoundary: 'playwright-electron-packaged-v1',
-  windowVisibility: 'hidden-unfocused',
+  measurementBoundary: 'core-authority-browser-compositor-v6',
+  presentationBoundary: 'electron-webcontents-capture-page-transparent-v2',
+  launchBoundary: 'playwright-electron-packaged-transparent-v2',
+  windowPresentationPolicy: 'transparent-render-active-inactive-v1',
+  windowPresentationPlatform: 'darwin',
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
 } as const
 
@@ -82,10 +83,11 @@ const authenticatedUpstreamProvenance = {
   producerSha256: '4'.repeat(64),
   probeSha256: '5'.repeat(64),
   launcherSha256: '6'.repeat(64),
-  measurementBoundary: 'external-browser-compositor-v3',
-  presentationBoundary: 'electron-webcontents-capture-page-hidden-v1',
-  launchBoundary: 'external-inspector-hidden-cdp-v1',
-  windowVisibility: 'hidden-unfocused',
+  measurementBoundary: 'external-browser-compositor-v4',
+  presentationBoundary: 'electron-webcontents-capture-page-transparent-v2',
+  launchBoundary: 'external-inspector-transparent-render-active-v2',
+  windowPresentationPolicy: 'transparent-render-active-inactive-v1',
+  windowPresentationPlatform: 'darwin',
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
 } as const
 
@@ -121,8 +123,8 @@ const rawRun = (
   implementation: 'upstream-baseline' | 'core-candidate'
 ): CriticMarkupRawPerformanceRun => ({
   schema: implementation === 'core-candidate'
-    ? 'marktext-criticmarkup-raw-performance-run-v5'
-    : 'marktext-criticmarkup-raw-performance-run-v3',
+    ? 'marktext-criticmarkup-raw-performance-run-v6'
+    : 'marktext-criticmarkup-raw-performance-run-v4',
   runId: `${implementation}-synthetic-validator-fixture`,
   implementation,
   ...(implementation === 'core-candidate'
@@ -285,7 +287,7 @@ const withGitAuthenticatedUpstreamRun = (
     ).trim()
     const upstream = structuredClone(
       rawRun('upstream-baseline')
-    ) as CriticMarkupUpstreamRawPerformanceRunV3
+    ) as CriticMarkupUpstreamRawPerformanceRunV4
     upstream.baselineCommit = harnessCommit
     upstream.buildCommit = harnessCommit
     upstream.provenance = {
@@ -393,7 +395,7 @@ describe('CriticMarkup raw performance evidence', () => {
 
   it('rejects the superseded CDP capture schema and presentation boundary', () => {
     const staleManifest = structuredClone(manifest) as unknown as { schema: string }
-    staleManifest.schema = 'marktext-criticmarkup-performance-measurements-v3'
+    staleManifest.schema = 'marktext-criticmarkup-performance-measurements-v4'
     expect(() => validateCriticMarkupPerformanceMeasurements(
       repoRoot,
       staleManifest as CriticMarkupPerformanceMeasurementManifest
@@ -407,7 +409,7 @@ describe('CriticMarkup raw performance evidence', () => {
       const raw = JSON.parse(
         readFileSync(resolve(root, upstreamRef.path), 'utf8')
       ) as unknown as { schema: string }
-      raw.schema = 'marktext-criticmarkup-raw-performance-run-v2'
+      raw.schema = 'marktext-criticmarkup-raw-performance-run-v3'
       const source = `${JSON.stringify(raw, null, 2)}\n`
       writeFileSync(resolve(root, upstreamRef.path), source)
       upstreamRef.sha256 = sha256(source)
@@ -570,7 +572,33 @@ describe('CriticMarkup raw performance evidence', () => {
     })
   })
 
-  it('rejects Core v5 evidence without exact per-document authority metadata', () => {
+  it.each([
+    ['windowPresentationPolicy', 'hidden-unfocused', /window presentation policy/i],
+    ['windowPresentationPlatform', 'linux', /window presentation platform/i]
+  ] as const)('rejects upstream evidence with stale %s provenance', (
+    field,
+    value,
+    message
+  ) => {
+    withSyntheticRuns((root, measured) => {
+      const upstreamRef = measured.runs.find(
+        run => run.implementation === 'upstream-baseline'
+      )
+      if (upstreamRef === undefined) throw new Error('Synthetic upstream run is missing')
+      const raw = JSON.parse(
+        readFileSync(resolve(root, upstreamRef.path), 'utf8')
+      ) as unknown as { provenance: Record<string, unknown> }
+      raw.provenance[field] = value
+      const source = `${JSON.stringify(raw, null, 2)}\n`
+      writeFileSync(resolve(root, upstreamRef.path), source)
+      upstreamRef.sha256 = sha256(source)
+
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .toThrow(message)
+    })
+  })
+
+  it('rejects Core v6 evidence without exact per-document authority metadata', () => {
     withSyntheticRuns((root, measured) => {
       const coreRef = measured.runs.find(run => run.implementation === 'core-candidate')
       if (coreRef === undefined) throw new Error('Synthetic Core run is missing')
@@ -588,7 +616,7 @@ describe('CriticMarkup raw performance evidence', () => {
     })
   })
 
-  it('rejects Core v5 evidence without authenticated build provenance', () => {
+  it('rejects Core v6 evidence without authenticated build provenance', () => {
     withSyntheticRuns((root, measured) => {
       const coreRef = measured.runs.find(run => run.implementation === 'core-candidate')
       if (coreRef === undefined) throw new Error('Synthetic Core run is missing')
@@ -610,7 +638,8 @@ describe('CriticMarkup raw performance evidence', () => {
     ['packageArtifactSha256', 'not-a-digest', /lowercase SHA-256/i],
     ['measurementBoundary', 'legacy-core-timing', /measurement boundary/i],
     ['presentationBoundary', 'request-animation-frame', /presentation boundary/i],
-    ['windowVisibility', 'visible', /window visibility/i],
+    ['windowPresentationPolicy', 'hidden-unfocused', /window presentation policy/i],
+    ['windowPresentationPlatform', 'linux', /window presentation platform/i],
     [
       'chromiumSchedulingPolicy',
       'default-background-scheduling',
