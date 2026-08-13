@@ -16,9 +16,10 @@ contains no raw runs. The evidence gate currently requires both:
 
 Each run must cover all five representative documents with 20 warmup and 200 measured samples per
 document for the common `t_echo`, `t_present`, `open`, and `first_viewport` metrics; Core additionally
-records `t_dispatch`, `t_ack`, and `t_reconcile`. `t_present` ends at one hidden Electron
-`WebContents.capturePage` call with `stayHidden` and `stayAwake`, followed by retained-state
-validation. It is a captured compositor-surface upper bound—not screenshot pixel equality, physical
+records `t_dispatch`, `t_ack`, and `t_reconcile`. `t_present` ends at one Electron
+`WebContents.capturePage` call with `stayHidden` and `stayAwake` while the exact macOS measurement
+window is render-active but opacity-zero, nonfocusable, noninteractive, inactive, and not frontmost,
+followed by retained-state validation. It is a captured compositor-surface upper bound—not screenshot pixel equality, physical
 display, vsync, or next-frame evidence—and its p95 target remains calibration-required. The raw JSON
 must record the exact proposed hardware, OS, build, timestamp, document hashes, and ordered timing
 data, and must be checked in under `specs/baselines/runs/performance/` with a matching SHA-256
@@ -63,7 +64,14 @@ The performance decision does not approve the rest of Phase 0. The owner must al
    retained upstream test files that still need a current passing run, four retained manual cases
    that still need supported-platform execution, 367 items needing a new or explicitly equivalent
    production-path oracle, 66 proposed compatibility decisions, and zero proposed `unaffected`
-   items.
+   items. Mechanical production-path evidence now names 363 of those 367 active surfaces. Four
+   documentation promises deliberately remain unclaimed: `readme-feature:ada27f4ce6a3` combines
+   WYSIWYG with subjective clean/simple/distraction-free qualities; `readme-feature:0b8caa1ea286`
+   combines paragraph support with unproven full native-shortcut breadth and subjective efficiency;
+   `muya-readme-feature:57b5c6a23c6a` promises user-supplied collaborative transport for the JSON/OT
+   state model without a public multi-peer transport seam; and `muya-readme-feature:699bf0b6de54`
+   promises shipped TypeScript declaration artifacts that require a packed-package consumer oracle.
+   They remain required production-path tests, not inferred owner decisions or source-text evidence.
 7. **Language profile and ADRs:** ratify, amend, or supersede Profile 1 and the pinned CriticMarkup and
    parser ADR set after reviewing semantic rules separately from implementation machinery.
 8. **Interaction matrix:** approve or amend the 25 expected product behaviors. The current evidence

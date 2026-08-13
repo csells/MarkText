@@ -3,14 +3,297 @@ import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
 
 import {
+  activateInstalledPerformanceWindow,
+  assertMacWindowServerTransparentRenderActive,
+  assertTransparentRenderActiveInactive,
+  closeInstalledPerformanceWindow,
   firstWindowWithPerformanceScheduling,
   PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
   PERFORMANCE_CHROMIUM_SCHEDULING_SWITCHES,
+  PERFORMANCE_WINDOW_PRESENTATION_POLICY,
   PERFORMANCE_WINDOW_SCHEDULING_INSTALLER_SOURCE,
+  inspectInstalledPerformanceWindow,
   withPerformanceChromiumScheduling
 } from '../../e2e/helpers/performanceChromiumLaunchPolicy'
 
 describe('hidden performance Chromium launch policy', () => {
+  it('makes the exact measured window transparent and noninteractive before showInactive', () => {
+    const calls: string[] = []
+    const exactContents = {
+      isDestroyed: () => false,
+      setBackgroundThrottling: (enabled: boolean) => {
+        calls.push(`schedule:${String(enabled)}`)
+      }
+    }
+    const exactWindow = {
+      webContents: exactContents,
+      isDestroyed: () => false,
+      setOpacity: (opacity: number) => calls.push(`opacity:${String(opacity)}`),
+      setFocusable: (focusable: boolean) =>
+        calls.push(`focusable:${String(focusable)}`),
+      setIgnoreMouseEvents: (ignored: boolean) =>
+        calls.push(`ignore-mouse:${String(ignored)}`),
+      setHiddenInMissionControl: (hidden: boolean) =>
+        calls.push(`mission-control:${String(hidden)}`),
+      setSkipTaskbar: (skip: boolean) => calls.push(`skip-taskbar:${String(skip)}`),
+      showInactive: () => calls.push('show-inactive'),
+      focus: () => { throw new Error('Window focus is prohibited') },
+      isVisible: () => true,
+      getOpacity: () => 0,
+      isFocused: () => false,
+      isFocusable: () => false,
+      isAlwaysOnTop: () => false,
+      getTitle: () => 'sample.md — MarkText',
+      getBounds: () => ({ x: 20, y: 30, width: 900, height: 700 })
+    }
+    const app = Object.assign(new EventEmitter(), {
+      isActive: () => false,
+      setActivationPolicy: (policy: string) => calls.push(`policy:${policy}`),
+      focus: () => { throw new Error('Application focus is prohibited') }
+    })
+    const context = {
+      app,
+      BrowserWindow: {
+        getAllWindows: () => [],
+        fromWebContents: (contents: unknown) =>
+          contents === exactContents ? exactWindow : undefined
+      },
+      webContents: {
+        fromDevToolsTargetId: (targetId: string) =>
+          targetId === 'renderer-target-7' ? exactContents : undefined
+      }
+    } as Record<string, unknown>
+
+    expect(runInNewContext(
+      `(${PERFORMANCE_WINDOW_SCHEDULING_INSTALLER_SOURCE})({ app, BrowserWindow, webContents })`,
+      context
+    )).toBe(true)
+    const lifecycle = context.__marktextPerformanceWindowLifecycle as Readonly<{
+      readonly activate: (targetId: string) => unknown
+    }>
+    const state = lifecycle.activate('renderer-target-7')
+
+    expect(PERFORMANCE_WINDOW_PRESENTATION_POLICY)
+      .toBe('transparent-render-active-inactive-v1')
+    expect(calls).toEqual([
+      'policy:accessory',
+      'schedule:false',
+      'opacity:0',
+      'focusable:false',
+      'ignore-mouse:true',
+      'mission-control:true',
+      'skip-taskbar:true',
+      'show-inactive'
+    ])
+    expect(() => assertTransparentRenderActiveInactive(state))
+      .not.toThrow()
+  })
+
+  it('checks and closes the same exact installed renderer lifecycle', async() => {
+    const calls: string[] = []
+    const state = Object.freeze({
+      visible: true,
+      opacity: 0,
+      focused: false,
+      focusable: false,
+      alwaysOnTop: false,
+      appActive: false,
+      title: 'sample.md — MarkText',
+      bounds: Object.freeze({ x: 20, y: 30, width: 900, height: 700 })
+    })
+    const application = {
+      evaluate: async(
+        evaluator: (electron: unknown, input: unknown) => unknown,
+        input: unknown
+      ) => {
+        const scope = globalThis as typeof globalThis & {
+          __marktextPerformanceWindowLifecycle?: Readonly<{
+            activate: (targetId: string) => typeof state
+            inspect: (targetId: string) => typeof state
+            close: (targetId: string) => boolean
+          }>
+        }
+        scope.__marktextPerformanceWindowLifecycle = Object.freeze({
+          activate: targetId => {
+            calls.push(`activate:${targetId}`)
+            return state
+          },
+          inspect: targetId => {
+            calls.push(`inspect:${targetId}`)
+            return state
+          },
+          close: targetId => {
+            calls.push(`close:${targetId}`)
+            return true
+          }
+        })
+        try {
+          return await evaluator({}, input)
+        } finally {
+          delete scope.__marktextPerformanceWindowLifecycle
+        }
+      }
+    }
+
+    await expect(activateInstalledPerformanceWindow(
+      application as never,
+      'renderer-target-7'
+    )).resolves.toEqual(state)
+    await expect(inspectInstalledPerformanceWindow(
+      application as never,
+      'renderer-target-7'
+    )).resolves.toEqual(state)
+    await expect(closeInstalledPerformanceWindow(
+      application as never,
+      'renderer-target-7'
+    )).resolves.toBeUndefined()
+    expect(calls).toEqual([
+      'activate:renderer-target-7',
+      'inspect:renderer-target-7',
+      'close:renderer-target-7'
+    ])
+  })
+
+  it('rejects any window that is not render-active, transparent, and inactive', () => {
+    expect(() => assertTransparentRenderActiveInactive({
+      visible: false,
+      opacity: 0,
+      focused: false,
+      focusable: false,
+      alwaysOnTop: false,
+      appActive: false,
+      title: 'sample.md — MarkText',
+      bounds: { x: 20, y: 30, width: 900, height: 700 }
+    })).toThrow(/presentation invariant failed/i)
+    expect(() => assertTransparentRenderActiveInactive({
+      visible: true,
+      opacity: 0.01,
+      focused: false,
+      focusable: false,
+      alwaysOnTop: false,
+      appActive: false,
+      title: 'sample.md — MarkText',
+      bounds: { x: 20, y: 30, width: 900, height: 700 }
+    })).toThrow(/presentation invariant failed/i)
+    expect(() => assertTransparentRenderActiveInactive({
+      visible: true,
+      opacity: 0,
+      focused: true,
+      focusable: false,
+      alwaysOnTop: false,
+      appActive: false,
+      title: 'sample.md — MarkText',
+      bounds: { x: 20, y: 30, width: 900, height: 700 }
+    })).toThrow(/presentation invariant failed/i)
+  })
+
+  it('requires one exact on-screen layer-zero alpha-zero WindowServer match', () => {
+    const expected = Object.freeze({ x: 20, y: 30, width: 900, height: 700 })
+    const expectedWindow = Object.freeze({
+      bounds: expected,
+      title: 'sample.md — MarkText'
+    })
+    expect(() => assertMacWindowServerTransparentRenderActive([
+      {
+        windowNumber: 81,
+        ownerProcessId: 1234,
+        title: 'sample.md — MarkText',
+        bounds: expected,
+        alpha: 0,
+        layer: 0,
+        onScreen: true
+      }
+    ], 1234, expectedWindow)).not.toThrow()
+
+    for (const invalid of [
+      { alpha: 0.01 },
+      { layer: 1 },
+      { onScreen: false },
+      { ownerProcessId: 9999 },
+      { title: 'other.md — MarkText' }
+    ]) {
+      expect(() => assertMacWindowServerTransparentRenderActive([
+        {
+          windowNumber: 81,
+          ownerProcessId: 1234,
+          title: 'sample.md — MarkText',
+          bounds: expected,
+          alpha: 0,
+          layer: 0,
+          onScreen: true,
+          ...invalid
+        }
+      ], 1234, expectedWindow)).toThrow(/WindowServer presentation invariant failed/i)
+    }
+    expect(() => assertMacWindowServerTransparentRenderActive([
+      {
+        windowNumber: 81,
+        ownerProcessId: 1234,
+        title: 'sample.md — MarkText',
+        bounds: expected,
+        alpha: 0,
+        layer: 0,
+        onScreen: true
+      },
+      {
+        windowNumber: 82,
+        ownerProcessId: 1234,
+        title: 'sample.md — MarkText',
+        bounds: expected,
+        alpha: 0,
+        layer: 0,
+        onScreen: true
+      }
+    ], 1234, expectedWindow)).toThrow(/exactly one matching window/i)
+  })
+
+  it('hides, restores, and closes the exact window without focusing it', () => {
+    const calls: string[] = []
+    const contents = {
+      isDestroyed: () => false,
+      setBackgroundThrottling: () => {}
+    }
+    const window = {
+      webContents: contents,
+      isDestroyed: () => false,
+      setOpacity: (value: number) => calls.push(`opacity:${String(value)}`),
+      setFocusable: (value: boolean) => calls.push(`focusable:${String(value)}`),
+      setIgnoreMouseEvents: (value: boolean) =>
+        calls.push(`ignore-mouse:${String(value)}`),
+      setHiddenInMissionControl: (value: boolean) =>
+        calls.push(`mission-control:${String(value)}`),
+      setSkipTaskbar: (value: boolean) => calls.push(`skip-taskbar:${String(value)}`),
+      hide: () => calls.push('hide'),
+      close: () => calls.push('close'),
+      focus: () => { throw new Error('Window focus is prohibited') }
+    }
+    const context = {
+      app: Object.assign(new EventEmitter(), { isActive: () => false }),
+      BrowserWindow: {
+        getAllWindows: () => [],
+        fromWebContents: () => window
+      },
+      webContents: { fromDevToolsTargetId: () => contents }
+    } as Record<string, unknown>
+    runInNewContext(
+      `(${PERFORMANCE_WINDOW_SCHEDULING_INSTALLER_SOURCE})({ app, BrowserWindow, webContents })`,
+      context
+    )
+    const lifecycle = context.__marktextPerformanceWindowLifecycle as Readonly<{
+      close: (targetId: string) => boolean
+    }>
+
+    expect(lifecycle.close('renderer-target-7')).toBe(true)
+    expect(calls).toEqual([
+      'hide',
+      'opacity:1',
+      'focusable:true',
+      'ignore-mouse:false',
+      'mission-control:false',
+      'skip-taskbar:false',
+      'close'
+    ])
+  })
   it('uses one exact anti-throttling policy for external and Playwright launches', () => {
     expect(PERFORMANCE_CHROMIUM_SCHEDULING_POLICY)
       .toBe('hidden-unthrottled-rendering-v2')
@@ -55,8 +338,20 @@ describe('hidden performance Chromium launch policy', () => {
       readonly destroyed?: boolean
       readonly missingWebContents?: boolean
       readonly destroyedWebContents?: boolean
+      readonly missingPresentationMethods?: boolean
     }> = {}) => ({
       isDestroyed: () => options.destroyed === true,
+      setOpacity: options.missingPresentationMethods
+        ? undefined
+        : (opacity: number) => calls.push(`${name}:opacity:${String(opacity)}`),
+      setFocusable: (focusable: boolean) =>
+        calls.push(`${name}:focusable:${String(focusable)}`),
+      setIgnoreMouseEvents: (ignored: boolean) =>
+        calls.push(`${name}:ignore-mouse:${String(ignored)}`),
+      setHiddenInMissionControl: (hidden: boolean) =>
+        calls.push(`${name}:mission:${String(hidden)}`),
+      setSkipTaskbar: (skip: boolean) =>
+        calls.push(`${name}:skip-taskbar:${String(skip)}`),
       webContents: options.missingWebContents
         ? undefined
         : {
@@ -73,7 +368,8 @@ describe('hidden performance Chromium launch policy', () => {
         existing,
         window('destroyed-window', { destroyed: true }),
         window('missing-web-contents', { missingWebContents: true }),
-        window('destroyed-web-contents', { destroyedWebContents: true })
+        window('destroyed-web-contents', { destroyedWebContents: true }),
+        window('missing-presentation-methods', { missingPresentationMethods: true })
       ]
     }
 
@@ -86,15 +382,45 @@ describe('hidden performance Chromium launch policy', () => {
       destroyedWebContents: true
     }))
 
-    expect(calls).toEqual(['existing:false', 'future:false'])
+    expect(calls).toEqual([
+      'existing:false',
+      'existing:opacity:0',
+      'existing:focusable:false',
+      'existing:ignore-mouse:true',
+      'existing:mission:true',
+      'existing:skip-taskbar:true',
+      'future:false',
+      'future:opacity:0',
+      'future:focusable:false',
+      'future:ignore-mouse:true',
+      'future:mission:true',
+      'future:skip-taskbar:true'
+    ])
   })
 
   it('installs Core main-process scheduling before observing its first window', async() => {
     const order: string[] = []
     const firstWindow = Object.freeze({ kind: 'renderer' })
-    const app = new EventEmitter()
+    const app = Object.assign(new EventEmitter(), {
+      setActivationPolicy: (policy: string) => order.push(`policy:${policy}`)
+    })
     const coreWindow = (name: string) => ({
       isDestroyed: (): boolean => false,
+      setOpacity: (opacity: number): void => {
+        order.push(`${name}:opacity:${String(opacity)}`)
+      },
+      setFocusable: (focusable: boolean): void => {
+        order.push(`${name}:focusable:${String(focusable)}`)
+      },
+      setIgnoreMouseEvents: (ignored: boolean): void => {
+        order.push(`${name}:ignore-mouse:${String(ignored)}`)
+      },
+      setHiddenInMissionControl: (hidden: boolean): void => {
+        order.push(`${name}:mission:${String(hidden)}`)
+      },
+      setSkipTaskbar: (skip: boolean): void => {
+        order.push(`${name}:skip-taskbar:${String(skip)}`)
+      },
       webContents: {
         isDestroyed: (): boolean => false,
         setBackgroundThrottling: (enabled: boolean): void => {
@@ -108,12 +434,14 @@ describe('hidden performance Chromium launch policy', () => {
         installer: (electron: Readonly<{
           app: EventEmitter
           BrowserWindow: Readonly<{ getAllWindows: () => unknown[] }>
+          webContents: Readonly<Record<string, unknown>>
         }>) => boolean
       ): Promise<boolean> => {
         order.push('scheduling-start')
         const installed = installer({
           app,
-          BrowserWindow: { getAllWindows: () => [existingWindow] }
+          BrowserWindow: { getAllWindows: () => [existingWindow] },
+          webContents: {}
         })
         order.push('scheduling-complete')
         return installed
@@ -132,11 +460,24 @@ describe('hidden performance Chromium launch policy', () => {
       .resolves.toBe(firstWindow)
     expect(order).toEqual([
       'scheduling-start',
+      'policy:accessory',
       'existing-window:false',
+      'existing-window:opacity:0',
+      'existing-window:focusable:false',
+      'existing-window:ignore-mouse:true',
+      'existing-window:mission:true',
+      'existing-window:skip-taskbar:true',
       'scheduling-complete',
       'first-window'
     ])
     app.emit('browser-window-created', {}, coreWindow('future-window'))
-    expect(order.at(-1)).toBe('future-window:false')
+    expect(order.slice(-6)).toEqual([
+      'future-window:false',
+      'future-window:opacity:0',
+      'future-window:focusable:false',
+      'future-window:ignore-mouse:true',
+      'future-window:mission:true',
+      'future-window:skip-taskbar:true'
+    ])
   })
 })

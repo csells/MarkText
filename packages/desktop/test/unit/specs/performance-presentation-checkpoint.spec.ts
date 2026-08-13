@@ -114,12 +114,20 @@ describe('hidden compositor presentation checkpoint', () => {
       })
     }
     const otherContents = { isDestroyed: () => false }
-    const exactWindow = { isDestroyed: () => false }
+    const exactWindow = {
+      isDestroyed: () => false,
+      isVisible: () => true,
+      getOpacity: () => 0,
+      isFocused: () => false,
+      isFocusable: () => false,
+      isAlwaysOnTop: () => false
+    }
     const application = {
       evaluate: vi.fn(async(
         evaluator: (electron: unknown, input: unknown) => Promise<unknown>,
         input: unknown
       ) => evaluator({
+        app: { isActive: () => false },
         BrowserWindow: {
           getAllWindows: () => [{ webContents: otherContents }],
           fromWebContents: (contents: unknown) =>
@@ -137,6 +145,36 @@ describe('hidden compositor presentation checkpoint', () => {
       'renderer-target-7'
     )).resolves.toEqual({ empty: false })
     expect(exactContents.capturePage).toHaveBeenCalledOnce()
+  })
+
+  it('refuses compositor capture before the exact window is render-active', async() => {
+    const capturePage = vi.fn(async() => ({ isEmpty: () => false }))
+    const contents = { isDestroyed: () => false, capturePage }
+    const application = {
+      evaluate: async(
+        evaluator: (electron: unknown, input: unknown) => Promise<unknown>,
+        input: unknown
+      ) => evaluator({
+        app: { isActive: () => false },
+        BrowserWindow: {
+          fromWebContents: () => ({
+            isDestroyed: () => false,
+            isVisible: () => false,
+            getOpacity: () => 0,
+            isFocused: () => false,
+            isFocusable: () => false,
+            isAlwaysOnTop: () => false
+          })
+        },
+        webContents: { fromDevToolsTargetId: () => contents }
+      }, input)
+    } as unknown as ElectronApplication
+
+    await expect(captureInstalledElectronHiddenPage(
+      application,
+      'renderer-target-7'
+    )).rejects.toThrow(/transparent render-active inactive state/i)
+    expect(capturePage).not.toHaveBeenCalled()
   })
 
   it('captures one hidden compositor surface then validates retained state', async() => {
@@ -265,8 +303,16 @@ describe('hidden compositor presentation checkpoint', () => {
         evaluator: (electron: unknown, input: unknown) => Promise<unknown>,
         input: unknown
       ) => evaluator({
+        app: { isActive: () => false },
         BrowserWindow: {
-          fromWebContents: () => ({ isDestroyed: () => false })
+          fromWebContents: () => ({
+            isDestroyed: () => false,
+            isVisible: () => true,
+            getOpacity: () => 0,
+            isFocused: () => false,
+            isFocusable: () => false,
+            isAlwaysOnTop: () => false
+          })
         },
         webContents: { fromDevToolsTargetId: () => contents }
       }, input)

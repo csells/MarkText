@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from 'node:util'
 import type { CDPSession, ElectronApplication, Page } from 'playwright'
 
 export const PERFORMANCE_PRESENTATION_BOUNDARY =
-  'electron-webcontents-capture-page-hidden-v1' as const
+  'electron-webcontents-capture-page-transparent-v2' as const
 
 export const PERFORMANCE_PRESENTATION_CAPTURE_OPTIONS = Object.freeze({
   stayHidden: true,
@@ -71,10 +71,9 @@ const captureFailure = (message: string, cause?: unknown) =>
  * target remains authoritative at capture time because the main-process
  * adapter resolves WebContents from this ID for every capture.
  */
-export const bindExactElectronPageCapture = async(
-  page: Page,
-  captureTarget: PerformanceHiddenPageTargetCapture
-): Promise<PerformanceHiddenPageCapture> => {
+export const resolveExactElectronPageTargetId = async(
+  page: Page
+): Promise<string> => {
   let session: CDPSession
   try {
     session = await page.context().newCDPSession(page)
@@ -109,6 +108,14 @@ export const bindExactElectronPageCapture = async(
       detachError
     )
   }
+  return targetId
+}
+
+export const bindExactElectronPageCapture = async(
+  page: Page,
+  captureTarget: PerformanceHiddenPageTargetCapture
+): Promise<PerformanceHiddenPageCapture> => {
+  const targetId = await resolveExactElectronPageTargetId(page)
   return () => captureTarget(targetId)
 }
 
@@ -118,7 +125,7 @@ export const captureInstalledElectronHiddenPage = async(
   targetId: string
 ): Promise<Readonly<PerformanceHiddenPageCaptureResult>> =>
   application.evaluate(
-    async({ BrowserWindow, webContents }, input) => {
+    async({ app, BrowserWindow, webContents }, input) => {
       const contents = webContents.fromDevToolsTargetId(input.targetId)
       if (contents === undefined || contents.isDestroyed()) {
         throw new Error('Measured renderer WebContents is unavailable')
@@ -126,6 +133,15 @@ export const captureInstalledElectronHiddenPage = async(
       const window = BrowserWindow.fromWebContents(contents)
       if (window === null || window.isDestroyed()) {
         throw new Error('Measured renderer BrowserWindow is unavailable')
+      }
+      if (
+        !window.isVisible() || window.getOpacity() !== 0 ||
+        window.isFocused() || window.isFocusable() ||
+        window.isAlwaysOnTop() || app.isActive()
+      ) {
+        throw new Error(
+          'Measured renderer is not in transparent render-active inactive state'
+        )
       }
       const image = await contents.capturePage(undefined, input.options)
       return Object.freeze({ empty: image.isEmpty() })
