@@ -29,7 +29,8 @@ import type {
   LineEnding,
   FileChangeDetail,
   PandocExportPayload,
-  UnsavedFile
+  UnsavedFile,
+  DocumentSaveIdentity
 } from './files'
 import type { BufferedState as BufferedStateType } from './bufferedState'
 import type { MenuTemplate, MenuPopupPosition } from './menu'
@@ -152,7 +153,8 @@ export interface IpcSendChannels {
     pathname: string,
     markdown: string,
     options: SaveOptions,
-    defaultPath: string
+    defaultPath: string,
+    saveIdentity?: DocumentSaveIdentity | null
   ]
   'mt::response-file-save-as': [
     id: string,
@@ -160,7 +162,8 @@ export interface IpcSendChannels {
     pathname: string,
     markdown: string,
     options: SaveOptions,
-    defaultPath: string
+    defaultPath: string,
+    saveIdentity?: DocumentSaveIdentity | null
   ]
   'mt::response-pandoc-export': [payload: PandocExportPayload]
   'mt::response-print': []
@@ -243,7 +246,10 @@ export interface IpcMainEventChannels {
   'mt::export-success': [payload: { type: string; filePath: string; linksMedia?: boolean }]
   'mt::export-with-pandoc': [target: string]
   'mt::file-saved': [tabId: string]
-  'mt::force-close-tabs-by-id': [tabIds: string[]]
+  'mt::force-close-tabs-by-id': [tabIds: Array<string | {
+    id: string
+    saveIdentity?: DocumentSaveIdentity
+  }>]
   'mt::invalidate-image-cache': []
   'mt::keybindings-response': [bindings: unknown]
   'mt::load-state': [state: BufferedStateType]
@@ -265,7 +271,12 @@ export interface IpcMainEventChannels {
   'mt::rg::progress': [payload: unknown]
   'mt::screenshot-captured': [filePath: string]
   'mt::set-line-ending': [lineEnding: LineEnding]
-  'mt::set-pathname': [payload: { id: string; pathname: string; filename: string }]
+  'mt::set-pathname': [payload: {
+    id: string
+    pathname: string
+    filename: string
+    saveIdentity?: DocumentSaveIdentity | null
+  }]
   'mt::set-view-layout': [layout: unknown]
   'mt::show-command-palette': []
   'mt::show-export-dialog': [type: ExportType]
@@ -275,7 +286,7 @@ export interface IpcMainEventChannels {
   'mt::switch-tab-by-file_path': [filePath: string, options?: TabOptions]
   'mt::switch-tab-by-index': [index: number]
   'mt::tab-save-failure': [tabId: string, message: string]
-  'mt::tab-saved': [tabId: string]
+  'mt::tab-saved': [tabId: string, saveIdentity?: DocumentSaveIdentity | null]
   'mt::tabs-cycle-left': []
   'mt::tabs-cycle-right': []
   'mt::toggle-view-layout-entry': [entry: string]

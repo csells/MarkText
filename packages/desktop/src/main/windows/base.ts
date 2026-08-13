@@ -3,6 +3,7 @@ import type { BrowserWindow } from 'electron'
 import { TypedEmitter } from '@shared/types/typedEmitter'
 import type Accessor from '../app/accessor'
 import { getThemeBackgroundColor } from '../../common/theme'
+import { windowActivationAllowed } from './windowActivationPolicy'
 
 /**
  * A MarkText window.
@@ -81,6 +82,7 @@ class BaseWindow extends TypedEmitter<BaseWindowEvents> {
   }
 
   bringToFront(): void {
+    if (!windowActivationAllowed()) return
     const { browserWindow: win } = this
     if (!win) return
     if (win.isMinimized()) win.restore()

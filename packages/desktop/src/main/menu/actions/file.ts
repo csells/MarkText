@@ -29,7 +29,12 @@ import pandoc, {
   shouldMirrorMedia
 } from '../../utils/pandoc'
 import { t, getCurrentLanguage } from '../../i18n'
-import type { PandocExportPayload, TabOptions, UnsavedFile } from '@shared/types/files'
+import type {
+  DocumentSaveIdentity,
+  PandocExportPayload,
+  TabOptions,
+  UnsavedFile
+} from '@shared/types/files'
 
 type Win = BrowserWindow | null | undefined
 
@@ -262,8 +267,9 @@ const handleResponseForSave = async(
   pathname: string | undefined,
   markdown: string,
   options: UnsavedFile['options'],
-  defaultPath?: string
-): Promise<string | void> => {
+  defaultPath?: string,
+  saveIdentity?: DocumentSaveIdentity | null
+): Promise<string | { id: string; saveIdentity: DocumentSaveIdentity } | void> => {
   const win = BrowserWindow.fromWebContents(e.sender)
   if (!win) {
     return Promise.resolve()
@@ -311,17 +317,25 @@ const handleResponseForSave = async(
         ipcMain.emit('menu-add-recently-used', filePath)
 
         const newFilename = path.basename(filePath!)
-        win.webContents.send('mt::set-pathname', { id, pathname: filePath, filename: newFilename })
+        win.webContents.send('mt::set-pathname', {
+          id,
+          pathname: filePath,
+          filename: newFilename,
+          saveIdentity
+        })
       } else {
         ipcMain.emit('window-file-saved', win.id, filePath)
-        win.webContents.send('mt::tab-saved', id)
+        win.webContents.send('mt::tab-saved', id, saveIdentity)
       }
-      return id
+      return saveIdentity === undefined || saveIdentity === null
+        ? id
+        : { id, saveIdentity }
     })
     .catch((err: unknown) => {
       log.error('Error while saving:', err)
       const msg = err instanceof Error ? err.message : String(err)
       win.webContents.send('mt::tab-save-failure', id, msg)
+      throw err
     })
 }
 
@@ -392,7 +406,8 @@ ipcMain.on('mt::save-tabs', (e, unsavedFiles: UnsavedFile[]) => {
         file.pathname,
         file.markdown,
         file.options,
-        file.defaultPath
+        file.defaultPath,
+        file.saveIdentity
       )
     )
   ).catch(log.error)
@@ -419,12 +434,16 @@ ipcMain.on('mt::save-and-close-tabs', async(e, unsavedFiles: UnsavedFile[]) => {
           file.pathname,
           file.markdown,
           file.options,
-          file.defaultPath
+          file.defaultPath,
+          file.saveIdentity
         )
       )
     )
       .then((arr) => {
-        const tabIds = arr.filter((id): id is string => id != null)
+        const tabIds = arr.filter(
+          (item): item is string | { id: string; saveIdentity: DocumentSaveIdentity } =>
+            item != null
+        )
         win.webContents.send('mt::force-close-tabs-by-id', tabIds)
       })
       .catch((err: unknown) => {
@@ -445,7 +464,8 @@ ipcMain.on(
     pathname: string | undefined,
     markdown: string,
     options: UnsavedFile['options'],
-    defaultPath?: string
+    defaultPath?: string,
+    saveIdentity?: DocumentSaveIdentity | null
   ) => {
     const win = BrowserWindow.fromWebContents(e.sender)
     if (!win) {
@@ -478,7 +498,8 @@ ipcMain.on(
             win.webContents.send('mt::set-pathname', {
               id,
               pathname: filePath,
-              filename: newFilename
+              filename: newFilename,
+              saveIdentity
             })
           } else if (pathname !== filePath) {
             // Update window file list and watcher.
@@ -488,11 +509,12 @@ ipcMain.on(
             win.webContents.send('mt::set-pathname', {
               id,
               pathname: filePath,
-              filename: newFilename
+              filename: newFilename,
+              saveIdentity
             })
           } else {
             ipcMain.emit('window-file-saved', win.id, filePath)
-            win.webContents.send('mt::tab-saved', id)
+            win.webContents.send('mt::tab-saved', id, saveIdentity)
           }
         })
         .catch((err: unknown) => {
@@ -525,7 +547,8 @@ ipcMain.on('mt::close-window-confirm', async(e, unsavedFiles: UnsavedFile[]) => 
           file.pathname,
           file.markdown,
           file.options,
-          file.defaultPath
+          file.defaultPath,
+          file.saveIdentity
         )
       )
     )

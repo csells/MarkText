@@ -20,6 +20,7 @@ const executionBudget: ExecutionBudgetId = Object.freeze({
 const markdownOptions = Object.freeze({
   schema: 'markdown-options-1' as const,
   gfm: true,
+  gfmTagFilter: true,
   frontMatter: true,
   math: true,
   gitLabMath: false,
