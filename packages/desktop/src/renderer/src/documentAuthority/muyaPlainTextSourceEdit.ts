@@ -6,6 +6,8 @@ export interface MuyaPlainTextSourceBinding {
   /** Exact canonical-source range occupied by `text`. */
   readonly sourceRange: SourceRange
   readonly text: string
+  /** False keeps the structural paragraph selectable for Review but not editable. */
+  readonly editable?: false
 }
 
 export interface MuyaMathSourceBinding {

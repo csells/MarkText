@@ -23,7 +23,7 @@ export type CoreHistorySnapshot = Readonly<{
 }>
 
 export type CoreReviewDecision = DocumentResolutionDecision | 'remove'
-export type CoreAuthorForm = 'comment' | 'highlight' | 'substitution'
+export type CoreAuthorForm = 'addition' | 'comment' | 'highlight' | 'substitution'
 
 export type CoreConsumerSearchMatch = Readonly<{
   readonly path: readonly number[]

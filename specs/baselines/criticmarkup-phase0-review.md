@@ -60,10 +60,13 @@ The performance decision does not approve the rest of Phase 0. The owner must al
 7. **Language profile and ADRs:** ratify, amend, or supersede Profile 1 and the pinned CriticMarkup and
    parser ADR set after reviewing semantic rules separately from implementation machinery.
 8. **Interaction matrix:** approve or amend the 25 expected product behaviors. The current evidence
-   map has 21 partial production seams, four rows with no named production oracle, and zero green
-   installed executions. A table-driven installed oracle now exercises all 20 resolve, save/reopen,
-   Source round-trip, and render rows, but no stable-commit execution record is pinned. Completion
-   requires closing the five author gaps and recording a passing installed run for all 25. The
+   map has 25 partial production seams, no rows without a named production oracle, and zero green
+   installed executions. A table-driven installed oracle now exercises all 25 rows through visible
+   controls and exact source/history/save/reopen checks, but no stable-commit execution record is
+   pinned. The Comment author row follows `CONTEXT.md`: Add Comment creates the conventional
+   Commented span rather than a Point comment. That still-unratified expected behavior remains part
+   of the pending matrix decision. Completion requires recording a passing installed run after
+   ratification. The
    `comment.reference-footnote.resolve` fixture now follows Profile definition precedence by placing
    its Comment closer on a separate line and is covered at the public engine seam; its installed
    Review oracle is included in the table-driven installed suite.

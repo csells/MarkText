@@ -376,6 +376,7 @@ export function createMuyaPlainTextCoreAdapter(
   const bindingByBlock = new Map<number, MuyaPlainTextSourceBinding>()
   const mathBindingByBlock = new Map<number, MuyaMathSourceBinding>()
   let currentBindings: readonly MuyaPlainTextSourceBinding[] = Object.freeze([])
+  let selectionBindings: readonly MuyaPlainTextSourceBinding[] = Object.freeze([])
   const queued: PendingCommand[] = []
   const waiters = new Set<{
     readonly resolve: () => void
@@ -424,6 +425,7 @@ export function createMuyaPlainTextCoreAdapter(
     >>()
     const nextByBlock = new Map<number, MuyaPlainTextSourceBinding>()
     for (const item of nextBindings) {
+      if (item.editable === false) continue
       const key = `${String(item.path[0])}:${item.path[1]}`
       if (nextAdapters.has(key) || nextByBlock.has(item.path[0])) {
         throw new Error('Core Muya projection contains duplicate bindings')
@@ -449,18 +451,19 @@ export function createMuyaPlainTextCoreAdapter(
       bindingByBlock.set(blockIndex, item)
     }
     mathBindingByBlock.clear()
-    currentBindings = Object.freeze([...nextBindings])
+    currentBindings = Object.freeze(nextBindings.filter(item => item.editable !== false))
+    selectionBindings = Object.freeze([...nextBindings])
   }
   installBindings(bindings)
 
   const installAppliedEdit = (edit: DocumentSourceEdit): void => {
-    const ownerIndex = currentBindings.findIndex(item =>
+    const ownerIndex = selectionBindings.findIndex(item =>
       edit.start >= item.sourceRange.start &&
       edit.end <= item.sourceRange.end
     )
     if (ownerIndex < 0) return
     const delta = edit.insert.length - (edit.end - edit.start)
-    const nextBindings = currentBindings.map((item, index) => {
+    const nextBindings = selectionBindings.map((item, index) => {
       if (index === ownerIndex) {
         const localStart = edit.start - item.sourceRange.start
         const localEnd = edit.end - item.sourceRange.start
@@ -496,10 +499,10 @@ export function createMuyaPlainTextCoreAdapter(
       right: readonly (string | number)[]
     ): boolean => left.length === right.length &&
       left.every((part, index) => part === right[index])
-    const anchorBinding = currentBindings.find(item =>
+    const anchorBinding = selectionBindings.find(item =>
       samePath(item.path, selection.anchor.path)
     )
-    const focusBinding = currentBindings.find(item =>
+    const focusBinding = selectionBindings.find(item =>
       samePath(item.path, selection.focus.path)
     )
     if (
@@ -591,12 +594,12 @@ export function createMuyaPlainTextCoreAdapter(
         })
         : command.kind === 'track'
           ? Object.freeze({
-              kind: 'track' as const,
-              range: Object.freeze({
-                start: (deferredTrackEdit ?? command.edit).start,
-                end: (deferredTrackEdit ?? command.edit).end
-              }),
-              text: (deferredTrackEdit ?? command.edit).insert,
+            kind: 'track' as const,
+            range: Object.freeze({
+              start: (deferredTrackEdit ?? command.edit).start,
+              end: (deferredTrackEdit ?? command.edit).end
+            }),
+            text: (deferredTrackEdit ?? command.edit).insert,
             projections: Object.freeze([])
           })
           : command.kind === 'history'
@@ -618,21 +621,21 @@ export function createMuyaPlainTextCoreAdapter(
                   decision: command.decision,
                   projections: Object.freeze([])
                 })
-              : command.kind === 'edit-comment'
-                ? Object.freeze({
-                  kind: 'edit-comment' as const,
-                  authoredRevision: command.authoredRevision,
-                  annotation: command.annotation,
-                  text: command.text,
-                  projections: Object.freeze([])
-                })
-              : Object.freeze({
-                kind: 'author' as const,
-                form: command.form,
-                range: authorRange!,
-                text: command.text,
-                projections: Object.freeze([])
-              }))
+                : command.kind === 'edit-comment'
+                  ? Object.freeze({
+                    kind: 'edit-comment' as const,
+                    authoredRevision: command.authoredRevision,
+                    annotation: command.annotation,
+                    text: command.text,
+                    projections: Object.freeze([])
+                  })
+                  : Object.freeze({
+                    kind: 'author' as const,
+                    form: command.form,
+                    range: authorRange!,
+                    text: command.text,
+                    projections: Object.freeze([])
+                  }))
       acknowledged = submission.acknowledged
       transactionId = submission.identity.transactionId
       recordPerformance({
@@ -964,7 +967,9 @@ export function createMuyaPlainTextCoreAdapter(
         edit,
         reconcile,
         deferUntilPriorReconciliation ? structuredClone(change) : undefined
-      ) ? 'accepted' : 'unsupported'
+      )
+        ? 'accepted'
+        : 'unsupported'
     },
     compositionStart(): void {
       if (disposed) throw new Error('Core Muya adapter is disposed')
