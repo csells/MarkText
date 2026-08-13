@@ -290,10 +290,16 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes Edit menu Undo and Redo through the renderer edit-action channel',
       'phase0.item.5a233c1c0b730f92c8b26b77':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-native-copy-production-surfaces.spec.ts#routes registered Copy command and Edit menu surfaces through the Electron native copy runtime',
+      'phase0.item.5e0446eed3c50b067a946808':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-duplicate-production-surfaces.spec.ts#routes registered Duplicate command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.5eeff02652f96f31549bd069':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-production-surfaces.spec.ts#routes registered Find command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.5fdd30f820d652e48f5b4528':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes Edit menu Copy as Rich and Copy as HTML entries to the editor',
       'phase0.item.6ef94e99e33b332cdce273ec':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes Edit menu Undo and Redo through the renderer edit-action channel',
+      'phase0.item.786d2dd4acf6a54342a51eda':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-duplicate-production-surfaces.spec.ts#routes registered Duplicate command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.7b2afe2c3851e9bbb08c500d':
         'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
       'phase0.item.780b8aabf4e014404fab9b58':
@@ -310,6 +316,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-paste-production-surfaces.spec.ts#routes registered Paste command and Edit menu surfaces through the Electron native paste runtime',
       'phase0.item.a67f9710d62840c4950ffff5':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes registered Copy as Rich and Copy as HTML commands to the editor',
+      'phase0.item.a70ae367e06aa43a2191dc2e':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-find-production-surfaces.spec.ts#routes registered Find command and Edit menu surfaces through the renderer edit-action channel',
       'phase0.item.b327952319820e0956248ea0':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes Edit menu Copy as Rich and Copy as HTML entries to the editor',
       'phase0.item.b9a01f70d274b7ff1480da76':
@@ -333,7 +341,7 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     })
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('required-new-production-path-test:')
-    ))).toHaveLength(342)
+    ))).toHaveLength(338)
     expect(() => validateCriticMarkupParityDispositions(
       parityBaseline,
       materialized.parityOverlay,
