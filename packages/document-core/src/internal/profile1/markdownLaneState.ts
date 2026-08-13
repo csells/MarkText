@@ -2393,7 +2393,8 @@ export function createMarkdownLaneState(
   EMPTY_REFERENCE_DEFINITIONS,
   matchingScopePolicy?: MarkdownMatchingScopePolicy,
   frontMatterEnabled: boolean = true,
-  gfmEnabled: boolean = true,
+  _gfmEnabled: boolean = true,
+  gfmAutolinksEnabled: boolean = true,
   mathEnabled: boolean = true,
   gitLabMathEnabled: boolean = true,
   footnotesEnabled: boolean = true,
@@ -2980,7 +2981,7 @@ export function createMarkdownLaneState(
           )
           ) {
             if (
-              gfmEnabled &&
+              gfmAutolinksEnabled &&
               offset >= extendedAutolinkSuppressedUntil &&
               source.charCodeAt(offset) === 60
             ) {
@@ -2997,7 +2998,7 @@ export function createMarkdownLaneState(
                 extendedAutolinkSuppressedUntil = close + 1
               }
             }
-            if (gfmEnabled) {
+            if (gfmAutolinksEnabled) {
               const extendedAutolink = offset >= extendedAutolinkSuppressedUntil
                 ? findGfmExtendedAutolink(
                   source,
@@ -4171,6 +4172,7 @@ function parsePlainMarkdownLanePass(
   matchingScopePolicy?: MarkdownMatchingScopePolicy,
   frontMatterEnabled: boolean = true,
   gfmEnabled: boolean = true,
+  gfmAutolinksEnabled: boolean = true,
   mathEnabled: boolean = true,
   gitLabMathEnabled: boolean = true,
   footnotesEnabled: boolean = true,
@@ -4183,6 +4185,7 @@ function parsePlainMarkdownLanePass(
     matchingScopePolicy,
     frontMatterEnabled,
     gfmEnabled,
+    gfmAutolinksEnabled,
     mathEnabled,
     gitLabMathEnabled,
     footnotesEnabled,
@@ -4273,6 +4276,7 @@ export function parseIntrinsicForkMarkdownLaneFacts(
   matchingScopePolicy?: MarkdownMatchingScopePolicy,
   frontMatterEnabled: boolean = true,
   gfmEnabled: boolean = true,
+  gfmAutolinksEnabled: boolean = true,
   mathEnabled: boolean = true,
   gitLabMathEnabled: boolean = true,
   footnotesEnabled: boolean = true,
@@ -4285,6 +4289,7 @@ export function parseIntrinsicForkMarkdownLaneFacts(
     matchingScopePolicy,
     frontMatterEnabled,
     gfmEnabled,
+    gfmAutolinksEnabled,
     mathEnabled,
     gitLabMathEnabled,
     footnotesEnabled,

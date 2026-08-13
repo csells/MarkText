@@ -5,10 +5,25 @@ export {
 } from './codeMirrorCoreAdapter'
 export { createMuyaPlainTextCoreAdapter } from './muyaPlainTextCoreAdapter'
 export {
+  createCoreAuthorityPerformanceTrace,
+  measureCoreDocumentOpen,
+  type CoreAuthorityPerformanceEvent,
+  type CoreAuthorityPerformanceTrace
+} from './coreAuthorityPerformanceTrace'
+export {
+  canToggleCoreTrackChanges,
+  createCoreTrackChangesMode,
+  type CoreTrackChangesMode
+} from './coreTrackChangesMode'
+export {
   handoffCorePlainTextView,
   leaseCorePlainTextView
 } from './corePlainTextViewHandoff'
 export { createCoreActor, type CoreActor } from './coreActor'
+export {
+  createCoreConsumerProjectionRegistry,
+  type CoreConsumerProjectionRegistry
+} from './coreConsumerProjectionRegistry'
 export {
   createCoreDocumentSessionManager,
   type CoreDocumentSessionManager,
@@ -40,6 +55,10 @@ export {
   type CoreWorkerTestControl
 } from './coreWorkerPort'
 export {
+  resolveCoreDocumentLaunchPolicy,
+  type CoreDocumentLaunchPolicy
+} from './coreDocumentLaunchPolicy'
+export {
   createEditorShadowBinding,
   type EditorShadowBinding,
   type EditorShadowSnapshot
@@ -59,6 +78,10 @@ export {
 export type {
   CoreActorPort,
   CoreAppliedReply,
+  CoreConsumerProjection,
+  CoreConsumerProjectionReply,
+  CoreConsumerSearchMatch,
+  CoreConsumerSearchReplacement,
   CoreOpenedReply,
   CorePlainTextViewReply,
   CoreReviewDecision,

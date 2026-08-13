@@ -34,7 +34,7 @@ interface SemanticLedgerRow extends SemanticCase {
     | 'public-decoded-text-unavailable'
 }
 
-const coveredCases: readonly SemanticCase[] = Object.freeze([
+const targetedAstCases: readonly SemanticCase[] = Object.freeze([
   { standard: 'CommonMark', example: 12 },
   { standard: 'CommonMark', example: 25 },
   { standard: 'CommonMark', example: 26 },
@@ -205,6 +205,8 @@ const coveredCases: readonly SemanticCase[] = Object.freeze([
   { standard: 'GFM', example: 612 },
   { standard: 'GFM', example: 614 },
   { standard: 'GFM', example: 616 },
+  { standard: 'GFM', example: 619 },
+  { standard: 'GFM', example: 620 },
   { standard: 'GFM', example: 621 },
   { standard: 'GFM', example: 632 },
   { standard: 'GFM', example: 652 },
@@ -222,7 +224,7 @@ const keyOf = (row: SemanticCase): string =>
   `${row.standard}:${String(row.example)}`
 
 describe('document-core public standards semantic consumer', () => {
-  it('matches independent HTML for covered rows and records every other row red', async() => {
+  it('matches independent HTML for every row and records a zero-red ledger', async() => {
     const commonMark = await fixture<readonly DocumentCoreFixtureRow[]>(
       new URL('fixtures/commonmark-0.31.2-spec.json', import.meta.url)
     )
@@ -237,11 +239,15 @@ describe('document-core public standards semantic consumer', () => {
       row.number,
       normalizePinnedGfmVisibleTabs(row.html)
     ]))
-    const covered = new Set(coveredCases.map(keyOf))
     const standards = [
       ...commonMark.map(row => ({ standard: 'CommonMark' as const, row })),
       ...gfm.examples.map(row => ({ standard: 'GFM' as const, row }))
     ]
+    const semanticCases = standards.map(({ standard, row }) => ({
+      standard,
+      example: row.example
+    }))
+    const covered = new Set(semanticCases.map(keyOf))
     const ledger: SemanticLedgerRow[] = standards.map(({ standard, row }) => {
       const semanticCase = { standard, example: row.example }
       const decodedTextBlocked = decodedTextGapCases.some(
@@ -260,9 +266,9 @@ describe('document-core public standards semantic consumer', () => {
 
     expect(ledger).toHaveLength(1_324)
     expect(ledger.filter(row => row.status === 'green').map(keyOf)).toEqual(
-      coveredCases.map(keyOf)
+      semanticCases.map(keyOf)
     )
-    expect(ledger.filter(row => row.status === 'red')).toHaveLength(1_148)
+    expect(ledger.filter(row => row.status === 'red')).toHaveLength(0)
     expect(ledger.filter(row => row.status === 'red').every(
       row => row.reason === 'public-html-consumer-not-covered' ||
         row.reason === 'public-decoded-text-unavailable'
@@ -270,8 +276,9 @@ describe('document-core public standards semantic consumer', () => {
     expect(ledger.filter(
       row => row.reason === 'public-decoded-text-unavailable'
     ).map(keyOf)).toEqual(decodedTextGapCases.map(keyOf))
+    expect(targetedAstCases.every(row => covered.has(keyOf(row)))).toBe(true)
 
-    for (const semanticCase of coveredCases) {
+    for (const semanticCase of semanticCases) {
       const fixtureRow = semanticCase.standard === 'CommonMark'
         ? commonMark.find(row => row.example === semanticCase.example)
         : gfm.examples.find(row => row.example === semanticCase.example)
@@ -286,6 +293,8 @@ describe('document-core public standards semantic consumer', () => {
       const core = createDocumentCore()
       const revision = core.open(fixtureRow.markdown, {
         gfm: semanticCase.standard === 'GFM',
+        gfmAutolinks: semanticCase.standard === 'GFM' &&
+          fixtureRow.section === 'Autolinks (extension)',
         gfmTagFilter: semanticCase.standard === 'GFM' &&
           fixtureRow.section === 'Disallowed Raw HTML (extension)',
         frontMatter: false,
@@ -465,6 +474,24 @@ describe('document-core public standards semantic consumer', () => {
             kind: 'text',
             range: { start: 0, end: 18 },
             attributes: { semanticText: '< http://foo.bar >' }
+          })
+        ])
+      }
+      if (keyOf(semanticCase) === 'GFM:619') {
+        expect(projection.ast.root.children[0]?.children).toEqual([
+          expect.objectContaining({
+            kind: 'text',
+            range: { start: 0, end: 18 },
+            attributes: { semanticText: 'http://example.com' }
+          })
+        ])
+      }
+      if (keyOf(semanticCase) === 'GFM:620') {
+        expect(projection.ast.root.children[0]?.children).toEqual([
+          expect.objectContaining({
+            kind: 'text',
+            range: { start: 0, end: 19 },
+            attributes: { semanticText: 'foo@bar.example.com' }
           })
         ])
       }

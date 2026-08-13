@@ -8,6 +8,7 @@ import type {
 
 import type { CoreAppliedReply, CoreReviewItemReply } from './coreProtocol'
 import type { EditorCoreBinding } from './editorCoreBinding'
+import type { CoreAuthorityPerformanceEvent } from './coreAuthorityPerformanceTrace'
 import { transformOptimisticHistory } from './optimisticHistoryTransform'
 import {
   createCanonicalEolIndex,
@@ -57,6 +58,11 @@ export interface CodeMirrorCoreAdapterOptions {
   readonly canonicalSource: string
   readonly insertedLineEnding: CanonicalLineEnding
   readonly projections?: () => readonly DocumentProjectionRequest[]
+  readonly performanceTrace?: Readonly<{
+    readonly documentId: string
+    readonly clock?: () => number
+    readonly record: (event: CoreAuthorityPerformanceEvent) => void
+  }>
 }
 
 interface QueuedSourceChange {
@@ -154,7 +160,8 @@ export function createCodeMirrorCoreAdapter(
     maxPendingInsertUnits,
     createCanonicalEolIndex(options.canonicalSource),
     options.insertedLineEnding,
-    options.projections ?? (() => [])
+    options.projections ?? (() => []),
+    options.performanceTrace
   )
 }
 
@@ -165,7 +172,8 @@ function createAdapterWithIndex(
   maxPendingInsertUnits: number,
   initialEolIndex: ReturnType<typeof createCanonicalEolIndex>,
   insertedLineEnding: CanonicalLineEnding,
-  projections: () => readonly DocumentProjectionRequest[]
+  projections: () => readonly DocumentProjectionRequest[],
+  performanceTrace: CodeMirrorCoreAdapterOptions['performanceTrace']
 ): CodeMirrorCoreAdapter {
   const eolIndex = initialEolIndex
   const queue: QueuedCommand[] = []
@@ -192,6 +200,33 @@ function createAdapterWithIndex(
   let finishComposition: ((reply: CoreAppliedReply | undefined) => void) | undefined
   let failComposition: ((error: unknown) => void) | undefined
   let compositionFinished: Promise<CoreAppliedReply | undefined> | undefined
+
+  type PerformanceEventInput =
+    | Readonly<{
+      readonly phase: 'dispatch'
+      readonly transaction: number
+      readonly pendingDepth: number
+    }>
+    | Readonly<{ readonly phase: 'ack'; readonly transaction: number }>
+    | Readonly<{
+      readonly phase: 'reconcile'
+      readonly transaction: number
+      readonly corrected: boolean
+    }>
+  const recordPerformance = (event: PerformanceEventInput): void => {
+    if (performanceTrace === undefined) return
+    const at = (performanceTrace.clock ?? (() => performance.now()))()
+    if (!Number.isFinite(at) || at < 0) return
+    try {
+      performanceTrace.record(Object.freeze({
+        ...event,
+        documentId: performanceTrace.documentId,
+        at
+      }) as CoreAuthorityPerformanceEvent)
+    } catch {
+      // Measurement is diagnostic-only and cannot perturb authority.
+    }
+  }
 
   const rejectSettlements = (error: unknown): void => {
     for (const settlement of settlements.splice(0)) settlement.reject(error)
@@ -282,8 +317,9 @@ function createAdapterWithIndex(
     active = true
     activeCommand = queued
     let acknowledged: ReturnType<EditorCoreBinding['submit']>['acknowledged']
+    let transactionId = 0
     try {
-      acknowledged = binding.submit(queued.kind === 'source'
+      const submission = binding.submit(queued.kind === 'source'
         ? { edits: queued.edits, projections: projections() }
         : queued.kind === 'history'
           ? { kind: queued.command, projections: projections() }
@@ -294,7 +330,14 @@ function createAdapterWithIndex(
             decision: queued.decision,
             projections: projections()
           }
-      ).acknowledged
+      )
+      acknowledged = submission.acknowledged
+      transactionId = submission.identity.transactionId
+      recordPerformance({
+        phase: 'dispatch',
+        transaction: transactionId,
+        pendingDepth: queue.length + 1
+      })
     } catch (error) {
       active = false
       activeCommand = undefined
@@ -303,6 +346,7 @@ function createAdapterWithIndex(
       return
     }
     acknowledged.then(async reply => {
+      recordPerformance({ phase: 'ack', transaction: transactionId })
       if (disposed) return
       if (queued.kind === 'source') {
         pendingInsertUnits -= queued.edits.reduce(
@@ -389,6 +433,11 @@ function createAdapterWithIndex(
       latestReply = reply
       lastAcceptedRevision = reply.revision
       completedGeneration = queued.generation
+      recordPerformance({
+        phase: 'reconcile',
+        transaction: transactionId,
+        corrected: queued.kind !== 'source'
+      })
       active = false
       activeCommand = undefined
       if (queued.kind !== 'source') queued.resolve(reply)

@@ -1,0 +1,201 @@
+{
+  "schema": "marktext-criticmarkup-phase0-approval-v1",
+  "status": "proposed-unapproved",
+  "baselineCommit": "43bd8b77795fb27b1a9512737c000f7362031ea0",
+  "evidenceCommit": "177a13f24fe5e5c265dcef468f71988186d1f85e",
+  "evidence": [
+    {
+      "id": "upstream-parity-baseline",
+      "path": "specs/baselines/criticmarkup-upstream-parity.json",
+      "sha256": "26181416f36ad15e203a031e33080feaac9d5b45eaf5b1b1f8c2c933c5d8d74a"
+    },
+    {
+      "id": "parity-proposal",
+      "path": "specs/baselines/criticmarkup-parity-proposal.json",
+      "sha256": "3d068bbc00d38fd1041699f8ad42029fc1cadb3f35b307afe852acf9df424e7c"
+    },
+    {
+      "id": "parity-oracle-proposal",
+      "path": "specs/baselines/criticmarkup-parity-oracle-proposal.json",
+      "sha256": "12fb0c0accee71adef4c609c663f87e348406061e930e7205edb6d93222f7e49"
+    },
+    {
+      "id": "parity-decisions",
+      "path": "specs/baselines/criticmarkup-parity-dispositions.json",
+      "sha256": "8ae462d1991fa3982b3b79ee645d18daa11fe4ff57aedf762422c9c87bcffe83"
+    },
+    {
+      "id": "parity-rows",
+      "path": "specs/baselines/criticmarkup-parity-rows.json",
+      "sha256": "f2c2862ac459db85259f97d6378b75ec421e56150b8495cc929045c7c30a1bfa"
+    },
+    {
+      "id": "upstream-oracle-run",
+      "path": "specs/baselines/runs/2026-08-10-upstream-develop.md",
+      "sha256": "c1d88fbb42175cbd339aa8fd07e8b332a23554dc089ebf9d375e7aa0b16419fe"
+    },
+    {
+      "id": "language-profile",
+      "path": "specs/language/marktext-markdown-profile-1.md",
+      "sha256": "1cc914ff4f733c82eff4f98553ce486ec20bdb3ad87c903011bd9dff1ba050ae"
+    },
+    {
+      "id": "profile-conformance",
+      "path": "specs/baselines/criticmarkup-profile-conformance.json",
+      "sha256": "21cb63e5a0010f6a4585d71b80def464f56dbe974838c9c1948c119a855df2c0"
+    },
+    {
+      "id": "adr-0001",
+      "path": "docs/adr/0001-comments-are-single-note-criticmarkup.md",
+      "sha256": "375c1c3beb00f588f07bbded6bdcd97117fe3e209eca65d291d46af29cb58ee2"
+    },
+    {
+      "id": "adr-0002",
+      "path": "docs/adr/0002-caret-never-enters-a-hidden-comment.md",
+      "sha256": "6005349de7b494c1d74ddca5d8f179aa934c898c7333281383e42308412be604"
+    },
+    {
+      "id": "adr-0003",
+      "path": "docs/adr/0003-a-commented-span-is-one-unit.md",
+      "sha256": "4c4fd344633767147a4b30f4508b56f822844b1bf3b074985e1f7d69ad241284"
+    },
+    {
+      "id": "adr-0005",
+      "path": "docs/adr/0005-the-document-revision-is-the-sole-authority.md",
+      "sha256": "5d571b938f1710160d78495bd69278414f57798847a4a81efbc81ded2ff144fa"
+    },
+    {
+      "id": "adr-0007",
+      "path": "docs/adr/0007-canonical-source-is-lossless.md",
+      "sha256": "41a013499f02b7e5b1cf10fd1f914f6b08dbb18ed470e121f6a201f89b04417f"
+    },
+    {
+      "id": "adr-0008",
+      "path": "docs/adr/0008-version-the-marktext-criticmarkup-profile.md",
+      "sha256": "4b3c91368190c5681ab623ef6b45613b1660604ec8a8aec0c0328b37b56d296a"
+    },
+    {
+      "id": "adr-0009",
+      "path": "docs/adr/0009-criticmarkup-is-intrinsic-markdown-syntax.md",
+      "sha256": "9d3e0b9940b7246ec1630d447e4b07afac62cc668016497ff6d2b53d85c7c3b4"
+    },
+    {
+      "id": "adr-0010",
+      "path": "docs/adr/0010-substitution-arms-are-self-contained-markdown-fragments.md",
+      "sha256": "2cf01889f71ebef856a288c743c4a963480b4fa66ffa298ed194a9d98233dfda"
+    },
+    {
+      "id": "adr-0013",
+      "path": "docs/adr/0013-parse-each-document-once-and-read-every-view-off-it.md",
+      "sha256": "00ea78f4220d9b9857f263f87d5f70ae9f968a14188d8d274cd8b0008d47d919"
+    },
+    {
+      "id": "adr-0014",
+      "path": "docs/adr/0014-an-annotation-closer-stands-against-an-open-in-arm-literal.md",
+      "sha256": "6a0878c203966b49601bd9049a2117353295a05aa0ce83afca4c54b93c87009f"
+    },
+    {
+      "id": "adr-0015",
+      "path": "docs/adr/0015-the-engine-authors-no-bytes-the-user-did-not-type.md",
+      "sha256": "bc564ac4bbe2ab133e01c965a7add5be5e9206432769db5bb9707da75479f119"
+    },
+    {
+      "id": "interaction-matrix",
+      "path": "specs/baselines/criticmarkup-interaction-matrix.json",
+      "sha256": "b74fc711847deb963927242ae80c95b12661d3fd80d586d581889c45621b1c9f"
+    },
+    {
+      "id": "interaction-evidence",
+      "path": "specs/baselines/criticmarkup-interaction-evidence.json",
+      "sha256": "5d9d73efdc9b584e707e65f008caa41dd7f5fd482292d888e04769dfbbb7f713"
+    },
+    {
+      "id": "representative-documents",
+      "path": "specs/baselines/criticmarkup-representative-documents.json",
+      "sha256": "c02fc2c361c2a6f04dd8852da0dcdcc17c38254940746e0c9e34e121c4d9a5d1"
+    },
+    {
+      "id": "performance-targets",
+      "path": "specs/baselines/criticmarkup-performance-targets.json",
+      "sha256": "8f242add53344a626fdfcb78c211b97f843b3c6af0f893ee6aca757b03b942ef"
+    },
+    {
+      "id": "performance-measurements",
+      "path": "specs/baselines/criticmarkup-performance-measurements.json",
+      "sha256": "7d7a9a69c49f13bf703d4fe4ddb1a1223e41227ba70110074a45959f9cb85610"
+    },
+    {
+      "id": "salvage-baseline",
+      "path": "specs/baselines/criticmarkup-salvage-candidates.json",
+      "sha256": "a83c05770f7b255c95b8d1590e8a86f7f6e77bb91a8c824479d69b7d6ae36c39"
+    },
+    {
+      "id": "salvage-proposal",
+      "path": "specs/baselines/criticmarkup-salvage-proposal.json",
+      "sha256": "86ac0a58955acc070516b9b7fb9b11a967afcf52fe1d24eabafa8f2e39cf5886"
+    },
+    {
+      "id": "salvage-decisions",
+      "path": "specs/baselines/criticmarkup-salvage-dispositions.json",
+      "sha256": "5caedad4459d0e89e4312c09ca8dc261b1b782dcd4d6118226cd2c1180798fab"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "working-baseline",
+      "status": "pending-owner-decision",
+      "question": "Approve upstream commit 43bd8b77795fb27b1a9512737c000f7362031ea0 as the working compatibility baseline for this validation interval?",
+      "proposal": "Use the recorded upstream commit and regenerate the denominator only at the required pre-PR rebase checkpoint.",
+      "evidenceRefs": ["upstream-parity-baseline"]
+    },
+    {
+      "id": "upstream-oracle-run",
+      "status": "pending-owner-decision",
+      "question": "Accept the recorded upstream run as the Phase 0 oracle record despite its documented Muya toolbar failure, teardown hang, and reproduced Electron burst-input failure?",
+      "proposal": "Keep the failures explicit as baseline oracle gaps; do not reinterpret the run as completely green.",
+      "evidenceRefs": ["upstream-oracle-run"]
+    },
+    {
+      "id": "parity-manifest",
+      "status": "pending-owner-decision",
+      "question": "Approve or amend the proposed group dispositions for all 829 upstream parity items, then authorize the corresponding item-level disposition overlay and named parity rows?",
+      "proposal": "Require new production-path or equivalent evidence for 367 items, retain 392 byte-identical upstream test files and four manual definitions subject to current execution evidence, and require explicit compatibility decisions for 66 known-gap items. No item is proposed unaffected and no retained file is claimed green.",
+      "evidenceRefs": ["upstream-parity-baseline", "parity-proposal", "parity-oracle-proposal", "parity-decisions", "parity-rows"]
+    },
+    {
+      "id": "language-profile-and-adrs",
+      "status": "pending-owner-decision",
+      "question": "Ratify, amend, or supersede Profile 1 and the listed CriticMarkup/parser ADRs after reviewing their semantic versus implementation boundaries?",
+      "proposal": "Treat the current profile and conformance map as a structural draft only; preserve the already recorded owner-ratified rules while deciding the remaining rule and ADR set explicitly.",
+      "evidenceRefs": ["language-profile", "profile-conformance", "adr-0001", "adr-0002", "adr-0003", "adr-0005", "adr-0007", "adr-0008", "adr-0009", "adr-0010", "adr-0013", "adr-0014", "adr-0015"]
+    },
+    {
+      "id": "interaction-matrix",
+      "status": "pending-owner-decision",
+      "question": "Approve or amend the 25-row CriticMarkup interaction matrix as the release-risk denominator?",
+      "proposal": "Keep the structurally complete matrix proposed-unratified until its expected product behaviors are accepted. Twenty-one rows have partial production seams, including a table-driven installed oracle for all 20 resolve, save/reopen, Source round-trip, and render rows; four rows have no named production oracle; zero rows have pinned passing installed execution evidence.",
+      "evidenceRefs": ["interaction-matrix", "interaction-evidence"]
+    },
+    {
+      "id": "representative-documents",
+      "status": "pending-owner-decision",
+      "question": "Approve or amend the five pinned representative documents and their coverage labels for this validation interval?",
+      "proposal": "Use the hash-pinned corpus as proposed; structural coverage is evidence of completeness, not owner ratification.",
+      "evidenceRefs": ["representative-documents"]
+    },
+    {
+      "id": "performance-targets",
+      "status": "pending-owner-decision",
+      "question": "After baseline and Core measurements are recorded under the stated protocol, approve or amend the proposed numeric performance targets?",
+      "proposal": "Do not ratify numeric targets from schema completeness alone; require the missing measurement evidence and an explicit owner decision.",
+      "evidenceRefs": ["performance-targets", "performance-measurements", "upstream-oracle-run"]
+    },
+    {
+      "id": "salvage-inventory",
+      "status": "pending-owner-decision",
+      "question": "Approve or amend the Git-object-based proposals for all 2,941 native and research salvage candidates, then authorize the final asset-level disposition overlay?",
+      "proposal": "Propose import only for exact snapshot objects, reject where the evidence commit retains upstream, and adapt where the evidence commit diverges; these content-lineage proposals do not assert semantic equivalence.",
+      "evidenceRefs": ["salvage-baseline", "salvage-proposal", "salvage-decisions"]
+    }
+  ]
+}
