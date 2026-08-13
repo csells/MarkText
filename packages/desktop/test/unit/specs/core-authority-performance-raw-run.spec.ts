@@ -17,7 +17,7 @@ const report = (
   t_dispatch: Object.freeze([value]),
   t_ack: Object.freeze([value + 1]),
   t_reconcile: Object.freeze([value + 2]),
-  t_frame: Object.freeze([value + 2.5]),
+  t_present: Object.freeze([value + 2.5]),
   open: value + 3,
   first_viewport: value + 4,
   pendingDepthMaximum,
@@ -38,7 +38,8 @@ const authenticatedProvenance = Object.freeze({
   producerSha256: '6'.repeat(64),
   probeSha256: '7'.repeat(64),
   launcherSha256: '8'.repeat(64),
-  measurementBoundary: 'core-authority-browser-external-v3',
+  measurementBoundary: 'core-authority-browser-compositor-v4',
+  presentationBoundary: 'cdp-page-capture-screenshot-v1',
   launchBoundary: 'playwright-electron-packaged-v1',
   windowVisibility: 'hidden-unfocused',
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
@@ -99,7 +100,7 @@ describe('Core authority raw performance producer', () => {
       documents: [{ id: 'doc', sourceSha256: digest }],
       samples
     })).toEqual({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v3',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v4',
       evidenceClass: 'smoke-non-ratifying',
       runId: 'core-2026-08-13',
       implementation: 'core-candidate',
@@ -119,7 +120,7 @@ describe('Core authority raw performance producer', () => {
           t_dispatch: [1],
           t_ack: [2],
           t_reconcile: [3],
-          t_frame: [3.5],
+          t_present: [3.5],
           open: [4],
           first_viewport: [5]
         },
@@ -128,7 +129,7 @@ describe('Core authority raw performance producer', () => {
           t_dispatch: [2, 3],
           t_ack: [3, 4],
           t_reconcile: [4, 5],
-          t_frame: [4.5, 5.5],
+          t_present: [4.5, 5.5],
           open: [5, 6],
           first_viewport: [6, 7]
         },
@@ -163,7 +164,7 @@ describe('Core authority raw performance producer', () => {
       ]
     })
     expect(smoke).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v3',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v4',
       evidenceClass: 'smoke-non-ratifying'
     })
   })
@@ -225,6 +226,27 @@ describe('Core authority raw performance producer', () => {
         }
       ]
     })).toThrow(/one browser transaction/i)
+
+    const staleReport = { ...report(1) } as unknown as Record<string, unknown>
+    staleReport.t_frame = staleReport.t_present
+    delete staleReport.t_present
+    expect(() => createCoreAuthorityPerformanceRawRun({
+      ...input,
+      samples: [
+        {
+          documentId: 'doc',
+          phase: 'warmup',
+          surface: 'wysiwyg',
+          report: staleReport
+        },
+        {
+          documentId: 'doc',
+          phase: 'measured',
+          surface: 'wysiwyg',
+          report: report(2)
+        }
+      ]
+    } as never)).toThrow(/report metrics must be exactly.*t_present/i)
   })
 
   it('rejects mixed editor surfaces within one document distribution', () => {
@@ -380,6 +402,7 @@ describe('Core authority raw performance producer', () => {
     ['nodeVersion', ''],
     ['playwrightVersion', ''],
     ['measurementBoundary', 'legacy-core-timing'],
+    ['presentationBoundary', 'request-animation-frame'],
     ['launchBoundary', 'development-preview'],
     ['windowVisibility', 'visible']
   ] as const)('rejects unauthenticated %s provenance', (field, value) => {

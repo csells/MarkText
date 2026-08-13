@@ -4,7 +4,7 @@ const REQUIRED_METRICS = [
   't_dispatch',
   't_ack',
   't_reconcile',
-  't_frame',
+  't_present',
   'open',
   'first_viewport'
 ] as const
@@ -33,7 +33,7 @@ const positiveInteger = (value: unknown, label: string): void => {
 /** Validates the human-owned Phase 0 measurement protocol and target record. */
 export function validateCriticMarkupPerformanceTargets(value: unknown): void {
   const manifest = recordOf(value, 'Performance target manifest')
-  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v1') {
+  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v2') {
     throw new Error('Performance target manifest schema is unsupported')
   }
   if (manifest.status !== 'proposed-unratified' && manifest.status !== 'ratified') {
@@ -78,6 +78,26 @@ export function validateCriticMarkupPerformanceTargets(value: unknown): void {
       }
       continue
     }
+    if (name === 't_present') {
+      if (metric.targetStatus === 'baseline-calibration-required') {
+        if (target !== null) {
+          throw new Error(
+            't_present baseline calibration requires a null targetP95Ms'
+          )
+        }
+      } else if (metric.targetStatus === 'frozen') {
+        if (typeof target !== 'number' || !Number.isFinite(target) || target <= 0) {
+          throw new Error(
+            't_present frozen targetP95Ms must be a finite positive number'
+          )
+        }
+      } else {
+        throw new Error(
+          't_present targetStatus must be baseline-calibration-required or frozen'
+        )
+      }
+      continue
+    }
     if (typeof target !== 'number' || !Number.isFinite(target) || target <= 0) {
       throw new Error(
         `${name} targetP95Ms must be a finite positive number`
@@ -90,6 +110,15 @@ export function validateCriticMarkupPerformanceTargets(value: unknown): void {
   if (extras.length > 0) throw new Error(`Unknown performance metric ${extras[0]}`)
 
   if (manifest.status === 'ratified') {
+    const presentation = recordOf(metrics.t_present, 't_present metric')
+    if (
+      presentation.targetStatus !== 'frozen' ||
+      typeof presentation.targetP95Ms !== 'number' ||
+      !Number.isFinite(presentation.targetP95Ms) ||
+      presentation.targetP95Ms <= 0
+    ) {
+      throw new Error('Ratification requires a t_present frozen positive target')
+    }
     nonEmptyString(manifest.ratificationBasis, 'Ratification basis')
   }
 }

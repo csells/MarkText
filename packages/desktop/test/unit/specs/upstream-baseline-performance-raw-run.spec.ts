@@ -20,7 +20,7 @@ const sample = (
   phase,
   report: {
     t_echo: value + 1,
-    t_frame: value + 2,
+    t_present: value + 2,
     open: value + 3,
     first_viewport: value + 4
   }
@@ -53,7 +53,8 @@ const input = (
     producerSha256: 'e'.repeat(64),
     probeSha256: 'f'.repeat(64),
     launcherSha256: '1'.repeat(64),
-    measurementBoundary: 'external-browser-dom-v1' as const,
+    measurementBoundary: 'external-browser-compositor-v2' as const,
+    presentationBoundary: 'cdp-page-capture-screenshot-v1' as const,
     launchBoundary: 'external-inspector-hidden-cdp-v1' as const,
     windowVisibility: 'hidden-unfocused' as const,
     chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2' as const
@@ -67,13 +68,13 @@ const input = (
 })
 
 describe('upstream baseline raw performance producer', () => {
-  it('creates an accepted v1 shape only for pinned 20/200 ratification evidence', () => {
+  it('creates an accepted v2 shape only for pinned 20/200 ratification evidence', () => {
     const run = createUpstreamBaselinePerformanceRawRun(
       input('ratification', 20, 200)
     )
 
     expect(run).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-run-v1',
+      schema: 'marktext-criticmarkup-raw-performance-run-v2',
       runId: 'upstream-ratification',
       implementation: 'upstream-baseline',
       baselineCommit: PINNED_BASELINE,
@@ -87,20 +88,21 @@ describe('upstream baseline raw performance producer', () => {
         producerSha256: 'e'.repeat(64),
         probeSha256: 'f'.repeat(64),
         launcherSha256: '1'.repeat(64),
-        measurementBoundary: 'external-browser-dom-v1',
+        measurementBoundary: 'external-browser-compositor-v2',
+        presentationBoundary: 'cdp-page-capture-screenshot-v1',
         launchBoundary: 'external-inspector-hidden-cdp-v1',
         windowVisibility: 'hidden-unfocused',
         chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
       },
       metricDefinitions: {
         t_echo: 'Elapsed time from beforeinput to the exact matching Muya DOM state.',
-        t_frame: 'Next animation frame whose matching Muya DOM state remains stable.',
+        t_present: expect.stringMatching(/compositor-surface capture/i),
         open: 'External elapsed time from file-open request until its tab is active.',
         first_viewport: 'External elapsed time from file-open request until its editor is editable.'
       }
     })
     expect(run.documents[0]?.warmup.t_echo).toHaveLength(20)
-    expect(run.documents[0]?.measured.t_frame).toHaveLength(200)
+    expect(run.documents[0]?.measured.t_present).toHaveLength(200)
   })
 
   it('marks configurable smoke output with a schema rejected by ratification', () => {
@@ -109,7 +111,7 @@ describe('upstream baseline raw performance producer', () => {
     )
 
     expect(smoke).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v1',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v2',
       evidenceClass: 'smoke-non-ratifying',
       sampling: { warmupSamples: 1, measuredSamples: 2 }
     })
@@ -136,10 +138,18 @@ describe('upstream baseline raw performance producer', () => {
     if (invalidSample === undefined) throw new Error('Synthetic sample is missing')
     invalid.samples[0] = {
       ...invalidSample,
-      report: { ...invalidSample.report, t_frame: 0 }
+      report: { ...invalidSample.report, t_present: 0 }
     }
     expect(() => createUpstreamBaselinePerformanceRawRun(invalid))
       .toThrow(/timing order/i)
+
+    const staleMetric = input('smoke-non-ratifying', 1, 2)
+    const staleReport = staleMetric.samples[0]?.report as unknown as
+      Record<string, unknown>
+    staleReport.t_frame = staleReport.t_present
+    delete staleReport.t_present
+    expect(() => createUpstreamBaselinePerformanceRawRun(staleMetric as never))
+      .toThrow(/metrics must be exactly.*t_present/i)
 
     expect(() => createUpstreamBaselinePerformanceRawRun({
       ...input('smoke-non-ratifying', 1, 2),

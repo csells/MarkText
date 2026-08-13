@@ -1,5 +1,9 @@
 import type { Page } from 'playwright'
 
+import {
+  captureExactCompositorPresentation
+} from './performancePresentationCheckpoint'
+
 export interface InputDomCheckpoint {
   readonly targetIndex: number
   readonly textLength: number
@@ -345,6 +349,78 @@ export const waitForInputLatencyTrace = async(
     sampleCount,
     { timeout }
   )
+}
+
+export const waitForInputLatencyEcho = async(
+  page: Page,
+  sampleCount: number,
+  timeout = 5000
+): Promise<void> => {
+  await page.waitForFunction(
+    expectedCount => {
+      const samples = (window as TracedWindow).__marktextInputLatencyProbe?.samples
+      return samples !== undefined &&
+        samples.length === expectedCount &&
+        samples.every(sample => sample.tEcho !== undefined)
+    },
+    sampleCount,
+    { timeout }
+  )
+}
+
+export const captureInputLatencyPresentation = async(
+  page: Page,
+  sampleIndex = 0,
+  timeout = 30_000
+): Promise<Readonly<{
+  readonly sequence: number
+  readonly tEvent: number
+  readonly tEcho: number
+  readonly tPresent: number
+}>> => {
+  const presentation = await captureExactCompositorPresentation(page, {
+    readAcknowledged: () => page.evaluate(index => {
+      const sample = (window as TracedWindow)
+        .__marktextInputLatencyProbe?.samples[index]
+      if (sample?.tEcho === undefined || sample.echoDomCheckpoint === undefined) {
+        throw new Error('Input latency trace has no acknowledged sample')
+      }
+      return Object.freeze({
+        tEvent: sample.tEvent,
+        tAcknowledged: sample.tEcho,
+        expectedCheckpoint: sample.expectedDomCheckpoint,
+        acknowledgedCheckpoint: sample.echoDomCheckpoint
+      })
+    }, sampleIndex),
+    readPresented: () => page.evaluate(index => {
+      const probe = (window as TracedWindow).__marktextInputLatencyProbe
+      const sample = probe?.samples[index]
+      if (sample === undefined) throw new Error('Input latency trace sample is missing')
+      const editor = document.querySelector('.editor-component')
+      const target = editor?.querySelectorAll('.mu-paragraph-content')
+        .item(sample.targetIndex)
+      const text = target?.textContent ?? ''
+      let hash = 0x811c9dc5
+      for (let offset = 0; offset < text.length; offset += 1) {
+        hash ^= text.charCodeAt(offset)
+        hash = Math.imul(hash, 0x01000193)
+      }
+      return Object.freeze({
+        observedAt: performance.now(),
+        checkpoint: Object.freeze({
+          targetIndex: sample.targetIndex,
+          textLength: text.length,
+          textHash: (hash >>> 0).toString(16).padStart(8, '0')
+        })
+      })
+    }, sampleIndex)
+  }, timeout)
+  return Object.freeze({
+    sequence: sampleIndex + 1,
+    tEvent: presentation.tEvent,
+    tEcho: presentation.tAcknowledged,
+    tPresent: presentation.tPresented
+  })
 }
 
 export const readInputLatencyTrace = async(

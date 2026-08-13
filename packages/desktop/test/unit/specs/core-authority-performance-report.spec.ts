@@ -10,8 +10,8 @@ describe('Core authority performance report', () => {
       surface: 'source',
       externalOpen: { open: 3, firstViewport: 9 },
       inputEvents: [
-        { sequence: 1, tEvent: 10, tEcho: 12, tFrame: 16 },
-        { sequence: 2, tEvent: 20, tEcho: 24, tFrame: 27 }
+        { sequence: 1, tEvent: 10, tEcho: 12, tPresent: 16 },
+        { sequence: 2, tEvent: 20, tEcho: 24, tPresent: 27 }
       ],
       authorityEvents: [
         { phase: 'open-request', documentId: 'a.md', at: 1 },
@@ -40,7 +40,7 @@ describe('Core authority performance report', () => {
       t_dispatch: [1, 2],
       t_ack: [4, 3],
       t_reconcile: [5, 5],
-      t_frame: [6, 7],
+      t_present: [6, 7],
       open: 3,
       first_viewport: 9,
       pendingDepthMaximum: 1,
@@ -49,7 +49,7 @@ describe('Core authority performance report', () => {
   })
 
   it('rejects missing, duplicate, misordered, or cross-document phases', () => {
-    const inputEvents = [{ sequence: 1, tEvent: 10, tEcho: 12, tFrame: 16 }]
+    const inputEvents = [{ sequence: 1, tEvent: 10, tEcho: 12, tPresent: 16 }]
     const externalOpen = { open: 3, firstViewport: 9 }
     const base = [
       { phase: 'open-request' as const, documentId: 'a.md', at: 1 },
@@ -93,7 +93,7 @@ describe('Core authority performance report', () => {
         : event)
     })).toThrow(/one document/i)
     expect(() => reportCoreAuthorityPerformance({
-      inputEvents: [{ sequence: 1, tEvent: 10, tEcho: 17, tFrame: 16 }],
+      inputEvents: [{ sequence: 1, tEvent: 10, tEcho: 17, tPresent: 16 }],
       externalOpen,
       surface: 'source',
       authorityEvents: base

@@ -1,10 +1,10 @@
 {
-  "schema": "marktext-criticmarkup-performance-measurements-v2",
+  "schema": "marktext-criticmarkup-performance-measurements-v3",
   "status": "awaiting-raw-runs",
   "baselineCommit": "43bd8b77795fb27b1a9512737c000f7362031ea0",
   "targetManifest": {
     "path": "specs/baselines/criticmarkup-performance-targets.json",
-    "sha256": "8f242add53344a626fdfcb78c211b97f843b3c6af0f893ee6aca757b03b942ef"
+    "sha256": "b319f578db3b4138ba844c585b783a7c7cb2813b9454d9077ec74bef9fcce92f"
   },
   "representativeDocuments": {
     "path": "specs/baselines/criticmarkup-representative-documents.json",
@@ -13,7 +13,7 @@
   "requiredMetrics": {
     "upstream-baseline": [
       "t_echo",
-      "t_frame",
+      "t_present",
       "open",
       "first_viewport"
     ],
@@ -22,7 +22,7 @@
       "t_dispatch",
       "t_ack",
       "t_reconcile",
-      "t_frame",
+      "t_present",
       "open",
       "first_viewport"
     ]
