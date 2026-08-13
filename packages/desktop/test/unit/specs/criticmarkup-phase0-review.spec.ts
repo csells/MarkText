@@ -292,6 +292,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes Edit menu Undo and Redo through the renderer edit-action channel',
       'phase0.item.7b2afe2c3851e9bbb08c500d':
         'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
+      'phase0.item.780b8aabf4e014404fab9b58':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-cut-production-surfaces.spec.ts#routes registered Cut command and Edit menu surfaces through the Electron native cut runtime',
       'phase0.item.831628c66c7632b18ae126fd':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-production-surfaces.spec.ts#routes registered Undo and Redo commands to the renderer edit-action channel',
       'phase0.item.82b57f93ae32b97bc090d680':
@@ -309,11 +311,13 @@ describe('CriticMarkup Phase 0 review proposal', () => {
       'phase0.item.deb8142f7f05d1825bfcbaac':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-copy-production-surfaces.spec.ts#routes registered Copy as Rich and Copy as HTML commands to the editor',
       'phase0.item.e5b3aa0ed74e8f679eb30fc7':
-        'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers'
+        'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
+      'phase0.item.e37d7c32ed645c4702548f07':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-projected-cut-production-surfaces.spec.ts#routes registered Cut command and Edit menu surfaces through the Electron native cut runtime'
     })
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('required-new-production-path-test:')
-    ))).toHaveLength(352)
+    ))).toHaveLength(350)
     expect(() => validateCriticMarkupParityDispositions(
       parityBaseline,
       materialized.parityOverlay,
