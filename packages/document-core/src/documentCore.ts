@@ -41,6 +41,12 @@ import {
   type RevisionProductStore
 } from './internal/revisionProductStore.js'
 import { DOCUMENT_RESOURCE_POLICY_V1 } from './resourcePolicy.js'
+import {
+  decodeGfmTableCodeContent,
+  decodeMarkdownSemanticText,
+  normalizeMarkdownAutolinkDestination,
+  normalizeMarkdownSemanticDestination
+} from './internal/profile1/markdownSemanticText.js'
 import type {
   CriticMarkupNode,
   ExecutionBudgetId,
@@ -197,9 +203,18 @@ export interface MarkdownAstNode {
   /**
    * Parser-owned scalar facts for this node.
    *
+   * Text nodes expose their decoded CommonMark value as `semanticText` while
+   * retaining the exact authored spelling through `range`. Inline-code nodes
+   * expose `semanticContent`; this differs from `content` when a containing
+   * GFM table consumes an escaped pipe. Fenced code blocks expose decoded
+   * `semanticInfo` separately from exact `info`. GFM strong nodes expose
+   * `semanticFlattenStrongChildren` when directly nested strong wrappers are
+   * transparent under the pinned GFM semantics; the delimiter tree and ranges
+   * remain lossless.
+   *
    * Link, image, and autolink nodes use `rawDestination` and `rawTitle` to
-   * retain Markdown source spelling. They are not decoded link targets;
-   * decoding remains a future document-core responsibility. Resolved reference
+   * retain Markdown source spelling. Their renderer-ready decoded values are
+   * exposed as `semanticDestination` and `semanticTitle`. Resolved reference
    * links/images and footnote references use `resolvedDefinitionStart` and
    * `resolvedDefinitionEnd`; every footnote reference also has a `resolved`
    * boolean. Every numeric attribute whose name ends in `Start` or `End` is a
@@ -439,8 +454,12 @@ export interface DocumentApplyOptions {
   readonly projections?: readonly DocumentProjectionRequest[]
 }
 
+export type DocumentResolutionDecision = 'accept' | 'reject'
+
 export interface MarkdownOptions {
   readonly gfm: boolean
+  /** GFM's disallowed-raw-HTML extension, independently selectable. */
+  readonly gfmTagFilter: boolean
   readonly frontMatter: boolean
   readonly math: boolean
   readonly gitLabMath: boolean
@@ -495,6 +514,18 @@ export interface DocumentCore {
     options?: DocumentApplyOptions
   ): DocumentCommit
   /**
+   * Resolves one exact CriticMarkup annotation owned by `previous`. Resolution
+   * is admitted through the same atomic source transaction as ordinary edits.
+   */
+  resolve(
+    previous: DocumentRevision,
+    annotation: CriticMarkupAnnotation,
+    decision: DocumentResolutionDecision,
+    options?: DocumentApplyOptions
+  ): DocumentCommit
+  /** Reads one bounded canonical-source range without materializing a revision. */
+  sourceSlice(revision: DocumentRevision, range: SourceRange): string
+  /**
    * Transitional compatibility entry point. Core-mode consumers should use
    * `apply`, which does not accept a separately reconstructed candidate.
    */
@@ -529,6 +560,7 @@ export interface DocumentCore {
 
 const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = Object.freeze({
   gfm: true,
+  gfmTagFilter: true,
   frontMatter: true,
   math: true,
   gitLabMath: false,
@@ -549,6 +581,7 @@ function markdownOptions(
 ): MarkdownOptionsV1 {
   const resolved = Object.freeze({
     gfm: inherited.gfm,
+    gfmTagFilter: inherited.gfmTagFilter,
     frontMatter: inherited.frontMatter,
     math: inherited.math,
     gitLabMath: inherited.gitLabMath,
@@ -727,16 +760,22 @@ function markdownAstOf(
   const pending: Array<Readonly<{
     node: ParserMarkdownNode
     ready: boolean
-  }>> = [{ node: root, ready: false }]
+    inTable: boolean
+  }>> = [{ node: root, ready: false, inTable: false }]
 
   while (pending.length > 0) {
     const task = pending.pop()
     if (task === undefined) break
 
     if (!task.ready) {
-      pending.push({ node: task.node, ready: true })
+      pending.push({ ...task, ready: true })
+      const inTable = task.inTable || task.node.kind === 'table'
       for (let ordinal = task.node.childCount - 1; ordinal >= 0; ordinal -= 1) {
-        pending.push({ node: task.node.childAt(ordinal), ready: false })
+        pending.push({
+          node: task.node.childAt(ordinal),
+          ready: false,
+          inTable
+        })
       }
       continue
     }
@@ -744,6 +783,30 @@ function markdownAstOf(
     const attributes: Record<string, MarkdownAttribute> = {
       ...task.node.attributes
     }
+    if (task.node.kind === 'text') {
+      const semanticStart = task.node.attributes['semanticStart']
+      const semanticEnd = task.node.attributes['semanticEnd']
+      attributes.semanticText = decodeMarkdownSemanticText(
+        semanticMarkdown.source.slice(
+          typeof semanticStart === 'number' ? semanticStart : task.node.range.start,
+          typeof semanticEnd === 'number' ? semanticEnd : task.node.range.end
+        )
+      )
+    } else if (task.node.kind === 'inline-code') {
+      const content = task.node.attributes['content']
+      if (typeof content === 'string') {
+        attributes.semanticContent = task.inTable
+          ? decodeGfmTableCodeContent(content)
+          : content
+      }
+    } else if (task.node.kind === 'code-block') {
+      const info = task.node.attributes['info']
+      if (typeof info === 'string') {
+        attributes.semanticInfo = decodeMarkdownSemanticText(info)
+      }
+    }
+    delete attributes.semanticStart
+    delete attributes.semanticEnd
     for (const [key, value] of Object.entries(attributes)) {
       if (typeof value !== 'number') continue
       if (key.endsWith('Start')) {
@@ -767,8 +830,12 @@ function markdownAstOf(
             task.node.range.end
           )
           : link.destination
+      attributes.semanticDestination = task.node.kind === 'autolink'
+        ? normalizeMarkdownAutolinkDestination(link.destination)
+        : normalizeMarkdownSemanticDestination(link.destination)
       if (link.title !== undefined) {
         attributes.rawTitle = link.title
+        attributes.semanticTitle = decodeMarkdownSemanticText(link.title)
       }
       if (link.definition !== undefined) {
         attributes.resolvedDefinitionStart = semanticToProjected(
@@ -1566,6 +1633,7 @@ function sameMarkdownOptions(
   right: MarkdownOptionsV1
 ): boolean {
   return left.gfm === right.gfm &&
+    left.gfmTagFilter === right.gfmTagFilter &&
     left.frontMatter === right.frontMatter &&
     left.math === right.math &&
     left.gitLabMath === right.gitLabMath &&
@@ -1614,7 +1682,6 @@ function normalizeProjectionRequests(
   const orderedComments = Object.freeze([...comments.values()].sort(
     (left, right) => left.start - right.start || left.end - right.end
   ))
-  if (!markup && orderedComments.length === 0) return undefined
   return Object.freeze({ markup, comments: orderedComments })
 }
 
@@ -3032,6 +3099,75 @@ export function createDocumentCore(): DocumentCore {
     })
   }
 
+  const trySourceOnlyRegionalApply = (
+    previousState: RevisionState,
+    source: PersistentCanonicalSource,
+    stableEdits: readonly DocumentSourceEdit[],
+    resolvedOptions: MarkdownOptionsV1
+  ): Readonly<{
+    readonly kind: 'applied'
+    readonly revision: DocumentRevision
+  }> | Readonly<{
+    readonly kind: 'fallback'
+    readonly reason: DocumentProjectionFallbackReason
+  }> => {
+    const retained = previousState.kind === 'full'
+      ? previousState.retainedSummary
+      : undefined
+    if (
+      previousState.criticMarkupIndex !== undefined ||
+      (
+        retained !== undefined &&
+        (
+          retained.hasCriticMarkupCandidate ||
+          retained.rootCount !== 0 ||
+          retained.markerDecisionCount !== 0
+        )
+      )
+    ) {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: 'criticmarkup-facts-present'
+      })
+    }
+    if (retained !== undefined && retained.referenceDefinitionCount !== 0) {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: 'definition-or-reference-facts'
+      })
+    }
+    const retainedIndex = previousState.retainedIndex
+    if (retainedIndex === undefined) {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: 'structural-region-ineligible'
+      })
+    }
+    const admission = admitProfile1PlainParagraphRegion(
+      previousState.source,
+      source,
+      retainedIndex,
+      stableEdits,
+      EXECUTION_BUDGET,
+      resolvedOptions,
+      regionalPhysicalRecorder
+    )
+    if (admission === undefined) {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: 'structural-region-ineligible'
+      })
+    }
+    const revision = publishRegional(
+      source,
+      resolvedOptions,
+      admission.retainedIndex,
+      undefined
+    )
+    inspection.regionalFastApplies += 1
+    return Object.freeze({ kind: 'applied', revision })
+  }
+
   const fallbackProjectionChanges = (
     requests: NormalizedProjectionRequests,
     reason: DocumentProjectionFallbackReason
@@ -3132,6 +3268,26 @@ export function createDocumentCore(): DocumentCore {
         kind: 'fallback',
         reason,
         projections: fallbackProjectionChanges(requests, reason)
+      })
+    }
+    if (!requests.markup) {
+      const sourceOnly = trySourceOnlyRegionalApply(
+        previousState,
+        source,
+        stableEdits,
+        resolvedOptions
+      )
+      if (sourceOnly.kind === 'applied') {
+        return Object.freeze({
+          kind: 'applied',
+          revision: sourceOnly.revision,
+          projections: Object.freeze([])
+        })
+      }
+      return Object.freeze({
+        kind: 'fallback',
+        reason: sourceOnly.reason,
+        projections: Object.freeze([])
       })
     }
     const markup = tryRegionalMarkupApply(
@@ -3412,6 +3568,73 @@ export function createDocumentCore(): DocumentCore {
     )
   }
 
+  const resolutionEdit = (
+    previousState: RevisionState,
+    annotation: CriticMarkupAnnotation,
+    decision: DocumentResolutionDecision
+  ): DocumentSourceEdit => {
+    if (decision !== 'accept' && decision !== 'reject') {
+      throw new TypeError('Document resolution decision is malformed')
+    }
+
+    const pending = [...previousState.annotations()].reverse()
+    let owned = false
+    while (pending.length > 0) {
+      const candidate = pending.pop()
+      if (candidate === undefined) break
+      if (candidate === annotation) {
+        owned = true
+        break
+      }
+      for (let armIndex = candidate.arms.length - 1; armIndex >= 0; armIndex -= 1) {
+        const arm = candidate.arms[armIndex]
+        if (arm === undefined) continue
+        for (
+          let childIndex = arm.annotations.length - 1;
+          childIndex >= 0;
+          childIndex -= 1
+        ) {
+          const child = arm.annotations[childIndex]
+          if (child !== undefined) pending.push(child)
+        }
+      }
+    }
+    if (!owned) {
+      throw new TypeError('Document annotation does not belong to this revision')
+    }
+
+    const armSource = (name: CriticMarkupArm['name']): string => {
+      const arm = annotation.arms.find(candidate => candidate.name === name)
+      if (arm === undefined) {
+        throw new Error(`Document annotation is missing its ${name} arm`)
+      }
+      return previousState.source.slice(arm.range.start, arm.range.end)
+    }
+    let insert: string
+    switch (annotation.kind) {
+      case 'addition':
+        insert = decision === 'accept' ? armSource('content') : ''
+        break
+      case 'deletion':
+        insert = decision === 'accept' ? '' : armSource('content')
+        break
+      case 'substitution':
+        insert = armSource(decision === 'accept' ? 'new' : 'old')
+        break
+      case 'highlight':
+        insert = armSource('content')
+        break
+      case 'comment':
+        insert = ''
+        break
+    }
+    return Object.freeze({
+      start: annotation.range.start,
+      end: annotation.range.end,
+      insert
+    })
+  }
+
   const core: DocumentCore = Object.freeze({
     open(
       source: string,
@@ -3489,6 +3712,36 @@ export function createDocumentCore(): DocumentCore {
             : Object.freeze([])
         })
       })
+    },
+
+    resolve(
+      previous: DocumentRevision,
+      annotation: CriticMarkupAnnotation,
+      decision: DocumentResolutionDecision,
+      options?: DocumentApplyOptions
+    ): DocumentCommit {
+      const previousState = currentStateOf(previous)
+      if (annotation === null || typeof annotation !== 'object') {
+        throw new TypeError('Document annotation is malformed')
+      }
+      const edit = resolutionEdit(previousState, annotation, decision)
+      return core.apply(previous, Object.freeze([edit]), options)
+    },
+
+    sourceSlice(revision: DocumentRevision, range: SourceRange): string {
+      const state = stateByRevision.get(revision)
+      if (state === undefined) {
+        throw new Error('Document revision belongs to another core')
+      }
+      if (
+        range === null || typeof range !== 'object' ||
+        !Number.isInteger(range.start) || !Number.isInteger(range.end) ||
+        range.start < 0 || range.end < range.start ||
+        range.end > state.source.length
+      ) {
+        throw new RangeError('Document source slice range is invalid')
+      }
+      return state.source.slice(range.start, range.end)
     },
 
     reopen(

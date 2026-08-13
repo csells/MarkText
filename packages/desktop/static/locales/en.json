@@ -938,6 +938,22 @@
     "unexpectedError": "Unexpected spellchecker error"
   },
   "editor": {
+    "coreReview": {
+      "title": "Review changes",
+      "previous": "Previous",
+      "next": "Next",
+      "accept": "Accept",
+      "reject": "Reject",
+      "removeHighlight": "Remove highlight",
+      "removeComment": "Remove comment",
+      "authorTitle": "Author review change",
+      "addComment": "Add comment",
+      "suggestReplacement": "Suggest replacement",
+      "trackNextChange": "Track next change",
+      "trackNextChangeDescription": "Track one change, then turn off while the annotated paragraph is read-only",
+      "commentPrompt": "Comment",
+      "replacementPrompt": "Replacement text"
+    },
     "export": {
       "error": "Export error",
       "errorExporting": "Error exporting {type} file",

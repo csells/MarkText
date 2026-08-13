@@ -1,0 +1,9 @@
+{
+  "schema": "marktext-criticmarkup-salvage-dispositions-v1",
+  "baselineCommit": "43bd8b77795fb27b1a9512737c000f7362031ea0",
+  "snapshots": {
+    "native": "9a5b6d8e0d8dcd1131f07eb1a8a2cf621ccd7d28",
+    "research": "37ea7e842fb16dfb8ee9fd0c0d0ac07f3e3626b9"
+  },
+  "assets": []
+}

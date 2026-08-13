@@ -8,6 +8,7 @@ import BaseWindow, { WindowLifecycle, WindowType } from './base'
 import type Accessor from '../app/accessor'
 import { ensureWindowPosition, zoomIn, zoomOut } from './utils'
 import { TITLE_BAR_HEIGHT, editorWinOptions, isLinux, isOsx } from '../config'
+import { isHiddenE2eWindow } from './windowActivationPolicy'
 import { showEditorContextMenu } from '../contextMenu/editor'
 import { loadMarkdownFile } from '../filesystem/markdown'
 import { switchLanguage } from '../spellchecker'
@@ -129,6 +130,8 @@ class EditorWindow extends BaseWindow {
     }
 
     winOptions.backgroundColor = this._getPreferredBackgroundColor(theme)
+    const hiddenE2eWindow = isHiddenE2eWindow()
+    if (hiddenE2eWindow) winOptions.show = false
     if (env.disableSpellcheck) {
       // winOptions.webPreferences is set by editorWinOptions spread above
       ;(winOptions.webPreferences as { spellcheck: boolean }).spellcheck = false
@@ -166,7 +169,7 @@ class EditorWindow extends BaseWindow {
       this.emit('window-ready')
 
       // Restore and focus window
-      this.bringToFront()
+      if (!hiddenE2eWindow) this.bringToFront()
 
       const lineEnding = preferences.getPreferredEol()
       appMenu.updateLineEndingMenu(this.id!, lineEnding)

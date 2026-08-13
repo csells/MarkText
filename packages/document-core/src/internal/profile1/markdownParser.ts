@@ -310,6 +310,7 @@ export interface MappedMarkdownLane {
   readonly source: string
   /** Profile configuration consumed by the block grammar. */
   readonly gfmEnabled?: boolean
+  readonly gfmTagFilterEnabled?: boolean
   readonly frontMatterEnabled?: boolean
   readonly mathEnabled?: boolean
   readonly gitLabMathEnabled?: boolean
@@ -418,7 +419,7 @@ const GFM_TAG_FILTER_PATTERN =
   /<\/?(?:title|textarea|style|xmp|iframe|noembed|noframes|script|plaintext)(?=[\t\n\f\r />])/i
 
 function gfmTagFilterApplies(content: string): boolean {
-  return activeMarkdownGfmEnabled && GFM_TAG_FILTER_PATTERN.test(content)
+  return activeMarkdownGfmTagFilterEnabled && GFM_TAG_FILTER_PATTERN.test(content)
 }
 
 function viewRange(start: number, end: number): ViewRange {
@@ -436,9 +437,12 @@ interface ActiveMarkdownSyntaxIdentity {
 
 let activeMarkdownSyntaxIdentity: ActiveMarkdownSyntaxIdentity | undefined
 let activeMarkdownGfmEnabled = true
+let activeMarkdownGfmTagFilterEnabled = true
 let activeMarkdownFootnotesEnabled = true
 let activeMarkdownSubscriptAndSuperscriptEnabled = false
 let activeMarkdownExecution: ParseExecutionTracker | undefined
+let activeMarkdownLines: readonly PlainMarkdownLine[] = Object.freeze([])
+let activeMarkdownLineCursor = 0
 
 function stableAttributesKey(
   attributes: Readonly<Record<string, string | number | boolean>>
@@ -462,7 +466,9 @@ function stableAttributesKey(
       'contentStart',
       'contentEnd',
       'delimiterStart',
-      'delimiterEnd'
+      'delimiterEnd',
+      'semanticStart',
+      'semanticEnd'
     ].includes(key))
     .sort()
     .map((key) => `${key}=${String(attributes[key])}`)
@@ -561,6 +567,64 @@ function createNode(
       childAt
     }, nodeId))
   })
+}
+
+function markdownLineAt(offset: number): PlainMarkdownLine | undefined {
+  const current = activeMarkdownLines[activeMarkdownLineCursor]
+  if (current !== undefined && current.start <= offset) {
+    while (
+      activeMarkdownLineCursor + 1 < activeMarkdownLines.length &&
+      (activeMarkdownLines[activeMarkdownLineCursor + 1]?.start ??
+        Number.POSITIVE_INFINITY) <= offset
+    ) {
+      activeMarkdownLineCursor += 1
+    }
+    return activeMarkdownLines[activeMarkdownLineCursor]
+  }
+  let low = 0
+  let high = activeMarkdownLines.length
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2)
+    if ((activeMarkdownLines[middle]?.start ?? Number.POSITIVE_INFINITY) <= offset) {
+      low = middle + 1
+    } else {
+      high = middle
+    }
+  }
+  activeMarkdownLineCursor = Math.max(0, low - 1)
+  return activeMarkdownLines[low - 1]
+}
+
+function createTextNode(source: string, start: number, end: number): MarkdownNode {
+  const line = markdownLineAt(start)
+  if (line === undefined || start < line.start || end > line.contentEnd) {
+    return createNode('text', start, end)
+  }
+  let semanticStart = start
+  while (
+    semanticStart < end &&
+    semanticStart < line.contentOffset &&
+    (source.charCodeAt(semanticStart) === 32 ||
+      source.charCodeAt(semanticStart) === 9)
+  ) {
+    semanticStart += 1
+  }
+  let semanticEnd = end
+  if (end === line.contentEnd) {
+    while (
+      semanticEnd > semanticStart &&
+      (source.charCodeAt(semanticEnd - 1) === 32 ||
+        source.charCodeAt(semanticEnd - 1) === 9)
+    ) {
+      semanticEnd -= 1
+    }
+  }
+  return semanticStart === start && semanticEnd === end
+    ? createNode('text', start, end)
+    : createNode('text', start, end, Object.freeze([]), {
+      semanticStart,
+      semanticEnd
+    })
 }
 
 function hasOddBackslashRunBefore(source: string, offset: number, floor: number): boolean {
@@ -1195,6 +1259,7 @@ function appendInlineItem(list: InlineList, item: InlineItem): void {
 }
 
 function appendMergedMarkdownNode(
+  source: string,
   nodes: MarkdownNode[],
   node: MarkdownNode
 ): void {
@@ -1204,8 +1269,8 @@ function appendMergedMarkdownNode(
     node.kind === 'text' &&
     previous.range.end === node.range.start
   ) {
-    nodes[nodes.length - 1] = createNode(
-      'text',
+    nodes[nodes.length - 1] = createTextNode(
+      source,
       previous.range.start,
       node.range.end
     )
@@ -1214,10 +1279,10 @@ function appendMergedMarkdownNode(
   nodes.push(node)
 }
 
-function markdownNodeFromInlineItem(item: InlineItem): MarkdownNode {
+function markdownNodeFromInlineItem(source: string, item: InlineItem): MarkdownNode {
   return item.kind === 'node'
     ? item.node
-    : createNode('text', item.start, item.end)
+    : createTextNode(source, item.start, item.end)
 }
 
 function delimiterPairIsAllowed(
@@ -1258,6 +1323,7 @@ function delimiterPairIsAllowed(
 }
 
 function wrapInlineDelimiterPair(
+  source: string,
   list: InlineList,
   opener: InlineDelimiterItem,
   closer: InlineDelimiterItem
@@ -1272,7 +1338,7 @@ function wrapInlineDelimiterPair(
     if (item.kind === 'delimiter') {
       item.active = false
     }
-    appendMergedMarkdownNode(children, markdownNodeFromInlineItem(item))
+    appendMergedMarkdownNode(source, children, markdownNodeFromInlineItem(source, item))
     item = next
   }
 
@@ -1290,13 +1356,19 @@ function wrapInlineDelimiterPair(
         : useCount === 2
           ? 'strong'
           : 'emphasis'
+  const attributes = activeMarkdownGfmEnabled &&
+    nodeKind === 'strong' &&
+    children.some(child => child.kind === 'strong')
+    ? Object.freeze({ semanticFlattenStrongChildren: true })
+    : EMPTY_ATTRIBUTES
   const nodeItem: InlineNodeItem = {
     kind: 'node',
     node: createNode(
       nodeKind,
       openerMarkerStart,
       closerMarkerEnd,
-      children
+      children,
+      attributes
     ),
     previous: undefined,
     next: undefined
@@ -1501,7 +1573,7 @@ function resolveInlineDelimiterItems(
           }
           continue
         }
-        wrapInlineDelimiterPair(list, opener, closer)
+        wrapInlineDelimiterPair(source, list, opener, closer)
         openers.length = openerIndex + (opener.active ? 1 : 0)
         for (const [key, bottom] of bottoms) {
           if (bottom > openers.length) {
@@ -1521,7 +1593,7 @@ function resolveInlineDelimiterItems(
   }
   const nodes: MarkdownNode[] = []
   for (let item = list.head; item !== undefined; item = item.next) {
-    appendMergedMarkdownNode(nodes, markdownNodeFromInlineItem(item))
+    appendMergedMarkdownNode(source, nodes, markdownNodeFromInlineItem(source, item))
   }
   return Object.freeze(nodes)
 }
@@ -1548,6 +1620,7 @@ function appendInlineRange(
   let textStart = start
   let offset = start
   let reportedOffset = start
+  let extendedAutolinkSuppressedUntil = start
   const reportThrough = (end: number): void => {
     if (
       activeMarkdownExecution !== undefined &&
@@ -1567,7 +1640,7 @@ function appendInlineRange(
       literal.end <= end
     ) {
       if (textStart < offset) {
-        appendNode(createNode('text', textStart, offset))
+        appendNode(createTextNode(source, textStart, offset))
       }
       const enclosingImageEnd =
         construct.kind === 'image' &&
@@ -1603,6 +1676,24 @@ function appendInlineRange(
       continue
     }
     const codeUnit = source.charCodeAt(offset)
+    if (
+      activeMarkdownGfmEnabled &&
+      offset >= extendedAutolinkSuppressedUntil &&
+      codeUnit === 60
+    ) {
+      let close = offset + 1
+      while (
+        close < end &&
+        source.charCodeAt(close) !== 10 &&
+        source.charCodeAt(close) !== 13 &&
+        source.charCodeAt(close) !== 62
+      ) {
+        close += 1
+      }
+      if (close < end && source.charCodeAt(close) === 62) {
+        extendedAutolinkSuppressedUntil = close + 1
+      }
+    }
     if (codeUnit === 91 || codeUnit === 93) {
       boundaryPolicy?.bracketOffsets.add(offset)
     }
@@ -1632,7 +1723,7 @@ function appendInlineRange(
         }
       }
       if (textStart < breakStart) {
-        appendNode(createNode('text', textStart, breakStart))
+        appendNode(createTextNode(source, textStart, breakStart))
       }
       appendNode(createNode(kind, breakStart, lineEndingEnd))
       offset = lineEndingEnd
@@ -1649,7 +1740,7 @@ function appendInlineRange(
       if (close > offset + 2 && close < end) {
         boundaryPolicy?.bracketOffsets.add(close)
         if (textStart < offset) {
-          appendNode(createNode('text', textStart, offset))
+          appendNode(createTextNode(source, textStart, offset))
         }
         appendNode(createNode(
           'footnote-reference',
@@ -1670,7 +1761,7 @@ function appendInlineRange(
       }
     }
     const extendedAutolink =
-      activeMarkdownGfmEnabled
+      activeMarkdownGfmEnabled && offset >= extendedAutolinkSuppressedUntil
         ? findGfmExtendedAutolink(
           source,
           offset,
@@ -1681,13 +1772,13 @@ function appendInlineRange(
         : undefined
     if (extendedAutolink !== undefined) {
       if (textStart < offset) {
-        appendNode(createNode('text', textStart, offset))
+        appendNode(createTextNode(source, textStart, offset))
       }
       appendNode(createNode(
         'link',
         offset,
         extendedAutolink.end,
-        [createNode('text', offset, extendedAutolink.end)],
+        [createTextNode(source, offset, extendedAutolink.end)],
         {
           destination: extendedAutolink.destination,
           extendedAutolink: true,
@@ -1709,7 +1800,7 @@ function appendInlineRange(
     )
     if (referenceLink !== undefined) {
       if (textStart < offset) {
-        appendNode(createNode('text', textStart, offset))
+        appendNode(createTextNode(source, textStart, offset))
       }
       boundaryPolicy?.bracketOffsets.add(referenceLink.labelStart - 1)
       boundaryPolicy?.bracketOffsets.add(referenceLink.labelEnd)
@@ -1742,7 +1833,7 @@ function appendInlineRange(
       )
     ) {
       if (textStart < offset) {
-        appendNode(createNode('text', textStart, offset))
+        appendNode(createTextNode(source, textStart, offset))
       }
       const kind: MarkdownNodeKind =
         literal.provider === 'math' ? 'inline-math' : literal.provider
@@ -1818,7 +1909,7 @@ function appendInlineRange(
     )
     if (delimiterRun !== undefined) {
       if (textStart < offset) {
-        appendNode(createNode('text', textStart, offset))
+        appendNode(createTextNode(source, textStart, offset))
       }
       const delimiter: InlineDelimiterItem = {
         kind: 'delimiter',
@@ -1843,7 +1934,7 @@ function appendInlineRange(
   }
   activeMarkdownExecution?.examineParserWork(end - reportedOffset)
   if (textStart < end) {
-    appendNode(createNode('text', textStart, end))
+    appendNode(createTextNode(source, textStart, end))
   }
 }
 
@@ -4438,7 +4529,9 @@ const POSITIONAL_MARKDOWN_ATTRIBUTES = new Set([
   'contentStart',
   'contentEnd',
   'delimiterStart',
-  'delimiterEnd'
+  'delimiterEnd',
+  'semanticStart',
+  'semanticEnd'
 ])
 
 function shiftedMarkdownAttributes(
@@ -4929,6 +5022,11 @@ function emitMarkdownAstRegion(
         })
       })
   }
+  const previousLines = activeMarkdownLines
+  const previousLineCursor = activeMarkdownLineCursor
+  const regionalLines = lines.map((line) => markdownRegionLine(line, regionStart))
+  activeMarkdownLines = regionalLines
+  activeMarkdownLineCursor = 0
   try {
     const regionalBoundaryPolicy = markdownRegionBoundaryPolicy(
       boundaryPolicy,
@@ -4938,7 +5036,7 @@ function emitMarkdownAstRegion(
     const nodes = parseBlocksRegion(
       source,
       literals.map((literal) => markdownRegionLiteral(literal, regionStart)),
-      lines.map((line) => markdownRegionLine(line, regionStart)),
+      regionalLines,
       markdownRegionReferenceDefinitions(referenceDefinitions, regionStart),
       regionalBoundaryPolicy,
       itemCache,
@@ -5005,6 +5103,8 @@ function emitMarkdownAstRegion(
     return nodes
   } finally {
     activeMarkdownSyntaxIdentity = identity
+    activeMarkdownLines = previousLines
+    activeMarkdownLineCursor = previousLineCursor
   }
 }
 
@@ -5318,6 +5418,7 @@ function withMappedMarkdownIdentity<Value>(
   }
   const previousIdentity = activeMarkdownSyntaxIdentity
   const previousGfmEnabled = activeMarkdownGfmEnabled
+  const previousGfmTagFilterEnabled = activeMarkdownGfmTagFilterEnabled
   const previousFootnotesEnabled = activeMarkdownFootnotesEnabled
   const previousSubscriptAndSuperscriptEnabled =
     activeMarkdownSubscriptAndSuperscriptEnabled
@@ -5327,6 +5428,7 @@ function withMappedMarkdownIdentity<Value>(
     sourceAt: syntaxIdentity.sourceAt
   }
   activeMarkdownGfmEnabled = lane.gfmEnabled ?? true
+  activeMarkdownGfmTagFilterEnabled = lane.gfmTagFilterEnabled ?? true
   activeMarkdownFootnotesEnabled = lane.footnotesEnabled ?? true
   activeMarkdownSubscriptAndSuperscriptEnabled =
     lane.subscriptAndSuperscriptEnabled ?? false
@@ -5336,6 +5438,7 @@ function withMappedMarkdownIdentity<Value>(
   } finally {
     activeMarkdownSyntaxIdentity = previousIdentity
     activeMarkdownGfmEnabled = previousGfmEnabled
+    activeMarkdownGfmTagFilterEnabled = previousGfmTagFilterEnabled
     activeMarkdownFootnotesEnabled = previousFootnotesEnabled
     activeMarkdownSubscriptAndSuperscriptEnabled =
       previousSubscriptAndSuperscriptEnabled
@@ -6728,6 +6831,7 @@ function sliceIntrinsicForkRegionLane(
       forkView,
       frontMatterEnabled: (lane.frontMatterEnabled ?? true) && start === 0,
       gfmEnabled: lane.gfmEnabled ?? true,
+      gfmTagFilterEnabled: lane.gfmTagFilterEnabled ?? true,
       mathEnabled: lane.mathEnabled ?? true,
       gitLabMathEnabled: lane.gitLabMathEnabled ?? true,
       footnotesEnabled: lane.footnotesEnabled ?? true,
@@ -7096,6 +7200,7 @@ function parseIntrinsicForkRegionFacts(
       lane.source,
       lane.frontMatterEnabled ?? true,
       lane.gfmEnabled ?? true,
+      lane.gfmTagFilterEnabled ?? true,
       lane.mathEnabled ?? true,
       lane.gitLabMathEnabled ?? true,
       lane.footnotesEnabled ?? true,

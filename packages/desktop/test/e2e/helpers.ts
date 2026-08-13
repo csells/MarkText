@@ -4,6 +4,8 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
+import { frontmostApplicationProcessId } from './frontmostApplication'
+
 const projectRoot = path.resolve(__dirname, '../..')
 
 const getDateAsFilename = (): string => {
@@ -356,6 +358,25 @@ export const launchWithMarkdown = async(
   await waitForEditor(page)
   await waitForMenuReady(app)
   return { app, page, filePath }
+}
+
+export const expectEditorWindowHidden = async(
+  app: ElectronApplication
+): Promise<void> => {
+  const state = await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0]
+    return {
+      visible: window?.isVisible() ?? false,
+      focused: window?.isFocused() ?? false
+    }
+  })
+  expect(state).toEqual({ visible: false, focused: false })
+}
+
+export const expectEditorNotFrontmost = (app: ElectronApplication): void => {
+  const frontmostProcessId = frontmostApplicationProcessId()
+  if (frontmostProcessId === undefined) return
+  expect(frontmostProcessId).not.toBe(app.process().pid)
 }
 
 export const sendIpcToRenderer = async(

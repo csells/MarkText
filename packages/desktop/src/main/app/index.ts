@@ -20,6 +20,7 @@ import { onInternalChannel } from '../utils/internalIpc'
 import { WindowType } from '../windows/base'
 import EditorWindow from '../windows/editor'
 import SettingWindow from '../windows/setting'
+import { windowActivationAllowed } from '../windows/windowActivationPolicy'
 import { setLanguage } from '../i18n'
 import { getNativeThemeSource, isDarkApplicationTheme } from './nativeTheme'
 import type Accessor from './accessor'
@@ -649,6 +650,7 @@ class App {
       // A setting window is already created
       const browserSettingWindow = settingWins[0].win.browserWindow!
       browserSettingWindow.webContents.send('settings::change-tab', category)
+      if (!windowActivationAllowed()) return
       if (isLinux) {
         browserSettingWindow.focus()
       } else {

@@ -1,9 +1,8 @@
-# CriticMarkup Review & Comments
+# CriticMarkup review and document authority
 
-The vocabulary of MarkText's CriticMarkup review surface: the annotation
-forms as the UI presents them, and the comment sidebar UX. Engine and
-language terms live in the candidate Profile 1 and will move behind the
-document-core facade when that bounded package is imported.
+The vocabulary of MarkText's CriticMarkup review surface and the document
+authority that preserves its source. Parser and language mechanics live behind
+the document-core facade.
 
 ## Language
 
@@ -68,3 +67,30 @@ when it is the deeper visible item. Explicit sidebar/navigation focus on a
 parent stays there while the target survives. Passive selection never opens or
 scrolls the sidebar. A right-click retains the deepest item's actions and also
 offers **Edit Comment** for the nearest containing anchored Comment.
+
+**CriticMarkup Metadata Extension**:
+The proposed optional, backward-compatible CriticMarkup superset for durable
+annotation metadata and Comment conversations. “CM2” is only its working name
+unless the canonical CriticMarkup maintainers adopt and version it.
+_Avoid_: CriticMarkup 2, MarkText metadata format
+
+## Authority
+
+**Acknowledged revision**:
+The latest actor commit whose acceptance the document-authority session has
+recorded. It is the only source state MarkText may save, reopen, or use as the
+base of another durable edit; an unobserved commit from a failed generation is
+not acknowledged.
+_Avoid_: editor snapshot, current Markdown
+
+**Pending draft**:
+An immediate editor presentation of input that the document authority has not
+acknowledged. It may be reconciled or discarded, but it is never saved as
+document source.
+_Avoid_: unsaved revision, current source
+
+**Save barrier**:
+The operation that reconciles or discards every earlier pending draft, then
+returns the exact acknowledged revision chosen for persistence. A terminally
+rejected draft cannot cross it.
+_Avoid_: flush, snapshot save
