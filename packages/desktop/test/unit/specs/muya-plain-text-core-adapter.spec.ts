@@ -1353,6 +1353,52 @@ describe('Muya plain-text Core command lane', () => {
     }])
   })
 
+  it('maps authoring through a selection-only structural paragraph binding', async() => {
+    const submissions: EditorCoreSubmitInput[] = []
+    const binding = {
+      submit(input: EditorCoreSubmitInput): EditorCoreSubmission {
+        submissions.push(structuredClone(input))
+        return Object.freeze({
+          identity: Object.freeze({
+            documentId: 'reference.md',
+            generation: 1,
+            transactionId: 1
+          }),
+          acknowledged: Promise.resolve(applied(2, {
+            start: 5,
+            end: 14,
+            insert: '{==important==}'
+          }))
+        })
+      }
+    } as Pick<EditorCoreBinding, 'submit'>
+    const bindings = Object.freeze([{
+      path: Object.freeze([0, 'text'] as const),
+      sourceRange: Object.freeze({ start: 0, end: 25 }),
+      text: 'See [important][ref].[^n]',
+      editable: false as const
+    }])
+    const adapter = createMuyaPlainTextCoreAdapter(bindings, binding)
+
+    await expect(adapter.author('highlight', {
+      anchor: { path: [0, 'text'], offset: 5 },
+      focus: { path: [0, 'text'], offset: 14 }
+    }, '', () => Promise.resolve(bindings))).resolves.toMatchObject({ revision: 2 })
+    expect(submissions).toEqual([{
+      kind: 'author',
+      form: 'highlight',
+      range: { start: 5, end: 14 },
+      text: '',
+      projections: []
+    }])
+    expect(adapter.accept({
+      source: 'user',
+      prevDoc: [{ name: 'paragraph', text: 'See [important][ref].[^n]' }],
+      doc: [{ name: 'paragraph', text: 'changed' }],
+      op: [[0, 'text', { es: [{ d: 'See [important][ref].[^n]' }, 'changed'] }]]
+    })).toBe('unsupported')
+  })
+
   it('holds save settlement through IME and submits only the committed text', async() => {
     const submissions: EditorCoreSubmitInput[] = []
     let release: ((outcome: EditorCoreApplyOutcome) => void) | undefined

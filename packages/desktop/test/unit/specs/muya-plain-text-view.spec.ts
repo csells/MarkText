@@ -35,6 +35,20 @@ describe('Muya plain-text view mapping', () => {
     }
   })
 
+  it('maps an inline reference paragraph for selection without making it editable', () => {
+    const core = createDocumentCore()
+    const source = 'See [important][ref].[^n]\n\n[ref]: https://example.com\n[^n]: Note.'
+    const revision = core.open(source)
+
+    expect(createMuyaPlainTextView(core.project(revision, 'revised')).bindings)
+      .toContainEqual({
+        path: [0, 'text'],
+        sourceRange: { start: 0, end: 25 },
+        text: 'See [important][ref].[^n]',
+        editable: false
+      })
+  })
+
   it('renders all five CriticMarkup forms without inventing editable bindings', () => {
     const core = createDocumentCore()
     const revision = core.open(
