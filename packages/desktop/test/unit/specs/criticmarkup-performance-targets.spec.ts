@@ -32,11 +32,11 @@ describe('CriticMarkup performance target protocol', () => {
     expect((manifest as { metrics: { t_event: object } }).metrics.t_event)
       .not.toHaveProperty('targetP95Ms')
     expect(manifest).toMatchObject({
-      schema: 'marktext-criticmarkup-performance-targets-v3',
+      schema: 'marktext-criticmarkup-performance-targets-v4',
       metrics: {
         t_present: {
           definition: expect.stringMatching(
-            /WebContents\.capturePage.*stayHidden.*stayAwake.*upper bound/i
+            /WebContents\.capturePage.*stayHidden.*stayAwake.*transparent.*render-active.*upper bound/i
           ),
           targetP95Ms: null,
           targetStatus: 'baseline-calibration-required'

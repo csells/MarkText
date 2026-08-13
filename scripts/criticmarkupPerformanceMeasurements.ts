@@ -74,7 +74,7 @@ export interface CriticMarkupRawPerformanceRunRef
 }
 
 export interface CriticMarkupPerformanceMeasurementManifest {
-  schema: 'marktext-criticmarkup-performance-measurements-v4'
+  schema: 'marktext-criticmarkup-performance-measurements-v5'
   status: 'awaiting-raw-runs' | 'measured-unratified'
   baselineCommit: string
   targetManifest: CriticMarkupPerformanceArtifactRef
@@ -105,18 +105,18 @@ interface CriticMarkupRawPerformanceRunBase {
   }>
 }
 
-export interface CriticMarkupUpstreamRawPerformanceRunV3
+export interface CriticMarkupUpstreamRawPerformanceRunV4
   extends CriticMarkupRawPerformanceRunBase {
-  schema: 'marktext-criticmarkup-raw-performance-run-v3'
+  schema: 'marktext-criticmarkup-raw-performance-run-v4'
   provenance: CriticMarkupUpstreamPerformanceProvenance
   metricDefinitions: Record<CommonMetric, string>
 }
 
 export type CriticMarkupPerformanceSurface = 'wysiwyg' | 'source'
 
-export interface CriticMarkupCoreRawPerformanceRunV5
+export interface CriticMarkupCoreRawPerformanceRunV6
   extends Omit<CriticMarkupRawPerformanceRunBase, 'implementation' | 'documents'> {
-  schema: 'marktext-criticmarkup-raw-performance-run-v5'
+  schema: 'marktext-criticmarkup-raw-performance-run-v6'
   implementation: 'core-candidate'
   surfaces: CriticMarkupPerformanceSurface[]
   provenance: CriticMarkupCorePerformanceProvenance
@@ -147,10 +147,11 @@ export interface CriticMarkupCorePerformanceProvenance {
   producerSha256: string
   probeSha256: string
   launcherSha256: string
-  measurementBoundary: 'core-authority-browser-compositor-v5'
-  presentationBoundary: 'electron-webcontents-capture-page-hidden-v1'
-  launchBoundary: 'playwright-electron-packaged-v1'
-  windowVisibility: 'hidden-unfocused'
+  measurementBoundary: 'core-authority-browser-compositor-v6'
+  presentationBoundary: 'electron-webcontents-capture-page-transparent-v2'
+  launchBoundary: 'playwright-electron-packaged-transparent-v2'
+  windowPresentationPolicy: 'transparent-render-active-inactive-v1'
+  windowPresentationPlatform: 'darwin'
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
 }
 
@@ -168,10 +169,11 @@ export interface CriticMarkupUpstreamPerformanceProvenance {
   producerSha256: string
   probeSha256: string
   launcherSha256: string
-  measurementBoundary: 'external-browser-compositor-v3'
-  presentationBoundary: 'electron-webcontents-capture-page-hidden-v1'
-  launchBoundary: 'external-inspector-hidden-cdp-v1'
-  windowVisibility: 'hidden-unfocused'
+  measurementBoundary: 'external-browser-compositor-v4'
+  presentationBoundary: 'electron-webcontents-capture-page-transparent-v2'
+  launchBoundary: 'external-inspector-transparent-render-active-v2'
+  windowPresentationPolicy: 'transparent-render-active-inactive-v1'
+  windowPresentationPlatform: 'darwin'
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
 }
 
@@ -181,11 +183,11 @@ export interface CriticMarkupPerformanceAuthoritySamples {
 }
 
 export type CriticMarkupRawPerformanceRun =
-  | CriticMarkupUpstreamRawPerformanceRunV3
-  | CriticMarkupCoreRawPerformanceRunV5
+  | CriticMarkupUpstreamRawPerformanceRunV4
+  | CriticMarkupCoreRawPerformanceRunV6
 
 interface PerformanceTargets {
-  schema: 'marktext-criticmarkup-performance-targets-v3'
+  schema: 'marktext-criticmarkup-performance-targets-v4'
   status: 'proposed-unratified' | 'ratified'
   representativeDocuments: { schema: string, path: string }
   environment: Record<string, string>
@@ -454,7 +456,8 @@ const validateUpstreamProvenance = (
     'presentationBoundary',
     'probeSha256',
     'producerSha256',
-    'windowVisibility'
+    'windowPresentationPlatform',
+    'windowPresentationPolicy'
   ].sort(), `${label} provenance fields`)
   if (provenance.detachedWorktreeHead !== buildCommit) {
     throw new Error(`${label} provenance detached worktree head differs from build commit`)
@@ -480,20 +483,29 @@ const validateUpstreamProvenance = (
     'nodeVersion',
     'playwrightVersion'
   ] as const) requireNonEmpty(provenance[field], `${label} provenance ${field}`)
-  if (provenance.measurementBoundary !== 'external-browser-compositor-v3') {
+  if (provenance.measurementBoundary !== 'external-browser-compositor-v4') {
     throw new Error(`${label} provenance measurement boundary is invalid`)
   }
   if (
     provenance.presentationBoundary !==
-      'electron-webcontents-capture-page-hidden-v1'
+      'electron-webcontents-capture-page-transparent-v2'
   ) {
     throw new Error(`${label} provenance presentation boundary is invalid`)
   }
-  if (provenance.launchBoundary !== 'external-inspector-hidden-cdp-v1') {
+  if (
+    provenance.launchBoundary !==
+      'external-inspector-transparent-render-active-v2'
+  ) {
     throw new Error(`${label} provenance launch boundary is invalid`)
   }
-  if (provenance.windowVisibility !== 'hidden-unfocused') {
-    throw new Error(`${label} provenance window visibility is invalid`)
+  if (
+    provenance.windowPresentationPolicy !==
+      'transparent-render-active-inactive-v1'
+  ) {
+    throw new Error(`${label} provenance window presentation policy is invalid`)
+  }
+  if (provenance.windowPresentationPlatform !== 'darwin') {
+    throw new Error(`${label} provenance window presentation platform is invalid`)
   }
   if (provenance.chromiumSchedulingPolicy !== 'hidden-unthrottled-rendering-v2') {
     throw new Error(`${label} provenance Chromium scheduling policy is invalid`)
@@ -553,7 +565,8 @@ const validateCoreProvenance = (
     'presentationBoundary',
     'probeSha256',
     'producerSha256',
-    'windowVisibility'
+    'windowPresentationPlatform',
+    'windowPresentationPolicy'
   ].sort(), `${label} provenance fields`)
   if (provenance.checkoutHead !== buildCommit) {
     throw new Error(`${label} provenance checkout head differs from its build commit`)
@@ -588,21 +601,27 @@ const validateCoreProvenance = (
   }
   if (
     provenance.measurementBoundary !==
-      'core-authority-browser-compositor-v5'
+      'core-authority-browser-compositor-v6'
   ) {
     throw new Error(`${label} provenance measurement boundary is invalid`)
   }
   if (
     provenance.presentationBoundary !==
-      'electron-webcontents-capture-page-hidden-v1'
+      'electron-webcontents-capture-page-transparent-v2'
   ) {
     throw new Error(`${label} provenance presentation boundary is invalid`)
   }
-  if (provenance.launchBoundary !== 'playwright-electron-packaged-v1') {
+  if (provenance.launchBoundary !== 'playwright-electron-packaged-transparent-v2') {
     throw new Error(`${label} provenance launch boundary is invalid`)
   }
-  if (provenance.windowVisibility !== 'hidden-unfocused') {
-    throw new Error(`${label} provenance window visibility is invalid`)
+  if (
+    provenance.windowPresentationPolicy !==
+      'transparent-render-active-inactive-v1'
+  ) {
+    throw new Error(`${label} provenance window presentation policy is invalid`)
+  }
+  if (provenance.windowPresentationPlatform !== 'darwin') {
+    throw new Error(`${label} provenance window presentation platform is invalid`)
   }
   if (provenance.chromiumSchedulingPolicy !== 'hidden-unthrottled-rendering-v2') {
     throw new Error(`${label} provenance Chromium scheduling policy is invalid`)
@@ -619,8 +638,8 @@ const validateRawRun = (
 ): void => {
   const raw = requireRecord(value, `Raw performance run ${ref.id}`)
   const expectedSchema = ref.implementation === 'core-candidate'
-    ? 'marktext-criticmarkup-raw-performance-run-v5'
-    : 'marktext-criticmarkup-raw-performance-run-v3'
+    ? 'marktext-criticmarkup-raw-performance-run-v6'
+    : 'marktext-criticmarkup-raw-performance-run-v4'
   if (raw.schema !== expectedSchema) {
     throw new Error(`Raw performance run ${ref.id} schema is invalid`)
   }
@@ -657,7 +676,7 @@ const validateRawRun = (
     throw new Error(`Raw performance run ${ref.id} documents must be an array`)
   }
   const declaredSurfaces = new Set<CriticMarkupPerformanceSurface>()
-  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v5') {
+  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v6') {
     validateCoreProvenance(
       raw.provenance,
       raw.buildCommit as string,
@@ -726,7 +745,7 @@ const validateRawRun = (
     if (document.sourceSha256 !== expected.sha256) {
       throw new Error(`Raw performance run ${ref.id} document digest is stale: ${id}`)
     }
-    if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v5') {
+    if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v6') {
       const surface = document.surface
       if (
         (surface !== 'wysiwyg' && surface !== 'source') ||
@@ -771,7 +790,7 @@ const validateRawRun = (
   if (missing.length > 0) {
     throw new Error(`Raw performance run ${ref.id} is missing documents: ${missing.join(', ')}`)
   }
-  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v5') {
+  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v6') {
     const usedSurfaces = new Set(raw.documents.map(document => (
       requireRecord(document, `Raw performance run ${ref.id} document`).surface
     )))
@@ -788,7 +807,7 @@ export const validateCriticMarkupPerformanceMeasurements = (
   repoRoot: string,
   manifest: CriticMarkupPerformanceMeasurementManifest
 ): void => {
-  if (manifest.schema !== 'marktext-criticmarkup-performance-measurements-v4') {
+  if (manifest.schema !== 'marktext-criticmarkup-performance-measurements-v5') {
     throw new Error('Performance measurement manifest schema is invalid')
   }
   if (

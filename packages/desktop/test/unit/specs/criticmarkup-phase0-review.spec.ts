@@ -69,6 +69,83 @@ const first = <Value>(values: Value[]): Value => {
   return value
 }
 
+const preferenceProductionPath =
+  'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-preference-production-surfaces.spec.ts#registers and initializes every production preference surface with exact schema/default coverage'
+const preferenceItemIds = [
+  'phase0.item.07d4585c6d1417eea049e211',
+  'phase0.item.0963eb1936f7eec7c4363440',
+  'phase0.item.11f06a14373267d0a7f04298',
+  'phase0.item.1607b7aa015096064b31983f',
+  'phase0.item.17b7db58e1606231d3757072',
+  'phase0.item.2b8ba225a6f585296383bc42',
+  'phase0.item.31e25fb56687c92740bc1e35',
+  'phase0.item.3237df39c5c91c2fb09eff70',
+  'phase0.item.36792315e9ac6ee174edafa2',
+  'phase0.item.36f604e003eb09b84c4955fc',
+  'phase0.item.3e58393bb9f9f235d90de4fc',
+  'phase0.item.3ecf77bed446bf3ad7435a6a',
+  'phase0.item.40485d2ae060303c593659f2',
+  'phase0.item.45f65cc7c6017b56a7dcae7b',
+  'phase0.item.483bf9dc1681dc71f7b20ffa',
+  'phase0.item.4dd34f884b5b084dcba2b05a',
+  'phase0.item.4e1b4ec46f855a5c3b83c397',
+  'phase0.item.51a3d9e531cf5bc2bfe06e3f',
+  'phase0.item.53968b3b5038faf0c53657f3',
+  'phase0.item.53b94952f21a902376267d4d',
+  'phase0.item.57649db13400e1385222f46a',
+  'phase0.item.5a661f5accd9b32c9c30e49f',
+  'phase0.item.5d6b4ddbddfde301afd527ad',
+  'phase0.item.61f3c83186367ba93d77e03f',
+  'phase0.item.69b6f1e450255ee44a8ee740',
+  'phase0.item.6a62d179c9e090235100853e',
+  'phase0.item.6dd8a49fe69b582ac630eeca',
+  'phase0.item.6eb9fa70cfd8e314b0e5ad77',
+  'phase0.item.6ec0b0c0736f4035859befed',
+  'phase0.item.6f769db0df82412bfc3fae12',
+  'phase0.item.707b868a8f9f7a8e3300cfad',
+  'phase0.item.719e6686ea4f5ed950bc1afd',
+  'phase0.item.81acd9bcc256d3dbb39f463f',
+  'phase0.item.86afb40ce311b20a7e5f20b4',
+  'phase0.item.89d542e5cb5e311f66811571',
+  'phase0.item.8d906452daf4ad3fa23c973c',
+  'phase0.item.8e88388fcedf3a798477337d',
+  'phase0.item.8ea4389f490643b32c06eba8',
+  'phase0.item.95adfaad82953c953d426b6b',
+  'phase0.item.9f29f1c81e58ffc1c0773151',
+  'phase0.item.ae8fe4dd07e32e7fd7f1cc46',
+  'phase0.item.af3275ee5c572d281e9899e2',
+  'phase0.item.b00c589d1018a5509fdf3720',
+  'phase0.item.b0f5089e6b9e2a6379a9f612',
+  'phase0.item.b5810549726378e809e30c5f',
+  'phase0.item.b7e86ed8e9a6b5e921e16fb8',
+  'phase0.item.b8cd35ad097880e4058b623d',
+  'phase0.item.bbbc199d7a0983e8b59d1547',
+  'phase0.item.bde00d2807bfbc2f0f4604ed',
+  'phase0.item.be1d783ce29f9d47451e300b',
+  'phase0.item.c2fe785e682e9bf3d5c57f22',
+  'phase0.item.c37335e7c7369cb5fb191ea7',
+  'phase0.item.cab5174111f8bbf74766d6bd',
+  'phase0.item.cd6421c1e1295806eb13c78e',
+  'phase0.item.d0a1fa85ba22ec5ce03b0edd',
+  'phase0.item.d30450f8e442b6fa87fb5832',
+  'phase0.item.d3f00d049c973994a58429c0',
+  'phase0.item.dc1a9dfc54883d12daf7494b',
+  'phase0.item.de9f903df554117cf99f0f65',
+  'phase0.item.e2eb15d365a975654beb5c97',
+  'phase0.item.e3b27feca889f95d71e49c59',
+  'phase0.item.e48c1b4db7c917ef7d5cd3c3',
+  'phase0.item.e91e1c4b4d04dd51d4d909e6',
+  'phase0.item.e94a6d3a18b806faf2318781',
+  'phase0.item.eb0a5c0593487c0e740f79a7',
+  'phase0.item.ef911de2e75f14cb5080d245',
+  'phase0.item.f2f64a10adab5b54cec4e065',
+  'phase0.item.f57f5dae1a1344b2d58ec87b',
+  'phase0.item.f8b9a6bf6ffbbcdfe64be171',
+  'phase0.item.fd29702e47a7bb31ca27c217',
+  'phase0.item.fe916f0a9ef2b5c783ae04ac',
+  'phase0.item.ffa81e56602d915d5b52e949'
+] as const
+
 describe('CriticMarkup Phase 0 review proposal', () => {
   it('requires an exact Git-backed oracle classification for every parity item', () => {
     const proposal: CriticMarkupParityOracleProposal = {
@@ -280,6 +357,143 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     expect(Object.fromEntries(materialized.parityRows.rows
       .filter(row => row.productionPathTest.startsWith('named-production-path-test:'))
       .map(row => [row.id, row.productionPathTest]))).toEqual({
+      'phase0.item.155c18d97f38bc97408f0312':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-menu-production-surfaces.spec.ts#routes Edit line-ending choices and exposes their exact containers',
+      'phase0.item.16b16963d8264860b2a4f249':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-menu-production-surfaces.spec.ts#exposes exact Theme root, groups, and follow-system disabled notice',
+      'phase0.item.3b044ad4b25f78346c9bcfea':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-menu-production-surfaces.spec.ts#routes Edit line-ending choices and exposes their exact containers',
+      'phase0.item.624bfe7d353c593deb5a1d41':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-menu-production-surfaces.spec.ts#routes every Sidebar context-menu item to its exact filesystem action',
+      'phase0.item.67958822db1d4d79d176fffd':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-menu-production-surfaces.spec.ts#routes every Sidebar context-menu item to its exact filesystem action',
+      'phase0.item.7de6448da8c84ac41dcf4e90':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-menu-production-surfaces.spec.ts#routes every Sidebar context-menu item to its exact filesystem action',
+      'phase0.item.8c4e8b1e3a26398bd06147fe':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-menu-production-surfaces.spec.ts#routes every Sidebar context-menu item to its exact filesystem action',
+      'phase0.item.a027ffd4684bf29ee977de48':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-menu-production-surfaces.spec.ts#routes every Sidebar context-menu item to its exact filesystem action',
+      'phase0.item.b1c3b55cbc79cb8c4926b39f':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-menu-production-surfaces.spec.ts#routes Edit line-ending choices and exposes their exact containers',
+      'phase0.item.b4469e1fa8cb164d0c911441':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-menu-production-surfaces.spec.ts#routes every Sidebar context-menu item to its exact filesystem action',
+      'phase0.item.bca72256520bff35d4bb4a9f':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-menu-production-surfaces.spec.ts#exposes exact Theme root, groups, and follow-system disabled notice',
+      'phase0.item.c1b8f8c1bc21bf824d643f2a':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-menu-production-surfaces.spec.ts#routes every Sidebar context-menu item to its exact filesystem action',
+      'phase0.item.c35e01092900730a5dbe66a8':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-menu-production-surfaces.spec.ts#exposes the Format root for its already-proven executable leaves',
+      'phase0.item.d296a569d209baf623d5fdcc':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-menu-production-surfaces.spec.ts#routes every Sidebar context-menu item to its exact filesystem action',
+      'phase0.item.e8c3e9a6162fca1a29a9b14a':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-menu-production-surfaces.spec.ts#exposes exact Theme root, groups, and follow-system disabled notice',
+      'phase0.item.f5b4f0e6156c8ddacb2a4324':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-menu-production-surfaces.spec.ts#exposes exact Theme root, groups, and follow-system disabled notice',
+      'phase0.item.fc0f8ce7d787ddacbd59f4f1':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-menu-production-surfaces.spec.ts#routes Edit line-ending choices and exposes their exact containers',
+      'phase0.item.0a45414ba548bb267011bc3e':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-plugin-production-surfaces.spec.ts#registers every editor plugin with exact options once per renderer',
+      'phase0.item.0ea5c587585b8fbcf456b3dd':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-plugin-production-surfaces.spec.ts#registers every editor plugin with exact options once per renderer',
+      'phase0.item.2bc695342c78272090edd54c':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-plugin-production-surfaces.spec.ts#registers every editor plugin with exact options once per renderer',
+      'phase0.item.3b33192cdb536bdf1cd2734d':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-plugin-production-surfaces.spec.ts#registers every editor plugin with exact options once per renderer',
+      'phase0.item.581601f3c76e76dcf9e1b4ef':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-plugin-production-surfaces.spec.ts#registers every editor plugin with exact options once per renderer',
+      'phase0.item.7b6efc434f8af814eda634a6':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-plugin-production-surfaces.spec.ts#registers every editor plugin with exact options once per renderer',
+      'phase0.item.83120b4bbe0f8583c4a43684':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-plugin-production-surfaces.spec.ts#registers every editor plugin with exact options once per renderer',
+      'phase0.item.b868f83233f722d61b10a79a':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-plugin-production-surfaces.spec.ts#registers every editor plugin with exact options once per renderer',
+      'phase0.item.c3773c31842b719ac3140fc2':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-plugin-production-surfaces.spec.ts#registers every editor plugin with exact options once per renderer',
+      'phase0.item.c62c35a00ad6dd8bbd5a70f1':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-plugin-production-surfaces.spec.ts#registers every editor plugin with exact options once per renderer',
+      'phase0.item.de7917990f83fbc0146c7690':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-plugin-production-surfaces.spec.ts#registers every editor plugin with exact options once per renderer',
+      'phase0.item.df5a6cddc1041919713dbb8c':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-plugin-production-surfaces.spec.ts#registers every editor plugin with exact options once per renderer',
+      'phase0.item.e2f0377b5c04eb78dfcdcb86':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-plugin-production-surfaces.spec.ts#registers every editor plugin with exact options once per renderer',
+      'phase0.item.e6875afc246a30857e3d1056':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-plugin-production-surfaces.spec.ts#registers every editor plugin with exact options once per renderer',
+      'phase0.item.e6aa6bdba767f4a007aa86b5':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-plugin-production-surfaces.spec.ts#registers every editor plugin with exact options once per renderer',
+      'phase0.item.e77490623185ea33a0517db9':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-plugin-production-surfaces.spec.ts#registers every editor plugin with exact options once per renderer',
+      'phase0.item.f94443129e1defbeaca1c9ad':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-plugin-production-surfaces.spec.ts#registers every editor plugin with exact options once per renderer',
+      ...Object.fromEntries(preferenceItemIds.map(id => [id, preferenceProductionPath])),
+      'phase0.item.12012502a44e0e4268e3c80a':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-context-menu-production-surfaces.spec.ts#routes spelling root, language, and dictionary surfaces to exact boundaries',
+      'phase0.item.30e90b2ac2f2372a188ce745':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-context-menu-production-surfaces.spec.ts#exposes exact native clipboard roles and renderer edit actions',
+      'phase0.item.384d142fa11b44a6c76c329d':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-context-menu-production-surfaces.spec.ts#exposes exact native clipboard roles and renderer edit actions',
+      'phase0.item.4088442b4019ec420b86d4a3':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-context-menu-production-surfaces.spec.ts#exposes exact native clipboard roles and renderer edit actions',
+      'phase0.item.472cf6453e126bdb8e46eba7':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-context-menu-production-surfaces.spec.ts#exposes exact native clipboard roles and renderer edit actions',
+      'phase0.item.4fb526d3284b6b37621c32c1':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-context-menu-production-surfaces.spec.ts#exposes exact native clipboard roles and renderer edit actions',
+      'phase0.item.53c33b607246a008f755256a':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-context-menu-production-surfaces.spec.ts#routes spelling root, language, and dictionary surfaces to exact boundaries',
+      'phase0.item.68779e4004dc4481777569ad':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-context-menu-production-surfaces.spec.ts#exposes exact native clipboard roles and renderer edit actions',
+      'phase0.item.6fc8716cfb3a82d474ac5669':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-context-menu-production-surfaces.spec.ts#routes spelling root, language, and dictionary surfaces to exact boundaries',
+      'phase0.item.8fed3b67c62ab781a4610ff0':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-context-menu-production-surfaces.spec.ts#exposes exact native clipboard roles and renderer edit actions',
+      'phase0.item.93e0ee5d97cf185d7e3c8134':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-context-menu-production-surfaces.spec.ts#exposes exact native clipboard roles and renderer edit actions',
+      'phase0.item.f0d12953f2c0ee7b708ae62e':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-editor-context-menu-production-surfaces.spec.ts#routes spelling root, language, and dictionary surfaces to exact boundaries',
+      'phase0.item.1a798c59f5673401b2b1b762':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-marktext-production-surfaces.spec.ts#routes registered hide commands and paired menu surfaces to exact native responders',
+      'phase0.item.43275261e04a0adf42f95e15':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-marktext-production-surfaces.spec.ts#routes registered hide commands and paired menu surfaces to exact native responders',
+      'phase0.item.431ae7f8b27a695bc20a8187':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-marktext-production-surfaces.spec.ts#routes remaining executable MarkText menu surfaces to exact application boundaries',
+      'phase0.item.5e786ba8dae3e0ebca55bd39':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-marktext-production-surfaces.spec.ts#routes remaining executable MarkText menu surfaces to exact application boundaries',
+      'phase0.item.607e7e2785c3dec6743793cb':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-marktext-production-surfaces.spec.ts#routes registered hide commands and paired menu surfaces to exact native responders',
+      'phase0.item.6d92c4206ae71053a6265227':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-marktext-production-surfaces.spec.ts#exposes exact structural MarkText root and Services menu surfaces',
+      'phase0.item.72fe47c07cdeebddc51b25ff':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-marktext-production-surfaces.spec.ts#routes remaining executable MarkText menu surfaces to exact application boundaries',
+      'phase0.item.78fcda1a146eb7fbc0689858':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-marktext-production-surfaces.spec.ts#routes registered hide commands and paired menu surfaces to exact native responders',
+      'phase0.item.94c37fba288c9becaf8b0042':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-marktext-production-surfaces.spec.ts#routes remaining executable MarkText menu surfaces to exact application boundaries',
+      'phase0.item.b2d8d83f6ee2b645ee835360':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-marktext-production-surfaces.spec.ts#exposes exact structural MarkText root and Services menu surfaces',
+      'phase0.item.d53507300b7a736ffe29e023':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-marktext-production-surfaces.spec.ts#routes remaining executable MarkText menu surfaces to exact application boundaries',
+      'phase0.item.057d629d092880152faea48c':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-help-production-surfaces.spec.ts#routes every external Help menu surface to its exact trusted URL',
+      'phase0.item.2da152e75a4388e919d6c82a':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-help-production-surfaces.spec.ts#routes every external Help menu surface to its exact trusted URL',
+      'phase0.item.355fbf862935850d5cf6f882':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-help-production-surfaces.spec.ts#routes every external Help menu surface to its exact trusted URL',
+      'phase0.item.42a254d83cde566bff2723fc':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-help-production-surfaces.spec.ts#routes every external Help menu surface to its exact trusted URL',
+      'phase0.item.6968d36288c4583b8ff5d18c':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-help-production-surfaces.spec.ts#routes every external Help menu surface to its exact trusted URL',
+      'phase0.item.6f078ef1de7ece3a3ad622f8':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-help-production-surfaces.spec.ts#routes every external Help menu surface to its exact trusted URL',
+      'phase0.item.9b25f9af5d1abd34b77be659':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-help-production-surfaces.spec.ts#exposes the Help root as the container for the proven leaf surfaces',
+      'phase0.item.e4b59556ae450b9b26f6c3e4':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-help-production-surfaces.spec.ts#routes platform Help actions to their exact application boundaries',
+      'phase0.item.eb69929defd15174e1487c84':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-help-production-surfaces.spec.ts#routes every external Help menu surface to its exact trusted URL',
+      'phase0.item.f1f68b405960f46dad168a9a':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-help-production-surfaces.spec.ts#routes every external Help menu surface to its exact trusted URL',
+      'phase0.item.ff2eedb48329199efc0a6a01':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-help-production-surfaces.spec.ts#routes platform Help actions to their exact application boundaries',
       'phase0.item.02646b29196eb59a5e2af71e':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-file-production-surfaces.spec.ts#routes every remaining registered File command to its exact application boundary',
       'phase0.item.093caad34fd0476546efc6a0':
@@ -356,6 +570,70 @@ describe('CriticMarkup Phase 0 review proposal', () => {
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.0030c6e658a95827b05f3e99':
         'named-production-path-test: packages/desktop/test/unit/specs/file-save-production-surfaces.spec.ts#routes registered Save and Save As command and menu surfaces to the renderer save barriers',
+      'phase0.item.11dee19d0d72ad669c7a6e3c':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-router-production-surfaces.spec.ts#registers every concrete editor and preference route with its exact path and component',
+      'phase0.item.41c89372d4bf2f34924ab1c2':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-router-production-surfaces.spec.ts#registers every concrete editor and preference route with its exact path and component',
+      'phase0.item.49e4a9595419c4a87f9fb9d0':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-router-production-surfaces.spec.ts#registers every concrete editor and preference route with its exact path and component',
+      'phase0.item.5fa87d9b3672a0632188ee9c':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-router-production-surfaces.spec.ts#registers every concrete editor and preference route with its exact path and component',
+      'phase0.item.6852cd2e4295b943da7a0ec0':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-router-production-surfaces.spec.ts#registers every concrete editor and preference route with its exact path and component',
+      'phase0.item.703205617458f3e4a0ae6de2':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-router-production-surfaces.spec.ts#dispatches the index route to the exact editor or preference entry surface',
+      'phase0.item.882e7da8952f81432684698d':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-router-production-surfaces.spec.ts#registers every concrete editor and preference route with its exact path and component',
+      'phase0.item.99c769208aa2f6aa1a53b9d4':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-router-production-surfaces.spec.ts#registers every concrete editor and preference route with its exact path and component',
+      'phase0.item.aba2da655f19f8fd529c8c61':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-router-production-surfaces.spec.ts#dispatches the index route to the exact editor or preference entry surface',
+      'phase0.item.bf715ee180148efd4c28e47c':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-router-production-surfaces.spec.ts#registers every concrete editor and preference route with its exact path and component',
+      'phase0.item.dfb4953def39e3a0378fb351':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-router-production-surfaces.spec.ts#registers every concrete editor and preference route with its exact path and component',
+      'phase0.item.07f9355a3697088de1bd6500':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every registered Tabs command to its exact renderer tab action',
+      'phase0.item.0968cc6aadef3a739c6e653e':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every tab context-menu surface through its exact tab bus event',
+      'phase0.item.0f05f351509c0f58afa5626e':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every registered Tabs command to its exact renderer tab action',
+      'phase0.item.2ce3f9c4899707a3c151cffb':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every registered Tabs command to its exact renderer tab action',
+      'phase0.item.4c75cc42223b27eec5f05513':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every registered Tabs command to its exact renderer tab action',
+      'phase0.item.4dec1da46e733fd77798de85':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every registered Tabs command to its exact renderer tab action',
+      'phase0.item.536a64439bb3d4fcb63bdfb5':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every tab context-menu surface through its exact tab bus event',
+      'phase0.item.6b712a15fa39e8a5e1366216':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every registered Tabs command to its exact renderer tab action',
+      'phase0.item.6d4c790c7b2c5eb5f9c1926f':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every registered Tabs command to its exact renderer tab action',
+      'phase0.item.7f9a8b2f1269b6199dc8569d':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every tab context-menu surface through its exact tab bus event',
+      'phase0.item.85b866c03e2e9594c8681c00':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every registered Tabs command to its exact renderer tab action',
+      'phase0.item.8c9404988595231b6778e6ea':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every tab context-menu surface through its exact tab bus event',
+      'phase0.item.92fa2270a1928629f41b25e8':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every registered Tabs command to its exact renderer tab action',
+      'phase0.item.b8de21f61671e6c9fd48aa38':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every registered Tabs command to its exact renderer tab action',
+      'phase0.item.b9b23301ae5ae80148254184':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every registered Tabs command to its exact renderer tab action',
+      'phase0.item.bc2590799a2c816eab66b554':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every tab context-menu surface through its exact tab bus event',
+      'phase0.item.c07af6e9d31eac2ba96a2867':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every registered Tabs command to its exact renderer tab action',
+      'phase0.item.db5788c147f3ea7a0268643a':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every registered Tabs command to its exact renderer tab action',
+      'phase0.item.ec88c4538bfbe567463be627':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every tab context-menu surface through its exact tab bus event',
+      'phase0.item.f09f28c4a68a25f3f34dfec0':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every tab context-menu surface through its exact tab bus event',
+      'phase0.item.fcac4d634bf32adf38b427f8':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-tabs-production-surfaces.spec.ts#routes every registered Tabs command to its exact renderer tab action',
       'phase0.item.0431c3e8f43d336fc52f2754':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-window-production-surfaces.spec.ts#routes every registered Window command and paired menu surface to its exact runtime effect',
       'phase0.item.0c3f77e6f42037a3bf316770':
@@ -631,11 +909,41 @@ describe('CriticMarkup Phase 0 review proposal', () => {
       'phase0.item.f78f04d7f9fa96caccc33e59':
         'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-remaining-paragraph-production-surfaces.spec.ts#covers remaining Paragraph command and menu entry production surfaces',
       'phase0.item.fa4e61798208bb8ac4978df6':
-        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-select-all-production-surfaces.spec.ts#routes registered Select All command and Edit menu surfaces through the renderer edit-action channel'
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-select-all-production-surfaces.spec.ts#routes registered Select All command and Edit menu surfaces through the renderer edit-action channel',
+      'phase0.item.cb5d9a07e7600cc5f641c514':
+        'named-production-path-test: packages/muya/test/spec/commonmark.spec.ts#CommonMark 0.31 spec conformance + packages/muya/test/spec/gfm.spec.ts#GFM 0.29-gfm spec conformance + packages/muya/src/state/__tests__/renderToStaticHTML.spec.ts#option surface',
+      'phase0.item.b3bdd03b350a040bc2e7f314':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-readme-production-capabilities.spec.ts#readme-feature:06d04490689f proves every objective subclaim at its public production seam',
+      'phase0.item.f1c8a0de8639795cfde5c76e':
+        'named-production-path-test: packages/desktop/test/unit/specs/exportHtml.spec.ts#exportStyledHTML — wrapper parity + packages/desktop/test/e2e/export-pdf.spec.ts#PDF export to a real file (item 231)',
+      'phase0.item.afdb7841a2decb8ceb69f966':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-readme-production-capabilities.spec.ts#readme-feature:3d27e259bc96 proves every objective subclaim at its public production seam',
+      'phase0.item.338c11d2187ce7aa541bbe3a':
+        'named-production-path-test: packages/desktop/test/e2e/view-modes.spec.ts#View modes',
+      'phase0.item.e25bdfbf46b8677e8a5d4b7a':
+        'named-production-path-test: packages/muya/src/clipboard/__tests__/parityImagePaste.spec.ts#parity PG5: binary/bitmap clipboard image paste',
+      'phase0.item.8ccf372e15eba602206783f6':
+        'named-production-path-test: packages/muya/test/spec/commonmark.spec.ts#CommonMark 0.31 spec conformance + packages/muya/test/spec/gfm.spec.ts#GFM 0.29-gfm spec conformance + packages/muya/test/spec/roundTrip.spec.ts#marktext markdown-basic round-trip',
+      'phase0.item.7e0aa4fe32d42246ca2af051':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-readme-production-capabilities.spec.ts#muya-readme-feature:3f2f1ac8d864 proves every objective subclaim at its public production seam + packages/desktop/test/unit/specs/criticmarkup-editor-plugin-production-surfaces.spec.ts#registers every editor plugin with exact options once per renderer',
+      'phase0.item.f498439c9dc434f7ca24cca5':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-readme-production-capabilities.spec.ts#muya-readme-feature:30de6cbcfc7d proves every objective subclaim at its public production seam + packages/desktop/test/unit/specs/criticmarkup-editor-plugin-production-surfaces.spec.ts#registers every editor plugin with exact options once per renderer',
+      'phase0.item.ef200cd1ceef55f8f1e094ca':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-readme-production-capabilities.spec.ts#muya-readme-feature:e447f6844445 proves every objective subclaim at its public production seam',
+      'phase0.item.81c4f4154230199c00008949':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-readme-production-capabilities.spec.ts#muya-readme-feature:ac0cb96fc735 proves every objective subclaim at its public production seam',
+      'phase0.item.00e3c785fafc2411e7058632':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-readme-production-capabilities.spec.ts#muya-readme-feature:422f2e921e62 proves every objective subclaim at its public production seam',
+      'phase0.item.439b080e59d5af228df72c53':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-readme-production-capabilities.spec.ts#muya-readme-feature:9bf7137484d1 proves every objective subclaim at its public production seam',
+      'phase0.item.7265e41fc785d5c77dd18db5':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-readme-production-capabilities.spec.ts#muya-readme-feature:6618a086adb9 proves every objective subclaim at its public production seam',
+      'phase0.item.112b59f0d798550476e4c0c8':
+        'named-production-path-test: packages/desktop/test/unit/specs/criticmarkup-readme-production-capabilities.spec.ts#muya-readme-feature:f0ccce744042 proves every objective subclaim at its public production seam'
     })
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('required-new-production-path-test:')
-    ))).toHaveLength(191)
+    ))).toHaveLength(4)
     expect(() => validateCriticMarkupParityDispositions(
       parityBaseline,
       materialized.parityOverlay,

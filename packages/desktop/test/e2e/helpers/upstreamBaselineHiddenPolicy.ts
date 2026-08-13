@@ -1,5 +1,7 @@
 import {
-  PERFORMANCE_WINDOW_SCHEDULING_INSTALLER_SOURCE
+  assertTransparentRenderActiveInactive,
+  PERFORMANCE_WINDOW_SCHEDULING_INSTALLER_SOURCE,
+  type PerformanceWindowPresentationState
 } from './performanceChromiumLaunchPolicy'
 import {
   PERFORMANCE_PRESENTATION_CAPTURE_OPTIONS,
@@ -35,28 +37,16 @@ export const upstreamExternalHiddenPolicyExpression = `(() => {
   const installPerformanceWindowScheduling = (
     ${PERFORMANCE_WINDOW_SCHEDULING_INSTALLER_SOURCE}
   )
-  installPerformanceWindowScheduling({ app, BrowserWindow })
-  let concealmentActive = false
-  const concealWindow = window => {
-    if (window.isDestroyed()) return
-    window.hide()
-    window.blur()
-  }
-  const concealApplication = () => {
-    if (concealmentActive) return
-    concealmentActive = true
-    try {
-      for (const window of BrowserWindow.getAllWindows()) concealWindow(window)
-      if (app.isReady()) {
-        app.hide()
-        app.dock?.hide()
-      }
-    } finally {
-      concealmentActive = false
-    }
+  installPerformanceWindowScheduling({ app, BrowserWindow, webContents })
+  const lifecycle = globalThis.__marktextPerformanceWindowLifecycle
+  if (lifecycle === undefined) {
+    throw new Error('Performance window lifecycle is unavailable')
   }
   globalThis.__marktextUpstreamHiddenLaunch = Object.freeze({
-    boundary: 'external-inspector-hidden-cdp-v1',
+    boundary: 'external-inspector-transparent-render-active-v2',
+    activate: targetId => lifecycle.activate(targetId),
+    inspect: targetId => lifecycle.inspect(targetId),
+    close: targetId => lifecycle.close(targetId),
     capturePage: async targetId => {
       const contents = webContents.fromDevToolsTargetId(targetId)
       if (contents === undefined || contents.isDestroyed()) {
@@ -66,6 +56,15 @@ export const upstreamExternalHiddenPolicyExpression = `(() => {
       if (window == null || window.isDestroyed()) {
         throw new Error('Measured renderer BrowserWindow is unavailable')
       }
+      const state = lifecycle.inspect(targetId)
+      if (
+        !state.visible || state.opacity !== 0 || state.focused ||
+        state.focusable || state.alwaysOnTop || state.appActive
+      ) {
+        throw new Error(
+          'Measured renderer is not in transparent render-active inactive state'
+        )
+      }
       const image = await contents.capturePage(
         undefined,
         ${JSON.stringify(PERFORMANCE_PRESENTATION_CAPTURE_OPTIONS)}
@@ -73,16 +72,6 @@ export const upstreamExternalHiddenPolicyExpression = `(() => {
       return Object.freeze({ empty: image.isEmpty() })
     }
   })
-  app.on('browser-window-created', (_event, window) => {
-    window.setSkipTaskbar(true)
-    window.on('show', concealApplication)
-    window.on('focus', concealApplication)
-    concealApplication()
-  })
-  app.on('browser-window-focus', concealApplication)
-  app.on('activate', concealApplication)
-  app.setActivationPolicy('accessory')
-  app.whenReady().then(concealApplication)
   return true
 })()`
 
@@ -110,6 +99,60 @@ export const captureUpstreamElectronHiddenPage = async(
     throw new Error('Upstream hidden capture result is invalid')
   }
   return Object.freeze({ empty: value.empty })
+}
+
+const upstreamPerformanceWindowCommand = async(
+  channel: UpstreamInspectorChannel,
+  targetId: string,
+  command: 'activate' | 'inspect' | 'close'
+): Promise<unknown> => {
+  const response = await channel.send('Runtime.evaluate', {
+    expression: `globalThis.__marktextUpstreamHiddenLaunch.${command}(` +
+      `${JSON.stringify(targetId)})`,
+    awaitPromise: true,
+    returnByValue: true
+  })
+  const failure = upstreamInspectorExceptionMessage(response)
+  if (failure !== undefined) throw new Error(failure)
+  return response.result?.result?.value
+}
+
+export const activateUpstreamPerformanceWindow = async(
+  channel: UpstreamInspectorChannel,
+  targetId: string
+): Promise<Readonly<PerformanceWindowPresentationState>> => {
+  const state = await upstreamPerformanceWindowCommand(
+    channel,
+    targetId,
+    'activate'
+  )
+  assertTransparentRenderActiveInactive(state)
+  return state
+}
+
+export const inspectUpstreamPerformanceWindow = async(
+  channel: UpstreamInspectorChannel,
+  targetId: string
+): Promise<Readonly<PerformanceWindowPresentationState>> => {
+  const state = await upstreamPerformanceWindowCommand(
+    channel,
+    targetId,
+    'inspect'
+  )
+  assertTransparentRenderActiveInactive(state)
+  return state
+}
+
+export const closeUpstreamPerformanceWindow = async(
+  channel: UpstreamInspectorChannel,
+  targetId: string
+): Promise<void> => {
+  const closed = await upstreamPerformanceWindowCommand(
+    channel,
+    targetId,
+    'close'
+  )
+  if (closed !== true) throw new Error('Upstream performance window cleanup failed')
 }
 
 export const installUpstreamExternalHiddenPolicy = async(
