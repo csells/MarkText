@@ -11,6 +11,7 @@ const ENV_ALLOWLIST = [
   'MARKTEXT_VERSION',
   'MARKTEXT_VERSION_STRING',
   'MARKTEXT_DOCUMENT_CORE_MODE',
+  'MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS',
   'MARKTEXT_DOCUMENT_CORE_SHADOW',
   'MARKTEXT_RIPGREP_PATH',
   'PATH',
@@ -55,6 +56,7 @@ const computeIsUpdatable = (): boolean => {
 }
 
 const buildBootInfo = (): BootInfo => ({
+  buildCommit: MARKTEXT_BUILD_COMMIT,
   platform: process.platform,
   arch: process.arch,
   versions: {

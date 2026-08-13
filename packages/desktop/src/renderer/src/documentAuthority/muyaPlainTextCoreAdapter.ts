@@ -9,6 +9,9 @@ import type {
   CoreReviewDecision,
   CoreReviewItemLocator
 } from './coreProtocol'
+import type {
+  CoreAuthorityPerformanceEvent
+} from './coreAuthorityPerformanceTrace'
 import {
   createMuyaPlainTextSourceEditAdapter,
   sourceEditForMuyaCrossParagraphChange,
@@ -38,6 +41,9 @@ export type MuyaPlainTextCoreAdapterState =
 
 export interface MuyaPlainTextCoreAdapter {
   accept(change: unknown): 'accepted' | 'unsupported'
+  selectionSourceRange(
+    selection: MuyaPlainTextAuthorSelection
+  ): Readonly<{ readonly start: number; readonly end: number }> | undefined
   acceptTracked(
     change: unknown,
     reconcile: (
@@ -60,6 +66,20 @@ export interface MuyaPlainTextCoreAdapter {
       outcome: CoreAppliedReply
     ) => Promise<readonly MuyaPlainTextSourceBinding[]>
   ): Promise<CoreAppliedReply | undefined>
+  resolveAll(
+    decision: 'accept' | 'reject',
+    reconcile: (
+      outcome: CoreAppliedReply
+    ) => Promise<readonly MuyaPlainTextSourceBinding[]>
+  ): Promise<CoreAppliedReply | undefined>
+  editComment(
+    annotation: CoreReviewItemLocator,
+    authoredRevision: number,
+    text: string,
+    reconcile: (
+      outcome: CoreAppliedReply
+    ) => Promise<readonly MuyaPlainTextSourceBinding[]>
+  ): Promise<CoreAppliedReply | undefined>
   author(
     form: CoreAuthorForm,
     selection: MuyaPlainTextAuthorSelection,
@@ -68,6 +88,12 @@ export interface MuyaPlainTextCoreAdapter {
       outcome: CoreAppliedReply
     ) => Promise<readonly MuyaPlainTextSourceBinding[]>
   ): Promise<CoreAppliedReply | undefined>
+  reconcileApplied(
+    outcome: CoreAppliedReply,
+    reconcile: (
+      outcome: CoreAppliedReply
+    ) => Promise<readonly MuyaPlainTextSourceBinding[]>
+  ): Promise<void>
   settled(): Promise<void>
   state(): MuyaPlainTextCoreAdapterState
   dispose(): void
@@ -82,6 +108,7 @@ type PendingCommand = Readonly<{
 }> | Readonly<{
   readonly kind: 'track'
   readonly edit: DocumentSourceEdit
+  readonly deferredChange?: unknown
   readonly reconcile: (
     outcome: CoreAppliedReply
   ) => Promise<readonly MuyaPlainTextSourceBinding[]>
@@ -110,6 +137,24 @@ type PendingCommand = Readonly<{
   readonly form: CoreAuthorForm
   readonly selection: MuyaPlainTextAuthorSelection
   readonly text: string
+  readonly reconcile: (
+    outcome: CoreAppliedReply
+  ) => Promise<readonly MuyaPlainTextSourceBinding[]>
+  readonly resolve: (outcome: CoreAppliedReply | undefined) => void
+  readonly reject: (error: Error) => void
+}> | Readonly<{
+  readonly kind: 'edit-comment'
+  readonly annotation: CoreReviewItemLocator
+  readonly authoredRevision: number
+  readonly text: string
+  readonly reconcile: (
+    outcome: CoreAppliedReply
+  ) => Promise<readonly MuyaPlainTextSourceBinding[]>
+  readonly resolve: (outcome: CoreAppliedReply | undefined) => void
+  readonly reject: (error: Error) => void
+}> | Readonly<{
+  readonly kind: 'resolve-all'
+  readonly decision: 'accept' | 'reject'
   readonly reconcile: (
     outcome: CoreAppliedReply
   ) => Promise<readonly MuyaPlainTextSourceBinding[]>
@@ -318,7 +363,12 @@ const paragraphTableEdit = (
  */
 export function createMuyaPlainTextCoreAdapter(
   bindings: readonly MuyaPlainTextSourceBinding[],
-  binding: Pick<EditorCoreBinding, 'submit'>
+  binding: Pick<EditorCoreBinding, 'submit'>,
+  performanceTrace?: Readonly<{
+    readonly documentId: string
+    readonly clock?: () => number
+    readonly record: (event: CoreAuthorityPerformanceEvent) => void
+  }>
 ): MuyaPlainTextCoreAdapter {
   const adapters = new Map<string, ReturnType<
     typeof createMuyaPlainTextSourceEditAdapter
@@ -346,6 +396,25 @@ export function createMuyaPlainTextCoreAdapter(
     readonly resolve: () => void
     readonly reject: (error: Error) => void
   }> | undefined
+
+  type PerformanceEventInput =
+    | Readonly<{ readonly phase: 'dispatch'; readonly transaction: number; readonly pendingDepth: number }>
+    | Readonly<{ readonly phase: 'ack'; readonly transaction: number }>
+    | Readonly<{ readonly phase: 'reconcile'; readonly transaction: number; readonly corrected: boolean }>
+  const recordPerformance = (event: PerformanceEventInput): void => {
+    if (performanceTrace === undefined) return
+    const at = (performanceTrace.clock ?? (() => performance.now()))()
+    if (!Number.isFinite(at) || at < 0) return
+    try {
+      performanceTrace.record(Object.freeze({
+        ...event,
+        documentId: performanceTrace.documentId,
+        at
+      }) as CoreAuthorityPerformanceEvent)
+    } catch {
+      // Measurement is diagnostic-only and cannot perturb authority.
+    }
+  }
 
   const installBindings = (
     nextBindings: readonly MuyaPlainTextSourceBinding[]
@@ -477,8 +546,32 @@ export function createMuyaPlainTextCoreAdapter(
     if (command.kind === 'edit' || command.kind === 'track') {
       pendingInsertUnits -= command.edit.insert.length
     }
-    if (command.kind === 'author') pendingInsertUnits -= command.text.length
+    if (command.kind === 'author' || command.kind === 'edit-comment') {
+      pendingInsertUnits -= command.text.length
+    }
     active = command
+    const deferredTrackEdit = command.kind === 'track' &&
+      command.deferredChange !== undefined
+      ? (() => {
+        const key = pathOf(command.deferredChange)
+        const sourceAdapter = key === undefined ? undefined : adapters.get(key)
+        if (sourceAdapter === undefined) return undefined
+        const result = sourceAdapter.accept(command.deferredChange)
+        return result.kind === 'edit' ? result.edit : undefined
+      })()
+      : undefined
+    if (
+      command.kind === 'track' && command.deferredChange !== undefined &&
+      deferredTrackEdit === undefined
+    ) {
+      active = undefined
+      const failure = new Error(
+        'Core Muya pending Track operation no longer matches its projection'
+      )
+      command.reject(failure)
+      fault(failure)
+      return
+    }
     const authorRange = command.kind === 'author'
       ? sourceRangeForSelection(command.selection)
       : undefined
@@ -489,20 +582,21 @@ export function createMuyaPlainTextCoreAdapter(
       return
     }
     let acknowledged
+    let transactionId = 0
     try {
-      acknowledged = binding.submit(command.kind === 'edit'
+      const submission = binding.submit(command.kind === 'edit'
         ? Object.freeze({
           edits: Object.freeze([Object.freeze({ ...command.edit })]),
           projections: Object.freeze([])
         })
         : command.kind === 'track'
           ? Object.freeze({
-            kind: 'track' as const,
-            range: Object.freeze({
-              start: command.edit.start,
-              end: command.edit.end
-            }),
-            text: command.edit.insert,
+              kind: 'track' as const,
+              range: Object.freeze({
+                start: (deferredTrackEdit ?? command.edit).start,
+                end: (deferredTrackEdit ?? command.edit).end
+              }),
+              text: (deferredTrackEdit ?? command.edit).insert,
             projections: Object.freeze([])
           })
           : command.kind === 'history'
@@ -518,13 +612,34 @@ export function createMuyaPlainTextCoreAdapter(
                 decision: command.decision,
                 projections: Object.freeze([])
               })
+              : command.kind === 'resolve-all'
+                ? Object.freeze({
+                  kind: 'resolve-all' as const,
+                  decision: command.decision,
+                  projections: Object.freeze([])
+                })
+              : command.kind === 'edit-comment'
+                ? Object.freeze({
+                  kind: 'edit-comment' as const,
+                  authoredRevision: command.authoredRevision,
+                  annotation: command.annotation,
+                  text: command.text,
+                  projections: Object.freeze([])
+                })
               : Object.freeze({
                 kind: 'author' as const,
                 form: command.form,
                 range: authorRange!,
                 text: command.text,
                 projections: Object.freeze([])
-              })).acknowledged
+              }))
+      acknowledged = submission.acknowledged
+      transactionId = submission.identity.transactionId
+      recordPerformance({
+        phase: 'dispatch',
+        transaction: submission.identity.transactionId,
+        pendingDepth: queued.length + 1
+      })
     } catch (error) {
       active = undefined
       const failure = error instanceof Error
@@ -535,6 +650,10 @@ export function createMuyaPlainTextCoreAdapter(
       return
     }
     acknowledged.then(async outcome => {
+      recordPerformance({
+        phase: 'ack',
+        transaction: transactionId
+      })
       if (disposed) {
         if (command.kind !== 'edit') {
           command.reject(new Error('Core Muya adapter is disposed'))
@@ -564,6 +683,17 @@ export function createMuyaPlainTextCoreAdapter(
           (outcome.reason === 'stale-base' ||
             outcome.reason === 'annotation-not-found' ||
             outcome.reason === 'resolution-invalid')
+        ) {
+          active = undefined
+          command.resolve(undefined)
+          pump()
+          return
+        }
+        if (
+          command.kind === 'edit-comment' && outcome.type === 'rejected' &&
+          (outcome.reason === 'stale-base' ||
+            outcome.reason === 'annotation-not-found' ||
+            outcome.reason === 'author-invalid')
         ) {
           active = undefined
           command.resolve(undefined)
@@ -611,6 +741,11 @@ export function createMuyaPlainTextCoreAdapter(
           return
         }
       }
+      recordPerformance({
+        phase: 'reconcile',
+        transaction: transactionId,
+        corrected: command.kind !== 'edit'
+      })
       active = undefined
       pump()
     }, error => {
@@ -680,7 +815,8 @@ export function createMuyaPlainTextCoreAdapter(
     edit: DocumentSourceEdit,
     reconcile: (
       outcome: CoreAppliedReply
-    ) => Promise<readonly MuyaPlainTextSourceBinding[]>
+    ) => Promise<readonly MuyaPlainTextSourceBinding[]>,
+    deferredChange?: unknown
   ): boolean => {
     if (
       queued.length + (active === undefined ? 0 : 1) >=
@@ -690,6 +826,7 @@ export function createMuyaPlainTextCoreAdapter(
     queued.push(Object.freeze({
       kind: 'track',
       edit,
+      ...(deferredChange === undefined ? {} : { deferredChange }),
       reconcile,
       resolve: () => {},
       reject: () => {}
@@ -700,6 +837,39 @@ export function createMuyaPlainTextCoreAdapter(
   }
 
   return Object.freeze({
+    async reconcileApplied(
+      outcome: CoreAppliedReply,
+      reconcile: (
+        outcome: CoreAppliedReply
+      ) => Promise<readonly MuyaPlainTextSourceBinding[]>
+    ): Promise<void> {
+      if (disposed) throw new Error('Core Muya adapter is disposed')
+      if (terminalError !== undefined) throw terminalError
+      if (
+        composing || active !== undefined || queued.length > 0 ||
+        outcome.revision !== revision + 1
+      ) {
+        throw new Error('Core Muya external reconciliation is stale')
+      }
+      try {
+        const nextBindings = await reconcile(outcome)
+        if (disposed) throw new Error('Core Muya adapter is disposed')
+        installBindings(nextBindings)
+        revision = outcome.revision
+      } catch (error) {
+        const failure = error instanceof Error
+          ? error
+          : new Error('Core Muya authoritative reconciliation failed')
+        fault(failure)
+        throw failure
+      }
+    },
+    selectionSourceRange(
+      selection: MuyaPlainTextAuthorSelection
+    ): Readonly<{ readonly start: number; readonly end: number }> | undefined {
+      if (disposed || terminalError !== undefined) return undefined
+      return sourceRangeForSelection(selection)
+    },
     accept(change: unknown): 'accepted' | 'unsupported' {
       if (disposed || terminalError !== undefined) return 'unsupported'
       if (
@@ -761,8 +931,7 @@ export function createMuyaPlainTextCoreAdapter(
       ) => Promise<readonly MuyaPlainTextSourceBinding[]>
     ): 'accepted' | 'unsupported' {
       if (
-        disposed || terminalError !== undefined ||
-        active !== undefined || queued.length > 0
+        disposed || terminalError !== undefined
       ) return 'unsupported'
       const key = pathOf(change)
       const sourceAdapter = key === undefined ? undefined : adapters.get(key)
@@ -790,7 +959,12 @@ export function createMuyaPlainTextCoreAdapter(
         compositionTrackReconcile ??= reconcile
         return 'accepted'
       }
-      return enqueueTracked(edit, reconcile) ? 'accepted' : 'unsupported'
+      const deferUntilPriorReconciliation = active !== undefined || queued.length > 0
+      return enqueueTracked(
+        edit,
+        reconcile,
+        deferUntilPriorReconciliation ? structuredClone(change) : undefined
+      ) ? 'accepted' : 'unsupported'
     },
     compositionStart(): void {
       if (disposed) throw new Error('Core Muya adapter is disposed')
@@ -924,6 +1098,87 @@ export function createMuyaPlainTextCoreAdapter(
         pump()
       })
     },
+    resolveAll(
+      decision: 'accept' | 'reject',
+      reconcile: (
+        outcome: CoreAppliedReply
+      ) => Promise<readonly MuyaPlainTextSourceBinding[]>
+    ): Promise<CoreAppliedReply | undefined> {
+      if (disposed) return Promise.reject(new Error('Core Muya adapter is disposed'))
+      if (terminalError !== undefined) return Promise.reject(terminalError)
+      if (composing) {
+        return Promise.reject(new Error(
+          'Core Muya bulk resolution cannot run during composition'
+        ))
+      }
+      if (
+        queued.length + (active === undefined ? 0 : 1) >=
+        MAXIMUM_PENDING_TRANSACTIONS
+      ) {
+        const failure = new Error('Core Muya pending work exceeds its resource policy')
+        fault(failure)
+        return Promise.reject(failure)
+      }
+      return new Promise<CoreAppliedReply | undefined>((resolve, reject) => {
+        queued.push(Object.freeze({
+          kind: 'resolve-all',
+          decision,
+          reconcile,
+          resolve,
+          reject
+        }))
+        pump()
+      })
+    },
+    editComment(
+      annotation: CoreReviewItemLocator,
+      authoredRevision: number,
+      text: string,
+      reconcile: (
+        outcome: CoreAppliedReply
+      ) => Promise<readonly MuyaPlainTextSourceBinding[]>
+    ): Promise<CoreAppliedReply | undefined> {
+      if (disposed) return Promise.reject(new Error('Core Muya adapter is disposed'))
+      if (terminalError !== undefined) return Promise.reject(terminalError)
+      if (composing) {
+        return Promise.reject(new Error(
+          'Core Muya Comment editing cannot run during composition'
+        ))
+      }
+      if (
+        queued.length + (active === undefined ? 0 : 1) >=
+          MAXIMUM_PENDING_TRANSACTIONS ||
+        pendingInsertUnits + text.length > MAXIMUM_PENDING_INSERT_UNITS
+      ) {
+        const failure = new Error('Core Muya pending work exceeds its resource policy')
+        fault(failure)
+        return Promise.reject(failure)
+      }
+      const captured: CoreReviewItemLocator = annotation.kind === 'commented-span'
+        ? Object.freeze({
+          kind: annotation.kind,
+          range: Object.freeze({ ...annotation.range }),
+          highlightRange: Object.freeze({ ...annotation.highlightRange }),
+          commentRange: Object.freeze({ ...annotation.commentRange })
+        })
+        : Object.freeze({
+          kind: annotation.kind,
+          range: Object.freeze({ ...annotation.range })
+        })
+      return new Promise<CoreAppliedReply | undefined>((resolve, reject) => {
+        queued.push(Object.freeze({
+          kind: 'edit-comment',
+          annotation: captured,
+          authoredRevision,
+          text,
+          reconcile,
+          resolve,
+          reject
+        }))
+        pendingInsertUnits += text.length
+        pump()
+      })
+    },
     author(
       form: CoreAuthorForm,
       selection: MuyaPlainTextAuthorSelection,
@@ -939,7 +1194,10 @@ export function createMuyaPlainTextCoreAdapter(
           'Core Muya authoring cannot run during composition'
         ))
       }
-      if (sourceRangeForSelection(selection) === undefined || text.length === 0) {
+      if (
+        sourceRangeForSelection(selection) === undefined ||
+        (form === 'substitution' && text.length === 0)
+      ) {
         return Promise.resolve(undefined)
       }
       if (

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import { createDocumentCore } from '@marktext/document-core'
 
 // `@/util/pdf` (imported transitively for `getHtmlToc`) and the export wrapper
 // reach `window.path` / `window.fileUtils` / `window.marktext` via the preload
@@ -30,7 +31,7 @@ vi.hoisted(() => {
   w.window.DIRNAME = '/docs'
 })
 
-import { exportStyledHTML } from '@/util/exportHtml'
+import { exportStyledHTML, exportStyledHTMLFromProjection } from '@/util/exportHtml'
 import { getHtmlToc, type TocEntry } from '@/util/pdf'
 
 // `exportStyledHTML(muya, markdown, options)` renders through the real
@@ -40,6 +41,31 @@ import { getHtmlToc, type TocEntry } from '@/util/pdf'
 // works with a bare `null` here, matching the engine's own parity suite which
 // calls `new MarkdownToHtml(md).generate(...)` with no muya.
 const NO_MUYA = null as unknown as Parameters<typeof exportStyledHTML>[0]
+
+const revisedProjectionOf = (source: string) => {
+  const core = createDocumentCore()
+  const revision = core.open(source)
+  return core.project(revision, 'revised')
+}
+
+describe('exportStyledHTMLFromProjection — Core consumer authority', () => {
+  it('builds the shipped HTML shell from Revised AST output without canonical markers', async() => {
+    const out = await exportStyledHTMLFromProjection(
+      NO_MUYA,
+      revisedProjectionOf(
+        '# Review\n\nKeep {~~legacy~>current~~}, {++fresh++}, {--gone--}. {>>note<<}\n'
+      ),
+      {}
+    )
+
+    expect(out).toMatch(/<h1[^>]*\sid="review"[^>]*>Review<\/h1>/)
+    expect(out).toContain('<p>Keep current, fresh, .</p>')
+    expect(out).not.toContain('legacy')
+    expect(out).not.toContain('gone')
+    expect(out).not.toContain('note')
+    expect(out).not.toMatch(/\{(?:\+\+|--|~~|==|>>)/)
+  })
+})
 
 describe('exportStyledHTML — wrapper parity', () => {
   it('emits a self-contained document: inline <style> blocks, no CDN <link>', async() => {
