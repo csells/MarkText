@@ -1,3 +1,7 @@
+import {
+  PERFORMANCE_WINDOW_SCHEDULING_INSTALLER_SOURCE
+} from './performanceChromiumLaunchPolicy'
+
 export interface UpstreamInspectorResponse {
   readonly id?: number
   readonly error?: { readonly message?: string }
@@ -24,6 +28,10 @@ interface UpstreamInspectorChannel {
 
 export const upstreamExternalHiddenPolicyExpression = `(() => {
   const { app, BrowserWindow } = require('electron')
+  const installPerformanceWindowScheduling = (
+    ${PERFORMANCE_WINDOW_SCHEDULING_INSTALLER_SOURCE}
+  )
+  installPerformanceWindowScheduling({ app, BrowserWindow })
   let concealmentActive = false
   const concealWindow = window => {
     if (window.isDestroyed()) return
