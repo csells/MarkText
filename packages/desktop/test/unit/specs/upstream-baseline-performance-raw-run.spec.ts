@@ -56,7 +56,7 @@ const input = (
     measurementBoundary: 'external-browser-compositor-v4' as const,
     presentationBoundary: 'electron-webcontents-capture-page-transparent-v2' as const,
     launchBoundary: 'external-inspector-transparent-render-active-v3' as const,
-    windowPresentationPolicy: 'transparent-render-active-inactive-v2' as const,
+    windowPresentationPolicy: 'transparent-render-active-inactive-v3' as const,
     windowPresentationPlatform: 'darwin' as const,
     chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2' as const
   },
@@ -69,13 +69,13 @@ const input = (
 })
 
 describe('upstream baseline raw performance producer', () => {
-  it('creates an accepted v4 shape only for pinned 20/200 ratification evidence', () => {
+  it('creates an accepted v6 shape only for pinned 20/200 ratification evidence', () => {
     const run = createUpstreamBaselinePerformanceRawRun(
       input('ratification', 20, 200)
     )
 
     expect(run).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-run-v5',
+      schema: 'marktext-criticmarkup-raw-performance-run-v6',
       runId: 'upstream-ratification',
       implementation: 'upstream-baseline',
       baselineCommit: PINNED_BASELINE,
@@ -92,7 +92,7 @@ describe('upstream baseline raw performance producer', () => {
         measurementBoundary: 'external-browser-compositor-v4',
         presentationBoundary: 'electron-webcontents-capture-page-transparent-v2',
         launchBoundary: 'external-inspector-transparent-render-active-v3',
-        windowPresentationPolicy: 'transparent-render-active-inactive-v2',
+        windowPresentationPolicy: 'transparent-render-active-inactive-v3',
         windowPresentationPlatform: 'darwin',
         chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
       },
@@ -115,7 +115,7 @@ describe('upstream baseline raw performance producer', () => {
     )
 
     expect(smoke).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v5',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v6',
       evidenceClass: 'smoke-non-ratifying',
       sampling: { warmupSamples: 1, measuredSamples: 2 }
     })
@@ -208,7 +208,7 @@ describe('upstream baseline raw performance producer', () => {
       ...input('smoke-non-ratifying', 1, 2),
       provenance: {
         ...input('smoke-non-ratifying', 1, 2).provenance,
-        windowPresentationPolicy: 'transparent-render-active-inactive-v1'
+        windowPresentationPolicy: 'transparent-render-active-inactive-v2'
       }
     } as never)).toThrow(/window presentation/i)
 

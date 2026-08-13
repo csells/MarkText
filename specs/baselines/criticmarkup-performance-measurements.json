@@ -1,5 +1,5 @@
 {
-  "schema": "marktext-criticmarkup-performance-measurements-v6",
+  "schema": "marktext-criticmarkup-performance-measurements-v7",
   "status": "awaiting-raw-runs",
   "baselineCommit": "43bd8b77795fb27b1a9512737c000f7362031ea0",
   "targetManifest": {

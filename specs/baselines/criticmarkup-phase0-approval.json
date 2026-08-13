@@ -122,7 +122,7 @@
     {
       "id": "performance-measurements",
       "path": "specs/baselines/criticmarkup-performance-measurements.json",
-      "sha256": "ca06870a92f468d0b29f0298d04bf838c2b8bbc4634ec252ca1bd5abd00cda57"
+      "sha256": "7b71c781e4bf3256fcd271391cc67a566f7868f1129f3a284196e5a94918c580"
     },
     {
       "id": "salvage-baseline",
