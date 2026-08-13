@@ -28,18 +28,24 @@ describe('projected clipboard selection guard', () => {
     expect(observed).toHaveBeenCalledOnce()
   })
 
-  it('writes only a proven selection projection and keeps cut fail-closed', () => {
+  it('writes a proven Cut projection before invoking its document mutation', () => {
     const target = new EventTarget()
     const clipboard = new Map<string, string>()
+    const lifecycle: string[] = []
+    const onCut = vi.fn(() => { lifecycle.push('cut') })
     const clipboardData = {
-      setData: vi.fn((type: string, value: string) => clipboard.set(type, value))
+      setData: vi.fn((type: string, value: string) => {
+        lifecycle.push(type)
+        clipboard.set(type, value)
+      })
     }
     const state: {
       payload?: Readonly<{ text: string; html: string }>
     } = {}
     const uninstall = installProjectedSelectionClipboardGuard(
       target,
-      () => state.payload
+      () => state.payload,
+      onCut
     )
     const event = (type: 'copy' | 'cut'): Event => {
       const value = new Event(type, { bubbles: true, cancelable: true })
@@ -49,6 +55,9 @@ describe('projected clipboard selection guard', () => {
 
     expect(target.dispatchEvent(event('copy'))).toBe(false)
     expect(clipboardData.setData).not.toHaveBeenCalled()
+    expect(target.dispatchEvent(event('cut'))).toBe(false)
+    expect(clipboardData.setData).not.toHaveBeenCalled()
+    expect(onCut).not.toHaveBeenCalled()
 
     state.payload = { text: 'projected text', html: '<strong>projected</strong>' }
     expect(target.dispatchEvent(event('copy'))).toBe(false)
@@ -58,8 +67,14 @@ describe('projected clipboard selection guard', () => {
     ]))
 
     clipboardData.setData.mockClear()
+    lifecycle.length = 0
     expect(target.dispatchEvent(event('cut'))).toBe(false)
-    expect(clipboardData.setData).not.toHaveBeenCalled()
+    expect(clipboardData.setData.mock.calls).toEqual([
+      ['text/plain', 'projected text'],
+      ['text/html', '<strong>projected</strong>']
+    ])
+    expect(onCut).toHaveBeenCalledOnce()
+    expect(lifecycle).toEqual(['text/plain', 'text/html', 'cut'])
     uninstall()
   })
 })

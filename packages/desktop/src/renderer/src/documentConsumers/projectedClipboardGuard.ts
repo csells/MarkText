@@ -5,17 +5,18 @@ export interface ProjectedSelectionClipboardPayload {
 
 export function installProjectedSelectionClipboardGuard(
   target: EventTarget,
-  payload: () => ProjectedSelectionClipboardPayload | undefined
+  payload: () => ProjectedSelectionClipboardPayload | undefined,
+  onCut?: () => void
 ): () => void {
   const guard = (event: Event): void => {
     event.preventDefault()
     event.stopImmediatePropagation()
-    if (event.type !== 'copy') return
     const projected = payload()
     const clipboardData = (event as ClipboardEvent).clipboardData
     if (projected === undefined || clipboardData === null) return
     clipboardData.setData('text/plain', projected.text)
     clipboardData.setData('text/html', projected.html)
+    if (event.type === 'cut') onCut?.()
   }
   target.addEventListener('copy', guard, { capture: true })
   target.addEventListener('cut', guard, { capture: true })
