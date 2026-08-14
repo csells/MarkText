@@ -85,7 +85,7 @@ export interface CriticMarkupRawPerformanceRunRef
 }
 
 export interface CriticMarkupPerformanceMeasurementManifest {
-  schema: 'marktext-criticmarkup-performance-measurements-v11'
+  schema: 'marktext-criticmarkup-performance-measurements-v12'
   status: 'awaiting-raw-runs' | 'measured-unratified'
   baselineCommit: string
   targetManifest: CriticMarkupPerformanceArtifactRef
@@ -117,18 +117,18 @@ interface CriticMarkupRawPerformanceRunBase {
   }>
 }
 
-export interface CriticMarkupUpstreamRawPerformanceRunV10
+export interface CriticMarkupUpstreamRawPerformanceRunV11
   extends CriticMarkupRawPerformanceRunBase {
-  schema: 'marktext-criticmarkup-raw-performance-run-v10'
+  schema: 'marktext-criticmarkup-raw-performance-run-v11'
   provenance: CriticMarkupUpstreamPerformanceProvenance
   metricDefinitions: Record<CommonMetric, string>
 }
 
 export type CriticMarkupPerformanceSurface = 'wysiwyg' | 'source'
 
-export interface CriticMarkupCoreRawPerformanceRunV12
+export interface CriticMarkupCoreRawPerformanceRunV13
   extends Omit<CriticMarkupRawPerformanceRunBase, 'implementation' | 'documents'> {
-  schema: 'marktext-criticmarkup-raw-performance-run-v12'
+  schema: 'marktext-criticmarkup-raw-performance-run-v13'
   implementation: 'core-candidate'
   surfaces: CriticMarkupPerformanceSurface[]
   provenance: CriticMarkupCorePerformanceProvenance
@@ -162,7 +162,7 @@ export interface CriticMarkupCorePerformanceProvenance {
   measurementBoundary: 'core-authority-browser-compositor-v6'
   presentationBoundary: 'electron-webcontents-capture-page-transparent-v2'
   launchBoundary: 'playwright-electron-packaged-transparent-v3'
-  windowPresentationPolicy: 'transparent-render-active-inactive-v5'
+  windowPresentationPolicy: 'transparent-render-active-inactive-v6'
   windowPresentationPlatform: 'darwin'
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
   sampleLifecycle: typeof PERFORMANCE_SAMPLE_LIFECYCLE
@@ -191,7 +191,7 @@ export interface CriticMarkupUpstreamPerformanceProvenance {
   measurementBoundary: 'external-browser-compositor-v4'
   presentationBoundary: 'electron-webcontents-capture-page-transparent-v2'
   launchBoundary: 'external-inspector-transparent-render-active-v3'
-  windowPresentationPolicy: 'transparent-render-active-inactive-v5'
+  windowPresentationPolicy: 'transparent-render-active-inactive-v6'
   windowPresentationPlatform: 'darwin'
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
   sampleLifecycle: typeof PERFORMANCE_SAMPLE_LIFECYCLE
@@ -209,11 +209,11 @@ export interface CriticMarkupPerformanceAuthoritySamples {
 }
 
 export type CriticMarkupRawPerformanceRun =
-  | CriticMarkupUpstreamRawPerformanceRunV10
-  | CriticMarkupCoreRawPerformanceRunV12
+  | CriticMarkupUpstreamRawPerformanceRunV11
+  | CriticMarkupCoreRawPerformanceRunV13
 
 interface PerformanceTargets {
-  schema: 'marktext-criticmarkup-performance-targets-v8'
+  schema: 'marktext-criticmarkup-performance-targets-v9'
   status: 'proposed-unratified' | 'ratified'
   representativeDocuments: { schema: string, path: string }
   environment: Record<string, string>
@@ -692,7 +692,7 @@ const validateUpstreamProvenance = (
   }
   if (
     provenance.windowPresentationPolicy !==
-      'transparent-render-active-inactive-v5'
+      'transparent-render-active-inactive-v6'
   ) {
     throw new Error(`${label} provenance window presentation policy is invalid`)
   }
@@ -817,7 +817,7 @@ const validateCoreProvenance = (
   }
   if (
     provenance.windowPresentationPolicy !==
-      'transparent-render-active-inactive-v5'
+      'transparent-render-active-inactive-v6'
   ) {
     throw new Error(`${label} provenance window presentation policy is invalid`)
   }
@@ -840,8 +840,8 @@ const validateRawRun = (
 ): void => {
   const raw = requireRecord(value, `Raw performance run ${ref.id}`)
   const expectedSchema = ref.implementation === 'core-candidate'
-    ? 'marktext-criticmarkup-raw-performance-run-v12'
-    : 'marktext-criticmarkup-raw-performance-run-v10'
+    ? 'marktext-criticmarkup-raw-performance-run-v13'
+    : 'marktext-criticmarkup-raw-performance-run-v11'
   if (raw.schema !== expectedSchema) {
     throw new Error(`Raw performance run ${ref.id} schema is invalid`)
   }
@@ -899,7 +899,7 @@ const validateRawRun = (
     `Raw performance run ${ref.id}`
   )
   const declaredSurfaces = new Set<CriticMarkupPerformanceSurface>()
-  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v12') {
+  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v13') {
     validateCoreProvenance(
       raw.provenance,
       raw.buildCommit as string,
@@ -970,7 +970,7 @@ const validateRawRun = (
     if (document.sourceSha256 !== expected.sha256) {
       throw new Error(`Raw performance run ${ref.id} document digest is stale: ${id}`)
     }
-    if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v12') {
+    if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v13') {
       const surface = document.surface
       if (
         (surface !== 'wysiwyg' && surface !== 'source') ||
@@ -1015,7 +1015,7 @@ const validateRawRun = (
   if (missing.length > 0) {
     throw new Error(`Raw performance run ${ref.id} is missing documents: ${missing.join(', ')}`)
   }
-  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v12') {
+  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v13') {
     const usedSurfaces = new Set(raw.documents.map(document => (
       requireRecord(document, `Raw performance run ${ref.id} document`).surface
     )))
@@ -1032,7 +1032,7 @@ export const validateCriticMarkupPerformanceMeasurements = (
   repoRoot: string,
   manifest: CriticMarkupPerformanceMeasurementManifest
 ): void => {
-  if (manifest.schema !== 'marktext-criticmarkup-performance-measurements-v11') {
+  if (manifest.schema !== 'marktext-criticmarkup-performance-measurements-v12') {
     throw new Error('Performance measurement manifest schema is invalid')
   }
   if (
@@ -1172,8 +1172,8 @@ export const materializeCriticMarkupMeasuredPerformanceManifest = (
     }
     const typedImplementation = implementation as PerformanceImplementation
     const expectedSchema = typedImplementation === 'upstream-baseline'
-      ? 'marktext-criticmarkup-raw-performance-run-v10'
-      : 'marktext-criticmarkup-raw-performance-run-v12'
+      ? 'marktext-criticmarkup-raw-performance-run-v11'
+      : 'marktext-criticmarkup-raw-performance-run-v13'
     if (raw.schema !== expectedSchema) {
       throw new Error(`Raw performance evidence schema is invalid: ${rawPath}`)
     }

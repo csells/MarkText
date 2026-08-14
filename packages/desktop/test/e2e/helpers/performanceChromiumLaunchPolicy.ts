@@ -14,7 +14,7 @@ export const PERFORMANCE_CHROMIUM_SCHEDULING_POLICY =
   'hidden-unthrottled-rendering-v2' as const
 
 export const PERFORMANCE_WINDOW_PRESENTATION_POLICY =
-  'transparent-render-active-inactive-v5' as const
+  'transparent-render-active-inactive-v6' as const
 
 export interface PerformanceWindowPresentationState {
   readonly windowNumber: number
@@ -24,6 +24,8 @@ export interface PerformanceWindowPresentationState {
   readonly focusable: boolean
   readonly alwaysOnTop: boolean
   readonly appActive: boolean
+  readonly visibleOnAllWorkspaces: boolean
+  readonly hiddenInMissionControl: boolean
   readonly title: string
   readonly bounds: Readonly<{
     readonly x: number
@@ -173,13 +175,20 @@ export function installPerformanceWindowScheduling(
       typeof window.setOpacity !== 'function' ||
       typeof window.setFocusable !== 'function' ||
       typeof window.setIgnoreMouseEvents !== 'function' ||
-      typeof window.setHiddenInMissionControl !== 'function'
+      typeof window.setHiddenInMissionControl !== 'function' ||
+      typeof window.setVisibleOnAllWorkspaces !== 'function' ||
+      typeof window.isVisibleOnAllWorkspaces !== 'function' ||
+      typeof window.isHiddenInMissionControl !== 'function'
     ) return false
     if (!disableWindowThrottling(window)) return false
     window.setOpacity(0)
     window.setFocusable(false)
     window.setIgnoreMouseEvents(true)
     window.setHiddenInMissionControl(true)
+    window.setVisibleOnAllWorkspaces(true, {
+      visibleOnFullScreen: true,
+      skipTransformProcessType: true
+    })
     if (typeof window.setSkipTaskbar === 'function') window.setSkipTaskbar(true)
     return true
   }
@@ -213,6 +222,8 @@ export function installPerformanceWindowScheduling(
       focusable: window.isFocusable(),
       alwaysOnTop: window.isAlwaysOnTop(),
       appActive: app.isActive(),
+      visibleOnAllWorkspaces: window.isVisibleOnAllWorkspaces(),
+      hiddenInMissionControl: window.isHiddenInMissionControl(),
       title: window.getTitle(),
       bounds: Object.freeze(window.getBounds())
     })
@@ -259,7 +270,8 @@ export function installPerformanceWindowScheduling(
       const state = inspectWindow(window)
       if (
         !state.visible || state.opacity !== 0 || state.focused ||
-        state.focusable || state.alwaysOnTop || state.appActive
+        state.focusable || state.alwaysOnTop || state.appActive ||
+        !state.visibleOnAllWorkspaces || !state.hiddenInMissionControl
       ) {
         throw new Error(
           `Performance window did not settle inactive: ${JSON.stringify(state)}`
@@ -271,6 +283,10 @@ export function installPerformanceWindowScheduling(
     close: (targetId: string) => {
       const window = exactWindow(targetId)
       window.hide()
+      window.setVisibleOnAllWorkspaces(false, {
+        visibleOnFullScreen: false,
+        skipTransformProcessType: true
+      })
       window.setOpacity(1)
       window.setFocusable(true)
       window.setIgnoreMouseEvents(false)
@@ -307,6 +323,8 @@ export const assertTransparentRenderActiveInactive: (
     !Number.isSafeInteger(state.windowNumber) || state.windowNumber < 1 ||
     state.focused !== false || state.focusable !== false ||
     state.alwaysOnTop !== false || state.appActive !== false ||
+    state.visibleOnAllWorkspaces !== true ||
+    state.hiddenInMissionControl !== true ||
     typeof state.title !== 'string' ||
     state.bounds == null ||
     !Number.isFinite(state.bounds.x) || !Number.isFinite(state.bounds.y) ||
