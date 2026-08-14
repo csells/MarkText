@@ -172,6 +172,14 @@ run. Application launch, editor bootstrap, application close, and profile cleanu
 overhead outside every timed metric; no sample may reuse a pooled process, browser context, or
 profile.
 
+Observation order is `warmup-then-measured-rotating-round-robin-v1`: all warmup rounds run before
+all measured rounds; each representative document runs exactly once per round, and the first
+document rotates by one position continuously across rounds and across the phase boundary. This
+deterministic rotating round-robin limits fixed document/time-order confounding but does not
+eliminate temporal, thermal, cache, hardware, or environment drift. Mandatory time-ordered drift
+diagnostics are required for every document and metric. No drift pass/fail threshold is defined
+before owner review and ratification; the protocol does not invent one.
+
 Required measurements are:
 
 - captured browser input to the exact speculative DOM checkpoint and one Electron `WebContents.capturePage` call with `stayHidden` and `stayAwake` while the exact macOS measurement window is render-active but opacity-zero, nonfocusable, noninteractive, inactive, and not frontmost, immediately followed by retained-state validation; this is a captured compositor-surface upper bound, while the post-capture checkpoint proves only that view state was retained—not screenshot pixel equality, physical display, vsync, or next-frame presentation;

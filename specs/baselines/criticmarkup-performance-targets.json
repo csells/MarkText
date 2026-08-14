@@ -1,5 +1,5 @@
 {
-  "schema": "marktext-criticmarkup-performance-targets-v5",
+  "schema": "marktext-criticmarkup-performance-targets-v6",
   "status": "proposed-unratified",
   "ratificationBasis": null,
   "representativeDocuments": {
@@ -15,8 +15,9 @@
     "warmupSamples": 20,
     "measuredSamples": 200,
     "sampleLifecycle": "fresh-application-profile-per-observation-v1",
+    "observationSchedule": "warmup-then-measured-rotating-round-robin-v1",
     "percentiles": [50, 95, 99],
-    "scenarios": "Run every Phase 1A scenario on every representative document; report each distribution separately without pooling documents. Start a fresh application with a fresh profile for every observation. Application launch, editor bootstrap, application close, and profile cleanup occur outside every timed metric."
+    "scenarios": "Run every Phase 1A scenario on every representative document; report each distribution separately without pooling documents. Start a fresh application with a fresh profile for every observation. Run all warmup rounds before measured rounds; execute every representative document once per round and rotate the first document by one position continuously across round and phase boundaries. This deterministic rotating round-robin limits fixed document/time-order confounding but does not eliminate temporal, thermal, or environment drift. Report mandatory time-ordered drift diagnostics for every document and metric; no pass/fail threshold is defined before owner ratification. Application launch, editor bootstrap, application close, and profile cleanup occur outside every timed metric."
   },
   "metrics": {
     "t_event": {

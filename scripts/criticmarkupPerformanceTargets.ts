@@ -11,6 +11,8 @@ const REQUIRED_METRICS = [
 
 export const PERFORMANCE_SAMPLE_LIFECYCLE =
   'fresh-application-profile-per-observation-v1' as const
+export const PERFORMANCE_OBSERVATION_SCHEDULE =
+  'warmup-then-measured-rotating-round-robin-v1' as const
 
 type RequiredMetric = typeof REQUIRED_METRICS[number]
 
@@ -36,7 +38,7 @@ const positiveInteger = (value: unknown, label: string): void => {
 /** Validates the human-owned Phase 0 measurement protocol and target record. */
 export function validateCriticMarkupPerformanceTargets(value: unknown): void {
   const manifest = recordOf(value, 'Performance target manifest')
-  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v5') {
+  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v6') {
     throw new Error('Performance target manifest schema is unsupported')
   }
   if (manifest.status !== 'proposed-unratified' && manifest.status !== 'ratified') {
@@ -62,6 +64,11 @@ export function validateCriticMarkupPerformanceTargets(value: unknown): void {
       'Sampling sample lifecycle must use a fresh application profile per observation'
     )
   }
+  if (sampling.observationSchedule !== PERFORMANCE_OBSERVATION_SCHEDULE) {
+    throw new Error(
+      'Sampling observation schedule must use warmup then measured rotating round robin'
+    )
+  }
   if (
     !Array.isArray(sampling.percentiles) ||
     sampling.percentiles.length === 0 ||
@@ -76,11 +83,11 @@ export function validateCriticMarkupPerformanceTargets(value: unknown): void {
   nonEmptyString(sampling.scenarios, 'Sampling scenario rule')
   if (
     typeof sampling.scenarios !== 'string' ||
-    !/fresh application.*fresh profile.*every observation.*launch.*bootstrap.*cleanup.*outside.*timed metric/iu
+    !/fresh application.*fresh profile.*every observation.*rotat.*round-robin.*drift diagnostic.*no.*threshold.*launch.*bootstrap.*cleanup.*outside.*timed metric/iu
       .test(sampling.scenarios)
   ) {
     throw new Error(
-      'Sampling scenarios must define fresh per-observation isolation and exclude launch, bootstrap, and cleanup from timed metrics'
+      'Sampling scenarios must define fresh isolation, rotating order, threshold-free drift diagnostics, and metric exclusions'
     )
   }
 
