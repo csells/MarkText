@@ -4,20 +4,396 @@ import { describe, expect, it } from 'vitest'
 
 import {
   activateInstalledPerformanceWindow,
+  awaitMacWindowServerPresentationConvergence,
   assertMacWindowServerTransparentRenderActive,
   assertTransparentRenderActiveInactive,
   closeInstalledPerformanceWindow,
   firstWindowWithPerformanceScheduling,
+  MacWindowServerPresentationConvergenceError,
   PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
   PERFORMANCE_CHROMIUM_SCHEDULING_SWITCHES,
   PERFORMANCE_WINDOW_PRESENTATION_POLICY,
   PERFORMANCE_WINDOW_SCHEDULING_INSTALLER_SOURCE,
   queryMacWindowServerPresentation,
+  queryMacWindowServerPresentationSnapshot,
   inspectInstalledPerformanceWindow,
   withPerformanceChromiumScheduling
 } from '../../e2e/helpers/performanceChromiumLaunchPolicy'
 
 describe('hidden performance Chromium launch policy', () => {
+  it('waits for two exact paired native matches after a transient Space translation', async() => {
+    const electronState = Object.freeze({
+      windowNumber: 60_506,
+      visible: true,
+      opacity: 0,
+      focused: false,
+      focusable: false,
+      alwaysOnTop: false,
+      appActive: false,
+      title: 'Untitled-1',
+      bounds: Object.freeze({ x: 264, y: 130, width: 1_200, height: 800 })
+    })
+    const nativeBounds = [-54, 264, 264]
+    const calls: string[] = []
+
+    await expect(awaitMacWindowServerPresentationConvergence({
+      processId: 54_128,
+      inspectElectron: async() => {
+        calls.push('electron')
+        return electronState
+      },
+      inspectWindowServer: () => {
+        calls.push('native')
+        const x = nativeBounds.shift()
+        if (x === undefined) throw new Error('Unexpected native inspection')
+        return Object.freeze({
+          displayTopologySha256: 'a'.repeat(64),
+          windows: Object.freeze([Object.freeze({
+            windowNumber: 60_506,
+            ownerProcessId: 54_128,
+            title: 'Untitled-1',
+            bounds: Object.freeze({ x, y: 130, width: 1_200, height: 800 }),
+            alpha: 0,
+            layer: 0,
+            onScreen: true
+          })])
+        })
+      },
+      wait: async() => { calls.push('wait') },
+      now: () => 0
+    })).resolves.toEqual(electronState)
+    expect(calls).toEqual([
+      'electron', 'native', 'wait',
+      'electron', 'native', 'wait',
+      'electron', 'native'
+    ])
+  })
+
+  it('fails persistent origin mismatch with the complete bounded observation history', async() => {
+    const electronState = Object.freeze({
+      windowNumber: 60_506,
+      visible: true,
+      opacity: 0,
+      focused: false,
+      focusable: false,
+      alwaysOnTop: false,
+      appActive: false,
+      title: 'Untitled-1',
+      bounds: Object.freeze({ x: 264, y: 130, width: 1_200, height: 800 })
+    })
+    let thrown: unknown
+    try {
+      await awaitMacWindowServerPresentationConvergence({
+        processId: 54_128,
+        inspectElectron: async() => electronState,
+        inspectWindowServer: () => Object.freeze({
+          displayTopologySha256: 'a'.repeat(64),
+          windows: Object.freeze([Object.freeze({
+            windowNumber: 60_506,
+            ownerProcessId: 54_128,
+            title: 'Untitled-1',
+            bounds: Object.freeze({ x: -54, y: 130, width: 1_200, height: 800 }),
+            alpha: 0,
+            layer: 0,
+            onScreen: true
+          })])
+        }),
+        wait: async() => undefined,
+        now: () => 0
+      })
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(thrown).toBeInstanceOf(MacWindowServerPresentationConvergenceError)
+    expect((thrown as MacWindowServerPresentationConvergenceError).diagnostic)
+      .toMatchObject({
+        reason: 'readiness-exhausted',
+        history: Array.from({ length: 101 }, (_, index) => ({
+          attempt: index + 1,
+          outcome: 'origin-mismatch',
+          electronBounds: { x: 264, y: 130, width: 1_200, height: 800 },
+          nativeBounds: { x: -54, y: 130, width: 1_200, height: 800 }
+        }))
+      })
+    expect(Object.isFrozen(
+      (thrown as MacWindowServerPresentationConvergenceError).diagnostic.history
+    )).toBe(true)
+  })
+
+  it('keeps observing past sixteen transient samples through the readiness deadline', async() => {
+    const state = Object.freeze({
+      windowNumber: 60_506,
+      visible: true,
+      opacity: 0,
+      focused: false,
+      focusable: false,
+      alwaysOnTop: false,
+      appActive: false,
+      title: 'Untitled-1',
+      bounds: Object.freeze({ x: 264, y: 130, width: 1_200, height: 800 })
+    })
+    let elapsedMs = 0
+    let inspections = 0
+
+    await expect(awaitMacWindowServerPresentationConvergence({
+      processId: 54_128,
+      inspectElectron: async() => state,
+      inspectWindowServer: () => {
+        inspections += 1
+        return Object.freeze({
+          displayTopologySha256: 'a'.repeat(64),
+          windows: Object.freeze([Object.freeze({
+            windowNumber: 60_506,
+            ownerProcessId: 54_128,
+            title: 'Untitled-1',
+            bounds: Object.freeze({
+              x: inspections <= 20 ? -54 : 264,
+              y: 130,
+              width: 1_200,
+              height: 800
+            }),
+            alpha: 0,
+            layer: 0,
+            onScreen: true
+          })])
+        })
+      },
+      wait: async milliseconds => { elapsedMs += milliseconds },
+      now: () => elapsedMs
+    })).resolves.toEqual(state)
+    expect({ inspections, elapsedMs }).toEqual({
+      inspections: 22,
+      elapsedMs: 1_050
+    })
+  })
+
+  it('does not accept the second exact match after the readiness deadline', async() => {
+    const state = Object.freeze({
+      windowNumber: 81,
+      visible: true,
+      opacity: 0,
+      focused: false,
+      focusable: false,
+      alwaysOnTop: false,
+      appActive: false,
+      title: 'sample.md — MarkText',
+      bounds: Object.freeze({ x: 20, y: 30, width: 900, height: 700 })
+    })
+    const times = [0, 0, 0, 6_000]
+    const now = (): number => times.shift() ?? 6_000
+    let thrown: unknown
+    try {
+      await awaitMacWindowServerPresentationConvergence({
+        processId: 1_234,
+        inspectElectron: async() => state,
+        inspectWindowServer: () => Object.freeze({
+          displayTopologySha256: 'a'.repeat(64),
+          windows: Object.freeze([Object.freeze({
+            windowNumber: 81,
+            ownerProcessId: 1_234,
+            title: state.title,
+            bounds: state.bounds,
+            alpha: 0,
+            layer: 0,
+            onScreen: true
+          })])
+        }),
+        wait: async() => undefined,
+        now
+      })
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(thrown).toBeInstanceOf(MacWindowServerPresentationConvergenceError)
+    expect((thrown as MacWindowServerPresentationConvergenceError).diagnostic)
+      .toMatchObject({
+        reason: 'readiness-exhausted',
+        history: [
+          { attempt: 1, elapsedMs: 0, outcome: 'match' },
+          { attempt: 2, elapsedMs: 6_000, outcome: 'match' }
+        ]
+      })
+  })
+
+  it('fails closed when Electron logical bounds change during native convergence', async() => {
+    const electronX = [264, 300]
+    const nativeX = [-54, 300]
+    const next = (values: number[], label: string): number => {
+      const value = values.shift()
+      if (value === undefined) throw new Error(`Unexpected ${label} inspection`)
+      return value
+    }
+    let thrown: unknown
+    try {
+      await awaitMacWindowServerPresentationConvergence({
+        processId: 54_128,
+        inspectElectron: async() => Object.freeze({
+          windowNumber: 60_506,
+          visible: true,
+          opacity: 0,
+          focused: false,
+          focusable: false,
+          alwaysOnTop: false,
+          appActive: false,
+          title: 'Untitled-1',
+          bounds: Object.freeze({
+            x: next(electronX, 'Electron'),
+            y: 130,
+            width: 1_200,
+            height: 800
+          })
+        }),
+        inspectWindowServer: () => Object.freeze({
+          displayTopologySha256: 'a'.repeat(64),
+          windows: Object.freeze([Object.freeze({
+            windowNumber: 60_506,
+            ownerProcessId: 54_128,
+            title: 'Untitled-1',
+            bounds: Object.freeze({
+              x: next(nativeX, 'native'),
+              y: 130,
+              width: 1_200,
+              height: 800
+            }),
+            alpha: 0,
+            layer: 0,
+            onScreen: true
+          })])
+        }),
+        wait: async() => undefined,
+        now: () => 0
+      })
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(thrown).toBeInstanceOf(MacWindowServerPresentationConvergenceError)
+    expect((thrown as MacWindowServerPresentationConvergenceError).diagnostic)
+      .toMatchObject({
+        reason: 'electron-state-changed',
+        history: [
+          { attempt: 1, outcome: 'origin-mismatch' },
+          {
+            attempt: 2,
+            outcome: 'electron-state-changed',
+            electronBounds: { x: 300 },
+            nativeBounds: { x: 300 }
+          }
+        ]
+      })
+  })
+
+  it('fails closed when native display topology changes during convergence', async() => {
+    const topology = ['a'.repeat(64), 'b'.repeat(64)]
+    const nextTopology = (): string => {
+      const value = topology.shift()
+      if (value === undefined) throw new Error('Unexpected topology inspection')
+      return value
+    }
+    const state = Object.freeze({
+      windowNumber: 81,
+      visible: true,
+      opacity: 0,
+      focused: false,
+      focusable: false,
+      alwaysOnTop: false,
+      appActive: false,
+      title: 'sample.md — MarkText',
+      bounds: Object.freeze({ x: 20, y: 30, width: 900, height: 700 })
+    })
+    let thrown: unknown
+    try {
+      await awaitMacWindowServerPresentationConvergence({
+        processId: 1_234,
+        inspectElectron: async() => state,
+        inspectWindowServer: () => Object.freeze({
+          displayTopologySha256: nextTopology(),
+          windows: Object.freeze([Object.freeze({
+            windowNumber: 81,
+            ownerProcessId: 1_234,
+            title: state.title,
+            bounds: state.bounds,
+            alpha: 0,
+            layer: 0,
+            onScreen: true
+          })])
+        }),
+        wait: async() => undefined,
+        now: () => 0
+      })
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(thrown).toBeInstanceOf(MacWindowServerPresentationConvergenceError)
+    expect((thrown as MacWindowServerPresentationConvergenceError).diagnostic)
+      .toMatchObject({
+        reason: 'display-topology-changed',
+        history: [
+          { attempt: 1, outcome: 'match', displayTopologySha256: 'a'.repeat(64) },
+          {
+            attempt: 2,
+            outcome: 'display-topology-changed',
+            displayTopologySha256: 'b'.repeat(64)
+          }
+        ]
+      })
+  })
+
+  it('never waits through a native identity or non-origin invariant violation', async() => {
+    const state = Object.freeze({
+      windowNumber: 81,
+      visible: true,
+      opacity: 0,
+      focused: false,
+      focusable: false,
+      alwaysOnTop: false,
+      appActive: false,
+      title: 'sample.md — MarkText',
+      bounds: Object.freeze({ x: 20, y: 30, width: 900, height: 700 })
+    })
+    const exact = Object.freeze({
+      windowNumber: 81,
+      ownerProcessId: 1_234,
+      title: state.title,
+      bounds: state.bounds,
+      alpha: 0,
+      layer: 0,
+      onScreen: true
+    })
+    const invalidRows = [
+      [],
+      [exact, exact],
+      [{ ...exact, ownerProcessId: 9_999 }],
+      [{ ...exact, title: 'other.md — MarkText' }],
+      [{ ...exact, bounds: { ...state.bounds, width: 901 } }],
+      [{ ...exact, alpha: 0.01 }],
+      [{ ...exact, layer: 1 }],
+      [{ ...exact, onScreen: false }]
+    ]
+
+    for (const windows of invalidRows) {
+      let inspections = 0
+      let waits = 0
+      await expect(awaitMacWindowServerPresentationConvergence({
+        processId: 1_234,
+        inspectElectron: async() => state,
+        inspectWindowServer: () => {
+          inspections += 1
+          return Object.freeze({
+            displayTopologySha256: 'a'.repeat(64),
+            windows: Object.freeze(windows)
+          })
+        },
+        wait: async() => { waits += 1 },
+        now: () => 0
+      })).rejects.toThrow(/WindowServer presentation invariant failed/i)
+      expect({ inspections, waits }).toEqual({ inspections: 1, waits: 0 })
+    }
+  })
+
   it('deactivates, restores, and settles the exact transparent window without focus', async() => {
     const calls: string[] = []
     let active = true
@@ -88,7 +464,7 @@ describe('hidden performance Chromium launch policy', () => {
     const state = await lifecycle.activate('renderer-target-7')
 
     expect(PERFORMANCE_WINDOW_PRESENTATION_POLICY)
-      .toBe('transparent-render-active-inactive-v3')
+      .toBe('transparent-render-active-inactive-v4')
     expect(calls).toEqual([
       'policy:accessory',
       'schedule:false',
@@ -558,6 +934,51 @@ describe('hidden performance Chromium launch policy', () => {
     expect(calls[0].arguments[1]).toContain('.optionAll')
     expect(calls[0].arguments[1]).not.toContain('.optionOnScreenOnly')
     expect(calls[0].arguments[1]).not.toContain('rawRows.compactMap')
+  })
+
+  it('authenticates the active native display topology with each WindowServer query', () => {
+    const calls: string[][] = []
+    const snapshot = queryMacWindowServerPresentationSnapshot(1234, (
+      _executable,
+      arguments_
+    ) => {
+      calls.push([...arguments_])
+      return JSON.stringify({
+        windows: [{
+          windowNumber: 82,
+          ownerProcessId: 1234,
+          title: 'sample.md — MarkText',
+          bounds: { x: 20, y: 30, width: 900, height: 700 },
+          alpha: 0,
+          layer: 0,
+          onScreen: true
+        }],
+        displayTopology: [{
+          displayId: 1,
+          bounds: { x: 0, y: 0, width: 1_728, height: 1_117 },
+          pixelsWide: 3_456,
+          pixelsHigh: 2_234
+        }]
+      })
+    })
+
+    expect(snapshot).toEqual({
+      displayTopologySha256:
+        'a7a53057036c5c93ef413aabff5298caaefae4253f6da78317b9697b06e43706',
+      windows: [{
+        windowNumber: 82,
+        ownerProcessId: 1234,
+        title: 'sample.md — MarkText',
+        bounds: { x: 20, y: 30, width: 900, height: 700 },
+        alpha: 0,
+        layer: 0,
+        onScreen: true
+      }]
+    })
+    expect(calls[0]?.[1]).toContain('CGGetActiveDisplayList')
+    expect(calls[0]?.at(-1)).toBe('1234')
+    expect(Object.isFrozen(snapshot)).toBe(true)
+    expect(Object.isFrozen(snapshot.windows)).toBe(true)
   })
 
   it('reports one bounded frozen snapshot of only the run-owned WindowServer candidates', () => {

@@ -22,6 +22,7 @@ import type { CoreAuthorityPerformanceSurface } from './helpers/coreAuthorityPer
 import { reportCoreAuthorityPerformance } from './helpers/coreAuthorityPerformanceReport'
 import {
   activateInstalledPerformanceWindow,
+  awaitMacWindowServerPresentationConvergence,
   assertMacWindowServerPresentation,
   closeInstalledPerformanceWindow,
   firstWindowWithPerformanceScheduling,
@@ -618,22 +619,22 @@ test.describe('installed Core authority raw performance producer', () => {
               await waitForEditor(page, 60_000)
               await waitForMenuReady(app, 60_000)
               await expectInstalledArtifactCommit(page)
-              const initialWindowState = await inspectInstalledPerformanceWindow(
-                app,
-                targetId
-              )
+              const preparedApp = app
+              const preparedTargetId = targetId
               expectEditorNotFrontmost(app)
-              assertMacWindowServerPresentation(
-                applicationProcessId,
-                initialWindowState
-              )
+              await awaitMacWindowServerPresentationConvergence({
+                processId: applicationProcessId,
+                inspectElectron: () => inspectInstalledPerformanceWindow(
+                  preparedApp,
+                  preparedTargetId
+                )
+              })
+              expectEditorNotFrontmost(app)
               expect(await page.evaluate(() =>
                 window.electron.process.env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
               )).toBeUndefined()
               await assertBlankCorePerformanceBootstrap(page)
               await closeActiveTab(page)
-              const preparedApp = app
-              const preparedTargetId = targetId
               const capturePage = () => captureInstalledElectronHiddenPage(
                 preparedApp,
                 preparedTargetId

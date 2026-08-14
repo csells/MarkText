@@ -1,6 +1,9 @@
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import * as performanceMeasurements from '../../../../../scripts/criticmarkupPerformanceMeasurements'
 
 import {
   type CriticMarkupParityBaseline,
@@ -147,6 +150,8 @@ const preferenceItemIds = [
 ] as const
 
 describe('CriticMarkup Phase 0 review proposal', () => {
+  afterEach(() => vi.restoreAllMocks())
+
   it('requires an exact Git-backed oracle classification for every parity item', () => {
     const proposal: CriticMarkupParityOracleProposal = {
       schema: 'marktext-criticmarkup-parity-oracle-proposal-v1',
@@ -299,6 +304,47 @@ describe('CriticMarkup Phase 0 review proposal', () => {
       .toThrow(/cannot be ratified while owner decisions are pending/)
   })
 
+  it('rejects an approved performance decision without complete green evidence', () => {
+    const falsePerformanceApproval = structuredClone(approval)
+    const performanceDecision = falsePerformanceApproval.decisions.find(
+      decision => decision.id === 'performance-targets'
+    )
+    if (performanceDecision === undefined) {
+      throw new Error('Performance target decision is missing')
+    }
+    performanceDecision.status = 'approved'
+    performanceDecision.decidedBy = 'Synthetic owner'
+    performanceDecision.decidedAt = '2026-08-13T22:00:00.000Z'
+    performanceDecision.rationale = 'Synthetic approval without evidence'
+
+    expect(() => validateCriticMarkupPhase0ApprovalProposal(
+      repoRoot,
+      falsePerformanceApproval
+    )).toThrow(/approved performance targets must reference.*calibration report/i)
+  })
+
+  it('rejects approved performance evidence for a different Phase 0 baseline', () => {
+    const mismatched = structuredClone(approval)
+    mismatched.baselineCommit = execFileSync(
+      'git',
+      ['-C', repoRoot, 'rev-parse', 'HEAD'],
+      { encoding: 'utf8' }
+    ).trim()
+    const performanceDecision = mismatched.decisions.find(
+      decision => decision.id === 'performance-targets'
+    )
+    if (performanceDecision === undefined) {
+      throw new Error('Performance target decision is missing')
+    }
+    performanceDecision.status = 'approved'
+    performanceDecision.decidedBy = 'Synthetic owner'
+    performanceDecision.decidedAt = '2026-08-14T08:00:00.000Z'
+    performanceDecision.rationale = 'Synthetic cross-baseline approval attack.'
+
+    expect(() => validateCriticMarkupPhase0ApprovalProposal(repoRoot, mismatched))
+      .toThrow(/performance measurement baseline must equal the Phase 0 baseline/i)
+  })
+
   it('requires the approval record to pin full Git commit identities', () => {
     const abbreviated = structuredClone(approval)
     abbreviated.evidenceCommit = approval.evidenceCommit.slice(0, 12)
@@ -326,8 +372,22 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     expect(finalSalvageOverlay.assets).toEqual([])
   })
 
-  it('deterministically materializes a synthetic ratified packet', () => {
+  it('deterministically materializes dispositions after a separately green gate', () => {
+    const performanceGate = vi.spyOn(
+      performanceMeasurements,
+      'requireCriticMarkupPerformanceEvidenceForRatification'
+    ).mockReturnValue(undefined as never)
     const ratified = structuredClone(approval)
+    const performanceManifestEvidence = ratified.evidence.find(
+      evidence => evidence.id === 'performance-measurements'
+    )
+    if (performanceManifestEvidence === undefined) {
+      throw new Error('Performance measurement evidence is missing')
+    }
+    ratified.evidence.push({
+      ...performanceManifestEvidence,
+      id: 'performance-calibration'
+    })
     ratified.status = 'ratified'
     ratified.decisions.forEach(decision => {
       decision.status = 'approved'
@@ -335,6 +395,13 @@ describe('CriticMarkup Phase 0 review proposal', () => {
       decision.decidedAt = '2026-08-13T00:00:00.000Z'
       decision.rationale = 'Synthetic approval used only to exercise materialization.'
     })
+    const performanceDecision = ratified.decisions.find(
+      decision => decision.id === 'performance-targets'
+    )
+    if (performanceDecision === undefined) {
+      throw new Error('Performance target decision is missing')
+    }
+    performanceDecision.evidenceRefs.push('performance-calibration')
 
     const materialized = materializeCriticMarkupPhase0Dispositions(repoRoot, {
       parityBaseline,
@@ -354,6 +421,14 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('retained-manual-oracle:')
     ))).toHaveLength(4)
+    expect(performanceGate).toHaveBeenCalledWith(
+      repoRoot,
+      expect.objectContaining({ baselineCommit: ratified.baselineCommit }),
+      {
+        path: performanceManifestEvidence.path,
+        sha256: performanceManifestEvidence.sha256
+      }
+    )
     expect(Object.fromEntries(materialized.parityRows.rows
       .filter(row => row.productionPathTest.startsWith('named-production-path-test:'))
       .map(row => [row.id, row.productionPathTest]))).toEqual({
