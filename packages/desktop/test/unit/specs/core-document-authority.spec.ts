@@ -5552,38 +5552,185 @@ describe('Core document session manager', () => {
     await manager.close('recover-history.md')
   })
 
-  it('requires a settled checkpoint before the accepted recovery journal exceeds policy', async() => {
-    const worker = new ActorBackedCoreWorker()
+  it('checkpoints the accepted recovery journal internally before it exceeds policy', async() => {
+    const workers: ActorBackedCoreWorker[] = []
     const manager = createCoreDocumentSessionManager({
-      createBinding: () => createEditorCoreBinding(createWorkerCorePort(worker))
+      createBinding() {
+        const worker = new ActorBackedCoreWorker()
+        workers.push(worker)
+        return createEditorCoreBinding(createWorkerCorePort(worker))
+      }
     })
     await manager.open({ documentId: 'bounded.md', source: '', lineEnding: '\n' })
-    const lease = manager.lease('bounded.md')
+    const oldLease = manager.lease('bounded.md')
     const journalLimit = Math.min(
       DOCUMENT_RESOURCE_POLICY_V1.maximumJournalIngress,
       DOCUMENT_RESOURCE_POLICY_V1.maximumJournalOutcomes
     )
-    for (let index = 0; index < journalLimit; index += 1) {
-      await expect(lease.binding.submit({
+    const suffixLength = 3
+    const finalSource = 'x'.repeat(journalLimit + suffixLength)
+    for (let index = 0; index < finalSource.length; index += 1) {
+      await expect(oldLease.binding.submit({
         edits: [{ start: index, end: index, insert: 'x' }],
         projections: []
       }).acknowledged).resolves.toMatchObject({ type: 'applied' })
     }
 
-    expect(() => lease.binding.submit({
-      edits: [{ start: journalLimit, end: journalLimit, insert: '!' }],
+    const oldWorker = workers[0]
+    if (oldWorker === undefined) throw new Error('Expected original Core Worker')
+    expect(oldWorker.requests.filter(
+      envelope => envelope.request.type === 'source-at-barrier'
+    )).toHaveLength(1)
+    oldWorker.holdApplyReplies = true
+    const faulted = oldLease.binding.submit({
+      edits: [{
+        start: finalSource.length,
+        end: finalSource.length,
+        insert: '!'
+      }],
       projections: []
-    })).toThrow('recovery journal requires a checkpoint')
-    await expect(manager.saveBarrier('bounded.md')).resolves.toMatchObject({
-      source: 'x'.repeat(journalLimit)
     })
-    await expect(lease.binding.submit({
+    oldWorker.fail('Core Worker crashed after internal checkpoint')
+    await expect(faulted.acknowledged).rejects.toThrow(
+      'crashed after internal checkpoint'
+    )
+
+    const replacement = await manager.recover(oldLease)
+    const recoveryWorker = workers[1]
+    if (recoveryWorker === undefined) throw new Error('Expected recovery Core Worker')
+    expect(recoveryWorker.requests.map(envelope => envelope.request)).toEqual([
+      expect.objectContaining({
+        type: 'open',
+        source: 'x'.repeat(journalLimit),
+        recoveryHistory: expect.objectContaining({
+          undo: expect.arrayContaining([expect.any(Object)])
+        })
+      }),
+      ...Array.from({ length: suffixLength }, (_, index) =>
+        expect.objectContaining({
+          type: 'apply',
+          edits: [{
+            start: journalLimit + index,
+            end: journalLimit + index,
+            insert: 'x'
+          }]
+        }))
+    ])
+    await expect(manager.saveBarrier('bounded.md')).resolves.toMatchObject({
+      source: finalSource
+    })
+
+    for (
+      let index = 0;
+      index < DOCUMENT_RESOURCE_POLICY_V1.maximumHistoryEntries;
+      index += 1
+    ) {
+      await expect(replacement.binding.submit({
+        kind: 'undo',
+        projections: []
+      }).acknowledged).resolves.toMatchObject({ type: 'applied' })
+    }
+    await expect(replacement.binding.submit({
+      kind: 'undo',
+      projections: []
+    }).acknowledged).resolves.toMatchObject({
+      type: 'rejected',
+      reason: 'history-empty'
+    })
+    await expect(manager.saveBarrier('bounded.md')).resolves.toMatchObject({
+      source: 'x'.repeat(
+        finalSource.length - DOCUMENT_RESOURCE_POLICY_V1.maximumHistoryEntries
+      )
+    })
+
+    await manager.handoff(replacement)
+    await manager.close('bounded.md')
+  })
+
+  it('fails maintenance closed without clearing its checkpoint or journal', async() => {
+    const workers: ActorBackedCoreWorker[] = []
+    const manager = createCoreDocumentSessionManager({
+      createBinding() {
+        const worker = new ActorBackedCoreWorker()
+        workers.push(worker)
+        return createEditorCoreBinding(createWorkerCorePort(worker))
+      }
+    })
+    await manager.open({
+      documentId: 'maintenance-failure.md',
+      source: '',
+      lineEnding: '\n'
+    })
+    const oldLease = manager.lease('maintenance-failure.md')
+    const journalLimit = Math.min(
+      DOCUMENT_RESOURCE_POLICY_V1.maximumJournalIngress,
+      DOCUMENT_RESOURCE_POLICY_V1.maximumJournalOutcomes
+    )
+    for (let index = 0; index < journalLimit - 1; index += 1) {
+      await expect(oldLease.binding.submit({
+        edits: [{ start: index, end: index, insert: 'x' }],
+        projections: []
+      }).acknowledged).resolves.toMatchObject({ type: 'applied' })
+    }
+
+    const oldWorker = workers[0]
+    if (oldWorker === undefined) throw new Error('Expected original Core Worker')
+    oldWorker.holdSourceReplies = true
+    const triggering = oldLease.binding.submit({
+      edits: [{
+        start: journalLimit - 1,
+        end: journalLimit - 1,
+        insert: 'x'
+      }],
+      projections: []
+    })
+    while (!oldWorker.requests.some(
+      envelope => envelope.request.type === 'source-at-barrier'
+    )) {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    }
+    const suffix = oldLease.binding.submit({
       edits: [{ start: journalLimit, end: journalLimit, insert: '!' }],
       projections: []
-    }).acknowledged).resolves.toMatchObject({ type: 'applied' })
+    })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    oldWorker.fail('automatic recovery maintenance failed')
+    await expect(triggering.acknowledged).resolves.toMatchObject({ type: 'applied' })
+    await expect(suffix.acknowledged).resolves.toMatchObject({ type: 'applied' })
+    expect(() => oldLease.binding.submit({
+      edits: [{
+        start: journalLimit + 1,
+        end: journalLimit + 1,
+        insert: '?'
+      }],
+      projections: []
+    })).toThrow('Worker recovery is required')
 
-    await manager.handoff(lease)
-    await manager.close('bounded.md')
+    const replacement = await manager.recover(oldLease)
+    const recoveryWorker = workers[1]
+    if (recoveryWorker === undefined) throw new Error('Expected recovery Core Worker')
+    const recoveryRequests = recoveryWorker.requests.map(
+      envelope => envelope.request
+    )
+    expect(recoveryRequests[0]).toMatchObject({
+      type: 'open',
+      source: '',
+      recoveryHistory: { undo: [], redo: [] }
+    })
+    expect(recoveryRequests.filter(request => request.type === 'apply'))
+      .toHaveLength(journalLimit + 1)
+    expect(recoveryRequests.at(-1)).toMatchObject({
+      type: 'apply',
+      edits: [{ start: journalLimit, end: journalLimit, insert: '!' }]
+    })
+    await expect(
+      manager.saveBarrier('maintenance-failure.md')
+    ).resolves.toMatchObject({
+      source: `${'x'.repeat(journalLimit)}!`
+    })
+
+    await manager.handoff(replacement)
+    await manager.close('maintenance-failure.md')
   })
 
   it('requires the current generation one live view lease for replacement', async() => {
