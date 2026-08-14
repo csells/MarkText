@@ -6,6 +6,37 @@
 >
 > **Upstream baseline:** `43bd8b77795fb27b1a9512737c000f7362031ea0`
 
+## Owner response
+
+Please check **Approve** or write an amendment for each non-performance decision below. These are
+product-owner decisions; the implementation agent will not infer them from passing tests. Leave
+`performance-targets` deferred: fresh upstream and Core raw runs plus the generated calibration
+report are still required before that decision is reviewable.
+
+- **Working baseline** — [ ] Approve `43bd8b77795fb27b1a9512737c000f7362031ea0` for this
+  validation interval. Amendment:
+- **Upstream oracle run** — [ ] Accept the recorded run with its explicit Muya toolbar failure,
+  teardown hang, and reproduced Electron burst-input loss preserved as baseline gaps. Amendment:
+- **Parity manifest** — [ ] Approve the proposed dispositions for all 829 items. Amendment:
+  - [ ] Treat the proved objective behavior as sufficient while leaving the subjective
+    clean/simple/distraction-free claim as an approved compatibility decision.
+  - [ ] Treat the 87 proved shortcuts as sufficient while leaving the subjective
+    writing-efficiency claim as an approved compatibility decision.
+  - [ ] Keep unshipped collaborative transport out of the compatibility scope.
+- **Language Profile 1 and ADRs** — [ ] Ratify the pinned Profile 1/conformance map and listed ADR
+  set. Amendment:
+- **Interaction matrix** — [ ] Approve the 25 expected product behaviors, including Add Comment
+  creating a Commented span. Amendment:
+- **Representative documents** — [ ] Approve the five hash-pinned documents and coverage labels.
+  Amendment:
+- **Salvage inventory** — [ ] Approve all 2,941 Git-lineage proposals: 41 import, 97 adapt, and
+  2,803 reject. Amendment:
+- **Performance targets** — Deferred pending authenticated measurements and calibration.
+
+Owner identity for the approval record:
+
+Rationale applying to the approved decisions (or add decision-specific rationale above):
+
 ## Current stop condition
 
 Performance-target ratification is not ready. The checked-in measurement manifest intentionally
