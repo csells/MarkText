@@ -211,6 +211,18 @@ const installedAuthorRows = installedAuthorCases.map(testCase => {
   return { row, testCase, actionOutcome: row.action.outcome }
 })
 
+const installedBulkResolutionCases = [{
+  decision: 'accept',
+  actionTestId: 'critic-review-accept-all',
+  expectedSource: 'A new B  C right\n'
+}, {
+  decision: 'reject',
+  actionTestId: 'critic-review-reject-all',
+  expectedSource: 'A  B old C left\n'
+}] as const
+
+const bulkResolutionSource = 'A {++new++} B {--old--} C {~~left~>right~~}\n'
+
 const installedBinary = (): string => {
   const configured = process.env.MARKTEXT_PACKAGED_APP
   if (configured === undefined || configured.trim().length === 0) {
@@ -566,6 +578,69 @@ test.describe('installed Core Review authority', () => {
           await expect(launched.page.getByTestId('critic-review-kind'))
             .toHaveText(testCase.reviewKind)
         }
+      } finally {
+        if (launched !== undefined) await launched.app.close()
+        fs.rmSync(root, { recursive: true, force: true })
+      }
+    })
+  }
+
+  for (const testCase of installedBulkResolutionCases) {
+    test(`bulk ${testCase.decision} is one installed Review history unit`, async() => {
+      const binary = installedBinary()
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-core-'))
+      const filePath = path.join(root, 'review.md')
+      const userDataDir = path.join(root, 'profile')
+      fs.writeFileSync(filePath, bulkResolutionSource, 'utf8')
+      let launched: { app: ElectronApplication, page: Page } | undefined
+      try {
+        launched = await launchInstalled(binary, userDataDir, filePath)
+        const { app, page } = launched
+        await expectEditorWindowHidden(app)
+        expectEditorNotFrontmost(app)
+        expect(await page.evaluate(() =>
+          window.electron.process.env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
+        )).toBeUndefined()
+
+        await expect(page.getByTestId('critic-review-kind')).toHaveText('addition')
+        const control = page.getByTestId(testCase.actionTestId)
+        await expect(control).toBeEnabled()
+        await control.click()
+        await page.evaluate(() => window.__marktextDocumentCore?.settled())
+        expect(await page.evaluate(() => window.__marktextDocumentCore?.latest()))
+          .toMatchObject({
+            result: 'resolve-all',
+            decision: testCase.decision,
+            outcome: { type: 'applied' }
+          })
+        await expect(page.getByTestId('critic-review-kind')).toHaveCount(0)
+
+        await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+        await expect.poll(() => fs.readFileSync(filePath, 'utf8'))
+          .toBe(testCase.expectedSource)
+
+        await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+        await page.evaluate(() => window.__marktextDocumentCore?.settled())
+        await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+        await expect.poll(() => fs.readFileSync(filePath, 'utf8'))
+          .toBe(bulkResolutionSource)
+        await expect(page.getByTestId('critic-review-kind')).toHaveText('addition')
+
+        await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
+        await page.evaluate(() => window.__marktextDocumentCore?.settled())
+        await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+        await expect.poll(() => fs.readFileSync(filePath, 'utf8'))
+          .toBe(testCase.expectedSource)
+        await expect(page.getByTestId('critic-review-kind')).toHaveCount(0)
+
+        await app.close()
+        launched = undefined
+
+        launched = await launchInstalled(binary, userDataDir, filePath)
+        await expectEditorWindowHidden(launched.app)
+        expectEditorNotFrontmost(launched.app)
+        expect(fs.readFileSync(filePath, 'utf8')).toBe(testCase.expectedSource)
+        await expect(launched.page.getByTestId('critic-review-kind')).toHaveCount(0)
       } finally {
         if (launched !== undefined) await launched.app.close()
         fs.rmSync(root, { recursive: true, force: true })
