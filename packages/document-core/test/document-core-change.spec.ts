@@ -1061,6 +1061,169 @@ describe('document-core semantic changes', () => {
     expect(afterReads.sourceMaterializations).toBe(beforeReads.sourceMaterializations)
   })
 
+  it('keeps inventory edits after unchanged global reference facts regional', () => {
+    const source = [
+      '[ref]',
+      '',
+      '[ref]: /url',
+      '',
+      'left {>>first word<<}',
+      '',
+      'middle {++visible++}',
+      '',
+      'right {>>second note<<}',
+      '',
+      'tail\n'
+    ].join('\n')
+    const editAt = source.indexOf('word')
+    const insert = 'WORDS!'
+    const nextSource = source.slice(0, editAt) + insert +
+      source.slice(editAt + 'word'.length)
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const first = opened.annotations[0]
+    const second = opened.annotations[2]
+    if (first?.kind !== 'comment' || second?.kind !== 'comment') {
+      throw new Error('Expected Comments after the global reference facts')
+    }
+    const before = inspectionOf(core)
+
+    const commit = core.apply(opened, [{
+      start: editAt,
+      end: editAt + 'word'.length,
+      insert
+    }], {
+      projections: [
+        'markup',
+        { name: 'comment', annotationRange: first.range },
+        { name: 'comment', annotationRange: second.range }
+      ]
+    })
+    const after = inspectionOf(core)
+    const markup = commit.change.projections[0]
+    const comments = commit.change.projections[1]
+    if (
+      markup?.name !== 'markup' || markup.scope !== 'regions' ||
+      comments?.name !== 'comment' || comments.scope !== 'regions'
+    ) {
+      throw new Error('Expected reference-independent regional replacements')
+    }
+
+    expect(markup.replacements).toHaveLength(1)
+    expect(comments.replacements).toHaveLength(2)
+    assertPortable(commit.change)
+    expect(commit.change.resynchronization).toBeUndefined()
+    expect(delta(after, before, 'regionalFastApplies')).toBe(1)
+    expect(delta(after, before, 'documentParses')).toBe(0)
+    expect(delta(after, before, 'documentParseSourceUnits')).toBe(0)
+    expect(delta(after, before, 'sourceMaterializations')).toBe(0)
+    expect(delta(after, before, 'sourceMaterializationOutputUnits')).toBe(0)
+    expect(delta(after, before, 'regionalInventoryCandidateRegionParses'))
+      .toBe(2)
+    expect(delta(after, before, 'regionalInventoryChangedLeaves')).toBe(1)
+
+    const freshCore = createDocumentCore()
+    const fresh = freshCore.open(nextSource)
+    const projection = core.project(commit.revision, 'markup')
+    const freshProjection = freshCore.project(fresh, 'markup')
+    expect(projection.events).toEqual(freshProjection.events)
+    expect(projection.syntax.ast).toEqual(freshProjection.syntax.ast)
+
+    const nextComments = commit.revision.annotations.filter(annotation =>
+      annotation.kind === 'comment'
+    )
+    const freshComments = fresh.annotations.filter(annotation =>
+      annotation.kind === 'comment'
+    )
+    expect(nextComments).toHaveLength(2)
+    expect(freshComments).toHaveLength(2)
+    const beforeLocalReads = inspectionOf(core)
+    for (const [index, comment] of nextComments.entries()) {
+      const projected = core.projectComment(commit.revision, comment)
+      const freshComment = freshComments[index]
+      if (freshComment === undefined) throw new Error('Expected fresh Comment')
+      const freshProjected = freshCore.projectComment(fresh, freshComment)
+      expect(projected.markdown).toBe(freshProjected.markdown)
+      expect(projected.ast).toEqual(freshProjected.ast)
+    }
+    const afterLocalReads = inspectionOf(core)
+    expect(afterLocalReads.documentParses).toBe(beforeLocalReads.documentParses)
+    expect(afterLocalReads.sourceMaterializations)
+      .toBe(beforeLocalReads.sourceMaterializations)
+  })
+
+  it('invalidates an inventory candidate that can bind a global definition', () => {
+    const source = [
+      '[new]: /new',
+      '',
+      'left {>>first note<<}',
+      '',
+      'middle {++visible++}',
+      '',
+      'right {>>second note<<}',
+      '',
+      'tail\n'
+    ].join('\n')
+    const editAt = source.indexOf('visible')
+    const edit = {
+      start: editAt,
+      end: editAt + 'visible'.length,
+      insert: '[new]'
+    }
+    const nextSource = applyExactSourceEdits(
+      source,
+      [edit],
+      'inventory reference dependency oracle'
+    )
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const first = opened.annotations[0]
+    const second = opened.annotations[2]
+    if (first?.kind !== 'comment' || second?.kind !== 'comment') {
+      throw new Error('Expected inventory Comments')
+    }
+    const before = inspectionOf(core)
+
+    const commit = core.apply(opened, [edit], {
+      projections: [
+        'markup',
+        { name: 'comment', annotationRange: first.range },
+        { name: 'comment', annotationRange: second.range }
+      ]
+    })
+    const after = inspectionOf(core)
+
+    expect(commit.change.projections).toEqual([
+      {
+        name: 'markup',
+        scope: 'document',
+        reason: 'definition-or-reference-facts'
+      },
+      {
+        name: 'comment',
+        scope: 'document',
+        targets: [first.range, second.range],
+        reason: 'definition-or-reference-facts'
+      }
+    ])
+    expect(commit.change.resynchronization).toEqual({
+      kind: 'source',
+      scope: 'document',
+      reason: 'definition-or-reference-facts',
+      source: nextSource
+    })
+    expect(delta(after, before, 'regionalFastApplies')).toBe(0)
+    expect(delta(after, before, 'documentParses')).toBe(1)
+    expect(delta(after, before, 'regionalInventoryRootsCommitted')).toBe(0)
+
+    const freshCore = createDocumentCore()
+    const fresh = freshCore.open(nextSource)
+    expect(core.project(commit.revision, 'markup').events)
+      .toEqual(freshCore.project(fresh, 'markup').events)
+    expect(core.project(commit.revision, 'markup').syntax.ast)
+      .toEqual(freshCore.project(fresh, 'markup').syntax.ast)
+  })
+
   it('falls back when an inventory Comment edit changes Display topology', () => {
     const source = 'head {++visible++}\n\nbefore {>>word<<} after\n\ntail\n'
     const editAt = source.indexOf('word')

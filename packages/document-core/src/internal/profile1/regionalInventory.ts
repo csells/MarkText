@@ -70,7 +70,10 @@ export interface RegionalInventoryAdmission {
 
 export interface RegionalInventoryFallback {
   readonly kind: 'fallback'
-  readonly reason: 'fixed-region-ineligible' | 'subscription-not-found'
+  readonly reason:
+    | 'definition-or-reference-facts'
+    | 'fixed-region-ineligible'
+    | 'subscription-not-found'
 }
 
 export interface RegionalInventoryResourceFailure {
@@ -164,6 +167,7 @@ interface InventoryValue extends RegionalInventory {
   readonly root: RegionTree
   readonly accountingUpperBound: number
   readonly logicalNodeLimit: number
+  readonly dependencyPrefixEnd: number
   readonly recorder: RegionalInventoryRecorder
 }
 
@@ -552,20 +556,61 @@ function inventoryValue(inventory: RegionalInventory): InventoryValue {
   return inventory as InventoryValue
 }
 
+/**
+ * Last source coordinate owned by document-wide reference resolution. Edits
+ * strictly after this prefix cannot change or shift any retained definition,
+ * reference, or footnote dependency fact.
+ */
+export function referenceDependencyPrefixEnd(
+  products: Profile1DocumentProducts
+): number {
+  let end = 0
+  const pending: MarkdownNode[] = [products.original.markdown.root]
+  while (pending.length > 0) {
+    const node = pending.pop()
+    if (node === undefined) break
+    if (
+      node.kind === 'definition' ||
+      node.kind === 'footnote-definition' ||
+      node.kind === 'footnote-reference' ||
+      typeof node.attributes['referenceLabel'] === 'string'
+    ) {
+      end = Math.max(end, node.range.end)
+    }
+    for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
+      pending.push(node.childAt(ordinal))
+    }
+  }
+  return end
+}
+
+/**
+ * A leaf-only parse cannot resolve a label against definitions retained in a
+ * different leaf. Fail closed when the bounded candidate contains the
+ * delimiter pair required by reference links, images, footnotes, or
+ * definitions; a document parse can then resolve the dependency exactly.
+ */
+function containsPotentialReferenceDependency(source: string): boolean {
+  const open = source.indexOf('[')
+  return open !== -1 && source.indexOf(']', open + 1) !== -1
+}
+
 export function createRegionalInventory(
   products: Profile1DocumentProducts,
   sourceLength: number,
   recorder: RegionalInventoryRecorder,
-  logicalNodeLimit: number = DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
+  logicalNodeLimit: number = DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes,
+  dependencyPrefixEnd: number = 0
 ): RegionalInventory | undefined {
   const retained = products.retainedIntrinsic
   if (
     !Number.isSafeInteger(logicalNodeLimit) || logicalNodeLimit < 0 ||
+    !Number.isSafeInteger(dependencyPrefixEnd) ||
+    dependencyPrefixEnd < 0 || dependencyPrefixEnd > sourceLength ||
     retained === undefined ||
     retained.sourceLength !== sourceLength ||
     retained.rootCount <= 1 ||
-    retained.diagnostics.length !== 0 ||
-    retained.referenceDefinitionCount !== 0
+    retained.diagnostics.length !== 0
   ) {
     return undefined
   }
@@ -716,6 +761,7 @@ export function createRegionalInventory(
       0
     ),
     logicalNodeLimit,
+    dependencyPrefixEnd,
     recorder
   })
 }
@@ -914,6 +960,15 @@ export function applyRegionalInventory(
   ) {
     return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
   }
+  if (
+    inventory.dependencyPrefixEnd !== 0 &&
+    edit.start <= inventory.dependencyPrefixEnd
+  ) {
+    return Object.freeze({
+      kind: 'fallback',
+      reason: 'definition-or-reference-facts'
+    })
+  }
   const start = locateBySource(inventory, edit.start)
   const lastOffset = edit.end === edit.start ? edit.start : edit.end - 1
   const end = locateBySource(inventory, lastOffset)
@@ -975,6 +1030,15 @@ export function applyRegionalInventory(
   if ((result.retainedIntrinsic?.safePoints.length ?? 0) !== 0) {
     return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
   }
+  if (
+    referenceDependencyPrefixEnd(result) !== 0 ||
+    containsPotentialReferenceDependency(nextWindow)
+  ) {
+    return Object.freeze({
+      kind: 'fallback',
+      reason: 'definition-or-reference-facts'
+    })
+  }
   const candidate = createLeaf(
     result,
     0,
@@ -1010,6 +1074,7 @@ export function applyRegionalInventory(
     accountingUpperBound:
       inventory.accountingUpperBound + candidateAccountingUnits,
     logicalNodeLimit: inventory.logicalNodeLimit,
+    dependencyPrefixEnd: inventory.dependencyPrefixEnd,
     recorder: inventory.recorder
   })
   const nextCommentLeaves = new Map<number, Readonly<{
