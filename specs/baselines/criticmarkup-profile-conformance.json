@@ -53,7 +53,7 @@
   ],
   "cases": [
     { "id": "case-P1", "operation": "parse", "input": "{++", "expectedObservable": { "complete": true, "source": "{++" }, "provenance": "Profile 1 P1", "status": "proposed-unreviewed" },
-    { "id": "case-P2", "operation": "parse-and-round-trip", "input": "﻿a\r\nb\rc\n", "expectedObservable": { "source": "﻿a\r\nb\rc\n" }, "provenance": "Profile 1 P2", "status": "proposed-unreviewed" },
+    { "id": "case-P2", "operation": "parse-and-round-trip", "input": "\ufeffa\r\nb\rc\n", "expectedObservable": { "source": "\ufeffa\r\nb\rc\n" }, "provenance": "Profile 1 P2", "status": "proposed-unreviewed" },
     { "id": "case-P3", "operation": "parse-and-project-revised", "input": "a {++b++} c", "expectedObservable": { "text": "a b c", "annotationCount": 1 }, "provenance": "Profile 1 P3", "status": "proposed-unreviewed" },
     { "id": "case-P4", "operation": "project-original-and-revised", "input": "a {~~old~>new~~} c", "expectedObservable": { "original": "a old c", "revised": "a new c" }, "provenance": "Profile 1 P4", "status": "proposed-unreviewed" },
     { "id": "case-CM1", "operation": "parse", "input": "{<del>x}", "expectedObservable": { "annotationCount": 0, "text": "{<del>x}" }, "provenance": "Profile 1 CM1", "status": "proposed-unreviewed" },

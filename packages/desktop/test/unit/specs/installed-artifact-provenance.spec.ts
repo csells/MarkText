@@ -40,12 +40,15 @@ describe('installed artifact provenance', () => {
     expect(runner).toContain('rev-parse --verify HEAD')
     expect(runner).toContain('TOOL_SHIM_DIR=')
     expect(runner).toContain(
+      // eslint-disable-next-line no-template-curly-in-string
       'corepack enable --install-directory "${TOOL_SHIM_DIR}" pnpm'
     )
+    // eslint-disable-next-line no-template-curly-in-string
     expect(runner).toContain('export PATH="${TOOL_SHIM_DIR}:${PATH}"')
     // Assertions quote shell parameter syntax, not TypeScript templates.
     // eslint-disable-next-line no-template-curly-in-string
     expect(runner).toContain('marktext-mac-${ARCH}-${VERSION}.dmg')
+    // eslint-disable-next-line no-template-curly-in-string
     expect(runner).toContain('hdiutil attach "${DMG}" -nobrowse -readonly')
     expect(runner).toContain('--project=installed')
   })
