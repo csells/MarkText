@@ -3,6 +3,7 @@ import { dirname, normalize, sep } from 'node:path'
 
 import {
   PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
+  PERFORMANCE_DISPLAY_SLEEP_POLICY,
   PERFORMANCE_WINDOW_PRESENTATION_POLICY
 } from './performanceChromiumLaunchPolicy'
 import {
@@ -61,6 +62,7 @@ export interface UpstreamBaselineBuildProvenance {
   readonly windowPresentationPolicy: typeof PERFORMANCE_WINDOW_PRESENTATION_POLICY
   readonly windowPresentationPlatform: 'darwin'
   readonly chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
+  readonly displaySleepPolicy: typeof PERFORMANCE_DISPLAY_SLEEP_POLICY
   readonly sampleLifecycle: typeof PERFORMANCE_SAMPLE_LIFECYCLE
   readonly applicationLaunchCount: number
   readonly uniqueProfileCount: number
@@ -118,12 +120,12 @@ interface UpstreamBaselinePerformanceRawRunBase {
 
 export interface UpstreamBaselinePerformanceRatificationRun
   extends UpstreamBaselinePerformanceRawRunBase {
-  readonly schema: 'marktext-criticmarkup-raw-performance-run-v11'
+  readonly schema: 'marktext-criticmarkup-raw-performance-run-v12'
 }
 
 export interface UpstreamBaselinePerformanceSmokeRun
   extends UpstreamBaselinePerformanceRawRunBase {
-  readonly schema: 'marktext-criticmarkup-raw-performance-smoke-v11'
+  readonly schema: 'marktext-criticmarkup-raw-performance-smoke-v12'
   readonly evidenceClass: 'smoke-non-ratifying'
 }
 
@@ -244,6 +246,9 @@ const validateProvenance = (
       PERFORMANCE_CHROMIUM_SCHEDULING_POLICY
   ) {
     throw new Error('Upstream Chromium scheduling provenance is invalid')
+  }
+  if (input.provenance.displaySleepPolicy !== PERFORMANCE_DISPLAY_SLEEP_POLICY) {
+    throw new Error('Upstream display sleep provenance is invalid')
   }
   if (input.provenance.sampleLifecycle !== PERFORMANCE_SAMPLE_LIFECYCLE) {
     throw new Error('Upstream sample lifecycle provenance is invalid')
@@ -410,11 +415,11 @@ export const createUpstreamBaselinePerformanceRawRun = (
   })
   return input.evidenceClass === 'ratification'
     ? Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-run-v11' as const,
+      schema: 'marktext-criticmarkup-raw-performance-run-v12' as const,
       ...base
     })
     : Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v11' as const,
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v12' as const,
       evidenceClass: 'smoke-non-ratifying' as const,
       ...base
     })
@@ -435,7 +440,7 @@ export const writeUpstreamBaselinePerformanceRawRun = (
   run: UpstreamBaselinePerformanceRawRun
 ): void => {
   if (
-    run.schema === 'marktext-criticmarkup-raw-performance-smoke-v11' &&
+    run.schema === 'marktext-criticmarkup-raw-performance-smoke-v12' &&
     isRatificationDirectory(outputPath)
   ) {
     throw new Error('Smoke output cannot be written to the ratification directory')

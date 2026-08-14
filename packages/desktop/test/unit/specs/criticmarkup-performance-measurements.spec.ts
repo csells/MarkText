@@ -15,7 +15,7 @@ import {
   CORE_PERFORMANCE_PRODUCER_PATHS,
   type CriticMarkupPerformanceMeasurementManifest,
   type CriticMarkupRawPerformanceRun,
-  type CriticMarkupUpstreamRawPerformanceRunV11,
+  type CriticMarkupUpstreamRawPerformanceRunV12,
   materializeCriticMarkupMeasuredPerformanceManifest,
   writeCriticMarkupPerformanceCalibrationReport,
   UPSTREAM_PERFORMANCE_PRODUCER_PATHS,
@@ -85,6 +85,7 @@ const authenticatedCoreProvenance = {
   windowPresentationPolicy: 'transparent-render-active-inactive-v6',
   windowPresentationPlatform: 'darwin',
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2',
+  displaySleepPolicy: 'runner-owned-caffeinate-display-sleep-prevention-v1',
   sampleLifecycle: 'fresh-application-profile-per-observation-v1',
   applicationLaunchCount: TOTAL_OBSERVATIONS,
   uniqueProfileCount: TOTAL_OBSERVATIONS,
@@ -114,6 +115,7 @@ const authenticatedUpstreamProvenance = {
   windowPresentationPolicy: 'transparent-render-active-inactive-v6',
   windowPresentationPlatform: 'darwin',
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2',
+  displaySleepPolicy: 'runner-owned-caffeinate-display-sleep-prevention-v1',
   sampleLifecycle: 'fresh-application-profile-per-observation-v1',
   applicationLaunchCount: TOTAL_OBSERVATIONS,
   uniqueProfileCount: TOTAL_OBSERVATIONS,
@@ -155,8 +157,8 @@ const rawRun = (
   implementation: 'upstream-baseline' | 'core-candidate'
 ): CriticMarkupRawPerformanceRun => ({
   schema: implementation === 'core-candidate'
-    ? 'marktext-criticmarkup-raw-performance-run-v13'
-    : 'marktext-criticmarkup-raw-performance-run-v11',
+    ? 'marktext-criticmarkup-raw-performance-run-v14'
+    : 'marktext-criticmarkup-raw-performance-run-v12',
   runId: `${implementation}-synthetic-validator-fixture`,
   implementation,
   ...(implementation === 'core-candidate'
@@ -295,6 +297,7 @@ const withGitAuthenticatedUpstreamRun = (
     const probeSource = 'upstream input probe\n'
     const launcherSource = '#!/bin/sh\necho launch\n'
     const launcherHelperSource = '#!/bin/sh\necho helper\n'
+    const displaySleepHelperSource = '#!/bin/sh\necho caffeinate\n'
     write(manifest.targetManifest.path, targetsSource)
     write(manifest.representativeDocuments.path, documentsSource)
     write('pnpm-lock.yaml', lockfileSource)
@@ -311,6 +314,7 @@ const withGitAuthenticatedUpstreamRun = (
     write(`${prefix}helpers/upstreamBaselineInputProbe.ts`, probeSource)
     write(`${prefix}run-upstream-baseline-performance.sh`, launcherSource)
     write(`${prefix}helpers/upstreamBaselinePerformanceRunner.sh`, launcherHelperSource)
+    write(`${prefix}helpers/performanceDisplaySleepPolicy.sh`, displaySleepHelperSource)
     execFileSync('git', ['-C', root, 'init', '--quiet'])
     execFileSync('git', ['-C', root, 'add', '.'])
     execFileSync('git', [
@@ -324,7 +328,7 @@ const withGitAuthenticatedUpstreamRun = (
     ).trim()
     const upstream = structuredClone(
       rawRun('upstream-baseline')
-    ) as CriticMarkupUpstreamRawPerformanceRunV11
+    ) as CriticMarkupUpstreamRawPerformanceRunV12
     upstream.baselineCommit = harnessCommit
     upstream.buildCommit = harnessCommit
     upstream.provenance = {
@@ -334,7 +338,11 @@ const withGitAuthenticatedUpstreamRun = (
       lockfileSha256: sha256(lockfileSource),
       producerSha256: compositeSha256(producerSources),
       probeSha256: sha256(probeSource),
-      launcherSha256: compositeSha256([launcherSource, launcherHelperSource])
+      launcherSha256: compositeSha256([
+        launcherSource,
+        launcherHelperSource,
+        displaySleepHelperSource
+      ])
     }
     const rawPath = 'specs/baselines/runs/performance/upstream-git-fixture.json'
     const measured: CriticMarkupPerformanceMeasurementManifest = {
@@ -595,7 +603,7 @@ describe('CriticMarkup raw performance evidence', () => {
 
   it('records the missing Core measurement denominator without inventing samples', () => {
     expect(manifest).toMatchObject({
-      schema: 'marktext-criticmarkup-performance-measurements-v12',
+      schema: 'marktext-criticmarkup-performance-measurements-v13',
       status: 'awaiting-raw-runs',
       runs: [],
       requiredMetrics: {
@@ -628,7 +636,7 @@ describe('CriticMarkup raw performance evidence', () => {
 
   it('rejects superseded measurement and raw protocol schemas', () => {
     const staleManifest = structuredClone(manifest) as unknown as { schema: string }
-    staleManifest.schema = 'marktext-criticmarkup-performance-measurements-v11'
+    staleManifest.schema = 'marktext-criticmarkup-performance-measurements-v12'
     expect(() => validateCriticMarkupPerformanceMeasurements(
       repoRoot,
       staleManifest as CriticMarkupPerformanceMeasurementManifest
@@ -642,7 +650,7 @@ describe('CriticMarkup raw performance evidence', () => {
       const raw = JSON.parse(
         readFileSync(resolve(root, upstreamRef.path), 'utf8')
       ) as unknown as { schema: string }
-      raw.schema = 'marktext-criticmarkup-raw-performance-run-v10'
+      raw.schema = 'marktext-criticmarkup-raw-performance-run-v11'
       const source = `${JSON.stringify(raw, null, 2)}\n`
       writeFileSync(resolve(root, upstreamRef.path), source)
       upstreamRef.sha256 = sha256(source)
@@ -656,7 +664,7 @@ describe('CriticMarkup raw performance evidence', () => {
       const raw = JSON.parse(
         readFileSync(resolve(root, coreRef.path), 'utf8')
       ) as unknown as { schema: string }
-      raw.schema = 'marktext-criticmarkup-raw-performance-run-v12'
+      raw.schema = 'marktext-criticmarkup-raw-performance-run-v13'
       const source = `${JSON.stringify(raw, null, 2)}\n`
       writeFileSync(resolve(root, coreRef.path), source)
       coreRef.sha256 = sha256(source)
@@ -666,8 +674,8 @@ describe('CriticMarkup raw performance evidence', () => {
   })
 
   it.each([
-    ['upstream-baseline', 'marktext-criticmarkup-raw-performance-smoke-v11'],
-    ['core-candidate', 'marktext-criticmarkup-raw-performance-smoke-v13']
+    ['upstream-baseline', 'marktext-criticmarkup-raw-performance-smoke-v12'],
+    ['core-candidate', 'marktext-criticmarkup-raw-performance-smoke-v14']
   ] as const)('rejects current %s smoke output as ratification evidence', (
     implementation,
     smokeSchema
@@ -1106,7 +1114,7 @@ describe('CriticMarkup raw performance evidence', () => {
     })
   })
 
-  it('rejects Core v13 evidence without exact per-document authority metadata', () => {
+  it('rejects Core v14 evidence without exact per-document authority metadata', () => {
     withSyntheticRuns((root, measured) => {
       const coreRef = measured.runs.find(run => run.implementation === 'core-candidate')
       if (coreRef === undefined) throw new Error('Synthetic Core run is missing')
@@ -1124,7 +1132,7 @@ describe('CriticMarkup raw performance evidence', () => {
     })
   })
 
-  it('rejects Core v13 evidence without authenticated build provenance', () => {
+  it('rejects Core v14 evidence without authenticated build provenance', () => {
     withSyntheticRuns((root, measured) => {
       const coreRef = measured.runs.find(run => run.implementation === 'core-candidate')
       if (coreRef === undefined) throw new Error('Synthetic Core run is missing')

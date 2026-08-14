@@ -13,6 +13,8 @@ export const PERFORMANCE_SAMPLE_LIFECYCLE =
   'fresh-application-profile-per-observation-v1' as const
 export const PERFORMANCE_OBSERVATION_SCHEDULE =
   'warmup-then-measured-rotating-round-robin-v1' as const
+export const PERFORMANCE_DISPLAY_SLEEP_POLICY =
+  'runner-owned-caffeinate-display-sleep-prevention-v1' as const
 
 type RequiredMetric = typeof REQUIRED_METRICS[number]
 
@@ -38,7 +40,7 @@ const positiveInteger = (value: unknown, label: string): void => {
 /** Validates the human-owned Phase 0 measurement protocol and target record. */
 export function validateCriticMarkupPerformanceTargets(value: unknown): void {
   const manifest = recordOf(value, 'Performance target manifest')
-  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v9') {
+  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v10') {
     throw new Error('Performance target manifest schema is unsupported')
   }
   if (manifest.status !== 'proposed-unratified' && manifest.status !== 'ratified') {
@@ -69,6 +71,11 @@ export function validateCriticMarkupPerformanceTargets(value: unknown): void {
       'Sampling observation schedule must use warmup then measured rotating round robin'
     )
   }
+  if (sampling.displaySleepPolicy !== PERFORMANCE_DISPLAY_SLEEP_POLICY) {
+    throw new Error(
+      'Sampling display sleep policy must use runner-owned caffeinate prevention'
+    )
+  }
   if (
     !Array.isArray(sampling.percentiles) ||
     sampling.percentiles.length === 0 ||
@@ -83,11 +90,11 @@ export function validateCriticMarkupPerformanceTargets(value: unknown): void {
   nonEmptyString(sampling.scenarios, 'Sampling scenario rule')
   if (
     typeof sampling.scenarios !== 'string' ||
-    !/fresh application.*fresh profile.*every observation.*rotat.*round-robin.*setVisibleOnAllWorkspaces\(true.*visibleOnFullScreen.*true.*skipTransformProcessType.*true.*isVisibleOnAllWorkspaces\(\).*true.*isHiddenInMissionControl\(\).*true.*pre-timing readiness.*two consecutive.*Electron.*CGWindow.*5 seconds.*missing optional.*onScreen.*settle.*external.*on-screen.*proof.*explicit.*onScreen.*false.*strict.*post-measurement.*one-shot strict.*null.*onScreen.*strict.*cleanup.*setVisibleOnAllWorkspaces\(false.*visibleOnFullScreen.*false.*skipTransformProcessType.*true.*launch.*readiness.*excluded.*unfocused.*not always-on-top.*no retries.*drift diagnostic.*no.*threshold.*cleanup.*outside.*timed metric/iu
+    !/fresh application.*fresh profile.*every observation.*rotat.*round-robin.*caffeinate.*display sleep.*setVisibleOnAllWorkspaces\(true.*visibleOnFullScreen.*true.*skipTransformProcessType.*true.*isVisibleOnAllWorkspaces\(\).*true.*isHiddenInMissionControl\(\).*true.*pre-timing readiness.*two consecutive.*Electron.*CGWindow.*5 seconds.*missing optional.*onScreen.*settle.*external.*on-screen.*proof.*explicit.*onScreen.*false.*strict.*post-measurement.*one-shot strict.*null.*onScreen.*strict.*cleanup.*setVisibleOnAllWorkspaces\(false.*visibleOnFullScreen.*false.*skipTransformProcessType.*true.*launch.*readiness.*excluded.*unfocused.*not always-on-top.*no retries.*drift diagnostic.*no.*threshold.*cleanup.*outside.*timed metric/iu
       .test(sampling.scenarios)
   ) {
     throw new Error(
-      'Sampling scenarios must define fresh isolation, rotating order, bounded native readiness convergence, one-shot post-measurement validation, no retries, threshold-free drift diagnostics, and metric exclusions'
+      'Sampling scenarios must define fresh isolation, rotating order, display-sleep prevention, bounded native readiness convergence, one-shot post-measurement validation, no retries, threshold-free drift diagnostics, and metric exclusions'
     )
   }
 

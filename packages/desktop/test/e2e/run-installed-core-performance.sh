@@ -8,21 +8,26 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
+DISPLAY_SLEEP_POLICY_LIBRARY="${SCRIPT_DIR}/helpers/performanceDisplaySleepPolicy.sh"
+# shellcheck source=helpers/performanceDisplaySleepPolicy.sh
+source "${DISPLAY_SLEEP_POLICY_LIBRARY}"
 NODE_BIN_DIR="${MARKTEXT_NODE_BIN_DIR:-/opt/homebrew/opt/node@22/bin}"
 if [[ -d "${NODE_BIN_DIR}" ]]; then
   export PATH="${NODE_BIN_DIR}:${PATH}"
 fi
 TOOL_SHIM_DIR="$(mktemp -d "${TMPDIR:-/tmp}/marktext-performance-tools-XXXXXX")"
 
-corepack enable --install-directory "${TOOL_SHIM_DIR}" pnpm
-export PATH="${TOOL_SHIM_DIR}:${PATH}"
-PNPM=(pnpm)
-
 cleanup_tools() {
+  stop_performance_display_sleep_prevention
   rm -f "${TOOL_SHIM_DIR}/pnpm" "${TOOL_SHIM_DIR}/pnpx"
   rmdir "${TOOL_SHIM_DIR}" 2>/dev/null || true
 }
 trap cleanup_tools EXIT
+start_performance_display_sleep_prevention
+
+corepack enable --install-directory "${TOOL_SHIM_DIR}" pnpm
+export PATH="${TOOL_SHIM_DIR}:${PATH}"
+PNPM=(pnpm)
 
 if ! git -C "${REPO_ROOT}" diff --quiet ||
    ! git -C "${REPO_ROOT}" diff --cached --quiet ||
@@ -158,7 +163,10 @@ PROBE_SHA256="$(
     done
   } | shasum -a 256 | awk '{print $1}'
 )"
-LAUNCHER_SHA256="$(shasum -a 256 "${BASH_SOURCE[0]}" | awk '{print $1}')"
+LAUNCHER_SHA256="$({
+  shasum -a 256 "${BASH_SOURCE[0]}" | awk '{print $1}'
+  shasum -a 256 "${DISPLAY_SLEEP_POLICY_LIBRARY}" | awk '{print $1}'
+} | shasum -a 256 | awk '{print $1}')"
 
 TOTAL_SAMPLES="$((5 * (WARMUP_SAMPLES + MEASURED_SAMPLES)))"
 echo "[0/${TOTAL_SAMPLES}] packaged Core performance run ${RUN_ID}"
