@@ -1728,10 +1728,10 @@ interface RegionalRevisionState {
   readonly criticMarkupIndex: CriticMarkupRegionalIndex | undefined
   readonly commentIndex: CommentRegionalIndex | undefined
   readonly regionalInventory: RegionalInventory | undefined
-  readonly regionalComment: Readonly<{
+  readonly regionalComments: readonly Readonly<{
     readonly annotation: CriticMarkupAnnotation
     readonly projection: CommentProjection
-  }> | undefined
+  }>[]
   readonly inventoryAnnotations: (() => readonly CriticMarkupAnnotation[]) |
     undefined
   readonly productStore: RevisionProductStore<Profile1DocumentProducts>
@@ -2275,7 +2275,7 @@ export function createDocumentCore(): DocumentCore {
     criticMarkupIndex: CriticMarkupRegionalIndex | undefined,
     annotations: readonly CriticMarkupAnnotation[] = Object.freeze([]),
     commentIndex: CommentRegionalIndex | undefined = undefined,
-    regionalComment: RegionalRevisionState['regionalComment'] = undefined,
+    regionalComments: RegionalRevisionState['regionalComments'] = Object.freeze([]),
     regionalInventory: RegionalInventory | undefined = undefined
   ): DocumentRevision => {
     demoteCurrentProductStore()
@@ -2306,7 +2306,7 @@ export function createDocumentCore(): DocumentCore {
       criticMarkupIndex,
       commentIndex,
       regionalInventory,
-      regionalComment,
+      regionalComments,
       inventoryAnnotations: undefined,
       productStore,
       annotations: revisionAnnotations
@@ -2321,7 +2321,7 @@ export function createDocumentCore(): DocumentCore {
     source: PersistentCanonicalSource,
     resolvedOptions: MarkdownOptionsV1,
     inventory: RegionalInventory,
-    regionalComment: RegionalRevisionState['regionalComment'] = undefined
+    regionalComments: RegionalRevisionState['regionalComments'] = Object.freeze([])
   ): DocumentRevision => {
     demoteCurrentProductStore()
     let annotations: readonly CriticMarkupAnnotation[] | undefined
@@ -2359,7 +2359,7 @@ export function createDocumentCore(): DocumentCore {
       criticMarkupIndex: undefined,
       commentIndex: undefined,
       regionalInventory: inventory,
-      regionalComment,
+      regionalComments,
       inventoryAnnotations,
       productStore,
       annotations: inventoryAnnotations
@@ -2432,9 +2432,6 @@ export function createDocumentCore(): DocumentCore {
   }> | undefined => {
     const inventory = previousState.regionalInventory
     if (inventory === undefined) return undefined
-    if (requests.comments.length > 1) {
-      return Object.freeze({ kind: 'fallback' })
-    }
     const subscriptions = Object.freeze([
       ...(requests.markup ? [{ name: 'markup' as const }] : []),
       ...requests.comments.map(annotationRange => Object.freeze({
@@ -2514,7 +2511,9 @@ export function createDocumentCore(): DocumentCore {
       }))
     }
 
-    let regionalComment: RegionalRevisionState['regionalComment']
+    const regionalComments: Array<
+      RegionalRevisionState['regionalComments'][number]
+    > = []
     const commentReplacements: CommentRegionReplacement[] = []
     for (const impact of admission.commentImpacts) {
       const localAnnotation = annotationAtPreorder(
@@ -2562,7 +2561,7 @@ export function createDocumentCore(): DocumentCore {
         ast,
         coordinates
       }))
-      regionalComment = Object.freeze({ annotation, projection })
+      regionalComments.push(Object.freeze({ annotation, projection }))
       inspection.regionalCommentAstMaterializedNodes +=
         countMarkdownAstNodes(ast.root)
       inspection.regionalCommentCoordinateSegments += coordinates.length
@@ -2578,7 +2577,7 @@ export function createDocumentCore(): DocumentCore {
       source,
       resolvedOptions,
       admission.nextInventory,
-      regionalComment
+      Object.freeze(regionalComments)
     )
     inspection.regionalFastApplies += 1
     inspection.regionalProjectionPreparationUnits += admission.nextWindow.length
@@ -2879,7 +2878,9 @@ export function createDocumentCore(): DocumentCore {
       undefined,
       Object.freeze([annotation]),
       admission.nextIndex,
-      Object.freeze({ annotation, projection: commentProjection })
+      Object.freeze([
+        Object.freeze({ annotation, projection: commentProjection })
+      ])
     )
     inspection.regionalFastApplies += 1
     inspection.regionalProjectionPreparationUnits +=
@@ -3232,7 +3233,7 @@ export function createDocumentCore(): DocumentCore {
       previousState.kind === 'regional' &&
       previousState.regionalInventory !== undefined
     ) || (
-      requests.markup && requests.comments.length === 1
+      requests.comments.length > 0
     )
       ? tryInventoryRegionalApply(
         previousState,
@@ -3407,32 +3408,34 @@ export function createDocumentCore(): DocumentCore {
     if (comment.kind !== 'comment') {
       throw new RangeError('CriticMarkup annotation is not a Comment')
     }
-    if (
-      state.kind === 'regional' &&
-      state.regionalComment !== undefined &&
-      (
-        state.regionalComment.annotation === comment ||
-        (
-          state.regionalInventory !== undefined &&
-          state.inventoryAnnotations !== undefined &&
-          state.regionalComment.annotation.range.start === comment.range.start &&
-          state.regionalComment.annotation.range.end === comment.range.end &&
-          (() => {
-            const pending = [...state.inventoryAnnotations()].reverse()
-            while (pending.length > 0) {
-              const candidate = pending.pop()
-              if (candidate === undefined) break
-              if (candidate === comment) return true
-              for (const arm of candidate.arms) {
-                for (const child of arm.annotations) pending.push(child)
-              }
+    if (state.kind === 'regional' && state.regionalComments.length > 0) {
+      const ownedInventoryComment =
+        state.regionalInventory !== undefined &&
+        state.inventoryAnnotations !== undefined &&
+        (() => {
+          const pending = [...state.inventoryAnnotations()].reverse()
+          while (pending.length > 0) {
+            const candidate = pending.pop()
+            if (candidate === undefined) break
+            if (candidate === comment) return true
+            for (const arm of candidate.arms) {
+              for (const child of arm.annotations) pending.push(child)
             }
-            return false
-          })()
-        )
-      )
-    ) {
-      return state.regionalComment.projection
+          }
+          return false
+        })()
+      for (const regionalComment of state.regionalComments) {
+        if (
+          regionalComment.annotation === comment ||
+          (
+            ownedInventoryComment &&
+            regionalComment.annotation.range.start === comment.range.start &&
+            regionalComment.annotation.range.end === comment.range.end
+          )
+        ) {
+          return regionalComment.projection
+        }
+      }
     }
     let cachedByComment = commentProjectionCache.get(revision)
     if (cachedByComment === undefined) {
