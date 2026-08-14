@@ -18,10 +18,17 @@ import {
   findUpstreamPerformanceProcessId,
   finalizeUpstreamPerformanceRun,
   removeUpstreamPerformanceRunRoot,
-  resolveUpstreamPerformanceProcessIdentity
+  resolveUpstreamPerformanceProcessIdentity,
+  upstreamPerformanceOrchestrationTimeoutMs
 } from '../../e2e/helpers/upstreamBaselineLifecycleCleanup'
 
 describe('upstream baseline lifecycle cleanup', () => {
+  it('scales the outer test budget while reserving finalization and cleanup headroom', () => {
+    expect(upstreamPerformanceOrchestrationTimeoutMs(15)).toBe(405_000)
+    expect(upstreamPerformanceOrchestrationTimeoutMs(350)).toBe(5_430_000)
+    expect(upstreamPerformanceOrchestrationTimeoutMs(1_100)).toBe(16_680_000)
+  })
+
   it('waits for both the exact application and launcher to exit', async() => {
     const events: string[] = []
     let applicationRunning = true

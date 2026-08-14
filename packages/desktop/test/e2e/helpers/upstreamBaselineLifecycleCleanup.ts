@@ -30,6 +30,22 @@ interface UpstreamRunRootLifecycle {
 }
 
 const CLEANUP_TIMEOUT_MS = 10_000
+const ORCHESTRATION_SAMPLE_BUDGET_MS = 15_000
+const ORCHESTRATION_FINALIZATION_HEADROOM_MS = 180_000
+
+export const upstreamPerformanceOrchestrationTimeoutMs = (
+  totalSamples: number
+): number => {
+  if (!Number.isSafeInteger(totalSamples) || totalSamples < 1) {
+    throw new Error('Upstream performance total samples must be a positive integer')
+  }
+  const timeout = totalSamples * ORCHESTRATION_SAMPLE_BUDGET_MS +
+    ORCHESTRATION_FINALIZATION_HEADROOM_MS
+  if (!Number.isSafeInteger(timeout)) {
+    throw new Error('Upstream performance orchestration timeout is unsafe')
+  }
+  return timeout
+}
 
 export interface UpstreamPerformanceProcessIdentity {
   readonly executable: string
