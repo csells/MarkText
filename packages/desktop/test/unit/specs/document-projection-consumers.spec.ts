@@ -144,6 +144,52 @@ describe('document projection search and count consumers', () => {
     }).matches).toEqual([])
   })
 
+  it('maps semantic matches onto the rendered top-level view', () => {
+    const projection = revisedProjectionOf(
+      '# cat heading\n\n' +
+      'cat {++cat++} {--cat--} {~~legacy-cat~>cat~~} {>>cat private<<}\n\n' +
+      'cat\n'
+    )
+
+    expect(searchProjectedDocument(projection, 'cat').matches.map(match => ({
+      path: match.path,
+      start: match.start,
+      end: match.end,
+      presentation: match.presentation
+    }))).toEqual([
+      {
+        path: [0],
+        start: 0,
+        end: 3,
+        presentation: { path: [0, 'text'], start: 2, end: 5 }
+      },
+      {
+        path: [1],
+        start: 0,
+        end: 3,
+        presentation: { path: [1, 'text'], start: 0, end: 3 }
+      },
+      {
+        path: [1],
+        start: 4,
+        end: 7,
+        presentation: { path: [1, 'text'], start: 4, end: 7 }
+      },
+      {
+        path: [1],
+        start: 9,
+        end: 12,
+        presentation: { path: [1, 'text'], start: 9, end: 12 }
+      },
+      {
+        path: [2],
+        start: 0,
+        end: 3,
+        presentation: { path: [2, 'text'], start: 0, end: 3 }
+      }
+    ])
+  })
+
   it('plans replace-current from one exact projected search identity', () => {
     const result = searchProjectedDocument(
       revisedProjectionOf('cat cat\n'),
