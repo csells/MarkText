@@ -26,9 +26,9 @@ const evidencePath = resolve(
 )
 const installedRunPath =
   'specs/baselines/runs/' +
-  'installed-core-phase4-71ebb147-20260814T141500Z.json'
+  'installed-core-phase4-506d45ba-20260814T144500Z.json'
 const installedRunSha256 =
-  'b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b'
+  'a13d68fde4d1365aa3470f67efdd7bb16e778194ab487a5b223f1d6d9c31d625'
 
 describe('CriticMarkup interaction matrix', () => {
   const passingPlaywrightReport = () => {
@@ -223,8 +223,8 @@ describe('CriticMarkup interaction matrix', () => {
     ])
     expect(evidence.rows.every(row => (
       row.execution?.buildCommit ===
-        '71ebb14711f9577a6b318883bde7423a0bc62fff' &&
-      row.execution.recordedAt === '2026-08-14T21:17:26.421Z' &&
+        '506d45bab802177a5b52cc05e69b70ae77679b4b' &&
+      row.execution.recordedAt === '2026-08-14T21:45:28.489Z' &&
       row.execution.result === 'pass' &&
       row.execution.recordPath === installedRunPath &&
       row.execution.recordSha256 === installedRunSha256

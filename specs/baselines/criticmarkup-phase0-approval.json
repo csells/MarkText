@@ -107,7 +107,7 @@
     {
       "id": "interaction-evidence",
       "path": "specs/baselines/criticmarkup-interaction-evidence.json",
-      "sha256": "645f410ab0b366b0f439682e6ff296ed01583cef94cd990a1048198763728ef1"
+      "sha256": "fb5c7bef7ca4eca5537cad89d7aa69f2aa77b4996766c570b9b9ce930f4df971"
     },
     {
       "id": "representative-documents",
