@@ -29,8 +29,10 @@ checks structure and completeness but never generates expected results.
 `criticmarkup-interaction-evidence.json` maps every matrix row to its named production test. Green
 requires a named installed E2E oracle, a SHA-256-pinned passing execution record for a full build
 commit, and a matching green matrix row. All 25 rows are green against the installed matrix oracle
-and share one authenticated stable-commit execution record containing the exact 25 unique passing
-row IDs. The matrix and evidence artifacts remain proposed and do not record owner ratification.
+and share one authenticated current-build Phase 4 execution record containing the exact 25 unique
+passing row IDs plus eight installed consumer workflows. The record also pins the packaged app,
+executable, test and harness sources, Playwright report, runner log, and exact cleanup receipt. The
+matrix and evidence artifacts remain proposed and do not record owner ratification.
 
 ```bash
 node_modules/.bin/tsx scripts/criticmarkupInteractionMatrix.ts --validate-evidence

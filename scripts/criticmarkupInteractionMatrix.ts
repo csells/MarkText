@@ -3,6 +3,8 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { validateInstalledCorePhase4Evidence } from '../packages/desktop/test/e2e/helpers/installedCorePhase4Evidence'
+
 export type CriticMarkupInteractionForm =
   | 'addition'
   | 'deletion'
@@ -553,7 +555,18 @@ export const validateCriticMarkupInteractionEvidence = (
           row.execution.recordPath,
           `CriticMarkup interaction execution ${row.id}`
         ), 'utf8')) as unknown
-        validateCriticMarkupInstalledInteractionRunRecord(matrix, runRecord)
+        if (
+          isRecord(runRecord) &&
+          runRecord.schema === 'marktext-installed-core-phase4-evidence-v1'
+        ) {
+          validateInstalledCorePhase4Evidence({
+            repoRoot,
+            interactionIds: matrix.rows.map(matrixRow => matrixRow.id),
+            record: runRecord
+          })
+        } else {
+          validateCriticMarkupInstalledInteractionRunRecord(matrix, runRecord)
+        }
         if (
           !isRecord(runRecord) ||
           row.execution.buildCommit !== runRecord.buildCommit ||
