@@ -43,6 +43,7 @@ const passingSpec = (file: string, title: string) => ({
 const passingReport = () => ({
   config: {
     workers: 1,
+    maxFailures: 1,
     projects: [{ name: INSTALLED_CORE_PHASE4_PROJECT, retries: 0 }]
   },
   errors: [],
@@ -189,6 +190,9 @@ describe('installed Core Phase 4 consumer evidence', () => {
     ['a retry-enabled project', (report: ReturnType<typeof passingReport>) => {
       const project = report.config.projects[0]
       if (project !== undefined) project.retries = 1
+    }],
+    ['a non-fail-fast run', (report: ReturnType<typeof passingReport>) => {
+      report.config.maxFailures = 0
     }]
   ])('refuses Playwright output containing %s', (_label, mutate) => {
     const report = passingReport()
