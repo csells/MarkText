@@ -1857,6 +1857,20 @@ interface MutableDocumentCoreInspection {
 }
 
 export function createDocumentCore(): DocumentCore {
+  return createDocumentCoreWithExecutionBudget(EXECUTION_BUDGET)
+}
+
+/** Package-private seam for structural tests outside production admission. */
+export function createUnboundedDocumentCoreForInspection(): DocumentCore {
+  return createDocumentCoreWithExecutionBudget(Object.freeze({
+    limitsProfile: 'inspection-unbounded',
+    accountingSchema: 'syntax-accounting-1'
+  }))
+}
+
+function createDocumentCoreWithExecutionBudget(
+  executionBudget: ExecutionBudgetId
+): DocumentCore {
   const stateByRevision = new WeakMap<
     DocumentRevision,
     RevisionState
@@ -2138,7 +2152,7 @@ export function createDocumentCore(): DocumentCore {
     try {
       products = parseProfile1Document(
         source,
-        EXECUTION_BUDGET,
+        executionBudget,
         undefined,
         resolvedOptions,
         false,
@@ -2169,7 +2183,7 @@ export function createDocumentCore(): DocumentCore {
     inspection.documentProjectionPreparationUnits += source.length
     const result = parseProfile1Document(
       source,
-      EXECUTION_BUDGET,
+      executionBudget,
       undefined,
       resolvedOptions,
       false,
@@ -2214,7 +2228,10 @@ export function createDocumentCore(): DocumentCore {
       const regionalInventory = createRegionalInventory(
         products,
         source.length,
-        regionalInventoryRecorder
+        regionalInventoryRecorder,
+        executionBudget.limitsProfile === 'desktop-v1'
+          ? DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
+          : Number.MAX_SAFE_INTEGER
       )
       const retainedSummary = retained === undefined
         ? undefined
@@ -2478,7 +2495,7 @@ export function createDocumentCore(): DocumentCore {
       source,
       stableEdits,
       subscriptions,
-      EXECUTION_BUDGET,
+      executionBudget,
       resolvedOptions,
       regionalPhysicalRecorder
     )
@@ -2646,7 +2663,7 @@ export function createDocumentCore(): DocumentCore {
       source,
       index,
       stableEdits,
-      EXECUTION_BUDGET,
+      executionBudget,
       resolvedOptions,
       regionalPhysicalRecorder
     )
@@ -2776,7 +2793,7 @@ export function createDocumentCore(): DocumentCore {
       index,
       requestedAnnotation,
       stableEdits,
-      EXECUTION_BUDGET,
+      executionBudget,
       resolvedOptions,
       regionalPhysicalRecorder
     )
@@ -3003,7 +3020,7 @@ export function createDocumentCore(): DocumentCore {
       source,
       retainedIndex,
       stableEdits,
-      EXECUTION_BUDGET,
+      executionBudget,
       resolvedOptions,
       regionalPhysicalRecorder
     )
@@ -3028,7 +3045,7 @@ export function createDocumentCore(): DocumentCore {
     })
     const regionalResult = parseProfile1Document(
       regionSource,
-      EXECUTION_BUDGET,
+      executionBudget,
       undefined,
       regionalOptions,
       false,
@@ -3223,7 +3240,7 @@ export function createDocumentCore(): DocumentCore {
       source,
       retainedIndex,
       stableEdits,
-      EXECUTION_BUDGET,
+      executionBudget,
       resolvedOptions,
       regionalPhysicalRecorder
     )
