@@ -18,7 +18,6 @@ export interface ProjectedSearchPresentationBlock {
 }
 
 export interface ProjectedSearchPresentationHost {
-  isProvenMatch(match: ProjectedSearchMatch): boolean
   blockAtPath(
     path: readonly (number | string)[]
   ): ProjectedSearchPresentationBlock | undefined
@@ -33,6 +32,7 @@ export interface ProjectedSearchPresentation {
 type ResolvedMatch = Readonly<{
   readonly match: ProjectedSearchMatch
   readonly block: ProjectedSearchPresentationBlock
+  readonly presentation: NonNullable<ProjectedSearchMatch['presentation']>
 }>
 
 const emptyResult = (): ProjectedSearchResult => Object.freeze({
@@ -65,15 +65,21 @@ export function createProjectedSearchPresentation(
   const present = (result: ProjectedSearchResult): boolean => {
     const resolved: ResolvedMatch[] = []
     for (const match of result.matches) {
-      if (!host.isProvenMatch(match)) return failClosed()
       const blockIndex = match.path[0]
+      const presentation = match.presentation
       if (
         match.path.length !== 1 || typeof blockIndex !== 'number' ||
-        !Number.isSafeInteger(blockIndex) || blockIndex < 0
+        !Number.isSafeInteger(blockIndex) || blockIndex < 0 ||
+        presentation === undefined || presentation.path.length !== 2 ||
+        presentation.path[0] !== blockIndex ||
+        presentation.path[1] !== 'text' ||
+        !Number.isSafeInteger(presentation.start) ||
+        !Number.isSafeInteger(presentation.end) ||
+        presentation.start < 0 || presentation.end <= presentation.start
       ) return failClosed()
-      const block = host.blockAtPath([blockIndex, 'text'])
+      const block = host.blockAtPath(presentation.path)
       if (block === undefined) return failClosed()
-      resolved.push(Object.freeze({ match, block }))
+      resolved.push(Object.freeze({ match, block, presentation }))
     }
 
     clearPaint()
@@ -85,8 +91,8 @@ export function createProjectedSearchPresentation(
     for (const [index, item] of resolved.entries()) {
       const list = highlights.get(item.block) ?? []
       list.push(Object.freeze({
-        start: item.match.start,
-        end: item.match.end,
+        start: item.presentation.start,
+        end: item.presentation.end,
         active: index === result.index
       }))
       highlights.set(item.block, list)

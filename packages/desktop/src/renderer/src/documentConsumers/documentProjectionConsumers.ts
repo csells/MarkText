@@ -21,6 +21,12 @@ export interface ProjectedSearchMatch {
   readonly end: number
   readonly match: string
   readonly subMatches: readonly string[]
+  /** Renderer-relative range proven from this same projection, when supported. */
+  readonly presentation?: Readonly<{
+    readonly path: readonly (number | string)[]
+    readonly start: number
+    readonly end: number
+  }>
 }
 
 export interface ProjectedSearchResult {
@@ -97,33 +103,92 @@ const stringAttribute = (
   return typeof value === 'string' ? value : undefined
 }
 
-const semanticTextOf = (node: MarkdownAstNode): string => {
+type SemanticSegment = Readonly<{
+  readonly semanticStart: number
+  readonly semanticEnd: number
+  readonly projectionStart: number
+  readonly projectionEnd: number
+}>
+
+type SemanticProjection = Readonly<{
+  readonly text: string
+  readonly segments: readonly SemanticSegment[]
+}>
+
+const semanticProjectionOf = (
+  node: MarkdownAstNode,
+  markdown?: string
+): SemanticProjection => {
+  const leaf = (text: string): SemanticProjection => {
+    const raw = markdown?.slice(node.range.start, node.range.end)
+    const suffix = raw?.slice(text.length)
+    const isDirect = raw === text || (
+      raw?.startsWith(text) === true && /^\s*$/u.test(suffix ?? '')
+    )
+    return Object.freeze({
+      text,
+      segments: isDirect
+        ? Object.freeze([Object.freeze({
+          semanticStart: 0,
+          semanticEnd: text.length,
+          projectionStart: node.range.start,
+          projectionEnd: node.range.start + text.length
+        })])
+        : Object.freeze([])
+    })
+  }
   switch (node.kind) {
     case 'text':
-      return stringAttribute(node, 'semanticText') ?? ''
+      return leaf(stringAttribute(node, 'semanticText') ?? '')
     case 'soft-break':
     case 'hard-break':
-      return '\n'
+      return leaf('\n')
     case 'inline-code':
-      return stringAttribute(node, 'semanticContent') ??
-        stringAttribute(node, 'content') ?? ''
+      return leaf(stringAttribute(node, 'semanticContent') ??
+        stringAttribute(node, 'content') ?? '')
     case 'code-block':
     case 'html-block':
     case 'front-matter':
     case 'math-block':
     case 'diagram':
-      return stringAttribute(node, 'content') ?? ''
+      return leaf(stringAttribute(node, 'content') ?? '')
     case 'definition':
-      return ''
-    default:
-      return node.children.map(semanticTextOf).join('')
+      return leaf('')
+    default: {
+      let text = ''
+      const segments: SemanticSegment[] = []
+      for (const child of node.children) {
+        const projected = semanticProjectionOf(child, markdown)
+        const offset = text.length
+        text += projected.text
+        segments.push(...projected.segments.map(segment => Object.freeze({
+          semanticStart: segment.semanticStart + offset,
+          semanticEnd: segment.semanticEnd + offset,
+          projectionStart: segment.projectionStart,
+          projectionEnd: segment.projectionEnd
+        })))
+      }
+      return Object.freeze({ text, segments: Object.freeze(segments) })
+    }
   }
 }
 
+const semanticTextOf = (node: MarkdownAstNode): string =>
+  semanticProjectionOf(node).text
+
 const searchableBlocksOf = (
-  root: MarkdownAstNode
-): readonly Readonly<{ path: readonly number[]; text: string }>[] => {
-  const blocks: Array<Readonly<{ path: readonly number[]; text: string }>> = []
+  root: MarkdownAstNode,
+  markdown: string
+): readonly Readonly<{
+  node: MarkdownAstNode
+  path: readonly number[]
+  semantic: SemanticProjection
+}>[] => {
+  const blocks: Array<Readonly<{
+    node: MarkdownAstNode
+    path: readonly number[]
+    semantic: SemanticProjection
+  }>> = []
   const pending: Array<Readonly<{
     node: MarkdownAstNode
     path: readonly number[]
@@ -133,8 +198,9 @@ const searchableBlocksOf = (
     if (current === undefined) break
     if (searchableBlockKinds.has(current.node.kind)) {
       blocks.push(Object.freeze({
+        node: current.node,
         path: current.path,
-        text: semanticTextOf(current.node)
+        semantic: semanticProjectionOf(current.node, markdown)
       }))
       continue
     }
@@ -149,6 +215,52 @@ const searchableBlocksOf = (
     }
   }
   return Object.freeze(blocks)
+}
+
+const presentationForMatch = (
+  block: Readonly<{
+    node: MarkdownAstNode
+    path: readonly number[]
+    semantic: SemanticProjection
+  }>,
+  start: number,
+  end: number
+): ProjectedSearchMatch['presentation'] => {
+  const blockIndex = block.path[0]
+  if (
+    block.path.length !== 1 || typeof blockIndex !== 'number' ||
+    !Number.isSafeInteger(blockIndex) || blockIndex < 0 || end <= start
+  ) return undefined
+
+  let cursor = start
+  let projectionStart: number | undefined
+  let projectionEnd: number | undefined
+  for (const segment of block.semantic.segments) {
+    if (segment.semanticEnd <= cursor || segment.semanticStart >= end) continue
+    if (segment.semanticStart > cursor) return undefined
+    const localStart = Math.max(cursor, segment.semanticStart)
+    const localEnd = Math.min(end, segment.semanticEnd)
+    const segmentLength = segment.semanticEnd - segment.semanticStart
+    if (segmentLength !== segment.projectionEnd - segment.projectionStart) {
+      return undefined
+    }
+    projectionStart ??=
+      segment.projectionStart + localStart - segment.semanticStart
+    projectionEnd = segment.projectionStart + localEnd - segment.semanticStart
+    cursor = localEnd
+    if (cursor === end) break
+  }
+  if (
+    cursor !== end || projectionStart === undefined ||
+    projectionEnd === undefined ||
+    projectionStart < block.node.range.start ||
+    projectionEnd > block.node.range.end
+  ) return undefined
+  return Object.freeze({
+    path: Object.freeze([blockIndex, 'text'] as const),
+    start: projectionStart - block.node.range.start,
+    end: projectionEnd - block.node.range.start
+  })
 }
 
 const searchExpression = (
@@ -181,15 +293,18 @@ export function searchProjectedDocument(
   const expression = value === '' ? undefined : searchExpression(value, options)
   const matches: ProjectedSearchMatch[] = []
   if (expression !== undefined) {
-    for (const block of searchableBlocksOf(projection.ast.root)) {
-      for (const match of block.text.matchAll(expression)) {
+    for (const block of searchableBlocksOf(projection.ast.root, projection.markdown)) {
+      for (const match of block.semantic.text.matchAll(expression)) {
         const start = match.index
+        const end = start + match[0].length
+        const presentation = presentationForMatch(block, start, end)
         matches.push(Object.freeze({
           path: block.path,
           start,
-          end: start + match[0].length,
+          end,
           match: match[0],
-          subMatches: Object.freeze(match.slice(1).map(value => value ?? ''))
+          subMatches: Object.freeze(match.slice(1).map(value => value ?? '')),
+          ...(presentation === undefined ? {} : { presentation })
         }))
       }
     }
