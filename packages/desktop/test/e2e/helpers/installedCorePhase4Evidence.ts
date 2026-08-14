@@ -256,10 +256,15 @@ const normalizedSpecPath = (reported: unknown): string => {
   }
   const normalized = reported.replaceAll('\\', '/')
   const basename = path.posix.basename(normalized)
-  const source = INSTALLED_CORE_PHASE4_TEST_SOURCES.find(candidate =>
+  const sources = INSTALLED_CORE_PHASE4_TEST_SOURCES.filter(candidate =>
     path.posix.basename(candidate) === basename
   )
-  if (source === undefined || !normalized.endsWith(`test/e2e/${basename}`)) {
+  const source = sources[0]
+  if (
+    source === undefined ||
+    sources.length !== 1 ||
+    (normalized !== basename && !normalized.endsWith(`test/e2e/${basename}`))
+  ) {
     throw new Error(`Installed Core Phase 4 Playwright spec is unexpected: ${reported}`)
   }
   return source
