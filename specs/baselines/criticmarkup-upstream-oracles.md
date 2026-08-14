@@ -65,8 +65,10 @@ diagnostics are required for every document and metric. No drift pass/fail thres
 before owner review and ratification; the protocol does not invent one.
 
 Pre-timing readiness requires two consecutive exact Electron and CGWindow matches within a bounded
-5 seconds. Only a transient origin mismatch may settle during that readiness window; every other
-native or Electron mismatch fails immediately. Post-measurement validation remains one-shot strict.
+5 seconds. During pre-timing readiness only, a transient origin mismatch or missing optional
+`onScreen` metadata on the otherwise exact CGWindow row may settle. Explicit `onScreen: false` and
+every other native or Electron mismatch remain strict and fail immediately. Post-measurement
+validation remains one-shot strict; null `onScreen` metadata remains strict and fails immediately.
 Application launch and readiness are excluded from every timed metric, and there are no retries of
 a measurement or its post-measurement validation.
 
