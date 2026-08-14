@@ -145,13 +145,20 @@ describe('upstream baseline external hidden policy', () => {
     let visible = false
     let opacity = 1
     let focusable = true
+    let visibleOnAllWorkspaces = false
+    let hiddenInMissionControl = false
     const exactWindow = {
       webContents: exactContents,
       isDestroyed: () => false,
       setOpacity: (value: number) => { opacity = value },
       setFocusable: (value: boolean) => { focusable = value },
       setIgnoreMouseEvents: () => {},
-      setHiddenInMissionControl: () => {},
+      setHiddenInMissionControl: (value: boolean) => {
+        hiddenInMissionControl = value
+      },
+      setVisibleOnAllWorkspaces: (value: boolean) => {
+        visibleOnAllWorkspaces = value
+      },
       setSkipTaskbar: () => {},
       showInactive: () => { visible = true },
       isVisible: () => visible,
@@ -159,6 +166,8 @@ describe('upstream baseline external hidden policy', () => {
       isFocused: () => false,
       isFocusable: () => focusable,
       isAlwaysOnTop: () => false,
+      isVisibleOnAllWorkspaces: () => visibleOnAllWorkspaces,
+      isHiddenInMissionControl: () => hiddenInMissionControl,
       getMediaSourceId: () => 'window:81:0',
       getTitle: () => 'sample.md — MarkText',
       getBounds: () => ({ x: 20, y: 30, width: 900, height: 700 })
@@ -204,6 +213,10 @@ describe('upstream baseline external hidden policy', () => {
     await expect(installed.capturePage('renderer-target-7'))
       .resolves.toEqual({ empty: false })
     expect(exactContents.capturePage).toHaveBeenCalledOnce()
+    exactWindow.setVisibleOnAllWorkspaces(false)
+    await expect(installed.capturePage('renderer-target-7'))
+      .rejects.toThrow(/transparent render-active inactive state/i)
+    expect(exactContents.capturePage).toHaveBeenCalledOnce()
   })
 
   it('exposes exact transparent render-active lifecycle without focus calls', async() => {
@@ -211,6 +224,8 @@ describe('upstream baseline external hidden policy', () => {
     let visible = false
     let opacity = 1
     let focusable = true
+    let visibleOnAllWorkspaces = false
+    let hiddenInMissionControl = false
     class TransparentWindow extends EventEmitter {
       readonly webContents = {
         isDestroyed: (): boolean => false,
@@ -235,7 +250,21 @@ describe('upstream baseline external hidden policy', () => {
       }
 
       setHiddenInMissionControl(value: boolean): void {
+        hiddenInMissionControl = value
         lifecycle.push(`mission-control:${String(value)}`)
+      }
+
+      setVisibleOnAllWorkspaces(
+        value: boolean,
+        options: Readonly<{
+          visibleOnFullScreen?: boolean
+          skipTransformProcessType?: boolean
+        }>
+      ): void {
+        visibleOnAllWorkspaces = value
+        lifecycle.push(
+          `all-workspaces:${String(value)}:${JSON.stringify(options)}`
+        )
       }
 
       setSkipTaskbar(value: boolean): void {
@@ -259,6 +288,8 @@ describe('upstream baseline external hidden policy', () => {
       isFocused(): boolean { return false }
       isFocusable(): boolean { return focusable }
       isAlwaysOnTop(): boolean { return false }
+      isVisibleOnAllWorkspaces(): boolean { return visibleOnAllWorkspaces }
+      isHiddenInMissionControl(): boolean { return hiddenInMissionControl }
       getMediaSourceId(): string { return 'window:81:0' }
       getTitle(): string { return 'sample.md — MarkText' }
       getBounds(): Readonly<{ x: number; y: number; width: number; height: number }> {
@@ -314,6 +345,8 @@ describe('upstream baseline external hidden policy', () => {
       focusable: false,
       alwaysOnTop: false,
       appActive: false,
+      visibleOnAllWorkspaces: true,
+      hiddenInMissionControl: true,
       title: 'sample.md — MarkText',
       bounds: { x: 20, y: 30, width: 900, height: 700 }
     })
@@ -325,6 +358,8 @@ describe('upstream baseline external hidden policy', () => {
       focusable: false,
       alwaysOnTop: false,
       appActive: false,
+      visibleOnAllWorkspaces: true,
+      hiddenInMissionControl: true,
       title: 'sample.md — MarkText',
       bounds: { x: 20, y: 30, width: 900, height: 700 }
     })
@@ -337,8 +372,17 @@ describe('upstream baseline external hidden policy', () => {
       .toBeLessThan(lifecycle.indexOf('show-inactive'))
     expect(lifecycle.indexOf('ignore-mouse:true'))
       .toBeLessThan(lifecycle.indexOf('show-inactive'))
-    expect(lifecycle.slice(-7)).toEqual([
+    expect(lifecycle.indexOf('mission-control:true')).toBeLessThan(
+      lifecycle.indexOf(
+        'all-workspaces:true:{"visibleOnFullScreen":true,"skipTransformProcessType":true}'
+      )
+    )
+    expect(lifecycle.indexOf(
+      'all-workspaces:true:{"visibleOnFullScreen":true,"skipTransformProcessType":true}'
+    )).toBeLessThan(lifecycle.indexOf('app-hide'))
+    expect(lifecycle.slice(-8)).toEqual([
       'hide',
+      'all-workspaces:false:{"visibleOnFullScreen":false,"skipTransformProcessType":true}',
       'opacity:1',
       'focusable:true',
       'ignore-mouse:false',
