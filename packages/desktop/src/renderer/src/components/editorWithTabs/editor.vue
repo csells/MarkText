@@ -2738,20 +2738,6 @@ onMounted(() => {
     })
     coreCompositionRoot = editor.value.domNode as HTMLElement
     coreSearchPresentation = createProjectedSearchPresentation({
-      isProvenMatch: match => {
-        const blockIndex = match.path[0]
-        if (match.path.length !== 1 || typeof blockIndex !== 'number') return false
-        return corePlainTextAdapter?.selectionSourceRange({
-          anchor: Object.freeze({
-            path: Object.freeze([blockIndex, 'text'] as const),
-            offset: match.start
-          }),
-          focus: Object.freeze({
-            path: Object.freeze([blockIndex, 'text'] as const),
-            offset: match.end
-          })
-        }) !== undefined
-      },
       blockAtPath: path => {
         const block = editor.value?.editor?.scrollPage?.queryBlock([...path])
         return block?.isContent?.() ? block : undefined
