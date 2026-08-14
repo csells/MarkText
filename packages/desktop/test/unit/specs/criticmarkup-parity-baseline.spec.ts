@@ -1,11 +1,23 @@
-import { resolve } from 'node:path'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
   collectCriticMarkupParityBaseline,
   type CriticMarkupParityDisposition,
   type CriticMarkupParityDispositionOverlay,
+  type CriticMarkupParityExecutionRunRecord,
   type CriticMarkupParityRowManifest,
+  requireGreenCriticMarkupParityDispositions,
   validateCriticMarkupParityDispositions
 } from '../../../../../scripts/criticmarkupParityBaseline'
 
@@ -16,6 +28,112 @@ const emptyRows = {
   schema: 'marktext-criticmarkup-parity-rows-v1' as const,
   baselineCommit,
   rows: []
+}
+const sha256 = (value: string): string => createHash('sha256')
+  .update(value)
+  .digest('hex')
+const writeParityManifest = (
+  root: string,
+  path: string,
+  manifest: CriticMarkupParityRowManifest
+): void => writeFileSync(
+  resolve(root, path),
+  `${JSON.stringify(manifest, null, 2)}\n`
+)
+
+const createParityExecutionFixture = (): {
+  root: string
+  execution: NonNullable<CriticMarkupParityRowManifest['rows'][number]['execution']>
+} => {
+  const root = mkdtempSync(join(tmpdir(), 'marktext-parity-execution-'))
+  const sourcePath = 'tests/undo.spec.ts'
+  const source = 'test("installed undo", () => expect(true).toBe(true))\n'
+  mkdirSync(resolve(root, 'tests'), { recursive: true })
+  writeFileSync(resolve(root, sourcePath), source)
+  execFileSync('git', ['init', '--quiet'], { cwd: root })
+  execFileSync('git', ['add', sourcePath], { cwd: root })
+  execFileSync('git', [
+    '-c',
+    'user.name=Parity Test',
+    '-c',
+    'user.email=parity@example.invalid',
+    'commit',
+    '--quiet',
+    '-m',
+    'fixture'
+  ], { cwd: root })
+  const buildCommit = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: root,
+    encoding: 'utf8'
+  }).trim()
+  const recordPath = 'runs/parity.json'
+  const record = `${JSON.stringify({
+    schema: 'marktext-criticmarkup-parity-execution-v1',
+    buildCommit,
+    recordedAt: '2026-08-14T17:00:00.000Z',
+    result: 'pass',
+    rowIds: ['editing.undo']
+  }, null, 2)}\n`
+  mkdirSync(resolve(root, 'runs'), { recursive: true })
+  writeFileSync(resolve(root, recordPath), record)
+
+  return {
+    root,
+    execution: {
+      buildCommit,
+      sourcePath,
+      sourceSha256: sha256(source),
+      recordPath,
+      recordSha256: sha256(record)
+    }
+  }
+}
+
+const bindParityExecutionFixture = (
+  fixture: ReturnType<typeof createParityExecutionFixture>,
+  row: CriticMarkupParityRowManifest['rows'][number],
+  recordOverrides: Partial<CriticMarkupParityExecutionRunRecord> = {}
+): {
+  manifest: CriticMarkupParityRowManifest
+  manifestPath: string
+  record: string
+} => {
+  const evidenceFreeManifest = {
+    schema: 'marktext-criticmarkup-parity-rows-v1' as const,
+    baselineCommit,
+    rows: [{
+      id: row.id,
+      upstreamBehavior: row.upstreamBehavior,
+      existingOracle: row.existingOracle,
+      productionPathTest: row.productionPathTest,
+      status: row.status
+    }]
+  }
+  const record = `${JSON.stringify({
+    schema: 'marktext-criticmarkup-parity-execution-v1',
+    baselineCommit,
+    rowManifestSha256: sha256(`${JSON.stringify(evidenceFreeManifest, null, 2)}\n`),
+    buildCommit: fixture.execution.buildCommit,
+    recordedAt: '2026-08-14T17:00:00.000Z',
+    result: 'pass',
+    rowIds: [row.id],
+    ...recordOverrides
+  }, null, 2)}\n`
+  writeFileSync(resolve(fixture.root, fixture.execution.recordPath), record)
+  const manifest: CriticMarkupParityRowManifest = {
+    schema: 'marktext-criticmarkup-parity-rows-v1',
+    baselineCommit,
+    rows: [{
+      ...row,
+      execution: {
+        ...fixture.execution,
+        recordSha256: sha256(record)
+      }
+    }]
+  }
+  const manifestPath = 'parity-rows.json'
+  writeParityManifest(fixture.root, manifestPath, manifest)
+  return { manifest, manifestPath, record }
 }
 const artifactSchemaCases = [
   {
@@ -303,6 +421,406 @@ describe('CriticMarkup upstream parity baseline', () => {
         }]
       }
     )).not.toThrow()
+  })
+
+  it('rejects a structurally valid planned row with its count and ID', () => {
+    const { overlay, validRow } = completeParityRowFixture()
+
+    expect(() => requireGreenCriticMarkupParityDispositions(
+      baseline,
+      overlay,
+      {
+        schema: 'marktext-criticmarkup-parity-rows-v1',
+        baselineCommit,
+        rows: [validRow]
+      }
+    )).toThrow(
+      'CriticMarkup parity completion is not green: 1 planned row [editing.undo]'
+    )
+  })
+
+  it('reports planned and red row counts and IDs in deterministic order', () => {
+    const { overlay, validRow } = completeParityRowFixture()
+    overlay.dispositions['command:edit.redo'] = {
+      kind: 'parity-row',
+      ref: 'editing.redo'
+    }
+
+    expect(() => requireGreenCriticMarkupParityDispositions(
+      baseline,
+      overlay,
+      {
+        schema: 'marktext-criticmarkup-parity-rows-v1',
+        baselineCommit,
+        rows: [
+          { ...validRow, id: 'editing.redo', status: 'red' },
+          { ...validRow, id: 'editing.undo' }
+        ]
+      }
+    )).toThrow(
+      'CriticMarkup parity completion is not green: ' +
+      '1 planned row [editing.undo]; 1 red row [editing.redo]'
+    )
+  })
+
+  it('rejects green rows whose production-path oracle is still a placeholder', () => {
+    const { overlay, validRow } = completeParityRowFixture()
+    overlay.dispositions['command:edit.redo'] = {
+      kind: 'parity-row',
+      ref: 'editing.redo'
+    }
+
+    expect(() => requireGreenCriticMarkupParityDispositions(
+      baseline,
+      overlay,
+      {
+        schema: 'marktext-criticmarkup-parity-rows-v1',
+        baselineCommit,
+        rows: [
+          {
+            ...validRow,
+            id: 'editing.undo',
+            productionPathTest: 'required-new-production-path-test: command:edit.undo',
+            status: 'green'
+          },
+          {
+            ...validRow,
+            id: 'editing.redo',
+            productionPathTest: 'retained-upstream-test: redo.spec.ts; release-candidate execution pending',
+            status: 'green'
+          }
+        ]
+      }
+    )).toThrow(
+      'CriticMarkup parity completion is not green: ' +
+      '2 placeholder production-path tests [editing.redo, editing.undo]'
+    )
+  })
+
+  it('rejects a hand-edited green row with no authenticated execution', () => {
+    const { overlay, validRow } = completeParityRowFixture()
+
+    expect(() => requireGreenCriticMarkupParityDispositions(
+      baseline,
+      overlay,
+      {
+        schema: 'marktext-criticmarkup-parity-rows-v1',
+        baselineCommit,
+        rows: [{
+          ...validRow,
+          productionPathTest: 'named-production-path-test: undo.spec.ts#installed undo',
+          status: 'green'
+        }]
+      }
+    )).toThrow(
+      'CriticMarkup parity completion is not green: ' +
+      '1 green row lacks authenticated execution evidence [editing.undo]'
+    )
+  })
+
+  it('rejects a green row with malformed execution metadata', () => {
+    const { overlay, validRow } = completeParityRowFixture()
+
+    expect(() => requireGreenCriticMarkupParityDispositions(
+      baseline,
+      overlay,
+      {
+        schema: 'marktext-criticmarkup-parity-rows-v1',
+        baselineCommit,
+        rows: [{
+          ...validRow,
+          productionPathTest: 'named-production-path-test: undo.spec.ts#installed undo',
+          status: 'green',
+          execution: {
+            buildCommit: 'hand-edited',
+            sourcePath: 'undo.spec.ts',
+            sourceSha256: 'not-a-digest',
+            recordPath: 'run.json',
+            recordSha256: 'not-a-digest'
+          }
+        }]
+      }
+    )).toThrow('Parity row editing.undo execution evidence is invalid')
+  })
+
+  it('rejects non-string execution metadata at the artifact boundary', () => {
+    const { overlay, validRow } = completeParityRowFixture()
+
+    expect(() => requireGreenCriticMarkupParityDispositions(
+      baseline,
+      overlay,
+      {
+        schema: 'marktext-criticmarkup-parity-rows-v1',
+        baselineCommit,
+        rows: [{
+          ...validRow,
+          productionPathTest: 'named-production-path-test: undo.spec.ts#installed undo',
+          status: 'green',
+          execution: {
+            buildCommit: '0'.repeat(40),
+            sourcePath: null as unknown as string,
+            sourceSha256: '1'.repeat(64),
+            recordPath: 'run.json',
+            recordSha256: '2'.repeat(64)
+          }
+        }]
+      }
+    )).toThrow('Parity row editing.undo execution evidence is invalid')
+  })
+
+  it('does not trust well-shaped execution metadata without repository authentication', () => {
+    const { overlay, validRow } = completeParityRowFixture()
+
+    expect(() => requireGreenCriticMarkupParityDispositions(
+      baseline,
+      overlay,
+      {
+        schema: 'marktext-criticmarkup-parity-rows-v1',
+        baselineCommit,
+        rows: [{
+          ...validRow,
+          productionPathTest: 'named-production-path-test: undo.spec.ts#installed undo',
+          status: 'green',
+          execution: {
+            buildCommit: '0'.repeat(40),
+            sourcePath: 'undo.spec.ts',
+            sourceSha256: '1'.repeat(64),
+            recordPath: 'run.json',
+            recordSha256: '2'.repeat(64)
+          }
+        }]
+      }
+    )).toThrow(
+      'CriticMarkup parity completion cannot authenticate green execution evidence without a repository root'
+    )
+  })
+
+  it('rejects a green row whose execution record digest does not match', () => {
+    const fixture = createParityExecutionFixture()
+    const { overlay, validRow } = completeParityRowFixture()
+    const bound = bindParityExecutionFixture(fixture, {
+      ...validRow,
+      productionPathTest: `named-production-path-test: ${fixture.execution.sourcePath}#installed undo`,
+      status: 'green'
+    })
+    const execution = bound.manifest.rows[0].execution
+    if (execution === undefined || execution === null) throw new Error('Fixture lost execution')
+    bound.manifest.rows[0].execution = {
+      ...execution,
+      recordSha256: '0'.repeat(64)
+    }
+    writeParityManifest(fixture.root, bound.manifestPath, bound.manifest)
+    try {
+      expect(() => requireGreenCriticMarkupParityDispositions(
+        baseline,
+        overlay,
+        bound.manifest,
+        fixture.root,
+        bound.manifestPath
+      )).toThrow('Parity row editing.undo execution record digest does not match')
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a green row whose test source digest does not match its build commit', () => {
+    const fixture = createParityExecutionFixture()
+    const { overlay, validRow } = completeParityRowFixture()
+    const bound = bindParityExecutionFixture(fixture, {
+      ...validRow,
+      productionPathTest: `named-production-path-test: ${fixture.execution.sourcePath}#installed undo`,
+      status: 'green'
+    })
+    const execution = bound.manifest.rows[0].execution
+    if (execution === undefined || execution === null) throw new Error('Fixture lost execution')
+    bound.manifest.rows[0].execution = {
+      ...execution,
+      sourceSha256: '0'.repeat(64)
+    }
+    writeParityManifest(fixture.root, bound.manifestPath, bound.manifest)
+    try {
+      expect(() => requireGreenCriticMarkupParityDispositions(
+        baseline,
+        overlay,
+        bound.manifest,
+        fixture.root,
+        bound.manifestPath
+      )).toThrow(
+        'Parity row editing.undo test source digest does not match build commit'
+      )
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a digest-authenticated run record that does not prove a passing row', () => {
+    const fixture = createParityExecutionFixture()
+    const { overlay, validRow } = completeParityRowFixture()
+    const bound = bindParityExecutionFixture(fixture, {
+      ...validRow,
+      productionPathTest: `named-production-path-test: ${fixture.execution.sourcePath}#installed undo`,
+      status: 'green'
+    }, { result: 'fail' })
+    try {
+      expect(() => requireGreenCriticMarkupParityDispositions(
+        baseline,
+        overlay,
+        bound.manifest,
+        fixture.root,
+        bound.manifestPath
+      )).toThrow(
+        'Parity row editing.undo execution record does not prove a passing execution'
+      )
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a passing record without baseline and row-manifest bindings', () => {
+    const fixture = createParityExecutionFixture()
+    const { overlay, validRow } = completeParityRowFixture()
+    const manifest: CriticMarkupParityRowManifest = {
+      schema: 'marktext-criticmarkup-parity-rows-v1',
+      baselineCommit,
+      rows: [{
+        ...validRow,
+        productionPathTest: `named-production-path-test: ${fixture.execution.sourcePath}#installed undo`,
+        status: 'green',
+        execution: fixture.execution
+      }]
+    }
+    const manifestPath = 'parity-rows.json'
+    writeParityManifest(fixture.root, manifestPath, manifest)
+    try {
+      expect(() => requireGreenCriticMarkupParityDispositions(
+        baseline,
+        overlay,
+        manifest,
+        fixture.root,
+        manifestPath
+      )).toThrow('Parity row editing.undo execution record is invalid')
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a passing record from a stale parity baseline', () => {
+    const fixture = createParityExecutionFixture()
+    const { overlay, validRow } = completeParityRowFixture()
+    const bound = bindParityExecutionFixture(fixture, {
+      ...validRow,
+      productionPathTest: `named-production-path-test: ${fixture.execution.sourcePath}#installed undo`,
+      status: 'green'
+    }, { baselineCommit: 'f'.repeat(40) })
+    try {
+      expect(() => requireGreenCriticMarkupParityDispositions(
+        baseline,
+        overlay,
+        bound.manifest,
+        fixture.root,
+        bound.manifestPath
+      )).toThrow('Parity row editing.undo execution record targets a stale baseline')
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a passing record from a stale parity row manifest', () => {
+    const fixture = createParityExecutionFixture()
+    const { overlay, validRow } = completeParityRowFixture()
+    const bound = bindParityExecutionFixture(fixture, {
+      ...validRow,
+      productionPathTest: `named-production-path-test: ${fixture.execution.sourcePath}#installed undo`,
+      status: 'green'
+    }, { rowManifestSha256: 'f'.repeat(64) })
+    try {
+      expect(() => requireGreenCriticMarkupParityDispositions(
+        baseline,
+        overlay,
+        bound.manifest,
+        fixture.root,
+        bound.manifestPath
+      )).toThrow('Parity row editing.undo execution record targets a stale row manifest')
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects non-canonical checked-in row-manifest bytes', () => {
+    const fixture = createParityExecutionFixture()
+    const { overlay, validRow } = completeParityRowFixture()
+    const bound = bindParityExecutionFixture(fixture, {
+      ...validRow,
+      productionPathTest: `named-production-path-test: ${fixture.execution.sourcePath}#installed undo`,
+      status: 'green'
+    })
+    writeFileSync(
+      resolve(fixture.root, bound.manifestPath),
+      JSON.stringify(bound.manifest)
+    )
+    try {
+      expect(() => requireGreenCriticMarkupParityDispositions(
+        baseline,
+        overlay,
+        bound.manifest,
+        fixture.root,
+        bound.manifestPath
+      )).toThrow('CriticMarkup parity row manifest is not canonical')
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('accepts execution bound to the exact baseline and canonical row manifest', () => {
+    const fixture = createParityExecutionFixture()
+    const { overlay, validRow } = completeParityRowFixture()
+    const bound = bindParityExecutionFixture(fixture, {
+      ...validRow,
+      productionPathTest: `named-production-path-test: ${fixture.execution.sourcePath}#installed undo`,
+      status: 'green'
+    })
+    try {
+      expect(() => requireGreenCriticMarkupParityDispositions(
+        baseline,
+        overlay,
+        bound.manifest,
+        fixture.root,
+        bound.manifestPath
+      )).not.toThrow()
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps the current empty final overlays red at the deep completion gate', () => {
+    const overlay = JSON.parse(readFileSync(resolve(
+      repoRoot,
+      'specs/baselines/criticmarkup-parity-dispositions.json'
+    ), 'utf8')) as CriticMarkupParityDispositionOverlay
+    const rows = JSON.parse(readFileSync(resolve(
+      repoRoot,
+      'specs/baselines/criticmarkup-parity-rows.json'
+    ), 'utf8')) as CriticMarkupParityRowManifest
+
+    expect(Object.keys(overlay.dispositions)).toHaveLength(0)
+    expect(rows.rows).toHaveLength(0)
+    expect(() => requireGreenCriticMarkupParityDispositions(
+      baseline,
+      overlay,
+      rows
+    )).toThrow('829 upstream parity items are undisposed')
+  })
+
+  it('exposes the deep completion gate through --require-green', () => {
+    const result = spawnSync(
+      resolve(repoRoot, 'node_modules/.bin/tsx'),
+      ['scripts/criticmarkupParityBaseline.ts', '--require-green'],
+      { cwd: repoRoot, encoding: 'utf8' }
+    )
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('829 upstream parity items are undisposed')
+    expect(result.stderr).not.toContain('Usage:')
   })
 
   it.each(artifactSchemaCases)(
