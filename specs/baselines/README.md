@@ -68,9 +68,13 @@ references a row by ID; validation fails when that row does not exist. The gener
 rows or dispositions.
 
 `criticmarkup-parity-proposal.json` is an unapproved preparation aid for that human review. It
-partitions the complete generated denominator by source kind, records the proposed disposition,
-and pins each selected item set by count and SHA-256 digest. It does not populate or replace the
-human-owned disposition and row files.
+partitions the complete generated denominator by source kind, records the proposed disposition, and
+pins each selected item set by count and SHA-256 digest.
+Its v2 item-level compatibility-decision proposals bind exactly the three audited README outcomes
+to the still-pending `parity-manifest` owner decision.
+They become `approved-decision`
+dispositions only after ratification. The proposal does not populate or replace the human-owned
+disposition and row files.
 
 `criticmarkup-parity-oracle-proposal.json` adds a separate Git-backed evidence classification. It
 distinguishes byte-identical retained test sources from changed tests, manual definitions, surfaces

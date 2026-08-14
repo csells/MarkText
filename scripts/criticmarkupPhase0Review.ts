@@ -39,12 +39,32 @@ export interface CriticMarkupParityProposalGroup {
   itemIdsSha256: string
 }
 
+export interface CriticMarkupParityItemCompatibilityDecision {
+  itemId: string
+  approvalDecisionId: 'parity-manifest'
+  proposedDisposition: 'approved-decision'
+  proposedRef: string
+  mechanicalFinding: string
+  ownerQuestion: string
+  refs: string[]
+}
+
 export interface CriticMarkupParityProposal {
-  schema: 'marktext-criticmarkup-parity-proposal-v1'
+  schema: 'marktext-criticmarkup-parity-proposal-v2'
   status: 'proposed-unapproved'
   baselineCommit: string
   groups: CriticMarkupParityProposalGroup[]
+  itemCompatibilityDecisions: CriticMarkupParityItemCompatibilityDecision[]
 }
+
+const auditedReadmeCompatibilityDecisionRefs = {
+  'readme-feature:ada27f4ce6a3': 'readme-wysiwyg-subjective-outcome',
+  'readme-feature:0b8caa1ea286': 'readme-shortcut-efficiency-subjective-outcome',
+  'muya-readme-feature:57b5c6a23c6a': 'muya-collaborative-transport-scope'
+} as const
+const auditedReadmeCompatibilityDecisionIds = Object.keys(
+  auditedReadmeCompatibilityDecisionRefs
+)
 
 export type CriticMarkupParitySourceRelation =
   | 'unchanged'
@@ -183,7 +203,7 @@ export const validateCriticMarkupParityProposal = (
   if (baseline.schema !== 'marktext-criticmarkup-parity-baseline-v1') {
     throw new Error('CriticMarkup parity baseline schema is invalid')
   }
-  if (proposal.schema !== 'marktext-criticmarkup-parity-proposal-v1') {
+  if (proposal.schema !== 'marktext-criticmarkup-parity-proposal-v2') {
     throw new Error('CriticMarkup parity proposal schema is invalid')
   }
   if (proposal.status !== 'proposed-unapproved') {
@@ -233,6 +253,59 @@ export const validateCriticMarkupParityProposal = (
   const missing = baseline.items.filter(item => !proposedItems.has(item.id))
   if (missing.length > 0) {
     throw new Error(`${missing.length} upstream parity items have no proposal`)
+  }
+
+  if (!Array.isArray(proposal.itemCompatibilityDecisions)) {
+    throw new Error(
+      'CriticMarkup parity item compatibility-decision set is incomplete or stale'
+    )
+  }
+  const compatibilityDecisionIds = proposal.itemCompatibilityDecisions
+    .map(decision => decision.itemId)
+  const uniqueCompatibilityDecisionIds = new Set(compatibilityDecisionIds)
+  const missingCompatibilityDecisions = auditedReadmeCompatibilityDecisionIds.filter(id => (
+    !uniqueCompatibilityDecisionIds.has(id)
+  ))
+  const staleCompatibilityDecisions = compatibilityDecisionIds.filter(id => (
+    !auditedReadmeCompatibilityDecisionIds.includes(
+      id as typeof auditedReadmeCompatibilityDecisionIds[number]
+    )
+  ))
+  if (
+    uniqueCompatibilityDecisionIds.size !== compatibilityDecisionIds.length ||
+    missingCompatibilityDecisions.length > 0 ||
+    staleCompatibilityDecisions.length > 0
+  ) {
+    throw new Error(
+      'CriticMarkup parity item compatibility-decision set is incomplete or stale'
+    )
+  }
+  const itemIds = new Set(baseline.items.map(item => item.id))
+  for (const decision of proposal.itemCompatibilityDecisions) {
+    if (!itemIds.has(decision.itemId)) {
+      throw new Error(`Parity item compatibility decision is unknown: ${decision.itemId}`)
+    }
+    if (
+      decision.approvalDecisionId !== 'parity-manifest' ||
+      decision.proposedDisposition !== 'approved-decision' ||
+      decision.proposedRef !== auditedReadmeCompatibilityDecisionRefs[
+        decision.itemId as keyof typeof auditedReadmeCompatibilityDecisionRefs
+      ]
+    ) {
+      throw new Error(
+        `Parity item compatibility decision ${decision.itemId} ` +
+        'does not match its audited proposal binding'
+      )
+    }
+    nonEmpty(
+      decision.mechanicalFinding,
+      `Parity item compatibility decision ${decision.itemId} mechanical finding`
+    )
+    nonEmpty(
+      decision.ownerQuestion,
+      `Parity item compatibility decision ${decision.itemId} owner question`
+    )
+    stringArray(decision.refs, `Parity item compatibility decision ${decision.itemId} evidence`)
   }
 }
 
@@ -731,9 +804,36 @@ export const materializeCriticMarkupPhase0Dispositions = (
   }
   const dispositions: Record<string, CriticMarkupParityDisposition> = {}
   const rows: CriticMarkupParityRowManifest['rows'] = []
+  const itemCompatibilityDecisionById = new Map(
+    input.parityProposal.itemCompatibilityDecisions.map(decision => [
+      decision.itemId,
+      decision
+    ])
+  )
   for (const item of input.parityBaseline.items) {
     const group = parityGroupByKind.get(item.kind)
     if (!group) throw new Error(`Parity item has no materialization group: ${item.id}`)
+    const itemCompatibilityDecision = itemCompatibilityDecisionById.get(item.id)
+    if (itemCompatibilityDecision !== undefined) {
+      const approvalDecision = input.approval.decisions.find(decision => (
+        decision.id === itemCompatibilityDecision.approvalDecisionId
+      ))
+      if (
+        input.approval.status !== 'ratified' ||
+        approvalDecision?.status !== 'approved'
+      ) {
+        throw new Error(
+          `Parity item compatibility decision is not ratified: ${item.id}`
+        )
+      }
+      dispositions[item.id] = {
+        kind: 'approved-decision',
+        ref: 'specs/baselines/criticmarkup-phase0-approval.json#' +
+          `${itemCompatibilityDecision.approvalDecisionId}:` +
+          itemCompatibilityDecision.proposedRef
+      }
+      continue
+    }
     const oracleGroup = oracleGroupByItem.get(item.id)
     if (!oracleGroup) throw new Error(`Parity item has no oracle materialization group: ${item.id}`)
     if (group.proposedDisposition === 'parity-row') {
