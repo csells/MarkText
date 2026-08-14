@@ -127,14 +127,17 @@ The performance decision does not approve the rest of Phase 0. The owner must al
    retained upstream test files that still need a current passing run, four retained manual cases
    that still need supported-platform execution, 367 items needing a new or explicitly equivalent
    production-path oracle, 66 proposed compatibility decisions, and zero proposed `unaffected`
-   items. Mechanical production-path evidence now names 364 of those 367 active surfaces. Three
-   documentation promises deliberately remain unclaimed: `readme-feature:ada27f4ce6a3` combines
-   WYSIWYG with subjective clean/simple/distraction-free qualities; `readme-feature:0b8caa1ea286`
-   combines paragraph support and mechanically proven native-shortcut breadth with the subjective
-   outcome "improve your writing efficiency";
-   `muya-readme-feature:57b5c6a23c6a` promises user-supplied collaborative transport for the JSON/OT
-   state model without a public multi-peer transport seam.
-   They remain required production-path tests, not inferred owner decisions or source-text evidence.
+   items. Mechanical production-path evidence names 364 of those 367 active surfaces. The remaining
+   three now have narrowly item-level compatibility-decision proposals tied to this still-pending
+   `parity-manifest` decision, without inventing tests or approval:
+   `readme-feature:ada27f4ce6a3` has already-proved objective WYSIWYG behavior, while its
+   clean/simple/distraction-free outcome is subjective and nonmechanical;
+   `readme-feature:0b8caa1ea286` has all 87 declared shortcuts mechanically proved, while the claimed
+   writing-efficiency outcome is subjective and nonmechanical; and
+   `muya-readme-feature:57b5c6a23c6a` has a JSON/OT state model but no shipped collaborative
+   transport, so including transport in scope requires an owner decision. Ratification would yield
+   69 compatibility decisions and 760 planned parity rows. Until then, all eight owner decisions
+   remain pending and the final parity overlays remain empty and red.
 7. **Language profile and ADRs:** ratify, amend, or supersede Profile 1 and the pinned CriticMarkup and
    parser ADR set after reviewing semantic rules separately from implementation machinery.
 8. **Interaction matrix:** approve or amend the 25 expected product behaviors. The current evidence

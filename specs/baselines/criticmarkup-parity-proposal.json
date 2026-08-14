@@ -1,5 +1,5 @@
 {
-  "schema": "marktext-criticmarkup-parity-proposal-v1",
+  "schema": "marktext-criticmarkup-parity-proposal-v2",
   "status": "proposed-unapproved",
   "baselineCommit": "43bd8b77795fb27b1a9512737c000f7362031ea0",
   "groups": [
@@ -152,6 +152,45 @@
       "refs": ["specs/baselines/criticmarkup-upstream-oracles.md"],
       "expectedCount": 2,
       "itemIdsSha256": "bfc18c79e734ff25fd5a92f623f3ee93463e8e33b97057d31fb043a9c1a5ee5d"
+    }
+  ],
+  "itemCompatibilityDecisions": [
+    {
+      "itemId": "readme-feature:ada27f4ce6a3",
+      "approvalDecisionId": "parity-manifest",
+      "proposedDisposition": "approved-decision",
+      "proposedRef": "readme-wysiwyg-subjective-outcome",
+      "mechanicalFinding": "The objective WYSIWYG behavior is already proved by the existing production-path evidence.",
+      "ownerQuestion": "Decide whether the subjective clean/simple/distraction-free outcome is nonmechanical compatibility language to retain under owner approval.",
+      "refs": [
+        "README.md",
+        "packages/desktop/test/e2e/view-modes.spec.ts"
+      ]
+    },
+    {
+      "itemId": "readme-feature:0b8caa1ea286",
+      "approvalDecisionId": "parity-manifest",
+      "proposedDisposition": "approved-decision",
+      "proposedRef": "readme-shortcut-efficiency-subjective-outcome",
+      "mechanicalFinding": "The audit confirms that all 87 declared shortcuts are proved by the existing production-path evidence.",
+      "ownerQuestion": "Decide whether the subjective writing-efficiency outcome is nonmechanical compatibility language to retain under owner approval.",
+      "refs": [
+        "README.md",
+        "specs/baselines/criticmarkup-parity-oracle-proposal.json"
+      ]
+    },
+    {
+      "itemId": "muya-readme-feature:57b5c6a23c6a",
+      "approvalDecisionId": "parity-manifest",
+      "proposedDisposition": "approved-decision",
+      "proposedRef": "muya-collaborative-transport-scope",
+      "mechanicalFinding": "Muya's JSON/OT state model exists, but collaborative transport is not shipped.",
+      "ownerQuestion": "An owner scope decision is required before collaborative transport becomes part of the compatibility contract.",
+      "refs": [
+        "packages/muya/README.md",
+        "packages/muya/src/state/index.ts",
+        "packages/muya/e2e/BACKLOG.md"
+      ]
     }
   ]
 }
