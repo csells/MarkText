@@ -1,7 +1,7 @@
 {
   "schema": "marktext-criticmarkup-parity-oracle-proposal-v1",
   "status": "proposed-unapproved",
-  "baselineCommit": "43bd8b77795fb27b1a9512737c000f7362031ea0",
+  "baselineCommit": "e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c",
   "evidenceCommit": "177a13f24fe5e5c265dcef468f71988186d1f85e",
   "groups": [
     {

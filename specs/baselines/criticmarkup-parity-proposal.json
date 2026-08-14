@@ -1,7 +1,7 @@
 {
   "schema": "marktext-criticmarkup-parity-proposal-v2",
   "status": "proposed-unapproved",
-  "baselineCommit": "43bd8b77795fb27b1a9512737c000f7362031ea0",
+  "baselineCommit": "e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c",
   "groups": [
     {
       "id": "commands",

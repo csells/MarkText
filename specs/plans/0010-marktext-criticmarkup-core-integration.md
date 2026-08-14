@@ -1,7 +1,7 @@
 # MarkText CriticMarkup core integration
-- **Status:** Active — Core authority and Phase 4 installed workflows are implemented and current-build green; Phase 0 owner ratification, authenticated performance calibration, full parity execution, final rebase, and release-candidate evidence remain incomplete
+- **Status:** Active — rebased onto current upstream; Core authority and Phase 4 installed workflows are current-build green; Phase 0 owner ratification, authenticated performance calibration, full parity execution, and final release-candidate reruns remain incomplete
 
-- **Working upstream baseline:** `43bd8b77795fb27b1a9512737c000f7362031ea0`
+- **Working upstream baseline:** `e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c`
 
 - **Supersedes:** [0009 CriticMarkup document-engine rebuild](./archive/0009-criticmarkup-document-engine-rebuild.md)
 

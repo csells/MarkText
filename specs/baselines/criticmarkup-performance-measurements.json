@@ -1,7 +1,7 @@
 {
   "schema": "marktext-criticmarkup-performance-measurements-v13",
   "status": "awaiting-raw-runs",
-  "baselineCommit": "43bd8b77795fb27b1a9512737c000f7362031ea0",
+  "baselineCommit": "e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c",
   "targetManifest": {
     "path": "specs/baselines/criticmarkup-performance-targets.json",
     "sha256": "3c5cecdc2f9f9efa58af0a01b9fe0c81db0c0f02eba6d4d43068207166af614a"
