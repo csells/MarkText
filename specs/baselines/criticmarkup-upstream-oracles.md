@@ -56,6 +56,14 @@ successful profile cleanups. Application launch, editor bootstrap, application c
 cleanup are excluded from every metric; pooled process, browser-context, or profile runs are not
 admissible evidence.
 
+Observation order is `warmup-then-measured-rotating-round-robin-v1`: all warmup rounds run before
+all measured rounds; each representative document runs exactly once per round, and the first
+document rotates by one position continuously across rounds and across the phase boundary. This
+deterministic rotating round-robin limits fixed document/time-order confounding but does not
+eliminate temporal, thermal, cache, hardware, or environment drift. Mandatory time-ordered drift
+diagnostics are required for every document and metric. No drift pass/fail threshold is defined
+before owner review and ratification; the protocol does not invent one.
+
 The minimum scenario set is ordinary prose typing, a burst with no artificial delay, IME composition,
 an edit in dense CriticMarkup, an edit near a large table or structured block, and undo immediately
 after input. Open and first-editable-viewport timing use the representative documents selected in

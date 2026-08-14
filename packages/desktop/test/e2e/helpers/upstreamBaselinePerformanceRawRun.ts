@@ -11,6 +11,12 @@ import {
 import {
   PERFORMANCE_SAMPLE_LIFECYCLE
 } from './performanceSampleLifecycle'
+import {
+  createPerformanceObservationSchedule,
+  PERFORMANCE_OBSERVATION_SCHEDULE,
+  performanceObservationScheduleSha256,
+  type PerformanceObservationScheduleEntry
+} from './performanceObservationSchedule'
 
 const PINNED_UPSTREAM_BASELINE =
   '43bd8b77795fb27b1a9512737c000f7362031ea0'
@@ -19,7 +25,6 @@ const RATIFICATION_SAMPLING = Object.freeze({
   measuredSamples: 200
 })
 
-type SamplePhase = 'warmup' | 'measured'
 export type UpstreamBaselineEvidenceClass =
   | 'ratification'
   | 'smoke-non-ratifying'
@@ -31,9 +36,8 @@ export interface UpstreamBaselinePerformanceReport {
   readonly first_viewport: number
 }
 
-export interface UpstreamBaselinePerformanceRawSample {
-  readonly documentId: string
-  readonly phase: SamplePhase
+export interface UpstreamBaselinePerformanceRawSample
+  extends PerformanceObservationScheduleEntry {
   readonly report: UpstreamBaselinePerformanceReport
 }
 
@@ -62,6 +66,8 @@ export interface UpstreamBaselineBuildProvenance {
   readonly uniqueProfileCount: number
   readonly applicationCloseCount: number
   readonly profileCleanupCount: number
+  readonly observationSchedule: typeof PERFORMANCE_OBSERVATION_SCHEDULE
+  readonly observationScheduleSha256: string
 }
 
 export interface UpstreamBaselinePerformanceRawRunInput {
@@ -106,17 +112,18 @@ interface UpstreamBaselinePerformanceRawRunBase {
   }>
   readonly provenance: Readonly<UpstreamBaselineBuildProvenance>
   readonly metricDefinitions: Readonly<Record<Metric, string>>
+  readonly observationOrder: readonly Readonly<PerformanceObservationScheduleEntry>[]
   readonly documents: readonly UpstreamBaselinePerformanceDocumentRun[]
 }
 
 export interface UpstreamBaselinePerformanceRatificationRun
   extends UpstreamBaselinePerformanceRawRunBase {
-  readonly schema: 'marktext-criticmarkup-raw-performance-run-v7'
+  readonly schema: 'marktext-criticmarkup-raw-performance-run-v8'
 }
 
 export interface UpstreamBaselinePerformanceSmokeRun
   extends UpstreamBaselinePerformanceRawRunBase {
-  readonly schema: 'marktext-criticmarkup-raw-performance-smoke-v7'
+  readonly schema: 'marktext-criticmarkup-raw-performance-smoke-v8'
   readonly evidenceClass: 'smoke-non-ratifying'
 }
 
@@ -241,6 +248,14 @@ const validateProvenance = (
   if (input.provenance.sampleLifecycle !== PERFORMANCE_SAMPLE_LIFECYCLE) {
     throw new Error('Upstream sample lifecycle provenance is invalid')
   }
+  if (input.provenance.observationSchedule !== PERFORMANCE_OBSERVATION_SCHEDULE) {
+    throw new Error('Upstream observation schedule policy is invalid')
+  }
+  requireIdentity(
+    input.provenance.observationScheduleSha256,
+    64,
+    'Upstream observation schedule digest'
+  )
   const expectedObservationCount = input.documents.length * (
     input.sampling.warmupSamples + input.sampling.measuredSamples
   )
@@ -297,6 +312,47 @@ export const createUpstreamBaselinePerformanceRawRun = (
   if (documentsById.size !== input.documents.length || documentsById.size === 0) {
     throw new Error('Raw performance documents must be non-empty and unique')
   }
+  for (const document of input.documents) {
+    requireNonEmpty(document.id, 'Raw performance document ID')
+    requireIdentity(document.sourceSha256, 64, `${document.id} source digest`)
+  }
+  const expectedObservationOrder = createPerformanceObservationSchedule({
+    documentIds: input.documents.map(document => document.id),
+    ...input.sampling
+  })
+  if (input.samples.length !== expectedObservationOrder.length) {
+    throw new Error(
+      'Raw performance observation schedule expected ' +
+      `${String(expectedObservationOrder.length)} entries but received ` +
+      String(input.samples.length)
+    )
+  }
+  const scheduleKeys = [
+    'ordinal',
+    'phase',
+    'phaseRound',
+    'roundPosition',
+    'documentId'
+  ] as const
+  for (const [index, expected] of expectedObservationOrder.entries()) {
+    const actual = input.samples[index]
+    if (
+      actual === undefined ||
+      scheduleKeys.some(key => actual[key] !== expected[key])
+    ) {
+      throw new Error(
+        `Raw performance observation schedule mismatch at ordinal ${String(expected.ordinal)}`
+      )
+    }
+  }
+  const expectedScheduleSha256 = performanceObservationScheduleSha256(
+    expectedObservationOrder
+  )
+  if (input.provenance.observationScheduleSha256 !== expectedScheduleSha256) {
+    throw new Error(
+      'Upstream observation schedule digest does not match documents and sampling'
+    )
+  }
   const samplesByDocument = new Map<string, UpstreamBaselinePerformanceRawSample[]>()
   for (const candidate of input.samples) {
     if (!documentsById.has(candidate.documentId)) {
@@ -310,8 +366,6 @@ export const createUpstreamBaselinePerformanceRawRun = (
   }
 
   const documents = input.documents.map(document => {
-    requireNonEmpty(document.id, 'Raw performance document ID')
-    requireIdentity(document.sourceSha256, 64, `${document.id} source digest`)
     const warmup = emptyDistribution()
     const measured = emptyDistribution()
     for (const candidate of samplesByDocument.get(document.id) ?? []) {
@@ -351,15 +405,16 @@ export const createUpstreamBaselinePerformanceRawRun = (
     sampling: Object.freeze({ ...input.sampling }),
     provenance: Object.freeze({ ...input.provenance }),
     metricDefinitions: METRIC_DEFINITIONS,
+    observationOrder: expectedObservationOrder,
     documents: Object.freeze(documents)
   })
   return input.evidenceClass === 'ratification'
     ? Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-run-v7' as const,
+      schema: 'marktext-criticmarkup-raw-performance-run-v8' as const,
       ...base
     })
     : Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v7' as const,
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v8' as const,
       evidenceClass: 'smoke-non-ratifying' as const,
       ...base
     })
@@ -380,7 +435,7 @@ export const writeUpstreamBaselinePerformanceRawRun = (
   run: UpstreamBaselinePerformanceRawRun
 ): void => {
   if (
-    run.schema === 'marktext-criticmarkup-raw-performance-smoke-v7' &&
+    run.schema === 'marktext-criticmarkup-raw-performance-smoke-v8' &&
     isRatificationDirectory(outputPath)
   ) {
     throw new Error('Smoke output cannot be written to the ratification directory')

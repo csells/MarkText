@@ -51,6 +51,12 @@ import {
   runIsolatedPerformanceObservations
 } from './helpers/performanceSampleLifecycle'
 import {
+  createPerformanceObservationSchedule,
+  PERFORMANCE_OBSERVATION_SCHEDULE,
+  performanceObservationScheduleSha256,
+  type PerformanceObservationScheduleEntry
+} from './helpers/performanceObservationSchedule'
+import {
   expectEditorNotFrontmost,
   enterSourceMode,
   waitForEditor,
@@ -89,6 +95,7 @@ interface PerformanceTargetManifest {
     readonly warmupSamples: number
     readonly measuredSamples: number
     readonly sampleLifecycle: typeof PERFORMANCE_SAMPLE_LIFECYCLE
+    readonly observationSchedule: typeof PERFORMANCE_OBSERVATION_SCHEDULE
   }>
 }
 
@@ -98,11 +105,8 @@ interface PerformanceMeasurementManifest {
 
 type CorePerformanceEvidenceClass = 'ratification' | 'smoke-non-ratifying'
 
-interface CorePerformanceObservation {
-  readonly documentId: string
+interface CorePerformanceObservation extends PerformanceObservationScheduleEntry {
   readonly filePath: string
-  readonly phase: 'warmup' | 'measured'
-  readonly sampleIndex: number
 }
 
 interface PreparedCorePerformanceApplication {
@@ -536,6 +540,7 @@ test.describe('installed Core authority raw performance producer', () => {
       measuredSamples: 200,
       percentiles: [50, 95, 99],
       sampleLifecycle: PERFORMANCE_SAMPLE_LIFECYCLE,
+      observationSchedule: PERFORMANCE_OBSERVATION_SCHEDULE,
       scenarios: expect.any(String)
     })
     expect(machineEnvironment()).toEqual(targets.environment)
@@ -544,23 +549,30 @@ test.describe('installed Core authority raw performance producer', () => {
     let completed = 0
     let finalizationCompleted = false
     try {
-      const observations: CorePerformanceObservation[] = []
+      const sampleFilesByDocument = new Map<string, readonly string[]>()
       for (const document of representatives.documents) {
         const count = sampling.warmupSamples + sampling.measuredSamples
-        const sampleFiles = sampleFilesFor(runRoot, document, count)
-        for (let index = 0; index < sampleFiles.length; index += 1) {
-          const filePath = sampleFiles[index]
+        sampleFilesByDocument.set(
+          document.id,
+          sampleFilesFor(runRoot, document, count)
+        )
+      }
+      const observationOrder = createPerformanceObservationSchedule({
+        documentIds: representatives.documents.map(document => document.id),
+        ...sampling
+      })
+      const observations: CorePerformanceObservation[] = observationOrder.map(
+        entry => {
+          const sampleIndex = entry.phase === 'warmup'
+            ? entry.phaseRound - 1
+            : sampling.warmupSamples + entry.phaseRound - 1
+          const filePath = sampleFilesByDocument.get(entry.documentId)?.[sampleIndex]
           if (filePath === undefined) {
             throw new Error('Core performance sample file is missing')
           }
-          observations.push(Object.freeze({
-            documentId: document.id,
-            filePath,
-            phase: index < sampling.warmupSamples ? 'warmup' : 'measured',
-            sampleIndex: index
-          }))
+          return Object.freeze({ ...entry, filePath })
         }
-      }
+      )
 
       const observationRun = await runIsolatedPerformanceObservations(
         observations,
@@ -684,8 +696,11 @@ test.describe('installed Core authority raw performance producer', () => {
               finalWindowState
             )
             return Object.freeze({
+              ordinal: declaration.ordinal,
               documentId: declaration.documentId,
               phase: declaration.phase,
+              phaseRound: declaration.phaseRound,
+              roundPosition: declaration.roundPosition,
               surface: measurement.surface,
               report: measurement.report
             }) satisfies CoreAuthorityPerformanceRawSample
@@ -704,7 +719,9 @@ test.describe('installed Core authority raw performance producer', () => {
             process.stdout.write(
               `[${String(completed)}/${String(totalSamples)}] ` +
               `${declaration.documentId} ${declaration.phase} ` +
-              `${String(declaration.sampleIndex + 1)} fresh-profile-complete\n`
+              `round-${String(declaration.phaseRound)} ` +
+              `position-${String(declaration.roundPosition)} ` +
+              'fresh-profile-complete\n'
             )
           }
         }
@@ -745,6 +762,10 @@ test.describe('installed Core authority raw performance producer', () => {
           windowPresentationPlatform: 'darwin',
           chromiumSchedulingPolicy: PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
           sampleLifecycle: PERFORMANCE_SAMPLE_LIFECYCLE,
+          observationSchedule: PERFORMANCE_OBSERVATION_SCHEDULE,
+          observationScheduleSha256: performanceObservationScheduleSha256(
+            observationOrder
+          ),
           ...observationRun.counts
         },
         documents: representatives.documents.map(document => ({
