@@ -3,7 +3,10 @@
 import { Muya } from '@muyajs/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { createMuyaPlainTextSourceEditAdapter } from '@/documentAuthority/muyaPlainTextSourceEdit'
+import {
+  createMuyaPlainTextSourceEditAdapter,
+  sourceEditForMuyaTwoParagraphPaste
+} from '@/documentAuthority/muyaPlainTextSourceEdit'
 
 const hosts: HTMLElement[] = []
 
@@ -381,5 +384,48 @@ describe('Muya plain-text source edit adapter', () => {
       }],
       markdown: '| a   | b   |\n| --- | --- |\n| 1   | 2   |\n'
     })
+  })
+
+  it('decodes a native multi-paragraph paste at paragraph end', async() => {
+    const muya = boot('Z\n')
+    const block = muya.editor.scrollPage?.queryBlock([0, 'text'])
+    if (block === undefined || block === null || !block.isContent()) {
+      throw new Error('Expected the target paragraph content block')
+    }
+    const path = block.path
+    muya.editor.selection.getSelection = () => ({
+      anchor: { offset: 1, block, path },
+      focus: { offset: 1, block, path },
+      isCollapsed: true,
+      isSelectionInSameBlock: true,
+      direction: 'forward' as never,
+      type: 'Caret' as never
+    })
+    const text = 'copied\n\nnew\n\nbe'
+    const event = {
+      preventDefault() {},
+      stopPropagation() {},
+      clipboardData: {
+        getData: (type: string) => type === 'text/plain' ? text : '',
+        files: [],
+        items: []
+      }
+    } as unknown as ClipboardEvent
+    let observed: unknown
+    muya.eventCenter.on('json-change', (change: unknown) => { observed = change })
+
+    await muya.editor.clipboard.pasteHandler(event, text, '')
+    muya.flush()
+
+    expect(sourceEditForMuyaTwoParagraphPaste(Object.freeze([{
+      path: Object.freeze([0, 'text'] as const),
+      sourceRange: Object.freeze({ start: 0, end: 1 }),
+      text: 'Z'
+    }]), observed)).toEqual({
+      start: 1,
+      end: 1,
+      insert: text
+    })
+    expect(muya.getMarkdown()).toBe('Zcopied\n\nnew\n\nbe\n')
   })
 })
