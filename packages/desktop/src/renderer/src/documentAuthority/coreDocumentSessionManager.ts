@@ -35,6 +35,7 @@ export interface CoreDocumentViewLease {
   readonly identity: DocumentSaveIdentity
   readonly binding: EditorCoreBinding
   readonly lineEnding: CanonicalLineEnding
+  sourceAtBarrier(): Promise<string>
   consumerProjection(): CoreConsumerProjection | undefined
   consumerProjectionAtBarrier(): Promise<CoreConsumerProjection>
   selectionProjectionAtBarrier(range: Readonly<{
@@ -403,6 +404,17 @@ export function createCoreDocumentSessionManager(
         },
         binding: viewBinding,
         lineEnding: session.lineEnding,
+        async sourceAtBarrier(): Promise<string> {
+          if (released) {
+            throw new Error('Core document view lease is released')
+          }
+          const ownedSession = currentSessionOf(lease)
+          const snapshot = await manager.saveBarrier(documentId)
+          if (released || sessions.get(documentId) !== ownedSession) {
+            throw new Error('Core document source barrier generation changed')
+          }
+          return snapshot.source
+        },
         consumerProjection(): CoreConsumerProjection | undefined {
           if (released || sessions.get(documentId) !== session) return undefined
           return consumerProjections.read(documentId, session.currentIdentity)
