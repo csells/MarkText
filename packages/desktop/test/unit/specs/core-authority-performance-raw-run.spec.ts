@@ -93,7 +93,7 @@ const authenticatedProvenance = (
   measurementBoundary: 'core-authority-browser-compositor-v6',
   presentationBoundary: 'electron-webcontents-capture-page-transparent-v2',
   launchBoundary: 'playwright-electron-packaged-transparent-v3',
-  windowPresentationPolicy: 'transparent-render-active-inactive-v5',
+  windowPresentationPolicy: 'transparent-render-active-inactive-v6',
   windowPresentationPlatform: 'darwin',
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2',
   sampleLifecycle: 'fresh-application-profile-per-observation-v1',
@@ -391,7 +391,7 @@ describe('Core authority raw performance producer', () => {
       documents: [{ id: 'doc', sourceSha256: digest }],
       samples
     })).toEqual({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v12',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v13',
       evidenceClass: 'smoke-non-ratifying',
       runId: 'core-2026-08-13',
       implementation: 'core-candidate',
@@ -569,12 +569,12 @@ describe('Core authority raw performance producer', () => {
       ])
     })
     expect(smoke).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v12',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v13',
       evidenceClass: 'smoke-non-ratifying'
     })
   })
 
-  it('emits v12 only for the fixed 20/200 ratification protocol', () => {
+  it('emits v13 only for the fixed 20/200 ratification protocol', () => {
     const ratificationSchedule = scheduleFor(20, 200)
     const ratificationSamples: CoreAuthorityPerformanceRawSample[] = ratificationSchedule.map(
       (entry, index) => ({
@@ -597,7 +597,7 @@ describe('Core authority raw performance producer', () => {
     })
 
     expect(ratification.schema).toBe(
-      'marktext-criticmarkup-raw-performance-run-v12'
+      'marktext-criticmarkup-raw-performance-run-v13'
     )
     expect(() => createCoreAuthorityPerformanceRawRun({
       runId: 'core',

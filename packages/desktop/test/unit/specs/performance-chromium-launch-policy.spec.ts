@@ -30,6 +30,8 @@ describe('hidden performance Chromium launch policy', () => {
       focusable: false,
       alwaysOnTop: false,
       appActive: false,
+      visibleOnAllWorkspaces: true,
+      hiddenInMissionControl: true,
       title: 'Untitled-1',
       bounds: Object.freeze({ x: 264, y: 130, width: 1_200, height: 800 })
     })
@@ -78,6 +80,8 @@ describe('hidden performance Chromium launch policy', () => {
       focusable: false,
       alwaysOnTop: false,
       appActive: false,
+      visibleOnAllWorkspaces: true,
+      hiddenInMissionControl: true,
       title: 'index.html',
       bounds: Object.freeze({ x: 264, y: 130, width: 1_200, height: 800 })
     })
@@ -126,6 +130,8 @@ describe('hidden performance Chromium launch policy', () => {
       focusable: false,
       alwaysOnTop: false,
       appActive: false,
+      visibleOnAllWorkspaces: true,
+      hiddenInMissionControl: true,
       title: 'index.html',
       bounds: Object.freeze({ x: 264, y: 130, width: 1_200, height: 800 })
     })
@@ -168,6 +174,8 @@ describe('hidden performance Chromium launch policy', () => {
       focusable: false,
       alwaysOnTop: false,
       appActive: false,
+      visibleOnAllWorkspaces: true,
+      hiddenInMissionControl: true,
       title: 'Untitled-1',
       bounds: Object.freeze({ x: 264, y: 130, width: 1_200, height: 800 })
     })
@@ -220,6 +228,8 @@ describe('hidden performance Chromium launch policy', () => {
       focusable: false,
       alwaysOnTop: false,
       appActive: false,
+      visibleOnAllWorkspaces: true,
+      hiddenInMissionControl: true,
       title: 'index.html',
       bounds: Object.freeze({ x: 264, y: 130, width: 1_200, height: 800 })
     })
@@ -269,6 +279,8 @@ describe('hidden performance Chromium launch policy', () => {
       focusable: false,
       alwaysOnTop: false,
       appActive: false,
+      visibleOnAllWorkspaces: true,
+      hiddenInMissionControl: true,
       title: 'index.html',
       bounds: Object.freeze({ x: 264, y: 130, width: 1_200, height: 800 })
     })
@@ -308,6 +320,8 @@ describe('hidden performance Chromium launch policy', () => {
       focusable: false,
       alwaysOnTop: false,
       appActive: false,
+      visibleOnAllWorkspaces: true,
+      hiddenInMissionControl: true,
       title: 'index.html',
       bounds: Object.freeze({ x: 264, y: 130, width: 1_200, height: 800 })
     })
@@ -360,6 +374,8 @@ describe('hidden performance Chromium launch policy', () => {
       focusable: false,
       alwaysOnTop: false,
       appActive: false,
+      visibleOnAllWorkspaces: true,
+      hiddenInMissionControl: true,
       title: 'Untitled-1',
       bounds: Object.freeze({ x: 264, y: 130, width: 1_200, height: 800 })
     })
@@ -407,6 +423,8 @@ describe('hidden performance Chromium launch policy', () => {
       focusable: false,
       alwaysOnTop: false,
       appActive: false,
+      visibleOnAllWorkspaces: true,
+      hiddenInMissionControl: true,
       title: 'sample.md — MarkText',
       bounds: Object.freeze({ x: 20, y: 30, width: 900, height: 700 })
     })
@@ -467,6 +485,8 @@ describe('hidden performance Chromium launch policy', () => {
           focusable: false,
           alwaysOnTop: false,
           appActive: false,
+          visibleOnAllWorkspaces: true,
+          hiddenInMissionControl: true,
           title: 'Untitled-1',
           bounds: Object.freeze({
             x: next(electronX, 'Electron'),
@@ -530,6 +550,8 @@ describe('hidden performance Chromium launch policy', () => {
       focusable: false,
       alwaysOnTop: false,
       appActive: false,
+      visibleOnAllWorkspaces: true,
+      hiddenInMissionControl: true,
       title: 'sample.md — MarkText',
       bounds: Object.freeze({ x: 20, y: 30, width: 900, height: 700 })
     })
@@ -581,6 +603,8 @@ describe('hidden performance Chromium launch policy', () => {
       focusable: false,
       alwaysOnTop: false,
       appActive: false,
+      visibleOnAllWorkspaces: true,
+      hiddenInMissionControl: true,
       title: 'sample.md — MarkText',
       bounds: Object.freeze({ x: 20, y: 30, width: 900, height: 700 })
     })
@@ -643,6 +667,15 @@ describe('hidden performance Chromium launch policy', () => {
         calls.push(`ignore-mouse:${String(ignored)}`),
       setHiddenInMissionControl: (hidden: boolean) =>
         calls.push(`mission-control:${String(hidden)}`),
+      setVisibleOnAllWorkspaces: (
+        visible: boolean,
+        options: Readonly<{
+          visibleOnFullScreen?: boolean
+          skipTransformProcessType?: boolean
+        }>
+      ) => calls.push(
+        `all-workspaces:${String(visible)}:${JSON.stringify(options)}`
+      ),
       setSkipTaskbar: (skip: boolean) => calls.push(`skip-taskbar:${String(skip)}`),
       showInactive: () => calls.push('show-inactive'),
       focus: () => { throw new Error('Window focus is prohibited') },
@@ -651,6 +684,8 @@ describe('hidden performance Chromium launch policy', () => {
       isFocused: () => false,
       isFocusable: () => false,
       isAlwaysOnTop: () => false,
+      isVisibleOnAllWorkspaces: () => true,
+      isHiddenInMissionControl: () => true,
       getMediaSourceId: () => 'window:81:0',
       getTitle: () => 'sample.md — MarkText',
       getBounds: () => ({ x: 20, y: 30, width: 900, height: 700 })
@@ -693,8 +728,6 @@ describe('hidden performance Chromium launch policy', () => {
     }>
     const state = await lifecycle.activate('renderer-target-7')
 
-    expect(PERFORMANCE_WINDOW_PRESENTATION_POLICY)
-      .toBe('transparent-render-active-inactive-v5')
     expect(calls).toEqual([
       'policy:accessory',
       'schedule:false',
@@ -702,12 +735,19 @@ describe('hidden performance Chromium launch policy', () => {
       'focusable:false',
       'ignore-mouse:true',
       'mission-control:true',
+      'all-workspaces:true:{"visibleOnFullScreen":true,"skipTransformProcessType":true}',
       'skip-taskbar:true',
       'app-hide',
       'app-show',
       'show-inactive'
     ])
-    expect(state).toMatchObject({ windowNumber: 81 })
+    expect(PERFORMANCE_WINDOW_PRESENTATION_POLICY)
+      .toBe('transparent-render-active-inactive-v6')
+    expect(state).toMatchObject({
+      windowNumber: 81,
+      visibleOnAllWorkspaces: true,
+      hiddenInMissionControl: true
+    })
     expect(() => assertTransparentRenderActiveInactive(state))
       .not.toThrow()
   })
@@ -722,6 +762,8 @@ describe('hidden performance Chromium launch policy', () => {
       focusable: false,
       alwaysOnTop: false,
       appActive: false,
+      visibleOnAllWorkspaces: true,
+      hiddenInMissionControl: true,
       title: 'sample.md — MarkText',
       bounds: Object.freeze({ x: 20, y: 30, width: 900, height: 700 })
     })
@@ -791,6 +833,9 @@ describe('hidden performance Chromium launch policy', () => {
       setFocusable: () => undefined,
       setIgnoreMouseEvents: () => undefined,
       setHiddenInMissionControl: () => undefined,
+      setVisibleOnAllWorkspaces: () => undefined,
+      isVisibleOnAllWorkspaces: () => true,
+      isHiddenInMissionControl: () => true,
       showInactive: () => calls.push('show-inactive')
     }
     const app = Object.assign(new EventEmitter(), {
@@ -825,6 +870,54 @@ describe('hidden performance Chromium launch policy', () => {
     expect(calls).toEqual(['app-hide'])
   })
 
+  it('fails closed when an exact window lacks any workspace policy API', async() => {
+    const workspaceApis = [
+      'setVisibleOnAllWorkspaces',
+      'isVisibleOnAllWorkspaces',
+      'isHiddenInMissionControl'
+    ] as const
+
+    for (const missingApi of workspaceApis) {
+      let showInactiveCalls = 0
+      const contents = {
+        isDestroyed: () => false,
+        setBackgroundThrottling: () => undefined
+      }
+      const window = {
+        webContents: contents,
+        isDestroyed: () => false,
+        setOpacity: () => undefined,
+        setFocusable: () => undefined,
+        setIgnoreMouseEvents: () => undefined,
+        setHiddenInMissionControl: () => undefined,
+        setVisibleOnAllWorkspaces: () => undefined,
+        isVisibleOnAllWorkspaces: () => true,
+        isHiddenInMissionControl: () => true,
+        showInactive: () => { showInactiveCalls += 1 }
+      } as Record<string, unknown>
+      window[missingApi] = undefined
+      const context = {
+        app: Object.assign(new EventEmitter(), { isActive: () => false }),
+        BrowserWindow: {
+          getAllWindows: () => [],
+          fromWebContents: () => window
+        },
+        webContents: { fromDevToolsTargetId: () => contents }
+      } as Record<string, unknown>
+      runInNewContext(
+        `(${PERFORMANCE_WINDOW_SCHEDULING_INSTALLER_SOURCE})({ app, BrowserWindow, webContents })`,
+        context
+      )
+      const lifecycle = context.__marktextPerformanceWindowLifecycle as Readonly<{
+        readonly activate: (targetId: string) => Promise<unknown>
+      }>
+
+      await expect(lifecycle.activate('renderer-target-7'))
+        .rejects.toThrow(/cannot be prepared/i)
+      expect(showInactiveCalls).toBe(0)
+    }
+  })
+
   it('rejects restoration that reactivates the app after a real resign', async() => {
     const calls: string[] = []
     let active = true
@@ -839,12 +932,15 @@ describe('hidden performance Chromium launch policy', () => {
       setFocusable: () => undefined,
       setIgnoreMouseEvents: () => undefined,
       setHiddenInMissionControl: () => undefined,
+      setVisibleOnAllWorkspaces: () => undefined,
       showInactive: () => calls.push('show-inactive'),
       isVisible: () => true,
       getOpacity: () => 0,
       isFocused: () => false,
       isFocusable: () => false,
       isAlwaysOnTop: () => false,
+      isVisibleOnAllWorkspaces: () => true,
+      isHiddenInMissionControl: () => true,
       getMediaSourceId: () => 'window:81:0',
       getTitle: () => 'sample.md — MarkText',
       getBounds: () => ({ x: 20, y: 30, width: 900, height: 700 })
@@ -894,6 +990,8 @@ describe('hidden performance Chromium launch policy', () => {
       focusable: false,
       alwaysOnTop: false,
       appActive: false,
+      visibleOnAllWorkspaces: true,
+      hiddenInMissionControl: true,
       title: 'sample.md — MarkText',
       bounds: { x: 20, y: 30, width: 900, height: 700 }
     })).toThrow(/presentation invariant failed/i)
@@ -905,6 +1003,8 @@ describe('hidden performance Chromium launch policy', () => {
       focusable: false,
       alwaysOnTop: false,
       appActive: false,
+      visibleOnAllWorkspaces: true,
+      hiddenInMissionControl: true,
       title: 'sample.md — MarkText',
       bounds: { x: 20, y: 30, width: 900, height: 700 }
     })).toThrow(/presentation invariant failed/i)
@@ -916,6 +1016,34 @@ describe('hidden performance Chromium launch policy', () => {
       focusable: false,
       alwaysOnTop: false,
       appActive: false,
+      visibleOnAllWorkspaces: true,
+      hiddenInMissionControl: true,
+      title: 'sample.md — MarkText',
+      bounds: { x: 20, y: 30, width: 900, height: 700 }
+    })).toThrow(/presentation invariant failed/i)
+    expect(() => assertTransparentRenderActiveInactive({
+      windowNumber: 81,
+      visible: true,
+      opacity: 0,
+      focused: false,
+      focusable: false,
+      alwaysOnTop: false,
+      appActive: false,
+      visibleOnAllWorkspaces: false,
+      hiddenInMissionControl: true,
+      title: 'sample.md — MarkText',
+      bounds: { x: 20, y: 30, width: 900, height: 700 }
+    })).toThrow(/presentation invariant failed/i)
+    expect(() => assertTransparentRenderActiveInactive({
+      windowNumber: 81,
+      visible: true,
+      opacity: 0,
+      focused: false,
+      focusable: false,
+      alwaysOnTop: false,
+      appActive: false,
+      visibleOnAllWorkspaces: true,
+      hiddenInMissionControl: false,
       title: 'sample.md — MarkText',
       bounds: { x: 20, y: 30, width: 900, height: 700 }
     })).toThrow(/presentation invariant failed/i)
@@ -1384,6 +1512,15 @@ describe('hidden performance Chromium launch policy', () => {
         calls.push(`ignore-mouse:${String(value)}`),
       setHiddenInMissionControl: (value: boolean) =>
         calls.push(`mission-control:${String(value)}`),
+      setVisibleOnAllWorkspaces: (
+        visible: boolean,
+        options: Readonly<{
+          visibleOnFullScreen?: boolean
+          skipTransformProcessType?: boolean
+        }>
+      ) => calls.push(
+        `all-workspaces:${String(visible)}:${JSON.stringify(options)}`
+      ),
       setSkipTaskbar: (value: boolean) => calls.push(`skip-taskbar:${String(value)}`),
       hide: () => calls.push('hide'),
       close: () => calls.push('close'),
@@ -1408,6 +1545,7 @@ describe('hidden performance Chromium launch policy', () => {
     expect(lifecycle.close('renderer-target-7')).toBe(true)
     expect(calls).toEqual([
       'hide',
+      'all-workspaces:false:{"visibleOnFullScreen":false,"skipTransformProcessType":true}',
       'opacity:1',
       'focusable:true',
       'ignore-mouse:false',
@@ -1472,6 +1610,17 @@ describe('hidden performance Chromium launch policy', () => {
         calls.push(`${name}:ignore-mouse:${String(ignored)}`),
       setHiddenInMissionControl: (hidden: boolean) =>
         calls.push(`${name}:mission:${String(hidden)}`),
+      setVisibleOnAllWorkspaces: (
+        visible: boolean,
+        options: Readonly<{
+          visibleOnFullScreen?: boolean
+          skipTransformProcessType?: boolean
+        }>
+      ) => calls.push(
+        `${name}:all-workspaces:${String(visible)}:${JSON.stringify(options)}`
+      ),
+      isVisibleOnAllWorkspaces: () => true,
+      isHiddenInMissionControl: () => true,
       setSkipTaskbar: (skip: boolean) =>
         calls.push(`${name}:skip-taskbar:${String(skip)}`),
       webContents: options.missingWebContents
@@ -1510,12 +1659,14 @@ describe('hidden performance Chromium launch policy', () => {
       'existing:focusable:false',
       'existing:ignore-mouse:true',
       'existing:mission:true',
+      'existing:all-workspaces:true:{"visibleOnFullScreen":true,"skipTransformProcessType":true}',
       'existing:skip-taskbar:true',
       'future:false',
       'future:opacity:0',
       'future:focusable:false',
       'future:ignore-mouse:true',
       'future:mission:true',
+      'future:all-workspaces:true:{"visibleOnFullScreen":true,"skipTransformProcessType":true}',
       'future:skip-taskbar:true'
     ])
   })
@@ -1540,6 +1691,19 @@ describe('hidden performance Chromium launch policy', () => {
       setHiddenInMissionControl: (hidden: boolean): void => {
         order.push(`${name}:mission:${String(hidden)}`)
       },
+      setVisibleOnAllWorkspaces: (
+        visible: boolean,
+        options: Readonly<{
+          visibleOnFullScreen?: boolean
+          skipTransformProcessType?: boolean
+        }>
+      ): void => {
+        order.push(
+          `${name}:all-workspaces:${String(visible)}:${JSON.stringify(options)}`
+        )
+      },
+      isVisibleOnAllWorkspaces: (): boolean => true,
+      isHiddenInMissionControl: (): boolean => true,
       setSkipTaskbar: (skip: boolean): void => {
         order.push(`${name}:skip-taskbar:${String(skip)}`)
       },
@@ -1588,17 +1752,19 @@ describe('hidden performance Chromium launch policy', () => {
       'existing-window:focusable:false',
       'existing-window:ignore-mouse:true',
       'existing-window:mission:true',
+      'existing-window:all-workspaces:true:{"visibleOnFullScreen":true,"skipTransformProcessType":true}',
       'existing-window:skip-taskbar:true',
       'scheduling-complete',
       'first-window'
     ])
     app.emit('browser-window-created', {}, coreWindow('future-window'))
-    expect(order.slice(-6)).toEqual([
+    expect(order.slice(-7)).toEqual([
       'future-window:false',
       'future-window:opacity:0',
       'future-window:focusable:false',
       'future-window:ignore-mouse:true',
       'future-window:mission:true',
+      'future-window:all-workspaces:true:{"visibleOnFullScreen":true,"skipTransformProcessType":true}',
       'future-window:skip-taskbar:true'
     ])
   })
