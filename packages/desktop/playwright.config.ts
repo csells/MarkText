@@ -1,7 +1,8 @@
 import { defineConfig } from '@playwright/test'
 
 const installedArtifactSpecs = [
-  '**/installed-core-review.spec.ts'
+  '**/installed-core-review.spec.ts',
+  '**/installed-core-clipboard.spec.ts'
 ]
 
 // Must stay at the package root: Playwright only auto-loads a config from the
