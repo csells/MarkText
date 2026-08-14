@@ -25,6 +25,7 @@ export {
   type DocumentProjection,
   type DocumentProjectionName,
   type DocumentProjectionRequest,
+  type DocumentSourceResynchronization,
   type DocumentResolutionDecision,
   type DocumentRevision,
   type DocumentSourceEdit,
