@@ -330,6 +330,23 @@ const requireFullCommit = (
   return commit
 }
 
+const requireCommitAncestor = (
+  repoRoot: string,
+  ancestor: string,
+  descendant: string,
+  label: string
+): void => {
+  try {
+    execFileSync(
+      'git',
+      ['merge-base', '--is-ancestor', ancestor, descendant],
+      { cwd: repoRoot, stdio: 'ignore' }
+    )
+  } catch {
+    throw new Error(`CriticMarkup Phase 0 ${label} must be an ancestor of the working baseline`)
+  }
+}
+
 const listTree = (
   repoRoot: string,
   revision: string,
@@ -760,12 +777,15 @@ export const materializeCriticMarkupPhase0Dispositions = (
   input: CriticMarkupPhase0MaterializationInput
 ): CriticMarkupPhase0Materialization => {
   requireCriticMarkupPhase0Approval(repoRoot, input.approval)
-  if (
-    input.approval.baselineCommit !== input.parityBaseline.baselineCommit ||
-    input.approval.baselineCommit !== input.salvageBaseline.baselineCommit
-  ) {
+  if (input.approval.baselineCommit !== input.parityBaseline.baselineCommit) {
     throw new Error('Phase 0 approval targets a different disposition baseline')
   }
+  requireCommitAncestor(
+    repoRoot,
+    input.salvageBaseline.baselineCommit,
+    input.approval.baselineCommit,
+    'salvage lineage baseline'
+  )
   if (input.approval.evidenceCommit !== input.salvageProposal.evidenceCommit) {
     throw new Error('Phase 0 approval targets a different salvage evidence commit')
   }

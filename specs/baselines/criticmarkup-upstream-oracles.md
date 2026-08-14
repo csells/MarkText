@@ -1,8 +1,13 @@
 # Upstream MarkText test and latency baseline
 
 This is the Phase 0 oracle map for upstream commit
-`43bd8b77795fb27b1a9512737c000f7362031ea0`. It distinguishes tests that exist from evidence the
+`e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c`. It distinguishes tests that exist from evidence the
 integration still has to create.
+
+This explicit rebase checkpoint is one docs-only sponsor-image commit after the prior
+`43bd8b77795fb27b1a9512737c000f7362031ea0` checkpoint. Regeneration preserves the exact 829 parity
+IDs and source labels. The historical salvage lineage remains rooted at the earlier common ancestor;
+performance and release-candidate executions must use the current checkpoint.
 
 ## Runnable upstream suites
 
