@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
-import { dirname, isAbsolute, relative, resolve } from 'node:path'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
@@ -85,7 +85,7 @@ export interface CriticMarkupRawPerformanceRunRef
 }
 
 export interface CriticMarkupPerformanceMeasurementManifest {
-  schema: 'marktext-criticmarkup-performance-measurements-v9'
+  schema: 'marktext-criticmarkup-performance-measurements-v10'
   status: 'awaiting-raw-runs' | 'measured-unratified'
   baselineCommit: string
   targetManifest: CriticMarkupPerformanceArtifactRef
@@ -117,18 +117,18 @@ interface CriticMarkupRawPerformanceRunBase {
   }>
 }
 
-export interface CriticMarkupUpstreamRawPerformanceRunV8
+export interface CriticMarkupUpstreamRawPerformanceRunV9
   extends CriticMarkupRawPerformanceRunBase {
-  schema: 'marktext-criticmarkup-raw-performance-run-v8'
+  schema: 'marktext-criticmarkup-raw-performance-run-v9'
   provenance: CriticMarkupUpstreamPerformanceProvenance
   metricDefinitions: Record<CommonMetric, string>
 }
 
 export type CriticMarkupPerformanceSurface = 'wysiwyg' | 'source'
 
-export interface CriticMarkupCoreRawPerformanceRunV10
+export interface CriticMarkupCoreRawPerformanceRunV11
   extends Omit<CriticMarkupRawPerformanceRunBase, 'implementation' | 'documents'> {
-  schema: 'marktext-criticmarkup-raw-performance-run-v10'
+  schema: 'marktext-criticmarkup-raw-performance-run-v11'
   implementation: 'core-candidate'
   surfaces: CriticMarkupPerformanceSurface[]
   provenance: CriticMarkupCorePerformanceProvenance
@@ -162,7 +162,7 @@ export interface CriticMarkupCorePerformanceProvenance {
   measurementBoundary: 'core-authority-browser-compositor-v6'
   presentationBoundary: 'electron-webcontents-capture-page-transparent-v2'
   launchBoundary: 'playwright-electron-packaged-transparent-v3'
-  windowPresentationPolicy: 'transparent-render-active-inactive-v3'
+  windowPresentationPolicy: 'transparent-render-active-inactive-v4'
   windowPresentationPlatform: 'darwin'
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
   sampleLifecycle: typeof PERFORMANCE_SAMPLE_LIFECYCLE
@@ -191,7 +191,7 @@ export interface CriticMarkupUpstreamPerformanceProvenance {
   measurementBoundary: 'external-browser-compositor-v4'
   presentationBoundary: 'electron-webcontents-capture-page-transparent-v2'
   launchBoundary: 'external-inspector-transparent-render-active-v3'
-  windowPresentationPolicy: 'transparent-render-active-inactive-v3'
+  windowPresentationPolicy: 'transparent-render-active-inactive-v4'
   windowPresentationPlatform: 'darwin'
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
   sampleLifecycle: typeof PERFORMANCE_SAMPLE_LIFECYCLE
@@ -209,11 +209,11 @@ export interface CriticMarkupPerformanceAuthoritySamples {
 }
 
 export type CriticMarkupRawPerformanceRun =
-  | CriticMarkupUpstreamRawPerformanceRunV8
-  | CriticMarkupCoreRawPerformanceRunV10
+  | CriticMarkupUpstreamRawPerformanceRunV9
+  | CriticMarkupCoreRawPerformanceRunV11
 
 interface PerformanceTargets {
-  schema: 'marktext-criticmarkup-performance-targets-v6'
+  schema: 'marktext-criticmarkup-performance-targets-v7'
   status: 'proposed-unratified' | 'ratified'
   representativeDocuments: { schema: string, path: string }
   environment: Record<string, string>
@@ -222,6 +222,7 @@ interface PerformanceTargets {
     measuredSamples: number
     sampleLifecycle: typeof PERFORMANCE_SAMPLE_LIFECYCLE
     observationSchedule: typeof PERFORMANCE_OBSERVATION_SCHEDULE
+    percentiles: number[]
   }
   metrics: Record<PerformanceMetric, {
     targetP95Ms: number | null
@@ -236,18 +237,66 @@ interface RepresentativeDocuments {
 }
 
 export interface CriticMarkupPerformanceP95Row {
-  runId: string
-  implementation: PerformanceImplementation
-  documentId: string
-  metric: PerformanceMetric
-  p95Ms: number
-  targetP95Ms: number
-  meetsTarget: boolean
+  readonly runId: string
+  readonly implementation: PerformanceImplementation
+  readonly documentId: string
+  readonly metric: PerformanceMetric
+  readonly p95Ms: number
+  readonly targetP95Ms: number
+  readonly meetsTarget: boolean
 }
 
 export interface CriticMarkupPerformanceRatificationEvidence {
-  schema: 'marktext-criticmarkup-performance-ratification-evidence-v1'
-  rows: CriticMarkupPerformanceP95Row[]
+  readonly schema: 'marktext-criticmarkup-performance-ratification-evidence-v2'
+  readonly provenance: {
+    readonly baselineCommit: string
+    readonly targetManifest: Readonly<CriticMarkupPerformanceArtifactRef>
+    readonly representativeDocuments: Readonly<CriticMarkupPerformanceArtifactRef>
+    readonly rawRuns: readonly Readonly<CriticMarkupRawPerformanceRunRef>[]
+    readonly calibrationReport: Readonly<CriticMarkupPerformanceArtifactRef>
+    readonly calibrationRowsSha256: string
+  }
+  readonly rowsSha256: string
+  readonly rows: readonly CriticMarkupPerformanceP95Row[]
+}
+
+export interface CriticMarkupPerformanceCalibrationRow {
+  readonly runId: string
+  readonly implementation: PerformanceImplementation
+  readonly documentId: string
+  readonly metric: PerformanceMetric
+  readonly sampleCount: number
+  readonly percentiles: {
+    readonly p50Ms: number
+    readonly p95Ms: number
+    readonly p99Ms: number
+  }
+  readonly timeOrder: {
+    readonly firstMs: number
+    readonly lastMs: number
+    readonly firstHalfMeanMs: number
+    readonly secondHalfMeanMs: number
+    readonly halfMeanDeltaMs: number
+  }
+}
+
+export interface CriticMarkupPerformanceCalibrationReport {
+  readonly schema: 'marktext-criticmarkup-performance-calibration-v1'
+  readonly status: 'measured-unratified'
+  readonly provenance: {
+    readonly baselineCommit: string
+    readonly targetManifest: Readonly<CriticMarkupPerformanceArtifactRef>
+    readonly representativeDocuments: Readonly<CriticMarkupPerformanceArtifactRef>
+    readonly rawRuns: readonly Readonly<CriticMarkupRawPerformanceRunRef>[]
+  }
+  readonly percentiles: readonly [50, 95, 99]
+  readonly rowsSha256: string
+  readonly rows: readonly CriticMarkupPerformanceCalibrationRow[]
+}
+
+export interface CriticMarkupPerformanceCalibrationMaterialization {
+  readonly ref: Readonly<CriticMarkupPerformanceArtifactRef>
+  readonly report: CriticMarkupPerformanceCalibrationReport
 }
 
 const sha256 = (source: Buffer): string => createHash('sha256')
@@ -643,7 +692,7 @@ const validateUpstreamProvenance = (
   }
   if (
     provenance.windowPresentationPolicy !==
-      'transparent-render-active-inactive-v3'
+      'transparent-render-active-inactive-v4'
   ) {
     throw new Error(`${label} provenance window presentation policy is invalid`)
   }
@@ -768,7 +817,7 @@ const validateCoreProvenance = (
   }
   if (
     provenance.windowPresentationPolicy !==
-      'transparent-render-active-inactive-v3'
+      'transparent-render-active-inactive-v4'
   ) {
     throw new Error(`${label} provenance window presentation policy is invalid`)
   }
@@ -791,8 +840,8 @@ const validateRawRun = (
 ): void => {
   const raw = requireRecord(value, `Raw performance run ${ref.id}`)
   const expectedSchema = ref.implementation === 'core-candidate'
-    ? 'marktext-criticmarkup-raw-performance-run-v10'
-    : 'marktext-criticmarkup-raw-performance-run-v8'
+    ? 'marktext-criticmarkup-raw-performance-run-v11'
+    : 'marktext-criticmarkup-raw-performance-run-v9'
   if (raw.schema !== expectedSchema) {
     throw new Error(`Raw performance run ${ref.id} schema is invalid`)
   }
@@ -850,7 +899,7 @@ const validateRawRun = (
     `Raw performance run ${ref.id}`
   )
   const declaredSurfaces = new Set<CriticMarkupPerformanceSurface>()
-  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v10') {
+  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v11') {
     validateCoreProvenance(
       raw.provenance,
       raw.buildCommit as string,
@@ -921,7 +970,7 @@ const validateRawRun = (
     if (document.sourceSha256 !== expected.sha256) {
       throw new Error(`Raw performance run ${ref.id} document digest is stale: ${id}`)
     }
-    if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v10') {
+    if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v11') {
       const surface = document.surface
       if (
         (surface !== 'wysiwyg' && surface !== 'source') ||
@@ -966,7 +1015,7 @@ const validateRawRun = (
   if (missing.length > 0) {
     throw new Error(`Raw performance run ${ref.id} is missing documents: ${missing.join(', ')}`)
   }
-  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v10') {
+  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v11') {
     const usedSurfaces = new Set(raw.documents.map(document => (
       requireRecord(document, `Raw performance run ${ref.id} document`).surface
     )))
@@ -983,7 +1032,7 @@ export const validateCriticMarkupPerformanceMeasurements = (
   repoRoot: string,
   manifest: CriticMarkupPerformanceMeasurementManifest
 ): void => {
-  if (manifest.schema !== 'marktext-criticmarkup-performance-measurements-v9') {
+  if (manifest.schema !== 'marktext-criticmarkup-performance-measurements-v10') {
     throw new Error('Performance measurement manifest schema is invalid')
   }
   if (
@@ -1072,9 +1121,264 @@ export const validateCriticMarkupPerformanceMeasurements = (
   }
 }
 
-export const requireCriticMarkupPerformanceEvidenceForRatification = (
+export const materializeCriticMarkupMeasuredPerformanceManifest = (
+  repoRoot: string,
+  manifest: CriticMarkupPerformanceMeasurementManifest,
+  rawPaths: readonly string[]
+): CriticMarkupPerformanceMeasurementManifest => {
+  if (manifest.status !== 'awaiting-raw-runs' || manifest.runs.length !== 0) {
+    throw new Error(
+      'Performance measurement materialization requires an empty awaiting manifest'
+    )
+  }
+  if (rawPaths.length !== REQUIRED_IMPLEMENTATIONS.length) {
+    throw new Error(
+      'Performance measurement materialization requires exactly two raw runs'
+    )
+  }
+
+  const refsByImplementation = new Map<
+    PerformanceImplementation,
+    CriticMarkupRawPerformanceRunRef
+  >()
+  for (const rawPath of rawPaths) {
+    const absolutePath = resolveRepositoryPath(
+      repoRoot,
+      rawPath,
+      'Raw performance evidence path'
+    )
+    const canonicalPath = relative(repoRoot, absolutePath).split(sep).join('/')
+    if (
+      rawPath !== canonicalPath ||
+      !canonicalPath.startsWith('specs/baselines/runs/performance/')
+    ) {
+      throw new Error(
+        'Raw performance evidence path must be canonical and under the performance run directory'
+      )
+    }
+    if (!existsSync(absolutePath)) {
+      throw new Error(`Raw performance evidence is absent: ${rawPath}`)
+    }
+    const source = readFileSync(absolutePath)
+    const raw = requireRecord(
+      JSON.parse(source.toString('utf8')),
+      `Raw performance evidence ${rawPath}`
+    )
+    const implementation = raw.implementation
+    if (!REQUIRED_IMPLEMENTATIONS.includes(
+      implementation as PerformanceImplementation
+    )) {
+      throw new Error(`Raw performance implementation is invalid: ${rawPath}`)
+    }
+    const typedImplementation = implementation as PerformanceImplementation
+    const expectedSchema = typedImplementation === 'upstream-baseline'
+      ? 'marktext-criticmarkup-raw-performance-run-v9'
+      : 'marktext-criticmarkup-raw-performance-run-v11'
+    if (raw.schema !== expectedSchema) {
+      throw new Error(`Raw performance evidence schema is invalid: ${rawPath}`)
+    }
+    if (refsByImplementation.has(typedImplementation)) {
+      throw new Error(
+        `Performance measurement materialization duplicates ${typedImplementation}`
+      )
+    }
+    refsByImplementation.set(typedImplementation, {
+      id: requireNonEmpty(raw.runId, `Raw performance run ${rawPath} ID`),
+      implementation: typedImplementation,
+      path: canonicalPath,
+      sha256: sha256(source)
+    })
+  }
+
+  const runs = REQUIRED_IMPLEMENTATIONS.map(implementation => {
+    const ref = refsByImplementation.get(implementation)
+    if (ref === undefined) {
+      throw new Error(
+        `Performance measurement materialization is missing ${implementation}`
+      )
+    }
+    return Object.freeze({ ...ref })
+  })
+  const measured = {
+    ...manifest,
+    status: 'measured-unratified' as const,
+    runs
+  }
+  validateCriticMarkupPerformanceMeasurements(repoRoot, measured)
+  return Object.freeze({
+    ...measured,
+    runs
+  })
+}
+
+const roundedMilliseconds = (value: number): number =>
+  Number(value.toFixed(6))
+
+const meanMilliseconds = (values: readonly number[]): number => {
+  if (values.length === 0) {
+    throw new Error('Performance calibration mean requires at least one sample')
+  }
+  return roundedMilliseconds(
+    values.reduce((sum, value) => sum + value, 0) / values.length
+  )
+}
+
+const nearestRankMilliseconds = (
+  sorted: readonly number[],
+  percentile: 50 | 95 | 99
+): number => {
+  const value = sorted[Math.ceil(sorted.length * percentile / 100) - 1]
+  if (value === undefined) {
+    throw new Error('Performance calibration percentile requires samples')
+  }
+  return roundedMilliseconds(value)
+}
+
+const calibrationRow = (
+  run: CriticMarkupRawPerformanceRun,
+  document: CriticMarkupRawPerformanceRun['documents'][number],
+  metric: PerformanceMetric
+): CriticMarkupPerformanceCalibrationRow => {
+  const values = document.measured[metric]
+  if (values === undefined || values.length === 0) {
+    throw new Error(
+      `Raw performance run ${run.runId} has no measured ${metric} samples`
+    )
+  }
+  const midpoint = Math.floor(values.length / 2)
+  const firstHalf = values.slice(0, midpoint)
+  const secondHalf = values.slice(midpoint)
+  if (firstHalf.length === 0 || secondHalf.length === 0) {
+    throw new Error(
+      `Raw performance run ${run.runId} needs two halves for ${metric} drift`
+    )
+  }
+  const firstHalfMeanMs = meanMilliseconds(firstHalf)
+  const secondHalfMeanMs = meanMilliseconds(secondHalf)
+  const sorted = [...values].sort((left, right) => left - right)
+  return {
+    runId: run.runId,
+    implementation: run.implementation,
+    documentId: document.id,
+    metric,
+    sampleCount: values.length,
+    percentiles: {
+      p50Ms: nearestRankMilliseconds(sorted, 50),
+      p95Ms: nearestRankMilliseconds(sorted, 95),
+      p99Ms: nearestRankMilliseconds(sorted, 99)
+    },
+    timeOrder: {
+      firstMs: roundedMilliseconds(values[0] as number),
+      lastMs: roundedMilliseconds(values[values.length - 1] as number),
+      firstHalfMeanMs,
+      secondHalfMeanMs,
+      halfMeanDeltaMs: roundedMilliseconds(
+        secondHalfMeanMs - firstHalfMeanMs
+      )
+    }
+  }
+}
+
+const createCriticMarkupPerformanceCalibrationReport = (
   repoRoot: string,
   manifest: CriticMarkupPerformanceMeasurementManifest
+): CriticMarkupPerformanceCalibrationReport => {
+  validateCriticMarkupPerformanceMeasurements(repoRoot, manifest)
+  if (manifest.status !== 'measured-unratified') {
+    throw new Error(
+      'Performance calibration requires measured-unratified evidence'
+    )
+  }
+  const targets = readPinnedJson<PerformanceTargets>(
+    repoRoot,
+    manifest.targetManifest,
+    'Performance target manifest'
+  )
+  if (JSON.stringify(targets.sampling.percentiles) !== '[50,95,99]') {
+    throw new Error('Performance calibration requires exact p50, p95, and p99')
+  }
+  const rows: CriticMarkupPerformanceCalibrationRow[] = []
+  for (const implementation of REQUIRED_IMPLEMENTATIONS) {
+    const ref = manifest.runs.find(run => run.implementation === implementation)
+    if (ref === undefined) {
+      throw new Error(`Performance calibration is missing ${implementation}`)
+    }
+    const raw = readPinnedJson<CriticMarkupRawPerformanceRun>(
+      repoRoot,
+      ref,
+      'Raw performance evidence'
+    )
+    const metrics = raw.implementation === 'core-candidate'
+      ? CORE_METRICS
+      : COMMON_METRICS
+    for (const document of raw.documents) {
+      for (const metric of metrics) rows.push(calibrationRow(raw, document, metric))
+    }
+  }
+  const frozenRows: readonly CriticMarkupPerformanceCalibrationRow[] =
+    Object.freeze(rows.map(row => Object.freeze({
+      ...row,
+      percentiles: Object.freeze({ ...row.percentiles }),
+      timeOrder: Object.freeze({ ...row.timeOrder })
+    })))
+  const provenance: CriticMarkupPerformanceCalibrationReport['provenance'] =
+    Object.freeze({
+      baselineCommit: manifest.baselineCommit,
+      targetManifest: Object.freeze({ ...manifest.targetManifest }),
+      representativeDocuments: Object.freeze({
+        ...manifest.representativeDocuments
+      }),
+      rawRuns: Object.freeze(manifest.runs.map(run => Object.freeze({ ...run })))
+    })
+  const percentiles: readonly [50, 95, 99] = Object.freeze([50, 95, 99])
+  return Object.freeze({
+    schema: 'marktext-criticmarkup-performance-calibration-v1',
+    status: 'measured-unratified',
+    provenance,
+    percentiles,
+    rowsSha256: sha256(Buffer.from(JSON.stringify(frozenRows), 'utf8')),
+    rows: frozenRows
+  })
+}
+
+export const writeCriticMarkupPerformanceCalibrationReport = (
+  repoRoot: string,
+  manifest: CriticMarkupPerformanceMeasurementManifest,
+  outputPath: string
+): CriticMarkupPerformanceCalibrationMaterialization => {
+  const absolutePath = resolveRepositoryPath(
+    repoRoot,
+    outputPath,
+    'Performance calibration report path'
+  )
+  const canonicalPath = relative(repoRoot, absolutePath).split(sep).join('/')
+  if (
+    outputPath !== canonicalPath ||
+    !canonicalPath.startsWith('specs/baselines/runs/performance/')
+  ) {
+    throw new Error(
+      'Performance calibration report must be canonical and under the performance run directory'
+    )
+  }
+  const report = createCriticMarkupPerformanceCalibrationReport(
+    repoRoot,
+    manifest
+  )
+  const source = Buffer.from(`${JSON.stringify(report, null, 2)}\n`, 'utf8')
+  writeFileSync(absolutePath, source, { flag: 'wx' })
+  return Object.freeze({
+    ref: Object.freeze({
+      path: canonicalPath,
+      sha256: sha256(source)
+    }),
+    report
+  })
+}
+
+export const requireCriticMarkupPerformanceEvidenceForRatification = (
+  repoRoot: string,
+  manifest: CriticMarkupPerformanceMeasurementManifest,
+  calibrationRef: CriticMarkupPerformanceArtifactRef
 ): CriticMarkupPerformanceRatificationEvidence => {
   validateCriticMarkupPerformanceMeasurements(repoRoot, manifest)
   const measured = new Set(manifest.runs.map(run => run.implementation))
@@ -1103,48 +1407,97 @@ export const requireCriticMarkupPerformanceEvidenceForRatification = (
       'Performance ratification requires t_present baseline calibration and a frozen positive target'
     )
   }
-  const rows: CriticMarkupPerformanceP95Row[] = []
-  for (const ref of manifest.runs) {
-    const raw = readPinnedJson<CriticMarkupRawPerformanceRun>(
-      repoRoot,
-      ref,
-      'Raw performance evidence'
+  const calibration = createCriticMarkupPerformanceCalibrationReport(
+    repoRoot,
+    manifest
+  )
+  const calibrationPath = requireNonEmpty(
+    calibrationRef.path,
+    'Performance calibration report path'
+  )
+  const calibrationAbsolutePath = resolveRepositoryPath(
+    repoRoot,
+    calibrationPath,
+    'Performance calibration report path'
+  )
+  const canonicalCalibrationPath = relative(repoRoot, calibrationAbsolutePath)
+    .split(sep)
+    .join('/')
+  if (
+    calibrationPath !== canonicalCalibrationPath ||
+    !canonicalCalibrationPath.startsWith('specs/baselines/runs/performance/')
+  ) {
+    throw new Error(
+      'Performance calibration report must be canonical and under the performance run directory'
     )
-    for (const document of raw.documents) {
-      const metrics = raw.implementation === 'core-candidate'
-        ? CORE_METRICS
-        : COMMON_METRICS
-      for (const metric of metrics) {
-        const values = document.measured[metric]
-        if (values === undefined) {
-          throw new Error(`Raw performance run ${ref.id} has no ${metric} samples`)
-        }
-        const sorted = [...values].sort((left, right) => left - right)
-        const rank = Math.ceil(sorted.length * 0.95) - 1
-        const p95Ms = sorted[rank]
-        if (p95Ms === undefined) {
-          throw new Error(`Raw performance run ${ref.id} has no ${metric} samples`)
-        }
-        const targetP95Ms = targets.metrics[metric].targetP95Ms
-        if (targetP95Ms === null) {
-          throw new Error(`Performance target ${metric} requires calibration`)
-        }
-        rows.push({
-          runId: raw.runId,
-          implementation: raw.implementation,
-          documentId: document.id,
-          metric,
-          p95Ms,
-          targetP95Ms,
-          meetsTarget: p95Ms <= targetP95Ms
-        })
-      }
+  }
+  if (!existsSync(calibrationAbsolutePath)) {
+    throw new Error(`Performance calibration report is absent: ${calibrationPath}`)
+  }
+  const calibrationSource = readFileSync(calibrationAbsolutePath)
+  if (
+    sha256(calibrationSource) !== requireDigest(
+      calibrationRef.sha256,
+      'Performance calibration report digest'
+    )
+  ) {
+    throw new Error(`Performance calibration report digest is stale: ${calibrationPath}`)
+  }
+  const expectedCalibrationSource = Buffer.from(
+    `${JSON.stringify(calibration, null, 2)}\n`,
+    'utf8'
+  )
+  if (!calibrationSource.equals(expectedCalibrationSource)) {
+    throw new Error(
+      'Performance calibration report differs from the validated raw evidence'
+    )
+  }
+  const rows: CriticMarkupPerformanceP95Row[] = calibration.rows.map(row => {
+    const targetP95Ms = targets.metrics[row.metric].targetP95Ms
+    if (targetP95Ms === null) {
+      throw new Error(`Performance target ${row.metric} requires calibration`)
     }
+    return {
+      runId: row.runId,
+      implementation: row.implementation,
+      documentId: row.documentId,
+      metric: row.metric,
+      p95Ms: row.percentiles.p95Ms,
+      targetP95Ms,
+      meetsTarget: row.percentiles.p95Ms <= targetP95Ms
+    }
+  })
+  const coreMisses = rows.filter(row =>
+    row.implementation === 'core-candidate' && !row.meetsTarget
+  )
+  if (coreMisses.length > 0) {
+    throw new Error(
+      'Core performance target misses: ' + coreMisses.map(row =>
+        `${row.documentId} ${row.metric} p95 ${String(row.p95Ms)}ms > ` +
+        `${String(row.targetP95Ms)}ms`
+      ).join('; ')
+    )
   }
-  return {
-    schema: 'marktext-criticmarkup-performance-ratification-evidence-v1',
-    rows
-  }
+  const provenance: CriticMarkupPerformanceRatificationEvidence['provenance'] =
+    Object.freeze({
+      baselineCommit: manifest.baselineCommit,
+      targetManifest: Object.freeze({ ...manifest.targetManifest }),
+      representativeDocuments: Object.freeze({
+        ...manifest.representativeDocuments
+      }),
+      rawRuns: Object.freeze(manifest.runs.map(run => Object.freeze({ ...run }))),
+      calibrationReport: Object.freeze({
+        path: canonicalCalibrationPath,
+        sha256: calibrationRef.sha256
+      }),
+      calibrationRowsSha256: calibration.rowsSha256
+    })
+  return Object.freeze({
+    schema: 'marktext-criticmarkup-performance-ratification-evidence-v2',
+    provenance,
+    rowsSha256: sha256(Buffer.from(JSON.stringify(rows), 'utf8')),
+    rows: Object.freeze(rows.map(row => Object.freeze({ ...row })))
+  })
 }
 
 const runCli = (): void => {
@@ -1157,13 +1510,59 @@ const runCli = (): void => {
     validateCriticMarkupPerformanceMeasurements(repoRoot, manifest)
     return
   }
+  if (process.argv[2] === '--materialize-measurements') {
+    const rawPaths = process.argv.slice(3)
+    if (rawPaths.length !== REQUIRED_IMPLEMENTATIONS.length) {
+      throw new Error(
+        'Performance measurement materialization requires exactly two raw paths'
+      )
+    }
+    const measured = materializeCriticMarkupMeasuredPerformanceManifest(
+      repoRoot,
+      manifest,
+      rawPaths
+    )
+    process.stdout.write(`${JSON.stringify(measured, null, 2)}\n`)
+    return
+  }
+  if (process.argv[2] === '--write-calibration') {
+    const outputPath = process.argv[3]
+    if (outputPath === undefined || process.argv.length !== 4) {
+      throw new Error('Performance calibration writing requires one output path')
+    }
+    const materialized = writeCriticMarkupPerformanceCalibrationReport(
+      repoRoot,
+      manifest,
+      outputPath
+    )
+    process.stdout.write(`${JSON.stringify(materialized.ref, null, 2)}\n`)
+    return
+  }
   if (process.argv[2] === '--require-ratification-evidence') {
-    requireCriticMarkupPerformanceEvidenceForRatification(repoRoot, manifest)
+    const calibrationPath = process.argv[3]
+    const calibrationSha256 = process.argv[4]
+    if (
+      calibrationPath === undefined ||
+      calibrationSha256 === undefined ||
+      process.argv.length !== 5
+    ) {
+      throw new Error(
+        'Performance ratification requires a calibration path and full SHA-256'
+      )
+    }
+    const evidence = requireCriticMarkupPerformanceEvidenceForRatification(
+      repoRoot,
+      manifest,
+      { path: calibrationPath, sha256: calibrationSha256 }
+    )
+    process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`)
     return
   }
   throw new Error(
     'Usage: tsx scripts/criticmarkupPerformanceMeasurements.ts ' +
-    '--validate | --require-ratification-evidence'
+    '--validate | --materialize-measurements <upstream-raw> <core-raw> | ' +
+    '--write-calibration <output> | ' +
+    '--require-ratification-evidence <calibration-path> <calibration-sha256>'
   )
 }
 
