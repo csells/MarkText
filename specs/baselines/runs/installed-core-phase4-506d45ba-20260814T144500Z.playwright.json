@@ -1,0 +1,1273 @@
+{
+  "config": {
+    "argv": [
+      "/opt/homebrew/Cellar/node@22/22.23.2/bin/node",
+      "/private/tmp/marktext-phase4-rebased-506d45ba-gby1mu/checkout/packages/desktop/node_modules/@playwright/test/cli.js",
+      "test",
+      "--config",
+      "test/e2e/playwright.installed-core-phase4-consumers.config.ts",
+      "--project=installed-core-phase4-consumers",
+      "--workers=1",
+      "--retries=0",
+      "--max-failures=1",
+      "--reporter=line,json"
+    ],
+    "configFile": "/private/tmp/marktext-phase4-rebased-506d45ba-gby1mu/checkout/packages/desktop/test/e2e/playwright.installed-core-phase4-consumers.config.ts",
+    "rootDir": "/private/tmp/marktext-phase4-rebased-506d45ba-gby1mu/checkout/packages/desktop/test/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": true,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 1,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/private/tmp/marktext-phase4-rebased-506d45ba-gby1mu/checkout/packages/desktop/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "installed-core-phase4-consumers",
+        "name": "installed-core-phase4-consumers",
+        "testDir": "/private/tmp/marktext-phase4-rebased-506d45ba-gby1mu/checkout/packages/desktop/test/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/installed-core-review.spec.ts",
+          "**/installed-core-clipboard.spec.ts",
+          "**/installed-core-search.spec.ts",
+          "**/installed-core-export-consumers.spec.ts"
+        ],
+        "timeout": 180000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "line"
+      ],
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.0",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "installed-core-clipboard.spec.ts",
+      "file": "installed-core-clipboard.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "installed Core projected clipboard authority",
+          "file": "installed-core-clipboard.spec.ts",
+          "line": 203,
+          "column": 6,
+          "specs": [
+            {
+              "title": "native Copy publishes the selected Revised rich and plain projections",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3153,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:44:27.124Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "bf43e4b53a1961494730-835383c49373d7ab6bb5",
+              "file": "installed-core-clipboard.spec.ts",
+              "line": 206,
+              "column": 7
+            },
+            {
+              "title": "native Cut writes its Revised payload before one actor history mutation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1987,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:44:30.291Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "bf43e4b53a1961494730-c5a737d45da32d24249f",
+              "file": "installed-core-clipboard.spec.ts",
+              "line": 240,
+              "column": 7
+            },
+            {
+              "title": "native Paste commits a copied Revised projection through actor history",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2056,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:44:32.282Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "bf43e4b53a1961494730-4bb5afb6365b11840faf",
+              "file": "installed-core-clipboard.spec.ts",
+              "line": 282,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "installed-core-export-consumers.spec.ts",
+      "file": "installed-core-export-consumers.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "installed Core Revised export consumers",
+          "file": "installed-core-export-consumers.spec.ts",
+          "line": 224,
+          "column": 6,
+          "specs": [
+            {
+              "title": "styled HTML, PDF, and Print commands consume the same Revised projection",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 5147,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:44:34.343Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "97842cadfed314a44405-13251700a7312a80e926",
+              "file": "installed-core-export-consumers.spec.ts",
+              "line": 227,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "installed-core-review.spec.ts",
+      "file": "installed-core-review.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "installed Core Review authority",
+          "file": "installed-core-review.spec.ts",
+          "line": 301,
+          "column": 6,
+          "specs": [
+            {
+              "title": "addition.literal.resolve follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1373,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:44:39.498Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-0df49e33139f154a4d0b",
+              "file": "installed-core-review.spec.ts",
+              "line": 305,
+              "column": 9
+            },
+            {
+              "title": "comment.reference-footnote.resolve follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1680,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:44:40.874Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-75ec70bd03c27552a18a",
+              "file": "installed-core-review.spec.ts",
+              "line": 305,
+              "column": 9
+            },
+            {
+              "title": "deletion.block-boundary.resolve follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1781,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:44:42.557Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-cd3814af227555674cba",
+              "file": "installed-core-review.spec.ts",
+              "line": 305,
+              "column": 9
+            },
+            {
+              "title": "highlight.nested-comment.resolve follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1713,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:44:44.342Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-f10803f16d5b876e44d3",
+              "file": "installed-core-review.spec.ts",
+              "line": 305,
+              "column": 9
+            },
+            {
+              "title": "substitution.paragraph.resolve follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1712,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:44:46.058Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-a37f5f630bab4ae2480b",
+              "file": "installed-core-review.spec.ts",
+              "line": 305,
+              "column": 9
+            },
+            {
+              "title": "addition.nested-comment.save-reopen follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1382,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:44:47.773Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-02cde8d99f3cceec64a0",
+              "file": "installed-core-review.spec.ts",
+              "line": 371,
+              "column": 9
+            },
+            {
+              "title": "comment.literal.save-reopen follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1396,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:44:49.158Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-024f3fc68ec2d374b81d",
+              "file": "installed-core-review.spec.ts",
+              "line": 371,
+              "column": 9
+            },
+            {
+              "title": "deletion.paragraph.save-reopen follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1399,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:44:50.558Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-1b16a8daf338c5cb4af4",
+              "file": "installed-core-review.spec.ts",
+              "line": 371,
+              "column": 9
+            },
+            {
+              "title": "highlight.block-boundary.save-reopen follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1429,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:44:51.959Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-a400f302d8e5ba5f063e",
+              "file": "installed-core-review.spec.ts",
+              "line": 371,
+              "column": 9
+            },
+            {
+              "title": "substitution.reference-footnote.save-reopen follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1430,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:44:53.391Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-4fdceda003d1c06f45f5",
+              "file": "installed-core-review.spec.ts",
+              "line": 371,
+              "column": 9
+            },
+            {
+              "title": "addition.reference-footnote.source-round-trip follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1445,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:44:54.825Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-948f971da770eccd63cd",
+              "file": "installed-core-review.spec.ts",
+              "line": 410,
+              "column": 9
+            },
+            {
+              "title": "comment.block-boundary.source-round-trip follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1416,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:44:56.273Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-2d272dd783e2bf562ec7",
+              "file": "installed-core-review.spec.ts",
+              "line": 410,
+              "column": 9
+            },
+            {
+              "title": "deletion.literal.source-round-trip follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1395,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:44:57.691Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-6f1fbe74c6c0a30f7a73",
+              "file": "installed-core-review.spec.ts",
+              "line": 410,
+              "column": 9
+            },
+            {
+              "title": "highlight.paragraph.source-round-trip follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1451,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:44:59.089Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-20883baba832ebc221e7",
+              "file": "installed-core-review.spec.ts",
+              "line": 410,
+              "column": 9
+            },
+            {
+              "title": "substitution.nested-comment.source-round-trip follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1496,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:45:00.543Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-7b3ed001f36ecda6fe19",
+              "file": "installed-core-review.spec.ts",
+              "line": 410,
+              "column": 9
+            },
+            {
+              "title": "addition.paragraph.render follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1680,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:45:02.042Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-ceb7e59556657a2392ac",
+              "file": "installed-core-review.spec.ts",
+              "line": 453,
+              "column": 9
+            },
+            {
+              "title": "comment.nested-comment.render follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1395,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:45:03.726Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-32ddb489480c783cbda9",
+              "file": "installed-core-review.spec.ts",
+              "line": 453,
+              "column": 9
+            },
+            {
+              "title": "deletion.reference-footnote.render follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1614,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:45:05.124Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-e144c28b332899be1d26",
+              "file": "installed-core-review.spec.ts",
+              "line": 453,
+              "column": 9
+            },
+            {
+              "title": "highlight.literal.render follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1313,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:45:06.741Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-dccf930c8bd7493b7fb3",
+              "file": "installed-core-review.spec.ts",
+              "line": 453,
+              "column": 9
+            },
+            {
+              "title": "substitution.block-boundary.render follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1599,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:45:08.057Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-7d442ff3496fcead20f4",
+              "file": "installed-core-review.spec.ts",
+              "line": 453,
+              "column": 9
+            },
+            {
+              "title": "addition.block-boundary.author follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1947,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:45:09.658Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-dcacf8720cc7e3127415",
+              "file": "installed-core-review.spec.ts",
+              "line": 510,
+              "column": 9
+            },
+            {
+              "title": "comment.paragraph.author follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2014,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:45:11.608Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-e74eab0c5cecaf700363",
+              "file": "installed-core-review.spec.ts",
+              "line": 510,
+              "column": 9
+            },
+            {
+              "title": "deletion.nested-comment.author follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1898,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:45:13.625Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-f5f08674d2792d2546c5",
+              "file": "installed-core-review.spec.ts",
+              "line": 510,
+              "column": 9
+            },
+            {
+              "title": "highlight.reference-footnote.author follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2012,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:45:15.526Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-d643f6ec0339bb70557c",
+              "file": "installed-core-review.spec.ts",
+              "line": 510,
+              "column": 9
+            },
+            {
+              "title": "substitution.literal.author follows the installed interaction matrix",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1598,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:45:17.541Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-79e4765c98a40d343171",
+              "file": "installed-core-review.spec.ts",
+              "line": 510,
+              "column": 9
+            },
+            {
+              "title": "bulk accept is one installed Review history unit",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1714,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:45:19.142Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-5a41d260fa17dd0e3a16",
+              "file": "installed-core-review.spec.ts",
+              "line": 594,
+              "column": 9
+            },
+            {
+              "title": "bulk reject is one installed Review history unit",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 1763,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:45:20.860Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-675a52f2f63bf4d0698b",
+              "file": "installed-core-review.spec.ts",
+              "line": 594,
+              "column": 9
+            },
+            {
+              "title": "tracks continuously, edits a Comment, saves, and reopens exact bytes",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2745,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:45:22.626Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "e020e91feb6cd534b973-831e6bd24a19da2dd251",
+              "file": "installed-core-review.spec.ts",
+              "line": 656,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "installed-core-search.spec.ts",
+      "file": "installed-core-search.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "installed Core projected search authority",
+          "file": "installed-core-search.spec.ts",
+          "line": 96,
+          "column": 6,
+          "specs": [
+            {
+              "title": "visible Revised search and replace-all are one actor history unit",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "installed-core-phase4-consumers",
+                  "projectName": "installed-core-phase4-consumers",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 2516,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-14T21:45:25.375Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d36d5a97a9e1a98c806d-63e1d5300c4ce8cf0a01",
+              "file": "installed-core-search.spec.ts",
+              "line": 99,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-08-14T21:44:26.808Z",
+    "duration": 61093.054,
+    "expected": 33,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}
