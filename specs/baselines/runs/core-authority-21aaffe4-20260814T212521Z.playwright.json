@@ -1,0 +1,1204 @@
+{
+  "config": {
+    "argv": [
+      "/opt/homebrew/Cellar/node@22/22.23.2/bin/node",
+      "/private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/packages/desktop/node_modules/@playwright/test/cli.js",
+      "test",
+      "test/e2e/document-core-mode.spec.ts",
+      "test/e2e/document-core-wysiwyg-mode.spec.ts",
+      "--config",
+      "test/e2e/playwright.config.ts",
+      "--project=unpacked",
+      "--workers=1",
+      "--reporter=line,json"
+    ],
+    "configFile": "/private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/packages/desktop/test/e2e/playwright.config.ts",
+    "rootDir": "/private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/packages/desktop/test/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": true,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/packages/desktop/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "unpacked",
+        "name": "unpacked",
+        "testDir": "/private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/packages/desktop/test/e2e",
+        "testIgnore": [
+          "**/installed-core-review.spec.ts",
+          "**/installed-core-clipboard.spec.ts"
+        ],
+        "testMatch": [
+          "**/*.spec.ts"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/packages/desktop/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "installed",
+        "name": "installed",
+        "testDir": "/private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/packages/desktop/test/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/installed-core-review.spec.ts",
+          "**/installed-core-clipboard.spec.ts"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "line"
+      ],
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.0",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "document-core-mode.spec.ts",
+      "file": "document-core-mode.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "Core mode maps the caret across an edited Source-to-WYSIWYG handoff",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4738,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:25:21.892Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "06bbcc88f399879146c0-245c291eb64c5edaf51c",
+          "file": "document-core-mode.spec.ts",
+          "line": 14,
+          "column": 5
+        },
+        {
+          "title": "Core mode rebases Source input authored during actor undo",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2811,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:25:26.644Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "06bbcc88f399879146c0-ad2eac160a7baffe8c01",
+          "file": "document-core-mode.spec.ts",
+          "line": 105,
+          "column": 5
+        },
+        {
+          "title": "Core mode accepts one actor-owned Addition then undoes, redoes, and saves it",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4227,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:25:29.459Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "06bbcc88f399879146c0-df63edba096a361c2ae4",
+          "file": "document-core-mode.spec.ts",
+          "line": 179,
+          "column": 5
+        },
+        {
+          "title": "Core mode saves a native Source edit from the dedicated Worker authority",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2857,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:25:33.690Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "06bbcc88f399879146c0-4d3fc1f7b82dc684e666",
+          "file": "document-core-mode.spec.ts",
+          "line": 240,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "document-core-wysiwyg-mode.spec.ts",
+      "file": "document-core-wysiwyg-mode.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "Core mode owns a document opened directly in WYSIWYG",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2428,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:25:36.562Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-02ce4be4dba6a40bd56f",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 17,
+          "column": 5
+        },
+        {
+          "title": "Core WYSIWYG tracks one visible insertion through actor history",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4047,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:25:38.994Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-273d389bf3345db2533e",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 53,
+          "column": 5
+        },
+        {
+          "title": "Core WYSIWYG cancels added text with one tracked backspace",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4062,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:25:43.044Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-69e453c14d3e212fe160",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 145,
+          "column": 5
+        },
+        {
+          "title": "Core WYSIWYG removes an Addition when its final character is deleted",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4030,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:25:47.110Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-44e7e6a47eb0f7c2d1ea",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 199,
+          "column": 5
+        },
+        {
+          "title": "Core WYSIWYG tracks one DOM composition as one actor transaction",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4077,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:25:51.145Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-2560daadb7724baf9063",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 252,
+          "column": 5
+        },
+        {
+          "title": "Core mode renders all five CriticMarkup forms and preserves their source",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2318,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:25:55.226Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-bb48952d8e12bb57bce7",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 306,
+          "column": 5
+        },
+        {
+          "title": "Core WYSIWYG Review rejects one Deletion then undoes, redoes, and saves it",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4274,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:25:57.549Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-bcee513ae9fe152c42b9",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 346,
+          "column": 5
+        },
+        {
+          "title": "Core WYSIWYG Review navigation wraps without hiding its visible controls",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4129,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:26:01.826Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-425538bf05fc328596b1",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 389,
+          "column": 5
+        },
+        {
+          "title": "Core WYSIWYG Review removes one derived Commented span atomically",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3267,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:26:05.959Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-9aca26bf0dea771ab4d9",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 421,
+          "column": 5
+        },
+        {
+          "title": "Core WYSIWYG transports actor-owned Comment and Substitution author commands",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3347,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:26:09.229Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-4075b7d2d413956a1aa3",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 455,
+          "column": 5
+        },
+        {
+          "title": "Core WYSIWYG authors a Comment through the visible selection control",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2712,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:26:12.580Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-eb9873e81b107cd4a20d",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 528,
+          "column": 5
+        },
+        {
+          "title": "Core WYSIWYG protects a conflicting Comment closer from the visible author control",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2715,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:26:15.295Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-197b461f2d58b031274f",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 578,
+          "column": 5
+        },
+        {
+          "title": "Core completes one CriticMarkup Review lifecycle and reopens exact bytes",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 8483,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:26:18.012Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-441b79c87128f45e093b",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 625,
+          "column": 5
+        },
+        {
+          "title": "Core mode parks independent WYSIWYG authority and history per tab",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3776,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:26:26.498Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-e1982556450a17cf888a",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 733,
+          "column": 5
+        },
+        {
+          "title": "Core mode rejects an unsupported WYSIWYG block conversion and recovers acknowledged source",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3097,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:26:30.278Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-3afd9fb913204bbcb34c",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 807,
+          "column": 5
+        },
+        {
+          "title": "Core mode restarts a failed Worker from acknowledged WYSIWYG history",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3983,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:26:33.378Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-02419e30daaf593cfe5e",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 872,
+          "column": 5
+        },
+        {
+          "title": "Core mode recovers a typed stale-base WYSIWYG transaction",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4186,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:26:37.364Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-895b3e95c0daa1078a86",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 930,
+          "column": 5
+        },
+        {
+          "title": "Core mode saves a native plain-paragraph WYSIWYG edit",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3454,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:26:41.553Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-3271ded35301da898f0b",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 988,
+          "column": 5
+        },
+        {
+          "title": "Core mode orders immediate WYSIWYG undo and redo through actor history",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4483,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:26:45.010Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-5594f547f7df701285f6",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 1037,
+          "column": 5
+        },
+        {
+          "title": "Core mode saves a native paragraph-to-heading conversion",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3494,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:26:49.497Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-110d99e31c6bf565fc78",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 1097,
+          "column": 5
+        },
+        {
+          "title": "Core WYSIWYG tracks one paragraph-to-heading format through history",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4147,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:26:52.994Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-41079122dd46998a6e6f",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 1139,
+          "column": 5
+        },
+        {
+          "title": "Core mode saves one native cross-paragraph typing replacement",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3465,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:26:57.144Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-d24c7f1f926fb1e6dd7b",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 1190,
+          "column": 5
+        },
+        {
+          "title": "Core WYSIWYG tracks one cross-paragraph replacement and exact history",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4207,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:27:00.613Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-7dab8a61a0ab3a326f92",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 1232,
+          "column": 5
+        },
+        {
+          "title": "Core WYSIWYG tracks one cross-paragraph cut and exact history",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4121,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:27:04.823Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-f77a8fbd5901f6f4e8eb",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 1284,
+          "column": 5
+        },
+        {
+          "title": "Core mode saves only the committed native IME composition",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3413,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:27:08.948Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-498dde16f74c1745307c",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 1335,
+          "column": 5
+        },
+        {
+          "title": "Core mode renders and saves one native math-block conversion",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3530,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:27:12.364Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-f4610439d7a024b639aa",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 1377,
+          "column": 5
+        },
+        {
+          "title": "Core mode saves one native Markdown table paste",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3570,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:27:15.898Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-1ef56793d439574cde7b",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 1419,
+          "column": 5
+        },
+        {
+          "title": "Core WYSIWYG tracks one Markdown table paste through actor history",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "unpacked",
+              "projectName": "unpacked",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4174,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-14T21:27:19.472Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5f581e1d58c909b0a913-54255041b9129c38fade",
+          "file": "document-core-wysiwyg-mode.spec.ts",
+          "line": 1463,
+          "column": 5
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-08-14T21:25:21.553Z",
+    "duration": 122317.32500000001,
+    "expected": 32,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

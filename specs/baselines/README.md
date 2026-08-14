@@ -42,6 +42,13 @@ node_modules/.bin/tsx scripts/criticmarkupInteractionMatrix.ts --require-green
 The first command validates the complete evidence disposition; the second requires all 25 exact
 interactions to retain installed passing evidence.
 
+`runs/core-authority-21aaffe4-20260814T212521Z.playwright.json` is the ordinary one-worker
+Playwright transcript for the 32 clean-checkout Source/WYSIWYG Core authority cases at commit
+`21aaffe4078d49130fb7a7f868a97d52cf68cb87`. Its adjacent log records dependency setup, the exact
+build, and the same test run. These production-transport cases include deterministic recovery test
+controls and are intentionally distinct from the packaged-app Phase 4 record; both are supporting
+evidence and neither records owner ratification.
+
 On a clean stable commit, the installed runner can create that record after Playwright passes all 25
 exact, unique matrix rows. The destination directory must already exist and the JSON path must not:
 
