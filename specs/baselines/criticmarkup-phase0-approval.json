@@ -117,12 +117,12 @@
     {
       "id": "performance-targets",
       "path": "specs/baselines/criticmarkup-performance-targets.json",
-      "sha256": "7f1759fcfcebe9915a96e8898564125dd0b57e99ae66679d655c65e1ee09193b"
+      "sha256": "1f93cfedac5846ceaafe8417bc55be397b8612d902264f8c6f2a5c81d578928c"
     },
     {
       "id": "performance-measurements",
       "path": "specs/baselines/criticmarkup-performance-measurements.json",
-      "sha256": "7734c03bfff4e94288a8f9bb02a345d9036a5ce68fa4489658d32ab4f9582ed0"
+      "sha256": "5c2da6909d58295f9b9486d082a0d647aac3df46763eda23db6cc81fc7861c2d"
     },
     {
       "id": "salvage-baseline",

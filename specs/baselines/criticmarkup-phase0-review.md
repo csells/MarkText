@@ -41,13 +41,20 @@ eliminate temporal, thermal, cache, hardware, or environment drift. Mandatory ti
 diagnostics are required for every document and metric. No drift pass/fail threshold is defined
 before owner review and ratification; the protocol does not invent one.
 
-Pre-timing readiness requires two consecutive exact Electron and CGWindow matches within a bounded
-5 seconds. During pre-timing readiness only, a transient origin mismatch or missing optional
-`onScreen` metadata on the otherwise exact CGWindow row may settle. Explicit `onScreen: false`, any
-identity or other native-state mismatch, and any Electron-state or display-topology mismatch remain
-strict and fail immediately. Post-measurement validation remains one-shot strict; null `onScreen`
-metadata remains strict and fails immediately. Application launch and readiness are excluded from
-every timed metric, and there are no retries of a measurement or its post-measurement validation.
+Before pre-timing readiness, Electron calls `setVisibleOnAllWorkspaces(true, {
+visibleOnFullScreen: true, skipTransformProcessType: true })`; readiness asserts
+`isVisibleOnAllWorkspaces() === true` and `isHiddenInMissionControl() === true`. Pre-timing readiness
+requires two consecutive exact Electron and CGWindow matches within a bounded 5 seconds. During
+pre-timing readiness only, a transient origin mismatch or missing optional `onScreen` metadata on
+the otherwise exact CGWindow row may settle, but readiness cannot complete until the external
+CGWindow row provides explicit on-screen proof. Explicit `onScreen: false`, any identity or other
+native-state mismatch, and any Electron-state or display-topology mismatch remain strict and fail
+immediately. Post-measurement validation remains one-shot strict; null `onScreen` metadata remains
+strict and fails immediately. Cleanup reverses the workspace policy with
+`setVisibleOnAllWorkspaces(false, { visibleOnFullScreen: false, skipTransformProcessType: true })`
+before restoring window state. Application launch and readiness are excluded from every timed
+metric; the measurement window remains unfocused and not always-on-top, with no retries of a
+measurement or its post-measurement validation.
 
 After both canonical raw JSON files are copied under `specs/baselines/runs/performance/`, generate
 the deterministic `measured-unratified` manifest candidate without writing the current manifest:
