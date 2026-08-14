@@ -7,6 +7,7 @@ import type {
 } from './coreAuthorityPerformanceReport'
 import {
   PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
+  PERFORMANCE_DISPLAY_SLEEP_POLICY,
   PERFORMANCE_WINDOW_PRESENTATION_POLICY
 } from './performanceChromiumLaunchPolicy'
 import {
@@ -309,6 +310,7 @@ export interface CoreAuthorityPerformanceBuildProvenance
   readonly windowPresentationPolicy: typeof PERFORMANCE_WINDOW_PRESENTATION_POLICY
   readonly windowPresentationPlatform: 'darwin'
   readonly chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
+  readonly displaySleepPolicy: typeof PERFORMANCE_DISPLAY_SLEEP_POLICY
   readonly sampleLifecycle: typeof PERFORMANCE_SAMPLE_LIFECYCLE
   readonly observationSchedule: typeof PERFORMANCE_OBSERVATION_SCHEDULE
   readonly observationScheduleSha256: string
@@ -458,6 +460,9 @@ export function createCoreAuthorityPerformanceRawRun(
       PERFORMANCE_CHROMIUM_SCHEDULING_POLICY
   ) {
     throw new Error('Raw performance Chromium scheduling provenance is invalid')
+  }
+  if (input.provenance.displaySleepPolicy !== PERFORMANCE_DISPLAY_SLEEP_POLICY) {
+    throw new Error('Raw performance display sleep provenance is invalid')
   }
   if (Number.isNaN(Date.parse(input.measuredAt))) {
     throw new Error('Raw performance timestamp is invalid')
@@ -686,11 +691,11 @@ export function createCoreAuthorityPerformanceRawRun(
   })
   return input.evidenceClass === 'ratification'
     ? Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-run-v13' as const,
+      schema: 'marktext-criticmarkup-raw-performance-run-v14' as const,
       ...base
     })
     : Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v13' as const,
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v14' as const,
       evidenceClass: 'smoke-non-ratifying' as const,
       ...base
     })

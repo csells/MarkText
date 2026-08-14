@@ -56,6 +56,7 @@ import {
   awaitMacWindowServerPresentationConvergence,
   assertMacWindowServerPresentation,
   PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
+  PERFORMANCE_DISPLAY_SLEEP_POLICY,
   PERFORMANCE_WINDOW_PRESENTATION_POLICY,
   withPerformanceChromiumScheduling
 } from './helpers/performanceChromiumLaunchPolicy'
@@ -101,6 +102,7 @@ interface PerformanceTargetManifest {
   readonly sampling: Readonly<{
     readonly warmupSamples: number
     readonly measuredSamples: number
+    readonly displaySleepPolicy: typeof PERFORMANCE_DISPLAY_SLEEP_POLICY
   }>
 }
 
@@ -639,6 +641,10 @@ test.describe('pinned upstream baseline raw performance producer', () => {
       measuredSamples: positiveCount('MARKTEXT_UPSTREAM_MEASURED_SAMPLES')
     })
     const environment = readUpstreamBaselineMachineEnvironment()
+    expect(requiredValue('MARKTEXT_PERFORMANCE_DISPLAY_SLEEP_POLICY'))
+      .toBe(PERFORMANCE_DISPLAY_SLEEP_POLICY)
+    expect(targets.sampling.displaySleepPolicy)
+      .toBe(PERFORMANCE_DISPLAY_SLEEP_POLICY)
     expect(representatives.documents).toHaveLength(5)
     expect(measurements.baselineCommit).toBe(PINNED_BASELINE)
     if (classification === 'ratification') {
@@ -790,6 +796,7 @@ test.describe('pinned upstream baseline raw performance producer', () => {
           windowPresentationPolicy: PERFORMANCE_WINDOW_PRESENTATION_POLICY,
           windowPresentationPlatform: 'darwin',
           chromiumSchedulingPolicy: PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
+          displaySleepPolicy: PERFORMANCE_DISPLAY_SLEEP_POLICY,
           sampleLifecycle: PERFORMANCE_SAMPLE_LIFECYCLE,
           observationSchedule: PERFORMANCE_OBSERVATION_SCHEDULE,
           observationScheduleSha256:

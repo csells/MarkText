@@ -69,6 +69,8 @@ const input = (
       windowPresentationPolicy: 'transparent-render-active-inactive-v6' as const,
       windowPresentationPlatform: 'darwin' as const,
       chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2' as const,
+      displaySleepPolicy:
+        'runner-owned-caffeinate-display-sleep-prevention-v1' as const,
       sampleLifecycle: 'fresh-application-profile-per-observation-v1' as const,
       applicationLaunchCount: warmupSamples + measuredSamples,
       uniqueProfileCount: warmupSamples + measuredSamples,
@@ -110,13 +112,13 @@ const twoDocumentInput = () => {
 }
 
 describe('upstream baseline raw performance producer', () => {
-  it('creates an accepted v11 shape only for pinned isolated scheduled 20/200 ratification evidence', () => {
+  it('creates an accepted v12 shape only for pinned isolated scheduled 20/200 ratification evidence', () => {
     const run = createUpstreamBaselinePerformanceRawRun(
       input('ratification', 20, 200)
     )
 
     expect(run).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-run-v11',
+      schema: 'marktext-criticmarkup-raw-performance-run-v12',
       runId: 'upstream-ratification',
       implementation: 'upstream-baseline',
       baselineCommit: PINNED_BASELINE,
@@ -136,6 +138,8 @@ describe('upstream baseline raw performance producer', () => {
         windowPresentationPolicy: 'transparent-render-active-inactive-v6',
         windowPresentationPlatform: 'darwin',
         chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2',
+        displaySleepPolicy:
+          'runner-owned-caffeinate-display-sleep-prevention-v1',
         sampleLifecycle: 'fresh-application-profile-per-observation-v1',
         applicationLaunchCount: 220,
         uniqueProfileCount: 220,
@@ -173,7 +177,7 @@ describe('upstream baseline raw performance producer', () => {
     )
 
     expect(smoke).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v11',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v12',
       evidenceClass: 'smoke-non-ratifying',
       sampling: { warmupSamples: 1, measuredSamples: 2 }
     })
@@ -276,6 +280,24 @@ describe('upstream baseline raw performance producer', () => {
       ...absent,
       provenance: absentProvenance
     } as never)).toThrow(/Chromium scheduling/i)
+
+    const absentDisplaySleep = input('smoke-non-ratifying', 1, 2)
+    const absentDisplaySleepProvenance = {
+      ...absentDisplaySleep.provenance
+    } as Record<string, unknown>
+    delete absentDisplaySleepProvenance.displaySleepPolicy
+    expect(() => createUpstreamBaselinePerformanceRawRun({
+      ...absentDisplaySleep,
+      provenance: absentDisplaySleepProvenance
+    } as never)).toThrow(/display sleep/i)
+
+    expect(() => createUpstreamBaselinePerformanceRawRun({
+      ...input('smoke-non-ratifying', 1, 2),
+      provenance: {
+        ...input('smoke-non-ratifying', 1, 2).provenance,
+        displaySleepPolicy: 'unmanaged-display-sleep-v0'
+      }
+    } as never)).toThrow(/display sleep/i)
 
     expect(() => createUpstreamBaselinePerformanceRawRun({
       ...input('smoke-non-ratifying', 1, 2),
