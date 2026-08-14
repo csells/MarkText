@@ -223,7 +223,7 @@ describe('CriticMarkup Phase 0 review proposal', () => {
       schema: 'marktext-criticmarkup-parity-oracle-proposal-v1',
       status: 'proposed-unapproved',
       baselineCommit: parityBaseline.baselineCommit,
-      evidenceCommit: '177a13f24fe5e5c265dcef468f71988186d1f85e',
+      evidenceCommit: '4041de04661523214c151be318e0fff60cdb7e77',
       groups: [{
         id: 'all-require-production-evidence',
         kinds: parityBaseline.sources.map(source => source.kind),
@@ -361,7 +361,7 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     expect(approval).toMatchObject({
       status: 'proposed-unapproved',
       baselineCommit: parityBaseline.baselineCommit,
-      evidenceCommit: '177a13f24fe5e5c265dcef468f71988186d1f85e'
+      evidenceCommit: '4041de04661523214c151be318e0fff60cdb7e77'
     })
     expect(approval.decisions).toHaveLength(8)
     expect(approval.decisions.every(decision => decision.status === 'pending-owner-decision'))
