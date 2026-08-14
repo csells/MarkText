@@ -5,7 +5,7 @@ import {
 } from 'node:fs'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { dirname, resolve } from 'node:path'
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export type ParityDispositionKind =
@@ -52,6 +52,25 @@ export interface CriticMarkupParityRow {
   existingOracle: string
   productionPathTest: string
   status: 'planned' | 'red' | 'green'
+  execution?: CriticMarkupParityExecutionEvidence | null
+}
+
+export interface CriticMarkupParityExecutionEvidence {
+  buildCommit: string
+  sourcePath: string
+  sourceSha256: string
+  recordPath: string
+  recordSha256: string
+}
+
+export interface CriticMarkupParityExecutionRunRecord {
+  schema: 'marktext-criticmarkup-parity-execution-v1'
+  baselineCommit: string
+  rowManifestSha256: string
+  buildCommit: string
+  recordedAt: string
+  result: 'pass' | 'fail'
+  rowIds: string[]
 }
 
 export interface CriticMarkupParityRowManifest {
@@ -137,6 +156,50 @@ const contentId = (prefix: string, source: string, label: string): string => {
     .slice(0, 12)
   return `${prefix}:${digest}`
 }
+
+const repositoryPath = (
+  repoRoot: string,
+  path: string,
+  label: string
+): string => {
+  const absolutePath = resolve(repoRoot, path)
+  const pathWithinRepository = relative(repoRoot, absolutePath)
+  if (
+    pathWithinRepository.startsWith('..') ||
+    isAbsolute(pathWithinRepository)
+  ) {
+    throw new Error(`${label} path escapes the repository`)
+  }
+  return absolutePath
+}
+
+const canonicalParityRowManifest = (
+  manifest: CriticMarkupParityRowManifest,
+  includeExecution: boolean
+): string => `${JSON.stringify({
+  schema: manifest.schema,
+  baselineCommit: manifest.baselineCommit,
+  rows: manifest.rows.map(row => ({
+    id: row.id,
+    upstreamBehavior: row.upstreamBehavior,
+    existingOracle: row.existingOracle,
+    productionPathTest: row.productionPathTest,
+    status: row.status,
+    ...(includeExecution && row.execution !== undefined
+      ? {
+        execution: row.execution === null
+          ? null
+          : {
+            buildCommit: row.execution.buildCommit,
+            sourcePath: row.execution.sourcePath,
+            sourceSha256: row.execution.sourceSha256,
+            recordPath: row.execution.recordPath,
+            recordSha256: row.execution.recordSha256
+          }
+      }
+      : {})
+  }))
+}, null, 2)}\n`
 
 const uniqueMatches = (source: string, pattern: RegExp): string[] =>
   [...new Set([...source.matchAll(pattern)].map(match => match[1]))].sort()
@@ -445,6 +508,32 @@ export const validateCriticMarkupParityDispositions = (
     if (!(['planned', 'red', 'green'] as const).includes(row.status)) {
       throw new Error(`Parity row ${row.id} has invalid status ${String(row.status)}`)
     }
+    if (row.execution != null) {
+      const executionKeys = Object.keys(row.execution).sort()
+      const expectedExecutionKeys = [
+        'buildCommit',
+        'recordPath',
+        'recordSha256',
+        'sourcePath',
+        'sourceSha256'
+      ]
+      if (
+        executionKeys.length !== expectedExecutionKeys.length ||
+        executionKeys.some((key, index) => key !== expectedExecutionKeys[index]) ||
+        typeof row.execution.buildCommit !== 'string' ||
+        !/^[0-9a-f]{40}$/u.test(row.execution.buildCommit) ||
+        typeof row.execution.sourcePath !== 'string' ||
+        !row.execution.sourcePath.trim() ||
+        typeof row.execution.sourceSha256 !== 'string' ||
+        !/^[0-9a-f]{64}$/u.test(row.execution.sourceSha256) ||
+        typeof row.execution.recordPath !== 'string' ||
+        !row.execution.recordPath.trim() ||
+        typeof row.execution.recordSha256 !== 'string' ||
+        !/^[0-9a-f]{64}$/u.test(row.execution.recordSha256)
+      ) {
+        throw new Error(`Parity row ${row.id} execution evidence is invalid`)
+      }
+    }
     rowById.set(row.id, row)
   }
 
@@ -483,6 +572,214 @@ export const validateCriticMarkupParityDispositions = (
   for (const rowId of rowById.keys()) {
     if (!referencedRows.has(rowId)) {
       throw new Error(`Parity row ${rowId} is not referenced by an upstream item`)
+    }
+  }
+}
+
+export const requireGreenCriticMarkupParityDispositions = (
+  baselineArtifact: unknown,
+  overlayArtifact: unknown,
+  manifestArtifact: unknown,
+  repoRoot?: string,
+  rowManifestPath?: string
+): void => {
+  validateCriticMarkupParityDispositions(
+    baselineArtifact,
+    overlayArtifact,
+    manifestArtifact
+  )
+  const baseline = baselineArtifact as CriticMarkupParityBaseline
+  const manifest = manifestArtifact as CriticMarkupParityRowManifest
+  const planned = manifest.rows
+    .filter(row => row.status === 'planned')
+    .map(row => row.id)
+    .sort()
+  const red = manifest.rows
+    .filter(row => row.status === 'red')
+    .map(row => row.id)
+    .sort()
+  const placeholderOracles = manifest.rows
+    .filter(row => (
+      row.productionPathTest.startsWith('required-new-production-path-test:') ||
+      row.productionPathTest.includes('execution pending') ||
+      row.productionPathTest.includes('release-execution-pending')
+    ))
+    .map(row => row.id)
+    .sort()
+  const unauthenticatedGreen = manifest.rows
+    .filter(row => row.status === 'green' && row.execution == null)
+    .map(row => row.id)
+    .sort()
+  const failures: string[] = []
+  if (planned.length > 0) {
+    failures.push(
+      `${planned.length} planned row${planned.length === 1 ? '' : 's'} ` +
+      `[${planned.join(', ')}]`
+    )
+  }
+  if (red.length > 0) {
+    failures.push(
+      `${red.length} red row${red.length === 1 ? '' : 's'} ` +
+      `[${red.join(', ')}]`
+    )
+  }
+  if (placeholderOracles.length > 0) {
+    failures.push(
+      `${placeholderOracles.length} placeholder production-path ` +
+      `test${placeholderOracles.length === 1 ? '' : 's'} ` +
+      `[${placeholderOracles.join(', ')}]`
+    )
+  }
+  if (unauthenticatedGreen.length > 0) {
+    failures.push(
+      `${unauthenticatedGreen.length} green ` +
+      `row${unauthenticatedGreen.length === 1 ? '' : 's'} ` +
+      `${unauthenticatedGreen.length === 1 ? 'lacks' : 'lack'} authenticated ` +
+      `execution evidence [${unauthenticatedGreen.join(', ')}]`
+    )
+  }
+  if (failures.length > 0) {
+    throw new Error(
+      `CriticMarkup parity completion is not green: ${failures.join('; ')}`
+    )
+  }
+  if (repoRoot === undefined) {
+    if (manifest.rows.some(row => row.status === 'green' && row.execution != null)) {
+      throw new Error(
+        'CriticMarkup parity completion cannot authenticate green execution ' +
+        'evidence without a repository root'
+      )
+    }
+    return
+  }
+  if (rowManifestPath === undefined) {
+    throw new Error(
+      'CriticMarkup parity completion cannot authenticate green execution ' +
+      'evidence without a canonical row manifest'
+    )
+  }
+  let recordedManifest: string
+  try {
+    recordedManifest = readFileSync(repositoryPath(
+      repoRoot,
+      rowManifestPath,
+      'CriticMarkup parity row manifest'
+    ), 'utf8')
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('escapes the repository')) {
+      throw error
+    }
+    throw new Error('CriticMarkup parity row manifest is missing')
+  }
+  if (recordedManifest !== canonicalParityRowManifest(manifest, true)) {
+    throw new Error(
+      'CriticMarkup parity row manifest is not canonical or does not match ' +
+      'the validated artifact'
+    )
+  }
+  const rowManifestSha256 = createHash('sha256')
+    .update(canonicalParityRowManifest(manifest, false))
+    .digest('hex')
+  for (const row of manifest.rows.filter(row => row.status === 'green')) {
+    const execution = row.execution as CriticMarkupParityExecutionEvidence
+    let record: Buffer
+    try {
+      record = readFileSync(repositoryPath(
+        repoRoot,
+        execution.recordPath,
+        `Parity row ${row.id} execution record`
+      ))
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('escapes the repository')) {
+        throw error
+      }
+      throw new Error(`Parity row ${row.id} execution record is missing`)
+    }
+    if (createHash('sha256').update(record).digest('hex') !== execution.recordSha256) {
+      throw new Error(`Parity row ${row.id} execution record digest does not match`)
+    }
+    let runRecord: unknown
+    try {
+      runRecord = JSON.parse(record.toString('utf8')) as unknown
+    } catch {
+      throw new Error(`Parity row ${row.id} execution record is invalid`)
+    }
+    const runRecordKeys = typeof runRecord === 'object' && runRecord !== null
+      ? Object.keys(runRecord).sort()
+      : []
+    const expectedRunRecordKeys = [
+      'baselineCommit',
+      'buildCommit',
+      'recordedAt',
+      'result',
+      'rowIds',
+      'rowManifestSha256',
+      'schema'
+    ]
+    const candidate = runRecord as Partial<CriticMarkupParityExecutionRunRecord>
+    if (
+      runRecordKeys.length !== expectedRunRecordKeys.length ||
+      runRecordKeys.some((key, index) => key !== expectedRunRecordKeys[index]) ||
+      candidate.schema !== 'marktext-criticmarkup-parity-execution-v1' ||
+      typeof candidate.baselineCommit !== 'string' ||
+      !/^[0-9a-f]{40}$/u.test(candidate.baselineCommit) ||
+      typeof candidate.rowManifestSha256 !== 'string' ||
+      !/^[0-9a-f]{64}$/u.test(candidate.rowManifestSha256) ||
+      typeof candidate.buildCommit !== 'string' ||
+      !/^[0-9a-f]{40}$/u.test(candidate.buildCommit) ||
+      typeof candidate.recordedAt !== 'string' ||
+      Number.isNaN(Date.parse(candidate.recordedAt)) ||
+      (candidate.result !== 'pass' && candidate.result !== 'fail') ||
+      !Array.isArray(candidate.rowIds) ||
+      candidate.rowIds.some(id => typeof id !== 'string' || !id.trim()) ||
+      new Set(candidate.rowIds).size !== candidate.rowIds.length
+    ) {
+      throw new Error(`Parity row ${row.id} execution record is invalid`)
+    }
+    if (
+      candidate.buildCommit !== execution.buildCommit ||
+      candidate.result !== 'pass' ||
+      !candidate.rowIds.includes(row.id)
+    ) {
+      throw new Error(
+        `Parity row ${row.id} execution record does not prove a passing execution`
+      )
+    }
+    if (candidate.baselineCommit !== baseline.baselineCommit) {
+      throw new Error(
+        `Parity row ${row.id} execution record targets a stale baseline`
+      )
+    }
+    if (candidate.rowManifestSha256 !== rowManifestSha256) {
+      throw new Error(
+        `Parity row ${row.id} execution record targets a stale row manifest`
+      )
+    }
+    const sourcePath = relative(
+      repoRoot,
+      repositoryPath(
+        repoRoot,
+        execution.sourcePath,
+        `Parity row ${row.id} test source`
+      )
+    ).split(sep).join('/')
+    if (!row.productionPathTest.includes(execution.sourcePath)) {
+      throw new Error(
+        `Parity row ${row.id} execution source is not named by its production-path test`
+      )
+    }
+    let source: Buffer
+    try {
+      source = execFileSync(
+        'git',
+        ['show', `${execution.buildCommit}:${sourcePath}`],
+        { cwd: repoRoot }
+      )
+    } catch {
+      throw new Error(`Parity row ${row.id} test source is missing at build commit`)
+    }
+    if (createHash('sha256').update(source).digest('hex') !== execution.sourceSha256) {
+      throw new Error(`Parity row ${row.id} test source digest does not match build commit`)
     }
   }
 }
@@ -550,7 +847,20 @@ const runCli = (): void => {
     )
     return
   }
-  throw new Error('Usage: tsx scripts/criticmarkupParityBaseline.ts --write <baseline-commit> | --check | --validate')
+  if (command === '--require-green') {
+    requireGreenCriticMarkupParityDispositions(
+      checkBaseline(repoRoot, path),
+      readDispositionOverlay(overlayPath),
+      readParityRowManifest(rowManifestPath),
+      repoRoot,
+      rowManifestPath
+    )
+    return
+  }
+  throw new Error(
+    'Usage: tsx scripts/criticmarkupParityBaseline.ts ' +
+    '--write <baseline-commit> | --check | --validate | --require-green'
+  )
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
