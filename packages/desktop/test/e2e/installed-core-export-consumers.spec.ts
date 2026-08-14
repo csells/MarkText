@@ -73,15 +73,20 @@ const launchInstalled = async(
     },
     timeout: 60_000
   })
-  const page = await app.firstWindow()
-  await page.waitForLoadState('domcontentloaded')
-  await waitForEditor(page, 60_000)
-  await waitForMenuReady(app, 60_000)
-  await expectInstalledArtifactCommit(page)
-  await page.waitForFunction(() =>
-    window.__marktextDocumentCore?.authoritySource !== undefined
-  )
-  return { app, page }
+  try {
+    const page = await app.firstWindow()
+    await page.waitForLoadState('domcontentloaded')
+    await waitForEditor(page, 60_000)
+    await waitForMenuReady(app, 60_000)
+    await expectInstalledArtifactCommit(page)
+    await page.waitForFunction(() =>
+      window.__marktextDocumentCore?.authoritySource !== undefined
+    )
+    return { app, page }
+  } catch (error) {
+    await app.close().catch(() => {})
+    throw error
+  }
 }
 
 const installNativeConsumerProbe = async(
