@@ -21,6 +21,7 @@ import {
   applyRegionalInventory,
   createRegionalInventory,
   materializeRegionalInventoryAnnotations,
+  referenceDependencyPrefixEnd,
   type RegionalInventory,
   type RegionalInventoryRecorder
 } from './internal/profile1/regionalInventory.js'
@@ -913,36 +914,6 @@ function countMarkdownAstNodes(root: MarkdownAstNode): number {
     }
   }
   return count
-}
-
-/**
- * Reference definitions can re-key links anywhere in the document, while
- * regional projection consumers shift every retained suffix coordinate. The
- * last definition/reference node is therefore a compact positional
- * fingerprint: edits strictly after it cannot change the dependency graph or
- * shift one of its absolute coordinates.
- */
-function globalReferenceDependencyPrefixEnd(
-  products: Profile1DocumentProducts
-): number {
-  let end = 0
-  const pending: ParserMarkdownNode[] = [products.original.markdown.root]
-  while (pending.length > 0) {
-    const node = pending.pop()
-    if (node === undefined) break
-    if (
-      node.kind === 'definition' ||
-      node.kind === 'footnote-definition' ||
-      node.kind === 'footnote-reference' ||
-      typeof node.attributes['referenceLabel'] === 'string'
-    ) {
-      end = Math.max(end, node.range.end)
-    }
-    for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
-      pending.push(node.childAt(ordinal))
-    }
-  }
-  return end
 }
 
 function countCriticMarkupAnnotationNodes(
@@ -2218,7 +2189,7 @@ function createDocumentCoreWithExecutionBudget(
       const retained = products.retainedIntrinsic
       const dependencyPrefixEnd = retained?.referenceDefinitionCount === 0
         ? 0
-        : globalReferenceDependencyPrefixEnd(products)
+        : referenceDependencyPrefixEnd(products)
       const retainedIndex = retained !== undefined &&
         !retained.hasCriticMarkupCandidate &&
         retained.rootCount === 0 &&
@@ -2240,7 +2211,8 @@ function createDocumentCoreWithExecutionBudget(
         regionalInventoryRecorder,
         executionBudget.limitsProfile === 'desktop-v1'
           ? DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
-          : Number.MAX_SAFE_INTEGER
+          : Number.MAX_SAFE_INTEGER,
+        dependencyPrefixEnd
       )
       const retainedSummary = retained === undefined
         ? undefined
@@ -2488,6 +2460,7 @@ function createDocumentCoreWithExecutionBudget(
     readonly projections: readonly DocumentProjectionChange[]
   }> | Readonly<{
     readonly kind: 'fallback'
+    readonly reason: DocumentProjectionFallbackReason
   }> | undefined => {
     const inventory = previousState.regionalInventory
     if (inventory === undefined) return undefined
@@ -2512,7 +2485,12 @@ function createDocumentCoreWithExecutionBudget(
       throw documentCoreError(admission.fatalDiagnostic)
     }
     if (admission.kind !== 'admitted') {
-      return Object.freeze({ kind: 'fallback' })
+      return Object.freeze({
+        kind: 'fallback',
+        reason: admission.reason === 'definition-or-reference-facts'
+          ? admission.reason
+          : 'structural-region-ineligible'
+      })
     }
 
     const materializedByProducts = new Map<
@@ -2546,7 +2524,10 @@ function createDocumentCoreWithExecutionBudget(
     const markupCoordinates: MarkupCoordinateSegment[] = []
     for (const segment of admission.nextProducts.editing().mappedTape) {
       if (segment.kind !== 'canonical') {
-        return Object.freeze({ kind: 'fallback' })
+        return Object.freeze({
+          kind: 'fallback',
+          reason: 'structural-region-ineligible'
+        })
       }
       const length = segment.projectedEnd - segment.projectedStart
       markupCoordinates.push(Object.freeze({
@@ -2594,14 +2575,22 @@ function createDocumentCoreWithExecutionBudget(
         impact.nodeOrdinal
       )
       if (localAnnotation?.kind !== 'comment') {
-        return Object.freeze({ kind: 'fallback' })
+        return Object.freeze({
+          kind: 'fallback',
+          reason: 'structural-region-ineligible'
+        })
       }
       const annotation = shiftCriticMarkupAnnotation(
         localAnnotation,
         impact.nextSourceStart
       )
       const nodeId = commentMaterialized.nodeIdByAnnotation.get(localAnnotation)
-      if (nodeId === undefined) return Object.freeze({ kind: 'fallback' })
+      if (nodeId === undefined) {
+        return Object.freeze({
+          kind: 'fallback',
+          reason: 'structural-region-ineligible'
+        })
+      }
       const display = impact.nextProducts.commentDisplay(nodeId)
       const ast = markdownAstOf(display)
       const coordinates = commentCoordinateSegmentsOf(
@@ -2621,7 +2610,12 @@ function createDocumentCoreWithExecutionBudget(
         )
       })
       const payload = annotation.arms.find(arm => arm.name === 'comment')
-      if (payload === undefined) return Object.freeze({ kind: 'fallback' })
+      if (payload === undefined) {
+        return Object.freeze({
+          kind: 'fallback',
+          reason: 'structural-region-ineligible'
+        })
+      }
       commentReplacements.push(Object.freeze({
         previous: impact.previous,
         next: Object.freeze({
@@ -3380,7 +3374,7 @@ function createDocumentCoreWithExecutionBudget(
       })
     }
     if (inventoryApplied?.kind === 'fallback') {
-      const reason = 'structural-region-ineligible'
+      const reason = inventoryApplied.reason
       return Object.freeze({
         kind: 'fallback',
         reason,
