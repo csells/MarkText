@@ -842,6 +842,116 @@ describe('document-core semantic changes', () => {
     )).toBe(0)
   })
 
+  it('projects two nested Comments from one edited inventory leaf', () => {
+    const source = [
+      'head',
+      '',
+      'before {>>outer before {>>nested word<<} after<<} bridge ' +
+        '{>>second root<<} after',
+      '',
+      'far {--deleted--}',
+      '',
+      'tail\n'
+    ].join('\n')
+    const editAt = source.indexOf('word')
+    const nextSource = source.slice(0, editAt) + 'WORDS' +
+      source.slice(editAt + 4)
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const outer = opened.annotations[0]
+    const secondRoot = opened.annotations[1]
+    const nested = outer?.arms[0]?.annotations[0]
+    if (
+      outer?.kind !== 'comment' || nested?.kind !== 'comment' ||
+      secondRoot?.kind !== 'comment'
+    ) {
+      throw new Error('Expected nested Comments and a second Comment root')
+    }
+    const before = inspectionOf(core)
+
+    const commit = core.apply(opened, [{
+      start: editAt,
+      end: editAt + 4,
+      insert: 'WORDS'
+    }], {
+      projections: [
+        { name: 'comment', annotationRange: nested.range },
+        { name: 'comment', annotationRange: outer.range }
+      ]
+    })
+    const afterApply = inspectionOf(core)
+    const change = commit.change.projections[0]
+    if (change?.name !== 'comment' || change.scope !== 'regions') {
+      throw new Error('Expected regional Comment replacements')
+    }
+    expect(commit.change.projections).toHaveLength(1)
+    expect(change.replacements).toHaveLength(2)
+    expect(change.replacements.map(replacement => replacement.previous.annotation))
+      .toEqual([outer.range, nested.range])
+    assertPortable(change.replacements)
+    expect(delta(afterApply, before, 'regionalFastApplies')).toBe(1)
+    expect(delta(afterApply, before, 'documentParses')).toBe(0)
+    expect(delta(afterApply, before, 'documentParseSourceUnits')).toBe(0)
+    expect(delta(afterApply, before, 'sourceMaterializations')).toBe(0)
+    expect(delta(afterApply, before, 'sourceMaterializationOutputUnits')).toBe(0)
+    expect(delta(
+      afterApply,
+      before,
+      'regionalInventoryCandidateRegionParses'
+    )).toBe(1)
+    expect(delta(afterApply, before, 'regionalInventoryChangedLeaves')).toBe(1)
+
+    const freshCore = createDocumentCore()
+    const fresh = freshCore.open(nextSource)
+    const freshOuter = fresh.annotations[0]
+    const freshNested = freshOuter?.arms[0]?.annotations[0]
+    if (freshOuter?.kind !== 'comment' || freshNested?.kind !== 'comment') {
+      throw new Error('Expected fresh nested Comments')
+    }
+    for (const [index, freshComment] of [freshOuter, freshNested].entries()) {
+      const replacement = change.replacements[index]
+      if (replacement === undefined) throw new Error('Expected Comment replacement')
+      const freshProjection = freshCore.projectComment(fresh, freshComment)
+      expect(replacement.annotation)
+        .toEqual(annotationSnapshotForOracle(freshComment))
+      expect(replacement.markdown).toBe(freshProjection.markdown)
+      expect(replacement.ast).toEqual(freshProjection.ast)
+      expectCommentCoordinatesEqual(freshProjection, replacement.coordinates)
+    }
+
+    const nextOuter = commit.revision.annotations[0]
+    const nextSecondRoot = commit.revision.annotations[1]
+    const nextNested = nextOuter?.arms[0]?.annotations[0]
+    if (
+      nextOuter?.kind !== 'comment' || nextNested?.kind !== 'comment' ||
+      nextSecondRoot?.kind !== 'comment'
+    ) {
+      throw new Error('Expected next nested Comments and second root')
+    }
+    expect(nextSecondRoot.range.start).toBe(secondRoot.range.start + 1)
+    const beforeLocalReads = inspectionOf(core)
+    const outerProjection = core.projectComment(commit.revision, nextOuter)
+    const nestedProjection = core.projectComment(commit.revision, nextNested)
+    const afterLocalReads = inspectionOf(core)
+    const freshOuterProjection = freshCore.projectComment(fresh, freshOuter)
+    const freshNestedProjection = freshCore.projectComment(fresh, freshNested)
+    expect(outerProjection.markdown).toBe(freshOuterProjection.markdown)
+    expect(outerProjection.ast).toEqual(freshOuterProjection.ast)
+    expectCommentCoordinatesEqual(
+      outerProjection,
+      change.replacements[0]?.coordinates ?? []
+    )
+    expect(nestedProjection.markdown).toBe(freshNestedProjection.markdown)
+    expect(nestedProjection.ast).toEqual(freshNestedProjection.ast)
+    expectCommentCoordinatesEqual(
+      nestedProjection,
+      change.replacements[1]?.coordinates ?? []
+    )
+    expect(afterLocalReads.documentParses).toBe(beforeLocalReads.documentParses)
+    expect(afterLocalReads.sourceMaterializations)
+      .toBe(beforeLocalReads.sourceMaterializations)
+  })
+
   it('falls back when an inventory Comment edit changes Display topology', () => {
     const source = 'head {++visible++}\n\nbefore {>>word<<} after\n\ntail\n'
     const editAt = source.indexOf('word')
