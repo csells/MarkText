@@ -10,6 +10,7 @@ import {
   closeInstalledPerformanceWindow,
   firstWindowWithPerformanceScheduling,
   MacWindowServerPresentationConvergenceError,
+  MacWindowServerPresentationSnapshotError,
   PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
   PERFORMANCE_CHROMIUM_SCHEDULING_SWITCHES,
   PERFORMANCE_WINDOW_PRESENTATION_POLICY,
@@ -21,6 +22,42 @@ import {
 } from '../../e2e/helpers/performanceChromiumLaunchPolicy'
 
 describe('hidden performance Chromium launch policy', () => {
+  it('propagates an empty active-display topology without readiness waits', async() => {
+    const calls: string[] = []
+
+    await expect(awaitMacWindowServerPresentationConvergence({
+      processId: 1234,
+      inspectElectron: async() => Object.freeze({
+        windowNumber: 82,
+        visible: true,
+        opacity: 0,
+        focused: false,
+        focusable: false,
+        alwaysOnTop: false,
+        appActive: false,
+        visibleOnAllWorkspaces: true,
+        hiddenInMissionControl: true,
+        title: 'sample.md — MarkText',
+        bounds: Object.freeze({ x: 20, y: 30, width: 900, height: 700 })
+      }),
+      inspectWindowServer: () => {
+        calls.push('native')
+        return queryMacWindowServerPresentationSnapshot(1234, () =>
+          JSON.stringify({ windows: [], displayTopology: [] }))
+      },
+      wait: async() => { calls.push('wait') }
+    })).rejects.toMatchObject({
+      name: 'MacWindowServerPresentationSnapshotError',
+      diagnostic: {
+        reason: 'active-display-topology-empty',
+        expectedProcessId: 1234,
+        windowRowCount: 0,
+        activeDisplayCount: 0
+      }
+    })
+    expect(calls).toEqual(['native'])
+  })
+
   it('waits for two exact paired native matches after a transient Space translation', async() => {
     const electronState = Object.freeze({
       windowNumber: 60_506,
@@ -1338,6 +1375,66 @@ describe('hidden performance Chromium launch policy', () => {
     expect(calls[0]?.at(-1)).toBe('1234')
     expect(Object.isFrozen(snapshot)).toBe(true)
     expect(Object.isFrozen(snapshot.windows)).toBe(true)
+  })
+
+  it('rejects an empty active-display topology with a bounded typed diagnostic', () => {
+    let thrown: unknown
+    try {
+      queryMacWindowServerPresentationSnapshot(1234, () => JSON.stringify({
+        windows: [],
+        displayTopology: []
+      }))
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(thrown).toMatchObject({
+      name: 'MacWindowServerPresentationSnapshotError',
+      diagnostic: {
+        reason: 'active-display-topology-empty',
+        expectedProcessId: 1234,
+        windowRowCount: 0,
+        activeDisplayCount: 0
+      }
+    })
+    expect(thrown).toBeInstanceOf(MacWindowServerPresentationSnapshotError)
+  })
+
+  it('diagnoses an inactive sleeping main display separately from active topology', () => {
+    let probeSource = ''
+    let thrown: unknown
+    try {
+      queryMacWindowServerPresentationSnapshot(1234, (
+        _executable,
+        arguments_
+      ) => {
+        probeSource = arguments_[1] ?? ''
+        return JSON.stringify({
+          windows: [],
+          displayTopology: [],
+          onlineDisplayCount: 1,
+          mainDisplay: { id: 1, active: false, asleep: true }
+        })
+      })
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(thrown).toMatchObject({
+      name: 'MacWindowServerPresentationSnapshotError',
+      diagnostic: {
+        reason: 'active-display-topology-empty',
+        expectedProcessId: 1234,
+        windowRowCount: 0,
+        activeDisplayCount: 0,
+        onlineDisplayCount: 1,
+        mainDisplay: { id: 1, active: false, asleep: true }
+      }
+    })
+    expect(probeSource).toContain('CGGetOnlineDisplayList')
+    expect(probeSource).toContain('CGMainDisplayID')
+    expect(probeSource).toContain('CGDisplayIsActive')
+    expect(probeSource).toContain('CGDisplayIsAsleep')
   })
 
   it('reports one bounded frozen snapshot of only the run-owned WindowServer candidates', () => {
