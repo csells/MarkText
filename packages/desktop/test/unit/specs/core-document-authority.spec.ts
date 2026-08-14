@@ -378,6 +378,40 @@ describe('Core actor protocol', () => {
     binding.dispose()
   })
 
+  it('transports a full-fallback source resynchronization with its acknowledgement', async() => {
+    const worker = new ActorBackedCoreWorker()
+    const binding = createEditorCoreBinding(createWorkerCorePort(worker))
+    const source = 'head\n\nordinary text paragraph\n\ntail\n'
+    const start = source.indexOf('text')
+    await binding.open({ documentId: 'fallback.md', source })
+
+    const applied = await binding.submit({
+      edits: [{
+        start,
+        end: start + 4,
+        insert: 'text\n# heading'
+      }],
+      projections: []
+    }).acknowledged
+
+    expect(applied).toMatchObject({
+      type: 'applied',
+      revision: 2,
+      change: {
+        resynchronization: {
+          kind: 'source',
+          scope: 'document',
+          reason: 'structural-region-ineligible',
+          source: source.slice(0, start) + 'text\n# heading' +
+            source.slice(start + 4)
+        }
+      }
+    })
+    expect(structuredClone(applied)).toEqual(applied)
+    expect(worker.requests).toHaveLength(2)
+    binding.dispose()
+  })
+
   it('owns exact undo and redo history inside the document actor', async() => {
     const core = createDocumentCore()
     const worker = new ActorBackedCoreWorker(createCoreActor(() => core))
