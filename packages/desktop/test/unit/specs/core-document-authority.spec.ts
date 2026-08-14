@@ -5926,6 +5926,61 @@ describe('Core document session manager', () => {
   })
 })
 
+const createAttachedCodeMirror = (source: string): Readonly<{
+  editor: CodeMirror.Editor
+  dispose: () => void
+}> => {
+  const rangePrototype = Range.prototype
+  const rangeRect = Object.getOwnPropertyDescriptor(
+    rangePrototype,
+    'getBoundingClientRect'
+  )
+  const rangeRects = Object.getOwnPropertyDescriptor(
+    rangePrototype,
+    'getClientRects'
+  )
+  Object.defineProperties(rangePrototype, {
+    getBoundingClientRect: {
+      configurable: true,
+      value: () => new DOMRect()
+    },
+    getClientRects: {
+      configurable: true,
+      value: () => []
+    }
+  })
+  const host = document.body.appendChild(document.createElement('div'))
+  let disposed = false
+  const restore = (
+    name: 'getBoundingClientRect' | 'getClientRects',
+    descriptor: PropertyDescriptor | undefined
+  ): void => {
+    if (descriptor === undefined) {
+      Reflect.deleteProperty(rangePrototype, name)
+    } else {
+      Object.defineProperty(rangePrototype, name, descriptor)
+    }
+  }
+  try {
+    const editor: CodeMirror.Editor = codeMirror(host, { value: source })
+    return Object.freeze({
+      editor,
+      dispose: () => {
+        if (disposed) return
+        disposed = true
+        host.remove()
+        restore('getBoundingClientRect', rangeRect)
+        restore('getClientRects', rangeRects)
+      }
+    })
+  } catch (error) {
+    host.remove()
+    restore('getBoundingClientRect', rangeRect)
+    restore('getClientRects', rangeRects)
+    throw error
+  }
+}
+
 describe('CodeMirror Core adapter', () => {
   it('records one Source dispatch, acknowledgement, and reconciliation', async() => {
     const source = 'abc'
@@ -6863,14 +6918,15 @@ describe('CodeMirror Core adapter', () => {
     await manager.close('ime-save.md')
   })
 
-  it('queues an ordinary typing burst in accepted base-revision order', async() => {
+  it('keeps distinct ordinary editor operations in distinct undo entries', async() => {
     const source = 'head 😀\n\nordinary text paragraph\n\ntail\n'
     const worker = new ActorBackedCoreWorker()
     worker.holdApplyReplies = true
     const binding = createEditorCoreBinding(createWorkerCorePort(worker))
     await binding.open({ documentId: 'burst.md', source })
-    const editor = new codeMirror.Doc(source)
-    const adapter = createCodeMirrorCoreAdapter(editor, binding, {
+    const fixture = createAttachedCodeMirror(source)
+    const editor = fixture.editor
+    const adapter = createCodeMirrorCoreAdapter(editor.getDoc(), binding, {
       canonicalSource: source,
       insertedLineEnding: '\n'
     })
@@ -6921,44 +6977,96 @@ describe('CodeMirror Core adapter', () => {
       revision: 3,
       sourceLength: source.length
     })
+    await expect(binding.sourceAtBarrier()).resolves.toMatchObject({
+      source: source.replace('text paragraph', 'TEXT PARAGRAPH'),
+      recoveryHistory: {
+        undo: [expect.any(Object), expect.any(Object)],
+        redo: []
+      }
+    })
+
+    await expect(adapter.history('undo')).resolves.toMatchObject({
+      type: 'applied'
+    })
+    expect(editor.getValue()).toBe(source.replace('text', 'TEXT'))
+    await expect(adapter.history('undo')).resolves.toMatchObject({
+      type: 'applied'
+    })
+    expect(editor.getValue()).toBe(source)
+    await expect(binding.sourceAtBarrier()).resolves.toMatchObject({
+      source,
+      recoveryHistory: {
+        undo: [],
+        redo: [expect.any(Object), expect.any(Object)]
+      }
+    })
 
     adapter.dispose()
     binding.dispose()
+    fixture.dispose()
   })
 
-  it('captures every multi-selection subchange in its own pre-change coordinates', async() => {
-    const source = 'aa\nbb\ncc'
+  it('commits one multi-selection operation as one actor undo entry', async() => {
+    const source = 'aa\r\nbb\r\ncc'
     const worker = new ActorBackedCoreWorker()
     const binding = createEditorCoreBinding(createWorkerCorePort(worker))
     await binding.open({ documentId: 'multi.md', source })
-    const editor = new codeMirror.Doc(source)
-    const adapter = createCodeMirrorCoreAdapter(editor, binding, {
+    const fixture = createAttachedCodeMirror(source)
+    const editor = fixture.editor
+    const doc = editor.getDoc()
+    const adapter = createCodeMirrorCoreAdapter(doc, binding, {
       canonicalSource: source,
-      insertedLineEnding: '\n'
+      insertedLineEnding: '\r\n'
     })
-    editor.setSelections([
+    doc.setSelections([
       { anchor: { line: 0, ch: 0 }, head: { line: 0, ch: 1 } },
       { anchor: { line: 2, ch: 0 }, head: { line: 2, ch: 1 } }
     ])
 
     editor.replaceSelections(['A\nX\nY', 'C'], 'around', '+input')
+    const expectedSelections = doc.listSelections().map(selection => ({
+      anchor: { ...selection.anchor },
+      head: { ...selection.head }
+    }))
     await adapter.settled()
 
-    const requests = worker.requests.slice(1).map(({ request }) => request)
-    expect(requests).toHaveLength(2)
-    expect(requests).toEqual(expect.arrayContaining([
+    expect(worker.requests.slice(1)).toEqual([
       expect.objectContaining({
-        type: 'apply',
-        edits: [{ start: 0, end: 1, insert: 'A\nX\nY' }]
-      }),
-      expect.objectContaining({
-        type: 'apply',
-        edits: [{ start: 6, end: 7, insert: 'C' }]
+        request: expect.objectContaining({
+          type: 'apply',
+          baseRevision: 1,
+          edits: [
+            { start: 0, end: 1, insert: 'A\r\nX\r\nY' },
+            { start: 8, end: 9, insert: 'C' }
+          ]
+        })
       })
-    ]))
+    ])
+    expect(editor.getValue()).toBe('A\nX\nYa\nbb\nCc')
+    expect(doc.listSelections()).toEqual(expectedSelections)
+    await expect(binding.sourceAtBarrier()).resolves.toMatchObject({
+      source: 'A\r\nX\r\nYa\r\nbb\r\nCc',
+      recoveryHistory: {
+        undo: [expect.any(Object)],
+        redo: []
+      }
+    })
+
+    await expect(adapter.history('undo')).resolves.toMatchObject({
+      type: 'applied'
+    })
+    expect(editor.getValue()).toBe('aa\nbb\ncc')
+    await expect(binding.sourceAtBarrier()).resolves.toMatchObject({
+      source,
+      recoveryHistory: {
+        undo: [],
+        redo: [expect.any(Object)]
+      }
+    })
 
     adapter.dispose()
     binding.dispose()
+    fixture.dispose()
   })
 
   it('maps a native LF view edit onto the exact canonical CRLF range', async() => {
