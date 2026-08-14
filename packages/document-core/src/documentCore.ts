@@ -2515,9 +2515,22 @@ function createDocumentCoreWithExecutionBudget(
       return Object.freeze({ kind: 'fallback' })
     }
 
-    const materialized = annotationsOf(admission.nextProducts)
-    inspection.regionalInventoryLocalAnnotationMaterializedNodes +=
-      countCriticMarkupAnnotationNodes(materialized.annotations)
+    const materializedByProducts = new Map<
+      Profile1DocumentProducts,
+      ReturnType<typeof annotationsOf>
+    >()
+    const materializedFor = (
+      products: Profile1DocumentProducts
+    ): ReturnType<typeof annotationsOf> => {
+      const cached = materializedByProducts.get(products)
+      if (cached !== undefined) return cached
+      const value = annotationsOf(products)
+      materializedByProducts.set(products, value)
+      inspection.regionalInventoryLocalAnnotationMaterializedNodes +=
+        countCriticMarkupAnnotationNodes(value.annotations)
+      return value
+    }
+    const materialized = materializedFor(admission.nextProducts)
     const markup = markupProjectionOf(
       admission.nextProducts,
       materialized.rangeByNodeId,
@@ -2575,8 +2588,9 @@ function createDocumentCoreWithExecutionBudget(
     > = []
     const commentReplacements: CommentRegionReplacement[] = []
     for (const impact of admission.commentImpacts) {
+      const commentMaterialized = materializedFor(impact.nextProducts)
       const localAnnotation = annotationAtPreorder(
-        materialized.annotations,
+        commentMaterialized.annotations,
         impact.nodeOrdinal
       )
       if (localAnnotation?.kind !== 'comment') {
@@ -2584,15 +2598,15 @@ function createDocumentCoreWithExecutionBudget(
       }
       const annotation = shiftCriticMarkupAnnotation(
         localAnnotation,
-        admission.next.source.start
+        impact.nextSourceStart
       )
-      const nodeId = materialized.nodeIdByAnnotation.get(localAnnotation)
+      const nodeId = commentMaterialized.nodeIdByAnnotation.get(localAnnotation)
       if (nodeId === undefined) return Object.freeze({ kind: 'fallback' })
-      const display = admission.nextProducts.commentDisplay(nodeId)
+      const display = impact.nextProducts.commentDisplay(nodeId)
       const ast = markdownAstOf(display)
       const coordinates = commentCoordinateSegmentsOf(
         display,
-        admission.next.source.start
+        impact.nextSourceStart
       )
       const projection: CommentProjection = Object.freeze({
         kind: 'comment',
@@ -2601,8 +2615,8 @@ function createDocumentCoreWithExecutionBudget(
         ast,
         coordinates: shiftedRegionalProjectionCoordinatesOf(
           display,
-          admission.nextWindow.length,
-          admission.next.source.start,
+          impact.nextWindow.length,
+          impact.nextSourceStart,
           source.length
         )
       })
@@ -2639,7 +2653,21 @@ function createDocumentCoreWithExecutionBudget(
       Object.freeze(regionalComments)
     )
     inspection.regionalFastApplies += 1
-    inspection.regionalProjectionPreparationUnits += admission.nextWindow.length
+    const preparedProducts = new Set<Profile1DocumentProducts>()
+    let preparedSourceUnits = 0
+    const recordPrepared = (
+      products: Profile1DocumentProducts,
+      sourceUnits: number
+    ): void => {
+      if (preparedProducts.has(products)) return
+      preparedProducts.add(products)
+      preparedSourceUnits += sourceUnits
+    }
+    recordPrepared(admission.nextProducts, admission.nextWindow.length)
+    for (const impact of admission.commentImpacts) {
+      recordPrepared(impact.nextProducts, impact.nextWindow.length)
+    }
+    inspection.regionalProjectionPreparationUnits += preparedSourceUnits
     inspection.regionalMarkupEventUnits += events.reduce(
       (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
       0
