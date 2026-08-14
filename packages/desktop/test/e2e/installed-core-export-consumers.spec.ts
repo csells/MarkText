@@ -175,14 +175,27 @@ const invokeExportCommand = async(
   page: Page,
   commandId: 'file.export-file-html' | 'file.export-file-pdf' | 'file.print'
 ): Promise<void> => {
-  await sendIpcToRenderer(app, 'mt::show-command-palette')
-  const paletteItems = page.locator('.commands li .title')
-  if (commandId === 'file.print') {
-    await paletteItems.filter({ hasText: /^Print$/ }).click()
-  } else {
-    await paletteItems.filter({ hasText: /^Export File$/ }).click()
-    await paletteItems.filter({ hasText: new RegExp(`^${commandId}$`) }).click()
-  }
+  await app.evaluate(({ BrowserWindow, Menu }, id) => {
+    const applicationMenu = Menu.getApplicationMenu()
+    const fileMenu = applicationMenu?.items.find(item => item.label === 'File')
+    const win = BrowserWindow.getAllWindows()[0]
+    if (fileMenu?.submenu === undefined || win === undefined) {
+      throw new Error('Installed File menu is unavailable')
+    }
+    const commandLabel = id === 'file.export-file-html'
+      ? 'Export as HTML'
+      : id === 'file.export-file-pdf'
+        ? 'Export as PDF'
+        : 'Print'
+    const exportMenu = fileMenu.submenu.items.find(item => item.label === 'Export')
+    const command = id === 'file.print'
+      ? fileMenu.submenu.items.find(item => item.label === commandLabel)
+      : exportMenu?.submenu?.items.find(item => item.label === commandLabel)
+    if (command === undefined) {
+      throw new Error(`Installed File command is unavailable: ${commandLabel}`)
+    }
+    command.click(undefined, win, win.webContents)
+  }, commandId)
   const dialog = page.locator('.print-settings-dialog .el-dialog')
   await expect(dialog).toBeVisible({ timeout: 10_000 })
   await dialog.locator('.button-primary').click()
