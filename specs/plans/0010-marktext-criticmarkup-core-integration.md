@@ -296,7 +296,7 @@ Move remaining editor behaviors through the authority gateway one adapter at a t
 ### Phase 4 — Complete CriticMarkup workflows and consumers
 Complete Track Changes, Review UI, projections, bulk resolution, search, clipboard, persistence, HTML, print, PDF, and the frozen CriticMarkup interaction matrix.
 
-The current-build installed Phase 4 transaction at commit `71ebb14711f9577a6b318883bde7423a0bc62fff`
+The current-build installed Phase 4 transaction at commit `506d45bab802177a5b52cc05e69b70ae77679b4b`
 passes the exact 25-row interaction matrix plus eight workflow tests for bulk Review, Track Changes,
 native clipboard, Revised search/replace, and HTML/PDF/Print projection. Its 33-test record
 authenticates the packaged application, executable, test and harness sources, Playwright report,
