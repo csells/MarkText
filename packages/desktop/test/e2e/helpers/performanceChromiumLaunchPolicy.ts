@@ -50,6 +50,36 @@ export interface MacWindowServerPresentationSnapshot {
   readonly windows: readonly MacWindowServerPresentationState[]
 }
 
+export interface MacWindowServerPresentationSnapshotDiagnostic {
+  readonly reason:
+    | 'invalid-output'
+    | 'invalid-windows-shape'
+    | 'invalid-display-topology-shape'
+    | 'active-display-topology-empty'
+  readonly expectedProcessId: number
+  readonly windowRowCount: number | null
+  readonly activeDisplayCount: number | null
+  readonly onlineDisplayCount: number | null
+  readonly mainDisplay: Readonly<{
+    readonly id: number
+    readonly active: boolean
+    readonly asleep: boolean
+  }> | null
+}
+
+export class MacWindowServerPresentationSnapshotError extends Error {
+  readonly diagnostic: MacWindowServerPresentationSnapshotDiagnostic
+
+  constructor(diagnostic: MacWindowServerPresentationSnapshotDiagnostic) {
+    super(
+      'WindowServer presentation snapshot failed: ' +
+      `${diagnostic.reason}; diagnostic=${JSON.stringify(diagnostic)}`
+    )
+    this.name = 'MacWindowServerPresentationSnapshotError'
+    this.diagnostic = diagnostic
+  }
+}
+
 interface MacWindowServerDisplayTopologyState {
   readonly displayId: number
   readonly bounds: PerformanceWindowPresentationState['bounds']
@@ -612,6 +642,21 @@ guard CGGetActiveDisplayList(
 ) == .success else {
   fatalError("Cannot read active displays")
 }
+var onlineDisplayCount: UInt32 = 0
+guard CGGetOnlineDisplayList(0, nil, &onlineDisplayCount) == .success else {
+  fatalError("Cannot count online displays")
+}
+var onlineDisplays = [CGDirectDisplayID](
+  repeating: 0,
+  count: Int(onlineDisplayCount)
+)
+guard CGGetOnlineDisplayList(
+  onlineDisplayCount,
+  &onlineDisplays,
+  &onlineDisplayCount
+) == .success else {
+  fatalError("Cannot read online displays")
+}
 let displayTopology: [[String: Any]] = activeDisplays
   .prefix(Int(displayCount))
   .map { displayId in
@@ -628,9 +673,16 @@ let displayTopology: [[String: Any]] = activeDisplays
       "pixelsHigh": CGDisplayPixelsHigh(displayId)
     ]
   }
+let mainDisplayId = CGMainDisplayID()
 let output = try! JSONSerialization.data(withJSONObject: [
   "windows": rows,
-  "displayTopology": displayTopology
+  "displayTopology": displayTopology,
+  "onlineDisplayCount": Int(onlineDisplayCount),
+  "mainDisplay": [
+    "id": Int(mainDisplayId),
+    "active": CGDisplayIsActive(mainDisplayId) != 0,
+    "asleep": CGDisplayIsAsleep(mainDisplayId) != 0
+  ]
 ])
 print(String(data: output, encoding: .utf8)!)
 `
@@ -672,20 +724,75 @@ export const queryMacWindowServerPresentationSnapshot = (
   expectedProcessId: number,
   execute: MacWindowServerProbe = executeMacWindowServerProbe
 ): MacWindowServerPresentationSnapshot => {
-  const output = executeMacWindowServerPresentationProbe(
+  const rawOutput = executeMacWindowServerPresentationProbe(
     expectedProcessId,
     execute
-  ) as Readonly<{
+  )
+  let onlineDisplayCount: number | null = null
+  let mainDisplay: MacWindowServerPresentationSnapshotDiagnostic[
+    'mainDisplay'
+  ] = null
+  const fail = (
+    reason: MacWindowServerPresentationSnapshotDiagnostic['reason'],
+    windowRowCount: number | null,
+    activeDisplayCount: number | null
+  ): never => {
+    throw new MacWindowServerPresentationSnapshotError(Object.freeze({
+      reason,
+      expectedProcessId,
+      windowRowCount,
+      activeDisplayCount,
+      onlineDisplayCount,
+      mainDisplay
+    }))
+  }
+  if (
+    rawOutput == null || typeof rawOutput !== 'object' ||
+    Array.isArray(rawOutput)
+  ) {
+    return fail('invalid-output', null, null)
+  }
+  const output = rawOutput as Readonly<{
     readonly windows?: readonly MacWindowServerPresentationState[]
     readonly displayTopology?: readonly MacWindowServerDisplayTopologyState[]
-  }> | null
+    readonly onlineDisplayCount?: number
+    readonly mainDisplay?: Readonly<{
+      readonly id?: number
+      readonly active?: boolean
+      readonly asleep?: boolean
+    }>
+  }>
   if (
-    output == null ||
-    !Array.isArray(output.windows) ||
-    !Array.isArray(output.displayTopology) ||
-    output.displayTopology.length < 1
+    Number.isSafeInteger(output.onlineDisplayCount) &&
+    (output.onlineDisplayCount ?? -1) >= 0
   ) {
-    throw new Error('WindowServer presentation snapshot is invalid')
+    onlineDisplayCount = output.onlineDisplayCount ?? null
+  }
+  if (
+    output.mainDisplay != null &&
+    Number.isSafeInteger(output.mainDisplay.id) &&
+    (output.mainDisplay.id ?? -1) >= 0 &&
+    typeof output.mainDisplay.active === 'boolean' &&
+    typeof output.mainDisplay.asleep === 'boolean'
+  ) {
+    mainDisplay = Object.freeze({
+      id: output.mainDisplay.id as number,
+      active: output.mainDisplay.active,
+      asleep: output.mainDisplay.asleep
+    })
+  }
+  if (!Array.isArray(output.windows)) {
+    return fail('invalid-windows-shape', null, null)
+  }
+  if (!Array.isArray(output.displayTopology)) {
+    return fail('invalid-display-topology-shape', output.windows.length, null)
+  }
+  if (output.displayTopology.length < 1) {
+    return fail(
+      'active-display-topology-empty',
+      output.windows.length,
+      output.displayTopology.length
+    )
   }
   const topology = [...output.displayTopology]
     .sort((left, right) => left.displayId - right.displayId)
