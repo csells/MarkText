@@ -1,33 +1,33 @@
 {
   "schema": "marktext-criticmarkup-phase0-approval-v1",
   "status": "proposed-unapproved",
-  "baselineCommit": "43bd8b77795fb27b1a9512737c000f7362031ea0",
+  "baselineCommit": "e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c",
   "evidenceCommit": "177a13f24fe5e5c265dcef468f71988186d1f85e",
   "evidence": [
     {
       "id": "upstream-parity-baseline",
       "path": "specs/baselines/criticmarkup-upstream-parity.json",
-      "sha256": "26181416f36ad15e203a031e33080feaac9d5b45eaf5b1b1f8c2c933c5d8d74a"
+      "sha256": "502ba089dec469ad45d84a7b76f37180454a86f0064052769d9386aefe4580b7"
     },
     {
       "id": "parity-proposal",
       "path": "specs/baselines/criticmarkup-parity-proposal.json",
-      "sha256": "8a3c4a99b3dcb617f51c22e505a339efd1227c9928e5413118c412e24a8db281"
+      "sha256": "b040d8383872569d0a773524326a0d416039794fa42425dcfd1cd43eab306249"
     },
     {
       "id": "parity-oracle-proposal",
       "path": "specs/baselines/criticmarkup-parity-oracle-proposal.json",
-      "sha256": "fe9c2eb40b9780ff0e35d3b31daac137413ee42abbeff6cfd62e94e62563ac57"
+      "sha256": "6cccebf41ea19b427a11c706e7cb9dc346f0af1505cef1d67587cc944d2f4c48"
     },
     {
       "id": "parity-decisions",
       "path": "specs/baselines/criticmarkup-parity-dispositions.json",
-      "sha256": "8ae462d1991fa3982b3b79ee645d18daa11fe4ff57aedf762422c9c87bcffe83"
+      "sha256": "873c1ea35b7bb8eeb71756b292cd09eff161b0fcb746b37572322b60720a2d94"
     },
     {
       "id": "parity-rows",
       "path": "specs/baselines/criticmarkup-parity-rows.json",
-      "sha256": "f2c2862ac459db85259f97d6378b75ec421e56150b8495cc929045c7c30a1bfa"
+      "sha256": "93c02789e44c4e7c7fb1b2afcc12859764e6cd77bcce8a9b26ea2a1036be8db3"
     },
     {
       "id": "upstream-oracle-run",
@@ -122,7 +122,7 @@
     {
       "id": "performance-measurements",
       "path": "specs/baselines/criticmarkup-performance-measurements.json",
-      "sha256": "8e15ccd86f5f2a3f11221cd9c38bbbc45c01c3e5b0b5ad6d77daa014ae303156"
+      "sha256": "5b02fd001ccedc222e8e73abb790b28e2d513964aa6a3aa9e72a26b9b0558cf5"
     },
     {
       "id": "salvage-baseline",
@@ -144,7 +144,7 @@
     {
       "id": "working-baseline",
       "status": "pending-owner-decision",
-      "question": "Approve upstream commit 43bd8b77795fb27b1a9512737c000f7362031ea0 as the working compatibility baseline for this validation interval?",
+      "question": "Approve upstream commit e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c as the working compatibility baseline for this validation interval?",
       "proposal": "Use the recorded upstream commit and regenerate the denominator only at the required pre-PR rebase checkpoint.",
       "evidenceRefs": ["upstream-parity-baseline"]
     },

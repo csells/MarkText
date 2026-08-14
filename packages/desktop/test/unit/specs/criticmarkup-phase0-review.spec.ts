@@ -1155,6 +1155,17 @@ describe('CriticMarkup Phase 0 review proposal', () => {
       materialized.salvageOverlay
     )).not.toThrow()
 
+    const unrelatedSalvageBaseline = structuredClone(salvageBaseline)
+    unrelatedSalvageBaseline.baselineCommit = ratified.evidenceCommit
+    expect(() => materializeCriticMarkupPhase0Dispositions(repoRoot, {
+      parityBaseline,
+      parityProposal,
+      parityOracleProposal,
+      salvageBaseline: unrelatedSalvageBaseline,
+      salvageProposal,
+      approval: ratified
+    })).toThrow(/salvage lineage baseline must be an ancestor of the working baseline/)
+
     const repeated = materializeCriticMarkupPhase0Dispositions(repoRoot, {
       parityBaseline,
       parityProposal,
