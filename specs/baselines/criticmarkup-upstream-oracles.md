@@ -47,6 +47,15 @@ The spike records these timestamps and counters for each input transaction:
 - one Electron `WebContents.capturePage` call with `stayHidden` and `stayAwake` after the exact acknowledged view checkpoint while the exact macOS measurement window is render-active but opacity-zero, nonfocusable, noninteractive, inactive, and not frontmost, followed immediately by retained-state validation (`t_present`); this is a captured compositor-surface upper bound, while the post-capture checkpoint proves only that view state was retained—not screenshot pixel equality, physical display, vsync, or next-frame time;
 - pending-input depth, correction count, and source/view checksums.
 
+Comparable upstream and Core distributions use lifecycle
+`fresh-application-profile-per-observation-v1`. Each of the five documents receives 20 warmup and
+200 measured observations, and every observation runs in one newly launched application with one
+fresh profile that is closed and deleted before the next launch. A complete run therefore records
+exactly 1,100 application launches, 1,100 unique profiles, 1,100 application closes, and 1,100
+successful profile cleanups. Application launch, editor bootstrap, application close, and profile
+cleanup are excluded from every metric; pooled process, browser-context, or profile runs are not
+admissible evidence.
+
 The minimum scenario set is ordinary prose typing, a burst with no artificial delay, IME composition,
 an edit in dense CriticMarkup, an edit near a large table or structured block, and undo immediately
 after input. Open and first-editable-viewport timing use the representative documents selected in

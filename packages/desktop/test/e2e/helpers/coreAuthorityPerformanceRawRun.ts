@@ -1,3 +1,7 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
 import type {
   CoreAuthorityPerformanceReport
 } from './coreAuthorityPerformanceReport'
@@ -8,6 +12,10 @@ import {
 import {
   PERFORMANCE_PRESENTATION_BOUNDARY
 } from './performancePresentationCheckpoint'
+import {
+  PERFORMANCE_SAMPLE_LIFECYCLE,
+  type PerformanceSampleLifecycleCounts
+} from './performanceSampleLifecycle'
 
 const METRICS = [
   't_echo',
@@ -19,6 +27,12 @@ const METRICS = [
   'first_viewport'
 ] as const
 
+const ORCHESTRATION_MEASUREMENT_BUDGET_MS = 15_000
+const ORCHESTRATION_LIFECYCLE_BUDGET_MS = 15_000
+const ORCHESTRATION_FINALIZATION_HEADROOM_MS = 180_000
+const LIFECYCLE_CLEANUP_TIMEOUT_MS = 10_000
+const LIFECYCLE_CLEANUP_POLL_MS = 50
+
 type Metric = typeof METRICS[number]
 type SamplePhase = 'warmup' | 'measured'
 export type CoreAuthorityPerformanceEvidenceClass =
@@ -27,6 +41,242 @@ export type CoreAuthorityPerformanceEvidenceClass =
 export type CoreAuthorityPerformanceSurface = 'wysiwyg' | 'source'
 type Distribution = Record<Metric, readonly number[]>
 
+export interface CoreAuthorityPerformanceFileLifecycle {
+  readonly removeDirectory: (directory: string) => Promise<void>
+  readonly pathExists: (candidate: string) => boolean
+  readonly createDirectory: (directory: string) => Promise<void>
+  readonly writeCreateOnly: (filePath: string, contents: string) => Promise<void>
+  readonly now: () => number
+  readonly wait: () => Promise<void>
+}
+
+export interface CoreAuthorityPerformanceApplicationLifecycle {
+  readonly processId: number
+  readonly closeWindow: () => Promise<void>
+  readonly closeApplication: () => Promise<void>
+  readonly isProcessRunning: (processId: number) => boolean
+  readonly signalProcess: (
+    processId: number,
+    signal: 'SIGTERM' | 'SIGKILL'
+  ) => void
+  readonly now: () => number
+  readonly wait: () => Promise<void>
+}
+
+export interface CoreAuthorityPerformanceBootstrap {
+  readonly currentFile: Readonly<{
+    readonly id: string
+    readonly filename: string
+    readonly pathname: string
+    readonly markdown: string
+  }>
+  readonly authority: Readonly<{
+    readonly documentId: string
+    readonly source: string
+  }>
+}
+
+const defaultFileLifecycle: CoreAuthorityPerformanceFileLifecycle = {
+  removeDirectory: async directory => fs.promises.rm(directory, {
+    recursive: true,
+    force: true
+  }),
+  pathExists: candidate => fs.existsSync(candidate),
+  createDirectory: async directory => fs.promises.mkdir(directory, {
+    recursive: true
+  }).then(() => undefined),
+  writeCreateOnly: async(filePath, contents) => fs.promises.writeFile(
+    filePath,
+    contents,
+    { encoding: 'utf8', flag: 'wx' }
+  ),
+  now: () => Date.now(),
+  wait: async() => new Promise(resolve => setTimeout(
+    resolve,
+    LIFECYCLE_CLEANUP_POLL_MS
+  ))
+}
+
+const requireCorePerformanceRunRoot = (runRoot: string): string => {
+  const resolved = path.resolve(runRoot)
+  if (
+    path.dirname(resolved) !== path.resolve(os.tmpdir()) ||
+    !path.basename(resolved).startsWith('mt-core-performance-')
+  ) {
+    throw new Error(`Core performance run root is not owned: ${runRoot}`)
+  }
+  return resolved
+}
+
+const removeOwnedDirectory = async(
+  directory: string,
+  label: string,
+  lifecycle: CoreAuthorityPerformanceFileLifecycle
+): Promise<void> => {
+  const deadline = lifecycle.now() + LIFECYCLE_CLEANUP_TIMEOUT_MS
+  let failure: unknown = new Error(`${label} cleanup did not complete`)
+  while (true) {
+    try {
+      await lifecycle.removeDirectory(directory)
+      if (!lifecycle.pathExists(directory)) return
+      failure = new Error(`${label} cleanup left its directory present: ${directory}`)
+    } catch (error) {
+      failure = error
+    }
+    if (lifecycle.now() >= deadline) throw failure
+    await lifecycle.wait()
+  }
+}
+
+export const removeCoreAuthorityPerformanceRunRoot = async(
+  runRoot: string,
+  lifecycle: CoreAuthorityPerformanceFileLifecycle = defaultFileLifecycle
+): Promise<void> => removeOwnedDirectory(
+  requireCorePerformanceRunRoot(runRoot),
+  'Core performance run root',
+  lifecycle
+)
+
+export const removeCoreAuthorityPerformanceObservationProfile = async(
+  runRoot: string,
+  profile: string,
+  lifecycle: CoreAuthorityPerformanceFileLifecycle = defaultFileLifecycle
+): Promise<void> => {
+  const resolvedRoot = requireCorePerformanceRunRoot(runRoot)
+  const resolvedProfile = path.resolve(profile)
+  if (
+    path.dirname(resolvedProfile) !== resolvedRoot ||
+    !/^profile-[0-9]{4,}-.+/u.test(path.basename(resolvedProfile))
+  ) {
+    throw new Error(`Core performance profile is not owned: ${profile}`)
+  }
+  await removeOwnedDirectory(
+    resolvedProfile,
+    'Core performance profile',
+    lifecycle
+  )
+}
+
+export const finalizeCoreAuthorityPerformanceRawOutput = async(
+  input: Readonly<{
+    readonly runRoot: string
+    readonly outputPath: string
+    readonly contents: string
+  }>,
+  lifecycle: CoreAuthorityPerformanceFileLifecycle = defaultFileLifecycle
+): Promise<void> => {
+  await removeCoreAuthorityPerformanceRunRoot(input.runRoot, lifecycle)
+  await lifecycle.createDirectory(path.dirname(path.resolve(input.outputPath)))
+  await lifecycle.writeCreateOnly(
+    path.resolve(input.outputPath),
+    input.contents
+  )
+}
+
+const throwLifecycleFailures = (
+  message: string,
+  failures: readonly unknown[]
+): void => {
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) throw new AggregateError(failures, message)
+}
+
+const waitForCorePerformanceProcessExit = async(
+  processId: number,
+  lifecycle: CoreAuthorityPerformanceApplicationLifecycle
+): Promise<boolean> => {
+  const deadline = lifecycle.now() + LIFECYCLE_CLEANUP_TIMEOUT_MS
+  while (lifecycle.isProcessRunning(processId)) {
+    if (lifecycle.now() >= deadline) return false
+    await lifecycle.wait()
+  }
+  return true
+}
+
+export const closeCoreAuthorityPerformanceApplication = async(
+  lifecycle: CoreAuthorityPerformanceApplicationLifecycle
+): Promise<void> => {
+  if (!Number.isSafeInteger(lifecycle.processId) || lifecycle.processId < 1) {
+    throw new Error('Core performance application PID is invalid')
+  }
+  const failures: unknown[] = []
+  try {
+    await lifecycle.closeWindow()
+  } catch (error) {
+    failures.push(error)
+  }
+  try {
+    await lifecycle.closeApplication()
+  } catch (error) {
+    failures.push(error)
+  }
+  try {
+    if (lifecycle.isProcessRunning(lifecycle.processId)) {
+      lifecycle.signalProcess(lifecycle.processId, 'SIGTERM')
+      if (!await waitForCorePerformanceProcessExit(
+        lifecycle.processId,
+        lifecycle
+      )) {
+        lifecycle.signalProcess(lifecycle.processId, 'SIGKILL')
+        if (!await waitForCorePerformanceProcessExit(
+          lifecycle.processId,
+          lifecycle
+        )) {
+          throw new Error(
+            `Core performance application PID ${String(lifecycle.processId)} ` +
+            'did not exit after SIGKILL'
+          )
+        }
+      }
+    }
+  } catch (error) {
+    failures.push(error)
+  }
+  throwLifecycleFailures(
+    'Core performance window, application, or exact-PID cleanup failed',
+    failures
+  )
+}
+
+export const assertBlankCoreAuthorityPerformanceBootstrap = (
+  state: CoreAuthorityPerformanceBootstrap
+): void => {
+  if (!/^Untitled-[1-9][0-9]*$/u.test(state.currentFile.filename)) {
+    throw new Error('Core performance bootstrap must be an untitled document')
+  }
+  if (state.currentFile.pathname !== '') {
+    throw new Error('Core performance bootstrap must not contain a measured file pathname')
+  }
+  if (state.currentFile.markdown !== '') {
+    throw new Error('Core performance bootstrap current file source must be empty')
+  }
+  if (state.authority.source !== '') {
+    throw new Error('Core performance bootstrap authority source must be empty')
+  }
+  if (
+    state.currentFile.id.trim().length === 0 ||
+    state.authority.documentId !== state.currentFile.id
+  ) {
+    throw new Error('Core performance bootstrap document identity is invalid')
+  }
+}
+
+export const coreAuthorityPerformanceOrchestrationTimeoutMs = (
+  totalSamples: number
+): number => {
+  if (!Number.isSafeInteger(totalSamples) || totalSamples < 1) {
+    throw new Error('Core performance total samples must be a positive integer')
+  }
+  const timeout = totalSamples * (
+    ORCHESTRATION_MEASUREMENT_BUDGET_MS +
+    ORCHESTRATION_LIFECYCLE_BUDGET_MS
+  ) + ORCHESTRATION_FINALIZATION_HEADROOM_MS
+  if (!Number.isSafeInteger(timeout)) {
+    throw new Error('Core performance orchestration timeout is unsafe')
+  }
+  return timeout
+}
+
 export interface CoreAuthorityPerformanceRawSample {
   readonly documentId: string
   readonly phase: SamplePhase
@@ -34,7 +284,8 @@ export interface CoreAuthorityPerformanceRawSample {
   readonly report: CoreAuthorityPerformanceReport
 }
 
-export interface CoreAuthorityPerformanceBuildProvenance {
+export interface CoreAuthorityPerformanceBuildProvenance
+  extends PerformanceSampleLifecycleCounts {
   readonly checkoutHead: string
   readonly checkoutClean: boolean
   readonly harnessCommit: string
@@ -54,6 +305,7 @@ export interface CoreAuthorityPerformanceBuildProvenance {
   readonly windowPresentationPolicy: typeof PERFORMANCE_WINDOW_PRESENTATION_POLICY
   readonly windowPresentationPlatform: 'darwin'
   readonly chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
+  readonly sampleLifecycle: typeof PERFORMANCE_SAMPLE_LIFECYCLE
 }
 
 export interface CoreAuthorityPerformanceRawRunInput {
@@ -218,6 +470,26 @@ export function createCoreAuthorityPerformanceRawRun(
       'Ratification evidence requires exactly 20 warmup and 200 measured samples'
     )
   }
+  if (input.provenance.sampleLifecycle !== PERFORMANCE_SAMPLE_LIFECYCLE) {
+    throw new Error(
+      'Raw performance sample lifecycle must use a fresh application profile per observation'
+    )
+  }
+  const observationCount = input.documents.length *
+    (input.sampling.warmupSamples + input.sampling.measuredSamples)
+  for (const field of [
+    'applicationLaunchCount',
+    'uniqueProfileCount',
+    'applicationCloseCount',
+    'profileCleanupCount'
+  ] as const) {
+    if (input.provenance[field] !== observationCount) {
+      throw new Error(
+        `Raw performance ${field} must equal observation count ` +
+        String(observationCount)
+      )
+    }
+  }
 
   const samplesByDocument = new Map<string, CoreAuthorityPerformanceRawSample[]>()
   for (const sample of input.samples) {
@@ -361,11 +633,11 @@ export function createCoreAuthorityPerformanceRawRun(
   })
   return input.evidenceClass === 'ratification'
     ? Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-run-v8' as const,
+      schema: 'marktext-criticmarkup-raw-performance-run-v9' as const,
       ...base
     })
     : Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v8' as const,
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v9' as const,
       evidenceClass: 'smoke-non-ratifying' as const,
       ...base
     })
