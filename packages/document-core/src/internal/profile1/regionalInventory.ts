@@ -910,6 +910,14 @@ export function applyRegionalInventory(
   if (resolvedComments.some(comment => comment === undefined)) {
     return Object.freeze({ kind: 'fallback', reason: 'subscription-not-found' })
   }
+  if (
+    resolvedComments.length > 1 &&
+    resolvedComments.some(comment =>
+      comment !== undefined && comment.located.ordinal !== start.ordinal
+    )
+  ) {
+    return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
+  }
   const localStart = edit.start - start.sourceStart
   const localEnd = edit.end - start.sourceStart
   if (editTouchesMarker(start.leaf, localStart, localEnd)) {
