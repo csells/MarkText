@@ -18,6 +18,15 @@ describe('CriticMarkup performance target protocol', () => {
     expect(() => validateCriticMarkupPerformanceTargets(manifest)).not.toThrow()
     expect(manifest).toMatchObject({ status: 'proposed-unratified' })
     expect(manifest).toMatchObject({
+      schema: 'marktext-criticmarkup-performance-targets-v5',
+      sampling: {
+        sampleLifecycle: 'fresh-application-profile-per-observation-v1',
+        scenarios: expect.stringMatching(
+          /fresh application.*fresh profile.*every observation.*launch.*bootstrap.*cleanup.*outside.*timed metric/i
+        )
+      }
+    })
+    expect(manifest).toMatchObject({
       metrics: {
         t_event: {
           definition: expect.any(String)
@@ -26,13 +35,20 @@ describe('CriticMarkup performance target protocol', () => {
     })
 
     const staleSchema = structuredClone(manifest) as { schema: string }
-    staleSchema.schema = 'marktext-criticmarkup-performance-targets-v2'
+    staleSchema.schema = 'marktext-criticmarkup-performance-targets-v4'
     expect(() => validateCriticMarkupPerformanceTargets(staleSchema))
       .toThrow(/schema is unsupported/i)
+
+    const pooledLifecycle = structuredClone(manifest) as {
+      sampling: { sampleLifecycle: string }
+    }
+    pooledLifecycle.sampling.sampleLifecycle = 'one-application-per-run'
+    expect(() => validateCriticMarkupPerformanceTargets(pooledLifecycle))
+      .toThrow(/sample lifecycle.*fresh application profile per observation/i)
     expect((manifest as { metrics: { t_event: object } }).metrics.t_event)
       .not.toHaveProperty('targetP95Ms')
     expect(manifest).toMatchObject({
-      schema: 'marktext-criticmarkup-performance-targets-v4',
+      schema: 'marktext-criticmarkup-performance-targets-v5',
       metrics: {
         t_present: {
           definition: expect.stringMatching(

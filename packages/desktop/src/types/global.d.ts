@@ -15,6 +15,7 @@ import type {
 import type { MenuTemplate, MenuPopupPosition } from '@shared/types/menu'
 import type { SerializedStat } from '@shared/types/files'
 import type { ShadowReport } from '@/documentAuthority'
+import type { CoreAuthorityPerformanceEvent } from '@/documentAuthority/coreAuthorityPerformanceTrace'
 import type {
   CriticMarkupKind,
   DocumentResolutionDecision
@@ -225,6 +226,7 @@ declare global {
       readonly generation?: number
       settled(): Promise<void>
       latest(): unknown
+      authoritySource?(): Promise<string>
       crashWorker?(): void
       staleNextTransaction?(): void
       resolveCriticMarkup?(
@@ -255,7 +257,7 @@ declare global {
         endOffset: number,
         text: string
       ): void
-      performanceEvents?(): readonly import('@/documentAuthority/coreAuthorityPerformanceTrace').CoreAuthorityPerformanceEvent[]
+      performanceEvents?(): readonly CoreAuthorityPerformanceEvent[]
       performanceStatus?(): Readonly<{
         readonly accepting: boolean
         readonly eventCount: number
