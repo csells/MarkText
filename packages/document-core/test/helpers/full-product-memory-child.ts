@@ -1,4 +1,6 @@
-import { createDocumentCore } from '../../src/index.js'
+import {
+  createUnboundedDocumentCoreForInspection
+} from '../../src/documentCore.js'
 import { inspectDocumentCore } from '../../src/internal/documentCoreInspection.js'
 
 const regions = Number.parseInt(process.argv[2] ?? '', 10)
@@ -45,7 +47,10 @@ const editAt = mode === 'historical-annotations'
   ? source.lastIndexOf('tail')
   : source.lastIndexOf('x')
 const beforeOpen = collect()
-const core = createDocumentCore()
+// This child measures graph-retention shape beyond the desktop admission
+// envelope. Production-policy behavior has its own bounded-heap child; keeping
+// this structural probe unbounded preserves its original 18,000-region seam.
+const core = createUnboundedDocumentCoreForInspection()
 const opened = core.open(source)
 const afterOpen = collect()
 const beforeApplyInspection = inspectDocumentCore(core)

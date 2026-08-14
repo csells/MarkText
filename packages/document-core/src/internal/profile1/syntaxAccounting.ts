@@ -51,6 +51,20 @@ export interface Profile1SyntaxAccountingRecorderV1 {
   readonly trace: () => Profile1SyntaxAccountingTraceV1
 }
 
+export class Profile1LogicalNodeLimitError extends Error {
+  readonly range: SourceRange
+  readonly limit: number
+  readonly observed: number
+
+  constructor(range: SourceRange, limit: number) {
+    super('Profile 1 logical-node limit exceeded')
+    this.name = 'Profile1LogicalNodeLimitError'
+    this.range = range
+    this.limit = limit
+    this.observed = limit + 1
+  }
+}
+
 /**
  * Production accounting is written at the same construction sites that emit
  * syntax. Desktop parses retain compact start/end pairs so the exact first
@@ -61,8 +75,17 @@ export interface Profile1SyntaxAccountingRecorderV1 {
 export function createProfile1SyntaxAccountingRecorderV1(
   retainRanges: boolean,
   retainTrace: boolean,
-  execution?: ParseExecutionTracker
+  execution?: ParseExecutionTracker,
+  maximumEvents: number = Number.POSITIVE_INFINITY
 ): Profile1SyntaxAccountingRecorderV1 {
+  if (
+    maximumEvents !== Number.POSITIVE_INFINITY &&
+    (!Number.isSafeInteger(maximumEvents) || maximumEvents < 0)
+  ) {
+    throw new RangeError(
+      'Syntax-accounting maximum must be a nonnegative safe integer or infinity'
+    )
+  }
   const buckets = new Map<
     Profile1SyntaxAccountingEventKindV1,
     AccountingBucket
@@ -74,6 +97,7 @@ export function createProfile1SyntaxAccountingRecorderV1(
       events: retainTrace ? [] : undefined
     }
   ]))
+  let totalEvents = 0
 
   const emit = (
     kind: Profile1SyntaxAccountingEventKindV1,
@@ -85,18 +109,16 @@ export function createProfile1SyntaxAccountingRecorderV1(
       throw new Error(`Unknown Profile 1 accounting event: ${String(kind)}`)
     }
     bucket.count += 1
+    totalEvents += 1
     execution?.emitLogicalNode()
+    if (totalEvents > maximumEvents) {
+      throw new Profile1LogicalNodeLimitError(range, maximumEvents)
+    }
     bucket.ranges?.push(range.start, range.end)
     bucket.events?.push(Object.freeze({ kind, range, key }))
   }
 
-  const eventCount = (): number => {
-    let count = 0
-    for (const kind of EVENT_ORDER) {
-      count += buckets.get(kind)?.count ?? 0
-    }
-    return count
-  }
+  const eventCount = (): number => totalEvents
 
   const counts = (): readonly number[] => Object.freeze(
     EVENT_ORDER.map(kind => buckets.get(kind)?.count ?? 0)

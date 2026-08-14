@@ -7,10 +7,10 @@ import type {
   ResourceDiagnostic,
   SourceRange
 } from '../../revision.js'
+import { DOCUMENT_RESOURCE_POLICY_V1 } from '../../resourcePolicy.js'
 import {
   createProfile1DocumentReuseCache,
   parseProfile1Document,
-  PROFILE1_DESKTOP_LOGICAL_NODE_LIMIT,
   type Profile1DocumentProducts,
   type RetainedPassSourceEdit
 } from '../profile1Document.js'
@@ -553,7 +553,7 @@ export function createRegionalInventory(
   products: Profile1DocumentProducts,
   sourceLength: number,
   recorder: RegionalInventoryRecorder,
-  logicalNodeLimit: number = PROFILE1_DESKTOP_LOGICAL_NODE_LIMIT
+  logicalNodeLimit: number = DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
 ): RegionalInventory | undefined {
   const retained = products.retainedIntrinsic
   if (
