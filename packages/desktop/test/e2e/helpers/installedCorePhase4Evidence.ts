@@ -212,6 +212,7 @@ const reportSpecs = (report: unknown): Array<Record<string, unknown>> => {
   if (
     !isRecord(report.config) ||
     report.config.workers !== 1 ||
+    report.config.maxFailures !== 1 ||
     !Array.isArray(report.config.projects) ||
     report.config.projects.length !== 1 ||
     !isRecord(report.config.projects[0]) ||
