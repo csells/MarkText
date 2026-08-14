@@ -1,5 +1,5 @@
 import { realpathSync } from 'node:fs'
-import { rm } from 'node:fs/promises'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 
@@ -29,8 +29,14 @@ interface UpstreamRunRootLifecycle {
   readonly now: () => number
 }
 
+export interface UpstreamPerformanceObservationIsolation {
+  readonly root: string
+  readonly profile: string
+}
+
 const CLEANUP_TIMEOUT_MS = 10_000
-const ORCHESTRATION_SAMPLE_BUDGET_MS = 15_000
+const ORCHESTRATION_MEASUREMENT_BUDGET_MS = 15_000
+const ORCHESTRATION_LIFECYCLE_BUDGET_MS = 15_000
 const ORCHESTRATION_FINALIZATION_HEADROOM_MS = 180_000
 
 export const upstreamPerformanceOrchestrationTimeoutMs = (
@@ -39,7 +45,10 @@ export const upstreamPerformanceOrchestrationTimeoutMs = (
   if (!Number.isSafeInteger(totalSamples) || totalSamples < 1) {
     throw new Error('Upstream performance total samples must be a positive integer')
   }
-  const timeout = totalSamples * ORCHESTRATION_SAMPLE_BUDGET_MS +
+  const timeout = totalSamples * (
+    ORCHESTRATION_MEASUREMENT_BUDGET_MS +
+    ORCHESTRATION_LIFECYCLE_BUDGET_MS
+  ) +
     ORCHESTRATION_FINALIZATION_HEADROOM_MS
   if (!Number.isSafeInteger(timeout)) {
     throw new Error('Upstream performance orchestration timeout is unsafe')
@@ -182,21 +191,21 @@ export const closeFailedUpstreamPerformanceLaunch = async(
 const transientRemovalRace = (error: unknown): boolean => error instanceof Error &&
   'code' in error && (error.code === 'ENOTEMPTY' || error.code === 'EBUSY')
 
-export const removeUpstreamPerformanceRunRoot = async(
-  runRoot: string,
-  lifecycle: UpstreamRunRootLifecycle = {
-    remove: root => rm(root, { recursive: true }),
-    sleep: () => new Promise(resolve => setTimeout(resolve, 50)),
-    now: Date.now
-  }
-): Promise<void> => {
+const ownedUpstreamPerformanceRunRoot = (runRoot: string): string => {
   const ownedRoot = resolve(runRoot)
   if (
     dirname(ownedRoot) !== resolve(tmpdir()) ||
     !basename(ownedRoot).startsWith('mt-upstream-performance-')
   ) {
-    throw new Error(`Refusing to remove non-owned run root: ${ownedRoot}`)
+    throw new Error(`Refusing to use non-owned run root: ${ownedRoot}`)
   }
+  return ownedRoot
+}
+
+const removeOwnedUpstreamPerformanceRoot = async(
+  ownedRoot: string,
+  lifecycle: UpstreamRunRootLifecycle
+): Promise<void> => {
   const deadline = lifecycle.now() + CLEANUP_TIMEOUT_MS
   for (;;) {
     try {
@@ -207,6 +216,72 @@ export const removeUpstreamPerformanceRunRoot = async(
       await lifecycle.sleep()
     }
   }
+}
+
+export const createUpstreamPerformanceObservationIsolation = async(
+  runRoot: string,
+  index: number
+): Promise<Readonly<UpstreamPerformanceObservationIsolation>> => {
+  if (!Number.isSafeInteger(index) || index < 0) {
+    throw new Error('Upstream performance observation index must be non-negative')
+  }
+  const ownedRoot = ownedUpstreamPerformanceRunRoot(runRoot)
+  const observationsRoot = join(ownedRoot, 'observations')
+  await mkdir(observationsRoot, { recursive: true })
+  const root = join(
+    observationsRoot,
+    `observation-${String(index + 1).padStart(4, '0')}`
+  )
+  await mkdir(root)
+  return Object.freeze({
+    root,
+    profile: join(root, 'profile')
+  })
+}
+
+export const createUpstreamPerformanceBlankBootstrapFile = async(
+  runRoot: string
+): Promise<string> => {
+  const ownedRoot = ownedUpstreamPerformanceRunRoot(runRoot)
+  const bootstrap = join(ownedRoot, 'blank-bootstrap.md')
+  await writeFile(bootstrap, '', { encoding: 'utf8', flag: 'wx' })
+  return bootstrap
+}
+
+export const removeUpstreamPerformanceObservationIsolation = async(
+  runRoot: string,
+  isolation: Readonly<UpstreamPerformanceObservationIsolation>,
+  lifecycle: UpstreamRunRootLifecycle = {
+    remove: root => rm(root, { recursive: true }),
+    sleep: () => new Promise(resolve => setTimeout(resolve, 50)),
+    now: Date.now
+  }
+): Promise<void> => {
+  const ownedRoot = ownedUpstreamPerformanceRunRoot(runRoot)
+  const observationRoot = resolve(isolation.root)
+  const observationsRoot = join(ownedRoot, 'observations')
+  if (
+    dirname(observationRoot) !== observationsRoot ||
+    !/^observation-[0-9]{4,}$/u.test(basename(observationRoot)) ||
+    resolve(isolation.profile) !== join(observationRoot, 'profile')
+  ) {
+    throw new Error(
+      `Refusing to remove non-owned observation root: ${observationRoot}`
+    )
+  }
+  await removeOwnedUpstreamPerformanceRoot(observationRoot, lifecycle)
+}
+
+export const removeUpstreamPerformanceRunRoot = async(
+  runRoot: string,
+  lifecycle: UpstreamRunRootLifecycle = {
+    remove: root => rm(root, { recursive: true }),
+    sleep: () => new Promise(resolve => setTimeout(resolve, 50)),
+    now: Date.now
+  }
+): Promise<void> => {
+  const ownedRoot = ownedUpstreamPerformanceRunRoot(runRoot)
+  await removeOwnedUpstreamPerformanceRoot(ownedRoot, lifecycle)
 }
 
 export const finalizeUpstreamPerformanceRun = async(

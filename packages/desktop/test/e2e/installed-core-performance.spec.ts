@@ -7,9 +7,15 @@ import { _electron as electron, expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 
 import {
+  assertBlankCoreAuthorityPerformanceBootstrap,
   chooseCoreAuthorityPerformanceSurface,
+  closeCoreAuthorityPerformanceApplication,
+  coreAuthorityPerformanceOrchestrationTimeoutMs,
   createCoreAuthorityPerformanceRawRun,
+  finalizeCoreAuthorityPerformanceRawOutput,
   formatMacHardwareFingerprint,
+  removeCoreAuthorityPerformanceObservationProfile,
+  removeCoreAuthorityPerformanceRunRoot,
   type CoreAuthorityPerformanceRawSample
 } from './helpers/coreAuthorityPerformanceRawRun'
 import type { CoreAuthorityPerformanceSurface } from './helpers/coreAuthorityPerformanceRawRun'
@@ -40,6 +46,10 @@ import {
   resolveExactElectronPageTargetId,
   type PerformanceHiddenPageCapture
 } from './helpers/performancePresentationCheckpoint'
+import {
+  PERFORMANCE_SAMPLE_LIFECYCLE,
+  runIsolatedPerformanceObservations
+} from './helpers/performanceSampleLifecycle'
 import {
   expectEditorNotFrontmost,
   enterSourceMode,
@@ -78,6 +88,7 @@ interface PerformanceTargetManifest {
   readonly sampling: Readonly<{
     readonly warmupSamples: number
     readonly measuredSamples: number
+    readonly sampleLifecycle: typeof PERFORMANCE_SAMPLE_LIFECYCLE
   }>
 }
 
@@ -86,6 +97,21 @@ interface PerformanceMeasurementManifest {
 }
 
 type CorePerformanceEvidenceClass = 'ratification' | 'smoke-non-ratifying'
+
+interface CorePerformanceObservation {
+  readonly documentId: string
+  readonly filePath: string
+  readonly phase: 'warmup' | 'measured'
+  readonly sampleIndex: number
+}
+
+interface PreparedCorePerformanceApplication {
+  readonly app: ElectronApplication
+  readonly page: Page
+  readonly targetId: string
+  readonly applicationProcessId: number
+  readonly capturePage: PerformanceHiddenPageCapture
+}
 
 const readJson = <T>(filePath: string): T =>
   JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
@@ -103,6 +129,42 @@ const requiredValue = (name: string): string => {
 }
 
 const requiredPath = (name: string): string => path.resolve(requiredValue(name))
+
+const throwLifecycleFailures = (
+  message: string,
+  failures: readonly unknown[]
+): void => {
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) throw new AggregateError(failures, message)
+}
+
+const isProcessRunning = (processId: number): boolean => {
+  try {
+    process.kill(processId, 0)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
+    throw error
+  }
+}
+
+const closeCorePerformanceApplication = async(
+  app: ElectronApplication,
+  applicationProcessId: number,
+  targetId?: string
+): Promise<void> => closeCoreAuthorityPerformanceApplication({
+  processId: applicationProcessId,
+  closeWindow: async() => {
+    if (targetId !== undefined) {
+      await closeInstalledPerformanceWindow(app, targetId)
+    }
+  },
+  closeApplication: async() => app.close(),
+  isProcessRunning,
+  signalProcess: (processId, signal) => { process.kill(processId, signal) },
+  now: () => Date.now(),
+  wait: async() => new Promise(resolve => setTimeout(resolve, 50))
+})
 
 const installedBinary = (): string => {
   const binary = requiredPath('MARKTEXT_PACKAGED_APP')
@@ -176,6 +238,54 @@ const closeActiveTab = async(page: Page): Promise<void> => {
   })
   if (!closed) throw new Error('Installed performance runner cannot close its sample tab')
   await expect.poll(() => activeDocumentId(page)).toBeNull()
+}
+
+const assertBlankCorePerformanceBootstrap = async(page: Page): Promise<void> => {
+  const state = await page.evaluate(async() => {
+    const root = document.querySelector('#app') as
+      | (Element & {
+        __vue_app__?: {
+          config?: { globalProperties?: Record<string, unknown> }
+        }
+      })
+      | null
+    const pinia = root?.__vue_app__?.config?.globalProperties?.$pinia as
+      | { _s?: Map<string, Record<string, unknown>> }
+      | undefined
+    const store = pinia?._s?.get('editor') as
+      | {
+        currentFile?: {
+          id?: unknown
+          filename?: unknown
+          pathname?: unknown
+          markdown?: unknown
+        }
+      }
+      | undefined
+    const currentFile = store?.currentFile
+    const authority = window.__marktextDocumentCore
+    if (
+      typeof currentFile?.id !== 'string' ||
+      typeof currentFile.filename !== 'string' ||
+      typeof currentFile.pathname !== 'string' ||
+      typeof currentFile.markdown !== 'string' ||
+      typeof authority?.documentId !== 'string' ||
+      authority.authoritySource === undefined
+    ) throw new Error('Installed Core blank bootstrap authority is unavailable')
+    return Object.freeze({
+      currentFile: Object.freeze({
+        id: currentFile.id,
+        filename: currentFile.filename,
+        pathname: currentFile.pathname,
+        markdown: currentFile.markdown
+      }),
+      authority: Object.freeze({
+        documentId: authority.documentId,
+        source: await authority.authoritySource()
+      })
+    })
+  })
+  assertBlankCoreAuthorityPerformanceBootstrap(state)
 }
 
 const openSample = async(
@@ -379,13 +489,12 @@ const sampleFilesFor = (
 }
 
 test.describe('installed Core authority raw performance producer', () => {
-  test.describe.configure({ timeout: 60 * 60 * 1000 })
   test.skip(
     process.env.MARKTEXT_PERFORMANCE_OUTPUT === undefined,
     'Dedicated packaged performance launch only'
   )
 
-  test('writes five unpooled authenticated production-bundle distributions', async() => {
+  test('writes five fresh-observation authenticated production-bundle distributions', async() => {
     if (process.platform !== 'darwin') {
       throw new Error('Pinned Core performance evidence requires the recorded macOS host')
     }
@@ -406,7 +515,10 @@ test.describe('installed Core authority raw performance producer', () => {
       evidenceClass !== 'smoke-non-ratifying'
     ) throw new Error('MARKTEXT_CORE_EVIDENCE_CLASS is invalid')
     const sampling = evidenceClass === 'ratification'
-      ? targets.sampling
+      ? {
+        warmupSamples: targets.sampling.warmupSamples,
+        measuredSamples: targets.sampling.measuredSamples
+      }
       : {
         warmupSamples: Number(requiredValue('MARKTEXT_CORE_WARMUP_SAMPLES')),
         measuredSamples: Number(requiredValue('MARKTEXT_CORE_MEASURED_SAMPLES'))
@@ -416,126 +528,189 @@ test.describe('installed Core authority raw performance producer', () => {
       !Number.isSafeInteger(sampling.measuredSamples) || sampling.measuredSamples < 1
     ) throw new Error('Core smoke sample counts must be positive integers')
     expect(representatives.documents).toHaveLength(5)
+    const totalSamples = representatives.documents.length *
+      (sampling.warmupSamples + sampling.measuredSamples)
+    test.setTimeout(coreAuthorityPerformanceOrchestrationTimeoutMs(totalSamples))
     expect(targets.sampling).toEqual({
       warmupSamples: 20,
       measuredSamples: 200,
       percentiles: [50, 95, 99],
+      sampleLifecycle: PERFORMANCE_SAMPLE_LIFECYCLE,
       scenarios: expect.any(String)
     })
     expect(machineEnvironment()).toEqual(targets.environment)
 
-    const totalSamples = representatives.documents.length *
-      (sampling.warmupSamples + sampling.measuredSamples)
-    const samples: CoreAuthorityPerformanceRawSample[] = []
     const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-core-performance-'))
     let completed = 0
+    let finalizationCompleted = false
     try {
+      const observations: CorePerformanceObservation[] = []
       for (const document of representatives.documents) {
         const count = sampling.warmupSamples + sampling.measuredSamples
-        const sampleFiles = sampleFilesFor(runRoot, document, count + 1)
-        const profile = path.join(runRoot, `profile-${document.id}`)
-        const launchEnvironment = { ...process.env }
-        delete launchEnvironment.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
-        const app = await electron.launch({
-          executablePath: binary,
-          args: [...withPerformanceChromiumScheduling([
-            '--user-data-dir',
-            profile,
-            sampleFiles[0]!
-          ])],
-          env: {
-            ...launchEnvironment,
-            PERF_TESTING: 'true',
-            MARKTEXT_DOCUMENT_CORE_MODE: '1',
-            MARKTEXT_E2E_HIDDEN_WINDOW: '1',
-            MARKTEXT_ERROR_INTERACTION: '1'
-          },
-          timeout: 60_000
-        })
-        const applicationProcessId = app.process().pid
-        if (applicationProcessId === undefined) {
-          throw new Error('Installed performance process ID is unavailable')
+        const sampleFiles = sampleFilesFor(runRoot, document, count)
+        for (let index = 0; index < sampleFiles.length; index += 1) {
+          const filePath = sampleFiles[index]
+          if (filePath === undefined) {
+            throw new Error('Core performance sample file is missing')
+          }
+          observations.push(Object.freeze({
+            documentId: document.id,
+            filePath,
+            phase: index < sampling.warmupSamples ? 'warmup' : 'measured',
+            sampleIndex: index
+          }))
         }
-        let performanceTargetId: string | undefined
-        try {
-          const page = await firstWindowWithPerformanceScheduling(app)
-          const targetId = await resolveExactElectronPageTargetId(page)
-          performanceTargetId = targetId
-          await activateInstalledPerformanceWindow(app, targetId)
-          await page.waitForLoadState('domcontentloaded')
-          await waitForEditor(page, 60_000)
-          await waitForMenuReady(app, 60_000)
-          await expectInstalledArtifactCommit(page)
-          const initialWindowState = await inspectInstalledPerformanceWindow(
-            app,
-            targetId
-          )
-          expectEditorNotFrontmost(app)
-          assertMacWindowServerPresentation(
-            applicationProcessId,
-            initialWindowState
-          )
-          expect(await page.evaluate(() =>
-            window.electron.process.env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
-          )).toBeUndefined()
-          const capturePage = () => captureInstalledElectronHiddenPage(
-            app,
-            targetId
-          )
-          await closeActiveTab(page)
+      }
 
-          for (let index = 1; index < sampleFiles.length; index += 1) {
-            await inspectInstalledPerformanceWindow(app, targetId)
-            expectEditorNotFrontmost(app)
-            const filePath = sampleFiles[index]!
-            const opened = await openSample(app, page, filePath)
+      const observationRun = await runIsolatedPerformanceObservations(
+        observations,
+        {
+          createIsolation: async(declaration, index) => {
+            const profile = path.join(
+              runRoot,
+              `profile-${String(index + 1).padStart(4, '0')}-${declaration.documentId}`
+            )
+            await fs.promises.mkdir(profile)
+            return Object.freeze({ profile })
+          },
+          launchAndPrepare: async(_declaration, isolation) => {
+            const launchEnvironment = { ...process.env }
+            delete launchEnvironment.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
+            let app: ElectronApplication | undefined
+            let targetId: string | undefined
+            let applicationProcessId: number | undefined
+            try {
+              app = await electron.launch({
+                executablePath: binary,
+                args: [...withPerformanceChromiumScheduling([
+                  '--user-data-dir',
+                  isolation.profile
+                ])],
+                env: {
+                  ...launchEnvironment,
+                  PERF_TESTING: 'true',
+                  MARKTEXT_DOCUMENT_CORE_MODE: '1',
+                  MARKTEXT_E2E_HIDDEN_WINDOW: '1',
+                  MARKTEXT_ERROR_INTERACTION: '1'
+                },
+                timeout: 60_000
+              })
+              applicationProcessId = app.process().pid
+              if (applicationProcessId === undefined) {
+                throw new Error('Installed performance process ID is unavailable')
+              }
+              const page = await firstWindowWithPerformanceScheduling(app)
+              targetId = await resolveExactElectronPageTargetId(page)
+              await activateInstalledPerformanceWindow(app, targetId)
+              await page.waitForLoadState('domcontentloaded')
+              await waitForEditor(page, 60_000)
+              await waitForMenuReady(app, 60_000)
+              await expectInstalledArtifactCommit(page)
+              const initialWindowState = await inspectInstalledPerformanceWindow(
+                app,
+                targetId
+              )
+              expectEditorNotFrontmost(app)
+              assertMacWindowServerPresentation(
+                applicationProcessId,
+                initialWindowState
+              )
+              expect(await page.evaluate(() =>
+                window.electron.process.env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
+              )).toBeUndefined()
+              await assertBlankCorePerformanceBootstrap(page)
+              await closeActiveTab(page)
+              const preparedApp = app
+              const preparedTargetId = targetId
+              const capturePage = () => captureInstalledElectronHiddenPage(
+                preparedApp,
+                preparedTargetId
+              )
+              return Object.freeze({
+                app: preparedApp,
+                page,
+                targetId: preparedTargetId,
+                applicationProcessId,
+                capturePage
+              }) satisfies PreparedCorePerformanceApplication
+            } catch (error) {
+              const failures: unknown[] = [error]
+              if (app !== undefined) {
+                try {
+                  if (applicationProcessId === undefined) {
+                    await app.close()
+                  } else {
+                    await closeCorePerformanceApplication(
+                      app,
+                      applicationProcessId,
+                      targetId
+                    )
+                  }
+                } catch (cleanupError) {
+                  failures.push(cleanupError)
+                }
+              }
+              throwLifecycleFailures(
+                'Core performance launch preparation and cleanup both failed',
+                failures
+              )
+              throw error
+            }
+          },
+          measure: async(application, declaration) => {
+            await inspectInstalledPerformanceWindow(
+              application.app,
+              application.targetId
+            )
+            expectEditorNotFrontmost(application.app)
+            const opened = await openSample(
+              application.app,
+              application.page,
+              declaration.filePath
+            )
             const measurement = await measureSample(
-              app,
-              page,
-              capturePage,
+              application.app,
+              application.page,
+              application.capturePage,
               opened
             )
-            await inspectInstalledPerformanceWindow(app, targetId)
-            expectEditorNotFrontmost(app)
-            const sampleIndex = index - 1
-            samples.push(Object.freeze({
-              documentId: document.id,
-              phase: sampleIndex < sampling.warmupSamples
-                ? 'warmup'
-                : 'measured',
+            const finalWindowState = await inspectInstalledPerformanceWindow(
+              application.app,
+              application.targetId
+            )
+            expectEditorNotFrontmost(application.app)
+            assertMacWindowServerPresentation(
+              application.applicationProcessId,
+              finalWindowState
+            )
+            return Object.freeze({
+              documentId: declaration.documentId,
+              phase: declaration.phase,
               surface: measurement.surface,
               report: measurement.report
-            }))
+            }) satisfies CoreAuthorityPerformanceRawSample
+          },
+          close: async application => closeCorePerformanceApplication(
+            application.app,
+            application.applicationProcessId,
+            application.targetId
+          ),
+          cleanup: async(declaration, isolation) => {
+            await removeCoreAuthorityPerformanceObservationProfile(
+              runRoot,
+              isolation.profile
+            )
             completed += 1
             process.stdout.write(
               `[${String(completed)}/${String(totalSamples)}] ` +
-              `${document.id} ${sampleIndex < sampling.warmupSamples
-                ? 'warmup'
-                : 'measured'} ${String(sampleIndex + 1)} ` +
-              `${measurement.surface}\n`
+              `${declaration.documentId} ${declaration.phase} ` +
+              `${String(declaration.sampleIndex + 1)} fresh-profile-complete\n`
             )
-            await closeActiveTab(page)
-            await inspectInstalledPerformanceWindow(app, targetId)
-            expectEditorNotFrontmost(app)
-          }
-          const finalWindowState = await inspectInstalledPerformanceWindow(
-            app,
-            targetId
-          )
-          expectEditorNotFrontmost(app)
-          assertMacWindowServerPresentation(
-            applicationProcessId,
-            finalWindowState
-          )
-        } finally {
-          try {
-            if (performanceTargetId !== undefined) {
-              await closeInstalledPerformanceWindow(app, performanceTargetId)
-            }
-          } finally {
-            await app.close()
           }
         }
+      )
+      if (observationRun.measurements.length !== totalSamples) {
+        throw new Error('Core performance observation count is incomplete')
       }
 
       const run = createCoreAuthorityPerformanceRawRun({
@@ -568,22 +743,27 @@ test.describe('installed Core authority raw performance producer', () => {
           launchBoundary: 'playwright-electron-packaged-transparent-v3',
           windowPresentationPolicy: PERFORMANCE_WINDOW_PRESENTATION_POLICY,
           windowPresentationPlatform: 'darwin',
-          chromiumSchedulingPolicy: PERFORMANCE_CHROMIUM_SCHEDULING_POLICY
+          chromiumSchedulingPolicy: PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
+          sampleLifecycle: PERFORMANCE_SAMPLE_LIFECYCLE,
+          ...observationRun.counts
         },
         documents: representatives.documents.map(document => ({
           id: document.id,
           sourceSha256: document.sha256
         })),
-        samples
-      })
-      fs.mkdirSync(path.dirname(outputPath), { recursive: true })
-      fs.writeFileSync(outputPath, `${JSON.stringify(run, null, 2)}\n`, {
-        encoding: 'utf8',
-        flag: 'wx'
+        samples: observationRun.measurements
       })
       expect(completed).toBe(totalSamples)
+      await finalizeCoreAuthorityPerformanceRawOutput({
+        runRoot,
+        outputPath,
+        contents: `${JSON.stringify(run, null, 2)}\n`
+      })
+      finalizationCompleted = true
     } finally {
-      fs.rmSync(runRoot, { recursive: true, force: true })
+      if (!finalizationCompleted) {
+        await removeCoreAuthorityPerformanceRunRoot(runRoot)
+      }
     }
   })
 })
