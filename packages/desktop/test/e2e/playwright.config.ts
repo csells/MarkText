@@ -1,7 +1,8 @@
 import { defineConfig } from '@playwright/test'
 
 const installedArtifactSpecs = [
-  '**/installed-core-review.spec.ts'
+  '**/installed-core-review.spec.ts',
+  '**/installed-core-clipboard.spec.ts'
 ]
 
 export default defineConfig({
