@@ -3294,6 +3294,114 @@ describe('document-core semantic changes', () => {
     expect(delta(after, before, 'canonicalFactIndexUnits')).toBe(0)
   })
 
+  it('keeps an edit after unchanged global reference facts regional', () => {
+    const source =
+      'head [ref]\n\n' +
+      '[ref]: /url\n\n' +
+      'target word\n\n' +
+      'tail\n\n'
+    const insertAt = source.indexOf('word') + 2
+    const edit = { start: insertAt, end: insertAt, insert: 'X' }
+    const nextSource = applyExactSourceEdits(
+      source,
+      [edit],
+      'global reference dependency oracle'
+    )
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const previousMarkup = core.project(opened, 'markup')
+    const before = inspectionOf(core)
+
+    const commit = core.apply(opened, [edit], { projections: ['markup'] })
+    const after = inspectionOf(core)
+    const change = commit.change.projections[0]
+    if (change?.name !== 'markup' || change.scope !== 'regions') {
+      throw new Error('Expected reference-independent regional change')
+    }
+    expect(change.replacements).toHaveLength(1)
+    const replacement = change.replacements[0]
+    if (replacement === undefined) throw new Error('Expected Markup replacement')
+
+    const freshCore = createDocumentCore()
+    const fresh = freshCore.open(nextSource)
+    const freshMarkup = freshCore.project(fresh, 'markup')
+    const nextEvents = applyMarkupReplacement(previousMarkup.events, replacement)
+    expect(nextEvents).toEqual(freshMarkup.events)
+    expect(applySyntaxReplacementForOracle(
+      previousMarkup.syntax.ast.root,
+      replacement
+    )).toEqual(freshMarkup.syntax.ast.root)
+    expect(core.project(opened, 'markup')).toEqual(previousMarkup)
+    expect(previousMarkup.events.flatMap(event =>
+      event.kind === 'text' ? [event.text] : []).join('')).toBe(source)
+    expect(nextEvents.flatMap(event =>
+      event.kind === 'text' ? [event.text] : []).join('')).toBe(nextSource)
+    expect(opened.sourceLength).toBe(source.length)
+    expect(commit.revision.sourceLength).toBe(nextSource.length)
+    const afterHistoryRead = inspectionOf(core)
+    expect(delta(after, before, 'documentParses')).toBe(0)
+    expect(delta(after, before, 'documentParseSourceUnits')).toBe(0)
+    expect(delta(after, before, 'documentProjectionPreparationUnits')).toBe(0)
+    expect(delta(after, before, 'sourceMaterializations')).toBe(0)
+    expect(delta(after, before, 'sourceMaterializationOutputUnits')).toBe(0)
+    expect(delta(after, before, 'regionalFastApplies')).toBe(1)
+    expect(delta(afterHistoryRead, before, 'documentParses')).toBe(0)
+    expect(delta(afterHistoryRead, before, 'sourceMaterializations')).toBe(0)
+    assertPortable(commit.change)
+  })
+
+  it('invalidates when a candidate introduces a global reference definition', () => {
+    const source =
+      'head [ref]\n\n' +
+      '[ref]: /url\n\n' +
+      'target word\n\n' +
+      'tail\n\n'
+    const start = source.indexOf('target')
+    const edit = {
+      start,
+      end: start + 'target word'.length,
+      insert: '[new]: /new'
+    }
+    const nextSource = applyExactSourceEdits(
+      source,
+      [edit],
+      'introduced reference definition oracle'
+    )
+    const core = createDocumentCore()
+    const opened = core.open(source)
+
+    const commit = core.apply(opened, [edit], { projections: ['markup'] })
+
+    expect(commit.change.projections).toEqual([{
+      name: 'markup',
+      scope: 'document',
+      reason: 'definition-or-reference-facts'
+    }])
+    const freshCore = createDocumentCore()
+    const fresh = freshCore.open(nextSource)
+    const projection = core.project(commit.revision, 'markup')
+    const freshProjection = freshCore.project(fresh, 'markup')
+    expect(projection.events).toEqual(freshProjection.events)
+    expect(projection.syntax.ast).toEqual(freshProjection.syntax.ast)
+
+    const sourceOnlyCore = createDocumentCore()
+    const sourceOnlyOpened = sourceOnlyCore.open(source)
+    const beforeSourceOnly = inspectionOf(sourceOnlyCore)
+    const sourceOnlyCommit = sourceOnlyCore.apply(sourceOnlyOpened, [edit], {
+      projections: []
+    })
+    const afterSourceOnly = inspectionOf(sourceOnlyCore)
+    expect(sourceOnlyCommit.change.projections).toEqual([])
+    expect(delta(
+      afterSourceOnly,
+      beforeSourceOnly,
+      'regionalFastApplies'
+    )).toBe(0)
+    expect(delta(afterSourceOnly, beforeSourceOnly, 'documentParses')).toBe(1)
+    expect(sourceOnlyCore.project(sourceOnlyCommit.revision, 'markup').syntax.ast)
+      .toEqual(freshProjection.syntax.ast)
+  })
+
   it.each([
     {
       name: 'punctuation changes paragraph structure',
@@ -4291,9 +4399,20 @@ describe('document-core semantic changes', () => {
   })
 
   it.each([
-    'head {++added++}\n\ntarget word\n\ntail\n\n',
-    'head [ref]\n\ntarget word\n\n[ref]: /url\n'
-  ])('never builds an overlay for CM or definition facts', (source) => {
+    {
+      name: 'CM facts without an eligible index',
+      source: 'head {++added++}\n\ntarget word\n\ntail\n\n',
+      buildsDependencyIndex: false
+    },
+    {
+      name: 'an invalidated definition dependency index',
+      source: 'head [ref]\n\ntarget word\n\n[ref]: /url\n',
+      buildsDependencyIndex: true
+    }
+  ])('never mutates the retained overlay for $name', ({
+    source,
+    buildsDependencyIndex
+  }) => {
     const core = createDocumentCore()
     const opened = core.open(source)
     const before = inspectionOf(core)
@@ -4306,7 +4425,11 @@ describe('document-core semantic changes', () => {
     const after = inspectionOf(core)
 
     expect(commit.change.projections[0]?.scope).toBe('document')
-    expect(before.retainedInitialBuildUnits).toBe(0)
+    if (buildsDependencyIndex) {
+      expect(before.retainedInitialBuildUnits).toBeGreaterThan(0)
+    } else {
+      expect(before.retainedInitialBuildUnits).toBe(0)
+    }
     expect(delta(after, before, 'retainedOverlayNodesAllocated')).toBe(0)
     expect(delta(after, before, 'retainedCommittedUpdates')).toBe(0)
     expect(delta(after, before, 'sourceFallbackMaterializations')).toBe(1)

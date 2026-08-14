@@ -42,6 +42,12 @@ interface DeltaNode {
 export interface PlainParagraphRetainedIndex {
   readonly sourceLength: number
   readonly safePointCount: number
+  /**
+   * End of the immutable prefix whose document-wide coordinates are consumed
+   * by facts outside a candidate region. A regional edit must start strictly
+   * after this position so retained suffix shifting cannot stale those facts.
+   */
+  readonly dependencyPrefixEnd: number
   readonly coordinateAt: (rank: number) => number
   readonly bracketForEdits: (
     edits: readonly PlainParagraphSourceEdit[],
@@ -136,6 +142,7 @@ function createIndex(
   baseSafePoints: readonly number[],
   sourceLength: number,
   overlay: DeltaNode | undefined,
+  dependencyPrefixEnd: number,
   recorder: PlainParagraphIndexRecorder
 ): PlainParagraphRetainedIndex {
   const coordinateAt = Object.freeze((rank: number): number => {
@@ -238,12 +245,14 @@ function createIndex(
       baseSafePoints,
       nextLength,
       nextOverlay,
+      dependencyPrefixEnd,
       recorder
     )
   })
   return Object.freeze({
     sourceLength,
     safePointCount: baseSafePoints.length,
+    dependencyPrefixEnd,
     coordinateAt,
     bracketForEdits,
     withRegionLengthDelta
@@ -253,8 +262,16 @@ function createIndex(
 export function createPlainParagraphRetainedIndex(
   safePoints: readonly number[],
   sourceLength: number,
+  dependencyPrefixEnd: number,
   recorder: PlainParagraphIndexRecorder
 ): PlainParagraphRetainedIndex {
+  if (
+    !Number.isInteger(dependencyPrefixEnd) ||
+    dependencyPrefixEnd < 0 ||
+    dependencyPrefixEnd > sourceLength
+  ) {
+    throw new Error('Plain paragraph dependency prefix is outside its source')
+  }
   let previous = 0
   for (const point of safePoints) {
     recorder.recordInitialBuildUnit()
@@ -267,5 +284,11 @@ export function createPlainParagraphRetainedIndex(
     }
     previous = point
   }
-  return createIndex(safePoints, sourceLength, undefined, recorder)
+  return createIndex(
+    safePoints,
+    sourceLength,
+    undefined,
+    dependencyPrefixEnd,
+    recorder
+  )
 }
