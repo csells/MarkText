@@ -167,6 +167,21 @@ describe('installed Core Phase 4 consumer evidence', () => {
     }
   })
 
+  it('accepts exact basename-only spec paths emitted by the configured reporter', () => {
+    const report = passingReport()
+    for (const spec of report.suites[0]?.specs ?? []) {
+      spec.file = path.basename(spec.file)
+    }
+    writeReport(report)
+
+    expect(() => createInstalledCorePhase4Evidence({
+      repoRoot,
+      interactionIds,
+      metadata: metadata(),
+      readCommittedSource
+    })).not.toThrow()
+  })
+
   it.each([
     ['a missing test', (report: ReturnType<typeof passingReport>) => {
       report.suites[0]?.specs.pop()
