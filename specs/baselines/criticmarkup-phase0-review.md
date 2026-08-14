@@ -33,6 +33,14 @@ profile deletion before the next observation. Each raw run must therefore authen
 editor bootstrap, application close, and profile cleanup are excluded protocol overhead outside all
 timed metrics. Evidence from a pooled application, browser context, or profile is rejected.
 
+Observation order is `warmup-then-measured-rotating-round-robin-v1`: all warmup rounds run before
+all measured rounds; each representative document runs exactly once per round, and the first
+document rotates by one position continuously across rounds and across the phase boundary. This
+deterministic rotating round-robin limits fixed document/time-order confounding but does not
+eliminate temporal, thermal, cache, hardware, or environment drift. Mandatory time-ordered drift
+diagnostics are required for every document and metric. No drift pass/fail threshold is defined
+before owner review and ratification; the protocol does not invent one.
+
 The following command is expected to fail until that evidence exists:
 
 ```bash

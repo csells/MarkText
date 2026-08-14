@@ -47,6 +47,12 @@ import {
   runIsolatedPerformanceObservations
 } from './helpers/performanceSampleLifecycle'
 import {
+  createPerformanceObservationSchedule,
+  PERFORMANCE_OBSERVATION_SCHEDULE,
+  performanceObservationScheduleSha256,
+  type PerformanceObservationScheduleEntry
+} from './helpers/performanceObservationSchedule'
+import {
   assertMacWindowServerPresentation,
   PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
   PERFORMANCE_WINDOW_PRESENTATION_POLICY,
@@ -107,10 +113,8 @@ interface ExternalOpenTimings {
   readonly first_viewport: number
 }
 
-interface UpstreamPerformanceObservation {
-  readonly documentId: string
-  readonly phase: 'warmup' | 'measured'
-  readonly index: number
+interface UpstreamPerformanceObservation
+  extends PerformanceObservationScheduleEntry {
   readonly filePath: string
 }
 
@@ -638,24 +642,28 @@ test.describe('pinned upstream baseline raw performance producer', () => {
       const bootstrapFile = await createUpstreamPerformanceBlankBootstrapFile(
         runRoot
       )
-      const observations: UpstreamPerformanceObservation[] = []
+      const observationOrder = createPerformanceObservationSchedule({
+        documentIds: representatives.documents.map(document => document.id),
+        ...sampling
+      })
+      const sampleFilesByDocument = new Map<string, readonly string[]>()
       for (const document of representatives.documents) {
-        const sampleFiles = sampleFilesFor(
+        sampleFilesByDocument.set(document.id, sampleFilesFor(
           runRoot,
           document,
           sampling.warmupSamples + sampling.measuredSamples
-        )
-        for (let index = 0; index < sampleFiles.length; index += 1) {
-          const filePath = sampleFiles[index]
-          if (filePath === undefined) throw new Error('Sample path is missing')
-          observations.push(Object.freeze({
-            documentId: document.id,
-            phase: index < sampling.warmupSamples ? 'warmup' : 'measured',
-            index: index + 1,
-            filePath
-          }))
-        }
+        ))
       }
+      const observations: readonly Readonly<UpstreamPerformanceObservation>[] =
+        Object.freeze(observationOrder.map(entry => {
+          const documentSampleIndex = entry.phase === 'warmup'
+            ? entry.phaseRound - 1
+            : sampling.warmupSamples + entry.phaseRound - 1
+          const filePath = sampleFilesByDocument
+            .get(entry.documentId)?.[documentSampleIndex]
+          if (filePath === undefined) throw new Error('Sample path is missing')
+          return Object.freeze({ ...entry, filePath })
+        }))
 
       const lifecycle = await runIsolatedPerformanceObservations(
         observations,
@@ -698,8 +706,11 @@ test.describe('pinned upstream baseline raw performance producer', () => {
             const edit = await measureInput(app.page, capturePage)
             await expectRenderActiveInactive(app, true)
             return Object.freeze({
+              ordinal: observation.ordinal,
               documentId: observation.documentId,
               phase: observation.phase,
+              phaseRound: observation.phaseRound,
+              roundPosition: observation.roundPosition,
               report: Object.freeze({
                 ...edit,
                 open: opened.open,
@@ -717,7 +728,9 @@ test.describe('pinned upstream baseline raw performance producer', () => {
             process.stdout.write(
               `[${String(completed)}/${String(totalSamples)}] ` +
               `${observation.documentId} ${observation.phase} ` +
-              `${String(observation.index)} external-browser-compositor-v4\n`
+              `round ${String(observation.phaseRound)} position ` +
+              `${String(observation.roundPosition)} ` +
+              'external-browser-compositor-v4\n'
             )
           }
         }
@@ -763,6 +776,9 @@ test.describe('pinned upstream baseline raw performance producer', () => {
           windowPresentationPlatform: 'darwin',
           chromiumSchedulingPolicy: PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
           sampleLifecycle: PERFORMANCE_SAMPLE_LIFECYCLE,
+          observationSchedule: PERFORMANCE_OBSERVATION_SCHEDULE,
+          observationScheduleSha256:
+            performanceObservationScheduleSha256(observationOrder),
           ...lifecycle.counts
         },
         samples

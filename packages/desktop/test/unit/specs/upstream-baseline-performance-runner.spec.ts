@@ -14,6 +14,10 @@ const runnerLibrary = resolve(
   import.meta.dirname,
   '../../e2e/helpers/upstreamBaselinePerformanceRunner.sh'
 )
+const producerScript = resolve(
+  import.meta.dirname,
+  '../../e2e/run-upstream-baseline-performance.sh'
+)
 
 const invokeDefaultPath = (
   command: string,
@@ -36,6 +40,15 @@ const invokeDefaultPath = (
 })
 
 describe('upstream baseline performance shell runner', () => {
+  it('authenticates the observation schedule immediately after the lifecycle helper', () => {
+    const source = readFileSync(producerScript, 'utf8')
+    expect(source).toContain(
+      '"$' + '{SAMPLE_LIFECYCLE_FILE}" "$' +
+      '{OBSERVATION_SCHEDULE_FILE}" \\\n      "$' +
+      '{CHROMIUM_POLICY_FILE}"'
+    )
+  })
+
   it('propagates a zero-argument Playwright launch failure without claiming output', () => {
     const root = mkdtempSync(resolve(tmpdir(), 'marktext-upstream-runner-'))
     try {

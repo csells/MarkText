@@ -15,6 +15,11 @@ import {
   type CoreAuthorityPerformanceBuildProvenance,
   type CoreAuthorityPerformanceRawSample
 } from '../../e2e/helpers/coreAuthorityPerformanceRawRun'
+import {
+  createPerformanceObservationSchedule,
+  PERFORMANCE_OBSERVATION_SCHEDULE,
+  performanceObservationScheduleSha256
+} from '../../e2e/helpers/performanceObservationSchedule'
 import { runIsolatedPerformanceObservations } from '../../e2e/helpers/performanceSampleLifecycle'
 
 const report = (
@@ -33,7 +38,45 @@ const report = (
   correctionCount
 })
 
-const authenticatedProvenance = (observationCount = 2) => Object.freeze({
+const scheduleFor = (
+  warmupSamples = 1,
+  measuredSamples = 1,
+  documentIds: readonly string[] = ['doc']
+) => createPerformanceObservationSchedule({
+  documentIds,
+  warmupSamples,
+  measuredSamples
+})
+
+type SamplePayload = Pick<
+  CoreAuthorityPerformanceRawSample,
+  'documentId' | 'phase' | 'surface' | 'report'
+>
+
+const scheduledSamples = (
+  payloads: readonly SamplePayload[],
+  warmupSamples = 1,
+  measuredSamples = 1,
+  documentIds: readonly string[] = ['doc']
+): CoreAuthorityPerformanceRawSample[] => {
+  const remaining = [...payloads]
+  return scheduleFor(warmupSamples, measuredSamples, documentIds).flatMap(
+    entry => {
+      const payloadIndex = remaining.findIndex(payload =>
+        payload.documentId === entry.documentId &&
+        payload.phase === entry.phase
+      )
+      if (payloadIndex < 0) return []
+      const [payload] = remaining.splice(payloadIndex, 1)
+      if (payload === undefined) return []
+      return [{ ...entry, ...payload }]
+    }
+  )
+}
+
+const authenticatedProvenance = (
+  schedule = scheduleFor()
+) => Object.freeze({
   checkoutHead: '2'.repeat(40),
   checkoutClean: true,
   harnessCommit: '2'.repeat(40),
@@ -54,10 +97,12 @@ const authenticatedProvenance = (observationCount = 2) => Object.freeze({
   windowPresentationPlatform: 'darwin',
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2',
   sampleLifecycle: 'fresh-application-profile-per-observation-v1',
-  applicationLaunchCount: observationCount,
-  uniqueProfileCount: observationCount,
-  applicationCloseCount: observationCount,
-  profileCleanupCount: observationCount
+  applicationLaunchCount: schedule.length,
+  uniqueProfileCount: schedule.length,
+  applicationCloseCount: schedule.length,
+  profileCleanupCount: schedule.length,
+  observationSchedule: PERFORMANCE_OBSERVATION_SCHEDULE,
+  observationScheduleSha256: performanceObservationScheduleSha256(schedule)
 })
 
 describe('Core authority raw performance producer', () => {
@@ -312,18 +357,23 @@ describe('Core authority raw performance producer', () => {
 
   it('assembles exact per-document distributions and queue/correction evidence', () => {
     const digest = 'a'.repeat(64)
-    const provenance = authenticatedProvenance(3)
+    const schedule = createPerformanceObservationSchedule({
+      documentIds: ['doc'],
+      warmupSamples: 1,
+      measuredSamples: 2
+    })
+    const provenance = {
+      ...authenticatedProvenance(schedule)
+    }
     const samples: CoreAuthorityPerformanceRawSample[] = [
-      { documentId: 'doc', phase: 'warmup', surface: 'source', report: report(1) },
+      { ...schedule[0]!, surface: 'source', report: report(1) },
       {
-        documentId: 'doc',
-        phase: 'measured',
+        ...schedule[1]!,
         surface: 'source',
         report: report(2, 3, 1)
       },
       {
-        documentId: 'doc',
-        phase: 'measured',
+        ...schedule[2]!,
         surface: 'source',
         report: report(3, 2, 0)
       }
@@ -341,7 +391,7 @@ describe('Core authority raw performance producer', () => {
       documents: [{ id: 'doc', sourceSha256: digest }],
       samples
     })).toEqual({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v9',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v10',
       evidenceClass: 'smoke-non-ratifying',
       runId: 'core-2026-08-13',
       implementation: 'core-candidate',
@@ -352,6 +402,7 @@ describe('Core authority raw performance producer', () => {
       environment: { build: 'packaged' },
       sampling: { warmupSamples: 1, measuredSamples: 2 },
       provenance,
+      observationOrder: schedule,
       documents: [{
         id: 'doc',
         sourceSha256: digest,
@@ -388,6 +439,119 @@ describe('Core authority raw performance producer', () => {
     })
   })
 
+  it('rejects reordered, duplicate, missing, or relabeled scheduled observations', () => {
+    const schedule = createPerformanceObservationSchedule({
+      documentIds: ['doc'],
+      warmupSamples: 1,
+      measuredSamples: 2
+    })
+    const samples: CoreAuthorityPerformanceRawSample[] = schedule.map(
+      (entry, index) => ({
+        ...entry,
+        surface: 'source',
+        report: report(index + 1)
+      })
+    )
+    const input = {
+      runId: 'core-scheduled',
+      evidenceClass: 'smoke-non-ratifying' as const,
+      baselineCommit: '1'.repeat(40),
+      buildCommit: '2'.repeat(40),
+      measuredAt: '2026-08-13T12:00:00.000Z',
+      environment: { build: 'packaged' },
+      sampling: { warmupSamples: 1, measuredSamples: 2 },
+      provenance: {
+        ...authenticatedProvenance(schedule)
+      },
+      documents: [{ id: 'doc', sourceSha256: 'a'.repeat(64) }]
+    }
+
+    expect(() => createCoreAuthorityPerformanceRawRun({
+      ...input,
+      samples: [samples[1]!, samples[0]!, samples[2]!]
+    })).toThrow(/observation schedule.*ordinal 1/i)
+    expect(() => createCoreAuthorityPerformanceRawRun({
+      ...input,
+      samples: [samples[0]!, samples[0]!, samples[2]!]
+    })).toThrow(/observation schedule.*ordinal 2/i)
+    expect(() => createCoreAuthorityPerformanceRawRun({
+      ...input,
+      samples: samples.slice(0, 2)
+    })).toThrow(/observation schedule.*3.*2/i)
+    expect(() => createCoreAuthorityPerformanceRawRun({
+      ...input,
+      samples: [
+        samples[0]!,
+        { ...samples[1]!, phaseRound: 2 },
+        samples[2]!
+      ]
+    })).toThrow(/observation schedule.*ordinal 2/i)
+    expect(() => createCoreAuthorityPerformanceRawRun({
+      ...input,
+      samples: [
+        samples[0]!,
+        samples[1]!,
+        { ...samples[2]!, phase: 'warmup' }
+      ]
+    })).toThrow(/observation schedule.*ordinal 3/i)
+    expect(() => createCoreAuthorityPerformanceRawRun({
+      ...input,
+      samples: [
+        samples[0]!,
+        samples[1]!,
+        { ...samples[2]!, roundPosition: 2 }
+      ]
+    })).toThrow(/observation schedule.*ordinal 3/i)
+    expect(() => createCoreAuthorityPerformanceRawRun({
+      ...input,
+      samples: [
+        samples[0]!,
+        samples[1]!,
+        { ...samples[2]!, ordinal: 4 }
+      ]
+    })).toThrow(/observation schedule.*ordinal 3/i)
+  })
+
+  it('rejects an unauthenticated observation schedule policy or digest', () => {
+    const schedule = scheduleFor()
+    const input = {
+      runId: 'core-scheduled-provenance',
+      evidenceClass: 'smoke-non-ratifying' as const,
+      baselineCommit: '1'.repeat(40),
+      buildCommit: '2'.repeat(40),
+      measuredAt: '2026-08-13T12:00:00.000Z',
+      environment: { build: 'packaged' },
+      sampling: { warmupSamples: 1, measuredSamples: 1 },
+      documents: [{ id: 'doc', sourceSha256: 'a'.repeat(64) }],
+      samples: scheduledSamples([
+        { documentId: 'doc', phase: 'warmup', surface: 'source', report: report(1) },
+        { documentId: 'doc', phase: 'measured', surface: 'source', report: report(2) }
+      ])
+    }
+
+    expect(() => createCoreAuthorityPerformanceRawRun({
+      ...input,
+      provenance: {
+        ...authenticatedProvenance(schedule),
+        observationSchedule: 'document-major-v0'
+      }
+    } as never)).toThrow(/observation schedule policy/i)
+    expect(() => createCoreAuthorityPerformanceRawRun({
+      ...input,
+      provenance: {
+        ...authenticatedProvenance(schedule),
+        observationScheduleSha256: 'not-a-digest'
+      }
+    })).toThrow(/observation schedule digest.*invalid/i)
+    expect(() => createCoreAuthorityPerformanceRawRun({
+      ...input,
+      provenance: {
+        ...authenticatedProvenance(schedule),
+        observationScheduleSha256: 'f'.repeat(64)
+      }
+    })).toThrow(/observation schedule digest.*documents and sampling/i)
+  })
+
   it('keeps short Core smoke output structurally non-ratifying', () => {
     const smoke = createCoreAuthorityPerformanceRawRun({
       runId: 'core-smoke',
@@ -399,32 +563,26 @@ describe('Core authority raw performance producer', () => {
       sampling: { warmupSamples: 1, measuredSamples: 1 },
       provenance: authenticatedProvenance(),
       documents: [{ id: 'doc', sourceSha256: 'a'.repeat(64) }],
-      samples: [
+      samples: scheduledSamples([
         { documentId: 'doc', phase: 'warmup', surface: 'source', report: report(1) },
         { documentId: 'doc', phase: 'measured', surface: 'source', report: report(2) }
-      ]
+      ])
     })
     expect(smoke).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v9',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v10',
       evidenceClass: 'smoke-non-ratifying'
     })
   })
 
-  it('emits v9 only for the fixed 20/200 ratification protocol', () => {
-    const ratificationSamples: CoreAuthorityPerformanceRawSample[] = [
-      ...Array.from({ length: 20 }, (_, index) => ({
-        documentId: 'doc',
-        phase: 'warmup' as const,
+  it('emits v10 only for the fixed 20/200 ratification protocol', () => {
+    const ratificationSchedule = scheduleFor(20, 200)
+    const ratificationSamples: CoreAuthorityPerformanceRawSample[] = ratificationSchedule.map(
+      (entry, index) => ({
+        ...entry,
         surface: 'source' as const,
-        report: report(index + 1)
-      })),
-      ...Array.from({ length: 200 }, (_, index) => ({
-        documentId: 'doc',
-        phase: 'measured' as const,
-        surface: 'source' as const,
-        report: report(index + 101)
-      }))
-    ]
+        report: report(entry.phase === 'warmup' ? index + 1 : index + 81)
+      })
+    )
     const ratification = createCoreAuthorityPerformanceRawRun({
       runId: 'core-ratification',
       evidenceClass: 'ratification',
@@ -433,13 +591,13 @@ describe('Core authority raw performance producer', () => {
       measuredAt: '2026-08-13T12:00:00.000Z',
       environment: { build: 'packaged' },
       sampling: { warmupSamples: 20, measuredSamples: 200 },
-      provenance: authenticatedProvenance(220),
+      provenance: authenticatedProvenance(ratificationSchedule),
       documents: [{ id: 'doc', sourceSha256: 'a'.repeat(64) }],
       samples: ratificationSamples
     })
 
     expect(ratification.schema).toBe(
-      'marktext-criticmarkup-raw-performance-run-v9'
+      'marktext-criticmarkup-raw-performance-run-v10'
     )
     expect(() => createCoreAuthorityPerformanceRawRun({
       runId: 'core',
@@ -451,10 +609,10 @@ describe('Core authority raw performance producer', () => {
       sampling: { warmupSamples: 1, measuredSamples: 1 },
       provenance: authenticatedProvenance(),
       documents: [{ id: 'doc', sourceSha256: 'a'.repeat(64) }],
-      samples: [
+      samples: scheduledSamples([
         { documentId: 'doc', phase: 'warmup', surface: 'source', report: report(1) },
         { documentId: 'doc', phase: 'measured', surface: 'source', report: report(2) }
-      ]
+      ])
     })).toThrow(/20 warmup and 200 measured/i)
   })
 
@@ -473,16 +631,16 @@ describe('Core authority raw performance producer', () => {
 
     expect(() => createCoreAuthorityPerformanceRawRun({
       ...input,
-      samples: [{
+      samples: scheduledSamples([{
         documentId: 'doc',
         phase: 'warmup',
         surface: 'wysiwyg',
         report: report(1)
-      }]
-    })).toThrow(/measured sample count/i)
+      }])
+    })).toThrow(/observation schedule.*2.*1/i)
     expect(() => createCoreAuthorityPerformanceRawRun({
       ...input,
-      samples: [
+      samples: scheduledSamples([
         {
           documentId: 'doc',
           phase: 'warmup',
@@ -495,7 +653,7 @@ describe('Core authority raw performance producer', () => {
           surface: 'wysiwyg',
           report: report(2)
         }
-      ]
+      ])
     })).toThrow(/one browser transaction/i)
 
     const staleReport = { ...report(1) } as unknown as Record<string, unknown>
@@ -503,12 +661,12 @@ describe('Core authority raw performance producer', () => {
     delete staleReport.t_present
     expect(() => createCoreAuthorityPerformanceRawRun({
       ...input,
-      samples: [
+      samples: scheduledSamples([
         {
           documentId: 'doc',
           phase: 'warmup',
           surface: 'wysiwyg',
-          report: staleReport
+          report: staleReport as never
         },
         {
           documentId: 'doc',
@@ -516,7 +674,7 @@ describe('Core authority raw performance producer', () => {
           surface: 'wysiwyg',
           report: report(2)
         }
-      ]
+      ])
     } as never)).toThrow(/report metrics must be exactly.*t_present/i)
   })
 
@@ -531,7 +689,7 @@ describe('Core authority raw performance producer', () => {
       sampling: { warmupSamples: 1, measuredSamples: 1 },
       provenance: authenticatedProvenance(),
       documents: [{ id: 'doc', sourceSha256: 'a'.repeat(64) }],
-      samples: [
+      samples: scheduledSamples([
         {
           documentId: 'doc',
           phase: 'warmup',
@@ -544,7 +702,7 @@ describe('Core authority raw performance producer', () => {
           surface: 'source',
           report: report(2)
         }
-      ]
+      ])
     })).toThrow(/one editor surface/i)
   })
 
@@ -559,7 +717,7 @@ describe('Core authority raw performance producer', () => {
       sampling: { warmupSamples: 1, measuredSamples: 1 },
       provenance: { ...authenticatedProvenance(), checkoutClean: false },
       documents: [{ id: 'doc', sourceSha256: 'a'.repeat(64) }],
-      samples: [
+      samples: scheduledSamples([
         {
           documentId: 'doc',
           phase: 'warmup',
@@ -572,7 +730,7 @@ describe('Core authority raw performance producer', () => {
           surface: 'source',
           report: report(2)
         }
-      ]
+      ])
     })).toThrow(/clean checkout/i)
   })
 
@@ -587,7 +745,7 @@ describe('Core authority raw performance producer', () => {
       sampling: { warmupSamples: 1, measuredSamples: 1 },
       provenance: { ...authenticatedProvenance(), checkoutHead: '9'.repeat(40) },
       documents: [{ id: 'doc', sourceSha256: 'a'.repeat(64) }],
-      samples: [
+      samples: scheduledSamples([
         {
           documentId: 'doc',
           phase: 'warmup',
@@ -600,7 +758,7 @@ describe('Core authority raw performance producer', () => {
           surface: 'source',
           report: report(2)
         }
-      ]
+      ])
     })).toThrow(/checkout head must equal the build commit/i)
   })
 
@@ -619,10 +777,10 @@ describe('Core authority raw performance producer', () => {
       sampling: { warmupSamples: 1, measuredSamples: 1 },
       provenance: provenance as CoreAuthorityPerformanceBuildProvenance,
       documents: [{ id: 'doc', sourceSha256: 'a'.repeat(64) }],
-      samples: [
+      samples: scheduledSamples([
         { documentId: 'doc', phase: 'warmup', surface: 'source', report: report(1) },
         { documentId: 'doc', phase: 'measured', surface: 'source', report: report(2) }
-      ]
+      ])
     })
 
     expect(() => run(absent)).toThrow(/Chromium scheduling/i)
@@ -643,10 +801,10 @@ describe('Core authority raw performance producer', () => {
       sampling: { warmupSamples: 1, measuredSamples: 1 },
       provenance: provenance as CoreAuthorityPerformanceBuildProvenance,
       documents: [{ id: 'doc', sourceSha256: 'a'.repeat(64) }],
-      samples: [
+      samples: scheduledSamples([
         { documentId: 'doc', phase: 'warmup', surface: 'source', report: report(1) },
         { documentId: 'doc', phase: 'measured', surface: 'source', report: report(2) }
-      ]
+      ])
     })
     const absent = { ...authenticatedProvenance() } as Record<string, unknown>
     delete absent.sampleLifecycle
@@ -687,7 +845,7 @@ describe('Core authority raw performance producer', () => {
       sampling: { warmupSamples: 1, measuredSamples: 1 },
       provenance: { ...authenticatedProvenance(), [field]: 'not-a-digest' },
       documents: [{ id: 'doc', sourceSha256: 'a'.repeat(64) }],
-      samples: [
+      samples: scheduledSamples([
         {
           documentId: 'doc',
           phase: 'warmup',
@@ -700,7 +858,7 @@ describe('Core authority raw performance producer', () => {
           surface: 'source',
           report: report(2)
         }
-      ]
+      ])
     })).toThrow(/invalid/i)
   })
 
@@ -729,7 +887,7 @@ describe('Core authority raw performance producer', () => {
       sampling: { warmupSamples: 1, measuredSamples: 1 },
       provenance,
       documents: [{ id: 'doc', sourceSha256: 'a'.repeat(64) }],
-      samples: [
+      samples: scheduledSamples([
         {
           documentId: 'doc',
           phase: 'warmup',
@@ -742,7 +900,7 @@ describe('Core authority raw performance producer', () => {
           surface: 'source',
           report: report(2)
         }
-      ]
+      ])
     })).toThrow(/provenance/i)
   })
 })
