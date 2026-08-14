@@ -16,6 +16,9 @@ export const PERFORMANCE_CHROMIUM_SCHEDULING_POLICY =
 export const PERFORMANCE_WINDOW_PRESENTATION_POLICY =
   'transparent-render-active-inactive-v6' as const
 
+export const PERFORMANCE_DISPLAY_SLEEP_POLICY =
+  'runner-owned-caffeinate-display-sleep-prevention-v1' as const
+
 export interface PerformanceWindowPresentationState {
   readonly windowNumber: number
   readonly visible: boolean

@@ -96,6 +96,7 @@ const authenticatedProvenance = (
   windowPresentationPolicy: 'transparent-render-active-inactive-v6',
   windowPresentationPlatform: 'darwin',
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2',
+  displaySleepPolicy: 'runner-owned-caffeinate-display-sleep-prevention-v1',
   sampleLifecycle: 'fresh-application-profile-per-observation-v1',
   applicationLaunchCount: schedule.length,
   uniqueProfileCount: schedule.length,
@@ -391,7 +392,7 @@ describe('Core authority raw performance producer', () => {
       documents: [{ id: 'doc', sourceSha256: digest }],
       samples
     })).toEqual({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v13',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v14',
       evidenceClass: 'smoke-non-ratifying',
       runId: 'core-2026-08-13',
       implementation: 'core-candidate',
@@ -569,12 +570,12 @@ describe('Core authority raw performance producer', () => {
       ])
     })
     expect(smoke).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v13',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v14',
       evidenceClass: 'smoke-non-ratifying'
     })
   })
 
-  it('emits v13 only for the fixed 20/200 ratification protocol', () => {
+  it('emits v14 only for the fixed 20/200 ratification protocol', () => {
     const ratificationSchedule = scheduleFor(20, 200)
     const ratificationSamples: CoreAuthorityPerformanceRawSample[] = ratificationSchedule.map(
       (entry, index) => ({
@@ -597,7 +598,7 @@ describe('Core authority raw performance producer', () => {
     })
 
     expect(ratification.schema).toBe(
-      'marktext-criticmarkup-raw-performance-run-v13'
+      'marktext-criticmarkup-raw-performance-run-v14'
     )
     expect(() => createCoreAuthorityPerformanceRawRun({
       runId: 'core',
@@ -788,6 +789,16 @@ describe('Core authority raw performance producer', () => {
       ...authenticatedProvenance(),
       chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v1'
     })).toThrow(/Chromium scheduling/i)
+
+    const absentDisplaySleep = {
+      ...authenticatedProvenance()
+    } as Record<string, unknown>
+    delete absentDisplaySleep.displaySleepPolicy
+    expect(() => run(absentDisplaySleep)).toThrow(/display sleep/i)
+    expect(() => run({
+      ...authenticatedProvenance(),
+      displaySleepPolicy: 'unmanaged-display-sleep-v0'
+    })).toThrow(/display sleep/i)
   })
 
   it('rejects pooled or incomplete fresh-observation lifecycle provenance', () => {
