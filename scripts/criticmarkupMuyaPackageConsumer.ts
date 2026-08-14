@@ -31,7 +31,7 @@ export interface MuyaPackedTypeScriptConsumerEvidence {
   typesEntry: string
   exportsTypesEntry: string
   consumerDependencies: string[]
-  consumerAtTypesDependencies: string[]
+  consumerDeclaredAtTypesDependencies: string[]
   importedPublicSymbols: string[]
   compilerCommand: 'tsc --noEmit'
 }
@@ -169,13 +169,14 @@ export const verifyMuyaPackedTypeScriptConsumer = async(
     ], consumerRoot)
 
     const consumerDependencies = Object.keys(consumerManifest.dependencies).sort()
-    const atTypesRoot = resolve(consumerRoot, 'node_modules/@types')
     return {
       packageName: packedManifest.name,
       typesEntry,
       exportsTypesEntry,
       consumerDependencies,
-      consumerAtTypesDependencies: existsSync(atTypesRoot) ? readdirSync(atTypesRoot).sort() : [],
+      consumerDeclaredAtTypesDependencies: consumerDependencies.filter(name => (
+        name.startsWith('@types/')
+      )),
       importedPublicSymbols,
       compilerCommand: 'tsc --noEmit'
     }
