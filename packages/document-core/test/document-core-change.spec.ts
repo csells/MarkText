@@ -1481,6 +1481,7 @@ describe('document-core semantic changes', () => {
     }], { projections: [] })
     const afterEmpty = inspectionOf(emptyCore)
     expect(empty.change.projections).toEqual([])
+    expect(empty.change.resynchronization).toBeUndefined()
     expect(delta(afterEmpty, beforeEmpty, 'regionalFastApplies')).toBe(1)
     expect(delta(afterEmpty, beforeEmpty, 'documentParses')).toBe(0)
     expect(delta(afterEmpty, beforeEmpty, 'sourceMaterializations')).toBe(0)
@@ -1512,6 +1513,27 @@ describe('document-core semantic changes', () => {
       expect(delta(afterFallback, beforeFallback, 'documentParses')).toBe(1)
       expect(delta(afterFallback, beforeFallback, 'sourceMaterializations')).toBe(1)
     }
+
+    const resynchronizationCore = createDocumentCore()
+    const resynchronizationOpened = resynchronizationCore.open(emptySource)
+    const resynchronization = resynchronizationCore.apply(
+      resynchronizationOpened,
+      [{
+        start: emptyAt,
+        end: emptyAt + 4,
+        insert: 'text\n# heading'
+      }],
+      { projections: [] }
+    )
+    expect(resynchronization.change.resynchronization).toEqual({
+      kind: 'source',
+      scope: 'document',
+      reason: 'structural-region-ineligible',
+      source: emptySource.slice(0, emptyAt) + 'text\n# heading' +
+        emptySource.slice(emptyAt + 4)
+    })
+    expect(structuredClone(resynchronization.change))
+      .toEqual(resynchronization.change)
 
     const multipleSource =
       'head\n\n{>>first word<<}\n\nmiddle\n\n{>>second word<<}\n\ntail\n'
