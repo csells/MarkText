@@ -1,0 +1,293 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { _electron as electron, expect, test } from '@playwright/test'
+import type { ElectronApplication, Page } from 'playwright'
+
+import {
+  expectEditorNotFrontmost,
+  expectEditorWindowHidden,
+  sendIpcToRenderer,
+  waitForEditor,
+  waitForMenuReady
+} from './helpers'
+import { expectInstalledArtifactCommit } from './installedArtifactProvenance'
+
+const projectionSource =
+  'alpha copied\n\n{--gone--}{++new++}\n\nbeta\n'
+const projectedPlainText = 'copied\n\nnew\n\nbe'
+const cutSource = 'alpha ta\n'
+const pasteSource = `${projectionSource}\nZ\n`
+const pastedSource =
+  `${projectionSource}\nZcopied\n\nnew\n\nbe\n`
+
+const installedBinary = (): string => {
+  const configured = process.env.MARKTEXT_PACKAGED_APP
+  if (configured === undefined || configured.trim().length === 0) {
+    throw new Error('MARKTEXT_PACKAGED_APP must name the installed MarkText executable')
+  }
+  const absolute = path.resolve(configured)
+  if (!fs.existsSync(absolute)) {
+    throw new Error(`Installed MarkText executable does not exist: ${absolute}`)
+  }
+  return absolute
+}
+
+const launchInstalled = async(
+  binary: string,
+  userDataDir: string,
+  filePath: string
+): Promise<{ app: ElectronApplication, page: Page }> => {
+  const app = await electron.launch({
+    executablePath: binary,
+    args: ['--user-data-dir', userDataDir, filePath],
+    env: {
+      ...process.env,
+      PERF_TESTING: 'true',
+      MARKTEXT_DOCUMENT_CORE_MODE: '1',
+      MARKTEXT_E2E_HIDDEN_WINDOW: '1',
+      MARKTEXT_ERROR_INTERACTION: '1'
+    },
+    timeout: 60_000
+  })
+  const page = await app.firstWindow()
+  await page.waitForLoadState('domcontentloaded')
+  await waitForEditor(page, 60_000)
+  await waitForMenuReady(app, 60_000)
+  await expectInstalledArtifactCommit(page)
+  return { app, page }
+}
+
+const selectProjectedRange = async(page: Page): Promise<void> => {
+  const selected = await page.evaluate(() => {
+    const root = document.querySelector('.editor-component') as HTMLElement | null
+    const paragraphs = root?.querySelectorAll('span.mu-paragraph-content')
+    const first = paragraphs?.item(0)
+    const last = paragraphs?.item(2)
+    const firstText = first?.firstChild
+    const lastText = last?.firstChild
+    if (
+      root === null || firstText?.nodeType !== Node.TEXT_NODE ||
+      lastText?.nodeType !== Node.TEXT_NODE
+    ) return undefined
+
+    root.focus()
+    const range = document.createRange()
+    range.setStart(firstText, 6)
+    range.setEnd(lastText, 2)
+    const selection = window.getSelection()
+    if (selection === null) return undefined
+    selection.removeAllRanges()
+    selection.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+    root.dispatchEvent(new KeyboardEvent('keyup', {
+      key: 'ArrowRight',
+      bubbles: true,
+      cancelable: true
+    }))
+    return selection.toString()
+  })
+  expect(selected).toContain('copied')
+  expect(selected).toContain('new')
+  expect(selected).not.toContain('gone')
+  await page.waitForTimeout(150)
+}
+
+const placeCaretAtTargetEnd = async(page: Page): Promise<void> => {
+  const placed = await page.evaluate(() => {
+    const root = document.querySelector('.editor-component') as HTMLElement | null
+    const paragraphs = root?.querySelectorAll('span.mu-paragraph-content')
+    const target = paragraphs?.item((paragraphs?.length ?? 0) - 1)
+    const text = target?.firstChild
+    if (root === null || text?.nodeType !== Node.TEXT_NODE) return false
+
+    root.focus()
+    const range = document.createRange()
+    range.setStart(text, text.textContent?.length ?? 0)
+    range.collapse(true)
+    const selection = window.getSelection()
+    if (selection === null) return false
+    selection.removeAllRanges()
+    selection.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+    root.dispatchEvent(new KeyboardEvent('keyup', {
+      key: 'ArrowRight',
+      bubbles: true,
+      cancelable: true
+    }))
+    return true
+  })
+  expect(placed).toBe(true)
+  await page.waitForTimeout(150)
+}
+
+const invokeNativeClipboard = (
+  app: ElectronApplication,
+  operation: 'copy' | 'cut' | 'paste'
+): Promise<void> => app.evaluate(({ BrowserWindow }, requested) => {
+  const win = BrowserWindow.getAllWindows()[0]
+  if (win === undefined) throw new Error('Installed editor window is absent')
+  if (requested === 'copy') win.webContents.copy()
+  else if (requested === 'cut') win.webContents.cut()
+  else win.webContents.paste()
+}, operation)
+
+const clearClipboard = (app: ElectronApplication): Promise<void> =>
+  app.evaluate(({ clipboard }) => { clipboard.clear() })
+
+const readClipboard = (app: ElectronApplication): Promise<Readonly<{
+  text: string
+  html: string
+  formats: readonly string[]
+}>> => app.evaluate(({ clipboard }) => ({
+  text: clipboard.readText(),
+  html: clipboard.readHTML(),
+  formats: clipboard.availableFormats()
+}))
+
+const expectProjectedClipboard = async(app: ElectronApplication): Promise<void> => {
+  await expect.poll(async() => (await readClipboard(app)).text)
+    .toBe(projectedPlainText)
+  const payload = await readClipboard(app)
+  expect(payload.formats).toContain('text/plain')
+  expect(payload.formats).toContain('text/html')
+  expect(payload.html).toContain('<p>copied</p>')
+  expect(payload.html).toContain('<p>new</p>')
+  expect(payload.html).toContain('<p>be</p>')
+  expect(payload.html).not.toContain('gone')
+  expect(payload.html).not.toContain('{++')
+  expect(payload.html).not.toContain('{--')
+}
+
+const saveAndExpect = async(
+  app: ElectronApplication,
+  filePath: string,
+  expectedSource: string
+): Promise<void> => {
+  await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+  await expect.poll(() => fs.readFileSync(filePath, 'utf8')).toBe(expectedSource)
+}
+
+test.describe('installed Core projected clipboard authority', () => {
+  test.describe.configure({ timeout: 180_000 })
+
+  test('native Copy publishes the selected Revised rich and plain projections', async() => {
+    const binary = installedBinary()
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-clipboard-'))
+    const filePath = path.join(root, 'clipboard.md')
+    const userDataDir = path.join(root, 'profile')
+    fs.writeFileSync(filePath, projectionSource, 'utf8')
+    let launched: { app: ElectronApplication, page: Page } | undefined
+    try {
+      launched = await launchInstalled(binary, userDataDir, filePath)
+      const { app, page } = launched
+      await expectEditorWindowHidden(app)
+      expectEditorNotFrontmost(app)
+      expect(await page.evaluate(() =>
+        window.electron.process.env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
+      )).toBeUndefined()
+
+      await clearClipboard(app)
+      await selectProjectedRange(page)
+      await invokeNativeClipboard(app, 'copy')
+      await expectProjectedClipboard(app)
+      await saveAndExpect(app, filePath, projectionSource)
+
+      await app.close()
+      launched = undefined
+      launched = await launchInstalled(binary, userDataDir, filePath)
+      await expectEditorWindowHidden(launched.app)
+      expectEditorNotFrontmost(launched.app)
+      expect(fs.readFileSync(filePath, 'utf8')).toBe(projectionSource)
+    } finally {
+      if (launched !== undefined) await launched.app.close()
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('native Cut writes its Revised payload before one actor history mutation', async() => {
+    const binary = installedBinary()
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-clipboard-'))
+    const filePath = path.join(root, 'clipboard.md')
+    const userDataDir = path.join(root, 'profile')
+    fs.writeFileSync(filePath, projectionSource, 'utf8')
+    let launched: { app: ElectronApplication, page: Page } | undefined
+    try {
+      launched = await launchInstalled(binary, userDataDir, filePath)
+      const { app, page } = launched
+      await expectEditorWindowHidden(app)
+      expectEditorNotFrontmost(app)
+
+      await clearClipboard(app)
+      await selectProjectedRange(page)
+      await invokeNativeClipboard(app, 'cut')
+      await expectProjectedClipboard(app)
+      await expect.poll(() => page.locator('span.mu-paragraph-content').allTextContents())
+        .toEqual(['alpha ta'])
+      await page.evaluate(() => window.__marktextDocumentCore?.settled())
+      await saveAndExpect(app, filePath, cutSource)
+
+      await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+      await page.evaluate(() => window.__marktextDocumentCore?.settled())
+      await saveAndExpect(app, filePath, projectionSource)
+
+      await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
+      await page.evaluate(() => window.__marktextDocumentCore?.settled())
+      await saveAndExpect(app, filePath, cutSource)
+
+      await app.close()
+      launched = undefined
+      launched = await launchInstalled(binary, userDataDir, filePath)
+      await expectEditorWindowHidden(launched.app)
+      expectEditorNotFrontmost(launched.app)
+      expect(fs.readFileSync(filePath, 'utf8')).toBe(cutSource)
+    } finally {
+      if (launched !== undefined) await launched.app.close()
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('native Paste commits a copied Revised projection through actor history', async() => {
+    const binary = installedBinary()
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-clipboard-'))
+    const filePath = path.join(root, 'clipboard.md')
+    const userDataDir = path.join(root, 'profile')
+    fs.writeFileSync(filePath, pasteSource, 'utf8')
+    let launched: { app: ElectronApplication, page: Page } | undefined
+    try {
+      launched = await launchInstalled(binary, userDataDir, filePath)
+      const { app, page } = launched
+      await expectEditorWindowHidden(app)
+      expectEditorNotFrontmost(app)
+
+      await clearClipboard(app)
+      await selectProjectedRange(page)
+      await invokeNativeClipboard(app, 'copy')
+      await expectProjectedClipboard(app)
+      await placeCaretAtTargetEnd(page)
+      await invokeNativeClipboard(app, 'paste')
+      await expect.poll(() => page.locator('span.mu-paragraph-content').allTextContents())
+        .toEqual(['alpha copied', 'new', 'beta', 'Zcopied', 'new', 'be'])
+      await page.evaluate(() => window.__marktextDocumentCore?.settled())
+      await saveAndExpect(app, filePath, pastedSource)
+
+      await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+      await page.evaluate(() => window.__marktextDocumentCore?.settled())
+      await saveAndExpect(app, filePath, pasteSource)
+
+      await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
+      await page.evaluate(() => window.__marktextDocumentCore?.settled())
+      await saveAndExpect(app, filePath, pastedSource)
+
+      await app.close()
+      launched = undefined
+      launched = await launchInstalled(binary, userDataDir, filePath)
+      await expectEditorWindowHidden(launched.app)
+      expectEditorNotFrontmost(launched.app)
+      expect(fs.readFileSync(filePath, 'utf8')).toBe(pastedSource)
+    } finally {
+      if (launched !== undefined) await launched.app.close()
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
