@@ -1,11 +1,15 @@
 import {
+  existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
+  renameSync,
+  rmSync,
   writeFileSync
 } from 'node:fs'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export type ParityDispositionKind =
@@ -71,6 +75,31 @@ export interface CriticMarkupParityExecutionRunRecord {
   recordedAt: string
   result: 'pass' | 'fail'
   rowIds: string[]
+  command: CriticMarkupParityExecutionCommand
+  runner: CriticMarkupParityExecutionRunner
+  transcript: Readonly<{ path: string, sha256: string }>
+}
+
+export interface CriticMarkupParityExecutionCommand {
+  executable: string
+  args: string[]
+  cwd: '.'
+}
+
+export interface CriticMarkupParityExecutionRunner {
+  platform: NodeJS.Platform
+  arch: string
+  nodeVersion: string
+}
+
+export interface CriticMarkupParityExecutionTranscript {
+  schema: 'marktext-criticmarkup-parity-transcript-v1'
+  buildCommit: string
+  command: CriticMarkupParityExecutionCommand
+  runner: CriticMarkupParityExecutionRunner
+  exitStatus: 0
+  stdout: string
+  stderr: string
 }
 
 export interface CriticMarkupParityRowManifest {
@@ -200,6 +229,39 @@ const canonicalParityRowManifest = (
       : {})
   }))
 }, null, 2)}\n`
+
+const canonicalEvidenceFreeParityRowManifest = (
+  manifest: CriticMarkupParityRowManifest
+): string => `${JSON.stringify({
+  schema: manifest.schema,
+  baselineCommit: manifest.baselineCommit,
+  rows: manifest.rows.map(row => ({
+    id: row.id,
+    upstreamBehavior: row.upstreamBehavior,
+    existingOracle: row.existingOracle,
+    productionPathTest: row.productionPathTest
+  }))
+}, null, 2)}\n`
+
+const isPlaceholderParityOracle = (value: string): boolean =>
+  value.startsWith('required-new-production-path-test:') ||
+  value.includes('execution pending') ||
+  value.includes('release-execution-pending')
+
+const parityProductionPathSources = (value: string): string[] => {
+  const prefixes = [
+    'named-production-path-test:',
+    'retained-upstream-test:',
+    'retained-manual-oracle:'
+  ]
+  const prefix = prefixes.find(candidate => value.startsWith(candidate))
+  if (prefix === undefined) return []
+  return [...new Set(value
+    .slice(prefix.length)
+    .split(' + ')
+    .map(reference => reference.split(/[;#]/u, 1)[0].trim())
+    .filter(Boolean))].sort()
+}
 
 const uniqueMatches = (source: string, pattern: RegExp): string[] =>
   [...new Set([...source.matchAll(pattern)].map(match => match[1]))].sort()
@@ -599,11 +661,7 @@ export const requireGreenCriticMarkupParityDispositions = (
     .map(row => row.id)
     .sort()
   const placeholderOracles = manifest.rows
-    .filter(row => (
-      row.productionPathTest.startsWith('required-new-production-path-test:') ||
-      row.productionPathTest.includes('execution pending') ||
-      row.productionPathTest.includes('release-execution-pending')
-    ))
+    .filter(row => isPlaceholderParityOracle(row.productionPathTest))
     .map(row => row.id)
     .sort()
   const unauthenticatedGreen = manifest.rows
@@ -678,7 +736,7 @@ export const requireGreenCriticMarkupParityDispositions = (
     )
   }
   const rowManifestSha256 = createHash('sha256')
-    .update(canonicalParityRowManifest(manifest, false))
+    .update(canonicalEvidenceFreeParityRowManifest(manifest))
     .digest('hex')
   for (const row of manifest.rows.filter(row => row.status === 'green')) {
     const execution = row.execution as CriticMarkupParityExecutionEvidence
@@ -710,13 +768,28 @@ export const requireGreenCriticMarkupParityDispositions = (
     const expectedRunRecordKeys = [
       'baselineCommit',
       'buildCommit',
+      'command',
       'recordedAt',
       'result',
       'rowIds',
       'rowManifestSha256',
-      'schema'
+      'runner',
+      'schema',
+      'transcript'
     ]
     const candidate = runRecord as Partial<CriticMarkupParityExecutionRunRecord>
+    const commandKeys = typeof candidate.command === 'object' &&
+      candidate.command !== null
+      ? Object.keys(candidate.command).sort()
+      : []
+    const runnerKeys = typeof candidate.runner === 'object' &&
+      candidate.runner !== null
+      ? Object.keys(candidate.runner).sort()
+      : []
+    const transcriptKeys = typeof candidate.transcript === 'object' &&
+      candidate.transcript !== null
+      ? Object.keys(candidate.transcript).sort()
+      : []
     if (
       runRecordKeys.length !== expectedRunRecordKeys.length ||
       runRecordKeys.some((key, index) => key !== expectedRunRecordKeys[index]) ||
@@ -732,7 +805,28 @@ export const requireGreenCriticMarkupParityDispositions = (
       (candidate.result !== 'pass' && candidate.result !== 'fail') ||
       !Array.isArray(candidate.rowIds) ||
       candidate.rowIds.some(id => typeof id !== 'string' || !id.trim()) ||
-      new Set(candidate.rowIds).size !== candidate.rowIds.length
+      new Set(candidate.rowIds).size !== candidate.rowIds.length ||
+      candidate.rowIds.some((id, index) => (
+        index > 0 && (candidate.rowIds?.[index - 1]?.localeCompare(id) ?? 0) >= 0
+      )) ||
+      commandKeys.join(',') !== 'args,cwd,executable' ||
+      typeof candidate.command?.executable !== 'string' ||
+      !candidate.command.executable.trim() ||
+      !Array.isArray(candidate.command.args) ||
+      candidate.command.args.some(arg => typeof arg !== 'string') ||
+      candidate.command.cwd !== '.' ||
+      runnerKeys.join(',') !== 'arch,nodeVersion,platform' ||
+      typeof candidate.runner?.platform !== 'string' ||
+      !candidate.runner.platform.trim() ||
+      typeof candidate.runner.arch !== 'string' ||
+      !candidate.runner.arch.trim() ||
+      typeof candidate.runner.nodeVersion !== 'string' ||
+      !candidate.runner.nodeVersion.trim() ||
+      transcriptKeys.join(',') !== 'path,sha256' ||
+      typeof candidate.transcript?.path !== 'string' ||
+      !candidate.transcript.path.trim() ||
+      typeof candidate.transcript.sha256 !== 'string' ||
+      !/^[0-9a-f]{64}$/u.test(candidate.transcript.sha256)
     ) {
       throw new Error(`Parity row ${row.id} execution record is invalid`)
     }
@@ -755,6 +849,62 @@ export const requireGreenCriticMarkupParityDispositions = (
         `Parity row ${row.id} execution record targets a stale row manifest`
       )
     }
+    const productionPathSources = parityProductionPathSources(row.productionPathTest)
+    if (productionPathSources.length === 0) {
+      throw new Error(
+        `Parity row ${row.id} production-path test does not name a supported source`
+      )
+    }
+    const absentSource = productionPathSources.find(source => (
+      !candidate.command?.args.includes(source)
+    ))
+    if (absentSource !== undefined) {
+      throw new Error(
+        `Parity row ${row.id} source ${absentSource} is absent from the test command`
+      )
+    }
+    let transcriptBytes: Buffer
+    try {
+      transcriptBytes = readFileSync(repositoryPath(
+        repoRoot,
+        candidate.transcript.path,
+        `Parity row ${row.id} execution transcript`
+      ))
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('escapes the repository')) {
+        throw error
+      }
+      throw new Error(`Parity row ${row.id} execution transcript is missing`)
+    }
+    if (
+      createHash('sha256').update(transcriptBytes).digest('hex') !==
+      candidate.transcript.sha256
+    ) {
+      throw new Error(`Parity row ${row.id} execution transcript digest does not match`)
+    }
+    let transcript: unknown
+    try {
+      transcript = JSON.parse(transcriptBytes.toString('utf8')) as unknown
+    } catch {
+      throw new Error(`Parity row ${row.id} execution transcript is invalid`)
+    }
+    const transcriptRecord = transcript as Partial<CriticMarkupParityExecutionTranscript>
+    const executionTranscriptKeys = typeof transcript === 'object' && transcript !== null
+      ? Object.keys(transcript).sort()
+      : []
+    if (
+      executionTranscriptKeys.join(',') !==
+        'buildCommit,command,exitStatus,runner,schema,stderr,stdout' ||
+      transcriptRecord.schema !== 'marktext-criticmarkup-parity-transcript-v1' ||
+      transcriptRecord.buildCommit !== execution.buildCommit ||
+      transcriptRecord.exitStatus !== 0 ||
+      typeof transcriptRecord.stdout !== 'string' ||
+      typeof transcriptRecord.stderr !== 'string' ||
+      JSON.stringify(transcriptRecord.command) !== JSON.stringify(candidate.command) ||
+      JSON.stringify(transcriptRecord.runner) !== JSON.stringify(candidate.runner)
+    ) {
+      throw new Error(`Parity row ${row.id} execution transcript is invalid`)
+    }
     const sourcePath = relative(
       repoRoot,
       repositoryPath(
@@ -763,7 +913,7 @@ export const requireGreenCriticMarkupParityDispositions = (
         `Parity row ${row.id} test source`
       )
     ).split(sep).join('/')
-    if (!row.productionPathTest.includes(execution.sourcePath)) {
+    if (!productionPathSources.includes(execution.sourcePath)) {
       throw new Error(
         `Parity row ${row.id} execution source is not named by its production-path test`
       )
@@ -782,6 +932,267 @@ export const requireGreenCriticMarkupParityDispositions = (
       throw new Error(`Parity row ${row.id} test source digest does not match build commit`)
     }
   }
+}
+
+export interface CriticMarkupParityTestCommandInput {
+  repoRoot: string
+  baseline: CriticMarkupParityBaseline
+  overlay: CriticMarkupParityDispositionOverlay
+  manifest: CriticMarkupParityRowManifest
+  rowManifestPath: string
+  expectedBuildCommit: string
+  recordedAt: string
+  outputDirectory: string
+  rowIds: string[]
+  command: string
+  args: string[]
+}
+
+export type CriticMarkupParityRunArguments = Pick<
+  CriticMarkupParityTestCommandInput,
+  'expectedBuildCommit' | 'recordedAt' | 'outputDirectory' | 'rowIds' | 'command' | 'args'
+>
+
+export const parseCriticMarkupParityRunArguments = (
+  args: string[]
+): CriticMarkupParityRunArguments => {
+  const [
+    expectedBuildCommit,
+    recordedAt,
+    outputDirectory,
+    commaSeparatedRowIds,
+    separator,
+    command,
+    ...commandArgs
+  ] = args
+  if (
+    expectedBuildCommit === undefined ||
+    recordedAt === undefined ||
+    outputDirectory === undefined ||
+    commaSeparatedRowIds === undefined ||
+    separator !== '--' ||
+    command === undefined ||
+    !command.trim()
+  ) {
+    throw new Error('CriticMarkup parity run arguments are invalid')
+  }
+  return {
+    expectedBuildCommit,
+    recordedAt,
+    outputDirectory,
+    rowIds: commaSeparatedRowIds.split(','),
+    command,
+    args: commandArgs
+  }
+}
+
+export interface CriticMarkupParityTestCommandResult {
+  recordPath: string
+  recordSha256: string
+  transcriptPath: string
+  transcriptSha256: string
+}
+
+export interface CriticMarkupParityEvidenceFileLifecycle {
+  createTempDirectory: (prefix: string) => string
+  writeCreateOnly: (path: string, data: string) => void
+  publishDirectory: (stagedDirectory: string, finalDirectory: string) => void
+  removeDirectory: (path: string) => void
+}
+
+const parityEvidenceFileLifecycle: CriticMarkupParityEvidenceFileLifecycle = {
+  createTempDirectory: prefix => mkdtempSync(prefix),
+  writeCreateOnly: (path, data) => writeFileSync(path, data, { flag: 'wx' }),
+  publishDirectory: (stagedDirectory, finalDirectory) => {
+    if (existsSync(finalDirectory)) {
+      throw new Error('CriticMarkup parity evidence output already exists')
+    }
+    renameSync(stagedDirectory, finalDirectory)
+  },
+  removeDirectory: path => rmSync(path, { recursive: true, force: true })
+}
+
+export class CriticMarkupParityTestCommandError extends Error {
+  constructor(
+    readonly exitStatus: number | null,
+    readonly stdout: string,
+    readonly stderr: string
+  ) {
+    super(
+      `CriticMarkup parity test command failed with exit status ${String(exitStatus)}`
+    )
+    this.name = 'CriticMarkupParityTestCommandError'
+  }
+}
+
+const requireCleanCheckout = (
+  repoRoot: string,
+  expectedBuildCommit: string
+): void => {
+  if (!/^[0-9a-f]{40}$/u.test(expectedBuildCommit)) {
+    throw new Error('CriticMarkup parity build commit is invalid')
+  }
+  const actual = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: repoRoot,
+    encoding: 'utf8'
+  }).trim()
+  if (actual !== expectedBuildCommit) {
+    throw new Error(
+      `CriticMarkup parity checkout ${actual} does not match ${expectedBuildCommit}`
+    )
+  }
+  const status = execFileSync(
+    'git',
+    ['status', '--porcelain=v1', '--untracked-files=all'],
+    { cwd: repoRoot, encoding: 'utf8' }
+  )
+  if (status.length > 0) {
+    throw new Error('CriticMarkup parity checkout is dirty')
+  }
+}
+
+export const runCriticMarkupParityTestCommand = (
+  input: CriticMarkupParityTestCommandInput,
+  fileLifecycle: CriticMarkupParityEvidenceFileLifecycle = parityEvidenceFileLifecycle
+): CriticMarkupParityTestCommandResult => {
+  validateCriticMarkupParityDispositions(
+    input.baseline,
+    input.overlay,
+    input.manifest
+  )
+  const recordedManifest = readFileSync(repositoryPath(
+    input.repoRoot,
+    input.rowManifestPath,
+    'CriticMarkup parity row manifest'
+  ), 'utf8')
+  if (recordedManifest !== canonicalParityRowManifest(input.manifest, true)) {
+    throw new Error(
+      'CriticMarkup parity row manifest is not canonical or does not match ' +
+      'the validated artifact'
+    )
+  }
+  if (input.rowIds.length === 0) {
+    throw new Error('CriticMarkup parity run must request at least one row')
+  }
+  const uniqueRowIds = new Set(input.rowIds)
+  if (uniqueRowIds.size !== input.rowIds.length) {
+    throw new Error('CriticMarkup parity run contains duplicate row IDs')
+  }
+  const rowById = new Map(input.manifest.rows.map(row => [row.id, row]))
+  const rowIds = [...uniqueRowIds].sort()
+  for (const rowId of rowIds) {
+    const row = rowById.get(rowId)
+    if (row === undefined) {
+      throw new Error(`CriticMarkup parity run requests unknown row ${rowId}`)
+    }
+    if (isPlaceholderParityOracle(row.productionPathTest)) {
+      throw new Error(`CriticMarkup parity run requests placeholder row ${rowId}`)
+    }
+    const productionPathSources = parityProductionPathSources(row.productionPathTest)
+    if (productionPathSources.length === 0) {
+      throw new Error(
+        `CriticMarkup parity row ${rowId} production-path test does not name a supported source`
+      )
+    }
+    const absentSource = productionPathSources.find(source => !input.args.includes(source))
+    if (absentSource !== undefined) {
+      throw new Error(
+        `CriticMarkup parity row ${rowId} source ${absentSource} ` +
+        'is absent from the test command'
+      )
+    }
+  }
+  if (!input.command.trim() || input.args.some(arg => typeof arg !== 'string')) {
+    throw new Error('CriticMarkup parity test command is invalid')
+  }
+  if (Number.isNaN(Date.parse(input.recordedAt))) {
+    throw new Error('CriticMarkup parity execution timestamp is invalid')
+  }
+  const outputDirectory = repositoryPath(
+    input.repoRoot,
+    input.outputDirectory,
+    'CriticMarkup parity evidence output'
+  )
+  const outputWithinRepository = relative(input.repoRoot, outputDirectory)
+  if (!outputWithinRepository || existsSync(outputDirectory)) {
+    throw new Error('CriticMarkup parity evidence output already exists or is invalid')
+  }
+  requireCleanCheckout(input.repoRoot, input.expectedBuildCommit)
+
+  const command: CriticMarkupParityExecutionCommand = {
+    executable: input.command,
+    args: [...input.args],
+    cwd: '.'
+  }
+  const runner: CriticMarkupParityExecutionRunner = {
+    platform: process.platform,
+    arch: process.arch,
+    nodeVersion: process.version
+  }
+  const execution = spawnSync(input.command, input.args, {
+    cwd: input.repoRoot,
+    encoding: 'utf8',
+    maxBuffer: 100 * 1024 * 1024,
+    shell: false
+  })
+  const stdout = execution.stdout ?? ''
+  const stderr = execution.stderr ?? ''
+  if (execution.error !== undefined || execution.status !== 0) {
+    throw new CriticMarkupParityTestCommandError(execution.status, stdout, stderr)
+  }
+  requireCleanCheckout(input.repoRoot, input.expectedBuildCommit)
+  if (existsSync(outputDirectory)) {
+    throw new Error('CriticMarkup parity evidence output was created during the test run')
+  }
+
+  const transcriptPath = `${outputWithinRepository.split(sep).join('/')}/transcript.json`
+  const transcript: CriticMarkupParityExecutionTranscript = {
+    schema: 'marktext-criticmarkup-parity-transcript-v1',
+    buildCommit: input.expectedBuildCommit,
+    command,
+    runner,
+    exitStatus: 0,
+    stdout,
+    stderr
+  }
+  const transcriptJson = `${JSON.stringify(transcript, null, 2)}\n`
+  const transcriptSha256 = createHash('sha256')
+    .update(transcriptJson)
+    .digest('hex')
+  const recordPath = `${outputWithinRepository.split(sep).join('/')}/run.json`
+  const record: CriticMarkupParityExecutionRunRecord = {
+    schema: 'marktext-criticmarkup-parity-execution-v1',
+    baselineCommit: input.baseline.baselineCommit,
+    rowManifestSha256: createHash('sha256')
+      .update(canonicalEvidenceFreeParityRowManifest(input.manifest))
+      .digest('hex'),
+    buildCommit: input.expectedBuildCommit,
+    recordedAt: input.recordedAt,
+    result: 'pass',
+    rowIds,
+    command,
+    runner,
+    transcript: { path: transcriptPath, sha256: transcriptSha256 }
+  }
+  const recordJson = `${JSON.stringify(record, null, 2)}\n`
+  const recordSha256 = createHash('sha256').update(recordJson).digest('hex')
+
+  const stagedDirectory = fileLifecycle.createTempDirectory(join(
+    dirname(outputDirectory),
+    `.${basename(outputDirectory)}-staging-`
+  ))
+  try {
+    fileLifecycle.writeCreateOnly(
+      resolve(stagedDirectory, 'transcript.json'),
+      transcriptJson
+    )
+    fileLifecycle.writeCreateOnly(resolve(stagedDirectory, 'run.json'), recordJson)
+    fileLifecycle.publishDirectory(stagedDirectory, outputDirectory)
+  } catch (error) {
+    fileLifecycle.removeDirectory(stagedDirectory)
+    throw error
+  }
+  return { recordPath, recordSha256, transcriptPath, transcriptSha256 }
 }
 
 const readBaseline = (path: string): CriticMarkupParityBaseline =>
@@ -829,10 +1240,10 @@ const runCli = (): void => {
   const path = resolve(repoRoot, 'specs/baselines/criticmarkup-upstream-parity.json')
   const overlayPath = resolve(repoRoot, 'specs/baselines/criticmarkup-parity-dispositions.json')
   const rowManifestPath = resolve(repoRoot, 'specs/baselines/criticmarkup-parity-rows.json')
-  const [command, baselineCommit] = process.argv.slice(2)
+  const [command, ...args] = process.argv.slice(2)
 
-  if (command === '--write' && baselineCommit) {
-    writeBaseline(repoRoot, path, baselineCommit)
+  if (command === '--write' && args[0]) {
+    writeBaseline(repoRoot, path, args[0])
     return
   }
   if (command === '--check') {
@@ -857,9 +1268,24 @@ const runCli = (): void => {
     )
     return
   }
+  if (command === '--run-tests') {
+    const runArguments = parseCriticMarkupParityRunArguments(args)
+    const result = runCriticMarkupParityTestCommand({
+      repoRoot,
+      baseline: checkBaseline(repoRoot, path),
+      overlay: readDispositionOverlay(overlayPath),
+      manifest: readParityRowManifest(rowManifestPath),
+      rowManifestPath,
+      ...runArguments
+    })
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+    return
+  }
   throw new Error(
     'Usage: tsx scripts/criticmarkupParityBaseline.ts ' +
-    '--write <baseline-commit> | --check | --validate | --require-green'
+    '--write <baseline-commit> | --check | --validate | --require-green | ' +
+    '--run-tests <build-commit> <recorded-at> <output-directory> ' +
+    '<comma-separated-row-ids> -- <test-command> [args...]'
   )
 }
 
