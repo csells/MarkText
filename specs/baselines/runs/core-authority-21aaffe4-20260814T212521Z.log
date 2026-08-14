@@ -1,0 +1,1292 @@
+[0/32] exact clean authority suite setup at 21aaffe4078d49130fb7a7f868a97d52cf68cb87
+Scope: all 8 workspace projects
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +1852
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Progress: resolved 1852, reused 1828, downloaded 0, added 239
+Progress: resolved 1852, reused 1828, downloaded 0, added 626
+Progress: resolved 1852, reused 1828, downloaded 0, added 1246
+Progress: resolved 1852, reused 1828, downloaded 0, added 1614
+Progress: resolved 1852, reused 1828, downloaded 0, added 1848
+Progress: resolved 1852, reused 1828, downloaded 0, added 1849
+Progress: resolved 1852, reused 1828, downloaded 0, added 1852, done
+.../node_modules/native-keymap install$ node-gyp rebuild
+.../node_modules/native-keymap install: gyp info it worked if it ends with ok
+.../node_modules/native-keymap install: gyp info using node-gyp@11.5.0
+.../node_modules/native-keymap install: gyp info using node@22.23.2 | darwin | arm64
+.../node_modules/native-keymap install: gyp info find Python using Python version 3.14.6 found at "/opt/homebrew/opt/python@3.14/bin/python3.14"
+.../node_modules/native-keymap install: gyp info spawn /opt/homebrew/opt/python@3.14/bin/python3.14
+.../node_modules/native-keymap install: gyp info spawn args [
+.../node_modules/native-keymap install: gyp info spawn args '/Users/csells/.cache/node/corepack/v1/pnpm/10.33.4/dist/node_modules/node-gyp/gyp/gyp_main.py',
+.../node_modules/native-keymap install: gyp info spawn args 'binding.gyp',
+.../node_modules/native-keymap install: gyp info spawn args '-f',
+.../node_modules/native-keymap install: gyp info spawn args 'make',
+.../node_modules/native-keymap install: gyp info spawn args '-I',
+.../node_modules/native-keymap install: gyp info spawn args '/private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/node_modules/.pnpm/native-keymap@3.3.9/node_modules/native-keymap/build/config.gypi',
+.../node_modules/native-keymap install: gyp info spawn args '-I',
+.../node_modules/native-keymap install: gyp info spawn args '/Users/csells/.cache/node/corepack/v1/pnpm/10.33.4/dist/node_modules/node-gyp/addon.gypi',
+.../node_modules/native-keymap install: gyp info spawn args '-I',
+.../node_modules/native-keymap install: gyp info spawn args '/Users/csells/Library/Caches/node-gyp/22.23.2/include/node/common.gypi',
+.../node_modules/native-keymap install: gyp info spawn args '-Dlibrary=shared_library',
+.../node_modules/native-keymap install: gyp info spawn args '-Dvisibility=default',
+.../node_modules/native-keymap install: gyp info spawn args '-Dnode_root_dir=/Users/csells/Library/Caches/node-gyp/22.23.2',
+.../node_modules/native-keymap install: gyp info spawn args '-Dnode_gyp_dir=/Users/csells/.cache/node/corepack/v1/pnpm/10.33.4/dist/node_modules/node-gyp',
+.../node_modules/native-keymap install: gyp info spawn args '-Dnode_lib_file=/Users/csells/Library/Caches/node-gyp/22.23.2/<(target_arch)/node.lib',
+.../node_modules/native-keymap install: gyp info spawn args '-Dmodule_root_dir=/private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/node_modules/.pnpm/native-keymap@3.3.9/node_modules/native-keymap',
+.../node_modules/native-keymap install: gyp info spawn args '-Dnode_engine=v8',
+.../node_modules/native-keymap install: gyp info spawn args '--depth=.',
+.../node_modules/native-keymap install: gyp info spawn args '--no-parallel',
+.../node_modules/native-keymap install: gyp info spawn args '--generator-output',
+.../node_modules/native-keymap install: gyp info spawn args 'build',
+.../node_modules/native-keymap install: gyp info spawn args '-Goutput_dir=.'
+.../node_modules/native-keymap install: gyp info spawn args ]
+.../node_modules/native-keymap install: gyp info spawn make
+.../node_modules/native-keymap install: gyp info spawn args [ 'BUILDTYPE=Release', '-C', 'build' ]
+.../node_modules/native-keymap install:   CXX(target) Release/obj.target/keymapping/src/string_conversion.o
+.../node_modules/native-keymap install:   CXX(target) Release/obj.target/keymapping/src/keymapping.o
+.../node_modules/native-keymap install: In file included from ../src/keymapping.cc:7:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/node.h:74:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8.h:24:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-array-buffer.h:12:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-local-handle.h:13:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-handle-base.h:8:
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:490:30: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install:   490 | SHARED_EXTERNAL_POINTER_TAGS(CHECK_SHARED_EXTERNAL_POINTER_TAGS)
+.../node_modules/native-keymap install:       |                              ^
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:490:30: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:490:30: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:490:30: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:490:30: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:491:35: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install:   491 | PER_ISOLATE_EXTERNAL_POINTER_TAGS(CHECK_NON_SHARED_EXTERNAL_POINTER_TAGS)
+.../node_modules/native-keymap install:       |                                   ^
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:491:35: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:491:35: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:491:35: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:491:35: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:491:35: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:491:35: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:491:35: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:491:35: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:491:35: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:491:35: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:491:35: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:491:35: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:596:42: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install:   596 | static_assert(kCodePointerHandleShift > 0);
+.../node_modules/native-keymap install:       |                                          ^
+.../node_modules/native-keymap install:       |                                          , ""
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:597:45: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install:   597 | static_assert(kTrustedPointerHandleShift > 0);
+.../node_modules/native-keymap install:       |                                             ^
+.../node_modules/native-keymap install:       |                                             , ""
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:889:61: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install:   889 |     static_assert(kJSObjectType + 1 == kFirstJSApiObjectType);
+.../node_modules/native-keymap install:       |                                                             ^
+.../node_modules/native-keymap install:       |                                                             , ""
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:890:55: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install:   890 |     static_assert(kJSObjectType < kLastJSApiObjectType);
+.../node_modules/native-keymap install:       |                                                       ^
+.../node_modules/native-keymap install:       |                                                       , ""
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:891:63: warning: 'static_assert' with no message is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install:   891 |     static_assert(kFirstJSApiObjectType < kLastJSApiObjectType);
+.../node_modules/native-keymap install:       |                                                               ^
+.../node_modules/native-keymap install:       |                                                               , ""
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:1159:13: error: no template named 'is_void_v' in namespace 'std'; did you mean 'is_void'?
+.../node_modules/native-keymap install:  1159 |       !std::is_void_v<ElementType> ||
+.../node_modules/native-keymap install:       |        ~~~~~^~~~~~~~~
+.../node_modules/native-keymap install:       |             is_void
+.../node_modules/native-keymap install: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__type_traits/is_void.h:22:35: note: 'is_void' declared here
+.../node_modules/native-keymap install:    22 | struct _LIBCPP_NO_SPECIALIZATIONS is_void : _BoolConstant<__is_same(__remove_cv(_Tp), void)> {};
+.../node_modules/native-keymap install:       |                                   ^
+.../node_modules/native-keymap install: In file included from ../src/keymapping.cc:7:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/node.h:74:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8.h:24:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-array-buffer.h:12:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-local-handle.h:13:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-handle-base.h:8:
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:1159:36: error: expected '(' for function-style cast or type construction
+.../node_modules/native-keymap install:  1159 |       !std::is_void_v<ElementType> ||
+.../node_modules/native-keymap install:       |        ~~~~~~~~~~~~~~~~~~~~~~~~~~~ ^
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:1160:13: error: no template named 'is_convertible_v' in namespace 'std'; did you mean 'is_convertible'?
+.../node_modules/native-keymap install:  1160 |       (std::is_convertible_v<typename std::iterator_traits<Iterator>::pointer,
+.../node_modules/native-keymap install:       |        ~~~~~^~~~~~~~~~~~~~~~
+.../node_modules/native-keymap install:       |             is_convertible
+.../node_modules/native-keymap install: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__type_traits/is_convertible.h:22:35: note: 'is_convertible' declared here
+.../node_modules/native-keymap install:    22 | struct _LIBCPP_NO_SPECIALIZATIONS is_convertible : integral_constant<bool, __is_convertible(_T1, _T2)> {};
+.../node_modules/native-keymap install:       |                                   ^
+.../node_modules/native-keymap install: In file included from ../src/keymapping.cc:7:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/node.h:74:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8.h:24:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-array-buffer.h:12:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-local-handle.h:13:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-handle-base.h:8:
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:1162:13: error: no template named 'is_convertible_v' in namespace 'std'; did you mean 'is_convertible'?
+.../node_modules/native-keymap install:  1162 |        std::is_convertible_v<typename std::iterator_traits<Iterator>::reference,
+.../node_modules/native-keymap install:       |        ~~~~~^~~~~~~~~~~~~~~~
+.../node_modules/native-keymap install:       |             is_convertible
+.../node_modules/native-keymap install: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__type_traits/is_convertible.h:22:35: note: 'is_convertible' declared here
+.../node_modules/native-keymap install:    22 | struct _LIBCPP_NO_SPECIALIZATIONS is_convertible : integral_constant<bool, __is_convertible(_T1, _T2)> {};
+.../node_modules/native-keymap install:       |                                   ^
+.../node_modules/native-keymap install: In file included from ../src/keymapping.cc:7:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/node.h:74:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8.h:24:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-array-buffer.h:12:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-local-handle.h:13:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-handle-base.h:8:
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:1162:8: error: expected ')'
+.../node_modules/native-keymap install:  1162 |        std::is_convertible_v<typename std::iterator_traits<Iterator>::reference,
+.../node_modules/native-keymap install:       |        ^
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:1160:7: note: to match this '('
+.../node_modules/native-keymap install:  1160 |       (std::is_convertible_v<typename std::iterator_traits<Iterator>::pointer,
+.../node_modules/native-keymap install:       |       ^
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:1163:44: error: expected expression
+.../node_modules/native-keymap install:  1163 |                              ElementType&>));
+.../node_modules/native-keymap install:       |                                            ^
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:1170:31: error: no template named 'is_void_v' in namespace 'std'; did you mean 'is_void'?
+.../node_modules/native-keymap install:  1170 |       std::conditional_t<std::is_void_v<ElementType>,
+.../node_modules/native-keymap install:       |                          ~~~~~^~~~~~~~~
+.../node_modules/native-keymap install:       |                               is_void
+.../node_modules/native-keymap install: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__type_traits/is_void.h:22:35: note: 'is_void' declared here
+.../node_modules/native-keymap install:    22 | struct _LIBCPP_NO_SPECIALIZATIONS is_void : _BoolConstant<__is_same(__remove_cv(_Tp), void)> {};
+.../node_modules/native-keymap install:       |                                   ^
+.../node_modules/native-keymap install: In file included from ../src/keymapping.cc:7:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/node.h:74:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8.h:24:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-array-buffer.h:12:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-local-handle.h:13:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-handle-base.h:8:
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:1170:26: error: template argument for non-type template parameter must be an expression
+.../node_modules/native-keymap install:  1170 |       std::conditional_t<std::is_void_v<ElementType>,
+.../node_modules/native-keymap install:       |                          ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+.../node_modules/native-keymap install: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__type_traits/conditional.h:54:16: note: template parameter is declared here
+.../node_modules/native-keymap install:    54 | template <bool _Bp, class _IfRes, class _ElseRes>
+.../node_modules/native-keymap install:       |                ^
+.../node_modules/native-keymap install: In file included from ../src/keymapping.cc:7:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/node.h:74:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8.h:24:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-array-buffer.h:12:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-local-handle.h:13:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-handle-base.h:8:
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:1174:31: error: no template named 'is_void_v' in namespace 'std'; did you mean 'is_void'?
+.../node_modules/native-keymap install:  1174 |       std::conditional_t<std::is_void_v<ElementType>,
+.../node_modules/native-keymap install:       |                          ~~~~~^~~~~~~~~
+.../node_modules/native-keymap install:       |                               is_void
+.../node_modules/native-keymap install: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__type_traits/is_void.h:22:35: note: 'is_void' declared here
+.../node_modules/native-keymap install:    22 | struct _LIBCPP_NO_SPECIALIZATIONS is_void : _BoolConstant<__is_same(__remove_cv(_Tp), void)> {};
+.../node_modules/native-keymap install:       |                                   ^
+.../node_modules/native-keymap install: In file included from ../src/keymapping.cc:7:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/node.h:74:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8.h:24:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-array-buffer.h:12:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-local-handle.h:13:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-handle-base.h:8:
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:1174:26: error: template argument for non-type template parameter must be an expression
+.../node_modules/native-keymap install:  1174 |       std::conditional_t<std::is_void_v<ElementType>,
+.../node_modules/native-keymap install:       |                          ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+.../node_modules/native-keymap install: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__type_traits/conditional.h:54:16: note: template parameter is declared here
+.../node_modules/native-keymap install:    54 | template <bool _Bp, class _IfRes, class _ElseRes>
+.../node_modules/native-keymap install:       |                ^
+.../node_modules/native-keymap install: In file included from ../src/keymapping.cc:7:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/node.h:74:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8.h:24:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-array-buffer.h:12:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-local-handle.h:13:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-handle-base.h:8:
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:1178:31: error: no template named 'is_void_v' in namespace 'std'; did you mean 'is_void'?
+.../node_modules/native-keymap install:  1178 |       std::conditional_t<std::is_void_v<ElementType>,
+.../node_modules/native-keymap install:       |                          ~~~~~^~~~~~~~~
+.../node_modules/native-keymap install:       |                               is_void
+.../node_modules/native-keymap install: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__type_traits/is_void.h:22:35: note: 'is_void' declared here
+.../node_modules/native-keymap install:    22 | struct _LIBCPP_NO_SPECIALIZATIONS is_void : _BoolConstant<__is_same(__remove_cv(_Tp), void)> {};
+.../node_modules/native-keymap install:       |                                   ^
+.../node_modules/native-keymap install: In file included from ../src/keymapping.cc:7:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/node.h:74:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8.h:24:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-array-buffer.h:12:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-local-handle.h:13:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-handle-base.h:8:
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:1178:26: error: template argument for non-type template parameter must be an expression
+.../node_modules/native-keymap install:  1178 |       std::conditional_t<std::is_void_v<ElementType>,
+.../node_modules/native-keymap install:       |                          ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+.../node_modules/native-keymap install: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__type_traits/conditional.h:54:16: note: template parameter is declared here
+.../node_modules/native-keymap install:    54 | template <bool _Bp, class _IfRes, class _ElseRes>
+.../node_modules/native-keymap install:       |                ^
+.../node_modules/native-keymap install: In file included from ../src/keymapping.cc:7:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/node.h:74:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8.h:24:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-array-buffer.h:12:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-local-handle.h:13:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-handle-base.h:8:
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:1186:35: error: no template named 'is_convertible_v' in namespace 'std'; did you mean 'is_convertible'?
+.../node_modules/native-keymap install:  1186 |             std::enable_if_t<std::is_convertible_v<OtherIterator, Iterator>,
+.../node_modules/native-keymap install:       |                              ~~~~~^~~~~~~~~~~~~~~~
+.../node_modules/native-keymap install:       |                                   is_convertible
+.../node_modules/native-keymap install: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__type_traits/is_convertible.h:22:35: note: 'is_convertible' declared here
+.../node_modules/native-keymap install:    22 | struct _LIBCPP_NO_SPECIALIZATIONS is_convertible : integral_constant<bool, __is_convertible(_T1, _T2)> {};
+.../node_modules/native-keymap install:       |                                   ^
+.../node_modules/native-keymap install: In file included from ../src/keymapping.cc:7:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/node.h:74:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8.h:24:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-array-buffer.h:12:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-local-handle.h:13:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-handle-base.h:8:
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:1186:30: error: template argument for non-type template parameter must be an expression
+.../node_modules/native-keymap install:  1186 |             std::enable_if_t<std::is_convertible_v<OtherIterator, Iterator>,
+.../node_modules/native-keymap install:       |                              ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.../node_modules/native-keymap install: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__type_traits/enable_if.h:37:16: note: template parameter is declared here
+.../node_modules/native-keymap install:    37 | template <bool _Bp, class _Tp = void>
+.../node_modules/native-keymap install:       |                ^
+.../node_modules/native-keymap install: In file included from ../src/keymapping.cc:7:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/node.h:74:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8.h:24:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-array-buffer.h:12:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-local-handle.h:13:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-handle-base.h:8:
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:1192:13: error: unknown type name 'reference'
+.../node_modules/native-keymap install:  1192 |   constexpr reference operator*() const noexcept { return *it_; }
+.../node_modules/native-keymap install:       |             ^
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:1193:13: error: unknown type name 'pointer'
+.../node_modules/native-keymap install:  1193 |   constexpr pointer operator->() const noexcept { return it_.operator->(); }
+.../node_modules/native-keymap install:       |             ^
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:1230:13: error: unknown type name 'reference'
+.../node_modules/native-keymap install:  1230 |   constexpr reference operator[](difference_type n) const noexcept {
+.../node_modules/native-keymap install:       |             ^
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-internal.h:1329:51: warning: template template parameter using 'typename' is a C++17 extension [-Wc++17-extensions]
+.../node_modules/native-keymap install:  1329 |   template <template <typename T, typename... Ms> typename H, typename T,
+.../node_modules/native-keymap install:       |                                                   ^~~~~~~~
+.../node_modules/native-keymap install:       |                                                   class
+.../node_modules/native-keymap install: In file included from ../src/keymapping.cc:7:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/node.h:74:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8.h:24:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-array-buffer.h:12:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-local-handle.h:13:
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-handle-base.h:10:13: warning: nested namespace definition is a C++17 extension; define each namespace separately [-Wc++17-extensions]
+.../node_modules/native-keymap install:    10 | namespace v8::api_internal {
+.../node_modules/native-keymap install:       |             ^~~~~~~~~~~~~~
+.../node_modules/native-keymap install:       |              { namespace api_internal
+.../node_modules/native-keymap install: In file included from ../src/keymapping.cc:7:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/node.h:74:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8.h:24:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-array-buffer.h:13:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-object.h:9:
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-maybe.h:106:45: error: no template named 'is_lvalue_reference_v' in namespace 'std'; did you mean 'is_lvalue_reference'?
+.../node_modules/native-keymap install:   106 |   template <class U, std::enable_if_t<!std::is_lvalue_reference_v<U>>*>
+.../node_modules/native-keymap install:       |                                        ~~~~~^~~~~~~~~~~~~~~~~~~~~
+.../node_modules/native-keymap install:       |                                             is_lvalue_reference
+.../node_modules/native-keymap install: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__type_traits/is_reference.h:32:35: note: 'is_lvalue_reference' declared here
+.../node_modules/native-keymap install:    32 | struct _LIBCPP_NO_SPECIALIZATIONS is_lvalue_reference : _BoolConstant<__is_lvalue_reference(_Tp)> {};
+.../node_modules/native-keymap install:       |                                   ^
+.../node_modules/native-keymap install: In file included from ../src/keymapping.cc:7:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/node.h:74:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8.h:24:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-array-buffer.h:13:
+.../node_modules/native-keymap install: In file included from /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-object.h:9:
+.../node_modules/native-keymap install: /Users/csells/Library/Caches/node-gyp/22.23.2/include/node/v8-maybe.h:106:69: error: expected '(' for function-style cast or type construction
+.../node_modules/native-keymap install:   106 |   template <class U, std::enable_if_t<!std::is_lvalue_reference_v<U>>*>
+.../node_modules/native-keymap install:       |                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+.../node_modules/native-keymap install: fatal error: too many errors emitted, stopping now [-ferror-limit=]
+.../node_modules/native-keymap install: 25 warnings and 20 errors generated.
+.../node_modules/native-keymap install: make: *** [Release/obj.target/keymapping/src/keymapping.o] Error 1
+.../node_modules/native-keymap install: gyp ERR! build error 
+.../node_modules/native-keymap install: gyp ERR! stack Error: `make` failed with exit code: 2
+.../node_modules/native-keymap install: gyp ERR! stack at ChildProcess.<anonymous> (/Users/csells/.cache/node/corepack/v1/pnpm/10.33.4/dist/node_modules/node-gyp/lib/build.js:219:23)
+.../node_modules/native-keymap install: gyp ERR! System Darwin 25.5.0
+.../node_modules/native-keymap install: gyp ERR! command "/opt/homebrew/Cellar/node@22/22.23.2/bin/node" "/Users/csells/.cache/node/corepack/v1/pnpm/10.33.4/dist/node_modules/node-gyp/bin/node-gyp.js" "rebuild"
+.../node_modules/native-keymap install: gyp ERR! cwd /private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/node_modules/.pnpm/native-keymap@3.3.9/node_modules/native-keymap
+.../node_modules/native-keymap install: gyp ERR! node -v v22.23.2
+.../node_modules/native-keymap install: gyp ERR! node-gyp -v v11.5.0
+.../node_modules/native-keymap install: gyp ERR! not ok 
+.../node_modules/native-keymap install: Failed
+
+devDependencies:
++ @babel/eslint-parser 7.29.7
++ electron 42.1.0
++ eslint 9.39.4
++ eslint-plugin-html 8.1.4
++ eslint-plugin-i18n-json 4.0.1
++ eslint-plugin-jsonc 3.2.0
++ eslint-plugin-vue 10.9.2
++ license-checker 25.0.1
++ neostandard 0.13.0
++ prettier 3.8.4
++ tsx 4.22.4
++ typescript-eslint 8.61.1
++ vue-eslint-parser 10.4.1
+
+. postinstall$ tsx scripts/postinstall.ts
+. postinstall: Downloading Electron binary...
+. postinstall: Applying patches...
+. postinstall: patch-package 8.0.1
+. postinstall: Applying patches...
+. postinstall: native-keymap@3.3.9 ✔
+. postinstall: Rebuilding native modules for Electron...
+. postinstall: Searching dependency tree
+. postinstall: Building modules: ced, keytar, native-keymap
+. postinstall: ✔ Rebuild Complete
+. postinstall: Minifying locales...
+. postinstall: Minimizing de.json
+. postinstall: Minimizing en.json
+. postinstall: Minimizing es.json
+. postinstall: Minimizing fr.json
+. postinstall: Minimizing ja.json
+. postinstall: Minimizing ko.json
+. postinstall: Minimizing pt.json
+. postinstall: Minimizing tr.json
+. postinstall: Minimizing zh-CN.json
+. postinstall: Minimizing zh-TW.json
+. postinstall: Translation files minimized successfully
+. postinstall: Done
+Done in 16.5s using pnpm v10.33.4
+
+> marktext@0.20.0-dev build /private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/packages/desktop
+> electron-vite build
+
+vite v7.3.5 building ssr environment for production...
+transforming...
+✓ 487 modules transformed.
+rendering chunks...
+out/main/index.js  1,417.44 kB
+✓ built in 633ms
+vite v7.3.5 building ssr environment for production...
+transforming...
+✓ 3 modules transformed.
+rendering chunks...
+out/preload/index.js  24.03 kB
+✓ built in 19ms
+vite v7.3.5 building client environment for production...
+transforming...
+✓ 5923 modules transformed.
+rendering chunks...
+[plugin vite:reporter] 
+(!)  /private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/node_modules/.pnpm/codemirror@5.65.21/node_modules/codemirror/mode/meta.js?commonjs-es-import is dynamically imported by /private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/packages/desktop/src/renderer/src/codeMirror/loadmode.ts but also statically imported by /private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/packages/desktop/src/renderer/src/codeMirror/index.ts, dynamic import will not move module into another chunk.
+
+[plugin vite:reporter] 
+(!)  /private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/node_modules/.pnpm/codemirror@5.65.21/node_modules/codemirror/mode/markdown/markdown.js?commonjs-es-import is dynamically imported by /private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/packages/desktop/src/renderer/src/codeMirror/loadmode.ts but also statically imported by /private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/packages/desktop/src/renderer/src/codeMirror/markdownMathMode.ts, dynamic import will not move module into another chunk.
+
+[plugin vite:reporter] 
+(!)  /private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/node_modules/.pnpm/codemirror@5.65.21/node_modules/codemirror/mode/gfm/gfm.js?commonjs-es-import is dynamically imported by /private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/packages/desktop/src/renderer/src/codeMirror/loadmode.ts but also statically imported by /private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/packages/desktop/src/renderer/src/codeMirror/markdownMathMode.ts, dynamic import will not move module into another chunk.
+
+[plugin vite:reporter] 
+(!)  /private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/node_modules/.pnpm/codemirror@5.65.21/node_modules/codemirror/mode/stex/stex.js?commonjs-es-import is dynamically imported by /private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/packages/desktop/src/renderer/src/codeMirror/loadmode.ts but also statically imported by /private/tmp/marktext-core-authority-21aaffe4-0vMOVs/checkout/packages/desktop/src/renderer/src/codeMirror/markdownMathMode.ts, dynamic import will not move module into another chunk.
+
+../../out/renderer/index.html                                                        0.66 kB
+../../out/renderer/assets/KaTeX_Size3-Regular-CTq5MqoE.woff                          4.42 kB
+../../out/renderer/assets/KaTeX_Size4-Regular-Dl5lxZxV.woff2                         4.93 kB
+../../out/renderer/assets/KaTeX_Size2-Regular-Dy4dx90m.woff2                         5.21 kB
+../../out/renderer/assets/KaTeX_Size1-Regular-mCD8mA8B.woff2                         5.47 kB
+../../out/renderer/assets/edit-C8P5TZHY.png                                          5.88 kB
+../../out/renderer/assets/KaTeX_Size4-Regular-BF-4gkZK.woff                          5.98 kB
+../../out/renderer/assets/KaTeX_Size2-Regular-oD1tc_U0.woff                          6.19 kB
+../../out/renderer/assets/KaTeX_Size1-Regular-C195tn64.woff                          6.50 kB
+../../out/renderer/assets/logo-CquBGJhr.png                                          6.65 kB
+../../out/renderer/assets/KaTeX_Caligraphic-Regular-Di6jR-x-.woff2                   6.91 kB
+../../out/renderer/assets/KaTeX_Caligraphic-Bold-Dq_IR9rO.woff2                      6.91 kB
+../../out/renderer/assets/KaTeX_Size3-Regular-DgpXs0kz.ttf                           7.59 kB
+../../out/renderer/assets/KaTeX_Caligraphic-Regular-CTRA-rTL.woff                    7.66 kB
+../../out/renderer/assets/KaTeX_Caligraphic-Bold-BEiXGLvX.woff                       7.72 kB
+../../out/renderer/assets/KaTeX_Script-Regular-D3wIWfF6.woff2                        9.64 kB
+../../out/renderer/assets/KaTeX_SansSerif-Regular-DDBCnlJ7.woff2                    10.34 kB
+../../out/renderer/assets/KaTeX_Size4-Regular-DWFBv043.ttf                          10.36 kB
+../../out/renderer/assets/KaTeX_Script-Regular-D5yQViql.woff                        10.59 kB
+../../out/renderer/assets/KaTeX_Fraktur-Regular-CTYiF6lA.woff2                      11.32 kB
+../../out/renderer/assets/KaTeX_Fraktur-Bold-CL6g_b3V.woff2                         11.35 kB
+../../out/renderer/assets/KaTeX_Size2-Regular-B7gKUWhC.ttf                          11.51 kB
+../../out/renderer/assets/KaTeX_SansSerif-Italic-C3H0VqGB.woff2                     12.03 kB
+../../out/renderer/assets/KaTeX_SansSerif-Bold-D1sUS0GD.woff2                       12.22 kB
+../../out/renderer/assets/KaTeX_Size1-Regular-Dbsnue_I.ttf                          12.23 kB
+../../out/renderer/assets/KaTeX_SansSerif-Regular-CS6fqUqJ.woff                     12.32 kB
+../../out/renderer/assets/KaTeX_Caligraphic-Regular-wX97UBjC.ttf                    12.34 kB
+../../out/renderer/assets/KaTeX_Caligraphic-Bold-ATXxdsX0.ttf                       12.37 kB
+../../out/renderer/assets/KaTeX_Fraktur-Regular-Dxdc4cR9.woff                       13.21 kB
+../../out/renderer/assets/KaTeX_Fraktur-Bold-BsDP51OF.woff                          13.30 kB
+../../out/renderer/assets/KaTeX_Typewriter-Regular-CO6r4hn1.woff2                   13.57 kB
+../../out/renderer/assets/KaTeX_SansSerif-Italic-DN2j7dab.woff                      14.11 kB
+../../out/renderer/assets/KaTeX_SansSerif-Bold-DbIhKOiC.woff                        14.41 kB
+../../out/renderer/assets/KaTeX_Typewriter-Regular-C0xS9mPB.woff                    16.03 kB
+../../out/renderer/assets/KaTeX_Math-BoldItalic-CZnvNsCZ.woff2                      16.40 kB
+../../out/renderer/assets/KaTeX_Math-Italic-t53AETM-.woff2                          16.44 kB
+../../out/renderer/assets/KaTeX_Script-Regular-C5JkGWo-.ttf                         16.65 kB
+../../out/renderer/assets/KaTeX_Main-BoldItalic-DxDJ3AOS.woff2                      16.78 kB
+../../out/renderer/assets/KaTeX_Main-Italic-NWA7e6Wa.woff2                          16.99 kB
+../../out/renderer/assets/KaTeX_Math-BoldItalic-iY-2wyZ7.woff                       18.67 kB
+../../out/renderer/assets/KaTeX_Math-Italic-DA0__PXp.woff                           18.75 kB
+../../out/renderer/assets/KaTeX_Main-BoldItalic-SpSLRI95.woff                       19.41 kB
+../../out/renderer/assets/KaTeX_SansSerif-Regular-BNo7hRIc.ttf                      19.44 kB
+../../out/renderer/assets/KaTeX_Fraktur-Regular-CB_wures.ttf                        19.57 kB
+../../out/renderer/assets/KaTeX_Fraktur-Bold-BdnERNNW.ttf                           19.58 kB
+../../out/renderer/assets/KaTeX_Main-Italic-BMLOBm91.woff                           19.68 kB
+../../out/renderer/assets/octicons-CaZ_fok2.woff2                                   20.25 kB
+../../out/renderer/assets/KaTeX_SansSerif-Italic-YYjJ1zSn.ttf                       22.36 kB
+../../out/renderer/assets/KaTeX_SansSerif-Bold-CFMepnvq.ttf                         24.50 kB
+../../out/renderer/assets/KaTeX_Main-Bold-Cx986IdX.woff2                            25.32 kB
+../../out/renderer/assets/mfixx-DfQCz-aF.woff2                                      25.82 kB
+../../out/renderer/assets/KaTeX_Main-Regular-B22Nviop.woff2                         26.27 kB
+../../out/renderer/assets/open-sans-v27-latin-ext_latin-700-D97dOC7G.woff           26.61 kB
+../../out/renderer/assets/open-sans-v27-latin-ext_latin-600-Geo0x7y7.woff           27.42 kB
+../../out/renderer/assets/open-sans-v27-latin-ext_latin-regular-BC2Aa2-r.woff       27.48 kB
+../../out/renderer/assets/open-sans-v27-latin-ext_latin-300-DTieoNve.woff           27.51 kB
+../../out/renderer/assets/KaTeX_Typewriter-Regular-D3Ib7_Hf.ttf                     27.56 kB
+../../out/renderer/assets/KaTeX_AMS-Regular-BQhdFMY1.woff2                          28.08 kB
+../../out/renderer/assets/open-sans-v27-latin-ext_latin-700italic-DzZlWHPZ.woff     28.24 kB
+../../out/renderer/assets/open-sans-v27-latin-ext_latin-600italic-CIGWgbg2.woff     29.18 kB
+../../out/renderer/assets/open-sans-v27-latin-ext_latin-italic-BmVSf_Kp.woff        29.26 kB
+../../out/renderer/assets/open-sans-v27-latin-ext_latin-300italic-BCC05tlX.woff     29.34 kB
+../../out/renderer/assets/KaTeX_Main-Bold-Jm3AIy58.woff                             29.91 kB
+../../out/renderer/assets/KaTeX_Main-Regular-Dr94JaBh.woff                          30.77 kB
+../../out/renderer/assets/KaTeX_Math-BoldItalic-B3XSjfu4.ttf                        31.20 kB
+../../out/renderer/assets/KaTeX_Math-Italic-flOr_0UB.ttf                            31.31 kB
+../../out/renderer/assets/KaTeX_Main-BoldItalic-DzxPMmG6.ttf                        32.97 kB
+../../out/renderer/assets/KaTeX_AMS-Regular-DMm9YOAa.woff                           33.52 kB
+../../out/renderer/assets/KaTeX_Main-Italic-3WenGoN9.ttf                            33.58 kB
+../../out/renderer/assets/danielbd-Sc2OleZc.woff2                                   33.74 kB
+../../out/renderer/assets/danielbd-CDQc3XXc.woff                                    38.30 kB
+../../out/renderer/assets/KaTeX_Main-Bold-waoOVXN0.ttf                              51.34 kB
+../../out/renderer/assets/devopicons-JYBX4xNv.woff2                                 52.08 kB
+../../out/renderer/assets/KaTeX_Main-Regular-ypZvNtVU.ttf                           53.58 kB
+../../out/renderer/assets/KaTeX_AMS-Regular-DRggAlZN.ttf                            63.63 kB
+../../out/renderer/assets/fontawesome-B-jkhYfk.woff2                                77.16 kB
+../../out/renderer/assets/file-icons-Cd86kU_R.woff2                                208.14 kB
+../../out/renderer/assets/DejaVuSansMono-Oblique-dUWXtG9a.ttf                      251.93 kB
+../../out/renderer/assets/DejaVuSansMono-BoldOblique-BX884Ge1.ttf                  253.58 kB
+../../out/renderer/assets/DejaVuSansMono-Bold-DvCRqGUw.ttf                         331.99 kB
+../../out/renderer/assets/DejaVuSansMono-BpbqSJXz.ttf                              340.71 kB
+../../out/renderer/assets/shadowDocumentAuthority.worker-DHlVHRkf.js               785.20 kB
+../../out/renderer/assets/coreDocumentAuthority.worker-B_VAXP1U.js                 861.46 kB
+../../out/renderer/assets/index-BSg95PDa.css                                         0.36 kB
+../../out/renderer/assets/index-CvpSrO6U.css                                       690.46 kB
+../../out/renderer/assets/prism-t4-vb-DT5uYwli.js                                    0.08 kB
+../../out/renderer/assets/prism-t4-vb.min-DT5uYwli.js                                0.08 kB
+../../out/renderer/assets/prism-csv.min-BY9L7ekD.js                                  0.09 kB
+../../out/renderer/assets/prism-csv-DtRQBrS5.js                                      0.09 kB
+../../out/renderer/assets/prism-t4-cs-BfwT1Dui.js                                    0.10 kB
+../../out/renderer/assets/prism-t4-cs.min-BfwT1Dui.js                                0.10 kB
+../../out/renderer/assets/prism-hsts.min-Ds05KAdV.js                                 0.16 kB
+../../out/renderer/assets/prism-hsts-C8WIvR4N.js                                     0.18 kB
+../../out/renderer/assets/channel-iG61DumD.js                                        0.20 kB
+../../out/renderer/assets/prism-hpkp.min-EyfN_FCN.js                                 0.20 kB
+../../out/renderer/assets/colors-DAbZ0KZY.js                                         0.21 kB
+../../out/renderer/assets/prism-arff.min-CTZTO1Ck.js                                 0.21 kB
+../../out/renderer/assets/prism-hpkp-ByEVwjeQ.js                                     0.22 kB
+../../out/renderer/assets/prism-cilkc.min-DJA6LTUm.js                                0.22 kB
+../../out/renderer/assets/prism-jsonp.min-FTp83Hdk.js                                0.22 kB
+../../out/renderer/assets/prism-jsonp-CHQgPz4w.js                                    0.23 kB
+../../out/renderer/assets/prism-cilkc-Cokw2fqI.js                                    0.24 kB
+../../out/renderer/assets/prism-arff-B5FhS-Zk.js                                     0.24 kB
+../../out/renderer/assets/prism-gcode.min-CoPT5HuQ.js                                0.25 kB
+../../out/renderer/assets/prism-git.min-DJZf19Ep.js                                  0.26 kB
+../../out/renderer/assets/prism-brainfuck.min-Wfvpfmt3.js                            0.26 kB
+../../out/renderer/assets/prism-nand2tetris-hdl.min-BijnLa4u.js                      0.28 kB
+../../out/renderer/assets/prism-cilkcpp.min-DM1vITn0.js                              0.28 kB
+../../out/renderer/assets/prism-cilkcpp-D_avfaWA.js                                  0.30 kB
+../../out/renderer/assets/prism-nand2tetris-hdl-DfkwxqFi.js                          0.31 kB
+../../out/renderer/assets/prism-gcode-COZE9Fq8.js                                    0.31 kB
+../../out/renderer/assets/prism-racket.min-BZI_-bJU.js                               0.32 kB
+../../out/renderer/assets/prism-brainfuck-5ZqvqfAw.js                                0.33 kB
+../../out/renderer/assets/prism-properties.min-B_BNqh5O.js                           0.33 kB
+../../out/renderer/assets/prism-bnf.min-7cdstS58.js                                  0.34 kB
+../../out/renderer/assets/prism-yang.min-CNkhAKJK.js                                 0.34 kB
+../../out/renderer/assets/prism-tsx.min-DBNtNt51.js                                  0.34 kB
+../../out/renderer/assets/range-Bs5oKbOs.js                                          0.35 kB
+../../out/renderer/assets/chunk-4BX2VUAB-BdsRuw7v.js                                 0.37 kB
+../../out/renderer/assets/prism-properties-VzXTXAB6.js                               0.37 kB
+../../out/renderer/assets/chunk-QZHKN3VN-8uIqHyha.js                                 0.38 kB
+../../out/renderer/assets/prism-prolog.min-DTM2Gi0-.js                               0.38 kB
+../../out/renderer/assets/prism-xml-doc.min-DZN8dOxl.js                              0.38 kB
+../../out/renderer/assets/prism-ignore.min-DVy_oB87.js                               0.39 kB
+../../out/renderer/assets/prism-editorconfig.min-CMFCXm1l.js                         0.40 kB
+../../out/renderer/assets/prism-bnf-DHCnFK50.js                                      0.41 kB
+../../out/renderer/assets/prism-ebnf.min-CzYu5Eeb.js                                 0.42 kB
+../../out/renderer/assets/prism-false.min-B3uDYZC_.js                                0.42 kB
+../../out/renderer/assets/prism-tap.min-C2EujLVK.js                                  0.42 kB
+../../out/renderer/assets/prism-tsx-CoCIzzee.js                                      0.43 kB
+../../out/renderer/assets/chunk-FMBD7UC4-DxmGLPmt.js                                 0.43 kB
+../../out/renderer/assets/prism-etlua.min-WxvdOOc7.js                                0.44 kB
+../../out/renderer/assets/prism-json5.min-BBNf6IrF.js                                0.45 kB
+../../out/renderer/assets/prism-matlab.min-CFmR_AZa.js                               0.46 kB
+../../out/renderer/assets/chunk-55IACEB6-D8E6bbWz.js                                 0.48 kB
+../../out/renderer/assets/prism-ebnf-DUggLhJX.js                                     0.49 kB
+../../out/renderer/assets/prism-tap-B1f6f2IO.js                                      0.49 kB
+../../out/renderer/assets/prism-bbcode.min-Db7r-yKn.js                               0.50 kB
+../../out/renderer/assets/prism-roboconf.min-BiMHbCOp.js                             0.51 kB
+../../out/renderer/assets/prism-json.min-Cdtv-CME.js                                 0.51 kB
+../../out/renderer/assets/prism-racket-CtU0Hepg.js                                   0.51 kB
+../../out/renderer/assets/prism-yang-cww8ANOE.js                                     0.52 kB
+../../out/renderer/assets/prism-ejs.min-g8c3s2Zn.js                                  0.52 kB
+../../out/renderer/assets/prism-hoon.min-BwP3mKl9.js                                 0.52 kB
+../../out/renderer/assets/prism-processing.min-D8OokYqe.js                           0.52 kB
+../../out/renderer/assets/prism-linker-script.min-DNUYuhj0.js                        0.55 kB
+../../out/renderer/assets/prism-etlua-Bzxp8WHm.js                                    0.56 kB
+../../out/renderer/assets/prism-false-CZFqj5qm.js                                    0.56 kB
+../../out/renderer/assets/prism-erb.min-YzVcgAIG.js                                  0.56 kB
+../../out/renderer/assets/prism-hoon-CYbA_Rlm.js                                     0.56 kB
+../../out/renderer/assets/prism-r.min-CLP8XxqY.js                                    0.56 kB
+../../out/renderer/assets/prism-jexl.min-AD-pLgkF.js                                 0.56 kB
+../../out/renderer/assets/prism-matlab-CXwxypao.js                                   0.56 kB
+../../out/renderer/assets/prism-gedcom.min-D8RIscbK.js                               0.57 kB
+../../out/renderer/assets/prism-ignore-CqcM-Nrv.js                                   0.57 kB
+../../out/renderer/assets/prism-json5-pSVSe_R4.js                                    0.58 kB
+../../out/renderer/assets/prism-json-DIMpow89.js                                     0.59 kB
+../../out/renderer/assets/prism-llvm.min-CuPmS-bn.js                                 0.59 kB
+../../out/renderer/assets/prism-roboconf-DuJssALN.js                                 0.60 kB
+../../out/renderer/assets/prism-editorconfig-gbXLJ-pb.js                             0.60 kB
+../../out/renderer/assets/prism-jexl-pLeEfVk1.js                                     0.61 kB
+../../out/renderer/assets/prism-gettext.min-ClPdMzWl.js                              0.62 kB
+../../out/renderer/assets/prism-birb.min-Cgab7KcI.js                                 0.62 kB
+../../out/renderer/assets/prism-lua.min-B8ujSUB5.js                                  0.63 kB
+../../out/renderer/assets/prism-linker-script-DFcMo1C5.js                            0.63 kB
+../../out/renderer/assets/prism-rego.min-CwU3ddcf.js                                 0.64 kB
+../../out/renderer/assets/prism-processing-B0EvXgjt.js                               0.65 kB
+../../out/renderer/assets/prism-ejs-CBILxNVP.js                                      0.65 kB
+../../out/renderer/assets/prism-warpscript.min-D1HclJQM.js                           0.65 kB
+../../out/renderer/assets/prism-bison.min-Bmwl8plt.js                                0.66 kB
+../../out/renderer/assets/prism-xml-doc-BhkyNlar.js                                  0.66 kB
+../../out/renderer/assets/prism-ini.min-BSn_2WG-.js                                  0.68 kB
+../../out/renderer/assets/prism-llvm-p_TWlBhQ.js                                     0.69 kB
+../../out/renderer/assets/prism-erb-ApsO7nJz.js                                      0.69 kB
+../../out/renderer/assets/stateDiagram-v2-BHNVJYJU-BmsRAtaU.js                       0.70 kB
+../../out/renderer/assets/prism-prolog-BOv-bt4h.js                                   0.70 kB
+../../out/renderer/assets/prism-bbcode-C83ft1oK.js                                   0.71 kB
+../../out/renderer/assets/prism-r-DGBa-Akq.js                                        0.71 kB
+../../out/renderer/assets/prism-diff.min-D2FcJ5Hw.js                                 0.71 kB
+../../out/renderer/assets/prism-objectivec.min-CY4WGixz.js                           0.71 kB
+../../out/renderer/assets/prism-smalltalk.min-Bn4hW_Bl.js                            0.71 kB
+../../out/renderer/assets/init-CTO7spbL.js                                           0.72 kB
+../../out/renderer/assets/prism-objectivec-aFtXsEkG.js                               0.73 kB
+../../out/renderer/assets/prism-rego-D1K0TwCd.js                                     0.73 kB
+../../out/renderer/assets/prism-birb-DaPichY_.js                                     0.75 kB
+../../out/renderer/assets/prism-less.min-DHvsecO2.js                                 0.75 kB
+../../out/renderer/assets/prism-t4-templating.min-_TxdKd6i.js                        0.76 kB
+../../out/renderer/assets/prism-awk.min-C_Mqr5y9.js                                  0.77 kB
+../../out/renderer/assets/prism-gedcom-BglYTZ3p.js                                   0.77 kB
+../../out/renderer/assets/prism-clike.min-SSiIRWzS.js                                0.77 kB
+../../out/renderer/assets/classDiagram-4FO5ZUOK-CnY9C8Bi.js                          0.78 kB
+../../out/renderer/assets/classDiagram-v2-Q7XG4LA2-CnY9C8Bi.js                       0.78 kB
+../../out/renderer/assets/prism-solution-file.min-BXQRRgYv.js                        0.78 kB
+../../out/renderer/assets/prism-ichigojam.min-CGiBQQXT.js                            0.78 kB
+../../out/renderer/assets/prism-lua-B5lcJukw.js                                      0.79 kB
+../../out/renderer/assets/prism-gettext-NvlFX_53.js                                  0.81 kB
+../../out/renderer/assets/prism-ichigojam-BptKwOWm.js                                0.83 kB
+../../out/renderer/assets/prism-systemd.min-CXwTvFKh.js                              0.83 kB
+../../out/renderer/assets/prism-apl.min-BPRB7nN-.js                                  0.83 kB
+../../out/renderer/assets/prism-openqasm.min-BI9R0wzJ.js                             0.83 kB
+../../out/renderer/assets/prism-rip.min-DDl6zUKj.js                                  0.84 kB
+../../out/renderer/assets/prism-erlang.min-aL24eJKL.js                               0.84 kB
+../../out/renderer/assets/prism-jsstacktrace.min-Wj-Rzr9X.js                         0.84 kB
+../../out/renderer/assets/prism-firestore-security-rules.min-BAvaCu_b.js             0.84 kB
+../../out/renderer/assets/prism-nginx.min-D-lCzNI4.js                                0.84 kB
+../../out/renderer/assets/prism-awk-DXLsBCKY.js                                      0.86 kB
+../../out/renderer/assets/prism-smalltalk-CDcP-5Pv.js                                0.86 kB
+../../out/renderer/assets/xml-Dx5vyza5.js                                            0.87 kB
+../../out/renderer/assets/prism-j.min-ZCDD-4b5.js                                    0.87 kB
+../../out/renderer/assets/prism-actionscript.min-Cet5oRPh.js                         0.88 kB
+../../out/renderer/assets/prism-openqasm-DiVix-IY.js                                 0.89 kB
+../../out/renderer/assets/prism-dns-zone-file.min-BVWgMz3j.js                        0.89 kB
+../../out/renderer/assets/prism-autoit.min-lftULeNA.js                               0.89 kB
+../../out/renderer/assets/prism-clike-DA8B1sRJ.js                                    0.90 kB
+../../out/renderer/assets/css-CROVxkMu.js                                            0.90 kB
+../../out/renderer/assets/pug-Bn6YcIv2.js                                            0.90 kB
+../../out/renderer/assets/prism-pcaxis.min-Cx6Tvwys.js                               0.91 kB
+../../out/renderer/assets/ruby-Cc1bOzCT.js                                           0.91 kB
+../../out/renderer/assets/sass-DFJ3ElEb.js                                           0.91 kB
+../../out/renderer/assets/yaml-B1ejGBN8.js                                           0.91 kB
+../../out/renderer/assets/prism-asm6502.min-DZDyd22Q.js                              0.92 kB
+../../out/renderer/assets/prism-bbj.min-DVJWKGVF.js                                  0.92 kB
+../../out/renderer/assets/prism-supercollider.min-BmjVnaqY.js                        0.92 kB
+../../out/renderer/assets/clike-BFRTg30s.js                                          0.92 kB
+../../out/renderer/assets/prism-actionscript-Dgu0fvfj.js                             0.93 kB
+../../out/renderer/assets/prism-parigp.min-DsSg0Jcr.js                               0.93 kB
+../../out/renderer/assets/python-KUbDMf7A.js                                         0.93 kB
+../../out/renderer/assets/stylus-B6UL-jKu.js                                         0.93 kB
+../../out/renderer/assets/prism-rip-D0_J18r1.js                                      0.94 kB
+../../out/renderer/assets/prism-apl-Cb86XdDo.js                                      0.94 kB
+../../out/renderer/assets/prism-warpscript-CqpgL2J7.js                               0.94 kB
+../../out/renderer/assets/prism-dataweave.min-Bl8UXyel.js                            0.94 kB
+../../out/renderer/assets/prism-monkey.min-DGVe6HdD.js                               0.94 kB
+../../out/renderer/assets/prism-ada.min-n3O-njJw.js                                  0.94 kB
+../../out/renderer/assets/haskell-kh3ntYg-.js                                        0.94 kB
+../../out/renderer/assets/prism-gdscript.min-X7ZQ8MpX.js                             0.96 kB
+../../out/renderer/assets/prism-twig.min-zRVPanxr.js                                 0.96 kB
+../../out/renderer/assets/htmlmixed-Bw-VkKgP.js                                      0.96 kB
+../../out/renderer/assets/handlebars-z3TvxIhY.js                                     0.97 kB
+../../out/renderer/assets/javascript-xjqIcQwL.js                                     0.97 kB
+../../out/renderer/assets/prism-flow.min-CaMf6S3J.js                                 0.98 kB
+../../out/renderer/assets/prism-handlebars.min-C3IQDmkT.js                           0.99 kB
+../../out/renderer/assets/prism-sparql.min-B5FRQfXx.js                               0.99 kB
+../../out/renderer/assets/prism-shell-session.min-B42ihx60.js                        0.99 kB
+../../out/renderer/assets/coffeescript-BgCBPXtt.js                                   0.99 kB
+../../out/renderer/assets/prism-makefile.min-BLMCwWQB.js                             1.00 kB
+../../out/renderer/assets/prism-ini-CJklyAZw.js                                      1.00 kB
+../../out/renderer/assets/prism-asm6502-BV4TwMeF.js                                  1.01 kB
+../../out/renderer/assets/prism-abnf.min-DOi6iZu9.js                                 1.01 kB
+../../out/renderer/assets/prism-go.min-UazbPSKY.js                                   1.01 kB
+../../out/renderer/assets/prism-turtle.min-C8XAKOt4.js                               1.01 kB
+../../out/renderer/assets/infoDiagram-5YYISTIA-Rr3-0Qky.js                           1.02 kB
+../../out/renderer/assets/prism-bbj-B2HvMJvj.js                                      1.02 kB
+../../out/renderer/assets/prism-supercollider-UtYbzz_Q.js                            1.02 kB
+../../out/renderer/assets/prism-ada-4kBdVf2C.js                                      1.03 kB
+../../out/renderer/assets/prism-monkey-DYSpieND.js                                   1.03 kB
+../../out/renderer/assets/prism-j-RzY5yiu8.js                                        1.04 kB
+../../out/renderer/assets/prism-sparql-BbKXCXhq.js                                   1.04 kB
+../../out/renderer/assets/prism-qore.min-De0KHNYQ.js                                 1.05 kB
+../../out/renderer/assets/prism-toml.min-Ci9y3932.js                                 1.06 kB
+../../out/renderer/assets/prism-less-BxCGAUxc.js                                     1.06 kB
+../../out/renderer/assets/prism-protobuf.min-ChrzrYCR.js                             1.06 kB
+../../out/renderer/assets/prism-firestore-security-rules-BetCyaHK.js                 1.06 kB
+../../out/renderer/assets/prism-mizar.min-B8y-Uoyd.js                                1.07 kB
+../../out/renderer/assets/chunk-2J33WTMH-C7zkRux9.js                                 1.07 kB
+../../out/renderer/assets/prism-keyman.min-DElK2pjW.js                               1.08 kB
+../../out/renderer/assets/prism-avro-idl.min-CWBV-ipv.js                             1.09 kB
+../../out/renderer/assets/prism-excel-formula.min-BK3B9PMC.js                        1.09 kB
+../../out/renderer/assets/prism-jsstacktrace-B5zF8Hts.js                             1.10 kB
+../../out/renderer/assets/prism-neon.min-Dhndfyov.js                                 1.10 kB
+../../out/renderer/assets/prism-cypher.min-D3w30vG8.js                               1.10 kB
+../../out/renderer/assets/prism-glsl.min-1i2xNTKf.js                                 1.10 kB
+../../out/renderer/assets/prism-javadoclike.min-CKk8MRIG.js                          1.11 kB
+../../out/renderer/assets/prism-mizar-Bstgyfyd.js                                    1.11 kB
+../../out/renderer/assets/prism-glsl-CZvLwXfL.js                                     1.11 kB
+../../out/renderer/assets/prism-dns-zone-file-EzJTkhZP.js                            1.11 kB
+../../out/renderer/assets/prism-makefile-DqvneL7W.js                                 1.11 kB
+../../out/renderer/assets/prism-bison-CX7roo2a.js                                    1.11 kB
+../../out/renderer/assets/prism-autoit-DI5GkceJ.js                                   1.12 kB
+../../out/renderer/assets/prism-twig-D9OtIAxD.js                                     1.12 kB
+../../out/renderer/assets/prism-vhdl.min-WUUvpblj.js                                 1.13 kB
+../../out/renderer/assets/prism-gap.min-CDAxkUvS.js                                  1.13 kB
+../../out/renderer/assets/prism-latex.min-BQ9O3QB0.js                                1.13 kB
+../../out/renderer/assets/prism-erlang-Dp9da02N.js                                   1.14 kB
+../../out/renderer/assets/prism-aql.min-Dsm9-Nk1.js                                  1.14 kB
+../../out/renderer/assets/prism-gn.min-f948z2wm.js                                   1.15 kB
+../../out/renderer/assets/prism-xojo.min-DYe6Vrp6.js                                 1.16 kB
+../../out/renderer/assets/prism-qore-DmztIWHc.js                                     1.16 kB
+../../out/renderer/assets/prism-dataweave-5HhFGMps.js                                1.17 kB
+../../out/renderer/assets/prism-flow-B3YNC1yh.js                                     1.17 kB
+../../out/renderer/assets/prism-brightscript.min-Bwp2fFIZ.js                         1.18 kB
+../../out/renderer/assets/prism-squirrel.min-Dw0TY2-F.js                             1.18 kB
+../../out/renderer/assets/prism-aspnet.min-DV9-0qVI.js                               1.19 kB
+../../out/renderer/assets/prism-latte.min-BiLB31Gm.js                                1.19 kB
+../../out/renderer/assets/prism-go-BnksvKsK.js                                       1.19 kB
+../../out/renderer/assets/prism-solution-file-DVKDL5NZ.js                            1.19 kB
+../../out/renderer/assets/prism-nim.min-C5rZl6V4.js                                  1.22 kB
+../../out/renderer/assets/prism-sass.min-BMijmygU.js                                 1.22 kB
+../../out/renderer/assets/prism-handlebars-DjfA-wSM.js                               1.23 kB
+../../out/renderer/assets/prism-xojo-Bl2mRD02.js                                     1.23 kB
+../../out/renderer/assets/prism-neon-BSkpFdN1.js                                     1.23 kB
+../../out/renderer/assets/prism-avro-idl-dlA9FGj-.js                                 1.23 kB
+../../out/renderer/assets/prism-pcaxis-C9hYKlIa.js                                   1.23 kB
+../../out/renderer/assets/prism-gdscript-C9J6yRAk.js                                 1.25 kB
+../../out/renderer/assets/prism-mata.min-B15k91IE.js                                 1.25 kB
+../../out/renderer/assets/prism-diff-0u1XMHLK.js                                     1.26 kB
+../../out/renderer/assets/prism-turtle-hHXZDBVp.js                                   1.26 kB
+../../out/renderer/assets/prism-lolcode.min-B2tfPvSR.js                              1.26 kB
+../../out/renderer/assets/prism-nginx-BmuJjKQL.js                                    1.28 kB
+../../out/renderer/assets/prism-tt2.min-Dtws6zFL.js                                  1.28 kB
+../../out/renderer/assets/prism-t4-templating-CeECElaD.js                            1.29 kB
+../../out/renderer/assets/prism-django.min-skpeZlMJ.js                               1.29 kB
+../../out/renderer/assets/prism-wiki.min-Cy94-ntC.js                                 1.30 kB
+../../out/renderer/assets/prism-fortran.min-DuaKNSo6.js                              1.32 kB
+../../out/renderer/assets/prism-protobuf-Ou9qYRhp.js                                 1.32 kB
+../../out/renderer/assets/prism-abnf-Dw2vAl1s.js                                     1.32 kB
+../../out/renderer/assets/prism-uri.min-CpIG9LI_.js                                  1.33 kB
+../../out/renderer/assets/prism-antlr4.min-DILeY1VH.js                               1.33 kB
+../../out/renderer/assets/prism-squirrel-CzltGDiN.js                                 1.33 kB
+../../out/renderer/assets/prism-aspnet-__r5I4zy.js                                   1.34 kB
+../../out/renderer/assets/prism-dot.min-ChicougN.js                                  1.34 kB
+../../out/renderer/assets/prism-gap-C8HMmBQR.js                                      1.35 kB
+../../out/renderer/assets/prism-nix.min-Bn-zFs_m.js                                  1.35 kB
+../../out/renderer/assets/prism-dhall.min-RwNZKn9y.js                                1.36 kB
+../../out/renderer/assets/prism-armasm.min-dDnUDBER.js                               1.36 kB
+../../out/renderer/assets/prism-css.min-pfkH03yf.js                                  1.37 kB
+../../out/renderer/assets/prism-keyman-Cfe2_9uy.js                                   1.38 kB
+../../out/renderer/assets/prism-iecst.min-C8zC7aku.js                                1.38 kB
+../../out/renderer/assets/prism-promql.min-DMTLf0tf.js                               1.38 kB
+../../out/renderer/assets/prism-lilypond.min--wfyvzyY.js                             1.38 kB
+../../out/renderer/assets/prism-velocity.min-oReNzbUZ.js                             1.38 kB
+../../out/renderer/assets/prism-brightscript-i7bKX6Tw.js                             1.38 kB
+../../out/renderer/assets/prism-aql-VWXmp65c.js                                      1.39 kB
+../../out/renderer/assets/prism-vhdl-DzvMIeDz.js                                     1.39 kB
+../../out/renderer/assets/prism-cypher-CIN3yUvM.js                                   1.40 kB
+../../out/renderer/assets/prism-toml-Ubdq-a5x.js                                     1.40 kB
+../../out/renderer/assets/prism-parigp-Cu_lng1j.js                                   1.42 kB
+../../out/renderer/assets/prism-bqn.min-DieQIMn0.js                                  1.45 kB
+../../out/renderer/assets/prism-scala.min-DAMsrSDc.js                                1.47 kB
+../../out/renderer/assets/prism-regex.min-XwIClwCi.js                                1.47 kB
+../../out/renderer/assets/prism-wren.min-GquN8pGz.js                                 1.49 kB
+../../out/renderer/assets/prism-lolcode-CN9f00GQ.js                                  1.49 kB
+../../out/renderer/assets/prism-mata-DBLIlHBZ.js                                     1.50 kB
+../../out/renderer/assets/prism-gradle.min--yCoFTTf.js                               1.50 kB
+../../out/renderer/assets/prism-gn-CVJWCrFf.js                                       1.50 kB
+../../out/renderer/assets/prism-iecst-D7ZfLBej.js                                    1.51 kB
+../../out/renderer/assets/prism-pascaligo.min-CP4tyR_E.js                            1.51 kB
+../../out/renderer/assets/prism-smali.min-Qu3E8gle.js                                1.51 kB
+../../out/renderer/assets/prism-markup-templating.min-Cue36dXZ.js                    1.52 kB
+../../out/renderer/assets/prism-armasm-BZWqtTTk.js                                   1.53 kB
+../../out/renderer/assets/prism-tt2-BLWEOc9W.js                                      1.55 kB
+../../out/renderer/assets/prism-javadoc.min-DXhDR8n7.js                              1.57 kB
+../../out/renderer/assets/prism-coffeescript.min-DwuCnMY3.js                         1.57 kB
+../../out/renderer/assets/prism-php-extras.min-CZQb9WrS.js                           1.57 kB
+../../out/renderer/assets/prism-jsdoc.min-CaKxEEJc.js                                1.58 kB
+../../out/renderer/assets/prism-nix-sFet1th5.js                                      1.58 kB
+../../out/renderer/assets/prism-odin.min-B4sx-8WE.js                                 1.58 kB
+../../out/renderer/assets/prism-parser.min-Ci8RWqn9.js                               1.59 kB
+../../out/renderer/assets/prism-fortran-DL_LJTOs.js                                  1.59 kB
+../../out/renderer/assets/prism-php-extras-lASywwAI.js                               1.59 kB
+../../out/renderer/assets/prism-kusto.min-Bb_tamdz.js                                1.60 kB
+../../out/renderer/assets/prism-qml.min-0qO-Ez_E.js                                  1.60 kB
+../../out/renderer/assets/prism-stan.min-D9v_RxNS.js                                 1.62 kB
+../../out/renderer/assets/prism-django-CL-_IKs6.js                                   1.62 kB
+../../out/renderer/assets/prism-bqn-TQykq7G6.js                                      1.64 kB
+../../out/renderer/assets/prism-sml.min-DlWN3gFY.js                                  1.67 kB
+../../out/renderer/assets/prism-hlsl.min-BnMUDQMg.js                                 1.67 kB
+../../out/renderer/assets/prism-go-module.min-DECS6kju.js                            1.67 kB
+../../out/renderer/assets/prism-cue.min-ysbLVA-U.js                                  1.68 kB
+../../out/renderer/assets/prism-tremor.min-DrFt7L93.js                               1.70 kB
+../../out/renderer/assets/prism-antlr4-BXEkGVDo.js                                   1.71 kB
+../../out/renderer/assets/prism-git-C8Ovyz0X.js                                      1.72 kB
+../../out/renderer/assets/prism-haxe.min-BJvrwd7C.js                                 1.72 kB
+../../out/renderer/assets/prism-dart.min-BqJoZx7g.js                                 1.72 kB
+../../out/renderer/assets/prism-go-module-DYDkc6Dv.js                                1.72 kB
+../../out/renderer/assets/prism-scala-8EW2VIiT.js                                    1.73 kB
+../../out/renderer/assets/prism-robotframework.min-oZh19GDQ.js                       1.73 kB
+../../out/renderer/assets/prism-groovy.min-Cao_RtUW.js                               1.73 kB
+../../out/renderer/assets/prism-latte-DdLntipK.js                                    1.74 kB
+../../out/renderer/assets/prism-n4js.min-DC25My9K.js                                 1.74 kB
+../../out/renderer/assets/prism-splunk-spl.min-DUQqIXQY.js                           1.74 kB
+../../out/renderer/assets/prism-docker.min-s4GbNUnX.js                               1.76 kB
+../../out/renderer/assets/prism-io.min-DCycQe6i.js                                   1.76 kB
+../../out/renderer/assets/prism-kumir.min-7V-nQg4C.js                                1.77 kB
+../../out/renderer/assets/prism-vbnet.min-MWkzGXL1.js                                1.77 kB
+../../out/renderer/assets/prism-bsl.min-OEGnbNyr.js                                  1.77 kB
+../../out/renderer/assets/prism-systemd-cJe6CX9o.js                                  1.78 kB
+../../out/renderer/assets/prism-kusto-epdi0sUa.js                                    1.78 kB
+../../out/renderer/assets/prism-stata.min-D4qZitpU.js                                1.78 kB
+../../out/renderer/assets/prism-q.min-DtvGXJE5.js                                    1.79 kB
+../../out/renderer/assets/prism-asmatmel.min-BCZbimfF.js                             1.81 kB
+../../out/renderer/assets/prism-soy.min-Bypgv-1t.js                                  1.81 kB
+../../out/renderer/assets/prism-dot-BrbHWGBw.js                                      1.83 kB
+../../out/renderer/assets/prism-gradle-3DkB04I1.js                                   1.83 kB
+../../out/renderer/assets/prism-io-RUNIeJgk.js                                       1.84 kB
+../../out/renderer/assets/prism-cooklang.min-Nw-ToAzf.js                             1.84 kB
+../../out/renderer/assets/prism-n1ql.min-CxqhP3SA.js                                 1.84 kB
+../../out/renderer/assets/prism-latex-BJwVk7x3.js                                    1.85 kB
+../../out/renderer/assets/prism-idris.min-YXGpeo9N.js                                1.85 kB
+../../out/renderer/assets/prism-batch.min-DCBWRFUt.js                                1.85 kB
+../../out/renderer/assets/prism-javadoclike-CUZlPEwI.js                              1.85 kB
+../../out/renderer/assets/prism-basic.min-Cmj5RH_U.js                                1.86 kB
+../../out/renderer/assets/prism-idris-DCo-QEx5.js                                    1.86 kB
+../../out/renderer/assets/prism-vbnet-CYBebgBn.js                                    1.87 kB
+../../out/renderer/assets/prism-excel-formula-e2aSzUPb.js                            1.87 kB
+../../out/renderer/assets/prism-phpdoc.min-BoAhvUvb.js                               1.87 kB
+../../out/renderer/assets/prism-unrealscript.min-DGvtY1Oq.js                         1.88 kB
+../../out/renderer/assets/prism-nasm.min-Cl-Nu34a.js                                 1.88 kB
+../../out/renderer/assets/prism-velocity-YbZ5et-m.js                                 1.89 kB
+../../out/renderer/assets/prism-sass-DClKx-HX.js                                     1.90 kB
+../../out/renderer/assets/prism-wiki-URko-ul0.js                                     1.90 kB
+../../out/renderer/assets/prism-n4js-BH1KvNuH.js                                     1.91 kB
+../../out/renderer/assets/prism-css-B93tXdOU.js                                      1.91 kB
+../../out/renderer/assets/prism-uri-BqdVGg4P.js                                      1.92 kB
+../../out/renderer/assets/prism-basic-CvKuj0gD.js                                    1.92 kB
+../../out/renderer/assets/prism-agda.min-B95o414W.js                                 1.93 kB
+../../out/renderer/assets/prism-splunk-spl-CCD8O9Go.js                               1.94 kB
+../../out/renderer/assets/prism-asmatmel-2IvQif3m.js                                 1.94 kB
+../../out/renderer/assets/prism-nasm-BncwbQIx.js                                     1.95 kB
+../../out/renderer/assets/prism-nim-BfP838Cs.js                                      1.96 kB
+../../out/renderer/assets/prism-visual-basic.min-DasVL2uR.js                         1.96 kB
+../../out/renderer/assets/prism-smali-Cx_9MbuP.js                                    1.99 kB
+../../out/renderer/assets/prism-oz.min-Bg_4Mwnr.js                                   1.99 kB
+../../out/renderer/assets/diff-BpAwXEZV.js                                           1.99 kB
+../../out/renderer/assets/prism-qml-AId5TyhT.js                                      2.02 kB
+../../out/renderer/assets/prism-agda-Djg3ISyt.js                                     2.03 kB
+../../out/renderer/assets/prism-phpdoc-DVLJrepV.js                                   2.03 kB
+../../out/renderer/assets/prism-n1ql-DQlSOICS.js                                     2.03 kB
+../../out/renderer/assets/prism-c.min-Bx6t_Pi5.js                                    2.03 kB
+../../out/renderer/assets/prism-reason.min--IteDgjQ.js                               2.03 kB
+../../out/renderer/assets/prism-powerquery.min-CcA-YbRv.js                           2.05 kB
+../../out/renderer/assets/prism-pascaligo-ohG7wsdB.js                                2.05 kB
+../../out/renderer/assets/prism-visual-basic-BKuT5CXP.js                             2.05 kB
+../../out/renderer/assets/prism-ftl.min-Dnb0D7rg.js                                  2.07 kB
+../../out/renderer/assets/prism-kotlin.min-DuVz63On.js                               2.07 kB
+../../out/renderer/assets/prism-mel.min-pdlnimZZ.js                                  2.08 kB
+../../out/renderer/assets/prism-oz-D8a8_Epx.js                                       2.08 kB
+../../out/renderer/assets/prism-lilypond-CimDQLyA.js                                 2.08 kB
+../../out/renderer/assets/prism-xeora.min-Ci472QHQ.js                                2.08 kB
+../../out/renderer/assets/prism-unrealscript-DYWtrpyc.js                             2.09 kB
+../../out/renderer/assets/prism-wolfram.min-Bm6QACS-.js                              2.10 kB
+../../out/renderer/assets/prism-icon.min-DFUHgvPf.js                                 2.11 kB
+../../out/renderer/assets/prism-stata-DixCkk-P.js                                    2.12 kB
+../../out/renderer/assets/prism-parser-BKKtQy6k.js                                   2.14 kB
+../../out/renderer/assets/prism-vala.min-DdAgqFL5.js                                 2.15 kB
+../../out/renderer/assets/prism-cil.min-VVv7IfIn.js                                  2.15 kB
+../../out/renderer/assets/prism-icon-D4CSSHg7.js                                     2.15 kB
+../../out/renderer/assets/prism-promql-CKtI988j.js                                   2.15 kB
+../../out/renderer/assets/prism-eiffel.min-CPqSkHMu.js                               2.16 kB
+../../out/renderer/assets/prism-http.min-BMUkWvax.js                                 2.17 kB
+../../out/renderer/assets/prism-elm.min-CSipZgdt.js                                  2.20 kB
+../../out/renderer/assets/prism-qsharp.min-DM62aAg5.js                               2.20 kB
+../../out/renderer/assets/prism-tremor-C1D9ATYr.js                                   2.22 kB
+../../out/renderer/assets/prism-reason-8gpuk4eu.js                                   2.22 kB
+../../out/renderer/assets/prism-julia.min-xie06j2h.js                                2.22 kB
+../../out/renderer/assets/prism-powerquery-Dx6Az-Wq.js                               2.23 kB
+../../out/renderer/assets/prism-yaml.min-_2UAZ2UH.js                                 2.23 kB
+../../out/renderer/assets/prism-smarty.min-CmBKeShv.js                               2.23 kB
+../../out/renderer/assets/prism-powershell.min-Fddm_gza.js                           2.24 kB
+../../out/renderer/assets/prism-haxe-B0_TJ_Yu.js                                     2.24 kB
+../../out/renderer/assets/prism-cil-_1QEWNVS.js                                      2.25 kB
+../../out/renderer/assets/prism-hlsl-zYs9Lzgv.js                                     2.25 kB
+../../out/renderer/assets/prism-wolfram-DBnqJki7.js                                  2.26 kB
+../../out/renderer/assets/prism-naniscript.min-0YxrgVx9.js                           2.27 kB
+../../out/renderer/assets/prism-mermaid.min-D8vhgcTf.js                              2.27 kB
+../../out/renderer/assets/prism-liquid.min-DMtMQ44m.js                               2.28 kB
+../../out/renderer/assets/prism-bro.min-B3aaTJmk.js                                  2.29 kB
+../../out/renderer/assets/prism-coffeescript-Cwodd-Jd.js                             2.30 kB
+../../out/renderer/assets/prism-web-idl.min-BI7yNXEr.js                              2.30 kB
+../../out/renderer/assets/prism-mel-DUdwQzuU.js                                      2.31 kB
+../../out/renderer/assets/prism-solidity.min-Cd2nDNYn.js                             2.32 kB
+../../out/renderer/assets/prism-stan-B6M4AtG2.js                                     2.33 kB
+../../out/renderer/assets/prism-groovy-B1mCl562.js                                   2.33 kB
+../../out/renderer/assets/prism-solidity-5kBx0Wh5.js                                 2.34 kB
+../../out/renderer/assets/prism-jsdoc-q65U4lgI.js                                    2.34 kB
+../../out/renderer/assets/prism-magma.min-DRY-lQw2.js                                2.35 kB
+../../out/renderer/assets/prism-icu-message-format.min-_l84pbfp.js                   2.36 kB
+../../out/renderer/assets/prism-odin-DVO6yZNi.js                                     2.36 kB
+../../out/renderer/assets/prism-dhall-BhduszMX.js                                    2.37 kB
+../../out/renderer/assets/prism-bro-D6roZrIp.js                                      2.38 kB
+../../out/renderer/assets/prism-wasm.min-DuEqE0R-.js                                 2.40 kB
+../../out/renderer/assets/prism-csp.min-BUF7vNvh.js                                  2.40 kB
+../../out/renderer/assets/prism-ocaml.min-CoG3VnGM.js                                2.41 kB
+../../out/renderer/assets/haskell-literate-0l1Ib9T8.js                               2.42 kB
+../../out/renderer/assets/prism-jq.min-BkzxJhHG.js                                   2.44 kB
+../../out/renderer/assets/prism-dart-BXftn613.js                                     2.45 kB
+../../out/renderer/assets/prism-uorazor.min-B-V628ll.js                              2.48 kB
+../../out/renderer/assets/prism-sml-nq8dhoYR.js                                      2.48 kB
+../../out/renderer/assets/prism-cfscript.min-DkPgHdUa.js                             2.49 kB
+../../out/renderer/assets/prism-magma-D6PqBCvD.js                                    2.50 kB
+../../out/renderer/assets/prism-zig.min-DQGfLFCx.js                                  2.51 kB
+../../out/renderer/assets/prism-bsl-Bp7hYB4F.js                                      2.51 kB
+../../out/renderer/assets/prism-peoplecode.min-9n-Hla5h.js                           2.52 kB
+../../out/renderer/assets/prism-eiffel-CYBWVFBr.js                                   2.52 kB
+../../out/renderer/assets/prism-haml.min-Bm688i2K.js                                 2.52 kB
+../../out/renderer/assets/prism-chaiscript.min-CqYtEJDx.js                           2.53 kB
+../../out/renderer/assets/prism-wasm-BpXYa5Bt.js                                     2.54 kB
+../../out/renderer/assets/prism-robotframework-DDZFE1dn.js                           2.55 kB
+../../out/renderer/assets/prism-javadoc-BXSNRK8D.js                                  2.56 kB
+../../out/renderer/assets/prism-soy-DswB6NJ1.js                                      2.58 kB
+../../out/renderer/assets/prism-bicep.min-Chsn3Ato.js                                2.58 kB
+../../out/renderer/assets/handlebars-BSsKv8aE.js                                     2.59 kB
+../../out/renderer/assets/prism-scss.min-DA-uVlqZ.js                                 2.60 kB
+../../out/renderer/assets/prism-crystal.min-DtJLrAKf.js                              2.60 kB
+../../out/renderer/assets/prism-typescript.min-CoIgXduo.js                           2.63 kB
+../../out/renderer/assets/prism-hcl.min-DWLEWHqf.js                                  2.63 kB
+../../out/renderer/assets/prism-regex-BBFkDV6Q.js                                    2.64 kB
+../../out/renderer/assets/prism-uorazor-BLqXamZZ.js                                  2.65 kB
+../../out/renderer/assets/prism-plant-uml.min-D4CppR3W.js                            2.65 kB
+../../out/renderer/assets/prism-al.min-CbUXDP0j.js                                   2.66 kB
+../../out/renderer/assets/prism-vala-35ES7EKN.js                                     2.67 kB
+../../out/renderer/assets/prism-cue-n-8_Y_ev.js                                      2.69 kB
+../../out/renderer/assets/prism-log.min--YOLrkH-.js                                  2.70 kB
+../../out/renderer/assets/ordinal-2NgMzFk5.js                                        2.70 kB
+../../out/renderer/assets/prism-jolie.min-sEt426lc.js                                2.71 kB
+../../out/renderer/assets/htmlembedded-0jB4CzfO.js                                   2.71 kB
+../../out/renderer/assets/prism-tcl.min-BkSh5TN5.js                                  2.72 kB
+../../out/renderer/assets/prism-liquid-CSzhiXS5.js                                   2.72 kB
+../../out/renderer/assets/prism-typoscript.min-BqhgA8NI.js                           2.74 kB
+../../out/renderer/assets/prism-wren-tbyKHNsn.js                                     2.75 kB
+../../out/renderer/assets/prism-plsql.min-BSmHzLr8.js                                2.77 kB
+../../out/renderer/assets/prism-cfscript--eDbj5qa.js                                 2.77 kB
+../../out/renderer/assets/prism-yaml-DO0f9pf6.js                                     2.79 kB
+../../out/renderer/assets/prism-peoplecode-BE97M-vo.js                               2.79 kB
+../../out/renderer/assets/prism-c-DOSrN9VC.js                                        2.80 kB
+../../out/renderer/assets/prism-al-CaF2OWSS.js                                       2.80 kB
+../../out/renderer/assets/prism-docker-BMcKZo6Y.js                                   2.82 kB
+../../out/renderer/assets/prism-ocaml-CoQqD4-6.js                                    2.84 kB
+../../out/renderer/assets/prism-ftl-DjFIAwvr.js                                      2.85 kB
+../../out/renderer/assets/prism-batch-BHf6qzF6.js                                    2.87 kB
+../../out/renderer/assets/prism-q-D_6zuzWI.js                                        2.88 kB
+../../out/renderer/assets/prism-jolie-Ck0HpUpy.js                                    2.88 kB
+../../out/renderer/assets/prism-csp-DuWBPR6_.js                                      2.88 kB
+../../out/renderer/assets/prism-jsx.min-DiaXB7gz.js                                  2.89 kB
+../../out/renderer/assets/prism-rescript.min-Do5DFehr.js                             2.89 kB
+../../out/renderer/assets/prism-kumir-Do7uVj9t.js                                    2.90 kB
+../../out/renderer/assets/prism-kotlin-D1QOP8n3.js                                   2.90 kB
+../../out/renderer/assets/brainfuck-VureZUdO.js                                      2.91 kB
+../../out/renderer/assets/prism-maxscript.min-Dk4aQsxH.js                            2.93 kB
+../../out/renderer/assets/prism-cshtml.min-DNHowhM7.js                               2.93 kB
+../../out/renderer/assets/prism-tcl-B0653eA0.js                                      2.93 kB
+../../out/renderer/assets/prism-xeora-reiPiR_D.js                                    2.99 kB
+../../out/renderer/assets/prism-chaiscript-BOvSld5r.js                               3.01 kB
+../../out/renderer/assets/prism-jq-BldMpNan.js                                       3.01 kB
+../../out/renderer/assets/prism-javastacktrace.min-1qyfwTqC.js                       3.03 kB
+../../out/renderer/assets/prism-applescript.min-DUePKWQL.js                          3.04 kB
+../../out/renderer/assets/prism-crystal-Deu8RJ_t.js                                  3.05 kB
+../../out/renderer/assets/prism-plsql-B1z6AQ9V.js                                    3.06 kB
+../../out/renderer/assets/prism-julia-BKcarp0h.js                                    3.06 kB
+../../out/renderer/assets/prism-applescript-BSFy82VO.js                              3.10 kB
+../../out/renderer/assets/prism-clojure.min-QcCVu0jz.js                              3.11 kB
+../../out/renderer/assets/prism-hcl-BiL8LpkN.js                                      3.13 kB
+../../out/renderer/assets/prism-keep-markup-CNAn4zwj.js                              3.13 kB
+../../out/renderer/assets/prism-swift.min-E-5zAMQm.js                                3.13 kB
+../../out/renderer/assets/prism-shell-session-CGmIlV3W.js                            3.13 kB
+../../out/renderer/assets/prism-v.min-bDTlpf0y.js                                    3.13 kB
+../../out/renderer/assets/prism-coq.min-DbMOtN8v.js                                  3.16 kB
+../../out/renderer/assets/prism-elixir.min-Cb2Tc9yg.js                               3.18 kB
+../../out/renderer/assets/prism-markup.min-CqAYd5t3.js                               3.19 kB
+../../out/renderer/assets/prism-pug.min-CfzPTY-m.js                                  3.19 kB
+../../out/renderer/assets/prism-pascal.min-BIyLyrhC.js                               3.19 kB
+../../out/renderer/assets/prism-typescript-7PzYpfgB.js                               3.19 kB
+../../out/renderer/assets/prism-bicep-BPV0Ivf9.js                                    3.21 kB
+../../out/renderer/assets/prism-clojure-CN23pXqb.js                                  3.21 kB
+../../out/renderer/assets/prism-web-idl-CcLD-0tB.js                                  3.21 kB
+../../out/renderer/assets/prism-log-rD_M1ygd.js                                      3.22 kB
+../../out/renderer/assets/prism-rescript-Goe_fr7W.js                                 3.22 kB
+../../out/renderer/assets/prism-concurnas.min-BS62geYD.js                            3.23 kB
+../../out/renderer/assets/protobuf-Dk99TOQs.js                                       3.24 kB
+../../out/renderer/assets/prism-powershell-Cc94wT3Z.js                               3.24 kB
+../../out/renderer/assets/prism-graphql.min-frL__Ljm.js                              3.24 kB
+../../out/renderer/assets/prism-psl.min-CC4ItMFN.js                                  3.25 kB
+../../out/renderer/assets/prism-elm-BIIPbOzZ.js                                      3.29 kB
+../../out/renderer/assets/properties-2VHmr-EN.js                                     3.31 kB
+../../out/renderer/assets/prism-plant-uml-dLLq9PoS.js                                3.31 kB
+../../out/renderer/assets/prism-verilog.min-chj9ELJY.js                              3.32 kB
+../../out/renderer/assets/prism-mermaid-Cc4nCqXw.js                                  3.32 kB
+../../out/renderer/assets/prism-sql.min-CG_UVPIZ.js                                  3.33 kB
+../../out/renderer/assets/prism-nevod.min-CV7PCWWr.js                                3.34 kB
+../../out/renderer/assets/prism-d.min-Dc4NIzbF.js                                    3.36 kB
+../../out/renderer/assets/prism-livescript.min-BMIDcp_5.js                           3.36 kB
+../../out/renderer/assets/prism-smarty-BC1Ba7-q.js                                   3.37 kB
+../../out/renderer/assets/prism-psl-BgSLrtkt.js                                      3.38 kB
+../../out/renderer/assets/prism-moonscript.min-Dn7dgUTz.js                           3.38 kB
+../../out/renderer/assets/prism-apex.min-CXNPsaLL.js                                 3.39 kB
+../../out/renderer/assets/cmake-gqeX3NxE.js                                          3.39 kB
+../../out/renderer/assets/prism-qsharp-lH0296fV.js                                   3.42 kB
+../../out/renderer/assets/prism-python.min-Bw453LNE.js                               3.42 kB
+../../out/renderer/assets/prism-cooklang-C2kPEwT9.js                                 3.42 kB
+../../out/renderer/assets/prism-zig-0D9oBDmP.js                                      3.42 kB
+../../out/renderer/assets/prism-fsharp.min-DbeybnEm.js                               3.43 kB
+../../out/renderer/assets/prism-inform7.min-fSeflf_W.js                              3.47 kB
+../../out/renderer/assets/prism-perl.min-Be9MMsDM.js                                 3.48 kB
+../../out/renderer/assets/prism-css-extras.min-0HZPYOlq.js                           3.48 kB
+../../out/renderer/assets/prism-dax.min-Dzr3alQl.js                                  3.49 kB
+../../out/renderer/assets/asciiarmor-CzHVf_ud.js                                     3.49 kB
+../../out/renderer/assets/prism-sql-BGqCBMyJ.js                                      3.50 kB
+../../out/renderer/assets/troff-BCXHC3_E.js                                          3.52 kB
+../../out/renderer/assets/prism-concurnas-C0wUmMHX.js                                3.55 kB
+../../out/renderer/assets/prism-purescript.min-LoHTUYqH.js                           3.57 kB
+../../out/renderer/assets/prism-dax-kBkuHyQ6.js                                      3.58 kB
+../../out/renderer/assets/prism-coq-oydbkBJ8.js                                      3.58 kB
+../../out/renderer/assets/prism-markup-templating-iotg2sCU.js                        3.58 kB
+../../out/renderer/assets/prism-pure.min-B1_bJxxK.js                                 3.61 kB
+../../out/renderer/assets/yaml-frontmatter-0IyjyeJl.js                               3.61 kB
+../../out/renderer/assets/prism-wgsl.min-C7ve61a7.js                                 3.61 kB
+../../out/renderer/assets/prism-pascal-CPDmlTb5.js                                   3.63 kB
+../../out/renderer/assets/prism-maxscript-DJkSrQ4B.js                                3.65 kB
+../../out/renderer/assets/prism-verilog-B3MT2PL2.js                                  3.67 kB
+../../out/renderer/assets/prism-scss-DDSEHiMV.js                                     3.71 kB
+../../out/renderer/assets/prism-inform7-Bs6xRyk-.js                                  3.74 kB
+../../out/renderer/assets/chunk-ND2GUHAM-rEVqMvp2.js                                 3.75 kB
+../../out/renderer/assets/prism-naniscript-ks1kyYnQ.js                               3.76 kB
+../../out/renderer/assets/prism-mongodb.min-C7WP3oLC.js                              3.76 kB
+../../out/renderer/assets/prism-purebasic.min-B08xtp2p.js                            3.80 kB
+../../out/renderer/assets/solr-s_JOoHzU.js                                           3.82 kB
+../../out/renderer/assets/prism-nsis.min-DY2HIg6Q.js                                 3.83 kB
+../../out/renderer/assets/prism-moonscript-up6bBt4A.js                               3.83 kB
+../../out/renderer/assets/prism-fsharp-DleeLHwy.js                                   3.84 kB
+../../out/renderer/assets/prism-typoscript-jociH6Cb.js                               3.84 kB
+../../out/renderer/assets/toml-DI_AxGHJ.js                                           3.85 kB
+../../out/renderer/assets/vue-CBT17ytL.js                                            3.85 kB
+../../out/renderer/assets/prism-rust.min-DWkJyD_D.js                                 3.87 kB
+../../out/renderer/assets/prism-v-CmOXm2HG.js                                        3.87 kB
+../../out/renderer/assets/prism-wgsl-Doo9Zn00.js                                     3.88 kB
+../../out/renderer/assets/prism-python-BFHuOFTR.js                                   3.88 kB
+../../out/renderer/assets/prism-rest.min-Dbwly3Vz.js                                 3.89 kB
+../../out/renderer/assets/prism-textile.min-4MkobvdK.js                              3.90 kB
+../../out/renderer/assets/prism-nsis-B9ac3kdG.js                                     3.91 kB
+../../out/renderer/assets/prism-cpp.min-m70elWfb.js                                  3.92 kB
+../../out/renderer/assets/prism-arduino.min-BBvsBjsT.js                              3.94 kB
+../../out/renderer/assets/prism-arduino-Bj0nA5bS.js                                  3.95 kB
+../../out/renderer/assets/prism-haml-BfFi98kz.js                                     3.95 kB
+../../out/renderer/assets/prism-puppet.min-DAg0TpLS.js                               3.95 kB
+../../out/renderer/assets/prism-apex-Ac4Z5jUE.js                                     3.96 kB
+../../out/renderer/assets/prism-js-extras.min-WGHTjLfR.js                            3.96 kB
+../../out/renderer/assets/tornado-DjspZW8E.js                                        3.98 kB
+../../out/renderer/assets/prism-stylus.min-DSwChEWq.js                               3.99 kB
+../../out/renderer/assets/http-1W5SCA7j.js                                           4.03 kB
+../../out/renderer/assets/yaml-BCMz9N7G.js                                           4.07 kB
+../../out/renderer/assets/prism-http-CK3QC122.js                                     4.11 kB
+../../out/renderer/assets/prism-lisp.min-CN0Dz-yx.js                                 4.14 kB
+../../out/renderer/assets/prism-scheme.min-BiVz3oUJ.js                               4.16 kB
+../../out/renderer/assets/prism-java.min-BlEZrA06.js                                 4.17 kB
+../../out/renderer/assets/prism-purescript-B8zMaAJ5.js                               4.19 kB
+../../out/renderer/assets/spreadsheet-UvyL24-N.js                                    4.23 kB
+../../out/renderer/assets/prism-nevod-UG_4qFI6.js                                    4.24 kB
+../../out/renderer/assets/prism-haskell.min-CwYE5tWC.js                              4.25 kB
+../../out/renderer/assets/rust-CLT3yH9V.js                                           4.26 kB
+../../out/renderer/assets/prism-purebasic-CFKngVCJ.js                                4.28 kB
+../../out/renderer/assets/prism-elixir-DeYn_oqi.js                                   4.38 kB
+../../out/renderer/assets/prism-jsx-CQLt9aVu.js                                      4.41 kB
+../../out/renderer/assets/prism-icu-message-format-D-IHUDXz.js                       4.43 kB
+../../out/renderer/assets/prism-swift-DlBJsl0o.js                                    4.43 kB
+../../out/renderer/assets/prism-pure-DqMtQcvQ.js                                     4.46 kB
+../../out/renderer/assets/prism-arturo.min-bGNEtIKr.js                               4.49 kB
+../../out/renderer/assets/prism-d-CMr8b-HN.js                                        4.51 kB
+../../out/renderer/assets/factor-Bi2ttbDV.js                                         4.55 kB
+../../out/renderer/assets/prism-graphql-4-9rrAQl.js                                  4.55 kB
+../../out/renderer/assets/prism-livescript-DOcJnbL0.js                               4.63 kB
+../../out/renderer/assets/prism-metafont.min-jCyFq8Ay.js                             4.66 kB
+../../out/renderer/assets/pegjs-DLUp38rs.js                                          4.70 kB
+../../out/renderer/assets/prism-css-extras-CMXUu1J0.js                               4.74 kB
+../../out/renderer/assets/z80-z1HTMbcb.js                                            4.81 kB
+../../out/renderer/assets/prism-javascript.min-nyBmngjd.js                           4.83 kB
+../../out/renderer/assets/prism-asciidoc.min-WlYjQwCF.js                             4.85 kB
+../../out/renderer/assets/mbox-D2NHTBiR.js                                           4.86 kB
+../../out/renderer/assets/prism-pug-ByFziHA9.js                                      4.94 kB
+../../out/renderer/assets/rpm-xHZ-bYzb.js                                            5.00 kB
+../../out/renderer/assets/prism-ruby.min-DUjhyQGq.js                                 5.01 kB
+../../out/renderer/assets/prism-js-extras-DasTl3ug.js                                5.08 kB
+../../out/renderer/assets/prism-js-templates.min-DmXnwmDq.js                         5.09 kB
+../../out/renderer/assets/prism-markup-DfJYPYHA.js                                   5.15 kB
+../../out/renderer/assets/prism-cobol.min-BTAjMyS6.js                                5.19 kB
+../../out/renderer/assets/eiffel-BIYki12l.js                                         5.20 kB
+../../out/renderer/assets/prism-arturo-BRykOMEe.js                                   5.23 kB
+../../out/renderer/assets/prism-mongodb-Ci5RhkXg.js                                  5.23 kB
+../../out/renderer/assets/prism-metafont-DJILQjI1.js                                 5.23 kB
+../../out/renderer/assets/prism-rest-B9ocZ-gR.js                                     5.30 kB
+../../out/renderer/assets/prism-stylus-D5nJrLuM.js                                   5.30 kB
+../../out/renderer/assets/mumps-FfS7BjQd.js                                          5.32 kB
+../../out/renderer/assets/prism-haskell-BMJgyj85.js                                  5.40 kB
+../../out/renderer/assets/sieve-BylomRza.js                                          5.41 kB
+../../out/renderer/assets/prism-rust-CSg259Fv.js                                     5.43 kB
+../../out/renderer/assets/prism-cpp-CSh6eAMj.js                                      5.47 kB
+../../out/renderer/assets/pascal-BvK18DHK.js                                         5.47 kB
+../../out/renderer/assets/prism-renpy.min-Ds4nctL4.js                                5.49 kB
+../../out/renderer/assets/diagram-5GNKFQAL-CgA2uoSE.js                               5.49 kB
+../../out/renderer/assets/prism-cobol-0n2gN2g2.js                                    5.50 kB
+../../out/renderer/assets/prism-renpy-C3kSJswp.js                                    5.52 kB
+../../out/renderer/assets/multiplex-D38U84Z_.js                                      5.57 kB
+../../out/renderer/assets/mathematica-lBE-SnTk.js                                    5.60 kB
+../../out/renderer/assets/prism-xquery.min-CV02ufQA.js                               5.61 kB
+../../out/renderer/assets/twig-CdI3oRz4.js                                           5.63 kB
+../../out/renderer/assets/prism-java-DNG3vtAb.js                                     5.70 kB
+../../out/renderer/assets/prism-keepalived.min-CuhPVcV8.js                           5.76 kB
+../../out/renderer/assets/prism-perl-C9uDflDh.js                                     5.79 kB
+../../out/renderer/assets/prism-puppet-BQHkmiUQ.js                                   5.82 kB
+../../out/renderer/assets/wast-DZmwnyRL.js                                           5.88 kB
+../../out/renderer/assets/haml-BHI2Vtag.js                                           5.89 kB
+../../out/renderer/assets/tcl-ClaXs5X3.js                                            5.91 kB
+../../out/renderer/assets/dtd-B1kb5Jj4.js                                            5.94 kB
+../../out/renderer/assets/prism-keepalived-DVxSuoaO.js                               5.97 kB
+../../out/renderer/assets/smalltalk-BgJYP6RL.js                                      5.98 kB
+../../out/renderer/assets/prism-javastacktrace-BufTlbN2.js                           6.04 kB
+../../out/renderer/assets/turtle-K17d4K7I.js                                         6.05 kB
+../../out/renderer/assets/yacas-CyK92cPw.js                                          6.16 kB
+../../out/renderer/assets/jsx-NKuvHtTg.js                                            6.16 kB
+../../out/renderer/assets/fcl-BPiG5HB5.js                                            6.19 kB
+../../out/renderer/assets/prism-lisp-G4KyRqeo.js                                     6.19 kB
+../../out/renderer/assets/htmlmixed-PpIxgiXc.js                                      6.21 kB
+../../out/renderer/assets/pig-DjeiHdoA.js                                            6.21 kB
+../../out/renderer/assets/forth-BJ8-BWxH.js                                          6.26 kB
+../../out/renderer/assets/prism-markdown.min-DFnA2uEH.js                             6.26 kB
+../../out/renderer/assets/prism-scheme-Bz33XIzU.js                                   6.27 kB
+../../out/renderer/assets/dockerfile-BWVz1y02.js                                     6.34 kB
+../../out/renderer/assets/prism-cshtml-OiV1Qw0J.js                                   6.35 kB
+../../out/renderer/assets/apl-DyAlhuAP.js                                            6.38 kB
+../../out/renderer/assets/commonlisp-CRI7xxm6.js                                     6.40 kB
+../../out/renderer/assets/prism-javascript-DeC_17Pw.js                               6.42 kB
+../../out/renderer/assets/puppet-6Uab0bs8.js                                         6.43 kB
+../../out/renderer/assets/prism-bash.min-cGJIulYl.js                                 6.54 kB
+../../out/renderer/assets/prism-avisynth.min-BLFWfZso.js                             6.56 kB
+../../out/renderer/assets/dart-kIgf6JqS.js                                           6.58 kB
+../../out/renderer/assets/elm-CgRYqOZ9.js                                            6.60 kB
+../../out/renderer/assets/octave-CL4cGCvc.js                                         6.70 kB
+../../out/renderer/assets/prism-ruby-B2fwO9kd.js                                     6.83 kB
+../../out/renderer/assets/arc-QnfKPfHi.js                                            6.93 kB
+../../out/renderer/assets/velocity-Dp2YoyW4.js                                       7.23 kB
+../../out/renderer/assets/webidl-Bgz-GB7d.js                                         7.35 kB
+../../out/renderer/assets/ebnf-BQHqSjSv.js                                           7.35 kB
+../../out/renderer/assets/diagram-LMA3HP47-Bq3hPSk7.js                               7.38 kB
+../../out/renderer/assets/ntriples-B-7uKqYZ.js                                       7.39 kB
+../../out/renderer/assets/prism-xquery-D1fGQr74.js                                   7.44 kB
+../../out/renderer/assets/jinja2-C_wIwsLp.js                                         7.56 kB
+../../out/renderer/assets/shell-DcOh6yER.js                                          7.63 kB
+../../out/renderer/assets/prism-asciidoc-CJV-jAij.js                                 7.69 kB
+../../out/renderer/assets/mscgen-QKwMDgOx.js                                         7.73 kB
+../../out/renderer/assets/prism-abap.min-DdApH5YD.js                                 8.00 kB
+../../out/renderer/assets/modelica-BFQ1ONpI.js                                       8.06 kB
+../../out/renderer/assets/prism-php.min-C8IdkCks.js                                  8.14 kB
+../../out/renderer/assets/prism-csharp.min-DnQPihjN.js                               8.19 kB
+../../out/renderer/assets/r-Dn1_NR69.js                                              8.20 kB
+../../out/renderer/assets/smarty-DJXW-9xX.js                                         8.20 kB
+../../out/renderer/assets/vhdl-BVtbuQnK.js                                           8.23 kB
+../../out/renderer/assets/prism-apacheconf.min-BD8Ihk4V.js                           8.27 kB
+../../out/renderer/assets/cypher-BYyqa0oj.js                                         8.28 kB
+../../out/renderer/assets/go-DXk0LZDs.js                                             8.30 kB
+../../out/renderer/assets/oz-CA8JADBv.js                                             8.40 kB
+../../out/renderer/assets/prism-js-templates-eXx3y0tv.js                             8.43 kB
+../../out/renderer/assets/q-CqzRbF_w.js                                              8.47 kB
+../../out/renderer/assets/prism-apacheconf-D6VnB59g.js                               8.55 kB
+../../out/renderer/assets/ttcn-cfg-BJX_6wa7.js                                       8.56 kB
+../../out/renderer/assets/asn.1-DQckHh_c.js                                          8.59 kB
+../../out/renderer/assets/lua-BLxP4Kss.js                                            8.66 kB
+../../out/renderer/assets/tiddlywiki-DJ7IwpS8.js                                     8.68 kB
+../../out/renderer/assets/prism-abap-ERUNdoj5.js                                     8.71 kB
+../../out/renderer/assets/prism-textile-EG2RGhh_.js                                  8.84 kB
+../../out/renderer/assets/simple-D3cg1VCl.js                                         8.88 kB
+../../out/renderer/assets/prism-avisynth-qDbarr1S.js                                 9.03 kB
+../../out/renderer/assets/nsis-CsUGiN9h.js                                           9.19 kB
+../../out/renderer/assets/sparql-CywoIW-p.js                                         9.20 kB
+../../out/renderer/assets/d-Cym01UPu.js                                              9.21 kB
+../../out/renderer/assets/prism-gml-Bn7tdAKa.js                                      9.28 kB
+../../out/renderer/assets/prism-gml.min-Dyt9poqk.js                                  9.31 kB
+../../out/renderer/assets/prism-sas.min-Bh5X8HB8.js                                  9.32 kB
+../../out/renderer/assets/mirc-DTuE3VuH.js                                           9.37 kB
+../../out/renderer/assets/defaultLocale-olplAo2_.js                                  9.39 kB
+../../out/renderer/assets/prism-bash-vbqaw3JR.js                                     9.63 kB
+../../out/renderer/assets/livescript-pEGWd9Dl.js                                     9.79 kB
+../../out/renderer/assets/swift-CUJlCa_D.js                                          9.81 kB
+../../out/renderer/assets/pieDiagram-4H26LBE5-BwmPXJRl.js                            9.85 kB
+../../out/renderer/assets/prism-gherkin.min-CN7fCl87.js                              9.99 kB
+../../out/renderer/assets/vb-Dlm8dVUe.js                                            10.00 kB
+../../out/renderer/assets/prism-autohotkey.min-DMTJDmqe.js                          10.05 kB
+../../out/renderer/assets/index-3RfLpR5n.js                                         10.18 kB
+../../out/renderer/assets/prism-autohotkey-Dkqj34qZ.js                              10.22 kB
+../../out/renderer/assets/cobol-C67TrnKW.js                                         10.25 kB
+../../out/renderer/assets/prism-markdown-D-uFBkiz.js                                10.25 kB
+../../out/renderer/assets/ecl-S2mSrsVj.js                                           10.46 kB
+../../out/renderer/assets/groovy-BJi_SCxm.js                                        10.52 kB
+../../out/renderer/assets/prism-cmake.min-Mm9f55Tx.js                               10.53 kB
+../../out/renderer/assets/gas-Bxl8Hy6B.js                                           10.54 kB
+../../out/renderer/assets/tiki-BNtHky1t.js                                          10.58 kB
+../../out/renderer/assets/prism-gherkin-CMPYyXOQ.js                                 10.66 kB
+../../out/renderer/assets/prism-cmake-TRT0_E4D.js                                   10.67 kB
+../../out/renderer/assets/asterisk-CQUOBwHl.js                                      10.68 kB
+../../out/renderer/assets/diagram-2AECGRRQ-Dh_LP2CF.js                              10.90 kB
+../../out/renderer/assets/coffeescript-BihytXJS.js                                  11.13 kB
+../../out/renderer/assets/prism-factor.min-C7skaPA0.js                              11.16 kB
+../../out/renderer/assets/prism-opencl.min-B8pFqT60.js                              11.17 kB
+../../out/renderer/assets/ttcn-bLivB7M0.js                                          11.23 kB
+../../out/renderer/assets/mllike-Wszk9_MO.js                                        11.46 kB
+../../out/renderer/assets/prism-php-CNUf33As.js                                     11.62 kB
+../../out/renderer/assets/nginx-Cha0MrIv.js                                         11.67 kB
+../../out/renderer/assets/fortran-DdY4vHg3.js                                       11.68 kB
+../../out/renderer/assets/django-Bq7vuZvT.js                                        11.70 kB
+../../out/renderer/assets/haskell-BWe3-_mE.js                                       12.07 kB
+../../out/renderer/assets/dylan-QOZaQWY5.js                                         12.10 kB
+../../out/renderer/assets/linear-lnjT8lVG.js                                        12.12 kB
+../../out/renderer/assets/ruby-Cxqc7ej5.js                                          12.43 kB
+../../out/renderer/assets/prism-core.min-Co1w1X7c.js                                12.49 kB
+../../out/renderer/assets/prism-opencl-CSGHQwpd.js                                  12.50 kB
+../../out/renderer/assets/prism-sas-D6Nepr_Y.js                                     13.04 kB
+../../out/renderer/assets/sass-B7B9grQj.js                                          13.09 kB
+../../out/renderer/assets/scheme-ChHW-5IC.js                                        13.55 kB
+../../out/renderer/assets/prism-vim.min-CMSbDa2m.js                                 14.23 kB
+../../out/renderer/assets/prism-vim-k5pNVpAg.js                                     14.26 kB
+../../out/renderer/assets/julia-C1iYAI0J.js                                         14.31 kB
+../../out/renderer/assets/prism-csharp-BvD6tLZM.js                                  14.66 kB
+../../out/renderer/assets/sas-CuRnOhsx.js                                           14.83 kB
+../../out/renderer/assets/crystal-CrgHmX8Q.js                                       14.97 kB
+../../out/renderer/assets/gherkin-CcbWomvY.js                                       14.98 kB
+../../out/renderer/assets/powershell-CGuwjpOz.js                                    15.41 kB
+../../out/renderer/assets/vbscript-Bc97rR8_.js                                      15.56 kB
+../../out/renderer/assets/python-DPuQ010J.js                                        15.79 kB
+../../out/renderer/assets/textile-2kPoibix.js                                       16.42 kB
+../../out/renderer/assets/xquery-BoHl4ztn.js                                        17.91 kB
+../../out/renderer/assets/pug-DjSqR-zH.js                                           18.02 kB
+../../out/renderer/assets/stateDiagram-AJRCARHV-CLiQhYD8.js                         19.07 kB
+../../out/renderer/assets/rst-jGsCzmj2.js                                           19.39 kB
+../../out/renderer/assets/php-BOXMgk7m.js                                           19.66 kB
+../../out/renderer/assets/slim-BY9QI3vO.js                                          20.55 kB
+../../out/renderer/assets/prism-factor-CIEt3JJh.js                                  20.75 kB
+../../out/renderer/assets/haxe-BMNp6utt.js                                          21.31 kB
+../../out/renderer/assets/diagram-KO2AKTUF-iKnxYXF1.js                              21.60 kB
+../../out/renderer/assets/erlang-ARQtLus4.js                                        22.02 kB
+../../out/renderer/assets/diagram-OG6HWLK6-9AaKe-7h.js                              22.12 kB
+../../out/renderer/assets/idl-CM0MJWj9.js                                           22.26 kB
+../../out/renderer/assets/dagre-BM42HDAG-KHStLqfL.js                                22.95 kB
+../../out/renderer/assets/clojure-C07Yx73v.js                                       23.09 kB
+../../out/renderer/assets/soy-CChpLdSo.js                                           25.28 kB
+../../out/renderer/assets/verilog-h6T2lmku.js                                       25.92 kB
+../../out/renderer/assets/graph-CfBoQOJc.js                                         26.55 kB
+../../out/renderer/assets/prism-sqf.min-BJRj6Dz1.js                                 33.45 kB
+../../out/renderer/assets/prism-sqf-BXp2_IIB.js                                     33.57 kB
+../../out/renderer/assets/ishikawaDiagram-YF4QCWOH-DzBlM7iz.js                      35.10 kB
+../../out/renderer/assets/time-CpdOn5Do.js                                          36.57 kB
+../../out/renderer/assets/clike-AX-2sOkO.js                                         36.86 kB
+../../out/renderer/assets/prism-core-2X0CLJGL.js                                    37.81 kB
+../../out/renderer/assets/kanban-definition-UN3LZRKU-YWGSERBZ.js                    38.14 kB
+../../out/renderer/assets/perl-HvK4H8oJ.js                                          38.66 kB
+../../out/renderer/assets/mindmap-definition-RKZ34NQL-BCcFtKXU.js                   43.32 kB
+../../out/renderer/assets/stylus-BjEer4-Z.js                                        43.34 kB
+../../out/renderer/assets/wardleyDiagram-YWT4CUSO-CsA_b217.js                       44.54 kB
+../../out/renderer/assets/javascript-BfHNHi5d.js                                    44.70 kB
+../../out/renderer/assets/journeyDiagram-JHISSGLW-CfUbtuIt.js                       45.31 kB
+../../out/renderer/assets/sankeyDiagram-5OEKKPKP-DZ_a4D4a.js                        46.03 kB
+../../out/renderer/assets/erDiagram-TEJ5UH35-Cey45YMn.js                            48.45 kB
+../../out/renderer/assets/css-CJ3-xtSj.js                                           51.35 kB
+../../out/renderer/assets/requirementDiagram-4Y6WPE33-DMaMbGR9.js                   52.59 kB
+../../out/renderer/assets/step-B2M6Y14w.js                                          53.16 kB
+../../out/renderer/assets/gitGraphDiagram-PVQCEYII-DpYStJje.js                      57.50 kB
+../../out/renderer/assets/sql-CUfumfh5.js                                           57.74 kB
+../../out/renderer/assets/timeline-definition-PNZ67QCA-DbURBkED.js                  60.51 kB
+../../out/renderer/assets/layout-DuIIrNqY.js                                        61.37 kB
+../../out/renderer/assets/quadrantDiagram-W4KKPZXB-DxIi_jLz.js                      61.68 kB
+../../out/renderer/assets/chunk-AQP2D5EJ-Dm7Vw34x.js                                71.31 kB
+../../out/renderer/assets/xychartDiagram-2RQKCTM6-DbL8J1xI.js                       75.05 kB
+../../out/renderer/assets/chunk-727SXJPM-CsHE-oIW.js                                84.06 kB
+../../out/renderer/assets/vennDiagram-CIIHVFJN-qUfVAFYP.js                          87.67 kB
+../../out/renderer/assets/ganttDiagram-6RSMTGT7-68XkchMU.js                         89.09 kB
+../../out/renderer/assets/flowDiagram-I6XJVG4X-oWZmWrr0.js                         102.08 kB
+../../out/renderer/assets/c4Diagram-AAUBKEIU-DxAMKlWL.js                           118.51 kB
+../../out/renderer/assets/blockDiagram-GPEHLZMM-7xRz1fjw.js                        139.97 kB
+../../out/renderer/assets/index-B1uMiSSN.js                                        162.45 kB
+../../out/renderer/assets/sequenceDiagram-3UESZ5HK-Mp270MKy.js                     201.53 kB
+../../out/renderer/assets/cose-bilkent-S5V4N54A-DK9EfVUc.js                        214.58 kB
+../../out/renderer/assets/index-C2-JQruF.js                                        230.60 kB
+../../out/renderer/assets/index-CiHxYeKN.js                                        273.20 kB
+../../out/renderer/assets/embedKatexFonts-DQoUxklC.js                              349.53 kB
+../../out/renderer/assets/architectureDiagram-3BPJPVTR-Ba-wU9Dp.js                 418.71 kB
+../../out/renderer/assets/katex-oVG3DVWa.js                                        484.52 kB
+../../out/renderer/assets/mermaid.core-D77cYKcr.js                                 926.46 kB
+../../out/renderer/assets/cytoscape.esm-CUyKC2qp.js                                960.59 kB
+../../out/renderer/assets/wardley-L42UT6IY-D46zyC8g.js                           1,209.12 kB
+../../out/renderer/assets/embed-Bp9QcSJK.js                                      1,622.33 kB
+../../out/renderer/assets/index-CotxNeJj.js                                      7,206.90 kB
+✓ built in 9.87s
+
+Running 32 tests using 1 worker
+
+
+(node:97998) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[1/32] [unpacked] › test/e2e/document-core-mode.spec.ts:14:5 › Core mode maps the caret across an edited Source-to-WYSIWYG handoff
+[2/32] [unpacked] › test/e2e/document-core-mode.spec.ts:105:5 › Core mode rebases Source input authored during actor undo
+[3/32] [unpacked] › test/e2e/document-core-mode.spec.ts:179:5 › Core mode accepts one actor-owned Addition then undoes, redoes, and saves it
+[4/32] [unpacked] › test/e2e/document-core-mode.spec.ts:240:5 › Core mode saves a native Source edit from the dedicated Worker authority
+[5/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:17:5 › Core mode owns a document opened directly in WYSIWYG
+[6/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:53:5 › Core WYSIWYG tracks one visible insertion through actor history
+[7/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:145:5 › Core WYSIWYG cancels added text with one tracked backspace
+[8/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:199:5 › Core WYSIWYG removes an Addition when its final character is deleted
+[9/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:252:5 › Core WYSIWYG tracks one DOM composition as one actor transaction
+[10/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:306:5 › Core mode renders all five CriticMarkup forms and preserves their source
+[11/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:346:5 › Core WYSIWYG Review rejects one Deletion then undoes, redoes, and saves it
+[12/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:389:5 › Core WYSIWYG Review navigation wraps without hiding its visible controls
+[13/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:421:5 › Core WYSIWYG Review removes one derived Commented span atomically
+[14/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:455:5 › Core WYSIWYG transports actor-owned Comment and Substitution author commands
+[15/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:528:5 › Core WYSIWYG authors a Comment through the visible selection control
+[16/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:578:5 › Core WYSIWYG protects a conflicting Comment closer from the visible author control
+[17/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:625:5 › Core completes one CriticMarkup Review lifecycle and reopens exact bytes
+[18/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:733:5 › Core mode parks independent WYSIWYG authority and history per tab
+[19/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:807:5 › Core mode rejects an unsupported WYSIWYG block conversion and recovers acknowledged source
+[20/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:872:5 › Core mode restarts a failed Worker from acknowledged WYSIWYG history
+[21/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:930:5 › Core mode recovers a typed stale-base WYSIWYG transaction
+[22/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:988:5 › Core mode saves a native plain-paragraph WYSIWYG edit
+[23/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:1037:5 › Core mode orders immediate WYSIWYG undo and redo through actor history
+[24/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:1097:5 › Core mode saves a native paragraph-to-heading conversion
+[25/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:1139:5 › Core WYSIWYG tracks one paragraph-to-heading format through history
+[26/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:1190:5 › Core mode saves one native cross-paragraph typing replacement
+[27/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:1232:5 › Core WYSIWYG tracks one cross-paragraph replacement and exact history
+[28/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:1284:5 › Core WYSIWYG tracks one cross-paragraph cut and exact history
+[29/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:1335:5 › Core mode saves only the committed native IME composition
+[30/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:1377:5 › Core mode renders and saves one native math-block conversion
+[31/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:1419:5 › Core mode saves one native Markdown table paste
+[32/32] [unpacked] › test/e2e/document-core-wysiwyg-mode.spec.ts:1463:5 › Core WYSIWYG tracks one Markdown table paste through actor history
+  32 passed (2.0m)
