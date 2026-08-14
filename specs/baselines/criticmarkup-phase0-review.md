@@ -25,6 +25,14 @@ must record the exact proposed hardware, OS, build, timestamp, document hashes, 
 data, and must be checked in under `specs/baselines/runs/performance/` with a matching SHA-256
 reference.
 
+Every one of those 1,100 observations per run must use lifecycle
+`fresh-application-profile-per-observation-v1`: one fresh application process and one unique profile
+for exactly one warmup or measured observation, followed by an application close and successful
+profile deletion before the next observation. Each raw run must therefore authenticate exactly
+1,100 application launches, unique profiles, application closes, and profile cleanups. Launch,
+editor bootstrap, application close, and profile cleanup are excluded protocol overhead outside all
+timed metrics. Evidence from a pooled application, browser context, or profile is rejected.
+
 The following command is expected to fail until that evidence exists:
 
 ```bash

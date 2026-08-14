@@ -163,6 +163,15 @@ The language suite compares every CommonMark and GFM example for which the upstr
 ## 7. Latency contract
 Performance is judged on checked-in representative documents that include plain prose, long documents, tables, code, Unicode, math, diagrams, images, and dense CriticMarkup. Every result records the document, hardware, OS, build, and metric distribution. Pathological stress inputs are reported separately.
 
+Every recorded observation uses `fresh-application-profile-per-observation-v1`: launch one fresh
+application process with one newly created profile, perform one warmup or measured observation,
+close that application, and delete that profile before the next observation. The five documents at
+20 warmup plus 200 measured observations each therefore require exactly 1,100 application launches,
+1,100 unique profiles, 1,100 application closes, and 1,100 successful profile cleanups in each raw
+run. Application launch, editor bootstrap, application close, and profile cleanup are protocol
+overhead outside every timed metric; no sample may reuse a pooled process, browser context, or
+profile.
+
 Required measurements are:
 
 - captured browser input to the exact speculative DOM checkpoint and one Electron `WebContents.capturePage` call with `stayHidden` and `stayAwake` while the exact macOS measurement window is render-active but opacity-zero, nonfocusable, noninteractive, inactive, and not frontmost, immediately followed by retained-state validation; this is a captured compositor-surface upper bound, while the post-capture checkpoint proves only that view state was retained—not screenshot pixel equality, physical display, vsync, or next-frame presentation;

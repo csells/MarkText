@@ -8,6 +8,9 @@ import {
 import {
   PERFORMANCE_PRESENTATION_BOUNDARY
 } from './performancePresentationCheckpoint'
+import {
+  PERFORMANCE_SAMPLE_LIFECYCLE
+} from './performanceSampleLifecycle'
 
 const PINNED_UPSTREAM_BASELINE =
   '43bd8b77795fb27b1a9512737c000f7362031ea0'
@@ -54,6 +57,11 @@ export interface UpstreamBaselineBuildProvenance {
   readonly windowPresentationPolicy: typeof PERFORMANCE_WINDOW_PRESENTATION_POLICY
   readonly windowPresentationPlatform: 'darwin'
   readonly chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
+  readonly sampleLifecycle: typeof PERFORMANCE_SAMPLE_LIFECYCLE
+  readonly applicationLaunchCount: number
+  readonly uniqueProfileCount: number
+  readonly applicationCloseCount: number
+  readonly profileCleanupCount: number
 }
 
 export interface UpstreamBaselinePerformanceRawRunInput {
@@ -103,12 +111,12 @@ interface UpstreamBaselinePerformanceRawRunBase {
 
 export interface UpstreamBaselinePerformanceRatificationRun
   extends UpstreamBaselinePerformanceRawRunBase {
-  readonly schema: 'marktext-criticmarkup-raw-performance-run-v6'
+  readonly schema: 'marktext-criticmarkup-raw-performance-run-v7'
 }
 
 export interface UpstreamBaselinePerformanceSmokeRun
   extends UpstreamBaselinePerformanceRawRunBase {
-  readonly schema: 'marktext-criticmarkup-raw-performance-smoke-v6'
+  readonly schema: 'marktext-criticmarkup-raw-performance-smoke-v7'
   readonly evidenceClass: 'smoke-non-ratifying'
 }
 
@@ -230,6 +238,28 @@ const validateProvenance = (
   ) {
     throw new Error('Upstream Chromium scheduling provenance is invalid')
   }
+  if (input.provenance.sampleLifecycle !== PERFORMANCE_SAMPLE_LIFECYCLE) {
+    throw new Error('Upstream sample lifecycle provenance is invalid')
+  }
+  const expectedObservationCount = input.documents.length * (
+    input.sampling.warmupSamples + input.sampling.measuredSamples
+  )
+  const lifecycleCounts = [
+    [
+      input.provenance.applicationLaunchCount,
+      'application launch count'
+    ],
+    [input.provenance.uniqueProfileCount, 'unique profile count'],
+    [input.provenance.applicationCloseCount, 'application close count'],
+    [input.provenance.profileCleanupCount, 'profile cleanup count']
+  ] as const
+  for (const [actual, label] of lifecycleCounts) {
+    if (!Number.isSafeInteger(actual) || actual !== expectedObservationCount) {
+      throw new Error(
+        `Upstream ${label} must equal ${String(expectedObservationCount)}`
+      )
+    }
+  }
 }
 
 export const createUpstreamBaselinePerformanceRawRun = (
@@ -325,11 +355,11 @@ export const createUpstreamBaselinePerformanceRawRun = (
   })
   return input.evidenceClass === 'ratification'
     ? Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-run-v6' as const,
+      schema: 'marktext-criticmarkup-raw-performance-run-v7' as const,
       ...base
     })
     : Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v6' as const,
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v7' as const,
       evidenceClass: 'smoke-non-ratifying' as const,
       ...base
     })
@@ -350,7 +380,7 @@ export const writeUpstreamBaselinePerformanceRawRun = (
   run: UpstreamBaselinePerformanceRawRun
 ): void => {
   if (
-    run.schema === 'marktext-criticmarkup-raw-performance-smoke-v6' &&
+    run.schema === 'marktext-criticmarkup-raw-performance-smoke-v7' &&
     isRatificationDirectory(outputPath)
   ) {
     throw new Error('Smoke output cannot be written to the ratification directory')

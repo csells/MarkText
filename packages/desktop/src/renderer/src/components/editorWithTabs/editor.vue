@@ -306,6 +306,7 @@ import { SyntheticHistory, type IFileHistoryLike } from './syntheticHistory'
 import {
   canToggleCoreTrackChanges,
   createCoreAuthorityPerformanceTrace,
+  createCoreAuthorityPerformanceTestBridge,
   createCoreTrackChangesMode,
   createMuyaPlainTextCoreAdapter,
   createEditorShadowBinding,
@@ -2961,7 +2962,11 @@ onMounted(() => {
       coreEditableBindingCount.value = 0
       delete window.__marktextDocumentCore
     })
-    if (window.electron.process.env.PERF_TESTING === 'true') {
+    const corePerformanceTestBridge = createCoreAuthorityPerformanceTestBridge(
+      window.electron.process.env.PERF_TESTING === 'true',
+      props.coreLease.binding
+    )
+    if (corePerformanceTestBridge !== undefined) {
       window.__marktextDocumentCore = Object.freeze({
         mode: 'core',
         documentId: props.coreLease.documentId,
@@ -2976,6 +2981,7 @@ onMounted(() => {
           await corePlainTextAdapter?.settled()
         },
         latest: () => latestCorePlainTextChange,
+        ...corePerformanceTestBridge,
         performanceEvents: () => coreAuthorityPerformanceTrace?.events() ?? [],
         performanceSurface: () => coreEditableBindingCount.value > 0
           ? 'wysiwyg' as const
