@@ -6,6 +6,33 @@ import {
 } from '@/documentConsumers/projectedSearchPresentation'
 
 describe('projected search presentation', () => {
+  it('paints projection-proven offsets without a source-edit binding', () => {
+    const block = {
+      update: vi.fn(),
+      focusHandler: vi.fn(),
+      blurHandler: vi.fn()
+    } as ProjectedSearchPresentationBlock
+    const presentation = createProjectedSearchPresentation({
+      blockAtPath: () => block
+    })
+
+    expect(presentation.present({
+      index: 0,
+      value: 'cat',
+      matches: [{
+        path: [0],
+        start: 0,
+        end: 3,
+        match: 'cat',
+        subMatches: [],
+        presentation: { path: [0, 'text'], start: 2, end: 5 }
+      }]
+    })).toBe(true)
+    expect(block.update).toHaveBeenCalledWith(undefined, [
+      { start: 2, end: 5, active: true }
+    ])
+  })
+
   it('paints AST-authoritative offsets without reading renderer block text', () => {
     const first = {
       update: vi.fn(),
@@ -24,16 +51,29 @@ describe('projected search presentation', () => {
       path[0] === 0 ? first : second
     )
     const presentation = createProjectedSearchPresentation({
-      blockAtPath,
-      isProvenMatch: () => true
+      blockAtPath
     })
 
     presentation.present({
       index: 0,
       value: 'alpha',
       matches: [
-        { path: [0], start: 0, end: 5, match: 'alpha', subMatches: [] },
-        { path: [1], start: 6, end: 11, match: 'alpha', subMatches: [] }
+        {
+          path: [0],
+          start: 0,
+          end: 5,
+          match: 'alpha',
+          subMatches: [],
+          presentation: { path: [0, 'text'], start: 0, end: 5 }
+        },
+        {
+          path: [1],
+          start: 6,
+          end: 11,
+          match: 'alpha',
+          subMatches: [],
+          presentation: { path: [1, 'text'], start: 6, end: 11 }
+        }
       ]
     })
 
@@ -54,15 +94,28 @@ describe('projected search presentation', () => {
       blurHandler: vi.fn()
     }))
     const presentation = createProjectedSearchPresentation({
-      blockAtPath: path => blocks[path[0] as number],
-      isProvenMatch: () => true
+      blockAtPath: path => blocks[path[0] as number]
     })
     const result = {
       index: 0,
       value: 'x',
       matches: [
-        { path: [0], start: 0, end: 1, match: 'x', subMatches: [] },
-        { path: [1], start: 0, end: 1, match: 'x', subMatches: [] }
+        {
+          path: [0],
+          start: 0,
+          end: 1,
+          match: 'x',
+          subMatches: [],
+          presentation: { path: [0, 'text'], start: 0, end: 1 }
+        },
+        {
+          path: [1],
+          start: 0,
+          end: 1,
+          match: 'x',
+          subMatches: [],
+          presentation: { path: [1, 'text'], start: 0, end: 1 }
+        }
       ]
     } as const
     presentation.present(result)
@@ -86,13 +139,19 @@ describe('projected search presentation', () => {
       path.length === 2 ? previouslyPainted : undefined
     )
     const presentation = createProjectedSearchPresentation({
-      blockAtPath,
-      isProvenMatch: () => true
+      blockAtPath
     })
     presentation.present({
       index: 0,
       value: 'old',
-      matches: [{ path: [0], start: 0, end: 3, match: 'old', subMatches: [] }]
+      matches: [{
+        path: [0],
+        start: 0,
+        end: 3,
+        match: 'old',
+        subMatches: [],
+        presentation: { path: [0, 'text'], start: 0, end: 3 }
+      }]
     })
     blockAtPath.mockClear()
 
@@ -112,12 +171,9 @@ describe('projected search presentation', () => {
     expect(presentation.navigate('next').index).toBe(-1)
   })
 
-  it('fails closed when AST offsets lack a current one-to-one view binding', () => {
+  it('fails closed when a projection range lacks a current Muya block', () => {
     const blockAtPath = vi.fn()
-    const presentation = createProjectedSearchPresentation({
-      blockAtPath,
-      isProvenMatch: () => false
-    })
+    const presentation = createProjectedSearchPresentation({ blockAtPath })
 
     expect(presentation.present({
       index: 0,
@@ -127,9 +183,10 @@ describe('projected search presentation', () => {
         start: 4,
         end: 13,
         match: 'formatted',
-        subMatches: []
+        subMatches: [],
+        presentation: { path: [0, 'text'], start: 4, end: 13 }
       }]
     })).toBe(false)
-    expect(blockAtPath).not.toHaveBeenCalled()
+    expect(blockAtPath).toHaveBeenCalledWith([0, 'text'])
   })
 })
