@@ -3497,6 +3497,10 @@ onBeforeUnmount(() => {
   left: 18px;
 }
 
+.core-review-bar {
+  top: 58px;
+}
+
 .core-review-bar button,
 .core-review-author-bar button {
   border: 0;
@@ -3511,7 +3515,7 @@ onBeforeUnmount(() => {
   /* The Core Review toolbars are real editing UI, not transient popovers.
      Reserve their row so the first document block remains pointer-accessible
      at normal window sizes and under installed-app automation. */
-  padding-top: 70px;
+  padding-top: 116px;
   padding-bottom: 100vh;
 }
 
