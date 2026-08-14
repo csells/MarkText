@@ -121,7 +121,11 @@ const projectedRangeForConsumerMatch = (
       const leafEnd = leafStart + semantic.length
       if (match.start >= leafStart && match.end <= leafEnd) {
         const raw = projection.markdown.slice(node.range.start, node.range.end)
-        if (raw === semantic) {
+        const suffix = raw.slice(semantic.length)
+        if (
+          raw === semantic ||
+          (raw.startsWith(semantic) && /^\s*$/u.test(suffix))
+        ) {
           resolved = Object.freeze({
             start: node.range.start + match.start - leafStart,
             end: node.range.start + match.end - leafStart
