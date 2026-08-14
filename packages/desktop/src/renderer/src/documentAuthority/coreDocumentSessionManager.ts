@@ -99,7 +99,7 @@ interface Session {
   readonly binding: EditorCoreBinding
   readonly lineEnding: CanonicalLineEnding
   currentIdentity: DocumentSaveIdentity
-  readonly pending: Set<Promise<EditorCoreApplyOutcome>>
+  readonly pending: Set<Promise<unknown>>
   checkpoint: RecoveryCheckpoint
   journal: RecoveryJournalEntry[]
   journalVersion: number
@@ -111,6 +111,8 @@ interface Session {
   handoffCleanup?: () => void
   releaseView?: () => void
   sourceBarrier?: Promise<CoreDocumentSaveResult>
+  maintenance?: Promise<void>
+  maintenanceJournalPrefixLength?: number
   closing?: Promise<void>
   recovery?: Promise<CoreDocumentViewLease>
 }
@@ -256,6 +258,76 @@ export function createCoreDocumentSessionManager(
     }
     return session
   }
+  // Start only after accepted submissions drain, which orders the actor source
+  // request after the recorded prefix. Later submissions are held at the
+  // acknowledgement boundary and remain a replayable post-checkpoint suffix.
+  const maintainRecoveryJournal = (
+    session: Session
+  ): Promise<void> | undefined => {
+    if (
+      session.maintenance !== undefined ||
+      session.pending.size > 0 ||
+      session.journal.length < maximumRecoveryJournalEntries ||
+      session.recovery !== undefined ||
+      session.terminalFault !== undefined ||
+      sessions.get(session.documentId) !== session
+    ) return session.maintenance
+
+    const generation = session.currentIdentity.generation
+    const revision = session.currentIdentity.revision
+    const journalPrefix = [...session.journal]
+    const checkpointOptions = session.checkpoint.options
+    const maintenance = (async(): Promise<void> => {
+      const result = await session.binding.sourceAtBarrier()
+      if (
+        result.type !== 'source' ||
+        result.session !== generation ||
+        result.revision !== revision ||
+        sessions.get(session.documentId) !== session ||
+        session.currentIdentity.generation !== generation ||
+        session.journal.length < journalPrefix.length ||
+        journalPrefix.some((entry, index) => session.journal[index] !== entry)
+      ) {
+        throw new Error('Core document recovery maintenance barrier is stale')
+      }
+      const checkpoint: RecoveryCheckpoint = Object.freeze({
+        source: result.source,
+        recoveryHistory: result.recoveryHistory,
+        ...(checkpointOptions === undefined
+          ? {}
+          : { options: checkpointOptions })
+      })
+      const suffix = session.journal.slice(journalPrefix.length)
+      // All fallible work and generation checks precede this atomic commit.
+      session.checkpoint = checkpoint
+      session.journal = suffix
+    })()
+    session.maintenance = maintenance
+    session.maintenanceJournalPrefixLength = journalPrefix.length
+    session.pending.add(maintenance)
+    maintenance.then(() => {
+      session.pending.delete(maintenance)
+      if (session.maintenance === maintenance) {
+        session.maintenance = undefined
+        session.maintenanceJournalPrefixLength = undefined
+      }
+    }, error => {
+      session.pending.delete(maintenance)
+      if (
+        session.maintenance === maintenance &&
+        sessions.get(session.documentId) === session
+      ) {
+        session.maintenance = undefined
+        session.maintenanceJournalPrefixLength = undefined
+        const failure = error instanceof Error
+          ? error
+          : new Error('Core document recovery maintenance failed')
+        session.barrierFailure = failure
+        session.terminalFault = failure
+      }
+    })
+    return maintenance
+  }
 
   const manager: CoreDocumentSessionManager = {
     async open(input: CoreDocumentOpenInput): Promise<void> {
@@ -312,7 +384,15 @@ export function createCoreDocumentSessionManager(
           if (session.recovery !== undefined || session.terminalFault !== undefined) {
             throw new Error('Core document Worker recovery is required')
           }
-          if (session.journal.length >= maximumRecoveryJournalEntries) {
+          const maintenancePrefixLength =
+            session.maintenanceJournalPrefixLength
+          const recoveryEntriesAfterCheckpoint =
+            session.maintenance === undefined ||
+            maintenancePrefixLength === undefined
+              ? session.journal.length
+              : session.journal.length - maintenancePrefixLength +
+                Math.max(0, session.pending.size - 1)
+          if (recoveryEntriesAfterCheckpoint >= maximumRecoveryJournalEntries) {
             throw new Error('Core document recovery journal requires a checkpoint')
           }
           // A source reply already in flight names the revision from before
@@ -324,7 +404,7 @@ export function createCoreDocumentSessionManager(
           const journalInput = copySubmitInput(input)
           const submission = session.binding.submit(journalInput)
           session.pending.add(submission.acknowledged)
-          submission.acknowledged.then(outcome => {
+          const acknowledged = submission.acknowledged.then(async outcome => {
             session.pending.delete(submission.acknowledged)
             if (outcome.type === 'applied') {
               session.currentIdentity = Object.freeze({
@@ -353,6 +433,9 @@ export function createCoreDocumentSessionManager(
                 `Core document requires reconciliation: ${outcome.type}`
               )
             }
+            const maintenance = maintainRecoveryJournal(session)
+            if (maintenance !== undefined) await maintenance.catch(() => {})
+            return outcome
           }, error => {
             session.pending.delete(submission.acknowledged)
             const failure = error instanceof Error
@@ -360,8 +443,12 @@ export function createCoreDocumentSessionManager(
               : new Error('Core document submission failed')
             session.barrierFailure = failure
             session.terminalFault = failure
+            throw failure
           })
-          return submission
+          return Object.freeze({
+            identity: submission.identity,
+            acknowledged
+          })
         },
         sourceAtBarrier: () => Promise.reject(
           new Error('Core view cannot bypass the session save barrier')
