@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   createDocumentCore,
+  DOCUMENT_RESOURCE_POLICY_V1,
   type CriticMarkupAnnotation,
   type CriticMarkupAnnotationSnapshot,
   type CommentCoordinateSegment,
@@ -3742,6 +3743,90 @@ describe('document-core semantic changes', () => {
     expect(after.sourceRopeCurrentPieces).toBe(1)
     expect(after.sourceCurrentRetainedBufferUnitsUpperBound)
       .toBe(revision.sourceLength)
+  })
+
+  it('rebases once when barrier-free source pieces exceed policy', () => {
+    const source = 'head\n\ntarget word\n\ntail\n\n'
+    const editAt = source.indexOf('word') + 1
+    const maximumPieces = 256
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const before = inspectionOf(core)
+    let revision = opened
+    let expected = source
+    let historical = opened
+    let historicalExpected = source
+
+    expect(DOCUMENT_RESOURCE_POLICY_V1.maximumSourceRopePieces)
+      .toBe(maximumPieces)
+    for (let ordinal = 0; ordinal < maximumPieces - 2; ordinal += 1) {
+      const commit = core.apply(revision, [{
+        start: editAt,
+        end: editAt,
+        insert: 'X'
+      }], { projections: ['markup'] })
+      expect(commit.change.projections[0]?.scope).toBe('regions')
+      revision = commit.revision
+      expected = expected.slice(0, editAt) + 'X' + expected.slice(editAt)
+      if (ordinal === Math.floor(maximumPieces / 2)) {
+        historical = revision
+        historicalExpected = expected
+      }
+    }
+
+    const atBoundary = inspectionOf(core)
+    expect(atBoundary.sourceRopeCurrentPieces).toBe(maximumPieces)
+    expect(delta(atBoundary, before, 'sourceMaterializations')).toBe(0)
+    const preBoundary = revision
+    const preBoundaryExpected = expected
+    const commit = core.apply(revision, [{
+      start: editAt,
+      end: editAt,
+      insert: 'Y'
+    }], { projections: ['markup'] })
+    expected = expected.slice(0, editAt) + 'Y' + expected.slice(editAt)
+    const after = inspectionOf(core)
+
+    expect(commit.change.projections).toEqual([{
+      name: 'markup',
+      scope: 'document',
+      reason: 'source-fragmentation-rebase'
+    }])
+    expect(delta(after, atBoundary, 'sourceRebaseMaterializations')).toBe(1)
+    expect(delta(after, atBoundary, 'sourceRebases')).toBe(1)
+    expect(delta(after, atBoundary, 'sourceRopeRootsAttempted')).toBe(1)
+    expect(delta(after, atBoundary, 'sourceRopeRootsCommitted')).toBe(1)
+    expect(delta(after, atBoundary, 'documentParses')).toBe(1)
+    expect(delta(after, atBoundary, 'regionalFastApplies')).toBe(0)
+    expect(after.sourceRopeCurrentPieces).toBe(1)
+    expect(commit.revision.sourceLength).toBe(expected.length)
+    expect(opened.source).toBe(source)
+    expect(historical.source).toBe(historicalExpected)
+    expect(preBoundary.source).toBe(preBoundaryExpected)
+    expect(commit.revision.source).toBe(expected)
+
+    const continued = core.apply(commit.revision, [{
+      start: editAt + 1,
+      end: editAt + 1,
+      insert: 'Z'
+    }], { projections: ['markup'] })
+    expected = expected.slice(0, editAt + 1) +
+      'Z' + expected.slice(editAt + 1)
+    const afterContinuation = inspectionOf(core)
+    expect(continued.change.projections[0]?.scope).toBe('regions')
+    expect(continued.revision.source).toBe(expected)
+    expect(delta(afterContinuation, atBoundary, 'sourceRebases')).toBe(1)
+    expect(afterContinuation.sourceRopeCurrentPieces)
+      .toBeLessThanOrEqual(maximumPieces)
+
+    const historicalCore = createDocumentCore()
+    const historicalFresh = historicalCore.open(historicalExpected)
+    expect(core.project(historical, 'markup').events)
+      .toEqual(historicalCore.project(historicalFresh, 'markup').events)
+    const currentCore = createDocumentCore()
+    const currentFresh = currentCore.open(expected)
+    expect(core.project(continued.revision, 'markup').events)
+      .toEqual(currentCore.project(currentFresh, 'markup').events)
   })
 
   it('retains 64 historical overlay roots over 100k regions', () => {

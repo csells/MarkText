@@ -1,3 +1,5 @@
+import { DOCUMENT_RESOURCE_POLICY_V1 } from '../resourcePolicy.js'
+
 export type CanonicalSourceMaterializationReason =
   | 'getter'
   | 'fallback'
@@ -324,9 +326,14 @@ function createSource(
   let materialized = initiallyMaterialized
   const requiresFragmentationRebase = (): boolean => {
     const deadUnits = activeRetainedBufferUnits - length
-    return deadUnits >= SOURCE_REBASE_MINIMUM_DEAD_UNITS &&
-      activeRetainedBufferUnits >
-      length * SOURCE_REBASE_MAXIMUM_BACKING_RATIO
+    return (
+      (activeRoot?.pieceCount ?? 0) >
+        DOCUMENT_RESOURCE_POLICY_V1.maximumSourceRopePieces
+    ) || (
+      deadUnits >= SOURCE_REBASE_MINIMUM_DEAD_UNITS &&
+        activeRetainedBufferUnits >
+        length * SOURCE_REBASE_MAXIMUM_BACKING_RATIO
+    )
   }
   const slice = Object.freeze((start: number, end: number): string => {
     if (
