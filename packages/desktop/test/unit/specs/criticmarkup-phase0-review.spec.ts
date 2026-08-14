@@ -56,6 +56,10 @@ const reviewPacket = readFileSync(resolve(
   repoRoot,
   'specs/baselines/criticmarkup-phase0-review.md'
 ), 'utf8')
+const baselineGuide = readFileSync(resolve(
+  repoRoot,
+  'specs/baselines/README.md'
+), 'utf8')
 const finalParityOverlay = readJson<CriticMarkupParityDispositionOverlay>(
   'specs/baselines/criticmarkup-parity-dispositions.json'
 )
@@ -152,6 +156,68 @@ const preferenceItemIds = [
 describe('CriticMarkup Phase 0 review proposal', () => {
   afterEach(() => vi.restoreAllMocks())
 
+  it('requires the v2 proposal schema for item-level compatibility decisions', () => {
+    expect(parityProposal.schema).toBe('marktext-criticmarkup-parity-proposal-v2')
+    const legacy = {
+      ...parityProposal,
+      schema: 'marktext-criticmarkup-parity-proposal-v1'
+    } as unknown as CriticMarkupParityProposal
+    expect(() => validateCriticMarkupParityProposal(parityBaseline, legacy))
+      .toThrow(/parity proposal schema is invalid/)
+    expect(baselineGuide).toContain(
+      'v2 item-level compatibility-decision proposals'
+    )
+  })
+
+  it('proposes exactly the three audited README outcomes under parity-manifest review', () => {
+    const itemDecisions = parityProposal.itemCompatibilityDecisions
+
+    expect(itemDecisions.map(proposal => proposal.itemId)).toEqual([
+      'readme-feature:ada27f4ce6a3',
+      'readme-feature:0b8caa1ea286',
+      'muya-readme-feature:57b5c6a23c6a'
+    ])
+    expect(itemDecisions.every(proposal => (
+      proposal.approvalDecisionId === 'parity-manifest'
+    ))).toBe(true)
+    expect(itemDecisions[0]?.mechanicalFinding).toContain(
+      'objective WYSIWYG behavior is already proved'
+    )
+    expect(itemDecisions[0]?.ownerQuestion).toContain(
+      'clean/simple/distraction-free outcome is nonmechanical'
+    )
+    expect(itemDecisions[1]?.mechanicalFinding).toContain(
+      'all 87 declared shortcuts are proved'
+    )
+    expect(itemDecisions[1]?.ownerQuestion).toContain(
+      'writing-efficiency outcome is nonmechanical'
+    )
+    expect(itemDecisions[2]?.mechanicalFinding).toContain(
+      'collaborative transport is not shipped'
+    )
+    expect(itemDecisions[2]?.ownerQuestion).toContain('owner scope decision')
+    expect(approval.decisions).toHaveLength(8)
+    expect(approval.decisions.every(decision => (
+      decision.status === 'pending-owner-decision'
+    ))).toBe(true)
+    const parityManifestDecision = approval.decisions.find(decision => (
+      decision.id === 'parity-manifest'
+    ))
+    expect(parityManifestDecision?.proposal).toContain(
+      'three item-level README compatibility-decision proposals'
+    )
+    expect(parityManifestDecision?.proposal).toContain(
+      '69 compatibility decisions if ratified'
+    )
+    for (const itemId of itemDecisions.map(proposal => proposal.itemId)) {
+      expect(parityManifestDecision?.question).toContain(itemId)
+      expect(parityManifestDecision?.proposal).toContain(itemId)
+    }
+    expect(itemDecisions[2]).toMatchObject({
+      refs: expect.arrayContaining(['packages/muya/e2e/BACKLOG.md'])
+    })
+  })
+
   it('requires an exact Git-backed oracle classification for every parity item', () => {
     const proposal: CriticMarkupParityOracleProposal = {
       schema: 'marktext-criticmarkup-parity-oracle-proposal-v1',
@@ -228,6 +294,34 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     incomplete.groups.pop()
     expect(() => validateCriticMarkupParityProposal(parityBaseline, incomplete))
       .toThrow(/upstream parity items have no proposal/)
+  })
+
+  it('rejects compatibility-decision proposals outside the three audited README items', () => {
+    const expanded = structuredClone(parityProposal)
+    expanded.itemCompatibilityDecisions.push({
+      ...first(expanded.itemCompatibilityDecisions),
+      itemId: 'readme-feature:06d04490689f',
+      proposedRef: 'unaudited-readme-item'
+    })
+
+    expect(() => validateCriticMarkupParityProposal(parityBaseline, expanded))
+      .toThrow(/item compatibility-decision set is incomplete or stale/)
+  })
+
+  it('rejects drift in an audited README compatibility-decision binding', () => {
+    const drifted = structuredClone(parityProposal)
+    first(drifted.itemCompatibilityDecisions).proposedRef = 'drifted-owner-scope'
+
+    expect(() => validateCriticMarkupParityProposal(parityBaseline, drifted))
+      .toThrow(/does not match its audited proposal binding/)
+
+    const misbound = structuredClone(parityProposal)
+    const misboundDecision = first(misbound.itemCompatibilityDecisions) as {
+      approvalDecisionId: string
+    }
+    misboundDecision.approvalDecisionId = 'interaction-matrix'
+    expect(() => validateCriticMarkupParityProposal(parityBaseline, misbound))
+      .toThrow(/does not match its audited proposal binding/)
   })
 
   it('partitions all 2,941 salvage candidates by observable Git relation', () => {
@@ -413,8 +507,32 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     })
 
     expect(Object.keys(materialized.parityOverlay.dispositions)).toHaveLength(829)
-    expect(materialized.parityRows.rows).toHaveLength(763)
+    expect(materialized.parityRows.rows).toHaveLength(760)
     expect(materialized.parityRows.rows.every(row => row.status === 'planned')).toBe(true)
+    expect(Object.fromEntries([
+      'readme-feature:ada27f4ce6a3',
+      'readme-feature:0b8caa1ea286',
+      'muya-readme-feature:57b5c6a23c6a'
+    ].map(itemId => [
+      itemId,
+      materialized.parityOverlay.dispositions[itemId]
+    ]))).toEqual({
+      'readme-feature:ada27f4ce6a3': {
+        kind: 'approved-decision',
+        ref: 'specs/baselines/criticmarkup-phase0-approval.json#parity-manifest:readme-wysiwyg-subjective-outcome'
+      },
+      'readme-feature:0b8caa1ea286': {
+        kind: 'approved-decision',
+        ref: 'specs/baselines/criticmarkup-phase0-approval.json#parity-manifest:readme-shortcut-efficiency-subjective-outcome'
+      },
+      'muya-readme-feature:57b5c6a23c6a': {
+        kind: 'approved-decision',
+        ref: 'specs/baselines/criticmarkup-phase0-approval.json#parity-manifest:muya-collaborative-transport-scope'
+      }
+    })
+    expect(Object.values(materialized.parityOverlay.dispositions).filter(disposition => (
+      disposition.kind === 'approved-decision'
+    ))).toHaveLength(69)
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('retained-upstream-test:')
     ))).toHaveLength(392)
@@ -1020,7 +1138,7 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     })
     expect(materialized.parityRows.rows.filter(row => (
       row.productionPathTest.startsWith('required-new-production-path-test:')
-    ))).toHaveLength(3)
+    ))).toHaveLength(0)
     expect(() => validateCriticMarkupParityDispositions(
       parityBaseline,
       materialized.parityOverlay,
