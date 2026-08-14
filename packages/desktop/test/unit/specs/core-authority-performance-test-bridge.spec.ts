@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createCoreActor,
   createCoreAuthorityPerformanceTestBridge,
+  createCoreDocumentSessionManager,
   createEditorCoreBinding,
   type CoreActorPort,
   type CoreReply,
@@ -11,12 +12,19 @@ import {
 
 const actorPort = (
   rejectSource = false
-): Readonly<{ actor: ReturnType<typeof createCoreActor>; port: CoreActorPort }> => {
+): Readonly<{
+  actor: ReturnType<typeof createCoreActor>
+  port: CoreActorPort
+  requests: CoreRequest[]
+}> => {
   const actor = createCoreActor()
+  const requests: CoreRequest[] = []
   return Object.freeze({
     actor,
+    requests,
     port: {
       async request(request: CoreRequest): Promise<CoreReply> {
+        requests.push(structuredClone(request))
         if (rejectSource && request.type === 'source-at-barrier') {
           return Object.freeze({
             type: 'rejected',
@@ -35,33 +43,54 @@ const actorPort = (
   })
 }
 
+const managedLease = async(
+  source: string,
+  rejectSource = false
+) => {
+  const { port } = actorPort(rejectSource)
+  const manager = createCoreDocumentSessionManager({
+    createBinding: () => createEditorCoreBinding(port)
+  })
+  await manager.open({ documentId: 'managed', source, lineEnding: '\n' })
+  return manager.lease('managed')
+}
+
 describe('Core authority performance test bridge', () => {
   it('omits the bridge when PERF_TESTING is disabled', async() => {
-    const { port } = actorPort()
-    const binding = createEditorCoreBinding(port)
-    await binding.open({ documentId: 'blank', source: '' })
+    const lease = await managedLease('')
 
-    expect(createCoreAuthorityPerformanceTestBridge(false, binding))
+    expect(createCoreAuthorityPerformanceTestBridge(false, lease))
       .toBeUndefined()
   })
 
-  it('delegates authority bytes through a real source-at-barrier binding', async() => {
-    const { port } = actorPort()
-    const binding = createEditorCoreBinding(port)
-    await binding.open({ documentId: 'real', source: 'actor-owned bytes' })
-    const bridge = createCoreAuthorityPerformanceTestBridge(true, binding)
+  it('delegates exact empty authority through the manager barrier without view bypass', async() => {
+    const lease = await managedLease('')
+    const bridge = createCoreAuthorityPerformanceTestBridge(true, lease)
 
-    await expect(bridge?.authoritySource()).resolves.toBe('actor-owned bytes')
+    await expect(lease.binding.sourceAtBarrier()).rejects.toThrow(/cannot bypass/i)
+    await expect(bridge?.authoritySource()).resolves.toBe('')
   })
 
-  it('rejects a non-source reply from the production binding', async() => {
-    const { port } = actorPort(true)
-    const binding = createEditorCoreBinding(port)
-    await binding.open({ documentId: 'rejected', source: '' })
-    const bridge = createCoreAuthorityPerformanceTestBridge(true, binding)
+  it('rejects a non-source reply through the manager-owned save barrier', async() => {
+    const lease = await managedLease('', true)
+    const bridge = createCoreAuthorityPerformanceTestBridge(true, lease)
 
     await expect(bridge?.authoritySource()).rejects.toThrow(
-      /authority source.*unavailable/i
+      /save barrier.*stale/i
     )
+  })
+
+  it('rejects a released lease before issuing a manager source barrier request', async() => {
+    const { port, requests } = actorPort()
+    const manager = createCoreDocumentSessionManager({
+      createBinding: () => createEditorCoreBinding(port)
+    })
+    await manager.open({ documentId: 'released', source: '', lineEnding: '\n' })
+    const lease = manager.lease('released')
+    await manager.handoff(lease)
+    const requestCount = requests.length
+
+    await expect(lease.sourceAtBarrier()).rejects.toThrow(/lease is released/i)
+    expect(requests).toHaveLength(requestCount)
   })
 })
