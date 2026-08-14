@@ -42,7 +42,7 @@
     {
       "id": "profile-conformance",
       "path": "specs/baselines/criticmarkup-profile-conformance.json",
-      "sha256": "21cb63e5a0010f6a4585d71b80def464f56dbe974838c9c1948c119a855df2c0"
+      "sha256": "09e063d18a11a8e8c4feac08f4a8dc2f394dca13840128f66228040846a3cda7"
     },
     {
       "id": "adr-0001",
