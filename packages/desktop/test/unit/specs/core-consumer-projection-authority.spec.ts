@@ -350,6 +350,68 @@ describe('Core consumer projection authority', () => {
     await manager.close('replace-all.md')
   })
 
+  it('atomically replaces every visible Revised match across block shapes', async() => {
+    const source =
+      '# cat heading\n\n' +
+      'cat {++cat++} {--cat--} {~~legacy-cat~>cat~~} {>>cat private<<}\n\n' +
+      'cat\n'
+    const expected =
+      '# dog heading\n\n' +
+      'dog {++dog++} {--cat--} {~~legacy-cat~>dog~~} {>>cat private<<}\n\n' +
+      'dog\n'
+    const manager = createCoreDocumentSessionManager({
+      createBinding: () => createEditorCoreBinding(inMemoryPort())
+    })
+    await manager.open({
+      documentId: 'replace-visible-revised.md',
+      source,
+      lineEnding: '\n'
+    })
+    const lease = manager.lease('replace-visible-revised.md')
+    const projection = await lease.consumerProjectionAtBarrier()
+    const identity = { ...lease.identity }
+    const result = searchProjectedDocument(projection, 'cat')
+    const replacements = createProjectedSearchReplacementPlan(
+      result,
+      'dog',
+      { isSingle: false, isRegexp: false }
+    )
+    if (replacements === undefined) throw new Error('Expected replacement plan')
+
+    expect(result.matches).toHaveLength(5)
+    for (const [index, replacement] of replacements.entries()) {
+      const actor = createCoreActor()
+      actor.handle({
+        type: 'open',
+        session: index + 20,
+        sequence: 1,
+        source
+      })
+      actor.handle({
+        type: 'consumer-projection-at-barrier',
+        session: index + 20,
+        sequence: 2,
+        baseRevision: 1
+      })
+      expect(actor.handle({
+        type: 'replace-consumer-search',
+        session: index + 20,
+        sequence: 3,
+        baseRevision: 1,
+        replacements: [replacement],
+        projections: []
+      }), `replacement ${index}: ${JSON.stringify(replacement)}`)
+        .toMatchObject({ type: 'applied', revision: 2 })
+      actor.dispose()
+    }
+    await expect(lease.replaceConsumerSearchAtBarrier(identity, replacements))
+      .resolves.toMatchObject({ type: 'applied', revision: 2 })
+    await expect(manager.saveBarrier('replace-visible-revised.md'))
+      .resolves.toMatchObject({ source: expected })
+    await manager.handoff(lease)
+    await manager.close('replace-visible-revised.md')
+  })
+
   it('maps raw-equivalent formatted and Revised-arm text without replacing syntax', () => {
     const actor = createCoreActor()
     actor.handle({
