@@ -111,6 +111,7 @@ import type {
 import type { CanonicalSourceView } from './persistentCanonicalSource.js'
 import {
   createProfile1SyntaxAccountingRecorderV1,
+  Profile1LogicalNodeLimitError,
   type Profile1SyntaxAccountingRecorderV1,
   type Profile1SyntaxAccountingTraceV1
 } from './profile1/syntaxAccounting.js'
@@ -382,7 +383,6 @@ const FORM_LABEL: Readonly<Record<ImplementedKind, string>> = Object.freeze({
   comment: 'Comment'
 })
 
-export const PROFILE1_DESKTOP_LOGICAL_NODE_LIMIT = 2_000_000
 const DESKTOP_MARKDOWN_DEPTH_LIMIT = 128
 const DESKTOP_CM_DEPTH_LIMIT = 16_384
 // Syntax diagnostics are logical output nodes too. Cap them during admission,
@@ -830,7 +830,10 @@ function plainParagraphBudgetEventFailure(
   // Even the conservative 4× tape bound plus the two graph roots is below
   // the event ceiling here, so no exact line inventory can possibly fail.
   // Avoid another whole-source pass on the maximum one-line document.
-  if (4 * parsed.tape.length + 2 <= PROFILE1_DESKTOP_LOGICAL_NODE_LIMIT) {
+  if (
+    4 * parsed.tape.length + 2 <=
+      DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
+  ) {
     return undefined
   }
   const lines = plainParagraphLineRanges(source, execution)
@@ -843,11 +846,12 @@ function plainParagraphBudgetEventFailure(
     1 +
     markdownNodesPerView +
     parsed.tape.length
-  if (total <= PROFILE1_DESKTOP_LOGICAL_NODE_LIMIT) {
+  if (total <= DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes) {
     return undefined
   }
 
-  const eventAfterTape = PROFILE1_DESKTOP_LOGICAL_NODE_LIMIT - parsed.tape.length
+  const eventAfterTape =
+    DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes - parsed.tape.length
   const markdownEventCount = 1 + markdownNodesPerView
   const failureRange =
     eventAfterTape < markdownEventCount
@@ -857,8 +861,8 @@ function plainParagraphBudgetEventFailure(
   return createResourceDiagnostic(
     'CM_RESOURCE_LOGICAL_NODES_EXCEEDED',
     sourceRange(failureRange.start, failureRange.start),
-    PROFILE1_DESKTOP_LOGICAL_NODE_LIMIT,
-    PROFILE1_DESKTOP_LOGICAL_NODE_LIMIT + 1
+    DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes,
+    DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes + 1
   )
 }
 
@@ -4589,8 +4593,8 @@ function inertParagraphContentEnd(window: string): number | undefined {
  * CM-free, definition-free, literal-free middle paragraph whose old and new
  * spellings are plain prose followed by a blank separator. Under that proof,
  * paragraph topology and all Markdown and CriticMarkup structure remain
- * unchanged. The only mutable resource dimension, source size, is checked
- * directly against the document policy.
+ * unchanged. Source size and emitted logical nodes are checked directly
+ * against the document policy.
  */
 export function admitProfile1PlainParagraphRegion(
   previousSource: CanonicalSourceView,
@@ -4641,20 +4645,32 @@ export function admitProfile1PlainParagraphRegion(
   const accounting = createProfile1SyntaxAccountingRecorderV1(
     usesDesktopLimits,
     false,
-    execution
-  )
-  const parsed = parseIntrinsicProfile1(
-    nextWindow,
-    createProfile1SyntaxIdentityRegistry(nextWindow.length, accounting),
-    usesDesktopLimits ? DESKTOP_CM_DEPTH_LIMIT : Number.POSITIVE_INFINITY,
-    usesDesktopLimits
-      ? DESKTOP_MARKDOWN_DEPTH_LIMIT
-      : Number.POSITIVE_INFINITY,
-    Object.freeze({ ...markdownOptions, frontMatter: false }),
     execution,
-    undefined,
-    physicalRecorder
+    usesDesktopLimits
+      ? DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
+      : Number.POSITIVE_INFINITY
   )
+  const parsed = (() => {
+    try {
+      return parseIntrinsicProfile1(
+        nextWindow,
+        createProfile1SyntaxIdentityRegistry(nextWindow.length, accounting),
+        usesDesktopLimits ? DESKTOP_CM_DEPTH_LIMIT : Number.POSITIVE_INFINITY,
+        usesDesktopLimits
+          ? DESKTOP_MARKDOWN_DEPTH_LIMIT
+          : Number.POSITIVE_INFINITY,
+        Object.freeze({ ...markdownOptions, frontMatter: false }),
+        execution,
+        undefined,
+        physicalRecorder
+      )
+    } catch (error) {
+      if (!(error instanceof Profile1LogicalNodeLimitError)) {
+        throw error
+      }
+      return undefined
+    }
+  })()
   execution.finish()
   if (
     parsed !== undefined &&
@@ -4701,16 +4717,55 @@ export function parseProfile1Document(
   createPhysicalTraversalRecorderV1(),
   previousPass?: PreviousIntrinsicPass
 ): Profile1DocumentResult {
-  const usesDesktopLimits = executionBudget.limitsProfile === 'desktop-v1'
   const execution = createParseExecutionTracker(executionControl)
+  try {
+    return parseProfile1DocumentWithExecution(
+      source,
+      executionBudget,
+      traceRecorder,
+      markdownOptions,
+      captureAccountingTrace,
+      execution,
+      reuseCache,
+      physicalRecorder,
+      previousPass
+    )
+  } catch (error) {
+    if (!(error instanceof Profile1LogicalNodeLimitError)) {
+      throw error
+    }
+    execution.finish()
+    return Object.freeze({
+      kind: 'source-only',
+      fatalDiagnostic: createResourceDiagnostic(
+        'CM_RESOURCE_LOGICAL_NODES_EXCEEDED',
+        sourceRange(error.range.start, error.range.start),
+        error.limit,
+        error.observed
+      )
+    })
+  }
+}
+
+function parseProfile1DocumentWithExecution(
+  source: string,
+  executionBudget: ExecutionBudgetId,
+  traceRecorder: ProfileParseTraceRecorderV1 | undefined,
+  markdownOptions: MarkdownOptionsV1,
+  captureAccountingTrace: boolean,
+  execution: ParseExecutionTracker,
+  reuseCache: Profile1DocumentReuseCache | undefined,
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  previousPass: PreviousIntrinsicPass | undefined
+): Profile1DocumentResult {
+  const usesDesktopLimits = executionBudget.limitsProfile === 'desktop-v1'
   let accounting = createProfile1SyntaxAccountingRecorderV1(
     usesDesktopLimits,
     captureAccountingTrace,
-    execution
-  )
-  let syntaxIdentity = createProfile1SyntaxIdentityRegistry(
-    source.length,
-    accounting
+    execution,
+    usesDesktopLimits
+      ? DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
+      : Number.POSITIVE_INFINITY
   )
   const finishResult = <Result extends Profile1DocumentResult>(
     result: Result
@@ -4735,6 +4790,10 @@ export function parseProfile1Document(
       )
     }))
   }
+  let syntaxIdentity = createProfile1SyntaxIdentityRegistry(
+    source.length,
+    accounting
+  )
   traceRecorder?.recordCanonicalSourceAdmission(source.length)
   const markdownDepthLimit = usesDesktopLimits
     ? DESKTOP_MARKDOWN_DEPTH_LIMIT
@@ -4780,7 +4839,10 @@ export function parseProfile1Document(
     accounting = createProfile1SyntaxAccountingRecorderV1(
       usesDesktopLimits,
       captureAccountingTrace,
-      execution
+      execution,
+      usesDesktopLimits
+        ? DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
+        : Number.POSITIVE_INFINITY
     )
     syntaxIdentity = createProfile1SyntaxIdentityRegistry(
       source.length,
@@ -5037,14 +5099,14 @@ export function parseProfile1Document(
   )
   if (usesDesktopLimits) {
     const overflow = accounting.firstEventBeyond(
-      PROFILE1_DESKTOP_LOGICAL_NODE_LIMIT
+      DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
     )
     const budgetFailure = overflow === undefined
       ? undefined
       : createResourceDiagnostic(
         'CM_RESOURCE_LOGICAL_NODES_EXCEEDED',
         sourceRange(overflow.range.start, overflow.range.start),
-        PROFILE1_DESKTOP_LOGICAL_NODE_LIMIT,
+        DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes,
         overflow.observed
       )
     if (budgetFailure !== undefined) {

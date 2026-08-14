@@ -1534,7 +1534,7 @@ describe('document-core facade', () => {
     expect(annotation?.arms[0]?.annotations).toEqual([])
   })
 
-  it('fails atomically instead of changing over-limit nesting semantics', () => {
+  it('applies the logical-node guard before late nesting validation', () => {
     const depth = 16_385
     const source = `${'{++'.repeat(depth)}x${'++}'.repeat(depth)}`
 
@@ -1547,9 +1547,9 @@ describe('document-core facade', () => {
 
     expect(rejection).toBeInstanceOf(DocumentCoreError)
     expect(rejection).toMatchObject({
-      code: 'CM_RESOURCE_CM_DEPTH_EXCEEDED',
-      range: { start: 49_152, end: 49_155 },
-      metadata: { limit: '16384', observed: '16385' }
+      code: 'CM_RESOURCE_LOGICAL_NODES_EXCEEDED',
+      range: { start: 98_305, end: 98_305 },
+      metadata: { limit: '65536', observed: '65537' }
     })
   })
 
@@ -1657,7 +1657,7 @@ describe('document-core facade', () => {
       start,
       end: start + 4,
       insert: overLimit
-    }])).toThrow('CM_RESOURCE_CM_DEPTH_EXCEEDED')
+    }])).toThrow('CM_RESOURCE_LOGICAL_NODES_EXCEEDED')
 
     expect(observableRevision(core, current)).toEqual(before)
     const accepted = core.apply(current, [{
@@ -1787,7 +1787,7 @@ describe('document-core facade', () => {
       start,
       end: start + 4,
       insert: overLimit
-    }])).toThrow('CM_RESOURCE_CM_DEPTH_EXCEEDED')
+    }])).toThrow('CM_RESOURCE_LOGICAL_NODES_EXCEEDED')
 
     const acceptedSource = 'head\n\nTAIL\n'
     const reopened = core.reopen(current, acceptedSource, [{

@@ -18,6 +18,9 @@ import {
 } from '../src/index.js'
 import { inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
 import { applyExactSourceEdits } from '../src/exactSourceEdits.js'
+import {
+  createUnboundedDocumentCoreForInspection
+} from '../src/documentCore.js'
 
 interface ChangeInspection {
   readonly fullProductStoresStrongCurrent: number
@@ -1042,7 +1045,7 @@ describe('document-core semantic changes', () => {
         'far {>>payload<<}\n\n',
         'suffix\n\n'.repeat(suffixParagraphs)
       ].join('')
-      const core = createDocumentCore()
+      const core = createUnboundedDocumentCoreForInspection()
       const opened = core.open(source)
       const comment = opened.annotations[2]
       if (comment?.kind !== 'comment') throw new Error('Expected Comment')
@@ -1085,7 +1088,7 @@ describe('document-core semantic changes', () => {
   })
 
   it('does not build the CM inventory for a plain document', () => {
-    const core = createDocumentCore()
+    const core = createUnboundedDocumentCoreForInspection()
     const before = inspectionOf(core)
     core.open('plain\n\n'.repeat(10_000))
     const after = inspectionOf(core)
@@ -1122,7 +1125,7 @@ describe('document-core semantic changes', () => {
       buildUnits: number
       nodes: number
     }> => {
-      const core = createDocumentCore()
+      const core = createUnboundedDocumentCoreForInspection()
       core.open([
         'early {--deleted--}\n\n',
         'middle {++added++}\n\n',
@@ -3150,7 +3153,7 @@ describe('document-core semantic changes', () => {
     const insertAt = source.indexOf('word') + 2
     const nextSource =
       source.slice(0, insertAt) + 'X' + source.slice(insertAt)
-    const core = createDocumentCore()
+    const core = createUnboundedDocumentCoreForInspection()
     const opened = core.open(source)
     const previousMarkup = core.project(opened, 'markup')
     const before = inspectionOf(core)
@@ -3243,7 +3246,7 @@ describe('document-core semantic changes', () => {
     // segment. This small oracle materializes that shift only to compare the
     // resulting absolute ranges with a fresh authoritative projection.
     const spliced = applyMarkupReplacement(previousEvents, replacement)
-    const fullCore = createDocumentCore()
+    const fullCore = createUnboundedDocumentCoreForInspection()
     const full = fullCore.open(nextSource)
     const fullMarkup = fullCore.project(full, 'markup')
     expect(spliced).toEqual(eventsOf(fullMarkup))
@@ -3531,7 +3534,7 @@ describe('document-core semantic changes', () => {
     }> => {
       const suffix = 'suffix\n\n'.repeat(suffixParagraphs)
       const source = `head\n\ntarget word\n\n${suffix}`
-      const core = createDocumentCore()
+      const core = createUnboundedDocumentCoreForInspection()
       let revision = core.open(source)
       const before = inspectionOf(core)
       const at = source.indexOf('word') + 1
@@ -3602,7 +3605,7 @@ describe('document-core semantic changes', () => {
 
   it('projects a wide Markdown root without variadic child expansion', () => {
     const paragraphCount = 130_000
-    const core = createDocumentCore()
+    const core = createUnboundedDocumentCoreForInspection()
     const opened = core.open('x\n\n'.repeat(paragraphCount))
 
     const projection = core.project(opened, 'markup')
@@ -3616,7 +3619,7 @@ describe('document-core semantic changes', () => {
       (_, index) => `suffix ${String(index)}\n\n`
     ).join('')
     let expectedSource = `head\n\ntarget word\n\n${suffix}`
-    const core = createDocumentCore()
+    const core = createUnboundedDocumentCoreForInspection()
     let revision = core.open(expectedSource)
     const revisions = [revision]
     const expectedRevisions = [expectedSource]
@@ -3718,7 +3721,7 @@ describe('document-core semantic changes', () => {
     )).toBe(historicalSource.length)
 
     const projected = core.project(revision, 'markup')
-    const freshCore = createDocumentCore()
+    const freshCore = createUnboundedDocumentCoreForInspection()
     const fresh = freshCore.open(expectedSource)
     const freshProjected = freshCore.project(fresh, 'markup')
     expect(projected.events).toEqual(freshProjected.events)
@@ -4051,7 +4054,7 @@ describe('document-core semantic changes', () => {
     const source = `first\n\n${'p\n\n'.repeat(49_999)}target word\n\n${
       'p\n\n'.repeat(49_999)
     }last\n\n`
-    const core = createDocumentCore()
+    const core = createUnboundedDocumentCoreForInspection()
     const revisions = [core.open(source)]
     const at = source.indexOf('word') + 1
     for (let index = 0; index < 64; index += 1) {
@@ -4127,7 +4130,7 @@ describe('document-core semantic changes', () => {
   it('maps an early 1k growth before a penultimate negative delta', () => {
     const middle = 'p\n\n'.repeat(10_000)
     let source = `guard\n\nearlyword\n\n${middle}penultimateword\n\nlastword\n\nguardtail\n\n`
-    const core = createDocumentCore()
+    const core = createUnboundedDocumentCoreForInspection()
     let revision = core.open(source)
     const earlyAt = source.indexOf('earlyword') + 5
     const growth = 'X'.repeat(1_000)
@@ -4156,7 +4159,7 @@ describe('document-core semantic changes', () => {
     expect(secondChange.replacements[0]?.previous.source.start)
       .toBeGreaterThan(1_000)
 
-    const freshCore = createDocumentCore()
+    const freshCore = createUnboundedDocumentCoreForInspection()
     const fresh = freshCore.open(source)
     expect(core.project(second.revision, 'markup').syntax.ast)
       .toEqual(freshCore.project(fresh, 'markup').syntax.ast)
@@ -4369,7 +4372,8 @@ describe('document-core semantic changes', () => {
       start: at,
       end: at,
       insert: overDepth
-    }], { projections: ['markup'] })).toThrow(/CM_RESOURCE_CM_DEPTH_EXCEEDED/)
+    }], { projections: ['markup'] }))
+      .toThrow(/CM_RESOURCE_LOGICAL_NODES_EXCEEDED/)
     const afterRejections = inspectionOf(core)
     expect(afterRejections.retainedCommittedUpdates)
       .toBe(beforeRejections.retainedCommittedUpdates)
