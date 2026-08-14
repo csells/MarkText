@@ -2,6 +2,8 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+import { validateInstalledCorePhase4Evidence } from '../../e2e/helpers/installedCorePhase4Evidence'
+
 import {
   createCriticMarkupInstalledInteractionRunRecord,
   type CriticMarkupInteractionEvidenceManifest,
@@ -24,9 +26,9 @@ const evidencePath = resolve(
 )
 const installedRunPath =
   'specs/baselines/runs/' +
-  'installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json'
+  'installed-core-phase4-71ebb147-20260814T141500Z.json'
 const installedRunSha256 =
-  'a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53'
+  'b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b'
 
 describe('CriticMarkup interaction matrix', () => {
   const passingPlaywrightReport = () => {
@@ -174,10 +176,11 @@ describe('CriticMarkup interaction matrix', () => {
       matrix,
       evidence
     )).not.toThrow()
-    expect(() => validateCriticMarkupInstalledInteractionRunRecord(
-      matrix,
-      installedRun
-    )).not.toThrow()
+    expect(() => validateInstalledCorePhase4Evidence({
+      repoRoot,
+      interactionIds: matrix.rows.map(row => row.id),
+      record: installedRun
+    })).not.toThrow()
     expect(evidence.rows).toHaveLength(25)
     expect(matrix.rows.every(row => (
       row.status === 'green' &&
@@ -220,8 +223,8 @@ describe('CriticMarkup interaction matrix', () => {
     ])
     expect(evidence.rows.every(row => (
       row.execution?.buildCommit ===
-        'addd76f29ac28b0efc13db33868b1f62dd0f9724' &&
-      row.execution.recordedAt === '2026-08-13T17:48:22.569Z' &&
+        '71ebb14711f9577a6b318883bde7423a0bc62fff' &&
+      row.execution.recordedAt === '2026-08-14T21:17:26.421Z' &&
       row.execution.result === 'pass' &&
       row.execution.recordPath === installedRunPath &&
       row.execution.recordSha256 === installedRunSha256
