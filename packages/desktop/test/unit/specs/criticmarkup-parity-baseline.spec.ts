@@ -22,7 +22,7 @@ import {
 } from '../../../../../scripts/criticmarkupParityBaseline'
 
 const repoRoot = resolve(import.meta.dirname, '../../../../..')
-const baselineCommit = '43bd8b77795fb27b1a9512737c000f7362031ea0'
+const baselineCommit = 'e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c'
 const baseline = collectCriticMarkupParityBaseline(repoRoot, baselineCommit)
 const emptyRows = {
   schema: 'marktext-criticmarkup-parity-rows-v1' as const,
