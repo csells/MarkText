@@ -48,6 +48,9 @@ export interface RegionalInventorySpan {
 
 export interface RegionalInventoryCommentImpact {
   readonly nodeOrdinal: number
+  readonly nextProducts: Profile1DocumentProducts
+  readonly nextWindow: string
+  readonly nextSourceStart: number
   readonly previous: Readonly<{
     readonly annotation: Readonly<{ readonly start: number; readonly end: number }>
     readonly payload: Readonly<{ readonly start: number; readonly end: number }>
@@ -806,6 +809,24 @@ function sameTopology(
   return true
 }
 
+function sameRegionShape(
+  previous: MeasuredRegionLeaf,
+  next: MeasuredRegionLeaf
+): boolean {
+  return sameTopology(previous.annotations, next.annotations) &&
+    sameArray(previous.tapeRoles, next.tapeRoles) &&
+    sameArray(previous.markdownTopology, next.markdownTopology) &&
+    sameArray(previous.mappedKinds, next.mappedKinds) &&
+    previous.markers.length === next.markers.length &&
+    previous.markers.every((marker, ordinal) => {
+      const candidate = next.markers[ordinal]
+      return candidate !== undefined &&
+        marker.kind === candidate.kind && marker.role === candidate.role &&
+        marker.relation === candidate.relation &&
+        marker.action === candidate.action
+    })
+}
+
 function editTouchesMarker(
   leaf: MeasuredRegionLeaf,
   localStart: number,
@@ -850,20 +871,25 @@ function commentAtRange(
   inventory: InventoryValue,
   requested: Readonly<{ readonly start: number; readonly end: number }>
 ): Readonly<{
-  readonly located: LocatedLeaf
+  readonly located: LocatedLeaf & Readonly<{ readonly leaf: MeasuredRegionLeaf }>
   readonly nodeOrdinal: number
   readonly node: CapsuleNode
 }> | undefined {
   const located = locateBySource(inventory, requested.start)
   if (located === undefined || located.leaf.kind !== 'region') return undefined
-  for (let ordinal = 0; ordinal < located.leaf.annotations.nodes.length; ordinal += 1) {
-    const node = located.leaf.annotations.nodes[ordinal]
+  const regionLocated = Object.freeze({ ...located, leaf: located.leaf })
+  for (
+    let ordinal = 0;
+    ordinal < regionLocated.leaf.annotations.nodes.length;
+    ordinal += 1
+  ) {
+    const node = regionLocated.leaf.annotations.nodes[ordinal]
     if (
       node?.kind === 'comment' &&
-      located.sourceStart + node.start === requested.start &&
-      located.sourceStart + node.end === requested.end
+      regionLocated.sourceStart + node.start === requested.start &&
+      regionLocated.sourceStart + node.end === requested.end
     ) {
-      return Object.freeze({ located, nodeOrdinal: ordinal, node })
+      return Object.freeze({ located: regionLocated, nodeOrdinal: ordinal, node })
     }
   }
   return undefined
@@ -909,14 +935,6 @@ export function applyRegionalInventory(
   })
   if (resolvedComments.some(comment => comment === undefined)) {
     return Object.freeze({ kind: 'fallback', reason: 'subscription-not-found' })
-  }
-  if (
-    resolvedComments.length > 1 &&
-    resolvedComments.some(comment =>
-      comment !== undefined && comment.located.ordinal !== start.ordinal
-    )
-  ) {
-    return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
   }
   const localStart = edit.start - start.sourceStart
   const localEnd = edit.end - start.sourceStart
@@ -975,19 +993,7 @@ export function applyRegionalInventory(
   ) {
     return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
   }
-  if (
-    !sameTopology(start.leaf.annotations, candidate.annotations) ||
-    !sameArray(start.leaf.tapeRoles, candidate.tapeRoles) ||
-    !sameArray(start.leaf.markdownTopology, candidate.markdownTopology) ||
-    !sameArray(start.leaf.mappedKinds, candidate.mappedKinds) ||
-    start.leaf.markers.length !== candidate.markers.length ||
-    start.leaf.markers.some((marker, ordinal) => {
-      const next = candidate.markers[ordinal]
-      return next === undefined ||
-        marker.kind !== next.kind || marker.role !== next.role ||
-        marker.relation !== next.relation || marker.action !== next.action
-    })
-  ) {
+  if (!sameRegionShape(start.leaf, candidate)) {
     return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
   }
   const replacement = candidate
@@ -1006,14 +1012,86 @@ export function applyRegionalInventory(
     logicalNodeLimit: inventory.logicalNodeLimit,
     recorder: inventory.recorder
   })
+  const nextCommentLeaves = new Map<number, Readonly<{
+    products: Profile1DocumentProducts
+    window: string
+    sourceStart: number
+  }>>()
+  nextCommentLeaves.set(start.ordinal, Object.freeze({
+    products: result,
+    window: nextWindow,
+    sourceStart: start.sourceStart
+  }))
+  for (const resolved of resolvedComments) {
+    if (
+      resolved === undefined ||
+      nextCommentLeaves.has(resolved.located.ordinal)
+    ) continue
+    const nextSourceStart = resolved.located.sourceStart +
+      (resolved.located.ordinal > start.ordinal ? delta : 0)
+    const window = nextSource.slice(
+      nextSourceStart,
+      nextSourceStart + resolved.located.leaf.sourceLength
+    )
+    inventory.recorder.recordCandidateRegionParse(window.length)
+    const parsed = parseProfile1Document(
+      window,
+      executionBudget,
+      undefined,
+      markdownOptions,
+      false,
+      undefined,
+      createProfile1DocumentReuseCache(),
+      physicalRecorder
+    )
+    if (parsed.kind !== 'complete') {
+      return Object.freeze({
+        kind: 'resource-failure',
+        fatalDiagnostic: shiftResourceDiagnostic(
+          parsed.fatalDiagnostic,
+          nextSourceStart
+        )
+      })
+    }
+    if (
+      parsed.diagnostics.count !== 0 ||
+      (parsed.retainedIntrinsic?.diagnostics.length ?? 0) !== 0 ||
+      (parsed.retainedIntrinsic?.safePoints.length ?? 0) !== 0
+    ) {
+      return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
+    }
+    const unchanged = createLeaf(
+      parsed,
+      0,
+      window.length,
+      0,
+      parsed.editing().source.length,
+      parsed.markup.eventCount
+    )
+    if (!sameRegionShape(resolved.located.leaf, unchanged)) {
+      return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
+    }
+    nextCommentLeaves.set(resolved.located.ordinal, Object.freeze({
+      products: parsed,
+      window,
+      sourceStart: nextSourceStart
+    }))
+  }
   const commentImpacts: RegionalInventoryCommentImpact[] = []
   for (const resolved of resolvedComments) {
-    if (resolved === undefined || resolved.located.ordinal !== start.ordinal) continue
+    if (resolved === undefined) continue
+    const nextLeaf = nextCommentLeaves.get(resolved.located.ordinal)
+    if (nextLeaf === undefined) {
+      return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
+    }
     const node = resolved.node
     const arm = node.arms[0]
     if (arm === undefined || node.commentProjectionLength === undefined) continue
     commentImpacts.push(Object.freeze({
       nodeOrdinal: resolved.nodeOrdinal,
+      nextProducts: nextLeaf.products,
+      nextWindow: nextLeaf.window,
+      nextSourceStart: nextLeaf.sourceStart,
       previous: Object.freeze({
         annotation: range(
           resolved.located.sourceStart + node.start,
