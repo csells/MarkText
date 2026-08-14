@@ -66,7 +66,7 @@ const input = (
       measurementBoundary: 'external-browser-compositor-v4' as const,
       presentationBoundary: 'electron-webcontents-capture-page-transparent-v2' as const,
       launchBoundary: 'external-inspector-transparent-render-active-v3' as const,
-      windowPresentationPolicy: 'transparent-render-active-inactive-v3' as const,
+      windowPresentationPolicy: 'transparent-render-active-inactive-v4' as const,
       windowPresentationPlatform: 'darwin' as const,
       chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2' as const,
       sampleLifecycle: 'fresh-application-profile-per-observation-v1' as const,
@@ -110,13 +110,13 @@ const twoDocumentInput = () => {
 }
 
 describe('upstream baseline raw performance producer', () => {
-  it('creates an accepted v8 shape only for pinned isolated scheduled 20/200 ratification evidence', () => {
+  it('creates an accepted v9 shape only for pinned isolated scheduled 20/200 ratification evidence', () => {
     const run = createUpstreamBaselinePerformanceRawRun(
       input('ratification', 20, 200)
     )
 
     expect(run).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-run-v8',
+      schema: 'marktext-criticmarkup-raw-performance-run-v9',
       runId: 'upstream-ratification',
       implementation: 'upstream-baseline',
       baselineCommit: PINNED_BASELINE,
@@ -133,7 +133,7 @@ describe('upstream baseline raw performance producer', () => {
         measurementBoundary: 'external-browser-compositor-v4',
         presentationBoundary: 'electron-webcontents-capture-page-transparent-v2',
         launchBoundary: 'external-inspector-transparent-render-active-v3',
-        windowPresentationPolicy: 'transparent-render-active-inactive-v3',
+        windowPresentationPolicy: 'transparent-render-active-inactive-v4',
         windowPresentationPlatform: 'darwin',
         chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2',
         sampleLifecycle: 'fresh-application-profile-per-observation-v1',
@@ -173,7 +173,7 @@ describe('upstream baseline raw performance producer', () => {
     )
 
     expect(smoke).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v8',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v9',
       evidenceClass: 'smoke-non-ratifying',
       sampling: { warmupSamples: 1, measuredSamples: 2 }
     })

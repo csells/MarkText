@@ -38,7 +38,7 @@ const positiveInteger = (value: unknown, label: string): void => {
 /** Validates the human-owned Phase 0 measurement protocol and target record. */
 export function validateCriticMarkupPerformanceTargets(value: unknown): void {
   const manifest = recordOf(value, 'Performance target manifest')
-  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v6') {
+  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v7') {
     throw new Error('Performance target manifest schema is unsupported')
   }
   if (manifest.status !== 'proposed-unratified' && manifest.status !== 'ratified') {
@@ -83,11 +83,11 @@ export function validateCriticMarkupPerformanceTargets(value: unknown): void {
   nonEmptyString(sampling.scenarios, 'Sampling scenario rule')
   if (
     typeof sampling.scenarios !== 'string' ||
-    !/fresh application.*fresh profile.*every observation.*rotat.*round-robin.*drift diagnostic.*no.*threshold.*launch.*bootstrap.*cleanup.*outside.*timed metric/iu
+    !/fresh application.*fresh profile.*every observation.*rotat.*round-robin.*pre-timing readiness.*two consecutive.*Electron.*CGWindow.*5 seconds.*only transient origin mismatch.*post-measurement.*one-shot strict.*launch.*readiness.*excluded.*no retries.*drift diagnostic.*no.*threshold.*cleanup.*outside.*timed metric/iu
       .test(sampling.scenarios)
   ) {
     throw new Error(
-      'Sampling scenarios must define fresh isolation, rotating order, threshold-free drift diagnostics, and metric exclusions'
+      'Sampling scenarios must define fresh isolation, rotating order, bounded native readiness convergence, one-shot post-measurement validation, no retries, threshold-free drift diagnostics, and metric exclusions'
     )
   }
 

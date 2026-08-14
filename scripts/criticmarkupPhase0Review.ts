@@ -18,6 +18,10 @@ import type {
   CriticMarkupSalvageObject,
   CriticMarkupSalvageSnapshot
 } from './criticmarkupSalvageBaseline'
+import {
+  type CriticMarkupPerformanceMeasurementManifest,
+  requireCriticMarkupPerformanceEvidenceForRatification
+} from './criticmarkupPerformanceMeasurements'
 
 type ProposedParityDisposition =
   | 'parity-row'
@@ -599,6 +603,48 @@ export const validateCriticMarkupPhase0ApprovalProposal = (
     throw new Error(
       'CriticMarkup Phase 0 decision set is incomplete or stale: ' +
       `missing ${missingDecisions.length}, stale ${staleDecisions.length}`
+    )
+  }
+  const performanceDecision = decisions.get('performance-targets')
+  if (performanceDecision?.status === 'approved') {
+    const performanceEvidence = approval.evidence.find(evidence => (
+      evidence.id === 'performance-measurements'
+    ))
+    if (
+      performanceEvidence === undefined ||
+      !performanceDecision.evidenceRefs.includes(performanceEvidence.id)
+    ) {
+      throw new Error(
+        'Approved performance targets must reference the performance measurement manifest'
+      )
+    }
+    const performanceManifest = JSON.parse(readFileSync(
+      resolve(repoRoot, performanceEvidence.path),
+      'utf8'
+    )) as CriticMarkupPerformanceMeasurementManifest
+    if (performanceManifest.baselineCommit !== approval.baselineCommit) {
+      throw new Error(
+        'Performance measurement baseline must equal the Phase 0 baseline'
+      )
+    }
+    const calibrationEvidence = approval.evidence.find(evidence => (
+      evidence.id === 'performance-calibration'
+    ))
+    if (
+      calibrationEvidence === undefined ||
+      !performanceDecision.evidenceRefs.includes(calibrationEvidence.id)
+    ) {
+      throw new Error(
+        'Approved performance targets must reference the authenticated calibration report'
+      )
+    }
+    requireCriticMarkupPerformanceEvidenceForRatification(
+      repoRoot,
+      performanceManifest,
+      {
+        path: calibrationEvidence.path,
+        sha256: calibrationEvidence.sha256
+      }
     )
   }
   const pending = approval.decisions.filter(decision => (
