@@ -1,0 +1,348 @@
+{
+  "schema": "marktext-installed-core-phase4-evidence-v1",
+  "buildCommit": "506d45bab802177a5b52cc05e69b70ae77679b4b",
+  "harnessCommit": "506d45bab802177a5b52cc05e69b70ae77679b4b",
+  "recordedAt": "2026-08-14T21:45:28.489Z",
+  "result": "pass",
+  "platform": {
+    "name": "darwin",
+    "arch": "arm64",
+    "release": "25.5.0"
+  },
+  "package": {
+    "name": "marktext-mac-arm64-0.20.0-dev.dmg",
+    "sha256": "6f70674a7815b196b4e1c5cebf637127c6f35ac5068bd66e23b4fa7a112edb17"
+  },
+  "executable": {
+    "path": "marktext.app/Contents/MacOS/marktext",
+    "sha256": "c86c2701f15ca66ba460f4cdcd7ebcab0b5133a4cc299295f02108b3754e9eed"
+  },
+  "cleanup": {
+    "result": "pass",
+    "applicationProcessCount": 0,
+    "mountedImageDetached": true,
+    "packageRemoved": true,
+    "temporaryPathsRemoved": true
+  },
+  "interactionMatrix": {
+    "path": "specs/baselines/criticmarkup-interaction-matrix.json",
+    "sha256": "93a3b9f600ec21a5875b7875e17854d5bc12bd516ad8bba94611833e321e0a64"
+  },
+  "executionArtifacts": {
+    "playwrightReport": {
+      "path": "specs/baselines/runs/installed-core-phase4-506d45ba-20260814T144500Z.playwright.json",
+      "sha256": "fe1c648f1634ff4b17e04b547e4946ccece4e013aaad7baf4fdde5776f707e2d"
+    },
+    "runnerLog": {
+      "path": "specs/baselines/runs/installed-core-phase4-506d45ba-20260814T144500Z.log",
+      "sha256": "ffaf238cd13f216625b6cf05630177a8025636d99fb902682cbb4f1d4755f365"
+    }
+  },
+  "totalTests": 33,
+  "interactionMatrixRowIds": [
+    "addition.block-boundary.author",
+    "addition.literal.resolve",
+    "addition.nested-comment.save-reopen",
+    "addition.paragraph.render",
+    "addition.reference-footnote.source-round-trip",
+    "comment.block-boundary.source-round-trip",
+    "comment.literal.save-reopen",
+    "comment.nested-comment.render",
+    "comment.paragraph.author",
+    "comment.reference-footnote.resolve",
+    "deletion.block-boundary.resolve",
+    "deletion.literal.source-round-trip",
+    "deletion.nested-comment.author",
+    "deletion.paragraph.save-reopen",
+    "deletion.reference-footnote.render",
+    "highlight.block-boundary.save-reopen",
+    "highlight.literal.render",
+    "highlight.nested-comment.resolve",
+    "highlight.paragraph.source-round-trip",
+    "highlight.reference-footnote.author",
+    "substitution.block-boundary.render",
+    "substitution.literal.author",
+    "substitution.nested-comment.source-round-trip",
+    "substitution.paragraph.resolve",
+    "substitution.reference-footnote.save-reopen"
+  ],
+  "workflowIds": [
+    "phase4.clipboard.copy-revised",
+    "phase4.clipboard.cut-revised",
+    "phase4.clipboard.paste-revised",
+    "phase4.export.revised-consumers",
+    "phase4.review.bulk-accept-all",
+    "phase4.review.bulk-reject-all",
+    "phase4.review.track-comment-save-reopen",
+    "phase4.search.replace-all-revised"
+  ],
+  "tests": [
+    {
+      "id": "addition.block-boundary.author",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "addition.block-boundary.author follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "addition.literal.resolve",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "addition.literal.resolve follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "addition.nested-comment.save-reopen",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "addition.nested-comment.save-reopen follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "addition.paragraph.render",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "addition.paragraph.render follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "addition.reference-footnote.source-round-trip",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "addition.reference-footnote.source-round-trip follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "comment.block-boundary.source-round-trip",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "comment.block-boundary.source-round-trip follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "comment.literal.save-reopen",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "comment.literal.save-reopen follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "comment.nested-comment.render",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "comment.nested-comment.render follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "comment.paragraph.author",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "comment.paragraph.author follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "comment.reference-footnote.resolve",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "comment.reference-footnote.resolve follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "deletion.block-boundary.resolve",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "deletion.block-boundary.resolve follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "deletion.literal.source-round-trip",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "deletion.literal.source-round-trip follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "deletion.nested-comment.author",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "deletion.nested-comment.author follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "deletion.paragraph.save-reopen",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "deletion.paragraph.save-reopen follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "deletion.reference-footnote.render",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "deletion.reference-footnote.render follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "highlight.block-boundary.save-reopen",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "highlight.block-boundary.save-reopen follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "highlight.literal.render",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "highlight.literal.render follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "highlight.nested-comment.resolve",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "highlight.nested-comment.resolve follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "highlight.paragraph.source-round-trip",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "highlight.paragraph.source-round-trip follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "highlight.reference-footnote.author",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "highlight.reference-footnote.author follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "phase4.clipboard.copy-revised",
+      "kind": "phase4-workflow",
+      "specPath": "packages/desktop/test/e2e/installed-core-clipboard.spec.ts",
+      "testTitle": "native Copy publishes the selected Revised rich and plain projections",
+      "result": "pass"
+    },
+    {
+      "id": "phase4.clipboard.cut-revised",
+      "kind": "phase4-workflow",
+      "specPath": "packages/desktop/test/e2e/installed-core-clipboard.spec.ts",
+      "testTitle": "native Cut writes its Revised payload before one actor history mutation",
+      "result": "pass"
+    },
+    {
+      "id": "phase4.clipboard.paste-revised",
+      "kind": "phase4-workflow",
+      "specPath": "packages/desktop/test/e2e/installed-core-clipboard.spec.ts",
+      "testTitle": "native Paste commits a copied Revised projection through actor history",
+      "result": "pass"
+    },
+    {
+      "id": "phase4.export.revised-consumers",
+      "kind": "phase4-workflow",
+      "specPath": "packages/desktop/test/e2e/installed-core-export-consumers.spec.ts",
+      "testTitle": "styled HTML, PDF, and Print commands consume the same Revised projection",
+      "result": "pass"
+    },
+    {
+      "id": "phase4.review.bulk-accept-all",
+      "kind": "phase4-workflow",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "bulk accept is one installed Review history unit",
+      "result": "pass"
+    },
+    {
+      "id": "phase4.review.bulk-reject-all",
+      "kind": "phase4-workflow",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "bulk reject is one installed Review history unit",
+      "result": "pass"
+    },
+    {
+      "id": "phase4.review.track-comment-save-reopen",
+      "kind": "phase4-workflow",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "tracks continuously, edits a Comment, saves, and reopens exact bytes",
+      "result": "pass"
+    },
+    {
+      "id": "phase4.search.replace-all-revised",
+      "kind": "phase4-workflow",
+      "specPath": "packages/desktop/test/e2e/installed-core-search.spec.ts",
+      "testTitle": "visible Revised search and replace-all are one actor history unit",
+      "result": "pass"
+    },
+    {
+      "id": "substitution.block-boundary.render",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "substitution.block-boundary.render follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "substitution.literal.author",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "substitution.literal.author follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "substitution.nested-comment.source-round-trip",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "substitution.nested-comment.source-round-trip follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "substitution.paragraph.resolve",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "substitution.paragraph.resolve follows the installed interaction matrix",
+      "result": "pass"
+    },
+    {
+      "id": "substitution.reference-footnote.save-reopen",
+      "kind": "interaction-matrix",
+      "specPath": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "testTitle": "substitution.reference-footnote.save-reopen follows the installed interaction matrix",
+      "result": "pass"
+    }
+  ],
+  "testSources": [
+    {
+      "path": "packages/desktop/test/e2e/installed-core-clipboard.spec.ts",
+      "sha256": "a67d59a61b8955b92ca3c476e7e7dcd07137fbde9c18ada955e744340de8dcb4"
+    },
+    {
+      "path": "packages/desktop/test/e2e/installed-core-export-consumers.spec.ts",
+      "sha256": "df8204c92c85dd3e2762e725a0882ee9797bc3e24089ba9fcad375d778bda580"
+    },
+    {
+      "path": "packages/desktop/test/e2e/installed-core-review.spec.ts",
+      "sha256": "6dc1d23ebeffa19910b74ad2eb14835edd30260bc7af3d653b370b557da34a08"
+    },
+    {
+      "path": "packages/desktop/test/e2e/installed-core-search.spec.ts",
+      "sha256": "80a06363a2bfe16db73964689eb9561c22732ff1cf6327587860beab90a74969"
+    }
+  ],
+  "harnessSources": [
+    {
+      "path": "packages/desktop/test/e2e/helpers/installedCorePhase4Evidence.ts",
+      "sha256": "c9ae2984620043fe6369ea9b816ed7f0076543dd03db51b28a618dbaf7a0b41e"
+    },
+    {
+      "path": "packages/desktop/test/e2e/playwright.installed-core-phase4-consumers.config.ts",
+      "sha256": "5272783f0fe8994e52f97a59638223020b4336a4f7bd1f7e16ff28565ca0bcf6"
+    },
+    {
+      "path": "packages/desktop/test/e2e/run-installed-core-phase4-consumers.sh",
+      "sha256": "9c500e1fd63959ebb8a8ac240201fd2679d4c1aaea224b09f50c7a651767837e"
+    },
+    {
+      "path": "scripts/installedCorePhase4Evidence.ts",
+      "sha256": "59cb774f7b8ae860f2fce1517dc63f50352a8e92c1291c68404cb6fac519efa0"
+    }
+  ]
+}

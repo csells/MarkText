@@ -181,7 +181,7 @@ The performance decision does not approve the rest of Phase 0. The owner must al
    map has 25 green installed executions and no rows without a named production oracle. A
    table-driven installed oracle exercised all 25 rows through visible controls and exact
    source/history/save/reopen checks at stable build commit
-   `71ebb14711f9577a6b318883bde7423a0bc62fff`; the same authenticated installed run also passed
+   `506d45bab802177a5b52cc05e69b70ae77679b4b`; the same authenticated installed run also passed
    eight installed Phase 4 consumer workflows for bulk Review, Track Changes, native clipboard,
    Revised search/replace, and HTML/PDF/Print projection. The exact 33-test denominator, unique row
    IDs, package and executable hashes, source hashes, cleanup receipt, Playwright report, runner log,
