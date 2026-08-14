@@ -171,6 +171,7 @@ PROBE_FILE="${SCRIPT_DIR}/helpers/upstreamBaselineInputProbe.ts"
 HIDDEN_POLICY_FILE="${SCRIPT_DIR}/helpers/upstreamBaselineHiddenPolicy.ts"
 LIFECYCLE_CLEANUP_FILE="${SCRIPT_DIR}/helpers/upstreamBaselineLifecycleCleanup.ts"
 SAMPLE_LIFECYCLE_FILE="${SCRIPT_DIR}/helpers/performanceSampleLifecycle.ts"
+OBSERVATION_SCHEDULE_FILE="${SCRIPT_DIR}/helpers/performanceObservationSchedule.ts"
 CHROMIUM_POLICY_FILE="${SCRIPT_DIR}/helpers/performanceChromiumLaunchPolicy.ts"
 PRESENTATION_CHECKPOINT_FILE="${SCRIPT_DIR}/helpers/performancePresentationCheckpoint.ts"
 PRODUCER_SHA256="$(
@@ -178,7 +179,8 @@ PRODUCER_SHA256="$(
     for producer_part in \
       "${PRODUCER_FILE}" "${RAW_RUN_FILE}" "${ENVIRONMENT_FILE}" \
       "${CONFIG_FILE}" "${HIDDEN_POLICY_FILE}" "${LIFECYCLE_CLEANUP_FILE}" \
-      "${SAMPLE_LIFECYCLE_FILE}" "${CHROMIUM_POLICY_FILE}" \
+      "${SAMPLE_LIFECYCLE_FILE}" "${OBSERVATION_SCHEDULE_FILE}" \
+      "${CHROMIUM_POLICY_FILE}" \
       "${PRESENTATION_CHECKPOINT_FILE}"; do
       shasum -a 256 "${producer_part}" | awk '{print $1}'
     done

@@ -140,6 +140,7 @@ PRODUCER_SHA256="$(
       "${SCRIPT_DIR}/helpers/coreAuthorityPerformanceRawRun.ts" \
       "${SCRIPT_DIR}/helpers/coreAuthorityPerformanceReport.ts" \
       "${SCRIPT_DIR}/helpers/performanceSampleLifecycle.ts" \
+      "${SCRIPT_DIR}/helpers/performanceObservationSchedule.ts" \
       "${SCRIPT_DIR}/installedArtifactProvenance.ts" \
       "${SCRIPT_DIR}/playwright.installed-core-performance.config.ts" \
       "${SCRIPT_DIR}/helpers/performanceChromiumLaunchPolicy.ts" \
