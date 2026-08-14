@@ -180,6 +180,12 @@ eliminate temporal, thermal, cache, hardware, or environment drift. Mandatory ti
 diagnostics are required for every document and metric. No drift pass/fail threshold is defined
 before owner review and ratification; the protocol does not invent one.
 
+Pre-timing readiness requires two consecutive exact Electron and CGWindow matches within a bounded
+5 seconds. Only a transient origin mismatch may settle during that readiness window; every other
+native or Electron mismatch fails immediately. Post-measurement validation remains one-shot strict.
+Application launch and readiness are excluded from every timed metric, and there are no retries of
+a measurement or its post-measurement validation.
+
 Required measurements are:
 
 - captured browser input to the exact speculative DOM checkpoint and one Electron `WebContents.capturePage` call with `stayHidden` and `stayAwake` while the exact macOS measurement window is render-active but opacity-zero, nonfocusable, noninteractive, inactive, and not frontmost, immediately followed by retained-state validation; this is a captured compositor-surface upper bound, while the post-capture checkpoint proves only that view state was retained—not screenshot pixel equality, physical display, vsync, or next-frame presentation;

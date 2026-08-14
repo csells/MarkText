@@ -18,12 +18,12 @@ describe('CriticMarkup performance target protocol', () => {
     expect(() => validateCriticMarkupPerformanceTargets(manifest)).not.toThrow()
     expect(manifest).toMatchObject({ status: 'proposed-unratified' })
     expect(manifest).toMatchObject({
-      schema: 'marktext-criticmarkup-performance-targets-v6',
+      schema: 'marktext-criticmarkup-performance-targets-v7',
       sampling: {
         sampleLifecycle: 'fresh-application-profile-per-observation-v1',
         observationSchedule: 'warmup-then-measured-rotating-round-robin-v1',
         scenarios: expect.stringMatching(
-          /fresh application.*fresh profile.*every observation.*rotat.*round-robin.*drift diagnostic.*no.*threshold.*launch.*bootstrap.*cleanup.*outside.*timed metric/i
+          /fresh application.*fresh profile.*every observation.*rotat.*round-robin.*pre-timing readiness.*two consecutive.*Electron.*CGWindow.*5 seconds.*only transient origin mismatch.*post-measurement.*one-shot strict.*launch.*readiness.*excluded.*no retries.*drift diagnostic.*no.*threshold.*cleanup.*outside.*timed metric/i
         )
       }
     })
@@ -36,7 +36,7 @@ describe('CriticMarkup performance target protocol', () => {
     })
 
     const staleSchema = structuredClone(manifest) as { schema: string }
-    staleSchema.schema = 'marktext-criticmarkup-performance-targets-v5'
+    staleSchema.schema = 'marktext-criticmarkup-performance-targets-v6'
     expect(() => validateCriticMarkupPerformanceTargets(staleSchema))
       .toThrow(/schema is unsupported/i)
 
@@ -53,10 +53,18 @@ describe('CriticMarkup performance target protocol', () => {
     unscheduled.sampling.observationSchedule = 'document-at-a-time'
     expect(() => validateCriticMarkupPerformanceTargets(unscheduled))
       .toThrow(/observation schedule.*warmup.*measured.*rotating round robin/i)
+
+    const singleNativeMatch = structuredClone(manifest) as {
+      sampling: { scenarios: string }
+    }
+    singleNativeMatch.sampling.scenarios =
+      singleNativeMatch.sampling.scenarios.replace('two consecutive', 'one')
+    expect(() => validateCriticMarkupPerformanceTargets(singleNativeMatch))
+      .toThrow(/bounded native readiness convergence/i)
     expect((manifest as { metrics: { t_event: object } }).metrics.t_event)
       .not.toHaveProperty('targetP95Ms')
     expect(manifest).toMatchObject({
-      schema: 'marktext-criticmarkup-performance-targets-v6',
+      schema: 'marktext-criticmarkup-performance-targets-v7',
       metrics: {
         t_present: {
           definition: expect.stringMatching(

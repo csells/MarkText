@@ -118,12 +118,12 @@ interface UpstreamBaselinePerformanceRawRunBase {
 
 export interface UpstreamBaselinePerformanceRatificationRun
   extends UpstreamBaselinePerformanceRawRunBase {
-  readonly schema: 'marktext-criticmarkup-raw-performance-run-v8'
+  readonly schema: 'marktext-criticmarkup-raw-performance-run-v9'
 }
 
 export interface UpstreamBaselinePerformanceSmokeRun
   extends UpstreamBaselinePerformanceRawRunBase {
-  readonly schema: 'marktext-criticmarkup-raw-performance-smoke-v8'
+  readonly schema: 'marktext-criticmarkup-raw-performance-smoke-v9'
   readonly evidenceClass: 'smoke-non-ratifying'
 }
 
@@ -410,11 +410,11 @@ export const createUpstreamBaselinePerformanceRawRun = (
   })
   return input.evidenceClass === 'ratification'
     ? Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-run-v8' as const,
+      schema: 'marktext-criticmarkup-raw-performance-run-v9' as const,
       ...base
     })
     : Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v8' as const,
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v9' as const,
       evidenceClass: 'smoke-non-ratifying' as const,
       ...base
     })
@@ -435,7 +435,7 @@ export const writeUpstreamBaselinePerformanceRawRun = (
   run: UpstreamBaselinePerformanceRawRun
 ): void => {
   if (
-    run.schema === 'marktext-criticmarkup-raw-performance-smoke-v8' &&
+    run.schema === 'marktext-criticmarkup-raw-performance-smoke-v9' &&
     isRatificationDirectory(outputPath)
   ) {
     throw new Error('Smoke output cannot be written to the ratification directory')

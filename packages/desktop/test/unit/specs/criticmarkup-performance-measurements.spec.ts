@@ -15,7 +15,9 @@ import {
   CORE_PERFORMANCE_PRODUCER_PATHS,
   type CriticMarkupPerformanceMeasurementManifest,
   type CriticMarkupRawPerformanceRun,
-  type CriticMarkupUpstreamRawPerformanceRunV8,
+  type CriticMarkupUpstreamRawPerformanceRunV9,
+  materializeCriticMarkupMeasuredPerformanceManifest,
+  writeCriticMarkupPerformanceCalibrationReport,
   UPSTREAM_PERFORMANCE_PRODUCER_PATHS,
   requireCriticMarkupPerformanceEvidenceForRatification,
   validateCriticMarkupPerformanceMeasurements
@@ -80,7 +82,7 @@ const authenticatedCoreProvenance = {
   measurementBoundary: 'core-authority-browser-compositor-v6',
   presentationBoundary: 'electron-webcontents-capture-page-transparent-v2',
   launchBoundary: 'playwright-electron-packaged-transparent-v3',
-  windowPresentationPolicy: 'transparent-render-active-inactive-v3',
+  windowPresentationPolicy: 'transparent-render-active-inactive-v4',
   windowPresentationPlatform: 'darwin',
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2',
   sampleLifecycle: 'fresh-application-profile-per-observation-v1',
@@ -109,7 +111,7 @@ const authenticatedUpstreamProvenance = {
   measurementBoundary: 'external-browser-compositor-v4',
   presentationBoundary: 'electron-webcontents-capture-page-transparent-v2',
   launchBoundary: 'external-inspector-transparent-render-active-v3',
-  windowPresentationPolicy: 'transparent-render-active-inactive-v3',
+  windowPresentationPolicy: 'transparent-render-active-inactive-v4',
   windowPresentationPlatform: 'darwin',
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2',
   sampleLifecycle: 'fresh-application-profile-per-observation-v1',
@@ -129,7 +131,7 @@ const compositeSha256 = (sources: readonly string[]): string => sha256(sources
   .map(source => `${sha256(source)}\n`)
   .join(''))
 
-const first = <Value>(values: Value[]): Value => {
+const first = <Value>(values: readonly Value[]): Value => {
   const value = values[0]
   if (value === undefined) throw new Error('Synthetic fixture requires an entry')
   return value
@@ -153,8 +155,8 @@ const rawRun = (
   implementation: 'upstream-baseline' | 'core-candidate'
 ): CriticMarkupRawPerformanceRun => ({
   schema: implementation === 'core-candidate'
-    ? 'marktext-criticmarkup-raw-performance-run-v10'
-    : 'marktext-criticmarkup-raw-performance-run-v8',
+    ? 'marktext-criticmarkup-raw-performance-run-v11'
+    : 'marktext-criticmarkup-raw-performance-run-v9',
   runId: `${implementation}-synthetic-validator-fixture`,
   implementation,
   ...(implementation === 'core-candidate'
@@ -322,7 +324,7 @@ const withGitAuthenticatedUpstreamRun = (
     ).trim()
     const upstream = structuredClone(
       rawRun('upstream-baseline')
-    ) as CriticMarkupUpstreamRawPerformanceRunV8
+    ) as CriticMarkupUpstreamRawPerformanceRunV9
     upstream.baselineCommit = harnessCommit
     upstream.buildCommit = harnessCommit
     upstream.provenance = {
@@ -422,6 +424,75 @@ const scheduleFailureCases = [
 ] as const
 
 describe('CriticMarkup raw performance evidence', () => {
+  it('materializes an exact measured-unratified manifest from an unordered raw pair', () => {
+    withSyntheticRuns((root, measured) => {
+      const awaiting = {
+        ...structuredClone(measured),
+        status: 'awaiting-raw-runs' as const,
+        runs: []
+      }
+      const rawPaths = measured.runs.map(run => run.path).reverse()
+
+      expect(materializeCriticMarkupMeasuredPerformanceManifest(
+        root,
+        awaiting,
+        rawPaths
+      )).toEqual(measured)
+    })
+  })
+
+  it('writes one deterministic create-only calibration row and drift diagnostic per metric', () => {
+    withSyntheticRuns((root, measured) => {
+      const outputPath =
+        'specs/baselines/runs/performance/synthetic-calibration.json'
+      const materialized = writeCriticMarkupPerformanceCalibrationReport(
+        root,
+        measured,
+        outputPath
+      )
+
+      expect(materialized.ref).toEqual({
+        path: outputPath,
+        sha256: expect.stringMatching(/^[0-9a-f]{64}$/u)
+      })
+      expect(materialized.report).toMatchObject({
+        schema: 'marktext-criticmarkup-performance-calibration-v1',
+        status: 'measured-unratified',
+        provenance: {
+          baselineCommit: measured.baselineCommit,
+          targetManifest: measured.targetManifest,
+          representativeDocuments: measured.representativeDocuments,
+          rawRuns: measured.runs
+        },
+        percentiles: [50, 95, 99]
+      })
+      expect(materialized.report.rows).toHaveLength(55)
+      expect(materialized.report.rows[0]).toEqual({
+        runId: 'upstream-baseline-synthetic-validator-fixture',
+        implementation: 'upstream-baseline',
+        documentId: 'all-blocks',
+        metric: 't_echo',
+        sampleCount: 200,
+        percentiles: { p50Ms: 1.099, p95Ms: 1.189, p99Ms: 1.197 },
+        timeOrder: {
+          firstMs: 1,
+          lastMs: 1.199,
+          firstHalfMeanMs: 1.0495,
+          secondHalfMeanMs: 1.1495,
+          halfMeanDeltaMs: 0.1
+        }
+      })
+      const source = readFileSync(resolve(root, outputPath), 'utf8')
+      expect(source).toBe(`${JSON.stringify(materialized.report, null, 2)}\n`)
+      expect(sha256(source)).toBe(materialized.ref.sha256)
+      expect(() => writeCriticMarkupPerformanceCalibrationReport(
+        root,
+        measured,
+        outputPath
+      )).toThrow(/already exists|EEXIST|replace/i)
+    })
+  })
+
   it('documents the deterministic schedule scope and its unresolved drift limit', () => {
     for (const path of [
       'specs/baselines/criticmarkup-phase0-review.md',
@@ -433,9 +504,29 @@ describe('CriticMarkup raw performance evidence', () => {
       expect(source).toMatch(/warmup rounds.*before.*measured rounds/is)
       expect(source).toMatch(/each.*document.*once per round/is)
       expect(source).toMatch(/rotat.*across.*phase boundar/is)
+      expect(source).toMatch(
+        /pre-timing readiness.*two consecutive.*exact Electron.*CGWindow.*bounded.*5 seconds/is
+      )
+      expect(source).toMatch(/only.*transient origin mismatch.*settle/is)
+      expect(source).toMatch(/post-measurement.*one-shot strict/is)
+      expect(source).toMatch(/launch.*readiness.*excluded.*timed\s+metric/is)
+      expect(source).toMatch(/no retries/is)
       expect(source).toMatch(/mandatory.*time-ordered drift\s+diagnostics/is)
       expect(source).toMatch(/no.*pass\/fail threshold/is)
     }
+  })
+
+  it('documents the deterministic measured-unratified calibration flow', () => {
+    const source = readFileSync(resolve(
+      repoRoot,
+      'specs/baselines/criticmarkup-phase0-review.md'
+    ), 'utf8')
+
+    expect(source).toContain('--materialize-measurements')
+    expect(source).toContain('--write-calibration')
+    expect(source).toContain('measured-unratified')
+    expect(source).toMatch(/checked-in calibration report.*path.*SHA-256/is)
+    expect(source).toContain('performance-calibration')
   })
 
   it('authenticates lifecycle, Chromium, and compositor policies in both producer composites', () => {
@@ -488,7 +579,7 @@ describe('CriticMarkup raw performance evidence', () => {
 
   it('records the missing Core measurement denominator without inventing samples', () => {
     expect(manifest).toMatchObject({
-      schema: 'marktext-criticmarkup-performance-measurements-v9',
+      schema: 'marktext-criticmarkup-performance-measurements-v10',
       status: 'awaiting-raw-runs',
       runs: [],
       requiredMetrics: {
@@ -506,7 +597,14 @@ describe('CriticMarkup raw performance evidence', () => {
     })
     expect(() => validateCriticMarkupPerformanceMeasurements(repoRoot, manifest))
       .not.toThrow()
-    expect(() => requireCriticMarkupPerformanceEvidenceForRatification(repoRoot, manifest))
+    expect(() => requireCriticMarkupPerformanceEvidenceForRatification(
+      repoRoot,
+      manifest,
+      {
+        path: 'specs/baselines/runs/performance/absent-calibration.json',
+        sha256: '0'.repeat(64)
+      }
+    ))
       .toThrow(
         /requires checked-in raw runs for: upstream-baseline, core-candidate/
       )
@@ -514,7 +612,7 @@ describe('CriticMarkup raw performance evidence', () => {
 
   it('rejects the superseded pooled measurement schema and presentation boundary', () => {
     const staleManifest = structuredClone(manifest) as unknown as { schema: string }
-    staleManifest.schema = 'marktext-criticmarkup-performance-measurements-v8'
+    staleManifest.schema = 'marktext-criticmarkup-performance-measurements-v9'
     expect(() => validateCriticMarkupPerformanceMeasurements(
       repoRoot,
       staleManifest as CriticMarkupPerformanceMeasurementManifest
@@ -528,7 +626,7 @@ describe('CriticMarkup raw performance evidence', () => {
       const raw = JSON.parse(
         readFileSync(resolve(root, upstreamRef.path), 'utf8')
       ) as unknown as { schema: string }
-      raw.schema = 'marktext-criticmarkup-raw-performance-run-v7'
+      raw.schema = 'marktext-criticmarkup-raw-performance-run-v8'
       const source = `${JSON.stringify(raw, null, 2)}\n`
       writeFileSync(resolve(root, upstreamRef.path), source)
       upstreamRef.sha256 = sha256(source)
@@ -542,10 +640,35 @@ describe('CriticMarkup raw performance evidence', () => {
       const raw = JSON.parse(
         readFileSync(resolve(root, coreRef.path), 'utf8')
       ) as unknown as { schema: string }
-      raw.schema = 'marktext-criticmarkup-raw-performance-run-v9'
+      raw.schema = 'marktext-criticmarkup-raw-performance-run-v10'
       const source = `${JSON.stringify(raw, null, 2)}\n`
       writeFileSync(resolve(root, coreRef.path), source)
       coreRef.sha256 = sha256(source)
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .toThrow(/schema is invalid/i)
+    })
+  })
+
+  it.each([
+    ['upstream-baseline', 'marktext-criticmarkup-raw-performance-smoke-v9'],
+    ['core-candidate', 'marktext-criticmarkup-raw-performance-smoke-v11']
+  ] as const)('rejects current %s smoke output as ratification evidence', (
+    implementation,
+    smokeSchema
+  ) => {
+    withSyntheticRuns((root, measured) => {
+      const ref = measured.runs.find(run => run.implementation === implementation)
+      if (ref === undefined) throw new Error(`Synthetic ${implementation} run is missing`)
+      const raw = JSON.parse(readFileSync(resolve(root, ref.path), 'utf8')) as {
+        schema: string
+        evidenceClass?: string
+      }
+      raw.schema = smokeSchema
+      raw.evidenceClass = 'smoke-non-ratifying'
+      const source = `${JSON.stringify(raw, null, 2)}\n`
+      writeFileSync(resolve(root, ref.path), source)
+      ref.sha256 = sha256(source)
+
       expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
         .toThrow(/schema is invalid/i)
     })
@@ -624,7 +747,11 @@ describe('CriticMarkup raw performance evidence', () => {
         .not.toThrow()
       expect(() => requireCriticMarkupPerformanceEvidenceForRatification(
         root,
-        measured
+        measured,
+        {
+          path: 'specs/baselines/runs/performance/absent-calibration.json',
+          sha256: '0'.repeat(64)
+        }
       )).toThrow(/t_present.*calibration/i)
 
       const calibratedTargets = JSON.parse(targetsSource) as {
@@ -637,11 +764,29 @@ describe('CriticMarkup raw performance evidence', () => {
       const calibratedSource = `${JSON.stringify(calibratedTargets, null, 2)}\n`
       writeFileSync(resolve(root, measured.targetManifest.path), calibratedSource)
       measured.targetManifest.sha256 = sha256(calibratedSource)
+      const calibration = writeCriticMarkupPerformanceCalibrationReport(
+        root,
+        measured,
+        'specs/baselines/runs/performance/synthetic-ratification-calibration.json'
+      )
 
       const summary = requireCriticMarkupPerformanceEvidenceForRatification(
         root,
-        measured
+        measured,
+        calibration.ref
       )
+      expect(summary).toMatchObject({
+        schema: 'marktext-criticmarkup-performance-ratification-evidence-v2',
+        provenance: {
+          baselineCommit: measured.baselineCommit,
+          targetManifest: measured.targetManifest,
+          representativeDocuments: measured.representativeDocuments,
+          rawRuns: measured.runs,
+          calibrationReport: calibration.ref,
+          calibrationRowsSha256: expect.stringMatching(/^[0-9a-f]{64}$/u)
+        },
+        rowsSha256: expect.stringMatching(/^[0-9a-f]{64}$/u)
+      })
       expect(summary.rows).toHaveLength(55)
       expect(first(summary.rows)).toMatchObject({
         runId: 'upstream-baseline-synthetic-validator-fixture',
@@ -652,6 +797,102 @@ describe('CriticMarkup raw performance evidence', () => {
         meetsTarget: true
       })
       expect(first(summary.rows).p95Ms).toBeCloseTo(1.189)
+    })
+  })
+
+  it('rejects ratification evidence when any Core calibration row misses its target', () => {
+    withSyntheticRuns((root, measured) => {
+      const calibratedTargets = JSON.parse(targetsSource) as {
+        metrics: {
+          t_present: { targetP95Ms: number | null, targetStatus: string }
+        }
+      }
+      calibratedTargets.metrics.t_present.targetP95Ms = 5
+      calibratedTargets.metrics.t_present.targetStatus = 'frozen'
+      const calibratedSource = `${JSON.stringify(calibratedTargets, null, 2)}\n`
+      writeFileSync(resolve(root, measured.targetManifest.path), calibratedSource)
+      measured.targetManifest.sha256 = sha256(calibratedSource)
+      const calibration = writeCriticMarkupPerformanceCalibrationReport(
+        root,
+        measured,
+        'specs/baselines/runs/performance/core-miss-calibration.json'
+      )
+
+      expect(() => requireCriticMarkupPerformanceEvidenceForRatification(
+        root,
+        measured,
+        calibration.ref
+      )).toThrow(/Core performance target misses.*t_present/i)
+    })
+  })
+
+  it('rejects an authenticated calibration report that differs from raw evidence', () => {
+    withSyntheticRuns((root, measured) => {
+      const calibratedTargets = JSON.parse(targetsSource) as {
+        metrics: {
+          t_present: { targetP95Ms: number | null, targetStatus: string }
+        }
+      }
+      calibratedTargets.metrics.t_present.targetP95Ms = 50
+      calibratedTargets.metrics.t_present.targetStatus = 'frozen'
+      const calibratedSource = `${JSON.stringify(calibratedTargets, null, 2)}\n`
+      writeFileSync(resolve(root, measured.targetManifest.path), calibratedSource)
+      measured.targetManifest.sha256 = sha256(calibratedSource)
+      const calibration = writeCriticMarkupPerformanceCalibrationReport(
+        root,
+        measured,
+        'specs/baselines/runs/performance/forged-calibration.json'
+      )
+      const forged = JSON.parse(JSON.stringify(calibration.report)) as {
+        rows: Array<{ timeOrder: { firstMs: number } }>
+      }
+      const firstRow = first(forged.rows)
+      firstRow.timeOrder.firstMs += 1
+      const forgedSource = `${JSON.stringify(forged, null, 2)}\n`
+      writeFileSync(resolve(root, calibration.ref.path), forgedSource)
+
+      expect(() => requireCriticMarkupPerformanceEvidenceForRatification(
+        root,
+        measured,
+        { path: calibration.ref.path, sha256: sha256(forgedSource) }
+      )).toThrow(/calibration report differs from the validated raw evidence/i)
+    })
+  })
+
+  it('requires a canonical performance-run path and full calibration digest', () => {
+    withSyntheticRuns((root, measured) => {
+      const calibratedTargets = JSON.parse(targetsSource) as {
+        metrics: {
+          t_present: { targetP95Ms: number | null, targetStatus: string }
+        }
+      }
+      calibratedTargets.metrics.t_present.targetP95Ms = 50
+      calibratedTargets.metrics.t_present.targetStatus = 'frozen'
+      const calibratedSource = `${JSON.stringify(calibratedTargets, null, 2)}\n`
+      writeFileSync(resolve(root, measured.targetManifest.path), calibratedSource)
+      measured.targetManifest.sha256 = sha256(calibratedSource)
+      const calibration = writeCriticMarkupPerformanceCalibrationReport(
+        root,
+        measured,
+        'specs/baselines/runs/performance/canonical-calibration.json'
+      )
+
+      expect(() => requireCriticMarkupPerformanceEvidenceForRatification(
+        root,
+        measured,
+        {
+          ...calibration.ref,
+          path: calibration.ref.path.replace(
+            '/canonical-calibration.json',
+            '/nested/../canonical-calibration.json'
+          )
+        }
+      )).toThrow(/calibration report must be canonical/i)
+      expect(() => requireCriticMarkupPerformanceEvidenceForRatification(
+        root,
+        measured,
+        { path: calibration.ref.path, sha256: 'abc123' }
+      )).toThrow(/calibration report digest must be a lowercase SHA-256 digest/i)
     })
   })
 
@@ -822,7 +1063,7 @@ describe('CriticMarkup raw performance evidence', () => {
     ],
     [
       'windowPresentationPolicy',
-      'transparent-render-active-inactive-v2',
+      'transparent-render-active-inactive-v3',
       /window presentation policy/i
     ],
     ['windowPresentationPlatform', 'linux', /window presentation platform/i]
@@ -849,7 +1090,7 @@ describe('CriticMarkup raw performance evidence', () => {
     })
   })
 
-  it('rejects Core v10 evidence without exact per-document authority metadata', () => {
+  it('rejects Core v11 evidence without exact per-document authority metadata', () => {
     withSyntheticRuns((root, measured) => {
       const coreRef = measured.runs.find(run => run.implementation === 'core-candidate')
       if (coreRef === undefined) throw new Error('Synthetic Core run is missing')
@@ -867,7 +1108,7 @@ describe('CriticMarkup raw performance evidence', () => {
     })
   })
 
-  it('rejects Core v10 evidence without authenticated build provenance', () => {
+  it('rejects Core v11 evidence without authenticated build provenance', () => {
     withSyntheticRuns((root, measured) => {
       const coreRef = measured.runs.find(run => run.implementation === 'core-candidate')
       if (coreRef === undefined) throw new Error('Synthetic Core run is missing')
@@ -896,7 +1137,7 @@ describe('CriticMarkup raw performance evidence', () => {
     ],
     [
       'windowPresentationPolicy',
-      'transparent-render-active-inactive-v2',
+      'transparent-render-active-inactive-v3',
       /window presentation policy/i
     ],
     ['windowPresentationPlatform', 'linux', /window presentation platform/i],
