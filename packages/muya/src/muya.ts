@@ -288,7 +288,7 @@ export class Muya {
         const paths = this._editablePaths;
         if (!this.editor.scrollPage)
             return;
-        this.domNode.querySelectorAll<HTMLElement>('.mu-content').forEach(node => {
+        this.domNode.querySelectorAll<HTMLElement>('.mu-content').forEach((node) => {
             const block = node[BLOCK_DOM_PROPERTY] as Content | undefined;
             if (block?.isContent())
                 block.attributes.contenteditable = paths === null;
