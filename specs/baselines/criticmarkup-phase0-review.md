@@ -181,8 +181,11 @@ The performance decision does not approve the rest of Phase 0. The owner must al
    map has 25 green installed executions and no rows without a named production oracle. A
    table-driven installed oracle exercised all 25 rows through visible controls and exact
    source/history/save/reopen checks at stable build commit
-   `addd76f29ac28b0efc13db33868b1f62dd0f9724`; the exact unique passing row IDs and run provenance
-   are preserved in a SHA-256-pinned execution record. That mechanical evidence does not ratify the
+   `71ebb14711f9577a6b318883bde7423a0bc62fff`; the same authenticated installed run also passed
+   eight installed Phase 4 consumer workflows for bulk Review, Track Changes, native clipboard,
+   Revised search/replace, and HTML/PDF/Print projection. The exact 33-test denominator, unique row
+   IDs, package and executable hashes, source hashes, cleanup receipt, Playwright report, runner log,
+   and run provenance are preserved in a SHA-256-pinned execution record. That mechanical evidence does not ratify the
    expected product behaviors. The Comment author row follows `CONTEXT.md`: Add Comment creates the
    conventional Commented span rather than a Point comment. That still-unratified expected behavior
    remains part of the pending matrix decision. The

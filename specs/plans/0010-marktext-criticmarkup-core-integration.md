@@ -1,5 +1,5 @@
 # MarkText CriticMarkup core integration
-- **Status:** Active — Phase 0 denominator captured but ratification incomplete; bounded Core/Shadow research landed; Phase 1A tracer underway with Core production disabled
+- **Status:** Active — Core authority and Phase 4 installed workflows are implemented and current-build green; Phase 0 owner ratification, authenticated performance calibration, full parity execution, final rebase, and release-candidate evidence remain incomplete
 
 - **Working upstream baseline:** `43bd8b77795fb27b1a9512737c000f7362031ea0`
 
@@ -295,6 +295,13 @@ Move remaining editor behaviors through the authority gateway one adapter at a t
 **Exit:** every parity row is green or has an explicitly approved compatibility decision, and no upstream test was retired without equivalent coverage.
 ### Phase 4 — Complete CriticMarkup workflows and consumers
 Complete Track Changes, Review UI, projections, bulk resolution, search, clipboard, persistence, HTML, print, PDF, and the frozen CriticMarkup interaction matrix.
+
+The current-build installed Phase 4 transaction at commit `71ebb14711f9577a6b318883bde7423a0bc62fff`
+passes the exact 25-row interaction matrix plus eight workflow tests for bulk Review, Track Changes,
+native clipboard, Revised search/replace, and HTML/PDF/Print projection. Its 33-test record
+authenticates the packaged application, executable, test and harness sources, Playwright report,
+runner log, and cleanup receipt. The interaction behaviors remain proposed until owner approval, and
+this evidence does not close parity, performance, final-rebase, or supported-platform release gates.
 
 **Exit:** the CriticMarkup contract in section 6 passes through production paths, including installed save/reopen and output consumers.
 ### Phase 5 — Rebase, optimize, and release

@@ -18,11 +18,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -39,11 +39,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -60,11 +60,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -81,11 +81,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -102,11 +102,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -123,11 +123,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -144,11 +144,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -165,11 +165,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -186,11 +186,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -213,11 +213,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -237,11 +237,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -258,11 +258,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -279,11 +279,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -300,11 +300,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -321,11 +321,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -342,11 +342,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -363,11 +363,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -384,11 +384,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -408,11 +408,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -429,11 +429,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -450,11 +450,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -471,11 +471,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -492,11 +492,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -516,11 +516,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     },
     {
@@ -537,11 +537,11 @@
         "testName": "follows the installed interaction matrix"
       },
       "execution": {
-        "buildCommit": "addd76f29ac28b0efc13db33868b1f62dd0f9724",
-        "recordedAt": "2026-08-13T17:48:22.569Z",
+        "buildCommit": "71ebb14711f9577a6b318883bde7423a0bc62fff",
+        "recordedAt": "2026-08-14T21:17:26.421Z",
         "result": "pass",
-        "recordPath": "specs/baselines/runs/installed-interaction-addd76f29ac28b0efc13db33868b1f62dd0f9724-20260813T174659Z.json",
-        "recordSha256": "a1f9bcefa6b844096b418c8fc5515f764b661833e2d971b531edf03873c62d53"
+        "recordPath": "specs/baselines/runs/installed-core-phase4-71ebb147-20260814T141500Z.json",
+        "recordSha256": "b21f7950b4af86ecb784a1c4d335e61dd16817da8318b97d7950d7db5f25626b"
       }
     }
   ]
