@@ -137,7 +137,9 @@ export const captureInstalledElectronHiddenPage = async(
       if (
         !window.isVisible() || window.getOpacity() !== 0 ||
         window.isFocused() || window.isFocusable() ||
-        window.isAlwaysOnTop() || app.isActive()
+        window.isAlwaysOnTop() || app.isActive() ||
+        !window.isVisibleOnAllWorkspaces() ||
+        !window.isHiddenInMissionControl()
       ) {
         throw new Error(
           'Measured renderer is not in transparent render-active inactive state'

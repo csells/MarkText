@@ -59,7 +59,8 @@ export const upstreamExternalHiddenPolicyExpression = `(() => {
       const state = lifecycle.inspect(targetId)
       if (
         !state.visible || state.opacity !== 0 || state.focused ||
-        state.focusable || state.alwaysOnTop || state.appActive
+        state.focusable || state.alwaysOnTop || state.appActive ||
+        !state.visibleOnAllWorkspaces || !state.hiddenInMissionControl
       ) {
         throw new Error(
           'Measured renderer is not in transparent render-active inactive state'

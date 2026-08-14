@@ -38,7 +38,7 @@ const positiveInteger = (value: unknown, label: string): void => {
 /** Validates the human-owned Phase 0 measurement protocol and target record. */
 export function validateCriticMarkupPerformanceTargets(value: unknown): void {
   const manifest = recordOf(value, 'Performance target manifest')
-  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v8') {
+  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v9') {
     throw new Error('Performance target manifest schema is unsupported')
   }
   if (manifest.status !== 'proposed-unratified' && manifest.status !== 'ratified') {
@@ -83,7 +83,7 @@ export function validateCriticMarkupPerformanceTargets(value: unknown): void {
   nonEmptyString(sampling.scenarios, 'Sampling scenario rule')
   if (
     typeof sampling.scenarios !== 'string' ||
-    !/fresh application.*fresh profile.*every observation.*rotat.*round-robin.*pre-timing readiness.*two consecutive.*Electron.*CGWindow.*5 seconds.*transient origin mismatch.*missing optional.*onScreen.*settle.*explicit.*onScreen.*false.*strict.*post-measurement.*one-shot strict.*null.*onScreen.*strict.*launch.*readiness.*excluded.*no retries.*drift diagnostic.*no.*threshold.*cleanup.*outside.*timed metric/iu
+    !/fresh application.*fresh profile.*every observation.*rotat.*round-robin.*setVisibleOnAllWorkspaces\(true.*visibleOnFullScreen.*true.*skipTransformProcessType.*true.*isVisibleOnAllWorkspaces\(\).*true.*isHiddenInMissionControl\(\).*true.*pre-timing readiness.*two consecutive.*Electron.*CGWindow.*5 seconds.*missing optional.*onScreen.*settle.*external.*on-screen.*proof.*explicit.*onScreen.*false.*strict.*post-measurement.*one-shot strict.*null.*onScreen.*strict.*cleanup.*setVisibleOnAllWorkspaces\(false.*visibleOnFullScreen.*false.*skipTransformProcessType.*true.*launch.*readiness.*excluded.*unfocused.*not always-on-top.*no retries.*drift diagnostic.*no.*threshold.*cleanup.*outside.*timed metric/iu
       .test(sampling.scenarios)
   ) {
     throw new Error(
