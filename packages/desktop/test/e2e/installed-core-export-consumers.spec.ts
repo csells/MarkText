@@ -175,7 +175,14 @@ const invokeExportCommand = async(
   page: Page,
   commandId: 'file.export-file-html' | 'file.export-file-pdf' | 'file.print'
 ): Promise<void> => {
-  await sendIpcToRenderer(app, 'mt::execute-command-by-id', commandId)
+  await sendIpcToRenderer(app, 'mt::show-command-palette')
+  const paletteItems = page.locator('.commands li .title')
+  if (commandId === 'file.print') {
+    await paletteItems.filter({ hasText: /^Print$/ }).click()
+  } else {
+    await paletteItems.filter({ hasText: /^Export File$/ }).click()
+    await paletteItems.filter({ hasText: new RegExp(`^${commandId}$`) }).click()
+  }
   const dialog = page.locator('.print-settings-dialog .el-dialog')
   await expect(dialog).toBeVisible({ timeout: 10_000 })
   await dialog.locator('.button-primary').click()
