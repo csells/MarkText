@@ -431,6 +431,14 @@ export type DocumentProjectionChange =
   | CommentRegionProjectionChange
   | CommentDocumentProjectionChange
 
+/** Exact canonical source carried only when regional publication falls back. */
+export interface DocumentSourceResynchronization {
+  readonly kind: 'source'
+  readonly scope: 'document'
+  readonly reason: DocumentProjectionFallbackReason
+  readonly source: string
+}
+
 /**
  * One atomically admitted canonical-source transaction. The core owns source
  * reconstruction; callers retain the exact accepted edits for reconciliation
@@ -439,6 +447,7 @@ export type DocumentProjectionChange =
 export interface DocumentChange {
   readonly appliedEdits: readonly DocumentSourceEdit[]
   readonly projections: readonly DocumentProjectionChange[]
+  readonly resynchronization?: DocumentSourceResynchronization
 }
 
 export interface DocumentCommit {
@@ -3803,13 +3812,28 @@ function createDocumentCoreWithExecutionBudget(
           ? 'rebase'
           : 'fallback'
       )
+      const resynchronizationReason = regional?.kind === 'fallback'
+        ? regional.reason
+        : projectionRequests === undefined
+          ? undefined
+          : 'structural-region-ineligible'
       return Object.freeze({
         revision,
         change: Object.freeze({
           appliedEdits: stableEdits,
           projections: regional?.kind === 'fallback'
             ? regional.projections
-            : Object.freeze([])
+            : Object.freeze([]),
+          ...(resynchronizationReason === undefined
+            ? {}
+            : {
+              resynchronization: Object.freeze({
+                kind: 'source' as const,
+                scope: 'document' as const,
+                reason: resynchronizationReason,
+                source: revision.source
+              })
+            })
         })
       })
     },
