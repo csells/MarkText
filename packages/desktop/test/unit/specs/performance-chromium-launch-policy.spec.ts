@@ -69,6 +69,96 @@ describe('hidden performance Chromium launch policy', () => {
     ])
   })
 
+  it('waits for optional on-screen metadata before two exact native matches', async() => {
+    const state = Object.freeze({
+      windowNumber: 61_327,
+      visible: true,
+      opacity: 0,
+      focused: false,
+      focusable: false,
+      alwaysOnTop: false,
+      appActive: false,
+      title: 'index.html',
+      bounds: Object.freeze({ x: 264, y: 130, width: 1_200, height: 800 })
+    })
+    const onScreen = [null, true, true]
+    const calls: string[] = []
+
+    await expect(awaitMacWindowServerPresentationConvergence({
+      processId: 81_205,
+      inspectElectron: async() => state,
+      inspectWindowServer: () => {
+        const value = onScreen.shift()
+        if (value === undefined) throw new Error('Unexpected native inspection')
+        calls.push(`native:${String(value)}`)
+        const bounds = value === null
+          ? Object.freeze({ ...state.bounds, x: -54 })
+          : state.bounds
+        return Object.freeze({
+          displayTopologySha256: 'a'.repeat(64),
+          windows: Object.freeze([Object.freeze({
+            windowNumber: 61_327,
+            ownerProcessId: 81_205,
+            title: 'index.html',
+            bounds,
+            alpha: 0,
+            layer: 0,
+            onScreen: value
+          })])
+        })
+      },
+      wait: async() => { calls.push('wait') },
+      now: () => 0
+    })).resolves.toEqual(state)
+    expect(calls).toEqual([
+      'native:null', 'wait',
+      'native:true', 'wait',
+      'native:true'
+    ])
+  })
+
+  it('resets an existing exact-match streak when on-screen metadata disappears', async() => {
+    const state = Object.freeze({
+      windowNumber: 61_327,
+      visible: true,
+      opacity: 0,
+      focused: false,
+      focusable: false,
+      alwaysOnTop: false,
+      appActive: false,
+      title: 'index.html',
+      bounds: Object.freeze({ x: 264, y: 130, width: 1_200, height: 800 })
+    })
+    const onScreen = [true, null, true, true]
+    let inspections = 0
+    let waits = 0
+
+    await expect(awaitMacWindowServerPresentationConvergence({
+      processId: 81_205,
+      inspectElectron: async() => state,
+      inspectWindowServer: () => {
+        const value = onScreen.shift()
+        if (value === undefined) throw new Error('Unexpected native inspection')
+        inspections += 1
+        return Object.freeze({
+          displayTopologySha256: 'a'.repeat(64),
+          windows: Object.freeze([Object.freeze({
+            windowNumber: 61_327,
+            ownerProcessId: 81_205,
+            title: 'index.html',
+            bounds: state.bounds,
+            alpha: 0,
+            layer: 0,
+            onScreen: value
+          })])
+        })
+      },
+      wait: async() => { waits += 1 },
+      now: () => 0
+    })).resolves.toEqual(state)
+    expect({ inspections, waits }).toEqual({ inspections: 4, waits: 3 })
+  })
+
   it('fails persistent origin mismatch with the complete bounded observation history', async() => {
     const electronState = Object.freeze({
       windowNumber: 60_506,
@@ -119,6 +209,146 @@ describe('hidden performance Chromium launch policy', () => {
     expect(Object.isFrozen(
       (thrown as MacWindowServerPresentationConvergenceError).diagnostic.history
     )).toBe(true)
+  })
+
+  it('fails persistent absent on-screen metadata with the complete bounded observation history', async() => {
+    const state = Object.freeze({
+      windowNumber: 61_327,
+      visible: true,
+      opacity: 0,
+      focused: false,
+      focusable: false,
+      alwaysOnTop: false,
+      appActive: false,
+      title: 'index.html',
+      bounds: Object.freeze({ x: 264, y: 130, width: 1_200, height: 800 })
+    })
+    let thrown: unknown
+    try {
+      await awaitMacWindowServerPresentationConvergence({
+        processId: 81_205,
+        inspectElectron: async() => state,
+        inspectWindowServer: () => Object.freeze({
+          displayTopologySha256: 'a'.repeat(64),
+          windows: Object.freeze([Object.freeze({
+            windowNumber: 61_327,
+            ownerProcessId: 81_205,
+            title: 'index.html',
+            bounds: state.bounds,
+            alpha: 0,
+            layer: 0,
+            onScreen: null
+          })])
+        }),
+        wait: async() => undefined,
+        now: () => 0
+      })
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(thrown).toBeInstanceOf(MacWindowServerPresentationConvergenceError)
+    expect((thrown as MacWindowServerPresentationConvergenceError).diagnostic)
+      .toMatchObject({
+        reason: 'readiness-exhausted',
+        history: Array.from({ length: 101 }, (_, index) => ({
+          attempt: index + 1,
+          outcome: 'on-screen-metadata-absent',
+          electronBounds: { x: 264, y: 130, width: 1_200, height: 800 },
+          nativeBounds: { x: 264, y: 130, width: 1_200, height: 800 }
+        }))
+      })
+  })
+
+  it('fails explicit off-screen state on the first inspection without waiting', async() => {
+    const state = Object.freeze({
+      windowNumber: 61_327,
+      visible: true,
+      opacity: 0,
+      focused: false,
+      focusable: false,
+      alwaysOnTop: false,
+      appActive: false,
+      title: 'index.html',
+      bounds: Object.freeze({ x: 264, y: 130, width: 1_200, height: 800 })
+    })
+    let inspections = 0
+    let waits = 0
+
+    await expect(awaitMacWindowServerPresentationConvergence({
+      processId: 81_205,
+      inspectElectron: async() => state,
+      inspectWindowServer: () => {
+        inspections += 1
+        return Object.freeze({
+          displayTopologySha256: 'a'.repeat(64),
+          windows: Object.freeze([Object.freeze({
+            windowNumber: 61_327,
+            ownerProcessId: 81_205,
+            title: 'index.html',
+            bounds: state.bounds,
+            alpha: 0,
+            layer: 0,
+            onScreen: false
+          })])
+        })
+      },
+      wait: async() => { waits += 1 },
+      now: () => 0
+    })).rejects.toThrow(/WindowServer presentation invariant failed/i)
+    expect({ inspections, waits }).toEqual({ inspections: 1, waits: 0 })
+  })
+
+  it('does not let absent on-screen metadata mask another native invariant defect', async() => {
+    const state = Object.freeze({
+      windowNumber: 61_327,
+      visible: true,
+      opacity: 0,
+      focused: false,
+      focusable: false,
+      alwaysOnTop: false,
+      appActive: false,
+      title: 'index.html',
+      bounds: Object.freeze({ x: 264, y: 130, width: 1_200, height: 800 })
+    })
+    const exact = Object.freeze({
+      windowNumber: 61_327,
+      ownerProcessId: 81_205,
+      title: 'index.html',
+      bounds: state.bounds,
+      alpha: 0,
+      layer: 0,
+      onScreen: null
+    })
+    const invalidRows = [
+      [{ ...exact, windowNumber: 61_328 }],
+      [exact, exact],
+      [{ ...exact, ownerProcessId: 81_206 }],
+      [{ ...exact, title: 'other.html' }],
+      [{ ...exact, bounds: null }],
+      [{ ...exact, bounds: { ...state.bounds, width: 1_201 } }],
+      [{ ...exact, alpha: 0.01 }],
+      [{ ...exact, layer: 1 }]
+    ]
+
+    for (const windows of invalidRows) {
+      let inspections = 0
+      let waits = 0
+      await expect(awaitMacWindowServerPresentationConvergence({
+        processId: 81_205,
+        inspectElectron: async() => state,
+        inspectWindowServer: () => {
+          inspections += 1
+          return Object.freeze({
+            displayTopologySha256: 'a'.repeat(64),
+            windows: Object.freeze(windows)
+          })
+        },
+        wait: async() => { waits += 1 },
+        now: () => 0
+      })).rejects.toThrow(/WindowServer presentation invariant failed/i)
+      expect({ inspections, waits }).toEqual({ inspections: 1, waits: 0 })
+    }
   })
 
   it('keeps observing past sixteen transient samples through the readiness deadline', async() => {
@@ -464,7 +694,7 @@ describe('hidden performance Chromium launch policy', () => {
     const state = await lifecycle.activate('renderer-target-7')
 
     expect(PERFORMANCE_WINDOW_PRESENTATION_POLICY)
-      .toBe('transparent-render-active-inactive-v4')
+      .toBe('transparent-render-active-inactive-v5')
     expect(calls).toEqual([
       'policy:accessory',
       'schedule:false',
@@ -714,6 +944,7 @@ describe('hidden performance Chromium launch policy', () => {
       { alpha: 0.01 },
       { layer: 1 },
       { onScreen: false },
+      { onScreen: null },
       { ownerProcessId: 9999 },
       { title: 'other.md — MarkText' }
     ]) {

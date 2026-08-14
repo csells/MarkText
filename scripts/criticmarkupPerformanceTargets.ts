@@ -38,7 +38,7 @@ const positiveInteger = (value: unknown, label: string): void => {
 /** Validates the human-owned Phase 0 measurement protocol and target record. */
 export function validateCriticMarkupPerformanceTargets(value: unknown): void {
   const manifest = recordOf(value, 'Performance target manifest')
-  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v7') {
+  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v8') {
     throw new Error('Performance target manifest schema is unsupported')
   }
   if (manifest.status !== 'proposed-unratified' && manifest.status !== 'ratified') {
@@ -83,7 +83,7 @@ export function validateCriticMarkupPerformanceTargets(value: unknown): void {
   nonEmptyString(sampling.scenarios, 'Sampling scenario rule')
   if (
     typeof sampling.scenarios !== 'string' ||
-    !/fresh application.*fresh profile.*every observation.*rotat.*round-robin.*pre-timing readiness.*two consecutive.*Electron.*CGWindow.*5 seconds.*only transient origin mismatch.*post-measurement.*one-shot strict.*launch.*readiness.*excluded.*no retries.*drift diagnostic.*no.*threshold.*cleanup.*outside.*timed metric/iu
+    !/fresh application.*fresh profile.*every observation.*rotat.*round-robin.*pre-timing readiness.*two consecutive.*Electron.*CGWindow.*5 seconds.*transient origin mismatch.*missing optional.*onScreen.*settle.*explicit.*onScreen.*false.*strict.*post-measurement.*one-shot strict.*null.*onScreen.*strict.*launch.*readiness.*excluded.*no retries.*drift diagnostic.*no.*threshold.*cleanup.*outside.*timed metric/iu
       .test(sampling.scenarios)
   ) {
     throw new Error(
