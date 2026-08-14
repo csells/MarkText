@@ -204,7 +204,7 @@ test('Core mode accepts one actor-owned Addition then undoes, redoes, and saves 
       if (bridge?.resolveCriticMarkup === undefined) {
         throw new Error('Core Review command bridge is unavailable')
       }
-      void bridge.resolveCriticMarkup('addition', 7, 16, 'accept')
+      return bridge.resolveCriticMarkup('addition', 7, 16, 'accept')
     })
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(acceptedSource)

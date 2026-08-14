@@ -148,13 +148,14 @@ describe('Core document recovery authority', () => {
     })
 
     let recovered = false
-    void recovering.then(() => { recovered = true })
+    const recoveryObservation = recovering.then(() => { recovered = true })
     await publicationStarted
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(recovered).toBe(false)
     expect(published).toBe(false)
     finishPublication()
     await expect(recovering).resolves.toBe(true)
+    await recoveryObservation
     expect(published).toBe(true)
   })
 })

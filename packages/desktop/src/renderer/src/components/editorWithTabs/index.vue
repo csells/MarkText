@@ -100,11 +100,11 @@ const coreManager = coreMode
       undefined,
       coreLaunchPolicy.testControlsEnabled
         ? {
-          responseDelayMs: 250,
-          registerTestControl: control => {
-            coreWorkerTestControls.set(documentId, control)
+            responseDelayMs: 250,
+            registerTestControl: control => {
+              coreWorkerTestControls.set(documentId, control)
+            }
           }
-        }
         : undefined
     ))
   })
