@@ -906,6 +906,36 @@ function countMarkdownAstNodes(root: MarkdownAstNode): number {
   return count
 }
 
+/**
+ * Reference definitions can re-key links anywhere in the document, while
+ * regional projection consumers shift every retained suffix coordinate. The
+ * last definition/reference node is therefore a compact positional
+ * fingerprint: edits strictly after it cannot change the dependency graph or
+ * shift one of its absolute coordinates.
+ */
+function globalReferenceDependencyPrefixEnd(
+  products: Profile1DocumentProducts
+): number {
+  let end = 0
+  const pending: ParserMarkdownNode[] = [products.original.markdown.root]
+  while (pending.length > 0) {
+    const node = pending.pop()
+    if (node === undefined) break
+    if (
+      node.kind === 'definition' ||
+      node.kind === 'footnote-definition' ||
+      node.kind === 'footnote-reference' ||
+      typeof node.attributes['referenceLabel'] === 'string'
+    ) {
+      end = Math.max(end, node.range.end)
+    }
+    for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
+      pending.push(node.childAt(ordinal))
+    }
+  }
+  return end
+}
+
 function countCriticMarkupAnnotationNodes(
   roots: readonly CriticMarkupAnnotation[]
 ): number {
@@ -2163,16 +2193,19 @@ export function createDocumentCore(): DocumentCore {
     let productStore: RevisionProductStore<Profile1DocumentProducts> | undefined
     try {
       const retained = products.retainedIntrinsic
+      const dependencyPrefixEnd = retained?.referenceDefinitionCount === 0
+        ? 0
+        : globalReferenceDependencyPrefixEnd(products)
       const retainedIndex = retained !== undefined &&
         !retained.hasCriticMarkupCandidate &&
         retained.rootCount === 0 &&
         retained.markerDecisionCount === 0 &&
-        retained.referenceDefinitionCount === 0 &&
         retained.diagnostics.length === 0 &&
-        retained.markdownLiterals.length === 0
+        retained.markdownLiterals.every(literal => literal.kind === 'definition')
         ? createPlainParagraphRetainedIndex(
           retained.safePoints,
           source.length,
+          dependencyPrefixEnd,
           retainedIndexRecorder
         )
         : undefined
@@ -2928,6 +2961,7 @@ export function createDocumentCore(): DocumentCore {
     const retained = previousState.kind === 'full'
       ? previousState.retainedSummary
       : undefined
+    const retainedIndex = previousState.retainedIndex
     if (
       retained !== undefined &&
       (
@@ -2941,13 +2975,23 @@ export function createDocumentCore(): DocumentCore {
         reason: 'criticmarkup-facts-present'
       })
     }
-    if (retained !== undefined && retained.referenceDefinitionCount !== 0) {
+    if (
+      (
+        retained !== undefined &&
+        retained.referenceDefinitionCount !== 0 &&
+        retainedIndex === undefined
+      ) ||
+      (
+        retainedIndex !== undefined &&
+        retainedIndex.dependencyPrefixEnd !== 0 &&
+        stableEdits.some(edit => edit.start <= retainedIndex.dependencyPrefixEnd)
+      )
+    ) {
       return Object.freeze({
         kind: 'fallback',
         reason: 'definition-or-reference-facts'
       })
     }
-    const retainedIndex = previousState.retainedIndex
     if (retainedIndex === undefined) {
       return Object.freeze({
         kind: 'fallback',
@@ -2963,6 +3007,12 @@ export function createDocumentCore(): DocumentCore {
       resolvedOptions,
       regionalPhysicalRecorder
     )
+    if (admission?.kind === 'reference-dependency') {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: 'definition-or-reference-facts'
+      })
+    }
     if (admission === undefined) {
       return Object.freeze({
         kind: 'fallback',
@@ -2994,6 +3044,14 @@ export function createDocumentCore(): DocumentCore {
       return Object.freeze({
         kind: 'fallback',
         reason: 'structural-region-ineligible'
+      })
+    }
+    if (
+      (regionalResult.retainedIntrinsic?.referenceDefinitionCount ?? 0) !== 0
+    ) {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: 'definition-or-reference-facts'
       })
     }
     const materialized = annotationsOf(regionalResult)
@@ -3120,6 +3178,7 @@ export function createDocumentCore(): DocumentCore {
     const retained = previousState.kind === 'full'
       ? previousState.retainedSummary
       : undefined
+    const retainedIndex = previousState.retainedIndex
     if (
       previousState.criticMarkupIndex !== undefined ||
       (
@@ -3136,13 +3195,23 @@ export function createDocumentCore(): DocumentCore {
         reason: 'criticmarkup-facts-present'
       })
     }
-    if (retained !== undefined && retained.referenceDefinitionCount !== 0) {
+    if (
+      (
+        retained !== undefined &&
+        retained.referenceDefinitionCount !== 0 &&
+        retainedIndex === undefined
+      ) ||
+      (
+        retainedIndex !== undefined &&
+        retainedIndex.dependencyPrefixEnd !== 0 &&
+        stableEdits.some(edit => edit.start <= retainedIndex.dependencyPrefixEnd)
+      )
+    ) {
       return Object.freeze({
         kind: 'fallback',
         reason: 'definition-or-reference-facts'
       })
     }
-    const retainedIndex = previousState.retainedIndex
     if (retainedIndex === undefined) {
       return Object.freeze({
         kind: 'fallback',
@@ -3158,6 +3227,12 @@ export function createDocumentCore(): DocumentCore {
       resolvedOptions,
       regionalPhysicalRecorder
     )
+    if (admission?.kind === 'reference-dependency') {
+      return Object.freeze({
+        kind: 'fallback',
+        reason: 'definition-or-reference-facts'
+      })
+    }
     if (admission === undefined) {
       return Object.freeze({
         kind: 'fallback',
