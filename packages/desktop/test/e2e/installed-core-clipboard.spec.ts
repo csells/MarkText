@@ -61,29 +61,49 @@ const launchInstalled = async(
 const selectProjectedRange = async(page: Page): Promise<void> => {
   const selected = await page.evaluate(() => {
     const root = document.querySelector('.editor-component') as HTMLElement | null
-    const paragraphs = root?.querySelectorAll('span.mu-paragraph-content')
-    const first = paragraphs?.item(0)
-    const last = paragraphs?.item(2)
-    const firstText = first?.firstChild
-    const lastText = last?.firstChild
-    if (
-      root === null || firstText?.nodeType !== Node.TEXT_NODE ||
-      lastText?.nodeType !== Node.TEXT_NODE
-    ) return undefined
+    if (root === null) return undefined
+
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    let startNode: Node | undefined
+    let startOffset = 0
+    let endNode: Node | undefined
+    let endOffset = 0
+    let node = walker.nextNode()
+    while (node !== null) {
+      const text = node.textContent ?? ''
+      if (startNode === undefined) {
+        const copiedAt = text.indexOf('copied')
+        if (copiedAt >= 0) {
+          startNode = node
+          startOffset = copiedAt
+        }
+      }
+      const betaAt = text.indexOf('beta')
+      if (betaAt >= 0) {
+        endNode = node
+        endOffset = betaAt + 2
+      }
+      node = walker.nextNode()
+    }
+    if (startNode === undefined || endNode === undefined) return undefined
+    const selectionTarget = endNode.parentElement
+    if (selectionTarget === null) return undefined
 
     root.focus()
     const range = document.createRange()
-    range.setStart(firstText, 6)
-    range.setEnd(lastText, 2)
+    range.setStart(startNode, startOffset)
+    range.setEnd(endNode, endOffset)
     const selection = window.getSelection()
     if (selection === null) return undefined
     selection.removeAllRanges()
     selection.addRange(range)
     document.dispatchEvent(new Event('selectionchange'))
-    root.dispatchEvent(new KeyboardEvent('keyup', {
-      key: 'ArrowRight',
+    // Muya commits a cross-block DOM selection through its Shift+click path;
+    // key events deliberately leave cross-block selections uncommitted.
+    selectionTarget.dispatchEvent(new MouseEvent('click', {
       bubbles: true,
-      cancelable: true
+      cancelable: true,
+      shiftKey: true
     }))
     return selection.toString()
   })
@@ -98,8 +118,15 @@ const placeCaretAtTargetEnd = async(page: Page): Promise<void> => {
     const root = document.querySelector('.editor-component') as HTMLElement | null
     const paragraphs = root?.querySelectorAll('span.mu-paragraph-content')
     const target = paragraphs?.item((paragraphs?.length ?? 0) - 1)
-    const text = target?.firstChild
-    if (root === null || text?.nodeType !== Node.TEXT_NODE) return false
+    if (root === null || target === undefined) return false
+    const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT)
+    let text = walker.nextNode()
+    let next = walker.nextNode()
+    while (next !== null) {
+      text = next
+      next = walker.nextNode()
+    }
+    if (text === null) return false
 
     root.focus()
     const range = document.createRange()
@@ -265,7 +292,28 @@ test.describe('installed Core projected clipboard authority', () => {
       await invokeNativeClipboard(app, 'copy')
       await expectProjectedClipboard(app)
       await placeCaretAtTargetEnd(page)
+      await page.evaluate(() => {
+        delete document.documentElement.dataset.phase4PasteEvent
+        document.addEventListener('paste', event => {
+          document.documentElement.dataset.phase4PasteEvent = JSON.stringify({
+            text: event.clipboardData?.getData('text/plain') ?? null,
+            html: event.clipboardData?.getData('text/html') ?? null,
+            activeElementClass: document.activeElement?.getAttribute('class') ?? null
+          })
+        }, { capture: true, once: true })
+      })
       await invokeNativeClipboard(app, 'paste')
+      await expect.poll(() => page.evaluate(() =>
+        document.documentElement.dataset.phase4PasteEvent
+      )).not.toBeUndefined()
+      const observedPaste = await page.evaluate(() =>
+        document.documentElement.dataset.phase4PasteEvent
+      )
+      if (observedPaste === undefined) throw new Error('Native paste event is absent')
+      expect(JSON.parse(observedPaste)).toMatchObject({
+        text: projectedPlainText,
+        activeElementClass: expect.stringContaining('editor-component')
+      })
       await expect.poll(() => page.locator('span.mu-paragraph-content').allTextContents())
         .toEqual(['alpha copied', 'new', 'beta', 'Zcopied', 'new', 'be'])
       await page.evaluate(() => window.__marktextDocumentCore?.settled())
