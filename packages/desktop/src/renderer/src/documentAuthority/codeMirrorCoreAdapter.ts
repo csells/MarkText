@@ -136,9 +136,9 @@ export function inspectCodeMirrorCoreAdapter(
 const nextMacrotask = () => new Promise<void>(resolve => setTimeout(resolve, 0))
 
 /**
- * Translates CodeMirror's native post-change event into one exact edit in the
- * previous document's UTF-16 coordinate domain. It never reads a full editor
- * snapshot; the removed text carried by CodeMirror supplies the old extent.
+ * Translates each CodeMirror native operation into exact edits in the previous
+ * document's UTF-16 coordinate domain. It never reads a full editor snapshot;
+ * the removed text carried by CodeMirror supplies each old extent.
  */
 export function createCodeMirrorCoreAdapter(
   doc: CodeMirror.Doc,
@@ -178,6 +178,10 @@ function createAdapterWithIndex(
   const eolIndex = initialEolIndex
   const queue: QueuedCommand[] = []
   const captures: CapturedNativeChange[] = []
+  // CodeMirror 5 returns runtime `undefined` for an unattached Doc even though
+  // its declaration says `null`; normalize both before choosing the event seam.
+  const editor = doc.getEditor() ?? undefined
+  const nativeOperationEdits: DocumentSourceEdit[] = []
   const settlements: Settlement[] = []
   let generation = 0
   const sourceCommandLedger: Array<Readonly<{
@@ -451,7 +455,7 @@ function createAdapterWithIndex(
       failCommandLane(error)
     })
   }
-  const enqueue = (edit: DocumentSourceEdit): void => {
+  const enqueue = (edits: readonly DocumentSourceEdit[]): void => {
     if (queue.length + (active ? 1 : 0) >= maxPending) {
       reconciliationReason = 'pending-limit'
       terminalError = new Error('CodeMirror Core reconciliation required')
@@ -461,7 +465,8 @@ function createAdapterWithIndex(
       rejectSettlements(terminalError)
       return
     }
-    if (pendingInsertUnits + edit.insert.length > maxPendingInsertUnits) {
+    const insertUnits = edits.reduce((sum, edit) => sum + edit.insert.length, 0)
+    if (pendingInsertUnits + insertUnits > maxPendingInsertUnits) {
       reconciliationReason = 'pending-limit'
       terminalError = new Error('CodeMirror Core reconciliation required')
       for (const command of queue.splice(0)) {
@@ -471,11 +476,14 @@ function createAdapterWithIndex(
       return
     }
     generation += 1
-    pendingInsertUnits += edit.insert.length
+    pendingInsertUnits += insertUnits
+    const stableEdits = Object.freeze(edits
+      .map(edit => Object.freeze({ ...edit }))
+      .sort((left, right) => left.start - right.start || left.end - right.end))
     const command = Object.freeze({
       kind: 'source',
       generation,
-      edits: Object.freeze([Object.freeze({ ...edit })])
+      edits: stableEdits
     })
     queue.push(command)
     sourceCommandLedger.push(command)
@@ -676,7 +684,11 @@ function createAdapterWithIndex(
       insert: capture.insert
     })
     if (!composing) {
-      enqueue(edit)
+      if (editor === undefined) {
+        enqueue([edit])
+      } else {
+        nativeOperationEdits.push(edit)
+      }
       return
     }
     if (compositionEdit === undefined) {
@@ -702,8 +714,15 @@ function createAdapterWithIndex(
         edit.insert + compositionEdit.insert.slice(relativeEnd)
     })
   }
+  const onChanges = (): void => {
+    if (nativeOperationEdits.length === 0) return
+    const edits = nativeOperationEdits.splice(0)
+    if (disposed || terminalError !== undefined) return
+    enqueue(edits)
+  }
   doc.on('beforeChange', onBeforeChange)
   doc.on('change', onChange)
+  editor?.on('changes', onChanges)
 
   const adapter: CodeMirrorCoreAdapter = Object.freeze({
     async settled(): Promise<CoreAppliedReply | undefined> {
@@ -750,7 +769,7 @@ function createAdapterWithIndex(
       if (edit === undefined) {
         finishComposition?.(latestReply)
       } else {
-        enqueue(edit)
+        enqueue([edit])
         adapter.settled().then(finishComposition, failComposition)
       }
       try {
@@ -826,7 +845,9 @@ function createAdapterWithIndex(
       disposed = true
       doc.off('beforeChange', onBeforeChange)
       doc.off('change', onChange)
+      editor?.off('changes', onChanges)
       captures.splice(0)
+      nativeOperationEdits.splice(0)
       const error = new Error('CodeMirror Core adapter is disposed')
       if (activeCommand?.kind !== undefined && activeCommand.kind !== 'source') {
         activeCommand.reject(error)
