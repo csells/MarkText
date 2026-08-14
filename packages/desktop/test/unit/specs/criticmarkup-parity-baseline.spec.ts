@@ -29,7 +29,7 @@ const emptyRows = {
   baselineCommit,
   rows: []
 }
-const sha256 = (value: string): string => createHash('sha256')
+const sha256 = (value: string | Buffer): string => createHash('sha256')
   .update(value)
   .digest('hex')
 const writeParityManifest = (
@@ -66,6 +66,26 @@ const createParityExecutionFixture = (): {
     cwd: root,
     encoding: 'utf8'
   }).trim()
+  const command = {
+    executable: process.execPath,
+    args: ['--test', sourcePath],
+    cwd: '.' as const
+  }
+  const runner = {
+    platform: process.platform,
+    arch: process.arch,
+    nodeVersion: process.version
+  }
+  const transcriptPath = 'runs/transcript.json'
+  const transcript = `${JSON.stringify({
+    schema: 'marktext-criticmarkup-parity-transcript-v1',
+    buildCommit,
+    command,
+    runner,
+    exitStatus: 0,
+    stdout: 'pass\n',
+    stderr: ''
+  }, null, 2)}\n`
   const recordPath = 'runs/parity.json'
   const record = `${JSON.stringify({
     schema: 'marktext-criticmarkup-parity-execution-v1',
@@ -75,6 +95,7 @@ const createParityExecutionFixture = (): {
     rowIds: ['editing.undo']
   }, null, 2)}\n`
   mkdirSync(resolve(root, 'runs'), { recursive: true })
+  writeFileSync(resolve(root, transcriptPath), transcript)
   writeFileSync(resolve(root, recordPath), record)
 
   return {
@@ -105,8 +126,7 @@ const bindParityExecutionFixture = (
       id: row.id,
       upstreamBehavior: row.upstreamBehavior,
       existingOracle: row.existingOracle,
-      productionPathTest: row.productionPathTest,
-      status: row.status
+      productionPathTest: row.productionPathTest
     }]
   }
   const record = `${JSON.stringify({
@@ -117,6 +137,23 @@ const bindParityExecutionFixture = (
     recordedAt: '2026-08-14T17:00:00.000Z',
     result: 'pass',
     rowIds: [row.id],
+    command: {
+      executable: process.execPath,
+      args: ['--test', fixture.execution.sourcePath],
+      cwd: '.'
+    },
+    runner: {
+      platform: process.platform,
+      arch: process.arch,
+      nodeVersion: process.version
+    },
+    transcript: {
+      path: 'runs/transcript.json',
+      sha256: sha256(readFileSync(resolve(
+        fixture.root,
+        'runs/transcript.json'
+      )))
+    },
     ...recordOverrides
   }, null, 2)}\n`
   writeFileSync(resolve(fixture.root, fixture.execution.recordPath), record)
@@ -741,6 +778,36 @@ describe('CriticMarkup upstream parity baseline', () => {
         fixture.root,
         bound.manifestPath
       )).toThrow('Parity row editing.undo execution record targets a stale row manifest')
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a passing record whose command omits the named test source', () => {
+    const fixture = createParityExecutionFixture()
+    const { overlay, validRow } = completeParityRowFixture()
+    const bound = bindParityExecutionFixture(fixture, {
+      ...validRow,
+      productionPathTest: `named-production-path-test: ${fixture.execution.sourcePath}#installed undo`,
+      status: 'green'
+    }, {
+      command: {
+        executable: process.execPath,
+        args: ['--test'],
+        cwd: '.'
+      }
+    })
+    try {
+      expect(() => requireGreenCriticMarkupParityDispositions(
+        baseline,
+        overlay,
+        bound.manifest,
+        fixture.root,
+        bound.manifestPath
+      )).toThrow(
+        `Parity row editing.undo source ${fixture.execution.sourcePath} ` +
+        'is absent from the test command'
+      )
     } finally {
       rmSync(fixture.root, { recursive: true, force: true })
     }
