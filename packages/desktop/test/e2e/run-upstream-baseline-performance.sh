@@ -11,7 +11,11 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 RUNNER_LIBRARY="${SCRIPT_DIR}/helpers/upstreamBaselinePerformanceRunner.sh"
+DISPLAY_SLEEP_POLICY_LIBRARY="${SCRIPT_DIR}/helpers/performanceDisplaySleepPolicy.sh"
+# shellcheck source=helpers/upstreamBaselinePerformanceRunner.sh
 source "${RUNNER_LIBRARY}"
+# shellcheck source=helpers/performanceDisplaySleepPolicy.sh
+source "${DISPLAY_SLEEP_POLICY_LIBRARY}"
 HARNESS_COMMIT="$(git -C "${REPO_ROOT}" rev-parse --verify HEAD)"
 if ! git -C "${REPO_ROOT}" diff --quiet ||
    ! git -C "${REPO_ROOT}" diff --cached --quiet ||
@@ -99,6 +103,7 @@ MOUNTED=0
 WORKTREE_ADDED=0
 
 cleanup() {
+  stop_performance_display_sleep_prevention
   if [[ "${MOUNTED}" == "1" ]]; then
     hdiutil detach "${MOUNTPOINT}" -quiet || true
   fi
@@ -109,6 +114,7 @@ cleanup() {
   rmdir "${MOUNTPOINT}" "${TOOL_SHIM_DIR}" "${RUN_TEMP_ROOT}" 2>/dev/null || true
 }
 trap cleanup EXIT
+start_performance_display_sleep_prevention
 
 echo "[1/6] creating detached upstream worktree at ${PINNED_BASELINE}"
 git -C "${REPO_ROOT}" worktree add --detach "${UPSTREAM_WORKTREE}" "${PINNED_BASELINE}"
@@ -190,6 +196,7 @@ PROBE_SHA256="$(shasum -a 256 "${PROBE_FILE}" | awk '{print $1}')"
 LAUNCHER_SHA256="$({
   shasum -a 256 "${BASH_SOURCE[0]}" | awk '{print $1}'
   shasum -a 256 "${RUNNER_LIBRARY}" | awk '{print $1}'
+  shasum -a 256 "${DISPLAY_SLEEP_POLICY_LIBRARY}" | awk '{print $1}'
 } | shasum -a 256 | awk '{print $1}')"
 PLAYWRIGHT_VERSION="$(
   cd "${REPO_ROOT}/packages/desktop"

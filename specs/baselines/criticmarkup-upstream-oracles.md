@@ -64,6 +64,12 @@ eliminate temporal, thermal, cache, hardware, or environment drift. Mandatory ti
 diagnostics are required for every document and metric. No drift pass/fail threshold is defined
 before owner review and ratification; the protocol does not invent one.
 
+The authenticated launcher starts runner-owned `caffeinate -d` display-sleep prevention before
+package build and holds the exact process through sampling and cleanup; it neither synthesizes user
+input nor focuses MarkText. The raw run records
+`runner-owned-caffeinate-display-sleep-prevention-v1`, and cleanup waits for that owned process to
+exit.
+
 Before pre-timing readiness, Electron calls `setVisibleOnAllWorkspaces(true, {
 visibleOnFullScreen: true, skipTransformProcessType: true })`; readiness asserts
 `isVisibleOnAllWorkspaces() === true` and `isHiddenInMissionControl() === true`. Pre-timing readiness
