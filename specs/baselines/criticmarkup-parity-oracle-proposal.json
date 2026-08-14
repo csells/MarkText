@@ -2,7 +2,7 @@
   "schema": "marktext-criticmarkup-parity-oracle-proposal-v1",
   "status": "proposed-unapproved",
   "baselineCommit": "e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c",
-  "evidenceCommit": "177a13f24fe5e5c265dcef468f71988186d1f85e",
+  "evidenceCommit": "4041de04661523214c151be318e0fff60cdb7e77",
   "groups": [
     {
       "id": "active-surfaces-need-production-path-tests",
