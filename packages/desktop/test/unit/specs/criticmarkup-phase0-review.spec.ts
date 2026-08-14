@@ -382,7 +382,8 @@ describe('CriticMarkup Phase 0 review proposal', () => {
       'hash-pinned stable-commit installed execution record authenticates all 25 rows as passing'
     )
     expect(reviewPacket).toContain('25 green installed executions')
-    expect(reviewPacket).toContain('addd76f29ac28b0efc13db33868b1f62dd0f9724')
+    expect(reviewPacket).toContain('71ebb14711f9577a6b318883bde7423a0bc62fff')
+    expect(reviewPacket).toContain('eight installed Phase 4 consumer workflows')
     expect(reviewPacket).toContain('still-unratified expected behavior')
   })
 
