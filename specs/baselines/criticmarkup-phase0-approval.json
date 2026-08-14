@@ -2,7 +2,7 @@
   "schema": "marktext-criticmarkup-phase0-approval-v1",
   "status": "proposed-unapproved",
   "baselineCommit": "e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c",
-  "evidenceCommit": "177a13f24fe5e5c265dcef468f71988186d1f85e",
+  "evidenceCommit": "4041de04661523214c151be318e0fff60cdb7e77",
   "evidence": [
     {
       "id": "upstream-parity-baseline",
@@ -17,7 +17,7 @@
     {
       "id": "parity-oracle-proposal",
       "path": "specs/baselines/criticmarkup-parity-oracle-proposal.json",
-      "sha256": "6cccebf41ea19b427a11c706e7cb9dc346f0af1505cef1d67587cc944d2f4c48"
+      "sha256": "8c9d86cc3c8aa0945ee01b90f0d3f9cd7e8364019cd31d55692a767dc9e3fc72"
     },
     {
       "id": "parity-decisions",
@@ -132,7 +132,7 @@
     {
       "id": "salvage-proposal",
       "path": "specs/baselines/criticmarkup-salvage-proposal.json",
-      "sha256": "86ac0a58955acc070516b9b7fb9b11a967afcf52fe1d24eabafa8f2e39cf5886"
+      "sha256": "e6401ee2a4ea860a10924758e65dd26a97df4fa8b60f999bb611f56d9b9d2012"
     },
     {
       "id": "salvage-decisions",
