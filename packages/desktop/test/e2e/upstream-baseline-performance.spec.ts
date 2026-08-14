@@ -72,7 +72,7 @@ import {
 import { frontmostApplicationProcessId } from './frontmostApplication'
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..')
-const PINNED_BASELINE = '43bd8b77795fb27b1a9512737c000f7362031ea0'
+const PINNED_BASELINE = 'e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c'
 const REPRESENTATIVE_DOCUMENTS = path.join(
   REPO_ROOT,
   'specs/baselines/criticmarkup-representative-documents.json'

@@ -20,7 +20,7 @@ import {
 } from './performanceObservationSchedule'
 
 const PINNED_UPSTREAM_BASELINE =
-  '43bd8b77795fb27b1a9512737c000f7362031ea0'
+  'e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c'
 const RATIFICATION_SAMPLING = Object.freeze({
   warmupSamples: 20,
   measuredSamples: 200
