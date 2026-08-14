@@ -1,4 +1,4 @@
-import type { EditorCoreBinding } from './editorCoreBinding'
+import type { CoreDocumentViewLease } from './coreDocumentSessionManager'
 
 export interface CoreAuthorityPerformanceTestBridge {
   authoritySource(): Promise<string>
@@ -6,15 +6,11 @@ export interface CoreAuthorityPerformanceTestBridge {
 
 export const createCoreAuthorityPerformanceTestBridge = (
   enabled: boolean,
-  binding: Pick<EditorCoreBinding, 'sourceAtBarrier'>
+  lease: Pick<CoreDocumentViewLease, 'sourceAtBarrier'>
 ): Readonly<CoreAuthorityPerformanceTestBridge> | undefined => enabled
   ? Object.freeze({
     async authoritySource(): Promise<string> {
-      const reply = await binding.sourceAtBarrier()
-      if (reply.type !== 'source') {
-        throw new Error('Core performance authority source is unavailable')
-      }
-      return reply.source
+      return lease.sourceAtBarrier()
     }
   })
   : undefined

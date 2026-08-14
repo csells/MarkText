@@ -2861,7 +2861,7 @@ onMounted(() => {
     })
     const corePerformanceTestBridge = createCoreAuthorityPerformanceTestBridge(
       window.electron.process.env.PERF_TESTING === 'true',
-      props.coreLease.binding
+      props.coreLease
     )
     if (corePerformanceTestBridge !== undefined) {
       window.__marktextDocumentCore = Object.freeze({
