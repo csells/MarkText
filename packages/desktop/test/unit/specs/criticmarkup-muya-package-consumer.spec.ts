@@ -14,7 +14,7 @@ describe('CriticMarkup Muya package publication', () => {
       typesEntry: './lib/types/index.d.ts',
       exportsTypesEntry: './lib/types/index.d.ts',
       consumerDependencies: ['@muyajs/core'],
-      consumerAtTypesDependencies: [],
+      consumerDeclaredAtTypesDependencies: [],
       importedPublicSymbols: ['IMuyaOptions', 'MarkdownToHtml', 'Muya', 'TState'],
       compilerCommand: 'tsc --noEmit'
     })
