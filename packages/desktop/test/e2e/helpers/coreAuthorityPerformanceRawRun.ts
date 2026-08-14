@@ -16,6 +16,12 @@ import {
   PERFORMANCE_SAMPLE_LIFECYCLE,
   type PerformanceSampleLifecycleCounts
 } from './performanceSampleLifecycle'
+import {
+  createPerformanceObservationSchedule,
+  PERFORMANCE_OBSERVATION_SCHEDULE,
+  performanceObservationScheduleSha256,
+  type PerformanceObservationScheduleEntry
+} from './performanceObservationSchedule'
 
 const METRICS = [
   't_echo',
@@ -34,7 +40,6 @@ const LIFECYCLE_CLEANUP_TIMEOUT_MS = 10_000
 const LIFECYCLE_CLEANUP_POLL_MS = 50
 
 type Metric = typeof METRICS[number]
-type SamplePhase = 'warmup' | 'measured'
 export type CoreAuthorityPerformanceEvidenceClass =
   | 'ratification'
   | 'smoke-non-ratifying'
@@ -277,9 +282,8 @@ export const coreAuthorityPerformanceOrchestrationTimeoutMs = (
   return timeout
 }
 
-export interface CoreAuthorityPerformanceRawSample {
-  readonly documentId: string
-  readonly phase: SamplePhase
+export interface CoreAuthorityPerformanceRawSample
+  extends PerformanceObservationScheduleEntry {
   readonly surface: CoreAuthorityPerformanceSurface
   readonly report: CoreAuthorityPerformanceReport
 }
@@ -306,6 +310,8 @@ export interface CoreAuthorityPerformanceBuildProvenance
   readonly windowPresentationPlatform: 'darwin'
   readonly chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
   readonly sampleLifecycle: typeof PERFORMANCE_SAMPLE_LIFECYCLE
+  readonly observationSchedule: typeof PERFORMANCE_OBSERVATION_SCHEDULE
+  readonly observationScheduleSha256: string
 }
 
 export interface CoreAuthorityPerformanceRawRunInput {
@@ -475,6 +481,14 @@ export function createCoreAuthorityPerformanceRawRun(
       'Raw performance sample lifecycle must use a fresh application profile per observation'
     )
   }
+  if (input.provenance.observationSchedule !== PERFORMANCE_OBSERVATION_SCHEDULE) {
+    throw new Error('Raw performance observation schedule policy is invalid')
+  }
+  requireIdentity(
+    input.provenance.observationScheduleSha256,
+    64,
+    'Raw performance observation schedule digest'
+  )
   const observationCount = input.documents.length *
     (input.sampling.warmupSamples + input.sampling.measuredSamples)
   for (const field of [
@@ -489,6 +503,44 @@ export function createCoreAuthorityPerformanceRawRun(
         String(observationCount)
       )
     }
+  }
+
+  const observationOrder = createPerformanceObservationSchedule({
+    documentIds: input.documents.map(document => document.id),
+    ...input.sampling
+  })
+  if (input.samples.length !== observationOrder.length) {
+    throw new Error(
+      'Raw performance observation schedule expected ' +
+      `${String(observationOrder.length)} entries but received ` +
+      String(input.samples.length)
+    )
+  }
+  const scheduleKeys = [
+    'ordinal',
+    'phase',
+    'phaseRound',
+    'roundPosition',
+    'documentId'
+  ] as const
+  for (const [index, expected] of observationOrder.entries()) {
+    const actual = input.samples[index]
+    if (
+      actual === undefined ||
+      scheduleKeys.some(key => actual[key] !== expected[key])
+    ) {
+      throw new Error(
+        `Raw performance observation schedule mismatch at ordinal ${String(expected.ordinal)}`
+      )
+    }
+  }
+  if (
+    input.provenance.observationScheduleSha256 !==
+      performanceObservationScheduleSha256(observationOrder)
+  ) {
+    throw new Error(
+      'Raw performance observation schedule digest does not match documents and sampling'
+    )
   }
 
   const samplesByDocument = new Map<string, CoreAuthorityPerformanceRawSample[]>()
@@ -629,15 +681,16 @@ export function createCoreAuthorityPerformanceRawRun(
     environment: Object.freeze({ ...input.environment }),
     sampling: Object.freeze({ ...input.sampling }),
     provenance: Object.freeze({ ...input.provenance }),
+    observationOrder,
     documents: Object.freeze(documents)
   })
   return input.evidenceClass === 'ratification'
     ? Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-run-v9' as const,
+      schema: 'marktext-criticmarkup-raw-performance-run-v10' as const,
       ...base
     })
     : Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v9' as const,
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v10' as const,
       evidenceClass: 'smoke-non-ratifying' as const,
       ...base
     })

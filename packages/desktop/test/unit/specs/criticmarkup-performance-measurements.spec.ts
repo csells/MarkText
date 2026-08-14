@@ -15,11 +15,16 @@ import {
   CORE_PERFORMANCE_PRODUCER_PATHS,
   type CriticMarkupPerformanceMeasurementManifest,
   type CriticMarkupRawPerformanceRun,
-  type CriticMarkupUpstreamRawPerformanceRunV7,
+  type CriticMarkupUpstreamRawPerformanceRunV8,
   UPSTREAM_PERFORMANCE_PRODUCER_PATHS,
   requireCriticMarkupPerformanceEvidenceForRatification,
   validateCriticMarkupPerformanceMeasurements
 } from '../../../../../scripts/criticmarkupPerformanceMeasurements'
+import {
+  PERFORMANCE_OBSERVATION_SCHEDULE,
+  createPerformanceObservationSchedule,
+  performanceObservationScheduleSha256
+} from '../../../test/e2e/helpers/performanceObservationSchedule'
 
 const repoRoot = resolve(import.meta.dirname, '../../../../..')
 const manifestPath = resolve(
@@ -49,6 +54,14 @@ const documents = JSON.parse(documentsSource) as {
 const TOTAL_OBSERVATIONS = documents.documents.length * (
   targets.sampling.warmupSamples + targets.sampling.measuredSamples
 )
+const OBSERVATION_ORDER = createPerformanceObservationSchedule({
+  documentIds: documents.documents.map(document => document.id),
+  warmupSamples: targets.sampling.warmupSamples,
+  measuredSamples: targets.sampling.measuredSamples
+})
+const OBSERVATION_SCHEDULE_SHA256 = performanceObservationScheduleSha256(
+  OBSERVATION_ORDER
+)
 
 const authenticatedCoreProvenance = {
   checkoutHead: 'a'.repeat(40),
@@ -74,7 +87,9 @@ const authenticatedCoreProvenance = {
   applicationLaunchCount: TOTAL_OBSERVATIONS,
   uniqueProfileCount: TOTAL_OBSERVATIONS,
   applicationCloseCount: TOTAL_OBSERVATIONS,
-  profileCleanupCount: TOTAL_OBSERVATIONS
+  profileCleanupCount: TOTAL_OBSERVATIONS,
+  observationSchedule: PERFORMANCE_OBSERVATION_SCHEDULE,
+  observationScheduleSha256: OBSERVATION_SCHEDULE_SHA256
 } as const
 
 const authenticatedUpstreamProvenance = {
@@ -101,7 +116,9 @@ const authenticatedUpstreamProvenance = {
   applicationLaunchCount: TOTAL_OBSERVATIONS,
   uniqueProfileCount: TOTAL_OBSERVATIONS,
   applicationCloseCount: TOTAL_OBSERVATIONS,
-  profileCleanupCount: TOTAL_OBSERVATIONS
+  profileCleanupCount: TOTAL_OBSERVATIONS,
+  observationSchedule: PERFORMANCE_OBSERVATION_SCHEDULE,
+  observationScheduleSha256: OBSERVATION_SCHEDULE_SHA256
 } as const
 
 const sha256 = (source: string): string => createHash('sha256')
@@ -136,8 +153,8 @@ const rawRun = (
   implementation: 'upstream-baseline' | 'core-candidate'
 ): CriticMarkupRawPerformanceRun => ({
   schema: implementation === 'core-candidate'
-    ? 'marktext-criticmarkup-raw-performance-run-v9'
-    : 'marktext-criticmarkup-raw-performance-run-v7',
+    ? 'marktext-criticmarkup-raw-performance-run-v10'
+    : 'marktext-criticmarkup-raw-performance-run-v8',
   runId: `${implementation}-synthetic-validator-fixture`,
   implementation,
   ...(implementation === 'core-candidate'
@@ -153,6 +170,7 @@ const rawRun = (
     warmupSamples: targets.sampling.warmupSamples,
     measuredSamples: targets.sampling.measuredSamples
   },
+  observationOrder: OBSERVATION_ORDER,
   ...(implementation === 'core-candidate'
     ? { provenance: authenticatedCoreProvenance }
     : {
@@ -268,6 +286,7 @@ const withGitAuthenticatedUpstreamRun = (
       'upstream hidden-policy helper\n',
       'upstream lifecycle-cleanup helper\n',
       'fresh-observation lifecycle helper\n',
+      'rotating observation schedule helper\n',
       'shared Chromium scheduling policy\n',
       'shared compositor presentation checkpoint\n'
     ] as const
@@ -284,8 +303,9 @@ const withGitAuthenticatedUpstreamRun = (
     write(`${prefix}helpers/upstreamBaselineHiddenPolicy.ts`, producerSources[4])
     write(`${prefix}helpers/upstreamBaselineLifecycleCleanup.ts`, producerSources[5])
     write(`${prefix}helpers/performanceSampleLifecycle.ts`, producerSources[6])
-    write(`${prefix}helpers/performanceChromiumLaunchPolicy.ts`, producerSources[7])
-    write(`${prefix}helpers/performancePresentationCheckpoint.ts`, producerSources[8])
+    write(`${prefix}helpers/performanceObservationSchedule.ts`, producerSources[7])
+    write(`${prefix}helpers/performanceChromiumLaunchPolicy.ts`, producerSources[8])
+    write(`${prefix}helpers/performancePresentationCheckpoint.ts`, producerSources[9])
     write(`${prefix}helpers/upstreamBaselineInputProbe.ts`, probeSource)
     write(`${prefix}run-upstream-baseline-performance.sh`, launcherSource)
     write(`${prefix}helpers/upstreamBaselinePerformanceRunner.sh`, launcherHelperSource)
@@ -302,7 +322,7 @@ const withGitAuthenticatedUpstreamRun = (
     ).trim()
     const upstream = structuredClone(
       rawRun('upstream-baseline')
-    ) as CriticMarkupUpstreamRawPerformanceRunV7
+    ) as CriticMarkupUpstreamRawPerformanceRunV8
     upstream.baselineCommit = harnessCommit
     upstream.buildCommit = harnessCommit
     upstream.provenance = {
@@ -338,7 +358,86 @@ const withGitAuthenticatedUpstreamRun = (
   }
 }
 
+interface MutableScheduleRawRun {
+  observationOrder?: Array<Record<string, unknown>>
+  provenance: Record<string, unknown>
+}
+
+const scheduleFailureCases = [
+  {
+    name: 'missing observation order',
+    mutate: (raw: MutableScheduleRawRun): void => {
+      delete raw.observationOrder
+    },
+    message: /observation order must be an array/i
+  },
+  {
+    name: 'stale schedule digest',
+    mutate: (raw: MutableScheduleRawRun): void => {
+      raw.provenance.observationScheduleSha256 = '0'.repeat(64)
+    },
+    message: /observation schedule digest is stale/i
+  },
+  {
+    name: 'reordered observations',
+    mutate: (raw: MutableScheduleRawRun): void => {
+      if (raw.observationOrder === undefined) throw new Error('Schedule is missing')
+      const firstEntry = raw.observationOrder[0]
+      const secondEntry = raw.observationOrder[1]
+      if (firstEntry === undefined || secondEntry === undefined) {
+        throw new Error('Synthetic schedule requires two observations')
+      }
+      raw.observationOrder[0] = secondEntry
+      raw.observationOrder[1] = firstEntry
+    },
+    message: /observation order ordinal differs/i
+  },
+  {
+    name: 'duplicate observations',
+    mutate: (raw: MutableScheduleRawRun): void => {
+      if (raw.observationOrder === undefined) throw new Error('Schedule is missing')
+      const firstEntry = raw.observationOrder[0]
+      if (firstEntry === undefined) throw new Error('Synthetic schedule is empty')
+      raw.observationOrder[1] = structuredClone(firstEntry)
+    },
+    message: /observation order contains a duplicate ordinal/i
+  },
+  {
+    name: 'wrong observation phase',
+    mutate: (raw: MutableScheduleRawRun): void => {
+      if (raw.observationOrder === undefined) throw new Error('Schedule is missing')
+      const firstEntry = raw.observationOrder[0]
+      if (firstEntry === undefined) throw new Error('Synthetic schedule is empty')
+      firstEntry.phase = 'measured'
+    },
+    message: /observation order phase differs/i
+  },
+  {
+    name: 'stale schedule policy',
+    mutate: (raw: MutableScheduleRawRun): void => {
+      raw.provenance.observationSchedule = 'document-at-a-time'
+    },
+    message: /observation schedule must use warmup then measured rotating round robin/i
+  }
+] as const
+
 describe('CriticMarkup raw performance evidence', () => {
+  it('documents the deterministic schedule scope and its unresolved drift limit', () => {
+    for (const path of [
+      'specs/baselines/criticmarkup-phase0-review.md',
+      'specs/plans/0010-marktext-criticmarkup-core-integration.md',
+      'specs/baselines/criticmarkup-upstream-oracles.md'
+    ]) {
+      const source = readFileSync(resolve(repoRoot, path), 'utf8')
+      expect(source).toContain(PERFORMANCE_OBSERVATION_SCHEDULE)
+      expect(source).toMatch(/warmup rounds.*before.*measured rounds/is)
+      expect(source).toMatch(/each.*document.*once per round/is)
+      expect(source).toMatch(/rotat.*across.*phase boundar/is)
+      expect(source).toMatch(/mandatory.*time-ordered drift\s+diagnostics/is)
+      expect(source).toMatch(/no.*pass\/fail threshold/is)
+    }
+  })
+
   it('authenticates lifecycle, Chromium, and compositor policies in both producer composites', () => {
     const policy =
       'packages/desktop/test/e2e/helpers/performanceChromiumLaunchPolicy.ts'
@@ -350,6 +449,7 @@ describe('CriticMarkup raw performance evidence', () => {
       'packages/desktop/test/e2e/helpers/upstreamBaselineHiddenPolicy.ts',
       'packages/desktop/test/e2e/helpers/upstreamBaselineLifecycleCleanup.ts',
       'packages/desktop/test/e2e/helpers/performanceSampleLifecycle.ts',
+      'packages/desktop/test/e2e/helpers/performanceObservationSchedule.ts',
       policy,
       'packages/desktop/test/e2e/helpers/performancePresentationCheckpoint.ts'
     ])
@@ -358,6 +458,7 @@ describe('CriticMarkup raw performance evidence', () => {
       'packages/desktop/test/e2e/helpers/coreAuthorityPerformanceRawRun.ts',
       'packages/desktop/test/e2e/helpers/coreAuthorityPerformanceReport.ts',
       'packages/desktop/test/e2e/helpers/performanceSampleLifecycle.ts',
+      'packages/desktop/test/e2e/helpers/performanceObservationSchedule.ts',
       'packages/desktop/test/e2e/installedArtifactProvenance.ts',
       'packages/desktop/test/e2e/playwright.installed-core-performance.config.ts',
       policy,
@@ -387,7 +488,7 @@ describe('CriticMarkup raw performance evidence', () => {
 
   it('records the missing Core measurement denominator without inventing samples', () => {
     expect(manifest).toMatchObject({
-      schema: 'marktext-criticmarkup-performance-measurements-v8',
+      schema: 'marktext-criticmarkup-performance-measurements-v9',
       status: 'awaiting-raw-runs',
       runs: [],
       requiredMetrics: {
@@ -413,7 +514,7 @@ describe('CriticMarkup raw performance evidence', () => {
 
   it('rejects the superseded pooled measurement schema and presentation boundary', () => {
     const staleManifest = structuredClone(manifest) as unknown as { schema: string }
-    staleManifest.schema = 'marktext-criticmarkup-performance-measurements-v7'
+    staleManifest.schema = 'marktext-criticmarkup-performance-measurements-v8'
     expect(() => validateCriticMarkupPerformanceMeasurements(
       repoRoot,
       staleManifest as CriticMarkupPerformanceMeasurementManifest
@@ -427,7 +528,7 @@ describe('CriticMarkup raw performance evidence', () => {
       const raw = JSON.parse(
         readFileSync(resolve(root, upstreamRef.path), 'utf8')
       ) as unknown as { schema: string }
-      raw.schema = 'marktext-criticmarkup-raw-performance-run-v6'
+      raw.schema = 'marktext-criticmarkup-raw-performance-run-v7'
       const source = `${JSON.stringify(raw, null, 2)}\n`
       writeFileSync(resolve(root, upstreamRef.path), source)
       upstreamRef.sha256 = sha256(source)
@@ -441,7 +542,7 @@ describe('CriticMarkup raw performance evidence', () => {
       const raw = JSON.parse(
         readFileSync(resolve(root, coreRef.path), 'utf8')
       ) as unknown as { schema: string }
-      raw.schema = 'marktext-criticmarkup-raw-performance-run-v8'
+      raw.schema = 'marktext-criticmarkup-raw-performance-run-v9'
       const source = `${JSON.stringify(raw, null, 2)}\n`
       writeFileSync(resolve(root, coreRef.path), source)
       coreRef.sha256 = sha256(source)
@@ -497,6 +598,23 @@ describe('CriticMarkup raw performance evidence', () => {
 
       expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
         .toThrow(/sample lifecycle.*fresh application profile per observation/i)
+    })
+  })
+
+  it.each(scheduleFailureCases)('rejects $name', ({ mutate, message }) => {
+    withSyntheticRuns((root, measured, upstreamPath) => {
+      const upstreamRef = measured.runs.find(run => run.path === upstreamPath)
+      if (upstreamRef === undefined) throw new Error('Synthetic upstream run is missing')
+      const raw = JSON.parse(
+        readFileSync(resolve(root, upstreamPath), 'utf8')
+      ) as MutableScheduleRawRun
+      mutate(raw)
+      const source = `${JSON.stringify(raw, null, 2)}\n`
+      writeFileSync(resolve(root, upstreamPath), source)
+      upstreamRef.sha256 = sha256(source)
+
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .toThrow(message)
     })
   })
 
@@ -606,7 +724,7 @@ describe('CriticMarkup raw performance evidence', () => {
         .not.toThrow()
 
       upstream.provenance.producerSha256 = compositeSha256(
-        producerSources.filter((_source, index) => index !== 7)
+        producerSources.filter((_source, index) => index !== 8)
       )
       update(upstream)
       expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
@@ -628,6 +746,27 @@ describe('CriticMarkup raw performance evidence', () => {
 
       upstream.provenance.producerSha256 = compositeSha256(
         producerSources.filter((_source, index) => index !== 6)
+      )
+      update(upstream)
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .toThrow(/producer digest differs from its harness commit/i)
+    })
+  })
+
+  it('authenticates the rotating observation schedule as upstream producer code', () => {
+    withGitAuthenticatedUpstreamRun((
+      root,
+      measured,
+      upstream,
+      update,
+      _launcherSource,
+      producerSources
+    ) => {
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .not.toThrow()
+
+      upstream.provenance.producerSha256 = compositeSha256(
+        producerSources.filter((_source, index) => index !== 7)
       )
       update(upstream)
       expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
@@ -710,7 +849,7 @@ describe('CriticMarkup raw performance evidence', () => {
     })
   })
 
-  it('rejects Core v9 evidence without exact per-document authority metadata', () => {
+  it('rejects Core v10 evidence without exact per-document authority metadata', () => {
     withSyntheticRuns((root, measured) => {
       const coreRef = measured.runs.find(run => run.implementation === 'core-candidate')
       if (coreRef === undefined) throw new Error('Synthetic Core run is missing')
@@ -728,7 +867,7 @@ describe('CriticMarkup raw performance evidence', () => {
     })
   })
 
-  it('rejects Core v9 evidence without authenticated build provenance', () => {
+  it('rejects Core v10 evidence without authenticated build provenance', () => {
     withSyntheticRuns((root, measured) => {
       const coreRef = measured.runs.find(run => run.implementation === 'core-candidate')
       if (coreRef === undefined) throw new Error('Synthetic Core run is missing')

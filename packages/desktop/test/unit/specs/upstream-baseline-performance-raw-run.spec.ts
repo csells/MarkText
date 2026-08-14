@@ -4,6 +4,12 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
+  createPerformanceObservationSchedule,
+  PERFORMANCE_OBSERVATION_SCHEDULE,
+  performanceObservationScheduleSha256,
+  type PerformanceObservationScheduleEntry
+} from '../../e2e/helpers/performanceObservationSchedule'
+import {
   createUpstreamBaselinePerformanceRawRun,
   writeUpstreamBaselinePerformanceRawRun,
   type UpstreamBaselinePerformanceRawSample
@@ -12,12 +18,10 @@ import {
 const PINNED_BASELINE = '43bd8b77795fb27b1a9512737c000f7362031ea0'
 
 const sample = (
-  documentId: string,
-  phase: 'warmup' | 'measured',
+  scheduleEntry: PerformanceObservationScheduleEntry,
   value: number
 ): UpstreamBaselinePerformanceRawSample => ({
-  documentId,
-  phase,
+  ...scheduleEntry,
   report: {
     t_echo: value + 1,
     t_present: value + 2,
@@ -30,57 +34,89 @@ const input = (
   evidenceClass: 'ratification' | 'smoke-non-ratifying',
   warmupSamples: number,
   measuredSamples: number
-) => ({
-  evidenceClass,
-  runId: `upstream-${evidenceClass}`,
-  baselineCommit: PINNED_BASELINE,
-  buildCommit: PINNED_BASELINE,
-  measuredAt: '2026-08-13T12:00:00.000Z',
-  environment: { build: 'MarkText production Electron bundle' },
-  sampling: { warmupSamples, measuredSamples },
-  documents: [{ id: 'doc', sourceSha256: 'a'.repeat(64) }],
-  provenance: {
-    detachedWorktreeHead: PINNED_BASELINE,
-    detachedWorktreeClean: true,
-    harnessCommit: '2'.repeat(40),
-    packageArtifactSha256: 'b'.repeat(64),
-    executableSha256: 'c'.repeat(64),
-    packageVersion: '0.20.0-dev',
-    packageManager: 'pnpm@10.33.4',
-    nodeVersion: 'v22.20.0',
-    playwrightVersion: '1.61.0',
-    lockfileSha256: 'd'.repeat(64),
-    producerSha256: 'e'.repeat(64),
-    probeSha256: 'f'.repeat(64),
-    launcherSha256: '1'.repeat(64),
-    measurementBoundary: 'external-browser-compositor-v4' as const,
-    presentationBoundary: 'electron-webcontents-capture-page-transparent-v2' as const,
-    launchBoundary: 'external-inspector-transparent-render-active-v3' as const,
-    windowPresentationPolicy: 'transparent-render-active-inactive-v3' as const,
-    windowPresentationPlatform: 'darwin' as const,
-    chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2' as const,
-    sampleLifecycle: 'fresh-application-profile-per-observation-v1' as const,
-    applicationLaunchCount: warmupSamples + measuredSamples,
-    uniqueProfileCount: warmupSamples + measuredSamples,
-    applicationCloseCount: warmupSamples + measuredSamples,
-    profileCleanupCount: warmupSamples + measuredSamples
-  },
-  samples: [
-    ...Array.from({ length: warmupSamples }, (_, index) =>
-      sample('doc', 'warmup', index + 1)),
-    ...Array.from({ length: measuredSamples }, (_, index) =>
-      sample('doc', 'measured', index + 101))
-  ]
-})
+) => {
+  const schedule = createPerformanceObservationSchedule({
+    documentIds: ['doc'],
+    warmupSamples,
+    measuredSamples
+  })
+  return {
+    evidenceClass,
+    runId: `upstream-${evidenceClass}`,
+    baselineCommit: PINNED_BASELINE,
+    buildCommit: PINNED_BASELINE,
+    measuredAt: '2026-08-13T12:00:00.000Z',
+    environment: { build: 'MarkText production Electron bundle' },
+    sampling: { warmupSamples, measuredSamples },
+    documents: [{ id: 'doc', sourceSha256: 'a'.repeat(64) }],
+    provenance: {
+      detachedWorktreeHead: PINNED_BASELINE,
+      detachedWorktreeClean: true,
+      harnessCommit: '2'.repeat(40),
+      packageArtifactSha256: 'b'.repeat(64),
+      executableSha256: 'c'.repeat(64),
+      packageVersion: '0.20.0-dev',
+      packageManager: 'pnpm@10.33.4',
+      nodeVersion: 'v22.20.0',
+      playwrightVersion: '1.61.0',
+      lockfileSha256: 'd'.repeat(64),
+      producerSha256: 'e'.repeat(64),
+      probeSha256: 'f'.repeat(64),
+      launcherSha256: '1'.repeat(64),
+      measurementBoundary: 'external-browser-compositor-v4' as const,
+      presentationBoundary: 'electron-webcontents-capture-page-transparent-v2' as const,
+      launchBoundary: 'external-inspector-transparent-render-active-v3' as const,
+      windowPresentationPolicy: 'transparent-render-active-inactive-v3' as const,
+      windowPresentationPlatform: 'darwin' as const,
+      chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2' as const,
+      sampleLifecycle: 'fresh-application-profile-per-observation-v1' as const,
+      applicationLaunchCount: warmupSamples + measuredSamples,
+      uniqueProfileCount: warmupSamples + measuredSamples,
+      applicationCloseCount: warmupSamples + measuredSamples,
+      profileCleanupCount: warmupSamples + measuredSamples,
+      observationSchedule: PERFORMANCE_OBSERVATION_SCHEDULE,
+      observationScheduleSha256: performanceObservationScheduleSha256(schedule)
+    },
+    samples: schedule.map((entry, index) => sample(
+      entry,
+      entry.phase === 'warmup' ? index + 1 : index + 101
+    ))
+  }
+}
+
+const twoDocumentInput = () => {
+  const base = input('smoke-non-ratifying', 1, 1)
+  const schedule = createPerformanceObservationSchedule({
+    documentIds: ['doc-a', 'doc-b'],
+    warmupSamples: 1,
+    measuredSamples: 1
+  })
+  return {
+    ...base,
+    documents: [
+      { id: 'doc-a', sourceSha256: 'a'.repeat(64) },
+      { id: 'doc-b', sourceSha256: 'b'.repeat(64) }
+    ],
+    provenance: {
+      ...base.provenance,
+      applicationLaunchCount: 4,
+      uniqueProfileCount: 4,
+      applicationCloseCount: 4,
+      profileCleanupCount: 4,
+      observationScheduleSha256: performanceObservationScheduleSha256(schedule)
+    },
+    samples: schedule.map((entry, index) => sample(entry, index + 1))
+  }
+}
 
 describe('upstream baseline raw performance producer', () => {
-  it('creates an accepted v7 shape only for pinned isolated 20/200 ratification evidence', () => {
+  it('creates an accepted v8 shape only for pinned isolated scheduled 20/200 ratification evidence', () => {
     const run = createUpstreamBaselinePerformanceRawRun(
       input('ratification', 20, 200)
     )
 
     expect(run).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-run-v7',
+      schema: 'marktext-criticmarkup-raw-performance-run-v8',
       runId: 'upstream-ratification',
       implementation: 'upstream-baseline',
       baselineCommit: PINNED_BASELINE,
@@ -104,7 +140,9 @@ describe('upstream baseline raw performance producer', () => {
         applicationLaunchCount: 220,
         uniqueProfileCount: 220,
         applicationCloseCount: 220,
-        profileCleanupCount: 220
+        profileCleanupCount: 220,
+        observationSchedule: PERFORMANCE_OBSERVATION_SCHEDULE,
+        observationScheduleSha256: expect.stringMatching(/^[0-9a-f]{64}$/u)
       },
       metricDefinitions: {
         t_echo: 'Elapsed time from beforeinput to the exact matching Muya DOM state.',
@@ -117,6 +155,16 @@ describe('upstream baseline raw performance producer', () => {
     })
     expect(run.documents[0]?.warmup.t_echo).toHaveLength(20)
     expect(run.documents[0]?.measured.t_present).toHaveLength(200)
+    expect(run.observationOrder).toEqual(
+      input('ratification', 20, 200).samples.map(({
+        ordinal,
+        phase,
+        phaseRound,
+        roundPosition,
+        documentId
+      }) => ({ ordinal, phase, phaseRound, roundPosition, documentId }))
+    )
+    expect(Object.isFrozen(run.observationOrder)).toBe(true)
   })
 
   it('marks configurable smoke output with a schema rejected by ratification', () => {
@@ -125,7 +173,7 @@ describe('upstream baseline raw performance producer', () => {
     )
 
     expect(smoke).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v7',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v8',
       evidenceClass: 'smoke-non-ratifying',
       sampling: { warmupSamples: 1, measuredSamples: 2 }
     })
@@ -168,7 +216,54 @@ describe('upstream baseline raw performance producer', () => {
     expect(() => createUpstreamBaselinePerformanceRawRun({
       ...input('smoke-non-ratifying', 1, 2),
       samples: input('smoke-non-ratifying', 1, 2).samples.slice(0, 2)
-    })).toThrow(/measured sample count must be 2/i)
+    })).toThrow(/observation schedule expected 3 entries but received 2/i)
+  })
+
+  it('rejects swapped, duplicate, missing, or relabeled scheduled observations', () => {
+    const swapped = twoDocumentInput()
+    ;[swapped.samples[0], swapped.samples[1]] = [
+      swapped.samples[1] as UpstreamBaselinePerformanceRawSample,
+      swapped.samples[0] as UpstreamBaselinePerformanceRawSample
+    ]
+    expect(() => createUpstreamBaselinePerformanceRawRun(swapped))
+      .toThrow(/observation schedule.*ordinal 1/i)
+
+    const duplicate = twoDocumentInput()
+    duplicate.samples[1] = duplicate.samples[0] as UpstreamBaselinePerformanceRawSample
+    expect(() => createUpstreamBaselinePerformanceRawRun(duplicate))
+      .toThrow(/observation schedule.*ordinal 2/i)
+
+    const missing = twoDocumentInput()
+    missing.samples.pop()
+    expect(() => createUpstreamBaselinePerformanceRawRun(missing))
+      .toThrow(/observation schedule.*4.*3/i)
+
+    const relabeled = twoDocumentInput()
+    const measured = relabeled.samples[2]
+    if (measured === undefined) throw new Error('Synthetic measured sample is missing')
+    relabeled.samples[2] = { ...measured, phase: 'warmup' }
+    expect(() => createUpstreamBaselinePerformanceRawRun(relabeled))
+      .toThrow(/observation schedule.*ordinal 3/i)
+  })
+
+  it('rejects a schedule policy or digest not regenerated from documents and counts', () => {
+    const policy = twoDocumentInput()
+    expect(() => createUpstreamBaselinePerformanceRawRun({
+      ...policy,
+      provenance: {
+        ...policy.provenance,
+        observationSchedule: 'document-major-v0'
+      }
+    } as never)).toThrow(/observation schedule policy/i)
+
+    const digest = twoDocumentInput()
+    expect(() => createUpstreamBaselinePerformanceRawRun({
+      ...digest,
+      provenance: {
+        ...digest.provenance,
+        observationScheduleSha256: 'f'.repeat(64)
+      }
+    })).toThrow(/observation schedule digest/i)
   })
 
   it('rejects absent or mismatched hidden Chromium scheduling provenance', () => {
