@@ -93,24 +93,28 @@ export function sourceEditForMuyaTwoParagraphPaste(
   }
 
   const nativeTextEdit = textEditAt(firstComponent, index)
-  if (nativeTextEdit === undefined || nativeTextEdit.length !== 3) {
+  if (
+    nativeTextEdit === undefined ||
+    (nativeTextEdit.length !== 2 && nativeTextEdit.length !== 3)
+  ) {
     return undefined
   }
   const leadingSkip = nativeTextEdit[0]
-  const deletion = nativeTextEdit[1]
-  const firstInsert = nativeTextEdit[2]
-  if (
-    typeof leadingSkip !== 'number' ||
-    deletion === null || typeof deletion !== 'object' ||
-    Object.keys(deletion).length !== 1 ||
-    typeof firstInsert !== 'string' || firstInsert.length === 0
-  ) return undefined
+  if (typeof leadingSkip !== 'number') return undefined
   const prefixUnits = utf16UnitsOfCodePoints(binding.text, leadingSkip)
   if (prefixUnits === undefined) return undefined
   const suffix = binding.text.slice(prefixUnits)
+  const deletion = nativeTextEdit.length === 3 ? nativeTextEdit[1] : undefined
+  const firstInsert = nativeTextEdit.length === 3
+    ? nativeTextEdit[2]
+    : nativeTextEdit[1]
   if (
-    suffix.length === 0 ||
-    (deletion as { readonly d?: unknown }).d !== suffix ||
+    typeof firstInsert !== 'string' || firstInsert.length === 0 ||
+    (suffix.length === 0
+      ? deletion !== undefined
+      : deletion === null || typeof deletion !== 'object' ||
+        Object.keys(deletion).length !== 1 ||
+        (deletion as { readonly d?: unknown }).d !== suffix) ||
     paragraphTextAt(change.doc, index) !==
       `${binding.text.slice(0, prefixUnits)}${firstInsert}`
   ) return undefined
@@ -142,11 +146,12 @@ export function sourceEditForMuyaTwoParagraphPaste(
       paragraphTextAt(change.doc, index + offset) !== insertedBlock.text
     ) return undefined
     const isLast = offset === change.op.length - 1
-    const contribution = isLast
-      ? insertedBlock.text.endsWith(suffix)
+    let contribution: string | undefined = insertedBlock.text
+    if (isLast && suffix.length > 0) {
+      contribution = insertedBlock.text.endsWith(suffix)
         ? insertedBlock.text.slice(0, -suffix.length)
         : undefined
-      : insertedBlock.text
+    }
     if (contribution === undefined || contribution.length === 0) return undefined
     insertedText.push(contribution)
   }
