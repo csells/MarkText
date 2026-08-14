@@ -170,6 +170,7 @@ CONFIG_FILE="${SCRIPT_DIR}/playwright.upstream-baseline-performance.config.ts"
 PROBE_FILE="${SCRIPT_DIR}/helpers/upstreamBaselineInputProbe.ts"
 HIDDEN_POLICY_FILE="${SCRIPT_DIR}/helpers/upstreamBaselineHiddenPolicy.ts"
 LIFECYCLE_CLEANUP_FILE="${SCRIPT_DIR}/helpers/upstreamBaselineLifecycleCleanup.ts"
+SAMPLE_LIFECYCLE_FILE="${SCRIPT_DIR}/helpers/performanceSampleLifecycle.ts"
 CHROMIUM_POLICY_FILE="${SCRIPT_DIR}/helpers/performanceChromiumLaunchPolicy.ts"
 PRESENTATION_CHECKPOINT_FILE="${SCRIPT_DIR}/helpers/performancePresentationCheckpoint.ts"
 PRODUCER_SHA256="$(
@@ -177,7 +178,8 @@ PRODUCER_SHA256="$(
     for producer_part in \
       "${PRODUCER_FILE}" "${RAW_RUN_FILE}" "${ENVIRONMENT_FILE}" \
       "${CONFIG_FILE}" "${HIDDEN_POLICY_FILE}" "${LIFECYCLE_CLEANUP_FILE}" \
-      "${CHROMIUM_POLICY_FILE}" "${PRESENTATION_CHECKPOINT_FILE}"; do
+      "${SAMPLE_LIFECYCLE_FILE}" "${CHROMIUM_POLICY_FILE}" \
+      "${PRESENTATION_CHECKPOINT_FILE}"; do
       shasum -a 256 "${producer_part}" | awk '{print $1}'
     done
   } | shasum -a 256 | awk '{print $1}'

@@ -18,6 +18,7 @@ import bus from '../../bus'
 import { oneDarkThemes, railscastsThemes } from '@/config'
 import {
   createCodeMirrorCoreAdapter,
+  createCoreAuthorityPerformanceTestBridge,
   coreDocumentRecoveryAuthority,
   type CodeMirrorCoreAdapter,
   type CoreDocumentViewLease,
@@ -562,13 +563,18 @@ onMounted(() => {
       coreAdapter = undefined
       delete window.__marktextDocumentCore
     })
-    if (window.electron.process.env.PERF_TESTING === 'true') {
+    const corePerformanceTestBridge = createCoreAuthorityPerformanceTestBridge(
+      window.electron.process.env.PERF_TESTING === 'true',
+      props.coreLease.binding
+    )
+    if (corePerformanceTestBridge !== undefined) {
       window.__marktextDocumentCore = Object.freeze({
         mode: 'core',
         documentId: props.coreLease.documentId,
         generation: props.coreLease.identity.generation,
         async settled (): Promise<void> { await coreAdapter?.settled() },
         latest: () => latest,
+        ...corePerformanceTestBridge,
         performanceEvents: () => props.corePerformanceTrace?.events() ?? [],
         performanceSurface: () => 'source' as const,
         performanceStatus: () => props.corePerformanceTrace?.status() ?? {

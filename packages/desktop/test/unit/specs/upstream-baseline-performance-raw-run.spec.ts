@@ -58,7 +58,12 @@ const input = (
     launchBoundary: 'external-inspector-transparent-render-active-v3' as const,
     windowPresentationPolicy: 'transparent-render-active-inactive-v3' as const,
     windowPresentationPlatform: 'darwin' as const,
-    chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2' as const
+    chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2' as const,
+    sampleLifecycle: 'fresh-application-profile-per-observation-v1' as const,
+    applicationLaunchCount: warmupSamples + measuredSamples,
+    uniqueProfileCount: warmupSamples + measuredSamples,
+    applicationCloseCount: warmupSamples + measuredSamples,
+    profileCleanupCount: warmupSamples + measuredSamples
   },
   samples: [
     ...Array.from({ length: warmupSamples }, (_, index) =>
@@ -69,13 +74,13 @@ const input = (
 })
 
 describe('upstream baseline raw performance producer', () => {
-  it('creates an accepted v6 shape only for pinned 20/200 ratification evidence', () => {
+  it('creates an accepted v7 shape only for pinned isolated 20/200 ratification evidence', () => {
     const run = createUpstreamBaselinePerformanceRawRun(
       input('ratification', 20, 200)
     )
 
     expect(run).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-run-v6',
+      schema: 'marktext-criticmarkup-raw-performance-run-v7',
       runId: 'upstream-ratification',
       implementation: 'upstream-baseline',
       baselineCommit: PINNED_BASELINE,
@@ -94,7 +99,12 @@ describe('upstream baseline raw performance producer', () => {
         launchBoundary: 'external-inspector-transparent-render-active-v3',
         windowPresentationPolicy: 'transparent-render-active-inactive-v3',
         windowPresentationPlatform: 'darwin',
-        chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
+        chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2',
+        sampleLifecycle: 'fresh-application-profile-per-observation-v1',
+        applicationLaunchCount: 220,
+        uniqueProfileCount: 220,
+        applicationCloseCount: 220,
+        profileCleanupCount: 220
       },
       metricDefinitions: {
         t_echo: 'Elapsed time from beforeinput to the exact matching Muya DOM state.',
@@ -115,7 +125,7 @@ describe('upstream baseline raw performance producer', () => {
     )
 
     expect(smoke).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v6',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v7',
       evidenceClass: 'smoke-non-ratifying',
       sampling: { warmupSamples: 1, measuredSamples: 2 }
     })
@@ -220,6 +230,26 @@ describe('upstream baseline raw performance producer', () => {
       }
     } as never)).toThrow(/window presentation platform/i)
   })
+
+  it.each([
+    ['sampleLifecycle', 'pooled-application-per-document', /sample lifecycle/i],
+    ['applicationLaunchCount', 2, /application launch count/i],
+    ['uniqueProfileCount', 2, /unique profile count/i],
+    ['applicationCloseCount', 2, /application close count/i],
+    ['profileCleanupCount', 2, /profile cleanup count/i]
+  ] as const)(
+    'rejects non-isolated lifecycle provenance field %s',
+    (field, value, expected) => {
+      const candidate = input('smoke-non-ratifying', 1, 2)
+      expect(() => createUpstreamBaselinePerformanceRawRun({
+        ...candidate,
+        provenance: {
+          ...candidate.provenance,
+          [field]: value
+        }
+      } as never)).toThrow(expected)
+    }
+  )
 
   it('writes exclusively and never allows smoke into the ratification directory', () => {
     const root = mkdtempSync(resolve(tmpdir(), 'marktext-upstream-raw-'))

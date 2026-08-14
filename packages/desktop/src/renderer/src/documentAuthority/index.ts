@@ -11,6 +11,10 @@ export {
   type CoreAuthorityPerformanceTrace
 } from './coreAuthorityPerformanceTrace'
 export {
+  createCoreAuthorityPerformanceTestBridge,
+  type CoreAuthorityPerformanceTestBridge
+} from './coreAuthorityPerformanceTestBridge'
+export {
   canToggleCoreTrackChanges,
   createCoreTrackChangesMode,
   type CoreTrackChangesMode

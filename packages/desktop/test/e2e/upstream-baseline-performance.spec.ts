@@ -32,13 +32,20 @@ import {
 import {
   closeFailedUpstreamPerformanceLaunch,
   closeUpstreamPerformanceApplication,
+  createUpstreamPerformanceBlankBootstrapFile,
+  createUpstreamPerformanceObservationIsolation,
   findUpstreamPerformanceProcessId,
   finalizeUpstreamPerformanceRun,
+  removeUpstreamPerformanceObservationIsolation,
   removeUpstreamPerformanceRunRoot,
   resolveUpstreamPerformanceProcessIdentity,
   upstreamPerformanceOrchestrationTimeoutMs,
   type UpstreamPerformanceProcessIdentity
 } from './helpers/upstreamBaselineLifecycleCleanup'
+import {
+  PERFORMANCE_SAMPLE_LIFECYCLE,
+  runIsolatedPerformanceObservations
+} from './helpers/performanceSampleLifecycle'
 import {
   assertMacWindowServerPresentation,
   PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
@@ -98,6 +105,13 @@ interface ExternalOpenTimings {
   readonly documentId: string
   readonly open: number
   readonly first_viewport: number
+}
+
+interface UpstreamPerformanceObservation {
+  readonly documentId: string
+  readonly phase: 'warmup' | 'measured'
+  readonly index: number
+  readonly filePath: string
 }
 
 interface RenderActiveUpstreamApplication {
@@ -621,63 +635,94 @@ test.describe('pinned upstream baseline raw performance producer', () => {
     let completed = 0
     let finalizationStarted = false
     try {
+      const bootstrapFile = await createUpstreamPerformanceBlankBootstrapFile(
+        runRoot
+      )
+      const observations: UpstreamPerformanceObservation[] = []
       for (const document of representatives.documents) {
         const sampleFiles = sampleFilesFor(
           runRoot,
           document,
-          sampling.warmupSamples + sampling.measuredSamples + 1
+          sampling.warmupSamples + sampling.measuredSamples
         )
-        const bootstrapFile = sampleFiles[0]
-        if (bootstrapFile === undefined) throw new Error('Bootstrap sample is missing')
-        const profile = path.join(runRoot, `profile-${document.id}`)
-        const app = await launchRenderActiveUpstreamApplication(
-          appBundle,
-          profile,
-          bootstrapFile
-        )
-        try {
-          const { page } = app
-          const capturePage = () => captureUpstreamElectronHiddenPage(
-            app.inspector,
-            app.targetId
-          )
-          await expectRenderActiveInactive(app, true)
-          expect(await page.evaluate(() =>
-            (window as Window & { __marktextDocumentCore?: unknown })
-              .__marktextDocumentCore)).toBeUndefined()
-          await closeActiveTab(page)
+        for (let index = 0; index < sampleFiles.length; index += 1) {
+          const filePath = sampleFiles[index]
+          if (filePath === undefined) throw new Error('Sample path is missing')
+          observations.push(Object.freeze({
+            documentId: document.id,
+            phase: index < sampling.warmupSamples ? 'warmup' : 'measured',
+            index: index + 1,
+            filePath
+          }))
+        }
+      }
 
-          for (let index = 1; index < sampleFiles.length; index += 1) {
-            await expectRenderActiveInactive(app)
-            const filePath = sampleFiles[index]
-            if (filePath === undefined) throw new Error('Sample path is missing')
-            const opened = await openSample(page, filePath)
-            const edit = await measureInput(page, capturePage)
-            await expectRenderActiveInactive(app)
-            samples.push(Object.freeze({
-              documentId: document.id,
-              phase: index <= sampling.warmupSamples ? 'warmup' : 'measured',
+      const lifecycle = await runIsolatedPerformanceObservations(
+        observations,
+        {
+          createIsolation: async(_observation, index) =>
+            createUpstreamPerformanceObservationIsolation(runRoot, index),
+          launchAndPrepare: async(_observation, isolation) => {
+            const app = await launchRenderActiveUpstreamApplication(
+              appBundle,
+              isolation.profile,
+              bootstrapFile
+            )
+            try {
+              const { page } = app
+              await expectRenderActiveInactive(app, true)
+              expect(await page.evaluate(() =>
+                (window as Window & { __marktextDocumentCore?: unknown })
+                  .__marktextDocumentCore)).toBeUndefined()
+              await closeActiveTab(page)
+              await expectRenderActiveInactive(app, true)
+              return app
+            } catch (error) {
+              try {
+                await closeRenderActiveUpstreamApplication(app)
+              } catch (cleanupError) {
+                throw new AggregateError(
+                  [error, cleanupError],
+                  'Upstream observation preparation and cleanup both failed'
+                )
+              }
+              throw error
+            }
+          },
+          measure: async(app, observation) => {
+            const capturePage = () => captureUpstreamElectronHiddenPage(
+              app.inspector,
+              app.targetId
+            )
+            const opened = await openSample(app.page, observation.filePath)
+            const edit = await measureInput(app.page, capturePage)
+            await expectRenderActiveInactive(app, true)
+            return Object.freeze({
+              documentId: observation.documentId,
+              phase: observation.phase,
               report: Object.freeze({
                 ...edit,
                 open: opened.open,
                 first_viewport: opened.first_viewport
               })
-            }))
+            })
+          },
+          close: closeRenderActiveUpstreamApplication,
+          cleanup: async(observation, isolation) => {
+            await removeUpstreamPerformanceObservationIsolation(
+              runRoot,
+              isolation
+            )
             completed += 1
             process.stdout.write(
               `[${String(completed)}/${String(totalSamples)}] ` +
-              `${document.id} ${index <= sampling.warmupSamples
-                ? 'warmup'
-                : 'measured'} ${String(index)} external-browser-compositor-v4\n`
+              `${observation.documentId} ${observation.phase} ` +
+              `${String(observation.index)} external-browser-compositor-v4\n`
             )
-            await closeActiveTab(page)
-            await expectRenderActiveInactive(app)
           }
-          await expectRenderActiveInactive(app, true)
-        } finally {
-          await closeRenderActiveUpstreamApplication(app)
         }
-      }
+      )
+      samples.push(...lifecycle.measurements)
 
       expect(completed).toBe(totalSamples)
       const run = createUpstreamBaselinePerformanceRawRun({
@@ -716,7 +761,9 @@ test.describe('pinned upstream baseline raw performance producer', () => {
           launchBoundary: 'external-inspector-transparent-render-active-v3',
           windowPresentationPolicy: PERFORMANCE_WINDOW_PRESENTATION_POLICY,
           windowPresentationPlatform: 'darwin',
-          chromiumSchedulingPolicy: PERFORMANCE_CHROMIUM_SCHEDULING_POLICY
+          chromiumSchedulingPolicy: PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
+          sampleLifecycle: PERFORMANCE_SAMPLE_LIFECYCLE,
+          ...lifecycle.counts
         },
         samples
       })

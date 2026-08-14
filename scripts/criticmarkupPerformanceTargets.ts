@@ -9,6 +9,9 @@ const REQUIRED_METRICS = [
   'first_viewport'
 ] as const
 
+export const PERFORMANCE_SAMPLE_LIFECYCLE =
+  'fresh-application-profile-per-observation-v1' as const
+
 type RequiredMetric = typeof REQUIRED_METRICS[number]
 
 const recordOf = (value: unknown, label: string): Record<string, unknown> => {
@@ -33,7 +36,7 @@ const positiveInteger = (value: unknown, label: string): void => {
 /** Validates the human-owned Phase 0 measurement protocol and target record. */
 export function validateCriticMarkupPerformanceTargets(value: unknown): void {
   const manifest = recordOf(value, 'Performance target manifest')
-  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v4') {
+  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v5') {
     throw new Error('Performance target manifest schema is unsupported')
   }
   if (manifest.status !== 'proposed-unratified' && manifest.status !== 'ratified') {
@@ -54,6 +57,11 @@ export function validateCriticMarkupPerformanceTargets(value: unknown): void {
   const sampling = recordOf(manifest.sampling, 'Sampling protocol')
   positiveInteger(sampling.warmupSamples, 'Warmup sample count')
   positiveInteger(sampling.measuredSamples, 'Measured sample count')
+  if (sampling.sampleLifecycle !== PERFORMANCE_SAMPLE_LIFECYCLE) {
+    throw new Error(
+      'Sampling sample lifecycle must use a fresh application profile per observation'
+    )
+  }
   if (
     !Array.isArray(sampling.percentiles) ||
     sampling.percentiles.length === 0 ||
@@ -66,6 +74,15 @@ export function validateCriticMarkupPerformanceTargets(value: unknown): void {
     throw new Error('Sampling percentiles must be numeric and include p95')
   }
   nonEmptyString(sampling.scenarios, 'Sampling scenario rule')
+  if (
+    typeof sampling.scenarios !== 'string' ||
+    !/fresh application.*fresh profile.*every observation.*launch.*bootstrap.*cleanup.*outside.*timed metric/iu
+      .test(sampling.scenarios)
+  ) {
+    throw new Error(
+      'Sampling scenarios must define fresh per-observation isolation and exclude launch, bootstrap, and cleanup from timed metrics'
+    )
+  }
 
   const metrics = recordOf(manifest.metrics, 'Performance metrics')
   for (const name of REQUIRED_METRICS) {
