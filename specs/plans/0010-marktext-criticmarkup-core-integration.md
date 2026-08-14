@@ -1,5 +1,5 @@
 # MarkText CriticMarkup core integration
-- **Status:** Active — rebased onto current upstream; Core authority and Phase 4 installed workflows are current-build green; Phase 0 owner ratification, authenticated performance calibration, full parity execution, and final release-candidate reruns remain incomplete
+- **Status:** Active — rebased onto current upstream; Core authority and Phase 4 installed workflows are current-build green; Phase 0 owner ratification, authenticated performance calibration, and full parity execution remain incomplete
 
 - **Working upstream baseline:** `e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c`
 
