@@ -36,6 +36,7 @@ import {
   finalizeUpstreamPerformanceRun,
   removeUpstreamPerformanceRunRoot,
   resolveUpstreamPerformanceProcessIdentity,
+  upstreamPerformanceOrchestrationTimeoutMs,
   type UpstreamPerformanceProcessIdentity
 } from './helpers/upstreamBaselineLifecycleCleanup'
 import {
@@ -581,7 +582,6 @@ const sampleFilesFor = (
 }
 
 test.describe('pinned upstream baseline raw performance producer', () => {
-  test.describe.configure({ timeout: 60 * 60 * 1000 })
   test.skip(
     process.env.MARKTEXT_UPSTREAM_OUTPUT === undefined,
     'Dedicated packaged upstream performance launch only'
@@ -615,6 +615,7 @@ test.describe('pinned upstream baseline raw performance producer', () => {
 
     const totalSamples = representatives.documents.length *
       (sampling.warmupSamples + sampling.measuredSamples)
+    test.setTimeout(upstreamPerformanceOrchestrationTimeoutMs(totalSamples))
     const samples: UpstreamBaselinePerformanceRawSample[] = []
     const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-upstream-performance-'))
     let completed = 0
