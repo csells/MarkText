@@ -12,7 +12,7 @@
     {
       "id": "parity-proposal",
       "path": "specs/baselines/criticmarkup-parity-proposal.json",
-      "sha256": "3d068bbc00d38fd1041699f8ad42029fc1cadb3f35b307afe852acf9df424e7c"
+      "sha256": "8a3c4a99b3dcb617f51c22e505a339efd1227c9928e5413118c412e24a8db281"
     },
     {
       "id": "parity-oracle-proposal",
@@ -158,8 +158,8 @@
     {
       "id": "parity-manifest",
       "status": "pending-owner-decision",
-      "question": "Approve or amend the proposed group dispositions for all 829 upstream parity items, then authorize the corresponding item-level disposition overlay and named parity rows?",
-      "proposal": "Require new production-path or equivalent evidence for 367 items, retain 392 byte-identical upstream test files and four manual definitions subject to current execution evidence, and require explicit compatibility decisions for 66 known-gap items. No item is proposed unaffected and no retained file is claimed green.",
+      "question": "Approve or amend the proposed group dispositions for all 829 upstream parity items, including these three explicit subdecisions: whether readme-feature:ada27f4ce6a3 retains its subjective clean/simple/distraction-free outcome, whether readme-feature:0b8caa1ea286 retains its subjective writing-efficiency outcome, and whether muya-readme-feature:57b5c6a23c6a puts unshipped collaborative transport in scope; then authorize the corresponding item-level disposition overlay and named parity rows?",
+      "proposal": "Retain 392 byte-identical upstream test files and four manual definitions subject to current execution evidence. Of 367 items mechanically classified as needing new or equivalent production-path evidence, 364 have named evidence and the three audited README outcomes now carry three item-level README compatibility-decision proposals tied to this still-pending parity-manifest decision: readme-feature:ada27f4ce6a3 asks the owner to judge the subjective clean/simple/distraction-free outcome after objective WYSIWYG behavior was proved; readme-feature:0b8caa1ea286 asks the owner to judge the subjective writing-efficiency outcome after all 87 declared shortcuts were proved; and muya-readme-feature:57b5c6a23c6a asks the owner whether unshipped collaborative transport belongs in scope. This yields 69 compatibility decisions if ratified. No item is proposed unaffected, no retained file is claimed green, and no compatibility decision is approved by this proposal.",
       "evidenceRefs": ["upstream-parity-baseline", "parity-proposal", "parity-oracle-proposal", "parity-decisions", "parity-rows"]
     },
     {
