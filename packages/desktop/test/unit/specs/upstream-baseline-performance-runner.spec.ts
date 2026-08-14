@@ -18,6 +18,14 @@ const producerScript = resolve(
   import.meta.dirname,
   '../../e2e/run-upstream-baseline-performance.sh'
 )
+const coreProducerScript = resolve(
+  import.meta.dirname,
+  '../../e2e/run-installed-core-performance.sh'
+)
+const displaySleepPolicyLibrary = resolve(
+  import.meta.dirname,
+  '../../e2e/helpers/performanceDisplaySleepPolicy.sh'
+)
 
 const invokeDefaultPath = (
   command: string,
@@ -40,6 +48,49 @@ const invokeDefaultPath = (
 })
 
 describe('upstream baseline performance shell runner', () => {
+  it('holds display sleep prevention for both authenticated launchers', () => {
+    const root = mkdtempSync(resolve(tmpdir(), 'marktext-display-sleep-policy-'))
+    try {
+      const fake = resolve(root, 'caffeinate')
+      const argv = resolve(root, 'argv')
+      writeFileSync(fake, [
+        '#!/bin/bash',
+        'printf "%s\\n" "$@" > "$FAKE_CAFFEINATE_ARGV"',
+        'exec /bin/sleep 60'
+      ].join('\n'))
+      chmodSync(fake, 0o755)
+      const result = spawnSync('/bin/bash', ['-c', [
+        'set -euo pipefail',
+        'source "$1"',
+        'export MARKTEXT_CAFFEINATE_BIN="$2"',
+        'export FAKE_CAFFEINATE_ARGV="$3"',
+        'start_performance_display_sleep_prevention',
+        'pid="$PERFORMANCE_CAFFEINATE_PID"',
+        'kill -0 "$pid"',
+        'for _ in {1..100}; do [[ -e "$3" ]] && break; sleep 0.01; done',
+        'printf "%s\\n" "$MARKTEXT_PERFORMANCE_DISPLAY_SLEEP_POLICY"',
+        'stop_performance_display_sleep_prevention',
+        'if kill -0 "$pid" 2>/dev/null; then exit 41; fi'
+      ].join('\n'), 'display-sleep-policy-test', displaySleepPolicyLibrary,
+      fake, argv], { encoding: 'utf8' })
+
+      expect(result.status).toBe(0)
+      expect(result.stdout.trim()).toBe(
+        'runner-owned-caffeinate-display-sleep-prevention-v1'
+      )
+      expect(readFileSync(argv, 'utf8').trim().split('\n')).toEqual(['-d'])
+
+      for (const launcher of [producerScript, coreProducerScript]) {
+        const source = readFileSync(launcher, 'utf8')
+        expect(source).toContain('performanceDisplaySleepPolicy.sh')
+        expect(source).toContain('start_performance_display_sleep_prevention')
+        expect(source).toContain('stop_performance_display_sleep_prevention')
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('authenticates the observation schedule immediately after the lifecycle helper', () => {
     const source = readFileSync(producerScript, 'utf8')
     expect(source).toContain(

@@ -28,6 +28,7 @@ import {
   firstWindowWithPerformanceScheduling,
   inspectInstalledPerformanceWindow,
   PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
+  PERFORMANCE_DISPLAY_SLEEP_POLICY,
   PERFORMANCE_WINDOW_PRESENTATION_POLICY,
   withPerformanceChromiumScheduling
 } from './helpers/performanceChromiumLaunchPolicy'
@@ -97,6 +98,7 @@ interface PerformanceTargetManifest {
     readonly measuredSamples: number
     readonly sampleLifecycle: typeof PERFORMANCE_SAMPLE_LIFECYCLE
     readonly observationSchedule: typeof PERFORMANCE_OBSERVATION_SCHEDULE
+    readonly displaySleepPolicy: typeof PERFORMANCE_DISPLAY_SLEEP_POLICY
   }>
 }
 
@@ -542,9 +544,12 @@ test.describe('installed Core authority raw performance producer', () => {
       percentiles: [50, 95, 99],
       sampleLifecycle: PERFORMANCE_SAMPLE_LIFECYCLE,
       observationSchedule: PERFORMANCE_OBSERVATION_SCHEDULE,
+      displaySleepPolicy: PERFORMANCE_DISPLAY_SLEEP_POLICY,
       scenarios: expect.any(String)
     })
     expect(machineEnvironment()).toEqual(targets.environment)
+    expect(requiredValue('MARKTEXT_PERFORMANCE_DISPLAY_SLEEP_POLICY'))
+      .toBe(PERFORMANCE_DISPLAY_SLEEP_POLICY)
 
     const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-core-performance-'))
     let completed = 0
@@ -762,6 +767,7 @@ test.describe('installed Core authority raw performance producer', () => {
           windowPresentationPolicy: PERFORMANCE_WINDOW_PRESENTATION_POLICY,
           windowPresentationPlatform: 'darwin',
           chromiumSchedulingPolicy: PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
+          displaySleepPolicy: PERFORMANCE_DISPLAY_SLEEP_POLICY,
           sampleLifecycle: PERFORMANCE_SAMPLE_LIFECYCLE,
           observationSchedule: PERFORMANCE_OBSERVATION_SCHEDULE,
           observationScheduleSha256: performanceObservationScheduleSha256(

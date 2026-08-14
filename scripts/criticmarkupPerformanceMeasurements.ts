@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 import {
+  PERFORMANCE_DISPLAY_SLEEP_POLICY,
   PERFORMANCE_OBSERVATION_SCHEDULE,
   PERFORMANCE_SAMPLE_LIFECYCLE,
   validateCriticMarkupPerformanceTargets
@@ -85,7 +86,7 @@ export interface CriticMarkupRawPerformanceRunRef
 }
 
 export interface CriticMarkupPerformanceMeasurementManifest {
-  schema: 'marktext-criticmarkup-performance-measurements-v12'
+  schema: 'marktext-criticmarkup-performance-measurements-v13'
   status: 'awaiting-raw-runs' | 'measured-unratified'
   baselineCommit: string
   targetManifest: CriticMarkupPerformanceArtifactRef
@@ -117,18 +118,18 @@ interface CriticMarkupRawPerformanceRunBase {
   }>
 }
 
-export interface CriticMarkupUpstreamRawPerformanceRunV11
+export interface CriticMarkupUpstreamRawPerformanceRunV12
   extends CriticMarkupRawPerformanceRunBase {
-  schema: 'marktext-criticmarkup-raw-performance-run-v11'
+  schema: 'marktext-criticmarkup-raw-performance-run-v12'
   provenance: CriticMarkupUpstreamPerformanceProvenance
   metricDefinitions: Record<CommonMetric, string>
 }
 
 export type CriticMarkupPerformanceSurface = 'wysiwyg' | 'source'
 
-export interface CriticMarkupCoreRawPerformanceRunV13
+export interface CriticMarkupCoreRawPerformanceRunV14
   extends Omit<CriticMarkupRawPerformanceRunBase, 'implementation' | 'documents'> {
-  schema: 'marktext-criticmarkup-raw-performance-run-v13'
+  schema: 'marktext-criticmarkup-raw-performance-run-v14'
   implementation: 'core-candidate'
   surfaces: CriticMarkupPerformanceSurface[]
   provenance: CriticMarkupCorePerformanceProvenance
@@ -165,6 +166,7 @@ export interface CriticMarkupCorePerformanceProvenance {
   windowPresentationPolicy: 'transparent-render-active-inactive-v6'
   windowPresentationPlatform: 'darwin'
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
+  displaySleepPolicy: typeof PERFORMANCE_DISPLAY_SLEEP_POLICY
   sampleLifecycle: typeof PERFORMANCE_SAMPLE_LIFECYCLE
   applicationLaunchCount: number
   uniqueProfileCount: number
@@ -194,6 +196,7 @@ export interface CriticMarkupUpstreamPerformanceProvenance {
   windowPresentationPolicy: 'transparent-render-active-inactive-v6'
   windowPresentationPlatform: 'darwin'
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2'
+  displaySleepPolicy: typeof PERFORMANCE_DISPLAY_SLEEP_POLICY
   sampleLifecycle: typeof PERFORMANCE_SAMPLE_LIFECYCLE
   applicationLaunchCount: number
   uniqueProfileCount: number
@@ -209,11 +212,11 @@ export interface CriticMarkupPerformanceAuthoritySamples {
 }
 
 export type CriticMarkupRawPerformanceRun =
-  | CriticMarkupUpstreamRawPerformanceRunV11
-  | CriticMarkupCoreRawPerformanceRunV13
+  | CriticMarkupUpstreamRawPerformanceRunV12
+  | CriticMarkupCoreRawPerformanceRunV14
 
 interface PerformanceTargets {
-  schema: 'marktext-criticmarkup-performance-targets-v9'
+  schema: 'marktext-criticmarkup-performance-targets-v10'
   status: 'proposed-unratified' | 'ratified'
   representativeDocuments: { schema: string, path: string }
   environment: Record<string, string>
@@ -222,6 +225,7 @@ interface PerformanceTargets {
     measuredSamples: number
     sampleLifecycle: typeof PERFORMANCE_SAMPLE_LIFECYCLE
     observationSchedule: typeof PERFORMANCE_OBSERVATION_SCHEDULE
+    displaySleepPolicy: typeof PERFORMANCE_DISPLAY_SLEEP_POLICY
     percentiles: number[]
   }
   metrics: Record<PerformanceMetric, {
@@ -371,11 +375,10 @@ const validateHarnessDigests = (
     )
     requireHarnessDigest(
       provenance.launcherSha256,
-      sha256(gitBlob(
-        repoRoot,
-        harnessCommit,
-        `${prefix}run-installed-core-performance.sh`
-      )),
+      compositeGitDigest(repoRoot, harnessCommit, [
+        `${prefix}run-installed-core-performance.sh`,
+        `${prefix}helpers/performanceDisplaySleepPolicy.sh`
+      ]),
       `${label} launcher digest`
     )
     return
@@ -403,7 +406,8 @@ const validateHarnessDigests = (
     provenance.launcherSha256,
     compositeGitDigest(repoRoot, harnessCommit, [
       `${prefix}run-upstream-baseline-performance.sh`,
-      `${prefix}helpers/upstreamBaselinePerformanceRunner.sh`
+      `${prefix}helpers/upstreamBaselinePerformanceRunner.sh`,
+      `${prefix}helpers/performanceDisplaySleepPolicy.sh`
     ]),
     `${label} launcher digest`
   )
@@ -629,6 +633,7 @@ const validateUpstreamProvenance = (
     'applicationLaunchCount',
     'detachedWorktreeClean',
     'detachedWorktreeHead',
+    'displaySleepPolicy',
     'executableSha256',
     'harnessCommit',
     'launchBoundary',
@@ -702,6 +707,9 @@ const validateUpstreamProvenance = (
   if (provenance.chromiumSchedulingPolicy !== 'hidden-unthrottled-rendering-v2') {
     throw new Error(`${label} provenance Chromium scheduling policy is invalid`)
   }
+  if (provenance.displaySleepPolicy !== PERFORMANCE_DISPLAY_SLEEP_POLICY) {
+    throw new Error(`${label} provenance display sleep policy is invalid`)
+  }
   validateObservationLifecycle(provenance, expectedObservationCount, label)
 }
 
@@ -747,6 +755,7 @@ const validateCoreProvenance = (
     'chromiumSchedulingPolicy',
     'applicationCloseCount',
     'applicationLaunchCount',
+    'displaySleepPolicy',
     'executableSha256',
     'harnessCommit',
     'launchBoundary',
@@ -827,6 +836,9 @@ const validateCoreProvenance = (
   if (provenance.chromiumSchedulingPolicy !== 'hidden-unthrottled-rendering-v2') {
     throw new Error(`${label} provenance Chromium scheduling policy is invalid`)
   }
+  if (provenance.displaySleepPolicy !== PERFORMANCE_DISPLAY_SLEEP_POLICY) {
+    throw new Error(`${label} provenance display sleep policy is invalid`)
+  }
   validateObservationLifecycle(provenance, expectedObservationCount, label)
 }
 
@@ -840,8 +852,8 @@ const validateRawRun = (
 ): void => {
   const raw = requireRecord(value, `Raw performance run ${ref.id}`)
   const expectedSchema = ref.implementation === 'core-candidate'
-    ? 'marktext-criticmarkup-raw-performance-run-v13'
-    : 'marktext-criticmarkup-raw-performance-run-v11'
+    ? 'marktext-criticmarkup-raw-performance-run-v14'
+    : 'marktext-criticmarkup-raw-performance-run-v12'
   if (raw.schema !== expectedSchema) {
     throw new Error(`Raw performance run ${ref.id} schema is invalid`)
   }
@@ -899,7 +911,7 @@ const validateRawRun = (
     `Raw performance run ${ref.id}`
   )
   const declaredSurfaces = new Set<CriticMarkupPerformanceSurface>()
-  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v13') {
+  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v14') {
     validateCoreProvenance(
       raw.provenance,
       raw.buildCommit as string,
@@ -970,7 +982,7 @@ const validateRawRun = (
     if (document.sourceSha256 !== expected.sha256) {
       throw new Error(`Raw performance run ${ref.id} document digest is stale: ${id}`)
     }
-    if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v13') {
+    if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v14') {
       const surface = document.surface
       if (
         (surface !== 'wysiwyg' && surface !== 'source') ||
@@ -1015,7 +1027,7 @@ const validateRawRun = (
   if (missing.length > 0) {
     throw new Error(`Raw performance run ${ref.id} is missing documents: ${missing.join(', ')}`)
   }
-  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v13') {
+  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v14') {
     const usedSurfaces = new Set(raw.documents.map(document => (
       requireRecord(document, `Raw performance run ${ref.id} document`).surface
     )))
@@ -1032,7 +1044,7 @@ export const validateCriticMarkupPerformanceMeasurements = (
   repoRoot: string,
   manifest: CriticMarkupPerformanceMeasurementManifest
 ): void => {
-  if (manifest.schema !== 'marktext-criticmarkup-performance-measurements-v12') {
+  if (manifest.schema !== 'marktext-criticmarkup-performance-measurements-v13') {
     throw new Error('Performance measurement manifest schema is invalid')
   }
   if (
@@ -1172,8 +1184,8 @@ export const materializeCriticMarkupMeasuredPerformanceManifest = (
     }
     const typedImplementation = implementation as PerformanceImplementation
     const expectedSchema = typedImplementation === 'upstream-baseline'
-      ? 'marktext-criticmarkup-raw-performance-run-v11'
-      : 'marktext-criticmarkup-raw-performance-run-v13'
+      ? 'marktext-criticmarkup-raw-performance-run-v12'
+      : 'marktext-criticmarkup-raw-performance-run-v14'
     if (raw.schema !== expectedSchema) {
       throw new Error(`Raw performance evidence schema is invalid: ${rawPath}`)
     }
