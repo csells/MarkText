@@ -1,10 +1,10 @@
 {
-  "schema": "marktext-criticmarkup-performance-measurements-v12",
+  "schema": "marktext-criticmarkup-performance-measurements-v13",
   "status": "awaiting-raw-runs",
   "baselineCommit": "43bd8b77795fb27b1a9512737c000f7362031ea0",
   "targetManifest": {
     "path": "specs/baselines/criticmarkup-performance-targets.json",
-    "sha256": "1f93cfedac5846ceaafe8417bc55be397b8612d902264f8c6f2a5c81d578928c"
+    "sha256": "3c5cecdc2f9f9efa58af0a01b9fe0c81db0c0f02eba6d4d43068207166af614a"
   },
   "representativeDocuments": {
     "path": "specs/baselines/criticmarkup-representative-documents.json",
