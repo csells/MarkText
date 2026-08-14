@@ -325,10 +325,19 @@ export interface PreviousIntrinsicPass {
  * materialized when this value is returned.
  */
 export interface Profile1RegionalAdmission {
+  readonly kind: 'admitted'
   readonly bracket: PlainParagraphRegionBracket
   readonly nextWindow: string
   readonly retainedIndex: PlainParagraphRetainedIndex
 }
+
+export interface Profile1RegionalReferenceDependency {
+  readonly kind: 'reference-dependency'
+}
+
+export type Profile1RegionalAdmissionResult =
+  | Profile1RegionalAdmission
+  | Profile1RegionalReferenceDependency
 
 export interface Profile1ChangedJoinInspection {
   readonly kind: 'inspected'
@@ -4592,15 +4601,14 @@ export function admitProfile1PlainParagraphRegion(
   markdownOptions: MarkdownOptionsV1,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
   createPhysicalTraversalRecorderV1()
-): Profile1RegionalAdmission | undefined {
+): Profile1RegionalAdmissionResult | undefined {
   const edit = edits.length === 1
     ? edits[0]
     : undefined
   if (
     edit === undefined ||
     previousSource.length !== previousIndex.sourceLength ||
-    source.length > DOCUMENT_RESOURCE_POLICY_V1.maximumSourceUnits ||
-    !/^[\p{L}\p{N} ]*$/u.test(edit.insert)
+    source.length > DOCUMENT_RESOURCE_POLICY_V1.maximumSourceUnits
   ) {
     return undefined
   }
@@ -4622,7 +4630,6 @@ export function admitProfile1PlainParagraphRegion(
   const nextContentEnd = inertParagraphContentEnd(nextWindow)
   if (
     previousContentEnd === undefined ||
-    nextContentEnd === undefined ||
     edit.start < bracket.start ||
     edit.end > bracket.start + previousContentEnd
   ) {
@@ -4650,8 +4657,17 @@ export function admitProfile1PlainParagraphRegion(
   )
   execution.finish()
   if (
+    parsed !== undefined &&
+    parsed.kind === 'complete' &&
+    parsed.referenceDefinitions.definitionFacts().length !== 0
+  ) {
+    return Object.freeze({ kind: 'reference-dependency' })
+  }
+  if (
     parsed === undefined ||
     parsed.kind !== 'complete' ||
+    nextContentEnd === undefined ||
+    !/^[\p{L}\p{N} ]*$/u.test(edit.insert) ||
     parsed.recoverySuppressedMarkerRanges !== undefined ||
     parsed.hasCriticMarkupCandidate ||
     parsed.roots.length !== 0 ||
@@ -4662,6 +4678,7 @@ export function admitProfile1PlainParagraphRegion(
     return undefined
   }
   return Object.freeze({
+    kind: 'admitted',
     bracket,
     nextWindow,
     retainedIndex: previousIndex.withRegionLengthDelta(
