@@ -53,6 +53,7 @@ import {
   type PerformanceObservationScheduleEntry
 } from './helpers/performanceObservationSchedule'
 import {
+  awaitMacWindowServerPresentationConvergence,
   assertMacWindowServerPresentation,
   PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
   PERFORMANCE_WINDOW_PRESENTATION_POLICY,
@@ -472,6 +473,20 @@ const expectRenderActiveInactive = async(
   }
 }
 
+const awaitRenderActiveInactiveConvergence = async(
+  application: RenderActiveUpstreamApplication
+): Promise<void> => {
+  expect(frontmostApplicationProcessId()).not.toBe(application.processId)
+  await awaitMacWindowServerPresentationConvergence({
+    processId: application.processId,
+    inspectElectron: () => inspectUpstreamPerformanceWindow(
+      application.inspector,
+      application.targetId
+    )
+  })
+  expect(frontmostApplicationProcessId()).not.toBe(application.processId)
+}
+
 const closeRenderActiveUpstreamApplication = async(
   application: RenderActiveUpstreamApplication
 ): Promise<void> => {
@@ -678,12 +693,12 @@ test.describe('pinned upstream baseline raw performance producer', () => {
             )
             try {
               const { page } = app
-              await expectRenderActiveInactive(app, true)
+              await expectRenderActiveInactive(app)
               expect(await page.evaluate(() =>
                 (window as Window & { __marktextDocumentCore?: unknown })
                   .__marktextDocumentCore)).toBeUndefined()
               await closeActiveTab(page)
-              await expectRenderActiveInactive(app, true)
+              await awaitRenderActiveInactiveConvergence(app)
               return app
             } catch (error) {
               try {

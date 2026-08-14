@@ -41,11 +41,49 @@ eliminate temporal, thermal, cache, hardware, or environment drift. Mandatory ti
 diagnostics are required for every document and metric. No drift pass/fail threshold is defined
 before owner review and ratification; the protocol does not invent one.
 
-The following command is expected to fail until that evidence exists:
+Pre-timing readiness requires two consecutive exact Electron and CGWindow matches within a bounded
+5 seconds. Only a transient origin mismatch may settle during that readiness window; any identity,
+size, native-state, Electron-state, or display-topology mismatch fails immediately. Post-measurement
+validation remains one-shot strict. Application launch and readiness are excluded from every timed
+metric, and there are no retries of a measurement or its post-measurement validation.
+
+After both canonical raw JSON files are copied under `specs/baselines/runs/performance/`, generate
+the deterministic `measured-unratified` manifest candidate without writing the current manifest:
 
 ```bash
-node_modules/.bin/tsx scripts/criticmarkupPerformanceMeasurements.ts --require-ratification-evidence
+node_modules/.bin/tsx scripts/criticmarkupPerformanceMeasurements.ts \
+  --materialize-measurements \
+  specs/baselines/runs/performance/<upstream-raw>.json \
+  specs/baselines/runs/performance/<core-raw>.json \
+  > /tmp/criticmarkup-performance-measurements.json
 ```
+
+Review and apply that exact candidate to
+`specs/baselines/criticmarkup-performance-measurements.json`, then write the calibration report
+create-only:
+
+```bash
+node_modules/.bin/tsx scripts/criticmarkupPerformanceMeasurements.ts \
+  --write-calibration \
+  specs/baselines/runs/performance/<calibration-report>.json
+```
+
+The checked-in calibration report is a required ratification artifact. Add it to Phase 0 evidence as
+`performance-calibration`, pin its canonical repository-relative path and full SHA-256, and include
+that evidence ID in the performance decision. The gate exact-recomputes the report from the
+validated raw runs; a report whose bytes differ is rejected even when its own digest is current.
+After the owner freezes a positive `t_present` target, require the same checked-in calibration report
+explicitly:
+
+```bash
+node_modules/.bin/tsx scripts/criticmarkupPerformanceMeasurements.ts \
+  --require-ratification-evidence \
+  specs/baselines/runs/performance/<calibration-report>.json \
+  <calibration-report-sha256>
+```
+
+That final command is expected to fail while the manifest is `awaiting-raw-runs`, while
+`t_present` remains calibration-required, or while Phase 0 lacks the authenticated report reference.
 
 No numbers in the target manifest are measurements. Current proposed p95 limits are:
 
