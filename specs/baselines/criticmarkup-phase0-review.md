@@ -4,7 +4,7 @@
 >
 > **Evidence commit:** `177a13f24fe5e5c265dcef468f71988186d1f85e`
 >
-> **Upstream baseline:** `43bd8b77795fb27b1a9512737c000f7362031ea0`
+> **Upstream baseline:** `e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c`
 
 ## Owner response
 
@@ -13,7 +13,7 @@ product-owner decisions; the implementation agent will not infer them from passi
 `performance-targets` deferred: fresh upstream and Core raw runs plus the generated calibration
 report are still required before that decision is reviewable.
 
-- **Working baseline** — [ ] Approve `43bd8b77795fb27b1a9512737c000f7362031ea0` for this
+- **Working baseline** — [ ] Approve `e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c` for this
   validation interval. Amendment:
 - **Upstream oracle run** — [ ] Accept the recorded run with its explicit Muya toolbar failure,
   teardown hang, and reproduced Electron burst-input loss preserved as baseline gaps. Amendment:
@@ -195,7 +195,11 @@ The performance decision does not approve the rest of Phase 0. The owner must al
 9. **Representative documents:** approve or amend the five hash-pinned documents and coverage labels.
 10. **Salvage inventory:** approve or amend all 2,941 content-lineage proposals: 41 exact imports,
     97 adaptations, and 2,803 rejections. The mechanical Git relation does not establish semantic
-    equivalence.
+    equivalence. The salvage ledger intentionally retains
+    `43bd8b77795fb27b1a9512737c000f7362031ea0` as its lineage root because the native and research
+    snapshots descend from that commit. Phase 0 separately uses the rebased working baseline
+    `e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c`; the validator requires the lineage root to be its
+    ancestor rather than falsely rewriting Git history to make the two commits equal.
 
 ## Mechanical checks before review
 
