@@ -120,7 +120,9 @@ describe('hidden compositor presentation checkpoint', () => {
       getOpacity: () => 0,
       isFocused: () => false,
       isFocusable: () => false,
-      isAlwaysOnTop: () => false
+      isAlwaysOnTop: () => false,
+      isVisibleOnAllWorkspaces: () => true,
+      isHiddenInMissionControl: () => true
     }
     const application = {
       evaluate: vi.fn(async(
@@ -147,7 +149,7 @@ describe('hidden compositor presentation checkpoint', () => {
     expect(exactContents.capturePage).toHaveBeenCalledOnce()
   })
 
-  it('refuses compositor capture before the exact window is render-active', async() => {
+  it('refuses compositor capture when the exact window is not in every Space', async() => {
     const capturePage = vi.fn(async() => ({ isEmpty: () => false }))
     const contents = { isDestroyed: () => false, capturePage }
     const application = {
@@ -159,11 +161,13 @@ describe('hidden compositor presentation checkpoint', () => {
         BrowserWindow: {
           fromWebContents: () => ({
             isDestroyed: () => false,
-            isVisible: () => false,
+            isVisible: () => true,
             getOpacity: () => 0,
             isFocused: () => false,
             isFocusable: () => false,
-            isAlwaysOnTop: () => false
+            isAlwaysOnTop: () => false,
+            isVisibleOnAllWorkspaces: () => false,
+            isHiddenInMissionControl: () => true
           })
         },
         webContents: { fromDevToolsTargetId: () => contents }

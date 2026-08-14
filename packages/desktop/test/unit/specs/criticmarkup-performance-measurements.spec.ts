@@ -15,7 +15,7 @@ import {
   CORE_PERFORMANCE_PRODUCER_PATHS,
   type CriticMarkupPerformanceMeasurementManifest,
   type CriticMarkupRawPerformanceRun,
-  type CriticMarkupUpstreamRawPerformanceRunV10,
+  type CriticMarkupUpstreamRawPerformanceRunV11,
   materializeCriticMarkupMeasuredPerformanceManifest,
   writeCriticMarkupPerformanceCalibrationReport,
   UPSTREAM_PERFORMANCE_PRODUCER_PATHS,
@@ -82,7 +82,7 @@ const authenticatedCoreProvenance = {
   measurementBoundary: 'core-authority-browser-compositor-v6',
   presentationBoundary: 'electron-webcontents-capture-page-transparent-v2',
   launchBoundary: 'playwright-electron-packaged-transparent-v3',
-  windowPresentationPolicy: 'transparent-render-active-inactive-v5',
+  windowPresentationPolicy: 'transparent-render-active-inactive-v6',
   windowPresentationPlatform: 'darwin',
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2',
   sampleLifecycle: 'fresh-application-profile-per-observation-v1',
@@ -111,7 +111,7 @@ const authenticatedUpstreamProvenance = {
   measurementBoundary: 'external-browser-compositor-v4',
   presentationBoundary: 'electron-webcontents-capture-page-transparent-v2',
   launchBoundary: 'external-inspector-transparent-render-active-v3',
-  windowPresentationPolicy: 'transparent-render-active-inactive-v5',
+  windowPresentationPolicy: 'transparent-render-active-inactive-v6',
   windowPresentationPlatform: 'darwin',
   chromiumSchedulingPolicy: 'hidden-unthrottled-rendering-v2',
   sampleLifecycle: 'fresh-application-profile-per-observation-v1',
@@ -155,8 +155,8 @@ const rawRun = (
   implementation: 'upstream-baseline' | 'core-candidate'
 ): CriticMarkupRawPerformanceRun => ({
   schema: implementation === 'core-candidate'
-    ? 'marktext-criticmarkup-raw-performance-run-v12'
-    : 'marktext-criticmarkup-raw-performance-run-v10',
+    ? 'marktext-criticmarkup-raw-performance-run-v13'
+    : 'marktext-criticmarkup-raw-performance-run-v11',
   runId: `${implementation}-synthetic-validator-fixture`,
   implementation,
   ...(implementation === 'core-candidate'
@@ -324,7 +324,7 @@ const withGitAuthenticatedUpstreamRun = (
     ).trim()
     const upstream = structuredClone(
       rawRun('upstream-baseline')
-    ) as CriticMarkupUpstreamRawPerformanceRunV10
+    ) as CriticMarkupUpstreamRawPerformanceRunV11
     upstream.baselineCommit = harnessCommit
     upstream.buildCommit = harnessCommit
     upstream.provenance = {
@@ -514,7 +514,18 @@ describe('CriticMarkup raw performance evidence', () => {
       expect(source).toMatch(/explicit.*onScreen.*false.*strict/is)
       expect(source).toMatch(/post-measurement.*one-shot strict/is)
       expect(source).toMatch(/post-measurement.*null.*onScreen.*strict/is)
+      expect(source).toMatch(
+        /setVisibleOnAllWorkspaces\(true.*visibleOnFullScreen.*true.*skipTransformProcessType.*true/is
+      )
+      expect(source).toMatch(
+        /isVisibleOnAllWorkspaces\(\).*true.*isHiddenInMissionControl\(\).*true/is
+      )
+      expect(source).toMatch(/external.*on-screen.*proof/is)
+      expect(source).toMatch(
+        /cleanup.*setVisibleOnAllWorkspaces\(false.*visibleOnFullScreen.*false.*skipTransformProcessType.*true/is
+      )
       expect(source).toMatch(/launch.*readiness.*excluded.*timed\s+metric/is)
+      expect(source).toMatch(/unfocused.*not\s+always-on-top/is)
       expect(source).toMatch(/no retries/is)
       expect(source).toMatch(/mandatory.*time-ordered drift\s+diagnostics/is)
       expect(source).toMatch(/no.*pass\/fail threshold/is)
@@ -584,7 +595,7 @@ describe('CriticMarkup raw performance evidence', () => {
 
   it('records the missing Core measurement denominator without inventing samples', () => {
     expect(manifest).toMatchObject({
-      schema: 'marktext-criticmarkup-performance-measurements-v11',
+      schema: 'marktext-criticmarkup-performance-measurements-v12',
       status: 'awaiting-raw-runs',
       runs: [],
       requiredMetrics: {
@@ -617,7 +628,7 @@ describe('CriticMarkup raw performance evidence', () => {
 
   it('rejects superseded measurement and raw protocol schemas', () => {
     const staleManifest = structuredClone(manifest) as unknown as { schema: string }
-    staleManifest.schema = 'marktext-criticmarkup-performance-measurements-v10'
+    staleManifest.schema = 'marktext-criticmarkup-performance-measurements-v11'
     expect(() => validateCriticMarkupPerformanceMeasurements(
       repoRoot,
       staleManifest as CriticMarkupPerformanceMeasurementManifest
@@ -631,7 +642,7 @@ describe('CriticMarkup raw performance evidence', () => {
       const raw = JSON.parse(
         readFileSync(resolve(root, upstreamRef.path), 'utf8')
       ) as unknown as { schema: string }
-      raw.schema = 'marktext-criticmarkup-raw-performance-run-v9'
+      raw.schema = 'marktext-criticmarkup-raw-performance-run-v10'
       const source = `${JSON.stringify(raw, null, 2)}\n`
       writeFileSync(resolve(root, upstreamRef.path), source)
       upstreamRef.sha256 = sha256(source)
@@ -645,7 +656,7 @@ describe('CriticMarkup raw performance evidence', () => {
       const raw = JSON.parse(
         readFileSync(resolve(root, coreRef.path), 'utf8')
       ) as unknown as { schema: string }
-      raw.schema = 'marktext-criticmarkup-raw-performance-run-v11'
+      raw.schema = 'marktext-criticmarkup-raw-performance-run-v12'
       const source = `${JSON.stringify(raw, null, 2)}\n`
       writeFileSync(resolve(root, coreRef.path), source)
       coreRef.sha256 = sha256(source)
@@ -655,8 +666,8 @@ describe('CriticMarkup raw performance evidence', () => {
   })
 
   it.each([
-    ['upstream-baseline', 'marktext-criticmarkup-raw-performance-smoke-v10'],
-    ['core-candidate', 'marktext-criticmarkup-raw-performance-smoke-v12']
+    ['upstream-baseline', 'marktext-criticmarkup-raw-performance-smoke-v11'],
+    ['core-candidate', 'marktext-criticmarkup-raw-performance-smoke-v13']
   ] as const)('rejects current %s smoke output as ratification evidence', (
     implementation,
     smokeSchema
@@ -1068,7 +1079,7 @@ describe('CriticMarkup raw performance evidence', () => {
     ],
     [
       'windowPresentationPolicy',
-      'transparent-render-active-inactive-v4',
+      'transparent-render-active-inactive-v5',
       /window presentation policy/i
     ],
     ['windowPresentationPlatform', 'linux', /window presentation platform/i]
@@ -1095,7 +1106,7 @@ describe('CriticMarkup raw performance evidence', () => {
     })
   })
 
-  it('rejects Core v12 evidence without exact per-document authority metadata', () => {
+  it('rejects Core v13 evidence without exact per-document authority metadata', () => {
     withSyntheticRuns((root, measured) => {
       const coreRef = measured.runs.find(run => run.implementation === 'core-candidate')
       if (coreRef === undefined) throw new Error('Synthetic Core run is missing')
@@ -1113,7 +1124,7 @@ describe('CriticMarkup raw performance evidence', () => {
     })
   })
 
-  it('rejects Core v12 evidence without authenticated build provenance', () => {
+  it('rejects Core v13 evidence without authenticated build provenance', () => {
     withSyntheticRuns((root, measured) => {
       const coreRef = measured.runs.find(run => run.implementation === 'core-candidate')
       if (coreRef === undefined) throw new Error('Synthetic Core run is missing')
@@ -1142,7 +1153,7 @@ describe('CriticMarkup raw performance evidence', () => {
     ],
     [
       'windowPresentationPolicy',
-      'transparent-render-active-inactive-v4',
+      'transparent-render-active-inactive-v5',
       /window presentation policy/i
     ],
     ['windowPresentationPlatform', 'linux', /window presentation platform/i],
