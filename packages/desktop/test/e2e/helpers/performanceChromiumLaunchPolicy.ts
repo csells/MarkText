@@ -14,7 +14,7 @@ export const PERFORMANCE_CHROMIUM_SCHEDULING_POLICY =
   'hidden-unthrottled-rendering-v2' as const
 
 export const PERFORMANCE_WINDOW_PRESENTATION_POLICY =
-  'transparent-render-active-inactive-v4' as const
+  'transparent-render-active-inactive-v5' as const
 
 export interface PerformanceWindowPresentationState {
   readonly windowNumber: number
@@ -90,6 +90,7 @@ export interface MacWindowServerPresentationConvergenceObservation {
   readonly outcome:
     | 'match'
     | 'origin-mismatch'
+    | 'on-screen-metadata-absent'
     | 'electron-state-changed'
     | 'display-topology-changed'
   readonly displayTopologySha256: string
@@ -401,29 +402,44 @@ const samePerformanceWindowIdentityAndBounds = (
   left.bounds.width === right.bounds.width &&
   left.bounds.height === right.bounds.height
 
-const isOriginOnlyWindowServerMismatch = (
+const classifyWindowServerReadiness = (
   snapshot: MacWindowServerPresentationSnapshot,
   processId: number,
   electron: Pick<
     PerformanceWindowPresentationState,
     'bounds' | 'title' | 'windowNumber'
   >
-): boolean => {
+): 'match' | 'origin-mismatch' | 'on-screen-metadata-absent' => {
+  let invariantFailure: unknown
+  try {
+    assertMacWindowServerTransparentRenderActive(
+      snapshot.windows,
+      processId,
+      electron
+    )
+    return 'match'
+  } catch (error) {
+    invariantFailure = error
+  }
   const matches = snapshot.windows.filter(window =>
     window.windowNumber === electron.windowNumber
   )
-  if (matches.length !== 1) return false
+  if (matches.length !== 1) throw invariantFailure
   const [native] = matches
-  return native.ownerProcessId === processId &&
-    native.title === electron.title &&
-    native.bounds !== null &&
-    native.bounds.width === electron.bounds.width &&
-    native.bounds.height === electron.bounds.height &&
-    native.alpha === 0 && native.layer === 0 && native.onScreen === true &&
-    (
-      native.bounds.x !== electron.bounds.x ||
-      native.bounds.y !== electron.bounds.y
-    )
+  if (
+    native.ownerProcessId !== processId ||
+    native.title !== electron.title ||
+    native.bounds === null ||
+    native.bounds.width !== electron.bounds.width ||
+    native.bounds.height !== electron.bounds.height ||
+    native.alpha !== 0 || native.layer !== 0 || native.onScreen === false
+  ) throw invariantFailure
+  if (native.onScreen === null) return 'on-screen-metadata-absent'
+  if (
+    native.bounds.x !== electron.bounds.x ||
+    native.bounds.y !== electron.bounds.y
+  ) return 'origin-mismatch'
+  throw invariantFailure
 }
 
 export interface MacWindowServerPresentationConvergenceInput {
@@ -474,22 +490,14 @@ export const awaitMacWindowServerPresentationConvergence = async(
     const snapshot = inspectWindowServer()
     baseline ??= electron
     topology ??= snapshot.displayTopologySha256
-    let outcome: MacWindowServerPresentationConvergenceObservation['outcome']
-    try {
-      assertMacWindowServerTransparentRenderActive(
-        snapshot.windows,
-        input.processId,
-        electron
-      )
-      outcome = 'match'
+    const outcome = classifyWindowServerReadiness(
+      snapshot,
+      input.processId,
+      electron
+    )
+    if (outcome === 'match') {
       consecutiveMatches += 1
-    } catch (error) {
-      if (!isOriginOnlyWindowServerMismatch(
-        snapshot,
-        input.processId,
-        electron
-      )) throw error
-      outcome = 'origin-mismatch'
+    } else {
       consecutiveMatches = 0
     }
     const nativeBounds = snapshot.windows.find(window =>
