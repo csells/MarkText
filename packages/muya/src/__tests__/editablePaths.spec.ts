@@ -21,7 +21,7 @@ function boot(markdown: string): Muya {
     return muya;
 }
 
-describe('Muya editable content paths', () => {
+describe('muya editable content paths', () => {
     it('keeps unbound paragraphs locked across a whole-document rebuild', () => {
         const muya = boot('locked\n\neditable\n');
 
