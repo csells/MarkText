@@ -877,7 +877,7 @@ describe('Shadow document authority', () => {
       status: 'resource',
       revision: 0,
       resource: {
-        code: 'CM_RESOURCE_CM_DEPTH_EXCEEDED',
+        code: 'CM_RESOURCE_LOGICAL_NODES_EXCEEDED',
         range: { start: expect.any(Number), end: expect.any(Number) },
         metadata: expect.any(Object)
       }
