@@ -178,6 +178,7 @@ EXECUTABLE_SHA256="$(shasum -a 256 "${APP_BINARY}" | awk '{ print $1 }')"
     --project=installed-core-phase4-consumers \
     --workers=1 \
     --retries=0 \
+    --max-failures=1 \
     --reporter=line,json
 ) 2>&1 | tee -a "${RAW_LOG_PATH}"
 
