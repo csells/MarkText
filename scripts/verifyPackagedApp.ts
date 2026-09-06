@@ -1,6 +1,7 @@
 import { extractFile, listPackage, statFile, uncache } from '@electron/asar'
 import { createHash } from 'node:crypto'
-import { basename, dirname, join } from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { basename, dirname, join, normalize, sep } from 'node:path'
 
 export const verifyPackagedApp = (executable: string): void => {
   const binaryDirectory = dirname(executable)
@@ -8,6 +9,7 @@ export const verifyPackagedApp = (executable: string): void => {
     ? join(binaryDirectory, '../Resources')
     : join(binaryDirectory, 'resources')
   const archive = join(resources, 'app.asar')
+  let verifiedBundleSignature = false
   uncache(archive)
   let manifest: { main?: unknown, dependencies?: Readonly<Record<string, unknown>> } | null
   try {
@@ -17,12 +19,12 @@ export const verifyPackagedApp = (executable: string): void => {
   }
   try {
     if (typeof manifest?.main !== 'string' || !manifest.main) throw new Error('Missing main')
-    extractFile(archive, manifest.main.replace(/^\.\//, ''))
+    extractFile(archive, normalize(manifest.main.replace(/[/\\]/g, sep)))
   } catch (cause) {
     throw new Error(`Invalid packaged application main entry: ${archive}`, { cause })
   }
   if (manifest?.dependencies?.ced !== undefined) {
-    const addon = 'node_modules/ced/build/Release/ced.node'
+    const addon = join('node_modules', 'ced', 'build', 'Release', 'ced.node')
     try {
       if (extractFile(archive, addon).length === 0) throw new Error('Empty encoding addon')
     } catch (cause) {
@@ -37,6 +39,15 @@ export const verifyPackagedApp = (executable: string): void => {
     const hash = createHash('sha256').update(bytes).digest('hex')
     if (bytes.length !== metadata.size || metadata.integrity?.algorithm !== 'SHA256' ||
         hash !== metadata.integrity.hash) {
+      if (process.platform === 'darwin' && basename(binaryDirectory) === 'MacOS' && metadata.unpacked) {
+        // macOS signs native addons after ASAR metadata is written. Their final
+        // bytes are protected by the bundle seal, not the pre-signing ASAR hash.
+        if (!verifiedBundleSignature) {
+          execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', join(binaryDirectory, '../..')], { stdio: 'pipe' })
+          verifiedBundleSignature = true
+        }
+        continue
+      }
       throw new Error(`Packaged application integrity failure: ${file} in ${archive}`)
     }
   }

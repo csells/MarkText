@@ -62,6 +62,66 @@ const combinedEdit = (owner: MuyaSourceStructure, edits: readonly DocumentSource
   return { start, end, insert, structuralEdits: ordered }
 }
 
+const listFormatEdit = (owner: MuyaSourceStructure, before: NativeNode, after: NativeNode, maximumUnits?: number): MuyaStructuralSourceEdit | undefined => {
+  const kinds = ['bullet-list', 'order-list', 'task-list']
+  if (!kinds.includes(before.name) || !kinds.includes(after.name) || !before.children?.length ||
+      before.children.length !== after.children?.length ||
+      !before.children.every((item, index) => deepEqual(item.children, after.children![index].children))) return undefined
+  const spelling = serializeNativeState([{
+    ...after,
+    children: after.children.map((item, index) => ({ ...item, children: [{ name: 'paragraph', text: `MTItem${index}` }] }))
+  }], { maximumUnits })
+  if (spelling === undefined) return undefined
+  const edits: DocumentSourceEdit[] = []
+  let previousEnd: number | undefined
+  for (const [index, item] of before.children.entries()) {
+    const path = [...owner.nodes[0].path, 'children', index]
+    const node = owner.nodes.find(node => deepEqual(node.path, path))
+    const content = owner.nodes.find(node => deepEqual(node.path, [...path, 'children', 0]))
+    if (!node || !content || !item.children?.length) return undefined
+    const contentStart = content.range.start + (node.checkboxRange !== undefined &&
+      /^[ \t]$/u.test(owner.source[content.range.start - owner.range.start] ?? '')
+      ? 1
+      : 0)
+    const prefix = owner.source.slice(node.range.start - owner.range.start, contentStart - owner.range.start)
+    const oldMarker = /^((?:[*+-]|\d+[.)]) +)(?:\[[ xX]\] +)?$/u.exec(prefix)
+    const newPrefix = spelling.match(new RegExp(`^([^\\r\\n]*)MTItem${index}$`, 'mu'))?.[1]
+    const newMarker = newPrefix === undefined ? undefined : /^((?:[*+-]|\d+[.)]) +)(?:\[[ xX]\] +)?$/u.exec(newPrefix)
+    if (!oldMarker || !newMarker || newPrefix === undefined) return undefined
+    if (before.name !== after.name && prefix !== newPrefix) {
+      edits.push({ start: node.range.start, end: contentStart, insert: newPrefix })
+      // The list marker owns continuation indentation. Checkbox spelling does
+      // not increase that indentation, and lazy continuation lines stay lazy.
+      const oldIndent = ' '.repeat(oldMarker[1].length)
+      const newIndent = ' '.repeat(newMarker[1].length)
+      if (oldIndent !== newIndent) {
+        const body = owner.source.slice(contentStart - owner.range.start, node.range.end - owner.range.start)
+        for (const ending of body.matchAll(/\r\n|\r|\n/gu)) {
+          const offset = ending.index + ending[0].length
+          if (body.startsWith(oldIndent, offset)) {
+            const start = contentStart + offset
+            edits.push({ start, end: start + oldIndent.length, insert: newIndent })
+          }
+        }
+      }
+    }
+    if (previousEnd !== undefined && before.meta?.loose !== after.meta?.loose) {
+      const gap = owner.source.slice(previousEnd - owner.range.start, node.range.start - owner.range.start)
+      if (!/^[ \t\r\n]+$/u.test(gap)) return undefined
+      const endings = [...gap.matchAll(/\r\n|\r|\n/gu)]
+      if (endings.length === 0) return undefined
+      if (after.meta?.loose === true && endings.length === 1) {
+        edits.push({ start: previousEnd, end: previousEnd, insert: endings[0][0] })
+      } else if (after.meta?.loose === false && endings.length > 1) {
+        edits.push({ start: previousEnd, end: node.range.start, insert: endings[0][0] })
+      }
+    }
+    const body = owner.source.slice(contentStart - owner.range.start, node.range.end - owner.range.start)
+    previousEnd = node.range.end - (body.match(/(?:\r\n|\r|\n)+$/u)?.[0].length ?? 0)
+  }
+  return combinedEdit(owner, edits)
+}
+
 const listIndentationEdit = (owner: MuyaSourceStructure, before: NativeNode, after: NativeNode, maximumUnits?: number): MuyaStructuralSourceEdit | undefined => {
   const leaves = (node: NativeNode, path: (string | number)[]): Array<{ node: NativeNode, path: (string | number)[] }> =>
     node.children ? node.children.flatMap((child, index) => leaves(child, [...path, 'children', index])) : [{ node, path }]
@@ -210,8 +270,10 @@ export function sourceEditForMuyaContainerChange(
   const after = next as NativeNode
   const checkbox = checkboxEdit(owner, before, after)
   if (checkbox !== undefined) return checkbox
+  const listFormat = listFormatEdit(owner, before, after, maximumUnits)
+  if (listFormat !== undefined) return listFormat
   if (before.name !== 'table') {
-    const nested = nestedTableEdit(owner, before, after, owner.nodes[0].path, maximumUnits)
+    const nested = nestedContainerEdit(owner, before, after, owner.nodes[0].path, maximumUnits)
     if (nested !== undefined) return nested
   }
   if (['bullet-list', 'order-list', 'task-list'].includes(before.name) && before.name === after.name) return listIndentationEdit(owner, before, after, maximumUnits)
@@ -264,10 +326,17 @@ export function sourceEditForMuyaContainerChange(
   return { start: offset, end: offset, insert }
 }
 
-const nestedTableEdit = (
+const nestedContainerEdit = (
   owner: MuyaSourceStructure, before: NativeNode, after: NativeNode,
   path: readonly (string | number)[], maximumUnits?: number
 ): MuyaStructuralSourceEdit | undefined => {
+  if (['bullet-list', 'order-list', 'task-list'].includes(before.name)) {
+    const nodes = owner.nodes.filter(node => deepEqual(node.path.slice(0, path.length), path))
+    if (nodes.length > 0) {
+      const formatted = listFormatEdit({ ...owner, nodes }, before, after, maximumUnits)
+      if (formatted !== undefined) return formatted
+    }
+  }
   if (before.name !== after.name) return undefined
   if (before.name === 'table') {
     const table = owner.nodes.find(node => node.kind === 'table' && deepEqual(node.path, path))
@@ -286,7 +355,7 @@ const nestedTableEdit = (
   const changed = before.children.flatMap((child, index) => deepEqual(child, after.children?.[index]) ? [] : [index])
   if (changed.length !== 1) return undefined
   const index = changed[0]
-  return nestedTableEdit(owner, before.children[index], after.children[index], [...path, 'children', index], maximumUnits)
+  return nestedContainerEdit(owner, before.children[index], after.children[index], [...path, 'children', index], maximumUnits)
 }
 
 const checkboxEdit = (owner: MuyaSourceStructure, before: NativeNode, after: NativeNode): MuyaStructuralSourceEdit | undefined => {
