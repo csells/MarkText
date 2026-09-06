@@ -1,6 +1,9 @@
 name: PR Build
 
 on:
+  push:
+    branches: [feat/criticmarkup-core-integration]
+  workflow_dispatch:
   pull_request:
     types: [opened, synchronize, reopened]
 
@@ -119,7 +122,7 @@ jobs:
   comment-on-pr:
     name: Comment artifact links on PR
     needs: run-on-pr-head
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
