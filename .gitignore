@@ -9,6 +9,7 @@ packages/*/dist
 *.log*
 .trae/
 .cursor/
+.vscode/
 doc/
 # Ignore temp artifacts
 temp/

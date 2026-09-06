@@ -65,4 +65,11 @@ describe('packaged app preflight', () => {
     const fixture = await packageFixture('{"name":"marktext","main":"main.js"}')
     expect(() => verifyPackagedApp(fixture.executable)).not.toThrow()
   })
+
+  it.each(['./out/main/index.js', '.\\out\\main\\index.js'])('resolves a nested main entry with portable separators: %s', async main => {
+    const fixture = await packageFixture(JSON.stringify({ name: 'marktext', main }), {
+      'out/main/index.js': 'module.exports = "nested main"'
+    })
+    expect(() => verifyPackagedApp(fixture.executable)).not.toThrow()
+  })
 })

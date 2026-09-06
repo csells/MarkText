@@ -8,12 +8,18 @@ it.each(['\n', '\r\n', '\r'])('parses a table inside a list without absorbing th
   const root = core.project(revision, 'markup').syntax.ast.root
   expect(root.children).toHaveLength(1)
   const list = root.children[0]
+  if (!list) throw new Error('Expected the outer list')
   expect(list.kind).toBe('list')
   expect(list.children).toHaveLength(3)
-  expect(list.children[1].children.map(node => node.kind)).toEqual(['paragraph', 'table'])
-  const table = list.children[1].children[1]
+  const second = list.children[1]
+  if (!second) throw new Error('Expected the second list item')
+  expect(second.children.map(node => node.kind)).toEqual(['paragraph', 'table'])
+  const table = second.children[1]
+  if (!table) throw new Error('Expected the nested table')
   expect(table.children).toHaveLength(2)
-  expect(table.children[1].children.map(cell => source.slice(cell.range.start, cell.range.end))).toEqual(['x', 'y'])
+  const row = table.children[1]
+  if (!row) throw new Error('Expected the table body row')
+  expect(row.children.map(cell => source.slice(cell.range.start, cell.range.end))).toEqual(['x', 'y'])
   expect(core.project(revision, 'revised').markdown).toBe(source)
 })
 
@@ -23,6 +29,10 @@ it.each(['\n', '\r\n', '\r'])('keeps an annotated nested list inside its owning 
   const revision = core.open(source)
   const root = core.project(revision, 'markup').syntax.ast.root
   expect(root.children).toHaveLength(1)
-  expect(root.children[0].children).toHaveLength(1)
-  expect(root.children[0].children[0].children.map(node => node.kind)).toEqual(['paragraph', 'list'])
+  const list = root.children[0]
+  if (!list) throw new Error('Expected the outer list')
+  expect(list.children).toHaveLength(1)
+  const item = list.children[0]
+  if (!item) throw new Error('Expected the owning list item')
+  expect(item.children.map(node => node.kind)).toEqual(['paragraph', 'list'])
 })
