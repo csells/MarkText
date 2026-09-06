@@ -42,6 +42,6 @@ test.describe('cross-block selection + Enter (#2443)', () => {
         await selectAcrossParagraphs(page, 6, 3);
         await page.keyboard.press('Enter');
 
-        expect(await getMarkdown(page)).toBe('Hello \n\n bar\n');
+        await expect.poll(() => getMarkdown(page)).toBe('Hello \n\n bar\n');
     });
 });

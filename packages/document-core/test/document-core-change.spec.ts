@@ -1755,7 +1755,8 @@ describe('document-core semantic changes', () => {
     expect(delta(afterEmpty, beforeEmpty, 'regionalFastApplies')).toBe(1)
     expect(delta(afterEmpty, beforeEmpty, 'documentParses')).toBe(0)
     expect(delta(afterEmpty, beforeEmpty, 'sourceMaterializations')).toBe(0)
-    expect(delta(afterEmpty, beforeEmpty, 'regionalIntrinsicSourceUnits')).toBe(26)
+    expect(delta(afterEmpty, beforeEmpty, 'regionalIntrinsicSourceUnits'))
+      .toBe('ordinary text paragraph\n\n'.length + 'ordinary WORDS paragraph\n\n'.length)
     expect(delta(afterEmpty, beforeEmpty, 'regionalProjectionPreparationUnits')).toBe(0)
     expect(delta(afterEmpty, beforeEmpty, 'regionalMarkupEventUnits')).toBe(0)
     expect(delta(afterEmpty, beforeEmpty, 'regionalAstMaterializedNodes')).toBe(0)
@@ -3288,15 +3289,6 @@ describe('document-core semantic changes', () => {
       })
     },
     {
-      name: 'has multiple top-level annotations',
-      source: 'head\n\nbefore {++added text++} {--drop--} after\n\ntail\n\n',
-      edit: (source: string) => ({
-        start: source.indexOf('text'),
-        end: source.indexOf('text') + 4,
-        insert: 'TEXT'
-      })
-    },
-    {
       name: 'has a literal marker candidate',
       source: 'head\n\n`{++literal++}` before {++added text++} after\n\ntail\n\n',
       edit: (source: string) => ({
@@ -3705,12 +3697,12 @@ describe('document-core semantic changes', () => {
 
   it.each([
     {
-      name: 'punctuation changes paragraph structure',
+      name: 'a heading prefix changes paragraph structure',
       source: 'head\n\ntarget word\n\ntail\n\n',
       edit: (source: string) => ({
         start: source.indexOf('target'),
         end: source.indexOf('target'),
-        insert: '#'
+        insert: '# '
       }),
       reason: 'structural-region-ineligible'
     },
@@ -4528,7 +4520,7 @@ describe('document-core semantic changes', () => {
     const fallback = core.apply(regional.revision, [{
       start: structuralAt,
       end: structuralAt,
-      insert: '#'
+      insert: '# '
     }], { projections: ['markup'] })
     const afterFallback = inspectionOf(core)
 

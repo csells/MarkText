@@ -88,3 +88,13 @@ describe('uploadImage IPC payload shape', () => {
     expect(result).toBe('https://cdn/custom.png')
   })
 })
+
+it('uploads clipboard bitmap bytes instead of treating a data URL as a file path', async() => {
+  await uploadImage('/tmp/note.md', 'data:image/png;base64,AQID', { currentUploader: 'picgo' })
+  expect(uploadImageFn).toHaveBeenCalledWith({
+    pathname: '/tmp/note.md',
+    image: { data: new Uint8Array([1, 2, 3]), name: 'pasted-image.png' },
+    isPath: false,
+    preferences: { currentUploader: 'picgo', cliScript: '' }
+  })
+})

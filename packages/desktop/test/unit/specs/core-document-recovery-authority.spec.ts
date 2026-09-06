@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import { createCoreActor } from '@/documentAuthority/coreActor'
+import { createEditorCoreBinding } from '@/documentAuthority/editorCoreBinding'
+import { createCoreDocumentSessionManager } from '@/documentAuthority/coreDocumentSessionManager'
 
 import {
   coordinateCoreDocumentRecovery,
@@ -158,4 +161,79 @@ describe('Core document recovery authority', () => {
     await recoveryObservation
     expect(published).toBe(true)
   })
+})
+
+it('keeps the recovery checkpoint and its accepted suffix together while an older source barrier completes', async() => {
+  let releaseSource!: () => void
+  const heldSource = new Promise<void>(resolve => { releaseSource = resolve })
+  let sourceRequested!: () => void
+  const sourceStarted = new Promise<void>(resolve => { sourceRequested = resolve })
+  let releaseOpen!: () => void
+  const heldOpen = new Promise<void>(resolve => { releaseOpen = resolve })
+  let openRequested!: () => void
+  const openStarted = new Promise<void>(resolve => { openRequested = resolve })
+  let bindingCount = 0
+  const manager = createCoreDocumentSessionManager({
+    createBinding: () => {
+      const actor = createCoreActor()
+      const bindingNumber = ++bindingCount
+      return createEditorCoreBinding({
+        request: async request => {
+          const reply = actor.handle(request)
+          if (bindingNumber === 1 && request.type === 'source-at-barrier') {
+            sourceRequested()
+            await heldSource
+          }
+          if (bindingNumber === 2 && request.type === 'open') {
+            openRequested()
+            await heldOpen
+          }
+          return reply
+        },
+        dispose: () => actor.dispose()
+      })
+    }
+  })
+  const documentId = 'unsaved-heading-recovery.md'
+  const original = '# A\n\n## B\n\n### B1\n\n## C\n'
+  const expected = '# A\n\n## B\n\n### B1 Renamed\n\n## C\n'
+  await manager.open({ documentId, source: original, lineEnding: '\n' })
+  const originalLease = manager.lease(documentId)
+  let current = originalLease
+  for (const [index, letter] of [...' Renamed'].entries()) {
+    expect(await current.binding.submit({
+      nativeHistoryGroup: 'rename:1',
+      edits: [{ start: 17 + index, end: 17 + index, insert: letter }],
+      projections: []
+    }).acknowledged).toMatchObject({ type: 'applied' })
+  }
+  const priorBarrier = manager.saveBarrier(documentId)
+  await sourceStarted
+  const failure = new Error('Native insertion cannot be reconciled')
+  current.faultView(failure)
+  let reconciled = ''
+  const recovering = coordinateCoreDocumentRecovery({
+    request: { documentId, lease: originalLease, error: failure },
+    manager,
+    currentLease: () => current,
+    setRecovering: () => {},
+    reconcileSource: (_id, source) => { reconciled = source },
+    publishLease: replacement => { current = replacement }
+  })
+  await openStarted
+  releaseSource()
+  await expect(priorBarrier).resolves.toMatchObject({ source: expected })
+  releaseOpen()
+  try {
+    expect(await recovering).toBe(true)
+    expect(reconciled).toBe(expected)
+    const projection = await current.projectAcknowledgedPlainTextView(current.identity.revision)
+    expect(projection.view).toMatchObject({ kind: 'view', markdown: expected })
+    expect(await manager.saveBarrier(documentId)).toMatchObject({ source: expected })
+    expect(await current.binding.submit({ kind: 'undo', projections: [] }).acknowledged).toMatchObject({ type: 'applied' })
+    expect(await manager.saveBarrier(documentId)).toMatchObject({ source: original })
+  } finally {
+    await manager.handoff(current)
+    await manager.close(documentId)
+  }
 })

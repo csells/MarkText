@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { launchElectron } from './helpers'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { clickMenuById, launchElectron, waitForMenuReady } from './helpers'
 
 // #3439 — invoking "New File" (sidebar context menu) on a COLLAPSED folder did
 // nothing: the create <input> only renders inside the folder's expanded
@@ -22,11 +25,16 @@ test.describe('New File on a collapsed folder (#3439)', () => {
   let page: Page
 
   test.beforeAll(async() => {
-    // launchElectron opens the desktop package folder in the sidebar (its
-    // sub-folders render as collapsed tree-folders).
-    const launched = await launchElectron()
+    const folder = mkdtempSync(join(tmpdir(), 'marktext-folder-context-'))
+    mkdirSync(join(folder, 'child'))
+    writeFileSync(join(folder, 'child', 'note.md'), '# Fixture\n', { flag: 'wx' })
+    const launched = await launchElectron([folder])
     app = launched.app
     page = launched.page
+    await waitForMenuReady(app)
+    if (!(await page.locator('.side-bar').isVisible())) {
+      await clickMenuById(app, 'sideBarMenuItem')
+    }
     await page.waitForSelector('.side-bar-folder .folder-name', { timeout: 10000 })
 
     // Replace the sidebar context-menu popup handler so it does NOT open a real

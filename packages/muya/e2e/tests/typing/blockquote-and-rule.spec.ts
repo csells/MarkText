@@ -31,7 +31,7 @@ test.describe('blockquote and thematic break', () => {
         await quote.locator(editor.paragraph).first().click();
         await slowType(page, 'quoted');
         await expect(quote.locator(editor.paragraph).first()).toContainText('quoted');
-        expect(await getMarkdown(page)).toContain('> quoted');
+        await expect.poll(() => getMarkdown(page)).toContain('> quoted');
     });
 
     test('slash menu creates a thematic break', async ({ page }) => {
@@ -64,7 +64,7 @@ test.describe('blockquote and thematic break', () => {
         // Type into the freshly created quote paragraph and confirm round-trip.
         await slowType(page, 'a');
         await expect(quote.locator(editor.paragraph).first()).toContainText('a');
-        expect(await getMarkdown(page)).toContain('> a');
+        await expect.poll(() => getMarkdown(page)).toContain('> a');
     });
 
     test('Enter twice inside a block quote exits into a trailing paragraph', async ({ page }) => {
@@ -118,7 +118,7 @@ test.describe('blockquote and thematic break', () => {
         );
         expect(anchorName).toBe('paragraph.content');
 
-        expect(await getMarkdown(page)).toContain('> a');
+        await expect.poll(() => getMarkdown(page)).toContain('> a');
     });
 
     test('typing "> > " nests a block quote inside a block quote', async ({ page }) => {
@@ -141,6 +141,6 @@ test.describe('blockquote and thematic break', () => {
         expect(blocks[0].children![0].children).toHaveLength(1);
         expect(blocks[0].children![0].children![0].name).toBe('paragraph');
 
-        expect(await getMarkdown(page)).toContain('> > ');
+        await expect.poll(() => getMarkdown(page)).toContain('> > ');
     });
 });

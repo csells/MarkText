@@ -86,6 +86,26 @@ export type RegionalInventoryApplyResult =
   | RegionalInventoryFallback
   | RegionalInventoryResourceFailure
 
+export interface RegionalInventoryPreview {
+  readonly kind: 'validated'
+  readonly sourceStart: number
+  readonly nextProducts: Profile1DocumentProducts
+  readonly nextWindow: string
+}
+
+type RegionalInventoryArguments = [
+  previousInventory: RegionalInventory,
+  previousSource: CanonicalSourceView,
+  nextSource: CanonicalSourceView,
+  edits: readonly RetainedPassSourceEdit[],
+  subscriptions: readonly RegionalInventorySubscription[],
+  executionBudget: ExecutionBudgetId,
+  markdownOptions: MarkdownOptionsV1,
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1
+]
+
+type RegionalInventoryPreviewResult = RegionalInventoryPreview | RegionalInventoryFallback | RegionalInventoryResourceFailure
+
 export interface RegionalInventorySubscription {
   readonly name: 'markup' | 'comment'
   readonly annotationRange?: Readonly<{
@@ -634,6 +654,7 @@ export function createRegionalInventory(
   let mappedCursor = 0
   const editingRoot = products.editing().markdown.root
   const mappedTape = products.editing().mappedTape
+  const annotationExtent = retained.roots[retained.roots.length - 1]?.range.end ?? 0
   for (let ordinal = 0; ordinal + 1 < boundaries.length; ordinal += 1) {
     recorder.recordBuildUnit()
     const sourceStart = boundaries[ordinal]
@@ -710,7 +731,20 @@ export function createRegionalInventory(
       if (segment.projectedEnd <= syntaxEnd) mappedCursor += 1
       else break
     }
-    if (roots.length === 0) {
+    // Intrinsic safe points already bound this complete Markdown block. Keep
+    // the same measured topology for an ordinary paragraph as for an annotated
+    // one, so its interior can use the existing candidate-parse admission.
+    // Whitespace, multi-block spans and other block kinds remain opaque gaps.
+    // Keep the unannotated suffix compact: this inventory's persistent node
+    // count must not grow with a potentially huge plain tail after the last CM
+    // owner. Ordinary paragraphs within the annotation extent can be edited
+    // locally without expanding that suffix into one retained node per block.
+    const ordinaryParagraph = roots.length === 0 &&
+      sourceStart < annotationExtent &&
+      markdownRoots.length === 1 && markdownRoots[0]?.kind === 'paragraph' &&
+      markerDecisions.length === 0 &&
+      projectionKinds.every(kind => kind === 'canonical')
+    if (roots.length === 0 && !ordinaryParagraph) {
       const previous = leaves[leaves.length - 1]
       if (previous?.kind === 'gap') {
         leaves[leaves.length - 1] = Object.freeze({
@@ -941,7 +975,18 @@ function commentAtRange(
   return undefined
 }
 
-export function applyRegionalInventory(
+export function applyRegionalInventory(...args: RegionalInventoryArguments): RegionalInventoryApplyResult {
+  return evaluateRegionalInventory(...args, false)
+}
+
+/** Validate the same bounded candidate without constructing or publishing a new inventory root. */
+export function previewRegionalInventory(...args: RegionalInventoryArguments): RegionalInventoryPreviewResult {
+  return evaluateRegionalInventory(...args, true)
+}
+
+function evaluateRegionalInventory(...args: [...RegionalInventoryArguments, true]): RegionalInventoryPreviewResult
+function evaluateRegionalInventory(...args: [...RegionalInventoryArguments, false]): RegionalInventoryApplyResult
+function evaluateRegionalInventory(
   previousInventory: RegionalInventory,
   previousSource: CanonicalSourceView,
   nextSource: CanonicalSourceView,
@@ -949,8 +994,9 @@ export function applyRegionalInventory(
   subscriptions: readonly RegionalInventorySubscription[],
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptionsV1,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1
-): RegionalInventoryApplyResult {
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  previewOnly: boolean
+): RegionalInventoryApplyResult | RegionalInventoryPreviewResult {
   const inventory = inventoryValue(previousInventory)
   const edit = edits.length === 1 ? edits[0] : undefined
   if (
@@ -1059,6 +1105,11 @@ export function applyRegionalInventory(
   }
   if (!sameRegionShape(start.leaf, candidate)) {
     return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
+  }
+  if (previewOnly) {
+    return Object.freeze({
+      kind: 'validated', sourceStart: start.sourceStart, nextProducts: result, nextWindow
+    })
   }
   const replacement = candidate
   inventory.recorder.recordRootAttempted()

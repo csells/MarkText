@@ -18,6 +18,7 @@ async function setupCaretInsideStrong(page: Page) {
     // the markers render revealed.
     await page.evaluate(() => {
         const block = window.muya!.editor.scrollPage!.firstContentInDescendant();
+        if (!block) throw new Error('Expected paragraph content');
         block.setCursor(6, 6, true);
     });
     // Sanity: markers are revealed while the caret sits inside the token.

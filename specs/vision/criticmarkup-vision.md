@@ -115,12 +115,16 @@ The CriticMarkup work spans several documents; they differ by **role**, not by s
 | --- | --- |
 | **Why** — this vision | `specs/vision/criticmarkup-vision.md` |
 | **Decisions** — binding, hard to reverse | Semantic/product ADRs `0001`–`0005`, `0007`–`0010`, and `0013`–`0015` |
-| **What the language means** — candidate pending ratification | `specs/language/marktext-markdown-profile-1.md` |
-| **How we get there** — the integration plan | `specs/plans/0010-marktext-criticmarkup-core-integration.md` |
+| **What the language means** — semantic target, with historical proposals distinguished | `specs/language/marktext-markdown-profile-1.md` |
+| **How we get there** — the integration plan | `specs/plans/0011-criticmarkup-editable-review.md` |
 | **Vocabulary** | `CONTEXT.md` |
 | **Evidence** — upstream research answering a specific question | `specs/architecture/criticmarkup-host-markdown-interaction-evidence.md` |
 
-The architecture lives in the active ADRs, plan 0010, and this vision. ADRs 0006,
+The architecture lives in the active ADRs, plan 0011, and this vision. Plans 0009 and
+0010 are retired incomplete; their remaining product requirements continue in 0011.
+The proposed CriticMarkup Metadata Extension is a separate future milestone; this
+vision defines the CM1 integration and does not erase its research or domain decisions.
+ADRs 0006,
 0011, and 0012 record plan-0009 implementation designs and are not active target
 authority. Research and evidence may explain a ruling, but no prior implementation
 defines target behavior.

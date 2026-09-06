@@ -235,11 +235,17 @@ test.describe('Tab switch restores the per-tab scroll position', () => {
     )
     await expect.poll(() => scrollTop()).toBe(0)
 
-    // Switch back to tab A — its scrollTop must be (approximately) restored.
-    // Tolerance is generous: real layout height drives `scrollToCords` clamping.
+    // Returning to the unchanged document restores the saved viewport.
     await sendIpcToRenderer(app, 'mt::switch-tab-by-index', 0)
     await expect.poll(() => scrollTop(), { timeout: 5000 }).toBeGreaterThan(1000)
     const restored = await scrollTop()
-    expect(Math.abs(restored - captured)).toBeLessThan(captured)
+    expect(Math.abs(restored - captured)).toBeLessThan(2)
+
+    // A second handoff catches scroll events from the retiring view being
+    // attributed to the newly selected tab.
+    await sendIpcToRenderer(app, 'mt::switch-tab-by-index', 1)
+    await expect.poll(() => scrollTop()).toBe(0)
+    await sendIpcToRenderer(app, 'mt::switch-tab-by-index', 0)
+    await expect.poll(() => scrollTop()).toBe(captured)
   })
 })

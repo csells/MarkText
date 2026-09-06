@@ -34,27 +34,24 @@ async function probe(page: import('@playwright/test').Page, _phase: Phase): Prom
     return page.evaluate(() => {
         const block = window.muya!.editor.activeContentBlock;
         return {
-            isComposed: block?.isComposed === true,
+            isComposed: !!block && Reflect.get(block, 'isComposed') === true,
             text: block?.text ?? '',
         };
     });
 }
 
 /**
- * Poll for the active block's text to settle to the expected value. The
- * compositionend handler in muya is synchronous on Chromium and Firefox
- * but yields a macrotask on WebKit before inputHandler reads the DOM —
- * `expect.poll` rides out that engine difference. Generous timeout
- * because synthetic IME under high-parallel WebKit workloads can take
- * a few seconds to round-trip the event.
+ * Composition updates the active block before its deferred document-state
+ * transaction. Observe both before treating the composed text as committed.
  */
-async function expectActiveTextToContain(
+async function expectCommittedTextToContain(
     page: import('@playwright/test').Page,
     expected: string,
 ): Promise<void> {
     await expect.poll(async () => page.evaluate(() => {
         return window.muya!.editor.activeContentBlock?.text ?? '';
     }), { timeout: 8_000, intervals: [50, 100, 250, 500] }).toContain(expected);
+    await expect.poll(() => getMarkdown(page)).toContain(expected);
 }
 
 test.describe('IME composition', () => {
@@ -107,7 +104,7 @@ test.describe('IME composition', () => {
             // Read isComposed + state.text inline so we don't race a
             // subsequent compositionend.
             return {
-                isComposed: block.isComposed,
+                isComposed: Reflect.get(block, 'isComposed') === true,
                 text: block.text,
             };
         });
@@ -158,7 +155,7 @@ test.describe('IME composition', () => {
             }));
         });
 
-        await expectActiveTextToContain(page, '你好');
+        await expectCommittedTextToContain(page, '你好');
         const after = await probe(page, 'after');
         expect(after.isComposed).toBe(false);
         expect(after.text.startsWith('hello')).toBe(true);
@@ -237,7 +234,7 @@ test.describe('IME composition', () => {
             }));
         });
 
-        await expectActiveTextToContain(page, '测试');
+        await expectCommittedTextToContain(page, '测试');
         const after = await probe(page, 'after');
         expect(after.isComposed).toBe(false);
 
@@ -269,6 +266,7 @@ test.describe('IME composition', () => {
         // ZWSP placeholder branch (this.text !== '').
         await page.keyboard.type('x');
         await expect(firstBodyCell).toContainText('x');
+        await expectCommittedTextToContain(page, 'x');
 
         await page.evaluate(() => {
             const block = window.muya!.editor.activeContentBlock!;
@@ -318,7 +316,7 @@ test.describe('IME composition', () => {
             }));
         });
 
-        await expectActiveTextToContain(page, '中文');
+        await expectCommittedTextToContain(page, '中文');
         const after = await probe(page, 'after');
         expect(after.isComposed).toBe(false);
         expect(after.text).toContain('x');

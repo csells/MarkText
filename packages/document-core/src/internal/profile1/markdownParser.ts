@@ -392,6 +392,7 @@ export type MarkdownArmBoundaryProjectionEdit =
     readonly candidateOffset: number
     readonly sourcePosition: number
     readonly lineEnding: '\n' | '\r' | '\r\n'
+    readonly blankLine?: true
     readonly indentationElision?: Readonly<{
       readonly candidateStart: number
       readonly candidateEnd: number
@@ -1767,8 +1768,8 @@ function appendInlineRange(
         ? findGfmExtendedAutolink(
           source,
           offset,
-          end,
-          start,
+          Math.min(end, matchingScopeAt(boundaryPolicy, offset)?.end ?? end),
+          Math.max(start, matchingScopeAt(boundaryPolicy, offset)?.start ?? start),
           activeMarkdownExecution
         )
         : undefined
@@ -3626,6 +3627,17 @@ function parseOrderedContainerSequence(
       continue
     }
 
+    const table = activeMarkdownGfmEnabled
+      ? parseTable(source, lines, nextLineIndex, constructs, referenceDefinitions, boundaryPolicy)
+      : undefined
+    if (table !== undefined) {
+      closeParagraph()
+      parent.children.push(table.node)
+      extendOpenContainers(table.node.range.end)
+      nextLineIndex = table.nextLineIndex
+      continue
+    }
+
     if (
       paragraph !== undefined &&
       paragraphOwner === parent &&
@@ -3892,12 +3904,15 @@ function parseTable(
     headerLine === undefined ||
     delimiterLine === undefined ||
     headerLine.blank ||
-    delimiterLine.blank ||
-    headerLine.blockQuoteDepth !== 0 ||
-    headerLine.listDepth !== 0
+    delimiterLine.blank
   ) {
     return undefined
   }
+  const continuesContainer = (line: PlainMarkdownLine): boolean =>
+    line.containers.length === headerLine.containers.length &&
+    line.containers.every((descriptor, index) => descriptor.continued &&
+      descriptor.kind === headerLine.containers[index]?.kind)
+  if (!continuesContainer(delimiterLine)) return undefined
   const headerCells = splitTableCells(source, headerLine)
   const alignments = tableDelimiterAlignments(source, delimiterLine)
   if (
@@ -3914,7 +3929,7 @@ function parseTable(
     header: boolean
   ): MarkdownNode => createNode(
     'table-row',
-    line.start,
+    headerLine.containers.length === 0 ? line.start : line.contentOffset,
     line.contentEnd,
     alignments.map((alignment, index) => {
       const cell = cells[index] ?? Object.freeze({
@@ -3942,7 +3957,7 @@ function parseTable(
   let nextLineIndex = lineIndex + 2
   while (nextLineIndex < lines.length) {
     const line = lines[nextLineIndex]
-    if (line === undefined || line.blank || line.blockQuoteDepth > 0 || line.listDepth > 0) {
+    if (line === undefined || line.blank || !continuesContainer(line)) {
       break
     }
     const cells = splitTableCells(source, line) ?? (() => {
@@ -3970,12 +3985,12 @@ function parseTable(
   return Object.freeze({
     node: createNode(
       'table',
-      headerLine.start,
+      headerLine.containers.length === 0 ? headerLine.start : headerLine.contentOffset,
       lastLine.contentEnd,
       rows,
       {
         columns: alignments.length,
-        delimiterStart: delimiterLine.start,
+        delimiterStart: headerLine.containers.length === 0 ? delimiterLine.start : delimiterLine.contentOffset,
         delimiterEnd: delimiterLine.contentEnd
       }
     ),

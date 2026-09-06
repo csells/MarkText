@@ -7,7 +7,9 @@ import type {
   CriticMarkupKind,
   DocumentResolutionDecision,
   MarkdownAst,
-  MarkdownOptions
+  MarkupCoordinateSegment,
+  MarkdownOptions,
+  MarkdownProjectionName
 } from '@marktext/document-core'
 
 import type { MuyaPlainTextViewResult } from './muyaPlainTextView'
@@ -20,6 +22,8 @@ export type CoreHistoryEntry = Readonly<{
 export type CoreHistorySnapshot = Readonly<{
   readonly undo: readonly CoreHistoryEntry[]
   readonly redo: readonly CoreHistoryEntry[]
+  /** Continues the last undo entry when replay crosses a mid-typing checkpoint. */
+  readonly nativeHistoryGroup?: string
 }>
 
 export type CoreReviewDecision = DocumentResolutionDecision | 'remove'
@@ -58,6 +62,9 @@ export type CoreRequest =
   }>
   | Readonly<{
     readonly type: 'apply'
+    readonly markup?: true
+    readonly tracked?: true
+    readonly nativeHistoryGroup?: string
     readonly session: number
     readonly sequence: number
     readonly baseRevision: number
@@ -75,6 +82,13 @@ export type CoreRequest =
     readonly session: number
     readonly sequence: number
     readonly baseRevision: number
+  }>
+  | Readonly<{
+    readonly type: 'display-projection-at-barrier'
+    readonly session: number
+    readonly sequence: number
+    readonly baseRevision: number
+    readonly name: MarkdownProjectionName
   }>
   | Readonly<{
     readonly type: 'consumer-projection-at-barrier'
@@ -150,6 +164,7 @@ export type CoreRequest =
   }>
   | Readonly<{
     readonly type: 'track'
+    readonly nativeHistoryGroup?: string
     readonly session: number
     readonly sequence: number
     readonly baseRevision: number
@@ -178,6 +193,8 @@ export type CoreAppliedReply = Readonly<{
   readonly diagnosticCount: number
   readonly diagnostics: readonly DocumentDiagnostic[]
   readonly change: DocumentChange
+  /** Insertions of review syntax/old content into the native post-edit source domain. */
+  readonly nativeReconciliation?: readonly DocumentSourceEdit[]
 }>
 export type CoreRejectedReply = Readonly<{
   readonly type: 'rejected'
@@ -236,6 +253,20 @@ export type CoreConsumerProjection = Readonly<{
   readonly name: 'revised'
   readonly markdown: string
   readonly ast: MarkdownAst
+  readonly sourceSegments?: readonly MarkupCoordinateSegment[]
+}>
+export type CoreDisplayProjection = Readonly<{
+  readonly name: MarkdownProjectionName
+  readonly ast: MarkdownAst
+}>
+export type CoreDisplayProjectionReply = Readonly<{
+  readonly type: 'display-projection'
+  readonly session: number
+  readonly sequence: number
+  readonly revision: number
+  readonly accepted: true
+  readonly sourceLength: number
+  readonly projection: CoreDisplayProjection
 }>
 export type CoreConsumerProjectionReply = Readonly<{
   readonly type: 'consumer-projection'
@@ -264,6 +295,7 @@ export type CoreReviewItemReply = Readonly<{
   readonly sourceLength: number
   readonly item: CoreReviewItemLocator | null
   readonly commentText?: string
+  readonly commentProjection?: Readonly<{ readonly ast: MarkdownAst }>
 }>
 export type CoreReply =
   | CoreOpenedReply
@@ -272,6 +304,7 @@ export type CoreReply =
   | CoreResourceReply
   | CoreSourceReply
   | CorePlainTextViewReply
+  | CoreDisplayProjectionReply
   | CoreConsumerProjectionReply
   | CoreSelectionProjectionReply
   | CoreReviewItemReply

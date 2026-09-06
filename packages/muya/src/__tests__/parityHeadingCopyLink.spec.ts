@@ -87,6 +87,7 @@ describe('parity PG11: heading hover-to-copy-anchor affordance', () => {
             expect(handler).toHaveBeenCalledTimes(1);
             const payload = handler.mock.calls[0]?.[0];
             expect(payload?.key).toBeTruthy();
+            expect(payload?.path).toEqual([0]);
         },
     );
 

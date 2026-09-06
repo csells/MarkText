@@ -5,6 +5,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { frontmostApplicationProcessId } from './frontmostApplication'
+import { resolveCoreDocumentLaunchPolicy } from '../../src/renderer/src/documentAuthority/coreDocumentLaunchPolicy'
 
 const projectRoot = path.resolve(__dirname, '../..')
 
@@ -73,7 +74,8 @@ export const launchElectron = async(
   options: LaunchOptions = {}
 ): Promise<LaunchResult> => {
   userArgs = userArgs || []
-  const executablePath = getElectronPath()
+  const packagedBinary = process.env.MARKTEXT_PACKAGED_APP
+  const executablePath = packagedBinary ?? getElectronPath()
   // Pass project root as entry so Electron reads package.json and getAppPath() returns project root.
   // Passing out/main/index.js directly bypasses package.json and breaks __static path resolution.
   const userDataDir = trackTempDir(getTempPath())
@@ -85,7 +87,7 @@ export const launchElectron = async(
       'utf-8'
     )
   }
-  const args = [projectRoot, '--user-data-dir', userDataDir].concat(userArgs)
+  const args = [...(packagedBinary ? [] : [projectRoot]), '--user-data-dir', userDataDir].concat(userArgs)
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   env.PERF_TESTING = 'true'
@@ -94,6 +96,10 @@ export const launchElectron = async(
   // runners launch the built binary directly and omit this test-only flag.
   env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS = '1'
   if (options.suppressErrorDialog) env.MARKTEXT_ERROR_INTERACTION = '1'
+  if (packagedBinary) {
+    delete env.MARKTEXT_DOCUMENT_CORE_MODE
+    delete env.MARKTEXT_DOCUMENT_CORE_SHADOW
+  }
   for (const [key, value] of Object.entries(options.env ?? {})) {
     if (value === undefined) delete env[key]
     else env[key] = value
@@ -105,6 +111,7 @@ export const launchElectron = async(
     env,
     timeout: 30000
   })
+  if (packagedBinary) expect(await app.evaluate(({ app }) => app.isPackaged)).toBe(true)
   if (options.suppressErrorDialog) await installRendererErrorCounter(app)
   const page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')
@@ -229,6 +236,18 @@ export const waitForEditor = async(page: Page, timeout = 15000): Promise<void> =
     null,
     { timeout }
   )
+  // Core first mounts its authority-backed view after the placeholder editor.
+  // Synthetic caret setup must not target that outgoing placeholder subtree.
+  const coreExpected = resolveCoreDocumentLaunchPolicy(await page.evaluate(() =>
+    window.electron.process.env
+  )).coreEnabled
+  await page.waitForFunction(
+    coreExpected => !coreExpected ||
+      window.__marktextDocumentCore?.mode === 'core',
+    coreExpected,
+    { timeout }
+  )
+  await expect(page.locator('.core-view-handoff')).toHaveCount(0)
 }
 
 /**
@@ -269,6 +288,7 @@ export const enterSourceMode = async(page: Page, app: ElectronApplication): Prom
     null,
     { timeout: 10000 }
   )
+  await expect(page.locator('.core-view-handoff')).toHaveCount(0)
 }
 
 export const exitSourceMode = async(page: Page, app: ElectronApplication): Promise<void> => {
@@ -278,6 +298,7 @@ export const exitSourceMode = async(page: Page, app: ElectronApplication): Promi
   await page.waitForFunction(() => !document.querySelector('.source-code'), null, {
     timeout: 10000
   })
+  await expect(page.locator('.core-view-handoff')).toHaveCount(0)
 }
 
 export const getMarkdownContent = async(
@@ -299,7 +320,15 @@ export const getMarkdownContent = async(
 }
 
 export const typeIntoEditor = async(page: Page, text: string): Promise<void> => {
-  await page.click('.editor-component', { timeout: 5000 })
+  // Preserve a caret the caller already placed. Clicking the editor's empty
+  // center creates a new paragraph and changes both source and undo boundaries.
+  const hasEditorSelection = await page.evaluate(() => {
+    const root = document.querySelector('.editor-component')
+    const selection = window.getSelection()
+    return !!root && !!selection?.anchorNode && !!selection.focusNode &&
+      root.contains(selection.anchorNode) && root.contains(selection.focusNode)
+  })
+  if (!hasEditorSelection) await page.locator('.editor-component [contenteditable="true"]').first().click()
   await page.keyboard.type(text, { delay: 0 })
 }
 
@@ -346,8 +375,9 @@ export const focusEditor = async(page: Page): Promise<void> => {
 }
 
 export const placeCaretInEditor = async(page: Page): Promise<void> => {
-  await page.evaluate(commitSelection, true)
-  await page.waitForTimeout(150)
+  await page.locator('.editor-component span.mu-paragraph-content[contenteditable="true"]').first().click()
+  // macOS End scrolls the document; Cmd+Right moves the insertion point.
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End')
 }
 
 export const setSourceMarkdown = async(

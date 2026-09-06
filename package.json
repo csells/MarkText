@@ -58,6 +58,7 @@
   },
   "devDependencies": {
     "@babel/eslint-parser": "^8.0.7",
+    "@electron/asar": "3.4.1",
     "@eslint/js": "^10.0.1",
     "electron": "~42.1.0",
     "eslint": "^10.12.0",

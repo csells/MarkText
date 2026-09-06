@@ -137,6 +137,7 @@ interface MarkdownFixedInlineState {
   readonly kind: 'link-destination' | 'inline-html' | 'autolink'
   readonly openStart: number
   readonly closeEnd: number
+  readonly extendedAutolink?: true
   readonly linkLabel?: MarkdownPendingLinkLabel
 }
 
@@ -363,8 +364,8 @@ export interface MarkdownLaneState {
   readonly markerIsProtected: (checkpoint: MarkdownCheckpoint) => boolean
   readonly markerIsLiteralOwned: (checkpoint: MarkdownCheckpoint) => boolean
   /**
-   * ADR-0014 lets only unfinished inline code and single-dollar inline math
-   * yield to their owning annotation's compatible closer. Completed literal
+   * Unfinished inline code, single-dollar math and bare autolinks yield to
+   * their owning annotation's compatible closer. Completed literal
    * owners, including double-dollar math blocks, still win.
    */
   readonly compatibleCloserStandsAgainstLiteral: (
@@ -3011,7 +3012,8 @@ export function createMarkdownLaneState(
                 fixedInline = Object.freeze({
                   kind: 'autolink',
                   openStart: offset,
-                  closeEnd: extendedAutolink.end
+                  closeEnd: extendedAutolink.end,
+                  extendedAutolink: true
                 })
                 continue
               }
@@ -3610,6 +3612,26 @@ export function createMarkdownLaneState(
     checkpoint: MarkdownCheckpoint,
     boundary: number
   ): MarkdownLaneAdvance => {
+    if (checkpoint.pendingCarriageReturn !== undefined) {
+      const pending = checkpoint.pendingCarriageReturn
+      // A terminal CR has no following LF to complete its physical line.
+      // Emit it before deriving the final literal and line boundaries.
+      const flushed = advanceCore(
+        Object.freeze({ ...checkpoint, pendingCarriageReturn: undefined }),
+        pending.sourceStart,
+        pending.sourceEnd,
+        0,
+        boundary,
+        boundary,
+        false
+      )
+      const finished = finishLane(flushed.checkpoint, boundary)
+      return Object.freeze({
+        checkpoint: finished.checkpoint,
+        completedLiterals: Object.freeze([...flushed.completedLiterals, ...finished.completedLiterals]),
+        completedLines: Object.freeze([...(flushed.completedLines ?? []), ...(finished.completedLines ?? [])])
+      })
+    }
     const completedLiterals: MarkdownLiteralRange[] = []
     const completedLines =
       checkpoint.linePath === undefined || checkpoint.lineStart >= boundary
@@ -3691,6 +3713,11 @@ export function createMarkdownLaneState(
     checkpoint: MarkdownCheckpoint,
     boundary: number
   ): MarkdownLaneAdvance => {
+    // A bare URL has no closing delimiter of its own. An arm separator ends
+    // that URL; angle autolinks and completed destinations retain ownership.
+    if (checkpoint.fixedInline?.extendedAutolink === true) {
+      return releaseAtBoundary(Object.freeze({ ...checkpoint, fixedInline: undefined }), boundary)
+    }
     if (materializeMarkdownLine(checkpoint.linePath).length !== 0) {
       return Object.freeze({
         checkpoint,
@@ -3994,7 +4021,8 @@ export function createMarkdownLaneState(
     compatibleCloserStandsAgainstLiteral: Object.freeze(
       (checkpoint: MarkdownCheckpoint): boolean =>
         checkpoint.inlineCode !== undefined ||
-        checkpoint.math?.delimiterLength === 1
+        checkpoint.math?.delimiterLength === 1 ||
+        checkpoint.fixedInline?.extendedAutolink === true
     ),
     finishArm: Object.freeze(finishArm),
     enterArm: Object.freeze((
@@ -4114,7 +4142,7 @@ export function buildPlainMarkdownLine(
   })
 }
 
-/** Line boundaries starting at `start`, honoring LF and CRLF. */
+/** Line boundaries starting at `start`, honoring LF, CRLF and CR. */
 export function plainMarkdownLineBounds(
   source: string,
   start: number
@@ -4200,7 +4228,7 @@ function parsePlainMarkdownLanePass(
     start: number,
     end: number
   ): MarkdownContainerDepthFailure | undefined => {
-    if (start === end) {
+    if (start === end && checkpoint.pendingCarriageReturn === undefined) {
       return undefined
     }
     const advanced = parser.advance(
@@ -4242,8 +4270,10 @@ function parsePlainMarkdownLanePass(
       lineContinuesLiteralContainer ||
         checkpoint.frontMatter !== undefined
     ))
+    // This driver owns complete physical lines. Finalize a lone CR before
+    // deriving the next line's inherited container and literal state.
     const failure =
-      advanceRange(start, contentEnd) ?? advanceRange(contentEnd, end)
+      advanceRange(start, contentEnd) ?? advanceRange(contentEnd, end) ?? advanceRange(end, end)
     if (failure !== undefined) {
       return Object.freeze({
         literals: composeMarkdownLiteralRanges(literals),
