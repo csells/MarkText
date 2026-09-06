@@ -11,8 +11,7 @@ import { launchElectron } from './helpers'
 // being open + focused, and asserts results stream back to the renderer.
 
 const writeFixtureTree = (): string => {
-  const dir = path.join(os.tmpdir(), 'mt-rg-' + Math.random().toString(36).slice(2, 8))
-  fs.mkdirSync(dir, { recursive: true })
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-rg-'))
   fs.writeFileSync(path.join(dir, 'one.md'), '# Hello\n\nmagic-needle-XYZ in body.\n')
   fs.writeFileSync(path.join(dir, 'two.md'), '# Other\n\nnothing here.\n')
   fs.writeFileSync(path.join(dir, 'three.md'), '# Third\nanother magic-needle-XYZ.\n')

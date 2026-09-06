@@ -137,6 +137,8 @@ test.describe('TOC panel content + live update', () => {
       .poll(() => readTocLabels(page), { timeout: 8000 })
       .toEqual(['A', 'B', 'B1 Renamed', 'C'])
 
+    await expect(page.getByRole('region', { name: 'Recovered drafts' })).toHaveCount(0)
+
     // Nesting must be unchanged by the rename.
     const tree = await readTocTree(page)
     expect(tree).toEqual([
@@ -167,6 +169,7 @@ test.describe('TOC panel content + live update', () => {
     await expect
       .poll(() => readTocLabels(page), { timeout: 8000 })
       .toEqual(['A', 'B', 'B1 Renamed', 'C', 'D'])
+    await expect(page.getByRole('region', { name: 'Recovered drafts' })).toHaveCount(0)
 
     const tree = await readTocTree(page)
     expect(tree).toEqual([

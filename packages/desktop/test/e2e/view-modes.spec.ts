@@ -306,12 +306,7 @@ test.describe('View modes — typewriter scrolling (item 173)', () => {
       return { relativeTop: bRect.top - cRect.top, containerHeight: cRect.height }
     })
 
-  // FIXME(headless): typewriter centering and the post-toggle scroll-into-view
-  // assertions depend on a real rendered viewport and stable scroll settling,
-  // which xvfb does not reproduce (this passes on a headed display). The
-  // `.typewriter` class toggle is covered by the test above, and the checklist
-  // classifies typewriter centering as manual QA.
-  test.fixme('item 173: typewriter centers the caret; toggling off keeps it in view (not at the bottom)', async() => {
+  test('item 173: typewriter centers the caret; toggling off keeps it in view (not at the bottom)', async() => {
     await clickMenuById(app, 'typewriterModeMenuItem')
     await expect(page.locator('.editor-wrapper')).toHaveClass(/(^|\s)typewriter(\s|$)/)
 

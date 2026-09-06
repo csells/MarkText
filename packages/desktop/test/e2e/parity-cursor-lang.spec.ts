@@ -112,32 +112,34 @@ test.describe('Parity G7 — WYSIWYG -> source caret sync', () => {
 test.describe('Parity G8 — language switch refreshes inline hints', () => {
   test('G8: an empty paragraph\'s quick-insert hint updates on language change', async() => {
     const { app, page } = await launchWithMarkdown('\n')
-    await waitForMenuReady(app)
+    try {
+      await waitForMenuReady(app)
 
-    const hintFor = (): Promise<string | null> =>
-      page.evaluate(() => {
-        const p = document.querySelector('.editor-component span.mu-paragraph-content')
-        return p ? p.getAttribute('empty-hint') : null
-      })
+      const hintFor = (): Promise<string | null> =>
+        page.evaluate(() => {
+          const p = document.querySelector('.editor-component span.mu-paragraph-content')
+          return p ? p.getAttribute('empty-hint') : null
+        })
 
-    const enHint = await hintFor()
-    expect(enHint).toBeTruthy()
+      const enHint = await hintFor()
+      expect(enHint).toBeTruthy()
 
     // Mirror the real main-process order: AppMenu registers its
     // `broadcast-preferences-changed` listener before WindowManager, so
     // `language-changed` reaches the renderer BEFORE the `mt::user-preference`
     // that syncs the preferences store. The handler must therefore read the
     // locale from the event payload, not from the still-stale `language.value`.
-    await sendIpcToRenderer(app, 'language-changed', 'zh-CN')
-    await sendIpcToRenderer(app, 'mt::user-preference', { language: 'zh-CN' })
-    await page.waitForTimeout(400)
+      await sendIpcToRenderer(app, 'language-changed', 'zh-CN')
+      await sendIpcToRenderer(app, 'mt::user-preference', { language: 'zh-CN' })
+      await page.waitForTimeout(400)
 
-    const zhHint = await hintFor()
-    expect(zhHint).toBeTruthy()
+      const zhHint = await hintFor()
+      expect(zhHint).toBeTruthy()
     // The rendered hint changed language without re-typing/reloading.
-    expect(zhHint).not.toBe(enHint)
-
-    await app.close()
+      expect(zhHint).not.toBe(enHint)
+    } finally {
+      await app.close()
+    }
   })
 })
 

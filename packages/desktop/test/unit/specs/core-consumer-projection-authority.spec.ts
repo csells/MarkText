@@ -25,6 +25,67 @@ const inMemoryPort = (): CoreActorPort => {
 }
 
 describe('Core consumer projection authority', () => {
+  it('shares one immutable consumer snapshot across concurrent readers of a settled revision', async() => {
+    const requests: CoreRequest[] = []
+    const actor = createCoreActor()
+    const manager = createCoreDocumentSessionManager({
+      createBinding: () => createEditorCoreBinding({
+        async request(request) {
+          requests.push(request)
+          return structuredClone(actor.handle(structuredClone(request)))
+        },
+        dispose() { actor.dispose() }
+      })
+    })
+    await manager.open({ documentId: 'shared.md', source: '{++new++} text\n', lineEnding: '\n' })
+    const lease = manager.lease('shared.md')
+    const snapshots = await Promise.all(Array.from({ length: 8 }, () => lease.consumerProjectionAtBarrier()))
+    expect(snapshots.every(snapshot => snapshot === snapshots[0])).toBe(true)
+    expect(snapshots[0].markdown).toBe('new text\n')
+    expect(await lease.consumerProjectionAtBarrier()).toBe(snapshots[0])
+    expect(requests.filter(request => request.type === 'consumer-projection-at-barrier')).toHaveLength(1)
+
+    await lease.binding.submit({ edits: [{ start: 14, end: 14, insert: '!' }], projections: [] }).acknowledged
+    const updated = await lease.consumerProjectionAtBarrier()
+    expect(updated).not.toBe(snapshots[0])
+    expect(updated.markdown).toBe('new text!\n')
+    expect(requests.filter(request => request.type === 'consumer-projection-at-barrier')).toHaveLength(2)
+    await manager.handoff(lease)
+    await manager.close('shared.md')
+  })
+
+  it('rejects all readers of a delayed stale snapshot and retries the current revision', async() => {
+    let release: (() => void) | undefined
+    let requested: (() => void) | undefined
+    const observed = new Promise<void>(resolve => { requested = resolve })
+    const actor = createCoreActor()
+    const manager = createCoreDocumentSessionManager({
+      createBinding: () => createEditorCoreBinding({
+        async request(request) {
+          const reply = structuredClone(actor.handle(request))
+          if (request.type === 'consumer-projection-at-barrier' && request.baseRevision === 1) {
+            requested?.()
+            await new Promise<void>(resolve => { release = resolve })
+          }
+          return reply
+        },
+        dispose() { actor.dispose() }
+      })
+    })
+    await manager.open({ documentId: 'delayed.md', source: 'old', lineEnding: '\n' })
+    const lease = manager.lease('delayed.md')
+    const first = expect(lease.consumerProjectionAtBarrier()).rejects.toThrow('stale')
+    const second = expect(lease.consumerProjectionAtBarrier()).rejects.toThrow('stale')
+    await observed
+    await lease.binding.submit({ edits: [{ start: 0, end: 3, insert: 'new' }], projections: [] }).acknowledged
+    release?.()
+    await Promise.all([first, second])
+    expect(lease.consumerProjection()).toBeUndefined()
+    expect((await lease.consumerProjectionAtBarrier()).markdown).toBe('new')
+    await manager.handoff(lease)
+    await manager.close('delayed.md')
+  })
+
   it('transports one detached Revised AST without canonical source', () => {
     const actor = createCoreActor()
     actor.handle({

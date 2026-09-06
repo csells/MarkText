@@ -1,19 +1,22 @@
 export type { ISerializedHistory } from './history';
 export type { ILocale } from './i18n/types';
+export type { IInlinePresentationContext, IInlinePresentationImage, TInlinePresentation } from './inlineRenderer/types';
 
 export { de, en, es, fr, ja, ko, nl, pt, ru, tr, zhCN, zhTW } from './locales';
 export { Muya } from './muya';
 export type { IMatch, IReplaceOption, ISearchOption } from './search/types';
 export type { IIndexCursor } from './selection/offsetCursor';
 export type { IHistorySelection, IPublicCursorInput } from './selection/types';
+
+export { applyNativeOperation, serializeNativeState } from './state/applyNativeOperation';
 export type { ITocItem } from './state/getTOC';
 export { MarkdownToHtml } from './state/markdownToHtml';
 export { renderToStaticHTML } from './state/renderToStaticHTML';
 export type { IRenderToStaticHTMLOptions } from './state/renderToStaticHTML';
 export type { TState } from './state/types';
 export type { IMuyaOptions } from './types';
-
 export { CodeBlockLanguageSelector } from './ui/codeBlockLanguageSelector';
+
 // Export ui tools.
 export { EmojiSelector } from './ui/emojiSelector';
 export { FootnoteTool } from './ui/footnoteTool';
@@ -35,6 +38,7 @@ export { TableDragBar } from './ui/tableDragBar';
 export { TableRowColumMenu } from './ui/tableRowColumMenu';
 export { renderDiagramForExport } from './utils/diagram/render';
 export type { IExportRenderOptions } from './utils/diagram/render';
+export { validEmoji } from './utils/emoji';
 export type { IImageInfo } from './utils/image';
 export { getImageInfo } from './utils/image';
 export { escapeHTML, sanitize, unescapeHTML, wordCount } from './utils/index';

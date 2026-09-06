@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import * as fs from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   launchWithMarkdown,
   waitForMenuReady,
@@ -28,6 +30,8 @@ const PDF_DOC =
   'First paragraph with **bold** and *italic* text.\n\n' +
   'Second paragraph for a multi-block document.\n\n' +
   '- list item one\n- list item two\n'
+
+const newPdfPath = (): string => join(fs.mkdtempSync(join(tmpdir(), 'marktext-export-')), 'document.pdf')
 
 // Install a main-process stub for `dialog.showSaveDialog` that returns the
 // supplied path (no native picker). Returns nothing; the renderer success
@@ -139,8 +143,7 @@ test.describe('PDF export to a real file (item 231)', () => {
   })
 
   test('writes a non-empty file beginning with the %PDF- magic bytes', async() => {
-    const out = '/tmp/marktext-e2e-export-' + Date.now() + '-a.pdf'
-    if (fs.existsSync(out)) fs.rmSync(out)
+    const out = newPdfPath()
     await clearExportSuccesses(page)
     await stubSaveDialog(app, out)
 
@@ -154,8 +157,7 @@ test.describe('PDF export to a real file (item 231)', () => {
   })
 
   test('fires mt::export-success with type "pdf" and the written file path', async() => {
-    const out = '/tmp/marktext-e2e-export-' + Date.now() + '-b.pdf'
-    if (fs.existsSync(out)) fs.rmSync(out)
+    const out = newPdfPath()
     await clearExportSuccesses(page)
     await stubSaveDialog(app, out)
 
@@ -176,8 +178,7 @@ test.describe('PDF export to a real file (item 231)', () => {
   })
 
   test('canceling the save dialog writes no file and fires no export-success', async() => {
-    const out = '/tmp/marktext-e2e-export-' + Date.now() + '-c.pdf'
-    if (fs.existsSync(out)) fs.rmSync(out)
+    const out = newPdfPath()
     await clearExportSuccesses(page)
     // Stub the save dialog to report cancellation — main must skip printToPDF.
     await app.evaluate(({ dialog }) => {
@@ -200,8 +201,7 @@ test.describe('PDF export to a real file (item 231)', () => {
   test('the renderer EXPORT path round-trips a second export to a fresh path', async() => {
     // Re-export to a different path to prove the print service is re-armed and
     // the wiring is not single-shot.
-    const out = '/tmp/marktext-e2e-export-' + Date.now() + '-d.pdf'
-    if (fs.existsSync(out)) fs.rmSync(out)
+    const out = newPdfPath()
     await clearExportSuccesses(page)
     await stubSaveDialog(app, out)
 

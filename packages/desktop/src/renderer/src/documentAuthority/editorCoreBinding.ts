@@ -1,7 +1,8 @@
 import type {
   DocumentSourceEdit,
   DocumentProjectionRequest,
-  MarkdownOptions
+  MarkdownOptions,
+  MarkdownProjectionName
 } from '@marktext/document-core'
 
 import type {
@@ -9,6 +10,7 @@ import type {
   CoreAppliedReply,
   CoreAuthorForm,
   CoreConsumerProjectionReply,
+  CoreDisplayProjectionReply,
   CoreConsumerSearchReplacement,
   CoreSelectionProjectionReply,
   CoreOpenedReply,
@@ -41,6 +43,7 @@ export interface EditorCoreBinding {
   consumerProjectionAtBarrier?(): Promise<
     CoreConsumerProjectionReply | CoreRejectedReply
   >
+  displayProjectionAtBarrier?(name: MarkdownProjectionName): Promise<CoreDisplayProjectionReply | CoreRejectedReply>
   selectionProjectionAtBarrier(range: Readonly<{
     readonly start: number
     readonly end: number
@@ -54,7 +57,8 @@ export interface EditorCoreBinding {
 }
 
 export type EditorCoreSubmitInput = Readonly<{
-  readonly kind?: 'source-edits'
+  readonly kind?: 'source-edits' | 'markup-edits' | 'track-edits'
+  readonly nativeHistoryGroup?: string
   readonly edits: readonly DocumentSourceEdit[]
   readonly projections: readonly DocumentProjectionRequest[]
 }> | Readonly<{
@@ -89,6 +93,7 @@ export type EditorCoreSubmitInput = Readonly<{
   readonly projections: readonly DocumentProjectionRequest[]
 }> | Readonly<{
   readonly kind: 'track'
+  readonly nativeHistoryGroup?: string
   readonly range: Readonly<{ readonly start: number; readonly end: number }>
   readonly text: string
   readonly projections: readonly DocumentProjectionRequest[]
@@ -142,7 +147,8 @@ const copyHistorySnapshot = (
   try {
     return Object.freeze({
       undo: copyEntries(snapshot.undo),
-      redo: copyEntries(snapshot.redo)
+      redo: copyEntries(snapshot.redo),
+      ...(snapshot.nativeHistoryGroup === undefined ? {} : { nativeHistoryGroup: snapshot.nativeHistoryGroup })
     })
   } catch {
     return undefined
@@ -254,6 +260,9 @@ export function createEditorCoreBinding(port: CoreActorPort): EditorCoreBinding 
             sequence: transactionId,
             baseRevision: revision,
             edits: Object.freeze(input.edits.map(edit => Object.freeze({ ...edit }))),
+            ...(input.kind === 'markup-edits' ? { markup: true as const } : {}),
+            ...(input.kind === 'track-edits' ? { tracked: true as const } : {}),
+            ...(input.nativeHistoryGroup === undefined ? {} : { nativeHistoryGroup: input.nativeHistoryGroup }),
             projections
           })
           : input.kind === 'replace-consumer-search'
@@ -328,6 +337,7 @@ export function createEditorCoreBinding(port: CoreActorPort): EditorCoreBinding 
                     : input.kind === 'track'
                       ? Object.freeze({
                         type: 'track' as const,
+                        ...(input.nativeHistoryGroup === undefined ? {} : { nativeHistoryGroup: input.nativeHistoryGroup }),
                         session,
                         sequence: transactionId,
                         baseRevision: revision,
@@ -355,7 +365,7 @@ export function createEditorCoreBinding(port: CoreActorPort): EditorCoreBinding 
             (reply.reason === 'history-empty' ||
               reply.reason === 'no-change' ||
               (reply.reason === 'history-resource' &&
-                input.kind !== 'source-edits' && input.kind !== 'track') ||
+                input.kind !== 'source-edits' && input.kind !== 'track' && input.kind !== 'track-edits') ||
               (reply.reason === 'stale-base' &&
                 (input.kind === 'resolve' || input.kind === 'edit-comment' ||
                   input.kind === 'replace-consumer-search')) ||
@@ -426,6 +436,20 @@ export function createEditorCoreBinding(port: CoreActorPort): EditorCoreBinding 
       }))
       if (reply.type !== 'plain-text-view' && reply.type !== 'rejected') {
         throw new Error('Core plain-text-view barrier reply is invalid')
+      }
+      return reply
+    },
+    async displayProjectionAtBarrier(name: MarkdownProjectionName): Promise<CoreDisplayProjectionReply | CoreRejectedReply> {
+      if (disposed) throw new Error('Editor Core binding is disposed')
+      if (!opened) throw new Error('Editor Core document is not open')
+      if (reconciliationRequired) throw new Error('Editor Core reconciliation is required')
+      if (inFlight) throw new Error('Core edit transaction is already in flight')
+      sequence += 1
+      const reply = await port.request(Object.freeze({
+        type: 'display-projection-at-barrier', session, sequence, baseRevision: revision, name
+      }))
+      if (reply.type !== 'display-projection' && reply.type !== 'rejected') {
+        throw new Error('Core display projection barrier reply is invalid')
       }
       return reply
     },

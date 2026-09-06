@@ -12,7 +12,7 @@ import {
   waitForEditor,
   waitForMenuReady
 } from './helpers'
-import { expectInstalledArtifactCommit } from './installedArtifactProvenance'
+import { defaultCoreLaunchEnvironment, expectDefaultCoreAuthority, expectInstalledArtifactCommit } from './installedArtifactProvenance'
 import {
   readInputLatencyTrace,
   startInputLatencyTrace,
@@ -66,8 +66,9 @@ const installedResolveCases = [
   },
   {
     id: 'highlight.nested-comment.resolve',
-    initialKind: 'highlight',
-    actionTestId: 'critic-review-remove',
+    initialKind: 'comment',
+    actionTestId: 'critic-review-edit-comment',
+    editedCommentText: 'A local highlight in a comment.',
     remainingKind: 'comment'
   },
   {
@@ -89,7 +90,7 @@ const installedResolveRows = installedResolveCases.map(testCase => {
 })
 
 const installedSaveReopenCases = [
-  { id: 'addition.nested-comment.save-reopen', reviewKind: 'addition' },
+  { id: 'addition.nested-comment.save-reopen', reviewKind: 'comment' },
   { id: 'comment.literal.save-reopen', reviewKind: null },
   { id: 'deletion.paragraph.save-reopen', reviewKind: 'deletion' },
   { id: 'highlight.block-boundary.save-reopen', reviewKind: 'highlight' },
@@ -111,7 +112,7 @@ const installedSourceRoundTripCases = [
   { id: 'comment.block-boundary.source-round-trip', reviewKind: 'comment' },
   { id: 'deletion.literal.source-round-trip', reviewKind: null },
   { id: 'highlight.paragraph.source-round-trip', reviewKind: 'highlight' },
-  { id: 'substitution.nested-comment.source-round-trip', reviewKind: 'substitution' }
+  { id: 'substitution.nested-comment.source-round-trip', reviewKind: 'comment' }
 ] as const
 
 const installedSourceRoundTripRows = installedSourceRoundTripCases.map(testCase => {
@@ -135,7 +136,7 @@ const installedRenderCases = [
     id: 'comment.nested-comment.render',
     initialKind: 'comment',
     revisedText: '',
-    commentTexts: ['inner note', 'Outer note with {>>inner note<<}.']
+    commentText: 'Outer note with .'
   },
   {
     id: 'deletion.reference-footnote.render',
@@ -184,7 +185,7 @@ const installedAuthorCases = [{
   id: 'deletion.nested-comment.author',
   mode: 'edit-comment',
   promptText: 'A local {--deletion--} in a comment.',
-  reviewKind: 'deletion'
+  reviewKind: 'comment'
 }, {
   id: 'highlight.reference-footnote.author',
   mode: 'selection-control',
@@ -243,13 +244,11 @@ const launchInstalled = async(
   const app = await electron.launch({
     executablePath: binary,
     args: ['--user-data-dir', userDataDir, filePath],
-    env: {
-      ...process.env,
+    env: defaultCoreLaunchEnvironment({
       PERF_TESTING: 'true',
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1',
       MARKTEXT_ERROR_INTERACTION: '1'
-    },
+    }),
     timeout: 60_000
   })
   try {
@@ -258,6 +257,7 @@ const launchInstalled = async(
     await waitForEditor(page, 60_000)
     await waitForMenuReady(app, 60_000)
     await expectInstalledArtifactCommit(page)
+    await expectDefaultCoreAuthority(page)
     return { app, page }
   } catch (error) {
     await app.close().catch(() => {})
@@ -326,11 +326,18 @@ test.describe('installed Core Review authority', () => {
           await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
           await expect.poll(() => fs.readFileSync(filePath, 'utf8')).toBe(row.source)
         } else {
-          await expect(kind).toHaveText(testCase.initialKind)
+          await expect(kind).toHaveAttribute('data-kind', testCase.initialKind)
           if (testCase.actionTestId === null) {
             throw new Error(`${row.id} requires one visible resolution action`)
           }
           await page.getByTestId(testCase.actionTestId).click()
+          if ('editedCommentText' in testCase) {
+            // Nested syntax is edited in its outer Comment, never as a main Review card.
+            const input = page.getByTestId('critic-review-comment-input')
+            await input.fill(testCase.editedCommentText)
+            await page.getByTestId('critic-review-comment-submit').click()
+            await expect(input).not.toBeVisible()
+          }
           await page.evaluate(() => window.__marktextDocumentCore?.settled())
           await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
           await expect.poll(() => fs.readFileSync(filePath, 'utf8'))
@@ -358,7 +365,7 @@ test.describe('installed Core Review authority', () => {
           await expect(launched.page.getByTestId('critic-review-kind')).toHaveCount(0)
         } else {
           await expect(launched.page.getByTestId('critic-review-kind'))
-            .toHaveText(testCase.remainingKind)
+            .toHaveAttribute('data-kind', testCase.remainingKind)
         }
       } finally {
         if (launched !== undefined) await launched.app.close()
@@ -378,7 +385,7 @@ test.describe('installed Core Review authority', () => {
       const expectReviewKind = async(page: Page): Promise<void> => {
         const kind = page.getByTestId('critic-review-kind')
         if (testCase.reviewKind === null) await expect(kind).toHaveCount(0)
-        else await expect(kind).toHaveText(testCase.reviewKind)
+        else await expect(kind).toHaveAttribute('data-kind', testCase.reviewKind)
       }
       try {
         launched = await launchInstalled(binary, userDataDir, filePath)
@@ -417,7 +424,7 @@ test.describe('installed Core Review authority', () => {
       const expectReviewKind = async(page: Page): Promise<void> => {
         const kind = page.getByTestId('critic-review-kind')
         if (testCase.reviewKind === null) await expect(kind).toHaveCount(0)
-        else await expect(kind).toHaveText(testCase.reviewKind)
+        else await expect(kind).toHaveAttribute('data-kind', testCase.reviewKind)
       }
       try {
         launched = await launchInstalled(binary, userDataDir, filePath)
@@ -467,17 +474,27 @@ test.describe('installed Core Review authority', () => {
         )).toBeUndefined()
         const kind = page.getByTestId('critic-review-kind')
         if (testCase.initialKind === null) await expect(kind).toHaveCount(0)
-        else await expect(kind).toHaveText(testCase.initialKind)
+        else await expect(kind).toHaveAttribute('data-kind', testCase.initialKind)
         if (testCase.revisedText.length > 0) {
           await expect(page.locator('.editor-component'))
             .toContainText(testCase.revisedText)
         }
 
-        if ('commentTexts' in testCase) {
+        if ('commentText' in testCase) {
           const commentText = page.getByTestId('critic-review-comment-text')
-          await expect(commentText).toHaveText(testCase.commentTexts[0])
-          await page.getByTestId('critic-review-next').click()
-          await expect(commentText).toHaveText(testCase.commentTexts[1])
+          // Hidden Comment subdocuments stay inside the outer raw-payload editor.
+          await expect(commentText).toHaveText(testCase.commentText)
+          await page.getByTestId('critic-review-edit-comment').click()
+          const input = page.getByTestId('critic-review-comment-input')
+          await expect(input).toHaveValue('Outer note with {>>inner note<<}.')
+          await input.fill('Updated outer note with {>>inner note<<}.')
+          await page.getByTestId('critic-review-comment-submit').click()
+          await expect(input).not.toBeVisible()
+          await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+          await expect.poll(() => fs.readFileSync(filePath, 'utf8'))
+            .toBe(row.source.replace('Outer note with', 'Updated outer note with'))
+          await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+          await page.evaluate(() => window.__marktextDocumentCore?.settled())
         }
         if ('rejectedSource' in testCase) {
           await page.getByTestId('critic-review-reject').click()
@@ -526,35 +543,45 @@ test.describe('installed Core Review authority', () => {
         if (testCase.mode === 'selection-control') {
           await selectRenderedText(page, testCase.renderedSelection)
         } else {
-          await expect(page.getByTestId('critic-review-kind')).toHaveText('comment')
+          await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'comment')
         }
-        if (testCase.promptText !== null) {
+        const usesCommentComposer = testCase.mode !== 'selection-control' ||
+          testCase.actionTestId === 'critic-review-add-comment'
+        if (testCase.promptText !== null && !usesCommentComposer) {
           await page.evaluate(text => { window.prompt = () => text }, testCase.promptText)
         }
         const control = page.getByTestId(testCase.mode === 'selection-control'
           ? testCase.actionTestId
           : 'critic-review-edit-comment')
-        await expect(control).toBeEnabled()
-        await control.click()
-        await expect.poll(() => page.evaluate(() =>
-          (window.__marktextDocumentCore?.latest() as {
-            result?: string
-          })?.result
-        )).toBe(testCase.mode === 'selection-control' ? 'author' : 'edit-comment')
-        const authorResult = await page.evaluate(() =>
-          window.__marktextDocumentCore?.latest()
-        ) as { outcome?: { type?: string } }
-        if (actionOutcome === 'applied') {
-          expect(authorResult).toMatchObject({ outcome: { type: 'applied' } })
+        if (actionOutcome === 'unavailable') {
+          await expect(control).toBeDisabled()
         } else {
-          expect(authorResult.outcome).toBeUndefined()
+          await expect(control).toBeEnabled()
+          await control.click()
+          if (usesCommentComposer && testCase.promptText !== null) {
+            await page.getByTestId('critic-review-comment-input').fill(testCase.promptText)
+            await page.getByTestId('critic-review-comment-submit').click()
+          }
+          await expect.poll(() => page.evaluate(() =>
+            (window.__marktextDocumentCore?.latest() as {
+              result?: string
+            })?.result
+          )).toBe(testCase.mode === 'selection-control' ? 'author' : 'edit-comment')
+          const authorResult = await page.evaluate(() =>
+            window.__marktextDocumentCore?.latest()
+          ) as { outcome?: { type?: string } }
+          if (actionOutcome === 'applied') {
+            expect(authorResult).toMatchObject({ outcome: { type: 'applied' } })
+          } else {
+            expect(authorResult.outcome).toBeUndefined()
+          }
         }
         await page.evaluate(() => window.__marktextDocumentCore?.settled())
         if (testCase.reviewKind === null) {
           await expect(page.getByTestId('critic-review-kind')).toHaveCount(0)
         } else {
           await expect(page.getByTestId('critic-review-kind'))
-            .toHaveText(testCase.reviewKind)
+            .toHaveAttribute('data-kind', testCase.reviewKind)
         }
         await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
         await expect.poll(() => fs.readFileSync(filePath, 'utf8'))
@@ -581,7 +608,7 @@ test.describe('installed Core Review authority', () => {
           await expect(launched.page.getByTestId('critic-review-kind')).toHaveCount(0)
         } else {
           await expect(launched.page.getByTestId('critic-review-kind'))
-            .toHaveText(testCase.reviewKind)
+            .toHaveAttribute('data-kind', testCase.reviewKind)
         }
       } finally {
         if (launched !== undefined) await launched.app.close()
@@ -607,7 +634,7 @@ test.describe('installed Core Review authority', () => {
           window.electron.process.env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
         )).toBeUndefined()
 
-        await expect(page.getByTestId('critic-review-kind')).toHaveText('addition')
+        await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'addition')
         const control = page.getByTestId(testCase.actionTestId)
         await expect(control).toBeEnabled()
         await control.click()
@@ -629,7 +656,7 @@ test.describe('installed Core Review authority', () => {
         await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
         await expect.poll(() => fs.readFileSync(filePath, 'utf8'))
           .toBe(bulkResolutionSource)
-        await expect(page.getByTestId('critic-review-kind')).toHaveText('addition')
+        await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'addition')
 
         await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
         await page.evaluate(() => window.__marktextDocumentCore?.settled())
@@ -727,21 +754,18 @@ test.describe('installed Core Review authority', () => {
       )).toBeGreaterThanOrEqual(2)
       await page.evaluate(() => window.__marktextDocumentCore?.settled())
 
-      await expect(page.getByTestId('critic-review-kind')).toHaveText('addition')
+      await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'addition')
       const previousReviewItem = page.getByTestId('critic-review-previous')
-      for (let remaining = 3; remaining > 0; remaining -= 1) {
-        if (await page.getByTestId('critic-review-kind').textContent() === 'commented-span') {
-          break
-        }
-        await previousReviewItem.click()
-        await expect(previousReviewItem).toBeDisabled()
-        await expect(previousReviewItem).toBeEnabled()
-      }
-      await expect(page.getByTestId('critic-review-kind')).toHaveText('commented-span')
-      await page.evaluate(() => { window.prompt = () => 'new note' })
+      await expect.poll(async() => {
+        const kind = await page.getByTestId('critic-review-kind').getAttribute('data-kind')
+        if (kind !== 'commented-span') await previousReviewItem.click()
+        return kind
+      }, { intervals: [150, 250, 500] }).toBe('commented-span')
       const editComment = page.getByTestId('critic-review-edit-comment')
       await expect(editComment).toBeEnabled()
       await editComment.click()
+      await page.getByTestId('critic-review-comment-input').fill('new note')
+      await page.getByTestId('critic-review-comment-submit').click()
 
       await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
       await expect.poll(() => fs.readFileSync(filePath, 'utf8')).toBe(saved)
@@ -755,7 +779,7 @@ test.describe('installed Core Review authority', () => {
       launched = undefined
 
       launched = await launchInstalled(binary, userDataDir, filePath)
-      await expect(launched.page.getByTestId('critic-review-kind')).toHaveText('addition')
+      await expect(launched.page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'addition')
       await expect(launched.page.locator('span.mu-paragraph-content').nth(0))
         .toHaveText('seed!')
       expect(fs.readFileSync(filePath, 'utf8')).toBe(saved)

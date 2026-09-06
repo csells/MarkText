@@ -89,6 +89,7 @@ export const extractCriticMarkupProfileRuleIds = (profile: string): string[] => 
 /**
  * Validate only the pinned draft map's structure and evidence links.
  * This function neither reviews expected results nor executes conformance cases.
+ * Historical tooling: plan 0011 supersedes this packet as a completion gate.
  */
 export function validateCriticMarkupProfileConformance(
   repoRoot: string,

@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -49,9 +50,17 @@ const salvageBaseline = readJson<CriticMarkupSalvageBaseline>(
 const salvageProposal = readJson<CriticMarkupSalvageProposal>(
   'specs/baselines/criticmarkup-salvage-proposal.json'
 )
-const approval = readJson<CriticMarkupPhase0Approval>(
+const archivedApproval = readJson<CriticMarkupPhase0Approval>(
   'specs/baselines/criticmarkup-phase0-approval.json'
 )
+// Plan 0011 retired this packet as a live completion gate. Exercise its
+// historical validator with a synthetic fixture; never refresh archival hashes
+// or manufacture owner approval merely because current documentation changed.
+const approval = structuredClone(archivedApproval)
+for (const evidence of approval.evidence) {
+  evidence.sha256 = createHash('sha256')
+    .update(readFileSync(resolve(repoRoot, evidence.path))).digest('hex')
+}
 const reviewPacket = readFileSync(resolve(
   repoRoot,
   'specs/baselines/criticmarkup-phase0-review.md'
@@ -153,7 +162,7 @@ const preferenceItemIds = [
   'phase0.item.ffa81e56602d915d5b52e949'
 ] as const
 
-describe('CriticMarkup Phase 0 review proposal', () => {
+describe('historical CriticMarkup Phase 0 validator (synthetic evidence)', () => {
   afterEach(() => vi.restoreAllMocks())
 
   it('requires the v2 proposal schema for item-level compatibility decisions', () => {
@@ -357,7 +366,7 @@ describe('CriticMarkup Phase 0 review proposal', () => {
     )).toThrow(/candidate-ID digest is stale/)
   })
 
-  it('validates a pinned proposal but keeps every owner decision explicitly pending', () => {
+  it('validates a synthetic pinned proposal without altering archived owner decisions', () => {
     expect(approval).toMatchObject({
       status: 'proposed-unapproved',
       baselineCommit: parityBaseline.baselineCommit,

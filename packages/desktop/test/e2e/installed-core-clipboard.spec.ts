@@ -11,7 +11,12 @@ import {
   waitForEditor,
   waitForMenuReady
 } from './helpers'
-import { expectInstalledArtifactCommit } from './installedArtifactProvenance'
+import { defaultCoreLaunchEnvironment, expectDefaultCoreAuthority, expectInstalledArtifactCommit } from './installedArtifactProvenance'
+import { preserveSystemClipboard } from './helpers/systemClipboardFixture'
+
+let clipboardFixture: ReturnType<typeof preserveSystemClipboard>
+test.beforeAll(() => { clipboardFixture = preserveSystemClipboard() })
+test.afterAll(() => { clipboardFixture?.restore() })
 
 const projectionSource =
   'alpha copied\n\n{--gone--}{++new++}\n\nbeta\n'
@@ -41,13 +46,11 @@ const launchInstalled = async(
   const app = await electron.launch({
     executablePath: binary,
     args: ['--user-data-dir', userDataDir, filePath],
-    env: {
-      ...process.env,
+    env: defaultCoreLaunchEnvironment({
       PERF_TESTING: 'true',
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1',
       MARKTEXT_ERROR_INTERACTION: '1'
-    },
+    }),
     timeout: 60_000
   })
   try {
@@ -56,6 +59,7 @@ const launchInstalled = async(
     await waitForEditor(page, 60_000)
     await waitForMenuReady(app, 60_000)
     await expectInstalledArtifactCommit(page)
+    await expectDefaultCoreAuthority(page)
     return { app, page }
   } catch (error) {
     await app.close().catch(() => {})
@@ -114,7 +118,7 @@ const selectProjectedRange = async(page: Page): Promise<void> => {
   })
   expect(selected).toContain('copied')
   expect(selected).toContain('new')
-  expect(selected).not.toContain('gone')
+  expect(selected).toContain('gone')
   await page.waitForTimeout(150)
 }
 
@@ -164,8 +168,10 @@ const invokeNativeClipboard = (
   else win.webContents.paste()
 }, operation)
 
-const clearClipboard = (app: ElectronApplication): Promise<void> =>
-  app.evaluate(({ clipboard }) => { clipboard.clear() })
+const clearClipboard = async(app: ElectronApplication): Promise<void> => {
+  await app.evaluate(({ clipboard }) => { clipboard.clear() })
+  clipboardFixture.rememberOwnedWrite('')
+}
 
 const readClipboard = (app: ElectronApplication): Promise<Readonly<{
   text: string
@@ -180,6 +186,7 @@ const readClipboard = (app: ElectronApplication): Promise<Readonly<{
 const expectProjectedClipboard = async(app: ElectronApplication): Promise<void> => {
   await expect.poll(async() => (await readClipboard(app)).text)
     .toBe(projectedPlainText)
+  clipboardFixture.rememberOwnedWrite(projectedPlainText)
   const payload = await readClipboard(app)
   expect(payload.formats).toContain('text/plain')
   expect(payload.formats).toContain('text/html')
@@ -320,7 +327,7 @@ test.describe('installed Core projected clipboard authority', () => {
         activeElementClass: expect.stringContaining('editor-component')
       })
       await expect.poll(() => page.locator('span.mu-paragraph-content').allTextContents())
-        .toEqual(['alpha copied', 'new', 'beta', 'Zcopied', 'new', 'be'])
+        .toEqual(['alpha copied', 'gonenew', 'beta', 'Zcopied', 'new', 'be'])
       await page.evaluate(() => window.__marktextDocumentCore?.settled())
       await saveAndExpect(app, filePath, pastedSource)
 

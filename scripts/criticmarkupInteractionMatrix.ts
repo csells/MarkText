@@ -463,6 +463,7 @@ export const validateCriticMarkupInteractionEvidence = (
   )
   const matrixById = new Map(matrix.rows.map(row => [row.id, row]))
   const evidenceIds = new Set<string>()
+  const validatedRuns = new Map<string, unknown>()
   for (const row of evidence.rows) {
     if (!row.id.trim() || evidenceIds.has(row.id) || !matrixById.has(row.id)) {
       throw new Error(`CriticMarkup interaction evidence row is stale or duplicated: ${row.id}`)
@@ -550,22 +551,28 @@ export const validateCriticMarkupInteractionEvidence = (
         `CriticMarkup interaction execution ${row.id}`
       )
       if (row.status === 'green') {
-        const runRecord = JSON.parse(readFileSync(resolveRepositoryPath(
+        const recordPath = resolveRepositoryPath(
           repoRoot,
           row.execution.recordPath,
           `CriticMarkup interaction execution ${row.id}`
-        ), 'utf8')) as unknown
-        if (
-          isRecord(runRecord) &&
-          runRecord.schema === 'marktext-installed-core-phase4-evidence-v1'
-        ) {
-          validateInstalledCorePhase4Evidence({
-            repoRoot,
-            interactionIds: matrix.rows.map(matrixRow => matrixRow.id),
-            record: runRecord
-          })
-        } else {
-          validateCriticMarkupInstalledInteractionRunRecord(matrix, runRecord)
+        )
+        const recordKey = `${recordPath}:${row.execution.recordSha256}`
+        let runRecord = validatedRuns.get(recordKey)
+        if (runRecord === undefined) {
+          runRecord = JSON.parse(readFileSync(recordPath, 'utf8')) as unknown
+          if (
+            isRecord(runRecord) &&
+            runRecord.schema === 'marktext-installed-core-phase4-evidence-v1'
+          ) {
+            validateInstalledCorePhase4Evidence({
+              repoRoot,
+              interactionIds: matrix.rows.map(matrixRow => matrixRow.id),
+              record: runRecord
+            })
+          } else {
+            validateCriticMarkupInstalledInteractionRunRecord(matrix, runRecord)
+          }
+          validatedRuns.set(recordKey, runRecord)
         }
         if (
           !isRecord(runRecord) ||

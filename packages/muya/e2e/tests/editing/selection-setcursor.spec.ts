@@ -75,7 +75,7 @@ test.describe('selection setcursor regression', () => {
         await slowType(page, 'X');
 
         await expect(para).toContainText('helloX world');
-        expect(await getMarkdown(page)).toContain('helloX world');
+        await expect.poll(() => getMarkdown(page)).toContain('helloX world');
 
         // After inputHandler -> setCursor the caret is collapsed right after the
         // inserted 'X' (offset 6).

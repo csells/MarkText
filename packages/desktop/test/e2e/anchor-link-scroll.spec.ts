@@ -28,7 +28,7 @@ import { launchWithMarkdown, expectNoRendererErrors } from './helpers'
 // proves the index-based resolution works end-to-end in a real window.
 // ---------------------------------------------------------------------------
 
-const LINK_WRAPPER = 'span.mu-link'
+const LINK_WRAPPER = '.mu-link'
 
 // Many filler paragraphs so the document overflows the viewport and the target
 // heading starts well below the fold. The link sits at the very top, so a
@@ -75,8 +75,7 @@ test.describe('In-document anchor link click scrolls the editor (item 236)', () 
     const launched = await launchWithMarkdown(DOC, { suppressErrorDialog: true })
     app = launched.app
     page = launched.page
-    // The markdown link renders to its preview `span.mu-link` wrapper once the
-    // document is parsed; wait for it before interacting.
+    // Core emits an anchor; the legacy view emits a span with the same class.
     await page.waitForSelector(LINK_WRAPPER, { state: 'attached', timeout: 15000 })
   })
 

@@ -34,6 +34,7 @@ import type {
 } from './files'
 import type { BufferedState as BufferedStateType } from './bufferedState'
 import type { MenuTemplate, MenuPopupPosition } from './menu'
+import type { CoreRecoveryDraftInput, CoreRecoveryDraftRecord } from './coreRecoveryDraft'
 
 export interface SaveDialogRequest {
   title?: string
@@ -50,6 +51,8 @@ export type PlantumlFetchResult =
 // =================================================================
 
 export interface IpcInvokeChannels {
+  'mt::core-draft::list': { args: []; ret: CoreRecoveryDraftRecord[] }
+  'mt::core-draft::archive': { args: [id: string]; ret: void }
   'mt::ask-for-image-path': { args: []; ret: string[] }
   'mt::boot-info-async': { args: []; ret: BootInfo }
   'mt::clipboard::guess-file-path': { args: []; ret: string | null }
@@ -63,7 +66,7 @@ export interface IpcInvokeChannels {
   'mt::dialog::show-save': { args: [request: SaveDialogRequest]; ret: string | null }
   'mt::fonts::list': { args: []; ret: string[] }
   'mt::fs-trash-item': { args: [pathname: string]; ret: boolean }
-  'mt::fs::copy': { args: [src: string, dest: string]; ret: void }
+  'mt::fs::copy': { args: [src: string, dest: string, options?: { overwrite: false; errorOnExist: true }]; ret: void }
   'mt::fs::copy-with-content-hash': { args: [src: string, outputDir: string]; ret: string }
   'mt::fs::empty-dir': { args: [path: string]; ret: void }
   'mt::fs::ensure-dir': { args: [path: string]; ret: void }
@@ -77,7 +80,7 @@ export interface IpcInvokeChannels {
   'mt::fs::readdir': { args: [path: string]; ret: string[] }
   'mt::fs::stat': { args: [path: string]; ret: SerializedStat }
   'mt::fs::unlink': { args: [path: string]; ret: void }
-  'mt::fs::write-file': { args: [path: string, data: string | Uint8Array]; ret: void }
+  'mt::fs::write-file': { args: [path: string, data: string | Uint8Array, options?: { flag: 'wx' }]; ret: void }
   'mt::i18n::is-supported': { args: [lang: string]; ret: boolean }
   'mt::i18n::load': { args: [language: string]; ret: Record<string, unknown> }
   'mt::i18n::supported': { args: []; ret: string[] }
@@ -228,6 +231,10 @@ export interface IpcSendChannels {
 // =================================================================
 
 export interface IpcSyncChannels {
+  'mt::core-draft::preserve': {
+    args: [draft: CoreRecoveryDraftInput]
+    ret: { ok: true, record: CoreRecoveryDraftRecord } | { ok: false, message: string }
+  }
   'mt::boot-info': { args: []; ret: BootInfo }
   'mt::paths::is-same-sync': { args: [a: string, b: string]; ret: boolean }
 }
@@ -292,6 +299,7 @@ export interface IpcMainEventChannels {
     pathname: string
     filename: string
     saveIdentity?: DocumentSaveIdentity | null
+    savedSource?: string
   }]
   'mt::set-view-layout': [layout: unknown]
   'mt::show-command-palette': []
@@ -302,7 +310,7 @@ export interface IpcMainEventChannels {
   'mt::switch-tab-by-file_path': [filePath: string, options?: TabOptions]
   'mt::switch-tab-by-index': [index: number]
   'mt::tab-save-failure': [tabId: string, message: string]
-  'mt::tab-saved': [tabId: string, saveIdentity?: DocumentSaveIdentity | null]
+  'mt::tab-saved': [tabId: string, saveIdentity?: DocumentSaveIdentity | null, savedSource?: string]
   'mt::tabs-cycle-left': []
   'mt::tabs-cycle-right': []
   'mt::toggle-view-layout-entry': [entry: string]

@@ -1,3 +1,5 @@
+import { createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText } from './trackedAuthoring.js'
+import { createMarkupSourceEdits } from './markupEditing.js'
 import {
   admitProfile1PlainParagraphRegion,
   createProfile1DocumentReuseCache,
@@ -21,6 +23,7 @@ import {
   applyRegionalInventory,
   createRegionalInventory,
   materializeRegionalInventoryAnnotations,
+  previewRegionalInventory,
   referenceDependencyPrefixEnd,
   type RegionalInventory,
   type RegionalInventoryRecorder
@@ -130,6 +133,8 @@ export type ProjectionOrigin =
   }>
 
 export interface ProjectionCoordinateMap {
+  /** Portable retained runs; omitted/generated text never claims source. */
+  readonly sourceSegments?: readonly MarkupCoordinateSegment[]
   /**
    * Returns the origin of one projected UTF-16 code unit. Generated text is
    * anchored to a source position but never claims to be durable source.
@@ -224,6 +229,11 @@ export interface MarkdownAstNode {
    * directly without re-recognizing Markdown syntax.
    */
   readonly attributes: Readonly<Record<string, MarkdownAttribute>>
+  /** Decoded entity/escape spellings; ranges use the same coordinates as this node. */
+  readonly semanticTextSegments?: readonly {
+    readonly range: SourceRange
+    readonly value: string
+  }[]
   readonly children: readonly MarkdownAstNode[]
 }
 
@@ -516,6 +526,26 @@ export class DocumentSourceEditError extends RangeError {
  * revision. Older revisions remain projectable but cannot be reopened.
  */
 export interface DocumentCore {
+  /**
+   * Plans ordinary editing across a source envelope selected in Markup. Hidden
+   * comments and surviving annotation wrappers remain intact. Undefined refuses
+   * an unsafe mapping without changing the current revision.
+   */
+  markupEdit(previous: DocumentRevision, edit: DocumentSourceEdit): readonly DocumentSourceEdit[] | undefined
+  /** Plans sparse native changes as one transaction, preserving source between edits. */
+  markupEdits(previous: DocumentRevision, edits: readonly DocumentSourceEdit[]): readonly DocumentSourceEdit[] | undefined
+  trackedEdits(previous: DocumentRevision, edits: readonly DocumentSourceEdit[]): readonly DocumentSourceEdit[] | undefined
+  /** Plans one tracked native-text edit against this revision's owned syntax. */
+  trackedEdit(
+    previous: DocumentRevision,
+    edit: DocumentSourceEdit
+  ): DocumentSourceEdit | undefined
+  /** Authors and atomically applies one tracked native-text edit. */
+  track(
+    previous: DocumentRevision,
+    edit: DocumentSourceEdit,
+    options?: DocumentApplyOptions
+  ): DocumentCommit
   open(
     source: string,
     options?: Readonly<Partial<MarkdownOptions>>
@@ -797,14 +827,19 @@ function markdownAstOf(
     const attributes: Record<string, MarkdownAttribute> = {
       ...task.node.attributes
     }
+    const semanticTextSegments: Array<{ readonly range: SourceRange, readonly value: string }> = []
     if (task.node.kind === 'text') {
       const semanticStart = task.node.attributes['semanticStart']
       const semanticEnd = task.node.attributes['semanticEnd']
+      const start = typeof semanticStart === 'number' ? semanticStart : task.node.range.start
       attributes.semanticText = decodeMarkdownSemanticText(
         semanticMarkdown.source.slice(
-          typeof semanticStart === 'number' ? semanticStart : task.node.range.start,
+          start,
           typeof semanticEnd === 'number' ? semanticEnd : task.node.range.end
-        )
+        ),
+        (from, to, value) => semanticTextSegments.push(Object.freeze({
+          range: projectedRange({ start: start + from, end: start + to }), value
+        }))
       )
     } else if (task.node.kind === 'inline-code') {
       const content = task.node.attributes['content']
@@ -890,6 +925,7 @@ function markdownAstOf(
       kind: task.node.kind,
       range: projectedRange(task.node.range),
       attributes: Object.freeze(attributes),
+      ...(semanticTextSegments.length > 0 ? { semanticTextSegments: Object.freeze(semanticTextSegments) } : {}),
       children
     }))
   }
@@ -952,6 +988,14 @@ function shiftMarkdownAstNode(
       end: node.range.end + delta
     }),
     attributes: Object.freeze(attributes),
+    ...(node.semanticTextSegments === undefined
+      ? {}
+      : {
+        semanticTextSegments: Object.freeze(node.semanticTextSegments.map(segment => Object.freeze({
+          range: Object.freeze({ start: segment.range.start + delta, end: segment.range.end + delta }),
+          value: segment.value
+        })))
+      }),
     children: Object.freeze(node.children.map(
       child => shiftMarkdownAstNode(child, delta)
     ))
@@ -1425,7 +1469,16 @@ function projectionCoordinatesOf(
     }
     return (sourceSegments[low]?.sourceStart ?? Infinity) < range.end
   })
-  return Object.freeze({ originAt, toSource, toProjected, intersectsSource })
+  return Object.freeze({
+    originAt,
+    toSource,
+    toProjected,
+    intersectsSource,
+    sourceSegments: Object.freeze(sourceSegments.map(segment => Object.freeze({
+      projected: Object.freeze({ start: segment.projectedStart, end: segment.projectedEnd }),
+      source: Object.freeze({ start: segment.sourceStart, end: segment.sourceEnd })
+    })))
+  })
 }
 
 function shiftedRegionalProjectionCoordinatesOf(
@@ -1496,7 +1549,16 @@ function shiftedRegionalProjectionCoordinatesOf(
       end: Math.min(localSourceLength, sourceRange.end - sourceDelta)
     }))
   })
-  return Object.freeze({ originAt, toSource, toProjected, intersectsSource })
+  return Object.freeze({
+    originAt,
+    toSource,
+    toProjected,
+    intersectsSource,
+    sourceSegments: Object.freeze((local.sourceSegments ?? []).map(segment => Object.freeze({
+      projected: segment.projected,
+      source: Object.freeze({ start: segment.source.start + sourceDelta, end: segment.source.end + sourceDelta })
+    })))
+  })
 }
 
 function commentCoordinateSegmentsOf(
@@ -2156,7 +2218,8 @@ function createDocumentCoreWithExecutionBudget(
 
   const isolatedProducts = (
     source: string,
-    resolvedOptions: MarkdownOptionsV1
+    resolvedOptions: MarkdownOptionsV1,
+    previousPass?: PreviousIntrinsicPass
   ): Profile1DocumentProducts => {
     inspection.documentParses += 1
     inspection.documentParseSourceUnits += source.length
@@ -2169,7 +2232,8 @@ function createDocumentCoreWithExecutionBudget(
       false,
       undefined,
       createProfile1DocumentReuseCache(),
-      physicalRecorder
+      physicalRecorder,
+      previousPass
     )
     if (result.kind !== 'complete') {
       throw documentCoreError(result.fatalDiagnostic)
@@ -3070,20 +3134,7 @@ function createDocumentCoreWithExecutionBudget(
     const previousEventStart = admission.bracket.previousEventStart
     const previousEventEnd = admission.bracket.previousEventEnd
     const regionSource = admission.nextWindow
-    const regionalOptions = Object.freeze({
-      ...resolvedOptions,
-      frontMatter: false
-    })
-    const regionalResult = parseProfile1Document(
-      regionSource,
-      executionBudget,
-      undefined,
-      regionalOptions,
-      false,
-      undefined,
-      createProfile1DocumentReuseCache(),
-      regionalPhysicalRecorder
-    )
+    const regionalResult = admission.parsed
     if (
       regionalResult.kind !== 'complete' ||
       regionalResult.criticMarkup.rootCount !== 0 ||
@@ -3357,6 +3408,9 @@ function createDocumentCoreWithExecutionBudget(
       previousState.regionalInventory !== undefined
     ) || (
       requests.comments.length > 0
+    ) || (
+      requests.markup && previousState.retainedIndex === undefined &&
+      previousState.criticMarkupIndex === undefined
     )
       ? tryInventoryRegionalApply(
         previousState,
@@ -3699,6 +3753,83 @@ function createDocumentCoreWithExecutionBudget(
     )
   }
 
+  // Authoring validates the complete candidate in the acknowledged parser
+  // context, but cannot publish, demote, or alter the live reuse cache. Only
+  // detached facts leave this callback; candidate parser products are discarded.
+  const previewSourceEdits = (
+    previous: DocumentRevision,
+    edits: readonly DocumentSourceEdit[]
+  ): DocumentRevision => {
+    const state = currentStateOf(previous)
+    const stableEdits = stableSourceEdits(edits)
+    preflightSourceEdits(state.source.length, stableEdits)
+    const source = state.source.applyExact(stableEdits, 'Authoring candidate')
+      .materialize('fallback')
+    return state.productStore.withProduct(previousProducts => {
+      const retained = previousProducts.retainedIntrinsic
+      const products = isolatedProducts(source, state.markdownOptions,
+        retained === undefined ? undefined : { retained, edits: stableEdits })
+      return Object.freeze({
+        source,
+        sourceLength: source.length,
+        annotations: annotationsOf(products).annotations,
+        diagnostics: diagnosticsOf(products)
+      })
+    })
+  }
+
+  // A same-shape regional preview proves marker ownership, diagnostics and
+  // Markdown context without publishing or opening the revision's full products.
+  // The general planners remain responsible for changing suggestion structure.
+  const regionalPayloadEdit = (
+    state: RevisionState,
+    edit: DocumentSourceEdit,
+    tracked: boolean
+  ): DocumentSourceEdit | undefined => {
+    if (state.regionalInventory === undefined || edit.start === edit.end && edit.insert.length === 0) return undefined
+    const edits = Object.freeze([edit])
+    const source = state.source.applyExact(edits, 'Authoring regional candidate')
+    const candidate = previewRegionalInventory(
+      state.regionalInventory, state.source, source, edits, [], executionBudget,
+      state.markdownOptions, regionalPhysicalRecorder
+    )
+    if (candidate.kind === 'resource-failure') throw documentCoreError(candidate.fatalDiagnostic)
+    if (candidate.kind !== 'validated') return undefined
+    const start = edit.start - candidate.sourceStart
+    const end = start + edit.insert.length
+    let visible = false
+    for (let ordinal = 0; ordinal < candidate.nextProducts.markup.eventCount; ordinal += 1) {
+      const event = candidate.nextProducts.markup.eventAt(ordinal)
+      if (event.kind === 'text' && event.sourceRange.start <= start && event.sourceRange.end >= end) visible = true
+    }
+    if (!visible) return undefined
+    const pending = [...(candidate.nextProducts.retainedIntrinsic?.roots ?? [])]
+    let owner: CriticMarkupNode | undefined
+    while (pending.length > 0) {
+      const node = pending.pop()
+      if (node === undefined) break
+      // Empty-arm removals and exterior-boundary coalescing have semantic
+      // behavior beyond a literal payload splice; preserve the full planner.
+      if (node.kind !== 'comment' && node.arms.some(arm => arm.range.start === arm.range.end)) return undefined
+      if (tracked && edit.start === edit.end && (node.range.end === start || node.range.start === end)) return undefined
+      if (node.range.start < start && node.range.end > start &&
+          (owner === undefined || node.range.end - node.range.start < owner.range.end - owner.range.start)) owner = node
+      for (const arm of node.arms) pending.push(...arm.children)
+    }
+    if (tracked) {
+      if (owner?.kind !== 'addition' && owner?.kind !== 'substitution') return undefined
+      const arm = owner.arms.find(arm => arm.name === (owner.kind === 'addition' ? 'content' : 'new'))
+      if (arm === undefined || arm.range.start > start || arm.range.end < end ||
+          (edit.start !== edit.end && arm.children.length > 0)) return undefined
+      if (owner.kind === 'substitution' && edit.start !== edit.end) {
+        const old = owner.arms.find(arm => arm.name === 'old')
+        if (old !== undefined && old.children.length === 0 && arm.children.length === 0 &&
+            candidate.nextWindow.slice(old.range.start, old.range.end) === candidate.nextWindow.slice(arm.range.start, arm.range.end)) return undefined
+      }
+    }
+    return edit
+  }
+
   const resolutionEdit = (
     previousState: RevisionState,
     annotation: CriticMarkupAnnotation,
@@ -3766,7 +3897,145 @@ function createDocumentCoreWithExecutionBudget(
     })
   }
 
+  const planNativeEdits = (
+    previous: DocumentRevision,
+    input: readonly DocumentSourceEdit[],
+    tracked: boolean
+  ): readonly DocumentSourceEdit[] | undefined => {
+    const state = currentStateOf(previous)
+    const edits = stableSourceEdits(input)
+    preflightSourceEdits(state.source.length, edits)
+    if (edits.length === 0) return Object.freeze([])
+    const edit = edits[0]
+    if (edits.length === 1 && edit !== undefined) {
+      if (!tracked) return core.markupEdit(previous, edit)
+      const planned = core.trackedEdit(previous, edit)
+      return planned === undefined ? undefined : Object.freeze([planned])
+    }
+    const compoundSuggestion = (): readonly DocumentSourceEdit[] | undefined => {
+      if (!tracked) return undefined
+      const start = edits[0]!.start
+      const end = edits.at(-1)!.end
+      const protectedEdits = edits.map(edit => ({ ...edit, insert: protectNativeCriticText(edit.insert) }))
+      let insert = core.sourceSlice(previous, { start, end })
+      for (const edit of [...protectedEdits].reverse()) {
+        insert = insert.slice(0, edit.start - start) + edit.insert + insert.slice(edit.end - start)
+      }
+      // Separate prefix suggestions may become literal text inside a fence.
+      // Validate their complete replacement in the original parser context.
+      const planned = createTrackedSourceEdit(core, previous, { start, end, insert },
+        candidateEdits => previewSourceEdits(previous, candidateEdits), true)
+      if (planned === undefined) return undefined
+      const flatten = (roots: readonly CriticMarkupAnnotation[]): CriticMarkupAnnotation[] => {
+        const result: CriticMarkupAnnotation[] = []
+        const pending = [...roots].reverse()
+        while (pending.length > 0) {
+          const annotation = pending.pop()!
+          result.push(annotation)
+          for (const arm of [...annotation.arms].reverse()) pending.push(...[...arm.annotations].reverse())
+        }
+        return result
+      }
+      const retained = flatten(previous.annotations).filter(annotation =>
+        annotation.range.start >= start && annotation.range.end <= end &&
+        !edits.some(edit => edit.start <= annotation.range.start && edit.end >= annotation.range.end))
+      const offset = (position: number, after: boolean): number => position - start + protectedEdits.reduce((delta, edit) =>
+        delta + (edit.end < position || (edit.end === position && (after || edit.start < edit.end))
+          ? edit.insert.length - (edit.end - edit.start)
+          : 0), 0)
+      const candidate = previewSourceEdits(previous, [planned])
+      const wrapper = flatten(candidate.annotations).find(annotation => annotation.range.start === planned.start &&
+        annotation.range.end === planned.start + planned.insert.length)
+      const arm = wrapper?.arms.find(arm => arm.name === 'new')
+      if (arm === undefined) return undefined
+      const actual = flatten(arm.annotations)
+      // Structural edits retain existing marks, but cannot activate new marks
+      // by joining delimiter fragments across their source boundaries.
+      if (actual.length !== retained.length || actual.some((annotation, index) => {
+        const previous = retained[index]!
+        return annotation.kind !== previous.kind ||
+          annotation.range.start - arm.range.start !== offset(previous.range.start, true) ||
+          annotation.range.end - arm.range.start !== offset(previous.range.end, false)
+      })) return undefined
+      return Object.freeze([planned])
+    }
+    // Container topology may change several distant prefixes. Validate on a
+    // detached lineage so a later refusal cannot publish a partial transaction.
+    // Descending source order retains the original coordinates of earlier edits.
+    const candidateCore = createDocumentCoreWithExecutionBudget(executionBudget)
+    const { schema: _schema, ...options } = state.markdownOptions
+    let candidate = candidateCore.open(previous.source, options)
+    const result: DocumentSourceEdit[] = []
+    let boundary = previous.sourceLength + 1
+    for (const edit of [...edits].reverse()) {
+      if (edit.start >= boundary || edit.end > boundary) return compoundSuggestion()
+      if (candidateCore.sourceSlice(candidate, edit) === edit.insert) continue
+      const trackedEdit = tracked ? candidateCore.trackedEdit(candidate, edit) : undefined
+      const planned = tracked
+        ? trackedEdit === undefined ? undefined : [trackedEdit]
+        : candidateCore.markupEdit(candidate, edit)
+      if (planned === undefined || planned.some(item => item.start >= boundary || item.end > boundary)) return compoundSuggestion()
+      if (planned.length === 0) continue
+      candidate = candidateCore.apply(candidate, planned).revision
+      boundary = Math.min(...planned.map(item => item.start))
+      result.unshift(...planned)
+    }
+    return Object.freeze(result.map(edit => Object.freeze({ ...edit })))
+  }
+
   const core: DocumentCore = Object.freeze({
+    markupEdits(previous: DocumentRevision, edits: readonly DocumentSourceEdit[]) {
+      return planNativeEdits(previous, edits, false)
+    },
+
+    trackedEdits(previous: DocumentRevision, edits: readonly DocumentSourceEdit[]) {
+      return planNativeEdits(previous, edits, true)
+    },
+
+    markupEdit(previous: DocumentRevision, edit: DocumentSourceEdit): readonly DocumentSourceEdit[] | undefined {
+      const state = currentStateOf(previous)
+      const edits = stableSourceEdits([edit])
+      preflightSourceEdits(state.source.length, edits)
+      const stableEdit = edits[0]
+      if (stableEdit === undefined) throw new Error('Markup source edit is missing')
+      const regional = regionalPayloadEdit(state, stableEdit, false)
+      if (regional !== undefined) return Object.freeze([regional])
+      return createMarkupSourceEdits(core, previous, stableEdit,
+        candidateEdits => previewSourceEdits(previous, candidateEdits))
+    },
+
+    trackedEdit(
+      previous: DocumentRevision,
+      edit: DocumentSourceEdit
+    ): DocumentSourceEdit | undefined {
+      const state = currentStateOf(previous)
+      const edits = stableSourceEdits([edit])
+      preflightSourceEdits(state.source.length, edits)
+      const stableEdit = edits[0]
+      if (stableEdit === undefined) throw new Error('Tracked source edit is missing')
+      const regional = regionalPayloadEdit(state, stableEdit, true)
+      if (regional !== undefined) return regional
+      return createTrackedSourceEdit(
+        core, previous, stableEdit,
+        candidateEdits => previewSourceEdits(previous, candidateEdits)
+      ) ?? createTrackedLiteralSourceEdit(
+        core, previous, stableEdit,
+        candidateEdits => previewSourceEdits(previous, candidateEdits)
+      )
+    },
+
+    track(
+      previous: DocumentRevision,
+      edit: DocumentSourceEdit,
+      options?: DocumentApplyOptions
+    ): DocumentCommit {
+      const planned = core.trackedEdit(previous, edit)
+      if (planned === undefined) {
+        throw new DocumentSourceEditError('Tracked edit crosses unsupported syntax boundaries')
+      }
+      return core.apply(previous, [planned], options)
+    },
+
     open(
       source: string,
       options?: Readonly<Partial<MarkdownOptions>>
