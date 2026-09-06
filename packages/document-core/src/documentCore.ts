@@ -3980,6 +3980,30 @@ function createDocumentCoreWithExecutionBudget(
       boundary = Math.min(...planned.map(item => item.start))
       result.unshift(...planned)
     }
+    if (tracked) {
+      const { ast, coordinates } = candidateCore.project(candidate, 'markup').syntax
+      const pending = [ast.root]
+      while (pending.length > 0) {
+        const node = pending.pop()!
+        const start = node.attributes.contentStart
+        const end = node.attributes.contentEnd
+        if (['code-block', 'math-block', 'diagram', 'html-block', 'front-matter'].includes(node.kind) &&
+            typeof start === 'number' && typeof end === 'number') {
+          let covered = start
+          for (const segment of coordinates.sourceSegments ?? []) {
+            const from = Math.max(start, segment.projected.start)
+            const to = Math.min(end, segment.projected.end)
+            if (to <= from) continue
+            // Separate suggestions must not create synthetic lines inside a
+            // literal. One compound suggestion retains its two complete bodies.
+            if (from > covered) return compoundSuggestion()
+            covered = Math.max(covered, to)
+          }
+          if (covered < end) return compoundSuggestion()
+        }
+        pending.push(...node.children)
+      }
+    }
     return Object.freeze(result.map(edit => Object.freeze({ ...edit })))
   }
 
