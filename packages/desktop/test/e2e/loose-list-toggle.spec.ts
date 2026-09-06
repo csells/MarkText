@@ -44,14 +44,7 @@ test.describe('Loose/tight list-item toggle', () => {
     if (app) await app.close()
   })
 
-  // FIXME(headless): the loose/tight menu toggle acts on the engine's active
-  // content block, which under xvfb is not reliably established for a caret
-  // placed inside a list item (neither a synthetic click nor the keyup-based
-  // placeCaretInEditor settles it), so the toggle no-ops and the source never
-  // gains/loses the blank line. Passes on a headed display. The toggle ACTION
-  // itself is unit-covered in packages/muya/src/__tests__/updateParagraph.spec.ts
-  // ('toggles loose/tight on the current list').
-  test.fixme('menu click toggles a tight list loose (blank line) and back to tight', async() => {
+  test('menu click toggles a tight list loose (blank line) and back to tight', async() => {
     // Start from a tight 2-item bullet list — no blank line between items.
     await setSourceMarkdown(page, app, '- one\n- two\n')
     await expect(page.locator('.mu-bullet-list .mu-paragraph-content').first()).toBeAttached()

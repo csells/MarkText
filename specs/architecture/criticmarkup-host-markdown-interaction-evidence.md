@@ -1,6 +1,6 @@
 # CriticMarkup and host-Markdown interaction: upstream evidence
 
-> **Status:** Non-normative evidence. Profile 1 owns ratified language meaning; plan 0010 and active
+> **Status:** Non-normative evidence. Profile 1 owns ratified language meaning; plan 0011 and active
 > ADRs own integration decisions.
 
 ## Question

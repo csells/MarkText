@@ -48,12 +48,8 @@ test.describe('lists', () => {
         // mount before typing into it.
         await expect(bullet.locator(editor.paragraph)).toHaveCount(2);
         await slowType(page, 'second item');
-        // Wait for the DOM to reflect the final character before reading
-        // markdown — getMarkdown reads state which the input pipeline updates
-        // asynchronously, so use the rendered text as the sync barrier.
         await expect(bullet.locator(editor.paragraph).nth(1)).toContainText('second item');
-        const md = await getMarkdown(page);
-        expect(md).toContain('first item');
-        expect(md).toContain('second item');
+        await expect.poll(() => getMarkdown(page)).toContain('first item');
+        await expect.poll(() => getMarkdown(page)).toContain('second item');
     });
 });

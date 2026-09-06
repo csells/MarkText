@@ -1,6 +1,6 @@
 # MarkText Markdown Profile 1 — Language Specification
 
-- **Status:** Draft 2 for owner review (2026-08-10); language semantics only
+- **Status:** Draft 2 semantic record (2026-08-10), carried forward by plan 0011; accepted rulings and unresolved proposals retain their individual status.
 - **Identifiers:** `markdownProfile: 'markdown-profile-1'` ·
   `criticMarkupProfile: 'marktext-profile-1'`
 - **Derived from:** the canonical CriticMarkup specification, CommonMark and GFM, historical
@@ -8,9 +8,11 @@
   2026-07-24.
 - **Audience:** the document-core parser, its test corpus, adapters, and any future
   reimplementation (including a port). This document defines the candidate _language_;
-  [plan 0010](../plans/0010-marktext-criticmarkup-core-integration.md) owns architecture,
+  [plan 0011](../plans/0011-criticmarkup-editable-review.md) owns architecture,
   migration, performance, and acceptance. Where implementation status lags this document,
-  this document is the language target only after explicit ratification.
+  established rulings remain the language target. Plan 0011 supersedes blanket packet
+  ratification as an implementation prerequisite; genuinely disputed semantics require
+  a focused decision and are not silently accepted from current parser behavior.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are to be interpreted as in RFC 2119.
 
@@ -34,7 +36,7 @@ Principles every rule below serves:
   The parse product accounts for every decoded code unit exactly once, including line-ending
   spellings, blank lines, marker spellings, escapes, trailing-space trivia, and a leading U+FEFF.
   Normalization is only ever an explicit transform. File bytes, encoding, BOM policy, and
-  byte-exact no-op save behavior belong to the file layer and plan 0010's compatibility contract.
+  byte-exact no-op save behavior belong to the file layer and plan 0011's compatibility contract.
 - **P3 — One language decision per source run.** Literal ownership and CriticMarkup delimiter
   activity have one deterministic meaning. No projection, materializer, adapter, or consumer may
   revise a recognition decision (§7).
@@ -408,7 +410,7 @@ compatibility documentation:
 ## 13. Implementation boundary
 
 Performance targets, resource limits, incremental equivalence, accounting, parser APIs, and
-failure publication are engine requirements owned by plan 0010 and implementation baselines.
+failure publication are engine requirements owned by plan 0011 and implementation baselines.
 They do not change Profile 1 language meaning.
 
 ## 14. Versioning

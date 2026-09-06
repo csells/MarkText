@@ -4,29 +4,42 @@
     :style="{ 'max-width': `calc(100vw - ${effectiveSideBarWidth}px)` }"
   >
     <tabs v-show="showTabBar" />
+    <CoreDraftRecoveryPanel
+      :drafts="coreRecoveryDrafts"
+      :error="coreDraftBackupError"
+      :pending-text="coreUnbackedDraft?.visibleText"
+      @archive="archiveCoreRecoveryDraft"
+      @reveal="revealCoreRecoveryDraft"
+      @retry="retryCoreDraftBackup"
+    />
     <div class="container">
       <editor
+        ref="coreEditor"
         :key="coreEditorGeneration"
         :markdown="coreProjectionMarkdown ?? markdown"
         :cursor="cursor"
         :muya-index-cursor="muyaIndexCursor"
         :text-direction="textDirection"
         :platform="platform"
+        :core-required="coreMode"
         :core-lease="wysiwygCoreLease"
         :core-plain-text-view="corePlainTextView"
         :core-performance-trace="corePerformanceTrace"
         :core-test-crash-worker="coreTestCrashWorker"
         :core-test-stale-next-transaction="coreTestStaleNextTransaction"
-        @core-fault="handleCoreWysiwygFault"
+        @core-fault="handleCoreViewFault"
       />
       <source-code
         v-if="coreSourceVisible && (!coreMode || activeCoreLease)"
+        ref="coreSourceEditor"
         :key="coreSourceGeneration"
         :markdown="coreProjectionMarkdown ?? markdown"
         :muya-index-cursor="muyaIndexCursor"
         :text-direction="textDirection"
         :core-lease="activeCoreLease"
         :core-performance-trace="corePerformanceTrace"
+        :initial-view-state="coreSourceViewState"
+        @core-fault="handleCoreViewFault"
       />
       <div
         v-if="coreMode && coreViewState === 'reconciling'"
@@ -67,12 +80,15 @@ import {
   type CoreDocumentViewState
 } from '@/documentAuthority/coreDocumentViewHandoff'
 import { storeToRefs } from 'pinia'
-import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import type { CoreRecoveryDraftInput, CoreRecoveryDraftRecord } from '@shared/types/coreRecoveryDraft'
 import type { MuyaPlainTextViewResult } from '@/documentAuthority/muyaPlainTextView'
+import type { CodeMirrorViewState } from '@/documentAuthority/codeMirrorViewState'
 import Tabs from './tabs.vue'
 import Editor from './editor.vue'
 import SourceCode from './sourceCode.vue'
 import TabNotifications from './notifications.vue'
+import CoreDraftRecoveryPanel from './CoreRecoveryDrafts.vue'
 
 const props = defineProps<{
   markdown: string
@@ -93,26 +109,59 @@ const preferencesStore = usePreferencesStore()
 const { currentFile } = storeToRefs(editorStore)
 const coreLaunchPolicy = resolveCoreDocumentLaunchPolicy(window.electron.process.env)
 const coreMode = coreLaunchPolicy.coreEnabled
-const coreWorkerTestControls = new Map<string, CoreWorkerTestControl>()
+interface CoreWorkerOwner { control?: CoreWorkerTestControl }
+const coreWorkers = new Map<string, CoreWorkerOwner>()
 const coreManager = coreMode
   ? createCoreDocumentSessionManager({
-    createBinding: documentId => createEditorCoreBinding(createWorkerCorePort(
-      undefined,
-      coreLaunchPolicy.testControlsEnabled
-        ? {
-            responseDelayMs: 250,
-            registerTestControl: control => {
-              coreWorkerTestControls.set(documentId, control)
+    createBinding: documentId => {
+      const owner: CoreWorkerOwner = {}
+      coreWorkers.set(documentId, owner)
+      return createEditorCoreBinding(createWorkerCorePort(undefined, {
+        onFailure: error => handleCoreWorkerFailure(documentId, owner, error),
+        ...(coreLaunchPolicy.testControlsEnabled
+          ? {
+              responseDelayMs: 250,
+              registerTestControl: (control: CoreWorkerTestControl) => { owner.control = control }
             }
-          }
-        : undefined
-    ))
+          : {})
+      }))
+    }
   })
   : undefined
 const openedCoreDocuments = new Set<string>()
 const coreSaveRegistrations = new Map<string, () => void>()
 const coreReloadRegistrations = new Map<string, () => void>()
 const coreRecoveryRegistrations = new Map<string, () => void>()
+const coreEditor = ref<InstanceType<typeof Editor>>()
+const coreSourceEditor = ref<InstanceType<typeof SourceCode>>()
+const coreSourceViewState = shallowRef<CodeMirrorViewState>()
+const coreRecoveryDrafts = shallowRef<readonly CoreRecoveryDraftRecord[]>([])
+const coreDraftBackupError = ref('')
+const coreUnbackedDraft = shallowRef<CoreRecoveryDraftInput>()
+let coreDraftFaultLease: CoreDocumentViewLease | undefined
+const preservedCoreDrafts = new WeakSet<CoreRecoveryDraftInput>()
+let coreDraftFault: unknown
+const revealCoreRecoveryDraft = (path: string): void => window.electron.shell.showItemInFolder(path)
+const archiveCoreRecoveryDraft = async (id: string): Promise<void> => {
+  await window.electron.ipcRenderer.invoke('mt::core-draft::archive', id)
+  coreRecoveryDrafts.value = coreRecoveryDrafts.value.filter(draft => draft.id !== id)
+}
+const preventUnbackedDraftClose = (event: BeforeUnloadEvent): void => {
+  if (coreUnbackedDraft.value === undefined) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+onMounted(async () => {
+  window.addEventListener('beforeunload', preventUnbackedDraftClose)
+  try {
+    const retained = await window.electron.ipcRenderer.invoke('mt::core-draft::list')
+    coreRecoveryDrafts.value = [...new Map([...retained, ...coreRecoveryDrafts.value]
+      .map(draft => [draft.id, draft])).values()]
+  } catch (error) {
+    coreDraftBackupError.value = error instanceof Error ? error.message : String(error)
+  }
+})
+onBeforeUnmount(() => window.removeEventListener('beforeunload', preventUnbackedDraftClose))
 const coreLease = shallowRef<CoreDocumentViewLease>()
 const coreSourceGeneration = ref(0)
 const coreEditorGeneration = ref(0)
@@ -149,7 +198,7 @@ const coreTestCrashWorker = computed<(() => void) | undefined>(() => {
   const documentId = coreLease.value?.documentId
   if (!coreLaunchPolicy.testControlsEnabled || documentId === undefined) return undefined
   return () => {
-    const control = coreWorkerTestControls.get(documentId)
+    const control = coreWorkers.get(documentId)?.control
     if (control === undefined) throw new Error('Core Worker test control is unavailable')
     control.crash()
   }
@@ -158,16 +207,37 @@ const coreTestStaleNextTransaction = computed<(() => void) | undefined>(() => {
   const documentId = coreLease.value?.documentId
   if (!coreLaunchPolicy.testControlsEnabled || documentId === undefined) return undefined
   return () => {
-    const control = coreWorkerTestControls.get(documentId)
+    const control = coreWorkers.get(documentId)?.control
     if (control === undefined) throw new Error('Core Worker test control is unavailable')
     control.staleNextTransaction()
   }
 })
 
-const handleCoreWysiwygFault = (error: unknown): void => {
-  const lease = coreLease.value
+const handleCoreViewFault = (error: unknown): void => {
+  const lease = coreDraftFaultLease ?? coreLease.value
   if (lease === undefined) {
     console.error('Core WYSIWYG recovery has no active view lease', error)
+    return
+  }
+  if (coreDocumentRecoveryAuthority.settled(lease.documentId) !== undefined) return
+  coreDraftFault = error
+  try {
+    const draft = coreUnbackedDraft.value ?? (coreViewState.value === 'source'
+      ? coreSourceEditor.value?.captureRecoveryDraft(error)
+      : coreEditor.value?.captureRecoveryDraft(error))
+    if (draft !== undefined && !preservedCoreDrafts.has(draft)) {
+      coreUnbackedDraft.value = draft
+      coreDraftFaultLease = lease
+      const result = window.electron.ipcRenderer.sendSync('mt::core-draft::preserve', draft)
+      if (!result.ok) throw new Error(result.message)
+      preservedCoreDrafts.add(draft)
+      coreRecoveryDrafts.value = [...coreRecoveryDrafts.value, result.record]
+    }
+    coreUnbackedDraft.value = undefined
+    coreDraftFaultLease = undefined
+    coreDraftBackupError.value = ''
+  } catch (backupError) {
+    coreDraftBackupError.value = backupError instanceof Error ? backupError.message : String(backupError)
     return
   }
   lease.faultView(error)
@@ -184,6 +254,61 @@ const handleCoreWysiwygFault = (error: unknown): void => {
     console.error('Core WYSIWYG recovery failed', recoveryError)
   })
   console.error('Core WYSIWYG operation requires reconciliation', error)
+}
+// Transport failure belongs to the document owner, even when there is no
+// pending command to reject. The owner identity fences retired Workers.
+const handleCoreWorkerFailure = (documentId: string, owner: CoreWorkerOwner, error: Error): void => {
+  const current = () => !coreOwnerDisposed && openedCoreDocuments.has(documentId) && coreWorkers.get(documentId) === owner
+  if (!current()) return
+  if (coreLease.value?.documentId === documentId) {
+    handleCoreViewFault(error)
+    return
+  }
+  const recovery = coreTransition.then(async () => {
+    if (!current()) return
+    if (coreLease.value?.documentId === documentId) {
+      handleCoreViewFault(error)
+      return
+    }
+    if (coreManager === undefined) return
+    const lease = coreManager.lease(documentId)
+    lease.faultView(error)
+    const replacement = await coreManager.recover(lease)
+    const snapshot = await coreManager.saveBarrier(documentId)
+    editorStore.RECONCILE_CORE_SOURCE_AT_HANDOFF(documentId, snapshot.source)
+    editorStore.REGISTER_CORE_SAVE_IDENTITY(documentId, replacement.identity)
+    await coreManager.handoff(replacement)
+  })
+  coreTransition = recovery.catch(recoveryError => {
+    console.error('Inactive Core document recovery failed', recoveryError)
+  })
+}
+
+const retryCoreDraftBackup = (): void => handleCoreViewFault(coreDraftFault)
+
+const prepareCoreReplacementView = async (
+  lease: CoreDocumentViewLease,
+  surface: 'source' | 'wysiwyg'
+): Promise<() => void> => {
+  const sourceViewState = surface === 'source' ? coreSourceEditor.value?.captureViewState() : undefined
+  const projection = surface === 'wysiwyg'
+    ? await lease.projectAcknowledgedPlainTextView(lease.identity.revision)
+    : undefined
+  const view = projection?.view
+  if (view !== undefined && view.kind !== 'view') throw new Error('Core replacement has no WYSIWYG view')
+  const source = view?.markdown ?? await lease.sourceAtBarrier()
+  return () => {
+    // A replacement lease and its initial text must come from the same revision.
+    // Reusing the outgoing Source snapshot can make the next edit address old bytes.
+    editorStore.REGISTER_CORE_SAVE_IDENTITY(lease.documentId, lease.identity)
+    coreProjectionMarkdown.value = source
+    corePlainTextView.value = view
+    coreSourceViewState.value = sourceViewState
+    coreLease.value = lease
+    if (surface === 'wysiwyg') coreEditorGeneration.value += 1
+    else coreSourceGeneration.value += 1
+    coreViewState.value = surface
+  }
 }
 
 watch(
@@ -211,6 +336,7 @@ watch(
     }
     const nextTransition = coreTransition.then(async () => {
       if (coreOwnerDisposed) return
+      coreSourceViewState.value = undefined
       const prior = coreLease.value
       if (!sourceMode && prior === undefined && target !== undefined) {
         if (!openedCoreDocuments.has(target.id)) {
@@ -344,7 +470,7 @@ watch(
           coreReloadRegistrations.delete(documentId)
           coreRecoveryRegistrations.get(documentId)?.()
           coreRecoveryRegistrations.delete(documentId)
-          coreWorkerTestControls.delete(documentId)
+          coreWorkers.delete(documentId)
         }
         return
       }
@@ -354,9 +480,9 @@ watch(
         liveDocumentIds,
         registrations: coreSaveRegistrations
       })
-      for (const documentId of coreWorkerTestControls.keys()) {
+      for (const documentId of coreWorkers.keys()) {
         if (!liveDocumentIds.has(documentId)) {
-          coreWorkerTestControls.delete(documentId)
+          coreWorkers.delete(documentId)
         }
       }
       for (const [documentId, unregister] of coreReloadRegistrations) {
@@ -409,16 +535,12 @@ watch(
             return () => {}
           }
           await coreManager.activate(input.documentId)
+          const publish = await prepareCoreReplacementView(incomingLease, props.sourceCode ? 'source' : 'wysiwyg')
           return () => {
             if (coreLease.value !== activeLease) {
               throw new Error('Core document view changed before reload publication')
             }
-            editorStore.REGISTER_CORE_SAVE_IDENTITY(
-              input.documentId,
-              incomingLease.identity
-            )
-            coreLease.value = incomingLease
-            coreSourceGeneration.value += 1
+            publish()
           }
         })
         coreTransition = replacement.then(() => {}).catch(() => {})
@@ -440,27 +562,8 @@ watch(
               editorStore.RECONCILE_CORE_SOURCE_AT_HANDOFF(documentId, source)
             },
             publishLease: async incomingLease => {
-              editorStore.REGISTER_CORE_SAVE_IDENTITY(
-                request.documentId,
-                incomingLease.identity
-              )
-              if (recoverWysiwyg) {
-                const projection = await coreManager.plainTextViewBarrier(
-                  request.documentId
-                )
-                if (projection.view.kind !== 'view') {
-                  throw new Error('Recovered Core document has no WYSIWYG view')
-                }
-                corePlainTextView.value = projection.view
-                coreProjectionMarkdown.value = projection.view.markdown
-                coreLease.value = incomingLease
-                coreEditorGeneration.value += 1
-                coreViewState.value = 'wysiwyg'
-                return
-              }
-              coreLease.value = incomingLease
-              coreSourceGeneration.value += 1
-              coreViewState.value = 'source'
+              const publish = await prepareCoreReplacementView(incomingLease, recoverWysiwyg ? 'wysiwyg' : 'source')
+              publish()
             }
           })
         })
@@ -482,7 +585,7 @@ watch(
         coreReloadRegistrations.delete(target.id)
         coreRecoveryRegistrations.get(target.id)?.()
         coreRecoveryRegistrations.delete(target.id)
-        coreWorkerTestControls.delete(target.id)
+        coreWorkers.delete(target.id)
       }
       console.error('Core document session transition failed', error)
       if (!sourceMode) {
@@ -512,7 +615,7 @@ onBeforeUnmount(() => {
       coreReloadRegistrations.clear()
       for (const unregister of coreRecoveryRegistrations.values()) unregister()
       coreRecoveryRegistrations.clear()
-      coreWorkerTestControls.clear()
+      coreWorkers.clear()
       openedCoreDocuments.clear()
     })
   }

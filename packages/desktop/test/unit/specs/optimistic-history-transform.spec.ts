@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { transformOptimisticHistory } from '@/documentAuthority/optimisticHistoryTransform'
+import { reconcileOptimisticTransaction, transformOptimisticHistory } from '@/documentAuthority/optimisticHistoryTransform'
 
 describe('optimistic history transform', () => {
   const applyEdits = (
@@ -350,4 +350,13 @@ describe('optimistic history transform', () => {
       expect(result.reconciled).toBe(result.authoritative)
     }
   })
+})
+
+it('reconciles native input with tracked syntax after a pending undo', () => {
+  expect(reconcileOptimisticTransaction({
+    baseSourceLength: 4,
+    precedingEdits: [{ start: 1, end: 3, insert: '' }],
+    optimisticEdits: [{ start: 3, end: 3, insert: ' ' }],
+    appliedEdits: [{ start: 1, end: 1, insert: '{++ ++}' }]
+  })).toEqual([{ start: 1, end: 4, insert: '{++ ++}' }])
 })

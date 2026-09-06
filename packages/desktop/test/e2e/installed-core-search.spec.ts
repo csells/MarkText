@@ -11,7 +11,7 @@ import {
   waitForEditor,
   waitForMenuReady
 } from './helpers'
-import { expectInstalledArtifactCommit } from './installedArtifactProvenance'
+import { defaultCoreLaunchEnvironment, expectDefaultCoreAuthority, expectInstalledArtifactCommit } from './installedArtifactProvenance'
 
 const initialSource =
   '# cat heading\n\n' +
@@ -47,14 +47,19 @@ const launchInstalled = async(
 ): Promise<{ app: ElectronApplication, page: Page }> => {
   const app = await electron.launch({
     executablePath: binary,
-    args: ['--user-data-dir', userDataDir, filePath],
-    env: {
-      ...process.env,
+    // Explicit preliminary runs may use the repository Electron executable.
+    // Final installed verification leaves this unset and launches only the app.
+    args: [
+      ...(process.env.MARKTEXT_PRELIMINARY_APP_ROOT === undefined
+        ? []
+        : [path.resolve(process.env.MARKTEXT_PRELIMINARY_APP_ROOT)]),
+      '--user-data-dir', userDataDir, filePath
+    ],
+    env: defaultCoreLaunchEnvironment({
       PERF_TESTING: 'true',
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1',
       MARKTEXT_ERROR_INTERACTION: '1'
-    },
+    }),
     timeout: 60_000
   })
   try {
@@ -63,6 +68,7 @@ const launchInstalled = async(
     await waitForEditor(page, 60_000)
     await waitForMenuReady(app, 60_000)
     await expectInstalledArtifactCommit(page)
+    await expectDefaultCoreAuthority(page)
     return { app, page }
   } catch (error) {
     await app.close().catch(() => {})
@@ -96,6 +102,34 @@ const saveAndExpect = async(
 test.describe('installed Core projected search authority', () => {
   test.describe.configure({ timeout: 180_000 })
 
+  test('one Revised match spans retained Markup pieces without highlighting the deletion', async() => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-search-pieces-'))
+    const filePath = path.join(root, 'search.md')
+    const source = 'a{--old--}b {~~legacy~>cat~~}\n'
+    fs.writeFileSync(filePath, source, 'utf8')
+    let launched: { app: ElectronApplication, page: Page } | undefined
+    try {
+      launched = await launchInstalled(installedBinary(), path.join(root, 'profile'), filePath)
+      const { app, page } = launched
+      await expectEditorWindowHidden(app)
+      expectEditorNotFrontmost(app)
+      await openReplace(app, page, 'ab')
+      await expect.poll(() => counterText(page)).toContain('1 / 1')
+      await expect(page.locator('.mu-highlight')).toHaveText(['a', 'b'])
+      await expect(page.locator('.mu-selection')).toHaveCount(0)
+      await page.locator(FIND_INPUT).fill('cat')
+      await expect.poll(() => counterText(page)).toContain('1 / 1')
+      await expect(page.locator('.mu-highlight')).toHaveText(['cat'])
+      await page.locator(FIND_INPUT).fill('legacy')
+      await expect.poll(() => counterText(page)).toContain('/ 0')
+      await expect(page.locator('.mu-highlight')).toHaveCount(0)
+      await saveAndExpect(app, filePath, source)
+    } finally {
+      if (launched !== undefined) await launched.app.close()
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test('visible Revised search and replace-all are one actor history unit', async() => {
     const binary = installedBinary()
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-search-'))
@@ -113,13 +147,13 @@ test.describe('installed Core projected search authority', () => {
       )).toBeUndefined()
 
       const visibleEditorText = await page.locator('.editor-component').innerText()
-      expect(visibleEditorText).not.toContain('legacy-cat')
+      expect(visibleEditorText).toContain('legacy-cat')
       expect(visibleEditorText).not.toContain('cat private')
 
       await openReplace(app, page, 'cat')
       await expect.poll(() => counterText(page)).toContain('1 / 5')
-      await expect(page.locator('.mu-highlight')).toHaveCount(1)
-      await expect(page.locator('.mu-selection')).toHaveCount(4)
+      await expect(page.locator('.mu-highlight')).toHaveText(['cat'])
+      await expect(page.locator('.mu-selection')).toHaveText(['cat', 'cat', 'cat', 'cat'])
 
       await sendIpcToRenderer(app, 'mt::editor-edit-action', 'findNext')
       await expect.poll(() => counterText(page)).toContain('2 / 5')
@@ -157,8 +191,8 @@ test.describe('installed Core projected search authority', () => {
 
       await openReplace(reopened.app, reopened.page, 'dog')
       await expect.poll(() => counterText(reopened.page)).toContain('1 / 5')
-      await expect(reopened.page.locator('.mu-highlight')).toHaveCount(1)
-      await expect(reopened.page.locator('.mu-selection')).toHaveCount(4)
+      await expect(reopened.page.locator('.mu-highlight')).toHaveText(['dog'])
+      await expect(reopened.page.locator('.mu-selection')).toHaveText(['dog', 'dog', 'dog', 'dog'])
     } finally {
       if (launched !== undefined) await launched.app.close()
       fs.rmSync(root, { recursive: true, force: true })

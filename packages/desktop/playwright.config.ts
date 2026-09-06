@@ -14,6 +14,8 @@ export default defineConfig({
   testDir: './test/e2e',
   forbidOnly: true,
   retries: 0,
+  maxFailures: 1,
+  globalSetup: './globalSetup.ts',
   workers: 1,
   testMatch: '**/*.spec.ts',
   projects: [

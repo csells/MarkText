@@ -6,6 +6,28 @@ import {
 } from '@/documentConsumers/projectedSearchPresentation'
 
 describe('projected search presentation', () => {
+  it('retains the active match selection for returning from Find to editing', () => {
+    const block = { update: vi.fn(), focusHandler: vi.fn(), blurHandler: vi.fn() }
+    const presentation = createProjectedSearchPresentation({ blockAtPath: () => block })
+    presentation.present({
+      index: 0,
+      value: 'cat',
+      matches: [{
+        path: [0],
+        start: 0,
+        end: 3,
+        match: 'cat',
+        subMatches: [],
+        presentation: { path: [0, 'text'], start: 2, end: 5 }
+      }]
+    })
+    expect(presentation.selection()).toEqual({
+      anchor: { path: [0, 'text'], offset: 2 },
+      focus: { path: [0, 'text'], offset: 5 }
+    })
+    presentation.clear()
+    expect(presentation.selection()).toBeUndefined()
+  })
   it('paints projection-proven offsets without a source-edit binding', () => {
     const block = {
       update: vi.fn(),

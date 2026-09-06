@@ -18,5 +18,5 @@
         "isolatedModules": true,
         "skipLibCheck": true
     },
-    "include": ["host/**/*", "tests/**/*", "types.d.ts", "playwright.config.ts", "vite.config.ts"]
+    "include": ["../src/types/**/*.d.ts", "host/**/*", "tests/**/*", "types.d.ts", "playwright.config.ts", "vite.config.ts"]
 }

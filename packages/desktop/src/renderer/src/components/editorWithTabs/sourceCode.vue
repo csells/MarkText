@@ -7,6 +7,8 @@
 
 <script setup lang="ts">
 import { ref, shallowRef, markRaw, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { debounce } from 'lodash'
+import { createCoreHeadingToc } from '@/documentAuthority/coreHeadingToc'
 import { useEditorStore } from '@/store/editor'
 import { usePreferencesStore } from '@/store/preferences'
 import { findMarkdownHeadingLine, scrollSourceEditorToLine } from '@/util/sourceModeToc'
@@ -20,12 +22,13 @@ import { oneDarkThemes, railscastsThemes } from '@/config'
 import {
   createCodeMirrorCoreAdapter,
   createCoreAuthorityPerformanceTestBridge,
-  coreDocumentRecoveryAuthority,
   type CodeMirrorCoreAdapter,
   type CoreDocumentViewLease,
   type CoreAuthorityPerformanceTrace
 } from '@/documentAuthority'
 import { sourceCodeCoreAdapterOptions } from '@/documentAuthority/sourceCodeCoreAdapterOptions'
+import type { CoreRecoveryDraftInput } from '@shared/types/coreRecoveryDraft'
+import { copyCodeMirrorPosition, copyCodeMirrorSelections, captureCodeMirrorViewState, restoreCodeMirrorViewState, type CodeMirrorViewState } from '@/documentAuthority/codeMirrorViewState'
 
 interface MuyaIndexCursorLike {
   anchor: CodeMirror.Position
@@ -38,13 +41,17 @@ const props = defineProps<{
   textDirection: string
   coreLease?: CoreDocumentViewLease
   corePerformanceTrace?: CoreAuthorityPerformanceTrace
+  initialViewState?: CodeMirrorViewState
 }>()
+const emit = defineEmits<{ (event: 'core-fault', error: unknown): void }>()
 
 const editorStore = useEditorStore()
 const preferencesStore = usePreferencesStore()
 
 const sourceCodeContainer = ref<HTMLDivElement | null>(null)
 
+// CodeMirror owns its mutable document and selection objects. Vue must not wrap
+// those native objects in proxies that cannot cross the recovery IPC boundary.
 const editor = shallowRef<CodeMirror.Editor | null>(null)
 const commitTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const viewDestroyed = ref(false)
@@ -55,6 +62,31 @@ let coreCompositionStart: (() => void) | undefined
 let coreCompositionEnd: (() => void) | undefined
 let coreSettlementCheck: (() => void) | undefined
 let requestedSourceSnapshots = 0
+let capturedRecoveryDraft: CoreRecoveryDraftInput | undefined
+const captureRecoveryDraft = (error: unknown): CoreRecoveryDraftInput | undefined => {
+  if (capturedRecoveryDraft !== undefined) return capturedRecoveryDraft
+  const lease = props.coreLease
+  const cm = editor.value
+  if (lease === undefined || cm === null) return undefined
+  cm.setOption('readOnly', true)
+  const text = cm.getValue()
+  capturedRecoveryDraft = {
+    documentId: lease.documentId,
+    pathname: currentTab.value?.pathname,
+    generation: lease.identity.generation,
+    revision: lease.identity.revision,
+    reason: error instanceof Error ? error.message : String(error),
+    visibleText: text,
+    nativeState: { surface: 'source', text, selections: copyCodeMirrorSelections(cm.listSelections()) },
+    nativeIntent: coreAdapter?.recoveryDraft(),
+    acknowledgedView: { initialSource: props.markdown, lineEnding: lease.lineEnding }
+  }
+  return capturedRecoveryDraft
+}
+const captureViewState = (): CodeMirrorViewState | undefined => editor.value && sourceCodeContainer.value
+  ? captureCodeMirrorViewState(editor.value, sourceCodeContainer.value)
+  : undefined
+defineExpose({ captureRecoveryDraft, captureViewState })
 
 const {
   theme,
@@ -213,7 +245,7 @@ const handleFileChange = (payload: unknown) => {
   if (isValidMuyaIndexCursor(muyaIndexCursor)) {
     const { anchor, focus } = muyaIndexCursor
 
-    editor.value.setSelection(anchor, focus, { scroll: true }) // Scroll the focus into view.
+    editor.value.setSelection(copyCodeMirrorPosition(anchor), copyCodeMirrorPosition(focus), { scroll: true }) // Scroll the focus into view.
   } else if (scrollTargets.length) {
     const restoreScroll = () => {
       for (const { el, top } of scrollTargets) el.scrollTop = top
@@ -245,6 +277,13 @@ const handleSelectAll = () => {
   }
 }
 
+const refreshCoreSavedState = async (outcome: { session: number, revision: number } | undefined): Promise<void> => {
+  if (outcome === undefined || props.coreLease === undefined) return
+  await editorStore.REFRESH_CORE_SAVED_STATE(props.coreLease.documentId, {
+    generation: outcome.session, revision: outcome.revision
+  })
+}
+
 const handleUndo = () => {
   if (!sourceCode.value) {
     return
@@ -252,7 +291,7 @@ const handleUndo = () => {
 
   if (editor.value) {
     if (coreAdapter !== undefined) {
-      coreAdapter.history('undo').catch(error => {
+      coreAdapter.history('undo').then(refreshCoreSavedState).catch(error => {
         console.error('Core undo failed', error)
         requestCoreRecovery(error)
       })
@@ -269,7 +308,7 @@ const handleRedo = () => {
 
   if (editor.value) {
     if (coreAdapter !== undefined) {
-      coreAdapter.history('redo').catch(error => {
+      coreAdapter.history('redo').then(refreshCoreSavedState).catch(error => {
         console.error('Core redo failed', error)
         requestCoreRecovery(error)
       })
@@ -284,21 +323,9 @@ const requestCoreRecovery = (error: unknown): void => {
   const lease = props.coreLease
   if (
     adapter === undefined || lease === undefined ||
-    adapter.state().status !== 'faulted'
+    adapter.state().status === 'ready'
   ) return
-  lease.faultView(error)
-  const recovering = coreDocumentRecoveryAuthority.recover({
-    documentId: lease.documentId,
-    lease,
-    error
-  })
-  if (recovering === undefined) {
-    console.error('Core document recovery authority is unavailable', error)
-    return
-  }
-  recovering.catch(recoveryError => {
-    console.error('Core document recovery failed', recoveryError)
-  })
+  emit('core-fault', error)
 }
 
 interface ImageActionPayload {
@@ -354,7 +381,7 @@ const handleImageAction = (payload: unknown) => {
     adjustPointer(focus)
     adjustPointer(anchor)
     if (focus && anchor) {
-      cm.setSelection(anchor, focus, { scroll: true })
+      cm.setSelection(copyCodeMirrorPosition(anchor), copyCodeMirrorPosition(focus), { scroll: true })
     } else {
       setCursorAtFirstLine(cm)
     }
@@ -414,9 +441,34 @@ const listenChange = (cm: CodeMirror.Editor) => {
 // #3580: in Source Code mode the WYSIWYG container is hidden, so the
 // `scroll-to-header` bus event (emitted when a TOC entry is clicked) must scroll
 // CodeMirror instead. Resolve the TOC entry to its heading line in the source.
-const handleScrollToHeader = (slug: unknown) => {
-  if (props.coreLease !== undefined) return
+let sourceTocIdentity: { generation: number; revision: number } | undefined
+const updateSourceToc = async () => {
+  const lease = props.coreLease
+  if (lease === undefined || viewDestroyed.value) return
+  try {
+    const projection = await lease.consumerProjectionAtBarrier()
+    if (props.coreLease !== lease || viewDestroyed.value || lease.consumerProjection() !== projection) return
+    sourceTocIdentity = { ...lease.identity }
+    editorStore.UPDATE_CORE_CONSUMER_TOC(lease.documentId, sourceTocIdentity, createCoreHeadingToc(projection))
+  } catch (error) {
+    if (props.coreLease === lease && !viewDestroyed.value) requestCoreRecovery(error)
+  }
+}
+const refreshSourceToc = debounce(updateSourceToc, 150)
+
+const handleScrollToHeader = async (slug: unknown) => {
   if (!editor.value) return
+  if (props.coreLease !== undefined) {
+    const lease = props.coreLease
+    await updateSourceToc()
+    if (props.coreLease !== lease || viewDestroyed.value) return
+    const identity = lease.identity
+    const offset = editorStore.listToc.find(item => item.slug === slug)?.sourceOffset
+    if (sourceTocIdentity?.generation !== identity.generation || sourceTocIdentity.revision !== identity.revision ||
+        typeof offset !== 'number') return
+    scrollSourceEditorToLine(editor.value, editor.value.posFromIndex(offset).line, sourceCodeContainer.value)
+    return
+  }
   const index = editorStore.listToc.findIndex(item => item.slug === slug)
   if (index < 0) return
   const line = findMarkdownHeadingLine(editor.value.getValue(), index)
@@ -441,7 +493,7 @@ onMounted(() => {
   const codeMirrorConfig: Record<string, unknown> = {
     value: markdown,
     lineNumbers: sourceCodeLineNumbers.value,
-    autofocus: true,
+    autofocus: false,
     lineWrapping: true,
     styleActiveLine: true,
     direction: textDirection,
@@ -475,7 +527,7 @@ onMounted(() => {
 
   if (isValidMuyaIndexCursor(muyaIndexCursor)) {
     const { anchor, focus } = muyaIndexCursor
-    codeMirrorInstance.setSelection(anchor, focus, { scroll: true })
+    codeMirrorInstance.setSelection(copyCodeMirrorPosition(anchor), copyCodeMirrorPosition(focus), { scroll: true })
   } else {
     setCursorAtFirstLine(codeMirrorInstance)
   }
@@ -489,6 +541,7 @@ onMounted(() => {
       codeMirrorInstance.getDoc(),
       props.coreLease.binding,
       {
+        nativeHistoryScope: crypto.randomUUID(),
         ...sourceCodeCoreAdapterOptions(
           props.markdown ?? '',
           props.coreLease.lineEnding
@@ -526,6 +579,7 @@ onMounted(() => {
     let latest: unknown
     const stopObserving = props.coreLease.binding.observe(event => {
       if (event.outcome.type !== 'applied') return
+      refreshSourceToc()
       editorStore.LISTEN_FOR_CORE_CONTENT_CHANGE(
         props.coreLease?.documentId ?? '',
         Object.freeze({
@@ -554,11 +608,13 @@ onMounted(() => {
       getMuyaCursor(codeMirrorInstance)
     )
     coreSettlementCheck = () => {
+      sourceTocIdentity = undefined
       const adapter = coreAdapter
       if (adapter === undefined) return
       adapter.settled().catch(requestCoreRecovery)
     }
     codeMirrorInstance.on('change', coreSettlementCheck)
+    updateSourceToc()
     props.coreLease.settleView(async () => {
       try {
         await coreAdapter?.settled()
@@ -573,6 +629,8 @@ onMounted(() => {
       { surface: 'source' }
     )
     props.coreLease.onHandoff(() => {
+      refreshSourceToc.cancel()
+      sourceTocIdentity = undefined
       if (coreSettlementCheck !== undefined) {
         codeMirrorInstance.off('change', coreSettlementCheck)
         coreSettlementCheck = undefined
@@ -640,9 +698,23 @@ onMounted(() => {
   } else {
     listenChange(codeMirrorInstance)
   }
+  const initialViewState = props.initialViewState
+  if (initialViewState !== undefined) {
+    const restore = () => {
+      if (!viewDestroyed.value && container !== null) restoreCodeMirrorViewState(codeMirrorInstance, container, initialViewState)
+    }
+    restore()
+    // The replacement's scroll extent settles after its first layout.
+    requestAnimationFrame(restore)
+  }
+  // Constructor autofocus precedes CodeMirror's focus listener registration
+  // and leaves a 20 ms interval where native input is ignored. Activate only
+  // after its listeners, selection and Core ownership are established.
+  codeMirrorInstance.getInputField().focus()
 })
 
 onBeforeUnmount(() => {
+  refreshSourceToc.cancel()
   viewDestroyed.value = true
   if (props.coreLease !== undefined) delete window.__marktextDocumentCore
   if (commitTimer.value) clearTimeout(commitTimer.value)

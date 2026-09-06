@@ -1,5 +1,10 @@
 # CriticMarkup salvage inventory
 
+> **Historical plan 0010 record.** Plan [0011](../plans/0011-criticmarkup-editable-review.md)
+> supersedes this record as current implementation and completion authority. Keep the
+> fixtures, results, and unresolved product gaps; the old blanket approval, salvage,
+> attestation, and per-observation process requirements are not active release gates.
+
 This inventory records what the integration branch will carry forward from the two CriticMarkup
 implementation snapshots. It is an implementation baseline for plan 0010, not a new product or
 language specification. The exhaustive denominator and human decisions live in

@@ -654,3 +654,30 @@ export function transformOptimisticHistory(
     reconciliationEdits: reconciliationEdits(optimistic, authoritative)
   })
 }
+
+/** Relate the native draft to an acknowledged edit that adds semantic syntax. */
+export function reconcileOptimisticTransaction(input: Readonly<{
+  baseSourceLength: number
+  precedingEdits: readonly DocumentSourceEdit[]
+  optimisticEdits: readonly DocumentSourceEdit[]
+  appliedEdits: readonly DocumentSourceEdit[]
+}>): readonly DocumentSourceEdit[] {
+  if (!Number.isSafeInteger(input.baseSourceLength) || input.baseSourceLength < 0) {
+    throw new RangeError('Base source length must be a non-negative integer')
+  }
+  const base: readonly ProvenancePiece[] = input.baseSourceLength === 0
+    ? []
+    : [
+      { origin: BASE_ORIGIN, start: 0, end: input.baseSourceLength }
+    ]
+  let origin = 1
+  const nextOrigin = (): number => origin++
+  const optimistic = applyEdits(base, input.baseSourceLength,
+    stableEdits(input.optimisticEdits, input.baseSourceLength, nextOrigin, 'Native draft'))
+  const preceding = applyEdits(base, input.baseSourceLength,
+    stableEdits(input.precedingEdits, input.baseSourceLength, nextOrigin, 'Preceding history'))
+  const length = sequenceLength(preceding)
+  const authoritative = applyEdits(preceding, length,
+    stableEdits(input.appliedEdits, length, nextOrigin, 'Acknowledged edit'))
+  return reconciliationEdits(optimistic, authoritative)
+}

@@ -3,10 +3,6 @@ name: PR Build
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    # packages/muya (TS v2) does not affect the electron desktop build.
-    # Skip the multi-platform installer build on muya-only PRs.
-    paths-ignore:
-      - 'packages/muya/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -56,7 +52,7 @@ jobs:
       - name: Set C++20 for MacOS
         if: matrix.platform == 'macos'
         run: |
-          echo "CXXFLAGS=-std=gnu++20 -stdlib=libc++" >> $GITHUB_ENV
+          echo "CXXFLAGS=-std=gnu++20 -stdlib=libc++" >> "$GITHUB_ENV"
 
       # Run the full postinstall: Electron binary download, patch-package,
       # electron-rebuild, and minify-locales.
@@ -78,6 +74,31 @@ jobs:
       - name: build-win
         if: matrix.platform == 'windows'
         run: pnpm run build:win:${{ matrix.arch }}
+
+      - name: Verify default-enabled Windows package
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        env:
+          MARKTEXT_E2E_HIDDEN_WINDOW: '1'
+          MARKTEXT_E2E_PRIVATE_CLIPBOARD: '1'
+        run: |
+          $candidates = @(Get-ChildItem dist -Recurse -File -Filter marktext.exe |
+            Where-Object { Test-Path (Join-Path $_.DirectoryName 'resources/app.asar') })
+          if ($candidates.Count -ne 1) { throw "Expected one packaged executable, found $($candidates.Count)" }
+          $env:MARKTEXT_PACKAGED_APP = $candidates[0].FullName
+          $env:MARKTEXT_EXPECTED_COMMIT = (git rev-parse HEAD).Trim()
+          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts installed-core-review.spec.ts installed-core-clipboard.spec.ts --project=installed --workers=1 --retries=0 --reporter=line --output=../../test-results/windows-installed
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts criticmarkup-container-structure.spec.ts criticmarkup-nested-comment.spec.ts criticmarkup-idle-worker-recovery.spec.ts criticmarkup-source-ready.spec.ts criticmarkup-default-authority.spec.ts criticmarkup-draft-recovery.spec.ts criticmarkup-orphaned-recovery.spec.ts criticmarkup-ime-review.spec.ts installed-core-search.spec.ts installed-core-export-consumers.spec.ts image-ingestion.spec.ts --project=unpacked --workers=1 --retries=0 --reporter=line --output=../../test-results/windows-editorial
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload Windows verification evidence
+        if: always() && matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-${{ matrix.name }}
+          path: test-results/
+          if-no-files-found: ignore
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

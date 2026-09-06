@@ -3,7 +3,7 @@ import type { ElectronApplication, Page } from 'playwright'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import {
-  launchWithDoc,
+  launchWithMarkdown,
   waitForMenuReady,
   enterSourceMode,
   exitSourceMode,
@@ -33,9 +33,6 @@ import {
 // the serializer always emits — the fixture already ends with one).
 // ---------------------------------------------------------------------------
 
-const FIXTURE_REL = 'test/e2e/data/all-blocks.md'
-// launchWithDoc passes the fixture as an Electron CLI arg resolved against the
-// desktop package root (cwd). helpers.ts sets projectRoot to packages/desktop.
 const FIXTURE_ABS = path.resolve(__dirname, 'data', 'all-blocks.md')
 
 const UNSAVED_DOT = '.editor-tabs li.unsaved'
@@ -48,8 +45,6 @@ const save = async(app: ElectronApplication): Promise<void> => {
   await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 }
 
-const readDisk = (): string => fs.readFileSync(FIXTURE_ABS, 'utf-8')
-
 const isDirty = (page: Page): Promise<boolean> =>
   page.evaluate((sel) => !!document.querySelector(sel), UNSAVED_DOT)
 
@@ -57,15 +52,15 @@ test.describe('All blocks round-trip + save byte-stability (item 39)', () => {
   let app: ElectronApplication
   let page: Page
   let original: string
+  let filePath: string
+  const readDisk = (): string => fs.readFileSync(filePath, 'utf-8')
 
   test.beforeAll(async() => {
-    // Snapshot the on-disk bytes BEFORE launching so we can restore them in
-    // afterAll (the test saves into the real fixture file) and so we have the
-    // exact baseline to compare the serialized + saved content against.
-    original = readDisk()
-    const launched = await launchWithDoc(FIXTURE_REL)
+    original = fs.readFileSync(FIXTURE_ABS, 'utf-8')
+    const launched = await launchWithMarkdown(original)
     app = launched.app
     page = launched.page
+    filePath = launched.filePath
     await waitForMenuReady(app)
     // Let muya finish the initial render of every block.
     await page.waitForTimeout(800)
@@ -73,13 +68,6 @@ test.describe('All blocks round-trip + save byte-stability (item 39)', () => {
 
   test.afterAll(async() => {
     if (app) await app.close()
-    // Restore the fixture to its original bytes regardless of test outcome so
-    // the working tree is left untouched.
-    try {
-      fs.writeFileSync(FIXTURE_ABS, original, 'utf-8')
-    } catch {
-      /* ignore */
-    }
   })
 
   test('every block type renders (sanity that the fixture loaded)', async() => {

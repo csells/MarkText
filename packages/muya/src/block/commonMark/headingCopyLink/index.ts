@@ -102,6 +102,7 @@ class HeadingCopyLink extends TreeNode {
 
         this.muya.eventCenter.emit('heading-copy-link', {
             key: stableSlug(heading),
+            path: heading.path,
         });
     }
 

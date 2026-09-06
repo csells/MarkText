@@ -58,6 +58,7 @@ export class ScrollPage extends Parent {
         );
 
         scrollPage.parent!.domNode!.appendChild(scrollPage.domNode!);
+        muya.editor.inlineRenderer.flushPendingPresentation();
 
         return scrollPage;
     }
@@ -102,6 +103,7 @@ export class ScrollPage extends Parent {
                 return ScrollPage.loadBlock(block.name).create(muya, block);
             }),
         );
+        muya.editor.inlineRenderer.flushPendingPresentation();
     }
 
     /**
@@ -112,9 +114,9 @@ export class ScrollPage extends Parent {
         if (path.length === 0)
             return this;
 
-        const p = path.shift() as number;
-        const block = this.find(p) as Parent & { queryBlock: (p: TBlockPath) => Parent | Content | undefined };
-        return block && path.length ? block.queryBlock(path) : block;
+        const [p, ...remaining] = path;
+        const block = this.find(p as number) as Parent & { queryBlock: (p: TBlockPath) => Parent | Content | undefined };
+        return block && remaining.length ? block.queryBlock(remaining) : block;
     }
 
     updateRefLinkAndImage(label: string) {

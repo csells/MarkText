@@ -20,8 +20,10 @@ import { floats } from '../helpers/selectors';
 
 async function focusFirstLanguageInput(page: Page): Promise<void> {
     await page.evaluate(() => {
-        const codeBlock = window.muya!.editor.scrollPage.firstChild;
-        codeBlock.firstContentInDescendant().setCursor(0, 0, true);
+        const codeBlock = window.muya!.editor.scrollPage?.firstChild;
+        const content = codeBlock?.isParent() ? codeBlock.firstContentInDescendant() : null;
+        if (!content) throw new Error('Expected code block language input');
+        content.setCursor(0, 0, true);
     });
     await expect
         .poll(() => page.evaluate(() => window.muya!.editor.activeContentBlock?.blockName))
@@ -44,6 +46,7 @@ test('#4654 selecting a language after the code block is detached does not crash
     // guard, which is the last-resort net for any detach the auto-hide misses.)
     await page.evaluate(() => {
         const langInput = window.muya!.editor.activeContentBlock;
+        if (!langInput?.parent) throw new Error('Expected attached language input');
         langInput.parent.remove();
     });
 
