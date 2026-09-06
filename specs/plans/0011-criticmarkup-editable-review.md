@@ -102,7 +102,19 @@ Complete only when all retained scope above passes on the final candidate: seman
 
 Use ordinary commands/reports with enough build and environment context to reproduce results. Review the complete staged/unstaged/new-file change, fix material findings, and rerun affected checks. Separate product failures, harness failures, and unavailable verification; none may be renamed success. Add only a brief status per behavioral slice, its relevant test/run, and remaining blocker. Do not create another certification subsystem or ask the owner to bless completed implementation bookkeeping.
 
-Current completion blockers, in priority order:
+### Production-quality follow-through, 6 September
+
+The production audit found additional implementation failures after the previous candidate. The prior passing evidence below remains historical; it does not cover these new fixes.
+
+1. **Structural authoring (slices 2–4):** Annotated ordered/task-list conversion and loose/tight spacing, including nested lists, now pass 48 native-Muya adapter cases across LF/CRLF/CR. Tracking multiple padding edits around a fenced block needed a Core-owned compound suggestion to retain complete literal bodies. The previous packaged app fails the new nested-list native regression; final packaged verification remains open.
+2. **Screenshot ownership (slices 3–4):** Capture now owns a unique destination file instead of replacing the system clipboard or accepting a stale image on cancellation. Five capture tests pass. Real OS picker and IME candidate-panel verification remain open; the remote Mac lacks an enabled language IME and accessible screen-control credentials.
+3. **Platform and packaging (slice 6):** Branch CI is now running. The first Windows x64 run built successfully but failed preflight on portable archive path separators; its regression is repaired. Other platforms were cancelled by matrix fail-fast, which is now disabled. macOS packages now receive an ad-hoc seal; a rebuilt bundle passes strict code-signature verification. Preflight verifies post-signing native addons against that seal and rejects tampering. Final architecture/distribution runs remain open.
+4. **Integrated candidate and performance (slices 1–6):** Rebuild the final source, run the new native workflows and existing broad/editorial/recovery checks, then repeat performance on that same candidate. Desktop 1,911 tests and types pass. Two Core stress checks timed out under concurrent testing; all 291 Core tests pass serially with unchanged limits.
+5. **External release checks:** Developer ID signing/notarization and Gatekeeper distribution trust still lack a signing identity. Linux FUSE/desktop integration and actual Windows installer execution remain required. A delayed-save-acknowledgement Linux probe passed, ruling out that hypothesis for the historical shutdown timeout; its cause remains unproven.
+
+### Previous candidate checkpoint (superseded by the follow-through above)
+
+Previous completion blockers, in priority order:
 
 1. **Windows installed verification (slice 6):** No local Windows runtime or reachable Windows test peer is available. Execute the current candidate on Windows x64/arm64; CI already includes installed editorial, clipboard, recovery and immediate Source input. This is unverified behavior, not a passing platform claim.
 2. **Native OS interactions (slices 4 and 6):** Native IME panels and the interactive macOS screenshot picker remain unverified under the non-focus-stealing constraint. Chromium composition and completed screenshot IPC pass their automated checks.

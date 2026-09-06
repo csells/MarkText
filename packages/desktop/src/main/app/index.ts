@@ -1,9 +1,6 @@
 import path from 'path'
-import fsPromises from 'fs/promises'
-import { exec } from 'child_process'
-import dayjs from 'dayjs'
 import log from 'electron-log'
-import { app, BrowserWindow, clipboard, dialog, nativeTheme, shell, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, nativeTheme, shell, ipcMain } from 'electron'
 import type { BrowserWindowConstructorOptions } from 'electron'
 import { isChildOfDirectory } from 'common/filesystem/paths'
 import type { IUserPreferences } from '@shared/types/preferences'
@@ -23,6 +20,7 @@ import SettingWindow from '../windows/setting'
 import { windowActivationAllowed } from '../windows/windowActivationPolicy'
 import { setLanguage } from '../i18n'
 import { getNativeThemeSource, isDarkApplicationTheme } from './nativeTheme'
+import { captureScreenshot } from './screenshotCapture'
 import type Accessor from './accessor'
 import type WindowManager from './windowManager'
 
@@ -214,14 +212,6 @@ class App {
       // If an error occurs, use English as the default language
       setLanguage('en')
     }
-  }
-
-  async getScreenshotFileName(): Promise<string> {
-    const screenshotFolderPath = (await this._accessor.dataCenter.getItem(
-      'screenshotFolderPath'
-    )) as string
-    const fileName = `${dayjs().format('YYYY-MM-DD-HH-mm-ss')}-screenshot.png`
-    return path.join(screenshotFolderPath, fileName)
   }
 
   ready = (): void => {
@@ -673,31 +663,15 @@ class App {
 
     onInternalChannel('screen-capture', async(win: BrowserWindow) => {
       if (isOsx) {
-        // Use macOs `screencapture` command line when in macOs system.
-        const screenshotFileName = await this.getScreenshotFileName()
-        exec('screencapture -i -c', async(err) => {
-          if (err) {
-            log.error(err)
-            return
+        try {
+          const folder = await this._accessor.dataCenter.getItem('screenshotFolderPath') as string
+          const capturedPath = await captureScreenshot(folder)
+          if (capturedPath && !win.isDestroyed()) {
+            win.webContents.send('mt::screenshot-captured', capturedPath)
           }
-          // The renderer can no longer paste the clipboard bitmap via the
-          // removed `document.execCommand('paste')`, so persist the capture to a
-          // PNG and hand the path to the renderer to insert at the cursor.
-          let savedPath = ''
-          try {
-            const image = clipboard.readImage()
-            // `screencapture` leaves the clipboard untouched when the user
-            // cancels (Esc); skip so we don't insert a stale/empty image.
-            if (!image.isEmpty()) {
-              const bufferImage = image.toPNG()
-              await fsPromises.writeFile(screenshotFileName, bufferImage)
-              savedPath = screenshotFileName
-            }
-          } catch (writeErr) {
-            log.error(writeErr)
-          }
-          win.webContents.send('mt::screenshot-captured', savedPath)
-        })
+        } catch (error) {
+          log.error('Screenshot capture failed:', error)
+        }
       } else {
         // TODO: Do nothing, maybe we'll add screenCapture later on Linux and Windows.
         // if (this.shortcutCapture) {

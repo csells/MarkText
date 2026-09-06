@@ -119,6 +119,8 @@ nsis:
   include: windows/installer.nsh
 mac:
   artifactName: 'marktext-mac-${arch}-${version}.${ext}'
+  # Seal unsigned builds after repackaging Electron; release identities can override this.
+  identity: '-'
   entitlementsInherit: build/mac/entitlements.mac.plist
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
