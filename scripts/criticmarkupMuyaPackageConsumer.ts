@@ -1,11 +1,13 @@
 import { spawnSync } from 'node:child_process'
 import {
   existsSync,
+  cpSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -90,7 +92,16 @@ export const verifyMuyaPackedTypeScriptConsumer = async(
   const pnpm = resolvePinnedPnpm(repoRoot)
 
   try {
-    run(process.execPath, [pnpm, 'build'], muyaRoot)
+    const buildRoot = resolve(temporaryRoot, 'muya')
+    cpSync(muyaRoot, buildRoot, {
+      recursive: true,
+      filter: source => !['lib', 'node_modules', '.git'].some(name => (
+        source === resolve(muyaRoot, name)
+      ))
+    })
+    symlinkSync(resolve(muyaRoot, 'node_modules'), resolve(buildRoot, 'node_modules'), 'junction')
+    // Packaging may read the workspace bundle concurrently; this consumer owns only its scratch build.
+    run(process.execPath, [pnpm, 'build'], buildRoot)
 
     const packRoot = resolve(temporaryRoot, 'packed')
     mkdirSync(packRoot, { recursive: true })
@@ -99,7 +110,7 @@ export const verifyMuyaPackedTypeScriptConsumer = async(
       'pack',
       '--pack-destination',
       packRoot
-    ], muyaRoot)
+    ], buildRoot)
     const tarballs = readdirSync(packRoot).filter(name => name.endsWith('.tgz'))
     const filename = tarballs[0]
     if (!filename || tarballs.length !== 1) {

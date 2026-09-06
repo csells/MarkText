@@ -8,13 +8,13 @@ import { launchWithMarkdown, waitForEditor, enterSourceMode, clickMenuById } fro
 // container is the scrollable element — neither cm.scrollTo nor cm.scrollIntoView
 // moves it.
 const HEADING_COUNT = 20
-const buildLongDoc = (): string => {
+const buildLongDoc = (eol = '\n'): string => {
   const parts: string[] = []
   for (let i = 1; i <= HEADING_COUNT; i++) {
     parts.push(`# Heading Number ${i}`)
     for (let p = 0; p < 6; p++) parts.push(`Filler paragraph ${p} under heading ${i}. Lorem ipsum dolor.`)
   }
-  return parts.join('\n\n') + '\n'
+  return parts.join(eol + eol) + eol
 }
 
 const srcScrollTop = (page: Page): Promise<number> =>
@@ -34,59 +34,61 @@ const headingLineTopInViewport = (page: Page, text: string): Promise<number | nu
     return Math.round(target.getBoundingClientRect().top - container.getBoundingClientRect().top)
   }, `# ${text}`)
 
-test.describe('Source Code mode: TOC click scrolls to the heading at the top', () => {
-  let app: ElectronApplication
-  let page: Page
+for (const [name, eol] of [['LF', '\n'], ['CRLF', '\r\n'], ['CR', '\r']] as const) {
+  test.describe(`Source Code mode (${name}): TOC click scrolls to the heading at the top`, () => {
+    let app: ElectronApplication
+    let page: Page
 
-  test.beforeAll(async() => {
-    const launched = await launchWithMarkdown(buildLongDoc())
-    app = launched.app
-    page = launched.page
-    await waitForEditor(page)
-    await enterSourceMode(page, app)
-    const sbVisible = await page.evaluate(() => {
-      const el = document.querySelector('.side-bar') as HTMLElement | null
-      return !!(el && el.offsetParent !== null)
+    test.beforeAll(async() => {
+      const launched = await launchWithMarkdown(buildLongDoc(eol))
+      app = launched.app
+      page = launched.page
+      await waitForEditor(page)
+      await enterSourceMode(page, app)
+      const sbVisible = await page.evaluate(() => {
+        const el = document.querySelector('.side-bar') as HTMLElement | null
+        return !!(el && el.offsetParent !== null)
+      })
+      if (!sbVisible) await clickMenuById(app, 'sideBarMenuItem')
+      await clickMenuById(app, 'tocMenuItem')
+      await page.waitForSelector('.side-bar-toc .el-tree', { state: 'visible', timeout: 10000 })
+      await page.waitForFunction(
+        (c) => document.querySelectorAll('.side-bar-toc .el-tree-node__label').length >= c,
+        HEADING_COUNT,
+        { timeout: 10000 }
+      )
     })
-    if (!sbVisible) await clickMenuById(app, 'sideBarMenuItem')
-    await clickMenuById(app, 'tocMenuItem')
-    await page.waitForSelector('.side-bar-toc .el-tree', { state: 'visible', timeout: 10000 })
-    await page.waitForFunction(
-      (c) => document.querySelectorAll('.side-bar-toc .el-tree-node__label').length >= c,
-      HEADING_COUNT,
-      { timeout: 10000 }
-    )
-  })
 
-  test.afterAll(async() => {
-    if (app) await app.close()
-  })
-
-  test('clicking a deep heading scrolls down and lands it near the top', async() => {
-    await page.evaluate(() => {
-      const el = document.querySelector('.source-code') as HTMLElement | null
-      if (el) el.scrollTop = 0
+    test.afterAll(async() => {
+      if (app) await app.close()
     })
-    await expect.poll(() => srcScrollTop(page)).toBe(0)
 
-    await page.locator('.side-bar-toc').getByText('Heading Number 18', { exact: true }).click()
+    test('clicking a deep heading scrolls down and lands it near the top', async() => {
+      await page.evaluate(() => {
+        const el = document.querySelector('.source-code') as HTMLElement | null
+        if (el) el.scrollTop = 0
+      })
+      await expect.poll(() => srcScrollTop(page)).toBe(0)
 
-    // animated scroll down
-    await expect.poll(() => srcScrollTop(page), { timeout: 8000 }).toBeGreaterThan(0)
-    // heading sits near the TOP of the viewport (not the bottom)
-    await expect
-      .poll(() => headingLineTopInViewport(page, 'Heading Number 18'), { timeout: 8000 })
-      .toBeLessThan(150)
-    expect(await headingLineTopInViewport(page, 'Heading Number 18')).toBeGreaterThan(-5)
+      await page.locator('.side-bar-toc').getByText('Heading Number 18', { exact: true }).click()
+
+      // animated scroll down
+      await expect.poll(() => srcScrollTop(page), { timeout: 8000 }).toBeGreaterThan(0)
+      // heading sits near the TOP of the viewport (not the bottom)
+      await expect
+        .poll(() => headingLineTopInViewport(page, 'Heading Number 18'), { timeout: 8000 })
+        .toBeLessThan(150)
+      expect(await headingLineTopInViewport(page, 'Heading Number 18')).toBeGreaterThan(-5)
+    })
+
+    test('clicking an earlier heading scrolls back up to it at the top', async() => {
+      const fromTop = await srcScrollTop(page)
+      expect(fromTop).toBeGreaterThan(0)
+      await page.locator('.side-bar-toc').getByText('Heading Number 3', { exact: true }).click()
+      await expect.poll(() => srcScrollTop(page), { timeout: 8000 }).toBeLessThan(fromTop)
+      await expect
+        .poll(() => headingLineTopInViewport(page, 'Heading Number 3'), { timeout: 8000 })
+        .toBeLessThan(150)
+    })
   })
-
-  test('clicking an earlier heading scrolls back up to it at the top', async() => {
-    const fromTop = await srcScrollTop(page)
-    expect(fromTop).toBeGreaterThan(0)
-    await page.locator('.side-bar-toc').getByText('Heading Number 3', { exact: true }).click()
-    await expect.poll(() => srcScrollTop(page), { timeout: 8000 }).toBeLessThan(fromTop)
-    await expect
-      .poll(() => headingLineTopInViewport(page, 'Heading Number 3'), { timeout: 8000 })
-      .toBeLessThan(150)
-  })
-})
+}

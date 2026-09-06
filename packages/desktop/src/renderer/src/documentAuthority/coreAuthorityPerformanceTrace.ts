@@ -24,6 +24,9 @@ export type CoreAuthorityPerformanceEvent = Readonly<{
   readonly documentId: string
   readonly transaction: number
   readonly pendingDepth: number
+  /** UTF-16 units in the submitted native intent, before suggestion wrapping. */
+  readonly insertedUnits?: number
+  readonly deletedUnits?: number
   readonly at: number
 }> | Readonly<{
   readonly phase: 'ack'

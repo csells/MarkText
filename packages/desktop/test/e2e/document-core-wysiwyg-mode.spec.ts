@@ -81,11 +81,15 @@ test('Core WYSIWYG tracks one visible insertion through actor history', async() 
     }, visibleTrackedText)
     const paragraphs = page.locator('span.mu-paragraph-content')
     const renderedParagraphText = (index: number) => paragraphs.nth(index).evaluate(root => {
-      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT)
       let text = ''
       while (walker.nextNode()) {
-        const node = walker.currentNode as Text
-        let element = node.parentElement
+        const node = walker.currentNode
+        const glyph = node instanceof Element && node.matches('.mu-html-escape[data-character]')
+          ? node
+          : undefined
+        if (!(node instanceof Text) && glyph === undefined) continue
+        let element = glyph ?? node.parentElement
         let visible = true
         while (element !== null && element !== root.parentElement) {
           const style = getComputedStyle(element)
@@ -98,28 +102,42 @@ test('Core WYSIWYG tracks one visible insertion through actor history', async() 
           }
           element = element.parentElement
         }
-        if (visible) text += node.data
+        if (visible && glyph !== undefined) {
+          // Muya preserves source offsets in hidden marker text and renders
+          // decoded escapes with its existing CSS ::before glyph.
+          const content = getComputedStyle(glyph, '::before').content
+          if (content !== 'none' && content !== 'normal') {
+            text += glyph.getAttribute('data-character') ?? ''
+          }
+        } else if (visible && node instanceof Text) text += node.data
       }
       return text
     })
-    await expect(paragraphs.nth(0)).toHaveAttribute('contenteditable', 'false')
-    await expect(paragraphs.nth(1)).toHaveAttribute('contenteditable', 'false')
+    await expect(paragraphs.nth(0)).toHaveAttribute('contenteditable', 'true')
+    await expect(paragraphs.nth(1)).toHaveAttribute('contenteditable', 'true')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
     await expect(paragraphs.nth(0)).toHaveText('seed\\{--X\\--}')
     await expect.poll(() => renderedParagraphText(0)).toBe(visibleTrackedText)
     const paragraph = paragraphs.first()
-    await expect(paragraph).toHaveAttribute('contenteditable', 'false')
+    await expect(paragraph).toHaveAttribute('contenteditable', 'true')
     await expect(paragraphs.nth(1)).toHaveAttribute('contenteditable', 'true')
-    await expect(page.getByTestId('critic-review-kind')).toHaveText('addition')
+    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'addition')
     await expect(track).toHaveAttribute('aria-pressed', 'true')
-    await paragraph.focus()
-    await page.keyboard.type('?')
-    await expect.poll(() => renderedParagraphText(0)).toBe(visibleTrackedText)
+    await paragraph.click()
+    await page.keyboard.press('End')
+    // A native word boundary gives continued typing its own undo group,
+    // independent of how quickly the preceding save and assertions finish.
+    await page.keyboard.type(' ?')
+    await expect.poll(() => renderedParagraphText(0)).toBe(`${visibleTrackedText} ?`)
+    await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(
+      'seed{++\\{--X\\--} ?++}\n\nplain\n'
+    )
+    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
-
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(source)
@@ -132,7 +150,7 @@ test('Core WYSIWYG tracks one visible insertion through actor history', async() 
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
     await expect(paragraphs.nth(0)).toHaveText('seed\\{--X\\--}')
     await expect.poll(() => renderedParagraphText(0)).toBe(visibleTrackedText)
-    await expect(paragraph).toHaveAttribute('contenteditable', 'false')
+    await expect(paragraph).toHaveAttribute('contenteditable', 'true')
     await expect(paragraphs.nth(1)).toHaveAttribute('contenteditable', 'true')
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
@@ -177,7 +195,7 @@ test('Core WYSIWYG cancels added text with one tracked backspace', async() => {
 
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
     await expect(paragraph).toHaveText('see')
-    await expect(page.getByTestId('critic-review-kind')).toHaveText('addition')
+    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'addition')
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
@@ -235,7 +253,7 @@ test('Core WYSIWYG removes an Addition when its final character is deleted', asy
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(source)
     await expect(paragraph).toHaveText('x')
-    await expect(page.getByTestId('critic-review-kind')).toHaveText('addition')
+    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'addition')
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
@@ -276,15 +294,15 @@ test('Core WYSIWYG tracks one DOM composition as one actor transaction', async()
       bridge.composePlainText(0, ['日', '日本'])
     })
     const paragraphs = page.locator('span.mu-paragraph-content')
-    await expect(paragraphs.nth(0)).toHaveAttribute('contenteditable', 'false')
-    await expect(paragraphs.nth(1)).toHaveAttribute('contenteditable', 'false')
+    await expect(paragraphs.nth(0)).toHaveAttribute('contenteditable', 'true')
+    await expect(paragraphs.nth(1)).toHaveAttribute('contenteditable', 'true')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
     await expect(paragraphs.nth(0)).toHaveText('seed日本')
-    await expect(paragraphs.nth(0)).toHaveAttribute('contenteditable', 'false')
+    await expect(paragraphs.nth(0)).toHaveAttribute('contenteditable', 'true')
     await expect(paragraphs.nth(1)).toHaveAttribute('contenteditable', 'true')
-    await expect(page.getByTestId('critic-review-kind')).toHaveText('addition')
+    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'addition')
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
@@ -323,9 +341,9 @@ test('Core mode renders all five CriticMarkup forms and preserves their source',
     await expect.poll(() => page.evaluate(() =>
       [...document.querySelectorAll('span.mu-paragraph-content')]
         .map(node => node.textContent)
-    )).toEqual(['before add  new hi  after', 'editable'])
+    )).toEqual(['before add del oldnew hi  after', 'editable'])
     const paragraphs = page.locator('span.mu-paragraph-content')
-    await expect(paragraphs.nth(0)).toHaveAttribute('contenteditable', 'false')
+    await expect(paragraphs.nth(0)).toHaveAttribute('contenteditable', 'true')
     await expect(paragraphs.nth(1)).toHaveAttribute('contenteditable', 'true')
 
     await page.evaluate(() => {
@@ -370,7 +388,7 @@ test('Core WYSIWYG Review rejects one Deletion then undoes, redoes, and saves it
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(source)
     await expect.poll(() => page.evaluate(() =>
       document.querySelector('span.mu-paragraph-content')?.textContent
-    )).toBe('before  after')
+    )).toBe('before old after')
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
@@ -402,13 +420,13 @@ test('Core WYSIWYG Review navigation wraps without hiding its visible controls',
     const next = page.getByTestId('critic-review-next')
     const previous = page.getByTestId('critic-review-previous')
 
-    await expect(kind).toHaveText('deletion')
+    await expect(kind).toHaveAttribute('data-kind', 'deletion')
     await next.click()
-    await expect(kind).toHaveText('addition')
+    await expect(kind).toHaveAttribute('data-kind', 'addition')
     await next.click()
-    await expect(kind).toHaveText('deletion')
+    await expect(kind).toHaveAttribute('data-kind', 'deletion')
     await previous.click()
-    await expect(kind).toHaveText('addition')
+    await expect(kind).toHaveAttribute('data-kind', 'addition')
 
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
@@ -430,7 +448,7 @@ test('Core WYSIWYG Review removes one derived Commented span atomically', async(
   try {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await expect(page.getByTestId('critic-review-kind')).toHaveText('commented-span')
+    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'commented-span')
     await expect(page.getByTestId('critic-review-accept')).toHaveCount(0)
     await expect(page.getByTestId('critic-review-reject')).toHaveCount(0)
     const remove = page.getByTestId('critic-review-remove')
@@ -509,7 +527,7 @@ test('Core WYSIWYG transports actor-owned Comment and Substitution author comman
       throw new Error(`Unexpected Core author result: ${JSON.stringify(authorResult)}`)
     }
     expect(authorResult).toMatchObject({ result: 'author', form: 'comment' })
-    await expect(page.getByTestId('critic-review-kind')).toHaveText('commented-span')
+    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'commented-span')
 
     const trackReplacement = page.getByTestId('critic-review-track-replacement')
     await expect(trackReplacement).toBeVisible()
@@ -551,10 +569,9 @@ test('Core WYSIWYG authors a Comment through the visible selection control', asy
 
     const addComment = page.getByTestId('critic-review-add-comment')
     await expect(addComment).toBeEnabled()
-    await page.evaluate(() => {
-      window.prompt = () => 'note'
-    })
     await addComment.click()
+    await page.getByTestId('critic-review-comment-input').fill('note')
+    await page.getByTestId('critic-review-comment-submit').click()
     await expect.poll(() => page.evaluate(() =>
       (window.__marktextDocumentCore?.latest() as { result?: string })?.result
     )).toBe('author')
@@ -565,7 +582,7 @@ test('Core WYSIWYG authors a Comment through the visible selection control', asy
     expect(readFileSync(filePath, 'utf8')).toBe(source)
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(expected)
-    await expect(page.getByTestId('critic-review-kind')).toHaveText('commented-span')
+    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'commented-span')
 
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
@@ -602,10 +619,9 @@ test('Core WYSIWYG protects a conflicting Comment closer from the visible author
 
     const addComment = page.getByTestId('critic-review-add-comment')
     await expect(addComment).toBeEnabled()
-    await page.evaluate(text => {
-      window.prompt = () => text
-    }, comment)
     await addComment.click()
+    await page.getByTestId('critic-review-comment-input').fill(comment)
+    await page.getByTestId('critic-review-comment-submit').click()
     await expect.poll(() => page.evaluate(() =>
       (window.__marktextDocumentCore?.latest() as {
         outcome?: { type?: string }
@@ -648,9 +664,10 @@ test('Core completes one CriticMarkup Review lifecycle and reopens exact bytes',
       const bridge = window.__marktextDocumentCore
       if (bridge?.selectPlainText === undefined) throw new Error('Selection unavailable')
       bridge.selectPlainText(1, 0, 7)
-      window.prompt = () => 'review note'
     })
     await page.getByTestId('critic-review-add-comment').click()
+    await page.getByTestId('critic-review-comment-input').fill('review note')
+    await page.getByTestId('critic-review-comment-submit').click()
     await expect.poll(() => page.evaluate(() =>
       (window.__marktextDocumentCore?.latest() as {
         outcome?: { type?: string }
@@ -672,16 +689,16 @@ test('Core completes one CriticMarkup Review lifecycle and reopens exact bytes',
     )).toMatchObject({ form: 'substitution', outcome: { type: 'applied' } })
 
     const kind = page.getByTestId('critic-review-kind')
-    await expect(kind).toHaveText('addition')
+    await expect(kind).toHaveAttribute('data-kind', 'addition')
     await page.getByTestId('critic-review-accept').click()
-    await expect(kind).toHaveText('deletion')
+    await expect(kind).toHaveAttribute('data-kind', 'deletion')
     await page.getByTestId('critic-review-reject').click()
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await page.evaluate(() => window.__marktextDocumentCore?.settled())
-    await expect(kind).toHaveText('deletion')
+    await expect(kind).toHaveAttribute('data-kind', 'deletion')
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
     await page.evaluate(() => window.__marktextDocumentCore?.settled())
-    await expect(kind).toHaveText('substitution')
+    await expect(kind).toHaveAttribute('data-kind', 'substitution')
 
     await enterSourceMode(page, app)
     await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core')
@@ -713,16 +730,17 @@ test('Core completes one CriticMarkup Review lifecycle and reopens exact bytes',
     await reopened.page.waitForFunction(
       () => window.__marktextDocumentCore?.selectPlainText !== undefined
     )
-    await expect(reopened.page.getByTestId('critic-review-kind')).toHaveText(
+    await expect(reopened.page.getByTestId('critic-review-kind')).toHaveAttribute(
+      'data-kind',
       'substitution'
     )
     await expect.poll(() => reopened.page.evaluate(() =>
       [...document.querySelectorAll('span.mu-paragraph-content')]
         .map(node => node.textContent)
     )).toEqual([
-      'add del new hi ',
+      'add del oldnew hi ',
       'comment target',
-      'replaced target'
+      'replacereplaced target'
     ])
     await expectNoRendererErrors(reopened.app)
   } finally {
@@ -804,8 +822,9 @@ test('Core mode parks independent WYSIWYG authority and history per tab', async(
   }
 })
 
-test('Core mode rejects an unsupported WYSIWYG block conversion and recovers acknowledged source', async() => {
+test('Core mode applies a native blockquote command through acknowledged history', async() => {
   const source = 'plain\n'
+  const quoted = '> plain\n'
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
@@ -823,44 +842,35 @@ test('Core mode rejects an unsupported WYSIWYG block conversion and recovers ack
       window.__marktextDocumentCore?.generation
     )
     expect(initialGeneration).toBeDefined()
-
-    await page.evaluate(() => {
-      const paragraph = document.querySelector('span.mu-paragraph-content')
-      const text = paragraph === null
-        ? undefined
-        : document.createTreeWalker(
-          paragraph,
-          NodeFilter.SHOW_TEXT
-        ).nextNode()
-      if (!(text instanceof Text)) throw new Error('Plain paragraph text is unavailable')
-      const range = document.createRange()
-      range.setStart(text, 2)
-      range.setEnd(text, 2)
-      const selection = window.getSelection()
-      selection?.removeAllRanges()
-      selection?.addRange(range)
-      document.dispatchEvent(new Event('selectionchange'))
-    })
+    await page.locator('span.mu-paragraph-content').first().click()
+    await page.keyboard.press('End')
     await sendIpcToRenderer(app, 'mt::editor-paragraph-action', { type: 'blockquote' })
+    await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(quoted)
     await expect.poll(() => page.evaluate(() =>
       window.__marktextDocumentCore?.latest()
-    )).toMatchObject({ result: 'unsupported' })
-    await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+    )).toMatchObject({ result: 'accepted' })
+    await expect(page.locator('.editor-component blockquote')).toHaveText('plain')
+    expect(await page.evaluate(() => window.__marktextDocumentCore?.generation))
+      .toBe(initialGeneration)
 
-    await page.waitForFunction(generation =>
-      window.__marktextDocumentCore?.inputPlainText !== undefined &&
-      window.__marktextDocumentCore.generation !== generation,
-    initialGeneration)
-    await expect.poll(() => page.evaluate(() =>
-      document.querySelector('span.mu-paragraph-content')?.textContent
-    )).toBe('plain')
-    expect(readFileSync(filePath, 'utf8')).toBe(source)
-
-    await page.evaluate(() => {
-      window.__marktextDocumentCore?.inputPlainText?.(0, 'plain!', 6)
-    })
+    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
-    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('plain!\n')
+    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(source)
+    await expect(page.locator('.editor-component blockquote')).toHaveCount(0)
+    await expect(page.locator('span.mu-paragraph-content')).toHaveText('plain')
+
+    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
+    await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(quoted)
+    const paragraph = page.locator('.editor-component blockquote span.mu-paragraph-content')
+    await expect(paragraph).toHaveText('plain')
+    await paragraph.click()
+    await page.keyboard.press('End')
+    await page.keyboard.type('!')
+    await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('> plain!\n')
+    await expect(paragraph).toHaveText('plain!')
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await expectNoRendererErrors(app)
@@ -1166,8 +1176,9 @@ test('Core WYSIWYG tracks one paragraph-to-heading format through history', asyn
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
     const heading = page.locator('.editor-component h1')
     await expect(heading).toBeVisible()
-    await expect(heading.locator('.mu-plain-text')).toHaveText('title')
-    await expect(page.getByTestId('critic-review-kind')).toHaveText('substitution')
+    await expect(heading.locator('[data-critic-arm="new"]')).toHaveText('# title')
+    await expect(page.locator('.editor-component p [data-critic-arm="old"]')).toHaveText('plain')
+    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'substitution')
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
@@ -1178,7 +1189,8 @@ test('Core WYSIWYG tracks one paragraph-to-heading format through history', asyn
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
     await expect(heading).toBeVisible()
-    await expect(heading.locator('.mu-plain-text')).toHaveText('title')
+    await expect(heading.locator('[data-critic-arm="new"]')).toHaveText('# title')
+    await expect(page.locator('.editor-component p [data-critic-arm="old"]')).toHaveText('plain')
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await expectNoRendererErrors(app)
@@ -1255,24 +1267,31 @@ test('Core WYSIWYG tracks one cross-paragraph replacement and exact history', as
       bridge.replacePlainTextAcrossBlocks(0, 2, 2, 2, 'X')
     })
     const paragraphs = page.locator('span.mu-paragraph-content')
-    await expect(paragraphs.first()).toHaveAttribute('contenteditable', 'false')
+    await expect(paragraphs.first()).toHaveAttribute('contenteditable', 'true')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
-    await expect(paragraphs).toHaveCount(1)
-    await expect(paragraphs.first()).toHaveText('alXmma')
-    await expect(page.getByTestId('critic-review-kind')).toHaveText('substitution')
+    await expect(paragraphs).toHaveText(['alpha', 'beta', 'gaXmma'])
+    await expect(paragraphs.nth(0).locator('[data-critic-arm=old]')).toHaveText('pha')
+    await expect(paragraphs.nth(1).locator('[data-critic-arm=old]')).toHaveText('beta')
+    await expect(paragraphs.nth(2).locator('[data-critic-arm=old]')).toHaveText('ga')
+    await expect(paragraphs.nth(2).locator('[data-critic-arm=new]')).toHaveText('X')
+    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'substitution')
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(source)
-    await expect(paragraphs).toHaveCount(3)
+    await expect(paragraphs).toHaveText(['alpha', 'beta', 'gamma'])
+    await expect(paragraphs.locator('[data-critic-kind]')).toHaveCount(0)
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
-    await expect(paragraphs).toHaveCount(1)
-    await expect(paragraphs.first()).toHaveText('alXmma')
+    await expect(paragraphs).toHaveText(['alpha', 'beta', 'gaXmma'])
+    await expect(paragraphs.nth(0).locator('[data-critic-arm=old]')).toHaveText('pha')
+    await expect(paragraphs.nth(1).locator('[data-critic-arm=old]')).toHaveText('beta')
+    await expect(paragraphs.nth(2).locator('[data-critic-arm=old]')).toHaveText('ga')
+    await expect(paragraphs.nth(2).locator('[data-critic-arm=new]')).toHaveText('X')
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await expectNoRendererErrors(app)
@@ -1310,20 +1329,25 @@ test('Core WYSIWYG tracks one cross-paragraph cut and exact history', async() =>
     const paragraphs = page.locator('span.mu-paragraph-content')
 
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
-    await expect(paragraphs).toHaveCount(1)
-    await expect(paragraphs.first()).toHaveText('almma')
-    await expect(page.getByTestId('critic-review-kind')).toHaveText('deletion')
+    await expect(paragraphs).toHaveText(['alpha', 'beta', 'gamma'])
+    await expect(paragraphs.nth(0).locator('[data-critic-kind=deletion]')).toHaveText('pha')
+    await expect(paragraphs.nth(1).locator('[data-critic-kind=deletion]')).toHaveText('beta')
+    await expect(paragraphs.nth(2).locator('[data-critic-kind=deletion]')).toHaveText('ga')
+    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'deletion')
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(source)
-    await expect(paragraphs).toHaveCount(3)
+    await expect(paragraphs).toHaveText(['alpha', 'beta', 'gamma'])
+    await expect(paragraphs.locator('[data-critic-kind]')).toHaveCount(0)
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
-    await expect(paragraphs).toHaveCount(1)
-    await expect(paragraphs.first()).toHaveText('almma')
+    await expect(paragraphs).toHaveText(['alpha', 'beta', 'gamma'])
+    await expect(paragraphs.nth(0).locator('[data-critic-kind=deletion]')).toHaveText('pha')
+    await expect(paragraphs.nth(1).locator('[data-critic-kind=deletion]')).toHaveText('beta')
+    await expect(paragraphs.nth(2).locator('[data-critic-kind=deletion]')).toHaveText('ga')
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await expectNoRendererErrors(app)
@@ -1493,7 +1517,7 @@ test('Core WYSIWYG tracks one Markdown table paste through actor history', async
     await expect.poll(() => page.evaluate(() =>
       document.querySelectorAll('.editor-component table').length
     )).toBe(1)
-    await expect(page.getByTestId('critic-review-kind')).toHaveText('substitution')
+    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'substitution')
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')

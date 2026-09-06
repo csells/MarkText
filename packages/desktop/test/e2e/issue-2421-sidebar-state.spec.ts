@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { launchWithMarkdown } from './helpers'
+import { clickMenuById, launchWithMarkdown, waitForMenuReady } from './helpers'
 
 // #2421 — toggling the sidebar via its left-column icons must not lose state.
 // Two bugs: (1) collapsing to the icon strip persisted the clamped 220px width
@@ -26,7 +26,10 @@ test.describe('#2421 sidebar state survives icon toggle', () => {
     const launched = await launchWithMarkdown('# Doc\n\n## A\n\n## B\n')
     app = launched.app
     page = launched.page
-    // The files panel is the default right column; make sure it is open + wide.
+    await waitForMenuReady(app)
+    if (!(await page.locator('.side-bar').isVisible())) {
+      await clickMenuById(app, 'sideBarMenuItem')
+    }
     await page.waitForFunction(() => {
       const el = document.querySelector('.side-bar') as HTMLElement | null
       return !!(el && el.offsetParent !== null && el.getBoundingClientRect().width > 220)

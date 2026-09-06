@@ -1,5 +1,10 @@
 # Upstream MarkText test and latency baseline
 
+> **Historical plan 0010 record.** Plan [0011](../plans/0011-criticmarkup-editable-review.md)
+> supersedes this record as current implementation and completion authority. Keep the
+> fixtures, results, and unresolved product gaps; the old blanket approval, salvage,
+> attestation, and per-observation process requirements are not active release gates.
+
 This is the Phase 0 oracle map for upstream commit
 `e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c`. It distinguishes tests that exist from evidence the
 integration still has to create.

@@ -17,14 +17,17 @@ const decodeNumericReference = (body: string): string => {
     : String.fromCodePoint(codePoint)
 }
 
-const decodeStrictCharacterReferences = (source: string): string => source.replace(
+type DecodedSpelling = (start: number, end: number, value: string) => void
+
+const decodeStrictCharacterReferences = (source: string, onSpelling?: DecodedSpelling): string => source.replace(
   STRICT_CHARACTER_REFERENCE,
-  reference => {
+  (reference: string, offset: number) => {
     const body = reference.slice(1, -1)
-    if (body.startsWith('#')) return decodeNumericReference(body)
-    return Object.hasOwn(characterEntities, body)
-      ? characterEntities[body] ?? reference
-      : reference
+    const value = body.startsWith('#')
+      ? decodeNumericReference(body)
+      : Object.hasOwn(characterEntities, body) ? characterEntities[body] ?? reference : reference
+    if (value !== reference) onSpelling?.(offset, offset + reference.length, value)
+    return value
   }
 )
 
@@ -34,14 +37,17 @@ const decodeStrictCharacterReferences = (source: string): string => source.repla
  * literal characters before HTML entity decoding, so `\&copy;` cannot become
  * © accidentally.
  */
-export function decodeMarkdownSemanticText(source: string): string {
+export function decodeMarkdownSemanticText(source: string, onSpelling?: DecodedSpelling): string {
   if (!source.includes('\\') && !source.includes('&')) return source
 
   let decoded = ''
   let entityCandidate = ''
+  let candidateStart = 0
   const flush = (): void => {
     if (!entityCandidate) return
-    decoded += decodeStrictCharacterReferences(entityCandidate)
+    decoded += decodeStrictCharacterReferences(entityCandidate, onSpelling === undefined
+      ? undefined
+      : (start, end, value) => onSpelling(candidateStart + start, candidateStart + end, value))
     entityCandidate = ''
   }
 
@@ -51,9 +57,11 @@ export function decodeMarkdownSemanticText(source: string): string {
     if (current === '\\' && next !== undefined && ESCAPABLE_ASCII_PUNCTUATION.has(next)) {
       flush()
       decoded += next
+      onSpelling?.(offset, offset + 2, next)
       offset += 1
       continue
     }
+    if (!entityCandidate) candidateStart = offset
     entityCandidate += current
   }
   flush()

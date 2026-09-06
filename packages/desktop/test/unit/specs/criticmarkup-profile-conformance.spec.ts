@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -9,7 +10,28 @@ import {
 
 const repoRoot = resolve(import.meta.dirname, '../../../../..')
 
+const profilePath = 'specs/language/marktext-markdown-profile-1.md'
+const profileDigest = (): string => createHash('sha256')
+  .update(readFileSync(resolve(repoRoot, profilePath))).digest('hex')
+// The archived map is not a completion gate under plan 0011. These fixtures
+// exercise structural validation against current text without changing the
+// archived map, reviewing its semantic expectations, or ratifying a profile.
+const structuralFixture = (): unknown => {
+  const manifest = JSON.parse(readFileSync(resolve(
+    repoRoot, 'specs/baselines/criticmarkup-profile-conformance.json'
+  ), 'utf8'))
+  manifest.profile.sha256 = profileDigest()
+  return manifest
+}
+
 describe('CriticMarkup Profile 1 conformance-map structure', () => {
+  it('continues rejecting stale identity in synthetic structural fixtures', () => {
+    const manifest = structuralFixture() as { profile: { sha256: string } }
+    manifest.profile.sha256 = '0'.repeat(64)
+    expect(() => validateCriticMarkupProfileConformance(repoRoot, manifest))
+      .toThrow(/targets a different Profile 1 revision/)
+  })
+
   it('rejects duplicate normative rule IDs in the pinned Profile source', () => {
     const profile = readFileSync(resolve(
       repoRoot,
@@ -22,10 +44,7 @@ describe('CriticMarkup Profile 1 conformance-map structure', () => {
   })
 
   it('does not let semantic rules replace conformance cases with governance prose', () => {
-    const manifest = JSON.parse(readFileSync(resolve(
-      repoRoot,
-      'specs/baselines/criticmarkup-profile-conformance.json'
-    ), 'utf8')) as {
+    const manifest = structuralFixture() as {
       rules: Array<{
         id: string
         cases?: string[]
@@ -48,10 +67,7 @@ describe('CriticMarkup Profile 1 conformance-map structure', () => {
   })
 
   it('rejects conformance cases with an operation the structural schema does not define', () => {
-    const manifest = JSON.parse(readFileSync(resolve(
-      repoRoot,
-      'specs/baselines/criticmarkup-profile-conformance.json'
-    ), 'utf8')) as { cases: Array<{ id: string, operation: string }> }
+    const manifest = structuralFixture() as { cases: Array<{ id: string, operation: string }> }
     manifest.cases[0].operation = 'invented-operation'
 
     expect(() => validateCriticMarkupProfileConformance(repoRoot, manifest)).toThrow(
@@ -60,10 +76,7 @@ describe('CriticMarkup Profile 1 conformance-map structure', () => {
   })
 
   it('rejects conformance cases that name no expected observable', () => {
-    const manifest = JSON.parse(readFileSync(resolve(
-      repoRoot,
-      'specs/baselines/criticmarkup-profile-conformance.json'
-    ), 'utf8')) as { cases: Array<{ id: string, expectedObservable: Record<string, unknown> }> }
+    const manifest = structuralFixture() as { cases: Array<{ id: string, expectedObservable: Record<string, unknown> }> }
     manifest.cases[0].expectedObservable = {}
 
     expect(() => validateCriticMarkupProfileConformance(repoRoot, manifest)).toThrow(
@@ -72,10 +85,7 @@ describe('CriticMarkup Profile 1 conformance-map structure', () => {
   })
 
   it('does not accept an invented provenance string as independent review', () => {
-    const manifest = JSON.parse(readFileSync(resolve(
-      repoRoot,
-      'specs/baselines/criticmarkup-profile-conformance.json'
-    ), 'utf8')) as {
+    const manifest = structuralFixture() as {
       cases: Array<{
         id: string
         provenance: string
@@ -93,10 +103,7 @@ describe('CriticMarkup Profile 1 conformance-map structure', () => {
   })
 
   it('rejects reviewed status backed by a stale review record', () => {
-    const manifest = JSON.parse(readFileSync(resolve(
-      repoRoot,
-      'specs/baselines/criticmarkup-profile-conformance.json'
-    ), 'utf8')) as {
+    const manifest = structuralFixture() as {
       cases: Array<{
         id: string
         status: string
@@ -120,10 +127,7 @@ describe('CriticMarkup Profile 1 conformance-map structure', () => {
   })
 
   it('rejects stale governance evidence anchors', () => {
-    const manifest = JSON.parse(readFileSync(resolve(
-      repoRoot,
-      'specs/baselines/criticmarkup-profile-conformance.json'
-    ), 'utf8')) as {
+    const manifest = structuralFixture() as {
       rules: Array<{
         id: string
         governanceEvidence?: Array<{ ref: string, rationale: string }>
@@ -142,10 +146,7 @@ describe('CriticMarkup Profile 1 conformance-map structure', () => {
   })
 
   it('does not let the structural map claim Profile ratification', () => {
-    const manifest = JSON.parse(readFileSync(resolve(
-      repoRoot,
-      'specs/baselines/criticmarkup-profile-conformance.json'
-    ), 'utf8')) as { status: string }
+    const manifest = structuralFixture() as { status: string }
     manifest.status = 'ratified'
 
     expect(() => validateCriticMarkupProfileConformance(repoRoot, manifest)).toThrow(
@@ -159,7 +160,7 @@ describe('CriticMarkup Profile 1 conformance-map structure', () => {
       status: 'structural-draft-unratified',
       profile: {
         path: 'specs/language/marktext-markdown-profile-1.md',
-        sha256: '1cc914ff4f733c82eff4f98553ce486ec20bdb3ad87c903011bd9dff1ba050ae'
+        sha256: profileDigest()
       },
       rules: [],
       cases: []
@@ -169,10 +170,7 @@ describe('CriticMarkup Profile 1 conformance-map structure', () => {
       repoRoot,
       'specs/language/marktext-markdown-profile-1.md'
     ), 'utf8')
-    const manifest = JSON.parse(readFileSync(resolve(
-      repoRoot,
-      'specs/baselines/criticmarkup-profile-conformance.json'
-    ), 'utf8')) as { status: string, cases: Array<{ status: string }> }
+    const manifest = structuralFixture() as { status: string, cases: Array<{ status: string }> }
     expect(extractCriticMarkupProfileRuleIds(profile)).toHaveLength(44)
     expect(() => validateCriticMarkupProfileConformance(repoRoot, manifest)).not.toThrow()
     expect(manifest.status).toBe('structural-draft-unratified')

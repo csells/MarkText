@@ -106,6 +106,8 @@ export function shouldBreakUndoGroup(
 
 class History {
     private _lastRecorded: number = 0;
+    private _nextInputGroup: number = 0;
+    private _inputGroup: number | undefined;
     private _lastInputKind: Nullable<TInputKind> = null;
     private _ignoreChange: boolean = false;
     private _selectionStack: (Nullable<IHistorySelection>)[] = [];
@@ -188,7 +190,26 @@ class History {
         this._stack = { undo: [], redo: [] };
         this._selectionStack = [];
         this._lastRecorded = 0;
+        this._inputGroup = undefined;
         this._ignoreChange = false;
+    }
+
+    getInputGroup(): number | undefined {
+        return this._inputGroup;
+    }
+
+    preserveInputGrouping(update: () => void): void {
+        const recorded = this._lastRecorded;
+        const group = this._inputGroup;
+        const kind = this._lastInputKind;
+        try {
+            update();
+        }
+        finally {
+            this._lastRecorded = recorded;
+            this._inputGroup = group;
+            this._lastInputKind = kind;
+        }
     }
 
     getHistory(): ISerializedHistory {
@@ -303,6 +324,8 @@ class History {
         let undoOperation = json1.type.invertWithDoc(op, asDoc(doc));
 
         const timestamp = Date.now();
+        const sharesInputGroup = this._lastRecorded + this._options.delay > timestamp
+            && this._inputGroup !== undefined;
         if (
             this._lastRecorded + this._options.delay > timestamp
             && this._stack.undo.length > 0
@@ -312,9 +335,11 @@ class History {
             selection = lastSelection;
             undoOperation = json1.type.compose(undoOperation, lastOperation);
         }
-        else {
+        else if (!sharesInputGroup) {
             this._lastRecorded = timestamp;
         }
+        if (!sharesInputGroup)
+            this._inputGroup = ++this._nextInputGroup;
 
         if (!undoOperation || undoOperation.length === 0)
             return;

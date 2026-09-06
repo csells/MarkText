@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
+import { readFileSync } from 'node:fs'
 
 import {
   readInputLatencyTrace,
@@ -8,11 +9,12 @@ import {
   stopInputLatencyTrace,
   waitForInputLatencyTrace
 } from './helpers/inputLatencyTrace'
-import { launchWithMarkdown, placeCaretInEditor } from './helpers'
+import { launchWithMarkdown, placeCaretInEditor, sendIpcToRenderer } from './helpers'
 
 test.describe('upstream editor input-to-render-opportunity trace', () => {
   let app: ElectronApplication
   let page: Page
+  let filePath: string
 
   test.beforeEach(async() => {
     const launched = await launchWithMarkdown(
@@ -20,6 +22,7 @@ test.describe('upstream editor input-to-render-opportunity trace', () => {
     )
     app = launched.app
     page = launched.page
+    filePath = launched.filePath
     await placeCaretInEditor(page)
     await startInputLatencyTrace(page)
   })
@@ -60,6 +63,9 @@ test.describe('upstream editor input-to-render-opportunity trace', () => {
       token.split('').map((_, index) => index + 1)
     )
     expect(samples).toHaveLength(token.length)
+    await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(`latency probe${token}\n\nunrelated block`)
+    await expect(page.getByTestId('core-recovery-draft')).toHaveCount(0)
     for (const sample of samples) {
       expect(sample.expectedDomCheckpoint).toBeDefined()
       expect(sample.echoDomCheckpoint).toBeDefined()

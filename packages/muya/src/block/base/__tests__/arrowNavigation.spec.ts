@@ -104,6 +104,19 @@ function flush(): Promise<void> {
 }
 
 describe('content arrowHandler — cross-block navigation up', () => {
+    it.each(['metaKey', 'ctrlKey', 'altKey'] as const)('leaves modified navigation to the browser (%s)', async (modifier) => {
+        const muya = bootMuya('alpha\n');
+        const alpha = contentByText(muya, 'alpha');
+        muya.editor.activeContentBlock = alpha;
+        alpha.setCursor(5, 5, true);
+        const before = muya.getState();
+        const event = new KeyboardEvent('keydown', { key: 'ArrowRight', [modifier]: true, cancelable: true });
+        alpha.arrowHandler(event);
+        await flush();
+        expect(muya.getState()).toEqual(before);
+        expect(event.defaultPrevented).toBe(false);
+    });
+
     it('arrowUp at offset 0 moves the caret to the END of the previous paragraph', async () => {
         const muya = bootMuya('alpha\n\nbeta\n');
         const beta = contentByText(muya, 'beta');

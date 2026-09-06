@@ -411,6 +411,7 @@ export class Editor {
             const snapshot = pick(this.scrollPage as BlockNode, operations);
 
             drop(snapshot, operations, muya);
+            this.inlineRenderer.flushPendingPresentation();
 
             this._restoreSelection(selection);
         }

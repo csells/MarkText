@@ -178,6 +178,9 @@ class CodeBlockContent extends Content {
 
     override update(_cursor?: IRenderCursor, highlights = []) {
         const { _lang: lang, text } = this;
+        // Language loading and gutter initialization can refresh this DOM after
+        // the host restored a caret, or while a cross-block selection is active.
+        const selection = this.selection.getSelection();
         // transform alias to original language
         const fullLengthLang = transformAliasToOrigin([lang])[0];
         const domNode = this.domNode!;
@@ -211,6 +214,13 @@ class CodeBlockContent extends Content {
         }
         else {
             replaceIfChanged(domNode, code + trailingBreak);
+        }
+
+        if (selection && (selection.anchor.block === this || selection.focus.block === this)) {
+            const endpoint = (point: typeof selection.anchor) => point.block === this
+                ? { ...point, offset: Math.min(point.offset, text.length) }
+                : point;
+            this.selection.setSelection(endpoint(selection.anchor), endpoint(selection.focus));
         }
 
         this._updateLineNumbers(text);

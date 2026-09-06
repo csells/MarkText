@@ -1,6 +1,34 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import { launchWithMarkdown, expectNoRendererErrors } from './helpers'
+import { preserveSystemClipboard } from './helpers/systemClipboardFixture'
+
+let clipboardFixture: ReturnType<typeof preserveSystemClipboard>
+
+test('copies Revised duplicate anchors by source ownership, including nested headings', async() => {
+  const clipboard = preserveSystemClipboard()
+  const { app, page } = await launchWithMarkdown(
+    '{--## Removed--}\n\n## {~~Old~>Current~~}\n\n> ## Current\n',
+    { suppressErrorDialog: true }
+  )
+  try {
+    const editor = page.locator('.editor-component')
+    for (const [selector, expected] of [
+      ['.mu-container > h2:nth-of-type(2) .mu-copy-header-link', '#current'],
+      ['blockquote h2 .mu-copy-header-link', '#current-1']
+    ]) {
+      await app.evaluate(({ clipboard }) => clipboard.writeText('copy-anchor-sentinel'))
+      clipboard.rememberOwnedWrite('copy-anchor-sentinel')
+      await editor.locator(selector).click()
+      await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(expected)
+      clipboard.rememberOwnedWrite(expected)
+    }
+    await expectNoRendererErrors(app)
+  } finally {
+    await app.close()
+    clipboard.restore()
+  }
+})
 
 // ---------------------------------------------------------------------------
 // Coverage backfill (checklist item 241). The hover-to-copy heading affordance
@@ -43,16 +71,19 @@ const DOC = '## My Section\n\nA paragraph under the heading.\n'
 const readClipboard = (app: ElectronApplication): Promise<string> =>
   app.evaluate(({ clipboard }) => clipboard.readText())
 
-const writeClipboard = (app: ElectronApplication, text: string): Promise<void> =>
-  app.evaluate(({ clipboard }, value) => {
+const writeClipboard = async(app: ElectronApplication, text: string): Promise<void> => {
+  await app.evaluate(({ clipboard }, value) => {
     clipboard.writeText(value)
   }, text)
+  clipboardFixture.rememberOwnedWrite(text)
+}
 
 test.describe('Heading hover-to-copy anchor affordance (item 241)', () => {
   let app: ElectronApplication
   let page: Page
 
   test.beforeAll(async() => {
+    clipboardFixture = preserveSystemClipboard()
     const launched = await launchWithMarkdown(DOC, { suppressErrorDialog: true })
     app = launched.app
     page = launched.page
@@ -61,7 +92,7 @@ test.describe('Heading hover-to-copy anchor affordance (item 241)', () => {
   })
 
   test.afterAll(async() => {
-    if (app) await app.close()
+    try { if (app) await app.close() } finally { clipboardFixture?.restore() }
   })
 
   test('the heading renders an accessible copy-anchor affordance', async() => {
@@ -99,6 +130,7 @@ test.describe('Heading hover-to-copy anchor affordance (item 241)', () => {
     // The write flows renderer -> IPC -> main clipboard, so poll the main-side
     // clipboard until the anchor lands.
     await expect.poll(() => readClipboard(app), { timeout: 8000 }).toBe('#my-section')
+    clipboardFixture.rememberOwnedWrite('#my-section')
 
     await expectNoRendererErrors(app)
   })
@@ -118,6 +150,7 @@ test.describe('Heading hover-to-copy anchor affordance (item 241)', () => {
     // proving the engine key resolved to the matching listToc entry rather than
     // some unrelated heading.
     expect(copied).toBe('#my-section')
+    clipboardFixture.rememberOwnedWrite('#my-section')
 
     await expectNoRendererErrors(app)
   })
@@ -132,6 +165,7 @@ test.describe('Heading hover-to-copy anchor affordance (item 241)', () => {
     await page.keyboard.press('Enter')
 
     await expect.poll(() => readClipboard(app), { timeout: 8000 }).toBe('#my-section')
+    clipboardFixture.rememberOwnedWrite('#my-section')
 
     await expectNoRendererErrors(app)
   })

@@ -321,11 +321,12 @@ const handleResponseForSave = async(
           id,
           pathname: filePath,
           filename: newFilename,
-          saveIdentity
+          saveIdentity,
+          ...(saveIdentity ? { savedSource: markdown } : {})
         })
       } else {
         ipcMain.emit('window-file-saved', win.id, filePath)
-        win.webContents.send('mt::tab-saved', id, saveIdentity)
+        win.webContents.send('mt::tab-saved', id, saveIdentity, ...(saveIdentity ? [markdown] : []))
       }
       return saveIdentity === undefined || saveIdentity === null
         ? id
@@ -499,7 +500,8 @@ ipcMain.on(
               id,
               pathname: filePath,
               filename: newFilename,
-              saveIdentity
+              saveIdentity,
+              ...(saveIdentity ? { savedSource: markdown } : {})
             })
           } else if (pathname !== filePath) {
             // Update window file list and watcher.
@@ -510,11 +512,12 @@ ipcMain.on(
               id,
               pathname: filePath,
               filename: newFilename,
-              saveIdentity
+              saveIdentity,
+              ...(saveIdentity ? { savedSource: markdown } : {})
             })
           } else {
             ipcMain.emit('window-file-saved', win.id, filePath)
-            win.webContents.send('mt::tab-saved', id, saveIdentity)
+            win.webContents.send('mt::tab-saved', id, saveIdentity, ...(saveIdentity ? [markdown] : []))
           }
         })
         .catch((err: unknown) => {

@@ -31,6 +31,59 @@ const boot = (markdown: string): Muya => {
 }
 
 describe('Muya plain-text source edit adapter', () => {
+  it('maps native Enter at the end of a paragraph to a source paragraph boundary', () => {
+    const muya = boot('seed\n')
+    const block = muya.editor.scrollPage?.queryBlock([0, 'text'])
+    if (block == null || !block.isContent()) throw new Error('Expected paragraph')
+    muya.editor.activeContentBlock = block
+    block.setCursor(4, 4)
+    let observed: unknown
+    muya.eventCenter.on('json-change', (change: unknown) => {
+      observed = sourceEditForMuyaTwoParagraphPaste([{
+        path: [0, 'text'], text: 'seed', sourceRange: { start: 0, end: 4 }
+      }], change)
+    })
+    block.enterHandler(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    muya.flush()
+    expect(observed).toEqual({ start: 4, end: 4, insert: '\n\n' })
+  })
+
+  it('continues native typing inside an addition without editing hidden delimiters', () => {
+    const muya = boot('seed A')
+    const adapter = createMuyaPlainTextSourceEditAdapter({
+      path: [0, 'text'],
+      sourceRange: { start: 0, end: 9 },
+      text: 'seed A',
+      segments: [
+        { text: { start: 0, end: 4 }, source: { start: 0, end: 4 } },
+        { text: { start: 4, end: 6 }, source: { start: 7, end: 9 } }
+      ]
+    })
+    const observed: Array<ReturnType<typeof adapter.accept>> = []
+    muya.eventCenter.on('json-change', (change: unknown) => {
+      observed.push(adapter.accept(change))
+    })
+    const block = muya.editor.scrollPage?.queryBlock([0, 'text'])
+    if (block == null || !block.isContent() || block.domNode === null) {
+      throw new Error('Expected the mapped paragraph')
+    }
+    muya.editor.activeContentBlock = block
+    for (const text of ['seed AB', 'seed ABC']) {
+      block.domNode.textContent = text
+      block.setCursor(text.length, text.length)
+      block.inputHandler(new InputEvent('input', {
+        bubbles: true,
+        data: text.at(-1),
+        inputType: 'insertText'
+      }))
+      muya.flush()
+    }
+    expect(observed).toEqual([
+      { kind: 'edit', edit: { start: 9, end: 9, insert: 'B' } },
+      { kind: 'edit', edit: { start: 10, end: 10, insert: 'C' } }
+    ])
+  })
+
   it('turns one native middle-paragraph edit into an exact source edit', () => {
     const muya = boot('head\n\nmiddle\n\ntail\n')
     const adapter = createMuyaPlainTextSourceEditAdapter({

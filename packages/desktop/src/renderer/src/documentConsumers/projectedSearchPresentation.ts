@@ -2,6 +2,8 @@ import type {
   ProjectedSearchMatch,
   ProjectedSearchResult
 } from './documentProjectionConsumers'
+import type { MuyaPlainTextSourceBinding } from '../documentAuthority/muyaPlainTextSourceEdit'
+import type { MuyaPlainTextAuthorSelection } from '../documentAuthority/muyaPlainTextCoreAdapter'
 
 export interface ProjectedSearchPresentationBlock {
   update(
@@ -18,6 +20,8 @@ export interface ProjectedSearchPresentationBlock {
 }
 
 export interface ProjectedSearchPresentationHost {
+  /** A Core Markup host must map canonical match pieces through current leaves. */
+  bindings?(): readonly MuyaPlainTextSourceBinding[]
   blockAtPath(
     path: readonly (number | string)[]
   ): ProjectedSearchPresentationBlock | undefined
@@ -26,10 +30,12 @@ export interface ProjectedSearchPresentationHost {
 export interface ProjectedSearchPresentation {
   present(result: ProjectedSearchResult): boolean
   navigate(action: 'next' | 'previous'): ProjectedSearchResult
+  selection(): MuyaPlainTextAuthorSelection | undefined
   clear(): void
 }
 
 type ResolvedMatch = Readonly<{
+  readonly matchIndex: number
   readonly match: ProjectedSearchMatch
   readonly block: ProjectedSearchPresentationBlock
   readonly presentation: NonNullable<ProjectedSearchMatch['presentation']>
@@ -42,15 +48,16 @@ const emptyResult = (): ProjectedSearchResult => Object.freeze({
 })
 
 /**
- * Paints Core-owned semantic search offsets into Muya's presentation blocks.
- * The one proven mapping is a top-level projected block `[n]` to `[n, text]`;
- * nested AST paths fail closed. No renderer text or Markdown is observed.
+ * Paints canonical match pieces through current Markup source bindings. Hosts
+ * without source bindings retain the legacy top-level projection mapping.
+ * No renderer text or Markdown is observed.
  */
 export function createProjectedSearchPresentation(
   host: ProjectedSearchPresentationHost
 ): ProjectedSearchPresentation {
   let current = emptyResult()
   let painted = new Set<ProjectedSearchPresentationBlock>()
+  let activeSelection: MuyaPlainTextAuthorSelection | undefined
 
   const clearPaint = (): void => {
     for (const block of painted) block.update(undefined, [])
@@ -59,12 +66,43 @@ export function createProjectedSearchPresentation(
   const failClosed = (): false => {
     clearPaint()
     current = emptyResult()
+    activeSelection = undefined
     return false
   }
 
   const present = (result: ProjectedSearchResult): boolean => {
     const resolved: ResolvedMatch[] = []
-    for (const match of result.matches) {
+    const bindings = host.bindings?.()
+    for (const [matchIndex, match] of result.matches.entries()) {
+      if (bindings !== undefined) {
+        if (match.sourceRanges === undefined || match.sourceRanges.length === 0) return failClosed()
+        for (const range of match.sourceRanges) {
+          let cursor = range.start
+          for (const binding of bindings) {
+            for (const segment of binding.segments ?? [{ source: binding.sourceRange, text: { start: 0, end: binding.text.length } }]) {
+              if (segment.source.end <= cursor || segment.source.start >= range.end) continue
+              if (segment.source.start > cursor) return failClosed()
+              const end = Math.min(range.end, segment.source.end)
+              const block = host.blockAtPath(binding.path)
+              if (block === undefined) return failClosed()
+              const presentation = {
+                path: binding.path,
+                start: segment.text.start + cursor - segment.source.start,
+                end: segment.text.start + end - segment.source.start
+              }
+              const previous = resolved.at(-1)
+              if (previous?.matchIndex === matchIndex && previous.block === block && previous.presentation.end === presentation.start) {
+                resolved[resolved.length - 1] = { ...previous, presentation: { ...previous.presentation, end: presentation.end } }
+              } else resolved.push({ matchIndex, match, block, presentation })
+              cursor = end
+              if (cursor === range.end) break
+            }
+            if (cursor === range.end) break
+          }
+          if (cursor !== range.end) return failClosed()
+        }
+        continue
+      }
       const blockIndex = match.path[0]
       const presentation = match.presentation
       if (
@@ -79,21 +117,30 @@ export function createProjectedSearchPresentation(
       ) return failClosed()
       const block = host.blockAtPath(presentation.path)
       if (block === undefined) return failClosed()
-      resolved.push(Object.freeze({ match, block, presentation }))
+      resolved.push(Object.freeze({ matchIndex, match, block, presentation }))
     }
 
     clearPaint()
     current = result
+    const active = resolved.filter(item => item.matchIndex === result.index)
+    const first = active[0]?.presentation
+    const last = active.at(-1)?.presentation
+    activeSelection = first === undefined || last === undefined
+      ? undefined
+      : {
+        anchor: { path: first.path, offset: first.start },
+        focus: { path: last.path, offset: last.end }
+      }
     const highlights = new Map<
       ProjectedSearchPresentationBlock,
       Array<Readonly<{ start: number; end: number; active: boolean }>>
     >()
-    for (const [index, item] of resolved.entries()) {
+    for (const item of resolved) {
       const list = highlights.get(item.block) ?? []
       list.push(Object.freeze({
         start: item.presentation.start,
         end: item.presentation.end,
-        active: index === result.index
+        active: item.matchIndex === result.index
       }))
       highlights.set(item.block, list)
     }
@@ -111,6 +158,7 @@ export function createProjectedSearchPresentation(
 
   return Object.freeze({
     present,
+    selection: () => activeSelection,
     navigate(action: 'next' | 'previous'): ProjectedSearchResult {
       const length = current.matches.length
       if (length === 0) return current
@@ -123,6 +171,7 @@ export function createProjectedSearchPresentation(
     clear(): void {
       clearPaint()
       current = emptyResult()
+      activeSelection = undefined
     }
   })
 }

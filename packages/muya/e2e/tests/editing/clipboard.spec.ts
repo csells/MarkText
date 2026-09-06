@@ -1,3 +1,4 @@
+import type { BrowserContext, Page } from '@playwright/test';
 import { expect, test } from '../fixtures/muya';
 import { getMarkdown } from '../helpers/api';
 import { metaKey } from '../helpers/keyboard';
@@ -252,7 +253,7 @@ test.describe('clipboard paste', () => {
  * skip check, the call is reached only on chromium where it works.
  */
 async function grantClipboardPermissions(
-    context: Parameters<Parameters<typeof test>[1]>[0]['context'],
+    context: BrowserContext,
 ): Promise<void> {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
 }
@@ -265,7 +266,7 @@ async function grantClipboardPermissions(
  * `clipboardData === null` on Chromium-for-Testing).
  */
 async function pasteClipboard(
-    page: Parameters<Parameters<typeof test>[1]>[0]['page'],
+    page: Page,
     html: string,
     text: string,
     options: { resetContent?: boolean } = {},
@@ -292,7 +293,7 @@ async function pasteClipboard(
 }
 
 async function pasteClipboardAt(
-    page: Parameters<Parameters<typeof test>[1]>[0]['page'],
+    page: Page,
     initial: string,
     offset: number,
     html: string,
@@ -322,7 +323,7 @@ async function pasteClipboardAt(
  * Same as pasteClipboard but writes only `text/plain`.
  */
 async function pastePlainClipboard(
-    page: Parameters<Parameters<typeof test>[1]>[0]['page'],
+    page: Page,
     text: string,
 ): Promise<void> {
     await page.evaluate(() => window.muya!.setContent(''));

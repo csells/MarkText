@@ -117,10 +117,7 @@ const closeAndReset = async(page: Page): Promise<void> => {
   await expect.poll(() => page.locator('.mu-selection').count()).toBe(0)
 }
 
-// Seed the document content for a test and mark the tab clean (records the
-// current history entry as `lastSavedHistoryId` + clears the dirty flag), so a
-// subsequent edit's effect on the unsaved indicator is observed from a known
-// clean baseline. Mirrors the real post-save IPC the main process sends.
+// Save the scratch document so later replacements start from an acknowledged disk baseline.
 const seedDocClean = async(
   app: ElectronApplication,
   page: Page,
@@ -129,11 +126,7 @@ const seedDocClean = async(
   await closeAndReset(page)
   await setSourceMarkdown(page, app, markdown)
   await page.waitForTimeout(400)
-  const tabId = await page.evaluate(
-    () => document.querySelector('.editor-tabs li.active')?.getAttribute('data-id') ?? null
-  )
-  if (!tabId) throw new Error('could not resolve the active tab id')
-  await sendIpcToRenderer(app, 'mt::tab-saved', tabId)
+  await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
   await expect.poll(() => isTabDirty(page)).toBe(false)
 }
 
@@ -467,7 +460,9 @@ test.describe('Find bar — Escape clears highlights and restores the cursor (it
     await openFind(app, page)
     await page.locator(FIND_INPUT).fill('needleAlpha')
     await expect.poll(() => counterText(page)).toContain('1 / 1')
-    await expect.poll(() => page.locator('.mu-highlight').count()).toBe(1)
+    // Opening Find prefills the selected paragraph, also a single match.
+    // Wait for this query's highlighted text before closing the debounced search.
+    await expect(page.locator('.mu-highlight')).toHaveText('needleAlpha')
 
     await page.keyboard.press('Escape')
     await expect(page.locator(SEARCH_BAR)).toBeHidden({ timeout: 5000 })

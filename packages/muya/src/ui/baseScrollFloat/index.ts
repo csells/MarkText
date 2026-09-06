@@ -23,11 +23,14 @@ abstract class BaseScrollFloat extends BaseFloat {
     }
 
     protected activeEleScrollIntoView(ele: HTMLElement) {
-        if (ele) {
-            ele.scrollIntoView({
+        const container = this.container;
+        if (ele && container) {
+            const itemBounds = ele.getBoundingClientRect();
+            const containerBounds = container.getBoundingClientRect();
+            container.scrollTo({
+                top: container.scrollTop + itemBounds.top - containerBounds.top
+                    - (container.clientHeight - itemBounds.height) / 2,
                 behavior: 'smooth',
-                block: 'center',
-                inline: 'start',
             });
         }
     }

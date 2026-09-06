@@ -48,36 +48,39 @@ test.describe('External disk reload — undo restores the pre-change document', 
   // `Muya.replaceContent`) instead of `setContent` (which clears history).
   test('first undo after an external reload restores the old content', async() => {
     const { app, page, filePath } = await launchWithMarkdown('old content here\n')
-    await waitForMenuReady(app)
+    try {
+      await waitForMenuReady(app)
 
     // Auto-reload only applies silently when autoSave is on AND the tab is
     // unmodified (a freshly-loaded tab is saved). Enable autoSave so the change
     // applies without the manual "Reload" confirmation prompt.
-    await sendIpcToRenderer(app, 'mt::user-preference', { autoSave: true })
-    await page.waitForTimeout(100)
+      await sendIpcToRenderer(app, 'mt::user-preference', { autoSave: true })
+      await page.waitForTimeout(100)
 
-    await reportExternalChange(app, filePath, 'new content here\n')
-    await page.waitForTimeout(600)
+      await reportExternalChange(app, filePath, 'new content here\n')
+      await page.waitForTimeout(600)
 
     // The tab now reflects the new on-disk content...
-    expect((await getMarkdownContent(page, app)).trim()).toBe('new content here')
+      expect((await getMarkdownContent(page, app)).trim()).toBe('new content here')
     // ...and stays clean: the reloaded content matches the file on disk, so the
     // tab must NOT be flagged unsaved (replaceContent fires a json-change that
     // would otherwise mark it dirty against the stale baseline).
-    expect(await page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved'))).toBe(
-      false
-    )
+      expect(await page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved'))).toBe(
+        false
+      )
 
     // The first undo reverts the external change in one step, back to the
     // document as it was before the reload.
-    await undo(app)
-    await page.waitForTimeout(600)
-    expect((await getMarkdownContent(page, app)).trim()).toBe('old content here')
+      await undo(app)
+      await page.waitForTimeout(600)
+      expect((await getMarkdownContent(page, app)).trim()).toBe('old content here')
     // The undone document now diverges from on-disk content, so the tab is dirty.
-    await expect
-      .poll(() => page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved')))
-      .toBe(true)
-    await app.close()
+      await expect
+        .poll(() => page.evaluate(() => !!document.querySelector('.editor-tabs li.unsaved')))
+        .toBe(true)
+    } finally {
+      await app.close()
+    }
   })
 })
 
@@ -96,21 +99,22 @@ test.describe('External disk reload — source-mode scroll position survives a s
     // element holds the scroll rather than assuming.
     const longBody = 'line\n'.repeat(400)
     const { app, page, filePath } = await launchWithMarkdown(longBody)
-    await waitForMenuReady(app)
+    try {
+      await waitForMenuReady(app)
 
     // Auto-reload only applies silently when autoSave is on AND the tab is
     // unmodified (a freshly-loaded tab is saved) — same gate as the undo test.
-    await sendIpcToRenderer(app, 'mt::user-preference', { autoSave: true })
-    await page.waitForTimeout(100)
+      await sendIpcToRenderer(app, 'mt::user-preference', { autoSave: true })
+      await page.waitForTimeout(100)
 
-    await enterSourceMode(page, app)
+      await enterSourceMode(page, app)
 
     // Scroll well down the document. Drive both CodeMirror's own API and the
     // outer .source-code container so the scroll lands on whichever element is
     // the real overflow owner.
-    const captured = await page.evaluate(() => {
-      const container = document.querySelector('.source-code') as HTMLElement | null
-      const cmEl = document.querySelector('.source-code .CodeMirror') as
+      const captured = await page.evaluate(() => {
+        const container = document.querySelector('.source-code') as HTMLElement | null
+        const cmEl = document.querySelector('.source-code .CodeMirror') as
         | (Element & {
           CodeMirror?: {
             scrollTo(x: number, y: number): void
@@ -118,50 +122,52 @@ test.describe('External disk reload — source-mode scroll position survives a s
           }
         })
         | null
-      const cm = cmEl?.CodeMirror
-      if (cm) cm.scrollTo(0, 4000)
-      if (container) container.scrollTop = 4000
-      const scroller = cm?.getScrollerElement?.() ?? null
-      return {
-        container: container ? container.scrollTop : 0,
-        scroller: scroller ? scroller.scrollTop : 0
-      }
-    })
+        const cm = cmEl?.CodeMirror
+        if (cm) cm.scrollTo(0, 4000)
+        if (container) container.scrollTop = 4000
+        const scroller = cm?.getScrollerElement?.() ?? null
+        return {
+          container: container ? container.scrollTop : 0,
+          scroller: scroller ? scroller.scrollTop : 0
+        }
+      })
 
     // At least one of the candidate elements must have actually scrolled,
     // otherwise the assertion below would be vacuous.
-    const maxCaptured = Math.max(captured.container, captured.scroller)
-    expect(maxCaptured).toBeGreaterThan(0)
+      const maxCaptured = Math.max(captured.container, captured.scroller)
+      expect(maxCaptured).toBeGreaterThan(0)
 
     // Fire a same-tab external reload with slightly different long content. The
     // body must still match what we hand `loadChange` so the tab stays clean and
     // the reload applies silently.
-    const reloadedBody = longBody + 'tail line\n'
-    await reportExternalChange(app, filePath, reloadedBody)
-    await page.waitForTimeout(600)
+      const reloadedBody = longBody + 'tail line\n'
+      await reportExternalChange(app, filePath, reloadedBody)
+      await page.waitForTimeout(600)
 
     // The reload landed (content updated) and CodeMirror is still mounted.
-    expect((await getMarkdownContent(page, app)).trim().endsWith('tail line')).toBe(true)
-    await enterSourceMode(page, app)
+      await expect.poll(async() => (await getMarkdownContent(page, app)).trim().endsWith('tail line')).toBe(true)
+      await enterSourceMode(page, app)
 
     // The scroll position is restored — not reset to the top. The exact pixel
     // value can drift slightly because the new (longer) content changes layout
     // height, so use a generous tolerance but require it to stay well away from
     // 0. We compare against whichever element actually owned the scroll.
-    await expect
-      .poll(
-        () =>
-          page.evaluate(() => {
-            const container = document.querySelector('.source-code') as HTMLElement | null
-            const cmEl = document.querySelector('.source-code .CodeMirror') as
+      await expect
+        .poll(
+          () =>
+            page.evaluate(() => {
+              const container = document.querySelector('.source-code') as HTMLElement | null
+              const cmEl = document.querySelector('.source-code .CodeMirror') as
               | (Element & { CodeMirror?: { getScrollerElement(): HTMLElement } })
               | null
-            const scroller = cmEl?.CodeMirror?.getScrollerElement?.() ?? null
-            return Math.max(container ? container.scrollTop : 0, scroller ? scroller.scrollTop : 0)
-          }),
-        { timeout: 4000 }
-      )
-      .toBeGreaterThan(maxCaptured * 0.5)
-    await app.close()
+              const scroller = cmEl?.CodeMirror?.getScrollerElement?.() ?? null
+              return Math.max(container ? container.scrollTop : 0, scroller ? scroller.scrollTop : 0)
+            }),
+          { timeout: 4000 }
+        )
+        .toBeGreaterThan(maxCaptured * 0.5)
+    } finally {
+      await app.close()
+    }
   })
 })
