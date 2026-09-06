@@ -18,6 +18,7 @@ jobs:
       actions: read
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - name: linux
@@ -78,6 +79,19 @@ jobs:
         if: matrix.platform == 'windows'
         run: pnpm run build:win:${{ matrix.arch }}
 
+      - name: Verify macOS signature and default-enabled package
+        if: matrix.platform == 'macos'
+        env:
+          MARKTEXT_E2E_HIDDEN_WINDOW: '1'
+        run: |
+          app_bundle=$(find dist -maxdepth 3 -name marktext.app -type d)
+          test -n "$app_bundle"
+          codesign --verify --deep --strict "$app_bundle"
+          export MARKTEXT_PACKAGED_APP="$PWD/$app_bundle/Contents/MacOS/marktext"
+          MARKTEXT_EXPECTED_COMMIT=$(git rev-parse HEAD)
+          export MARKTEXT_EXPECTED_COMMIT
+          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts installed-core-review.spec.ts installed-core-clipboard.spec.ts --project=installed --workers=1 --retries=0 --reporter=line --output=../../test-results/macos-installed
+
       - name: Verify default-enabled Windows package
         if: matrix.platform == 'windows'
         shell: pwsh
@@ -85,18 +99,21 @@ jobs:
           MARKTEXT_E2E_HIDDEN_WINDOW: '1'
           MARKTEXT_E2E_PRIVATE_CLIPBOARD: '1'
         run: |
-          $candidates = @(Get-ChildItem dist -Recurse -File -Filter marktext.exe |
-            Where-Object { Test-Path (Join-Path $_.DirectoryName 'resources/app.asar') })
-          if ($candidates.Count -ne 1) { throw "Expected one packaged executable, found $($candidates.Count)" }
-          $env:MARKTEXT_PACKAGED_APP = $candidates[0].FullName
+          $installers = @(Get-ChildItem dist -File -Filter '*-setup.exe')
+          if ($installers.Count -ne 1) { throw "Expected one installer, found $($installers.Count)" }
+          $destination = Join-Path $env:RUNNER_TEMP ('marktext-installed-' + [guid]::NewGuid().ToString('N'))
+          $installer = Start-Process -FilePath $installers[0].FullName -ArgumentList @('/S', "/D=$destination") -Wait -PassThru
+          if ($installer.ExitCode -ne 0) { throw "Installer failed with exit code $($installer.ExitCode)" }
+          $env:MARKTEXT_PACKAGED_APP = Join-Path $destination 'marktext.exe'
+          if (!(Test-Path $env:MARKTEXT_PACKAGED_APP)) { throw 'Installer did not produce marktext.exe' }
           $env:MARKTEXT_EXPECTED_COMMIT = (git rev-parse HEAD).Trim()
           pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts installed-core-review.spec.ts installed-core-clipboard.spec.ts --project=installed --workers=1 --retries=0 --reporter=line --output=../../test-results/windows-installed
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts criticmarkup-container-structure.spec.ts criticmarkup-nested-comment.spec.ts criticmarkup-idle-worker-recovery.spec.ts criticmarkup-source-ready.spec.ts criticmarkup-default-authority.spec.ts criticmarkup-draft-recovery.spec.ts criticmarkup-orphaned-recovery.spec.ts criticmarkup-ime-review.spec.ts installed-core-search.spec.ts installed-core-export-consumers.spec.ts image-ingestion.spec.ts --project=unpacked --workers=1 --retries=0 --reporter=line --output=../../test-results/windows-editorial
+          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts criticmarkup-list-format.spec.ts criticmarkup-container-structure.spec.ts criticmarkup-nested-comment.spec.ts criticmarkup-idle-worker-recovery.spec.ts criticmarkup-source-ready.spec.ts criticmarkup-default-authority.spec.ts criticmarkup-draft-recovery.spec.ts criticmarkup-orphaned-recovery.spec.ts criticmarkup-ime-review.spec.ts installed-core-search.spec.ts installed-core-export-consumers.spec.ts image-ingestion.spec.ts --project=unpacked --workers=1 --retries=0 --reporter=line --output=../../test-results/windows-editorial
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Upload Windows verification evidence
-        if: always() && matrix.platform == 'windows'
+      - name: Upload verification evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: verification-${{ matrix.name }}
@@ -104,6 +121,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: marktext-${{ matrix.name }}
