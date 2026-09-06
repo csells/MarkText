@@ -6,6 +6,7 @@ directories:
 files:
   - '!**/.vscode/*'
   - '!src/*'
+  - '!test/**/*'
   - '!scripts/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
@@ -22,6 +23,12 @@ files:
   - '!node_modules/@vscode/ripgrep/lib/download.js'
   - '!node_modules/@vscode/ripgrep/lib/postinstall.js'
   - '!node_modules/ced/vendor'
+  # ced's bindings loader requires this path; include the rebuilt addon explicitly.
+  - '!node_modules/ced/build/Release/ced.node'
+  - from: node_modules/ced/build/Release
+    to: node_modules/ced/build/Release
+    filter:
+      - ced.node
   # Large source files
   - '!node_modules/mermaid/dist/mermaid.js'
   - '!node_modules/mermaid/dist/mermaid.min.js'
@@ -55,6 +62,7 @@ electronLanguages: # Avoid packaging all chromium locales since our app has in-b
 
 asarUnpack:
   - resources/**
+  - node_modules/ced/build/Release/ced.node
 fileAssociations:
   - ext: md
     name: Markdown

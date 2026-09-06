@@ -85,8 +85,7 @@ test.describe('table', () => {
         await firstBodyCell.click();
         await slowType(page, 'cell-text');
         await expect(firstBodyCell).toContainText('cell-text');
-        const md = await getMarkdown(page);
-        expect(md).toContain('cell-text');
+        await expect.poll(() => getMarkdown(page)).toContain('cell-text');
     });
 
     test('typing `**b**` in a cell renders an inline strong run and round-trips to markdown', async ({ page }) => {
@@ -141,9 +140,8 @@ test.describe('table', () => {
 
         // The markdown still holds the literal hashes inside the GFM table row,
         // not as a heading.
-        const md = await getMarkdown(page);
-        expect(md).toContain('# x');
-        expect(md).toContain('|');
+        await expect.poll(() => getMarkdown(page)).toContain('# x');
+        await expect.poll(() => getMarkdown(page)).toContain('|');
     });
 
     test('typing an inline `code` span in a cell renders a live <code> and round-trips backticks', async ({ page }) => {

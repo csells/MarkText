@@ -42,7 +42,7 @@ export default function loadImageAsync(
                 const img = document.createElement('img');
                 img.src = url;
                 if (attrs.alt)
-                    img.alt = attrs.alt.replace(/[`*{}[\]()#+\-.!_>~:|<$]/g, '');
+                    img.alt = attrs['data-core-semantic-alt'] === 'true' ? attrs.alt : attrs.alt.replace(/[`*{}[\]()#+\-.!_>~:|<$]/g, '');
                 if (attrs.title)
                     img.setAttribute('title', attrs.title);
                 if (attrs.width && typeof attrs.width === 'number')

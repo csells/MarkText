@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test'
 import { expect, test } from '../fixtures/muya'
 
 // #4339: a long inline math must stay scrollable (not truncated) when hidden,
@@ -8,7 +9,7 @@ import { expect, test } from '../fixtures/muya'
 // (A long valid formula keeps `overflow: auto` to stay scrollable, which is the
 // chosen trade-off — it sits slightly high rather than being truncated.)
 
-async function renderVsTextTop(page, md: string): Promise<number> {
+async function renderVsTextTop(page: Page, md: string): Promise<number> {
   await page.evaluate((m) => window.muya!.setContent(m), md)
   await page.waitForTimeout(150)
   return page.evaluate(() => {

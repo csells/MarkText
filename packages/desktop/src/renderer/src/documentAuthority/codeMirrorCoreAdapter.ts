@@ -17,6 +17,7 @@ import {
 } from './canonicalEolIndex'
 
 export interface CodeMirrorCoreAdapter {
+  recoveryDraft(): CodeMirrorRecoveryDraft
   settled(): Promise<CoreAppliedReply | undefined>
   history(command: 'undo' | 'redo'): Promise<CoreAppliedReply | undefined>
   resolve(
@@ -37,6 +38,14 @@ export interface CodeMirrorCoreAdapter {
   dispose(): void
 }
 
+export interface CodeMirrorRecoveryDraft {
+  readonly revision: number
+  readonly text: string
+  readonly commands: readonly Readonly<Record<string, unknown>>[]
+  readonly unsubmittedEdits: readonly DocumentSourceEdit[]
+  readonly composition: DocumentSourceEdit | undefined
+}
+
 export type CodeMirrorCoreAdapterState =
   | Readonly<{ readonly status: 'ready'; readonly lastAcceptedRevision: number }>
   | Readonly<{
@@ -51,6 +60,8 @@ export type CodeMirrorCoreAdapterState =
   }>
 
 export interface CodeMirrorCoreAdapterOptions {
+  /** Unique mounted native view; omitted for independently authored commands. */
+  readonly nativeHistoryScope?: string
   /** Maximum accepted-but-unacknowledged native change transactions. */
   readonly maxPending?: number
   readonly maxPendingInsertUnits?: number
@@ -69,6 +80,7 @@ interface QueuedSourceChange {
   readonly kind: 'source'
   readonly generation: number
   readonly edits: readonly DocumentSourceEdit[]
+  readonly nativeHistoryGroup?: string
 }
 
 interface QueuedHistoryCommand {
@@ -161,7 +173,8 @@ export function createCodeMirrorCoreAdapter(
     createCanonicalEolIndex(options.canonicalSource),
     options.insertedLineEnding,
     options.projections ?? (() => []),
-    options.performanceTrace
+    options.performanceTrace,
+    options.nativeHistoryScope
   )
 }
 
@@ -173,8 +186,27 @@ function createAdapterWithIndex(
   initialEolIndex: ReturnType<typeof createCanonicalEolIndex>,
   insertedLineEnding: CanonicalLineEnding,
   projections: () => readonly DocumentProjectionRequest[],
-  performanceTrace: CodeMirrorCoreAdapterOptions['performanceTrace']
+  performanceTrace: CodeMirrorCoreAdapterOptions['performanceTrace'],
+  nativeHistoryScope?: string
 ): CodeMirrorCoreAdapter {
+  const nativeGroups = new WeakMap<object, number>()
+  let nextNativeGroup = 0
+  const currentNativeGroup = (): string | undefined => {
+    if (nativeHistoryScope === undefined) return undefined
+    // CodeMirror 5's JSON history export omits event identity. Read the native
+    // event object here, at the adapter boundary, without copying history or
+    // duplicating CodeMirror's time/origin/operation grouping rules.
+    const history = (doc as unknown as { history?: { done?: readonly unknown[] } }).history?.done
+    if (!Array.isArray(history)) return undefined
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      const event = history[index]
+      if (event === null || typeof event !== 'object' || !Array.isArray((event as { changes?: unknown }).changes)) continue
+      let group = nativeGroups.get(event)
+      if (group === undefined) { group = ++nextNativeGroup; nativeGroups.set(event, group) }
+      return `${nativeHistoryScope}:${group}`
+    }
+    return undefined
+  }
   const eolIndex = initialEolIndex
   const queue: QueuedCommand[] = []
   const captures: CapturedNativeChange[] = []
@@ -191,6 +223,9 @@ function createAdapterWithIndex(
   let completedGeneration = 0
   let active = false
   let activeCommand: QueuedCommand | undefined
+  let latestSubmitted: QueuedCommand | undefined
+  let latestNativeEdits: readonly DocumentSourceEdit[] = []
+  let failedDraft: CodeMirrorRecoveryDraft | undefined
   let pendingInsertUnits = 0
   let lastAcceptedRevision = 1
   let reconciliationReason: 'rejected' | 'resource' | 'pending-limit' | undefined
@@ -246,9 +281,21 @@ function createAdapterWithIndex(
       settlement.resolve(latestReply)
     }
   }
+  const captureDraft = (): CodeMirrorRecoveryDraft => {
+    const submitted = activeCommand ?? latestSubmitted
+    return structuredClone({
+      revision: lastAcceptedRevision,
+      text: doc.getValue(),
+      commands: [...(submitted !== undefined && submitted.generation > completedGeneration ? [submitted] : []), ...queue]
+        .map(command => Object.fromEntries(Object.entries(command).filter(([, value]) => typeof value !== 'function'))),
+      unsubmittedEdits: latestNativeEdits,
+      composition: compositionEdit
+    })
+  }
   const failCommandLane = (error: unknown): void => {
     faultMessage = error instanceof Error ? error.message : 'Core command failed'
     terminalError = error
+    failedDraft ??= captureDraft()
     for (const command of queue.splice(0)) {
       if (command.kind !== 'source') command.reject(error)
     }
@@ -320,11 +367,16 @@ function createAdapterWithIndex(
     if (queued === undefined) return
     active = true
     activeCommand = queued
+    latestSubmitted = queued
     let acknowledged: ReturnType<EditorCoreBinding['submit']>['acknowledged']
     let transactionId = 0
     try {
       const submission = binding.submit(queued.kind === 'source'
-        ? { edits: queued.edits, projections: projections() }
+        ? {
+          edits: queued.edits,
+          projections: projections(),
+          ...(queued.nativeHistoryGroup === undefined ? {} : { nativeHistoryGroup: queued.nativeHistoryGroup })
+        }
         : queued.kind === 'history'
           ? { kind: queued.command, projections: projections() }
           : {
@@ -413,6 +465,7 @@ function createAdapterWithIndex(
         reconciliationReason = reply.type === 'resource' ? 'resource' : 'rejected'
         terminalError = new Error('CodeMirror Core reconciliation required')
         if (queued.kind !== 'source') queued.reject(terminalError)
+        failedDraft ??= captureDraft()
         for (const command of queue.splice(0)) {
           if (command.kind !== 'source') command.reject(terminalError)
         }
@@ -456,9 +509,11 @@ function createAdapterWithIndex(
     })
   }
   const enqueue = (edits: readonly DocumentSourceEdit[]): void => {
+    latestNativeEdits = edits
     if (queue.length + (active ? 1 : 0) >= maxPending) {
       reconciliationReason = 'pending-limit'
       terminalError = new Error('CodeMirror Core reconciliation required')
+      failedDraft ??= captureDraft()
       for (const command of queue.splice(0)) {
         if (command.kind !== 'source') command.reject(terminalError)
       }
@@ -469,6 +524,7 @@ function createAdapterWithIndex(
     if (pendingInsertUnits + insertUnits > maxPendingInsertUnits) {
       reconciliationReason = 'pending-limit'
       terminalError = new Error('CodeMirror Core reconciliation required')
+      failedDraft ??= captureDraft()
       for (const command of queue.splice(0)) {
         if (command.kind !== 'source') command.reject(terminalError)
       }
@@ -483,7 +539,8 @@ function createAdapterWithIndex(
     const command = Object.freeze({
       kind: 'source',
       generation,
-      edits: stableEdits
+      edits: stableEdits,
+      ...(nativeHistoryScope === undefined ? {} : { nativeHistoryGroup: currentNativeGroup() })
     })
     queue.push(command)
     sourceCommandLedger.push(command)
@@ -496,6 +553,7 @@ function createAdapterWithIndex(
     if (queue.length + (active ? 1 : 0) >= maxPending) {
       reconciliationReason = 'pending-limit'
       terminalError = new Error('CodeMirror Core reconciliation required')
+      failedDraft ??= captureDraft()
       for (const queued of queue.splice(0)) {
         if (queued.kind !== 'source') queued.reject(terminalError)
       }
@@ -523,6 +581,7 @@ function createAdapterWithIndex(
     if (queue.length + (active ? 1 : 0) >= maxPending) {
       reconciliationReason = 'pending-limit'
       terminalError = new Error('CodeMirror Core reconciliation required')
+      failedDraft ??= captureDraft()
       for (const queued of queue.splice(0)) {
         if (queued.kind !== 'source') queued.reject(terminalError)
       }
@@ -533,16 +592,19 @@ function createAdapterWithIndex(
     let rebasedRevision = authoredRevision
     for (const transaction of sourceCommandLedger) {
       if (transaction.generation <= authoredGeneration) continue
+      // Every edit in a transaction uses the same pre-transaction coordinates.
+      // Shift only after classifying all of them against that original range.
+      let shift = 0
       for (const edit of transaction.edits) {
         if (edit.end <= range.start) {
-          const delta = edit.insert.length - (edit.end - edit.start)
-          range = { start: range.start + delta, end: range.end + delta }
+          shift += edit.insert.length - (edit.end - edit.start)
         } else if (edit.start < range.end) {
           return Promise.reject(
             new Error('Core resolution target changed by pending editor input')
           )
         }
       }
+      range = { start: range.start + shift, end: range.end + shift }
       rebasedRevision += 1
     }
     generation += 1
@@ -725,6 +787,9 @@ function createAdapterWithIndex(
   editor?.on('changes', onChanges)
 
   const adapter: CodeMirrorCoreAdapter = Object.freeze({
+    recoveryDraft(): CodeMirrorRecoveryDraft {
+      return failedDraft ?? captureDraft()
+    },
     async settled(): Promise<CoreAppliedReply | undefined> {
       // CodeMirror 5 delivers Doc change notifications through signalLater.
       // Cross that delivery turn before capturing the generation barrier.

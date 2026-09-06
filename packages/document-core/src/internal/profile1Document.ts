@@ -7,6 +7,7 @@ import type {
   MarkupProjection,
   MarkupProjectionEvent,
   MarkdownOptionsV1,
+  MarkdownNode,
   NodeId,
   ProjectedCodeUnitOrigin,
   ProjectionProvenance,
@@ -229,6 +230,7 @@ interface ArmBoundaryTask {
   readonly lane: IntrinsicProfile1ForkLane
   readonly parentLane: IntrinsicProfile1ForkLane
   readonly branchEnd: number
+  readonly separateEditingArms?: true
 }
 
 type ProjectionTask = LaneTask | AppendTask | ArmBoundaryTask
@@ -321,14 +323,14 @@ export interface PreviousIntrinsicPass {
 }
 
 /**
- * Canonical parser facts admitted for one bounded, structurally inert source
- * region. No document graph, fact index, projection, or public AST has been
- * materialized when this value is returned.
+ * Parser-proven paragraph window and its reusable local products. Untouched
+ * document regions are represented only by the sparse retained index.
  */
 export interface Profile1RegionalAdmission {
   readonly kind: 'admitted'
   readonly bracket: PlainParagraphRegionBracket
   readonly nextWindow: string
+  readonly parsed: Profile1DocumentProducts
   readonly retainedIndex: PlainParagraphRetainedIndex
 }
 
@@ -2820,7 +2822,7 @@ function applyMarkdownArmBoundaryProjectionEdits(
       }
       insertions.push(Object.freeze({
         candidateOffset: edit.candidateOffset,
-        text: edit.lineEnding,
+        text: edit.blankLine === true ? edit.lineEnding.repeat(2) : edit.lineEnding,
         sourcePosition: edit.sourcePosition,
         affinity: 'next'
       }))
@@ -3637,6 +3639,24 @@ interface PreparedProfile1Projection {
   readonly traceView: ProfileParseTraceViewV1
 }
 
+// A replacement's arms share an inline position, but independently owned
+// blocks must not consume their sibling's text in the editing selection.
+// These are retained intrinsic block facts, never recognition of flattened
+// Markup text. An inherited line (for example `# {~~old~>new~~}`) still owns
+// both inline arms and must remain one heading.
+function armOwnsEditingBlock(lane: IntrinsicProfile1ForkLane): boolean {
+  if (lane.entryCheckpoint.linePath !== undefined || lane.range.start === lane.range.end) {
+    return false
+  }
+  return lane.transitions.some((transition) => {
+    const facts = transition.emittedFacts
+    const pending = facts.block.pendingLine
+    return facts.lines.some((line) => line.end > line.contentEnd) ||
+      (pending !== undefined &&
+        (!pending.paragraphOpen || pending.containerPath.length > 0))
+  })
+}
+
 function prepareProjection(
   graph: Profile1SyntaxGraphCore,
   view: ProjectionView,
@@ -3724,6 +3744,15 @@ function prepareProjection(
     }
     if (task.kind === 'arm-boundary') {
       if (task.role === 'enter') {
+        if (task.separateEditingArms === true && projectedLength > 0) {
+          armTerminationEdits.push(Object.freeze({
+            kind: 'separate-following-block',
+            candidateOffset: projectedLength,
+            sourcePosition: task.sourcePosition,
+            lineEnding: lastProjectionLineEnding(source, task.lane.range.start, task.lane.range.end),
+            blankLine: true
+          }))
+        }
         if (openMatchingScopes.has(task.laneId)) {
           throw new Error('Projected CriticMarkup arm entered twice')
         }
@@ -3822,7 +3851,10 @@ function prepareProjection(
         })
         continue
       }
-      for (const arm of selectedCanonicalArms(item, view)) {
+      const selectedArms = selectedCanonicalArms(item, view)
+      const separateEditingArms = view === 'editing' && selectedArms.length === 2 &&
+        selectedArms.some(armOwnsEditingBlock)
+      for (const [armIndex, arm] of selectedArms.entries()) {
         const boundaries = arm.armBoundaries
         let enterSourcePosition = arm.range.start
         let exitSourcePosition = arm.range.end
@@ -3861,7 +3893,8 @@ function prepareProjection(
             planArmTermination,
             lane: arm,
             parentLane: task.lane,
-            branchEnd: item.node.range.end
+            branchEnd: item.node.range.end,
+            ...(separateEditingArms && armIndex > 0 ? { separateEditingArms: true as const } : {})
           },
           { kind: 'lane', lane: arm },
           {
@@ -4573,28 +4606,10 @@ function retainedIntrinsicFromParse(
   })
 }
 
-function inertParagraphContentEnd(window: string): number | undefined {
-  const separatorLength = window.endsWith('\r\n\r\n')
-    ? 4
-    : window.endsWith('\n\n')
-      ? 2
-      : 0
-  if (separatorLength === 0) return undefined
-  const contentEnd = window.length - separatorLength
-  const content = window.slice(0, contentEnd)
-  return /^[\p{L}\p{N} ]+$/u.test(content) && /[\p{L}\p{N}]/u.test(content)
-    ? contentEnd
-    : undefined
-}
-
 /**
- * Admit the first regional fast-path shape without publishing document-wide
- * products. The proof is deliberately narrow: a single edit wholly inside a
- * CM-free, definition-free, literal-free middle paragraph whose old and new
- * spellings are plain prose followed by a blank separator. Under that proof,
- * paragraph topology and all Markdown and CriticMarkup structure remain
- * unchanged. Source size and emitted logical nodes are checked directly
- * against the document policy.
+ * Prove an ordinary paragraph edit from the two bounded parser windows.
+ * Paragraph topology, references and literal ownership must remain unchanged;
+ * punctuation and Unicode alone do not force document-wide reconstruction.
  */
 export function admitProfile1PlainParagraphRegion(
   previousSource: CanonicalSourceView,
@@ -4617,86 +4632,51 @@ export function admitProfile1PlainParagraphRegion(
     return undefined
   }
   const bracket = previousIndex.bracketForEdits(edits, source.length)
-  if (
-    bracket === undefined ||
-    bracket.start === 0 ||
-    bracket.endPrevious >= previousSource.length ||
-    bracket.endNext >= source.length
-  ) {
-    return undefined
-  }
+  if (bracket === undefined) return undefined
   const previousWindow = previousSource.slice(
     bracket.start,
     bracket.endPrevious
   )
   const nextWindow = source.slice(bracket.start, bracket.endNext)
-  const previousContentEnd = inertParagraphContentEnd(previousWindow)
-  const nextContentEnd = inertParagraphContentEnd(nextWindow)
-  if (
-    previousContentEnd === undefined ||
-    edit.start < bracket.start ||
-    edit.end > bracket.start + previousContentEnd
-  ) {
-    return undefined
-  }
-
-  const usesDesktopLimits = executionBudget.limitsProfile === 'desktop-v1'
-  const execution = createParseExecutionTracker()
-  const accounting = createProfile1SyntaxAccountingRecorderV1(
-    usesDesktopLimits,
-    false,
-    execution,
-    usesDesktopLimits
-      ? DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
-      : Number.POSITIVE_INFINITY
+  const options = bracket.start === 0 ? markdownOptions : Object.freeze({ ...markdownOptions, frontMatter: false })
+  const parse = (window: string): Profile1DocumentResult => parseProfile1Document(
+    window, executionBudget, undefined, options, false, undefined,
+    createProfile1DocumentReuseCache(), physicalRecorder
   )
-  const parsed = (() => {
-    try {
-      return parseIntrinsicProfile1(
-        nextWindow,
-        createProfile1SyntaxIdentityRegistry(nextWindow.length, accounting),
-        usesDesktopLimits ? DESKTOP_CM_DEPTH_LIMIT : Number.POSITIVE_INFINITY,
-        usesDesktopLimits
-          ? DESKTOP_MARKDOWN_DEPTH_LIMIT
-          : Number.POSITIVE_INFINITY,
-        Object.freeze({ ...markdownOptions, frontMatter: false }),
-        execution,
-        undefined,
-        physicalRecorder
-      )
-    } catch (error) {
-      if (!(error instanceof Profile1LogicalNodeLimitError)) {
-        throw error
-      }
-      return undefined
-    }
-  })()
-  execution.finish()
-  if (
-    parsed !== undefined &&
-    parsed.kind === 'complete' &&
-    parsed.referenceDefinitions.definitionFacts().length !== 0
-  ) {
+  const previous = parse(previousWindow)
+  const parsed = parse(nextWindow)
+  if (parsed.kind === 'complete' && (parsed.retainedIntrinsic?.referenceDefinitionCount ?? 0) !== 0) {
     return Object.freeze({ kind: 'reference-dependency' })
   }
-  if (
-    parsed === undefined ||
-    parsed.kind !== 'complete' ||
-    nextContentEnd === undefined ||
-    !/^[\p{L}\p{N} ]*$/u.test(edit.insert) ||
-    parsed.recoverySuppressedMarkerRanges !== undefined ||
-    parsed.hasCriticMarkupCandidate ||
-    parsed.roots.length !== 0 ||
-    parsed.markerDecisions.length !== 0 ||
-    parsed.diagnostics.length !== 0 ||
-    parsed.markdownLiterals.length !== 0
-  ) {
-    return undefined
+  const paragraph = (result: Profile1DocumentResult): MarkdownNode | undefined => {
+    if (result.kind !== 'complete' || result.retainedIntrinsic?.hasCriticMarkupCandidate ||
+        result.criticMarkup.rootCount !== 0 || result.markerDecisions.length !== 0 ||
+        result.diagnostics.count !== 0 || result.markdownLiterals.length !== 0) return undefined
+    const markdown = result.editing().markdown
+    if (markdown.root.childCount !== 1 || markdown.references.definitionCount !== 0 ||
+        markdown.references.linkCount !== 0 || markdown.references.footnoteReferenceCount !== 0) return undefined
+    const node = markdown.root.childAt(0)
+    if (node.kind !== 'paragraph' || node.childCount === 0) return undefined
+    for (let index = 0; index < node.childCount; index += 1) {
+      if (!['text', 'soft-break'].includes(node.childAt(index).kind)) return undefined
+    }
+    return node
+  }
+  const oldParagraph = paragraph(previous)
+  const nextParagraph = paragraph(parsed)
+  if (parsed.kind !== 'complete' || oldParagraph === undefined || nextParagraph === undefined ||
+      oldParagraph.childCount !== nextParagraph.childCount ||
+      edit.start < bracket.start + oldParagraph.range.start ||
+      edit.end > bracket.start + oldParagraph.range.end ||
+      edit.start + edit.insert.length > bracket.start + nextParagraph.range.end) return undefined
+  for (let index = 0; index < oldParagraph.childCount; index += 1) {
+    if (oldParagraph.childAt(index).kind !== nextParagraph.childAt(index).kind) return undefined
   }
   return Object.freeze({
     kind: 'admitted',
     bracket,
     nextWindow,
+    parsed,
     retainedIndex: previousIndex.withRegionLengthDelta(
       bracket.endSafePointRank,
       bracket.delta,

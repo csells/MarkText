@@ -22,7 +22,7 @@ import type {
   CoreRequest,
   CoreReviewItemLocator
 } from './coreProtocol'
-import { createMuyaPlainTextView } from './muyaPlainTextView'
+import { createMuyaMarkupView } from './muyaMarkupView'
 
 export interface CoreActor {
   handle(request: CoreRequest): CoreReply
@@ -286,6 +286,7 @@ export function createCoreActor(
   let disposed = false
   type HistoryEntry = CoreHistoryEntry
   const undoStack: HistoryEntry[] = []
+  let nativeHistoryGroup: Readonly<{ id: string, entry: HistoryEntry }> | undefined
   const redoStack: HistoryEntry[] = []
   let undoUnits = 0
   let redoUnits = 0
@@ -321,7 +322,10 @@ export function createCoreActor(
   })
   const recoveryHistory = (): CoreHistorySnapshot => Object.freeze({
     undo: Object.freeze(undoStack.map(copyEntry)),
-    redo: Object.freeze(redoStack.map(copyEntry))
+    redo: Object.freeze(redoStack.map(copyEntry)),
+    ...(nativeHistoryGroup !== undefined && undoStack.at(-1) === nativeHistoryGroup.entry
+      ? { nativeHistoryGroup: nativeHistoryGroup.id }
+      : {})
   })
   const applyRecoveryEdits = (
     source: string,
@@ -359,6 +363,9 @@ export function createCoreActor(
       snapshot === null || typeof snapshot !== 'object' ||
       !Array.isArray(snapshot.undo) || !Array.isArray(snapshot.redo)
     ) return 'invalid'
+    if (snapshot.nativeHistoryGroup !== undefined &&
+        (typeof snapshot.nativeHistoryGroup !== 'string' || snapshot.nativeHistoryGroup.length === 0 ||
+          snapshot.nativeHistoryGroup.length > 128 || snapshot.undo.length === 0 || snapshot.redo.length > 0)) return 'invalid'
     const validEntry = (value: unknown): value is HistoryEntry => {
       if (value === null || typeof value !== 'object') return false
       const entry = value as Partial<HistoryEntry>
@@ -427,6 +434,9 @@ export function createCoreActor(
     }
     undoStack.push(...restoredUndo)
     redoStack.push(...restoredRedo)
+    nativeHistoryGroup = snapshot.nativeHistoryGroup === undefined
+      ? undefined
+      : { id: snapshot.nativeHistoryGroup, entry: restoredUndo.at(-1)! }
     undoUnits = restoredUndo.reduce((sum, entry) => sum + historyUnits(entry), 0)
     redoUnits = restoredRedo.reduce((sum, entry) => sum + historyUnits(entry), 0)
     undoEditRecords = restoredUndo.reduce(
@@ -456,6 +466,45 @@ export function createCoreActor(
         insert: removed
       })
     }))
+  }
+
+  const mergeNativeHistory = (
+    previous: HistoryEntry,
+    next: HistoryEntry,
+    activeCore: DocumentCore,
+    activeRevision: DocumentRevision
+  ): HistoryEntry | null | undefined => {
+    // Both edit lists address the current intermediate source. Read only their
+    // shared envelope, keeping normal typing work proportional to the group.
+    let start = activeRevision.sourceLength
+    let end = 0
+    for (const edits of [previous.undo, next.redo]) {
+      for (const edit of edits) {
+        start = Math.min(start, edit.start)
+        end = Math.max(end, edit.end)
+      }
+    }
+    const delta = (items: readonly DocumentSourceEdit[]) => items.reduce((sum, edit) =>
+      sum + edit.insert.length - edit.end + edit.start, 0)
+    const units = 2 * (end - start) + delta(previous.undo) + delta(next.redo)
+    if (!Number.isSafeInteger(units) || units > maximumHistoryInsertUnits) return undefined
+    const source = activeCore.sourceSlice(activeRevision, { start, end })
+    const local = (items: readonly DocumentSourceEdit[]) => items.map(edit => ({
+      start: edit.start - start, end: edit.end - start, insert: edit.insert
+    }))
+    const before = applyRecoveryEdits(source, local(previous.undo))
+    const after = applyRecoveryEdits(source, local(next.redo))
+    if (before === undefined || after === undefined) return undefined
+    if (before === after) return null
+    let prefix = 0
+    while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix += 1
+    let suffix = 0
+    while (suffix < before.length - prefix && suffix < after.length - prefix &&
+      before[before.length - suffix - 1] === after[after.length - suffix - 1]) suffix += 1
+    return Object.freeze({
+      undo: Object.freeze([{ start: start + prefix, end: start + after.length - suffix, insert: before.slice(prefix, before.length - suffix) }]),
+      redo: Object.freeze([{ start: start + prefix, end: start + before.length - suffix, insert: after.slice(prefix, after.length - suffix) }])
+    })
   }
 
   const annotationFor = (
@@ -566,22 +615,6 @@ export function createCoreActor(
         }))
       }
     }
-    const appendCommentNestedItems = (annotation: CriticMarkupAnnotation): void => {
-      if (annotation.kind !== 'comment') return
-      const comment = annotation.arms.find(arm => arm.name === 'comment')
-      if (comment === undefined) return
-      const pending = [...comment.annotations].reverse()
-      while (pending.length > 0) {
-        const nested = pending.pop()
-        if (nested === undefined) continue
-        appendVisibleNestedItems(nested)
-        appendCommentNestedItems(nested)
-        items.push(Object.freeze({
-          kind: nested.kind,
-          range: Object.freeze({ ...nested.range })
-        }))
-      }
-    }
     for (let index = 0; index < annotations.length; index += 1) {
       const annotation = annotations[index]
       if (annotation === undefined) continue
@@ -610,7 +643,6 @@ export function createCoreActor(
         }
       }
       appendVisibleNestedItems(annotation)
-      appendCommentNestedItems(annotation)
       items.push(Object.freeze({
         kind: annotation.kind,
         range: Object.freeze({ ...annotation.range })
@@ -716,11 +748,10 @@ export function createCoreActor(
         diagnostic.range.start < end &&
         diagnostic.range.end > annotation.range.start
       )) return undefined
-      const edited = candidate.annotations.find(item =>
-        item.kind === 'comment' &&
-        item.range.start === annotation.range.start &&
-        item.range.end === end
-      )
+      const edited = annotationFor(candidate, {
+        kind: 'comment',
+        range: { start: annotation.range.start, end }
+      })
       const arm = edited?.arms.find(item => item.name === 'comment')
       return arm !== undefined && candidateCore.sourceSlice(candidate, arm.range) === payload
         ? Object.freeze({ ...annotation.range, insert })
@@ -991,473 +1022,11 @@ export function createCoreActor(
     activeRevision: DocumentRevision,
     request: Extract<CoreRequest, { readonly type: 'track' }>
   ): DocumentSourceEdit | undefined => {
-    if (
-      request.range === null || typeof request.range !== 'object' ||
-      typeof request.text !== 'string' ||
-      !Number.isSafeInteger(request.range.start) ||
-      !Number.isSafeInteger(request.range.end) ||
-      request.range.start < 0 || request.range.end < request.range.start ||
-      request.range.end > activeRevision.sourceLength
-    ) return undefined
-    const insertion = request.range.start === request.range.end && request.text.length > 0
-    const deletion = request.range.end > request.range.start && request.text.length === 0
-    const substitution = request.range.end > request.range.start &&
-      request.text.length > 0
-    if (!insertion && !deletion && !substitution) return undefined
-    const protect = (value: string, pattern: RegExp): string =>
-      value.replace(pattern, token => `\\${token}`)
-    const protectNativeText = (value: string): string => protect(
-      value,
-      /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\}/g
-    )
-    const protectedNativeText = protectNativeText(request.text)
-    if (insertion) {
-      const pending = [...activeRevision.annotations]
-      let deepestAnnotation: CriticMarkupAnnotation | undefined
-      while (pending.length > 0) {
-        const annotation = pending.pop()
-        if (annotation === undefined) break
-        if (
-          request.range.start > annotation.range.start &&
-          request.range.start < annotation.range.end &&
-          (deepestAnnotation === undefined ||
-            annotation.range.end - annotation.range.start <
-              deepestAnnotation.range.end - deepestAnnotation.range.start)
-        ) deepestAnnotation = annotation
-        for (const arm of annotation.arms) pending.push(...arm.annotations)
-      }
-      if (deepestAnnotation !== undefined) {
-        const content = deepestAnnotation.kind === 'addition'
-          ? deepestAnnotation.arms.find(arm => arm.name === 'content')
-          : deepestAnnotation.kind === 'substitution'
-            ? deepestAnnotation.arms.find(arm => arm.name === 'new')
-            : undefined
-        if (
-          content === undefined || request.range.start < content.range.start ||
-          request.range.start > content.range.end
-        ) return undefined
-        const originalContent = activeCore.sourceSlice(activeRevision, content.range)
-        const originalOld = deepestAnnotation.kind === 'substitution'
-          ? deepestAnnotation.arms.find(arm => arm.name === 'old')
-          : undefined
-        const originalOldSource = originalOld === undefined
-          ? undefined
-          : activeCore.sourceSlice(activeRevision, originalOld.range)
-        const localOffset = request.range.start - content.range.start
-        const annotationCount = (annotations: readonly CriticMarkupAnnotation[]): number =>
-          annotations.reduce((count, item) => count + 1 + item.arms.reduce(
-            (armCount, arm) => armCount + annotationCount(arm.annotations),
-            0
-          ), 0)
-        const originalAnnotationCount = annotationCount(content.annotations)
-        const extensionCandidate = (payload: string): DocumentSourceEdit | undefined => {
-          const prefix = activeCore.sourceSlice(activeRevision, {
-            start: 0,
-            end: request.range.start
-          })
-          const suffix = activeCore.sourceSlice(activeRevision, {
-            start: request.range.end,
-            end: activeRevision.sourceLength
-          })
-          const candidateCore = createDocumentCore()
-          const candidate = candidateCore.open(prefix + payload + suffix, markdownOptions)
-          const extended = candidate.annotations.find(item =>
-            item.kind === deepestAnnotation.kind &&
-            item.range.start === deepestAnnotation.range.start &&
-            item.range.end === deepestAnnotation.range.end + payload.length
-          )
-          const extendedContent = extended?.arms.find(arm =>
-            arm.name === (deepestAnnotation.kind === 'addition' ? 'content' : 'new')
-          )
-          const extendedOld = deepestAnnotation.kind === 'substitution'
-            ? extended?.arms.find(arm => arm.name === 'old')
-            : undefined
-          return extended !== undefined && extendedContent !== undefined &&
-            (deepestAnnotation.kind !== 'substitution' ||
-              (extendedOld !== undefined && originalOldSource !== undefined &&
-                candidateCore.sourceSlice(candidate, extendedOld.range) ===
-                  originalOldSource)) &&
-            !candidate.diagnostics.some(diagnostic =>
-              diagnostic.range.start < extended.range.end &&
-              diagnostic.range.end > extended.range.start
-            ) &&
-            annotationCount(extendedContent.annotations) === originalAnnotationCount &&
-            candidateCore.sourceSlice(candidate, extendedContent.range) ===
-              originalContent.slice(0, localOffset) + payload +
-              originalContent.slice(localOffset)
-            ? Object.freeze({ ...request.range, insert: payload })
-            : undefined
-        }
-        const rawExtension = extensionCandidate(request.text)
-        if (rawExtension !== undefined) return rawExtension
-        return protectedNativeText === request.text
-          ? undefined
-          : extensionCandidate(protectedNativeText)
-      }
-    }
-    if (substitution) {
-      const pending = [...activeRevision.annotations]
-      let deepestAnnotation: CriticMarkupAnnotation | undefined
-      while (pending.length > 0) {
-        const annotation = pending.pop()
-        if (annotation === undefined) break
-        const content = annotation.kind === 'addition'
-          ? annotation.arms.find(arm => arm.name === 'content')
-          : annotation.kind === 'substitution'
-            ? annotation.arms.find(arm => arm.name === 'new')
-            : undefined
-        if (
-          content !== undefined && content.annotations.length === 0 &&
-          request.range.start >= content.range.start &&
-          request.range.end <= content.range.end &&
-          (deepestAnnotation === undefined ||
-            annotation.range.end - annotation.range.start <
-              deepestAnnotation.range.end - deepestAnnotation.range.start)
-        ) deepestAnnotation = annotation
-        for (const arm of annotation.arms) pending.push(...arm.annotations)
-      }
-      if (deepestAnnotation !== undefined) {
-        const content = deepestAnnotation.kind === 'addition'
-          ? deepestAnnotation.arms.find(arm => arm.name === 'content')
-          : deepestAnnotation.arms.find(arm => arm.name === 'new')
-        if (content === undefined) return undefined
-        const originalContent = activeCore.sourceSlice(activeRevision, content.range)
-        const localStart = request.range.start - content.range.start
-        const localEnd = request.range.end - content.range.start
-        const originalOld = deepestAnnotation.kind === 'substitution'
-          ? deepestAnnotation.arms.find(arm => arm.name === 'old')
-          : undefined
-        const originalOldSource = originalOld === undefined
-          ? undefined
-          : activeCore.sourceSlice(activeRevision, originalOld.range)
-        const replacementCandidate = (
-          payload: string
-        ): DocumentSourceEdit | undefined => {
-          if (
-            deepestAnnotation.kind === 'substitution' &&
-            content.annotations.length === 0 &&
-            originalOld?.annotations.length === 0 &&
-            originalOldSource ===
-              originalContent.slice(0, localStart) + payload +
-              originalContent.slice(localEnd)
-          ) {
-            const prefix = activeCore.sourceSlice(activeRevision, {
-              start: 0,
-              end: deepestAnnotation.range.start
-            })
-            const suffix = activeCore.sourceSlice(activeRevision, {
-              start: deepestAnnotation.range.end,
-              end: activeRevision.sourceLength
-            })
-            const candidateCore = createDocumentCore()
-            const candidate = candidateCore.open(
-              prefix + originalOldSource + suffix,
-              markdownOptions
-            )
-            const replacementEnd = deepestAnnotation.range.start +
-              originalOldSource.length
-            return candidate.annotations.every(item =>
-              item.range.start >= replacementEnd ||
-              item.range.end <= deepestAnnotation.range.start
-            ) && !candidate.diagnostics.some(diagnostic =>
-              diagnostic.range.start < replacementEnd &&
-              diagnostic.range.end > deepestAnnotation.range.start
-            )
-              ? Object.freeze({
-                start: deepestAnnotation.range.start,
-                end: deepestAnnotation.range.end,
-                insert: originalOldSource
-              })
-              : undefined
-          }
-          const prefix = activeCore.sourceSlice(activeRevision, {
-            start: 0,
-            end: request.range.start
-          })
-          const suffix = activeCore.sourceSlice(activeRevision, {
-            start: request.range.end,
-            end: activeRevision.sourceLength
-          })
-          const candidateCore = createDocumentCore()
-          const candidate = candidateCore.open(prefix + payload + suffix, markdownOptions)
-          const delta = payload.length - (request.range.end - request.range.start)
-          const replaced = candidate.annotations.find(item =>
-            item.kind === deepestAnnotation.kind &&
-            item.range.start === deepestAnnotation.range.start &&
-            item.range.end === deepestAnnotation.range.end + delta
-          )
-          const replacedContent = replaced?.arms.find(arm =>
-            arm.name === (deepestAnnotation.kind === 'addition' ? 'content' : 'new')
-          )
-          const replacedOld = deepestAnnotation.kind === 'substitution'
-            ? replaced?.arms.find(arm => arm.name === 'old')
-            : undefined
-          return replaced !== undefined && replacedContent !== undefined &&
-            replacedContent.annotations.length === 0 &&
-            (deepestAnnotation.kind !== 'substitution' ||
-              (replacedOld !== undefined && originalOldSource !== undefined &&
-                candidateCore.sourceSlice(candidate, replacedOld.range) ===
-                  originalOldSource)) &&
-            !candidate.diagnostics.some(diagnostic =>
-              diagnostic.range.start < replaced.range.end &&
-              diagnostic.range.end > replaced.range.start
-            ) &&
-            candidateCore.sourceSlice(candidate, replacedContent.range) ===
-              originalContent.slice(0, localStart) + payload +
-              originalContent.slice(localEnd)
-            ? Object.freeze({ ...request.range, insert: payload })
-            : undefined
-        }
-        const rawReplacement = replacementCandidate(request.text)
-        if (rawReplacement !== undefined) return rawReplacement
-        return protectedNativeText === request.text
-          ? undefined
-          : replacementCandidate(protectedNativeText)
-      }
-    }
-    if (deletion) {
-      const pending = [...activeRevision.annotations]
-      while (pending.length > 0) {
-        const annotation = pending.pop()
-        if (annotation === undefined) break
-        const content = annotation.kind === 'addition'
-          ? annotation.arms.find(arm => arm.name === 'content')
-          : annotation.kind === 'substitution'
-            ? annotation.arms.find(arm => arm.name === 'new')
-            : undefined
-        if (
-          content !== undefined && content.annotations.length === 0 &&
-          request.range.start >= content.range.start &&
-          request.range.end <= content.range.end
-        ) {
-          const originalContent = activeCore.sourceSlice(activeRevision, content.range)
-          const localStart = request.range.start - content.range.start
-          const localEnd = request.range.end - content.range.start
-          const remainingContent = originalContent.slice(0, localStart) +
-            originalContent.slice(localEnd)
-          const originalOld = annotation.kind === 'substitution'
-            ? annotation.arms.find(arm => arm.name === 'old')
-            : undefined
-          const originalOldSource = originalOld === undefined
-            ? undefined
-            : activeCore.sourceSlice(activeRevision, originalOld.range)
-          if (
-            remainingContent.length === 0 && annotation.kind === 'substitution'
-          ) {
-            if (
-              originalOld === undefined || originalOldSource === undefined ||
-              originalOld.annotations.length > 0
-            ) return undefined
-            const insert = `{--${originalOldSource}--}`
-            const prefix = activeCore.sourceSlice(activeRevision, {
-              start: 0,
-              end: annotation.range.start
-            })
-            const suffix = activeCore.sourceSlice(activeRevision, {
-              start: annotation.range.end,
-              end: activeRevision.sourceLength
-            })
-            const candidateCore = createDocumentCore()
-            const candidate = candidateCore.open(prefix + insert + suffix, markdownOptions)
-            const replacement = candidate.annotations.find(item =>
-              item.kind === 'deletion' &&
-              item.range.start === annotation.range.start &&
-              item.range.end === annotation.range.start + insert.length
-            )
-            const replacementContent = replacement?.arms.find(
-              arm => arm.name === 'content'
-            )
-            return replacement !== undefined && replacementContent !== undefined &&
-              replacementContent.annotations.length === 0 &&
-              !candidate.diagnostics.some(diagnostic =>
-                diagnostic.range.start < replacement.range.end &&
-                diagnostic.range.end > replacement.range.start
-              ) &&
-              candidateCore.sourceSlice(candidate, replacementContent.range) ===
-                originalOldSource
-              ? Object.freeze({
-                start: annotation.range.start,
-                end: annotation.range.end,
-                insert
-              })
-              : undefined
-          }
-          const prefix = activeCore.sourceSlice(activeRevision, {
-            start: 0,
-            end: remainingContent.length === 0
-              ? annotation.range.start
-              : request.range.start
-          })
-          const suffix = activeCore.sourceSlice(activeRevision, {
-            start: remainingContent.length === 0
-              ? annotation.range.end
-              : request.range.end,
-            end: activeRevision.sourceLength
-          })
-          const candidateCore = createDocumentCore()
-          const candidate = candidateCore.open(prefix + suffix, markdownOptions)
-          if (remainingContent.length === 0) {
-            return candidate.annotations.every(item =>
-              item.range.start < annotation.range.start ||
-              item.range.end > annotation.range.end
-            )
-              ? Object.freeze({
-                start: annotation.range.start,
-                end: annotation.range.end,
-                insert: ''
-              })
-              : undefined
-          }
-          const shrunk = candidate.annotations.find(item =>
-            item.kind === annotation.kind &&
-            item.range.start === annotation.range.start &&
-            item.range.end === annotation.range.end -
-              (request.range.end - request.range.start)
-          )
-          const shrunkContent = shrunk?.arms.find(arm =>
-            arm.name === (annotation.kind === 'addition' ? 'content' : 'new')
-          )
-          const shrunkOld = annotation.kind === 'substitution'
-            ? shrunk?.arms.find(arm => arm.name === 'old')
-            : undefined
-          return shrunk !== undefined && shrunkContent !== undefined &&
-            (annotation.kind !== 'substitution' ||
-              (shrunkOld !== undefined && originalOldSource !== undefined &&
-                candidateCore.sourceSlice(candidate, shrunkOld.range) ===
-                  originalOldSource)) &&
-            !candidate.diagnostics.some(diagnostic =>
-              diagnostic.range.start < shrunk.range.end &&
-              diagnostic.range.end > shrunk.range.start
-            ) &&
-            shrunkContent.annotations.length === 0 &&
-            candidateCore.sourceSlice(candidate, shrunkContent.range) === remainingContent
-            ? Object.freeze({ ...request.range, insert: '' })
-            : undefined
-        }
-        for (const arm of annotation.arms) pending.push(...arm.annotations)
-      }
-    }
-    if (!insertion) {
-      const pending = [...activeRevision.annotations]
-      while (pending.length > 0) {
-        const annotation = pending.pop()
-        if (annotation === undefined) break
-        const overlaps = request.range.start < annotation.range.end &&
-          request.range.end > annotation.range.start
-        const contains = request.range.start <= annotation.range.start &&
-          request.range.end >= annotation.range.end
-        if (overlaps && !contains) return undefined
-        for (const arm of annotation.arms) pending.push(...arm.annotations)
-      }
-    }
-    const selected = insertion
-      ? ''
-      : activeCore.sourceSlice(activeRevision, request.range)
-    const prefix = activeCore.sourceSlice(activeRevision, {
-      start: 0,
-      end: request.range.start
+    if (request.range === null || typeof request.range !== 'object') return undefined
+    return activeCore.trackedEdit(activeRevision, {
+      ...request.range,
+      insert: request.text
     })
-    const suffix = activeCore.sourceSlice(activeRevision, {
-      start: request.range.end,
-      end: activeRevision.sourceLength
-    })
-    const expectedKind = insertion
-      ? 'addition'
-      : deletion
-        ? 'deletion'
-        : 'substitution'
-    const candidateFor = (
-      selectedPayload: string,
-      insertedPayload: string,
-      nativePayloadMustBeLiteral = false
-    ): DocumentSourceEdit | undefined => {
-      const payload = insertion ? insertedPayload : selectedPayload
-      const insert = insertion
-        ? `{++${payload}++}`
-        : deletion
-          ? `{--${payload}--}`
-          : `{~~${selectedPayload}~>${insertedPayload}~~}`
-      const candidateCore = createDocumentCore()
-      const candidate = candidateCore.open(prefix + insert + suffix, markdownOptions)
-      const annotation = candidate.annotations.find(item =>
-        item.kind === expectedKind && item.range.start === request.range.start &&
-        item.range.end === request.range.start + insert.length
-      )
-      if (annotation === undefined) return undefined
-      const authoredEnd = request.range.start + insert.length
-      if (
-        nativePayloadMustBeLiteral && candidate.diagnostics.some(diagnostic =>
-          diagnostic.range.start < authoredEnd &&
-          diagnostic.range.end > request.range.start
-        )
-      ) return undefined
-      if (substitution) {
-        const oldArm = annotation.arms.find(arm => arm.name === 'old')
-        const newArm = annotation.arms.find(arm => arm.name === 'new')
-        return oldArm !== undefined && newArm !== undefined &&
-          (!nativePayloadMustBeLiteral || newArm.annotations.length === 0) &&
-          candidateCore.sourceSlice(candidate, oldArm.range) === selectedPayload &&
-          candidateCore.sourceSlice(candidate, newArm.range) === insertedPayload
-          ? Object.freeze({ ...request.range, insert })
-          : undefined
-      }
-      const content = annotation.arms.find(arm => arm.name === 'content')
-      return content !== undefined &&
-        (!nativePayloadMustBeLiteral || !insertion || content.annotations.length === 0) &&
-        candidateCore.sourceSlice(candidate, content.range) === payload
-        ? Object.freeze({ ...request.range, insert })
-        : undefined
-    }
-    const rawCandidate = candidateFor(selected, request.text, true)
-    if (rawCandidate !== undefined) return rawCandidate
-    const protectSelectedOutsideAnnotations = (
-      value: string,
-      pattern: RegExp
-    ): string => {
-      const ownedRanges: Array<Readonly<{ start: number, end: number }>> = []
-      const pending = [...activeRevision.annotations]
-      while (pending.length > 0) {
-        const annotation = pending.pop()
-        if (annotation === undefined) break
-        if (
-          annotation.range.start >= request.range.start &&
-          annotation.range.end <= request.range.end
-        ) {
-          ownedRanges.push(annotation.range)
-          continue
-        }
-        for (const arm of annotation.arms) pending.push(...arm.annotations)
-      }
-      ownedRanges.sort((left, right) =>
-        left.start - right.start || right.end - left.end
-      )
-      const parts: string[] = []
-      let offset = 0
-      for (const range of ownedRanges) {
-        const start = range.start - request.range.start
-        const end = range.end - request.range.start
-        if (start < offset) continue
-        parts.push(protect(value.slice(offset, start), pattern))
-        parts.push(value.slice(start, end))
-        offset = end
-      }
-      parts.push(protect(value.slice(offset), pattern))
-      return parts.join('')
-    }
-    const protectedSelected = insertion
-      ? selected
-      : deletion
-        ? protectSelectedOutsideAnnotations(selected, /--\}/g)
-        : protectSelectedOutsideAnnotations(selected, /~>|~~\}/g)
-    const protectedInserted = insertion
-      ? protectedNativeText
-      : substitution
-        ? protectedNativeText
-        : request.text
-    if (
-      protectedSelected === selected && protectedInserted === request.text
-    ) return undefined
-    return candidateFor(protectedSelected, protectedInserted, true)
   }
 
   return Object.freeze({
@@ -1576,7 +1145,30 @@ export function createCoreActor(
           accepted: true,
           sourceLength: revision.sourceLength,
           source,
-          view: createMuyaPlainTextView(core.project(revision, 'revised'))
+          view: createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, source)
+        })
+      }
+      if (request.type === 'display-projection-at-barrier') {
+        if (request.name !== 'original' && request.name !== 'revised') {
+          return Object.freeze({
+            type: 'rejected',
+            session,
+            sequence,
+            revision: revisionNumber,
+            accepted: false,
+            reason: 'invalid-edit',
+            sourceLength: revision.sourceLength
+          })
+        }
+        const projection = core.project(revision, request.name)
+        return Object.freeze({
+          type: 'display-projection',
+          session,
+          sequence,
+          revision: revisionNumber,
+          accepted: true,
+          sourceLength: revision.sourceLength,
+          projection: Object.freeze({ name: request.name, ast: projection.ast })
         })
       }
       if (request.type === 'consumer-projection-at-barrier') {
@@ -1592,7 +1184,8 @@ export function createCoreActor(
             kind: 'markdown-consumer-projection',
             name: 'revised',
             markdown: projection.markdown,
-            ast: projection.ast
+            ast: projection.ast,
+            sourceSegments: projection.coordinates.sourceSegments ?? Object.freeze([])
           })
         })
       }
@@ -1658,8 +1251,7 @@ export function createCoreActor(
       if (request.type === 'review-item-at-barrier') {
         if (
           (request.direction !== 'next' && request.direction !== 'previous') ||
-          !Number.isSafeInteger(request.from) || request.from < 0 ||
-          request.from > revision.sourceLength
+          !Number.isSafeInteger(request.from) || request.from < 0
         ) {
           return Object.freeze({
             type: 'rejected',
@@ -1671,7 +1263,9 @@ export function createCoreActor(
             sourceLength: revision.sourceLength
           })
         }
-        const annotation = reviewItemFor(core, revision, request.direction, request.from)
+        // Navigation anchors survive edits. A deleted prefix can move an old
+        // anchor past EOF; searching from the new boundary is a valid read.
+        const annotation = reviewItemFor(core, revision, request.direction, Math.min(request.from, revision.sourceLength))
         const comment = annotation === undefined
           ? undefined
           : commentAnnotationFor(core, revision, annotation)
@@ -1697,7 +1291,10 @@ export function createCoreActor(
             }),
           ...(commentArm === undefined
             ? {}
-            : { commentText: core.sourceSlice(revision, commentArm.range) })
+            : { commentText: core.sourceSlice(revision, commentArm.range) }),
+          ...(comment === undefined
+            ? {}
+            : { commentProjection: Object.freeze({ ast: core.projectComment(revision, comment).ast }) })
         })
       }
       const historyEntry = request.type === 'undo'
@@ -2101,28 +1698,74 @@ export function createCoreActor(
           sourceLength: revision.sourceLength
         })
       }
-      const effectiveApplyEdits = request.type === 'apply'
-        ? (() => {
-          const activeCore = core
-          const activeRevision = revision
-          let previousEnd = 0
-          const valid = request.edits.every(edit => {
-            const accepted = edit !== null && typeof edit === 'object' &&
-              Number.isSafeInteger(edit.start) &&
-              Number.isSafeInteger(edit.end) &&
-              typeof edit.insert === 'string' &&
-              edit.start >= previousEnd && edit.end >= edit.start &&
-              edit.end <= activeRevision.sourceLength
-            previousEnd = edit?.end ?? previousEnd
-            return accepted
+      let effectiveApplyEdits: readonly DocumentSourceEdit[] | undefined
+      try {
+        effectiveApplyEdits = request.type === 'apply'
+          ? (() => {
+            const activeCore = core
+            const activeRevision = revision
+            if (!Array.isArray(request.edits)) return undefined
+            if (request.markup === true && request.tracked === true) return undefined
+            if (request.markup === true) return activeCore.markupEdits(activeRevision, request.edits)
+            if (request.tracked === true) return activeCore.trackedEdits(activeRevision, request.edits)
+            let previousEnd = 0
+            const valid = request.edits.every(edit => {
+              const accepted = edit !== null && typeof edit === 'object' &&
+                Number.isSafeInteger(edit.start) &&
+                Number.isSafeInteger(edit.end) &&
+                typeof edit.insert === 'string' &&
+                edit.start >= previousEnd && edit.end >= edit.start &&
+                edit.end <= activeRevision.sourceLength
+              previousEnd = edit?.end ?? previousEnd
+              return accepted
+            })
+            return valid
+              ? Object.freeze(request.edits.filter(edit =>
+                activeCore.sourceSlice(activeRevision, edit) !== edit.insert
+              ))
+              : request.edits
+          })()
+          : undefined
+      } catch (error) {
+        if (error instanceof DocumentSourceEditError || error instanceof RangeError) {
+          return Object.freeze({
+            type: 'rejected',
+            session,
+            sequence,
+            revision: revisionNumber,
+            accepted: false,
+            reason: 'author-invalid',
+            sourceLength: revision.sourceLength
           })
-          return valid
-            ? Object.freeze(request.edits.filter(edit =>
-              activeCore.sourceSlice(activeRevision, edit) !== edit.insert
-            ))
-            : request.edits
-        })()
-        : undefined
+        }
+        if (error instanceof DocumentCoreError) {
+          return Object.freeze({
+            type: 'resource',
+            session,
+            sequence,
+            revision: revisionNumber,
+            accepted: false,
+            sourceLength: revision.sourceLength,
+            resource: Object.freeze({
+              code: error.code,
+              range: Object.freeze({ ...error.range }),
+              metadata: Object.freeze({ ...error.metadata })
+            })
+          })
+        }
+        throw error
+      }
+      if (request.type === 'apply' && (request.markup === true || request.tracked === true) && effectiveApplyEdits === undefined) {
+        return Object.freeze({
+          type: 'rejected',
+          session,
+          sequence,
+          revision: revisionNumber,
+          accepted: false,
+          reason: 'author-invalid',
+          sourceLength: revision.sourceLength
+        })
+      }
       if (request.type === 'apply' && effectiveApplyEdits?.length === 0) {
         return Object.freeze({
           type: 'rejected',
@@ -2151,6 +1794,11 @@ export function createCoreActor(
                     : request.type === 'undo'
                       ? historyEntry!.undo
                       : historyEntry!.redo
+      const nativeValue = request.type === 'track' && trackedEdit !== undefined &&
+        trackedEdit.start <= request.range.start && request.range.end <= trackedEdit.end
+        ? core.sourceSlice(revision, { start: trackedEdit.start, end: request.range.start }) + request.text +
+          core.sourceSlice(revision, { start: request.range.end, end: trackedEdit.end })
+        : undefined
       if (
         (request.type === 'apply' || request.type === 'resolve-all' ||
           request.type === 'replace-consumer-search') &&
@@ -2185,6 +1833,22 @@ export function createCoreActor(
       }
       let inverse: readonly DocumentSourceEdit[] | undefined
       let prospectiveEntry: HistoryEntry | undefined
+      const requestedGroup = request.type === 'apply' || request.type === 'track'
+        ? request.nativeHistoryGroup
+        : undefined
+      if (requestedGroup !== undefined &&
+          (typeof requestedGroup !== 'string' || requestedGroup.length === 0 || requestedGroup.length > 128)) {
+        return Object.freeze({
+          type: 'rejected',
+          session,
+          sequence,
+          revision: revisionNumber,
+          accepted: false,
+          reason: 'invalid-edit',
+          sourceLength: revision.sourceLength
+        })
+      }
+      let mergedEntry: HistoryEntry | null | undefined
       let commit
       try {
         inverse = request.type === 'apply' ||
@@ -2198,6 +1862,11 @@ export function createCoreActor(
             undo: inverse,
             redo: copyEdits(edits!)
           })
+          if (requestedGroup !== undefined && nativeHistoryGroup?.id === requestedGroup &&
+              undoStack.at(-1) === nativeHistoryGroup.entry) {
+            mergedEntry = mergeNativeHistory(nativeHistoryGroup.entry, prospectiveEntry, core, revision)
+            if (mergedEntry !== undefined && mergedEntry !== null) prospectiveEntry = mergedEntry
+          }
           if (
             prospectiveEntry.undo.length > maximumHistoryEditsPerEntry ||
             prospectiveEntry.redo.length > maximumHistoryEditsPerEntry ||
@@ -2257,11 +1926,22 @@ export function createCoreActor(
         redoStack.splice(0)
         redoUnits = 0
         redoEditRecords = 0
-        undoStack.push(entry)
-        undoUnits += historyUnits(entry)
-        undoEditRecords += historyEditRecords(entry)
+        if (mergedEntry !== undefined) {
+          const previous = undoStack.pop()!
+          undoUnits -= historyUnits(previous)
+          undoEditRecords -= historyEditRecords(previous)
+        }
+        if (mergedEntry !== null) {
+          undoStack.push(entry)
+          undoUnits += historyUnits(entry)
+          undoEditRecords += historyEditRecords(entry)
+        }
+        nativeHistoryGroup = requestedGroup === undefined || mergedEntry === null
+          ? undefined
+          : { id: requestedGroup, entry }
         trimUndoHistory()
       } else if (request.type === 'undo') {
+        nativeHistoryGroup = undefined
         undoStack.pop()
         undoUnits -= historyUnits(historyEntry!)
         undoEditRecords -= historyEditRecords(historyEntry!)
@@ -2269,6 +1949,7 @@ export function createCoreActor(
         redoUnits += historyUnits(historyEntry!)
         redoEditRecords += historyEditRecords(historyEntry!)
       } else {
+        nativeHistoryGroup = undefined
         redoStack.pop()
         redoUnits -= historyUnits(historyEntry!)
         redoEditRecords -= historyEditRecords(historyEntry!)
@@ -2277,6 +1958,34 @@ export function createCoreActor(
         undoEditRecords += historyEditRecords(historyEntry!)
       }
       const diagnostics = diagnosticsOf(commit.revision)
+      let nativeReconciliation: readonly DocumentSourceEdit[] | undefined
+      if (trackedEdit !== undefined && nativeValue !== undefined) {
+        if (trackedEdit.insert === nativeValue) nativeReconciliation = []
+        else {
+          const pending = [...commit.revision.annotations]
+          while (pending.length > 0) {
+            const annotation = pending.pop()!
+            if (annotation.range.start === trackedEdit.start &&
+                annotation.range.end === trackedEdit.start + trackedEdit.insert.length) {
+              const arm = annotation.arms.find(arm => arm.name ===
+                (annotation.kind === 'substitution' ? 'new' : 'content'))
+              if (annotation.kind === 'deletion' && nativeValue === '') {
+                nativeReconciliation = [{ start: trackedEdit.start, end: trackedEdit.start, insert: trackedEdit.insert }]
+              } else if ((annotation.kind === 'addition' || annotation.kind === 'substitution') &&
+                  arm !== undefined && core.sourceSlice(commit.revision, arm.range) === nativeValue) {
+                const start = trackedEdit.start
+                const end = start + nativeValue.length
+                nativeReconciliation = [
+                  { start, end: start, insert: core.sourceSlice(commit.revision, { start, end: arm.range.start }) },
+                  { start: end, end, insert: core.sourceSlice(commit.revision, { start: arm.range.end, end: annotation.range.end }) }
+                ]
+              }
+              break
+            }
+            for (const arm of annotation.arms) pending.push(...arm.annotations)
+          }
+        }
+      }
       return Object.freeze({
         type: 'applied',
         session,
@@ -2285,11 +1994,13 @@ export function createCoreActor(
         accepted: true,
         sourceLength: commit.revision.sourceLength,
         ...diagnostics,
-        change: commit.change
+        change: commit.change,
+        ...(nativeReconciliation === undefined ? {} : { nativeReconciliation })
       })
     },
     dispose(): void {
       disposed = true
+      nativeHistoryGroup = undefined
       core = undefined
       revision = undefined
       undoStack.splice(0)

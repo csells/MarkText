@@ -199,6 +199,12 @@ export default [
   // 9. JSON validation
   ...pluginJsonc.configs['flat/recommended-with-json'],
 
+  // Keep captured runner output byte-exact; Playwright JSON omits a final newline.
+  {
+    files: ['specs/baselines/runs/*.playwright.json'],
+    rules: { '@stylistic/eol-last': 'off' }
+  },
+
   // 10. i18n JSON locales
   {
     files: ['packages/desktop/src/shared/i18n/locales/*.json'],

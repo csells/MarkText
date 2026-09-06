@@ -749,6 +749,41 @@ describe('editor store — flush pending edits before saving (#3803)', () => {
     expect(store.currentFile?.markdown).toBe('unchanged Pinia checkpoint')
   })
 
+  it('clears Core dirty state when an authoritative undo restores the opened source', () => {
+    const store = useEditorStore()
+    seedCurrentFile(store, { markdown: 'saved\n', isSaved: true })
+    store.REGISTER_CORE_SAVE_IDENTITY('tab-1', { generation: 70, revision: 1 })
+    store.LISTEN_FOR_CORE_CONTENT_CHANGE('tab-1', { generation: 70, revision: 2 })
+    store.LISTEN_FOR_CORE_CONTENT_CHANGE('tab-1', { generation: 70, revision: 3 })
+    store.RECONCILE_CORE_SAVED_SOURCE('tab-1', { generation: 70, revision: 3 }, 'saved\n')
+    expect(store.currentFile?.isSaved).toBe(true)
+    store.LISTEN_FOR_CORE_CONTENT_CHANGE('tab-1', { generation: 70, revision: 4 })
+    store.RECONCILE_CORE_SAVED_SOURCE('tab-1', { generation: 70, revision: 3 }, 'saved\n')
+    expect(store.currentFile?.isSaved).toBe(false)
+    store.RECONCILE_CORE_SAVED_SOURCE('tab-1', { generation: 70, revision: 4 }, 'divergent\n')
+    expect(store.currentFile?.isSaved).toBe(false)
+  })
+
+  it('uses acknowledged disk source as the undo baseline without cleaning a newer revision', () => {
+    const store = useEditorStore()
+    seedCurrentFile(store, { markdown: 'opened\n', isSaved: true })
+    store.tabs = [store.currentFile!]
+    store.REGISTER_CORE_SAVE_IDENTITY('tab-1', { generation: 71, revision: 1 })
+    const onSpy = vi.spyOn(window.electron.ipcRenderer, 'on')
+    store.LISTEN_FOR_SET_PATHNAME()
+    const saved = onSpy.mock.calls.find(call => call[0] === 'mt::tab-saved')?.[1] as unknown as
+      (event: unknown, id: string, identity: { generation: number, revision: number }, source: string) => void
+    store.LISTEN_FOR_CORE_CONTENT_CHANGE('tab-1', { generation: 71, revision: 3 })
+    saved({}, 'tab-1', { generation: 71, revision: 2 }, 'saved edit\n')
+    expect(store.currentFile?.isSaved).toBe(false)
+    store.LISTEN_FOR_CORE_CONTENT_CHANGE('tab-1', { generation: 71, revision: 4 })
+    store.RECONCILE_CORE_SAVED_SOURCE('tab-1', { generation: 71, revision: 4 }, 'saved edit\n')
+    expect(store.currentFile?.isSaved).toBe(true)
+    store.LISTEN_FOR_CORE_CONTENT_CHANGE('tab-1', { generation: 71, revision: 5 })
+    store.RECONCILE_CORE_SAVED_SOURCE('tab-1', { generation: 71, revision: 5 }, 'opened\n')
+    expect(store.currentFile?.isSaved).toBe(false)
+  })
+
   it('does not let an older Core disk acknowledgement mark a newer revision clean', async() => {
     const store = useEditorStore()
     seedCurrentFile(store, { markdown: 'stale Pinia source', isSaved: true })

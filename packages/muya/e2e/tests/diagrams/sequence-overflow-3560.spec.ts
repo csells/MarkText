@@ -15,7 +15,7 @@ test('a wide sequence diagram scales to fit its block, not clipped (#3560)', asy
             name: 'diagram',
             text: seq,
             meta: { lang: 'yaml', type: 'sequence' },
-        }] as Parameters<typeof window.muya.setContent>[0]);
+        }] as Parameters<NonNullable<typeof window.muya>['setContent']>[0]);
     });
 
     const svg = page.locator(`${editor.diagramPreview} > svg`).first();

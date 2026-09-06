@@ -38,7 +38,7 @@ test.describe('Issue #4356: link popover with an unsupported protocol href', () 
     page = launched.page
     await clearRendererErrors(app)
 
-    const link = page.locator('span.mu-link').first()
+    const link = page.locator('.editor-component a.mu-inline-rule, .editor-component span.mu-link').first()
     await link.waitFor({ state: 'visible', timeout: 10000 })
     await link.hover()
 
@@ -58,7 +58,7 @@ test.describe('Issue #4356: link popover with an unsupported protocol href', () 
     page = launched.page
     await clearRendererErrors(app)
 
-    const link = page.locator('span.mu-link').first()
+    const link = page.locator('.editor-component a.mu-inline-rule, .editor-component span.mu-link').first()
     await link.waitFor({ state: 'visible', timeout: 10000 })
     await link.hover()
 

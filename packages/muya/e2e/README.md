@@ -68,7 +68,7 @@ pnpm --filter muya-e2e exec playwright show-report   # HTML report from the late
 
 - **`page.keyboard.type` with `delay: 0` drops characters.** muya's content-change pipeline re-renders synchronously per keystroke; Playwright's default 0ms inter-key delay can outrun snabbdom patches. Use `slowType()` from `tests/helpers/keyboard.ts` (30ms per char) for any typing > 4 chars.
 - **Float plugins hide via `opacity: 0`, not `display: none`.** `expect(...).toBeHidden()` won't work — assert on computed opacity or rely on a subsequent action to settle state.
-- **`getMarkdown()` reads state asynchronously after the last keystroke.** Use `expect(domNode).toContainText(...)` as a sync barrier before reading markdown.
+- **Native input reaches state on a deferred animation frame.** DOM echo does not acknowledge that state update. Assert the eventual exact Markdown with `expect.poll(() => getMarkdown(page))`; use `muya.flush()` only when the workflow itself explicitly flushes.
 - **No `(window as any).muya`.** `types.d.ts` declares `Window.muya?: Muya`; the project bans `any` (`ts/no-explicit-any: 'error'`), so explicit casts will fail lint.
 - **One global E2E sandbox per workspace.** The host pre-registers every UI plugin. Specs that want a clean slate call `window.muya!.setContent('')` in a `before*` or first step.
 

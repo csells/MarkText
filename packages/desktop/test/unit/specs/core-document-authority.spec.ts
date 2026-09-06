@@ -631,6 +631,20 @@ describe('Core actor protocol', () => {
     port.dispose()
   })
 
+  it('navigates from a retained Review anchor after the document shrinks', async() => {
+    const binding = createEditorCoreBinding(createWorkerCorePort(new ActorBackedCoreWorker()))
+    await binding.open({ documentId: 'shrinking-review.md', source: 'word '.repeat(40) + '\n\n{++new++}\n' })
+    await binding.submit({ edits: [{ start: 0, end: 200, insert: '' }], projections: [] }).acknowledged
+    await expect(binding.reviewItemAtBarrier('next', 202)).resolves.toMatchObject({
+      type: 'review-item', revision: 2, item: null, sourceLength: 12
+    })
+    await expect(binding.reviewItemAtBarrier('previous', 202)).resolves.toMatchObject({
+      type: 'review-item', revision: 2, item: { kind: 'addition', range: { start: 2, end: 11 } }
+    })
+    await expect(binding.sourceAtBarrier()).resolves.toMatchObject({ source: '\n\n{++new++}\n' })
+    binding.dispose()
+  })
+
   it('rejects malformed Review navigation coordinates nonterminally', async() => {
     const port = createWorkerCorePort(new ActorBackedCoreWorker())
     const opened = await port.request({
@@ -1413,6 +1427,78 @@ describe('Core actor protocol', () => {
     port.dispose()
   })
 
+  it.each([
+    'A {==outer {==text==}{>>note<<}==} Z\n',
+    'A {==outer {>>note<<} tail==} Z\n'
+  ])('edits a visible nested Comment with exact actor history: %s', original => {
+    const actor = createCoreActor()
+    let sequence = 0
+    const session = 821
+    expect(actor.handle({ type: 'open', session, sequence: ++sequence, source: original }))
+      .toMatchObject({ type: 'opened', revision: 1 })
+    const reviewed = actor.handle({
+      type: 'review-item-at-barrier',
+      session,
+      sequence: ++sequence,
+      baseRevision: 1,
+      direction: 'next',
+      from: 0
+    })
+    if (reviewed.type !== 'review-item' || reviewed.item === null || reviewed.commentText !== 'note') {
+      throw new Error('Expected the visible nested Comment')
+    }
+    const edited = original.replace('{>>note<<}', '{>>new **note**<<}')
+    expect(actor.handle({
+      type: 'edit-comment',
+      session,
+      sequence: ++sequence,
+      baseRevision: 1,
+      annotation: reviewed.item,
+      text: 'new **note**',
+      projections: []
+    })).toMatchObject({ type: 'applied', revision: 2 })
+    const sourceAt = (revision: number) => actor.handle({
+      type: 'source-at-barrier', session, sequence: ++sequence, baseRevision: revision
+    })
+    expect(sourceAt(2)).toMatchObject({ type: 'source', source: edited })
+    expect(actor.handle({ type: 'undo', session, sequence: ++sequence, baseRevision: 2, projections: [] }))
+      .toMatchObject({ type: 'applied', revision: 3 })
+    expect(sourceAt(3)).toMatchObject({ type: 'source', source: original })
+    expect(actor.handle({ type: 'redo', session, sequence: ++sequence, baseRevision: 3, projections: [] }))
+      .toMatchObject({ type: 'applied', revision: 4 })
+    expect(sourceAt(4)).toMatchObject({ type: 'source', source: edited })
+    actor.dispose()
+  })
+
+  it('keeps nested Comment subdocuments inside the outer Review editor', () => {
+    const actor = createCoreActor()
+    const source = 'A {>>outer {>>inner<<} and {++suggestion++}<<} Z\n'
+    expect(actor.handle({ type: 'open', session: 822, sequence: 1, source }))
+      .toMatchObject({ type: 'opened', revision: 1 })
+    const reviewed = actor.handle({
+      type: 'review-item-at-barrier',
+      session: 822,
+      sequence: 2,
+      baseRevision: 1,
+      direction: 'next',
+      from: 0
+    })
+    expect(reviewed).toMatchObject({
+      type: 'review-item',
+      commentText: 'outer {>>inner<<} and {++suggestion++}',
+      item: { kind: 'comment', range: { start: 2, end: source.indexOf(' Z') } }
+    })
+    expect(actor.handle({
+      type: 'review-item-at-barrier',
+      session: 822,
+      sequence: 3,
+      baseRevision: 1,
+      direction: 'next',
+      from: source.indexOf(' Z')
+    })).toMatchObject({ type: 'review-item', item: null })
+    actor.dispose()
+  })
+
   it('rejects authoring that partially overlaps actor-owned markup', () => {
     const actor = createCoreActor()
     const source = 'a{++x++}b\n'
@@ -1542,7 +1628,7 @@ describe('Core actor protocol', () => {
       baseRevision: 2
     })).toMatchObject({
       type: 'plain-text-view',
-      view: { kind: 'view', markdown: 'alpha \\{--X\\--} omega\n' }
+      view: { kind: 'view', markdown: 'alpha selected\\{--X\\--} omega\n' }
     })
     expect(actor.handle({
       type: 'undo',
@@ -1681,7 +1767,7 @@ describe('Core actor protocol', () => {
       baseRevision: 2
     })).toMatchObject({
       type: 'plain-text-view',
-      view: { kind: 'view', markdown: 'alpha \\{-- omega\n' }
+      view: { kind: 'view', markdown: 'alpha selected\\{-- omega\n' }
     })
     expect(actor.handle({
       type: 'undo',
@@ -1926,7 +2012,7 @@ describe('Core actor protocol', () => {
       baseRevision: 2
     })).toMatchObject({
       type: 'plain-text-view',
-      view: { kind: 'view', markdown: 'alXmma\n' }
+      view: { kind: 'view', markdown: 'alpha\n\nbeta\n\ngaXmma\n' }
     })
     expect(actor.handle({
       type: 'undo',
@@ -1994,7 +2080,7 @@ describe('Core actor protocol', () => {
     })
     expect(view).toMatchObject({
       type: 'plain-text-view',
-      view: { kind: 'view', markdown: 'before new after\n' }
+      view: { kind: 'view', markdown: 'before old\\~>literalnew after\n' }
     })
     expect(restored).toMatchObject({ type: 'source', source })
     port.dispose()
@@ -2562,7 +2648,7 @@ describe('Core actor protocol', () => {
       baseRevision: 2
     })).toMatchObject({
       type: 'plain-text-view',
-      view: { kind: 'view', markdown: 'new!\n' }
+      view: { kind: 'view', markdown: 'oldnew!\n' }
     })
     expect(actor.handle({
       type: 'undo',
@@ -2702,7 +2788,7 @@ describe('Core actor protocol', () => {
       baseRevision: 2
     })).toMatchObject({
       type: 'plain-text-view',
-      view: { kind: 'view', markdown: 'ne\n' }
+      view: { kind: 'view', markdown: 'oldne\n' }
     })
     expect(actor.handle({
       type: 'undo',
@@ -2769,7 +2855,7 @@ describe('Core actor protocol', () => {
       baseRevision: 2
     })).toMatchObject({
       type: 'plain-text-view',
-      view: { kind: 'view', markdown: '\n' }
+      view: { kind: 'view', markdown: 'old\n' }
     })
     expect(actor.handle({
       type: 'review-item-at-barrier',
@@ -4275,6 +4361,31 @@ describe('Core actor protocol', () => {
     port.dispose()
   })
 
+  it('notifies the owner once when an idle Worker fails, without requiring another request', async() => {
+    const worker = new ActorBackedCoreWorker()
+    const onFailure = vi.fn()
+    const port = createWorkerCorePort(worker, { onFailure })
+    await port.request({ type: 'open', session: 91, sequence: 1, source: 'unsaved' })
+
+    worker.fail('idle Worker died')
+    expect(onFailure).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: 'idle Worker died' }))
+    worker.fail('duplicate failure')
+    await expect(port.request({ type: 'source-at-barrier', session: 91, sequence: 2, baseRevision: 1 }))
+      .rejects.toThrow('idle Worker died')
+    expect(onFailure).toHaveBeenCalledTimes(1)
+    expect(worker.terminations).toBe(1)
+    port.dispose()
+  })
+
+  it('does not report normal Worker disposal as a recovery fault', () => {
+    const worker = new ActorBackedCoreWorker()
+    const onFailure = vi.fn()
+    const port = createWorkerCorePort(worker, { onFailure })
+    port.dispose()
+    worker.fail('late failure')
+    expect(onFailure).not.toHaveBeenCalled()
+  })
+
   it('terminates the actual port Worker through the opt-in test control', async() => {
     const worker = new ActorBackedCoreWorker()
     let control: CoreWorkerTestControl | undefined
@@ -4357,7 +4468,8 @@ describe('Core actor protocol', () => {
 
   it('latches an actor failure envelope as a terminal Worker fault', async() => {
     const worker = new CoreFailureReportingWorker()
-    const port = createWorkerCorePort(worker)
+    const onFailure = vi.fn()
+    const port = createWorkerCorePort(worker, { onFailure })
     const request = {
       type: 'open' as const,
       session: 301,
@@ -4371,6 +4483,7 @@ describe('Core actor protocol', () => {
     )
     expect(worker.posts).toBe(1)
     expect(worker.terminations).toBe(1)
+    expect(onFailure).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: 'actor terminated unexpectedly' }))
 
     port.dispose()
   })
@@ -6357,6 +6470,74 @@ describe('CodeMirror Core adapter', () => {
     expect(editor.getValue()).toBe('!x a\n')
     adapter.dispose()
     binding.dispose()
+  })
+
+  it('keeps a Review locator through a multi-selection edit on both sides of it', async() => {
+    const source = 'x {++a++} y\n'
+    const worker = new ActorBackedCoreWorker()
+    const binding = createEditorCoreBinding(createWorkerCorePort(worker))
+    await binding.open({ documentId: 'multi-review.md', source })
+    const fixture = createAttachedCodeMirror(source)
+    const editor = fixture.editor
+    const doc = editor.getDoc()
+    const adapter = createCodeMirrorCoreAdapter(doc, binding, {
+      canonicalSource: source, insertedLineEnding: '\n'
+    })
+    try {
+      const accepting = adapter.resolve(
+        { kind: 'addition', range: { start: 2, end: 9 } }, 1, 'accept'
+      )
+      doc.setSelections([
+        { anchor: { line: 0, ch: 0 }, head: { line: 0, ch: 0 } },
+        { anchor: { line: 0, ch: 11 }, head: { line: 0, ch: 11 } }
+      ])
+      editor.replaceSelections(['long prefix ', '!'], 'around', '+input')
+      await expect(accepting).resolves.toMatchObject({ revision: 3 })
+      expect(doc.getValue()).toBe('long prefix x a y!\n')
+      expect(await binding.sourceAtBarrier()).toMatchObject({ source: doc.getValue() })
+      await adapter.history('undo')
+      expect(doc.getValue()).toBe('long prefix x {++a++} y!\n')
+      await adapter.history('undo')
+      expect(doc.getValue()).toBe(source)
+    } finally {
+      adapter.dispose()
+      binding.dispose()
+      fixture.dispose()
+    }
+  })
+
+  it('refuses a Review locator changed by a later edit in the same multi-selection transaction', async() => {
+    const source = 'x {++a++} y\n'
+    const worker = new ActorBackedCoreWorker()
+    const binding = createEditorCoreBinding(createWorkerCorePort(worker))
+    await binding.open({ documentId: 'multi-review-overlap.md', source })
+    const fixture = createAttachedCodeMirror(source)
+    const editor = fixture.editor
+    const doc = editor.getDoc()
+    const adapter = createCodeMirrorCoreAdapter(doc, binding, {
+      canonicalSource: source, insertedLineEnding: '\n'
+    })
+    try {
+      const accepting = adapter.resolve(
+        { kind: 'addition', range: { start: 2, end: 9 } }, 1, 'accept'
+      )
+      doc.setSelections([
+        { anchor: { line: 0, ch: 0 }, head: { line: 0, ch: 0 } },
+        { anchor: { line: 0, ch: 5 }, head: { line: 0, ch: 6 } }
+      ])
+      editor.replaceSelections(['long prefix ', 'b'], 'around', '+input')
+      await expect(accepting).rejects.toThrow('target changed by pending editor input')
+      await adapter.settled()
+      expect(adapter.state().status).toBe('ready')
+      expect(doc.getValue()).toBe('long prefix x {++b++} y\n')
+      expect(await binding.sourceAtBarrier()).toMatchObject({ source: doc.getValue() })
+      await adapter.history('undo')
+      expect(doc.getValue()).toBe(source)
+    } finally {
+      adapter.dispose()
+      binding.dispose()
+      fixture.dispose()
+    }
   })
 
   it('reads the next Review item after earlier native input is acknowledged', async() => {

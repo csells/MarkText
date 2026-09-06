@@ -8,13 +8,13 @@ interface IContainerQueryBlock {
 }
 class IContainerQueryBlock {
     queryBlock(path: TBlockPath) {
-        if (typeof path[0] === 'string' && /children|meta|align|type|lang/.test(path[0]))
-            path.shift();
+        const offset = typeof path[0] === 'string' && /children|meta|align|type|lang/.test(path[0]) ? 1 : 0;
 
-        if (path.length === 0)
+        if (path.length === offset)
             return this;
 
-        const p = path.shift() as number;
+        const p = path[offset] as number;
+        const remaining = path.slice(offset + 1);
         // `find(p)` returns either a Parent (which the mixin extends with
         // `queryBlock`) or a Content leaf. Recursion only happens when more
         // path segments remain — by that point the runtime contract is
@@ -22,8 +22,8 @@ class IContainerQueryBlock {
         // instead of casting to `any`.
         const block = this.find(p) as (Parent & { queryBlock: (p: TBlockPath) => Parent | Content | undefined }) | Content;
 
-        return block && path.length && 'queryBlock' in block
-            ? block.queryBlock(path)
+        return block && remaining.length && 'queryBlock' in block
+            ? block.queryBlock(remaining)
             : block;
     }
 }

@@ -4,6 +4,26 @@ import type { IRenderCursor } from '../selection/types';
 
 export type H = typeof h;
 
+export type TInlinePresentation = (
+    path: readonly (string | number)[],
+    text: string,
+    context: IInlinePresentationContext,
+) => string | undefined;
+
+export interface IInlinePresentationImage {
+    readonly raw: string;
+    readonly range: ITokenRange;
+    readonly src: string;
+    readonly alt: string;
+    readonly title: string;
+}
+
+export interface IInlinePresentationContext {
+    readonly highlights?: readonly Readonly<IHighlight>[];
+    /** Native image wrapper around the caller's escaped raw editing text. */
+    renderImage: (image: IInlinePresentationImage) => { open: string; close: string } | undefined;
+}
+
 export interface ISyntaxRenderOptions {
     h: H;
     cursor: IRenderCursor;

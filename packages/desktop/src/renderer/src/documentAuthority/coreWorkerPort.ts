@@ -22,6 +22,7 @@ export interface CoreWorkerLike {
 }
 
 export interface CoreWorkerPortOptions {
+  readonly onFailure?: (error: Error) => void
   readonly responseDelayMs?: number
   readonly registerTestControl?: (control: CoreWorkerTestControl) => void
 }
@@ -61,17 +62,14 @@ export function createWorkerCorePort(
     const key = keyOf(identity)
     const request = pending.get(key)
     if (request === undefined) {
-      terminalError = new Error('Core Worker returned an unexpected response')
-      rejectAll(terminalError)
-      worker.terminate()
+      failWorker(new Error('Core Worker returned an unexpected response'))
       return
     }
     pending.delete(key)
     if (envelope.type === 'core-failure') {
-      terminalError = new Error(envelope.message)
-      request.reject(terminalError)
-      rejectAll(terminalError)
-      worker.terminate()
+      const error = new Error(envelope.message)
+      request.reject(error)
+      failWorker(error)
       return
     }
     const deliver = (): void => {
@@ -98,6 +96,7 @@ export function createWorkerCorePort(
     terminalError = error
     rejectAll(error)
     worker.terminate()
+    options.onFailure?.(error)
   }
   const onError: ErrorListener = event => {
     failWorker(new Error(event.message || 'Core Worker failed'))
@@ -142,12 +141,11 @@ export function createWorkerCorePort(
           }))
         } catch (error) {
           pending.delete(key)
-          terminalError = error instanceof Error
+          const failure = error instanceof Error
             ? error
             : new Error('Core Worker postMessage failed')
-          reject(terminalError)
-          rejectAll(terminalError)
-          worker.terminate()
+          reject(failure)
+          failWorker(failure)
         }
       })
     },

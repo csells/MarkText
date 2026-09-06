@@ -10,7 +10,9 @@ export interface CoreDocumentLaunchPolicy {
 export const resolveCoreDocumentLaunchPolicy = (
   environment: CoreDocumentLaunchEnvironment
 ): CoreDocumentLaunchPolicy => {
-  const coreEnabled = environment.MARKTEXT_DOCUMENT_CORE_MODE === '1'
+  const coreEnabled = environment.MARKTEXT_DOCUMENT_CORE_MODE === '1' ||
+    (environment.MARKTEXT_DOCUMENT_CORE_MODE !== '0' &&
+      environment.MARKTEXT_DOCUMENT_CORE_SHADOW !== '1')
   return Object.freeze({
     coreEnabled,
     testControlsEnabled: coreEnabled &&

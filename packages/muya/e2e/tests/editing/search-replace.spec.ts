@@ -30,10 +30,7 @@ test.describe('search and replace', () => {
         await page.locator(toolbar.replace).click();
         await slowType(page, 'bar');
         await page.locator(toolbar.single).click();
-        const md = await getMarkdown(page);
-        // After replacing one occurrence: at least one 'foo' becomes 'bar'.
-        expect(md).toContain('bar');
-        expect(md.match(/foo/g)?.length ?? 0).toBeLessThanOrEqual(2);
+        await expect.poll(async () => (await getMarkdown(page)).trim()).toBe('bar foo foo');
     });
 
     test('#all replaces every occurrence', async ({ page }) => {
@@ -45,8 +42,6 @@ test.describe('search and replace', () => {
         await page.locator(toolbar.replace).click();
         await slowType(page, 'dog');
         await page.locator(toolbar.all).click();
-        const md = await getMarkdown(page);
-        expect(md).not.toContain('cat');
-        expect(md.match(/dog/g)?.length).toBe(3);
+        await expect.poll(async () => (await getMarkdown(page)).trim()).toBe('dog dog dog');
     });
 });

@@ -331,6 +331,8 @@ export default class ExportMarkdown {
 
     private _serializeAtxHeading(state: IAtxHeadingState, indent: string) {
         const { text } = state;
+        if (text === '#'.repeat(state.meta.level))
+            return `${indent}${text}\n`;
         const match = text.match(/(#{1,6})(.*)/);
 
         const atxHeadingText = `${match?.[1]} ${match?.[2].trim()}`;

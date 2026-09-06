@@ -1,5 +1,10 @@
 # CriticMarkup integration baselines
 
+> **Historical plan 0010 record.** Plan [0011](../plans/0011-criticmarkup-editable-review.md)
+> supersedes this record as current implementation and completion authority. Keep the
+> fixtures, results, and unresolved product gaps; the old blanket approval, salvage,
+> attestation, and per-observation process requirements are not active release gates.
+
 This directory contains generated observations about the recorded upstream MarkText baseline. A
 baseline is an oracle input, not a product specification.
 

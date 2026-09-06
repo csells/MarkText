@@ -115,8 +115,7 @@ test.describe('options / auto-pair matrix', () => {
         });
         await page.keyboard.type('(');
         await expect(page.locator(editor.paragraph).first()).toContainText('()');
-        const md = await getMarkdown(page);
-        expect(md).toContain('()');
+        await expect.poll(() => getMarkdown(page)).toContain('()');
     });
 
     test('autoPairBracket: off → `(` produces `(` only', async ({ page }) => {
@@ -127,7 +126,7 @@ test.describe('options / auto-pair matrix', () => {
         });
         await page.keyboard.type('(');
         await expect(page.locator(editor.paragraph).first()).toContainText('(');
-        expect(await getFirstBlockText(page)).toBe('(');
+        await expect.poll(() => getFirstBlockText(page)).toBe('(');
     });
 
     test('autoPairMarkdownSyntax: on → `*` produces `**`', async ({ page }) => {

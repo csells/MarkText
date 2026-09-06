@@ -226,12 +226,13 @@ function createIndex(
     if (
       !Number.isInteger(endSafePointRank) ||
       endSafePointRank < 0 ||
-      endSafePointRank >= baseSafePoints.length ||
+      endSafePointRank > baseSafePoints.length ||
       nextLength !== sourceLength + delta
     ) {
       throw new RangeError('Plain paragraph region delta is outside its index')
     }
-    const nextOverlay = delta === 0
+    // EOF has no later safe-point coordinate to shift; its length lives on the index.
+    const nextOverlay = delta === 0 || endSafePointRank === baseSafePoints.length
       ? overlay
       : pointAdd(
         overlay,

@@ -452,7 +452,9 @@ class Content extends TreeNode {
     }
 
     arrowHandler(event: Event) {
-        if (!isKeyboardEvent(event))
+        // Word, line and document navigation belongs to the browser. Applying
+        // the plain-arrow boundary rule would insert a paragraph at EOF.
+        if (!isKeyboardEvent(event) || event.metaKey || event.ctrlKey || event.altKey)
             return;
 
         const previousContentBlock = this.previousContentInContext();

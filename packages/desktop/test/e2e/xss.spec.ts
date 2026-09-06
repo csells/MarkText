@@ -29,7 +29,7 @@ test.describe('Test XSS Vulnerabilities', () => {
       }
     })
 
-    expect(isVisible).toBeTruthy()
+    expect(isVisible).toBe(process.env.MARKTEXT_E2E_HIDDEN_WINDOW !== '1')
     expect(isCrashed).toBeFalsy()
   })
 })

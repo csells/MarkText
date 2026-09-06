@@ -1,5 +1,3 @@
-import dayjs from 'dayjs'
-
 export type FileCreateType = 'file' | 'directory'
 export type PasteType = 'cut' | 'copy'
 export type HashType = 'sha1' | 'sha256' | 'sha512'
@@ -60,6 +58,22 @@ export const getHash = async(
 export const getContentHash = (content: string | Uint8Array | ArrayBuffer): Promise<string> =>
   getHash(content, 'utf8', 'sha1')
 
+// Muya exposes clipboard bitmaps as data URLs; insertion preferences operate on
+// files. Decode without fetch so the renderer's network CSP stays unchanged.
+export const normalizeImageInput = (image: string | File): string | File => {
+  if (typeof image !== 'string' || !/^data:image\//i.test(image)) return image
+  const match = /^data:(image\/[a-z0-9.+-]+)((?:;[^,]*)?),([\s\S]*)$/i.exec(image)
+  if (!match) throw new TypeError('Invalid image data URL')
+  const mimeType = match[1].toLowerCase()
+  const parts = /;base64$/i.test(match[2])
+    ? [Uint8Array.from(atob(decodeURIComponent(match[3])), character => character.charCodeAt(0))]
+    : match[3].split(/(%[a-f0-9]{2})/gi).map(part => /^%[a-f0-9]{2}$/i.test(part)
+      ? Uint8Array.of(Number.parseInt(part.slice(1), 16))
+      : part)
+  const extension = mimeType === 'image/svg+xml' ? 'svg' : mimeType.slice('image/'.length)
+  return new File(parts, `pasted-image.${extension}`, { type: mimeType })
+}
+
 export const moveImageToFolder = async(
   pathname: string,
   image: string | File,
@@ -67,6 +81,7 @@ export const moveImageToFolder = async(
   isRelative = false,
   currentPathname: string | null = null
 ): Promise<string> => {
+  image = normalizeImageInput(image)
   await window.fileUtils.ensureDir(outputDir)
   const toResult = (absolutePath: string) =>
     isRelative && currentPathname
@@ -80,14 +95,13 @@ export const moveImageToFolder = async(
     if (isImage) {
       const filename = window.path.basename(imagePath)
       const ext = window.path.extname(imagePath)
-      const noHashPath = window.path.join(outputDir, filename)
-      if (noHashPath === imagePath) {
+      const inPlacePath = window.path.join(outputDir, filename)
+      if (inPlacePath === imagePath) {
         return toResult(imagePath)
       }
-      const hash = await getContentHash(imagePath)
-      const hashFilePath = window.path.join(outputDir, `${hash}${ext}`)
-      await window.fileUtils.copy(imagePath, hashFilePath)
-      return toResult(hashFilePath)
+      const destination = window.path.join(outputDir, `${crypto.randomUUID()}${ext}`)
+      await window.fileUtils.copy(imagePath, destination, { overwrite: false, errorOnExist: true })
+      return toResult(destination)
     } else {
       return image as string
     }
@@ -95,11 +109,11 @@ export const moveImageToFolder = async(
     const file = image as File
     const imagePath = window.path.join(
       outputDir,
-      `${dayjs().format('YYYY-MM-DD-HH-mm-ss')}-${file.name}`
+      `${crypto.randomUUID()}-${window.path.basename(file.name)}`
     )
 
     const buffer = new Uint8Array(await file.arrayBuffer())
-    await window.fileUtils.writeFile(imagePath, buffer)
+    await window.fileUtils.writeFile(imagePath, buffer, { flag: 'wx' })
 
     return toResult(imagePath)
   }
@@ -117,6 +131,7 @@ export const uploadImage = async(
 ): Promise<unknown> => {
   // Pass only a plain serializable object — the full Pinia $state is a Vue
   // Proxy which Electron's structured-clone algorithm cannot serialize.
+  image = normalizeImageInput(image)
   const ipcPrefs = {
     currentUploader: preferences.currentUploader,
     cliScript: preferences.cliScript ?? ''

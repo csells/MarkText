@@ -118,6 +118,7 @@ interface ContentChangePayload {
 // WYSIWYG changes advance the same local sequence so late disk acknowledgements
 // from either authority cannot mark newer bytes clean.
 const coreIdentityByTab = new Map<string, DocumentSaveIdentity>()
+const coreSavedSourceByTab = new WeakMap<IFileState, string>()
 
 const saveIdentitiesEqual = (
   left: DocumentSaveIdentity,
@@ -448,6 +449,7 @@ export const useEditorStore = defineStore('editor', {
 
         // Update file content and restore some entries.
         Object.assign(liveTab, newFileState)
+        if (coreIdentityByTab.has(oldId)) coreSavedSourceByTab.set(liveTab, markdown)
         liveTab.id = oldId
         liveTab.notifications = oldNotifications
         liveTab.scrollTop = oldScrollTop
@@ -701,6 +703,9 @@ export const useEditorStore = defineStore('editor', {
         }
         if (tab) {
           const coreIdentity = coreIdentityByTab.get(id)
+          if (coreIdentity !== undefined && typeof fileInfo.savedSource === 'string') {
+            coreSavedSourceByTab.set(tab, fileInfo.savedSource)
+          }
           const saveMatchesCurrentCore = coreIdentity === undefined ||
             (
               fileInfo.saveIdentity !== undefined &&
@@ -713,10 +718,13 @@ export const useEditorStore = defineStore('editor', {
         }
       })
 
-      window.electron.ipcRenderer.on('mt::tab-saved', (_, tabId, saveIdentity) => {
+      window.electron.ipcRenderer.on('mt::tab-saved', (_, tabId, saveIdentity, savedSource) => {
         const tab = this.tabs.find((f) => f.id === tabId)
         if (tab) {
           const coreIdentity = coreIdentityByTab.get(tabId)
+          // The completed write establishes the disk baseline even when newer
+          // input makes its revision too old to clear the current dirty flag.
+          if (coreIdentity !== undefined && typeof savedSource === 'string') coreSavedSourceByTab.set(tab, savedSource)
           if (
             coreIdentity !== undefined &&
             (
@@ -1781,7 +1789,25 @@ export const useEditorStore = defineStore('editor', {
       const tab = this.tabs.find(tab => tab.id === id) ??
         (this.currentFile?.id === id ? this.currentFile : undefined)
       if (tab === undefined) return
+      if (!coreSavedSourceByTab.has(tab) && tab.isSaved) coreSavedSourceByTab.set(tab, tab.markdown)
       coreIdentityByTab.set(id, Object.freeze({ ...identity }))
+    },
+
+    RECONCILE_CORE_SAVED_SOURCE(id: string, identity: DocumentSaveIdentity, source: string): void {
+      const current = coreIdentityByTab.get(id)
+      const tab = this.tabs.find(tab => tab.id === id) ??
+        (this.currentFile?.id === id ? this.currentFile : undefined)
+      if (tab === undefined || current === undefined || !saveIdentitiesEqual(current, identity) ||
+          !coreSavedSourceByTab.has(tab)) return
+      tab.isSaved = coreSavedSourceByTab.get(tab) === source
+      debouncedSendBufferedState()
+    },
+
+    async REFRESH_CORE_SAVED_STATE(id: string, identity: DocumentSaveIdentity): Promise<void> {
+      const snapshot = await coreDocumentSaveAuthority.request(id)
+      if (snapshot !== undefined && saveIdentitiesEqual(snapshot.identity, identity)) {
+        this.RECONCILE_CORE_SAVED_SOURCE(id, identity, snapshot.source)
+      }
     },
 
     UPDATE_CORE_CONSUMER_COUNT(
@@ -2068,8 +2094,9 @@ export const useEditorStore = defineStore('editor', {
               const newMarkdown = (change as unknown as FileChangePayload).data?.markdown
               if (
                 typeof newMarkdown === 'string' &&
-                newMarkdown === tab.markdown &&
-                !coreDocumentReloadAuthority.has(id)
+                newMarkdown === (coreDocumentReloadAuthority.has(id)
+                  ? coreSavedSourceByTab.get(tab)
+                  : tab.markdown)
               ) {
                 break
               }
