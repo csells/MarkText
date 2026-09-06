@@ -25,8 +25,8 @@ test.describe('edges / empty and tiny documents', () => {
         // Editor is alive: typing a single character lands in state.
         await page.keyboard.type('x');
         await expect(page.locator(editor.paragraph).first()).toContainText('x');
-        const md = await getMarkdown(page);
-        expect(md.trim()).toBe('x');
+        // DOM echo precedes the deferred native-state acknowledgement.
+        await expect.poll(async () => (await getMarkdown(page)).trim()).toBe('x');
     });
 
     test('setContent("a") — single character round-trips and cursor is valid', async ({ page }) => {

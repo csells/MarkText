@@ -50,6 +50,14 @@ export function getTextContent(node: Node, blackList: string[] = []) {
     }
     else if (
         isElement(node)
+        && node.tagName === 'IMG'
+        && node.parentElement?.classList.contains(CLASS_NAMES.MU_IMAGE_CONTAINER)
+    ) {
+        // A caret after the rendered image is after its whole editable token.
+        text += node.closest(`.${CLASS_NAMES.MU_INLINE_IMAGE}`)?.getAttribute('data-raw') ?? '';
+    }
+    else if (
+        isElement(node)
         && node.classList.contains(`${CLASS_NAMES.MU_INLINE_IMAGE}`)
     ) {
     // handle inline image
@@ -81,8 +89,18 @@ export function getTextContent(node: Node, blackList: string[] = []) {
     return text;
 }
 
-export function getOffsetOfParagraph(node: Node, paragraph: HTMLElement): number {
-    let offset = 0;
+export function getOffsetOfParagraph(node: Node, paragraph: HTMLElement, nodeOffset = 0): number {
+    // DOM element offsets count children; text-node offsets count UTF-16 units.
+    // Convert at the DOM boundary before adding preceding paragraph content.
+    let offset = node.nodeType === Node.TEXT_NODE ? nodeOffset : 0;
+    if (node.nodeType !== Node.TEXT_NODE) {
+        for (let index = 0; index < Math.min(nodeOffset, node.childNodes.length); index++) {
+            offset += getTextContent(node.childNodes[index], [
+                CLASS_NAMES.MU_MATH_RENDER,
+                CLASS_NAMES.MU_RUBY_RENDER,
+            ]).length;
+        }
+    }
     let preSibling: Node | null = node;
 
     if (node === paragraph)

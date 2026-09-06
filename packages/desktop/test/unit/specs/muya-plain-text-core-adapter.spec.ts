@@ -12,6 +12,8 @@ import type {
   EditorCoreSubmission
 } from '@/documentAuthority/editorCoreBinding'
 import type { CoreAuthorityPerformanceEvent } from '@/documentAuthority/coreAuthorityPerformanceTrace'
+import { createCoreActor } from '@/documentAuthority/coreActor'
+import { createEditorCoreBinding } from '@/documentAuthority/editorCoreBinding'
 
 const applied = (
   revision: number,
@@ -32,6 +34,562 @@ const applied = (
 })
 
 describe('Muya plain-text Core command lane', () => {
+  it.each(['paragraph', 'code'] as const)('queues native fence typing and %s state from an empty paragraph before its first acknowledgement', async(target) => {
+    const actor = createCoreActor()
+    const binding = createEditorCoreBinding({ request: async request => actor.handle(request), dispose: () => {} })
+    await binding.open({ documentId: 'empty-native-fence.md', source: '\n' })
+    const initial = await binding.plainTextViewAtBarrier()
+    if (initial.type !== 'plain-text-view') throw new Error('Missing view')
+    const reconcile = async() => {
+      const next = await binding.plainTextViewAtBarrier()
+      if (next.type !== 'plain-text-view') throw new Error('Missing view')
+      return next.view.bindings
+    }
+    const adapter = createMuyaPlainTextCoreAdapter(initial.view.bindings, binding, undefined, reconcile)
+    let text = ''
+    for (const character of '```js') {
+      const next = text + character
+      expect(adapter.accept({
+        source: 'user',
+        prevDoc: [{ name: 'paragraph', text }],
+        doc: [{ name: 'paragraph', text: next }],
+        op: [0, 'text', { es: [...(text.length === 0 ? [] : [text.length]), character] }]
+      }), JSON.stringify({ text, bindings: initial.view.bindings })).toBe('accepted')
+      text = next
+    }
+    if (target === 'code') {
+      const code = { name: 'code-block', meta: { lang: 'js', type: 'fenced' }, text: '' }
+      expect(adapter.accept({
+        source: 'user',
+        prevDoc: [{ name: 'paragraph', text }],
+        doc: [code],
+        op: [0, { r: true, i: code }]
+      })).toBe('accepted')
+    }
+    await adapter.settled()
+    expect(await binding.sourceAtBarrier()).toMatchObject({ source: target === 'paragraph' ? '```js\n' : '```js\n\n```\n' })
+    adapter.dispose()
+  })
+
+  it.each(['ordinary', 'tracked'] as const)('preserves an annotation during %s native bullet-list conversion and history', async(lane) => {
+    const actor = createCoreActor()
+    const binding = createEditorCoreBinding({ request: async request => actor.handle(request), dispose: () => {} })
+    const source = '{++plain++}\n\nuntouched\n'
+    await binding.open({ documentId: 'annotated-list.md', source })
+    const initial = await binding.plainTextViewAtBarrier()
+    if (initial.type !== 'plain-text-view' || !('state' in initial.view)) throw new Error('Missing view')
+    const reconcile = async() => {
+      const next = await binding.plainTextViewAtBarrier()
+      if (next.type !== 'plain-text-view') throw new Error('Missing view')
+      return next.view.bindings
+    }
+    const adapter = createMuyaPlainTextCoreAdapter(initial.view.bindings, binding, undefined, reconcile)
+    const list = {
+      name: 'bullet-list',
+      meta: { marker: '-', loose: false },
+      children: [{ name: 'list-item', children: [initial.view.state[0]] }]
+    }
+    const change = {
+      source: 'user',
+      prevDoc: initial.view.state,
+      doc: [list, initial.view.state[1]],
+      op: [0, { r: true, i: list }]
+    }
+    expect(lane === 'ordinary' ? adapter.accept(change) : adapter.acceptTracked(change, reconcile)).toBe('accepted')
+    await adapter.settled()
+    expect(await binding.sourceAtBarrier()).toMatchObject({
+      source: lane === 'ordinary' ? '- {++plain++}\n\nuntouched\n' : '{++- plain++}\n\nuntouched\n'
+    })
+    const next = await binding.plainTextViewAtBarrier()
+    if (next.type !== 'plain-text-view' || !('state' in next.view)) throw new Error('Missing view')
+    expect(next.view.state[0]).toMatchObject({ name: 'bullet-list', children: [{ name: 'list-item' }] })
+    await adapter.history('undo', reconcile)
+    expect(await binding.sourceAtBarrier()).toMatchObject({ source })
+    adapter.dispose()
+  })
+
+  it.each(['tracked', 'queued-semantic'] as const)('maps a %s native code conversion through the shared structural decoder', async(lane) => {
+    const actor = createCoreActor()
+    let release: (() => void) | undefined
+    let held = false
+    const binding = createEditorCoreBinding({
+      request: request => {
+        if (lane === 'queued-semantic' && request.type === 'apply' && !held) {
+          held = true
+          return new Promise(resolve => { release = () => resolve(actor.handle(request)) })
+        }
+        return Promise.resolve(actor.handle(request))
+      },
+      dispose: () => {}
+    })
+    await binding.open({ documentId: 'code.md', source: '{++seed++}\n\nplain\n' })
+    const initial = await binding.plainTextViewAtBarrier()
+    if (initial.type !== 'plain-text-view') throw new Error('Missing view')
+    const reconcile = async() => {
+      const next = await binding.plainTextViewAtBarrier()
+      if (next.type !== 'plain-text-view') throw new Error('Missing view')
+      return next.view.bindings
+    }
+    const adapter = createMuyaPlainTextCoreAdapter(initial.view.bindings, binding, undefined, reconcile)
+    const first = { name: 'paragraph', text: 'seed' }
+    const plain = { name: 'paragraph', text: 'plain' }
+    const prior = [first, plain]
+    if (lane === 'queued-semantic') {
+      const typed = { name: 'paragraph', text: 'seed!' }
+      expect(adapter.acceptTracked({
+        source: 'user',
+        prevDoc: prior,
+        doc: [typed, plain],
+        op: [0, 'text', { es: [4, '!'] }]
+      }, reconcile, true)).toBe('accepted')
+      prior[0] = typed
+    }
+    const code = { name: 'code-block', text: 'plain', meta: { type: 'fenced', lang: 'js' } }
+    expect(adapter.acceptTracked({
+      source: 'user',
+      prevDoc: prior,
+      doc: [prior[0], code],
+      op: [1, { r: true, i: code }]
+    }, reconcile, lane === 'queued-semantic')).toBe('accepted')
+    release?.()
+    await adapter.settled()
+    expect(await binding.sourceAtBarrier()).toMatchObject({
+      source: lane === 'tracked'
+        ? '{++seed++}\n\n{~~plain~>```js\nplain\n```~~}\n'
+        : '{++seed!++}\n\n```js\nplain\n```\n'
+    })
+    adapter.dispose()
+  })
+
+  it.each(['before {++plain++} after\n', '{++plain++} after\n'])('preserves existing annotations when a native heading formats %s', async(source) => {
+    const actor = createCoreActor()
+    const binding = createEditorCoreBinding({ request: async request => actor.handle(request), dispose: () => {} })
+    await binding.open({ documentId: 'annotated-heading.md', source })
+    const view = await binding.plainTextViewAtBarrier()
+    if (view.type !== 'plain-text-view') throw new Error('Missing view')
+    const adapter = createMuyaPlainTextCoreAdapter(view.view.bindings, binding)
+    const text = view.view.bindings[0].text
+    const heading = { name: 'atx-heading', text: `# ${text}`, meta: { level: 1 } }
+    expect(adapter.accept({
+      source: 'user',
+      prevDoc: [{ name: 'paragraph', text }],
+      doc: [heading],
+      op: [0, { r: true, i: heading }]
+    })).toBe('accepted')
+    await adapter.settled()
+    expect(await binding.sourceAtBarrier()).toMatchObject({ source: `# ${source}` })
+    adapter.dispose()
+  })
+
+  it.each((['ordinary', 'markup', 'tracked'] as const).flatMap(lane =>
+    [false, true].flatMap(endBeforeAcknowledgement => [false, true].map(queued =>
+      ({ lane, endBeforeAcknowledgement, queued })))))('preserves an IME draft across an earlier acknowledgement: $lane, earlyEnd=$endBeforeAcknowledgement, queued=$queued', async({ lane, endBeforeAcknowledgement, queued }) => {
+    const actor = createCoreActor()
+    let release: (() => void) | undefined
+    let held = false
+    const binding = createEditorCoreBinding({
+      request: request => {
+        if (request.type === 'apply' && !held) {
+          held = true
+          return new Promise(resolve => { release = () => resolve(actor.handle(request)) })
+        }
+        return Promise.resolve(actor.handle(request))
+      },
+      dispose: () => {}
+    })
+    const source = lane === 'markup' ? '{++seed++}\n' : 'seed\n'
+    await binding.open({ documentId: 'pending-ime.md', source })
+    const initial = await binding.plainTextViewAtBarrier()
+    if (initial.type !== 'plain-text-view') throw new Error('Missing view')
+    let reconciled = 0
+    const protectedDrafts: boolean[] = []
+    const reconcile = async() => {
+      protectedDrafts.push(adapter.hasPendingEdits())
+      const reply = await binding.plainTextViewAtBarrier()
+      if (reply.type !== 'plain-text-view') throw new Error('Missing view')
+      reconciled += 1
+      return reply.view.bindings
+    }
+    const adapter = createMuyaPlainTextCoreAdapter(initial.view.bindings, binding, undefined, reconcile)
+    const accept = (before: string, after: string, offset: number, insert: string) => {
+      const change = {
+        source: 'user',
+        prevDoc: [{ name: 'paragraph', text: before }],
+        doc: [{ name: 'paragraph', text: after }],
+        op: [0, 'text', { es: [offset, insert] }]
+      }
+      return lane === 'tracked' ? adapter.acceptTracked(change, reconcile) : adapter.accept(change)
+    }
+    expect(accept('seed', 'seedX', 4, 'X')).toBe('accepted')
+    if (queued) expect(accept('seedX', 'seedXY', 5, 'Y')).toBe('accepted')
+    const base = queued ? 'seedXY' : 'seedX'
+    adapter.compositionStart()
+    const saved = adapter.settled()
+    saved.catch(() => {})
+    expect(accept(base, `${base}日`, base.length, '日')).toBe('accepted')
+    if (!endBeforeAcknowledgement) {
+      release?.()
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(reconciled).toBe(queued ? 2 : 1)
+      expect(protectedDrafts.every(Boolean)).toBe(true)
+    }
+    expect(accept(`${base}日`, `${base}日本`, base.length + 1, '本')).toBe('accepted')
+    const ending = adapter.compositionEnd()
+    if (endBeforeAcknowledgement) release?.()
+    await ending
+    await saved
+    const expected = lane === 'ordinary'
+      ? `${base}日本\n`
+      : lane === 'markup'
+        ? `{++${base}日本++}\n`
+        : `seed{++${queued ? 'XY' : 'X'}日本++}\n`
+    expect(await binding.sourceAtBarrier()).toMatchObject({ source: expected })
+    await adapter.history('undo', reconcile)
+    expect(await binding.sourceAtBarrier()).toMatchObject({
+      source: lane === 'ordinary'
+        ? `${base}\n`
+        : lane === 'markup' ? `{++${base}++}\n` : `seed{++${queued ? 'XY' : 'X'}++}\n`
+    })
+    adapter.dispose()
+  })
+
+  it.each([false, true])('finishes deferred presentation when composition ends without committed input: cancelled=%s', async(cancelled) => {
+    let release: ((outcome: EditorCoreApplyOutcome) => void) | undefined
+    const protectedDrafts: boolean[] = []
+    const reconcile = async() => {
+      protectedDrafts.push(adapter.hasPendingEdits())
+      return [{ path: [0, 'text'], text: 'seedX', sourceRange: { start: 0, end: 5 } }]
+    }
+    const adapter = createMuyaPlainTextCoreAdapter([{
+      path: [0, 'text'], text: 'seed', sourceRange: { start: 0, end: 4 }
+    }], {
+      submit: () => ({
+        identity: { documentId: 'cancel-ime.md', generation: 1, transactionId: 1 },
+        acknowledged: new Promise(resolve => { release = resolve })
+      })
+    }, undefined, reconcile)
+    adapter.accept({
+      source: 'user',
+      prevDoc: [{ name: 'paragraph', text: 'seed' }],
+      doc: [{ name: 'paragraph', text: 'seedX' }],
+      op: [0, 'text', { es: [4, 'X'] }]
+    })
+    adapter.compositionStart()
+    if (cancelled) {
+      expect(adapter.accept({
+        source: 'user',
+        prevDoc: [{ name: 'paragraph', text: 'seedX' }],
+        doc: [{ name: 'paragraph', text: 'seedX日' }],
+        op: [0, 'text', { es: [5, '日'] }]
+      })).toBe('accepted')
+      expect(adapter.accept({
+        source: 'user',
+        prevDoc: [{ name: 'paragraph', text: 'seedX日' }],
+        doc: [{ name: 'paragraph', text: 'seedX' }],
+        op: [0, 'text', { es: [5, { d: '日' }] }]
+      })).toBe('accepted')
+    }
+    release?.(applied(2, { start: 4, end: 4, insert: 'X' }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(protectedDrafts).toEqual([true])
+    await adapter.compositionEnd()
+    expect(protectedDrafts).toEqual([true, false])
+    adapter.dispose()
+  })
+
+  it.each(['ordinary', 'semantic'] as const)('rebases a %s heading conversion queued behind an edit in a different annotated paragraph', async(lane) => {
+    const actor = createCoreActor()
+    let release: (() => void) | undefined
+    let held = false
+    const binding = createEditorCoreBinding({
+      request: request => {
+        if (request.type === 'apply' && !held) {
+          held = true
+          return new Promise(resolve => { release = () => resolve(actor.handle(request)) })
+        }
+        return Promise.resolve(actor.handle(request))
+      },
+      dispose: () => {}
+    })
+    await binding.open({ documentId: 'queued-heading.md', source: '{++seed++}\n\nplain\n' })
+    const view = await binding.plainTextViewAtBarrier()
+    if (view.type !== 'plain-text-view') throw new Error('Missing view')
+    const reconcile = async() => {
+      const reply = await binding.plainTextViewAtBarrier()
+      if (reply.type !== 'plain-text-view') throw new Error('Missing view')
+      return reply.view.bindings
+    }
+    const adapter = createMuyaPlainTextCoreAdapter(view.view.bindings, binding, undefined, reconcile)
+    const accept = (change: unknown) => lane === 'ordinary'
+      ? adapter.accept(change)
+      : adapter.acceptTracked(change, reconcile, true)
+    const original = [{ name: 'paragraph', text: 'seed' }, { name: 'paragraph', text: 'plain' }]
+    const typed = [{ name: 'paragraph', text: 'seed!' }, original[1]]
+    const heading = { name: 'atx-heading', text: '# title', meta: { level: 1 } }
+    expect(accept({
+      source: 'user',
+      prevDoc: original,
+      doc: typed,
+      op: [0, 'text', { es: [4, '!'] }]
+    })).toBe('accepted')
+    expect(accept({
+      source: 'user',
+      prevDoc: typed,
+      doc: [typed[0], heading],
+      op: [1, { r: true, i: heading }]
+    })).toBe('accepted')
+    release?.()
+    await adapter.settled()
+    expect(await binding.sourceAtBarrier()).toMatchObject({ source: '{++seed!++}\n\n# title\n' })
+    adapter.dispose()
+  })
+
+  it('does not flatten an annotation arm or accept changed child text as a blockquote wrapper', () => {
+    const submissions: EditorCoreSubmitInput[] = []
+    for (const annotationContext of [false, true]) {
+      const adapter = createMuyaPlainTextCoreAdapter([{
+        path: [0, 'text'],
+        text: 'plain',
+        sourceRange: { start: 0, end: 5 },
+        ...(annotationContext ? { annotationContext: true as const } : {})
+      }], { submit(input) { submissions.push(input); throw new Error('Unexpected submission') } })
+      const quote = {
+        name: 'block-quote',
+        children: [{
+          name: 'paragraph', text: annotationContext ? 'plain' : 'changed'
+        }]
+      }
+      expect(adapter.accept({
+        source: 'user',
+        prevDoc: [{ name: 'paragraph', text: 'plain' }],
+        doc: [quote],
+        op: [0, { r: true, i: quote }]
+      })).toBe('unsupported')
+      adapter.dispose()
+    }
+    expect(submissions).toEqual([])
+  })
+
+  it('acknowledges a native paragraph blockquote and accepts text at its reconciled nested path', async() => {
+    const actor = createCoreActor()
+    const binding = createEditorCoreBinding({ request: async request => actor.handle(request), dispose: () => {} })
+    await binding.open({ documentId: 'quote.md', source: 'plain\n' })
+    const view = await binding.plainTextViewAtBarrier()
+    if (view.type !== 'plain-text-view') throw new Error('Missing view')
+    const adapter = createMuyaPlainTextCoreAdapter(view.view.bindings, binding, undefined, async() => {
+      const reply = await binding.plainTextViewAtBarrier()
+      if (reply.type !== 'plain-text-view') throw new Error('Missing view')
+      return reply.view.bindings
+    })
+    const quote = { name: 'block-quote', children: [{ name: 'paragraph', text: 'plain' }] }
+    expect(adapter.accept({
+      source: 'user',
+      prevDoc: [{ name: 'paragraph', text: 'plain' }],
+      doc: [quote],
+      op: [0, { r: true, i: quote }]
+    })).toBe('accepted')
+    await adapter.settled()
+    expect(await binding.sourceAtBarrier()).toMatchObject({ source: '> plain\n' })
+    expect(adapter.accept({
+      source: 'user',
+      prevDoc: [quote],
+      doc: [{ name: 'block-quote', children: [{ name: 'paragraph', text: 'plain!' }] }],
+      op: [0, 'children', 0, 'text', { es: [5, '!'] }]
+    })).toBe('accepted')
+    await adapter.settled()
+    expect(await binding.sourceAtBarrier()).toMatchObject({ source: '> plain!\n' })
+    adapter.dispose()
+  })
+
+  it('uses the direct source lane for a leaf outside all annotation contexts', async() => {
+    const inputs: EditorCoreSubmitInput[] = []
+    const adapter = createMuyaPlainTextCoreAdapter([{
+      path: [0, 'text'], text: 'plain', sourceRange: { start: 0, end: 5 }
+    }], {
+      submit(input) {
+        inputs.push(input)
+        return {
+          identity: { documentId: 'plain.md', generation: 1, transactionId: 1 },
+          acknowledged: Promise.resolve(applied(2, { start: 5, end: 5, insert: '!' }))
+        }
+      }
+    }, undefined, async() => [{ path: [0, 'text'], text: 'plain!', sourceRange: { start: 0, end: 6 } }])
+    adapter.accept({
+      source: 'user',
+      prevDoc: [{ name: 'paragraph', text: 'plain' }],
+      doc: [{ name: 'paragraph', text: 'plain!' }],
+      op: [0, 'text', { es: [5, '!'] }]
+    })
+    await adapter.settled()
+    expect(inputs).toEqual([{ edits: [{ start: 5, end: 5, insert: '!' }], projections: [] }])
+    adapter.dispose()
+  })
+  it('queues new native input against its draft while earlier queued text is being acknowledged', async() => {
+    const actor = createCoreActor()
+    const releases: Array<() => void> = []
+    const binding = createEditorCoreBinding({
+      request: request => request.type === 'apply'
+        ? new Promise(resolve => { releases.push(() => resolve(actor.handle(request))) })
+        : Promise.resolve(actor.handle(request)),
+      dispose: () => {}
+    })
+    await binding.open({ documentId: 'burst.md', source: '{++seed++}\n' })
+    const view = await binding.plainTextViewAtBarrier()
+    if (view.type !== 'plain-text-view') throw new Error('Missing view')
+    const adapter = createMuyaPlainTextCoreAdapter(view.view.bindings, binding, undefined, async() => {
+      const reply = await binding.plainTextViewAtBarrier()
+      if (reply.type !== 'plain-text-view') throw new Error('Missing view')
+      return reply.view.bindings
+    })
+    const type = (previous: string, character: string) => adapter.accept({
+      source: 'user',
+      prevDoc: [{ name: 'paragraph', text: previous }],
+      doc: [{ name: 'paragraph', text: previous + character }],
+      op: [0, 'text', { es: [previous.length, character] }]
+    })
+    expect(type('seed', '1')).toBe('accepted')
+    expect(type('seed1', '2')).toBe('accepted')
+    expect(type('seed12', '3')).toBe('accepted')
+    releases.shift()?.()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(releases).toHaveLength(1)
+    expect(type('seed123', '4')).toBe('accepted')
+    for (let count = 0; count < 3; count += 1) {
+      releases.shift()?.()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    }
+    await adapter.settled()
+    expect(await binding.sourceAtBarrier()).toMatchObject({ source: '{++seed1234++}\n' })
+    adapter.dispose()
+  })
+  it('rebases text queued behind an ordinary paragraph split before publishing it', async() => {
+    const actor = createCoreActor()
+    const binding = createEditorCoreBinding({ request: async request => actor.handle(request), dispose: () => {} })
+    await binding.open({ documentId: 'split.md', source: 'seed\n' })
+    const view = await binding.plainTextViewAtBarrier()
+    if (view.type !== 'plain-text-view') throw new Error('Missing view')
+    const adapter = createMuyaPlainTextCoreAdapter(view.view.bindings, binding, undefined, async() => {
+      const view = await binding.plainTextViewAtBarrier()
+      if (view.type !== 'plain-text-view') throw new Error('Missing view')
+      return view.view.bindings
+    })
+    expect(adapter.accept({
+      source: 'user',
+      prevDoc: [{ name: 'paragraph', text: 'seed' }],
+      doc: [{ name: 'paragraph', text: 'seed' }, { name: 'paragraph', text: '' }],
+      op: [1, { i: { name: 'paragraph', text: '' } }]
+    })).toBe('accepted')
+    let previous = ''
+    for (const character of 'next') {
+      expect(adapter.accept({
+        source: 'user',
+        prevDoc: [{ name: 'paragraph', text: 'seed' }, { name: 'paragraph', text: previous }],
+        doc: [{ name: 'paragraph', text: 'seed' }, { name: 'paragraph', text: previous + character }],
+        op: [1, 'text', { es: previous.length === 0 ? [character] : [previous.length, character] }]
+      })).toBe('accepted')
+      previous += character
+    }
+    await adapter.settled()
+    expect(await binding.sourceAtBarrier()).toMatchObject({ source: 'seed\n\nnext\n' })
+    adapter.dispose()
+  })
+  it('keeps an ordinary IME composition untracked through its deferred commit', async() => {
+    const inputs: EditorCoreSubmitInput[] = []
+    const adapter = createMuyaPlainTextCoreAdapter([{
+      path: [0, 'text'], text: 'seed', annotationContext: true, sourceRange: { start: 0, end: 4 }
+    }], {
+      submit(input) {
+        inputs.push(input)
+        return {
+          identity: { documentId: 'ime.md', generation: 1, transactionId: 1 },
+          acknowledged: Promise.resolve(applied(2, { start: 4, end: 4, insert: '日' }))
+        }
+      }
+    }, undefined, async() => [{ path: [0, 'text'], text: 'seed日', sourceRange: { start: 0, end: 5 } }])
+    adapter.compositionStart()
+    expect(adapter.accept({
+      source: 'user',
+      prevDoc: [{ name: 'paragraph', text: 'seed' }],
+      doc: [{ name: 'paragraph', text: 'seed日' }],
+      op: [0, 'text', { es: [4, '日'] }]
+    })).toBe('accepted')
+    await adapter.compositionEnd()
+    expect(inputs).toEqual([{ kind: 'markup-edits', edits: [{ start: 4, end: 4, insert: '日' }], projections: [] }])
+    adapter.dispose()
+  })
+  it('resumes the acknowledged revision when the editor remounts after a saved edit', () => {
+    const adapter = createMuyaPlainTextCoreAdapter([], {} as Pick<EditorCoreBinding, 'submit'>,
+      undefined, undefined, 7)
+    expect(adapter.state()).toEqual({ status: 'ready', revision: 7 })
+    adapter.dispose()
+  })
+  it('settles an ordinary Markdown edit only after its semantic presentation reconciles', async() => {
+    let reconciled = false
+    const adapter = createMuyaPlainTextCoreAdapter([{
+      path: [0, 'text'], text: 'seed', sourceRange: { start: 0, end: 4 }
+    }], {
+      submit: () => ({
+        identity: { documentId: 'ordinary.md', generation: 1, transactionId: 1 },
+        acknowledged: Promise.resolve(applied(2, { start: 4, end: 4, insert: '!' }))
+      })
+    }, undefined, async() => {
+      reconciled = true
+      return [{ path: [0, 'text'], text: 'seed!', sourceRange: { start: 0, end: 5 } }]
+    })
+    expect(adapter.accept({
+      source: 'user',
+      prevDoc: [{ name: 'paragraph', text: 'seed' }],
+      doc: [{ name: 'paragraph', text: 'seed!' }],
+      op: [0, 'text', { es: [4, '!'] }]
+    })).toBe('accepted')
+    await adapter.settled()
+    expect(reconciled).toBe(true)
+    adapter.dispose()
+  })
+
+  it('keeps canonical segment coordinates through consecutive ordinary edits inside an addition', async() => {
+    const submissions: EditorCoreSubmitInput[] = []
+    const adapter = createMuyaPlainTextCoreAdapter([{
+      path: [0, 'text'],
+      text: 'seed A',
+      sourceRange: { start: 0, end: 12 },
+      segments: [
+        { text: { start: 0, end: 4 }, source: { start: 0, end: 4 } },
+        { text: { start: 4, end: 6 }, source: { start: 7, end: 9 } }
+      ]
+    }], {
+      submit(input: EditorCoreSubmitInput): EditorCoreSubmission {
+        submissions.push(input)
+        const edit = 'edits' in input ? input.edits[0] : undefined
+        if (edit === undefined) throw new Error('Expected ordinary edit')
+        return {
+          identity: { documentId: 'ordinary.md', generation: 1, transactionId: submissions.length },
+          acknowledged: Promise.resolve(applied(submissions.length + 1, edit))
+        }
+      }
+    })
+    for (const [previous, next, offset, insert] of [
+      ['seed A', 'seed AB', 6, 'B'],
+      ['seed AB', 'seed ABC', 7, 'C']
+    ] as const) {
+      expect(adapter.accept({
+        source: 'user',
+        prevDoc: [{ name: 'paragraph', text: previous }],
+        doc: [{ name: 'paragraph', text: next }],
+        op: [0, 'text', { es: [offset, insert] }]
+      })).toBe('accepted')
+      await adapter.settled()
+    }
+    expect(submissions.map(input => 'edits' in input ? input.edits : undefined)).toEqual([
+      [{ start: 9, end: 9, insert: 'B' }],
+      [{ start: 10, end: 10, insert: 'C' }]
+    ])
+    expect(adapter.selectionSourceRange({
+      anchor: { path: [0, 'text'], offset: 4 }, focus: { path: [0, 'text'], offset: 8 }
+    })).toEqual({ start: 7, end: 11 })
+    adapter.dispose()
+  })
+
   it('adopts an externally authorized applied revision only through reconciliation', async() => {
     const adapter = createMuyaPlainTextCoreAdapter(Object.freeze([{
       path: Object.freeze([0, 'text'] as const),
@@ -183,6 +741,8 @@ describe('Muya plain-text Core command lane', () => {
         documentId: 'latency.md',
         transaction: 7,
         pendingDepth: 1,
+        insertedUnits: 1,
+        deletedUnits: 0,
         at: 10
       },
       {

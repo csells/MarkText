@@ -623,6 +623,7 @@ const requiredDecisionIds = [
   'salvage-inventory'
 ] as const
 
+/** Historical packet validator; plan 0011 no longer requires packet approval. */
 export const validateCriticMarkupPhase0ApprovalProposal = (
   repoRoot: string,
   approval: CriticMarkupPhase0Approval

@@ -191,7 +191,6 @@ export const startInputLatencyTrace = async(
           current.text === sample.expectedText &&
           sample.tEcho === undefined
         ) {
-          const exactText = sample.expectedText
           sample.tEcho = observedAt
           sample.echoDomCheckpoint = current.checkpoint
           requestAnimationFrame(() => {
@@ -199,13 +198,20 @@ export const startInputLatencyTrace = async(
               .querySelectorAll(targetSelector)
               .item(sample.targetIndex)
             const frameText = frameTarget?.textContent ?? ''
-            if (frameText !== exactText) return
+            if (sample.tFrame !== undefined || sample.tEcho === undefined ||
+                frameText !== sample.expectedText) return
             sample.tFrame = performance.now()
             sample.frameDomCheckpoint = checkpointFor(
               sample.targetIndex,
               frameText
             )
             sample.expectedText = undefined
+            const pendingIndex = pending.indexOf(sample)
+            if (pendingIndex >= 0) pending.splice(pendingIndex, 1)
+            if (!accepting && pending.length === 0 && observerConnected) {
+              observer.disconnect()
+              observerConnected = false
+            }
           })
           pending[retained] = sample
           retained += 1
@@ -283,6 +289,10 @@ export const startInputLatencyTrace = async(
         ) {
           sample.expectedText = expectedText
           sample.expectedDomCheckpoint = expectedDomCheckpoint
+          // An observed echo can still be waiting for a frame when another
+          // key arrives. Its cumulative checkpoint needs a new exact echo.
+          sample.tEcho = undefined
+          sample.echoDomCheckpoint = undefined
         }
       }
 

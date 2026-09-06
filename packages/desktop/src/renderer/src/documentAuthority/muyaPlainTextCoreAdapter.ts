@@ -13,14 +13,24 @@ import type {
   CoreAuthorityPerformanceEvent
 } from './coreAuthorityPerformanceTrace'
 import {
+  advanceMuyaSourceBinding,
+  assertMuyaPlainTextSourceBinding,
+  composeMuyaNativeTextChange,
   createMuyaPlainTextSourceEditAdapter,
+  nativeMuyaTextEdit,
   sourceEditForMuyaCrossParagraphChange,
   sourceEditForMuyaMathTextChange,
   sourceEditForMuyaTwoParagraphPaste,
   type MuyaMathSourceBinding,
   type MuyaPlainTextSourceBinding
 } from './muyaPlainTextSourceEdit'
+import { muyaSourceEdits } from './muyaContainerSourceEdit'
 import { canonicalSourceForMuyaTable } from './muyaTableSourceCodec'
+import { mappedMuyaSourceRange } from './muyaMarkupView'
+import { reconcileOptimisticTransaction, transformOptimisticHistory } from './optimisticHistoryTransform'
+import { sourceEditForMuyaStructuralEnter } from './muyaStructuralEnter'
+import { nativeMuyaStructuralDraft, sourceEditForMuyaStructuralChange } from './muyaStructuralSourceEdit'
+import { reconcileMuyaNativeBindings, reconcileMuyaNativeStructureBindings } from './muyaNativeReconciliation'
 
 export type { MuyaPlainTextSourceBinding } from './muyaPlainTextSourceEdit'
 
@@ -39,7 +49,17 @@ export type MuyaPlainTextCoreAdapterState =
   | Readonly<{ readonly status: 'ready'; readonly revision: number }>
   | Readonly<{ readonly status: 'faulted'; readonly message: string }>
 
+export interface MuyaRecoveryDraft {
+  readonly revision: number
+  readonly nativeChange: unknown
+  readonly commands: readonly Readonly<Record<string, unknown>>[]
+  readonly composition: unknown
+}
+
 export interface MuyaPlainTextCoreAdapter {
+  reconciledSourcePosition(point: MuyaPlainTextAuthorSelection['focus']): number | undefined
+  hasPendingEdits(): boolean
+  recoveryDraft(): MuyaRecoveryDraft | undefined
   accept(change: unknown): 'accepted' | 'unsupported'
   selectionSourceRange(
     selection: MuyaPlainTextAuthorSelection
@@ -48,7 +68,8 @@ export interface MuyaPlainTextCoreAdapter {
     change: unknown,
     reconcile: (
       outcome: CoreAppliedReply
-    ) => Promise<readonly MuyaPlainTextSourceBinding[]>
+    ) => Promise<readonly MuyaPlainTextSourceBinding[]>,
+    markup?: boolean
   ): 'accepted' | 'unsupported'
   compositionStart(): void
   compositionEnd(): Promise<void>
@@ -104,9 +125,14 @@ const MAXIMUM_PENDING_INSERT_UNITS = 4 * 1024 * 1024
 
 type PendingCommand = Readonly<{
   readonly kind: 'edit'
+  readonly nativeHistoryGroup?: string
   readonly edit: DocumentSourceEdit
+  readonly remapFollowingNative?: true
 }> | Readonly<{
   readonly kind: 'track'
+  readonly nativeTextOnly: boolean
+  readonly nativeHistoryGroup?: string
+  readonly markup?: boolean
   readonly edit: DocumentSourceEdit
   readonly deferredChange?: unknown
   readonly reconcile: (
@@ -166,7 +192,7 @@ const pathOf = (change: unknown): string | undefined => {
   if (change === null || typeof change !== 'object') return undefined
   const operation = (change as { readonly op?: unknown }).op
   if (!Array.isArray(operation) || operation.length < 2) return undefined
-  return `${String(operation[0])}:${String(operation[1])}`
+  return JSON.stringify(operation.slice(0, -1))
 }
 
 const paragraphHeadingEdit = (
@@ -206,7 +232,8 @@ const paragraphHeadingEdit = (
     return undefined
   }
   const prefix = `${'#'.repeat(level as number)} `
-  if (!inserted.text.startsWith(prefix) || inserted.text.length === prefix.length) {
+  const marker = prefix.slice(0, -1)
+  if (inserted.text !== marker && !inserted.text.startsWith(prefix)) {
     return undefined
   }
   if (!Array.isArray(candidate.prevDoc) || !Array.isArray(candidate.doc)) {
@@ -227,10 +254,50 @@ const paragraphHeadingEdit = (
     nextBlock.name !== inserted.name || nextBlock.text !== inserted.text ||
     nextBlock.meta?.level !== level
   ) return undefined
+  if (binding.annotationContext === true) {
+    if (inserted.text !== prefix + binding.text || binding.paragraphPrefixPosition === undefined) return undefined
+    return { start: binding.paragraphPrefixPosition, end: binding.paragraphPrefixPosition, insert: prefix }
+  }
   return Object.freeze({
     start: binding.sourceRange.start,
     end: binding.sourceRange.end,
     insert: inserted.text
+  })
+}
+
+const paragraphBlockquoteEdit = (
+  change: unknown,
+  bindings: ReadonlyMap<number, MuyaPlainTextSourceBinding>
+): DocumentSourceEdit | undefined => {
+  if (change === null || typeof change !== 'object') return undefined
+  const candidate = change as { source?: unknown; op?: unknown; prevDoc?: unknown; doc?: unknown }
+  if (candidate.source !== 'user' || !Array.isArray(candidate.op) ||
+      candidate.op.length !== 2 || !Number.isSafeInteger(candidate.op[0]) ||
+      !Array.isArray(candidate.prevDoc) || !Array.isArray(candidate.doc)) return undefined
+  const index = candidate.op[0] as number
+  const binding = bindings.get(index)
+  // This conversion owns one literal paragraph. A projected annotation arm
+  // cannot be serialized as source without losing its delimiters/other arms.
+  if (binding === undefined || binding.annotationContext === true ||
+      binding.sourceRange.end - binding.sourceRange.start !== binding.text.length) return undefined
+  const replacement = candidate.op[1] as { r?: unknown; i?: unknown } | null
+  if (replacement === null || typeof replacement !== 'object' || replacement.r !== true) return undefined
+  const isParagraph = (value: unknown): boolean => value !== null && typeof value === 'object' &&
+    (value as { name?: unknown }).name === 'paragraph' &&
+    (value as { text?: unknown }).text === binding.text
+  const isQuote = (value: unknown): boolean => {
+    if (value === null || typeof value !== 'object') return false
+    const quote = value as { name?: unknown; children?: unknown }
+    return quote.name === 'block-quote' && Array.isArray(quote.children) &&
+      quote.children.length === 1 && isParagraph(quote.children[0])
+  }
+  if (candidate.prevDoc.length !== candidate.doc.length ||
+      !isParagraph(candidate.prevDoc[index]) || !isQuote(replacement.i) ||
+      !isQuote(candidate.doc[index])) return undefined
+  return Object.freeze({
+    start: binding.sourceRange.start,
+    end: binding.sourceRange.end,
+    insert: binding.text.split('\n').map(line => `> ${line}`).join('\n')
   })
 }
 
@@ -255,7 +322,7 @@ const paragraphMathEdit = (
   ) return undefined
   const blockIndex = candidate.op[0] as number
   const sourceBinding = bindings.get(blockIndex)
-  if (sourceBinding === undefined) return undefined
+  if (sourceBinding === undefined || sourceBinding.annotationContext === true) return undefined
   const replacement = candidate.op[1]
   if (replacement === null || typeof replacement !== 'object') return undefined
   const descriptor = replacement as { readonly r?: unknown; readonly i?: unknown }
@@ -325,7 +392,7 @@ const paragraphTableEdit = (
   ) return undefined
   const blockIndex = candidate.op[0] as number
   const sourceBinding = bindings.get(blockIndex)
-  if (sourceBinding === undefined) return undefined
+  if (sourceBinding === undefined || sourceBinding.annotationContext === true) return undefined
   const replacement = candidate.op[1]
   if (replacement === null || typeof replacement !== 'object') return undefined
   const descriptor = replacement as { readonly r?: unknown; readonly i?: unknown }
@@ -368,16 +435,25 @@ export function createMuyaPlainTextCoreAdapter(
     readonly documentId: string
     readonly clock?: () => number
     readonly record: (event: CoreAuthorityPerformanceEvent) => void
-  }>
+  }>,
+  reconcileOrdinaryEdit?: (
+    outcome: CoreAppliedReply
+  ) => Promise<readonly MuyaPlainTextSourceBinding[]>,
+  initialRevision = 1,
+  regionalMarkup = false
 ): MuyaPlainTextCoreAdapter {
   const adapters = new Map<string, ReturnType<
     typeof createMuyaPlainTextSourceEditAdapter
-  >>()
+  > | undefined>()
   const bindingByBlock = new Map<number, MuyaPlainTextSourceBinding>()
+  const bindingByPath = new Map<string, MuyaPlainTextSourceBinding>()
   const mathBindingByBlock = new Map<number, MuyaMathSourceBinding>()
   let currentBindings: readonly MuyaPlainTextSourceBinding[] = Object.freeze([])
   let selectionBindings: readonly MuyaPlainTextSourceBinding[] = Object.freeze([])
   const queued: PendingCommand[] = []
+  let latestNativeChange: unknown
+  let latestSubmitted: PendingCommand | undefined
+  let failedDraft: MuyaRecoveryDraft | undefined
   const waiters = new Set<{
     readonly resolve: () => void
     readonly reject: (error: Error) => void
@@ -385,10 +461,21 @@ export function createMuyaPlainTextCoreAdapter(
   let active: PendingCommand | undefined
   let disposed = false
   let pendingInsertUnits = 0
-  let revision = 1
+  // The native view can lag a history command while the user keeps typing.
+  // Keep its bindings in that coordinate domain until the visible draft drains.
+  let pendingHistory: { baseSourceLength: number; edits: readonly DocumentSourceEdit[] } | undefined
+  let nativeBindingsPending = false
+  let reconciledNativePositionReady = false
+  const historyIsPending = (): boolean => pendingHistory !== undefined ||
+    active?.kind === 'history' || queued.some(command => command.kind === 'history')
+  let revision = initialRevision
   let terminalError: Error | undefined
   let composing = false
   let compositionEdit: DocumentSourceEdit | undefined
+  let compositionChange: unknown
+  let compositionNeedsRebase = false
+  let compositionReconciliation: (() => Promise<readonly MuyaPlainTextSourceBinding[]>) | undefined
+  let compositionMarkup = false
   let compositionTrackReconcile: ((
     outcome: CoreAppliedReply
   ) => Promise<readonly MuyaPlainTextSourceBinding[]>) | undefined
@@ -399,7 +486,7 @@ export function createMuyaPlainTextCoreAdapter(
   }> | undefined
 
   type PerformanceEventInput =
-    | Readonly<{ readonly phase: 'dispatch'; readonly transaction: number; readonly pendingDepth: number }>
+    | Readonly<{ readonly phase: 'dispatch'; readonly transaction: number; readonly pendingDepth: number; readonly insertedUnits?: number; readonly deletedUnits?: number }>
     | Readonly<{ readonly phase: 'ack'; readonly transaction: number }>
     | Readonly<{ readonly phase: 'reconcile'; readonly transaction: number; readonly corrected: boolean }>
   const recordPerformance = (event: PerformanceEventInput): void => {
@@ -422,16 +509,17 @@ export function createMuyaPlainTextCoreAdapter(
   ): void => {
     const nextAdapters = new Map<string, ReturnType<
       typeof createMuyaPlainTextSourceEditAdapter
-    >>()
+    > | undefined>()
     const nextByBlock = new Map<number, MuyaPlainTextSourceBinding>()
     for (const item of nextBindings) {
       if (item.editable === false) continue
-      const key = `${String(item.path[0])}:${item.path[1]}`
-      if (nextAdapters.has(key) || nextByBlock.has(item.path[0])) {
+      const key = JSON.stringify(item.path)
+      if (nextAdapters.has(key)) {
         throw new Error('Core Muya projection contains duplicate bindings')
       }
       try {
-        nextAdapters.set(key, createMuyaPlainTextSourceEditAdapter(item))
+        assertMuyaPlainTextSourceBinding(item)
+        nextAdapters.set(key, undefined)
       } catch (error) {
         const range = item.sourceRange
         throw new RangeError(
@@ -442,9 +530,13 @@ export function createMuyaPlainTextCoreAdapter(
           `${error instanceof Error ? error.message : 'invalid binding'}`
         )
       }
-      nextByBlock.set(item.path[0], item)
+      if (item.path.length === 2 && typeof item.path[0] === 'number') {
+        nextByBlock.set(item.path[0], item)
+      }
     }
     adapters.clear()
+    bindingByPath.clear()
+    for (const item of nextBindings) bindingByPath.set(JSON.stringify(item.path), item)
     for (const [key, adapter] of nextAdapters) adapters.set(key, adapter)
     bindingByBlock.clear()
     for (const [blockIndex, item] of nextByBlock) {
@@ -456,39 +548,35 @@ export function createMuyaPlainTextCoreAdapter(
   }
   installBindings(bindings)
 
+  const adapterForPath = (key: string | undefined): ReturnType<typeof createMuyaPlainTextSourceEditAdapter> | undefined => {
+    if (key === undefined || !adapters.has(key)) return undefined
+    let adapter = adapters.get(key)
+    if (adapter === undefined) {
+      const binding = bindingByPath.get(key)
+      if (binding === undefined || binding.emptyLiteralLineEnding !== undefined) return undefined
+      adapter = createMuyaPlainTextSourceEditAdapter(binding, true)
+      adapters.set(key, adapter)
+    }
+    return adapter
+  }
+
   const installAppliedEdit = (edit: DocumentSourceEdit): void => {
-    const ownerIndex = selectionBindings.findIndex(item =>
-      edit.start >= item.sourceRange.start &&
-      edit.end <= item.sourceRange.end
-    )
-    if (ownerIndex < 0) return
-    const delta = edit.insert.length - (edit.end - edit.start)
-    const nextBindings = selectionBindings.map((item, index) => {
-      if (index === ownerIndex) {
-        const localStart = edit.start - item.sourceRange.start
-        const localEnd = edit.end - item.sourceRange.start
-        return Object.freeze({
-          path: item.path,
-          sourceRange: Object.freeze({
-            start: item.sourceRange.start,
-            end: item.sourceRange.end + delta
-          }),
-          text: item.text.slice(0, localStart) + edit.insert + item.text.slice(localEnd)
-        })
-      }
-      if (item.sourceRange.start >= edit.end) {
-        return Object.freeze({
-          path: item.path,
-          sourceRange: Object.freeze({
-            start: item.sourceRange.start + delta,
-            end: item.sourceRange.end + delta
-          }),
-          text: item.text
-        })
-      }
-      return item
-    })
-    installBindings(Object.freeze(nextBindings))
+    installBindings(selectionBindings.map(item => advanceMuyaSourceBinding(item, edit)))
+  }
+
+  const decodeNativeEdit = (change: unknown): DocumentSourceEdit | undefined => {
+    const key = pathOf(change)
+    const sourceAdapter = adapterForPath(key)
+    const result = sourceAdapter?.accept(change)
+    if (result?.kind === 'edit') return result.edit
+    return sourceEditForMuyaStructuralEnter(currentBindings, change)?.edit ??
+      paragraphMathEdit(change, bindingByBlock)?.edit ??
+      paragraphHeadingEdit(change, bindingByBlock) ??
+      paragraphBlockquoteEdit(change, bindingByBlock) ??
+      paragraphTableEdit(change, bindingByBlock) ??
+      sourceEditForMuyaTwoParagraphPaste(currentBindings, change) ??
+      sourceEditForMuyaCrossParagraphChange(currentBindings, change) ??
+      sourceEditForMuyaStructuralChange(currentBindings, change, MAXIMUM_PENDING_INSERT_UNITS - pendingInsertUnits)
   }
 
   const sourceRangeForSelection = (
@@ -513,8 +601,17 @@ export function createMuyaPlainTextCoreAdapter(
       selection.anchor.offset > anchorBinding.text.length ||
       selection.focus.offset > focusBinding.text.length
     ) return undefined
-    const anchor = anchorBinding.sourceRange.start + selection.anchor.offset
-    const focus = focusBinding.sourceRange.start + selection.focus.offset
+    const forward = selectionBindings.indexOf(anchorBinding) < selectionBindings.indexOf(focusBinding) ||
+      (anchorBinding === focusBinding && selection.anchor.offset <= selection.focus.offset)
+    const anchorRange = mappedMuyaSourceRange(anchorBinding, {
+      start: selection.anchor.offset, end: selection.anchor.offset
+    }, forward ? 'next' : 'previous')
+    const focusRange = mappedMuyaSourceRange(focusBinding, {
+      start: selection.focus.offset, end: selection.focus.offset
+    }, forward ? 'previous' : 'next')
+    if (anchorRange === undefined || focusRange === undefined) return undefined
+    const anchor = anchorRange.start
+    const focus = focusRange.start
     const start = Math.min(anchor, focus)
     const end = Math.max(anchor, focus)
     if (start === end) return undefined
@@ -529,8 +626,21 @@ export function createMuyaPlainTextCoreAdapter(
     for (const waiter of waiters) waiter.resolve()
     waiters.clear()
   }
+  const captureDraft = (): MuyaRecoveryDraft | undefined => {
+    if (latestNativeChange === undefined && compositionChange === undefined) return undefined
+    const submitted = active ?? latestSubmitted
+    return structuredClone({
+      revision,
+      nativeChange: latestNativeChange,
+      commands: [...(submitted === undefined ? [] : [submitted]), ...queued]
+        .map(command => Object.fromEntries(Object.entries(command ?? {})
+          .filter(([, value]) => typeof value !== 'function'))),
+      composition: compositionChange
+    })
+  }
   const fault = (message: string | Error): void => {
     if (terminalError !== undefined) return
+    failedDraft = captureDraft()
     terminalError = message instanceof Error ? message : new Error(message)
     for (const command of queued.splice(0)) {
       if (command.kind !== 'edit') command.reject(terminalError)
@@ -554,15 +664,10 @@ export function createMuyaPlainTextCoreAdapter(
       pendingInsertUnits -= command.text.length
     }
     active = command
+    latestSubmitted = command
     const deferredTrackEdit = command.kind === 'track' &&
       command.deferredChange !== undefined
-      ? (() => {
-        const key = pathOf(command.deferredChange)
-        const sourceAdapter = key === undefined ? undefined : adapters.get(key)
-        if (sourceAdapter === undefined) return undefined
-        const result = sourceAdapter.accept(command.deferredChange)
-        return result.kind === 'edit' ? result.edit : undefined
-      })()
+      ? decodeNativeEdit(command.deferredChange)
       : undefined
     if (
       command.kind === 'track' && command.deferredChange !== undefined &&
@@ -585,24 +690,73 @@ export function createMuyaPlainTextCoreAdapter(
       pump()
       return
     }
+    const historyBeforeSubmission = pendingHistory
+    let submittedEdit = command.kind === 'edit' || command.kind === 'track'
+      ? deferredTrackEdit ?? command.edit
+      : undefined
+    let submittedEdits = submittedEdit === undefined ? undefined : muyaSourceEdits(submittedEdit)
+    try {
+      if (pendingHistory !== undefined && submittedEdit !== undefined) {
+        const transformed = transformOptimisticHistory({
+          baseSourceLength: pendingHistory.baseSourceLength,
+          appliedEdits: pendingHistory.edits,
+          queuedTransactions: [submittedEdits!]
+        })
+        if (transformed.kind === 'conflict') {
+          const failure = new Error('Core history overlaps pending editor input')
+          if (command.kind !== 'edit') command.reject(failure)
+          fault(failure)
+          active = undefined
+          return
+        }
+        pendingHistory = {
+          baseSourceLength: pendingHistory.baseSourceLength + submittedEdit.insert.length - (submittedEdit.end - submittedEdit.start),
+          edits: transformed.reconciliationEdits
+        }
+        submittedEdits = transformed.rebasedTransactions[0]!
+        submittedEdit = submittedEdits[0]!
+      }
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error('Core history transform failed')
+      if (command.kind !== 'edit') command.reject(failure)
+      fault(failure)
+      active = undefined
+      return
+    }
     let acknowledged
     let transactionId = 0
     try {
       const submission = binding.submit(command.kind === 'edit'
         ? Object.freeze({
-          edits: Object.freeze([Object.freeze({ ...command.edit })]),
-          projections: Object.freeze([])
+          edits: Object.freeze(submittedEdits!),
+          ...(command.nativeHistoryGroup === undefined ? {} : { nativeHistoryGroup: command.nativeHistoryGroup }),
+          projections: regionalMarkup ? Object.freeze(['markup'] as const) : Object.freeze([])
         })
         : command.kind === 'track'
-          ? Object.freeze({
-            kind: 'track' as const,
-            range: Object.freeze({
-              start: (deferredTrackEdit ?? command.edit).start,
-              end: (deferredTrackEdit ?? command.edit).end
-            }),
-            text: (deferredTrackEdit ?? command.edit).insert,
-            projections: Object.freeze([])
-          })
+          ? command.markup
+            ? Object.freeze({
+              kind: 'markup-edits' as const,
+              ...(command.nativeHistoryGroup === undefined ? {} : { nativeHistoryGroup: command.nativeHistoryGroup }),
+              edits: Object.freeze(submittedEdits!),
+              projections: regionalMarkup ? Object.freeze(['markup'] as const) : Object.freeze([])
+            })
+            : submittedEdits!.length > 1
+              ? Object.freeze({
+                kind: 'track-edits' as const,
+                ...(command.nativeHistoryGroup === undefined ? {} : { nativeHistoryGroup: command.nativeHistoryGroup }),
+                edits: Object.freeze(submittedEdits!),
+                projections: regionalMarkup ? Object.freeze(['markup'] as const) : Object.freeze([])
+              })
+              : Object.freeze({
+                kind: 'track' as const,
+                ...(command.nativeHistoryGroup === undefined ? {} : { nativeHistoryGroup: command.nativeHistoryGroup }),
+                range: Object.freeze({
+                  start: (submittedEdit!).start,
+                  end: (submittedEdit!).end
+                }),
+                text: (submittedEdit!).insert,
+                projections: regionalMarkup ? Object.freeze(['markup'] as const) : Object.freeze([])
+              })
           : command.kind === 'history'
             ? Object.freeze({
               kind: command.command,
@@ -642,7 +796,13 @@ export function createMuyaPlainTextCoreAdapter(
       recordPerformance({
         phase: 'dispatch',
         transaction: submission.identity.transactionId,
-        pendingDepth: queued.length + 1
+        pendingDepth: queued.length + 1,
+        ...(command.kind === 'edit' || command.kind === 'track'
+          ? {
+            insertedUnits: command.edit.insert.length,
+            deletedUnits: command.edit.end - command.edit.start
+          }
+          : {})
       })
     } catch (error) {
       active = undefined
@@ -729,11 +889,87 @@ export function createMuyaPlainTextCoreAdapter(
         return
       }
       revision = outcome.revision
+      reconciledNativePositionReady = false
+      if (command.kind === 'track' && command.nativeTextOnly && !command.markup && pendingHistory === undefined &&
+          outcome.nativeReconciliation !== undefined &&
+          (nativeBindingsPending || outcome.nativeReconciliation.length > 0)) {
+        installBindings(reconcileMuyaNativeBindings(
+          selectionBindings.map(item => advanceMuyaSourceBinding(item, submittedEdit!)),
+          outcome.nativeReconciliation
+        ))
+        nativeBindingsPending = true
+        reconciledNativePositionReady = true
+      }
+      if (historyBeforeSubmission !== undefined && command.kind === 'track') {
+        pendingHistory = {
+          baseSourceLength: historyBeforeSubmission.baseSourceLength + command.edit.insert.length - (command.edit.end - command.edit.start),
+          edits: reconcileOptimisticTransaction({
+            baseSourceLength: historyBeforeSubmission.baseSourceLength,
+            precedingEdits: historyBeforeSubmission.edits,
+            optimisticEdits: muyaSourceEdits(command.edit),
+            appliedEdits: outcome.change.appliedEdits
+          })
+        }
+      }
+      if (command.kind === 'history') {
+        const delta = outcome.change.appliedEdits.reduce((sum, edit) =>
+          sum + edit.insert.length - (edit.end - edit.start), 0)
+        pendingHistory = historyBeforeSubmission === undefined
+          ? { baseSourceLength: outcome.sourceLength - delta, edits: outcome.change.appliedEdits }
+          : {
+            baseSourceLength: historyBeforeSubmission.baseSourceLength,
+            edits: reconcileOptimisticTransaction({
+              baseSourceLength: historyBeforeSubmission.baseSourceLength,
+              precedingEdits: historyBeforeSubmission.edits,
+              optimisticEdits: [],
+              appliedEdits: outcome.change.appliedEdits
+            })
+          }
+      }
+      if (command.kind === 'edit' && reconcileOrdinaryEdit !== undefined) {
+        try {
+          const nextBindings = await reconcileOrdinaryEdit(outcome)
+          if (disposed) throw new Error('Core Muya adapter is disposed')
+          if (composing) {
+            compositionReconciliation = () => revision === outcome.revision
+              ? reconcileOrdinaryEdit(outcome)
+              : Promise.resolve(selectionBindings)
+          }
+          // Ordinary queued edits are already mapped against the speculative
+          // revision. Keep that map until the last acknowledgement catches up.
+          if (queued.every(pending => pending.kind !== 'edit' &&
+              (pendingHistory === undefined || pending.kind !== 'track'))) {
+            installBindings(nextBindings)
+            pendingHistory = undefined
+          }
+        } catch (error) {
+          active = undefined
+          fault(error instanceof Error ? error : new Error('Core Muya reconciliation failed'))
+          return
+        }
+      }
       if (command.kind !== 'edit') {
         try {
           const nextBindings = await command.reconcile(outcome)
+          if (nativeBindingsPending && command.kind === 'track' && !command.nativeTextOnly && command.deferredChange !== undefined) {
+            const reconciled = reconcileMuyaNativeStructureBindings(selectionBindings, nextBindings, command.deferredChange, outcome.change.appliedEdits)
+            installBindings(reconciled)
+            nativeBindingsPending = reconciled.some((item, index) => item !== nextBindings[index])
+          }
           if (disposed) throw new Error('Core Muya adapter is disposed')
-          installBindings(nextBindings)
+          if (composing) {
+            compositionReconciliation = () => revision === outcome.revision
+              ? command.reconcile(outcome)
+              : Promise.resolve(selectionBindings)
+          }
+          if ((pendingHistory === undefined ||
+              queued.every(pending => pending.kind !== 'edit' && pending.kind !== 'track')) &&
+              (!nativeBindingsPending || (!composing && queued.every(pending => pending.kind !== 'edit' && pending.kind !== 'track')))) {
+            installBindings(nextBindings)
+            pendingHistory = undefined
+            nativeBindingsPending = false
+            reconciledNativePositionReady = false
+          }
           command.resolve(outcome)
         } catch (error) {
           const failure = error instanceof Error
@@ -751,18 +987,19 @@ export function createMuyaPlainTextCoreAdapter(
         corrected: command.kind !== 'edit'
       })
       active = undefined
+      latestSubmitted = undefined
       pump()
-    }, error => {
-      active = undefined
+    }).catch(error => {
       if (disposed) return
       const failure = error instanceof Error
         ? error
         : new Error('Core submission failed')
       if (command.kind !== 'edit') command.reject(failure)
       fault(failure)
+      active = undefined
     })
   }
-  const enqueue = (edit: DocumentSourceEdit): boolean => {
+  const enqueue = (edit: DocumentSourceEdit, remapFollowingNative = false, nativeHistoryGroup?: string): boolean => {
     if (
       queued.length + (active === undefined ? 0 : 1) >=
         MAXIMUM_PENDING_TRANSACTIONS ||
@@ -771,19 +1008,25 @@ export function createMuyaPlainTextCoreAdapter(
       fault('Core Muya pending work exceeds its resource policy')
       return false
     }
-    queued.push(Object.freeze({ kind: 'edit', edit }))
+    queued.push(Object.freeze({
+      kind: 'edit',
+      edit,
+      ...(nativeHistoryGroup === undefined ? {} : { nativeHistoryGroup }),
+      ...(remapFollowingNative ? { remapFollowingNative: true as const } : {})
+    }))
     pendingInsertUnits += edit.insert.length
     pump()
     return true
   }
   const acceptEdit = (
     edit: DocumentSourceEdit,
-    retainPlainBindings = true
+    retainPlainBindings = true,
+    nativeHistoryGroup?: string
   ): boolean => {
     if (!composing) {
       if (retainPlainBindings) installAppliedEdit(edit)
       else installBindings(Object.freeze([]))
-      return enqueue(edit)
+      return enqueue(edit, !retainPlainBindings, nativeHistoryGroup)
     }
     if (compositionEdit === undefined) {
       if (edit.insert.length > MAXIMUM_PENDING_INSERT_UNITS) {
@@ -820,7 +1063,10 @@ export function createMuyaPlainTextCoreAdapter(
     reconcile: (
       outcome: CoreAppliedReply
     ) => Promise<readonly MuyaPlainTextSourceBinding[]>,
-    deferredChange?: unknown
+    deferredChange?: unknown,
+    markup = false,
+    nativeHistoryGroup?: string,
+    nativeTextOnly = false
   ): boolean => {
     if (
       queued.length + (active === undefined ? 0 : 1) >=
@@ -829,6 +1075,9 @@ export function createMuyaPlainTextCoreAdapter(
     ) return false
     queued.push(Object.freeze({
       kind: 'track',
+      nativeTextOnly,
+      ...(nativeHistoryGroup === undefined ? {} : { nativeHistoryGroup }),
+      markup,
       edit,
       ...(deferredChange === undefined ? {} : { deferredChange }),
       reconcile,
@@ -841,6 +1090,20 @@ export function createMuyaPlainTextCoreAdapter(
   }
 
   return Object.freeze({
+    reconciledSourcePosition(point: MuyaPlainTextAuthorSelection['focus']): number | undefined {
+      if (!reconciledNativePositionReady) return undefined
+      const binding = selectionBindings.find(item => JSON.stringify(item.path) === JSON.stringify(point.path))
+      return binding === undefined
+        ? undefined
+        : mappedMuyaSourceRange(binding,
+          { start: point.offset, end: point.offset }, 'next')?.start
+    },
+    recoveryDraft(): MuyaRecoveryDraft | undefined {
+      return failedDraft ?? captureDraft()
+    },
+    hasPendingEdits(): boolean {
+      return composing || queued.some(command => command.kind === 'edit' || command.kind === 'track')
+    },
     async reconcileApplied(
       outcome: CoreAppliedReply,
       reconcile: (
@@ -875,7 +1138,43 @@ export function createMuyaPlainTextCoreAdapter(
       return sourceRangeForSelection(selection)
     },
     accept(change: unknown): 'accepted' | 'unsupported' {
+      const nativeHistoryGroup = change !== null && typeof change === 'object' &&
+        typeof (change as { nativeHistoryGroup?: unknown }).nativeHistoryGroup === 'string'
+        ? (change as { nativeHistoryGroup: string }).nativeHistoryGroup
+        : undefined
+      latestNativeChange = change
       if (disposed || terminalError !== undefined) return 'unsupported'
+      if (composing && compositionNeedsRebase && reconcileOrdinaryEdit !== undefined) {
+        return this.acceptTracked(change, reconcileOrdinaryEdit, true)
+      }
+      if (historyIsPending() && !composing) {
+        const edit = decodeNativeEdit(change)
+        if (edit === undefined) {
+          fault('Core Muya pending history input cannot be mapped')
+          return 'unsupported'
+        }
+        const annotated = currentBindings.some(item => item.annotationContext === true &&
+          item.sourceRange.start <= edit.end && item.sourceRange.end >= edit.start)
+        if (annotated && reconcileOrdinaryEdit !== undefined) {
+          installAppliedEdit(edit)
+          return enqueueTracked(edit, reconcileOrdinaryEdit, undefined, true, nativeHistoryGroup, nativeMuyaTextEdit(change) !== undefined)
+            ? 'accepted'
+            : 'unsupported'
+        }
+        return acceptEdit(edit, true, nativeHistoryGroup) ? 'accepted' : 'unsupported'
+      }
+      const nativePath = pathOf(change)
+      const context = nativePath === undefined ? undefined : bindingByPath.get(nativePath)
+      // Structural commands replace native paths. Keep following input as native
+      // intent until the acknowledged projection supplies the new source map.
+      const semanticPending = active?.kind === 'track' ||
+        (active?.kind === 'edit' && active.remapFollowingNative === true) ||
+        queued.some(command => command.kind === 'track' ||
+          (command.kind === 'edit' && command.remapFollowingNative === true))
+      if (reconcileOrdinaryEdit !== undefined && (semanticPending ||
+          (nativePath !== undefined && adapters.has(nativePath) && context?.annotationContext === true))) {
+        return this.acceptTracked(change, reconcileOrdinaryEdit, true)
+      }
       if (
         (active !== undefined && active.kind !== 'edit') ||
         queued.some(command => command.kind !== 'edit')
@@ -896,27 +1195,68 @@ export function createMuyaPlainTextCoreAdapter(
             fault('Core Muya math operation-shape is unsupported')
             return 'unsupported'
           }
-          if (!acceptEdit(result.edit)) return 'unsupported'
+          if (!acceptEdit(result.edit, true, nativeHistoryGroup)) return 'unsupported'
           mathBindingByBlock.set(blockIndex as number, result.binding)
           return 'accepted'
         }
       }
-      const adapter = key === undefined ? undefined : adapters.get(key)
+      const adapter = adapterForPath(key)
       if (adapter === undefined) {
+        const crossParagraph = sourceEditForMuyaCrossParagraphChange(currentBindings, change)
+        const paragraphPaste = sourceEditForMuyaTwoParagraphPaste(currentBindings, change)
+        const paragraphEdit = crossParagraph ?? paragraphPaste
+        if (paragraphEdit !== undefined && currentBindings.some(item =>
+          item.annotationContext === true && item.sourceRange.start <= paragraphEdit.end &&
+          item.sourceRange.end >= paragraphEdit.start
+        )) {
+          return reconcileOrdinaryEdit === undefined
+            ? 'unsupported'
+            : this.acceptTracked(change, reconcileOrdinaryEdit, true)
+        }
+        const entered = sourceEditForMuyaStructuralEnter(currentBindings, change)
+        if (entered !== undefined) {
+          installBindings(entered.bindings)
+          return enqueue(entered.edit, false, nativeHistoryGroup) ? 'accepted' : 'unsupported'
+        }
         const math = paragraphMathEdit(change, bindingByBlock)
         if (math !== undefined) {
-          if (!acceptEdit(math.edit, false)) return 'unsupported'
+          if (!acceptEdit(math.edit, false, nativeHistoryGroup)) return 'unsupported'
           mathBindingByBlock.set(math.binding.blockIndex, math.binding)
-          adapters.delete(`${String(math.binding.blockIndex)}:text`)
+          adapters.delete(JSON.stringify([math.binding.blockIndex, 'text']))
           bindingByBlock.delete(math.binding.blockIndex)
           return 'accepted'
         }
-        const structuralEdit = paragraphHeadingEdit(change, bindingByBlock) ??
+        const structuralEdit = paragraphBlockquoteEdit(change, bindingByBlock) ??
+          paragraphHeadingEdit(change, bindingByBlock) ??
           paragraphTableEdit(change, bindingByBlock) ??
-          sourceEditForMuyaTwoParagraphPaste(currentBindings, change) ??
-          sourceEditForMuyaCrossParagraphChange(currentBindings, change)
+          paragraphPaste ??
+          crossParagraph ??
+          sourceEditForMuyaStructuralChange(currentBindings, change, MAXIMUM_PENDING_INSERT_UNITS - pendingInsertUnits)
         if (structuralEdit !== undefined) {
-          return acceptEdit(structuralEdit, false) ? 'accepted' : 'unsupported'
+          const operation = change !== null && typeof change === 'object'
+            ? (change as { op?: unknown }).op
+            : undefined
+          if (Array.isArray(operation) && operation.length === 2 &&
+              typeof operation[0] === 'number' && structuralEdit.insert === '\n\n') {
+            const index = operation[0]
+            const next = currentBindings.map(item => {
+              const block = item.path[0]
+              return typeof block === 'number' && block >= index
+                ? {
+                  ...advanceMuyaSourceBinding(item, structuralEdit),
+                  path: [block + 1, ...item.path.slice(1)]
+                }
+                : item
+            })
+            next.splice(index, 0, {
+              path: [index, 'text'],
+              text: '',
+              sourceRange: { start: structuralEdit.start + 2, end: structuralEdit.start + 2 }
+            })
+            installBindings(next)
+            return enqueue(structuralEdit, false, nativeHistoryGroup) ? 'accepted' : 'unsupported'
+          }
+          return acceptEdit(structuralEdit, false, nativeHistoryGroup) ? 'accepted' : 'unsupported'
         }
         fault('Core Muya operation-shape is unsupported')
         return 'unsupported'
@@ -926,34 +1266,53 @@ export function createMuyaPlainTextCoreAdapter(
         fault(`Core Muya ${result.reason} is unsupported`)
         return 'unsupported'
       }
-      return acceptEdit(result.edit) ? 'accepted' : 'unsupported'
+      if (composing) compositionChange = composeMuyaNativeTextChange(compositionChange, change)
+      return acceptEdit(result.edit, true, nativeHistoryGroup) ? 'accepted' : 'unsupported'
     },
     acceptTracked(
       change: unknown,
       reconcile: (
         outcome: CoreAppliedReply
-      ) => Promise<readonly MuyaPlainTextSourceBinding[]>
+      ) => Promise<readonly MuyaPlainTextSourceBinding[]>,
+      markup = false
     ): 'accepted' | 'unsupported' {
+      const nativeHistoryGroup = change !== null && typeof change === 'object' &&
+        typeof (change as { nativeHistoryGroup?: unknown }).nativeHistoryGroup === 'string'
+        ? (change as { nativeHistoryGroup: string }).nativeHistoryGroup
+        : undefined
+      latestNativeChange = change
       if (
         disposed || terminalError !== undefined
       ) return 'unsupported'
-      const key = pathOf(change)
-      const sourceAdapter = key === undefined ? undefined : adapters.get(key)
-      const edit = sourceAdapter === undefined
-        ? paragraphMathEdit(change, bindingByBlock)?.edit ??
-          paragraphHeadingEdit(change, bindingByBlock) ??
-          paragraphTableEdit(change, bindingByBlock) ??
-          sourceEditForMuyaTwoParagraphPaste(currentBindings, change) ??
-          sourceEditForMuyaCrossParagraphChange(currentBindings, change)
-        : (() => {
-          const result = sourceAdapter.accept(change)
-          return result.kind === 'edit'
-            ? result.edit
-            : paragraphMathEdit(change, bindingByBlock)?.edit ??
-                paragraphHeadingEdit(change, bindingByBlock) ??
-                paragraphTableEdit(change, bindingByBlock) ??
-                sourceEditForMuyaTwoParagraphPaste(currentBindings, change)
-        })()
+      if (composing) {
+        const nextChange = composeMuyaNativeTextChange(compositionChange, change)
+        if (nextChange === undefined) return 'unsupported'
+        compositionChange = nextChange
+        if (compositionNeedsRebase) {
+          const local = nativeMuyaTextEdit(change)
+          if (local === undefined || !acceptEdit(local, false)) return 'unsupported'
+          compositionTrackReconcile = reconcile
+          compositionMarkup = markup
+          return 'accepted'
+        }
+      }
+      if (!composing && historyIsPending()) {
+        const edit = decodeNativeEdit(change)
+        if (edit === undefined) return 'unsupported'
+        installAppliedEdit(edit)
+        return enqueueTracked(edit, reconcile, undefined, markup, nativeHistoryGroup, nativeMuyaTextEdit(change) !== undefined)
+          ? 'accepted'
+          : 'unsupported'
+      }
+      if (!composing && (active !== undefined || queued.length > 0)) {
+        const local = nativeMuyaTextEdit(change) ?? nativeMuyaStructuralDraft(change, MAXIMUM_PENDING_INSERT_UNITS - pendingInsertUnits)
+        if (local !== undefined) {
+          return enqueueTracked(local, reconcile, structuredClone(change), markup, nativeHistoryGroup, nativeMuyaTextEdit(change) !== undefined)
+            ? 'accepted'
+            : 'unsupported'
+        }
+      }
+      const edit = decodeNativeEdit(change)
       if (edit === undefined) return 'unsupported'
       if (
         edit.start === edit.end && edit.insert.length === 0
@@ -961,13 +1320,17 @@ export function createMuyaPlainTextCoreAdapter(
       if (composing) {
         if (!acceptEdit(edit, false)) return 'unsupported'
         compositionTrackReconcile ??= reconcile
+        compositionMarkup = markup
         return 'accepted'
       }
       const deferUntilPriorReconciliation = active !== undefined || queued.length > 0
       return enqueueTracked(
         edit,
         reconcile,
-        deferUntilPriorReconciliation ? structuredClone(change) : undefined
+        deferUntilPriorReconciliation ? structuredClone(change) : undefined,
+        markup,
+        nativeHistoryGroup,
+        nativeMuyaTextEdit(change) !== undefined
       )
         ? 'accepted'
         : 'unsupported'
@@ -978,6 +1341,10 @@ export function createMuyaPlainTextCoreAdapter(
       if (composing) throw new Error('Core Muya composition is already active')
       composing = true
       compositionEdit = undefined
+      compositionChange = undefined
+      compositionReconciliation = undefined
+      compositionNeedsRebase = active !== undefined || queued.length > 0
+      compositionMarkup = false
       compositionTrackReconcile = undefined
       let resolveBarrier: (() => void) | undefined
       let rejectBarrier: ((error: Error) => void) | undefined
@@ -997,22 +1364,33 @@ export function createMuyaPlainTextCoreAdapter(
       }
       composing = false
       const barrier = compositionBarrier
-      const edit = compositionEdit
+      const nativeEdit = nativeMuyaTextEdit(compositionChange)
+      const cancelled = compositionChange !== undefined && nativeEdit === undefined
+      const edit = cancelled ? undefined : compositionEdit
       const trackReconcile = compositionTrackReconcile
+      const markup = compositionMarkup
+      const deferredChange = compositionNeedsRebase ? compositionChange : undefined
+      const finishPresentation = compositionReconciliation
       compositionEdit = undefined
       compositionTrackReconcile = undefined
+      compositionChange = undefined
+      compositionNeedsRebase = false
+      compositionReconciliation = undefined
       try {
         if (edit !== undefined && trackReconcile === undefined) installAppliedEdit(edit)
         if (
           edit !== undefined && !(trackReconcile === undefined
             ? enqueue(edit)
-            : enqueueTracked(edit, trackReconcile))
+            : enqueueTracked(edit, trackReconcile, deferredChange, markup, undefined, true))
         ) throw terminalError ?? new Error('Core Muya composition exceeds its resource policy')
         if (terminalError !== undefined) throw terminalError
         if (active !== undefined || queued.length > 0) {
           await new Promise<void>((resolve, reject) => {
             waiters.add({ resolve, reject })
           })
+        }
+        if (edit === undefined && finishPresentation !== undefined) {
+          installBindings(await finishPresentation())
         }
         barrier.resolve()
       } catch (error) {

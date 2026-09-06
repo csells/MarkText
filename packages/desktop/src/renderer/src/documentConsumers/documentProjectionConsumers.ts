@@ -1,7 +1,9 @@
 import type {
   MarkdownAst,
   MarkdownAstNode,
-  MarkdownProjectionName
+  MarkdownProjectionName,
+  MarkupCoordinateSegment,
+  SourceRange
 } from '@marktext/document-core'
 import { wordCount } from '@muyajs/core'
 
@@ -21,6 +23,8 @@ export interface ProjectedSearchMatch {
   readonly end: number
   readonly match: string
   readonly subMatches: readonly string[]
+  /** Canonical pieces of this match, excluding omitted annotation arms. */
+  readonly sourceRanges?: readonly SourceRange[]
   /** Renderer-relative range proven from this same projection, when supported. */
   readonly presentation?: Readonly<{
     readonly path: readonly (number | string)[]
@@ -70,6 +74,38 @@ export interface DocumentConsumerProjection {
   readonly name: MarkdownProjectionName
   readonly markdown: string
   readonly ast: MarkdownAst
+  readonly sourceSegments?: readonly MarkupCoordinateSegment[]
+}
+
+const sourceRangesForMatch = (
+  semantic: SemanticProjection, start: number, end: number,
+  runs: readonly MarkupCoordinateSegment[]
+): readonly SourceRange[] | undefined => {
+  const ranges: SourceRange[] = []
+  let cursor = start
+  for (const segment of semantic.segments) {
+    if (segment.semanticEnd <= cursor || segment.semanticStart >= end) continue
+    if (segment.semanticStart > cursor ||
+        segment.semanticEnd - segment.semanticStart !== segment.projectionEnd - segment.projectionStart) return undefined
+    const localEnd = Math.min(end, segment.semanticEnd)
+    const projectedEnd = segment.projectionStart + localEnd - segment.semanticStart
+    let projectedCursor = segment.projectionStart + cursor - segment.semanticStart
+    for (const run of runs) {
+      if (run.projected.end <= projectedCursor || run.projected.start >= projectedEnd) continue
+      if (run.projected.start > projectedCursor) return undefined
+      const next = Math.min(projectedEnd, run.projected.end)
+      ranges.push({
+        start: run.source.start + projectedCursor - run.projected.start,
+        end: run.source.start + next - run.projected.start
+      })
+      projectedCursor = next
+      if (projectedCursor === projectedEnd) break
+    }
+    if (projectedCursor !== projectedEnd) return undefined
+    cursor = localEnd
+    if (cursor === end) break
+  }
+  return cursor === end ? Object.freeze(ranges) : undefined
 }
 
 export type ProjectedClipboardScope =
@@ -298,12 +334,16 @@ export function searchProjectedDocument(
         const start = match.index
         const end = start + match[0].length
         const presentation = presentationForMatch(block, start, end)
+        const sourceRanges = projection.sourceSegments === undefined
+          ? undefined
+          : sourceRangesForMatch(block.semantic, start, end, projection.sourceSegments)
         matches.push(Object.freeze({
           path: block.path,
           start,
           end,
           match: match[0],
           subMatches: Object.freeze(match.slice(1).map(value => value ?? '')),
+          ...(sourceRanges === undefined ? {} : { sourceRanges }),
           ...(presentation === undefined ? {} : { presentation })
         }))
       }

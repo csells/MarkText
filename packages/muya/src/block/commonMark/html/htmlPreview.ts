@@ -15,6 +15,8 @@ const SELF_CONTAINED_MEDIA = new Set(['video', 'audio']);
 // A single element with an empty body (`<div></div>`), except self-contained
 // media elements whose content lives in attributes (`<video src=...></video>`).
 export function isEmptyHtmlBlock(html: string): boolean {
+    if (html.trim().length === 0)
+        return true;
     // eslint-disable-next-line regexp/no-super-linear-backtracking, regexp/optimal-quantifier-concatenation
     const match = html.trim().match(/^<([a-z][a-z\d]*)[^>]*>\s*<\/\1>$/);
     return !!match && !SELF_CONTAINED_MEDIA.has(match[1]);
@@ -46,6 +48,16 @@ class HTMLPreview extends Parent {
             contenteditable: 'false',
         };
         this.createDomNode();
+        this.domNode!.addEventListener('click', (event) => {
+            if (!(event instanceof MouseEvent) || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)
+                return;
+            // Preview links, images and controls retain their own interactions.
+            if (event.target instanceof Element && event.target.closest('a, img, video, audio, button, input, select, textarea'))
+                return;
+            event.preventDefault();
+            event.stopPropagation();
+            this.parent?.firstContentInDescendant()?.setCursor(0, 0);
+        });
         this.update();
     }
 

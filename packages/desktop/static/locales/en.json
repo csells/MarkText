@@ -938,8 +938,27 @@
     "unexpectedError": "Unexpected spellchecker error"
   },
   "editor": {
+    "coreRecovery": {
+      "title": "Recovered drafts",
+      "backupError": "A draft backup needs attention: {error}",
+      "unreadable": "This backup could not be displayed. Its file is preserved: {error}",
+      "retry": "Retry backup",
+      "draft": "Recovered draft — {name}",
+      "explanation": "Some edits were not accepted. Your complete draft is backed up separately; saving the document uses its accepted version.",
+      "draftText": "Recovered draft text",
+      "showBackup": "Show backup file",
+      "resolved": "I have recovered this draft"
+    },
     "coreReview": {
       "title": "Review changes",
+      "kinds": {
+        "addition": "Addition",
+        "deletion": "Deletion",
+        "substitution": "Replacement",
+        "highlight": "Highlight",
+        "comment": "Comment",
+        "commented-span": "Comment"
+      },
       "previous": "Previous",
       "next": "Next",
       "accept": "Accept",
@@ -956,7 +975,17 @@
       "suggestReplacement": "Suggest replacement",
       "markHighlight": "Mark Highlight",
       "trackChanges": "Track Changes",
-      "trackChangesDescription": "Keep tracking supported edits until turned off; annotated paragraphs remain read-only",
+      "trackChangesDescription": "Record edits as suggestions until Track Changes is turned off",
+      "viewTitle": "Review view",
+      "markup": "Markup",
+      "original": "Original",
+      "revised": "Revised",
+      "originalDocument": "Original document",
+      "revisedDocument": "Revised document",
+      "saveComment": "Save comment",
+      "cancel": "Cancel",
+      "commentTargetChanged": "The document changed. Your comment draft is preserved; cancel before choosing a new target.",
+      "commentSaveFailed": "The comment could not be saved. Your draft and original target are preserved.",
       "commentPrompt": "Comment",
       "replacementPrompt": "Replacement text"
     },

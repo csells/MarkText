@@ -65,3 +65,20 @@ describe('muya editable content paths', () => {
         expect(paragraphs[1]?.getAttribute('contenteditable')).toBe('true');
     });
 });
+
+it('does not toggle live editability when the authority repeats the same paths', async () => {
+    const muya = boot('locked\n\neditable\n');
+    try {
+        muya.setEditablePaths([[1, 'text']]);
+        const records: MutationRecord[] = [];
+        const observer = new MutationObserver(changes => records.push(...changes));
+        observer.observe(muya.domNode, { subtree: true, attributes: true, attributeFilter: ['contenteditable'] });
+        muya.setEditablePaths([[1, 'text']]);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        observer.disconnect();
+        expect(records).toHaveLength(0);
+    }
+    finally {
+        muya.destroy();
+    }
+});

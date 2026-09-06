@@ -58,6 +58,22 @@ export const getHash = async(
 export const getContentHash = (content: string | Uint8Array | ArrayBuffer): Promise<string> =>
   getHash(content, 'utf8', 'sha1')
 
+// Muya exposes clipboard bitmaps as data URLs; insertion preferences operate on
+// files. Decode without fetch so the renderer's network CSP stays unchanged.
+export const normalizeImageInput = (image: string | File): string | File => {
+  if (typeof image !== 'string' || !/^data:image\//i.test(image)) return image
+  const match = /^data:(image\/[a-z0-9.+-]+)((?:;[^,]*)?),([\s\S]*)$/i.exec(image)
+  if (!match) throw new TypeError('Invalid image data URL')
+  const mimeType = match[1].toLowerCase()
+  const parts = /;base64$/i.test(match[2])
+    ? [Uint8Array.from(atob(decodeURIComponent(match[3])), character => character.charCodeAt(0))]
+    : match[3].split(/(%[a-f0-9]{2})/gi).map(part => /^%[a-f0-9]{2}$/i.test(part)
+      ? Uint8Array.of(Number.parseInt(part.slice(1), 16))
+      : part)
+  const extension = mimeType === 'image/svg+xml' ? 'svg' : mimeType.slice('image/'.length)
+  return new File(parts, `pasted-image.${extension}`, { type: mimeType })
+}
+
 export const moveImageToFolder = async(
   pathname: string,
   image: string | File,
@@ -65,6 +81,7 @@ export const moveImageToFolder = async(
   isRelative = false,
   currentPathname: string | null = null
 ): Promise<string> => {
+  image = normalizeImageInput(image)
   await window.fileUtils.ensureDir(outputDir)
   const toResult = (absolutePath: string) =>
     isRelative && currentPathname
@@ -78,27 +95,37 @@ export const moveImageToFolder = async(
     if (isImage) {
       const filename = window.path.basename(imagePath)
       const ext = window.path.extname(imagePath)
-      const noHashPath = window.path.join(outputDir, filename)
-      if (noHashPath === imagePath) {
+      const inPlacePath = window.path.join(outputDir, filename)
+      if (inPlacePath === imagePath) {
         return toResult(imagePath)
       }
-      const hash = await getContentHash(imagePath)
-      const hashFilePath = window.path.join(outputDir, `${hash}${ext}`)
-      await window.fileUtils.copy(imagePath, hashFilePath)
-      return toResult(hashFilePath)
+      const destination = window.path.join(outputDir, `${crypto.randomUUID()}${ext}`)
+      await window.fileUtils.copy(imagePath, destination, { overwrite: false, errorOnExist: true })
+      return toResult(destination)
     } else {
       return image as string
     }
   } else {
     const file = image as File
     const buffer = new Uint8Array(await file.arrayBuffer())
-    // Name the persisted file by the SHA-1 hash of its bytes (same dedup scheme
-    // as the string-path branch above) so pasting the same bitmap twice reuses
-    // one file instead of accumulating timestamped copies.
+    // Reuse identical bitmaps, but never overwrite an asset the user edited
+    // after import, even when it still has the original content-hash filename.
     const ext = window.path.extname(file.name)
     const hash = await getHash(buffer, 'binary', 'sha1')
     const hashFilePath = window.path.join(outputDir, `${hash}${ext}`)
-    await window.fileUtils.writeFile(hashFilePath, buffer)
+    try {
+      await window.fileUtils.writeFile(hashFilePath, buffer, { flag: 'wx' })
+    } catch (error) {
+      // Electron forwards filesystem error codes in the IPC error message.
+      if (!(error instanceof Error) || !/\bEEXIST\b/.test(error.message)) throw error
+      const existing = await window.fileUtils.readFile(hashFilePath)
+      if (typeof existing === 'string' || existing.length !== buffer.length ||
+        !existing.every((byte, index) => byte === buffer[index])) {
+        const destination = window.path.join(outputDir, `${crypto.randomUUID()}${ext}`)
+        await window.fileUtils.writeFile(destination, buffer, { flag: 'wx' })
+        return toResult(destination)
+      }
+    }
 
     return toResult(hashFilePath)
   }
@@ -116,6 +143,7 @@ export const uploadImage = async(
 ): Promise<unknown> => {
   // Pass only a plain serializable object — the full Pinia $state is a Vue
   // Proxy which Electron's structured-clone algorithm cannot serialize.
+  image = normalizeImageInput(image)
   const ipcPrefs = {
     currentUploader: preferences.currentUploader,
     cliScript: preferences.cliScript ?? ''

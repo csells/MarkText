@@ -121,6 +121,15 @@ test.describe('Format -> Image edit tool wiring', () => {
     await expectNoRendererErrors(app)
   })
 
+  test('moving the caret retires an image-tool request awaiting acknowledgement', async() => {
+    await sendIpcToRenderer(app, 'mt::editor-format-action', { type: 'image' })
+    await page.keyboard.press('ArrowLeft')
+    await page.evaluate(() => window.__marktextDocumentCore?.settled())
+    await expect.poll(() => toolShown(page)).toBe(false)
+    await expect(page.locator('.editor-component .mu-empty-image')).toHaveCount(1)
+    await expectNoRendererErrors(app)
+  })
+
   test('The opened edit tool is the empty link/embed editor (src input, no value)', async() => {
     await sendIpcToRenderer(app, 'mt::editor-format-action', { type: 'image' })
 

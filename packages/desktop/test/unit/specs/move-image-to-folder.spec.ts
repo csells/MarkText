@@ -48,14 +48,14 @@ describe('moveImageToFolder relative-directory persistence', () => {
     expect(result.startsWith('assets/')).toBe(true)
   })
 
-  it('returns the absolute hashed path for a local path string when isRelative is false', async() => {
+  it('returns the absolute copied path for a local path string when isRelative is false', async() => {
     const source = '/Users/someone/pictures/pic.png'
     const result = await moveImageToFolder(docPath, source, assetsDir, false, docPath)
     // copy still lands inside the assets dir...
     expect(copy).toHaveBeenCalledTimes(1)
     expect(copy.mock.calls[0][1].startsWith(assetsDir)).toBe(true)
     // ...and with isRelative=false the returned reference is the absolute
-    // hashed destination path (the second arg passed to copy).
+    // copied destination path (the second arg passed to copy).
     expect(path.isAbsolute(result)).toBe(true)
     expect(result).toBe(copy.mock.calls[0][1])
     expect(result.startsWith(`${assetsDir}${path.sep}`)).toBe(true)

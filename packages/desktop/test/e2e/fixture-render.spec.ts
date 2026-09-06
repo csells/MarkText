@@ -55,14 +55,11 @@ runFixture('blockquote', 'test/e2e/data/blockquote.md', async({ page }) => {
 })
 
 runFixture('link-image', 'test/e2e/data/link-image.md', async({ page }) => {
-  // The engine renders an inline markdown link as an editable
-  // `span.mu-link[href]`, not an `<a href>`.
-  await page.waitForSelector('.editor-component .mu-link[href]', {
-    state: 'attached',
-    timeout: 10000
-  })
-  const linkCount = await page.locator('.editor-component .mu-link[href]').count()
-  expect(linkCount).toBeGreaterThanOrEqual(1)
+  // Both the Core semantic anchor and native Muya link expose the same
+  // destination and visible label; their tokenizer wrappers differ.
+  const link = page.locator('.editor-component a[href], .editor-component .mu-link[href]').first()
+  await expect(link).toHaveAttribute('href', 'https://example.com')
+  await expect(link).toContainText('example')
 })
 
 runFixture('gfm', 'test/e2e/data/gfm.md', async({ page }) => {

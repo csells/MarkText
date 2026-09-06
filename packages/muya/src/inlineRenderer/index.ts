@@ -3,9 +3,11 @@ import type ParagraphContent from '../block/content/paragraphContent';
 import type { Muya } from '../muya';
 import type { IRenderCursor } from '../selection/types';
 import type { IParagraphState, TContainerState, TState } from '../state/types';
-import type { IHighlight, Labels } from './types';
+import type { IHighlight, Labels, TInlinePresentation } from './types';
+import { isValidAttribute } from '../utils/dompurify';
 import logger from '../utils/logger';
 import { tokenizer } from './lexer';
+import { createPresentationImageToken } from './presentationImage';
 import Renderer from './renderer';
 import { beginRules } from './rules';
 
@@ -14,6 +16,8 @@ const debug = logger('inlineRenderer:');
 class InlineRenderer {
     public labels: Labels = new Map();
     public renderer: Renderer;
+    public presentation: TInlinePresentation | undefined;
+    private _pendingPresentation = new Set<Format>();
 
     constructor(public muya: Muya) {
         this.renderer = new Renderer(muya, this);
@@ -60,8 +64,40 @@ class InlineRenderer {
     }
 
     patch(block: Format, cursor?: IRenderCursor, highlights: IHighlight[] = []) {
-        this._collectReferenceDefinitions();
         const { domNode } = block;
+        // New blocks render before attachment, when their document path is unknown.
+        if (this.presentation && !block.outMostBlock) {
+            domNode!.textContent = block.text;
+            this._pendingPresentation.add(block);
+            return;
+        }
+        this._pendingPresentation.delete(block);
+        const presentation = this.presentation?.(block.path, block.text, {
+            highlights,
+            renderImage: (image) => {
+                if (!isValidAttribute('img', 'src', image.src)
+                    && !/^(?:file:\/\/|[a-z]:[\\/])/i.test(image.src)) {
+                    return undefined;
+                }
+                const html = this.renderer.output([createPresentationImageToken(image)], block, cursor ?? {});
+                const host = document.createElement('div');
+                host.innerHTML = html;
+                const wrapper = host.firstElementChild as HTMLElement | null;
+                if (!wrapper)
+                    return undefined;
+                wrapper.dataset.coreImage = JSON.stringify(image);
+                const shell = (wrapper.cloneNode(false) as HTMLElement).outerHTML;
+                return {
+                    open: `${shell.slice(0, -7)}<span class="mu-hide mu-remove">`,
+                    close: `</span>${wrapper.innerHTML}</span>`,
+                };
+            },
+        });
+        if (presentation !== undefined) {
+            domNode!.innerHTML = presentation;
+            return;
+        }
+        this._collectReferenceDefinitions();
         if (block.isParent())
             debug.error('Patch can only handle content block');
 
@@ -72,6 +108,17 @@ class InlineRenderer {
             cursor && cursor.block === block ? cursor : {},
         );
         domNode!.innerHTML = html;
+    }
+
+    flushPendingPresentation() {
+        if (this._pendingPresentation.size === 0)
+            return;
+        const pending = this._pendingPresentation;
+        this._pendingPresentation = new Set();
+        for (const block of pending) {
+            if (block.outMostBlock)
+                this.patch(block);
+        }
     }
 
     private _collectReferenceDefinitions() {

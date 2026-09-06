@@ -1,5 +1,10 @@
 # CriticMarkup Phase 0 owner review packet
 
+> **Historical plan 0010 record.** Plan [0011](../plans/0011-criticmarkup-editable-review.md)
+> supersedes this record as current implementation and completion authority. Keep the
+> fixtures, results, and unresolved product gaps; the old blanket approval, salvage,
+> attestation, and per-observation process requirements are not active release gates.
+
 > **Status:** Prepared for review; no owner decision or ratification is recorded.
 >
 > **Evidence commit:** `4041de04661523214c151be318e0fff60cdb7e77`

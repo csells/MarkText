@@ -133,14 +133,12 @@ test.describe('code block', () => {
         await expect(page.locator(editor.languageInput).first()).toHaveText('');
 
         // State shape: a single code-block whose meta.type is 'indented'.
-        const blocks = await getBlocks(page);
-        expect(blocks).toHaveLength(1);
-        expect(blocks[0].name).toBe('code-block');
-        expect(blocks[0].meta?.type).toBe('indented');
+        await expect.poll(() => getBlocks(page)).toMatchObject([
+            { name: 'code-block', meta: { type: 'indented' } },
+        ]);
 
         // Round-trip: serializes back to a 4-space-prefixed line, no ``` fence.
-        const md = await getMarkdown(page);
-        expect(md).toContain('    code');
-        expect(md).not.toContain('```');
+        await expect.poll(() => getMarkdown(page)).toContain('    code');
+        expect(await getMarkdown(page)).not.toContain('```');
     });
 });

@@ -35,16 +35,14 @@ test.describe('inline format toolbar', () => {
         await selectAllOfFirstParagraph(page);
         await expect(page.locator(floats.inlineFormatToolbar)).toBeVisible();
         await page.locator(`${floats.inlineFormatToolbar} li.item.strong`).click();
-        const md = await getMarkdown(page);
-        expect(md).toContain('**hello world**');
+        await expect.poll(() => getMarkdown(page)).toContain('**hello world**');
     });
 
     test('clicking the em button wraps the selection in *italic*', async ({ page }) => {
         await page.evaluate(() => window.muya!.setContent('alpha'));
         await selectAllOfFirstParagraph(page);
         await page.locator(`${floats.inlineFormatToolbar} li.item.em`).click();
-        const md = await getMarkdown(page);
-        expect(md).toMatch(/[*_]alpha[*_]/);
+        await expect.poll(() => getMarkdown(page)).toMatch(/[*_]alpha[*_]/);
     });
 
     test('strong run renders with collapsed (mu-hide) markers when the caret is outside', async ({ page }) => {

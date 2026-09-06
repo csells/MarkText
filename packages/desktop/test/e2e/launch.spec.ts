@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { launchElectron } from './helpers'
+import { launchElectron, waitForEditor } from './helpers'
 
 test.describe('Check Launch MarkText', () => {
   let app: ElectronApplication
@@ -17,7 +17,7 @@ test.describe('Check Launch MarkText', () => {
   })
 
   test('Empty MarkText', async() => {
-    const title = await page.title()
-    expect(/^MarkText|Untitled-1 - MarkText$/.test(title)).toBeTruthy()
+    await waitForEditor(page)
+    await expect(page).toHaveTitle(/^(?:MarkText|Untitled-1)$/)
   })
 })

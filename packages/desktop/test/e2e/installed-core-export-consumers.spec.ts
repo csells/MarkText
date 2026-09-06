@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { _electron as electron, expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 
@@ -11,7 +12,7 @@ import {
   waitForEditor,
   waitForMenuReady
 } from './helpers'
-import { expectInstalledArtifactCommit } from './installedArtifactProvenance'
+import { defaultCoreLaunchEnvironment, expectDefaultCoreAuthority, expectInstalledArtifactCommit } from './installedArtifactProvenance'
 
 const source = [
   '# Export Authority',
@@ -64,13 +65,11 @@ const launchInstalled = async(
   const app = await electron.launch({
     executablePath: binary,
     args: ['--user-data-dir', userDataDir, filePath],
-    env: {
-      ...process.env,
+    env: defaultCoreLaunchEnvironment({
       PERF_TESTING: 'true',
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1',
       MARKTEXT_ERROR_INTERACTION: '1'
-    },
+    }),
     timeout: 60_000
   })
   try {
@@ -79,6 +78,7 @@ const launchInstalled = async(
     await waitForEditor(page, 60_000)
     await waitForMenuReady(app, 60_000)
     await expectInstalledArtifactCommit(page)
+    await expectDefaultCoreAuthority(page)
     await page.waitForFunction(() =>
       window.__marktextDocumentCore?.authoritySource !== undefined
     )
@@ -131,6 +131,7 @@ const installNativeConsumerProbe = async(
         "document.querySelector('.print-container')?.innerHTML ?? ''"
       ) as string
 
+    const nativePrintToPDF = win.webContents.printToPDF.bind(win.webContents)
     ;(win.webContents as unknown as {
       printToPDF: (options: Record<string, unknown>) => Promise<Uint8Array>
     }).printToPDF = async(options) => {
@@ -139,7 +140,7 @@ const installNativeConsumerProbe = async(
         html: await printContainerHtml(),
         options: { ...options }
       })
-      return Buffer.from('%PDF-1.4\n% installed Core export consumer probe\n', 'utf8')
+      return nativePrintToPDF(options)
     }
 
     ;(win.webContents as unknown as {
@@ -255,6 +256,12 @@ test.describe('installed Core Revised export consumers', () => {
 
       await invokeExportCommand(installedApp, page, 'file.export-file-pdf')
       await expect.poll(() => fs.existsSync(pdfPath)).toBe(true)
+      const pdfBytes = fs.readFileSync(pdfPath)
+      expect(pdfBytes.subarray(0, 5).toString()).toBe('%PDF-')
+      expect(pdfBytes.length).toBeGreaterThan(1_000)
+      const pdfText = execFileSync('pdftotext', [pdfPath, '-'], { encoding: 'utf8' })
+      expectRevisedProjectionHtml(pdfText)
+      await test.info().attach('revised-export.pdf', { path: pdfPath, contentType: 'application/pdf' })
       await expect.poll(async() =>
         (await observations(installedApp)).filter(event => event.kind === 'pdf').length
       ).toBe(1)

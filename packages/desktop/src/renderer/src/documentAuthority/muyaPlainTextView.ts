@@ -3,6 +3,7 @@ import type {
   MarkdownProjection,
   SourceRange
 } from '@marktext/document-core'
+import type { MuyaMarkupView } from './muyaMarkupView'
 
 export type MuyaPlainTextViewBinding = Readonly<{
   readonly path: readonly [blockIndex: number, field: 'text']
@@ -12,6 +13,8 @@ export type MuyaPlainTextViewBinding = Readonly<{
 }>
 
 export type MuyaPlainTextViewResult =
+  | MuyaMarkupView
+  |
   Readonly<{
     readonly kind: 'view'
     readonly markdown: string

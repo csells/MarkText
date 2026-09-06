@@ -1,15 +1,17 @@
 export type { ILocale } from './i18n/types';
+export type { IInlinePresentationContext, IInlinePresentationImage, TInlinePresentation } from './inlineRenderer/types';
 export { de, en, es, fr, ja, ko, pt, tr, zhCN, zhTW } from './locales';
-
 export { Muya } from './muya';
+
+export { applyNativeOperation, serializeNativeState } from './state/applyNativeOperation';
 export type { ITocItem } from './state/getTOC';
 export { MarkdownToHtml } from './state/markdownToHtml';
 export { renderToStaticHTML } from './state/renderToStaticHTML';
 export type { IRenderToStaticHTMLOptions } from './state/renderToStaticHTML';
 export type { TState } from './state/types';
 export type { IMuyaOptions } from './types';
-
 export { CodeBlockLanguageSelector } from './ui/codeBlockLanguageSelector';
+
 // Export ui tools.
 export { EmojiSelector } from './ui/emojiSelector';
 export { FootnoteTool } from './ui/footnoteTool';
@@ -28,6 +30,7 @@ export { default as TableChessboard } from './ui/tableChessboard';
 export { TableColumnToolbar } from './ui/tableColumnToolbar';
 export { TableDragBar } from './ui/tableDragBar';
 export { TableRowColumMenu } from './ui/tableRowColumMenu';
+export { validEmoji } from './utils/emoji';
 export type { IImageInfo } from './utils/image';
 export { getImageInfo } from './utils/image';
 export { escapeHTML, sanitize, unescapeHTML, wordCount } from './utils/index';

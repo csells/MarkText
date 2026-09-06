@@ -1,6 +1,7 @@
 import type { ImageToken } from '../inlineRenderer/types';
 import { isWin } from '../config/index';
 import { tokenizer } from '../inlineRenderer/lexer';
+import { createPresentationImageToken } from '../inlineRenderer/presentationImage';
 import { findContentDOM, getOffsetOfParagraph } from '../selection/dom';
 
 export interface IImageInfo {
@@ -12,8 +13,10 @@ export function getImageInfo(image: HTMLElement): IImageInfo {
     const paragraph = findContentDOM(image)!;
     const raw = image.getAttribute('data-raw')!;
     const offset = getOffsetOfParagraph(image, paragraph);
-    const tokens = tokenizer(raw);
-    const token = tokens[0] as ImageToken;
+    const descriptor = image.dataset.coreImage;
+    const token = descriptor === undefined
+        ? tokenizer(raw)[0] as ImageToken
+        : createPresentationImageToken(JSON.parse(descriptor));
     token.range = {
         start: offset,
         end: offset + raw.length,

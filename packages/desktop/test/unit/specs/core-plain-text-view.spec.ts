@@ -9,7 +9,21 @@ import {
   type CoreRequest
 } from '@/documentAuthority'
 
-describe('Core actor plain-text WYSIWYG barrier', () => {
+describe('Core actor Markup WYSIWYG barrier', () => {
+  it('edits a visible selection across hidden annotation syntax atomically', async() => {
+    const actor = createCoreActor()
+    const binding = createEditorCoreBinding({
+      request: async request => structuredClone(actor.handle(request)), dispose: () => actor.dispose()
+    })
+    await binding.open({ documentId: 'markup.md', source: 'a{++bc++}d\n' })
+    const outcome = await binding.submit({
+      kind: 'markup-edits', edits: [{ start: 5, end: 10, insert: '' }], projections: []
+    }).acknowledged
+    expect(outcome.type).toBe('applied')
+    expect(await binding.sourceAtBarrier()).toMatchObject({ source: 'a{++b++}\n' })
+    await binding.submit({ kind: 'undo', projections: [] }).acknowledged
+    expect(await binding.sourceAtBarrier()).toMatchObject({ source: 'a{++bc++}d\n' })
+  })
   it('exposes the view through the production binding barrier', async() => {
     const actor = createCoreActor()
     const port: CoreActorPort = {
@@ -54,7 +68,7 @@ describe('Core actor plain-text WYSIWYG barrier', () => {
       baseRevision: 1
     })
 
-    expect(reply).toEqual({
+    expect(reply).toMatchObject({
       type: 'plain-text-view',
       session: 11,
       sequence: 2,
@@ -65,9 +79,26 @@ describe('Core actor plain-text WYSIWYG barrier', () => {
       view: {
         kind: 'view',
         markdown: 'head\n\nmiddle\n\ntail\n',
+        state: [
+          { name: 'paragraph', text: 'head' },
+          { name: 'paragraph', text: 'middle' },
+          { name: 'paragraph', text: 'tail' }
+        ],
+        decorations: [],
+        comments: [],
         bindings: [
           { path: [0, 'text'], sourceRange: { start: 0, end: 4 }, text: 'head' },
-          { path: [1, 'text'], sourceRange: { start: 6, end: 12 }, text: 'middle' },
+          {
+            path: [1, 'text'],
+            sourceRange: { start: 6, end: 12 },
+            text: 'middle',
+            segments: [{
+              text: { start: 0, end: 6 },
+              source: { start: 6, end: 12 },
+              syntax: { start: 6, end: 12 }
+            }],
+            syntax: { kind: 'paragraph', range: { start: 6, end: 12 } }
+          },
           { path: [2, 'text'], sourceRange: { start: 14, end: 18 }, text: 'tail' }
         ]
       }
@@ -144,7 +175,7 @@ describe('Core actor plain-text WYSIWYG barrier', () => {
     })
   })
 
-  it('returns structural Markdown as an unbound read-only view', () => {
+  it('returns a source-mapped heading for structural Markdown editing', () => {
     const actor = createCoreActor()
     actor.handle({
       type: 'open',
@@ -165,8 +196,36 @@ describe('Core actor plain-text WYSIWYG barrier', () => {
       revision: 1,
       accepted: true,
       source: '# heading\n',
-      view: { kind: 'view', markdown: '# heading\n', bindings: [] }
+      view: {
+        kind: 'view',
+        markdown: '# heading\n',
+        state: [{ name: 'atx-heading', text: '# heading', meta: { level: 1 } }],
+        bindings: [{
+          path: [0, 'text'],
+          text: '# heading',
+          sourceRange: { start: 0, end: 9 },
+          segments: [{
+            text: { start: 0, end: 9 },
+            source: { start: 0, end: 9 },
+            syntax: { start: 0, end: 9 }
+          }],
+          syntax: {
+            kind: 'heading',
+            range: { start: 0, end: 9 },
+            attributes: { level: 1 },
+            children: [{
+              kind: 'text',
+              range: { start: 2, end: 9 },
+              attributes: { semanticText: 'heading' }
+            }]
+          }
+        }]
+      }
     })
+    if (reply.type !== 'plain-text-view' || reply.view.kind !== 'view') {
+      throw new Error('Expected a mapped heading view')
+    }
+    expect(reply.view.bindings[0]?.editable).not.toBe(false)
     expect(actor.handle({
       type: 'source-at-barrier',
       session: 12,

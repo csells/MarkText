@@ -3,7 +3,7 @@ import type CellBlock from '../../block/gfm/table/cell';
 import type { Muya } from '../../index';
 import type { TableColumnToolIcon } from './config';
 import { BLOCK_DOM_PROPERTY } from '../../config';
-import { isMouseEvent, throttle } from '../../utils';
+import { isMouseEvent } from '../../utils';
 import { h, patch } from '../../utils/snabbdom';
 import BaseFloat from '../baseFloat';
 import icons from './config';
@@ -45,8 +45,13 @@ export class TableColumnToolbar extends BaseFloat {
         const { eventCenter } = this.muya;
         super.listen();
 
-        const handler = throttle((event: Event) => {
+        const handler = (event: Event) => {
             if (!isMouseEvent(event))
+                return;
+
+            // Commands keep the column selected by the latest pointer event.
+            // Moving across the toolbar's own buttons must not retarget it.
+            if (event.target instanceof Node && this.floatBox?.contains(event.target))
                 return;
 
             const { x, y } = event;
@@ -73,6 +78,8 @@ export class TableColumnToolbar extends BaseFloat {
                         && ele[BLOCK_DOM_PROPERTY].blockName === 'table.cell',
                 );
                 const cellBlock = tableCellEle![BLOCK_DOM_PROPERTY];
+                if (this._block === cellBlock && this.status)
+                    return;
                 this._block = cellBlock as CellBlock;
                 this.show(tableCellEle!);
                 this.render();
@@ -80,7 +87,7 @@ export class TableColumnToolbar extends BaseFloat {
             else {
                 this.hide();
             }
-        }, 300);
+        };
 
         eventCenter.attachDOMEvent(document.body, 'mousemove', handler);
     }

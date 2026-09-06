@@ -18,6 +18,23 @@
  */
 
 declare module '@muyajs/core' {
+  export function applyNativeOperation(previous: unknown, operation: unknown): unknown
+  export function serializeNativeState(states: unknown, options?: {
+    maximumUnits?: number
+    sourceLineEndings?: string
+  }): string | undefined
+  export interface IInlinePresentationImage {
+    readonly raw: string
+    readonly range: { readonly start: number, readonly end: number }
+    readonly src: string
+    readonly alt: string
+    readonly title: string
+  }
+  export interface IInlinePresentationContext {
+    readonly highlights?: readonly Readonly<{ start: number, end: number, active: boolean | undefined }>[]
+    renderImage: (image: IInlinePresentationImage) => { open: string, close: string } | undefined
+  }
+  export function validEmoji(text: string): { emoji: string } | undefined
   export interface ILocale {
     name: string
     resource: Record<string, string>
@@ -45,6 +62,7 @@ declare module '@muyajs/core' {
   // The editor instance surface is kept permissive (`any`) — every member
   // that crosses the editor boundary was already `any` in editor.vue.
   export class Muya {
+    showImageSelectorAtSelection(): boolean
     static use(plugin: any, options?: Record<string, unknown>): void
     constructor(element: HTMLElement, options?: Record<string, unknown>)
     init(): void

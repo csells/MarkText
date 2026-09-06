@@ -275,7 +275,10 @@ test.describe('Crash: paste-induced setCursorRange', () => {
 // helper would always pass.
 test.describe('Crash counter sanity', () => {
   test('Forced throw in renderer is captured by getRendererErrors', async() => {
-    const { app, page } = await launchWithMarkdown('# Sanity\n', { suppressErrorDialog: true })
+    const { app, page } = await launchWithMarkdown('# Sanity\n', {
+      suppressErrorDialog: true,
+      env: { MARKTEXT_EXIT_ON_ERROR: undefined }
+    })
     try {
       await page.evaluate(() => {
         setTimeout(() => {

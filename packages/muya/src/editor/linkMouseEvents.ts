@@ -38,6 +38,7 @@ import { getLinkInfo } from '../utils/getLinkInfo';
 // each entry by the actual tag the renderer emits.
 export const LINK_SELECTOR = [
     `span.${CLASS_NAMES.MU_LINK}`,
+    `a.${CLASS_NAMES.MU_LINK}`,
     `a.${CLASS_NAMES.MU_REFERENCE_LINK}`,
     `a.${CLASS_NAMES.MU_RAW_HTML}`,
     `a.${CLASS_NAMES.MU_AUTO_LINK}`,

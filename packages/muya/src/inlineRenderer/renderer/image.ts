@@ -200,7 +200,7 @@ export default function image(
         const renderImage = () => {
             const data = {
                 props: {
-                    alt: alt.replace(/[`*{}[\]()#+\-.!_>~:|<$]/g, ''),
+                    alt: token.attrs['data-core-semantic-alt'] === 'true' ? alt : alt.replace(/[`*{}[\]()#+\-.!_>~:|<$]/g, ''),
                     src: imgSrc,
                     title,
                 },

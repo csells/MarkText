@@ -108,12 +108,12 @@ declare global {
     isFile(p: string): Promise<boolean>
     isDirectory(p: string): Promise<boolean>
     emptyDir(p: string): Promise<void>
-    copy(src: string, dest: string): Promise<void>
+    copy(src: string, dest: string, options?: { overwrite: false; errorOnExist: true }): Promise<void>
     ensureDir(p: string): Promise<void>
     outputFile(p: string, data: string | Uint8Array): Promise<void>
     move(src: string, dest: string): Promise<void>
     stat(p: string): Promise<SerializedStat>
-    writeFile(p: string, data: string | Uint8Array): Promise<void>
+    writeFile(p: string, data: string | Uint8Array, options?: { flag: 'wx' }): Promise<void>
     readFile(p: string, encoding?: string): Promise<string | Uint8Array>
     pathExists(p: string): Promise<boolean>
     unlink(p: string): Promise<void>

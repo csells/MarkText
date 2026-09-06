@@ -41,7 +41,11 @@ export const registerFsHandlers = (): void => {
   ipcMain.handle('mt::fs::is-file', (_e, p: string) => commonIsFile(p))
   ipcMain.handle('mt::fs::is-directory', (_e, p: string) => commonIsDirectory(p))
   ipcMain.handle('mt::fs::empty-dir', (_e, p: string) => fs.emptyDir(p))
-  ipcMain.handle('mt::fs::copy', (_e, src: string, dest: string) => fs.copy(src, dest))
+  ipcMain.handle('mt::fs::copy', (_e, src: string, dest: string, options?: { overwrite: false; errorOnExist: true }) =>
+    options?.overwrite === false && options.errorOnExist
+      ? fs.copyFile(src, dest, constants.COPYFILE_EXCL)
+      : fs.copy(src, dest)
+  )
   ipcMain.handle('mt::fs::ensure-dir', (_e, p: string) => fs.ensureDir(p))
 
   ipcMain.handle('mt::fs::output-file', (_e, p: string, data: unknown) =>
@@ -52,8 +56,8 @@ export const registerFsHandlers = (): void => {
   )
   ipcMain.handle('mt::fs::stat', async(_e, p: string) => serializeStat(await fs.stat(p)))
 
-  ipcMain.handle('mt::fs::write-file', (_e, p: string, data: unknown) =>
-    fs.writeFile(p, toBuffer(data) as string | NodeJS.ArrayBufferView)
+  ipcMain.handle('mt::fs::write-file', (_e, p: string, data: unknown, options?: { flag: 'wx' }) =>
+    fs.writeFile(p, toBuffer(data) as string | NodeJS.ArrayBufferView, options)
   )
   ipcMain.handle('mt::fs::read-file', async(_e, p: string, encoding?: BufferEncoding) => {
     const buf = await fs.readFile(p, encoding)

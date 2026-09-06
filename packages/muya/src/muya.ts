@@ -3,6 +3,7 @@ import type Parent from './block/base/parent';
 import type { TBlockPath } from './block/types';
 import type { Listener } from './event/types';
 import type { ILocale } from './i18n/types';
+import type { TInlinePresentation } from './inlineRenderer/types';
 import type { IIndexCursor } from './selection/offsetCursor';
 import type { IHistorySelection, IPublicCursorInput } from './selection/types';
 import type { ITocItem } from './state/getTOC';
@@ -32,7 +33,7 @@ import {
 import { isAnyListState, isAtxHeadingState, isCodeBlockState } from './state/types';
 import { Ui } from './ui/ui';
 import { deepClone } from './utils';
-import { encodeImageSrc } from './utils/image';
+import { encodeImageSrc, getImageInfo } from './utils/image';
 import './assets/styles/blockSyntax.css';
 import './assets/styles/index.css';
 import './assets/styles/inlineSyntax.css';
@@ -267,9 +268,16 @@ export class Muya {
         return this.editor.searchModule.replace(replaceValue, opt);
     }
 
-    setContent(content: TState[] | string, autoFocus = false) {
-        this.editor.setContent(content, autoFocus);
+    setContent(content: TState[] | string, autoFocus = false, options: { preserveInputGrouping?: boolean } = {}) {
+        if (options.preserveInputGrouping)
+            this.editor.history.preserveInputGrouping(() => this.editor.setContent(content, autoFocus));
+        else
+            this.editor.setContent(content, autoFocus);
         this._applyEditablePaths();
+    }
+
+    getInputHistoryGroup(): number | undefined {
+        return this.editor.history.getInputGroup();
     }
 
     /**
@@ -284,25 +292,37 @@ export class Muya {
         this._applyEditablePaths();
     }
 
+    /**
+     * The host supplies trusted inline HTML for its current path/text projection;
+     * returning undefined delegates that block to Muya. Takes effect on the next
+     * render without rebuilding the tree or moving selection. The host must
+     * sanitize untrusted content and retain the text coordinates used for editing.
+     */
+    setInlinePresentation(renderer: TInlinePresentation | undefined) {
+        this.editor.inlineRenderer.presentation = renderer;
+    }
+
     private _applyEditablePaths() {
         const paths = this._editablePaths;
         if (!this.editor.scrollPage)
             return;
-        this.domNode.querySelectorAll<HTMLElement>('.mu-content').forEach((node) => {
-            const block = node[BLOCK_DOM_PROPERTY] as Content | undefined;
-            if (block?.isContent())
-                block.attributes.contenteditable = paths === null;
-            node.setAttribute('contenteditable', paths === null ? 'true' : 'false');
-        });
-        if (paths === null)
-            return;
-        for (const path of paths) {
-            const block = this.editor.scrollPage.queryBlock([...path]);
-            if (block?.isContent() && block.domNode) {
-                block.attributes.contenteditable = true;
-                block.domNode.setAttribute('contenteditable', 'true');
+        const editable = new Set<Content>();
+        if (paths !== null) {
+            for (const path of paths) {
+                const block = this.editor.scrollPage.queryBlock([...path]);
+                if (block?.isContent())
+                    editable.add(block);
             }
         }
+        this.domNode.querySelectorAll<HTMLElement>('.mu-content').forEach((node) => {
+            const block = node[BLOCK_DOM_PROPERTY] as Content | undefined;
+            const enabled = paths === null || (block !== undefined && editable.has(block));
+            if (block?.isContent())
+                block.attributes.contenteditable = enabled;
+            const value = enabled ? 'true' : 'false';
+            if (node.getAttribute('contenteditable') !== value)
+                node.setAttribute('contenteditable', value);
+        });
     }
 
     /**
@@ -419,6 +439,22 @@ export class Muya {
 
     selectAll() {
         this.editor.selection.selectAll();
+    }
+
+    /** Open the native image tool once the selected image's presentation exists. */
+    showImageSelectorAtSelection(): boolean {
+        const selection = this.getSelection();
+        if (!selection || selection.anchor.block !== selection.focus.block)
+            return false;
+        const { block, offset } = selection.anchor;
+        for (const wrapper of block.domNode?.querySelectorAll<HTMLElement>('.mu-inline-image') ?? []) {
+            const imageInfo = getImageInfo(wrapper);
+            if (offset < imageInfo.token.range.start || offset > imageInfo.token.range.end)
+                continue;
+            this.eventCenter.emit('muya-image-selector', { block, reference: wrapper, imageInfo });
+            return true;
+        }
+        return false;
     }
 
     format(type: string) {
@@ -1212,6 +1248,20 @@ export class Muya {
      * `loose-list-item`, `reset-to-paragraph`, and the diagram types.
      */
     updateParagraph(type: string) {
+        // A menu command is one native history unit. Drain earlier typing and
+        // publish this command before a subsequent keystroke can join its batch.
+        this.flush();
+        this.editor.history.cutoff();
+        try {
+            this._updateParagraph(type);
+        }
+        finally {
+            this.flush();
+            this.editor.history.cutoff();
+        }
+    }
+
+    private _updateParagraph(type: string) {
         const block = this._outmostBlockAtCursor();
         if (!block)
             return;

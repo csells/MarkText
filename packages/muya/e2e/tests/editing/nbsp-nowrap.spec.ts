@@ -1,10 +1,11 @@
+import type { Page } from '@playwright/test'
 import { expect, test } from '../fixtures/muya'
 
 // #3840: a `&nbsp;` entity must behave as a real non-breaking space — the
 // words on either side must never wrap apart. Regression: the html-escape
 // span inherited `display: inline-block` from `.mu-hide`, making it an atomic
 // box that the line could break around (so &nbsp; wrapped like a normal space).
-async function lineCount(page, md: string): Promise<number> {
+async function lineCount(page: Page, md: string): Promise<number> {
   await page.evaluate((m) => window.muya!.setContent(m), md)
   return page.evaluate(() => {
     const c = document.querySelector('.mu-content.mu-paragraph-content') as HTMLElement
@@ -28,7 +29,7 @@ test('&nbsp; keeps the surrounding words on one line', async ({ page }) => {
 
 // Horizontal gap between the first and last 'x' glyph in the paragraph — i.e.
 // the rendered width of whatever sits between them.
-async function gapBetweenX(page, md: string): Promise<number> {
+async function gapBetweenX(page: Page, md: string): Promise<number> {
   await page.evaluate((m) => window.muya!.setContent(m), md)
   return page.evaluate(() => {
     const p = document.querySelector('.mu-paragraph') as HTMLElement

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
+import { readFileSync } from 'node:fs'
 import {
   launchWithMarkdown,
   launchWithDoc,
@@ -8,7 +9,8 @@ import {
   placeCaretInEditor,
   enterSourceMode,
   exitSourceMode,
-  getMarkdownContent
+  getMarkdownContent,
+  sendIpcToRenderer
 } from './helpers'
 
 const resetTo = async(page: Page, app: ElectronApplication, text: string) => {
@@ -19,11 +21,13 @@ const resetTo = async(page: Page, app: ElectronApplication, text: string) => {
 test.describe('Paragraph block transforms', () => {
   let app: ElectronApplication
   let page: Page
+  let filePath: string
 
   test.beforeAll(async() => {
     const launched = await launchWithMarkdown('seed paragraph\n')
     app = launched.app
     page = launched.page
+    filePath = launched.filePath
   })
 
   test.afterAll(async() => {
@@ -32,6 +36,11 @@ test.describe('Paragraph block transforms', () => {
 
   test.beforeEach(async() => {
     await resetTo(page, app, 'sample text')
+  })
+
+  test.afterEach(async() => {
+    await page.evaluate(() => window.__marktextDocumentCore?.settled())
+    await expect(page.getByTestId('core-recovery-draft')).toHaveCount(0)
   })
 
   test('Heading 1', async() => {
@@ -81,24 +90,31 @@ test.describe('Paragraph block transforms', () => {
       .then(() => true)
       .catch(() => false)
     expect(present).toBe(true)
+    await page.locator('.editor-component .mu-codeblock-content').click()
+    await page.keyboard.type('after')
+    await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('sample text\n\n```\nafter\n```\n')
+    await expect(page.getByTestId('core-recovery-draft')).toHaveCount(0)
   })
 
-  // HR + table require Muya to act on a live cursor inside an empty paragraph
-  // (isAllowedTransformation in paragraphCtrl.js gates them on !block.text).
-  // Driving that state purely from outside the renderer is not reliable on
-  // xvfb — the menu invocation reaches Muya but Muya's contentState.cursor
-  // is not pointing at an empty block. Skip until Muya exposes a test hook;
-  // smoke-coverage that the menu id exists is in menu-sanity.spec.js.
-  test.skip('Horizontal rule', async() => {
+  test('Horizontal rule', async() => {
     await resetTo(page, app, '')
     await clickMenuById(app, 'horizontalLineMenuItem')
-    const present = await page
-      .locator('.editor-component hr, .editor-component figure[data-role="HR"]')
-      .first()
-      .waitFor({ state: 'attached', timeout: 5000 })
-      .then(() => true)
-      .catch(() => false)
-    expect(present).toBe(true)
+    await expect(page.locator('.editor-component .mu-thematic-break')).toBeVisible()
+    await page.keyboard.type('after')
+    await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('---\n\nafter\n')
+    await expect(page.getByTestId('core-recovery-draft')).toHaveCount(0)
+  })
+
+  test('Code fence after an annotated final paragraph', async() => {
+    await resetTo(page, app, '{~~old~>new~~}')
+    await clickMenuById(app, 'codeFencesMenuItem')
+    await expect(page.locator('.editor-component .mu-code-block')).toBeVisible()
+    await page.locator('.editor-component .mu-codeblock-content').click()
+    await page.keyboard.type('after')
+    await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('{~~old~>new~~}\n\n```\nafter\n```\n')
   })
 
   test('Math block', async() => {
@@ -123,18 +139,16 @@ test.describe('Paragraph block transforms', () => {
     expect(ok).toBe(true)
   })
 
-  test.skip('Insert table dialog opens and accepts default', async() => {
-    // Same constraint as HR — needs empty paragraph + live cursor in Muya.
+  test('Insert table dialog opens and accepts default', async() => {
     await resetTo(page, app, '')
     await clickMenuById(app, 'tableMenuItem')
-    const dialog = page.locator('.ag-dialog-table, .el-overlay').first()
+    const dialog = page.locator('.ag-insert-table-dialog')
     const dialogVisible = await dialog
       .waitFor({ state: 'visible', timeout: 5000 })
       .then(() => true)
       .catch(() => false)
     expect(dialogVisible).toBe(true)
-    // Confirm default 3x3 by pressing Enter.
-    await page.keyboard.press('Enter')
+    await dialog.locator('.el-button--primary').click()
     const tableAppeared = await page
       .locator('.editor-component table')
       .first()
@@ -145,15 +159,6 @@ test.describe('Paragraph block transforms', () => {
   })
 })
 
-// Item 73 — the desktop createTable wiring: clicking the Paragraph › Table
-// menu item must open the el-dialog table picker, and confirming it must drive
-// the renderer's `editor.createTable(tableChecker)` (editor.vue
-// handleDialogTableConfirm) through to a real @muyajs/core table whose caret
-// lands in a cell. The previously-skipped test above could not be trusted
-// because Muya needed a live cursor in an empty paragraph; the
-// placeCaretInEditor helper now seeds the engine's activeContentBlock (via a
-// synthetic keyup on the editor root), which `_immediateBlockAtCursor` reads —
-// so the insert survives the dialog stealing DOM focus.
 test.describe('Insert table dialog (item 73)', () => {
   let app: ElectronApplication
   let page: Page

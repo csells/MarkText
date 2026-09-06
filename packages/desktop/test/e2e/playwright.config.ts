@@ -8,6 +8,8 @@ const installedArtifactSpecs = [
 export default defineConfig({
   forbidOnly: true,
   retries: 0,
+  maxFailures: 1,
+  globalSetup: './globalSetup.ts',
   workers: 1,
   testMatch: '**/*.spec.ts',
   projects: [

@@ -5,24 +5,28 @@
 // original stack lives in (Muya.dispatchChange -> getMarkdown ->
 // ExportMarkdown.generate). The bug surface is list/backspace mutation in
 // packages/muyajs/lib/contentState/ + packages/muyajs/lib/utils/exportMarkdown.js.
-import { test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
+import { readFileSync } from 'node:fs'
 import type { ElectronApplication, Page } from 'playwright'
 import {
   launchWithMarkdown,
   placeCaretInEditor,
   setSourceMarkdown,
   clearRendererErrors,
-  expectNoRendererErrors
+  expectNoRendererErrors,
+  sendIpcToRenderer
 } from './helpers'
 
 test.describe('Issue #4346: list-block null guards', () => {
   let app: ElectronApplication
   let page: Page
+  let filePath: string
 
   test.beforeEach(async() => {
     const launched = await launchWithMarkdown('# Repro\n\n', { suppressErrorDialog: true })
     app = launched.app
     page = launched.page
+    filePath = launched.filePath
     await placeCaretInEditor(page)
     await clearRendererErrors(app)
   })
@@ -53,7 +57,7 @@ test.describe('Issue #4346: list-block null guards', () => {
     await page.evaluate(() => {
       const items = document.querySelectorAll('.editor-component ul li span.mu-paragraph-content')
       const last = items[items.length - 1] as HTMLElement | null
-      if (!last) return
+      if (!last) throw new Error('Last list item is unavailable')
       const range = document.createRange()
       range.selectNodeContents(last)
       range.collapse(false)
@@ -67,8 +71,11 @@ test.describe('Issue #4346: list-block null guards', () => {
       await page.waitForTimeout(20)
     }
     await page.keyboard.type('x', { delay: 10 })
-    await page.waitForTimeout(300)
+    await page.evaluate(() => window.__marktextDocumentCore?.settled())
     await expectNoRendererErrors(app)
+    await expect(page.getByTestId('core-recovery-draft')).toHaveCount(0)
+    await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('x\n')
   })
 
   test('task list to bullet list transitions do not crash', async() => {

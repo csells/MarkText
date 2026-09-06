@@ -570,16 +570,17 @@ function trimAutoLinkExtent(raw: string): string {
 }
 
 function tryAutoLinkExtension(state: ILexState): boolean {
-    const autoLinkExtTo = state.inlineRules.auto_link_extension.exec(state.src);
+    // Reject ineligible starts before scanning the remaining text. Trying the
+    // email alternative at every character rescans long words quadratically.
     if (
-        !(
-            autoLinkExtTo
-            && state.top
-            && (state.pos === 0 || /[* _~(]/.test(state.originSrc[state.pos - 1]))
-        )
+        !state.top
+        || (state.pos !== 0 && !/[* _~(]/.test(state.originSrc[state.pos - 1]))
     ) {
         return false;
     }
+    const autoLinkExtTo = state.inlineRules.auto_link_extension.exec(state.src);
+    if (!autoLinkExtTo)
+        return false;
 
     let raw = autoLinkExtTo[0];
     let www = autoLinkExtTo[1];
