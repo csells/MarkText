@@ -517,6 +517,12 @@ test('Core WYSIWYG transports actor-owned Comment and Substitution author comman
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
 
+    await page.waitForFunction(() => window.__marktextDocumentCore?.selectPlainText !== undefined)
+    await page.evaluate(() => {
+      const select = window.__marktextDocumentCore?.selectPlainText
+      if (!select) throw new Error('Core test selection bridge is unavailable')
+      select(0, 6, 14)
+    })
     const addComment = page.getByTestId('critic-review-add-comment')
     await expect(addComment).toBeVisible()
     await authorText('comment', 'selected', 'note')
@@ -529,6 +535,11 @@ test('Core WYSIWYG transports actor-owned Comment and Substitution author comman
     expect(authorResult).toMatchObject({ result: 'author', form: 'comment' })
     await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'commented-span')
 
+    await page.evaluate(() => {
+      const select = window.__marktextDocumentCore?.selectPlainText
+      if (!select) throw new Error('Core test selection bridge is unavailable')
+      select(1, 0, 5)
+    })
     const trackReplacement = page.getByTestId('critic-review-track-replacement')
     await expect(trackReplacement).toBeVisible()
     await authorText('substitution', 'omega', 'replacement')
