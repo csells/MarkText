@@ -2,7 +2,7 @@
   <form
     v-if="modelValue"
     class="core-comment-editor"
-    data-testid="critic-review-comment-editor"
+    :data-testid="`${testIdPrefix}-editor`"
     :aria-label="label"
     :aria-busy="submitting"
     @submit.prevent="submit"
@@ -12,7 +12,7 @@
       <textarea
         ref="input"
         v-model="draft"
-        data-testid="critic-review-comment-input"
+        :data-testid="`${testIdPrefix}-input`"
         rows="6"
         :disabled="submitting"
         :aria-invalid="Boolean(error)"
@@ -37,7 +37,7 @@
     <div class="core-comment-actions">
       <button
         type="button"
-        data-testid="critic-review-comment-cancel"
+        :data-testid="`${testIdPrefix}-cancel`"
         :disabled="submitting"
         @click="cancel"
       >
@@ -45,8 +45,8 @@
       </button>
       <button
         type="submit"
-        data-testid="critic-review-comment-submit"
-        :disabled="submitting || targetChanged"
+        :data-testid="`${testIdPrefix}-submit`"
+        :disabled="submitting || targetChanged || (!allowEmpty && draft.length === 0)"
       >
         {{ submitLabel }}
       </button>
@@ -67,6 +67,8 @@ const props = withDefaults(defineProps<{
   submitLabel?: string
   cancelLabel?: string
   targetChangedLabel?: string
+  testIdPrefix?: string
+  allowEmpty?: boolean
 }>(), {
   defaultText: '',
   submitting: false,
@@ -74,6 +76,8 @@ const props = withDefaults(defineProps<{
   label: 'Comment',
   submitLabel: 'Save comment',
   cancelLabel: 'Cancel',
+  testIdPrefix: 'critic-review-comment',
+  allowEmpty: true,
   targetChangedLabel: 'The review selection changed. Your draft is preserved. Cancel it before starting another comment.'
 })
 
@@ -101,6 +105,7 @@ watch(() => props.targetId, value => {
 })
 
 const submit = (): void => {
+  if (!props.allowEmpty && draft.value.length === 0) return
   if (props.submitting || targetChanged.value || props.targetId !== target.value) return
   emit('submit', { targetId: target.value, text: draft.value })
 }

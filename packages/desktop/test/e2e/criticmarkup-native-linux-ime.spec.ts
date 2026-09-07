@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { enterSourceMode, exitSourceMode, expectNoRendererErrors, launchWithMarkdown, sendIpcToRenderer } from './helpers'
+import { enterSourceMode, exitSourceMode, expectNoRendererErrors, launchWithReviewMarkdown as launchWithMarkdown, sendIpcToRenderer } from './helpers'
 
 // Requires a private X11 desktop with IBus/Mozc, GTK IM modules and xdotool.
 // These gestures go through the OS input method, including its candidate panel.

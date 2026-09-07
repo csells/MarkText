@@ -8,7 +8,7 @@ import {
   expectEditorWindowHidden,
   expectNoRendererErrors,
   launchElectron,
-  launchWithMarkdown,
+  launchWithReviewMarkdown as launchWithMarkdown,
   sendIpcToRenderer,
   waitForEditor,
   waitForMenuReady
