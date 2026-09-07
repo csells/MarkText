@@ -21,10 +21,16 @@ vi.hoisted(() => {
   w.window.path ??= {
     sep: '/',
     join: (...parts: string[]) =>
-      parts.join('/').replace(/\/\.\//g, '/').replace(/\/{3,}/g, '//'),
+      parts
+        .join('/')
+        .replace(/\/\.\//g, '/')
+        .replace(/\/{3,}/g, '//'),
     // Some transitive helpers still expect a minimal POSIX-ish `resolve`.
     resolve: (...parts: string[]) =>
-      parts.join('/').replace(/\/\.\//g, '/').replace(/\/{2,}/g, '/')
+      parts
+        .join('/')
+        .replace(/\/\.\//g, '/')
+        .replace(/\/{2,}/g, '/')
   }
   // The document directory the export wrapper resolves relative <img> src
   // against (see resolveLocalImageSrc / window.DIRNAME).
@@ -49,6 +55,19 @@ const revisedProjectionOf = (source: string) => {
 }
 
 describe('exportStyledHTMLFromProjection — Core consumer authority', () => {
+  it('uses the same rendered math and embedded fonts as the native Muya exporter', async() => {
+    const markdown = 'Math: $x^2$.\n'
+    const native = await exportStyledHTML(NO_MUYA, markdown)
+    const projected = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf(markdown))
+    const nativeDocument = new DOMParser().parseFromString(native, 'text/html')
+    const projectedDocument = new DOMParser().parseFromString(projected, 'text/html')
+    expect(projectedDocument.querySelector('.katex')?.outerHTML).toBe(
+      nativeDocument.querySelector('.katex')?.outerHTML
+    )
+    expect(projectedDocument.querySelector('.katex .msupsub')?.textContent).toContain('2')
+    expect(projectedDocument.head.innerHTML).toBe(nativeDocument.head.innerHTML)
+  })
+
   it('builds the shipped HTML shell from Revised AST output without canonical markers', async() => {
     const out = await exportStyledHTMLFromProjection(
       NO_MUYA,
