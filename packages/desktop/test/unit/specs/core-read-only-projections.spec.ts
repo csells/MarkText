@@ -1,21 +1,101 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createCoreActor } from '@/documentAuthority/coreActor'
 import { createEditorCoreBinding } from '@/documentAuthority/editorCoreBinding'
 import { createCoreDocumentSessionManager } from '@/documentAuthority/coreDocumentSessionManager'
 import { renderMarkdownProjectionToSafeHtml } from '@/documentConsumers/markdownProjectionHtml'
 
-const createSessions = () => createCoreDocumentSessionManager({
-  createBinding: () => {
-    const actor = createCoreActor()
-    return createEditorCoreBinding({
-      request: async request => structuredClone(actor.handle(request)),
-      dispose: () => {}
-    })
-  }
-})
+const createSessions = () =>
+  createCoreDocumentSessionManager({
+    createBinding: () => {
+      const actor = createCoreActor()
+      return createEditorCoreBinding({
+        request: async(request) => structuredClone(actor.handle(request)),
+        dispose: () => {}
+      })
+    }
+  })
 
 describe('Core read-only display projections', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('honors disabled HTML presentation without changing ordinary Markdown semantics', async() => {
+    const sessions = createSessions()
+    await sessions.open({ documentId: 'html', source: '**Bold** <b>raw</b>\n', lineEnding: '\n' })
+    const lease = sessions.lease('html')
+    const projection = await lease.displayProjectionAtBarrier('revised')
+    const host = document.createElement('div')
+    host.innerHTML = renderMarkdownProjectionToSafeHtml(projection, { htmlEnabled: false })
+    expect(host.querySelector('strong')?.textContent).toBe('Bold')
+    expect(host.querySelector('b')).toBeNull()
+    expect(host.textContent).toContain('<b>raw</b>')
+    await sessions.handoff(lease)
+    await sessions.close('html')
+  })
+
+  it('uses MarkText code highlighting without interpreting code contents as Markdown or HTML', async() => {
+    const sessions = createSessions()
+    const source = '```js\nconst answer = "<script>{++literal++}</script>"\n```\n'
+    await sessions.open({ documentId: 'code', source, lineEnding: '\n' })
+    const lease = sessions.lease('code')
+    const host = document.createElement('div')
+    host.innerHTML = renderMarkdownProjectionToSafeHtml(
+      await lease.displayProjectionAtBarrier('revised')
+    )
+    expect(host.querySelector('code .token.keyword')?.textContent).toBe('const')
+    expect(host.querySelector('code')?.textContent).toBe(
+      'const answer = "<script>{++literal++}</script>"\n'
+    )
+    expect(host.querySelector('script')).toBeNull()
+    await sessions.handoff(lease)
+    await sessions.close('code')
+  })
+
+  it('renders existing math and local images from Core semantics in both reader views', async() => {
+    vi.stubGlobal('DIRNAME', '/documents/review')
+    vi.stubGlobal('path', { join: (...parts: string[]) => parts.join('/') })
+    const sessions = createSessions()
+    const source = '![Local](assets/figure.png)\n\n$x^2$ and {~~old~>new~~}.\n'
+    await sessions.open({ documentId: 'media', source, lineEnding: '\n' })
+    const lease = sessions.lease('media')
+    for (const mode of ['original', 'revised'] as const) {
+      const html = renderMarkdownProjectionToSafeHtml(await lease.displayProjectionAtBarrier(mode))
+      const host = document.createElement('div')
+      host.innerHTML = html
+      expect(host.querySelector('img')?.getAttribute('src')).toBe(
+        'file:///documents/review/assets/figure.png'
+      )
+      expect(host.querySelector('.katex .mord')).not.toBeNull()
+      expect(host.querySelector('.katex .msupsub')).not.toBeNull()
+      expect(host.textContent).toContain(mode === 'original' ? 'old' : 'new')
+    }
+    expect((await sessions.saveBarrier('media')).source).toBe(source)
+    await sessions.handoff(lease)
+    await sessions.close('media')
+  })
+
+  it('resolves raw HTML and Markdown image destinations through the same document resource policy', async() => {
+    vi.stubGlobal('DIRNAME', '/documents/review')
+    vi.stubGlobal('path', { join: (...parts: string[]) => parts.join('/') })
+    const sessions = createSessions()
+    const source = '<img src="assets/raw.png" alt="raw">\n\n![Markdown](assets/markdown.png)\n'
+    await sessions.open({ documentId: 'raw-media', source, lineEnding: '\n' })
+    const lease = sessions.lease('raw-media')
+    for (const mode of ['original', 'revised'] as const) {
+      const host = document.createElement('div')
+      host.innerHTML = renderMarkdownProjectionToSafeHtml(
+        await lease.displayProjectionAtBarrier(mode)
+      )
+      expect([...host.querySelectorAll('img')].map((image) => image.getAttribute('src'))).toEqual([
+        'file:///documents/review/assets/raw.png',
+        'file:///documents/review/assets/markdown.png'
+      ])
+    }
+    expect((await sessions.saveBarrier('raw-media')).source).toBe(source)
+    await sessions.handoff(lease)
+    await sessions.close('raw-media')
+  })
+
   it('reads Original and Revised from acknowledged source without changing save or consumer authority', async() => {
     const sessions = createSessions()
     const source = 'A {++new++} {--old--} {~~before~>after~~} {>>private<<}'
@@ -36,7 +116,8 @@ describe('Core read-only display projections', () => {
 
   it('publishes isolated Markdown Comment presentation while retaining its exact editable payload', async() => {
     const sessions = createSessions()
-    const payload = '## Local\n\n**bold** [outer][ref] {~~old~>new~~}\n\n[local]: https://local.test\n'
+    const payload =
+      '## Local\n\n**bold** [outer][ref] {~~old~>new~~}\n\n[local]: https://local.test\n'
     const source = `[ref]: https://outer.test\n\n{>>${payload}<<}`
     await sessions.open({
       documentId: 'comment',
@@ -64,16 +145,21 @@ describe('Core read-only display projections', () => {
     await sessions.open({ documentId: 'pending', source: 'first', lineEnding: '\n' })
     const lease = sessions.lease('pending')
     let release: (() => void) | undefined
-    const pending = new Promise<void>(resolve => { release = resolve })
+    const pending = new Promise<void>((resolve) => {
+      release = resolve
+    })
     lease.settleView(() => pending)
     let completed = false
-    const reading = lease.displayProjectionAtBarrier('revised').then(projection => {
+    const reading = lease.displayProjectionAtBarrier('revised').then((projection) => {
       completed = true
       return projection
     })
     await Promise.resolve()
     expect(completed).toBe(false)
-    await lease.binding.submit({ edits: [{ start: 5, end: 5, insert: ' second' }], projections: [] }).acknowledged
+    await lease.binding.submit({
+      edits: [{ start: 5, end: 5, insert: ' second' }],
+      projections: []
+    }).acknowledged
     release?.()
     expect(renderMarkdownProjectionToSafeHtml(await reading)).toBe('<p>first second</p>\n')
     await sessions.handoff(lease)
@@ -84,16 +170,20 @@ describe('Core read-only display projections', () => {
   it('refuses a delayed display projection after its acknowledged revision changes', async() => {
     let release: (() => void) | undefined
     let requested: (() => void) | undefined
-    const observedRequest = new Promise<void>(resolve => { requested = resolve })
+    const observedRequest = new Promise<void>((resolve) => {
+      requested = resolve
+    })
     const sessions = createCoreDocumentSessionManager({
       createBinding: () => {
         const actor = createCoreActor()
         return createEditorCoreBinding({
-          request: async request => {
+          request: async(request) => {
             const reply = structuredClone(actor.handle(request))
             if (request.type === 'display-projection-at-barrier') {
               requested?.()
-              await new Promise<void>(resolve => { release = resolve })
+              await new Promise<void>((resolve) => {
+                release = resolve
+              })
             }
             return reply
           },
@@ -106,7 +196,8 @@ describe('Core read-only display projections', () => {
     const reading = lease.displayProjectionAtBarrier('original')
     const rejected = expect(reading).rejects.toThrow('stale')
     await observedRequest
-    await lease.binding.submit({ edits: [{ start: 0, end: 3, insert: 'new' }], projections: [] }).acknowledged
+    await lease.binding.submit({ edits: [{ start: 0, end: 3, insert: 'new' }], projections: [] })
+      .acknowledged
     release?.()
     await rejected
     expect((await sessions.saveBarrier('race')).source).toBe('new')

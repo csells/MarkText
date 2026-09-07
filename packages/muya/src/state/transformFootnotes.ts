@@ -48,7 +48,7 @@ export function transformFootnotes(html: string): string {
         const occurrence = (refCount.get(id) ?? 0) + 1;
         refCount.set(id, occurrence);
 
-        return `<sup class="footnote-ref"><a href="#fn-${n}" id="${refAnchor(n, occurrence)}">${n}</a></sup>`;
+        return renderFootnoteReference(n, '', occurrence);
     });
 
     if (refNumber.size === 0)
@@ -60,14 +60,33 @@ export function transformFootnotes(html: string): string {
     const orderedRefs = Array.from(refNumber.entries()).sort(
         (a, b) => a[1] - b[1],
     );
-    const items: string[] = [];
-    for (const [id, n] of orderedRefs) {
-        // A note body is not a place references resolve — pandoc has no
-        // nested notes — so any marker in there reverts to literal text.
-        const inner = unmarkReferences(definitions.get(id) ?? '');
-        items.push(`<li id="fn-${n}">${appendBackrefs(inner, n, refCount.get(id) ?? 1)}</li>`);
-    }
+    // A note body is not a place references resolve — pandoc has no nested
+    // notes — so any marker in there reverts to literal text.
+    return appendFootnoteSection(body, orderedRefs.map(([id, number]) => ({
+        number,
+        html: unmarkReferences(definitions.get(id) ?? ''),
+        references: refCount.get(id) ?? 1,
+    })));
+}
 
+/** Presentation only: callers establish resolved references and their scope. */
+export function renderFootnoteReference(number: number, prefix = '', occurrence = 1): string {
+    const scope = encodeURIComponent(prefix);
+    return `<sup class="footnote-ref"><a href="#${scope}fn-${number}" id="${scope}${refAnchor(number, occurrence)}">${number}</a></sup>`;
+}
+
+/** `references` counts the note's references, each of which gets its own backref. */
+export function appendFootnoteSection(
+    body: string,
+    definitions: readonly { readonly number: number; readonly html: string; readonly references?: number }[],
+    prefix = '',
+): string {
+    if (definitions.length === 0)
+        return body;
+    const scope = encodeURIComponent(prefix);
+    const items = definitions.map(({ number, html, references }) =>
+        `<li id="${scope}fn-${number}">${appendBackrefs(html, number, references ?? 1, scope)}</li>`,
+    );
     const section = `\n<section class="footnotes">\n<ol>\n${items.join('\n')}\n</ol>\n</section>\n`;
     return `${body.replace(/\s+$/, '')}\n${section}`;
 }
@@ -92,7 +111,7 @@ function refAnchor(n: number, occurrence: number): string {
     return occurrence === 1 ? `fnref-${n}` : `fnref-${n}-${occurrence}`;
 }
 
-function appendBackrefs(definitionHtml: string, n: number, occurrences: number): string {
+function appendBackrefs(definitionHtml: string, n: number, occurrences: number, scope = ''): string {
     // One arrow per reference, so every occurrence is reachable and not just
     // the first. The first arrow stays bare — the common single-reference case
     // then reads as it always has — and the rest are numbered, otherwise they
@@ -100,7 +119,7 @@ function appendBackrefs(definitionHtml: string, n: number, occurrences: number):
     let backrefs = '';
     for (let k = 1; k <= occurrences; k++) {
         const label = k === 1 ? '↩' : `↩${k}`;
-        backrefs += ` <a href="#${refAnchor(n, k)}" class="footnote-backref">${label}</a>`;
+        backrefs += ` <a href="#${scope}${refAnchor(n, k)}" class="footnote-backref">${label}</a>`;
     }
 
     // Inject the backrefs inside the trailing `</p>` so the arrows sit next to

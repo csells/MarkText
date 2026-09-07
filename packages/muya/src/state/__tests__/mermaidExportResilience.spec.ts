@@ -48,6 +48,33 @@ const INVALID_MERMAID = [
 ].join('\n');
 
 describe('#4812: mermaid syntax error must not abort export', () => {
+    it('removes only its temporary rendering surface when a media loader fails', async () => {
+        const retained = document.createElement('div');
+        retained.className = 'mu-render-container';
+        document.body.append(retained);
+        try {
+            await expect(MarkdownToHtml.fromHtml('<pre><code class="language-plantuml">bad</code></pre>').renderHtml())
+                .rejects
+                .toThrow('unexpected renderer plantuml');
+            expect(Array.from(document.querySelectorAll('.mu-render-container'))).toEqual([retained]);
+        }
+        finally {
+            retained.remove();
+        }
+    });
+
+    it('processes parser-owned HTML through the same diagram pipeline without recognizing its text again', async () => {
+        mermaidRun.mockImplementation(async ({ nodes }: { nodes: HTMLElement[] }) => {
+            nodes[0].innerHTML = '<svg><text>Diagram</text></svg>';
+        });
+        const html = await MarkdownToHtml.fromHtml('<p>**literal** {++literal++}</p><pre><code class="language-mermaid">graph TD; A--&gt;B</code></pre>').renderHtml();
+        expect(html).toContain('**literal** {++literal++}');
+        expect(html).not.toContain('<strong>');
+        expect(html).toContain('<svg>');
+        expect(mermaidRun).toHaveBeenCalledTimes(1);
+        expect(document.querySelector('.mu-render-container')).toBeNull();
+    });
+
     it('renderHtml resolves even when a mermaid diagram fails to parse', async () => {
         // Real mermaid rejects on a parse error; emulate that.
         mermaidRun.mockRejectedValue(new Error('Parse error on line 2: ... got \'PIPE\''));

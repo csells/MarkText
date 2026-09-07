@@ -223,7 +223,8 @@ export interface MarkdownAstNode {
    * exposed as `semanticDestination` and `semanticTitle`. Resolved reference
    * links/images and footnote references use `resolvedDefinitionStart` and
    * `resolvedDefinitionEnd`; every footnote reference also has a `resolved`
-   * boolean. Every numeric attribute whose name ends in `Start` or `End` is a
+   * boolean and a `rawLabel` preserving the spelling of unresolved references.
+   * Every numeric attribute whose name ends in `Start` or `End` is a
    * UTF-16 position in the projection, and each matching Start/End pair
    * describes a half-open subrange. Editor adapters may use those positions
    * directly without re-recognizing Markdown syntax.

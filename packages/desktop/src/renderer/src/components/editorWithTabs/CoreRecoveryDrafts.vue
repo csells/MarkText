@@ -12,6 +12,7 @@
       <button
         v-if="pendingText !== undefined"
         type="button"
+        class="button small"
         @click="$emit('retry')"
       >
         {{ t('editor.coreRecovery.retry') }}
@@ -29,7 +30,9 @@
       open
       data-testid="core-recovery-draft"
     >
-      <summary>{{ t('editor.coreRecovery.draft', { name: draft.pathname || draft.documentId }) }}</summary>
+      <summary>
+        {{ t('editor.coreRecovery.draft', { name: draft.pathname || draft.documentId }) }}
+      </summary>
       <p
         v-if="draft.readError"
         role="alert"
@@ -48,12 +51,14 @@
       <div>
         <button
           type="button"
+          class="button small"
           @click="$emit('reveal', draft.artifactPath)"
         >
           {{ t('editor.coreRecovery.showBackup') }}
         </button>
         <button
           type="button"
+          class="button small"
           @click="$emit('archive', draft.id)"
         >
           {{ t('editor.coreRecovery.resolved') }}
@@ -67,7 +72,7 @@
 import type { CoreRecoveryDraftRecord } from '@shared/types/coreRecoveryDraft'
 import { useI18n } from 'vue-i18n'
 const { t } = useI18n()
-defineProps<{ drafts: readonly CoreRecoveryDraftRecord[], error: string, pendingText?: string }>()
+defineProps<{ drafts: readonly CoreRecoveryDraftRecord[]; error: string; pendingText?: string }>()
 defineEmits<{
   (event: 'archive', id: string): void
   (event: 'reveal', path: string): void
@@ -86,9 +91,26 @@ defineEmits<{
   color: var(--notificationWarningColor);
   font-size: 13px;
 }
-details + details { margin-top: 12px; }
-summary { cursor: pointer; font-weight: 600; }
-p { margin: 8px 0; }
-textarea { display: block; width: 100%; min-height: 80px; max-height: 160px; resize: vertical; user-select: text; }
-button { margin: 8px 12px 0 0; cursor: pointer; }
+details + details {
+  margin-top: 12px;
+}
+summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+p {
+  margin: 8px 0;
+}
+textarea {
+  display: block;
+  width: 100%;
+  min-height: 80px;
+  max-height: 160px;
+  resize: vertical;
+  user-select: text;
+}
+button {
+  margin: 8px 12px 0 0;
+  cursor: pointer;
+}
 </style>

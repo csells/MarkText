@@ -5,15 +5,11 @@ import type {
   MarkupCoordinateSegment,
   SourceRange
 } from '@marktext/document-core'
-import { wordCount } from '@muyajs/core'
+import { buildRegexValue, matchString, wordCount, type ISearchQueryOptions } from '@muyajs/core'
 
 import { renderMarkdownProjectionToSafeHtml } from './markdownProjectionHtml'
 
-export interface ProjectedSearchOptions {
-  readonly isCaseSensitive?: boolean
-  readonly isWholeWord?: boolean
-  readonly isRegexp?: boolean
-}
+export type ProjectedSearchOptions = ISearchQueryOptions
 
 export interface ProjectedSearchMatch {
   /** Public AST path of the independently searchable rendered block. */
@@ -78,15 +74,20 @@ export interface DocumentConsumerProjection {
 }
 
 const sourceRangesForMatch = (
-  semantic: SemanticProjection, start: number, end: number,
+  semantic: SemanticProjection,
+  start: number,
+  end: number,
   runs: readonly MarkupCoordinateSegment[]
 ): readonly SourceRange[] | undefined => {
   const ranges: SourceRange[] = []
   let cursor = start
   for (const segment of semantic.segments) {
     if (segment.semanticEnd <= cursor || segment.semanticStart >= end) continue
-    if (segment.semanticStart > cursor ||
-        segment.semanticEnd - segment.semanticStart !== segment.projectionEnd - segment.projectionStart) return undefined
+    if (
+      segment.semanticStart > cursor ||
+      segment.semanticEnd - segment.semanticStart !==
+        segment.projectionEnd - segment.projectionStart
+    ) { return undefined }
     const localEnd = Math.min(end, segment.semanticEnd)
     const projectedEnd = segment.projectionStart + localEnd - segment.semanticStart
     let projectedCursor = segment.projectionStart + cursor - segment.semanticStart
@@ -131,10 +132,7 @@ const searchableBlockKinds = new Set<MarkdownAstNode['kind']>([
   'table-cell'
 ])
 
-const stringAttribute = (
-  node: MarkdownAstNode,
-  name: string
-): string | undefined => {
+const stringAttribute = (node: MarkdownAstNode, name: string): string | undefined => {
   const value = node.attributes[name]
   return typeof value === 'string' ? value : undefined
 }
@@ -151,25 +149,22 @@ type SemanticProjection = Readonly<{
   readonly segments: readonly SemanticSegment[]
 }>
 
-const semanticProjectionOf = (
-  node: MarkdownAstNode,
-  markdown?: string
-): SemanticProjection => {
+const semanticProjectionOf = (node: MarkdownAstNode, markdown?: string): SemanticProjection => {
   const leaf = (text: string): SemanticProjection => {
     const raw = markdown?.slice(node.range.start, node.range.end)
     const suffix = raw?.slice(text.length)
-    const isDirect = raw === text || (
-      raw?.startsWith(text) === true && /^\s*$/u.test(suffix ?? '')
-    )
+    const isDirect = raw === text || (raw?.startsWith(text) === true && /^\s*$/u.test(suffix ?? ''))
     return Object.freeze({
       text,
       segments: isDirect
-        ? Object.freeze([Object.freeze({
-          semanticStart: 0,
-          semanticEnd: text.length,
-          projectionStart: node.range.start,
-          projectionEnd: node.range.start + text.length
-        })])
+        ? Object.freeze([
+          Object.freeze({
+            semanticStart: 0,
+            semanticEnd: text.length,
+            projectionStart: node.range.start,
+            projectionEnd: node.range.start + text.length
+          })
+        ])
         : Object.freeze([])
     })
   }
@@ -180,8 +175,9 @@ const semanticProjectionOf = (
     case 'hard-break':
       return leaf('\n')
     case 'inline-code':
-      return leaf(stringAttribute(node, 'semanticContent') ??
-        stringAttribute(node, 'content') ?? '')
+      return leaf(
+        stringAttribute(node, 'semanticContent') ?? stringAttribute(node, 'content') ?? ''
+      )
     case 'code-block':
     case 'html-block':
     case 'front-matter':
@@ -197,20 +193,23 @@ const semanticProjectionOf = (
         const projected = semanticProjectionOf(child, markdown)
         const offset = text.length
         text += projected.text
-        segments.push(...projected.segments.map(segment => Object.freeze({
-          semanticStart: segment.semanticStart + offset,
-          semanticEnd: segment.semanticEnd + offset,
-          projectionStart: segment.projectionStart,
-          projectionEnd: segment.projectionEnd
-        })))
+        segments.push(
+          ...projected.segments.map((segment) =>
+            Object.freeze({
+              semanticStart: segment.semanticStart + offset,
+              semanticEnd: segment.semanticEnd + offset,
+              projectionStart: segment.projectionStart,
+              projectionEnd: segment.projectionEnd
+            })
+          )
+        )
       }
       return Object.freeze({ text, segments: Object.freeze(segments) })
     }
   }
 }
 
-const semanticTextOf = (node: MarkdownAstNode): string =>
-  semanticProjectionOf(node).text
+const semanticTextOf = (node: MarkdownAstNode): string => semanticProjectionOf(node).text
 
 const searchableBlocksOf = (
   root: MarkdownAstNode,
@@ -220,33 +219,41 @@ const searchableBlocksOf = (
   path: readonly number[]
   semantic: SemanticProjection
 }>[] => {
-  const blocks: Array<Readonly<{
-    node: MarkdownAstNode
-    path: readonly number[]
-    semantic: SemanticProjection
-  }>> = []
-  const pending: Array<Readonly<{
-    node: MarkdownAstNode
-    path: readonly number[]
-  }>> = [{ node: root, path: Object.freeze([]) }]
+  const blocks: Array<
+    Readonly<{
+      node: MarkdownAstNode
+      path: readonly number[]
+      semantic: SemanticProjection
+    }>
+  > = []
+  const pending: Array<
+    Readonly<{
+      node: MarkdownAstNode
+      path: readonly number[]
+    }>
+  > = [{ node: root, path: Object.freeze([]) }]
   while (pending.length > 0) {
     const current = pending.pop()
     if (current === undefined) break
     if (searchableBlockKinds.has(current.node.kind)) {
-      blocks.push(Object.freeze({
-        node: current.node,
-        path: current.path,
-        semantic: semanticProjectionOf(current.node, markdown)
-      }))
+      blocks.push(
+        Object.freeze({
+          node: current.node,
+          path: current.path,
+          semantic: semanticProjectionOf(current.node, markdown)
+        })
+      )
       continue
     }
     for (let index = current.node.children.length - 1; index >= 0; index -= 1) {
       const child = current.node.children[index]
       if (child !== undefined) {
-        pending.push(Object.freeze({
-          node: child,
-          path: Object.freeze([...current.path, index])
-        }))
+        pending.push(
+          Object.freeze({
+            node: child,
+            path: Object.freeze([...current.path, index])
+          })
+        )
       }
     }
   }
@@ -264,9 +271,12 @@ const presentationForMatch = (
 ): ProjectedSearchMatch['presentation'] => {
   const blockIndex = block.path[0]
   if (
-    block.path.length !== 1 || typeof blockIndex !== 'number' ||
-    !Number.isSafeInteger(blockIndex) || blockIndex < 0 || end <= start
-  ) return undefined
+    block.path.length !== 1 ||
+    typeof blockIndex !== 'number' ||
+    !Number.isSafeInteger(blockIndex) ||
+    blockIndex < 0 ||
+    end <= start
+  ) { return undefined }
 
   let cursor = start
   let projectionStart: number | undefined
@@ -280,41 +290,23 @@ const presentationForMatch = (
     if (segmentLength !== segment.projectionEnd - segment.projectionStart) {
       return undefined
     }
-    projectionStart ??=
-      segment.projectionStart + localStart - segment.semanticStart
+    projectionStart ??= segment.projectionStart + localStart - segment.semanticStart
     projectionEnd = segment.projectionStart + localEnd - segment.semanticStart
     cursor = localEnd
     if (cursor === end) break
   }
   if (
-    cursor !== end || projectionStart === undefined ||
+    cursor !== end ||
+    projectionStart === undefined ||
     projectionEnd === undefined ||
     projectionStart < block.node.range.start ||
     projectionEnd > block.node.range.end
-  ) return undefined
+  ) { return undefined }
   return Object.freeze({
     path: Object.freeze([blockIndex, 'text'] as const),
     start: projectionStart - block.node.range.start,
     end: projectionEnd - block.node.range.start
   })
-}
-
-const searchExpression = (
-  value: string,
-  options: ProjectedSearchOptions
-): RegExp | undefined => {
-  let expression = value
-  if (options.isRegexp !== true) {
-    expression = value.replace(/[[\]\\^$.|?*+()/]/gu, token =>
-      token === '\\' ? '\\\\' : `\\${token}`
-    )
-  }
-  if (options.isWholeWord === true) expression = `\\b${expression}\\b`
-  try {
-    return new RegExp(expression, options.isCaseSensitive === true ? 'gu' : 'giu')
-  } catch {
-    return undefined
-  }
 }
 
 /**
@@ -326,26 +318,28 @@ export function searchProjectedDocument(
   value: string,
   options: ProjectedSearchOptions = {}
 ): ProjectedSearchResult {
-  const expression = value === '' ? undefined : searchExpression(value, options)
   const matches: ProjectedSearchMatch[] = []
-  if (expression !== undefined) {
+  if (value !== '') {
     for (const block of searchableBlocksOf(projection.ast.root, projection.markdown)) {
-      for (const match of block.semantic.text.matchAll(expression)) {
+      for (const match of matchString(block.semantic.text, value, options)) {
         const start = match.index
-        const end = start + match[0].length
+        const end = start + match.match.length
         const presentation = presentationForMatch(block, start, end)
-        const sourceRanges = projection.sourceSegments === undefined
-          ? undefined
-          : sourceRangesForMatch(block.semantic, start, end, projection.sourceSegments)
-        matches.push(Object.freeze({
-          path: block.path,
-          start,
-          end,
-          match: match[0],
-          subMatches: Object.freeze(match.slice(1).map(value => value ?? '')),
-          ...(sourceRanges === undefined ? {} : { sourceRanges }),
-          ...(presentation === undefined ? {} : { presentation })
-        }))
+        const sourceRanges =
+          projection.sourceSegments === undefined
+            ? undefined
+            : sourceRangesForMatch(block.semantic, start, end, projection.sourceSegments)
+        matches.push(
+          Object.freeze({
+            path: block.path,
+            start,
+            end,
+            match: match.match,
+            subMatches: Object.freeze(match.subMatches.map((value) => value ?? '')),
+            ...(sourceRanges === undefined ? {} : { sourceRanges }),
+            ...(presentation === undefined ? {} : { presentation })
+          })
+        )
       }
     }
   }
@@ -366,34 +360,27 @@ export function createProjectedSearchReplacementPlan(
   options: ProjectedSearchReplacementOptions
 ): readonly ProjectedSearchReplacement[] | undefined {
   if (
-    !Number.isSafeInteger(result.index) || result.index < 0 ||
-    result.index >= result.matches.length || result.matches.length === 0
-  ) return undefined
+    !Number.isSafeInteger(result.index) ||
+    result.index < 0 ||
+    result.index >= result.matches.length ||
+    result.matches.length === 0
+  ) { return undefined }
   const selected = result.matches[result.index]
   if (selected === undefined) return undefined
   const matches = options.isSingle ? [selected] : result.matches
-  const replaceValue = (match: ProjectedSearchMatch): string => {
-    if (!options.isRegexp) return value
-    let expanded = value
-    const groups = expanded.match(/(?<!\\)\$\d/gu) ?? []
-    for (const group of groups) {
-      const index = Number.parseInt(group.slice(1), 10)
-      if (index === 0) expanded = expanded.replace(group, match.match)
-      else if (index <= match.subMatches.length) {
-        expanded = expanded.replace(group, match.subMatches[index - 1] ?? '')
-      }
-    }
-    return expanded
-  }
-  return Object.freeze(matches.map(selected => Object.freeze({
-    match: Object.freeze({
-      path: Object.freeze([...selected.path]),
-      start: selected.start,
-      end: selected.end,
-      match: selected.match
-    }),
-    insert: replaceValue(selected)
-  })))
+  return Object.freeze(
+    matches.map((selected) =>
+      Object.freeze({
+        match: Object.freeze({
+          path: Object.freeze([...selected.path]),
+          start: selected.start,
+          end: selected.end,
+          match: selected.match
+        }),
+        insert: options.isRegexp ? buildRegexValue(selected, value) : value
+      })
+    )
+  )
 }
 
 /**
@@ -414,10 +401,7 @@ export function tocProjectedDocument(
   const visit = (node: MarkdownAstNode): void => {
     if (node.kind === 'heading') {
       const level = node.attributes['level']
-      if (
-        typeof level !== 'number' || !Number.isSafeInteger(level) ||
-        level < 1 || level > 6
-      ) throw new Error('Projected Markdown heading has no valid level')
+      if (typeof level !== 'number' || !Number.isSafeInteger(level) || level < 1 || level > 6) { throw new Error('Projected Markdown heading has no valid level') }
       entries.push(Object.freeze({ lvl: level, content: semanticTextOf(node) }))
     }
     for (const child of node.children) visit(child)
@@ -438,9 +422,7 @@ export function createProjectedClipboardPayload(
   flavor: ProjectedClipboardFlavor,
   scope: ProjectedClipboardScope
 ): ProjectedClipboardPayload | undefined {
-  const selectedProjection = scope.kind === 'selection'
-    ? scope.projection
-    : projection
+  const selectedProjection = scope.kind === 'selection' ? scope.projection : projection
   if (selectedProjection === undefined) return undefined
   if (flavor === 'markdown') {
     return Object.freeze({ text: selectedProjection.markdown, html: '' })

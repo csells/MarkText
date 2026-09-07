@@ -20,7 +20,9 @@ const inMemoryPort = (): CoreActorPort => {
     async request(request: CoreRequest): Promise<CoreReply> {
       return structuredClone(actor.handle(structuredClone(request)))
     },
-    dispose(): void { actor.dispose() }
+    dispose(): void {
+      actor.dispose()
+    }
   }
 }
 
@@ -29,27 +31,37 @@ describe('Core consumer projection authority', () => {
     const requests: CoreRequest[] = []
     const actor = createCoreActor()
     const manager = createCoreDocumentSessionManager({
-      createBinding: () => createEditorCoreBinding({
-        async request(request) {
-          requests.push(request)
-          return structuredClone(actor.handle(structuredClone(request)))
-        },
-        dispose() { actor.dispose() }
-      })
+      createBinding: () =>
+        createEditorCoreBinding({
+          async request(request) {
+            requests.push(request)
+            return structuredClone(actor.handle(structuredClone(request)))
+          },
+          dispose() {
+            actor.dispose()
+          }
+        })
     })
     await manager.open({ documentId: 'shared.md', source: '{++new++} text\n', lineEnding: '\n' })
     const lease = manager.lease('shared.md')
-    const snapshots = await Promise.all(Array.from({ length: 8 }, () => lease.consumerProjectionAtBarrier()))
-    expect(snapshots.every(snapshot => snapshot === snapshots[0])).toBe(true)
+    const snapshots = await Promise.all(
+      Array.from({ length: 8 }, () => lease.consumerProjectionAtBarrier())
+    )
+    expect(snapshots.every((snapshot) => snapshot === snapshots[0])).toBe(true)
     expect(snapshots[0].markdown).toBe('new text\n')
     expect(await lease.consumerProjectionAtBarrier()).toBe(snapshots[0])
-    expect(requests.filter(request => request.type === 'consumer-projection-at-barrier')).toHaveLength(1)
+    expect(
+      requests.filter((request) => request.type === 'consumer-projection-at-barrier')
+    ).toHaveLength(1)
 
-    await lease.binding.submit({ edits: [{ start: 14, end: 14, insert: '!' }], projections: [] }).acknowledged
+    await lease.binding.submit({ edits: [{ start: 14, end: 14, insert: '!' }], projections: [] })
+      .acknowledged
     const updated = await lease.consumerProjectionAtBarrier()
     expect(updated).not.toBe(snapshots[0])
     expect(updated.markdown).toBe('new text!\n')
-    expect(requests.filter(request => request.type === 'consumer-projection-at-barrier')).toHaveLength(2)
+    expect(
+      requests.filter((request) => request.type === 'consumer-projection-at-barrier')
+    ).toHaveLength(2)
     await manager.handoff(lease)
     await manager.close('shared.md')
   })
@@ -57,27 +69,35 @@ describe('Core consumer projection authority', () => {
   it('rejects all readers of a delayed stale snapshot and retries the current revision', async() => {
     let release: (() => void) | undefined
     let requested: (() => void) | undefined
-    const observed = new Promise<void>(resolve => { requested = resolve })
+    const observed = new Promise<void>((resolve) => {
+      requested = resolve
+    })
     const actor = createCoreActor()
     const manager = createCoreDocumentSessionManager({
-      createBinding: () => createEditorCoreBinding({
-        async request(request) {
-          const reply = structuredClone(actor.handle(request))
-          if (request.type === 'consumer-projection-at-barrier' && request.baseRevision === 1) {
-            requested?.()
-            await new Promise<void>(resolve => { release = resolve })
+      createBinding: () =>
+        createEditorCoreBinding({
+          async request(request) {
+            const reply = structuredClone(actor.handle(request))
+            if (request.type === 'consumer-projection-at-barrier' && request.baseRevision === 1) {
+              requested?.()
+              await new Promise<void>((resolve) => {
+                release = resolve
+              })
+            }
+            return reply
+          },
+          dispose() {
+            actor.dispose()
           }
-          return reply
-        },
-        dispose() { actor.dispose() }
-      })
+        })
     })
     await manager.open({ documentId: 'delayed.md', source: 'old', lineEnding: '\n' })
     const lease = manager.lease('delayed.md')
     const first = expect(lease.consumerProjectionAtBarrier()).rejects.toThrow('stale')
     const second = expect(lease.consumerProjectionAtBarrier()).rejects.toThrow('stale')
     await observed
-    await lease.binding.submit({ edits: [{ start: 0, end: 3, insert: 'new' }], projections: [] }).acknowledged
+    await lease.binding.submit({ edits: [{ start: 0, end: 3, insert: 'new' }], projections: [] })
+      .acknowledged
     release?.()
     await Promise.all([first, second])
     expect(lease.consumerProjection()).toBeUndefined()
@@ -146,10 +166,12 @@ describe('Core consumer projection authority', () => {
           root: {
             kind: 'document',
             range: { start: 0, end: 7 },
-            children: [{
-              kind: 'paragraph',
-              children: [{ kind: 'strong' }]
-            }]
+            children: [
+              {
+                kind: 'paragraph',
+                children: [{ kind: 'strong' }]
+              }
+            ]
           }
         }
       }
@@ -182,13 +204,17 @@ describe('Core consumer projection authority', () => {
         markdown: '# copied',
         ast: {
           root: {
-            children: [{
-              kind: 'paragraph',
-              children: [{
-                kind: 'text',
-                attributes: { semanticText: '# copied' }
-              }]
-            }]
+            children: [
+              {
+                kind: 'paragraph',
+                children: [
+                  {
+                    kind: 'text',
+                    attributes: { semanticText: '# copied' }
+                  }
+                ]
+              }
+            ]
           }
         }
       }
@@ -198,15 +224,19 @@ describe('Core consumer projection authority', () => {
 
   it('transports one selection projection through the acknowledged editor binding', async() => {
     const binding = createEditorCoreBinding(inMemoryPort())
-    await expect(binding.open({
-      documentId: 'selection.md',
-      source: 'before {++**new**++} after\n'
-    })).resolves.toMatchObject({ type: 'opened', revision: 1 })
+    await expect(
+      binding.open({
+        documentId: 'selection.md',
+        source: 'before {++**new**++} after\n'
+      })
+    ).resolves.toMatchObject({ type: 'opened', revision: 1 })
 
-    await expect(binding.selectionProjectionAtBarrier({
-      start: 7,
-      end: 20
-    })).resolves.toMatchObject({
+    await expect(
+      binding.selectionProjectionAtBarrier({
+        start: 7,
+        end: 20
+      })
+    ).resolves.toMatchObject({
       type: 'selection-projection',
       revision: 1,
       projection: {
@@ -231,10 +261,12 @@ describe('Core consumer projection authority', () => {
       session: 44,
       sequence: 2,
       baseRevision: 1,
-      replacements: [{
-        match: { path: [0], start: 6, end: 9, match: 'cat' },
-        insert: 'dog'
-      }],
+      replacements: [
+        {
+          match: { path: [0], start: 6, end: 9, match: 'cat' },
+          insert: 'dog'
+        }
+      ],
       projections: []
     })
 
@@ -243,12 +275,14 @@ describe('Core consumer projection authority', () => {
       revision: 2,
       sourceLength: 18
     })
-    expect(actor.handle({
-      type: 'source-at-barrier',
-      session: 44,
-      sequence: 3,
-      baseRevision: 2
-    })).toMatchObject({ source: 'first dog and cat\n' })
+    expect(
+      actor.handle({
+        type: 'source-at-barrier',
+        session: 44,
+        sequence: 3,
+        baseRevision: 2
+      })
+    ).toMatchObject({ source: 'first dog and cat\n' })
     actor.dispose()
   })
 
@@ -256,15 +290,19 @@ describe('Core consumer projection authority', () => {
     const binding = createEditorCoreBinding(inMemoryPort())
     await binding.open({ documentId: 'replace.md', source: 'cat cat\n' })
 
-    await expect(binding.submit({
-      kind: 'replace-consumer-search',
-      authoredRevision: 1,
-      replacements: [{
-        match: { path: [0], start: 0, end: 3, match: 'cat' },
-        insert: 'dog'
-      }],
-      projections: []
-    }).acknowledged).resolves.toMatchObject({ type: 'applied', revision: 2 })
+    await expect(
+      binding.submit({
+        kind: 'replace-consumer-search',
+        authoredRevision: 1,
+        replacements: [
+          {
+            match: { path: [0], start: 0, end: 3, match: 'cat' },
+            insert: 'dog'
+          }
+        ],
+        projections: []
+      }).acknowledged
+    ).resolves.toMatchObject({ type: 'applied', revision: 2 })
     await expect(binding.sourceAtBarrier()).resolves.toMatchObject({
       source: 'dog cat\n'
     })
@@ -285,8 +323,7 @@ describe('Core consumer projection authority', () => {
 
     registry.publish('doc.md', { generation: 7, revision: 1 }, reply.projection)
 
-    expect(registry.read('doc.md', { generation: 7, revision: 1 }))
-      .toBe(reply.projection)
+    expect(registry.read('doc.md', { generation: 7, revision: 1 })).toBe(reply.projection)
     expect(registry.read('doc.md', { generation: 7, revision: 2 })).toBeUndefined()
     expect(registry.read('doc.md', { generation: 8, revision: 1 })).toBeUndefined()
     registry.retire('doc.md')
@@ -333,10 +370,12 @@ describe('Core consumer projection authority', () => {
       markdown: 'before **new** after\n'
     })
 
-    await expect(lease.selectionProjectionAtBarrier({
-      start: 7,
-      end: 20
-    })).resolves.toMatchObject({
+    await expect(
+      lease.selectionProjectionAtBarrier({
+        start: 7,
+        end: 20
+      })
+    ).resolves.toMatchObject({
       markdown: '**new**',
       ast: { root: { kind: 'document' } }
     })
@@ -359,20 +398,26 @@ describe('Core consumer projection authority', () => {
     await lease.consumerProjectionAtBarrier()
     const searchedIdentity = { ...lease.identity }
 
-    await expect(lease.replaceConsumerSearchAtBarrier(searchedIdentity, [{
-      match: { path: [0], start: 0, end: 3, match: 'cat' },
-      insert: 'dog'
-    }])).resolves.toMatchObject({ type: 'applied', revision: 2 })
+    await expect(
+      lease.replaceConsumerSearchAtBarrier(searchedIdentity, [
+        {
+          match: { path: [0], start: 0, end: 3, match: 'cat' },
+          insert: 'dog'
+        }
+      ])
+    ).resolves.toMatchObject({ type: 'applied', revision: 2 })
     expect(lease.consumerProjection()).toBeUndefined()
     await expect(manager.saveBarrier('replace-lease.md')).resolves.toMatchObject({
       source: 'dog cat\n',
       identity: { revision: 2 }
     })
 
-    await expect(lease.binding.submit({
-      kind: 'undo',
-      projections: []
-    }).acknowledged).resolves.toMatchObject({ type: 'applied', revision: 3 })
+    await expect(
+      lease.binding.submit({
+        kind: 'undo',
+        projections: []
+      }).acknowledged
+    ).resolves.toMatchObject({ type: 'applied', revision: 3 })
     await expect(manager.saveBarrier('replace-lease.md')).resolves.toMatchObject({
       source: 'cat cat\n'
     })
@@ -395,20 +440,53 @@ describe('Core consumer projection authority', () => {
     const result = searchProjectedDocument(projection, '(cat)-(\\d+)', {
       isRegexp: true
     })
-    const replacements = createProjectedSearchReplacementPlan(
-      result,
-      '$2:$1',
-      { isSingle: false, isRegexp: true }
-    )
+    const replacements = createProjectedSearchReplacementPlan(result, '$2:$1', {
+      isSingle: false,
+      isRegexp: true
+    })
     if (replacements === undefined) throw new Error('Expected replacement plan')
 
-    await expect(lease.replaceConsumerSearchAtBarrier(identity, replacements))
-      .resolves.toMatchObject({ type: 'applied', revision: 2 })
+    await expect(
+      lease.replaceConsumerSearchAtBarrier(identity, replacements)
+    ).resolves.toMatchObject({ type: 'applied', revision: 2 })
     await expect(manager.saveBarrier('replace-all.md')).resolves.toMatchObject({
       source: '12:cat 34:cat\n'
     })
     await manager.handoff(lease)
     await manager.close('replace-all.md')
+  })
+
+  it('replaces escaped-hyphen regex captures through Core and restores exact annotations with one undo', async() => {
+    const source = '{++cat-12++} cat-34\n'
+    const manager = createCoreDocumentSessionManager({
+      createBinding: () => createEditorCoreBinding(inMemoryPort())
+    })
+    await manager.open({ documentId: 'escaped-query.md', source, lineEnding: '\n' })
+    const lease = manager.lease('escaped-query.md')
+    try {
+      const projection = await lease.consumerProjectionAtBarrier()
+      const identity = { ...lease.identity }
+      const result = searchProjectedDocument(projection, '(cat)\\-(\\d+)', { isRegexp: true })
+      expect(result.matches.map((match) => match.match)).toEqual(['cat-12', 'cat-34'])
+      const replacements = createProjectedSearchReplacementPlan(result, '$2:$1', {
+        isSingle: false,
+        isRegexp: true
+      })
+      if (replacements === undefined) throw new Error('Expected two replacements')
+      await expect(
+        lease.replaceConsumerSearchAtBarrier(identity, replacements)
+      ).resolves.toMatchObject({ type: 'applied', revision: 2 })
+      await expect(manager.saveBarrier('escaped-query.md')).resolves.toMatchObject({
+        source: '{++12:cat++} 34:cat\n'
+      })
+      await expect(
+        lease.binding.submit({ kind: 'undo', projections: [] }).acknowledged
+      ).resolves.toMatchObject({ type: 'applied', revision: 3 })
+      await expect(manager.saveBarrier('escaped-query.md')).resolves.toMatchObject({ source })
+    } finally {
+      await manager.handoff(lease)
+      await manager.close('escaped-query.md')
+    }
   })
 
   it('atomically replaces every visible Revised match across block shapes', async() => {
@@ -432,11 +510,10 @@ describe('Core consumer projection authority', () => {
     const projection = await lease.consumerProjectionAtBarrier()
     const identity = { ...lease.identity }
     const result = searchProjectedDocument(projection, 'cat')
-    const replacements = createProjectedSearchReplacementPlan(
-      result,
-      'dog',
-      { isSingle: false, isRegexp: false }
-    )
+    const replacements = createProjectedSearchReplacementPlan(result, 'dog', {
+      isSingle: false,
+      isRegexp: false
+    })
     if (replacements === undefined) throw new Error('Expected replacement plan')
 
     expect(result.matches).toHaveLength(5)
@@ -454,21 +531,25 @@ describe('Core consumer projection authority', () => {
         sequence: 2,
         baseRevision: 1
       })
-      expect(actor.handle({
-        type: 'replace-consumer-search',
-        session: index + 20,
-        sequence: 3,
-        baseRevision: 1,
-        replacements: [replacement],
-        projections: []
-      }), `replacement ${index}: ${JSON.stringify(replacement)}`)
-        .toMatchObject({ type: 'applied', revision: 2 })
+      expect(
+        actor.handle({
+          type: 'replace-consumer-search',
+          session: index + 20,
+          sequence: 3,
+          baseRevision: 1,
+          replacements: [replacement],
+          projections: []
+        }),
+        `replacement ${index}: ${JSON.stringify(replacement)}`
+      ).toMatchObject({ type: 'applied', revision: 2 })
       actor.dispose()
     }
-    await expect(lease.replaceConsumerSearchAtBarrier(identity, replacements))
-      .resolves.toMatchObject({ type: 'applied', revision: 2 })
-    await expect(manager.saveBarrier('replace-visible-revised.md'))
-      .resolves.toMatchObject({ source: expected })
+    await expect(
+      lease.replaceConsumerSearchAtBarrier(identity, replacements)
+    ).resolves.toMatchObject({ type: 'applied', revision: 2 })
+    await expect(manager.saveBarrier('replace-visible-revised.md')).resolves.toMatchObject({
+      source: expected
+    })
     await manager.handoff(lease)
     await manager.close('replace-visible-revised.md')
   })
@@ -491,27 +572,30 @@ describe('Core consumer projection authority', () => {
       throw new Error('Expected consumer projection')
     }
     const result = searchProjectedDocument(projectionReply.projection, 'cat')
-    const replacements = createProjectedSearchReplacementPlan(
-      result,
-      'dog',
-      { isSingle: false, isRegexp: false }
-    )
+    const replacements = createProjectedSearchReplacementPlan(result, 'dog', {
+      isSingle: false,
+      isRegexp: false
+    })
     if (replacements === undefined) throw new Error('Expected replacement plan')
 
-    expect(actor.handle({
-      type: 'replace-consumer-search',
-      session: 45,
-      sequence: 3,
-      baseRevision: 1,
-      replacements,
-      projections: []
-    })).toMatchObject({ type: 'applied', revision: 2 })
-    expect(actor.handle({
-      type: 'source-at-barrier',
-      session: 45,
-      sequence: 4,
-      baseRevision: 2
-    })).toMatchObject({ source: '**dog** and {~~old~>dog~~}\n' })
+    expect(
+      actor.handle({
+        type: 'replace-consumer-search',
+        session: 45,
+        sequence: 3,
+        baseRevision: 1,
+        replacements,
+        projections: []
+      })
+    ).toMatchObject({ type: 'applied', revision: 2 })
+    expect(
+      actor.handle({
+        type: 'source-at-barrier',
+        session: 45,
+        sequence: 4,
+        baseRevision: 2
+      })
+    ).toMatchObject({ source: '**dog** and {~~old~>dog~~}\n' })
     actor.dispose()
   })
 
@@ -528,31 +612,37 @@ describe('Core consumer projection authority', () => {
     const projection = await lease.consumerProjectionAtBarrier()
     const identity = { ...lease.identity }
     const crossing = searchProjectedDocument(projection, 'cat dog')
-    const unsupported = createProjectedSearchReplacementPlan(
-      crossing,
-      'pet',
-      { isSingle: true, isRegexp: false }
-    )
+    const unsupported = createProjectedSearchReplacementPlan(crossing, 'pet', {
+      isSingle: true,
+      isRegexp: false
+    })
     if (unsupported === undefined) throw new Error('Expected unsupported plan')
-    await expect(lease.replaceConsumerSearchAtBarrier(identity, unsupported))
-      .resolves.toMatchObject({
-        type: 'rejected',
-        reason: 'consumer-search-match-invalid',
-        revision: 1
-      })
+    await expect(
+      lease.replaceConsumerSearchAtBarrier(identity, unsupported)
+    ).resolves.toMatchObject({
+      type: 'rejected',
+      reason: 'consumer-search-match-invalid',
+      revision: 1
+    })
     await expect(manager.saveBarrier('replace-reject.md')).resolves.toMatchObject({
       source: '**cat** dog\n',
       identity: { revision: 1 }
     })
 
-    await expect(lease.binding.submit({
-      edits: [{ start: 11, end: 11, insert: '!' }],
-      projections: []
-    }).acknowledged).resolves.toMatchObject({ type: 'applied', revision: 2 })
-    await expect(lease.replaceConsumerSearchAtBarrier(identity, [{
-      match: { path: [0], start: 0, end: 3, match: 'cat' },
-      insert: 'fox'
-    }])).resolves.toMatchObject({
+    await expect(
+      lease.binding.submit({
+        edits: [{ start: 11, end: 11, insert: '!' }],
+        projections: []
+      }).acknowledged
+    ).resolves.toMatchObject({ type: 'applied', revision: 2 })
+    await expect(
+      lease.replaceConsumerSearchAtBarrier(identity, [
+        {
+          match: { path: [0], start: 0, end: 3, match: 'cat' },
+          insert: 'fox'
+        }
+      ])
+    ).resolves.toMatchObject({
       type: 'rejected',
       reason: 'stale-base',
       revision: 2
@@ -576,13 +666,14 @@ describe('Core consumer projection authority', () => {
     })
     const oldLease = manager.lease('replace-recover.md')
     await oldLease.consumerProjectionAtBarrier()
-    await expect(oldLease.replaceConsumerSearchAtBarrier(
-      { ...oldLease.identity },
-      [{
-        match: { path: [0], start: 0, end: 3, match: 'cat' },
-        insert: 'dog'
-      }]
-    )).resolves.toMatchObject({ type: 'applied', revision: 2 })
+    await expect(
+      oldLease.replaceConsumerSearchAtBarrier({ ...oldLease.identity }, [
+        {
+          match: { path: [0], start: 0, end: 3, match: 'cat' },
+          insert: 'dog'
+        }
+      ])
+    ).resolves.toMatchObject({ type: 'applied', revision: 2 })
 
     oldLease.faultView(new Error('replace presentation requires recovery'))
     const replacement = await manager.recover(oldLease)
@@ -590,10 +681,12 @@ describe('Core consumer projection authority', () => {
       source: 'dog\n',
       identity: { revision: 2 }
     })
-    await expect(replacement.binding.submit({
-      kind: 'undo',
-      projections: []
-    }).acknowledged).resolves.toMatchObject({ type: 'applied', revision: 3 })
+    await expect(
+      replacement.binding.submit({
+        kind: 'undo',
+        projections: []
+      }).acknowledged
+    ).resolves.toMatchObject({ type: 'applied', revision: 3 })
     await expect(manager.saveBarrier('replace-recover.md')).resolves.toMatchObject({
       source: 'cat\n'
     })
