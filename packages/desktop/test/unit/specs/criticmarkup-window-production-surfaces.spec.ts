@@ -17,11 +17,7 @@ vi.mock('main_renderer/config', () => ({
 }))
 vi.mock('main_renderer/i18n', () => ({ t: (key: string) => key }))
 
-import {
-  COMMANDS,
-  CommandManager,
-  type CommandCallback
-} from 'main_renderer/commands'
+import { COMMANDS, CommandManager, type CommandCallback } from 'main_renderer/commands'
 import { loadWindowCommands } from 'main_renderer/menu/actions/window'
 import windowMenuTemplate from 'main_renderer/menu/templates/window'
 
@@ -50,9 +46,7 @@ type ExpectedEffect = Readonly<{
   setFullScreen: readonly unknown[][]
 }>
 
-const expectedEffect = (
-  effect: Partial<ExpectedEffect>
-): ExpectedEffect => ({
+const expectedEffect = (effect: Partial<ExpectedEffect>): ExpectedEffect => ({
   emit: [],
   minimize: [],
   responder: [],
@@ -91,6 +85,13 @@ const pairedSurfaces = [
     effect: expectedEffect({ send: [['mt::window-zoom', 1.125]] })
   },
   {
+    commandItemId: 'command:window.resetZoom',
+    commandId: COMMANDS.WINDOW_ZOOM_RESET,
+    menuItemId: 'menu-entry:menu.window.resetZoom',
+    menuLabel: 'menu.window.resetZoom',
+    effect: expectedEffect({ send: [['mt::window-zoom', 1]] })
+  },
+  {
     commandItemId: 'command:window.zoomOut',
     commandId: COMMANDS.WINDOW_ZOOM_OUT,
     menuItemId: 'menu-entry:menu.window.zoomOut',
@@ -116,7 +117,7 @@ const observedEffect = (): ExpectedEffect => ({
 })
 
 const clickWindowMenu = (label: string): void => {
-  const item = submenu.find(candidate => candidate.label === label)
+  const item = submenu.find((candidate) => candidate.label === label)
   if (typeof item?.click !== 'function') {
     throw new Error(`Window menu item ${label} requires a click callback`)
   }
@@ -138,7 +139,7 @@ describe('CriticMarkup Window production surfaces', () => {
   })
 
   afterAll(() => {
-    registeredCommandIds.forEach(id => {
+    registeredCommandIds.forEach((id) => {
       if (!CommandManager.remove(id)) {
         throw new Error(`Registered command disappeared before cleanup: ${id}`)
       }
@@ -160,12 +161,11 @@ describe('CriticMarkup Window production surfaces', () => {
   it('routes Bring All to Front and exposes the Window root menu', () => {
     resetEffects()
     clickWindowMenu('menu.window.bringAllToFront')
-    expect(
-      observedEffect(),
-      'menu-entry:menu.window.bringAllToFront'
-    ).toEqual(expectedEffect({ responder: [['arrangeInFront:']] }))
+    expect(observedEffect(), 'menu-entry:menu.window.bringAllToFront').toEqual(
+      expectedEffect({ responder: [['arrangeInFront:']] })
+    )
 
     expect(windowMenu.label, 'menu-entry:menu.window.title').toBe('menu.window.title')
-    expect(submenu.filter(item => typeof item.click === 'function')).toHaveLength(6)
+    expect(submenu.filter((item) => typeof item.click === 'function')).toHaveLength(7)
   })
 })
