@@ -196,7 +196,8 @@ test.describe('Core structural and editorial compatibility', () => {
       for (const kind of ['addition', 'deletion', 'substitution', 'highlight', 'comment']) {
         await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', kind)
         if (kind === 'comment') {
-          await expect(page.getByTestId('critic-review-comment-text')).toHaveText('note')
+          const entry = page.getByTestId('critic-review-entry').filter({ has: page.getByTestId('critic-review-kind') })
+          await expect(entry.getByRole('region', { name: 'Comment', exact: true })).toHaveText('note')
         } else {
           await page.getByTestId('critic-review-next').click()
         }
