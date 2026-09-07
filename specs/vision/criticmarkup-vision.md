@@ -17,6 +17,11 @@ standard Markdown plus the five CriticMarkup forms, other CriticMarkup-aware too
 retain and expose the same markers. MarkText documents its behavior where the ecosystem
 does not define one common semantic answer.
 
+Comments, suggestions, and highlights must feel as though MarkText was built with them
+from the beginning. Language-engine integration and native MarkText UI integration are
+equal parts of this promise. Rendering the markers correctly or providing a separate
+review interface does not fulfill it.
+
 ## The five forms, exactly
 
 We implement the canonical CriticMarkup forms and nothing else:
@@ -63,9 +68,37 @@ Two things keep "100% CriticMarkup" honest against the canonical toolkit:
    in the WYSIWYG surface — not only in a source pane. A tracked change looks like a tracked
    change while you write around it.
 
-5. **Instant.** Typing has no perceptible lag. Ordinary edits reuse unchanged work, update
+5. **Native throughout MarkText.** Extend the existing editor, sidebar, selection tools,
+   menus, commands, and history with comments, suggestions, and highlights. Follow
+   MarkText's visual language, interaction conventions, and platform behavior. The user
+   should keep working in the editor they already know.
+
+6. **Instant.** Typing has no perceptible lag. Ordinary edits reuse unchanged work, update
    only affected presentation, and are measured from browser input through visible paint
    and authoritative acknowledgement.
+
+## What native integration means
+
+“Native” means part of MarkText's existing product experience, including its macOS
+conventions; it does not prescribe a replacement UI toolkit. These are required user
+outcomes for CM1, not optional polish after the engine is complete.
+
+| Existing surface | Required CriticMarkup experience |
+| --- | --- |
+| Left sidebar | A **Comments and Suggestions** tab sits alongside Files, Search, and Table of Contents. It includes standalone highlights as well as suggestions and comments, with recognizable text and visible comment bodies. It uses the existing sidebar's opening, switching, resizing, and theme behavior. A second right-hand review panel is not the product design. |
+| Document and selection tools | Suggestions and highlights are visible and remain editable in context. Selecting text exposes relevant authoring actions through the existing selection tools and context menu. Standalone comments have a discoverable location without exposing their hidden payload as ordinary document text. Working with annotations preserves normal caret, selection, typing, and formatting behavior. |
+| Menus, commands, and keyboard | Relevant authoring, tracking, review, and display actions participate in MarkText's existing menus, command discovery, and keyboard conventions. Enabled and selected states reflect the current document, selection, and mode. A separate strip of review buttons is not the only way to use the feature. |
+| Review and comment editing | Selecting an entry reveals its document target; selecting an annotation keeps the sidebar's active item consistent. Previous/Next navigate identifiable items, and actions make their target clear. Comments are readable and editable in the normal sidebar flow. Accept/reject apply to suggestions; standalone highlights and comments have appropriate removal actions. Passive caret movement does not unexpectedly open panels or steal focus. |
+| View modes and document lifecycle | Markup is the editable document. Original and Revised show a single, clearly identified read-only projection of that same document. Switching modes never overlaps views or changes source. Authoring and resolution participate in ordinary undo/redo, Source handoff, save/reopen, tab isolation, and recovery. |
+| Presentation and accessibility | Reuse MarkText's typography, spacing, icons, controls, themes, focus treatment, and localization conventions. Mouse and keyboard users can discover and operate the same actions. Sidebar visibility, narrow windows, scrolling, and focus/typewriter modes remain coherent. |
+
+Verify this through a complete editorial pass in the normal installed Mac app: open an
+annotated document, find its comments, select text and add a comment or suggestion,
+mark a highlight, navigate and resolve items, undo and redo, compare Original/Revised,
+then save and reopen. Use the actual menus, selection tools, sidebar, and keyboard
+interactions, and inspect the rendered result. Engine tests and command-routing tests
+alone cannot establish this experience. Make macOS work first; retain the other
+platform requirements in plan 0011.
 
 ## Who suggests
 
@@ -132,5 +165,6 @@ defines target behavior.
 ## North star
 
 Run a complete editorial pass — receive suggestions and comments, weigh them, accept or
-reject each — entirely in WYSIWYG, with zero perceptible lag, and save a byte-exact document
+reject each — through MarkText’s familiar WYSIWYG editor and native UI, with zero perceptible lag,
+and save a byte-exact document
 that is nothing but standard Markdown and CriticMarkup any other tool can open.

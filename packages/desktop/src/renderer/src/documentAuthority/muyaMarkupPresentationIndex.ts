@@ -3,6 +3,7 @@ import type { IInlinePresentationContext } from '@muyajs/core'
 import { renderMuyaMarkupBinding } from './muyaMarkupPresentation'
 import type {
   MuyaMarkupBinding,
+  MuyaMarkupComment,
   MuyaMarkupDecoration,
   MuyaMarkupPath,
   MuyaMarkupView
@@ -19,6 +20,7 @@ type Highlights = NonNullable<IInlinePresentationContext['highlights']>
 interface Entry {
   readonly binding: MuyaMarkupBinding
   readonly decorations: readonly MuyaMarkupDecoration[]
+  readonly comments: readonly MuyaMarkupComment[]
   readonly hasImage: boolean
   rendered?: { readonly text: string, readonly html: string, readonly highlights: Highlights }
 }
@@ -73,6 +75,7 @@ const samePresentation = (before: Entry, after: Entry): boolean => {
   const left = before.binding
   const right = after.binding
   if (left.text !== right.text || before.decorations.length !== after.decorations.length ||
+      before.comments.length !== after.comments.length ||
       left.segments.length !== right.segments.length) return false
   for (let index = 0; index < left.segments.length; index += 1) {
     const a = left.segments[index]
@@ -87,6 +90,13 @@ const samePresentation = (before: Entry, after: Entry): boolean => {
     if (a.range.start !== b.range.start || a.range.end !== b.range.end || a.mark.kind !== b.mark.kind ||
         (a.mark.kind === 'substitution' && (b.mark.kind !== 'substitution' || a.mark.arm !== b.mark.arm))) return false
   }
+  for (let index = 0; index < before.comments.length; index += 1) {
+    const a = before.comments[index]
+    const b = after.comments[index]
+    if (a.offset !== b.offset ||
+        a.annotationRange.start - left.sourceRange.start !== b.annotationRange.start - right.sourceRange.start ||
+        a.annotationRange.end - left.sourceRange.start !== b.annotationRange.end - right.sourceRange.start) return false
+  }
   return sameSyntax(left.syntax, right.syntax)
 }
 
@@ -96,7 +106,7 @@ const samePresentation = (before: Entry, after: Entry): boolean => {
  * Comparison ignores uniform coordinate shifts and never serializes an AST.
  */
 export function createMuyaMarkupPresentationIndex(
-  view: Pick<MuyaMarkupView, 'bindings' | 'decorations'>,
+  view: Pick<MuyaMarkupView, 'bindings' | 'decorations' | 'comments'>,
   previous?: MuyaMarkupPresentationIndex,
   renderer: Renderer = renderMuyaMarkupBinding
 ): MuyaMarkupPresentationIndex {
@@ -109,11 +119,23 @@ export function createMuyaMarkupPresentationIndex(
     if (group === undefined) decorations.set(key, [decoration])
     else group.push(decoration)
   }
+  const comments = new Map<string, MuyaMarkupComment[]>()
+  for (const comment of view.comments) {
+    const key = pathKey(comment.path)
+    const group = comments.get(key)
+    if (group === undefined) comments.set(key, [comment])
+    else group.push(comment)
+  }
   const entries = new Map<string, Entry>()
   const changedPaths: MuyaMarkupPath[] = []
   for (const binding of view.bindings) {
     const key = pathKey(binding.path)
-    const entry: Entry = { binding, decorations: decorations.get(key) ?? [], hasImage: hasImage(binding.syntax) }
+    const entry: Entry = {
+      binding,
+      decorations: decorations.get(key) ?? [],
+      comments: comments.get(key) ?? [],
+      hasImage: hasImage(binding.syntax)
+    }
     const retained = before?.get(key)
     if (retained !== undefined && samePresentation(retained, entry)) {
       entry.rendered = retained.rendered
@@ -136,9 +158,7 @@ export function createMuyaMarkupPresentationIndex(
       if (!entry.hasImage && cached?.text === text && cached.highlights.length === highlights.length &&
           cached.highlights.every((previous, index) => previous.start === highlights[index].start &&
             previous.end === highlights[index].end && previous.active === highlights[index].active)) return cached.html
-      const html = context === undefined
-        ? renderer(entry.binding, entry.decorations, text)
-        : renderer(entry.binding, entry.decorations, text, context)
+      const html = renderer(entry.binding, entry.decorations, text, context, entry.comments)
       entry.rendered = { text, html, highlights: highlights.map(highlight => ({ ...highlight })) }
       return html
     }

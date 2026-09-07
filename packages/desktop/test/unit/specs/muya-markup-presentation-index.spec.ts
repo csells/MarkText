@@ -6,6 +6,43 @@ import { renderMuyaMarkupBinding } from '@/documentAuthority/muyaMarkupPresentat
 import { createMuyaMarkupPresentationIndex } from '@/documentAuthority/muyaMarkupPresentationIndex'
 
 describe('Muya Markup presentation index', () => {
+  it('retains a shifted comment leaf but refreshes changed comment locations and annotation extents', () => {
+    const core = createDocumentCore()
+    const renderer = vi.fn(renderMuyaMarkupBinding)
+    const first = core.open('first\n\na{>>note<<}b')
+    const view = createMuyaMarkupView(core.project(first, 'markup'), first.annotations)
+    const previous = createMuyaMarkupPresentationIndex(view, undefined, renderer)
+    const html = previous.render([1, 'text'], 'ab')
+    const host = document.createElement('div')
+    host.innerHTML = html ?? ''
+    expect(host.querySelector('[data-critic-kind="comment"]')?.getAttribute('data-critic-start')).toBe('1')
+
+    const shifted = core.open('first expanded\n\na{>>note<<}b')
+    const shiftedView = createMuyaMarkupView(core.project(shifted, 'markup'), shifted.annotations)
+    const retained = createMuyaMarkupPresentationIndex(shiftedView, previous, renderer)
+    expect(retained.changedPaths).toEqual([[0, 'text']])
+    expect(retained.render([1, 'text'], 'ab')).toBe(html)
+    expect(renderer).toHaveBeenCalledTimes(1)
+
+    const edited = core.open('first expanded\n\nab{>>longer note<<}')
+    const editedView = createMuyaMarkupView(core.project(edited, 'markup'), edited.annotations)
+    const updated = createMuyaMarkupPresentationIndex(editedView, retained, renderer)
+    expect(updated.changedPaths).toEqual([[1, 'text']])
+    host.innerHTML = updated.render([1, 'text'], 'ab') ?? ''
+    const marker = host.querySelector('[data-critic-kind="comment"]')
+    expect(marker?.getAttribute('data-critic-start')).toBe('2')
+    expect(marker?.getAttribute('data-critic-end')).toBe('19')
+    expect(marker?.previousSibling?.textContent).toBe('ab')
+    expect(host.textContent).toBe('ab')
+    expect(renderer).toHaveBeenCalledTimes(2)
+
+    const removed = core.open('first expanded\n\nab')
+    const removedView = createMuyaMarkupView(core.project(removed, 'markup'), removed.annotations)
+    const cleared = createMuyaMarkupPresentationIndex(removedView, updated, renderer)
+    expect(cleared.changedPaths).toEqual([[1, 'text']])
+    expect(cleared.render([1, 'text'], 'ab')).toBe('ab')
+  })
+
   it('updates and clears search highlights without changing raw text or reusing stale cached HTML', () => {
     const core = createDocumentCore()
     const revision = core.open('{--old--}{++**new**++}')

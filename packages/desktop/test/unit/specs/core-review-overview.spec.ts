@@ -52,3 +52,31 @@ it('carries the overview through the document view lease without bypassing its o
     await sessions.close('margin')
   }
 })
+
+it('provides source-owned excerpts for every suggestion and standalone highlight in the sidebar', () => {
+  const actor = createCoreActor()
+  const source = '{++New++} {--Old--} {~~Before~>After~~} {==Important==}\n'
+  try {
+    const opened = actor.handle({ type: 'open', session: 1, sequence: 1, source })
+    const reply = actor.handle({
+      type: 'review-item-at-barrier',
+      session: 1,
+      sequence: 2,
+      baseRevision: opened.revision,
+      direction: 'next',
+      from: 0,
+      includeOverview: true
+    }) as CoreReviewItemReply
+    expect(reply.overview?.map(entry => ({
+      kind: entry.item.kind, text: entry.text, replacementText: entry.replacementText
+    }))).toEqual([
+      { kind: 'addition', text: 'New', replacementText: undefined },
+      { kind: 'deletion', text: 'Old', replacementText: undefined },
+      { kind: 'substitution', text: 'Before', replacementText: 'After' },
+      { kind: 'highlight', text: 'Important', replacementText: undefined }
+    ])
+    expect(actor.handle({
+      type: 'source-at-barrier', session: 1, sequence: 3, baseRevision: opened.revision
+    })).toMatchObject({ source, revision: opened.revision })
+  } finally { actor.dispose() }
+})
