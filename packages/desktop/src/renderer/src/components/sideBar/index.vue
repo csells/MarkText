@@ -227,9 +227,23 @@ const handleLeftBottomClick = (name: string): void => {
 
 .review-panel {
   height: 100%;
-  overflow: auto;
-  padding: 38px 12px 16px;
+  overflow: hidden;
   box-sizing: border-box;
+}
+
+/* Shared presentation used by the existing tabs and Comments and Suggestions. */
+.side-bar :deep(.side-bar-title) {
+  color: var(--sideBarTitleColor);
+  font-weight: 600;
+  font-size: 16px;
+  margin: 37px 0 10px;
+  padding-left: 25px;
+  /* The title stays in place while the panel's own list scrolls (#5514). */
+  flex-shrink: 0;
+}
+
+.side-bar :deep(.side-bar-scroll)::-webkit-scrollbar:vertical {
+  width: 8px;
 }
 
 .drag-bar {

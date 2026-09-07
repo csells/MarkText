@@ -3,7 +3,7 @@
     class="side-bar-toc"
     :class="[{ 'side-bar-toc-overflow': !wordWrapInToc, 'side-bar-toc-wordwrap': wordWrapInToc }]"
   >
-    <div class="title">
+    <div class="title side-bar-title">
       {{ t('sideBar.toc.title') }}
     </div>
     <el-tree
@@ -127,15 +127,6 @@ const handleClick = (data: { slug?: unknown }): void => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-
-.side-bar-toc .title {
-  color: var(--sideBarTitleColor);
-  font-weight: 600;
-  font-size: 16px;
-  margin: 37px 0 10px 0;
-  padding-left: 25px;
-  flex-shrink: 0;
 }
 
 .side-bar-toc .el-tree-node {
