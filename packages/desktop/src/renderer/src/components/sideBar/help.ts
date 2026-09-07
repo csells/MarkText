@@ -31,7 +31,7 @@ export const sideBarIcons: SideBarIconEntry[] = [
   },
   {
     id: 'review',
-    name: () => t('editor.coreReview.panelTitle'),
+    name: () => t('editor.coreReview.sidebarTitle'),
     icon: ReviewIcon
   }
 ]

@@ -43,6 +43,8 @@ export interface IMuyaOptions {
     };
     json?: TState[];
     markdown?: string;
+    /** Host-owned commands evaluated against the current selection when the toolbar renders. */
+    inlineToolbarActions?: () => IInlineToolbarAction[];
     /**
      * Resolve the OS clipboard to a local file path on paste.
      *
@@ -87,6 +89,13 @@ export interface IMuyaOptions {
      * file into the document. Return `''` when no path is available.
      */
     getPathForFile?: (file: File) => string;
+}
+
+export interface IInlineToolbarAction {
+    id: string;
+    label: string;
+    enabled: boolean;
+    run: () => void;
 }
 
 /**

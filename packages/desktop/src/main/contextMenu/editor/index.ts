@@ -12,6 +12,7 @@ import {
   getInsertAfter
 } from './menuItems'
 import spellcheckMenuBuilder from './spellcheck'
+import { reviewMenuItems } from '../../menu/actions/review'
 import { t } from '../../i18n'
 import { isOsx } from '../../config'
 
@@ -110,6 +111,11 @@ export const showEditorContextMenu = (
       menu.append(new MenuItem(SEPARATOR))
     }
 
+    const authorItems = reviewMenuItems(undefined, win).filter(item =>
+      ['critic-show', 'critic-add-comment', 'critic-mark-highlight', 'critic-mark-addition', 'critic-suggest-replacement'].includes(item.id ?? '')
+    )
+    menu.append(new MenuItem({ label: t('editor.coreReview.panelTitle'), submenu: authorItems }))
+    menu.append(new MenuItem(SEPARATOR))
     const contextItems = getContextItems()
     const copyItemIds = new Set([
       'cutMenuItem',

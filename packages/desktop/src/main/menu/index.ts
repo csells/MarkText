@@ -1,10 +1,12 @@
 import fs from 'fs'
 import path from 'path'
-import { app, Menu, ipcMain, type BrowserWindow } from 'electron'
+import { app, Menu, ipcMain, BrowserWindow } from 'electron'
 import log from 'electron-log'
 import { ensureDirSync, isDirectory2, isFile2 } from 'common/filesystem'
 import { isLinux, isOsx, isWindows } from '../config'
 import { updateSidebarMenu } from '../menu/actions/edit'
+import { updateReviewMenu } from './actions/review'
+import type { ReviewCommandState } from 'common/commands/review'
 import { updateFormatMenu } from '../menu/actions/format'
 import { updateSelectionMenus, type SelectionState } from '../menu/actions/paragraph'
 import { onInternalChannel } from '../utils/internalIpc'
@@ -503,6 +505,10 @@ class AppMenu {
         viewLayoutChanged(this.getWindowMenuById(windowId), viewSettings)
       }
     )
+    ipcMain.on('mt::review-command-state', (event, state: ReviewCommandState) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (win && this.has(win.id)) updateReviewMenu(this.getWindowMenuById(win.id), win, state)
+    })
     ipcMain.on('mt::editor-selection-changed', (_e, windowId: number, changes: SelectionState) => {
       if (!this.has(windowId)) {
         log.error(`UpdateApplicationMenu: Cannot find window menu for window id ${windowId}.`)

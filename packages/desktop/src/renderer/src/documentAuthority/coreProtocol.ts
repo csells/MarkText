@@ -288,6 +288,8 @@ export type CoreSelectionProjectionReply = Readonly<{
   readonly projection: CoreConsumerProjection
 }>
 export type CoreReviewOverviewEntry = Readonly<{
+  readonly text?: string
+  readonly replacementText?: string
   readonly item: CoreReviewItemLocator
   readonly commentText?: string
   readonly commentProjection?: Readonly<{ readonly ast: MarkdownAst }>

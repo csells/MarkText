@@ -951,6 +951,7 @@
     },
     "coreReview": {
       "panelTitle": "Review",
+      "sidebarTitle": "Comments and Suggestions",
       "viewHelp": "About these views",
       "selectionHint": "Select text in the document to mark or comment on it.",
       "empty": "No changes or comments in this document.",
@@ -973,6 +974,7 @@
       "reject": "Reject",
       "acceptAll": "Accept all",
       "rejectAll": "Reject all",
+      "removeAnnotation": "Remove comment or highlight",
       "removeHighlight": "Remove highlight",
       "removeComment": "Remove comment",
       "editComment": "Edit comment",

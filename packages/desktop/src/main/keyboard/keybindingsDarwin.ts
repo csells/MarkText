@@ -1,3 +1,5 @@
+import { reviewCommands } from 'common/commands/review'
+
 // Key bindings for macOS.
 
 // NOTE: Avoid pure `Option` aka `Alt` shortcuts on macOS because these are used to produce alternative characters on all letters and digits.
@@ -81,6 +83,10 @@ const keybindings: Map<string, string> = new Map([
   ['format.hyperlink', 'Command+L'],
   ['format.image', 'Command+Shift+I'],
   ['format.clear-format', 'Shift+Command+R'],
+
+  // Review uses the same command registry as menus and the command palette.
+  ...reviewCommands.map(command => [`review.${command.id}`, ''] as [string, string]),
+  ['review.add-comment', 'Command+Alt+Shift+M'],
 
   // Window menu
   ['window.minimize', 'Command+M'],

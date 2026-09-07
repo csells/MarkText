@@ -35,6 +35,9 @@ export const useListenForMainStore = defineStore('listenForMain', () => {
   }
 
   function LISTEN_FOR_PARAGRAPH_INLINE_STYLE(): void {
+    window.electron.ipcRenderer.on('mt::editor-review-action', (_e, command) => {
+      bus.emit('review-command', command)
+    })
     // Pre-migration JS destructured `{ type }` and re-emitted it without a
     // guard. Restore the same shape; bus listeners that expect a payload get
     // the same `type` value (string at runtime per main process emitters).
