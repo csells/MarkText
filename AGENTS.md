@@ -181,7 +181,8 @@ All platform build scripts automatically run `minify-locales` and `electron-rebu
 ```bash
 pnpm run test          # All unit tests (Vitest)
 pnpm run test:unit     # Unit tests only
-pnpm run test:e2e      # End-to-end tests (Playwright)
+pnpm run test:e2e      # Unpacked E2E project, with serial execution and global setup
+pnpm run test:e2e:installed # Installed project; requires MARKTEXT_PACKAGED_APP and MARKTEXT_EXPECTED_COMMIT
 pnpm run lint          # ESLint (run before committing; CI enforces)
 pnpm run typecheck     # vue-tsc --noEmit (CI enforces)
 
@@ -194,6 +195,9 @@ pnpm -C packages/desktop exec vitest run -t 'partial test name'
 # is picked up automatically — run these from that package, not the repo root)
 pnpm -C packages/desktop exec playwright test test/e2e/launch.spec.ts
 pnpm -C packages/desktop exec playwright test -g 'partial test name'
+# The same through the root proxy, restricted to the unpacked project:
+pnpm test:e2e launch.spec.ts
+pnpm test:e2e -g 'partial test name'
 ```
 
 ## Code Style

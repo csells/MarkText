@@ -203,6 +203,11 @@ const handleLeftBottomClick = (name: string): void => {
   cursor: pointer;
 }
 
+.left-column ul > li:focus-visible {
+  outline: 2px solid var(--themeColor);
+  outline-offset: -4px;
+}
+
 .left-column ul > li > svg {
   width: 18px;
   height: 18px;

@@ -27,6 +27,11 @@ const INLINE_MATH_TYPES = new Set<string>([
 // The openers that carry display rather than inline math.
 const DISPLAY_MATH_MARKERS = new Set(['$$', '\\[', '\\\\[']);
 
+/** Render already-recognized math using the same engine and chemistry support as MarkText. */
+export function renderMath(text: string, options: { displayMode?: boolean; throwOnError?: boolean } = {}): string {
+    return katex.renderToString(text, options);
+}
+
 export interface IMathToken {
     type: TInlineMathType | 'multiplemath';
     raw: string;
@@ -194,7 +199,7 @@ function createRenderer(options: IOptions, newlineAfter: boolean) {
         const { type, text, displayMode, marker = '$', closeMarker = marker, mathStyle } = token;
         if (useKatexRender) {
             return (
-                katex.renderToString(text, {
+                renderMath(text, {
                     ...otherOpts,
                     displayMode,
                 }) + (newlineAfter ? '\n' : '')

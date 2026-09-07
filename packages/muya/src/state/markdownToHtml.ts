@@ -40,8 +40,17 @@ const SOFT_NEWLINE_AS_SPACE_OVERRIDE = `
 
 export class MarkdownToHtml {
     private _exportContainer: HTMLDivElement | null = null;
+    private _html: string | undefined;
+    private _preview = false;
 
     constructor(public markdown: string, private _muya?: Muya) {}
+
+    /** Use already-interpreted HTML while retaining sanitization, media processing and the export shell. */
+    static fromHtml(html: string, muya?: Muya): MarkdownToHtml {
+        const renderer = new MarkdownToHtml('', muya);
+        renderer._html = html;
+        return renderer;
+    }
 
     private async _renderMermaid() {
         const codes = this._exportContainer!.querySelectorAll(
@@ -69,7 +78,7 @@ export class MarkdownToHtml {
         mermaid.initialize({
             startOnLoad: false,
             securityLevel: 'strict',
-            theme: 'default',
+            theme: this._preview ? (this._muya?.options.mermaidTheme ?? 'default') : 'default',
         });
         // Render each diagram in isolation: `mermaid.run` rejects the whole
         // batch on the first parse error, so one invalid diagram used to abort
@@ -121,7 +130,7 @@ export class MarkdownToHtml {
                     actions: false,
                     tooltip: false,
                     renderer: 'svg',
-                    theme: 'latimes', // only render light theme
+                    theme: this._preview ? (this._muya?.options.vegaTheme ?? 'latimes') : 'latimes',
                     // Parse the spec to an AST and evaluate expressions with the
                     // interpreter instead of compiling them via `new Function`,
                     // which the sandboxed renderer's CSP blocks (`unsafe-eval`
@@ -191,9 +200,10 @@ export class MarkdownToHtml {
     }
 
     // render pure html by marked
-    async renderHtml() {
+    async renderHtml({ preview = false }: { preview?: boolean } = {}) {
+        this._preview = preview;
         const footnote = this._muya?.options?.footnote ?? false;
-        let html = getHighlightHtml(this.markdown, {
+        let html = this._html ?? getHighlightHtml(this.markdown, {
             superSubScript: this._muya?.options?.superSubScript ?? true,
             footnote,
             texMathGfm: this._muya?.options?.texMathGfm ?? false,
@@ -209,7 +219,7 @@ export class MarkdownToHtml {
         // numbered <sup> refs + bottom <section class="footnotes"> with
         // backrefs). Must run before DOMPurify strips the `data-identifier`
         // marker the marked footnote extension emits.
-        if (footnote)
+        if (footnote && this._html === undefined)
             html = transformFootnotes(html);
 
         html = sanitize(html, EXPORT_DOMPURIFY_CONFIG, false) as string;
@@ -218,6 +228,10 @@ export class MarkdownToHtml {
             = document.createElement('div'));
         exportContainer.classList.add('mu-render-container');
         exportContainer.innerHTML = html;
+        // Media engines need a connected layout surface; temporary export or
+        // preview work must not appear in or intercept the editor UI.
+        exportContainer.style.cssText = 'position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none';
+        exportContainer.setAttribute('aria-hidden', 'true');
         document.body.appendChild(exportContainer);
 
         let result: string;
