@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import {
   enterSourceMode, exitSourceMode, expectEditorNotFrontmost, expectEditorWindowHidden,
-  expectNoRendererErrors, launchWithMarkdown, sendIpcToRenderer
+  expectNoRendererErrors, launchWithReviewMarkdown as launchWithMarkdown, sendIpcToRenderer
 } from './helpers'
 
 const simple = '- {++first++}{>>keep<<}\n- second\n'

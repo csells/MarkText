@@ -1,5 +1,7 @@
 # CriticMarkup candidate verification — 6 September 2026
 
+**Historical candidate:** This report describes `index-CtQxlysF.js`. The current frozen candidate and remaining blockers are recorded in [plan 0011](../plans/0011-criticmarkup-editable-review.md#current-completion-blockers--macos-product-correction-6-september); the results below do not certify its changed inputs.
+
 Release verification remains incomplete. [Plan 0011](../plans/0011-criticmarkup-editable-review.md) retains the full scope. The Source activation repair, full integrated suites, repeated input/recovery checks and distribution workflows pass on the frozen candidate. Final sustained and cold-open performance checks also pass, measured with competing task-owned validation stopped. Windows and native OS interaction checks remain open.
 
 ## Candidate and repairs

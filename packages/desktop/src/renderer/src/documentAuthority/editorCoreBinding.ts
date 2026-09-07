@@ -50,7 +50,8 @@ export interface EditorCoreBinding {
   }>): Promise<CoreSelectionProjectionReply | CoreRejectedReply>
   reviewItemAtBarrier(
     direction: 'next' | 'previous',
-    from: number
+    from: number,
+    includeOverview?: boolean
   ): Promise<CoreReviewItemReply | CoreRejectedReply>
   observe(listener: (event: EditorCoreObservation) => void): () => void
   dispose(): void
@@ -499,7 +500,8 @@ export function createEditorCoreBinding(port: CoreActorPort): EditorCoreBinding 
     },
     async reviewItemAtBarrier(
       direction: 'next' | 'previous',
-      from: number
+      from: number,
+      includeOverview = false
     ): Promise<CoreReviewItemReply | CoreRejectedReply> {
       if (disposed) throw new Error('Editor Core binding is disposed')
       if (!opened) throw new Error('Editor Core document is not open')
@@ -514,7 +516,8 @@ export function createEditorCoreBinding(port: CoreActorPort): EditorCoreBinding 
         sequence,
         baseRevision: revision,
         direction,
-        from
+        from,
+        ...(includeOverview ? { includeOverview: true } : {})
       }))
       if (reply.type !== 'review-item' && reply.type !== 'rejected') {
         throw new Error('Core Review item barrier reply is invalid')
