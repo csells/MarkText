@@ -11,7 +11,8 @@ import {
   writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { createRequire } from 'node:module'
+import { dirname, join, resolve } from 'node:path'
 
 interface PackageManifest {
   name: string
@@ -90,6 +91,9 @@ export const verifyMuyaPackedTypeScriptConsumer = async(
   const sourceManifest = readJson<PackageManifest>(resolve(muyaRoot, 'package.json'))
   const temporaryRoot = mkdtempSync(join(tmpdir(), 'marktext-muya-package-'))
   const pnpm = resolvePinnedPnpm(repoRoot)
+  const require = createRequire(resolve(muyaRoot, 'package.json'))
+  const compiler = require.resolve('typescript/bin/tsc')
+  const vite = resolve(dirname(require.resolve('vite/package.json')), 'bin/vite.js')
 
   try {
     const buildRoot = resolve(temporaryRoot, 'muya')
@@ -101,7 +105,11 @@ export const verifyMuyaPackedTypeScriptConsumer = async(
     })
     symlinkSync(resolve(muyaRoot, 'node_modules'), resolve(buildRoot, 'node_modules'), 'junction')
     // Packaging may read the workspace bundle concurrently; this consumer owns only its scratch build.
-    run(process.execPath, [pnpm, 'build'], buildRoot)
+    // pnpm's relative .bin shims cannot be relocated through the scratch
+    // node_modules symlink. Run the same build entrypoints from their real
+    // installation while keeping every generated file in the scratch build.
+    run(process.execPath, [compiler], buildRoot)
+    run(process.execPath, [vite, 'build'], buildRoot)
 
     const packRoot = resolve(temporaryRoot, 'packed')
     mkdirSync(packRoot, { recursive: true })
@@ -173,7 +181,8 @@ export const verifyMuyaPackedTypeScriptConsumer = async(
       '--ignore-scripts',
       '--no-frozen-lockfile'
     ], consumerRoot)
-    run(resolve(repoRoot, 'node_modules/.bin/tsc'), [
+    run(process.execPath, [
+      compiler,
       '--noEmit',
       '--project',
       resolve(consumerRoot, 'tsconfig.json')

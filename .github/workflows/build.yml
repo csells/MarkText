@@ -4,15 +4,25 @@ on:
   push:
     branches: [feat/criticmarkup-core-integration]
   workflow_dispatch:
+    inputs:
+      candidate_run:
+        description: 'Existing run whose Windows x64 installer should be verified without rebuilding'
+        type: string
+        default: ''
+      candidate_commit:
+        description: 'Full source revision embedded in that existing installer'
+        type: string
+        default: ''
   pull_request:
     types: [opened, synchronize, reopened]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.candidate_run }}
   cancel-in-progress: true
 
 jobs:
   run-on-pr-head:
+    if: inputs.candidate_run == ''
     permissions:
       pull-requests: read
       actions: read
@@ -155,6 +165,52 @@ jobs:
             dist/*.rpm
             dist/*.tar.gz
           if-no-files-found: error
+
+  verify-existing-windows-candidate:
+    if: github.event_name == 'workflow_dispatch' && inputs.candidate_run != ''
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@v4
+        with:
+          name: marktext-windows-x64
+          path: candidate-installer
+          run-id: ${{ inputs.candidate_run }}
+          github-token: ${{ github.token }}
+      - name: Verify existing installed candidate and capture save failures
+        shell: pwsh
+        env:
+          MARKTEXT_EXPECTED_COMMIT: ${{ inputs.candidate_commit }}
+          MARKTEXT_E2E_HIDDEN_WINDOW: '1'
+          MARKTEXT_E2E_PRIVATE_CLIPBOARD: '1'
+          DEBUG: pw:browser
+        run: |
+          if ($env:MARKTEXT_EXPECTED_COMMIT -notmatch '^[0-9a-f]{40}$') { throw 'Expected a full candidate commit' }
+          $installers = @(Get-ChildItem candidate-installer -File -Filter '*-setup.exe')
+          if ($installers.Count -ne 1) { throw "Expected one installer, found $($installers.Count)" }
+          Get-FileHash $installers[0].FullName -Algorithm SHA256
+          $destination = Join-Path $env:RUNNER_TEMP ('marktext-candidate-' + [guid]::NewGuid().ToString('N'))
+          $installer = Start-Process -FilePath $installers[0].FullName -ArgumentList @('/S', "/D=$destination") -Wait -PassThru
+          if ($installer.ExitCode -ne 0) { throw "Installer failed with exit code $($installer.ExitCode)" }
+          $env:MARKTEXT_PACKAGED_APP = Join-Path $destination 'marktext.exe'
+          if (!(Test-Path $env:MARKTEXT_PACKAGED_APP)) { throw 'Installer did not produce marktext.exe' }
+          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts installed-core-review.spec.ts --project=installed --grep 'addition.block-boundary.author' --repeat-each=10 --workers=1 --retries=0 --trace=on --reporter=line --output=../../test-results/windows-save-diagnostic
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts installed-core-review.spec.ts installed-core-clipboard.spec.ts --project=installed --workers=1 --retries=0 --trace=retain-on-failure --reporter=line --output=../../test-results/windows-installed
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts criticmarkup-rendering-security.spec.ts criticmarkup-list-format.spec.ts criticmarkup-container-structure.spec.ts criticmarkup-nested-comment.spec.ts criticmarkup-idle-worker-recovery.spec.ts criticmarkup-source-ready.spec.ts criticmarkup-default-authority.spec.ts criticmarkup-draft-recovery.spec.ts criticmarkup-orphaned-recovery.spec.ts criticmarkup-ime-review.spec.ts installed-core-search.spec.ts installed-core-export-consumers.spec.ts image-ingestion.spec.ts --project=unpacked --workers=1 --retries=0 --trace=retain-on-failure --reporter=line --output=../../test-results/windows-editorial
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Retain existing-candidate verification results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-existing-candidate-verification
+          path: test-results/
+          if-no-files-found: ignore
 
   comment-on-pr:
     name: Comment artifact links on PR
