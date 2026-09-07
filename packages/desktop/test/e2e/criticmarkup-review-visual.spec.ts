@@ -9,7 +9,7 @@ test('Review uses the existing dark theme and keeps all view buttons inside the 
     await page.getByRole('button', { name: 'Review', exact: true }).click()
     await clickMenuById(app, 'dracula')
     await expect(page.locator('body')).toHaveClass(/(^|\s)dark(\s|$)/)
-    await expect(page.getByTestId('critic-margin-comment')).toContainText('A formatted comment.')
+    await expect(page.getByTestId('critic-review-entry')).toContainText('A formatted comment.')
     const panel = page.locator('#core-review-panel')
     expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
     await page.screenshot({ path: test.info().outputPath('review-dark.png') })
@@ -18,22 +18,21 @@ test('Review uses the existing dark theme and keeps all view buttons inside the 
   } finally { await app.close() }
 })
 
-test('margin comments follow their document anchors when scrolling', async() => {
+test('sidebar comments reveal distant document anchors without creating another margin', async() => {
   const source = '{==First passage==}{>>First note.<<}\n\n' +
     Array.from({ length: 35 }, (_, index) => `Paragraph ${index}.\n\n`).join('') +
     '{==Last passage==}{>>Last note.<<}\n'
   const { app, page } = await launchWithMarkdown(source, options)
   try {
+    await page.getByRole('button', { name: 'Review', exact: true }).click()
     const last = page.locator('.mu-paragraph-content').filter({ hasText: 'Last passage' })
-    await last.scrollIntoViewIfNeeded()
-    const card = page.getByTestId('critic-margin-comment').filter({ hasText: 'Last note.' })
-    await expect(card).toBeInViewport()
-    await expect.poll(async() => {
-      const target = await last.boundingBox()
-      const margin = await card.boundingBox()
-      return target && margin ? Math.abs(target.y - margin.y) : Infinity
-    }).toBeLessThan(4)
-    await page.screenshot({ path: test.info().outputPath('review-scrolled-margin.png') })
+    const card = page.getByTestId('critic-review-entry').filter({ hasText: 'Last note.' })
+    await card.locator(':scope > button').click()
+    await expect(last).toBeInViewport()
+    await expect(page.locator('.core-review-current-block')).toHaveText('Last passage')
+    await expect(card.locator(':scope > button')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('.core-review-margin')).toHaveCount(0)
+    await page.screenshot({ path: test.info().outputPath('review-distant-sidebar-target.png') })
     await expectEditorWindowHidden(app)
     await expectNoRendererErrors(app)
   } finally { await app.close() }

@@ -489,7 +489,7 @@ test.describe('installed Core Review authority', () => {
         }
 
         if ('commentText' in testCase) {
-          const commentText = page.getByTestId('critic-review-comment-text')
+          const commentText = page.getByTestId('critic-review-entry').filter({ has: page.locator('[aria-pressed="true"]') }).locator('[data-projection="comment"]')
           // Hidden Comment subdocuments stay inside the outer raw-payload editor.
           await expect(commentText).toHaveText(testCase.commentText)
           await page.getByTestId('critic-review-edit-comment').click()

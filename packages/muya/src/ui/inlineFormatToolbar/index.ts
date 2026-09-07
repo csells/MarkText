@@ -1,6 +1,7 @@
 import type { VNode } from 'snabbdom';
 import type { Muya } from '../../index';
 import type { Token } from '../../inlineRenderer/types';
+import type { IInlineToolbarAction } from '../../types';
 import type { IBaseOptions } from '../types';
 
 import type { FormatToolIcon } from './config';
@@ -207,10 +208,43 @@ export class InlineFormatToolbar extends BaseFloat {
         const { i18n } = this.muya;
 
         const children = icons.map(icon => this._createIconItem(icon, formats, i18n));
-        const vnode = h('ul', children);
+        const actions = this.muya.options.inlineToolbarActions?.() ?? [];
+        const vnode = h('div.mu-format-tools', [
+            h('ul', children),
+            ...(actions.length ? [h('div.mu-format-host-actions', actions.map(action => this._createHostAction(action)))] : []),
+        ]);
 
         patch(oldVNode || formatContainer, vnode);
         this._oldVNode = vnode;
+    }
+
+    private _createHostAction(action: IInlineToolbarAction) {
+        return h('button.mu-format-host-action', {
+            key: action.id,
+            attrs: { 'type': 'button', 'data-action': action.id, 'disabled': !action.enabled },
+            on: {
+                mousedown: event => event.preventDefault(),
+                click: (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const currentAction = this.muya.options.inlineToolbarActions?.().find(current => current.id === action.id);
+                    if (!currentAction?.enabled) {
+                        this._render();
+                        return;
+                    }
+                    const { selection } = this.muya.editor;
+                    const { anchor, focus, anchorBlock, anchorPath, focusBlock, focusPath } = selection;
+                    if (!anchor || !focus || !anchorBlock || !focusBlock)
+                        return;
+                    selection.setSelection(
+                        { offset: anchor.offset, block: anchorBlock, path: anchorPath },
+                        { offset: focus.offset, block: focusBlock, path: focusPath },
+                    );
+                    this.hide();
+                    currentAction.run();
+                },
+            },
+        }, action.label);
     }
 
     /**

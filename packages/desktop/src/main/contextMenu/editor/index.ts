@@ -11,6 +11,7 @@ import {
   getInsertAfter
 } from './menuItems'
 import spellcheckMenuBuilder from './spellcheck'
+import { reviewMenuItems } from '../../menu/actions/review'
 import { t } from '../../i18n'
 
 // Electron's ContextMenuParams shape we rely on. Kept narrow — the renderer
@@ -103,6 +104,11 @@ export const showEditorContextMenu = (
       menu.append(new MenuItem(SEPARATOR))
     }
 
+    const authorItems = reviewMenuItems(undefined, win).filter(item =>
+      ['critic-show', 'critic-add-comment', 'critic-mark-highlight', 'critic-mark-addition', 'critic-suggest-replacement'].includes(item.id ?? '')
+    )
+    menu.append(new MenuItem({ label: t('editor.coreReview.panelTitle'), submenu: authorItems }))
+    menu.append(new MenuItem(SEPARATOR))
     const contextItems = getContextItems()
     const copyItems = [contextItems[3], contextItems[4], contextItems[8], contextItems[7]] // CUT, COPY, COPY_AS_HTML, COPY_AS_RICH
     copyItems.forEach((item) => {

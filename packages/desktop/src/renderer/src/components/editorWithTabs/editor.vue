@@ -1,15 +1,16 @@
 <template>
   <div
-    ref="editorWrapper"
     class="editor-wrapper"
     :class="[{ typewriter: typewriter, focus: focus, source: sourceCode,
-               'core-review-enabled': coreLease !== undefined,
-               'core-review-open': coreLease !== undefined && coreDisplayMode === 'markup' && coreMarginComments.length > 0 }]"
+               'core-review-enabled': coreLease !== undefined }]"
     :dir="textDirection"
   >
     <div
       v-show="coreDisplayMode === 'markup'"
       class="editor-surface"
+      @click="selectCoreDocumentAnnotation"
+      @keydown.capture="activateCoreCommentMarker"
+      @mousedown="preserveCoreCommentCaret"
     >
       <!-- Muya replaces its mount element. Vue owns this outer visibility boundary. -->
       <div
@@ -23,16 +24,9 @@
       :kind="coreDisplayMode"
       :label="t(coreDisplayMode === 'original' ? 'editor.coreReview.originalDocument' : 'editor.coreReview.revisedDocument')"
     />
-    <CoreReviewMargin
-      v-if="coreLease !== undefined && !sourceCode && coreDisplayMode === 'markup' && coreMarginComments.length > 0"
-      :comments="coreMarginComments"
-      :active-start="coreReviewItem?.range.start"
-      :busy="coreReviewBusy || coreCommentOpen"
-      @select="selectCoreMarginComment"
-    />
     <Teleport to="#core-review-panel">
       <section class="core-review-panel-content">
-        <h2>{{ t('editor.coreReview.panelTitle') }}</h2>
+        <h2>{{ t('editor.coreReview.sidebarTitle') }}</h2>
         <p
           v-if="coreLease === undefined || sourceCode"
           class="core-review-hint"
@@ -50,8 +44,8 @@
             type="button"
             :data-testid="`critic-review-${mode}`"
             :aria-pressed="coreDisplayMode === mode"
-            :disabled="coreDisplayLoading"
-            @click="showCoreProjection(mode)"
+            :disabled="!reviewCommandEnabled(mode, coreReviewCommandState)"
+            @click="handleCoreReviewCommand(mode)"
           >
             {{ t(`editor.coreReview.${mode}`) }}
           </button>
@@ -69,102 +63,101 @@
           type="button"
           data-testid="critic-review-track-changes"
           :aria-pressed="coreTrackChangesEnabled"
-          :disabled="!canToggleCoreTrackChanges({
-            enabled: coreTrackChangesEnabled,
-            editableBindingCount: coreEditableBindingCount,
-            resolving: coreReviewResolving
-          })"
+          :disabled="!reviewCommandEnabled('track-changes', coreReviewCommandState)"
           :title="t('editor.coreReview.trackChangesDescription')"
-          @click="toggleCoreTrackChanges"
+          @click="handleCoreReviewCommand('track-changes')"
         >
           {{ t('editor.coreReview.trackChanges') }}
         </button>
-        <div
+        <nav
           v-if="coreReviewItem !== null && coreLease !== undefined && !sourceCode && !coreCommentOpen"
-          class="core-review-bar"
-          role="toolbar"
+          class="core-review-navigation"
           :aria-label="t('editor.coreReview.title')"
         >
           <button
             type="button"
             data-testid="critic-review-previous"
-            :disabled="coreReviewBusy"
-            @click="navigateCoreReview('previous')"
+            :disabled="!reviewCommandEnabled('previous', coreReviewCommandState)"
+            @click="handleCoreReviewCommand('previous')"
           >
             {{ t('editor.coreReview.previous') }}
           </button>
           <button
             type="button"
             data-testid="critic-review-next"
-            :disabled="coreReviewBusy"
-            @click="navigateCoreReview('next')"
+            :disabled="!reviewCommandEnabled('next', coreReviewCommandState)"
+            @click="handleCoreReviewCommand('next')"
           >
             {{ t('editor.coreReview.next') }}
           </button>
           <span class="core-review-position">{{ t('editor.coreReview.position', { current: coreReviewPosition, total: coreReviewOverview.length }) }}</span>
-          <span
-            data-testid="critic-review-kind"
-            :data-kind="coreReviewItem.kind"
-          >
-            {{ t(`editor.coreReview.kinds.${coreReviewItem.kind}`) }}
-          </span>
-          <CoreDocumentProjection
-            v-if="coreReviewCommentProjection !== undefined"
-            data-testid="critic-review-comment-text"
-            :projection="coreReviewCommentProjection"
-            kind="comment"
-            :label="t('editor.coreReview.commentPrompt')"
-          />
-          <button
-            v-if="!coreReviewUsesRemove"
-            type="button"
-            data-testid="critic-review-accept"
-            :disabled="coreReviewBusy"
-            @click="resolveCoreReviewItem('accept')"
-          >
-            {{ t('editor.coreReview.accept') }}
-          </button>
-          <button
-            v-if="!coreReviewUsesRemove"
-            type="button"
-            data-testid="critic-review-reject"
-            :disabled="coreReviewBusy"
-            @click="resolveCoreReviewItem('reject')"
-          >
-            {{ t('editor.coreReview.reject') }}
-          </button>
-          <button
-            v-if="coreReviewHasComment"
-            type="button"
-            data-testid="critic-review-edit-comment"
-            :disabled="coreReviewBusy"
-            @click="editCoreReviewComment"
-          >
-            {{ t('editor.coreReview.editComment') }}
-          </button>
-          <button
-            v-if="coreReviewUsesRemove"
-            type="button"
-            data-testid="critic-review-remove"
-            :disabled="coreReviewBusy"
-            @click="resolveCoreReviewItem('remove')"
-          >
-            {{ coreReviewRemoveLabel }}
-          </button>
+        </nav>
+        <CoreReviewList
+          v-if="coreLease !== undefined && !sourceCode"
+          :entries="coreReviewOverview"
+          :active-start="coreReviewItem?.range.start"
+          :busy="coreReviewResolving || coreCommentOpen"
+          @select="selectCoreReviewEntry"
+        >
+          <template #actions>
+            <div
+              v-if="!coreCommentOpen"
+              class="core-review-item-actions"
+            >
+              <button
+                v-if="!coreReviewUsesRemove"
+                type="button"
+                data-testid="critic-review-accept"
+                :disabled="!reviewCommandEnabled('accept', coreReviewCommandState)"
+                @click="handleCoreReviewCommand('accept')"
+              >
+                {{ t('editor.coreReview.accept') }}
+              </button>
+              <button
+                v-if="!coreReviewUsesRemove"
+                type="button"
+                data-testid="critic-review-reject"
+                :disabled="!reviewCommandEnabled('reject', coreReviewCommandState)"
+                @click="handleCoreReviewCommand('reject')"
+              >
+                {{ t('editor.coreReview.reject') }}
+              </button>
+              <button
+                v-if="coreReviewHasComment"
+                type="button"
+                data-testid="critic-review-edit-comment"
+                :disabled="!reviewCommandEnabled('edit-comment', coreReviewCommandState)"
+                @click="handleCoreReviewCommand('edit-comment')"
+              >
+                {{ t('editor.coreReview.editComment') }}
+              </button>
+              <button
+                v-if="coreReviewUsesRemove"
+                type="button"
+                data-testid="critic-review-remove"
+                :disabled="!reviewCommandEnabled('remove', coreReviewCommandState)"
+                @click="handleCoreReviewCommand('remove')"
+              >
+                {{ coreReviewRemoveLabel }}
+              </button>
+            </div>
+          </template>
+        </CoreReviewList>
+        <div v-if="coreReviewItem !== null && !sourceCode && !coreCommentOpen">
           <div class="core-review-bulk">
             <button
               type="button"
               data-testid="critic-review-accept-all"
-              :disabled="coreReviewBusy"
-              @click="resolveAllCoreReviewItems('accept')"
+              :disabled="!reviewCommandEnabled('accept-all', coreReviewCommandState)"
+              @click="handleCoreReviewCommand('accept-all')"
             >
               {{ t('editor.coreReview.acceptAll') }}
             </button>
             <button
               type="button"
               data-testid="critic-review-reject-all"
-              :disabled="coreReviewBusy"
-              @click="resolveAllCoreReviewItems('reject')"
+              :disabled="!reviewCommandEnabled('reject-all', coreReviewCommandState)"
+              @click="handleCoreReviewCommand('reject-all')"
             >
               {{ t('editor.coreReview.rejectAll') }}
             </button>
@@ -192,57 +185,49 @@
           @submit="submitCoreComment"
         />
         <p
-          v-if="coreLease !== undefined && !sourceCode && coreDisplayMode === 'markup'"
+          v-if="coreLease !== undefined && !sourceCode && coreDisplayMode === 'markup' && coreAuthorSelection !== undefined"
           class="core-review-hint"
         >
           {{ t('editor.coreReview.selectionHint') }}
         </p>
         <div
-          v-if="coreLease !== undefined && !sourceCode && coreDisplayMode === 'markup'"
+          v-if="coreLease !== undefined && !sourceCode && coreDisplayMode === 'markup' && coreAuthorSelection !== undefined"
           class="core-review-author-bar"
           :aria-label="t('editor.coreReview.authorTitle')"
         >
           <button
             type="button"
             data-testid="critic-review-mark-addition"
-            :disabled="coreReviewResolving || (
-              coreAuthorSelection === undefined && coreAuthorInvocationSelection === undefined
-            )"
+            :disabled="!reviewCommandEnabled('mark-addition', coreReviewCommandState)"
             @mousedown.prevent="captureCoreAuthorSelection"
-            @click="beginCoreAuthorReview('addition')"
+            @click="handleCoreReviewCommand('mark-addition')"
           >
             {{ t('editor.coreReview.markAddition') }}
           </button>
           <button
             type="button"
             data-testid="critic-review-add-comment"
-            :disabled="coreReviewResolving || (
-              coreAuthorSelection === undefined && coreAuthorInvocationSelection === undefined
-            )"
+            :disabled="!reviewCommandEnabled('add-comment', coreReviewCommandState)"
             @mousedown.prevent="captureCoreAuthorSelection"
-            @click="beginCoreAuthorReview('comment')"
+            @click="handleCoreReviewCommand('add-comment')"
           >
             {{ t('editor.coreReview.addComment') }}
           </button>
           <button
             type="button"
             data-testid="critic-review-track-replacement"
-            :disabled="coreReviewResolving || (
-              coreAuthorSelection === undefined && coreAuthorInvocationSelection === undefined
-            )"
+            :disabled="!reviewCommandEnabled('suggest-replacement', coreReviewCommandState)"
             @mousedown.prevent="captureCoreAuthorSelection"
-            @click="beginCoreAuthorReview('substitution')"
+            @click="handleCoreReviewCommand('suggest-replacement')"
           >
             {{ t('editor.coreReview.suggestReplacement') }}
           </button>
           <button
             type="button"
             data-testid="critic-review-mark-highlight"
-            :disabled="coreReviewResolving || (
-              coreAuthorSelection === undefined && coreAuthorInvocationSelection === undefined
-            )"
+            :disabled="!reviewCommandEnabled('mark-highlight', coreReviewCommandState)"
             @mousedown.prevent="captureCoreAuthorSelection"
-            @click="beginCoreAuthorReview('highlight')"
+            @click="handleCoreReviewCommand('mark-highlight')"
           >
             {{ t('editor.coreReview.markHighlight') }}
           </button>
@@ -331,7 +316,8 @@ import {
   markRaw
 } from 'vue'
 import { useLayoutStore } from '@/store/layout'
-import CoreReviewMargin from './CoreReviewMargin.vue'
+import { reviewCommands, reviewCommandEnabled, type ReviewCommandState } from 'common/commands/review'
+import CoreReviewList from './CoreReviewList.vue'
 import log from 'electron-log'
 import isEqual from 'lodash/isEqual'
 import debounce from 'lodash/debounce'
@@ -577,15 +563,11 @@ let coreAuthorityPerformanceTrace: CoreAuthorityPerformanceTrace | undefined
 const coreAuthorSelection = ref<MuyaPlainTextAuthorSelection>()
 const coreAuthorInvocationSelection = ref<MuyaPlainTextAuthorSelection>()
 const reviewLayoutStore = useLayoutStore()
-const editorWrapper = ref<HTMLElement>()
 const coreReviewOverview = shallowRef<NonNullable<CoreReviewItemReply['overview']>>([])
-const coreCommentTops = shallowRef<ReadonlyMap<number, number>>(new Map())
-const coreMarginComments = computed(() => coreReviewOverview.value.filter(entry => entry.commentProjection !== undefined).map(entry => ({ ...entry, top: coreCommentTops.value.get(entry.item.range.start) ?? 24 })))
 const coreReviewPosition = computed(() => coreReviewOverview.value.findIndex(entry => entry.item.range.start === coreReviewItem.value?.range.start && entry.item.range.end === coreReviewItem.value?.range.end) + 1)
 const coreReviewItem = ref<CoreReviewItemReply['item']>(null)
 const coreReviewRevision = ref<number>()
 const coreReviewCommentText = ref<string>()
-const coreReviewCommentProjection = shallowRef<CoreReviewItemReply['commentProjection']>()
 const coreDisplayMode = ref<'markup' | 'original' | 'revised'>('markup')
 const coreDisplayProjection = shallowRef<CoreReviewItemReply['commentProjection']>()
 const coreDisplayLoading = ref(false)
@@ -611,9 +593,7 @@ const coreReviewRefresh = createLatestViewRefresh<CoreReviewItemReply>({
     coreReviewItem.value = reply.item
     coreReviewRevision.value = reply.revision
     coreReviewCommentText.value = reply.commentText
-    coreReviewCommentProjection.value = reply.commentProjection
     nextTick(() => {
-      updateCoreCommentPositions()
       if (coreReviewLocatedNode !== undefined) revealCoreReviewItem(false)
     })
   },
@@ -1519,6 +1499,7 @@ const applyCorePlainTextEditability = (
 
 let coreMarkupPresentation: MuyaMarkupPresentationIndex | undefined
 let coreAcknowledgedMarkupView: MuyaMarkupView | undefined
+let coreMarkupBindingsByPath = new Map<string, MuyaMarkupView['bindings'][number]>()
 let coreAcknowledgedViewRevision = props.coreLease?.identity.revision
 const coreMarkupDirtyPaths = new Map<string, readonly (string | number)[]>()
 let coreDraftFrozen = false
@@ -1553,11 +1534,13 @@ const installCoreMarkupPresentation = (muya: Muya, view: MuyaPlainTextViewResult
   if (!('state' in view)) {
     coreMarkupPresentation = undefined
     coreAcknowledgedMarkupView = undefined
+    coreMarkupBindingsByPath.clear()
     coreMarkupDirtyPaths.clear()
     muya.setInlinePresentation(undefined)
     return
   }
   coreAcknowledgedMarkupView = view
+  coreMarkupBindingsByPath = new Map(view.bindings.map(binding => [JSON.stringify(binding.path), binding]))
   coreMarkupPresentation = createMuyaMarkupPresentationIndex(view, coreMarkupPresentation)
   for (const path of coreMarkupPresentation.changedPaths) coreMarkupDirtyPaths.set(JSON.stringify(path), path)
   muya.setInlinePresentation(coreMarkupPresentation.render)
@@ -1709,25 +1692,9 @@ const refreshCoreReviewItem = async (
   }, { passive })
 }
 
-const updateCoreCommentPositions = (): void => {
-  const wrapper = editorWrapper.value
-  const muya = editor.value
-  if (!wrapper || !muya || !coreAcknowledgedMarkupView) return
-  const origin = wrapper.getBoundingClientRect().top
-  const positions = new Map<number, number>()
-  for (const entry of coreReviewOverview.value) {
-    if (!entry.commentProjection) continue
-    const range = entry.item.kind === 'commented-span' ? entry.item.commentRange : entry.item.range
-    const anchor = coreAcknowledgedMarkupView.comments.find(comment => comment.annotationRange.start === range.start && comment.annotationRange.end === range.end)
-    const node = anchor && muya.editor.scrollPage?.queryBlock([...anchor.path])?.domNode
-    if (node) positions.set(entry.item.range.start, node.getBoundingClientRect().top - origin)
-  }
-  coreCommentTops.value = positions
-}
 watch(() => [reviewLayoutStore.showSideBar, reviewLayoutStore.rightColumn], () => {
   if (reviewLayoutStore.showSideBar && reviewLayoutStore.rightColumn === 'review') nextTick(() => revealCoreReviewItem())
 })
-const coreCommentResizeObserver = new ResizeObserver(() => updateCoreCommentPositions())
 let coreReviewLocatedNode: HTMLElement | undefined
 const revealCoreReviewItem = (scroll = true): void => {
   coreReviewLocatedNode?.classList.remove('core-review-current-block')
@@ -1746,19 +1713,54 @@ const revealCoreReviewItem = (scroll = true): void => {
   coreReviewLocatedNode = node
   node.classList.add('core-review-current-block')
   if (scroll) node.scrollIntoView({ block: 'center', behavior: 'instant' })
-  updateCoreCommentPositions()
 }
 const navigateCoreReview = async (direction: 'next' | 'previous'): Promise<void> => {
   if (!coreReviewItem.value) return
+  if (coreDisplayMode.value !== 'markup') await showCoreProjection('markup')
   await refreshCoreReviewItem(direction, direction === 'next' ? coreReviewItem.value.range.end : coreReviewItem.value.range.start)
   revealCoreReviewItem()
 }
-const selectCoreMarginComment = async (start: number): Promise<void> => {
+const selectCoreReviewEntry = async (start: number): Promise<void> => {
   if (coreCommentOpen.value || coreReviewBusy.value) return
   reviewLayoutStore.SET_LAYOUT({ showSideBar: true, rightColumn: 'review' })
+  if (coreDisplayMode.value !== 'markup') await showCoreProjection('markup')
   await refreshCoreReviewItem('next', start)
   revealCoreReviewItem()
-  await editCoreReviewComment()
+}
+
+// Interpret only Core-rendered annotation coordinates, never document text.
+const selectCoreDocumentAnnotation = (event: MouseEvent | KeyboardEvent): void => {
+  const element = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-critic-start]') : null
+  const view = coreAcknowledgedMarkupView
+  if (!element || !view || coreCommentOpen.value || coreReviewResolving.value) return
+  const binding = view.bindings.find(binding =>
+    editor.value?.editor.scrollPage?.queryBlock([...binding.path])?.domNode.contains(element))
+  if (!binding) return
+  const start = binding.sourceRange.start + Number(element.dataset.criticStart)
+  selectCoreAnnotationAt(start, true)
+}
+const selectCoreAnnotationAt = (start: number, open: boolean): void => {
+  if (coreCommentOpen.value || coreReviewResolving.value) return
+  if (open) reviewLayoutStore.SET_LAYOUT({ showSideBar: true, rightColumn: 'review' })
+  const current = coreReviewItem.value
+  if (current?.range.start === start || (current?.kind === 'commented-span' && current.commentRange.start === start)) return
+  const entry = coreReviewOverview.value.find(entry =>
+    entry.item.range.start === start ||
+    (entry.item.kind === 'commented-span' && entry.item.commentRange.start === start))
+  if (!entry) return
+  refreshCoreReviewItem('next', entry.item.range.start).then(() => revealCoreReviewItem(false)).catch(error => emit('core-fault', error))
+}
+
+const preserveCoreCommentCaret = (event: MouseEvent): void => {
+  if (event.target instanceof Element && event.target.closest('.mu-critic-comment-marker')) event.preventDefault()
+}
+const activateCoreCommentMarker = (event: KeyboardEvent): void => {
+  if ((event.key === 'Enter' || event.key === ' ') && event.target instanceof Element &&
+      event.target.closest('.mu-critic-comment-marker')) {
+    event.preventDefault()
+    event.stopPropagation()
+    selectCoreDocumentAnnotation(event)
+  }
 }
 
 const editCoreReviewComment = async (): Promise<void> => {
@@ -1972,6 +1974,41 @@ const beginCoreAuthorReview = (
   authorCoreReview(form, coreAuthorInvocationSelection.value).catch(error => {
     emit('core-fault', error)
   })
+}
+
+const coreReviewCommandState = computed<ReviewCommandState>(() => ({
+  available: props.coreLease !== undefined && !sourceCode.value,
+  editable: coreDisplayMode.value === 'markup',
+  canAuthor: coreAuthorSelection.value !== undefined,
+  canTrack: canToggleCoreTrackChanges({ enabled: coreTrackChangesEnabled.value, editableBindingCount: coreEditableBindingCount.value, resolving: coreReviewResolving.value }),
+  tracking: coreTrackChangesEnabled.value,
+  hasItem: coreReviewItem.value !== null,
+  hasComment: coreReviewHasComment.value,
+  removable: coreReviewUsesRemove.value,
+  busy: coreReviewBusy.value || coreCommentOpen.value || coreDisplayLoading.value,
+  mode: coreDisplayMode.value
+}))
+const handleCoreReviewCommand = (value: unknown): void => {
+  const command = reviewCommands.find(command => command.id === value)?.id
+  if (!command || !reviewCommandEnabled(command, coreReviewCommandState.value) || !ownsCurrentDocument()) return
+  reviewLayoutStore.SET_LAYOUT({ showSideBar: true, rightColumn: 'review' })
+  const run = async (): Promise<void> => {
+    switch (command) {
+      case 'show': return
+      case 'add-comment': beginCoreAuthorReview('comment'); return
+      case 'mark-highlight': beginCoreAuthorReview('highlight'); return
+      case 'mark-addition': beginCoreAuthorReview('addition'); return
+      case 'suggest-replacement': beginCoreAuthorReview('substitution'); return
+      case 'track-changes': toggleCoreTrackChanges(); return
+      case 'previous': case 'next': await navigateCoreReview(command); return
+      case 'accept': case 'reject': case 'remove': await resolveCoreReviewItem(command); return
+      case 'edit-comment': await editCoreReviewComment(); return
+      case 'accept-all': await resolveAllCoreReviewItems('accept'); return
+      case 'reject-all': await resolveAllCoreReviewItems('reject'); return
+      case 'markup': case 'original': case 'revised': await showCoreProjection(command)
+    }
+  }
+  run().catch(error => emit('core-fault', error))
 }
 
 const captureCoreAuthorSelection = (): void => {
@@ -2923,16 +2960,20 @@ const handleLanguageChanged = (newLocale?: unknown) => {
 }
 const resizeObserverForEditor = new ResizeObserver(handleResetPaddingBottom)
 
+const coreViewDocumentId = props.coreLease?.documentId
+const ownsCurrentDocument = () => !props.coreRequired || (
+  coreViewDocumentId !== undefined &&
+    props.coreLease?.documentId === coreViewDocumentId &&
+    currentFile.value?.id === coreViewDocumentId
+)
+watch(coreReviewCommandState, state => {
+  if (ownsCurrentDocument()) window.electron.ipcRenderer.send('mt::review-command-state', state)
+}, { immediate: true })
+
 onMounted(() => {
-  const coreViewDocumentId = props.coreLease?.documentId
   const initialCoreScrollTop = coreViewDocumentId === currentFile.value?.id
     ? currentFile.value?.scrollTop ?? 0
     : 0
-  const ownsCurrentDocument = () => !props.coreRequired || (
-    coreViewDocumentId !== undefined &&
-    props.coreLease?.documentId === coreViewDocumentId &&
-    currentFile.value?.id === coreViewDocumentId
-  )
   printer = new Printer()
   const ele = editorRef.value
   if (!ele) return
@@ -2947,6 +2988,16 @@ onMounted(() => {
   })
 
   const options: Record<string, unknown> = {
+    inlineToolbarActions: () => props.coreLease === undefined
+      ? []
+      : reviewCommands
+        .filter(command => ['add-comment', 'mark-highlight', 'mark-addition', 'suggest-replacement'].includes(command.id))
+        .map(command => ({
+          id: command.id,
+          label: t(`editor.coreReview.${command.label}`),
+          enabled: reviewCommandEnabled(command.id, coreReviewCommandState.value),
+          run: () => handleCoreReviewCommand(command.id)
+        })),
     focusMode: focus.value,
     markdown: props.corePlainTextView === undefined ? props.markdown : '',
     locale: getMuyaLocale(language.value),
@@ -3059,6 +3110,7 @@ onMounted(() => {
   bus.on('print-service-clearup', handlePrintServiceClearup)
   bus.on('paragraph', handleEditParagraph)
   bus.on('format', handleInlineFormat)
+  bus.on('review-command', handleCoreReviewCommand)
   bus.on('searchValue', handleSearch)
   bus.on('replaceValue', handReplace)
   bus.on('find-action', handleFindAction)
@@ -3608,12 +3660,7 @@ onMounted(() => {
 
   // The engine does not emit `scroll`; listen on the scroll container directly
   // so the desktop can persist each tab's scroll position.
-  if (editorWrapper.value) coreCommentResizeObserver.observe(editorWrapper.value)
-  coreCommentResizeObserver.observe(container)
-  const reviewContent = container.querySelector('.mu-container')
-  if (reviewContent) coreCommentResizeObserver.observe(reviewContent)
   scrollHandler = () => {
-    updateCoreCommentPositions()
     if (currentFile.value && ownsCurrentDocument()) {
       editorStore.updateScrollPosition(currentFile.value.id, container.scrollTop)
     }
@@ -3698,6 +3745,15 @@ onMounted(() => {
     }
 
     selectionChange.value = changes
+    // The current rendered annotation and acknowledged leaf own its position.
+    // Sidebar clicks do not change the document caret, so explicit parent
+    // navigation remains selected until the user moves the document selection.
+    if (coreDisplayMode.value === 'markup' && Array.isArray(changes.anchorPath)) {
+      const node = window.getSelection()?.anchorNode
+      const element = (node instanceof Element ? node : node?.parentElement)?.closest<HTMLElement>('[data-critic-start]')
+      const binding = coreMarkupBindingsByPath.get(JSON.stringify(changes.anchorPath))
+      if (element && binding) selectCoreAnnotationAt(binding.sourceRange.start + Number(element.dataset.criticStart), false)
+    }
     if (corePlainTextAdapter !== undefined) {
       coreSelectionClipboardAuthority?.reset()
     }
@@ -3814,6 +3870,7 @@ onBeforeUnmount(() => {
   bus.off('print-service-clearup', handlePrintServiceClearup)
   bus.off('paragraph', handleEditParagraph)
   bus.off('format', handleInlineFormat)
+  bus.off('review-command', handleCoreReviewCommand)
   bus.off('searchValue', handleSearch)
   bus.off('replaceValue', handReplace)
   bus.off('find-action', handleFindAction)
@@ -3850,7 +3907,6 @@ onBeforeUnmount(() => {
   scrollHandler = null
 
   resizeObserverForEditor.disconnect()
-  coreCommentResizeObserver.disconnect()
   coreReviewLocatedNode?.classList.remove('core-review-current-block')
 
   if (imageViewer) {
@@ -3946,20 +4002,15 @@ onBeforeUnmount(() => {
 .core-review-panel-content .core-review-views button { flex: 1 1 0; min-width: 0; padding: 6px 2px; font-size: 11px; border: 0; }
 .core-review-author-bar { display: grid; gap: 4px; margin: 8px 0; }
 .core-review-author-bar button { text-align: left; }
-.core-review-bar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 12px 0; border-bottom: 1px solid var(--floatBorderColor); margin-bottom: 12px; }
-.core-review-bar > span, .core-review-bar > .core-document-projection { grid-column: 1 / -1; }
 .core-review-bulk { grid-column: 1 / -1; display: flex; gap: 6px; border-top: 1px solid var(--floatBorderColor); padding-top: 12px; margin-top: 6px; }
 .core-review-bulk button { flex: 1; }
 .core-track-toggle { width: 100%; margin-top: 8px; }
 .core-review-position { width: 100%; font-size: 12px; opacity: 0.7; }
-.core-review-bar [data-testid="critic-review-kind"] { width: 100%; font-weight: 600; }
-.core-review-bar [data-testid="critic-review-comment-text"] { width: 100%; }
 .core-review-panel-content button { border: 1px solid var(--floatBorderColor); border-radius: 4px; padding: 6px 8px; background: transparent; color: inherit; font: inherit; font-size: 12px; min-width: 0; cursor: pointer; }
 .core-review-panel-content button:hover:not(:disabled) { background: var(--itemBgColor); }
 .core-review-panel-content button:disabled { opacity: 0.38; cursor: default; }
 .core-review-panel-content button[aria-pressed="true"] { color: var(--themeColor); background: var(--itemBgColor); border-color: var(--themeColor); }
 .core-review-enabled { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); box-sizing: border-box; }
-.core-review-enabled.core-review-open { grid-template-columns: minmax(0, 1fr) 220px; }
 .editor-surface { height: 100%; min-height: 0; overflow: hidden; }
 /* Retain space below the final block for heading jumps and typewriter scrolling. */
 .core-review-enabled .editor-surface .mu-container { padding-bottom: 100vh; }
@@ -4007,4 +4058,23 @@ onBeforeUnmount(() => {
   cursor: grab;
   overflow: hidden;
 }
+</style>
+
+<style>
+.editor-surface .mu-critic-comment-marker {
+  display: inline-block; width: 14px; height: 12px; margin: 0 4px;
+  border: 1.5px solid var(--themeColor); border-radius: 3px;
+  vertical-align: middle; cursor: pointer; position: relative; user-select: none;
+}
+.editor-surface .mu-critic-comment-marker::after {
+  content: ''; position: absolute; bottom: -4px; left: 2px;
+  width: 4px; height: 4px; border-left: 1.5px solid var(--themeColor);
+  transform: skewY(-40deg);
+}
+.editor-surface .mu-critic-comment-marker:focus-visible { outline: 2px solid var(--themeColor); outline-offset: 3px; }
+.core-review-navigation { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; }
+.core-review-navigation .core-review-position { order: -1; flex-basis: 100%; }
+.core-review-navigation button { flex: 1; }
+.core-review-item-actions { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 4px; }
+.core-review-item-actions button { flex: 1; }
 </style>

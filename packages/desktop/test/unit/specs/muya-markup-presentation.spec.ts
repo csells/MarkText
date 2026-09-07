@@ -10,11 +10,34 @@ const rendered = (source: string, currentText?: string, context?: IInlinePresent
   const view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations)
   const binding = view.bindings[0]
   const host = document.createElement('div')
-  host.innerHTML = renderMuyaMarkupBinding(binding, view.decorations, currentText ?? binding.text, context)
+  host.innerHTML = renderMuyaMarkupBinding(binding, view.decorations, currentText ?? binding.text, context, view.comments)
   return host
 }
 
 describe('Muya Core Markup presentation', () => {
+  it('exposes comments at their document locations without adding payload or caret characters', () => {
+    const host = rendered('{>>first<<}a{>>middle<<}b{>>last<<}')
+    const markers = [...host.querySelectorAll('[data-critic-kind="comment"]')]
+    expect(markers).toHaveLength(3)
+    expect(host.textContent).toBe('ab')
+    expect(markers.map(marker => marker.previousSibling?.textContent ?? '')).toEqual(['', 'a', 'b'])
+    expect(markers.map(marker => [marker.getAttribute('data-critic-start'), marker.getAttribute('data-critic-end')])).toEqual([
+      // This leaf starts at the first visible character, after the first note.
+      ['-11', '0'], ['1', '13'], ['14', '24']
+    ])
+    for (const marker of markers) {
+      expect(marker.getAttribute('contenteditable')).toBe('false')
+      expect(marker.getAttribute('role')).toBe('button')
+      expect(marker.getAttribute('tabindex')).toBe('0')
+      expect(marker.getAttribute('aria-label')).toBe('Comment')
+      expect(marker.classList.contains('mu-remove')).toBe(true)
+      expect(marker.textContent).toBe('')
+    }
+    expect(host.innerHTML).not.toMatch(/first|middle|last/u)
+    expect(rendered('{>>only<<}').querySelectorAll('[data-critic-kind="comment"]')).toHaveLength(1)
+    expect(rendered('{>>only<<}').textContent).toBe('')
+  })
+
   it('retains only trusted native link coordinates through the browser sanitizer', () => {
     const host = rendered('prefix {++[name](https://example.com)++}')
     const link = host.querySelector<HTMLAnchorElement>('a.mu-link')
