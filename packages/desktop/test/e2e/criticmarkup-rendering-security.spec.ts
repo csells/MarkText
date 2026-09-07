@@ -40,3 +40,40 @@ test('keeps untrusted markup inert in editable text, Comments and reader project
     await app.close()
   }
 })
+
+const hostileArchitecture = '```mermaid\narchitecture-beta\n' +
+    'group marktextMermaidPollution(cloud)[Marker]\n' +
+    'service a(server)[A] in __proto__\n' +
+    'service b(server)[B] in marktextMermaidPollution\n' +
+    'a:R -- L:b\n```\n\nSafe {++text++}.\n'
+
+for (const [name, source, diagram] of [
+  ['normal document', 'Safe {++text++}.\n', false],
+  ['normal architecture diagram', hostileArchitecture.replace('__proto__', 'marktextMermaidPollution'), true],
+  ['hostile architecture diagram', hostileArchitecture, true]
+] as const) {
+  test(`keeps ${name} responsive without changing object prototypes or document bytes`, async() => {
+    const { app, page, filePath } = await launchWithMarkdown(source, {
+      suppressErrorDialog: true,
+      env: {
+        MARKTEXT_DOCUMENT_CORE_MODE: undefined,
+        MARKTEXT_DOCUMENT_CORE_SHADOW: undefined,
+        MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined,
+        MARKTEXT_E2E_HIDDEN_WINDOW: '1'
+      }
+    })
+    try {
+      if (diagram) {
+        const preview = name === 'normal architecture diagram' ? '.mu-diagram-preview svg' : '.mu-diagram-error'
+        await expect(page.locator(preview).first()).toBeAttached()
+      }
+      expect(await page.evaluate(() => Object.hasOwn(Object.prototype, 'marktextMermaidPollution'))).toBe(false)
+      await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+      await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(source)
+      await expectEditorWindowHidden(app)
+      expectEditorNotFrontmost(app)
+    } finally {
+      await app.close()
+    }
+  })
+}
