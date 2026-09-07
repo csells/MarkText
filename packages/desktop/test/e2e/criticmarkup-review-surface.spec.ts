@@ -100,6 +100,7 @@ test('margin comments open their own editor and Review navigation reveals the cu
     await page.getByTestId('critic-review-next').click()
     await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'addition')
     await expect(page.locator('.core-review-current-block')).toHaveText('addition')
+    await expect(page.locator('.core-review-current-block')).toHaveCSS('outline-style', 'solid')
     await page.getByTestId('critic-review-accept').click()
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(source.replace('Another margin comment.', 'Edited **margin** note.').replace('{++addition++}', 'addition'))
