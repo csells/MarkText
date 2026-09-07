@@ -1,8 +1,8 @@
 # CriticMarkup candidate verification — 6 September 2026
 
-**Historical candidate:** This report describes `index-CtQxlysF.js`. The current frozen candidate and remaining blockers are recorded in [plan 0011](../plans/0011-criticmarkup-editable-review.md#current-completion-blockers--macos-product-correction-6-september); the results below do not certify its changed inputs.
+**Historical candidate:** This report describes `index-CtQxlysF.js`. Later candidate evidence is retained in [archived plan 0011](../plans/archive/0011-criticmarkup-editable-review.md); current completion work is tracked in [plan 0012](../plans/0012-criticmarkup-upstream-integration-review.md). The results below do not certify changed inputs.
 
-Release verification remains incomplete. [Plan 0011](../plans/0011-criticmarkup-editable-review.md) retains the full scope. The Source activation repair, full integrated suites, repeated input/recovery checks and distribution workflows pass on the frozen candidate. Final sustained and cold-open performance checks also pass, measured with competing task-owned validation stopped. Windows and native OS interaction checks remain open.
+Release verification remains incomplete. [Archived plan 0011](../plans/archive/0011-criticmarkup-editable-review.md) records this checkpoint; its full scope continues in 0012. The Source activation repair, full integrated suites, repeated input/recovery checks and distribution workflows pass on the frozen candidate. Final sustained and cold-open performance checks also pass, measured with competing task-owned validation stopped. Windows and native OS interaction checks remain open.
 
 ## Candidate and repairs
 
@@ -24,20 +24,20 @@ Mac package: `mac-package-native/mac-arm64/marktext.app` beneath that root. Linu
 
 ## Functional verification
 
-| Check | Current candidate |
-| --- | --- |
-| Desktop units | 1,856 passed in 192 files |
-| Muya units | 1,484 passed in 223 files |
-| Document Core units, unchanged source | 290 passed |
-| CommonMark/GFM baseline checks | 1,347 passed; expected-failure inventory unchanged from pinned upstream |
-| Chromium interactions | 244 passed |
-| Broad packaged macOS compatibility | 345 passed |
-| macOS packaged editorial, clipboard, anchors and images | 134 passed |
-| Linux packaged Review, clipboard, editorial and images | 129 passed |
-| Repeated input and recovery | 90 passed: ten repetitions of all nine scenarios |
-| macOS DMG scratch installation | 28 Review + nine input/recovery cases passed |
-| Linux AppImage extract-and-run | 28 Review + nine input/recovery cases passed |
-| Types and lint | Types, changed-file lint and final root lint pass; root lint reports 322 warnings, no errors |
+| Check                                                   | Current candidate                                                                            |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Desktop units                                           | 1,856 passed in 192 files                                                                    |
+| Muya units                                              | 1,484 passed in 223 files                                                                    |
+| Document Core units, unchanged source                   | 290 passed                                                                                   |
+| CommonMark/GFM baseline checks                          | 1,347 passed; expected-failure inventory unchanged from pinned upstream                      |
+| Chromium interactions                                   | 244 passed                                                                                   |
+| Broad packaged macOS compatibility                      | 345 passed                                                                                   |
+| macOS packaged editorial, clipboard, anchors and images | 134 passed                                                                                   |
+| Linux packaged Review, clipboard, editorial and images  | 129 passed                                                                                   |
+| Repeated input and recovery                             | 90 passed: ten repetitions of all nine scenarios                                             |
+| macOS DMG scratch installation                          | 28 Review + nine input/recovery cases passed                                                 |
+| Linux AppImage extract-and-run                          | 28 Review + nine input/recovery cases passed                                                 |
+| Types and lint                                          | Types, changed-file lint and final root lint pass; root lint reports 322 warnings, no errors |
 
 The CommonMark/GFM runner retains 78 CommonMark and 90 GFM expected failures, exactly matching pinned upstream. A passing baseline run preserves compatibility; it does not mean complete compliance with either specification.
 
@@ -51,14 +51,14 @@ Current logs: `/tmp/marktext-sep06-source-ready-{red,green,desktop,types,lint,fi
 
 All six 1,200-key workloads pass the initial p95 targets: DOM echo 16.7 ms, dispatch 8 ms, acknowledgement and reconciliation 50 ms. Each has eight warmup keys and 20 ms deliberate pacing, with no authority barrier between measured keys. All 7,200 measured inputs pair with authority transactions, receive acknowledgement/reconciliation, and preserve exact saved source. Comparisons use upstream `e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c`, matching documents and pacing.
 
-| Workload | Candidate echo p95 | Upstream echo p95 | Dispatch p95 | Ack p95 | Reconcile p95 |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Plain, 1,000 paragraphs | 4.0 ms | 13.6 ms | 5.3 ms | 8.7 ms | 12.4 ms |
-| Dense CM, 80 sections, ordinary | 3.7 ms | 12.6 ms | 4.1 ms | 8.8 ms | 10.1 ms |
-| Dense CM, 80 sections, tracked | 3.7 ms | 12.6 ms | 4.2 ms | 8.9 ms | 10.5 ms |
-| Unicode, 80 sections, tracked | 3.7 ms | 3.9 ms | 4.1 ms | 5.4 ms | 7.2 ms |
-| Mixed blocks, 80 sections, tracked | 4.5 ms | 14.3 ms | 5.4 ms | 10.4 ms | 14.0 ms |
-| Diagrams/images/math, 20 sections, tracked | 3.9 ms | 12.9 ms | 4.3 ms | 8.9 ms | 10.4 ms |
+| Workload                                   | Candidate echo p95 | Upstream echo p95 | Dispatch p95 | Ack p95 | Reconcile p95 |
+| ------------------------------------------ | -----------------: | ----------------: | -----------: | ------: | ------------: |
+| Plain, 1,000 paragraphs                    |             4.0 ms |           13.6 ms |       5.3 ms |  8.7 ms |       12.4 ms |
+| Dense CM, 80 sections, ordinary            |             3.7 ms |           12.6 ms |       4.1 ms |  8.8 ms |       10.1 ms |
+| Dense CM, 80 sections, tracked             |             3.7 ms |           12.6 ms |       4.2 ms |  8.9 ms |       10.5 ms |
+| Unicode, 80 sections, tracked              |             3.7 ms |            3.9 ms |       4.1 ms |  5.4 ms |        7.2 ms |
+| Mixed blocks, 80 sections, tracked         |             4.5 ms |           14.3 ms |       5.4 ms | 10.4 ms |       14.0 ms |
+| Diagrams/images/math, 20 sections, tracked |             3.9 ms |           12.9 ms |       4.3 ms |  8.9 ms |       10.4 ms |
 
 Upstream treats CriticMarkup as literal text and has no tracking/authority API; its values are an ordinary-editing baseline, not equivalent tracked functionality. All five upstream workloads preserve exact source. Before the autolink repair, the candidate's large plain workload failed dispatch p95 at 14.2 ms and grew progressively slower. The failed run and CPU profile are retained in `/tmp/marktext-sep06-final-performance.log` and `/tmp/marktext-sep06-plain-profile.log`.
 
@@ -70,11 +70,11 @@ The 200-cycle editorial session passed native paste, deletion, navigation, Revie
 
 Five fresh Electron processes and isolated profiles per workload, loading the frozen compiled bundles through the same external hidden-window facade for both builds. The warm/session measurements above use the packaged app. Values below measure host launch to exact editable DOM, including automation overhead. All 30 launches preserved exact source. Core open time was at most 92.5 ms and first editable binding at most 198.0 ms, meeting the 500/1,500 ms targets.
 
-| Workload | Candidate median / maximum | Upstream median / maximum |
-| --- | ---: | ---: |
-| Plain, 80 paragraphs | 638 / 925 ms | 569 / 574 ms |
-| Dense CM, 80 sections | 690 / 702 ms | 573 / 576 ms |
-| Plain, 1,000 paragraphs | 1,047 / 1,114 ms | 892 / 1,045 ms |
+| Workload                | Candidate median / maximum | Upstream median / maximum |
+| ----------------------- | -------------------------: | ------------------------: |
+| Plain, 80 paragraphs    |               638 / 925 ms |              569 / 574 ms |
+| Dense CM, 80 sections   |               690 / 702 ms |              573 / 576 ms |
+| Plain, 1,000 paragraphs |           1,047 / 1,114 ms |            892 / 1,045 ms |
 
 The candidate adds cold-start cost while staying within the stated Core targets. Five samples are diagnostic, not a stable tail estimate; disk caches and unrelated host activity are uncontrolled. The presentation observation is editable DOM intersecting a hidden viewport, not compositor paint or physical input-to-photon latency. All task-owned competing validation was stopped during timing. Hardware: Apple M5 Max, 18 logical CPUs, macOS arm64, Darwin 25.6.0.
 

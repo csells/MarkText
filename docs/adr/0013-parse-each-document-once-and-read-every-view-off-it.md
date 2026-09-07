@@ -1,7 +1,7 @@
 # Markdown and CriticMarkup have one interpretation; views do not re-recognize source
 
 - **Status:** Accepted semantic boundary; parse-count and safe-point mechanics superseded by
-  [plan 0011](../../specs/plans/0011-criticmarkup-editable-review.md) and implementation
+  [archived plan 0011](../../specs/plans/archive/0011-criticmarkup-editable-review.md) and implementation
   baselines.
 
 The engine owns one lossless interpretation of Markdown and CriticMarkup for a document revision.
@@ -30,4 +30,4 @@ The following are deliberately **not** architectural requirements:
 
 An implementation may use those mechanisms when measured evidence supports them. Whatever it uses
 must preserve the language result, keep full and incremental parsing observationally equivalent,
-avoid competing consumer interpretations, and meet plan 0011's product-path latency contract.
+avoid competing consumer interpretations, and meet the product-path latency contract retained in plan 0012.
