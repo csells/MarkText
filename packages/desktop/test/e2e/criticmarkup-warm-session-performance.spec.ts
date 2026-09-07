@@ -7,7 +7,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   expectEditorNotFrontmost, expectEditorWindowHidden,
-  expectNoRendererErrors, launchWithMarkdown, sendIpcToRenderer
+  expectNoRendererErrors, launchWithReviewMarkdown as launchWithMarkdown, sendIpcToRenderer
 } from './helpers'
 import {
   readInputLatencyTrace, readInputLatencyTraceStatus,

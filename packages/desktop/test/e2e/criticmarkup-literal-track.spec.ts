@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import {
   expectEditorNotFrontmost, expectEditorWindowHidden, expectNoRendererErrors,
-  launchWithMarkdown, sendIpcToRenderer
+  launchWithReviewMarkdown as launchWithMarkdown, sendIpcToRenderer
 } from './helpers'
 
 const literals = [

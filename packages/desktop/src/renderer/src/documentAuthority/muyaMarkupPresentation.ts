@@ -214,10 +214,12 @@ export function renderMuyaMarkupBinding(
     const range = rebase(decoration.range)
     if (range === undefined || range.end <= range.start) continue
     const { mark } = decoration
+    // Leaf-relative locations survive cached sibling rendering when an earlier
+    // edit uniformly shifts the Core source coordinates.
     const arm = mark.kind === 'substitution' ? ` data-critic-arm="${escapeHtml(mark.arm)}"` : ''
     spans.push({
       range,
-      open: `<span data-critic-kind="${escapeHtml(mark.kind)}"${arm}>`,
+      open: `<span data-critic-kind="${escapeHtml(mark.kind)}" data-critic-start="${mark.annotationRange.start - binding.sourceRange.start}" data-critic-end="${mark.annotationRange.end - binding.sourceRange.start}"${arm}>`,
       close: '</span>'
     })
   }
@@ -228,6 +230,6 @@ export function renderMuyaMarkupBinding(
     // widget renderer. All authored text and scalar values are escaped.
     FORBID_ATTR: [],
     ALLOWED_URI_REGEXP: EXPORT_DOMPURIFY_CONFIG.ALLOWED_URI_REGEXP,
-    ADD_ATTR: ['contenteditable', 'data-critic-kind', 'data-critic-arm', 'data-character', 'data-emoji', 'data-raw', 'data-start', 'data-end', 'data-core-image', 'data-title']
+    ADD_ATTR: ['contenteditable', 'data-critic-kind', 'data-critic-arm', 'data-critic-start', 'data-critic-end', 'data-character', 'data-emoji', 'data-raw', 'data-start', 'data-end', 'data-core-image', 'data-title']
   })
 }

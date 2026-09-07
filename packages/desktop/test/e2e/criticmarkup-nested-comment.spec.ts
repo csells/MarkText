@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import {
   expectEditorNotFrontmost, expectEditorWindowHidden, expectNoRendererErrors,
-  launchElectron, launchWithMarkdown, sendIpcToRenderer, waitForEditor, waitForMenuReady
+  launchElectron, launchWithReviewMarkdown as launchWithMarkdown, sendIpcToRenderer, waitForEditor, waitForMenuReady
 } from './helpers'
 
 const options = {
@@ -44,6 +44,7 @@ for (const anchored of [true, false]) {
       reopened = await launchElectron([filePath], options)
       await waitForEditor(reopened.page)
       await waitForMenuReady(reopened.app)
+      await reopened.page.getByRole('button', { name: 'Review', exact: true }).click()
       await reopened.page.getByTestId('critic-review-edit-comment').click()
       await expect(reopened.page.getByTestId('critic-review-comment-input')).toHaveValue('new **note**')
       await reopened.page.getByTestId('critic-review-comment-cancel').click()

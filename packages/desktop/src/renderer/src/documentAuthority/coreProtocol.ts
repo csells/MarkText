@@ -118,6 +118,7 @@ export type CoreRequest =
     readonly baseRevision: number
     readonly direction: 'next' | 'previous'
     readonly from: number
+    readonly includeOverview?: boolean
   }>
   | Readonly<{
     readonly type: 'undo' | 'redo'
@@ -286,6 +287,11 @@ export type CoreSelectionProjectionReply = Readonly<{
   readonly sourceLength: number
   readonly projection: CoreConsumerProjection
 }>
+export type CoreReviewOverviewEntry = Readonly<{
+  readonly item: CoreReviewItemLocator
+  readonly commentText?: string
+  readonly commentProjection?: Readonly<{ readonly ast: MarkdownAst }>
+}>
 export type CoreReviewItemReply = Readonly<{
   readonly type: 'review-item'
   readonly session: number
@@ -294,6 +300,7 @@ export type CoreReviewItemReply = Readonly<{
   readonly accepted: true
   readonly sourceLength: number
   readonly item: CoreReviewItemLocator | null
+  readonly overview?: readonly CoreReviewOverviewEntry[]
   readonly commentText?: string
   readonly commentProjection?: Readonly<{ readonly ast: MarkdownAst }>
 }>

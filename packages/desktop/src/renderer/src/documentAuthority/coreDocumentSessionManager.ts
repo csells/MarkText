@@ -476,12 +476,13 @@ export function createCoreDocumentSessionManager(
         ),
         reviewItemAtBarrier: (
           direction: 'next' | 'previous',
-          from: number
+          from: number,
+          includeOverview?: boolean
         ) => {
           if (released) {
             return Promise.reject(new Error('Core document view lease is released'))
           }
-          return session.binding.reviewItemAtBarrier(direction, from)
+          return session.binding.reviewItemAtBarrier(direction, from, includeOverview)
         },
         observe(listener: (event: EditorCoreObservation) => void) {
           if (released) throw new Error('Core document view lease is released')
