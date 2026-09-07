@@ -43,3 +43,8 @@ export const reviewCommandEnabled = (id: ReviewCommand, state?: ReviewCommandSta
   if (id === 'accept' || id === 'reject') return state.hasItem && !state.removable
   return state.hasItem
 }
+
+export type ReviewContextCommand = 'accept' | 'reject' | 'remove' | 'edit-comment'
+export interface ReviewContextRequest { requestId: number; x: number; y: number }
+export interface ReviewContextReply { requestId: number; commands?: ReviewContextCommand[]; error?: string }
+export interface ReviewContextAction { requestId: number; command: ReviewContextCommand }
