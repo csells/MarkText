@@ -54,6 +54,14 @@
         >
           <span class="text-center-vertical">&#9776;</span>
         </div>
+        <button
+          type="button"
+          class="review-toggle title-no-drag"
+          :aria-pressed="layoutStore.showSideBar && layoutStore.rightColumn === 'review'"
+          @click.stop="layoutStore.SET_LAYOUT({ showSideBar: true, rightColumn: 'review' })"
+        >
+          {{ t('editor.coreReview.panelTitle') }}
+        </button>
         <el-tooltip
           v-if="wordCount"
           class="item"
@@ -318,6 +326,22 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.review-toggle {
+  align-self: center;
+  border: 0;
+  border-radius: 4px;
+  padding: 3px 8px;
+  background: transparent;
+  color: var(--iconColor);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.review-toggle:hover, .review-toggle[aria-pressed="true"] {
+  background: var(--itemBgColor);
+  color: var(--themeColor);
+}
+
 .title-bar-editor-bg {
   height: var(--titleBarHeight);
   background: var(--editorBgColor);

@@ -68,6 +68,7 @@ const openFixture = async(filePath: string): Promise<OpenedEditor> => {
     if (binary !== undefined) await expectDefaultCoreAuthority(page)
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
+    await page.getByRole('button', { name: 'Review', exact: true }).click()
     return { app, page, pageErrors }
   } catch (error) {
     await app.close().catch(() => {})

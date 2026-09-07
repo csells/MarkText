@@ -945,6 +945,14 @@
       "resolved": "I have recovered this draft"
     },
     "coreReview": {
+      "panelTitle": "Review",
+      "viewHelp": "About these views",
+      "selectionHint": "Select text in the document to mark or comment on it.",
+      "empty": "No changes or comments in this document.",
+      "sourceHint": "Return to the editor to review changes.",
+      "viewHint": "Original shows the text before suggestions. Revised shows it with suggestions applied. Both are read-only.",
+      "position": "{current} of {total}",
+      "comments": "Comments",
       "title": "Review changes",
       "kinds": {
         "addition": "Addition",

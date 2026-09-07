@@ -20,7 +20,8 @@ import type {
   CoreConsumerSearchMatch,
   CoreReply,
   CoreRequest,
-  CoreReviewItemLocator
+  CoreReviewItemLocator,
+  CoreReviewOverviewEntry
 } from './coreProtocol'
 import { createMuyaMarkupView } from './muyaMarkupView'
 
@@ -724,6 +725,36 @@ export function createCoreActor(
       : undefined
   }
 
+  const reviewOverviewEntry = (core: DocumentCore, revision: DocumentRevision, item: CoreReviewItemLocator): CoreReviewOverviewEntry => {
+    // Items here come from Core's visible review traversal, so their paired
+    // comment ranges are already validated. Do not traverse the document again
+    // for every margin comment.
+    const comment = item.kind === 'comment'
+      ? annotationFor(revision, item)
+      : item.kind === 'commented-span'
+        ? annotationFor(revision, { kind: 'comment', range: item.commentRange })
+        : undefined
+    const arm = comment?.arms.find(arm => arm.name === 'comment')
+    return Object.freeze({
+      item: Object.freeze({
+        ...item,
+        range: Object.freeze({ ...item.range }),
+        ...(item.kind === 'commented-span'
+          ? {
+            highlightRange: Object.freeze({ ...item.highlightRange }),
+            commentRange: Object.freeze({ ...item.commentRange })
+          }
+          : {})
+      }),
+      ...(arm === undefined ? {} : { commentText: core.sourceSlice(revision, arm.range) }),
+      ...(comment === undefined
+        ? {}
+        : {
+          commentProjection: Object.freeze({ ast: core.projectComment(revision, comment).ast })
+        })
+    })
+  }
+
   const editedCommentFor = (
     activeCore: DocumentCore,
     activeRevision: DocumentRevision,
@@ -1266,10 +1297,6 @@ export function createCoreActor(
         // Navigation anchors survive edits. A deleted prefix can move an old
         // anchor past EOF; searching from the new boundary is a valid read.
         const annotation = reviewItemFor(core, revision, request.direction, Math.min(request.from, revision.sourceLength))
-        const comment = annotation === undefined
-          ? undefined
-          : commentAnnotationFor(core, revision, annotation)
-        const commentArm = comment?.arms.find(arm => arm.name === 'comment')
         return Object.freeze({
           type: 'review-item',
           session,
@@ -1277,24 +1304,12 @@ export function createCoreActor(
           revision: revisionNumber,
           accepted: true,
           sourceLength: revision.sourceLength,
-          item: annotation === undefined
-            ? null
-            : Object.freeze({
-              ...annotation,
-              range: Object.freeze({ ...annotation.range }),
-              ...(annotation.kind === 'commented-span'
-                ? {
-                  highlightRange: Object.freeze({ ...annotation.highlightRange }),
-                  commentRange: Object.freeze({ ...annotation.commentRange })
-                }
-                : {})
-            }),
-          ...(commentArm === undefined
-            ? {}
-            : { commentText: core.sourceSlice(revision, commentArm.range) }),
-          ...(comment === undefined
-            ? {}
-            : { commentProjection: Object.freeze({ ast: core.projectComment(revision, comment).ast }) })
+          ...(annotation === undefined ? { item: null } : reviewOverviewEntry(core, revision, annotation)),
+          ...(request.includeOverview
+            ? {
+              overview: Object.freeze(reviewItemsFor(core, revision).map(reviewOverviewEntry.bind(undefined, core, revision)))
+            }
+            : {})
         })
       }
       const historyEntry = request.type === 'undo'

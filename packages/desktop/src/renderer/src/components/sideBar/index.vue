@@ -11,6 +11,13 @@
           v-for="(c, index) of sideBarIcons"
           :key="index"
           :class="{ active: c.id === rightColumn }"
+          :title="c.name()"
+          :aria-label="c.name()"
+          role="tab"
+          :aria-selected="c.id === rightColumn"
+          tabindex="0"
+          @keydown.enter="handleLeftIconClick(c.id)"
+          @keydown.space.prevent="handleLeftIconClick(c.id)"
           @click="handleLeftIconClick(c.id)"
         >
           <component :is="c.icon" />
@@ -38,6 +45,11 @@
       />
       <side-bar-search v-else-if="rightColumn === 'search'" />
       <toc v-else-if="rightColumn === 'toc'" />
+      <div
+        v-show="rightColumn === 'review'"
+        id="core-review-panel"
+        class="review-panel"
+      />
     </div>
     <div
       v-show="rightColumn"
@@ -211,6 +223,13 @@ const handleLeftBottomClick = (name: string): void => {
   flex: 1;
   width: calc(100% - 50px);
   overflow: hidden;
+}
+
+.review-panel {
+  height: 100%;
+  overflow: auto;
+  padding: 38px 12px 16px;
+  box-sizing: border-box;
 }
 
 .drag-bar {

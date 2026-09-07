@@ -265,6 +265,7 @@ const launchInstalled = async(
     await waitForMenuReady(app, 60_000)
     await expectInstalledArtifactCommit(page)
     await expectDefaultCoreAuthority(page)
+    await page.getByRole('button', { name: 'Review', exact: true }).click()
     return { app, page }
   } catch (error) {
     await app.close().catch(() => {})
@@ -554,9 +555,6 @@ test.describe('installed Core Review authority', () => {
         }
         const usesCommentComposer = testCase.mode !== 'selection-control' ||
           testCase.actionTestId === 'critic-review-add-comment'
-        if (testCase.promptText !== null && !usesCommentComposer) {
-          await page.evaluate(text => { window.prompt = () => text }, testCase.promptText)
-        }
         const control = page.getByTestId(testCase.mode === 'selection-control'
           ? testCase.actionTestId
           : 'critic-review-edit-comment')
@@ -565,9 +563,10 @@ test.describe('installed Core Review authority', () => {
         } else {
           await expect(control).toBeEnabled()
           await control.click()
-          if (usesCommentComposer && testCase.promptText !== null) {
-            await page.getByTestId('critic-review-comment-input').fill(testCase.promptText)
-            await page.getByTestId('critic-review-comment-submit').click()
+          if (testCase.promptText !== null) {
+            const composer = usesCommentComposer ? 'comment' : 'replacement'
+            await page.getByTestId(`critic-review-${composer}-input`).fill(testCase.promptText)
+            await page.getByTestId(`critic-review-${composer}-submit`).click()
           }
           await expect.poll(() => page.evaluate(() =>
             (window.__marktextDocumentCore?.latest() as {

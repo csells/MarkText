@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import {
   enterSourceMode, exitSourceMode, expectEditorNotFrontmost,
-  expectEditorWindowHidden, expectNoRendererErrors, launchWithMarkdown,
+  expectEditorWindowHidden, expectNoRendererErrors, launchWithReviewMarkdown as launchWithMarkdown,
   sendIpcToRenderer, placeCaretInEditor
 } from './helpers'
 
