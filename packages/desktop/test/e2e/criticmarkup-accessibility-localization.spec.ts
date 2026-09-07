@@ -125,6 +125,11 @@ test('sidebar icons show keyboard focus and review actions use shared light/dark
       await expect(icon).toHaveCSS('outline-style', 'solid')
       await expect(icon).toHaveCSS('outline-width', '2px')
       const action = page.getByTestId('critic-review-edit-comment')
+      await expect(action).toBeVisible()
+      await expect(page.getByTestId('critic-review-remove')).toBeVisible()
+      await expect(page.locator('#core-review-panel .core-review-item-actions button')).toHaveCount(
+        2
+      )
       await expectReviewFits(page)
       expect(await page.locator('#core-review-panel').evaluate(reviewActionWordBreaks)).toEqual([])
       await page.screenshot({ path: test.info().outputPath(`review-${theme}-narrow-actions.png`) })
