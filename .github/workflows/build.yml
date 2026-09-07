@@ -16,7 +16,7 @@ on:
       candidate_platform:
         description: 'Platform of the existing candidate to verify'
         type: choice
-        options: [windows-x64, linux, windows-ime-environment]
+        options: [windows-x64, linux, windows-ime-environment, windows-ime-control]
         default: windows-x64
   pull_request:
     types: [opened, synchronize, reopened]
@@ -215,6 +215,34 @@ jobs:
         with:
           name: windows-existing-candidate-verification
           path: test-results/
+          if-no-files-found: ignore
+
+  verify-windows-ime-control:
+    if: github.event_name == 'workflow_dispatch' && inputs.candidate_run != '' && inputs.candidate_platform == 'windows-ime-control'
+    runs-on: windows-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Register Japanese input on the disposable desktop
+        shell: pwsh
+        run: |
+          $languages = Get-WinUserLanguageList
+          if (!($languages.LanguageTag -contains 'ja-JP')) { $languages.Add('ja-JP') }
+          Set-WinUserLanguageList $languages -Force
+          $japanese = Get-WinUserLanguageList | Where-Object LanguageTag -eq 'ja-JP'
+          Set-WinDefaultInputMethodOverride -InputTip $japanese.InputMethodTips[0]
+          $japanese | Format-List
+      - name: Exercise the installed OS IME through a native control
+        shell: powershell
+        run: powershell.exe -NoProfile -STA -File scripts/verifyWindowsNativeIme.ps1
+      - name: Retain native input control screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-native-ime-control
+          path: ${{ runner.temp }}/native-ime-candidate-panel.png
           if-no-files-found: ignore
 
   inspect-windows-ime-environment:
