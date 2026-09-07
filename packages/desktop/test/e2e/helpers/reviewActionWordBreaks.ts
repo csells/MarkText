@@ -1,7 +1,9 @@
 /** Browser-side geometry check: a normal label word must remain on one line. */
 export const reviewActionWordBreaks = (panel: Element): string[] => {
   const broken: string[] = []
-  for (const button of panel.querySelectorAll('.core-review-item-actions button')) {
+  const actions = panel.querySelectorAll('.core-review-item-actions button')
+  if (actions.length === 0) throw new Error('No review actions to measure')
+  for (const button of actions) {
     const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT)
     while (walker.nextNode()) {
       const node = walker.currentNode
