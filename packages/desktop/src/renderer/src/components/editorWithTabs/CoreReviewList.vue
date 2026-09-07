@@ -61,10 +61,11 @@ defineEmits<{ select: [start: number] }>()
 
 <style scoped>
 .core-review-list { list-style: none; padding: 0; margin: 12px 0; }
-.core-review-entry { border-bottom: 1px solid var(--floatBorderColor); border-left: 2px solid transparent; padding: 6px; }
-.core-review-entry.active { border-left-color: var(--themeColor); background: var(--itemBgColor); }
+.core-review-entry { border-left: 2px solid transparent; padding: 6px; }
+.core-review-entry.active { border-left-color: var(--themeColor); background: var(--sideBarItemHoverBgColor); }
 .core-review-entry > button { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; border: 0; padding: 4px; }
-.core-review-entry-kind { font-weight: 600; font-size: 12px; }
+.core-review-entry > button:focus-visible { background: var(--sideBarItemHoverBgColor); }
+.core-review-entry-kind { font-weight: 600; font-size: 13px; }
 .core-review-excerpt { overflow-wrap: anywhere; white-space: pre-wrap; max-height: 5em; overflow: auto; }
 .core-review-excerpt.addition { text-decoration: underline; text-decoration-color: var(--themeColor); }
 .core-review-excerpt.deletion, .core-review-excerpt.substitution { text-decoration: line-through; }

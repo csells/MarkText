@@ -48,7 +48,7 @@
       </div>
       <div
         v-show="showOpenedFiles"
-        class="opened-files-list"
+        class="opened-files-list side-bar-scroll"
       >
         <transition-group name="list">
           <opened-file
@@ -86,7 +86,7 @@
       </div>
       <div
         v-show="showDirectories"
-        class="tree-wrapper"
+        class="tree-wrapper side-bar-scroll"
       >
         <folder
           v-for="folder of projectTree.folders"
@@ -367,10 +367,6 @@ onMounted(() => {
   flex: 1;
 }
 
-.opened-files .opened-files-list::-webkit-scrollbar:vertical {
-  width: 8px;
-}
-
 .project-tree {
   display: flex;
   flex-direction: column;
@@ -410,9 +406,6 @@ onMounted(() => {
   flex: 1;
 }
 
-.project-tree > .tree-wrapper::-webkit-scrollbar:vertical {
-  width: 8px;
-}
 .project-tree div.title:hover > a {
   opacity: 1;
 }
