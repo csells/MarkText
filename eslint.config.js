@@ -15,6 +15,7 @@ export default [
   {
     ignores: [
       '.claude/**',
+      '.vscode/**',
       '**/out/**',
       '**/dist/**',
       // The website ships with its own ESLint v8 config (React conventions).

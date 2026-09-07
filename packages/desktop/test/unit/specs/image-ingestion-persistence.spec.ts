@@ -10,7 +10,7 @@ type ImagePersistenceFileUtils = Pick<
 >
 
 let root: string
-beforeEach(async () => {
+beforeEach(async() => {
   root = await fs.mkdtemp(path.join(tmpdir(), 'marktext-image-persistence-'))
   window.path = path as typeof window.path
   const fileUtils: ImagePersistenceFileUtils = {
@@ -27,14 +27,14 @@ beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date('2026-09-05T12:00:00Z'))
 })
-afterEach(async () => {
+afterEach(async() => {
   vi.useRealTimers()
   await fs.remove(root)
 })
 
 it.each(['bitmap', 'path'] as const)(
   'preserves both imports when the same %s name supplies different bytes',
-  async (kind) => {
+  async(kind) => {
     const document = path.join(root, 'note.md')
     const directory = path.join(root, 'assets')
     const image = path.join(root, 'same.png')
@@ -58,7 +58,7 @@ it.each(['bitmap', 'path'] as const)(
   }
 )
 
-it('persists a bitmap data URL as a portable PNG asset', async () => {
+it('persists a bitmap data URL as a portable PNG asset', async() => {
   const document = path.join(root, 'note.md')
   const directory = path.join(root, 'assets')
   const source = await moveImageToFolder(
@@ -89,7 +89,7 @@ it.each([
   ]
 ] as const)(
   'preserves image MIME and bytes before preference dispatch (%s)',
-  async (source, type, name, bytes) => {
+  async(source, type, name, bytes) => {
     const image = normalizeImageInput(source)
     expect(image).toBeInstanceOf(File)
     if (typeof image === 'string') throw new Error('Expected a decoded image File')
@@ -99,7 +99,7 @@ it.each([
   }
 )
 
-it('reuses identical bitmap bytes without rewriting the existing asset', async () => {
+it('reuses identical bitmap bytes without rewriting the existing asset', async() => {
   const directory = path.join(root, 'assets')
   const bytes = new Uint8Array([1, 2, 3])
   const file = new File([bytes], 'same.png', { type: 'image/png' })
@@ -112,7 +112,7 @@ it('reuses identical bitmap bytes without rewriting the existing asset', async (
   expect(await fs.readFile(first)).toEqual(Buffer.from(bytes))
 })
 
-it('preserves an edited asset occupying the bitmap hash filename', async () => {
+it('preserves an edited asset occupying the bitmap hash filename', async() => {
   const directory = path.join(root, 'assets')
   const bytes = new Uint8Array([1, 2, 3])
   const editedBytes = new Uint8Array([9, 8, 7])
@@ -129,7 +129,7 @@ it('preserves an edited asset occupying the bitmap hash filename', async () => {
   expect(await fs.readFile(imported)).toEqual(Buffer.from(bytes))
 })
 
-it('reports bitmap write failures other than a filename collision', async () => {
+it('reports bitmap write failures other than a filename collision', async() => {
   const failure = new Error('EACCES: permission denied')
   const write = vi.spyOn(window.fileUtils, 'writeFile').mockRejectedValueOnce(failure)
   await expect(
