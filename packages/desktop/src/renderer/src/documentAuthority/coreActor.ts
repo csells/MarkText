@@ -728,14 +728,21 @@ export function createCoreActor(
   const reviewOverviewEntry = (core: DocumentCore, revision: DocumentRevision, item: CoreReviewItemLocator): CoreReviewOverviewEntry => {
     // Items here come from Core's visible review traversal, so their paired
     // comment ranges are already validated. Do not traverse the document again
-    // for every margin comment.
+    // for every sidebar entry.
     const comment = item.kind === 'comment'
       ? annotationFor(revision, item)
       : item.kind === 'commented-span'
         ? annotationFor(revision, { kind: 'comment', range: item.commentRange })
         : undefined
     const arm = comment?.arms.find(arm => arm.name === 'comment')
+    const annotation = item.kind === 'commented-span'
+      ? annotationFor(revision, { kind: 'highlight', range: item.highlightRange })
+      : annotationFor(revision, item)
+    const content = annotation?.arms.find(arm => arm.name === 'content' || arm.name === 'old')
+    const replacement = annotation?.arms.find(arm => arm.name === 'new')
     return Object.freeze({
+      ...(content === undefined ? {} : { text: core.sourceSlice(revision, content.range) }),
+      ...(replacement === undefined ? {} : { replacementText: core.sourceSlice(revision, replacement.range) }),
       item: Object.freeze({
         ...item,
         range: Object.freeze({ ...item.range }),

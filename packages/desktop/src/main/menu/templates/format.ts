@@ -1,5 +1,6 @@
 import { type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
 import * as actions from '../actions/format'
+import { reviewMenuItems } from '../actions/review'
 import { t } from '../../i18n'
 import type Keybindings from '../../keyboard/shortcutHandler'
 
@@ -8,6 +9,8 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
     id: 'formatMenuItem',
     label: t('menu.format.format'),
     submenu: [
+      { label: t('editor.coreReview.panelTitle'), submenu: reviewMenuItems(keybindings) },
+      { type: 'separator' },
       {
         id: 'strongMenuItem',
         label: t('menu.format.bold'),

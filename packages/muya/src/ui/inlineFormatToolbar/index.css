@@ -6,7 +6,43 @@
 
 .mu-format-picker {
     width: 265px;
-    height: 28px;
+    max-width: calc(100vw - 16px);
+}
+
+.mu-format-host-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 4px 7px;
+
+    border-top: 1px solid var(--editor-color-10);
+}
+
+.mu-format-host-action {
+    flex: 1 1 auto;
+    padding: 4px 6px;
+
+    color: var(--editor-color);
+    font: inherit;
+
+    background: transparent;
+    border: 0;
+    border-radius: 2px;
+    cursor: pointer;
+}
+
+.mu-format-host-action:focus-visible {
+    outline: 1px solid var(--theme-color);
+    outline-offset: -1px;
+}
+
+.mu-format-host-action:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
+
+.mu-format-host-action:hover:not(:disabled) {
+    background: var(--float-hover-color);
 }
 
 .mu-format-picker ul,
