@@ -410,6 +410,21 @@ export const launchWithMarkdown = async(
   return { app, page, filePath }
 }
 
+/** Opens the real Review sidebar for scenarios that exercise its controls. */
+export const launchWithReviewMarkdown = async(
+  markdown = '',
+  options: LaunchOptions = {}
+): Promise<LaunchWithMarkdownResult> => {
+  const launched = await launchWithMarkdown(markdown, options)
+  try {
+    await launched.page.getByRole('button', { name: 'Review', exact: true }).click()
+    return launched
+  } catch (error) {
+    await launched.app.close().catch(() => {})
+    throw error
+  }
+}
+
 export const expectEditorWindowHidden = async(
   app: ElectronApplication
 ): Promise<void> => {

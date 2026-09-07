@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import {
   expectEditorNotFrontmost, expectEditorWindowHidden,
-  launchWithMarkdown, sendIpcToRenderer
+  launchWithReviewMarkdown as launchWithMarkdown, sendIpcToRenderer
 } from './helpers'
 
 test('keeps untrusted markup inert in editable text, Comments and reader projections', async() => {

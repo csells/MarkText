@@ -5,7 +5,7 @@ import {
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
   expectNoRendererErrors,
-  launchWithMarkdown,
+  launchWithReviewMarkdown as launchWithMarkdown,
   sendIpcToRenderer
 } from './helpers'
 
