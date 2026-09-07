@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   expectEditorNotFrontmost, expectEditorWindowHidden, expectNoRendererErrors,
-  launchWithMarkdown, sendIpcToRenderer, waitForMenuReady
+  launchWithReviewMarkdown as launchWithMarkdown, sendIpcToRenderer, waitForMenuReady
 } from './helpers'
 import { preserveSystemClipboard } from './helpers/systemClipboardFixture'
 

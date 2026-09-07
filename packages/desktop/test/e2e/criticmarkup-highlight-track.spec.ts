@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import {
   expectEditorNotFrontmost, expectEditorWindowHidden, expectNoRendererErrors,
-  launchWithMarkdown, placeCaretInEditor, sendIpcToRenderer
+  launchWithReviewMarkdown as launchWithMarkdown, placeCaretInEditor, sendIpcToRenderer
 } from './helpers'
 
 test('tracks continued typing inside a highlight and preserves its comment through save and history', async() => {
