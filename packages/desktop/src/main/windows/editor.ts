@@ -10,6 +10,7 @@ import { ensureWindowPosition, zoomIn, zoomOut } from './utils'
 import { TITLE_BAR_HEIGHT, editorWinOptions, isLinux, isOsx } from '../config'
 import { isHiddenE2eWindow } from './windowActivationPolicy'
 import { showEditorContextMenu } from '../contextMenu/editor'
+import { requestReviewContext } from '../contextMenu/editor/reviewContext'
 import { loadMarkdownFile } from '../filesystem/markdown'
 import { switchLanguage } from '../spellchecker'
 import fs from 'fs'
@@ -160,8 +161,15 @@ class EditorWindow extends BaseWindow {
     // Create a menu for the current window
     appMenu.addEditorMenu(win, { sourceCodeModeEnabled: sourceCodeModeEnabled as boolean })
 
+    let contextMenuRequest = 0
     win.webContents.on('context-menu', (event, params) => {
-      showEditorContextMenu(win!, event, params, preferences.getItem('spellcheckerEnabled'))
+      const request = ++contextMenuRequest
+      requestReviewContext(win!, params.x, params.y).catch(error => {
+        log.error('Unable to prepare annotation context actions', error)
+        return undefined
+      }).then(context => {
+        if (request === contextMenuRequest && win && !win.isDestroyed()) showEditorContextMenu(win, event, params, preferences.getItem('spellcheckerEnabled'), context)
+      })
     })
 
     win.webContents.once('did-finish-load', () => {

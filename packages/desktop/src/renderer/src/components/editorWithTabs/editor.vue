@@ -316,8 +316,9 @@ import {
   markRaw
 } from 'vue'
 import { useLayoutStore } from '@/store/layout'
-import { reviewCommands, reviewCommandEnabled, type ReviewCommandState } from 'common/commands/review'
+import { reviewCommands, reviewCommandEnabled, type ReviewCommandState, type ReviewContextRequest, type ReviewContextReply, type ReviewContextAction } from 'common/commands/review'
 import CoreReviewList from './CoreReviewList.vue'
+import { createReviewContextSession, reviewContextSelection } from '../../documentAuthority/reviewContextSelection'
 import log from 'electron-log'
 import isEqual from 'lodash/isEqual'
 import debounce from 'lodash/debounce'
@@ -2011,6 +2012,89 @@ const handleCoreReviewCommand = (value: unknown): void => {
   run().catch(error => emit('core-fault', error))
 }
 
+const coreContextSession = createReviewContextSession<{
+  deepest: NonNullable<ReturnType<typeof reviewContextSelection>>['deepest']
+  comment: NonNullable<ReturnType<typeof reviewContextSelection>>['comment']
+}>()
+let coreContextRequestId = 0
+const handleCoreContextRequest = (value: unknown): void => {
+  const call = value as { request: ReviewContextRequest, claimed: boolean }
+  if (!ownsCurrentDocument()) return
+  call.claimed = true
+  coreContextSession.clear()
+  const { request } = call
+  coreContextRequestId = request.requestId
+  const prepare = async (): Promise<ReviewContextReply> => {
+    const empty = { requestId: request.requestId }
+    const lease = props.coreLease
+    const adapter = corePlainTextAdapter
+    if (!lease || !adapter || !coreReviewCommandState.value.available || coreReviewResolving.value || coreCommentOpen.value || coreDisplayLoading.value || coreDisplayMode.value !== 'markup') return empty
+    const view = coreAcknowledgedMarkupView
+    const element = document.elementFromPoint(request.x, request.y)?.closest<HTMLElement>('[data-critic-start]')
+    const binding = element && view?.bindings.find(binding =>
+      editor.value?.editor.scrollPage?.queryBlock([...binding.path])?.domNode.contains(element))
+    if (!binding || !element) return empty
+    const start = binding.sourceRange.start + Number(element.dataset.criticStart)
+    await adapter.settled()
+    if (!ownsCurrentDocument() || props.coreLease !== lease || coreAcknowledgedMarkupView !== view) return empty
+    const reply = await lease.binding.reviewItemAtBarrier('next', 0, true)
+    if (reply.type !== 'review-item' || !ownsCurrentDocument() || props.coreLease !== lease || coreAcknowledgedMarkupView !== view) return empty
+    const target = reviewContextSelection(reply.overview ?? [], start)
+    if (!target || coreContextRequestId !== request.requestId) return empty
+    const state = {
+      ...coreReviewCommandState.value,
+      hasItem: true,
+      busy: coreReviewResolving.value || coreCommentOpen.value || coreDisplayLoading.value,
+      removable: ['comment', 'commented-span', 'highlight'].includes(target.deepest.item.kind),
+      hasComment: target.comment !== undefined
+    }
+    const commands = (['accept', 'reject', 'remove', 'edit-comment'] as const).filter(command => reviewCommandEnabled(command, state))
+    coreContextSession.set(request.requestId, { documentId: lease.documentId, revision: reply.revision, lease }, target)
+    return { requestId: request.requestId, commands }
+  }
+  prepare().then(reply => window.electron.ipcRenderer.send('mt::review-context-reply', reply)).catch(error => {
+    coreContextSession.clear(request.requestId)
+    window.electron.ipcRenderer.send('mt::review-context-reply', { requestId: request.requestId, error: error instanceof Error ? error.message : String(error) })
+  })
+}
+const handleCoreContextClosed = (value: unknown): void => {
+  if (typeof value === 'number') {
+    coreContextSession.clear(value)
+    if (coreContextRequestId === value) coreContextRequestId = 0
+  }
+}
+const handleCoreContextAction = (value: unknown): void => {
+  const action = value as ReviewContextAction
+  const lease = props.coreLease
+  const adapter = corePlainTextAdapter
+  if (!ownsCurrentDocument() || !lease || !adapter) { coreContextSession.clear(); return }
+  const initial = adapter.state()
+  if (!('revision' in initial)) { coreContextSession.clear(); return }
+  const target = coreContextSession.take(action.requestId, { documentId: lease.documentId, revision: initial.revision, lease })
+  if (!target) return
+  const applicability = {
+    ...coreReviewCommandState.value,
+    busy: coreReviewResolving.value || coreCommentOpen.value || coreDisplayLoading.value,
+    hasItem: true,
+    removable: ['comment', 'commented-span', 'highlight'].includes(target.deepest.item.kind),
+    hasComment: target.comment !== undefined
+  }
+  if (!reviewCommandEnabled(action.command, applicability)) return
+  coreReviewItem.value = target.deepest.item
+  coreReviewRevision.value = initial.revision
+  coreReviewCommentText.value = target.deepest.commentText
+  if (action.command === 'edit-comment' && target.comment) {
+    coreCommentTarget.value = { id: `context:${action.requestId}`, revision: initial.revision, text: target.comment.commentText ?? '', item: target.comment.item }
+    coreCommentError.value = ''
+    coreCommentOpen.value = true
+    reviewLayoutStore.SET_LAYOUT({ showSideBar: true, rightColumn: 'review' })
+  } else if (action.command !== 'edit-comment') {
+    // Admit the exact captured operation before a following save can enter
+    // Core's queue. Resolution owns revision validation and subsequent refresh.
+    resolveCoreReviewItem(action.command).catch(error => emit('core-fault', error))
+  }
+}
+
 const captureCoreAuthorSelection = (): void => {
   coreAuthorInvocationSelection.value = coreAuthorSelection.value
 }
@@ -3110,6 +3194,9 @@ onMounted(() => {
   bus.on('paragraph', handleEditParagraph)
   bus.on('format', handleInlineFormat)
   bus.on('review-command', handleCoreReviewCommand)
+  bus.on('review-context-request', handleCoreContextRequest)
+  bus.on('review-context-action', handleCoreContextAction)
+  bus.on('review-context-closed', handleCoreContextClosed)
   bus.on('searchValue', handleSearch)
   bus.on('replaceValue', handReplace)
   bus.on('find-action', handleFindAction)
@@ -3870,6 +3957,10 @@ onBeforeUnmount(() => {
   bus.off('paragraph', handleEditParagraph)
   bus.off('format', handleInlineFormat)
   bus.off('review-command', handleCoreReviewCommand)
+  bus.off('review-context-request', handleCoreContextRequest)
+  bus.off('review-context-action', handleCoreContextAction)
+  bus.off('review-context-closed', handleCoreContextClosed)
+  coreContextSession.clear()
   bus.off('searchValue', handleSearch)
   bus.off('replaceValue', handReplace)
   bus.off('find-action', handleFindAction)

@@ -35,6 +35,13 @@ export const useListenForMainStore = defineStore('listenForMain', () => {
   }
 
   function LISTEN_FOR_PARAGRAPH_INLINE_STYLE(): void {
+    window.electron.ipcRenderer.on('mt::editor-review-context-request', (_e, request) => {
+      const call = { request, claimed: false }
+      bus.emit('review-context-request', call)
+      if (!call.claimed) window.electron.ipcRenderer.send('mt::review-context-reply', { requestId: request.requestId })
+    })
+    window.electron.ipcRenderer.on('mt::editor-review-context-action', (_e, action) => bus.emit('review-context-action', action))
+    window.electron.ipcRenderer.on('mt::editor-review-context-closed', (_e, requestId) => bus.emit('review-context-closed', requestId))
     window.electron.ipcRenderer.on('mt::editor-review-action', (_e, command) => {
       bus.emit('review-command', command)
     })
