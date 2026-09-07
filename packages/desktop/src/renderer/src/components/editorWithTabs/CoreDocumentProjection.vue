@@ -9,6 +9,7 @@
   >
     <div
       class="core-projection-content"
+      :class="{ 'mu-container': kind !== 'comment' }"
       v-html="html"
     />
   </section>
