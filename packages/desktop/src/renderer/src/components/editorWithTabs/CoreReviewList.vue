@@ -24,20 +24,27 @@
         >{{ t(`editor.coreReview.kinds.${entry.item.kind}`) }}</span>
         <span
           v-if="entry.text !== undefined"
+          :dir="textDirection"
           class="core-review-excerpt"
           :class="entry.item.kind"
         >{{ entry.text }}</span>
         <span
           v-if="entry.replacementText !== undefined"
+          :dir="textDirection"
           class="core-review-excerpt addition"
         >{{ entry.replacementText }}</span>
       </button>
-      <CoreDocumentProjection
+      <div
         v-if="entry.commentProjection"
-        :projection="entry.commentProjection"
-        kind="comment"
-        :label="t('editor.coreReview.commentPrompt')"
-      />
+        class="core-review-comment"
+        :dir="textDirection"
+      >
+        <CoreDocumentProjection
+          :projection="entry.commentProjection"
+          kind="comment"
+          :label="t('editor.coreReview.commentPrompt')"
+        />
+      </div>
       <slot
         v-if="entry.item.range.start === activeStart"
         name="actions"
@@ -55,19 +62,60 @@ defineProps<{
   entries: readonly CoreReviewOverviewEntry[]
   activeStart?: number
   busy: boolean
+  textDirection: string
 }>()
 defineEmits<{ select: [start: number] }>()
 </script>
 
 <style scoped>
-.core-review-list { list-style: none; padding: 0; margin: 12px 0; }
-.core-review-entry { border-left: 2px solid transparent; padding: 6px; }
-.core-review-entry.active { border-left-color: var(--themeColor); background: var(--sideBarItemHoverBgColor); }
-.core-review-entry > button { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; border: 0; padding: 4px; }
-.core-review-entry > button:focus-visible { background: var(--sideBarItemHoverBgColor); }
-.core-review-entry-kind { font-weight: 600; font-size: 13px; }
-.core-review-excerpt { overflow-wrap: anywhere; white-space: pre-wrap; max-height: 5em; overflow: auto; }
-.core-review-excerpt.addition { text-decoration: underline; text-decoration-color: var(--themeColor); }
-.core-review-excerpt.deletion, .core-review-excerpt.substitution { text-decoration: line-through; }
-.core-review-entry > .core-document-projection { font-size: 12px; padding: 0 4px; overflow-wrap: anywhere; user-select: text; }
+.core-review-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+}
+.core-review-entry {
+  border-left: 2px solid transparent;
+  padding: 6px;
+}
+.core-review-entry.active {
+  border-left-color: var(--themeColor);
+  background: var(--sideBarItemHoverBgColor);
+}
+.core-review-entry > button {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  padding: 4px;
+}
+.core-review-entry > button:focus-visible {
+  background: var(--sideBarItemHoverBgColor);
+}
+.core-review-entry-kind {
+  font-weight: 600;
+  font-size: 13px;
+}
+.core-review-excerpt {
+  text-align: start;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  max-height: 5em;
+  overflow: auto;
+}
+.core-review-excerpt.addition {
+  text-decoration: underline;
+  text-decoration-color: var(--themeColor);
+}
+.core-review-excerpt.deletion,
+.core-review-excerpt.substitution {
+  text-decoration: line-through;
+}
+.core-review-entry > .core-review-comment {
+  font-size: 12px;
+  padding: 0 4px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
 </style>

@@ -1,5 +1,6 @@
 import type CodeMirror from 'codemirror'
 import type {
+  MarkdownOptions,
   DocumentProjectionRequest,
   DocumentSourceEdit,
   CriticMarkupKind,
@@ -19,6 +20,7 @@ import {
 export interface CodeMirrorCoreAdapter {
   recoveryDraft(): CodeMirrorRecoveryDraft
   settled(): Promise<CoreAppliedReply | undefined>
+  configure(options: Readonly<Partial<MarkdownOptions>>): Promise<CoreAppliedReply | undefined>
   history(command: 'undo' | 'redo'): Promise<CoreAppliedReply | undefined>
   resolve(
     annotation: Readonly<{
@@ -28,10 +30,7 @@ export interface CodeMirrorCoreAdapter {
     authoredRevision: number,
     decision: DocumentResolutionDecision
   ): Promise<CoreAppliedReply | undefined>
-  reviewItem(
-    direction: 'next' | 'previous',
-    from: number
-  ): Promise<CoreReviewItemReply>
+  reviewItem(direction: 'next' | 'previous', from: number): Promise<CoreReviewItemReply>
   compositionStart(): void
   compositionEnd(): Promise<CoreAppliedReply | undefined>
   state(): CodeMirrorCoreAdapterState
@@ -86,7 +85,8 @@ interface QueuedSourceChange {
 interface QueuedHistoryCommand {
   readonly kind: 'history'
   readonly generation: number
-  readonly command: 'undo' | 'redo'
+  readonly command: 'undo' | 'redo' | 'configure'
+  readonly options?: Readonly<Partial<MarkdownOptions>>
   readonly resolve: (reply: CoreAppliedReply | undefined) => void
   readonly reject: (error: unknown) => void
 }
@@ -128,13 +128,12 @@ interface CapturedNativeChange {
 }
 
 const isNoopCapture = (capture: CapturedNativeChange): boolean =>
-  capture.from.line === capture.to.line && capture.from.ch === capture.to.ch &&
-  capture.text.length === 1 && capture.text[0] === ''
+  capture.from.line === capture.to.line &&
+  capture.from.ch === capture.to.ch &&
+  capture.text.length === 1 &&
+  capture.text[0] === ''
 
-const adapterInspections = new WeakMap<
-  CodeMirrorCoreAdapter,
-  () => CanonicalEolIndexInspection
->()
+const adapterInspections = new WeakMap<CodeMirrorCoreAdapter, () => CanonicalEolIndexInspection>()
 
 /** Package-private performance inspection; intentionally not re-exported. */
 export function inspectCodeMirrorCoreAdapter(
@@ -145,7 +144,7 @@ export function inspectCodeMirrorCoreAdapter(
   return inspect()
 }
 
-const nextMacrotask = () => new Promise<void>(resolve => setTimeout(resolve, 0))
+const nextMacrotask = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
 /**
  * Translates each CodeMirror native operation into exact edits in the previous
@@ -200,9 +199,16 @@ function createAdapterWithIndex(
     if (!Array.isArray(history)) return undefined
     for (let index = history.length - 1; index >= 0; index -= 1) {
       const event = history[index]
-      if (event === null || typeof event !== 'object' || !Array.isArray((event as { changes?: unknown }).changes)) continue
+      if (
+        event === null ||
+        typeof event !== 'object' ||
+        !Array.isArray((event as { changes?: unknown }).changes)
+      ) { continue }
       let group = nativeGroups.get(event)
-      if (group === undefined) { group = ++nextNativeGroup; nativeGroups.set(event, group) }
+      if (group === undefined) {
+        group = ++nextNativeGroup
+        nativeGroups.set(event, group)
+      }
       return `${nativeHistoryScope}:${group}`
     }
     return undefined
@@ -216,10 +222,12 @@ function createAdapterWithIndex(
   const nativeOperationEdits: DocumentSourceEdit[] = []
   const settlements: Settlement[] = []
   let generation = 0
-  const sourceCommandLedger: Array<Readonly<{
-    readonly generation: number
-    readonly edits: readonly DocumentSourceEdit[]
-  }>> = []
+  const sourceCommandLedger: Array<
+    Readonly<{
+      readonly generation: number
+      readonly edits: readonly DocumentSourceEdit[]
+    }>
+  > = []
   let completedGeneration = 0
   let active = false
   let activeCommand: QueuedCommand | undefined
@@ -257,11 +265,13 @@ function createAdapterWithIndex(
     const at = (performanceTrace.clock ?? (() => performance.now()))()
     if (!Number.isFinite(at) || at < 0) return
     try {
-      performanceTrace.record(Object.freeze({
-        ...event,
-        documentId: performanceTrace.documentId,
-        at
-      }) as CoreAuthorityPerformanceEvent)
+      performanceTrace.record(
+        Object.freeze({
+          ...event,
+          documentId: performanceTrace.documentId,
+          at
+        }) as CoreAuthorityPerformanceEvent
+      )
     } catch {
       // Measurement is diagnostic-only and cannot perturb authority.
     }
@@ -286,8 +296,16 @@ function createAdapterWithIndex(
     return structuredClone({
       revision: lastAcceptedRevision,
       text: doc.getValue(),
-      commands: [...(submitted !== undefined && submitted.generation > completedGeneration ? [submitted] : []), ...queue]
-        .map(command => Object.fromEntries(Object.entries(command).filter(([, value]) => typeof value !== 'function'))),
+      commands: [
+        ...(submitted !== undefined && submitted.generation > completedGeneration
+          ? [submitted]
+          : []),
+        ...queue
+      ].map((command) =>
+        Object.fromEntries(
+          Object.entries(command).filter(([, value]) => typeof value !== 'function')
+        )
+      ),
       unsubmittedEdits: latestNativeEdits,
       composition: compositionEdit
     })
@@ -320,7 +338,7 @@ function createAdapterWithIndex(
     const transformed = transformOptimisticHistory({
       baseSourceLength: nextSourceLength - historyDelta,
       appliedEdits,
-      queuedTransactions: sourceCommands.map(command => command.edits)
+      queuedTransactions: sourceCommands.map((command) => command.edits)
     })
     if (transformed.kind === 'conflict') {
       throw new Error('Core history overlaps pending editor input')
@@ -342,11 +360,7 @@ function createAdapterWithIndex(
     }
     suppressingAuthoritativeChange = true
     try {
-      for (
-        let index = transformed.reconciliationEdits.length - 1;
-        index >= 0;
-        index -= 1
-      ) {
+      for (let index = transformed.reconciliationEdits.length - 1; index >= 0; index -= 1) {
         const edit = transformed.reconciliationEdits[index]
         if (edit === undefined) continue
         doc.replaceRange(
@@ -371,21 +385,26 @@ function createAdapterWithIndex(
     let acknowledged: ReturnType<EditorCoreBinding['submit']>['acknowledged']
     let transactionId = 0
     try {
-      const submission = binding.submit(queued.kind === 'source'
-        ? {
-          edits: queued.edits,
-          projections: projections(),
-          ...(queued.nativeHistoryGroup === undefined ? {} : { nativeHistoryGroup: queued.nativeHistoryGroup })
-        }
-        : queued.kind === 'history'
-          ? { kind: queued.command, projections: projections() }
-          : {
-            kind: 'resolve',
-            authoredRevision: queued.authoredRevision,
-            annotation: queued.annotation,
-            decision: queued.decision,
-            projections: projections()
+      const submission = binding.submit(
+        queued.kind === 'source'
+          ? {
+            edits: queued.edits,
+            projections: projections(),
+            ...(queued.nativeHistoryGroup === undefined
+              ? {}
+              : { nativeHistoryGroup: queued.nativeHistoryGroup })
           }
+          : queued.kind === 'history'
+            ? queued.command === 'configure'
+              ? { kind: 'configure', options: queued.options!, projections: projections() }
+              : { kind: queued.command, projections: projections() }
+            : {
+              kind: 'resolve',
+              authoredRevision: queued.authoredRevision,
+              annotation: queued.annotation,
+              decision: queued.decision,
+              projections: projections()
+            }
       )
       acknowledged = submission.acknowledged
       transactionId = submission.identity.transactionId
@@ -401,112 +420,109 @@ function createAdapterWithIndex(
       failCommandLane(error)
       return
     }
-    acknowledged.then(async reply => {
-      recordPerformance({ phase: 'ack', transaction: transactionId })
-      if (disposed) return
-      if (queued.kind === 'source') {
-        pendingInsertUnits -= queued.edits.reduce(
-          (sum, edit) => sum + edit.insert.length,
-          0
-        )
-      }
-      if (
-        queued.kind === 'history' && reply.type === 'rejected' &&
-        reply.reason === 'history-empty'
-      ) {
-        active = false
-        activeCommand = undefined
-        completedGeneration = queued.generation
-        queued.resolve(undefined)
-        resolveSettlements()
-        pump()
-        return
-      }
-      if (
-        queued.kind === 'source' && reply.type === 'rejected' &&
-        reply.reason === 'no-change'
-      ) {
-        active = false
-        activeCommand = undefined
-        completedGeneration = queued.generation
-        resolveSettlements()
-        pump()
-        return
-      }
-      if (
-        queued.kind === 'resolve' && reply.type === 'rejected' &&
-        reply.reason === 'history-resource'
-      ) {
-        active = false
-        activeCommand = undefined
-        completedGeneration = queued.generation
-        queued.resolve(undefined)
-        resolveSettlements()
-        pump()
-        return
-      }
-      if (
-        queued.kind === 'resolve' && reply.type === 'rejected' &&
-        (reply.reason === 'stale-base' ||
-          reply.reason === 'annotation-not-found' ||
-          reply.reason === 'resolution-invalid')
-      ) {
-        active = false
-        activeCommand = undefined
-        completedGeneration = queued.generation
-        queued.reject(new Error('Core resolution target is no longer current'))
-        resolveSettlements()
-        pump()
-        return
-      }
-      if (reply.type !== 'applied') {
-        active = false
-        activeCommand = undefined
-        reconciliationReason = reply.type === 'resource' ? 'resource' : 'rejected'
-        terminalError = new Error('CodeMirror Core reconciliation required')
-        if (queued.kind !== 'source') queued.reject(terminalError)
-        failedDraft ??= captureDraft()
-        for (const command of queue.splice(0)) {
-          if (command.kind !== 'source') command.reject(terminalError)
+    acknowledged.then(
+      async(reply) => {
+        recordPerformance({ phase: 'ack', transaction: transactionId })
+        if (disposed) return
+        if (queued.kind === 'source') {
+          pendingInsertUnits -= queued.edits.reduce((sum, edit) => sum + edit.insert.length, 0)
         }
-        rejectSettlements(terminalError)
-        return
-      }
-      if (queued.kind !== 'source') {
-        try {
-          await applyHistoryToOptimisticView(
-            reply.change.appliedEdits,
-            reply.sourceLength
-          )
-          if (disposed) return
-        } catch (error) {
+        if (
+          queued.kind === 'history' &&
+          reply.type === 'rejected' &&
+          reply.reason === 'history-empty'
+        ) {
           active = false
           activeCommand = undefined
-          queued.reject(error)
-          failCommandLane(error)
+          completedGeneration = queued.generation
+          queued.resolve(undefined)
+          resolveSettlements()
+          pump()
           return
         }
+        if (queued.kind === 'source' && reply.type === 'rejected' && reply.reason === 'no-change') {
+          active = false
+          activeCommand = undefined
+          completedGeneration = queued.generation
+          resolveSettlements()
+          pump()
+          return
+        }
+        if (
+          queued.kind === 'resolve' &&
+          reply.type === 'rejected' &&
+          reply.reason === 'history-resource'
+        ) {
+          active = false
+          activeCommand = undefined
+          completedGeneration = queued.generation
+          queued.resolve(undefined)
+          resolveSettlements()
+          pump()
+          return
+        }
+        if (
+          queued.kind === 'resolve' &&
+          reply.type === 'rejected' &&
+          (reply.reason === 'stale-base' ||
+            reply.reason === 'annotation-not-found' ||
+            reply.reason === 'resolution-invalid')
+        ) {
+          active = false
+          activeCommand = undefined
+          completedGeneration = queued.generation
+          queued.reject(new Error('Core resolution target is no longer current'))
+          resolveSettlements()
+          pump()
+          return
+        }
+        if (reply.type !== 'applied') {
+          active = false
+          activeCommand = undefined
+          reconciliationReason = reply.type === 'resource' ? 'resource' : 'rejected'
+          terminalError = new Error('CodeMirror Core reconciliation required')
+          if (queued.kind !== 'source') queued.reject(terminalError)
+          failedDraft ??= captureDraft()
+          for (const command of queue.splice(0)) {
+            if (command.kind !== 'source') command.reject(terminalError)
+          }
+          rejectSettlements(terminalError)
+          return
+        }
+        if (queued.kind !== 'source') {
+          try {
+            await applyHistoryToOptimisticView(reply.change.appliedEdits, reply.sourceLength)
+            if (disposed) return
+          } catch (error) {
+            active = false
+            activeCommand = undefined
+            queued.reject(error)
+            failCommandLane(error)
+            return
+          }
+        }
+        latestReply = reply
+        lastAcceptedRevision = reply.revision
+        completedGeneration = queued.generation
+        recordPerformance({
+          phase: 'reconcile',
+          transaction: transactionId,
+          corrected: queued.kind !== 'source'
+        })
+        active = false
+        activeCommand = undefined
+        if (queued.kind !== 'source') queued.resolve(reply)
+        resolveSettlements()
+        pump()
+      },
+      (error) => {
+        if (disposed) return
+        active = false
+        activeCommand = undefined
+        if (queued.kind !== 'source') queued.reject(error)
+        failCommandLane(error)
       }
-      latestReply = reply
-      lastAcceptedRevision = reply.revision
-      completedGeneration = queued.generation
-      recordPerformance({
-        phase: 'reconcile',
-        transaction: transactionId,
-        corrected: queued.kind !== 'source'
-      })
-      active = false
-      activeCommand = undefined
-      if (queued.kind !== 'source') queued.resolve(reply)
-      resolveSettlements()
-      pump()
-    }, error => {
-      if (disposed) return
-      active = false
-      activeCommand = undefined
-      if (queued.kind !== 'source') queued.reject(error)
-      failCommandLane(error)
-    })
+    )
   }
   const enqueue = (edits: readonly DocumentSourceEdit[]): void => {
     latestNativeEdits = edits
@@ -533,9 +549,11 @@ function createAdapterWithIndex(
     }
     generation += 1
     pendingInsertUnits += insertUnits
-    const stableEdits = Object.freeze(edits
-      .map(edit => Object.freeze({ ...edit }))
-      .sort((left, right) => left.start - right.start || left.end - right.end))
+    const stableEdits = Object.freeze(
+      edits
+        .map((edit) => Object.freeze({ ...edit }))
+        .sort((left, right) => left.start - right.start || left.end - right.end)
+    )
     const command = Object.freeze({
       kind: 'source',
       generation,
@@ -548,7 +566,8 @@ function createAdapterWithIndex(
     pump()
   }
   const enqueueHistory = (
-    command: 'undo' | 'redo'
+    command: 'undo' | 'redo' | 'configure',
+    options?: Readonly<Partial<MarkdownOptions>>
   ): Promise<CoreAppliedReply | undefined> => {
     if (queue.length + (active ? 1 : 0) >= maxPending) {
       reconciliationReason = 'pending-limit'
@@ -562,13 +581,16 @@ function createAdapterWithIndex(
     }
     generation += 1
     return new Promise((resolve, reject) => {
-      queue.push(Object.freeze({
-        kind: 'history',
-        generation,
-        command,
-        resolve,
-        reject
-      }))
+      queue.push(
+        Object.freeze({
+          kind: 'history',
+          generation,
+          command,
+          options,
+          resolve,
+          reject
+        })
+      )
       pump()
     })
   }
@@ -599,9 +621,7 @@ function createAdapterWithIndex(
         if (edit.end <= range.start) {
           shift += edit.insert.length - (edit.end - edit.start)
         } else if (edit.start < range.end) {
-          return Promise.reject(
-            new Error('Core resolution target changed by pending editor input')
-          )
+          return Promise.reject(new Error('Core resolution target changed by pending editor input'))
         }
       }
       range = { start: range.start + shift, end: range.end + shift }
@@ -609,18 +629,20 @@ function createAdapterWithIndex(
     }
     generation += 1
     return new Promise((resolve, reject) => {
-      queue.push(Object.freeze({
-        kind: 'resolve',
-        generation,
-        authoredRevision: rebasedRevision,
-        annotation: Object.freeze({
-          kind: annotation.kind,
-          range: Object.freeze(range)
-        }),
-        decision,
-        resolve,
-        reject
-      }))
+      queue.push(
+        Object.freeze({
+          kind: 'resolve',
+          generation,
+          authoredRevision: rebasedRevision,
+          annotation: Object.freeze({
+            kind: annotation.kind,
+            range: Object.freeze(range)
+          }),
+          decision,
+          resolve,
+          reject
+        })
+      )
       pump()
     })
   }
@@ -636,12 +658,7 @@ function createAdapterWithIndex(
         prior.canceled = true
         continue
       }
-      eolIndex.replace(
-        prior.from,
-        prior.to,
-        prior.text,
-        insertedLineEnding
-      )
+      eolIndex.replace(prior.from, prior.to, prior.text, insertedLineEnding)
       prior.indexApplied = true
       break
     }
@@ -660,12 +677,7 @@ function createAdapterWithIndex(
       origin: undefined
     }
     const refresh = (): void => {
-      const plan = eolIndex.plan(
-        change.from,
-        change.to,
-        change.text,
-        insertedLineEnding
-      )
+      const plan = eolIndex.plan(change.from, change.to, change.text, insertedLineEnding)
       capture.start = plan.start
       capture.end = plan.end
       capture.insert = plan.insert
@@ -691,14 +703,11 @@ function createAdapterWithIndex(
     }
     captures.push(capture)
   }
-  const onChange = (
-    _changed: CodeMirror.Doc,
-    change: CodeMirror.EditorChange
-  ): void => {
+  const onChange = (_changed: CodeMirror.Doc, change: CodeMirror.EditorChange): void => {
     while (
       captures[0]?.canceled === true ||
       (captures[0] !== undefined && isNoopCapture(captures[0]))
-    ) captures.shift()
+    ) { captures.shift() }
     const capture = captures.shift()
     if (capture === undefined) {
       faultMessage = 'CodeMirror Core change lacked a pre-change capture'
@@ -721,23 +730,13 @@ function createAdapterWithIndex(
     }
     if (capture.suppressed) {
       if (!capture.indexApplied) {
-        eolIndex.replace(
-          capture.from,
-          capture.to,
-          capture.text,
-          insertedLineEnding
-        )
+        eolIndex.replace(capture.from, capture.to, capture.text, insertedLineEnding)
         capture.indexApplied = true
       }
       return
     }
     if (!capture.indexApplied) {
-      eolIndex.replace(
-        capture.from,
-        capture.to,
-        capture.text,
-        insertedLineEnding
-      )
+      eolIndex.replace(capture.from, capture.to, capture.text, insertedLineEnding)
       capture.indexApplied = true
     }
     const edit = Object.freeze({
@@ -760,7 +759,8 @@ function createAdapterWithIndex(
     const relativeStart = edit.start - compositionEdit.start
     const relativeEnd = edit.end - compositionEdit.start
     if (
-      relativeStart < 0 || relativeEnd < relativeStart ||
+      relativeStart < 0 ||
+      relativeEnd < relativeStart ||
       relativeEnd > compositionEdit.insert.length
     ) {
       faultMessage = 'CodeMirror composition escaped its authored range'
@@ -772,8 +772,10 @@ function createAdapterWithIndex(
     compositionEdit = Object.freeze({
       start: compositionEdit.start,
       end: compositionEdit.end,
-      insert: compositionEdit.insert.slice(0, relativeStart) +
-        edit.insert + compositionEdit.insert.slice(relativeEnd)
+      insert:
+        compositionEdit.insert.slice(0, relativeStart) +
+        edit.insert +
+        compositionEdit.insert.slice(relativeEnd)
     })
   }
   const onChanges = (): void => {
@@ -804,11 +806,13 @@ function createAdapterWithIndex(
         return latestReply
       }
       return new Promise<CoreAppliedReply | undefined>((resolve, reject) => {
-        settlements.push(Object.freeze({
-          generation: target,
-          resolve,
-          reject
-        }))
+        settlements.push(
+          Object.freeze({
+            generation: target,
+            resolve,
+            reject
+          })
+        )
       })
     },
     compositionStart(): void {
@@ -845,6 +849,11 @@ function createAdapterWithIndex(
         compositionFinished = undefined
       }
     },
+    async configure(options: Readonly<Partial<MarkdownOptions>>) {
+      await nextMacrotask()
+      await adapter.settled()
+      return enqueueHistory('configure', Object.freeze({ ...options }))
+    },
     async history(command: 'undo' | 'redo'): Promise<CoreAppliedReply | undefined> {
       // Cross CodeMirror's deferred change delivery so a native edit observed
       // immediately before this command occupies the earlier queue position.
@@ -870,17 +879,9 @@ function createAdapterWithIndex(
         await compositionFinished
       }
       if (terminalError !== undefined) throw terminalError
-      return enqueueResolution(
-        capturedAnnotation,
-        authoredRevision,
-        decision,
-        authoredGeneration
-      )
+      return enqueueResolution(capturedAnnotation, authoredRevision, decision, authoredGeneration)
     },
-    async reviewItem(
-      direction: 'next' | 'previous',
-      from: number
-    ): Promise<CoreReviewItemReply> {
+    async reviewItem(direction: 'next' | 'previous', from: number): Promise<CoreReviewItemReply> {
       await adapter.settled()
       if (terminalError !== undefined) throw terminalError
       const reply = await binding.reviewItemAtBarrier(direction, from)

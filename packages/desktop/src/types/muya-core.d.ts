@@ -19,20 +19,27 @@
 
 declare module '@muyajs/core' {
   export function applyNativeOperation(previous: unknown, operation: unknown): unknown
-  export function serializeNativeState(states: unknown, options?: {
-    maximumUnits?: number
-    sourceLineEndings?: string
-  }): string | undefined
+  export function serializeNativeState(
+    states: unknown,
+    options?: {
+      maximumUnits?: number
+      sourceLineEndings?: string
+    }
+  ): string | undefined
   export interface IInlinePresentationImage {
     readonly raw: string
-    readonly range: { readonly start: number, readonly end: number }
+    readonly range: { readonly start: number; readonly end: number }
     readonly src: string
     readonly alt: string
     readonly title: string
   }
   export interface IInlinePresentationContext {
-    readonly highlights?: readonly Readonly<{ start: number, end: number, active: boolean | undefined }>[]
-    renderImage: (image: IInlinePresentationImage) => { open: string, close: string } | undefined
+    readonly highlights?: readonly Readonly<{
+      start: number
+      end: number
+      active: boolean | undefined
+    }>[]
+    renderImage: (image: IInlinePresentationImage) => { open: string; close: string } | undefined
   }
   export function validEmoji(text: string): { emoji: string } | undefined
   export interface ILocale {
@@ -89,9 +96,10 @@ declare module '@muyajs/core' {
   export const TableRowColumMenu: any
 
   export class MarkdownToHtml {
+    static fromHtml(html: string, muya?: Muya): MarkdownToHtml
     markdown: string
     constructor(markdown: string, muya?: unknown)
-    renderHtml(): Promise<string>
+    renderHtml(options?: { preview?: boolean }): Promise<string>
     generate(options?: {
       title?: string
       extraCSS?: string
@@ -106,7 +114,44 @@ declare module '@muyajs/core' {
   export function unescapeHTML(str: string): string
   export function sanitize(html: string, config?: any, isInline?: boolean): string
   export function generateGithubSlug(text: string): string
-  export function getImageInfo(src: string): { isUnknownType: boolean; src: string; [key: string]: any }
+  export function renderFootnoteReference(number: number, prefix?: string): string
+  export function appendFootnoteSection(
+    body: string,
+    definitions: readonly {
+      readonly number: number
+      readonly html: string
+    }[],
+    prefix?: string
+  ): string
+  export function highlightCode(code: string, language: string): string
+  export function renderMath(
+    text: string,
+    options?: { displayMode?: boolean; throwOnError?: boolean }
+  ): string
+  export interface ISearchQueryOptions {
+    readonly isCaseSensitive?: boolean
+    readonly isWholeWord?: boolean
+    readonly isRegexp?: boolean
+  }
+  export interface IRegexMatch {
+    readonly match: string
+    readonly subMatches: readonly string[]
+  }
+  export function matchString(
+    text: string,
+    value: string,
+    options: ISearchQueryOptions
+  ): Array<{
+    match: string
+    subMatches: string[]
+    index: number
+  }>
+  export function buildRegexValue(match: IRegexMatch, value: string): string
+  export function getImageInfo(src: string): {
+    isUnknownType: boolean
+    src: string
+    [key: string]: any
+  }
   export function wordCount(markdown: string): {
     word: number
     paragraph: number

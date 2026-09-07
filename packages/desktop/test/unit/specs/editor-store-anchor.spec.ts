@@ -34,6 +34,26 @@ import bus from '@/bus'
 import notice from '@/services/notification'
 
 describe('useEditorStore FORMAT_LINK_CLICK (anchor links)', () => {
+  it('resolves reader and comment anchors inside their own projection rather than the hidden document', () => {
+    const store = useEditorStore()
+    const emitSpy = vi.spyOn(bus, 'emit')
+    const outside = document.createElement('h2')
+    outside.id = 'local'
+    const scope = document.createElement('section')
+    const inside = document.createElement('h2')
+    inside.id = 'local'
+    inside.scrollIntoView = vi.fn()
+    scope.append(inside)
+    document.body.append(outside, scope)
+    try {
+      store.FORMAT_LINK_CLICK({ data: { href: '#local' }, dirname: '', anchorRoot: scope })
+      expect(inside.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+      expect(emitSpy).not.toHaveBeenCalled()
+    } finally {
+      outside.remove()
+      scope.remove()
+    }
+  })
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()

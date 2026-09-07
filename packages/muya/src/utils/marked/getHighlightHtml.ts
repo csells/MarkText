@@ -19,7 +19,7 @@ const DIAGRAM_TYPE = [
     'sequence',
 ];
 
-function highlight(code: string, lang: string) {
+export function highlightCode(code: string, lang: string) {
     // Language may be undefined (GH#591)
     if (!lang)
         return code;
@@ -44,7 +44,7 @@ export function getHighlightHtml(src: string, options: ILexOption = {}) {
     // chains rather than replaces, so reusing a module-level singleton would
     // cause walkTokens to fire N times after N invocations and corrupt token
     // state (e.g. wiping `lang` on subsequent runs).
-    const marked = new Marked(markedHighlight({ highlight }));
+    const marked = new Marked(markedHighlight({ highlight: highlightCode }));
 
     marked.use({
         walkTokens: walkTokens({ math, isGitlabCompatibilityEnabled }),

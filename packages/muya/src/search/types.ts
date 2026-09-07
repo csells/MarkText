@@ -1,9 +1,7 @@
 import type Content from '../block/base/content';
+import type { ISearchQueryOptions } from '../utils/search';
 
-export interface ISearchOption {
-    isCaseSensitive?: boolean;
-    isWholeWord?: boolean;
-    isRegexp?: boolean;
+export interface ISearchOption extends ISearchQueryOptions {
     selectHighlight?: boolean;
     highlightIndex?: number;
 }

@@ -41,17 +41,17 @@ export interface CoreDocumentViewLease {
   consumerProjection(): CoreConsumerProjection | undefined
   consumerProjectionAtBarrier(): Promise<CoreConsumerProjection>
   displayProjectionAtBarrier(name: MarkdownProjectionName): Promise<CoreDisplayProjection>
-  selectionProjectionAtBarrier(range: Readonly<{
-    readonly start: number
-    readonly end: number
-  }>): Promise<CoreConsumerProjection>
+  selectionProjectionAtBarrier(
+    range: Readonly<{
+      readonly start: number
+      readonly end: number
+    }>
+  ): Promise<CoreConsumerProjection>
   replaceConsumerSearchAtBarrier(
     identity: DocumentSaveIdentity,
     replacements: readonly CoreConsumerSearchReplacement[]
   ): Promise<EditorCoreApplyOutcome>
-  projectAcknowledgedPlainTextView(
-    revision: number
-  ): Promise<CorePlainTextViewReply>
+  projectAcknowledgedPlainTextView(revision: number): Promise<CorePlainTextViewReply>
   faultView(error: unknown): void
   settleView(barrier: () => Promise<unknown>): void
   onHandoff(cleanup: () => void): void
@@ -67,13 +67,15 @@ export interface CoreDocumentSessionManager {
   recover(lease: CoreDocumentViewLease): Promise<CoreDocumentViewLease>
   activate(documentId: string): Promise<void>
   handoff(lease: CoreDocumentViewLease): Promise<void>
-  saveBarrier(documentId: string): Promise<Readonly<{
-    readonly documentId: string
-    readonly revision: number
-    readonly identity: DocumentSaveIdentity
-    readonly source: string
-    readonly lineEnding: CanonicalLineEnding
-  }>>
+  saveBarrier(documentId: string): Promise<
+    Readonly<{
+      readonly documentId: string
+      readonly revision: number
+      readonly identity: DocumentSaveIdentity
+      readonly source: string
+      readonly lineEnding: CanonicalLineEnding
+    }>
+  >
   plainTextViewBarrier(documentId: string): Promise<CorePlainTextViewReply>
   abort(documentId: string): void
   close(documentId: string): Promise<void>
@@ -130,29 +132,39 @@ const maximumRecoveryJournalEntries = Math.min(
 )
 
 const copySubmitInput = (input: EditorCoreSubmitInput): EditorCoreSubmitInput => {
-  const projections = Object.freeze(input.projections.map(projection =>
-    projection === 'markup'
-      ? projection
-      : Object.freeze({
-        ...projection,
-        annotationRange: Object.freeze({ ...projection.annotationRange })
-      })
-  ))
+  const projections = Object.freeze(
+    input.projections.map((projection) =>
+      projection === 'markup'
+        ? projection
+        : Object.freeze({
+          ...projection,
+          annotationRange: Object.freeze({ ...projection.annotationRange })
+        })
+    )
+  )
+  if (input.kind === 'configure') {
+    return Object.freeze({
+      kind: input.kind,
+      options: Object.freeze({ ...input.options }),
+      projections
+    })
+  }
   if (!('edits' in input) && input.kind === 'resolve') {
     return Object.freeze({
       kind: 'resolve',
       authoredRevision: input.authoredRevision,
-      annotation: input.annotation.kind === 'commented-span'
-        ? Object.freeze({
-          kind: input.annotation.kind,
-          range: Object.freeze({ ...input.annotation.range }),
-          highlightRange: Object.freeze({ ...input.annotation.highlightRange }),
-          commentRange: Object.freeze({ ...input.annotation.commentRange })
-        })
-        : Object.freeze({
-          kind: input.annotation.kind,
-          range: Object.freeze({ ...input.annotation.range })
-        }),
+      annotation:
+        input.annotation.kind === 'commented-span'
+          ? Object.freeze({
+            kind: input.annotation.kind,
+            range: Object.freeze({ ...input.annotation.range }),
+            highlightRange: Object.freeze({ ...input.annotation.highlightRange }),
+            commentRange: Object.freeze({ ...input.annotation.commentRange })
+          })
+          : Object.freeze({
+            kind: input.annotation.kind,
+            range: Object.freeze({ ...input.annotation.range })
+          }),
       decision: input.decision,
       projections
     })
@@ -161,13 +173,17 @@ const copySubmitInput = (input: EditorCoreSubmitInput): EditorCoreSubmitInput =>
     return Object.freeze({
       kind: input.kind,
       authoredRevision: input.authoredRevision,
-      replacements: Object.freeze(input.replacements.map(replacement => Object.freeze({
-        match: Object.freeze({
-          ...replacement.match,
-          path: Object.freeze([...replacement.match.path])
-        }),
-        insert: replacement.insert
-      }))),
+      replacements: Object.freeze(
+        input.replacements.map((replacement) =>
+          Object.freeze({
+            match: Object.freeze({
+              ...replacement.match,
+              path: Object.freeze([...replacement.match.path])
+            }),
+            insert: replacement.insert
+          })
+        )
+      ),
       projections
     })
   }
@@ -178,17 +194,18 @@ const copySubmitInput = (input: EditorCoreSubmitInput): EditorCoreSubmitInput =>
     return Object.freeze({
       kind: 'edit-comment',
       authoredRevision: input.authoredRevision,
-      annotation: input.annotation.kind === 'commented-span'
-        ? Object.freeze({
-          kind: input.annotation.kind,
-          range: Object.freeze({ ...input.annotation.range }),
-          highlightRange: Object.freeze({ ...input.annotation.highlightRange }),
-          commentRange: Object.freeze({ ...input.annotation.commentRange })
-        })
-        : Object.freeze({
-          kind: input.annotation.kind,
-          range: Object.freeze({ ...input.annotation.range })
-        }),
+      annotation:
+        input.annotation.kind === 'commented-span'
+          ? Object.freeze({
+            kind: input.annotation.kind,
+            range: Object.freeze({ ...input.annotation.range }),
+            highlightRange: Object.freeze({ ...input.annotation.highlightRange }),
+            commentRange: Object.freeze({ ...input.annotation.commentRange })
+          })
+          : Object.freeze({
+            kind: input.annotation.kind,
+            range: Object.freeze({ ...input.annotation.range })
+          }),
       text: input.text,
       projections
     })
@@ -205,7 +222,9 @@ const copySubmitInput = (input: EditorCoreSubmitInput): EditorCoreSubmitInput =>
   if (!('edits' in input) && input.kind === 'track') {
     return Object.freeze({
       kind: 'track',
-      ...(input.nativeHistoryGroup === undefined ? {} : { nativeHistoryGroup: input.nativeHistoryGroup }),
+      ...(input.nativeHistoryGroup === undefined
+        ? {}
+        : { nativeHistoryGroup: input.nativeHistoryGroup }),
       range: Object.freeze({ ...input.range }),
       text: input.text,
       projections
@@ -216,8 +235,10 @@ const copySubmitInput = (input: EditorCoreSubmitInput): EditorCoreSubmitInput =>
   }
   return Object.freeze({
     ...(input.kind === undefined ? {} : { kind: input.kind }),
-    ...(input.nativeHistoryGroup === undefined ? {} : { nativeHistoryGroup: input.nativeHistoryGroup }),
-    edits: Object.freeze(input.edits.map(edit => Object.freeze({ ...edit }))),
+    ...(input.nativeHistoryGroup === undefined
+      ? {}
+      : { nativeHistoryGroup: input.nativeHistoryGroup }),
+    edits: Object.freeze(input.edits.map((edit) => Object.freeze({ ...edit }))),
     projections
   })
 }
@@ -225,19 +246,31 @@ const copySubmitInput = (input: EditorCoreSubmitInput): EditorCoreSubmitInput =>
 const recoveryReplayInput = (
   input: EditorCoreSubmitInput,
   revision: number
-): EditorCoreSubmitInput => !('edits' in input) &&
-  (input.kind === 'resolve' || input.kind === 'edit-comment' ||
+): EditorCoreSubmitInput =>
+  !('edits' in input) &&
+  (input.kind === 'resolve' ||
+    input.kind === 'edit-comment' ||
     input.kind === 'replace-consumer-search')
-  ? Object.freeze({ ...input, authoredRevision: revision })
-  : input
+    ? Object.freeze({ ...input, authoredRevision: revision })
+    : input
+
+const optionsAfterJournal = (
+  initial: Readonly<Partial<MarkdownOptions>> | undefined,
+  journal: readonly RecoveryJournalEntry[]
+): Readonly<Partial<MarkdownOptions>> | undefined =>
+  journal.reduce(
+    (options, entry) =>
+      entry.input.kind === 'configure'
+        ? Object.freeze({ ...options, ...entry.input.options })
+        : options,
+    initial
+  )
 
 const checkpointOf = (input: CoreDocumentOpenInput): RecoveryCheckpoint =>
   Object.freeze({
     source: input.source,
     recoveryHistory: Object.freeze({ undo: Object.freeze([]), redo: Object.freeze([]) }),
-    ...(input.options === undefined
-      ? {}
-      : { options: Object.freeze({ ...input.options }) })
+    ...(input.options === undefined ? {} : { options: Object.freeze({ ...input.options }) })
   })
 
 export function createCoreDocumentSessionManager(
@@ -255,11 +288,16 @@ export function createCoreDocumentSessionManager(
     if (session === undefined) throw new Error('Core document is not open')
     return session
   }
-  const settle = async(session: Session): Promise<void> => {
+  // Dispatch the read in the same turn that observes an empty pending set.
+  // Returning from a separate settle() await creates a gap in which the next
+  // queued edit/configuration can enter the binding before this read does.
+  const afterPending = async <T>(session: Session, read: () => T | Promise<T>): Promise<T> => {
     while (session.pending.size > 0) {
       await Promise.allSettled([...session.pending])
     }
+    return read()
   }
+  const settle = (session: Session): Promise<void> => afterPending(session, () => {})
   const currentSessionOf = (lease: CoreDocumentViewLease): Session => {
     const session = leaseSession.get(lease)
     if (session === undefined || sessions.get(lease.documentId) !== session) {
@@ -270,9 +308,7 @@ export function createCoreDocumentSessionManager(
   // Start only after accepted submissions drain, which orders the actor source
   // request after the recorded prefix. Later submissions are held at the
   // acknowledgement boundary and remain a replayable post-checkpoint suffix.
-  const maintainRecoveryJournal = (
-    session: Session
-  ): Promise<void> | undefined => {
+  const maintainRecoveryJournal = (session: Session): Promise<void> | undefined => {
     if (
       session.maintenance !== undefined ||
       session.pending.size > 0 ||
@@ -280,12 +316,12 @@ export function createCoreDocumentSessionManager(
       session.recovery !== undefined ||
       session.terminalFault !== undefined ||
       sessions.get(session.documentId) !== session
-    ) return session.maintenance
+    ) { return session.maintenance }
 
     const generation = session.currentIdentity.generation
     const revision = session.currentIdentity.revision
     const journalPrefix = [...session.journal]
-    const checkpointOptions = session.checkpoint.options
+    const checkpointOptions = optionsAfterJournal(session.checkpoint.options, journalPrefix)
     const maintenance = (async(): Promise<void> => {
       const result = await session.binding.sourceAtBarrier()
       if (
@@ -302,9 +338,7 @@ export function createCoreDocumentSessionManager(
       const checkpoint: RecoveryCheckpoint = Object.freeze({
         source: result.source,
         recoveryHistory: result.recoveryHistory,
-        ...(checkpointOptions === undefined
-          ? {}
-          : { options: checkpointOptions })
+        ...(checkpointOptions === undefined ? {} : { options: checkpointOptions })
       })
       const suffix = session.journal.slice(journalPrefix.length)
       // All fallible work and generation checks precede this atomic commit.
@@ -314,27 +348,26 @@ export function createCoreDocumentSessionManager(
     session.maintenance = maintenance
     session.maintenanceJournalPrefixLength = journalPrefix.length
     session.pending.add(maintenance)
-    maintenance.then(() => {
-      session.pending.delete(maintenance)
-      if (session.maintenance === maintenance) {
-        session.maintenance = undefined
-        session.maintenanceJournalPrefixLength = undefined
+    maintenance.then(
+      () => {
+        session.pending.delete(maintenance)
+        if (session.maintenance === maintenance) {
+          session.maintenance = undefined
+          session.maintenanceJournalPrefixLength = undefined
+        }
+      },
+      (error) => {
+        session.pending.delete(maintenance)
+        if (session.maintenance === maintenance && sessions.get(session.documentId) === session) {
+          session.maintenance = undefined
+          session.maintenanceJournalPrefixLength = undefined
+          const failure =
+            error instanceof Error ? error : new Error('Core document recovery maintenance failed')
+          session.barrierFailure = failure
+          session.terminalFault = failure
+        }
       }
-    }, error => {
-      session.pending.delete(maintenance)
-      if (
-        session.maintenance === maintenance &&
-        sessions.get(session.documentId) === session
-      ) {
-        session.maintenance = undefined
-        session.maintenanceJournalPrefixLength = undefined
-        const failure = error instanceof Error
-          ? error
-          : new Error('Core document recovery maintenance failed')
-        session.barrierFailure = failure
-        session.terminalFault = failure
-      }
-    })
+    )
     return maintenance
   }
 
@@ -393,13 +426,12 @@ export function createCoreDocumentSessionManager(
           if (session.recovery !== undefined || session.terminalFault !== undefined) {
             throw new Error('Core document Worker recovery is required')
           }
-          const maintenancePrefixLength =
-            session.maintenanceJournalPrefixLength
+          const maintenancePrefixLength = session.maintenanceJournalPrefixLength
           const recoveryEntriesAfterCheckpoint =
-            session.maintenance === undefined ||
-            maintenancePrefixLength === undefined
+            session.maintenance === undefined || maintenancePrefixLength === undefined
               ? session.journal.length
-              : session.journal.length - maintenancePrefixLength +
+              : session.journal.length -
+                maintenancePrefixLength +
                 Math.max(0, session.pending.size - 1)
           if (recoveryEntriesAfterCheckpoint >= maximumRecoveryJournalEntries) {
             throw new Error('Core document recovery journal requires a checkpoint')
@@ -413,67 +445,71 @@ export function createCoreDocumentSessionManager(
           const journalInput = copySubmitInput(input)
           const submission = session.binding.submit(journalInput)
           session.pending.add(submission.acknowledged)
-          const acknowledged = submission.acknowledged.then(async outcome => {
-            session.pending.delete(submission.acknowledged)
-            if (outcome.type === 'applied') {
-              session.currentIdentity = Object.freeze({
-                generation: submission.identity.generation,
-                revision: outcome.revision
-              })
-              session.journal.push(Object.freeze({ input: journalInput }))
-            } else if (
-              !(
-                outcome.type === 'rejected' &&
-                (outcome.reason === 'history-empty' ||
-                  outcome.reason === 'no-change' ||
-                  (outcome.reason === 'history-resource' &&
-                    !('edits' in journalInput) && journalInput.kind !== 'track') ||
-                  (outcome.reason === 'stale-base' &&
-                  (journalInput.kind === 'resolve' ||
-                      journalInput.kind === 'edit-comment' ||
-                      journalInput.kind === 'replace-consumer-search')) ||
-                  outcome.reason === 'annotation-not-found' ||
-                  outcome.reason === 'resolution-invalid' ||
-                  outcome.reason === 'author-invalid' ||
-                  outcome.reason === 'consumer-search-match-invalid')
-              )
-            ) {
-              session.barrierFailure = new Error(
-                `Core document requires reconciliation: ${outcome.type}`
-              )
+          const acknowledged = submission.acknowledged.then(
+            async(outcome) => {
+              session.pending.delete(submission.acknowledged)
+              if (outcome.type === 'applied') {
+                session.currentIdentity = Object.freeze({
+                  generation: submission.identity.generation,
+                  revision: outcome.revision
+                })
+                session.journal.push(Object.freeze({ input: journalInput }))
+              } else if (
+                !(
+                  outcome.type === 'rejected' &&
+                  (outcome.reason === 'history-empty' ||
+                    outcome.reason === 'no-change' ||
+                    (outcome.reason === 'history-resource' &&
+                      !('edits' in journalInput) &&
+                      journalInput.kind !== 'track') ||
+                    (outcome.reason === 'stale-base' &&
+                      (journalInput.kind === 'resolve' ||
+                        journalInput.kind === 'edit-comment' ||
+                        journalInput.kind === 'replace-consumer-search')) ||
+                    outcome.reason === 'annotation-not-found' ||
+                    outcome.reason === 'resolution-invalid' ||
+                    outcome.reason === 'author-invalid' ||
+                    outcome.reason === 'consumer-search-match-invalid')
+                )
+              ) {
+                session.barrierFailure = new Error(
+                  `Core document requires reconciliation: ${outcome.type}`
+                )
+              }
+              const maintenance = maintainRecoveryJournal(session)
+              if (maintenance !== undefined) await maintenance.catch(() => {})
+              return outcome
+            },
+            (error) => {
+              session.pending.delete(submission.acknowledged)
+              const failure =
+                error instanceof Error ? error : new Error('Core document submission failed')
+              session.barrierFailure = failure
+              session.terminalFault = failure
+              throw failure
             }
-            const maintenance = maintainRecoveryJournal(session)
-            if (maintenance !== undefined) await maintenance.catch(() => {})
-            return outcome
-          }, error => {
-            session.pending.delete(submission.acknowledged)
-            const failure = error instanceof Error
-              ? error
-              : new Error('Core document submission failed')
-            session.barrierFailure = failure
-            session.terminalFault = failure
-            throw failure
-          })
+          )
           return Object.freeze({
             identity: submission.identity,
             acknowledged
           })
         },
-        sourceAtBarrier: () => Promise.reject(
-          new Error('Core view cannot bypass the session save barrier')
-        ),
-        plainTextViewAtBarrier: () => Promise.reject(
-          new Error('Core view cannot bypass the session projection barrier')
-        ),
-        consumerProjectionAtBarrier: () => Promise.reject(
-          new Error('Core view cannot bypass the session consumer projection barrier')
-        ),
-        displayProjectionAtBarrier: () => Promise.reject(
-          new Error('Core view cannot bypass the session display projection barrier')
-        ),
-        selectionProjectionAtBarrier: () => Promise.reject(
-          new Error('Core view cannot bypass the session selection projection barrier')
-        ),
+        sourceAtBarrier: () =>
+          Promise.reject(new Error('Core view cannot bypass the session save barrier')),
+        plainTextViewAtBarrier: () =>
+          Promise.reject(new Error('Core view cannot bypass the session projection barrier')),
+        consumerProjectionAtBarrier: () =>
+          Promise.reject(
+            new Error('Core view cannot bypass the session consumer projection barrier')
+          ),
+        displayProjectionAtBarrier: () =>
+          Promise.reject(
+            new Error('Core view cannot bypass the session display projection barrier')
+          ),
+        selectionProjectionAtBarrier: () =>
+          Promise.reject(
+            new Error('Core view cannot bypass the session selection projection barrier')
+          ),
         reviewItemAtBarrier: (
           direction: 'next' | 'previous',
           from: number,
@@ -482,7 +518,13 @@ export function createCoreDocumentSessionManager(
           if (released) {
             return Promise.reject(new Error('Core document view lease is released'))
           }
-          return session.binding.reviewItemAtBarrier(direction, from, includeOverview)
+          return afterPending(session, () => {
+            if (released || sessions.get(documentId) !== session) {
+              throw new Error('Core document review generation changed')
+            }
+            if (session.barrierFailure !== undefined) throw session.barrierFailure
+            return session.binding.reviewItemAtBarrier(direction, from, includeOverview)
+          })
         },
         observe(listener: (event: EditorCoreObservation) => void) {
           if (released) throw new Error('Core document view lease is released')
@@ -519,29 +561,37 @@ export function createCoreDocumentSessionManager(
           if (released || sessions.get(documentId) !== session) return undefined
           return consumerProjections.read(documentId, session.currentIdentity)
         },
-        async displayProjectionAtBarrier(name: MarkdownProjectionName): Promise<CoreDisplayProjection> {
+        async displayProjectionAtBarrier(
+          name: MarkdownProjectionName
+        ): Promise<CoreDisplayProjection> {
           if (released) throw new Error('Core document view lease is released')
           if (session.recovery !== undefined || session.terminalFault !== undefined) {
             throw new Error('Core document Worker recovery is required')
           }
           await session.settleView?.()
-          await settle(session)
-          if (released || sessions.get(documentId) !== session) {
-            throw new Error('Core document display projection generation changed')
-          }
-          if (session.barrierFailure !== undefined) throw session.barrierFailure
-          const barrier = session.binding.displayProjectionAtBarrier
-          if (barrier === undefined) throw new Error('Core document display projection is unavailable')
-          const identity = session.currentIdentity
-          const result = await barrier(name)
-          if (result.type !== 'display-projection' || result.projection.name !== name ||
-              result.session !== identity.generation || result.revision !== identity.revision ||
-              released || sessions.get(documentId) !== session ||
+          return afterPending(session, async() => {
+            if (released || sessions.get(documentId) !== session) {
+              throw new Error('Core document display projection generation changed')
+            }
+            if (session.barrierFailure !== undefined) throw session.barrierFailure
+            const barrier = session.binding.displayProjectionAtBarrier
+            if (barrier === undefined) { throw new Error('Core document display projection is unavailable') }
+            const identity = session.currentIdentity
+            const result = await barrier(name)
+            if (
+              result.type !== 'display-projection' ||
+              result.projection.name !== name ||
+              result.session !== identity.generation ||
+              result.revision !== identity.revision ||
+              released ||
+              sessions.get(documentId) !== session ||
               session.currentIdentity.generation !== identity.generation ||
-              session.currentIdentity.revision !== identity.revision) {
-            throw new Error('Core document display projection barrier is stale')
-          }
-          return result.projection
+              session.currentIdentity.revision !== identity.revision
+            ) {
+              throw new Error('Core document display projection barrier is stale')
+            }
+            return result.projection
+          })
         },
         async consumerProjectionAtBarrier(): Promise<CoreConsumerProjection> {
           if (released) throw new Error('Core document view lease is released')
@@ -549,76 +599,86 @@ export function createCoreDocumentSessionManager(
             throw new Error('Core document Worker recovery is required')
           }
           await session.settleView?.()
-          await settle(session)
-          if (released || sessions.get(documentId) !== session) {
-            throw new Error('Core document consumer projection generation changed')
-          }
-          if (session.barrierFailure !== undefined) throw session.barrierFailure
-          const barrier = session.binding.consumerProjectionAtBarrier
-          if (barrier === undefined) {
-            throw new Error('Core document consumer projection is unavailable')
-          }
-          const identity = session.currentIdentity
-          const cached = consumerProjections.read(documentId, identity)
-          if (cached !== undefined) return cached
-          let pending = session.consumerBarrier
-          if (pending === undefined || pending.identity.generation !== identity.generation ||
-              pending.identity.revision !== identity.revision) {
-            const promise = barrier().then(result => {
-              if (
-                result.type !== 'consumer-projection' ||
-                result.session !== identity.generation ||
-                result.revision !== identity.revision ||
-                sessions.get(documentId) !== session ||
-                session.currentIdentity.generation !== identity.generation ||
-                session.currentIdentity.revision !== identity.revision
-              ) throw new Error('Core document consumer projection barrier is stale')
-              consumerProjections.publish(documentId, identity, result.projection)
-              return result.projection
-            }).finally(() => {
-              if (session.consumerBarrier?.promise === promise) session.consumerBarrier = undefined
-            })
-            pending = { identity, promise }
-            session.consumerBarrier = pending
-          }
-          const projection = await pending.promise
-          if (
-            released ||
-            sessions.get(documentId) !== session ||
-            session.currentIdentity.generation !== identity.generation ||
-            session.currentIdentity.revision !== identity.revision
-          ) {
-            throw new Error('Core document consumer projection barrier is stale')
-          }
-          return projection
+          return afterPending(session, async() => {
+            if (released || sessions.get(documentId) !== session) {
+              throw new Error('Core document consumer projection generation changed')
+            }
+            if (session.barrierFailure !== undefined) throw session.barrierFailure
+            const barrier = session.binding.consumerProjectionAtBarrier
+            if (barrier === undefined) {
+              throw new Error('Core document consumer projection is unavailable')
+            }
+            const identity = session.currentIdentity
+            const cached = consumerProjections.read(documentId, identity)
+            if (cached !== undefined) return cached
+            let pending = session.consumerBarrier
+            if (
+              pending === undefined ||
+              pending.identity.generation !== identity.generation ||
+              pending.identity.revision !== identity.revision
+            ) {
+              const promise = barrier()
+                .then((result) => {
+                  if (
+                    result.type !== 'consumer-projection' ||
+                    result.session !== identity.generation ||
+                    result.revision !== identity.revision ||
+                    sessions.get(documentId) !== session ||
+                    session.currentIdentity.generation !== identity.generation ||
+                    session.currentIdentity.revision !== identity.revision
+                  ) { throw new Error('Core document consumer projection barrier is stale') }
+                  consumerProjections.publish(documentId, identity, result.projection)
+                  return result.projection
+                })
+                .finally(() => {
+                  if (session.consumerBarrier?.promise === promise) { session.consumerBarrier = undefined }
+                })
+              pending = { identity, promise }
+              session.consumerBarrier = pending
+            }
+            const projection = await pending.promise
+            if (
+              released ||
+              sessions.get(documentId) !== session ||
+              session.currentIdentity.generation !== identity.generation ||
+              session.currentIdentity.revision !== identity.revision
+            ) {
+              throw new Error('Core document consumer projection barrier is stale')
+            }
+            return projection
+          })
         },
-        async selectionProjectionAtBarrier(range: Readonly<{
-          readonly start: number
-          readonly end: number
-        }>): Promise<CoreConsumerProjection> {
+        async selectionProjectionAtBarrier(
+          range: Readonly<{
+            readonly start: number
+            readonly end: number
+          }>
+        ): Promise<CoreConsumerProjection> {
           if (released) throw new Error('Core document view lease is released')
           if (session.recovery !== undefined || session.terminalFault !== undefined) {
             throw new Error('Core document Worker recovery is required')
           }
           await session.settleView?.()
-          await settle(session)
-          if (released || sessions.get(documentId) !== session) {
-            throw new Error('Core document selection projection generation changed')
-          }
-          if (session.barrierFailure !== undefined) throw session.barrierFailure
-          const identity = session.currentIdentity
-          const result = await session.binding.selectionProjectionAtBarrier(range)
-          if (
-            result.type !== 'selection-projection' ||
-            result.session !== identity.generation ||
-            result.revision !== identity.revision || released ||
-            sessions.get(documentId) !== session ||
-            session.currentIdentity.generation !== identity.generation ||
-            session.currentIdentity.revision !== identity.revision
-          ) {
-            throw new Error('Core document selection projection barrier is stale')
-          }
-          return result.projection
+          return afterPending(session, async() => {
+            if (released || sessions.get(documentId) !== session) {
+              throw new Error('Core document selection projection generation changed')
+            }
+            if (session.barrierFailure !== undefined) throw session.barrierFailure
+            const identity = session.currentIdentity
+            const result = await session.binding.selectionProjectionAtBarrier(range)
+            if (
+              result.type !== 'selection-projection' ||
+              result.session !== identity.generation ||
+              result.revision !== identity.revision ||
+              released ||
+              sessions.get(documentId) !== session ||
+              session.currentIdentity.generation !== identity.generation ||
+              session.currentIdentity.revision !== identity.revision
+            ) {
+              throw new Error('Core document selection projection barrier is stale')
+            }
+            return result.projection
+          })
         },
         async replaceConsumerSearchAtBarrier(
           identity: DocumentSaveIdentity,
@@ -635,21 +695,20 @@ export function createCoreDocumentSessionManager(
             throw new Error('Core document consumer search identity is unavailable')
           }
           await session.settleView?.()
-          await settle(session)
-          if (released || sessions.get(documentId) !== session) {
-            throw new Error('Core document consumer search generation changed')
-          }
-          if (session.barrierFailure !== undefined) throw session.barrierFailure
-          return viewBinding.submit({
-            kind: 'replace-consumer-search',
-            authoredRevision: identity.revision,
-            replacements,
-            projections: []
-          }).acknowledged
+          return afterPending(session, async() => {
+            if (released || sessions.get(documentId) !== session) {
+              throw new Error('Core document consumer search generation changed')
+            }
+            if (session.barrierFailure !== undefined) throw session.barrierFailure
+            return viewBinding.submit({
+              kind: 'replace-consumer-search',
+              authoredRevision: identity.revision,
+              replacements,
+              projections: []
+            }).acknowledged
+          })
         },
-        async projectAcknowledgedPlainTextView(
-          revision: number
-        ): Promise<CorePlainTextViewReply> {
+        async projectAcknowledgedPlainTextView(revision: number): Promise<CorePlainTextViewReply> {
           if (released) throw new Error('Core document view lease is released')
           if (!Number.isSafeInteger(revision) || revision < 1) {
             throw new Error('Core document projection revision is invalid')
@@ -657,30 +716,32 @@ export function createCoreDocumentSessionManager(
           if (session.recovery !== undefined || session.terminalFault !== undefined) {
             throw new Error('Core document Worker recovery is required')
           }
-          await settle(session)
-          if (
-            released || sessions.get(documentId) !== session ||
-            session.currentIdentity.revision !== revision
-          ) {
-            throw new Error('Core document projection revision changed')
-          }
-          if (session.barrierFailure !== undefined) throw session.barrierFailure
-          const result = await session.binding.plainTextViewAtBarrier()
-          if (
-            result.type !== 'plain-text-view' ||
-            result.session !== session.currentIdentity.generation ||
-            result.revision !== revision || released ||
-            sessions.get(documentId) !== session
-          ) {
-            throw new Error('Core document plain-text view barrier is stale')
-          }
-          return result
+          return afterPending(session, async() => {
+            if (
+              released ||
+              sessions.get(documentId) !== session ||
+              session.currentIdentity.revision !== revision
+            ) {
+              throw new Error('Core document projection revision changed')
+            }
+            if (session.barrierFailure !== undefined) throw session.barrierFailure
+            const result = await session.binding.plainTextViewAtBarrier()
+            if (
+              result.type !== 'plain-text-view' ||
+              result.session !== session.currentIdentity.generation ||
+              result.revision !== revision ||
+              released ||
+              sessions.get(documentId) !== session
+            ) {
+              throw new Error('Core document plain-text view barrier is stale')
+            }
+            return result
+          })
         },
         faultView(error: unknown): void {
           if (released) throw new Error('Core document view lease is released')
-          const failure = error instanceof Error
-            ? error
-            : new Error('Core document view requires recovery')
+          const failure =
+            error instanceof Error ? error : new Error('Core document view requires recovery')
           session.viewFault = failure
           session.barrierFailure ??= failure
         },
@@ -727,7 +788,11 @@ export function createCoreDocumentSessionManager(
       const priorJournalVersion = previous.journalVersion
       const priorCheckpoint = previous.checkpoint
       const priorJournal = [...previous.journal]
-      const replacementOptions = input.options ?? previous.checkpoint.options
+      const currentOptions = optionsAfterJournal(previous.checkpoint.options, priorJournal)
+      const replacementOptions =
+        input.options === undefined
+          ? currentOptions
+          : Object.freeze({ ...currentOptions, ...input.options })
 
       const binding = options.createBinding(input.documentId)
       let committed = false
@@ -736,41 +801,53 @@ export function createCoreDocumentSessionManager(
           documentId: input.documentId,
           source: priorCheckpoint.source,
           recoveryHistory: priorCheckpoint.recoveryHistory,
-          ...(replacementOptions === undefined ? {} : { options: replacementOptions })
+          ...(priorCheckpoint.options === undefined ? {} : { options: priorCheckpoint.options })
         })
         if (opened.type !== 'opened') {
           throw new Error('Core document replacement open was rejected')
         }
         let replayRevision = opened.revision
         for (const entry of priorJournal) {
-          const replayed = await binding.submit(
-            recoveryReplayInput(entry.input, replayRevision)
-          ).acknowledged
+          const replayed = await binding.submit(recoveryReplayInput(entry.input, replayRevision))
+            .acknowledged
           if (replayed.type !== 'applied') {
             throw new Error('Core document replacement replay was rejected')
           }
           replayRevision = replayed.revision
         }
+        if (input.options !== undefined) {
+          const configured = await binding.submit({
+            kind: 'configure',
+            options: input.options,
+            projections: []
+          }).acknowledged
+          if (configured.type !== 'applied') { throw new Error('Core replacement options were rejected') }
+        }
         const beforeReload = await binding.sourceAtBarrier()
         if (beforeReload.type !== 'source') {
           throw new Error('Core document replacement source barrier is stale')
         }
-        const replacementCheckpoint = beforeReload.source === input.source
-          ? beforeReload
-          : await (async() => {
-            const reloaded = await binding.submit(Object.freeze({
-              edits: Object.freeze([Object.freeze({
-                start: 0,
-                end: beforeReload.source.length,
-                insert: input.source
-              })]),
-              projections: Object.freeze([])
-            })).acknowledged
-            if (reloaded.type !== 'applied') {
-              throw new Error('Core document replacement edit was rejected')
-            }
-            return binding.sourceAtBarrier()
-          })()
+        const replacementCheckpoint =
+          beforeReload.source === input.source
+            ? beforeReload
+            : await (async() => {
+              const reloaded = await binding.submit(
+                Object.freeze({
+                  edits: Object.freeze([
+                    Object.freeze({
+                      start: 0,
+                      end: beforeReload.source.length,
+                      insert: input.source
+                    })
+                  ]),
+                  projections: Object.freeze([])
+                })
+              ).acknowledged
+              if (reloaded.type !== 'applied') {
+                throw new Error('Core document replacement edit was rejected')
+              }
+              return binding.sourceAtBarrier()
+            })()
         if (
           replacementCheckpoint.type !== 'source' ||
           replacementCheckpoint.source !== input.source
@@ -825,9 +902,7 @@ export function createCoreDocumentSessionManager(
     recover(lease: CoreDocumentViewLease): Promise<CoreDocumentViewLease> {
       const previous = currentSessionOf(lease)
       if (previous.leaseCount !== 1 || previous.releaseView !== releaseLease.get(lease)) {
-        return Promise.reject(
-          new Error('Core document recovery requires its one live view lease')
-        )
+        return Promise.reject(new Error('Core document recovery requires its one live view lease'))
       }
       if (previous.recovery !== undefined) return previous.recovery
 
@@ -838,10 +913,7 @@ export function createCoreDocumentSessionManager(
           await previous.settleView?.()
         } catch {}
         await settle(previous)
-        if (
-          previous.terminalFault === undefined &&
-          previous.viewFault === undefined
-        ) {
+        if (previous.terminalFault === undefined && previous.viewFault === undefined) {
           throw new Error('Core document recovery is not required')
         }
         if (sessions.get(previous.documentId) !== previous) {
@@ -859,9 +931,7 @@ export function createCoreDocumentSessionManager(
             documentId: previous.documentId,
             source: checkpoint.source,
             recoveryHistory: checkpoint.recoveryHistory,
-            ...(checkpoint.options === undefined
-              ? {}
-              : { options: checkpoint.options })
+            ...(checkpoint.options === undefined ? {} : { options: checkpoint.options })
           })
           if (opened.type !== 'opened') {
             throw new Error('Core document recovery checkpoint was rejected')
@@ -950,41 +1020,46 @@ export function createCoreDocumentSessionManager(
       const journalVersion = session.journalVersion
       const barrier = (async(): Promise<CoreDocumentSaveResult> => {
         await session.settleView?.()
-        await settle(session)
-        if (session.barrierFailure !== undefined) throw session.barrierFailure
-        const result = await session.binding.sourceAtBarrier()
-        if (result.type !== 'source') {
-          throw new Error('Core document save barrier is stale')
-        }
-        session.currentIdentity = Object.freeze({
-          generation: result.session,
-          revision: result.revision
-        })
-        if (session.journalVersion === journalVersion) {
-          session.checkpoint = Object.freeze({
-            source: result.source,
-            recoveryHistory: result.recoveryHistory,
-            ...(session.checkpoint.options === undefined
-              ? {}
-              : { options: session.checkpoint.options })
-          })
-          session.journal = []
-        }
-        return Object.freeze({
-          documentId,
-          revision: result.revision,
-          identity: Object.freeze({
+        return afterPending(session, async() => {
+          if (session.barrierFailure !== undefined) throw session.barrierFailure
+          const result = await session.binding.sourceAtBarrier()
+          if (result.type !== 'source') {
+            throw new Error('Core document save barrier is stale')
+          }
+          session.currentIdentity = Object.freeze({
             generation: result.session,
             revision: result.revision
-          }),
-          source: result.source,
-          lineEnding: session.lineEnding
+          })
+          if (session.journalVersion === journalVersion) {
+            const checkpointOptions = optionsAfterJournal(
+              session.checkpoint.options,
+              session.journal
+            )
+            session.checkpoint = Object.freeze({
+              source: result.source,
+              recoveryHistory: result.recoveryHistory,
+              ...(checkpointOptions === undefined ? {} : { options: checkpointOptions })
+            })
+            session.journal = []
+          }
+          return Object.freeze({
+            documentId,
+            revision: result.revision,
+            identity: Object.freeze({
+              generation: result.session,
+              revision: result.revision
+            }),
+            source: result.source,
+            lineEnding: session.lineEnding
+          })
         })
       })()
       session.sourceBarrier = barrier
-      barrier.finally(() => {
-        if (session.sourceBarrier === barrier) session.sourceBarrier = undefined
-      }).catch(() => {})
+      barrier
+        .finally(() => {
+          if (session.sourceBarrier === barrier) session.sourceBarrier = undefined
+        })
+        .catch(() => {})
       return barrier
     },
     async plainTextViewBarrier(documentId: string): Promise<CorePlainTextViewReply> {
@@ -994,13 +1069,14 @@ export function createCoreDocumentSessionManager(
         return manager.plainTextViewBarrier(documentId)
       }
       await session.settleView?.()
-      await settle(session)
-      if (session.barrierFailure !== undefined) throw session.barrierFailure
-      const result = await session.binding.plainTextViewAtBarrier()
-      if (result.type !== 'plain-text-view') {
-        throw new Error('Core document plain-text view barrier is stale')
-      }
-      return result
+      return afterPending(session, async() => {
+        if (session.barrierFailure !== undefined) throw session.barrierFailure
+        const result = await session.binding.plainTextViewAtBarrier()
+        if (result.type !== 'plain-text-view') {
+          throw new Error('Core document plain-text view barrier is stale')
+        }
+        return result
+      })
     },
     abort(documentId: string): void {
       const session = sessionOf(documentId)

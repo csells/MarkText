@@ -6,6 +6,7 @@
 </template>
 
 <script setup lang="ts">
+import type { MarkdownOptions } from '@marktext/document-core'
 import { ref, shallowRef, markRaw, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { debounce } from 'lodash'
 import { createCoreHeadingToc } from '@/documentAuthority/coreHeadingToc'
@@ -27,7 +28,13 @@ import {
 } from '@/documentAuthority'
 import { sourceCodeCoreAdapterOptions } from '@/documentAuthority/sourceCodeCoreAdapterOptions'
 import type { CoreRecoveryDraftInput } from '@shared/types/coreRecoveryDraft'
-import { copyCodeMirrorPosition, copyCodeMirrorSelections, captureCodeMirrorViewState, restoreCodeMirrorViewState, type CodeMirrorViewState } from '@/documentAuthority/codeMirrorViewState'
+import {
+  copyCodeMirrorPosition,
+  copyCodeMirrorSelections,
+  captureCodeMirrorViewState,
+  restoreCodeMirrorViewState,
+  type CodeMirrorViewState
+} from '@/documentAuthority/codeMirrorViewState'
 
 // CodeMirror 5 ships no first-party types; the wrapper in src/renderer/src/
 // codeMirror/index.ts also keeps the surface intentionally loose.
@@ -81,16 +88,29 @@ const captureRecoveryDraft = (error: unknown): CoreRecoveryDraftInput | undefine
     revision: lease.identity.revision,
     reason: error instanceof Error ? error.message : String(error),
     visibleText: text,
-    nativeState: { surface: 'source', text, selections: copyCodeMirrorSelections(cm.listSelections()) },
+    nativeState: {
+      surface: 'source',
+      text,
+      selections: copyCodeMirrorSelections(cm.listSelections())
+    },
     nativeIntent: coreAdapter?.recoveryDraft(),
     acknowledgedView: { initialSource: props.markdown, lineEnding: lease.lineEnding }
   }
   return capturedRecoveryDraft
 }
-const captureViewState = (): CodeMirrorViewState | undefined => editor.value && sourceCodeContainer.value
-  ? captureCodeMirrorViewState(editor.value, sourceCodeContainer.value)
-  : undefined
-defineExpose({ captureRecoveryDraft, captureViewState })
+const captureViewState = (): CodeMirrorViewState | undefined =>
+  editor.value && sourceCodeContainer.value
+    ? captureCodeMirrorViewState(editor.value, sourceCodeContainer.value)
+    : undefined
+const configureCorePreferences = async (
+  options: Readonly<Partial<MarkdownOptions>>
+): Promise<void> => {
+  const lease = props.coreLease
+  if (!coreAdapter || !lease) throw new Error('Core Source preference view is unavailable')
+  const outcome = await coreAdapter.configure(options)
+  if (outcome === undefined) throw new Error('Core preferences were not applied')
+}
+defineExpose({ captureRecoveryDraft, captureViewState, configureCorePreferences })
 
 const { theme, sourceCode } = storeToRefs(preferencesStore)
 const { currentFile: currentTab } = storeToRefs(editorStore)
@@ -223,7 +243,9 @@ const handleFileChange = (payload: unknown) => {
   if (isValidMuyaIndexCursor(muyaIndexCursor)) {
     const { anchor, focus } = muyaIndexCursor
 
-    editor.value.setSelection(copyCodeMirrorPosition(anchor), copyCodeMirrorPosition(focus), { scroll: true }) // Scroll the focus into view.
+    editor.value.setSelection(copyCodeMirrorPosition(anchor), copyCodeMirrorPosition(focus), {
+      scroll: true
+    }) // Scroll the focus into view.
   } else if (scrollTargets.length) {
     const restoreScroll = () => {
       for (const { el, top } of scrollTargets) el.scrollTop = top
@@ -261,10 +283,13 @@ const handleSelectAll = () => {
   }
 }
 
-const refreshCoreSavedState = async (outcome: { session: number, revision: number } | undefined): Promise<void> => {
+const refreshCoreSavedState = async (
+  outcome: { session: number; revision: number } | undefined
+): Promise<void> => {
   if (outcome === undefined || props.coreLease === undefined) return
   await editorStore.REFRESH_CORE_SAVED_STATE(props.coreLease.documentId, {
-    generation: outcome.session, revision: outcome.revision
+    generation: outcome.session,
+    revision: outcome.revision
   })
 }
 
@@ -275,10 +300,13 @@ const handleUndo = () => {
 
   if (editor.value) {
     if (coreAdapter !== undefined) {
-      coreAdapter.history('undo').then(refreshCoreSavedState).catch(error => {
-        console.error('Core undo failed', error)
-        requestCoreRecovery(error)
-      })
+      coreAdapter
+        .history('undo')
+        .then(refreshCoreSavedState)
+        .catch((error) => {
+          console.error('Core undo failed', error)
+          requestCoreRecovery(error)
+        })
     } else {
       editor.value.execCommand('undo')
     }
@@ -292,10 +320,13 @@ const handleRedo = () => {
 
   if (editor.value) {
     if (coreAdapter !== undefined) {
-      coreAdapter.history('redo').then(refreshCoreSavedState).catch(error => {
-        console.error('Core redo failed', error)
-        requestCoreRecovery(error)
-      })
+      coreAdapter
+        .history('redo')
+        .then(refreshCoreSavedState)
+        .catch((error) => {
+          console.error('Core redo failed', error)
+          requestCoreRecovery(error)
+        })
     } else {
       editor.value.execCommand('redo')
     }
@@ -305,10 +336,7 @@ const handleRedo = () => {
 const requestCoreRecovery = (error: unknown): void => {
   const adapter = coreAdapter
   const lease = props.coreLease
-  if (
-    adapter === undefined || lease === undefined ||
-    adapter.state().status === 'ready'
-  ) return
+  if (adapter === undefined || lease === undefined || adapter.state().status === 'ready') return
   emit('core-fault', error)
 }
 
@@ -362,7 +390,9 @@ const handleImageAction = (payload: unknown) => {
     adjustPointer(focus)
     adjustPointer(anchor)
     if (focus && anchor) {
-      editor.value.setSelection(copyCodeMirrorPosition(anchor), copyCodeMirrorPosition(focus), { scroll: true })
+      editor.value.setSelection(copyCodeMirrorPosition(anchor), copyCodeMirrorPosition(focus), {
+        scroll: true
+      })
     } else {
       setCursorAtFirstLine(editor.value)
     }
@@ -405,9 +435,17 @@ const updateSourceToc = async () => {
   if (lease === undefined || viewDestroyed.value) return
   try {
     const projection = await lease.consumerProjectionAtBarrier()
-    if (props.coreLease !== lease || viewDestroyed.value || lease.consumerProjection() !== projection) return
+    if (
+      props.coreLease !== lease ||
+      viewDestroyed.value ||
+      lease.consumerProjection() !== projection
+    ) { return }
     sourceTocIdentity = { ...lease.identity }
-    editorStore.UPDATE_CORE_CONSUMER_TOC(lease.documentId, sourceTocIdentity, createCoreHeadingToc(projection))
+    editorStore.UPDATE_CORE_CONSUMER_TOC(
+      lease.documentId,
+      sourceTocIdentity,
+      createCoreHeadingToc(projection)
+    )
   } catch (error) {
     if (props.coreLease === lease && !viewDestroyed.value) requestCoreRecovery(error)
   }
@@ -421,13 +459,20 @@ const handleScrollToHeader = async (slug: unknown) => {
     await updateSourceToc()
     if (props.coreLease !== lease || viewDestroyed.value) return
     const identity = lease.identity
-    const offset = editorStore.listToc.find(item => item.slug === slug)?.sourceOffset
-    if (sourceTocIdentity?.generation !== identity.generation || sourceTocIdentity.revision !== identity.revision ||
-        typeof offset !== 'number') return
-    scrollSourceEditorToLine(editor.value, editor.value.posFromIndex(offset).line, sourceCodeContainer.value)
+    const offset = editorStore.listToc.find((item) => item.slug === slug)?.sourceOffset
+    if (
+      sourceTocIdentity?.generation !== identity.generation ||
+      sourceTocIdentity.revision !== identity.revision ||
+      typeof offset !== 'number'
+    ) { return }
+    scrollSourceEditorToLine(
+      editor.value,
+      editor.value.posFromIndex(offset).line,
+      sourceCodeContainer.value
+    )
     return
   }
-  const index = editorStore.listToc.findIndex(item => item.slug === slug)
+  const index = editorStore.listToc.findIndex((item) => item.slug === slug)
   if (index < 0) return
   const line = findMarkdownHeadingLine(editor.value.getValue(), index)
   if (line < 0) return
@@ -495,7 +540,9 @@ onMounted(() => {
 
   if (isValidMuyaIndexCursor(muyaIndexCursor)) {
     const { anchor, focus } = muyaIndexCursor
-    codeMirrorInstance.setSelection(copyCodeMirrorPosition(anchor), copyCodeMirrorPosition(focus), { scroll: true })
+    codeMirrorInstance.setSelection(copyCodeMirrorPosition(anchor), copyCodeMirrorPosition(focus), {
+      scroll: true
+    })
   } else {
     setCursorAtFirstLine(codeMirrorInstance)
   }
@@ -509,16 +556,13 @@ onMounted(() => {
       props.coreLease.binding,
       {
         nativeHistoryScope: crypto.randomUUID(),
-        ...sourceCodeCoreAdapterOptions(
-          props.markdown ?? '',
-          props.coreLease.lineEnding
-        ),
+        ...sourceCodeCoreAdapterOptions(props.markdown ?? '', props.coreLease.lineEnding),
         ...(props.corePerformanceTrace === undefined
           ? {}
           : {
               performanceTrace: {
                 documentId: props.coreLease.documentId,
-                record: event => props.corePerformanceTrace?.capture(event)
+                record: (event) => props.corePerformanceTrace?.capture(event)
               }
             })
       }
@@ -535,7 +579,7 @@ onMounted(() => {
         }
       }
       coreCompositionEnd = () => {
-        coreAdapter?.compositionEnd().catch(error => {
+        coreAdapter?.compositionEnd().catch((error) => {
           console.error('Core composition commit failed', error)
           requestCoreRecovery(error)
         })
@@ -544,7 +588,7 @@ onMounted(() => {
       input.addEventListener('compositionend', coreCompositionEnd)
     }
     let latest: unknown
-    const stopObserving = props.coreLease.binding.observe(event => {
+    const stopObserving = props.coreLease.binding.observe((event) => {
       if (event.outcome.type !== 'applied') return
       refreshSourceToc()
       editorStore.LISTEN_FOR_CORE_CONTENT_CHANGE(
@@ -589,11 +633,9 @@ onMounted(() => {
         throw error
       }
     })
-    props.corePerformanceTrace?.record(
-      'first-editable-viewport',
-      props.coreLease.documentId,
-      { surface: 'source' }
-    )
+    props.corePerformanceTrace?.record('first-editable-viewport', props.coreLease.documentId, {
+      surface: 'source'
+    })
     props.coreLease.onHandoff(() => {
       refreshSourceToc.cancel()
       sourceTocIdentity = undefined
@@ -602,16 +644,10 @@ onMounted(() => {
         coreSettlementCheck = undefined
       }
       if (coreCompositionStart !== undefined) {
-        coreCompositionInput?.removeEventListener(
-          'compositionstart',
-          coreCompositionStart
-        )
+        coreCompositionInput?.removeEventListener('compositionstart', coreCompositionStart)
       }
       if (coreCompositionEnd !== undefined) {
-        coreCompositionInput?.removeEventListener(
-          'compositionend',
-          coreCompositionEnd
-        )
+        coreCompositionInput?.removeEventListener('compositionend', coreCompositionEnd)
       }
       coreCompositionInput = undefined
       coreCompositionStart = undefined
@@ -630,15 +666,18 @@ onMounted(() => {
         mode: 'core',
         documentId: props.coreLease.documentId,
         generation: props.coreLease.identity.generation,
-        async settled (): Promise<void> { await coreAdapter?.settled() },
+        async settled (): Promise<void> {
+          await coreAdapter?.settled()
+        },
         latest: () => latest,
         ...corePerformanceTestBridge,
         performanceEvents: () => props.corePerformanceTrace?.events() ?? [],
         performanceSurface: () => 'source' as const,
-        performanceStatus: () => props.corePerformanceTrace?.status() ?? {
-          accepting: false,
-          eventCount: 0
-        },
+        performanceStatus: () =>
+          props.corePerformanceTrace?.status() ?? {
+            accepting: false,
+            eventCount: 0
+          },
         async resolveCriticMarkup (kind, start, end, decision): Promise<void> {
           const adapter = coreAdapter
           if (adapter === undefined) {
@@ -667,7 +706,7 @@ onMounted(() => {
   const initialViewState = props.initialViewState
   if (initialViewState !== undefined) {
     const restore = () => {
-      if (!viewDestroyed.value && container !== null) restoreCodeMirrorViewState(codeMirrorInstance, container, initialViewState)
+      if (!viewDestroyed.value && container !== null) { restoreCodeMirrorViewState(codeMirrorInstance, container, initialViewState) }
     }
     restore()
     // The replacement's scroll extent settles after its first layout.

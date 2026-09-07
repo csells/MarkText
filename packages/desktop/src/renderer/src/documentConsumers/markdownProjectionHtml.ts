@@ -1,21 +1,33 @@
-import type {
-  MarkdownAstNode,
-  MarkdownProjection
-} from '@marktext/document-core'
-import { generateGithubSlug } from '@muyajs/core'
+import type { MarkdownAstNode, MarkdownProjection } from '@marktext/document-core'
+import {
+  appendFootnoteSection,
+  renderFootnoteReference,
+  generateGithubSlug,
+  renderMath,
+  highlightCode,
+  MarkdownToHtml,
+  type Muya
+} from '@muyajs/core'
 
 import { sanitize, EXPORT_DOMPURIFY_CONFIG } from '@/util/dompurify'
+import { rewriteImageSrcs } from '@/util/rewriteImageSrcs'
 
 interface RenderContext {
   readonly tightList: boolean
   readonly headingSlugs: Map<string, number>
 }
 
-const escapeHtml = (value: string): string => value
-  .replaceAll('&', '&amp;')
-  .replaceAll('<', '&lt;')
-  .replaceAll('>', '&gt;')
-  .replaceAll('"', '&quot;')
+export interface MarkdownProjectionRenderOptions {
+  readonly footnotePrefix?: string
+  readonly htmlEnabled?: boolean
+}
+
+const escapeHtml = (value: string): string =>
+  value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
 
 const stringAttribute = (node: MarkdownAstNode, name: string): string => {
   const value = node.attributes[name]
@@ -60,10 +72,7 @@ const taskCheckboxOf = (node: MarkdownAstNode): string => {
     : '<input disabled="" type="checkbox">'
 }
 
-const headingIdOf = (
-  node: MarkdownAstNode,
-  headingSlugs: Map<string, number>
-): string => {
+const headingIdOf = (node: MarkdownAstNode, headingSlugs: Map<string, number>): string => {
   const base = generateGithubSlug(semanticPlainTextOf(node)) || 'heading'
   const count = headingSlugs.get(base) ?? 0
   headingSlugs.set(base, count + 1)
@@ -75,20 +84,19 @@ const renderListItem = (
   context: RenderContext,
   render: (node: MarkdownAstNode, context: RenderContext) => string
 ): string => {
-  const rendered = node.children.map(child => render(
-    child,
-    child.kind === 'paragraph' ? context : { ...context, tightList: false }
-  ))
+  const rendered = node.children.map((child) =>
+    render(child, child.kind === 'paragraph' ? context : { ...context, tightList: false })
+  )
   let body = ''
   for (const child of rendered) {
     if (body && !body.endsWith('\n')) body += '\n'
     body += child
   }
   const checkbox = taskCheckboxOf(node)
-  const leadingBreak = checkbox === '' && body &&
-      (!context.tightList || node.children[0]?.kind !== 'paragraph')
-    ? '\n'
-    : ''
+  const leadingBreak =
+    checkbox === '' && body && (!context.tightList || node.children[0]?.kind !== 'paragraph')
+      ? '\n'
+      : ''
   return `<li>${checkbox}${leadingBreak}${body}</li>\n`
 }
 
@@ -99,12 +107,21 @@ const renderListItem = (
  * the desktop trust boundary.
  */
 export function renderMarkdownProjectionToSafeHtml(
-  projection: Pick<MarkdownProjection, 'ast'>
+  projection: Pick<MarkdownProjection, 'ast'>,
+  options: MarkdownProjectionRenderOptions = {}
 ): string {
+  const footnoteDefinitions = new Map<number, MarkdownAstNode>()
+  const footnoteNumbers = new Map<number, number>()
+  const collectFootnotes = (node: MarkdownAstNode): void => {
+    if (node.kind === 'footnote-definition') {
+      footnoteDefinitions.set(node.range.start, node)
+    }
+    for (const child of node.children) collectFootnotes(child)
+  }
+  collectFootnotes(projection.ast.root)
   const render = (node: MarkdownAstNode, context: RenderContext): string => {
-    const children = (childContext: RenderContext = context): string => node.children
-      .map(child => render(child, childContext))
-      .join('')
+    const children = (childContext: RenderContext = context): string =>
+      node.children.map((child) => render(child, childContext)).join('')
 
     switch (node.kind) {
       case 'document':
@@ -127,10 +144,12 @@ export function renderMarkdownProjectionToSafeHtml(
           tightList: node.attributes['tight'] === true,
           headingSlugs: context.headingSlugs
         })
-        const start = tag === 'ol' && typeof node.attributes['start'] === 'number' &&
-            node.attributes['start'] !== 1
-          ? ` start="${String(node.attributes['start'])}"`
-          : ''
+        const start =
+          tag === 'ol' &&
+          typeof node.attributes['start'] === 'number' &&
+          node.attributes['start'] !== 1
+            ? ` start="${String(node.attributes['start'])}"`
+            : ''
         return `<${tag}${start}>\n${content}</${tag}>\n`
       }
       case 'list-item':
@@ -148,9 +167,13 @@ export function renderMarkdownProjectionToSafeHtml(
       case 'strong':
         return `<strong>${
           node.attributes['semanticFlattenStrongChildren'] === true
-            ? node.children.map(child => child.kind === 'strong'
-              ? child.children.map(grandchild => render(grandchild, context)).join('')
-              : render(child, context)).join('')
+            ? node.children
+              .map((child) =>
+                child.kind === 'strong'
+                  ? child.children.map((grandchild) => render(grandchild, context)).join('')
+                  : render(child, context)
+              )
+              .join('')
             : children()
         }</strong>`
       case 'strikethrough':
@@ -165,75 +188,126 @@ export function renderMarkdownProjectionToSafeHtml(
         const info = node.attributes['semanticInfo']
         const language = typeof info === 'string' ? info.trim().split(/\s/u)[0] : undefined
         const className = language ? ` class="language-${escapeHtml(language)}"` : ''
-        return `<pre><code${className}>${escapeHtml(stringAttribute(node, 'content'))}` +
+        const content = stringAttribute(node, 'content')
+        const highlighted = highlightCode(content, language ?? '')
+        return (
+          `<pre><code${className}>${highlighted === content ? escapeHtml(content) : highlighted}` +
           '</code></pre>\n'
+        )
       }
       case 'link':
-        return `<a href="${escapeHtml(stringAttribute(node, 'semanticDestination'))}"` +
+        return (
+          `<a href="${escapeHtml(stringAttribute(node, 'semanticDestination'))}"` +
           `${titleAttributeOf(node)}>${children()}</a>`
+        )
       case 'image':
-        return `<img src="${escapeHtml(stringAttribute(node, 'semanticDestination'))}" ` +
+        return (
+          `<img src="${escapeHtml(stringAttribute(node, 'semanticDestination'))}" ` +
           `alt="${escapeHtml(semanticPlainTextOf(node))}"${titleAttributeOf(node)} />`
+        )
       case 'autolink':
-        return `<a href="${escapeHtml(stringAttribute(node, 'semanticDestination'))}">` +
+        return (
+          `<a href="${escapeHtml(stringAttribute(node, 'semanticDestination'))}">` +
           `${escapeHtml(stringAttribute(node, 'rawDestination'))}</a>`
+        )
       case 'inline-html':
       case 'html-block':
-        return filteredHtmlContentOf(node)
+        return options.htmlEnabled === false
+          ? escapeHtml(stringAttribute(node, 'content'))
+          : filteredHtmlContentOf(node)
       case 'definition':
         return ''
       case 'front-matter':
-        return `<pre class="front-matter"><code>${
-          escapeHtml(stringAttribute(node, 'content'))
-        }</code></pre>\n`
+        return `<pre class="front-matter"><code>${escapeHtml(
+          stringAttribute(node, 'content')
+        )}</code></pre>\n`
       case 'inline-math':
-        return `<span class="math">${escapeHtml(stringAttribute(node, 'content'))}</span>`
+        return renderMath(stringAttribute(node, 'content'), {
+          displayMode: false,
+          throwOnError: false
+        })
       case 'math-block':
-        return `<div class="math-block">${escapeHtml(stringAttribute(node, 'content'))}</div>\n`
+        return (
+          renderMath(stringAttribute(node, 'content'), { displayMode: true, throwOnError: false }) +
+          '\n'
+        )
       case 'diagram':
-        return `<pre class="diagram"><code>${
-          escapeHtml(stringAttribute(node, 'content'))
-        }</code></pre>\n`
+        return `<pre class="diagram"><code class="language-${escapeHtml(stringAttribute(node, 'language'))}">${escapeHtml(
+          stringAttribute(node, 'content')
+        )}</code></pre>\n`
       case 'table': {
         const header = node.children
-          .filter(child => child.attributes['header'] === true)
-          .map(child => render(child, context))
+          .filter((child) => child.attributes['header'] === true)
+          .map((child) => render(child, context))
           .join('')
         const body = node.children
-          .filter(child => child.attributes['header'] !== true)
-          .map(child => render(child, context))
+          .filter((child) => child.attributes['header'] !== true)
+          .map((child) => render(child, context))
           .join('')
-        return '<table>\n' +
+        return (
+          '<table>\n' +
           (header ? `<thead>\n${header}</thead>\n` : '') +
           (body ? `<tbody>\n${body}</tbody>\n` : '') +
           '</table>\n'
+        )
       }
       case 'table-row':
         return `<tr>\n${children()}</tr>\n`
       case 'table-cell': {
         const alignment = node.attributes['alignment']
-        if (alignment !== undefined && alignment !== 'none' && alignment !== 'left' &&
-            alignment !== 'center' && alignment !== 'right') {
+        if (
+          alignment !== undefined &&
+          alignment !== 'none' &&
+          alignment !== 'left' &&
+          alignment !== 'center' &&
+          alignment !== 'right'
+        ) {
           throw new Error('Projected Markdown table cell has an invalid alignment')
         }
         const tag = node.attributes['header'] === true ? 'th' : 'td'
-        const align = typeof alignment === 'string' && alignment !== 'none'
-          ? ` align="${alignment}"`
-          : ''
+        const align =
+          typeof alignment === 'string' && alignment !== 'none' ? ` align="${alignment}"` : ''
         return `<${tag}${align}>${children()}</${tag}>\n`
       }
       case 'footnote-definition':
-        return `<div class="footnote-definition">${children()}</div>\n`
+        return ''
       case 'footnote-reference': {
-        const label = stringAttribute(node, 'label')
-        return `<sup class="footnote-reference">${escapeHtml(label)}</sup>`
+        const definitionStart = node.attributes['resolvedDefinitionStart']
+        if (node.attributes['resolved'] !== true || typeof definitionStart !== 'number') {
+          return `[^${escapeHtml(stringAttribute(node, 'rawLabel'))}]`
+        }
+        if (!footnoteDefinitions.has(definitionStart)) {
+          throw new Error('Projected footnote reference has no resolved definition')
+        }
+        const number = footnoteNumbers.get(definitionStart) ?? footnoteNumbers.size + 1
+        footnoteNumbers.set(definitionStart, number)
+        return renderFootnoteReference(number, options.footnotePrefix)
       }
     }
   }
 
-  const html = render(projection.ast.root, {
+  const context: RenderContext = {
     tightList: false,
     headingSlugs: new Map()
-  })
-  return sanitize(html, EXPORT_DOMPURIFY_CONFIG)
+  }
+  const body = render(projection.ast.root, context)
+  const definitions: Array<{ number: number; html: string }> = []
+  for (const [definitionStart, number] of footnoteNumbers) {
+    const definition = footnoteDefinitions.get(definitionStart)
+    if (definition === undefined) throw new Error('Projected footnote definition is unavailable')
+    definitions.push({
+      number,
+      html: definition.children.map((child) => render(child, context)).join('')
+    })
+  }
+  const html = appendFootnoteSection(body, definitions, options.footnotePrefix)
+  return rewriteImageSrcs(sanitize(html, EXPORT_DOMPURIFY_CONFIG))
+}
+
+/** Enrich parser-owned HTML with the same media pipeline used by existing MarkText exports. */
+export async function presentMarkdownProjectionHtml(html: string, muya?: Muya): Promise<string> {
+  const article = await MarkdownToHtml.fromHtml(html, muya).renderHtml({ preview: true })
+  const match = /^<article class="markdown-body">([\s\S]*)<\/article>$/.exec(article)
+  if (match === null) throw new Error('Markdown presentation did not return an article')
+  return match[1]
 }

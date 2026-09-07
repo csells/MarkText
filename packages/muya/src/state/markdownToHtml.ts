@@ -29,8 +29,17 @@ const CDN_STYLESHEET_LINKS = `  <!-- https://cdnjs.com/libraries/github-markdown
 
 export class MarkdownToHtml {
     private _exportContainer: HTMLDivElement | null = null;
+    private _html: string | undefined;
+    private _preview = false;
 
     constructor(public markdown: string, private _muya?: Muya) {}
+
+    /** Use already-interpreted HTML while retaining sanitization, media processing and the export shell. */
+    static fromHtml(html: string, muya?: Muya): MarkdownToHtml {
+        const renderer = new MarkdownToHtml('', muya);
+        renderer._html = html;
+        return renderer;
+    }
 
     private async _renderMermaid() {
         const codes = this._exportContainer!.querySelectorAll(
@@ -58,7 +67,7 @@ export class MarkdownToHtml {
         mermaid.initialize({
             startOnLoad: false,
             securityLevel: 'strict',
-            theme: 'default',
+            theme: this._preview ? (this._muya?.options.mermaidTheme ?? 'default') : 'default',
         });
         // Render each diagram in isolation: `mermaid.run` rejects the whole
         // batch on the first parse error, so one invalid diagram used to abort
@@ -110,7 +119,7 @@ export class MarkdownToHtml {
                     actions: false,
                     tooltip: false,
                     renderer: 'svg',
-                    theme: 'latimes', // only render light theme
+                    theme: this._preview ? (this._muya?.options.vegaTheme ?? 'latimes') : 'latimes',
                     // Parse the spec to an AST and evaluate expressions with the
                     // interpreter instead of compiling them via `new Function`,
                     // which the sandboxed renderer's CSP blocks (`unsafe-eval`
@@ -180,9 +189,10 @@ export class MarkdownToHtml {
     }
 
     // render pure html by marked
-    async renderHtml() {
+    async renderHtml({ preview = false }: { preview?: boolean } = {}) {
+        this._preview = preview;
         const footnote = this._muya?.options?.footnote ?? false;
-        let html = getHighlightHtml(this.markdown, {
+        let html = this._html ?? getHighlightHtml(this.markdown, {
             superSubScript: this._muya?.options?.superSubScript ?? true,
             footnote,
             isGitlabCompatibilityEnabled:
@@ -194,7 +204,7 @@ export class MarkdownToHtml {
         // numbered <sup> refs + bottom <section class="footnotes"> with
         // backrefs). Must run before DOMPurify strips the `data-identifier`
         // marker the marked footnote extension emits.
-        if (footnote)
+        if (footnote && this._html === undefined)
             html = transformFootnotes(html);
 
         html = sanitize(html, EXPORT_DOMPURIFY_CONFIG, false) as string;
@@ -203,36 +213,43 @@ export class MarkdownToHtml {
             = document.createElement('div'));
         exportContainer.classList.add('mu-render-container');
         exportContainer.innerHTML = html;
+        // Media engines need a connected layout surface; temporary export or
+        // preview work must not appear in or intercept the editor UI.
+        exportContainer.style.cssText = 'position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none';
+        exportContainer.setAttribute('aria-hidden', 'true');
         document.body.appendChild(exportContainer);
 
-        // render only render the light theme of mermaid and diagram...
-        await this._renderMermaid();
-        await this._renderDiagram();
+        try {
+            // render only render the light theme of mermaid and diagram...
+            await this._renderMermaid();
+            await this._renderDiagram();
 
-        // Inject github-compatible slug ids onto exported headings so the
-        // exported document's [TOC] / `getHtmlToc` `href="#slug"` anchors
-        // resolve. Scoped to this export DOM path — the conformance
-        // renderer (`renderToStaticHTML`) is deliberately left untouched.
-        this._injectHeadingIds(exportContainer);
+            // Inject github-compatible slug ids onto exported headings so the
+            // exported document's [TOC] / `getHtmlToc` `href="#slug"` anchors
+            // resolve. Scoped to this export DOM path — the conformance
+            // renderer (`renderToStaticHTML`) is deliberately left untouched.
+            this._injectHeadingIds(exportContainer);
 
-        let result = exportContainer.innerHTML;
-        exportContainer.remove();
+            let result = exportContainer.innerHTML;
 
-        // hack to add arrow marker to output html
-        // TODO: JOCS, are these codes still needed?
-        const paths = document.querySelectorAll('path[id^=raphael-marker-]');
-        const def = '<defs style="-webkit-tap-highlight-color: rgba(0, 0, 0, 0);">';
-        result = result.replace(def, () => {
-            let str = '';
-            for (const path of paths)
-                str += path.outerHTML;
+            // hack to add arrow marker to output html
+            // TODO: JOCS, are these codes still needed?
+            const paths = document.querySelectorAll('path[id^=raphael-marker-]');
+            const def = '<defs style="-webkit-tap-highlight-color: rgba(0, 0, 0, 0);">';
+            result = result.replace(def, () => {
+                let str = '';
+                for (const path of paths)
+                    str += path.outerHTML;
 
-            return `${def}${str}`;
-        });
+                return `${def}${str}`;
+            });
 
-        this._exportContainer = null;
-
-        return `<article class="markdown-body">${result}</article>`;
+            return `<article class="markdown-body">${result}</article>`;
+        }
+        finally {
+            exportContainer.remove();
+            this._exportContainer = null;
+        }
     }
 
     /**

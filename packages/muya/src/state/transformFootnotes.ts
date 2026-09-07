@@ -62,7 +62,7 @@ export function transformFootnotes(html: string): string {
         if (!refNumber.has(id))
             refNumber.set(id, nextN++);
         const n = refNumber.get(id)!;
-        return `<sup class="footnote-ref"><a href="#fn-${n}" id="fnref-${n}">${n}</a></sup>`;
+        return renderFootnoteReference(n);
     });
 
     // 4. Restore the protected code regions.
@@ -77,18 +77,34 @@ export function transformFootnotes(html: string): string {
     const orderedRefs = Array.from(refNumber.entries()).sort(
         (a, b) => a[1] - b[1],
     );
-    const items: string[] = [];
-    for (const [id, n] of orderedRefs) {
-        const inner = definitions.get(id) ?? '';
-        items.push(`<li id="fn-${n}">${appendBackref(inner, n)}</li>`);
-    }
+    return appendFootnoteSection(body, orderedRefs.map(([id, number]) => ({
+        number,
+        html: definitions.get(id) ?? '',
+    })));
+}
 
+/** Presentation only: callers establish resolved references and their scope. */
+export function renderFootnoteReference(number: number, prefix = ''): string {
+    const scope = encodeURIComponent(prefix);
+    return `<sup class="footnote-ref"><a href="#${scope}fn-${number}" id="${scope}fnref-${number}">${number}</a></sup>`;
+}
+
+export function appendFootnoteSection(
+    body: string,
+    definitions: readonly { readonly number: number; readonly html: string }[],
+    prefix = '',
+): string {
+    if (definitions.length === 0)
+        return body;
+    const items = definitions.map(({ number, html }) =>
+        `<li id="${encodeURIComponent(prefix)}fn-${number}">${appendBackref(html, number, prefix)}</li>`,
+    );
     const section = `\n<section class="footnotes">\n<ol>\n${items.join('\n')}\n</ol>\n</section>\n`;
     return `${body.replace(/\s+$/, '')}\n${section}`;
 }
 
-function appendBackref(definitionHtml: string, n: number): string {
-    const backref = ` <a href="#fnref-${n}" class="footnote-backref">↩</a>`;
+function appendBackref(definitionHtml: string, n: number, prefix = ''): string {
+    const backref = ` <a href="#${encodeURIComponent(prefix)}fnref-${n}" class="footnote-backref">↩</a>`;
     // Inject the backref inside the trailing `</p>` so the arrow sits next to
     // the last word of the last paragraph (pandoc style). If the definition
     // doesn't end with a paragraph (rare — e.g. ends in a list), tack the

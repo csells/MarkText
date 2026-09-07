@@ -993,7 +993,6 @@
       "originalDocument": "Original document",
       "revisedDocument": "Revised document",
       "saveComment": "Save comment",
-      "cancel": "Cancel",
       "commentTargetChanged": "The document changed. Your comment draft is preserved; cancel before choosing a new target.",
       "commentSaveFailed": "The comment could not be saved. Your draft and original target are preserved.",
       "commentPrompt": "Comment",

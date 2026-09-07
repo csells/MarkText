@@ -1751,6 +1751,7 @@ function appendInlineRange(
           close + 1,
           [],
           {
+            rawLabel: source.slice(offset + 2, close),
             label: normalizeMarkdownReferenceLabel(
               source,
               offset + 2,

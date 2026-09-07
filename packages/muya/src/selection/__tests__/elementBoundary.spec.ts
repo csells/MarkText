@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Muya } from '../../muya';
 import { CLASS_NAMES } from '../../config';
+import { Muya } from '../../muya';
 import { getOffsetOfParagraph } from '../dom';
 
 describe('native element selection boundaries', () => {
@@ -28,7 +28,8 @@ describe('native element selection boundaries', () => {
         'before $x^2$ after',
         'before ![alt](https://example.com/image.png) after',
     ])(
-        'reads a whole paragraph selection as text offsets: %s', (markdown) => {
+        'reads a whole paragraph selection as text offsets: %s',
+        (markdown) => {
             muya = new Muya(host, { markdown });
             muya.init();
             const block = muya.editor.scrollPage!.firstContentInDescendant()!;

@@ -1,6 +1,11 @@
 import katex from 'katex';
 import 'katex/dist/contrib/mhchem.mjs';
 
+/** Render already-recognized math using the same engine and chemistry support as MarkText. */
+export function renderMath(text: string, options: { displayMode?: boolean; throwOnError?: boolean } = {}): string {
+    return katex.renderToString(text, options);
+}
+
 export interface IMathToken {
     type: 'inlineMath' | 'multiplemath';
     raw: string;
@@ -41,7 +46,7 @@ function createRenderer(options: IOptions, newlineAfter: boolean) {
         const { type, text, displayMode, mathStyle } = token;
         if (useKatexRender) {
             return (
-                katex.renderToString(text, {
+                renderMath(text, {
                     ...otherOpts,
                     displayMode,
                 }) + (newlineAfter ? '\n' : '')

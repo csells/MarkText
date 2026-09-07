@@ -14,21 +14,21 @@ MarkText is a WYSIWYG markdown editor built on Electron + Vue 3. It supports Com
 
 ## Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Language | TypeScript 5.9 (strict mode) — `packages/muyajs/` retained as JS via ambient shim |
-| Desktop shell | Electron 42 |
-| Build system | electron-vite 5 |
-| Packaging | electron-builder 26 |
-| Frontend framework | Vue 3 |
-| State management | Pinia 3 |
-| Routing | Vue Router 4 |
-| UI library | Element Plus |
-| Unit tests | Vitest 4 |
-| E2E tests | Playwright |
-| Package manager | pnpm >=10 workspace (`packageManager: pnpm@10.33.4`) |
-| Repo layout | pnpm monorepo — see Directory Structure |
-| Node.js minimum | >=20.19.0 (PR CI: Node 22.21.1 · release CI: Node 24.14.1) |
+| Layer              | Technology                                                                        |
+| ------------------ | --------------------------------------------------------------------------------- |
+| Language           | TypeScript 5.9 (strict mode) — `packages/muyajs/` retained as JS via ambient shim |
+| Desktop shell      | Electron 42                                                                       |
+| Build system       | electron-vite 5                                                                   |
+| Packaging          | electron-builder 26                                                               |
+| Frontend framework | Vue 3                                                                             |
+| State management   | Pinia 3                                                                           |
+| Routing            | Vue Router 4                                                                      |
+| UI library         | Element Plus                                                                      |
+| Unit tests         | Vitest 4                                                                          |
+| E2E tests          | Playwright                                                                        |
+| Package manager    | pnpm >=10 workspace (`packageManager: pnpm@10.33.4`)                              |
+| Repo layout        | pnpm monorepo — see Directory Structure                                           |
+| Node.js minimum    | >=20.19.0 (PR CI: Node 22.21.1 · release CI: Node 24.14.1)                        |
 
 ## Directory Structure
 
@@ -200,7 +200,8 @@ All platform build scripts automatically run `minify-locales` and `electron-rebu
 ```bash
 pnpm run test          # All unit tests (Vitest)
 pnpm run test:unit     # Unit tests only
-pnpm run test:e2e      # End-to-end tests (Playwright)
+pnpm run test:e2e      # Unpacked E2E project, with serial execution and global setup
+pnpm run test:e2e:installed # Installed project; requires MARKTEXT_PACKAGED_APP and MARKTEXT_EXPECTED_COMMIT
 pnpm run lint          # ESLint (run before committing; CI enforces)
 pnpm run typecheck     # vue-tsc --noEmit (CI enforces)
 
@@ -210,8 +211,8 @@ pnpm -C packages/desktop exec vitest run test/unit/specs/markdown-basic.spec.ts
 pnpm -C packages/desktop exec vitest run -t 'partial test name'
 
 # Single Playwright spec (playwright.config.ts lives in test/e2e/)
-pnpm -C packages/desktop exec playwright test test/e2e/launch.spec.ts
-pnpm -C packages/desktop exec playwright test -g 'partial test name'
+pnpm test:e2e launch.spec.ts
+pnpm test:e2e -g 'partial test name'
 ```
 
 ## Code Style

@@ -86,6 +86,8 @@ interface FormatLinkClickPayload {
   // usable href (e.g. an unsupported protocol stripped by sanitizeHyperlink).
   data: { href: string | null; [key: string]: unknown }
   dirname: string
+  /** Reader/comment anchors are scoped to their projection, not hidden editor DOM. */
+  anchorRoot?: HTMLElement
 }
 
 interface ExportPayload {
@@ -120,10 +122,8 @@ interface ContentChangePayload {
 const coreIdentityByTab = new Map<string, DocumentSaveIdentity>()
 const coreSavedSourceByTab = new WeakMap<IFileState, string>()
 
-const saveIdentitiesEqual = (
-  left: DocumentSaveIdentity,
-  right: DocumentSaveIdentity
-): boolean => left.generation === right.generation && left.revision === right.revision
+const saveIdentitiesEqual = (left: DocumentSaveIdentity, right: DocumentSaveIdentity): boolean =>
+  left.generation === right.generation && left.revision === right.revision
 
 const saveIdentityOf = (
   documentId: string,
@@ -137,41 +137,41 @@ const withAuthoritativeSaveSource = (
 ): void | Promise<void> => {
   const sources = coreDocumentSaveAuthority.resolve([{ documentId, fallbackSource }])
   if (sources instanceof Promise) {
-    return sources.then(([result]) => persist(
-      result!.source,
-      saveIdentityOf(documentId, result!.identity)
-    ))
+    return sources.then(([result]) =>
+      persist(result!.source, saveIdentityOf(documentId, result!.identity))
+    )
   }
-  persist(
-    sources[0]!.source,
-    saveIdentityOf(documentId, sources[0]!.identity)
-  )
+  persist(sources[0]!.source, saveIdentityOf(documentId, sources[0]!.identity))
 }
 
-const withAuthoritativeFileSources = <T extends {
-  id: string
-  markdown: string
-  saveIdentity?: DocumentSaveIdentity
-}>(
+const withAuthoritativeFileSources = <
+  T extends {
+    id: string
+    markdown: string
+    saveIdentity?: DocumentSaveIdentity
+  }
+>(
   files: readonly T[],
   persist: (files: T[]) => void
 ): void | Promise<void> => {
   const resolved = coreDocumentSaveAuthority.resolve(
-    files.map(file => ({ documentId: file.id, fallbackSource: file.markdown }))
+    files.map((file) => ({ documentId: file.id, fallbackSource: file.markdown }))
   )
   const consume = (
     sources: readonly { source: string; identity: DocumentSaveIdentity | null }[]
   ): void => {
-    persist(files.map((file, index) => {
-      const resolved = sources[index]!
-      return {
-        ...file,
-        markdown: resolved.source,
-        ...(saveIdentityOf(file.id, resolved.identity) === null
-          ? {}
-          : { saveIdentity: saveIdentityOf(file.id, resolved.identity)! })
-      }
-    }))
+    persist(
+      files.map((file, index) => {
+        const resolved = sources[index]!
+        return {
+          ...file,
+          markdown: resolved.source,
+          ...(saveIdentityOf(file.id, resolved.identity) === null
+            ? {}
+            : { saveIdentity: saveIdentityOf(file.id, resolved.identity)! })
+        }
+      })
+    )
   }
   if (resolved instanceof Promise) return resolved.then(consume)
   consume(resolved)
@@ -195,7 +195,12 @@ interface AffiliationEntry {
 }
 
 interface SelectionChange {
-  start: { key: string; offset: number; block?: { text?: string; functionType?: string }; type?: string }
+  start: {
+    key: string
+    offset: number
+    block?: { text?: string; functionType?: string }
+    type?: string
+  }
   end: { key: string; offset: number; block?: { functionType?: string }; type?: string }
   affiliation?: AffiliationEntry[]
   hasFrontMatter?: boolean
@@ -417,9 +422,10 @@ export const useEditorStore = defineStore('editor', {
       const reloadDocumentId = tab.id
 
       const applyReload = (): void => {
-        const liveTab = this.tabs.find(candidate =>
-          candidate.id === reloadDocumentId &&
-          window.fileUtils.isSamePathSync(candidate.pathname, pathname)
+        const liveTab = this.tabs.find(
+          (candidate) =>
+            candidate.id === reloadDocumentId &&
+            window.fileUtils.isSamePathSync(candidate.pathname, pathname)
         )
         // The target may have been closed while the Core replacement barrier
         // was in flight. Publishing through the captured object would
@@ -492,11 +498,14 @@ export const useEditorStore = defineStore('editor', {
         debouncedSendBufferedState()
       }
 
-      const replacing = coreDocumentReloadAuthority.replace({
-        documentId: tab.id,
-        source: markdown,
-        lineEnding: canonicalCoreLineEnding(newFileState.lineEnding)
-      }, applyReload)
+      const replacing = coreDocumentReloadAuthority.replace(
+        {
+          documentId: tab.id,
+          source: markdown,
+          lineEnding: canonicalCoreLineEnding(newFileState.lineEnding)
+        },
+        applyReload
+      )
       if (replacing === undefined) {
         applyReload()
         return
@@ -504,11 +513,18 @@ export const useEditorStore = defineStore('editor', {
       return replacing
     },
 
-    FORMAT_LINK_CLICK({ data, dirname }: FormatLinkClickPayload): void {
+    FORMAT_LINK_CLICK({ data, dirname, anchorRoot }: FormatLinkClickPayload): void {
       // Check if the link starts with a #, that is a local anchor link.
       if (data.href && data.href[0] === '#') {
         const anchorSlug = data.href.substring(1)
         if (!anchorSlug) return
+        if (anchorRoot) {
+          const anchor = Array.from(anchorRoot.querySelectorAll<HTMLElement>('[id]')).find(
+            (element) => element.id === anchorSlug
+          )
+          anchor?.scrollIntoView({ block: 'nearest' })
+          return
+        }
 
         // Find the block with the anchor slug from the TOC
         for (const item of this.listToc) {
@@ -706,12 +722,11 @@ export const useEditorStore = defineStore('editor', {
           if (coreIdentity !== undefined && typeof fileInfo.savedSource === 'string') {
             coreSavedSourceByTab.set(tab, fileInfo.savedSource)
           }
-          const saveMatchesCurrentCore = coreIdentity === undefined ||
-            (
-              fileInfo.saveIdentity !== undefined &&
+          const saveMatchesCurrentCore =
+            coreIdentity === undefined ||
+            (fileInfo.saveIdentity !== undefined &&
               fileInfo.saveIdentity !== null &&
-              saveIdentitiesEqual(fileInfo.saveIdentity, coreIdentity)
-            )
+              saveIdentitiesEqual(fileInfo.saveIdentity, coreIdentity))
           Object.assign(tab, { filename, pathname })
           if (saveMatchesCurrentCore) tab.isSaved = true
           debouncedSendBufferedState()
@@ -724,14 +739,13 @@ export const useEditorStore = defineStore('editor', {
           const coreIdentity = coreIdentityByTab.get(tabId)
           // The completed write establishes the disk baseline even when newer
           // input makes its revision too old to clear the current dirty flag.
-          if (coreIdentity !== undefined && typeof savedSource === 'string') coreSavedSourceByTab.set(tab, savedSource)
+          if (coreIdentity !== undefined && typeof savedSource === 'string') { coreSavedSourceByTab.set(tab, savedSource) }
           if (
             coreIdentity !== undefined &&
-            (
-              saveIdentity === undefined || saveIdentity === null ||
-              !saveIdentitiesEqual(saveIdentity, coreIdentity)
-            )
-          ) return
+            (saveIdentity === undefined ||
+              saveIdentity === null ||
+              !saveIdentitiesEqual(saveIdentity, coreIdentity))
+          ) { return }
           const lastEditIndex = tab.history.lastEditIndex
           if (
             typeof lastEditIndex === 'number' &&
@@ -834,19 +848,15 @@ export const useEditorStore = defineStore('editor', {
         }
       })
 
-      return withAuthoritativeFileSources(files, authoritativeFiles => {
-        const unsavedFiles = authoritativeFiles.filter(file => {
-          const currentFile = this.tabs.find(tab => tab.id === file.id)
-          return currentFile !== undefined &&
-            !(currentFile.isSaved && /[^\n]/.test(file.markdown))
+      return withAuthoritativeFileSources(files, (authoritativeFiles) => {
+        const unsavedFiles = authoritativeFiles.filter((file) => {
+          const currentFile = this.tabs.find((tab) => tab.id === file.id)
+          return currentFile !== undefined && !(currentFile.isSaved && /[^\n]/.test(file.markdown))
         })
         if (closeTabs) {
           if (unsavedFiles.length) {
             this.CLOSE_TABS(this.tabs.filter((f) => f.isSaved).map((f) => f.id))
-            window.electron.ipcRenderer.send(
-              'mt::save-and-close-tabs',
-              deepClone(unsavedFiles)
-            )
+            window.electron.ipcRenderer.send('mt::save-and-close-tabs', deepClone(unsavedFiles))
           } else {
             this.CLOSE_TABS(this.tabs.map((f) => f.id))
           }
@@ -1020,14 +1030,8 @@ export const useEditorStore = defineStore('editor', {
             project: projectStore
           })
         )
-        bus.emit(
-          'cmd::register-command',
-          new LineEndingCommand(this)
-        )
-        bus.emit(
-          'cmd::register-command',
-          new TrailingNewlineCommand(this)
-        )
+        bus.emit('cmd::register-command', new LineEndingCommand(this))
+        bus.emit('cmd::register-command', new TrailingNewlineCommand(this))
 
         setTimeout(() => {
           window.electron.ipcRenderer.send('mt::request-keybindings')
@@ -1124,7 +1128,7 @@ export const useEditorStore = defineStore('editor', {
       }
 
       return sources.then(([source]) => {
-        const currentTarget = this.tabs.find(tab => tab.id === target.id)
+        const currentTarget = this.tabs.find((tab) => tab.id === target.id)
         if (currentTarget === undefined) return
         if (currentTarget.isSaved) {
           this.FORCE_CLOSE_TAB(currentTarget)
@@ -1250,16 +1254,18 @@ export const useEditorStore = defineStore('editor', {
       files: readonly IFileState[],
       closeUnsaved = true
     ): void | Promise<void> {
-      const sources = coreDocumentSaveAuthority.resolve(files.map(file => ({
-        documentId: file.id,
-        fallbackSource: file.markdown
-      })))
+      const sources = coreDocumentSaveAuthority.resolve(
+        files.map((file) => ({
+          documentId: file.id,
+          fallbackSource: file.markdown
+        }))
+      )
       if (!(sources instanceof Promise)) {
-        files.forEach(file => this.CLOSE_TAB(file))
+        files.forEach((file) => this.CLOSE_TAB(file))
         return
       }
 
-      return sources.then(authoritativeSources => {
+      return sources.then((authoritativeSources) => {
         if (authoritativeSources.length !== files.length) {
           throw new Error('Document close authority returned an incomplete batch')
         }
@@ -1273,7 +1279,7 @@ export const useEditorStore = defineStore('editor', {
           saveIdentity?: DocumentSaveIdentity
         }> = []
         files.forEach((file, index) => {
-          const currentFile = this.tabs.find(tab => tab.id === file.id)
+          const currentFile = this.tabs.find((tab) => tab.id === file.id)
           if (currentFile === undefined) return
           if (currentFile.isSaved) {
             savedFiles.push(currentFile)
@@ -1293,7 +1299,7 @@ export const useEditorStore = defineStore('editor', {
             ...(source.identity === null ? {} : { saveIdentity: source.identity })
           })
         })
-        savedFiles.forEach(file => this.FORCE_CLOSE_TAB(file))
+        savedFiles.forEach((file) => this.FORCE_CLOSE_TAB(file))
         if (unsavedFiles.length) {
           window.electron.ipcRenderer.send('mt::save-and-close-tabs', unsavedFiles)
         }
@@ -1317,10 +1323,15 @@ export const useEditorStore = defineStore('editor', {
       return this.CLOSE_TABS_THROUGH_AUTHORITY(this.tabs.slice())
     },
 
-    CLOSE_TABS(tabIdList: Array<string | {
-      id: string
-      saveIdentity?: DocumentSaveIdentity
-    }>): void {
+    CLOSE_TABS(
+      tabIdList: Array<
+        | string
+        | {
+          id: string
+          saveIdentity?: DocumentSaveIdentity
+        }
+      >
+    ): void {
       if (!tabIdList || tabIdList.length === 0) return
 
       let tabIndex = 0
@@ -1330,11 +1341,9 @@ export const useEditorStore = defineStore('editor', {
           const coreIdentity = coreIdentityByTab.get(id)
           if (
             coreIdentity !== undefined &&
-            (
-              entry.saveIdentity === undefined ||
-              !saveIdentitiesEqual(entry.saveIdentity, coreIdentity)
-            )
-          ) return
+            (entry.saveIdentity === undefined ||
+              !saveIdentitiesEqual(entry.saveIdentity, coreIdentity))
+          ) { return }
         }
         const index = this.tabs.findIndex((f) => f.id === id)
         if (index === -1) return
@@ -1363,8 +1372,7 @@ export const useEditorStore = defineStore('editor', {
       this.updateTabIdToIndex() // Update before sending it out to prevent stale mappings.
 
       if (this.currentFile == null && this.tabs.length > 0) {
-        this.currentFile =
-          this.tabs[tabIndex] ?? this.tabs[tabIndex - 1] ?? this.tabs[0] ?? null
+        this.currentFile = this.tabs[tabIndex] ?? this.tabs[tabIndex - 1] ?? this.tabs[0] ?? null
         if (this.currentFile && typeof this.currentFile.markdown === 'string') {
           const { id, markdown, cursor, history, pathname, scrollTop, blocks, muyaIndexCursor } =
             this.currentFile
@@ -1497,7 +1505,10 @@ export const useEditorStore = defineStore('editor', {
     NEW_UNTITLED_TAB({
       markdown: markdownString,
       selected
-    }: { markdown?: string; selected?: boolean }): void {
+    }: {
+      markdown?: string
+      selected?: boolean
+    }): void {
       if (selected == null) {
         selected = true
       }
@@ -1605,10 +1616,12 @@ export const useEditorStore = defineStore('editor', {
 
       const outgoing = this.currentFile
       if (outgoing?.isSaved && !outgoing.pathname) {
-        const barrier = coreDocumentSaveAuthority.resolve([{
-          documentId: outgoing.id,
-          fallbackSource: outgoing.markdown
-        }])
+        const barrier = coreDocumentSaveAuthority.resolve([
+          {
+            documentId: outgoing.id,
+            fallbackSource: outgoing.markdown
+          }
+        ])
         if (barrier instanceof Promise) return barrier.then(openDocument)
       }
       openDocument()
@@ -1685,10 +1698,13 @@ export const useEditorStore = defineStore('editor', {
       tab.markdown = markdown
       if (markdown !== oldMarkdown && coreIdentityByTab.has(id)) {
         const identity = coreIdentityByTab.get(id)!
-        coreIdentityByTab.set(id, Object.freeze({
-          generation: identity.generation,
-          revision: identity.revision + 1
-        }))
+        coreIdentityByTab.set(
+          id,
+          Object.freeze({
+            generation: identity.generation,
+            revision: identity.revision + 1
+          })
+        )
       }
 
       if (oldMarkdown.length === 0 && markdown.length === 1 && markdown[0] === '\n') {
@@ -1741,11 +1757,9 @@ export const useEditorStore = defineStore('editor', {
       debouncedSendBufferedState()
     },
 
-    LISTEN_FOR_CORE_CONTENT_CHANGE(
-      id: string,
-      identity?: DocumentSaveIdentity
-    ): void {
-      const tab = this.tabs.find(tab => tab.id === id) ??
+    LISTEN_FOR_CORE_CONTENT_CHANGE(id: string, identity?: DocumentSaveIdentity): void {
+      const tab =
+        this.tabs.find((tab) => tab.id === id) ??
         (this.currentFile?.id === id ? this.currentFile : undefined)
       if (tab === undefined) return
       if (identity !== undefined) {
@@ -1775,7 +1789,7 @@ export const useEditorStore = defineStore('editor', {
             )
           })
           if (persist !== undefined) {
-            persist.catch(error => {
+            persist.catch((error) => {
               console.error('Core document autosave barrier failed', error)
             })
           }
@@ -1786,7 +1800,8 @@ export const useEditorStore = defineStore('editor', {
     },
 
     REGISTER_CORE_SAVE_IDENTITY(id: string, identity: DocumentSaveIdentity): void {
-      const tab = this.tabs.find(tab => tab.id === id) ??
+      const tab =
+        this.tabs.find((tab) => tab.id === id) ??
         (this.currentFile?.id === id ? this.currentFile : undefined)
       if (tab === undefined) return
       if (!coreSavedSourceByTab.has(tab) && tab.isSaved) coreSavedSourceByTab.set(tab, tab.markdown)
@@ -1795,10 +1810,15 @@ export const useEditorStore = defineStore('editor', {
 
     RECONCILE_CORE_SAVED_SOURCE(id: string, identity: DocumentSaveIdentity, source: string): void {
       const current = coreIdentityByTab.get(id)
-      const tab = this.tabs.find(tab => tab.id === id) ??
+      const tab =
+        this.tabs.find((tab) => tab.id === id) ??
         (this.currentFile?.id === id ? this.currentFile : undefined)
-      if (tab === undefined || current === undefined || !saveIdentitiesEqual(current, identity) ||
-          !coreSavedSourceByTab.has(tab)) return
+      if (
+        tab === undefined ||
+        current === undefined ||
+        !saveIdentitiesEqual(current, identity) ||
+        !coreSavedSourceByTab.has(tab)
+      ) { return }
       tab.isSaved = coreSavedSourceByTab.get(tab) === source
       debouncedSendBufferedState()
     },
@@ -1816,11 +1836,9 @@ export const useEditorStore = defineStore('editor', {
       wordCount: IFileState['wordCount']
     ): void {
       const registeredIdentity = coreIdentityByTab.get(id)
-      if (
-        registeredIdentity === undefined ||
-        !saveIdentitiesEqual(registeredIdentity, identity)
-      ) return
-      const tab = this.tabs.find(candidate => candidate.id === id) ??
+      if (registeredIdentity === undefined || !saveIdentitiesEqual(registeredIdentity, identity)) { return }
+      const tab =
+        this.tabs.find((candidate) => candidate.id === id) ??
         (this.currentFile?.id === id ? this.currentFile : undefined)
       if (tab !== undefined) tab.wordCount = wordCount
     },
@@ -1831,37 +1849,33 @@ export const useEditorStore = defineStore('editor', {
       searchMatches: IFileState['searchMatches']
     ): void {
       const registeredIdentity = coreIdentityByTab.get(id)
-      if (
-        registeredIdentity === undefined ||
-        !saveIdentitiesEqual(registeredIdentity, identity)
-      ) return
-      const tab = this.tabs.find(candidate => candidate.id === id) ??
+      if (registeredIdentity === undefined || !saveIdentitiesEqual(registeredIdentity, identity)) { return }
+      const tab =
+        this.tabs.find((candidate) => candidate.id === id) ??
         (this.currentFile?.id === id ? this.currentFile : undefined)
       if (tab !== undefined) tab.searchMatches = deepClone(searchMatches)
     },
 
-    UPDATE_CORE_CONSUMER_TOC(
-      id: string,
-      identity: DocumentSaveIdentity,
-      toc: TocItem[]
-    ): void {
+    UPDATE_CORE_CONSUMER_TOC(id: string, identity: DocumentSaveIdentity, toc: TocItem[]): void {
       const registeredIdentity = coreIdentityByTab.get(id)
       if (
         registeredIdentity === undefined ||
         !saveIdentitiesEqual(registeredIdentity, identity) ||
         this.currentFile?.id !== id
-      ) return
+      ) { return }
       this.UPDATE_TOC(toc)
     },
 
     LISTEN_FOR_CORE_CURSOR_CHANGE(id: string, cursor: unknown): void {
-      const tab = this.tabs.find(candidate => candidate.id === id) ??
+      const tab =
+        this.tabs.find((candidate) => candidate.id === id) ??
         (this.currentFile?.id === id ? this.currentFile : undefined)
       if (tab !== undefined) tab.muyaIndexCursor = cursor
     },
 
     RECONCILE_CORE_SOURCE_AT_HANDOFF(id: string, source: string): void {
-      const tab = this.tabs.find(tab => tab.id === id) ??
+      const tab =
+        this.tabs.find((tab) => tab.id === id) ??
         (this.currentFile?.id === id ? this.currentFile : undefined)
       if (tab === undefined) return
       tab.markdown = source
@@ -1898,7 +1912,7 @@ export const useEditorStore = defineStore('editor', {
         if (tab && !tab.isSaved) {
           const defaultPath = getRootFolderFromState(projectStore)
           const persist = withAuthoritativeSaveSource(id, markdown, (source, identity) => {
-            const currentTab = this.tabs.find(candidate => candidate.id === id)
+            const currentTab = this.tabs.find((candidate) => candidate.id === id)
             if (currentTab === undefined || currentTab.isSaved) return
             window.electron.ipcRenderer.send(
               'mt::response-file-save',
@@ -1911,7 +1925,7 @@ export const useEditorStore = defineStore('editor', {
               identity
             )
           })
-          persist?.catch(error => {
+          persist?.catch((error) => {
             console.error('Document autosave barrier failed', error)
           })
         }
@@ -2094,9 +2108,10 @@ export const useEditorStore = defineStore('editor', {
               const newMarkdown = (change as unknown as FileChangePayload).data?.markdown
               if (
                 typeof newMarkdown === 'string' &&
-                newMarkdown === (coreDocumentReloadAuthority.has(id)
-                  ? coreSavedSourceByTab.get(tab)
-                  : tab.markdown)
+                newMarkdown ===
+                  (coreDocumentReloadAuthority.has(id)
+                    ? coreSavedSourceByTab.get(tab)
+                    : tab.markdown)
               ) {
                 break
               }
@@ -2223,10 +2238,7 @@ const getRootFolderFromState = (projectStore: ProjectStoreLike): string => {
  * @param markdown The text to trim.
  * @param trimTrailingNewlineOption The option how we should trim the final newlines.
  */
-const adjustTrailingNewlines = (
-  markdown: string,
-  trimTrailingNewlineOption: number
-): string => {
+const adjustTrailingNewlines = (markdown: string, trimTrailingNewlineOption: number): string => {
   if (!markdown) {
     return ''
   }
@@ -2399,9 +2411,7 @@ const createApplicationMenuState = ({
 /**
  * Creates a object that contains the formats selection state.
  */
-export const createSelectionFormatState = (
-  formats: SelectionFormat[]
-): Record<string, boolean> => {
+export const createSelectionFormatState = (formats: SelectionFormat[]): Record<string, boolean> => {
   const state: Record<string, boolean> = {}
   for (const item of formats) {
     // Underline/superscript/subscript/highlight are carried as `html_tag`

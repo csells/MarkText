@@ -1,4 +1,4 @@
-import type { IMatch } from '../../search/types';
+import type { IRegexMatch } from '../search';
 import { describe, expect, it } from 'vitest';
 import { buildRegexValue, matchString } from '../search';
 
@@ -9,13 +9,8 @@ import { buildRegexValue, matchString } from '../search';
 // `$N` (N≥1) as the captured subgroups. Pin the contract here so the
 // next refactor in `utils/search.ts` doesn't silently regress group
 // expansion when users rely on regex replace.
-function makeMatch(matchText: string, subMatches: string[]): IMatch {
+function makeMatch(matchText: string, subMatches: string[]): IRegexMatch {
     return {
-        // `buildRegexValue` only reads .match / .subMatches; the `block`
-        // field is required by the IMatch type but never consulted here.
-        block: null as unknown as IMatch['block'],
-        start: 0,
-        end: matchText.length,
         match: matchText,
         subMatches,
     };
@@ -50,6 +45,11 @@ describe('buildRegexValue — marktext 4c517b16 group expansion', () => {
     it('returns the value verbatim when there are no $N tokens', () => {
         const value = buildRegexValue(makeMatch('foo', ['x']), 'plain replacement');
         expect(value).toBe('plain replacement');
+    });
+
+    it('expands an unmatched optional group to empty text', () => {
+        const [match] = matchString('b', '(a)?(b)', { isRegexp: true });
+        expect(buildRegexValue(match, '$1-$2')).toBe('-b');
     });
 });
 
@@ -103,6 +103,21 @@ describe('matchString — search option matrix', () => {
     });
 
     describe('isRegexp', () => {
+        it('advances past zero-width matches without repeating the same offset', () => {
+            expect(matchString('ab', '^|$', { isRegexp: true })).toEqual([
+                { match: '', subMatches: [], index: 0 },
+                { match: '', subMatches: [], index: 2 },
+            ]);
+            expect(matchString('ab', 'a*', { isRegexp: true }).map(m => m.index)).toEqual([0, 1, 2]);
+        });
+
+        it('accepts an escaped hyphen in existing user regex queries', () => {
+            expect(matchString('a-b a-b', '\\-', { isRegexp: true })).toEqual([
+                { match: '-', subMatches: [], index: 1 },
+                { match: '-', subMatches: [], index: 5 },
+            ]);
+        });
+
         it('treats the value as a RegExp when true', () => {
             const matches = matchString('2026-05-20', '\\d{4}', { isRegexp: true });
             expect(matches).toHaveLength(1);
