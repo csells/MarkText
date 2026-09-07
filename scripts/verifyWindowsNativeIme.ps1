@@ -37,6 +37,8 @@ $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 400
 $script:tick = 0
 $script:failure = $null
+[System.Windows.Forms.InputLanguage]::InstalledInputLanguages |
+  Select-Object Culture, LayoutName | Format-List
 $form.Add_Shown({
   try {
     $japanese = [System.Windows.Forms.InputLanguage]::InstalledInputLanguages |

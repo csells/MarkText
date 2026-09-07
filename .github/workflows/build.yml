@@ -226,14 +226,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Register Japanese input on the disposable desktop
-        shell: pwsh
+        shell: powershell
         run: |
           $languages = Get-WinUserLanguageList
           if (!($languages.LanguageTag -contains 'ja-JP')) { $languages.Add('ja-JP') }
           Set-WinUserLanguageList $languages -Force
-          $japanese = Get-WinUserLanguageList | Where-Object LanguageTag -eq 'ja-JP'
-          Set-WinDefaultInputMethodOverride -InputTip $japanese.InputMethodTips[0]
-          $japanese | Format-List
+          Get-WinUserLanguageList | Format-List LanguageTag, InputMethodTips
       - name: Exercise the installed OS IME through a native control
         shell: powershell
         run: powershell.exe -NoProfile -STA -File scripts/verifyWindowsNativeIme.ps1
