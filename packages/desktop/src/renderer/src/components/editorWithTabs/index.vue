@@ -52,6 +52,7 @@
 </template>
 
 <script setup lang="ts">
+import { coreMarkdownOptionsFromPreferences } from '@/documentAuthority/coreMarkdownPreferences'
 import { useLayoutStore } from '@/store/layout'
 import { useEditorStore } from '@/store/editor'
 import { usePreferencesStore } from '@/store/preferences'
@@ -80,8 +81,11 @@ import {
   type CoreDocumentViewState
 } from '@/documentAuthority/coreDocumentViewHandoff'
 import { storeToRefs } from 'pinia'
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
-import type { CoreRecoveryDraftInput, CoreRecoveryDraftRecord } from '@shared/types/coreRecoveryDraft'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import type {
+  CoreRecoveryDraftInput,
+  CoreRecoveryDraftRecord
+} from '@shared/types/coreRecoveryDraft'
 import type { MuyaPlainTextViewResult } from '@/documentAuthority/muyaPlainTextView'
 import type { CodeMirrorViewState } from '@/documentAuthority/codeMirrorViewState'
 import Tabs from './tabs.vue'
@@ -106,25 +110,32 @@ const props = defineProps<{
 const { effectiveSideBarWidth } = storeToRefs(useLayoutStore())
 const editorStore = useEditorStore()
 const preferencesStore = usePreferencesStore()
+const coreMarkdownOptions = computed(() => coreMarkdownOptionsFromPreferences(preferencesStore))
 const { currentFile } = storeToRefs(editorStore)
 const coreLaunchPolicy = resolveCoreDocumentLaunchPolicy(window.electron.process.env)
 const coreMode = coreLaunchPolicy.coreEnabled
-interface CoreWorkerOwner { control?: CoreWorkerTestControl }
+interface CoreWorkerOwner {
+  control?: CoreWorkerTestControl
+}
 const coreWorkers = new Map<string, CoreWorkerOwner>()
 const coreManager = coreMode
   ? createCoreDocumentSessionManager({
-    createBinding: documentId => {
+    createBinding: (documentId) => {
       const owner: CoreWorkerOwner = {}
       coreWorkers.set(documentId, owner)
-      return createEditorCoreBinding(createWorkerCorePort(undefined, {
-        onFailure: error => handleCoreWorkerFailure(documentId, owner, error),
-        ...(coreLaunchPolicy.testControlsEnabled
-          ? {
-              responseDelayMs: 250,
-              registerTestControl: (control: CoreWorkerTestControl) => { owner.control = control }
-            }
-          : {})
-      }))
+      return createEditorCoreBinding(
+        createWorkerCorePort(undefined, {
+          onFailure: (error) => handleCoreWorkerFailure(documentId, owner, error),
+          ...(coreLaunchPolicy.testControlsEnabled
+            ? {
+                responseDelayMs: 250,
+                registerTestControl: (control: CoreWorkerTestControl) => {
+                  owner.control = control
+                }
+              }
+            : {})
+        })
+      )
     }
   })
   : undefined
@@ -144,7 +155,7 @@ let coreDraftFault: unknown
 const revealCoreRecoveryDraft = (path: string): void => window.electron.shell.showItemInFolder(path)
 const archiveCoreRecoveryDraft = async (id: string): Promise<void> => {
   await window.electron.ipcRenderer.invoke('mt::core-draft::archive', id)
-  coreRecoveryDrafts.value = coreRecoveryDrafts.value.filter(draft => draft.id !== id)
+  coreRecoveryDrafts.value = coreRecoveryDrafts.value.filter((draft) => draft.id !== id)
 }
 const preventUnbackedDraftClose = (event: BeforeUnloadEvent): void => {
   if (coreUnbackedDraft.value === undefined) return
@@ -155,8 +166,11 @@ onMounted(async () => {
   window.addEventListener('beforeunload', preventUnbackedDraftClose)
   try {
     const retained = await window.electron.ipcRenderer.invoke('mt::core-draft::list')
-    coreRecoveryDrafts.value = [...new Map([...retained, ...coreRecoveryDrafts.value]
-      .map(draft => [draft.id, draft])).values()]
+    coreRecoveryDrafts.value = [
+      ...new Map(
+        [...retained, ...coreRecoveryDrafts.value].map((draft) => [draft.id, draft])
+      ).values()
+    ]
   } catch (error) {
     coreDraftBackupError.value = error instanceof Error ? error.message : String(error)
   }
@@ -166,33 +180,29 @@ const coreLease = shallowRef<CoreDocumentViewLease>()
 const coreSourceGeneration = ref(0)
 const coreEditorGeneration = ref(0)
 const coreProjectionMarkdown = ref<string>()
-const corePlainTextView = shallowRef<
-  Extract<MuyaPlainTextViewResult, { kind: 'view' }>
->()
+const corePlainTextView = shallowRef<Extract<MuyaPlainTextViewResult, { kind: 'view' }>>()
 const corePerformanceTrace: CoreAuthorityPerformanceTrace | undefined =
   coreMode && window.electron.process.env.PERF_TESTING === 'true'
     ? createCoreAuthorityPerformanceTrace()
     : undefined
-const coreViewState = ref<CoreDocumentViewState>(
-  props.sourceCode ? 'source' : 'wysiwyg'
-)
+const coreViewState = ref<CoreDocumentViewState>(props.sourceCode ? 'source' : 'wysiwyg')
 let coreTransition = Promise.resolve()
 let coreOwnerDisposed = false
 
 const activeCoreLease = computed(() =>
-  coreViewState.value === 'source' &&
-  coreLease.value?.documentId === currentFile.value?.id
+  coreViewState.value === 'source' && coreLease.value?.documentId === currentFile.value?.id
     ? coreLease.value
     : undefined
 )
 const wysiwygCoreLease = computed(() =>
-  coreViewState.value === 'wysiwyg' && corePlainTextView.value !== undefined &&
+  coreViewState.value === 'wysiwyg' &&
+  corePlainTextView.value !== undefined &&
   coreLease.value?.documentId === currentFile.value?.id
     ? coreLease.value
     : undefined
 )
-const coreSourceVisible = computed(() =>
-  props.sourceCode || (coreMode && coreViewState.value !== 'wysiwyg')
+const coreSourceVisible = computed(
+  () => props.sourceCode || (coreMode && coreViewState.value !== 'wysiwyg')
 )
 const coreTestCrashWorker = computed<(() => void) | undefined>(() => {
   const documentId = coreLease.value?.documentId
@@ -222,9 +232,11 @@ const handleCoreViewFault = (error: unknown): void => {
   if (coreDocumentRecoveryAuthority.settled(lease.documentId) !== undefined) return
   coreDraftFault = error
   try {
-    const draft = coreUnbackedDraft.value ?? (coreViewState.value === 'source'
-      ? coreSourceEditor.value?.captureRecoveryDraft(error)
-      : coreEditor.value?.captureRecoveryDraft(error))
+    const draft =
+      coreUnbackedDraft.value ??
+      (coreViewState.value === 'source'
+        ? coreSourceEditor.value?.captureRecoveryDraft(error)
+        : coreEditor.value?.captureRecoveryDraft(error))
     if (draft !== undefined && !preservedCoreDrafts.has(draft)) {
       coreUnbackedDraft.value = draft
       coreDraftFaultLease = lease
@@ -237,7 +249,8 @@ const handleCoreViewFault = (error: unknown): void => {
     coreDraftFaultLease = undefined
     coreDraftBackupError.value = ''
   } catch (backupError) {
-    coreDraftBackupError.value = backupError instanceof Error ? backupError.message : String(backupError)
+    coreDraftBackupError.value =
+      backupError instanceof Error ? backupError.message : String(backupError)
     return
   }
   lease.faultView(error)
@@ -250,15 +263,22 @@ const handleCoreViewFault = (error: unknown): void => {
     console.error('Core document recovery authority is unavailable', error)
     return
   }
-  recovery.catch(recoveryError => {
+  recovery.catch((recoveryError) => {
     console.error('Core WYSIWYG recovery failed', recoveryError)
   })
   console.error('Core WYSIWYG operation requires reconciliation', error)
 }
 // Transport failure belongs to the document owner, even when there is no
 // pending command to reject. The owner identity fences retired Workers.
-const handleCoreWorkerFailure = (documentId: string, owner: CoreWorkerOwner, error: Error): void => {
-  const current = () => !coreOwnerDisposed && openedCoreDocuments.has(documentId) && coreWorkers.get(documentId) === owner
+const handleCoreWorkerFailure = (
+  documentId: string,
+  owner: CoreWorkerOwner,
+  error: Error
+): void => {
+  const current = () =>
+    !coreOwnerDisposed &&
+    openedCoreDocuments.has(documentId) &&
+    coreWorkers.get(documentId) === owner
   if (!current()) return
   if (coreLease.value?.documentId === documentId) {
     handleCoreViewFault(error)
@@ -279,7 +299,7 @@ const handleCoreWorkerFailure = (documentId: string, owner: CoreWorkerOwner, err
     editorStore.REGISTER_CORE_SAVE_IDENTITY(documentId, replacement.identity)
     await coreManager.handoff(replacement)
   })
-  coreTransition = recovery.catch(recoveryError => {
+  coreTransition = recovery.catch((recoveryError) => {
     console.error('Inactive Core document recovery failed', recoveryError)
   })
 }
@@ -290,13 +310,15 @@ const prepareCoreReplacementView = async (
   lease: CoreDocumentViewLease,
   surface: 'source' | 'wysiwyg'
 ): Promise<() => void> => {
-  const sourceViewState = surface === 'source' ? coreSourceEditor.value?.captureViewState() : undefined
-  const projection = surface === 'wysiwyg'
-    ? await lease.projectAcknowledgedPlainTextView(lease.identity.revision)
-    : undefined
+  const sourceViewState =
+    surface === 'source' ? coreSourceEditor.value?.captureViewState() : undefined
+  const projection =
+    surface === 'wysiwyg'
+      ? await lease.projectAcknowledgedPlainTextView(lease.identity.revision)
+      : undefined
   const view = projection?.view
-  if (view !== undefined && view.kind !== 'view') throw new Error('Core replacement has no WYSIWYG view')
-  const source = view?.markdown ?? await lease.sourceAtBarrier()
+  if (view !== undefined && view.kind !== 'view') { throw new Error('Core replacement has no WYSIWYG view') }
+  const source = view?.markdown ?? (await lease.sourceAtBarrier())
   return () => {
     // A replacement lease and its initial text must come from the same revision.
     // Reusing the outgoing Source snapshot can make the next edit address old bytes.
@@ -311,27 +333,66 @@ const prepareCoreReplacementView = async (
   }
 }
 
+watch(coreMarkdownOptions, (options) => {
+  if (!coreManager) return
+  const change = coreTransition.then(async () => {
+    if (coreOwnerDisposed) return
+    await nextTick()
+    for (const documentId of openedCoreDocuments) {
+      if (coreLease.value?.documentId === documentId) {
+        const view = coreViewState.value === 'source' ? coreSourceEditor.value : coreEditor.value
+        if (!view) throw new Error('Core preference view is unavailable')
+        await view.configureCorePreferences(options)
+      } else {
+        // Inactive tabs have no native input owner, but retain their actor and
+        // undo history. Their next view consumes the configured projection.
+        const lease = coreManager.lease(documentId)
+        try {
+          const outcome = await lease.binding.submit({
+            kind: 'configure',
+            options,
+            projections: []
+          }).acknowledged
+          if (outcome.type !== 'applied') throw new Error('Core preferences were rejected')
+          editorStore.REGISTER_CORE_SAVE_IDENTITY(documentId, lease.identity)
+        } finally {
+          await coreManager.handoff(lease)
+        }
+      }
+    }
+  })
+  coreTransition = change.catch((error) => handleCoreViewFault(error))
+  // Saved-state refresh crosses the owner transition barrier; never await it
+  // from inside that same transition.
+  change
+    .then(async () => {
+      for (const documentId of openedCoreDocuments) {
+        const snapshot = await coreManager.saveBarrier(documentId)
+        await editorStore.REFRESH_CORE_SAVED_STATE(documentId, snapshot.identity)
+      }
+    })
+    .catch((error) => handleCoreViewFault(error))
+})
+
 watch(
   [
     () => props.sourceCode,
     () => currentFile.value?.id,
-    () => editorStore.tabs.map(tab => tab.id).join('\u0000')
+    () => editorStore.tabs.map((tab) => tab.id).join('\u0000')
   ],
   ([sourceMode]) => {
     if (!coreMode || coreManager === undefined) return
     const file = currentFile.value
-    const target = file === null
-      ? undefined
-      : Object.freeze({
-        id: file.id,
-        source: file.markdown,
-        lineEnding: canonicalCoreLineEnding(file.lineEnding)
-      })
-    const liveDocumentIds = new Set(editorStore.tabs.map(tab => tab.id))
-    if (
-      !sourceMode && target !== undefined &&
-      coreLease.value?.documentId !== target.id
-    ) {
+    const target =
+      file === null
+        ? undefined
+        : Object.freeze({
+          id: file.id,
+          source: file.markdown,
+          lineEnding: canonicalCoreLineEnding(file.lineEnding)
+        })
+    const liveDocumentIds = new Set(editorStore.tabs.map((tab) => tab.id))
+    if (!sourceMode && target !== undefined && coreLease.value?.documentId !== target.id) {
       coreViewState.value = 'reconciling'
     }
     const nextTransition = coreTransition.then(async () => {
@@ -344,16 +405,14 @@ watch(
             coreManager.open({
               documentId: target.id,
               source: target.source,
+              options: coreMarkdownOptions.value,
               lineEnding: target.lineEnding
             })
           )
           openedCoreDocuments.add(target.id)
         }
         const incoming = await leaseCorePlainTextView(coreManager, target.id)
-        editorStore.REGISTER_CORE_SAVE_IDENTITY(
-          target.id,
-          incoming.lease.identity
-        )
+        editorStore.REGISTER_CORE_SAVE_IDENTITY(target.id, incoming.lease.identity)
         coreLease.value = incoming.lease
         corePlainTextView.value = incoming.view
         coreProjectionMarkdown.value = incoming.view.markdown
@@ -361,10 +420,7 @@ watch(
         coreViewState.value = 'wysiwyg'
         return
       }
-      if (
-        !sourceMode && prior !== undefined &&
-        target?.id !== prior.documentId
-      ) {
+      if (!sourceMode && prior !== undefined && target?.id !== prior.documentId) {
         coreViewState.value = 'reconciling'
         await coreManager.handoff(prior)
         if (coreLease.value === prior) coreLease.value = undefined
@@ -382,16 +438,14 @@ watch(
             coreManager.open({
               documentId: target.id,
               source: target.source,
+              options: coreMarkdownOptions.value,
               lineEnding: target.lineEnding
             })
           )
           openedCoreDocuments.add(target.id)
         }
         const incoming = await leaseCorePlainTextView(coreManager, target.id)
-        editorStore.REGISTER_CORE_SAVE_IDENTITY(
-          target.id,
-          incoming.lease.identity
-        )
+        editorStore.REGISTER_CORE_SAVE_IDENTITY(target.id, incoming.lease.identity)
         coreLease.value = incoming.lease
         corePlainTextView.value = incoming.view
         coreProjectionMarkdown.value = incoming.view.markdown
@@ -400,16 +454,15 @@ watch(
         return
       }
       if (
-        prior !== undefined && !sourceMode &&
-        coreViewState.value === 'source' && target?.id === prior.documentId
+        prior !== undefined &&
+        !sourceMode &&
+        coreViewState.value === 'source' &&
+        target?.id === prior.documentId
       ) {
         coreViewState.value = 'reconciling'
         try {
           const handoff = await handoffCorePlainTextView(coreManager, prior)
-          editorStore.REGISTER_CORE_SAVE_IDENTITY(
-            prior.documentId,
-            handoff.lease.identity
-          )
+          editorStore.REGISTER_CORE_SAVE_IDENTITY(prior.documentId, handoff.lease.identity)
           coreLease.value = handoff.lease
           corePlainTextView.value = handoff.view
           coreProjectionMarkdown.value = handoff.view.markdown
@@ -422,8 +475,10 @@ watch(
         }
       }
       if (
-        prior !== undefined && sourceMode &&
-        coreViewState.value === 'wysiwyg' && target?.id === prior.documentId
+        prior !== undefined &&
+        sourceMode &&
+        coreViewState.value === 'wysiwyg' &&
+        target?.id === prior.documentId
       ) {
         coreViewState.value = 'reconciling'
         const snapshot = await coreManager.saveBarrier(prior.documentId)
@@ -433,10 +488,7 @@ watch(
         coreProjectionMarkdown.value = snapshot.source
         coreEditorGeneration.value += 1
       }
-      if (
-        prior !== undefined &&
-        (!sourceMode || target?.id !== prior.documentId)
-      ) {
+      if (prior !== undefined && (!sourceMode || target?.id !== prior.documentId)) {
         if (!sourceMode) {
           await handoffCoreDocumentView({
             manager: coreManager,
@@ -444,7 +496,9 @@ watch(
             reconcile: (documentId, source) => {
               editorStore.RECONCILE_CORE_SOURCE_AT_HANDOFF(documentId, source)
             },
-            setState: state => { coreViewState.value = state }
+            setState: (state) => {
+              coreViewState.value = state
+            }
           })
         } else {
           await coreManager.handoff(prior)
@@ -457,10 +511,7 @@ watch(
         for (const documentId of [...openedCoreDocuments]) {
           if (documentId !== prior?.documentId) {
             const snapshot = await coreManager.saveBarrier(documentId)
-            editorStore.RECONCILE_CORE_SOURCE_AT_HANDOFF(
-              documentId,
-              snapshot.source
-            )
+            editorStore.RECONCILE_CORE_SOURCE_AT_HANDOFF(documentId, snapshot.source)
           }
           await coreManager.close(documentId)
           openedCoreDocuments.delete(documentId)
@@ -501,6 +552,7 @@ watch(
           coreManager.open({
             documentId: target.id,
             source: target.source,
+            options: coreMarkdownOptions.value,
             lineEnding: target.lineEnding
           })
         )
@@ -522,12 +574,11 @@ watch(
       coreSaveRegistrations.set(target.id, unregister)
     }
     if (target !== undefined && !coreReloadRegistrations.has(target.id)) {
-      const unregister = coreDocumentReloadAuthority.register(target.id, input => {
+      const unregister = coreDocumentReloadAuthority.register(target.id, (input) => {
         const replacement = coreTransition.then(async () => {
           if (coreOwnerDisposed) throw new Error('Core document owner is disposed')
-          const activeLease = coreLease.value?.documentId === input.documentId
-            ? coreLease.value
-            : undefined
+          const activeLease =
+            coreLease.value?.documentId === input.documentId ? coreLease.value : undefined
           const outgoingLease = activeLease ?? coreManager.lease(input.documentId)
           const incomingLease = await coreManager.replace(outgoingLease, input)
           if (activeLease === undefined) {
@@ -535,7 +586,10 @@ watch(
             return () => {}
           }
           await coreManager.activate(input.documentId)
-          const publish = await prepareCoreReplacementView(incomingLease, props.sourceCode ? 'source' : 'wysiwyg')
+          const publish = await prepareCoreReplacementView(
+            incomingLease,
+            props.sourceCode ? 'source' : 'wysiwyg'
+          )
           return () => {
             if (coreLease.value !== activeLease) {
               throw new Error('Core document view changed before reload publication')
@@ -549,7 +603,7 @@ watch(
       coreReloadRegistrations.set(target.id, unregister)
     }
     if (target !== undefined && !coreRecoveryRegistrations.has(target.id)) {
-      const unregister = coreDocumentRecoveryAuthority.register(target.id, request => {
+      const unregister = coreDocumentRecoveryAuthority.register(target.id, (request) => {
         const recoverWysiwyg = coreViewState.value === 'wysiwyg'
         const recovery = coreTransition.then(async () => {
           if (coreOwnerDisposed) throw new Error('Core document owner is disposed')
@@ -557,28 +611,30 @@ watch(
             request,
             manager: coreManager,
             currentLease: () => coreLease.value,
-            setRecovering: () => { coreViewState.value = 'reconciling' },
+            setRecovering: () => {
+              coreViewState.value = 'reconciling'
+            },
             reconcileSource: (documentId, source) => {
               editorStore.RECONCILE_CORE_SOURCE_AT_HANDOFF(documentId, source)
             },
-            publishLease: async incomingLease => {
-              const publish = await prepareCoreReplacementView(incomingLease, recoverWysiwyg ? 'wysiwyg' : 'source')
+            publishLease: async (incomingLease) => {
+              const publish = await prepareCoreReplacementView(
+                incomingLease,
+                recoverWysiwyg ? 'wysiwyg' : 'source'
+              )
               publish()
             }
           })
         })
-        coreTransition = recovery.catch(error => {
+        coreTransition = recovery.catch((error) => {
           console.error('Core document recovery failed', error)
         })
         return recovery
       })
       coreRecoveryRegistrations.set(target.id, unregister)
     }
-    coreTransition = nextTransition.catch(error => {
-      if (
-        target !== undefined &&
-        !openedCoreDocuments.has(target.id)
-      ) {
+    coreTransition = nextTransition.catch((error) => {
+      if (target !== undefined && !openedCoreDocuments.has(target.id)) {
         coreSaveRegistrations.get(target.id)?.()
         coreSaveRegistrations.delete(target.id)
         coreReloadRegistrations.get(target.id)?.()
@@ -604,20 +660,24 @@ onBeforeUnmount(() => {
       manager: coreManager,
       transition: coreTransition,
       finalLease: () => coreLease.value,
-      clearFinalLease: () => { coreLease.value = undefined },
+      clearFinalLease: () => {
+        coreLease.value = undefined
+      },
       documentIds: openedCoreDocuments
-    }).catch(error => {
-      console.error('Core document teardown failed', error)
-    }).finally(() => {
-      for (const unregister of coreSaveRegistrations.values()) unregister()
-      coreSaveRegistrations.clear()
-      for (const unregister of coreReloadRegistrations.values()) unregister()
-      coreReloadRegistrations.clear()
-      for (const unregister of coreRecoveryRegistrations.values()) unregister()
-      coreRecoveryRegistrations.clear()
-      coreWorkers.clear()
-      openedCoreDocuments.clear()
     })
+      .catch((error) => {
+        console.error('Core document teardown failed', error)
+      })
+      .finally(() => {
+        for (const unregister of coreSaveRegistrations.values()) unregister()
+        coreSaveRegistrations.clear()
+        for (const unregister of coreReloadRegistrations.values()) unregister()
+        coreReloadRegistrations.clear()
+        for (const unregister of coreRecoveryRegistrations.values()) unregister()
+        coreRecoveryRegistrations.clear()
+        coreWorkers.clear()
+        openedCoreDocuments.clear()
+      })
   }
 })
 </script>
