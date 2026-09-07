@@ -1,5 +1,6 @@
 // List of all static commands that are loaded into command center.
 import bus from '../bus'
+import { reviewCommands } from 'common/commands/review'
 import { delay, isOsx } from '@/util'
 import { isUpdatable } from './utils'
 import getCommandDescriptionById from './descriptions'
@@ -59,6 +60,11 @@ const focusEditorAndExecute = (fn: () => void): void => {
 }
 
 const commands: CommandDescriptor[] = [
+  ...reviewCommands.map(command => ({
+    id: `review.${command.id}`,
+    description: t(`editor.coreReview.${command.label}`),
+    execute: async() => { bus.emit('review-command', command.id) }
+  })),
   // --------------------------------------------------------------------------
   // File
 

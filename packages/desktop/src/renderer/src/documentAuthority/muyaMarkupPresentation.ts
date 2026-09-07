@@ -2,12 +2,17 @@ import type { MarkdownAstNode, SourceRange } from '@marktext/document-core'
 import type { IInlinePresentationContext } from '@muyajs/core'
 import { validEmoji } from '@muyajs/core'
 import { sanitize, PREVIEW_DOMPURIFY_CONFIG, EXPORT_DOMPURIFY_CONFIG } from '../util/dompurify'
-import type { MuyaMarkupBinding, MuyaMarkupDecoration } from './muyaMarkupView'
+import type { MuyaMarkupBinding, MuyaMarkupComment, MuyaMarkupDecoration } from './muyaMarkupView'
 
 interface PresentationSpan {
   readonly range: SourceRange
   readonly open: string
   readonly close: string
+}
+
+interface PresentationMarker {
+  readonly offset: number
+  readonly html: string
 }
 
 const escapeHtml = (value: string): string => value
@@ -171,8 +176,14 @@ const syntaxSpans = (binding: MuyaMarkupBinding, context?: IInlinePresentationCo
 }
 
 /** Keeps every raw editing character in the DOM; wrappers only present it. */
-const renderSpans = (text: string, spans: readonly PresentationSpan[]): string => {
-  const boundaries = [...new Set([0, text.length, ...spans.flatMap(span =>
+const renderSpans = (text: string, spans: readonly PresentationSpan[], markers: readonly PresentationMarker[]): string => {
+  const markersAt = new Map<number, string[]>()
+  for (const marker of markers) {
+    const group = markersAt.get(marker.offset)
+    if (group === undefined) markersAt.set(marker.offset, [marker.html])
+    else group.push(marker.html)
+  }
+  const boundaries = [...new Set([0, text.length, ...markersAt.keys(), ...spans.flatMap(span =>
     [span.range.start, span.range.end]
   )])].filter(offset => offset >= 0 && offset <= text.length).sort((a, b) => a - b)
   const output: string[] = []
@@ -184,11 +195,13 @@ const renderSpans = (text: string, spans: readonly PresentationSpan[]): string =
     let common = 0
     while (common < active.length && active[common] === next[common]) common += 1
     for (let close = active.length - 1; close >= common; close -= 1) output.push(active[close].close)
+    output.push(...markersAt.get(start) ?? [])
     for (let open = common; open < next.length; open += 1) output.push(next[open].open)
     output.push(escapeHtml(text.slice(start, end)))
     active = next
   }
   for (let close = active.length - 1; close >= 0; close -= 1) output.push(active[close].close)
+  output.push(...markersAt.get(text.length) ?? [])
   return output.join('')
 }
 
@@ -197,7 +210,8 @@ export function renderMuyaMarkupBinding(
   binding: MuyaMarkupBinding,
   decorations: readonly MuyaMarkupDecoration[],
   currentText: string,
-  context?: IInlinePresentationContext
+  context?: IInlinePresentationContext,
+  comments: readonly MuyaMarkupComment[] = []
 ): string {
   const spans: PresentationSpan[] = []
   for (const highlight of context?.highlights ?? []) {
@@ -208,6 +222,19 @@ export function renderMuyaMarkupBinding(
   const rebase = currentText === binding.text
     ? (range: SourceRange): SourceRange => range
     : rebaseMarks(binding.text, currentText)
+  const markers: PresentationMarker[] = []
+  for (const comment of comments) {
+    if (comment.path.length !== binding.path.length ||
+        comment.path.some((part, index) => part !== binding.path[index])) continue
+    const location = rebase({ start: comment.offset, end: comment.offset })
+    if (location === undefined || location.start < 0 || location.start > currentText.length) continue
+    // An empty native affordance adds neither hidden payload nor a caret
+    // character to Muya's editable text. Core remains the annotation owner.
+    markers.push({
+      offset: location.start,
+      html: `<span class="mu-critic-comment-marker mu-remove" contenteditable="false" role="button" tabindex="0" aria-label="Comment" data-critic-kind="comment" data-critic-start="${comment.annotationRange.start - binding.sourceRange.start}" data-critic-end="${comment.annotationRange.end - binding.sourceRange.start}"></span>`
+    })
+  }
   for (const decoration of decorations) {
     if (decoration.path.length !== binding.path.length ||
         decoration.path.some((part, index) => part !== binding.path[index])) continue
@@ -224,7 +251,7 @@ export function renderMuyaMarkupBinding(
     })
   }
   if (currentText === binding.text) spans.push(...syntaxSpans(binding, context))
-  return sanitize(renderSpans(currentText, spans), {
+  return sanitize(renderSpans(currentText, spans, markers), {
     ...PREVIEW_DOMPURIFY_CONFIG,
     // Styles and contenteditable are generated only by the trusted native
     // widget renderer. All authored text and scalar values are escaped.

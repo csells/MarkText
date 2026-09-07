@@ -1,3 +1,4 @@
+import { loadReviewCommands } from './review'
 import { loadEditCommands } from './edit'
 import { loadFileCommands } from './file'
 import { loadFormatCommands } from './format'
@@ -8,6 +9,7 @@ import { loadWindowCommands } from './window'
 import type { CommandManager } from '../../commands'
 
 export const loadMenuCommands = (commandManager: CommandManager): void => {
+  loadReviewCommands(commandManager)
   loadEditCommands(commandManager)
   loadFileCommands(commandManager)
   loadFormatCommands(commandManager)
