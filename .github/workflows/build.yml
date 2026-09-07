@@ -16,7 +16,7 @@ on:
       candidate_platform:
         description: 'Platform of the existing candidate to verify'
         type: choice
-        options: [windows-x64, linux]
+        options: [windows-x64, linux, windows-ime-environment]
         default: windows-x64
   pull_request:
     types: [opened, synchronize, reopened]
@@ -216,6 +216,25 @@ jobs:
           name: windows-existing-candidate-verification
           path: test-results/
           if-no-files-found: ignore
+
+  inspect-windows-ime-environment:
+    if: github.event_name == 'workflow_dispatch' && inputs.candidate_run != '' && inputs.candidate_platform == 'windows-ime-environment'
+    runs-on: windows-latest
+    timeout-minutes: 10
+    permissions: {}
+    steps:
+      - name: Inspect native composition prerequisites in the disposable runner
+        shell: pwsh
+        run: |
+          Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber
+          Get-Process -Id $PID | Select-Object ProcessName, SessionId
+          [Environment]::UserInteractive
+          Get-WinUserLanguageList | Format-List LanguageTag, InputMethodTips
+          Get-WindowsCapability -Online | Where-Object Name -like 'Language.Basic*ja-JP*' | Format-List Name, State
+          Get-Item "$env:WINDIR\System32\IME\IMEJP\IMJPTIP.DLL" -ErrorAction SilentlyContinue | Select-Object FullName, Length
+          Get-Process ctfmon, TextInputHost -ErrorAction SilentlyContinue | Select-Object ProcessName, SessionId
+          # This is environment discovery, not a claim of native IME verification.
+          exit 0
 
   verify-existing-linux-candidate:
     if: github.event_name == 'workflow_dispatch' && inputs.candidate_run != '' && inputs.candidate_platform == 'linux'
