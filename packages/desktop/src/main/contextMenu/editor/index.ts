@@ -11,6 +11,8 @@ import {
   getInsertAfter
 } from './menuItems'
 import spellcheckMenuBuilder from './spellcheck'
+import type { ReviewContextReply } from '../../../common/commands/review'
+import { reviewCommands } from '../../../common/commands/review'
 import { reviewMenuItems } from '../../menu/actions/review'
 import { t } from '../../i18n'
 
@@ -67,7 +69,8 @@ export const showEditorContextMenu = (
   win: BrowserWindow,
   event: ContextMenuEvent,
   params: ContextMenuParams,
-  isSpellcheckerEnabled: boolean
+  isSpellcheckerEnabled: boolean,
+  reviewContext?: ReviewContextReply
 ): void => {
   const {
     isEditable,
@@ -82,14 +85,14 @@ export const showEditorContextMenu = (
   //       `webFrame.isWordMisspelled` doesn't work on Windows (Electron#28684).
 
   // Make sure that the request comes from a contenteditable inside the editor container.
-  if (isInsideEditor(params) && !hasImageContents) {
+  if ((isInsideEditor(params) || (reviewContext?.commands?.length ?? 0) > 0) && !hasImageContents) {
     const hasText = selectionText.trim().length > 0
     const canCopy = hasText && editFlags.canCut && editFlags.canCopy
     // const canPaste = hasText && editFlags.canPaste
     const isMisspelled = isEditable && !!selectionText && !!misspelledWord
 
     const menu = new Menu()
-    if (isSpellcheckerEnabled) {
+    if (isSpellcheckerEnabled && isInsideEditor(params)) {
       const spellingSubmenu = spellcheckMenuBuilder(
         isMisspelled,
         misspelledWord,
@@ -107,9 +110,18 @@ export const showEditorContextMenu = (
     const authorItems = reviewMenuItems(undefined, win).filter(item =>
       ['critic-show', 'critic-add-comment', 'critic-mark-highlight', 'critic-mark-addition', 'critic-suggest-replacement'].includes(item.id ?? '')
     )
+    for (const command of reviewContext?.commands ?? []) {
+      const descriptor = reviewCommands.find(item => item.id === command)!
+      authorItems.push({
+        id: `critic-${command}`,
+        label: t(`editor.coreReview.${descriptor.label}`),
+        enabled: true,
+        click: () => win.webContents.send('mt::editor-review-context-action', { requestId: reviewContext!.requestId, command })
+      })
+    }
     menu.append(new MenuItem({ label: t('editor.coreReview.panelTitle'), submenu: authorItems }))
     menu.append(new MenuItem(SEPARATOR))
-    const contextItems = getContextItems()
+    const contextItems = isInsideEditor(params) ? getContextItems() : []
     const copyItems = [contextItems[3], contextItems[4], contextItems[8], contextItems[7]] // CUT, COPY, COPY_AS_HTML, COPY_AS_RICH
     copyItems.forEach((item) => {
       if (item) item.enabled = canCopy
@@ -126,6 +138,17 @@ export const showEditorContextMenu = (
     // (event, params) shape.
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     event
-    menu.popup({ window: win, x: params.x, y: params.y })
+    menu.popup({
+      window: win,
+      x: params.x,
+      y: params.y,
+      ...(reviewContext
+        ? {
+          callback: () => {
+            if (!win.webContents.isDestroyed()) win.webContents.send('mt::editor-review-context-closed', reviewContext.requestId)
+          }
+        }
+        : {})
+    })
   }
 }

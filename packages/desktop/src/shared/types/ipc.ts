@@ -17,7 +17,7 @@
  *   3. Wire the caller via the typed preload bridge in src/preload/index.ts.
  */
 
-import type { ReviewCommand, ReviewCommandState } from '../../common/commands/review'
+import type { ReviewCommand, ReviewCommandState, ReviewContextRequest, ReviewContextReply, ReviewContextAction } from '../../common/commands/review'
 import type { IKeyboardLayoutInfo, IKeyboardMapping } from 'native-keymap'
 import type {
   MarkdownDocument,
@@ -95,6 +95,7 @@ export interface IpcInvokeChannels {
 // =================================================================
 
 export interface IpcSendChannels {
+  'mt::review-context-reply': [reply: ReviewContextReply]
   'mt::review-command-state': [state: ReviewCommandState]
   'app-create-editor-window': [config?: unknown]
   'app-create-settings-window': []
@@ -227,6 +228,9 @@ export interface IpcSyncChannels {
 // =================================================================
 
 export interface IpcMainEventChannels {
+  'mt::editor-review-context-request': [request: ReviewContextRequest]
+  'mt::editor-review-context-action': [action: ReviewContextAction]
+  'mt::editor-review-context-closed': [requestId: number]
   'mt::editor-review-action': [command: ReviewCommand]
   'language-changed': [language: string]
   'mt::UPDATE_AVAILABLE': [info?: unknown]
