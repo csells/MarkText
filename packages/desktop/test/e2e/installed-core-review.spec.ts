@@ -559,7 +559,14 @@ test.describe('installed Core Review authority', () => {
           ? testCase.actionTestId
           : 'critic-review-edit-comment')
         if (actionOutcome === 'unavailable') {
-          await expect(control).toBeDisabled()
+          // Selection-only sidebar actions are absent without an authorable
+          // range. The native command must remain explicitly unavailable.
+          const menuId = testCase.mode === 'selection-control'
+            ? testCase.actionTestId.replace('critic-review-', 'critic-').replace('critic-track-replacement', 'critic-suggest-replacement')
+            : 'critic-edit-comment'
+          await expect(control).toHaveCount(0)
+          await expect.poll(() => app.evaluate(({ Menu }, id) =>
+            Menu.getApplicationMenu()?.getMenuItemById(id)?.enabled, menuId)).toBe(false)
         } else {
           await expect(control).toBeEnabled()
           await control.click()
