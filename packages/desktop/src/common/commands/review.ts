@@ -36,9 +36,8 @@ export const reviewCommandEnabled = (id: ReviewCommand, state?: ReviewCommandSta
   if (!state?.available || state.busy) return false
   if (id === 'markup' || id === 'original' || id === 'revised') return true
   if (id === 'previous' || id === 'next') return state.hasItem
-  if (!state.editable) return false
-  if (id === 'add-comment' || id === 'mark-highlight' || id === 'mark-addition' || id === 'suggest-replacement') return state.canAuthor
-  if (id === 'track-changes') return state.canTrack
+  if (id === 'add-comment' || id === 'mark-highlight' || id === 'mark-addition' || id === 'suggest-replacement') return state.editable && state.canAuthor
+  if (id === 'track-changes') return state.editable && state.canTrack
   if (id === 'edit-comment') return state.hasComment
   if (id === 'remove') return state.removable
   if (id === 'accept' || id === 'reject') return state.hasItem && !state.removable
