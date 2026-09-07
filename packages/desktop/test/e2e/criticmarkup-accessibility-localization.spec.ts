@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import type { Page } from 'playwright'
 import { readFileSync } from 'node:fs'
 import { expectNoRendererErrors, launchWithMarkdown, sendIpcToRenderer } from './helpers'
+import { reviewActionWordBreaks } from './helpers/reviewActionWordBreaks'
 
 const source = 'Passage.{>>A comment.<<}\n'
 const tabTo = async(page: Page, testId: string): Promise<void> => {
@@ -30,7 +31,9 @@ const expectReviewFits = async(page: Page): Promise<void> => {
         const text = document.createRange()
         text.selectNodeContents(element)
         for (const rect of text.getClientRects()) {
-          if (rect.left < bounds.left - 1 || rect.right > bounds.right + 1) { failures.push(`${name}: text overflows its button`) }
+          if (rect.left < bounds.left - 1 || rect.right > bounds.right + 1) {
+            failures.push(`${name}: text overflows its button`)
+          }
         }
       }
     }
@@ -122,6 +125,9 @@ test('sidebar icons show keyboard focus and review actions use shared light/dark
       await expect(icon).toHaveCSS('outline-style', 'solid')
       await expect(icon).toHaveCSS('outline-width', '2px')
       const action = page.getByTestId('critic-review-edit-comment')
+      await expectReviewFits(page)
+      expect(await page.locator('#core-review-panel').evaluate(reviewActionWordBreaks)).toEqual([])
+      await page.screenshot({ path: test.info().outputPath(`review-${theme}-narrow-actions.png`) })
       for (const [state, token] of [
         ['hover', '--buttonBgColorHover'],
         ['active', '--buttonBgColorActive']
