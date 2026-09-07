@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 
 import {
   enterSourceMode,
@@ -26,9 +26,7 @@ test('Core mode owns a document opened directly in WYSIWYG', async() => {
   try {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.inputPlainText !== undefined
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.inputPlainText !== undefined)
 
     await page.evaluate(() => {
       const bridge = window.__marktextDocumentCore
@@ -64,9 +62,7 @@ test('Core WYSIWYG tracks one visible insertion through actor history', async() 
   try {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.inputPlainText !== undefined
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.inputPlainText !== undefined)
 
     const track = page.getByTestId('critic-review-track-changes')
     await expect(track).toHaveAttribute('aria-pressed', 'false')
@@ -80,39 +76,45 @@ test('Core WYSIWYG tracks one visible insertion through actor history', async() 
       bridge.inputPlainText(0, text, text.length)
     }, visibleTrackedText)
     const paragraphs = page.locator('span.mu-paragraph-content')
-    const renderedParagraphText = (index: number) => paragraphs.nth(index).evaluate(root => {
-      const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT)
-      let text = ''
-      while (walker.nextNode()) {
-        const node = walker.currentNode
-        const glyph = node instanceof Element && node.matches('.mu-html-escape[data-character]')
-          ? node
-          : undefined
-        if (!(node instanceof Text) && glyph === undefined) continue
-        let element = glyph ?? node.parentElement
-        let visible = true
-        while (element !== null && element !== root.parentElement) {
-          const style = getComputedStyle(element)
-          if (
-            style.display === 'none' || style.visibility === 'hidden' ||
-            style.fontSize === '0px'
-          ) {
-            visible = false
-            break
+    const renderedParagraphText = (index: number) =>
+      paragraphs.nth(index).evaluate((root) => {
+        const walker = document.createTreeWalker(
+          root,
+          NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT
+        )
+        let text = ''
+        while (walker.nextNode()) {
+          const node = walker.currentNode
+          const glyph =
+            node instanceof Element && node.matches('.mu-html-escape[data-character]')
+              ? node
+              : undefined
+          if (!(node instanceof Text) && glyph === undefined) continue
+          let element = glyph ?? node.parentElement
+          let visible = true
+          while (element !== null && element !== root.parentElement) {
+            const style = getComputedStyle(element)
+            if (
+              style.display === 'none' ||
+              style.visibility === 'hidden' ||
+              style.fontSize === '0px'
+            ) {
+              visible = false
+              break
+            }
+            element = element.parentElement
           }
-          element = element.parentElement
+          if (visible && glyph !== undefined) {
+            // Muya preserves source offsets in hidden marker text and renders
+            // decoded escapes with its existing CSS ::before glyph.
+            const content = getComputedStyle(glyph, '::before').content
+            if (content !== 'none' && content !== 'normal') {
+              text += glyph.getAttribute('data-character') ?? ''
+            }
+          } else if (visible && node instanceof Text) text += node.data
         }
-        if (visible && glyph !== undefined) {
-          // Muya preserves source offsets in hidden marker text and renders
-          // decoded escapes with its existing CSS ::before glyph.
-          const content = getComputedStyle(glyph, '::before').content
-          if (content !== 'none' && content !== 'normal') {
-            text += glyph.getAttribute('data-character') ?? ''
-          }
-        } else if (visible && node instanceof Text) text += node.data
-      }
-      return text
-    })
+        return text
+      })
     await expect(paragraphs.nth(0)).toHaveAttribute('contenteditable', 'true')
     await expect(paragraphs.nth(1)).toHaveAttribute('contenteditable', 'true')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
@@ -132,9 +134,9 @@ test('Core WYSIWYG tracks one visible insertion through actor history', async() 
     await page.keyboard.type(' ?')
     await expect.poll(() => renderedParagraphText(0)).toBe(`${visibleTrackedText} ?`)
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
-    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(
-      'seed{++\\{--X\\--} ?++}\n\nplain\n'
-    )
+    await expect
+      .poll(() => readFileSync(filePath, 'utf8'))
+      .toBe('seed{++\\{--X\\--} ?++}\n\nplain\n')
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
@@ -173,9 +175,7 @@ test('Core WYSIWYG cancels added text with one tracked backspace', async() => {
   try {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.inputPlainText !== undefined
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.inputPlainText !== undefined)
 
     const paragraph = page.locator('span.mu-paragraph-content').first()
     await expect(paragraph).toHaveText('seed')
@@ -188,9 +188,9 @@ test('Core WYSIWYG cancels added text with one tracked backspace', async() => {
       }
       bridge.inputPlainText(0, 'see', 3)
     })
-    await expect.poll(() => page.evaluate(() =>
-      window.__marktextDocumentCore?.latest()
-    )).toMatchObject({ result: 'accepted', tracked: true })
+    await expect
+      .poll(() => page.evaluate(() => window.__marktextDocumentCore?.latest()))
+      .toMatchObject({ result: 'accepted', tracked: true })
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
@@ -227,9 +227,7 @@ test('Core WYSIWYG removes an Addition when its final character is deleted', asy
   try {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.inputPlainText !== undefined
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.inputPlainText !== undefined)
 
     const paragraph = page.locator('span.mu-paragraph-content').first()
     await expect(paragraph).toHaveText('x')
@@ -241,9 +239,9 @@ test('Core WYSIWYG removes an Addition when its final character is deleted', asy
       }
       bridge.inputPlainText(0, '', 0)
     })
-    await expect.poll(() => page.evaluate(() =>
-      window.__marktextDocumentCore?.latest()
-    )).toMatchObject({ result: 'accepted', tracked: true })
+    await expect
+      .poll(() => page.evaluate(() => window.__marktextDocumentCore?.latest()))
+      .toMatchObject({ result: 'accepted', tracked: true })
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
@@ -280,9 +278,7 @@ test('Core WYSIWYG tracks one DOM composition as one actor transaction', async()
   try {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.composePlainText !== undefined
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.composePlainText !== undefined)
 
     const track = page.getByTestId('critic-review-track-changes')
     await track.click()
@@ -322,8 +318,7 @@ test('Core WYSIWYG tracks one DOM composition as one actor transaction', async()
 })
 
 test('Core mode renders all five CriticMarkup forms and preserves their source', async() => {
-  const annotated =
-    'before {++add++} {--del--} {~~old~>new~~} {==hi==} {>>note<<} after'
+  const annotated = 'before {++add++} {--del--} {~~old~>new~~} {==hi==} {>>note<<} after'
   const source = `${annotated}\n\neditable\n`
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
@@ -335,13 +330,16 @@ test('Core mode renders all five CriticMarkup forms and preserves their source',
   try {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.inputPlainText !== undefined
-    )
-    await expect.poll(() => page.evaluate(() =>
-      [...document.querySelectorAll('span.mu-paragraph-content')]
-        .map(node => node.textContent)
-    )).toEqual(['before add del oldnew hi  after', 'editable'])
+    await page.waitForFunction(() => window.__marktextDocumentCore?.inputPlainText !== undefined)
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          [...document.querySelectorAll('span.mu-paragraph-content')].map(
+            (node) => node.textContent
+          )
+        )
+      )
+      .toEqual(['before add del oldnew hi  after', 'editable'])
     const paragraphs = page.locator('span.mu-paragraph-content')
     await expect(paragraphs.nth(0)).toHaveAttribute('contenteditable', 'true')
     await expect(paragraphs.nth(1)).toHaveAttribute('contenteditable', 'true')
@@ -350,9 +348,7 @@ test('Core mode renders all five CriticMarkup forms and preserves their source',
       window.__marktextDocumentCore?.inputPlainText?.(1, 'edited', 6)
     })
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
-    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(
-      `${annotated}\n\nedited\n`
-    )
+    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(`${annotated}\n\nedited\n`)
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await expectNoRendererErrors(app)
@@ -379,23 +375,29 @@ test('Core WYSIWYG Review rejects one Deletion then undoes, redoes, and saves it
     await reject.click()
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(rejectedSource)
-    await expect.poll(() => page.evaluate(() =>
-      document.querySelector('span.mu-paragraph-content')?.textContent
-    )).toBe('before old after')
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.querySelector('span.mu-paragraph-content')?.textContent)
+      )
+      .toBe('before old after')
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(source)
-    await expect.poll(() => page.evaluate(() =>
-      document.querySelector('span.mu-paragraph-content')?.textContent
-    )).toBe('before old after')
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.querySelector('span.mu-paragraph-content')?.textContent)
+      )
+      .toBe('before old after')
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(rejectedSource)
-    await expect.poll(() => page.evaluate(() =>
-      document.querySelector('span.mu-paragraph-content')?.textContent
-    )).toBe('before old after')
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.querySelector('span.mu-paragraph-content')?.textContent)
+      )
+      .toBe('before old after')
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await expectNoRendererErrors(app)
@@ -448,7 +450,10 @@ test('Core WYSIWYG Review removes one derived Commented span atomically', async(
   try {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'commented-span')
+    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute(
+      'data-kind',
+      'commented-span'
+    )
     await expect(page.getByTestId('critic-review-accept')).toHaveCount(0)
     await expect(page.getByTestId('critic-review-reject')).toHaveCount(0)
     const remove = page.getByTestId('critic-review-remove')
@@ -457,9 +462,11 @@ test('Core WYSIWYG Review removes one derived Commented span atomically', async(
     await remove.click()
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('before text after\n')
-    await expect.poll(() => page.evaluate(() =>
-      document.querySelector('span.mu-paragraph-content')?.textContent
-    )).toBe('before text after')
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.querySelector('span.mu-paragraph-content')?.textContent)
+      )
+      .toBe('before text after')
     await expect(page.getByTestId('critic-review-kind')).toHaveCount(0)
 
     await expectEditorWindowHidden(app)
@@ -485,33 +492,30 @@ test('Core WYSIWYG transports actor-owned Comment and Substitution author comman
     selectedText: string,
     payload: string
   ): Promise<void> => {
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.authorPlainText !== undefined
+    await page.waitForFunction(() => window.__marktextDocumentCore?.authorPlainText !== undefined)
+    await page.evaluate(
+      ({ form, selectedText, payload }) => {
+        const paragraphs = Array.from(document.querySelectorAll('span.mu-paragraph-content'))
+        const blockIndex = paragraphs.findIndex(
+          (paragraph) => paragraph.textContent?.includes(selectedText) === true
+        )
+        if (blockIndex < 0) throw new Error('Paragraph is unavailable')
+        const start = paragraphs[blockIndex]?.textContent?.indexOf(selectedText) ?? -1
+        const bridge = window.__marktextDocumentCore
+        if (bridge?.authorPlainText === undefined) {
+          throw new Error('Core test author bridge is unavailable')
+        }
+        return bridge.authorPlainText(form, blockIndex, start, start + selectedText.length, payload)
+      },
+      { form, selectedText, payload }
     )
-    await page.evaluate(({ form, selectedText, payload }) => {
-      const paragraphs = Array.from(
-        document.querySelectorAll('span.mu-paragraph-content')
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => (window.__marktextDocumentCore?.latest() as { result?: string })?.result
+        )
       )
-      const blockIndex = paragraphs.findIndex(paragraph =>
-        paragraph.textContent?.includes(selectedText) === true
-      )
-      if (blockIndex < 0) throw new Error('Paragraph is unavailable')
-      const start = paragraphs[blockIndex]?.textContent?.indexOf(selectedText) ?? -1
-      const bridge = window.__marktextDocumentCore
-      if (bridge?.authorPlainText === undefined) {
-        throw new Error('Core test author bridge is unavailable')
-      }
-      return bridge.authorPlainText(
-        form,
-        blockIndex,
-        start,
-        start + selectedText.length,
-        payload
-      )
-    }, { form, selectedText, payload })
-    await expect.poll(() => page.evaluate(() =>
-      (window.__marktextDocumentCore?.latest() as { result?: string })?.result
-    )).toBe('author')
+      .toBe('author')
   }
   try {
     await expectEditorWindowHidden(app)
@@ -526,14 +530,18 @@ test('Core WYSIWYG transports actor-owned Comment and Substitution author comman
     const addComment = page.getByTestId('critic-review-add-comment')
     await expect(addComment).toBeVisible()
     await authorText('comment', 'selected', 'note')
-    const authorResult = await page.evaluate(() =>
-      window.__marktextDocumentCore?.latest()
-    ) as { result?: string; form?: string }
+    const authorResult = (await page.evaluate(() => window.__marktextDocumentCore?.latest())) as {
+      result?: string
+      form?: string
+    }
     if (authorResult?.result !== 'author') {
       throw new Error(`Unexpected Core author result: ${JSON.stringify(authorResult)}`)
     }
     expect(authorResult).toMatchObject({ result: 'author', form: 'comment' })
-    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'commented-span')
+    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute(
+      'data-kind',
+      'commented-span'
+    )
 
     await page.evaluate(() => {
       const select = window.__marktextDocumentCore?.selectPlainText
@@ -567,9 +575,7 @@ test('Core WYSIWYG authors a Comment through the visible selection control', asy
   try {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.selectPlainText !== undefined
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.selectPlainText !== undefined)
     await page.evaluate(() => {
       const bridge = window.__marktextDocumentCore
       if (bridge?.selectPlainText === undefined) {
@@ -583,9 +589,13 @@ test('Core WYSIWYG authors a Comment through the visible selection control', asy
     await addComment.click()
     await page.getByTestId('critic-review-comment-input').fill('note')
     await page.getByTestId('critic-review-comment-submit').click()
-    await expect.poll(() => page.evaluate(() =>
-      (window.__marktextDocumentCore?.latest() as { result?: string })?.result
-    )).toBe('author')
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => (window.__marktextDocumentCore?.latest() as { result?: string })?.result
+        )
+      )
+      .toBe('author')
     const result = await page.evaluate(() => window.__marktextDocumentCore?.latest())
     if ((result as { outcome?: unknown } | undefined)?.outcome === undefined) {
       throw new Error(`Visible author command was rejected: ${JSON.stringify(result)}`)
@@ -593,7 +603,10 @@ test('Core WYSIWYG authors a Comment through the visible selection control', asy
     expect(readFileSync(filePath, 'utf8')).toBe(source)
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(expected)
-    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'commented-span')
+    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute(
+      'data-kind',
+      'commented-span'
+    )
 
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
@@ -617,9 +630,7 @@ test('Core WYSIWYG protects a conflicting Comment closer from the visible author
   try {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.selectPlainText !== undefined
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.selectPlainText !== undefined)
     await page.evaluate(() => {
       const bridge = window.__marktextDocumentCore
       if (bridge?.selectPlainText === undefined) {
@@ -633,11 +644,18 @@ test('Core WYSIWYG protects a conflicting Comment closer from the visible author
     await addComment.click()
     await page.getByTestId('critic-review-comment-input').fill(comment)
     await page.getByTestId('critic-review-comment-submit').click()
-    await expect.poll(() => page.evaluate(() =>
-      (window.__marktextDocumentCore?.latest() as {
-        outcome?: { type?: string }
-      })?.outcome?.type
-    )).toBe('applied')
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (
+              window.__marktextDocumentCore?.latest() as {
+                outcome?: { type?: string }
+              }
+            )?.outcome?.type
+        )
+      )
+      .toBe('applied')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(expected)
 
@@ -665,11 +683,55 @@ test('Core completes one CriticMarkup Review lifecycle and reopens exact bytes',
     }
   })
   try {
+    await page.evaluate(() => {
+      const events: Array<{
+        type: string
+        target: string | null
+        kind: string | null
+        excerpt: string | null
+        time: number
+        focused: string | null
+        anchor: string | null
+      }> = []
+      ;(window as unknown as { reviewLifecycleEvents: typeof events }).reviewLifecycleEvents =
+        events
+      const record = (type: string, target: Element | null) => {
+        if (events.length >= 200) return
+        const anchor = window.getSelection()?.anchorNode
+        events.push({
+          type,
+          target: target?.closest('[data-testid]')?.getAttribute('data-testid') ?? null,
+          kind:
+            document
+              .querySelector('[data-testid="critic-review-kind"]')
+              ?.getAttribute('data-kind') ?? null,
+          excerpt: document.querySelector('.core-review-entry.active')?.textContent ?? null,
+          time: performance.now(),
+          focused: document.activeElement?.outerHTML.slice(0, 300) ?? null,
+          anchor:
+            (anchor instanceof Element ? anchor : anchor?.parentElement)?.outerHTML.slice(0, 300) ??
+            null
+        })
+      }
+      for (const type of ['pointerdown', 'click', 'focusin']) {
+        document.addEventListener(
+          type,
+          (event) => record(type, event.target instanceof Element ? event.target : null),
+          true
+        )
+      }
+      let selected = ''
+      new MutationObserver(() => {
+        const next = document.querySelector('.core-review-entry.active')?.textContent ?? ''
+        if (next !== selected) {
+          selected = next
+          record('review-selected', null)
+        }
+      }).observe(document.body, { attributes: true, childList: true, subtree: true })
+    })
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.selectPlainText !== undefined
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.selectPlainText !== undefined)
 
     await page.evaluate(() => {
       const bridge = window.__marktextDocumentCore
@@ -679,11 +741,18 @@ test('Core completes one CriticMarkup Review lifecycle and reopens exact bytes',
     await page.getByTestId('critic-review-add-comment').click()
     await page.getByTestId('critic-review-comment-input').fill('review note')
     await page.getByTestId('critic-review-comment-submit').click()
-    await expect.poll(() => page.evaluate(() =>
-      (window.__marktextDocumentCore?.latest() as {
-        outcome?: { type?: string }
-      })?.outcome?.type
-    )).toBe('applied')
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (
+              window.__marktextDocumentCore?.latest() as {
+                outcome?: { type?: string }
+              }
+            )?.outcome?.type
+        )
+      )
+      .toBe('applied')
 
     await page.evaluate(() => {
       const bridge = window.__marktextDocumentCore
@@ -693,16 +762,47 @@ test('Core completes one CriticMarkup Review lifecycle and reopens exact bytes',
     await page.getByTestId('critic-review-track-replacement').click()
     await page.getByTestId('critic-review-replacement-input').fill('replaced')
     await page.getByTestId('critic-review-replacement-submit').click()
-    await expect.poll(() => page.evaluate(() =>
-      (window.__marktextDocumentCore?.latest() as {
-        form?: string
-        outcome?: { type?: string }
-      })
-    )).toMatchObject({ form: 'substitution', outcome: { type: 'applied' } })
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            window.__marktextDocumentCore?.latest() as {
+              form?: string
+              outcome?: { type?: string }
+            }
+        )
+      )
+      .toMatchObject({ form: 'substitution', outcome: { type: 'applied' } })
 
+    // Select another entry while authoring's native caret-follow read may
+    // still be pending. The explicit selection must win, and the visible
+    // action must keep that same target throughout the pointer gesture.
+    await expect(page.getByTestId('critic-review-replacement-input')).toBeHidden()
+    const addition = page.getByTestId('critic-review-entry').filter({
+      has: page.locator('[data-kind="addition"]')
+    })
+    await addition.locator(':scope > button').click()
     const kind = page.getByTestId('critic-review-kind')
     await expect(kind).toHaveAttribute('data-kind', 'addition')
-    await page.getByTestId('critic-review-accept').click()
+    await addition.getByTestId('critic-review-accept').click({ timeout: 5000 })
+    const acceptedTarget = await page.evaluate(() => {
+      const events = (
+        window as unknown as {
+          reviewLifecycleEvents: Array<{ type: string; target: string | null; kind: string | null }>
+        }
+      ).reviewLifecycleEvents
+      return events
+        .filter(
+          (event) =>
+            event.target === 'critic-review-accept' &&
+            (event.type === 'pointerdown' || event.type === 'click')
+        )
+        .map((event) => ({ type: event.type, kind: event.kind }))
+    })
+    expect(acceptedTarget).toEqual([
+      { type: 'pointerdown', kind: 'addition' },
+      { type: 'click', kind: 'addition' }
+    ])
     await expect(kind).toHaveAttribute('data-kind', 'deletion')
     await page.getByTestId('critic-review-reject').click()
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
@@ -715,14 +815,29 @@ test('Core completes one CriticMarkup Review lifecycle and reopens exact bytes',
     await enterSourceMode(page, app)
     await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core')
     await exitSourceMode(page, app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.selectPlainText !== undefined
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.selectPlainText !== undefined)
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(expected)
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await expectNoRendererErrors(app)
+  } catch (error) {
+    await (async() => {
+      const state = await page.evaluate(async() => ({
+        events: (window as unknown as { reviewLifecycleEvents: unknown }).reviewLifecycleEvents,
+        latest: window.__marktextDocumentCore?.latest(),
+        drafts: await window.electron.ipcRenderer.invoke('mt::core-draft::list')
+      }))
+      const artifact = test.info().outputPath('review-lifecycle-targets.json')
+      writeFileSync(
+        artifact,
+        JSON.stringify({ ...state, saved: readFileSync(filePath, 'utf8') }, null, 2)
+      )
+      await test
+        .info()
+        .attach('review-lifecycle-targets', { path: artifact, contentType: 'application/json' })
+    })().catch(() => {})
+    throw error
   } finally {
     await app.close()
   }
@@ -747,14 +862,15 @@ test('Core completes one CriticMarkup Review lifecycle and reopens exact bytes',
       'data-kind',
       'substitution'
     )
-    await expect.poll(() => reopened.page.evaluate(() =>
-      [...document.querySelectorAll('span.mu-paragraph-content')]
-        .map(node => node.textContent)
-    )).toEqual([
-      'add del oldnew hi ',
-      'comment target',
-      'replacereplaced target'
-    ])
+    await expect
+      .poll(() =>
+        reopened.page.evaluate(() =>
+          [...document.querySelectorAll('span.mu-paragraph-content')].map(
+            (node) => node.textContent
+          )
+        )
+      )
+      .toEqual(['add del oldnew hi ', 'comment target', 'replacereplaced target'])
     await expectNoRendererErrors(reopened.app)
   } finally {
     await reopened.app.close()
@@ -769,23 +885,22 @@ test('Core mode parks independent WYSIWYG authority and history per tab', async(
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
-  const activeTabId = () => page.evaluate(() =>
-    document.querySelector('.tabs-container > li.active')?.getAttribute('data-id') ?? null
-  )
-  const tabIds = () => page.evaluate(() =>
-    Array.from(document.querySelectorAll('.tabs-container > li')).map(
-      item => item.getAttribute('data-id') ?? ''
+  const activeTabId = () =>
+    page.evaluate(
+      () => document.querySelector('.tabs-container > li.active')?.getAttribute('data-id') ?? null
     )
-  )
+  const tabIds = () =>
+    page.evaluate(() =>
+      Array.from(document.querySelectorAll('.tabs-container > li')).map(
+        (item) => item.getAttribute('data-id') ?? ''
+      )
+    )
   try {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     const aId = await activeTabId()
     expect(aId).toBeTruthy()
-    await page.waitForFunction(
-      id => window.__marktextDocumentCore?.documentId === id,
-      aId
-    )
+    await page.waitForFunction((id) => window.__marktextDocumentCore?.documentId === id, aId)
     await page.evaluate(() => {
       window.__marktextDocumentCore?.inputPlainText?.(0, 'alpha A', 7)
     })
@@ -795,10 +910,7 @@ test('Core mode parks independent WYSIWYG authority and history per tab', async(
     await expect.poll(activeTabId).not.toBe(aId)
     const bId = await activeTabId()
     expect(bId).toBeTruthy()
-    await page.waitForFunction(
-      id => window.__marktextDocumentCore?.documentId === id,
-      bId
-    )
+    await page.waitForFunction((id) => window.__marktextDocumentCore?.documentId === id, bId)
     await page.evaluate(() => {
       window.__marktextDocumentCore?.inputPlainText?.(0, 'bravo B', 7)
     })
@@ -806,27 +918,27 @@ test('Core mode parks independent WYSIWYG authority and history per tab', async(
 
     const ids = await tabIds()
     await sendIpcToRenderer(app, 'mt::switch-tab-by-index', ids.indexOf(aId as string))
-    await page.waitForFunction(
-      id => window.__marktextDocumentCore?.documentId === id,
-      aId
-    )
-    await expect.poll(() => page.evaluate(() =>
-      document.querySelector('span.mu-paragraph-content')?.textContent
-    )).toBe('alpha A')
+    await page.waitForFunction((id) => window.__marktextDocumentCore?.documentId === id, aId)
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.querySelector('span.mu-paragraph-content')?.textContent)
+      )
+      .toBe('alpha A')
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await page.evaluate(() => window.__marktextDocumentCore?.settled())
-    await expect.poll(() => page.evaluate(() =>
-      document.querySelector('span.mu-paragraph-content')?.textContent
-    )).toBe('alpha')
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.querySelector('span.mu-paragraph-content')?.textContent)
+      )
+      .toBe('alpha')
 
     await sendIpcToRenderer(app, 'mt::switch-tab-by-index', ids.indexOf(bId as string))
-    await page.waitForFunction(
-      id => window.__marktextDocumentCore?.documentId === id,
-      bId
-    )
-    await expect.poll(() => page.evaluate(() =>
-      document.querySelector('span.mu-paragraph-content')?.textContent
-    )).toBe('bravo B')
+    await page.waitForFunction((id) => window.__marktextDocumentCore?.documentId === id, bId)
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.querySelector('span.mu-paragraph-content')?.textContent)
+      )
+      .toBe('bravo B')
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await expectNoRendererErrors(app)
@@ -848,24 +960,21 @@ test('Core mode applies a native blockquote command through acknowledged history
   try {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.inputPlainText !== undefined
-    )
-    const initialGeneration = await page.evaluate(() =>
-      window.__marktextDocumentCore?.generation
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.inputPlainText !== undefined)
+    const initialGeneration = await page.evaluate(() => window.__marktextDocumentCore?.generation)
     expect(initialGeneration).toBeDefined()
     await page.locator('span.mu-paragraph-content').first().click()
     await page.keyboard.press('End')
     await sendIpcToRenderer(app, 'mt::editor-paragraph-action', { type: 'blockquote' })
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(quoted)
-    await expect.poll(() => page.evaluate(() =>
-      window.__marktextDocumentCore?.latest()
-    )).toMatchObject({ result: 'accepted' })
+    await expect
+      .poll(() => page.evaluate(() => window.__marktextDocumentCore?.latest()))
+      .toMatchObject({ result: 'accepted' })
     await expect(page.locator('.editor-component blockquote')).toHaveText('plain')
-    expect(await page.evaluate(() => window.__marktextDocumentCore?.generation))
-      .toBe(initialGeneration)
+    expect(await page.evaluate(() => window.__marktextDocumentCore?.generation)).toBe(
+      initialGeneration
+    )
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
@@ -904,12 +1013,8 @@ test('Core mode restarts a failed Worker from acknowledged WYSIWYG history', asy
   try {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.inputPlainText !== undefined
-    )
-    const initialGeneration = await page.evaluate(() =>
-      window.__marktextDocumentCore?.generation
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.inputPlainText !== undefined)
+    const initialGeneration = await page.evaluate(() => window.__marktextDocumentCore?.generation)
     expect(initialGeneration).toBeDefined()
 
     await page.evaluate(() => {
@@ -928,13 +1033,17 @@ test('Core mode restarts a failed Worker from acknowledged WYSIWYG history', asy
     })
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
-    await page.waitForFunction(generation =>
-      window.__marktextDocumentCore?.inputPlainText !== undefined &&
-      window.__marktextDocumentCore.generation !== generation,
-    initialGeneration)
-    await expect.poll(() => page.evaluate(() =>
-      document.querySelector('span.mu-paragraph-content')?.textContent
-    )).toBe('accepted')
+    await page.waitForFunction(
+      (generation) =>
+        window.__marktextDocumentCore?.inputPlainText !== undefined &&
+        window.__marktextDocumentCore.generation !== generation,
+      initialGeneration
+    )
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.querySelector('span.mu-paragraph-content')?.textContent)
+      )
+      .toBe('accepted')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('accepted\n')
 
     await page.evaluate(() => {
@@ -962,12 +1071,8 @@ test('Core mode recovers a typed stale-base WYSIWYG transaction', async() => {
   try {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.inputPlainText !== undefined
-    )
-    const initialGeneration = await page.evaluate(() =>
-      window.__marktextDocumentCore?.generation
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.inputPlainText !== undefined)
+    const initialGeneration = await page.evaluate(() => window.__marktextDocumentCore?.generation)
     expect(initialGeneration).toBeDefined()
 
     await page.evaluate(() => {
@@ -985,13 +1090,17 @@ test('Core mode recovers a typed stale-base WYSIWYG transaction', async() => {
     })
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
-    await page.waitForFunction(generation =>
-      window.__marktextDocumentCore?.inputPlainText !== undefined &&
-      window.__marktextDocumentCore.generation !== generation,
-    initialGeneration)
-    await expect.poll(() => page.evaluate(() =>
-      document.querySelector('span.mu-paragraph-content')?.textContent
-    )).toBe('accepted')
+    await page.waitForFunction(
+      (generation) =>
+        window.__marktextDocumentCore?.inputPlainText !== undefined &&
+        window.__marktextDocumentCore.generation !== generation,
+      initialGeneration
+    )
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.querySelector('span.mu-paragraph-content')?.textContent)
+      )
+      .toBe('accepted')
     expect(readFileSync(filePath, 'utf8')).toBe(source)
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('accepted\n')
@@ -1025,9 +1134,7 @@ test('Core mode saves a native plain-paragraph WYSIWYG edit', async() => {
     await exitSourceMode(page, app)
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.inputPlainText !== undefined
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.inputPlainText !== undefined)
 
     await page.evaluate(() => {
       const bridge = window.__marktextDocumentCore
@@ -1036,19 +1143,19 @@ test('Core mode saves a native plain-paragraph WYSIWYG edit', async() => {
       }
       bridge.inputPlainText(1, 'middle WYS', 'middle WYS'.length)
     })
-    await expect.poll(() => page.evaluate(() =>
-      document.querySelectorAll('span.mu-paragraph-content')[1]?.textContent
-    )).toBe('middle WYS')
-    await expect.poll(() => page.evaluate(() =>
-      window.__marktextDocumentCore?.latest()
-    )).toMatchObject({ result: 'accepted' })
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.querySelectorAll('span.mu-paragraph-content')[1]?.textContent)
+      )
+      .toBe('middle WYS')
+    await expect
+      .poll(() => page.evaluate(() => window.__marktextDocumentCore?.latest()))
+      .toMatchObject({ result: 'accepted' })
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
     await page.waitForTimeout(100)
     expect(readFileSync(filePath, 'utf8')).toBe(source)
-    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(
-      'head\n\nmiddle WYS\n\ntail\n'
-    )
+    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('head\n\nmiddle WYS\n\ntail\n')
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await expectNoRendererErrors(app)
@@ -1072,9 +1179,7 @@ test('Core mode orders immediate WYSIWYG undo and redo through actor history', a
     await enterSourceMode(page, app)
     await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core')
     await exitSourceMode(page, app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.inputPlainText !== undefined
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.inputPlainText !== undefined)
 
     await page.evaluate(() => {
       const bridge = window.__marktextDocumentCore
@@ -1087,17 +1192,19 @@ test('Core mode orders immediate WYSIWYG undo and redo through actor history', a
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await page.evaluate(() => window.__marktextDocumentCore?.settled())
 
-    await expect.poll(() => page.evaluate(() =>
-      window.__marktextDocumentCore?.latest()
-    )).toMatchObject({
-      result: 'history',
-      command: 'undo',
-      outcome: { type: 'applied', revision: 3 },
-      state: { status: 'ready', revision: 3 }
-    })
-    await expect.poll(() => page.evaluate(() =>
-      document.querySelector('span.mu-paragraph-content')?.textContent
-    )).toBe('seed')
+    await expect
+      .poll(() => page.evaluate(() => window.__marktextDocumentCore?.latest()))
+      .toMatchObject({
+        result: 'history',
+        command: 'undo',
+        outcome: { type: 'applied', revision: 3 },
+        state: { status: 'ready', revision: 3 }
+      })
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.querySelector('span.mu-paragraph-content')?.textContent)
+      )
+      .toBe('seed')
     await page.waitForTimeout(350)
     expect(readFileSync(filePath, 'utf8')).toBe(source)
 
@@ -1105,9 +1212,11 @@ test('Core mode orders immediate WYSIWYG undo and redo through actor history', a
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await page.evaluate(() => window.__marktextDocumentCore?.settled())
 
-    await expect.poll(() => page.evaluate(() =>
-      document.querySelector('span.mu-paragraph-content')?.textContent
-    )).toBe('seed!')
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.querySelector('span.mu-paragraph-content')?.textContent)
+      )
+      .toBe('seed!')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('seed!\n')
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
@@ -1132,9 +1241,7 @@ test('Core mode saves a native paragraph-to-heading conversion', async() => {
     await enterSourceMode(page, app)
     await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core')
     await exitSourceMode(page, app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.inputPlainText !== undefined
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.inputPlainText !== undefined)
 
     await page.evaluate(() => {
       const bridge = window.__marktextDocumentCore
@@ -1143,9 +1250,9 @@ test('Core mode saves a native paragraph-to-heading conversion', async() => {
       }
       bridge.inputPlainText(0, '# title', '# title'.length)
     })
-    await expect.poll(() => page.evaluate(() =>
-      window.__marktextDocumentCore?.latest()
-    )).toMatchObject({ result: 'accepted' })
+    await expect
+      .poll(() => page.evaluate(() => window.__marktextDocumentCore?.latest()))
+      .toMatchObject({ result: 'accepted' })
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
     await page.waitForTimeout(100)
@@ -1172,9 +1279,7 @@ test('Core WYSIWYG tracks one paragraph-to-heading format through history', asyn
   try {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.inputPlainText !== undefined
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.inputPlainText !== undefined)
 
     await page.getByTestId('critic-review-track-changes').click()
     await page.evaluate(() => {
@@ -1191,7 +1296,10 @@ test('Core WYSIWYG tracks one paragraph-to-heading format through history', asyn
     await expect(heading).toBeVisible()
     await expect(heading.locator('[data-critic-arm="new"]')).toHaveText('# title')
     await expect(page.locator('.editor-component p [data-critic-arm="old"]')).toHaveText('plain')
-    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'substitution')
+    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute(
+      'data-kind',
+      'substitution'
+    )
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
@@ -1238,9 +1346,9 @@ test('Core mode saves one native cross-paragraph typing replacement', async() =>
       }
       bridge.replacePlainTextAcrossBlocks(0, 2, 2, 2, 'X')
     })
-    await expect.poll(() => page.evaluate(() =>
-      window.__marktextDocumentCore?.latest()
-    )).toMatchObject({ result: 'accepted' })
+    await expect
+      .poll(() => page.evaluate(() => window.__marktextDocumentCore?.latest()))
+      .toMatchObject({ result: 'accepted' })
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
     await page.waitForTimeout(100)
@@ -1289,7 +1397,10 @@ test('Core WYSIWYG tracks one cross-paragraph replacement and exact history', as
     await expect(paragraphs.nth(1).locator('[data-critic-arm=old]')).toHaveText('beta')
     await expect(paragraphs.nth(2).locator('[data-critic-arm=old]')).toHaveText('ga')
     await expect(paragraphs.nth(2).locator('[data-critic-arm=new]')).toHaveText('X')
-    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'substitution')
+    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute(
+      'data-kind',
+      'substitution'
+    )
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
@@ -1384,9 +1495,7 @@ test('Core mode saves only the committed native IME composition', async() => {
     await enterSourceMode(page, app)
     await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core')
     await exitSourceMode(page, app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.composePlainText !== undefined
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.composePlainText !== undefined)
 
     await page.evaluate(() => {
       const bridge = window.__marktextDocumentCore
@@ -1399,9 +1508,9 @@ test('Core mode saves only the committed native IME composition', async() => {
 
     await page.waitForTimeout(100)
     expect(readFileSync(filePath, 'utf8')).toBe(source)
-    await expect.poll(() => page.evaluate(() =>
-      window.__marktextDocumentCore?.latest()
-    )).toMatchObject({ result: 'accepted' })
+    await expect
+      .poll(() => page.evaluate(() => window.__marktextDocumentCore?.latest()))
+      .toMatchObject({ result: 'accepted' })
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('seed日本\n')
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
@@ -1426,9 +1535,7 @@ test('Core mode renders and saves one native math-block conversion', async() => 
     await enterSourceMode(page, app)
     await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core')
     await exitSourceMode(page, app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.inputMathBlock !== undefined
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.inputMathBlock !== undefined)
 
     await page.evaluate(() => {
       const bridge = window.__marktextDocumentCore
@@ -1437,9 +1544,9 @@ test('Core mode renders and saves one native math-block conversion', async() => 
       }
       bridge.inputMathBlock(0, 'x^2')
     })
-    await expect.poll(() => page.evaluate(() =>
-      document.querySelectorAll('.mu-math-preview .katex').length
-    )).toBe(1)
+    await expect
+      .poll(() => page.evaluate(() => document.querySelectorAll('.mu-math-preview .katex').length))
+      .toBe(1)
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
     await page.waitForTimeout(100)
@@ -1481,9 +1588,9 @@ test('Core mode saves one native Markdown table paste', async() => {
       }
       await bridge.pasteMarkdownTable(0, markdown)
     }, table)
-    await expect.poll(() => page.evaluate(() =>
-      document.querySelectorAll('.editor-component table').length
-    )).toBe(1)
+    await expect
+      .poll(() => page.evaluate(() => document.querySelectorAll('.editor-component table').length))
+      .toBe(1)
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
     await page.waitForTimeout(100)
@@ -1527,24 +1634,29 @@ test('Core WYSIWYG tracks one Markdown table paste through actor history', async
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
-    await expect.poll(() => page.evaluate(() =>
-      document.querySelectorAll('.editor-component table').length
-    )).toBe(1)
-    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'substitution')
+    await expect
+      .poll(() => page.evaluate(() => document.querySelectorAll('.editor-component table').length))
+      .toBe(1)
+    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute(
+      'data-kind',
+      'substitution'
+    )
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(source)
-    await expect.poll(() => page.evaluate(() =>
-      document.querySelector('span.mu-paragraph-content')?.textContent
-    )).toBe('seed')
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.querySelector('span.mu-paragraph-content')?.textContent)
+      )
+      .toBe('seed')
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
-    await expect.poll(() => page.evaluate(() =>
-      document.querySelectorAll('.editor-component table').length
-    )).toBe(1)
+    await expect
+      .poll(() => page.evaluate(() => document.querySelectorAll('.editor-component table').length))
+      .toBe(1)
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await expectNoRendererErrors(app)

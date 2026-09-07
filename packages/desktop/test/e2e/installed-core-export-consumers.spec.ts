@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url'
 import { execFileSync } from 'node:child_process'
 import { _electron as electron, expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
+import { exportedDocumentText } from './helpers/exportedDocumentText'
 
 import {
   expectEditorNotFrontmost,
@@ -50,20 +51,25 @@ const retainedProjectionTokens = [
   'MT_DIAGRAM_118'
 ] as const
 
-const excludedProjectionTokens = [
-  'MT_DELETED_41',
-  'MT_OLD_63',
-  'MT_COMMENT_85',
-  '{--',
-  '{++',
-  '{~~',
-  '{>>'
-] as const
+const excludedProjectionWords = ['MT_DELETED_41', 'MT_OLD_63', 'MT_COMMENT_85'] as const
+
+const excludedProjectionTokens = [...excludedProjectionWords, '{--', '{++', '{~~', '{>>'] as const
+
+const writeFixtureImage = (filePath: string): void => {
+  fs.writeFileSync(
+    filePath,
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64'
+    )
+  )
+}
 
 type NativeConsumerObservation = Readonly<{
   kind: 'pdf' | 'print'
   html: string
   images: readonly { src: string; width: number; height: number; complete: boolean }[]
+  mathFontsLoaded: boolean
   options: Readonly<Record<string, unknown>>
 }>
 
@@ -82,16 +88,19 @@ const installedBinary = (): string => {
 const launchInstalled = async(
   binary: string,
   userDataDir: string,
-  filePath: string
+  filePath: string,
+  nativeMuya = false
 ): Promise<{ app: ElectronApplication; page: Page }> => {
+  const environment = defaultCoreLaunchEnvironment({
+    PERF_TESTING: 'true',
+    MARKTEXT_E2E_HIDDEN_WINDOW: '1',
+    MARKTEXT_ERROR_INTERACTION: '1'
+  })
+  if (nativeMuya) environment.MARKTEXT_DOCUMENT_CORE_MODE = '0'
   const app = await electron.launch({
     executablePath: binary,
     args: ['--user-data-dir', userDataDir, filePath],
-    env: defaultCoreLaunchEnvironment({
-      PERF_TESTING: 'true',
-      MARKTEXT_E2E_HIDDEN_WINDOW: '1',
-      MARKTEXT_ERROR_INTERACTION: '1'
-    }),
+    env: environment,
     timeout: 60_000
   })
   try {
@@ -100,8 +109,15 @@ const launchInstalled = async(
     await waitForEditor(page, 60_000)
     await waitForMenuReady(app, 60_000)
     await expectInstalledArtifactCommit(page)
-    await expectDefaultCoreAuthority(page)
-    await page.waitForFunction(() => window.__marktextDocumentCore?.authoritySource !== undefined)
+    if (nativeMuya) {
+      expect(
+        await page.evaluate(() => window.electron.process.env.MARKTEXT_DOCUMENT_CORE_MODE)
+      ).toBe('0')
+      expect(await page.evaluate(() => window.__marktextDocumentCore?.mode)).not.toBe('core')
+    } else {
+      await expectDefaultCoreAuthority(page)
+      await page.waitForFunction(() => window.__marktextDocumentCore?.authoritySource !== undefined)
+    }
     return { app, page }
   } catch (error) {
     await app.close().catch(() => {})
@@ -123,6 +139,7 @@ const installNativeConsumerProbe = async(
         kind: 'pdf' | 'print'
         html: string
         images: readonly { src: string; width: number; height: number; complete: boolean }[]
+        mathFontsLoaded: boolean
         options: Readonly<Record<string, unknown>>
       }>
       type ProbeState = {
@@ -159,6 +176,11 @@ const installNativeConsumerProbe = async(
           "Array.from(document.querySelectorAll('.print-container img')).map(image => ({src: image.src, width: image.naturalWidth, height: image.naturalHeight, complete: image.complete}))"
         )) as Observation['images']
 
+      const printMathFontsLoaded = async(): Promise<boolean> =>
+        (await win.webContents.executeJavaScript(
+          "Array.from(document.querySelectorAll('.print-container .katex *')).every(node => document.fonts.check(getComputedStyle(node).font, node.textContent || ' '))"
+        )) as boolean
+
       const nativePrintToPDF = win.webContents.printToPDF.bind(win.webContents)
       ;(
         win.webContents as unknown as {
@@ -169,6 +191,7 @@ const installNativeConsumerProbe = async(
           kind: 'pdf',
           html: await printContainerHtml(),
           images: await printImages(),
+          mathFontsLoaded: await printMathFontsLoaded(),
           options: { ...options }
         })
         return nativePrintToPDF(options)
@@ -187,6 +210,7 @@ const installNativeConsumerProbe = async(
             kind: 'print',
             html,
             images: await printImages(),
+            mathFontsLoaded: await printMathFontsLoaded(),
             options: { ...options }
           })
           completion(true)
@@ -245,10 +269,17 @@ const invokeExportCommand = async(
   await expect(dialog).toBeHidden({ timeout: 10_000 })
 }
 
-const expectRevisedProjectionHtml = (html: string): void => {
-  expect(html).toContain('Export Authority')
-  for (const token of retainedProjectionTokens) expect(html).toContain(token)
-  for (const token of excludedProjectionTokens) expect(html).not.toContain(token)
+const expectRevisedProjectionText = (text: string): void => {
+  expect(text).toContain('Export Authority')
+  for (const token of retainedProjectionTokens) expect(text).toContain(token)
+  for (const token of excludedProjectionTokens) expect(text).not.toContain(token)
+}
+
+const expectRevisedProjectionHtml = async(page: Page, html: string): Promise<void> => {
+  // Keep privacy checks over all HTML, including attributes and generated styles.
+  for (const token of excludedProjectionWords) expect(html).not.toContain(token)
+  // Mermaid CSS custom properties contain "{--"; only document text is CM prose.
+  expectRevisedProjectionText(await page.evaluate(exportedDocumentText, html))
 }
 
 const expectMediaHtml = async(page: Page, html: string, imageUrl: string): Promise<void> => {
@@ -295,6 +326,38 @@ const authoritySource = async(page: Page): Promise<string> => {
 test.describe('installed Core Revised export consumers', () => {
   test.describe.configure({ timeout: 180_000 })
 
+  test('native Muya control prints the same formula with visible PDF glyphs', async() => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-native-math-'))
+    const filePath = path.join(root, 'native-math.md')
+    const pdfPath = path.join(root, 'native-math.pdf')
+    writeFixtureImage(path.join(root, 'image.png'))
+    fs.writeFileSync(filePath, source, 'utf8')
+    let app: ElectronApplication | undefined
+    try {
+      const launched = await launchInstalled(
+        installedBinary(),
+        path.join(root, 'profile'),
+        filePath,
+        true
+      )
+      app = launched.app
+      await expectEditorWindowHidden(app)
+      expectEditorNotFrontmost(app)
+      await installNativeConsumerProbe(app, path.join(root, 'native-math.html'), pdfPath)
+      await invokeExportCommand(app, launched.page, 'file.export-file-html')
+      await invokeExportCommand(app, launched.page, 'file.export-file-pdf')
+      await expect.poll(() => fs.existsSync(pdfPath)).toBe(true)
+      await test
+        .info()
+        .attach('native-muya-math.pdf', { path: pdfPath, contentType: 'application/pdf' })
+      const text = execFileSync('pdftotext', [pdfPath, '-'], { encoding: 'utf8' })
+      expect(text).toMatch(/Math:\s*x\s*2\s*\./)
+    } finally {
+      if (app !== undefined) await app.close()
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test('styled HTML, PDF, and Print commands consume the same Revised projection', async() => {
     const binary = installedBinary()
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-export-consumers-'))
@@ -304,13 +367,7 @@ test.describe('installed Core Revised export consumers', () => {
     const userDataDir = path.join(root, 'profile')
     const imagePath = path.join(root, 'image.png')
     const imageUrl = pathToFileURL(imagePath).href
-    fs.writeFileSync(
-      imagePath,
-      Buffer.from(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-        'base64'
-      )
-    )
+    writeFixtureImage(imagePath)
     fs.writeFileSync(filePath, source, 'utf8')
 
     let app: ElectronApplication | undefined
@@ -331,7 +388,10 @@ test.describe('installed Core Revised export consumers', () => {
       await invokeExportCommand(installedApp, page, 'file.export-file-html')
       await expect.poll(() => fs.existsSync(htmlPath)).toBe(true)
       const styledHtml = fs.readFileSync(htmlPath, 'utf8')
-      expectRevisedProjectionHtml(styledHtml)
+      await test
+        .info()
+        .attach('revised-export.html', { body: styledHtml, contentType: 'text/html' })
+      await expectRevisedProjectionHtml(page, styledHtml)
       await expectMediaHtml(page, styledHtml, imageUrl)
 
       await invokeExportCommand(installedApp, page, 'file.export-file-pdf')
@@ -340,10 +400,13 @@ test.describe('installed Core Revised export consumers', () => {
       expect(pdfBytes.subarray(0, 5).toString()).toBe('%PDF-')
       expect(pdfBytes.length).toBeGreaterThan(1_000)
       const pdfText = execFileSync('pdftotext', [pdfPath, '-'], { encoding: 'utf8' })
-      expectRevisedProjectionHtml(pdfText)
+      expectRevisedProjectionText(pdfText)
       await test
         .info()
         .attach('revised-export.pdf', { path: pdfPath, contentType: 'application/pdf' })
+      // Inspect glyphs in the native PDF, not just the pre-print KaTeX DOM.
+      // A present .katex tree can still print blank while its fonts are loading.
+      expect(pdfText).toMatch(/Math:\s*x\s*2\s*\./)
       await expect
         .poll(
           async() =>
@@ -356,9 +419,10 @@ test.describe('installed Core Revised export consumers', () => {
         generateTaggedPDF: true,
         generateDocumentOutline: true
       })
-      expectRevisedProjectionHtml(pdf?.html ?? '')
+      await expectRevisedProjectionHtml(page, pdf?.html ?? '')
       await expectMediaHtml(page, pdf?.html ?? '', imageUrl)
       expectNativeImages(pdf, imageUrl)
+      expect(pdf?.mathFontsLoaded).toBe(true)
 
       await invokeExportCommand(installedApp, page, 'file.print')
       await expect
@@ -369,9 +433,10 @@ test.describe('installed Core Revised export consumers', () => {
         .toBe(1)
       const print = (await observations(installedApp)).find((event) => event.kind === 'print')
       expect(print?.options).toEqual({ printBackground: true })
-      expectRevisedProjectionHtml(print?.html ?? '')
+      await expectRevisedProjectionHtml(page, print?.html ?? '')
       await expectMediaHtml(page, print?.html ?? '', imageUrl)
       expectNativeImages(print, imageUrl)
+      expect(print?.mathFontsLoaded).toBe(true)
 
       expect(await authoritySource(page)).toBe(source)
       await sendIpcToRenderer(installedApp, 'mt::editor-ask-file-save')

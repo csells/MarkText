@@ -457,7 +457,7 @@ import CoreDocumentProjection from './CoreDocumentProjection.vue'
 import bus from '@/bus'
 import { DEFAULT_EDITOR_FONT_FAMILY, DEFAULT_CODE_FONT_FAMILY } from '@/config'
 import notice from '@/services/notification'
-import Printer from '@/services/printService'
+import Printer, { type PrintPreparation } from '@/services/printService'
 import { SpellcheckerLanguageCommand } from '@/commands'
 import { SpellChecker } from '@/spellchecker'
 import { isOsx, animatedScrollTo } from '@/util'
@@ -1679,14 +1679,18 @@ const installCoreMarkupPresentation = (muya: Muya, view: MuyaPlainTextViewResult
     undefined,
     t('editor.coreReview.commentPrompt')
   )
-  for (const path of coreMarkupPresentation.changedPaths) { coreMarkupDirtyPaths.set(JSON.stringify(path), path) }
+  for (const path of coreMarkupPresentation.changedPaths) {
+    coreMarkupDirtyPaths.set(JSON.stringify(path), path)
+  }
   muya.setInlinePresentation(coreMarkupPresentation.render)
 }
 
 const reconcileCoreHistoryView = async (
   outcome: CoreAppliedReply
 ): Promise<readonly MuyaPlainTextSourceBinding[]> => {
-  if (coreDraftFrozen) { return coreAcknowledgedMarkupView?.bindings ?? props.corePlainTextView?.bindings ?? [] }
+  if (coreDraftFrozen) {
+    return coreAcknowledgedMarkupView?.bindings ?? props.corePlainTextView?.bindings ?? []
+  }
   const lease = coreBoundLease
   const muya = editor.value
   if (lease === undefined || muya === null) {
@@ -1749,7 +1753,9 @@ const reconcileCoreHistoryView = async (
     const anchorBlock = muya.editor.scrollPage?.queryBlock([...selection.anchor.path])
     const focusBlock = muya.editor.scrollPage?.queryBlock([...selection.focus.path])
     if (anchorBlock?.isContent() && focusBlock?.isContent()) {
-      if (anchorBlock === focusBlock) { anchorBlock.setCursor(selection.anchor.offset, selection.focus.offset, true) } else {
+      if (anchorBlock === focusBlock) {
+        anchorBlock.setCursor(selection.anchor.offset, selection.focus.offset, true)
+      } else {
         muya.editor.selection.setSelection(
           { block: anchorBlock, path: anchorBlock.path, offset: selection.anchor.offset },
           { block: focusBlock, path: focusBlock.path, offset: selection.focus.offset }
@@ -1783,7 +1789,9 @@ const reconcileCoreHistoryView = async (
     }
     const anchor = endpoint(reconciledAnchor)
     const focus = endpoint(reconciledFocus)
-    if (anchor !== undefined && focus !== undefined) { muya.editor.selection.setSelection(anchor, focus) }
+    if (anchor !== undefined && focus !== undefined) {
+      muya.editor.selection.setSelection(anchor, focus)
+    }
   } else if (!unchanged) {
     const appliedEdit = outcome.change.appliedEdits.at(-1)
     if (appliedEdit !== undefined) {
@@ -1865,7 +1873,9 @@ const refreshCoreReviewItem = async (
 watch(
   () => [reviewLayoutStore.showSideBar, reviewLayoutStore.rightColumn],
   () => {
-    if (reviewLayoutStore.showSideBar && reviewLayoutStore.rightColumn === 'review') { nextTick(() => revealCoreReviewItem()) }
+    if (reviewLayoutStore.showSideBar && reviewLayoutStore.rightColumn === 'review') {
+      nextTick(() => revealCoreReviewItem())
+    }
   }
 )
 let coreReviewLocatedNode: HTMLElement | undefined
@@ -1903,7 +1913,9 @@ const navigateCoreReview = async (direction: 'next' | 'previous'): Promise<void>
   revealCoreReviewItem()
 }
 const selectCoreReviewEntry = async (start: number): Promise<void> => {
-  if (coreCommentOpen.value || coreReviewBusy.value) return
+  // A visible entry remains navigable during a view read. Its new request must
+  // supersede pending caret-follow reads, rather than silently dropping the click.
+  if (coreCommentOpen.value || coreReviewResolving.value) return
   reviewLayoutStore.SET_LAYOUT({ showSideBar: true, rightColumn: 'review' })
   if (coreDisplayMode.value !== 'markup') await showCoreProjection('markup')
   await refreshCoreReviewItem('next', start)
@@ -1932,7 +1944,9 @@ const selectCoreAnnotationAt = (start: number, open: boolean): void => {
   if (
     current?.range.start === start ||
     (current?.kind === 'commented-span' && current.commentRange.start === start)
-  ) { return }
+  ) {
+    return
+  }
   const entry = coreReviewOverview.value.find(
     (entry) =>
       entry.item.range.start === start ||
@@ -1945,7 +1959,9 @@ const selectCoreAnnotationAt = (start: number, open: boolean): void => {
 }
 
 const preserveCoreCommentCaret = (event: MouseEvent): void => {
-  if (event.target instanceof Element && event.target.closest('.mu-critic-comment-marker')) { event.preventDefault() }
+  if (event.target instanceof Element && event.target.closest('.mu-critic-comment-marker')) {
+    event.preventDefault()
+  }
 }
 const activateCoreCommentMarker = (event: KeyboardEvent): void => {
   if (
@@ -1969,7 +1985,9 @@ const editCoreReviewComment = async (): Promise<void> => {
     authoredRevision === undefined ||
     !coreReviewHasComment.value ||
     coreReviewResolving.value
-  ) { return }
+  ) {
+    return
+  }
   if (coreCommentOpen.value) return
   coreCommentTarget.value = {
     id: `edit:${authoredRevision}:${item.range.start}:${item.range.end}`,
@@ -2010,7 +2028,9 @@ const submitCoreComment = async (draft: { targetId: string; text: string }): Pro
     target === undefined ||
     target.id !== draft.targetId ||
     coreReviewResolving.value
-  ) { return }
+  ) {
+    return
+  }
   coreReviewResolving.value = true
   coreCommentError.value = ''
   try {
@@ -2067,7 +2087,9 @@ const resolveCoreReviewItem = async (decision: CoreReviewDecision): Promise<void
     item === null ||
     authoredRevision === undefined ||
     coreReviewResolving.value
-  ) { return }
+  ) {
+    return
+  }
   coreReviewResolving.value = true
   try {
     const outcome = await adapter.resolve(
@@ -2241,7 +2263,9 @@ const handleCoreReviewCommand = (value: unknown): void => {
     !command ||
     !reviewCommandEnabled(command, coreReviewCommandState.value) ||
     !ownsCurrentDocument()
-  ) { return }
+  ) {
+    return
+  }
   reviewLayoutStore.SET_LAYOUT({ showSideBar: true, rightColumn: 'review' })
   const run = async (): Promise<void> => {
     switch (command) {
@@ -2313,7 +2337,9 @@ const handleCoreContextRequest = (value: unknown): void => {
       coreCommentOpen.value ||
       coreDisplayLoading.value ||
       coreDisplayMode.value !== 'markup'
-    ) { return empty }
+    ) {
+      return empty
+    }
     const view = coreAcknowledgedMarkupView
     const element = document
       .elementFromPoint(request.x, request.y)
@@ -2326,14 +2352,22 @@ const handleCoreContextRequest = (value: unknown): void => {
     if (!binding || !element) return empty
     const start = binding.sourceRange.start + Number(element.dataset.criticStart)
     await adapter.settled()
-    if (!ownsCurrentDocument() || props.coreLease !== lease || coreAcknowledgedMarkupView !== view) { return empty }
+    if (
+      !ownsCurrentDocument() ||
+      props.coreLease !== lease ||
+      coreAcknowledgedMarkupView !== view
+    ) {
+      return empty
+    }
     const reply = await lease.binding.reviewItemAtBarrier('next', 0, true)
     if (
       reply.type !== 'review-item' ||
       !ownsCurrentDocument() ||
       props.coreLease !== lease ||
       coreAcknowledgedMarkupView !== view
-    ) { return empty }
+    ) {
+      return empty
+    }
     const target = reviewContextSelection(reply.overview ?? [], start)
     if (!target || coreContextRequestId !== request.requestId) return empty
     const state = {
@@ -2566,10 +2600,14 @@ const retryCoreSelectionClipboard = (operation: ProjectedSelectionClipboardOpera
         prepared &&
         inputEpoch === coreConsumerInputEpoch &&
         coreAuthorSelection.value === selection
-      ) { document.execCommand(operation) }
+      ) {
+        document.execCommand(operation)
+      }
     })
     .catch((error) => {
-      if (inputEpoch === coreConsumerInputEpoch && coreAuthorSelection.value === selection) { emit('core-fault', error) }
+      if (inputEpoch === coreConsumerInputEpoch && coreAuthorSelection.value === selection) {
+        emit('core-fault', error)
+      }
     })
 }
 
@@ -2589,7 +2627,11 @@ const handleCopyPaste = async (type: unknown): Promise<void> => {
     if (props.coreLease !== undefined && method !== 'pasteAsPlainText') {
       const selection = coreAuthorSelection.value
       if (selection === undefined) return
-      if (await prepareCoreSelectionClipboard(selection, method === 'copyAsHtml' ? 'html' : 'rich')) { document.execCommand('copy') }
+      if (
+        await prepareCoreSelectionClipboard(selection, method === 'copyAsHtml' ? 'html' : 'rich')
+      ) {
+        document.execCommand('copy')
+      }
       return
     }
     editor.value[method]()
@@ -2942,6 +2984,7 @@ const handleExport = async (options: unknown) => {
     }
     case 'pdf': {
       // NOTE: We need to set page size via Electron.
+      let preparation: PrintPreparation | undefined
       try {
         const { pageSize, pageSizeWidth, pageSizeHeight, isLandscape } = opts
         const pageOptions = {
@@ -2960,7 +3003,8 @@ const handleExport = async (options: unknown) => {
           headerFooterStyled: headerFooterStyled as boolean | undefined,
           dir: props.textDirection
         })
-        printer!.renderMarkdown(html, true, props.textDirection)
+        preparation = await printer!.renderMarkdown(html, true, props.textDirection)
+        if (!preparation.isCurrent()) return
         editorStore.EXPORT({ type, pageOptions })
       } catch (err) {
         log.error('Failed to export document:', err)
@@ -2969,12 +3013,13 @@ const handleExport = async (options: unknown) => {
           type: 'error',
           message: t('editor.export.errorExporting', { type: htmlTitle || 'PDF' })
         })
-        handlePrintServiceClearup()
+        preparation?.clearup()
       }
       break
     }
     case 'print': {
       // NOTE: Print doesn't support page size or orientation.
+      let preparation: PrintPreparation | undefined
       try {
         const html = await renderExportHtml({
           title: '',
@@ -2985,7 +3030,8 @@ const handleExport = async (options: unknown) => {
           headerFooterStyled: headerFooterStyled as boolean | undefined,
           dir: props.textDirection
         })
-        printer!.renderMarkdown(html, true, props.textDirection)
+        preparation = await printer!.renderMarkdown(html, true, props.textDirection)
+        if (!preparation.isCurrent()) return
         editorStore.PRINT_RESPONSE()
       } catch (err) {
         log.error('Failed to export document:', err)
@@ -2994,7 +3040,7 @@ const handleExport = async (options: unknown) => {
           type: 'error',
           message: t('editor.print.error', { title: htmlTitle || '' })
         })
-        handlePrintServiceClearup()
+        preparation?.clearup()
       }
       break
     }
@@ -3104,7 +3150,9 @@ const handleInlineFormat = (type: unknown) => {
           current === null ||
           !isEqual(selection.anchor.path, current.anchor.path) ||
           !isEqual(selection.focus.path, current.focus.path)
-        ) { return }
+        ) {
+          return
+        }
         // Publishing a noneditable image moves an internal source caret to its
         // visible edge. User interaction, rather than that projection, retires the request.
         muya.showImageSelectorAtSelection()
@@ -3131,7 +3179,9 @@ const setMarkdownToEditor = (payload: unknown) => {
     !acceptsRendererDocumentPayload(
       props.coreRequired || props.coreLease !== undefined ? 'core' : 'legacy'
     )
-  ) { return }
+  ) {
+    return
+  }
   const { id, markdown: newMarkdown, cursor: newCursor } = (payload ?? {}) as FileLoadedPayload
   if (editor.value) {
     // `setContent` resets the document and clears the undo history; only set a
@@ -3181,7 +3231,9 @@ const handleFileChange = (payload: unknown) => {
     !acceptsRendererDocumentPayload(
       props.coreRequired || props.coreLease !== undefined ? 'core' : 'legacy'
     )
-  ) { return }
+  ) {
+    return
+  }
   const {
     id,
     markdown: newMarkdown,
@@ -3836,7 +3888,9 @@ onMounted(() => {
             block.domNode === null ||
             candidates.length === 0 ||
             candidates.some((candidate) => candidate.length === 0)
-          ) { throw new Error('Core Muya composition block is unavailable') }
+          ) {
+            throw new Error('Core Muya composition block is unavailable')
+          }
           const initialText = block.text
           editor.value.editor.activeContentBlock = block
           block.setCursor(initialText.length, initialText.length)
@@ -3876,7 +3930,9 @@ onMounted(() => {
             !paragraph.isContent?.() ||
             paragraph.domNode === null ||
             formula.length === 0
-          ) { throw new Error('Core Muya math paragraph is unavailable') }
+          ) {
+            throw new Error('Core Muya math paragraph is unavailable')
+          }
           muyaEditor.activeContentBlock = paragraph
           paragraph.domNode.textContent = '$$'
           paragraph.setCursor(2, 2)
@@ -3896,7 +3952,9 @@ onMounted(() => {
           )
           editor.value.flush()
           const math = muyaEditor.scrollPage?.queryBlock([blockIndex, 'text'])
-          if (math === undefined || math === null || !math.isContent?.() || math.domNode === null) { throw new Error('Core Muya math content is unavailable') }
+          if (math === undefined || math === null || !math.isContent?.() || math.domNode === null) {
+            throw new Error('Core Muya math content is unavailable')
+          }
           muyaEditor.activeContentBlock = math
           math.domNode.textContent = formula
           math.setCursor(formula.length, formula.length)
@@ -3918,7 +3976,9 @@ onMounted(() => {
             block === null ||
             !block.isContent?.() ||
             markdown.length === 0
-          ) { throw new Error('Core Muya table-paste paragraph is unavailable') }
+          ) {
+            throw new Error('Core Muya table-paste paragraph is unavailable')
+          }
           const path = block.path
           const selection = muyaEditor.selection
           const readSelection = selection.getSelection.bind(selection)
@@ -3997,7 +4057,9 @@ onMounted(() => {
             merged === null ||
             !merged.isContent?.() ||
             merged.domNode === null
-          ) { throw new Error('Core Muya merged paragraph is unavailable') }
+          ) {
+            throw new Error('Core Muya merged paragraph is unavailable')
+          }
           const nextText = merged.text.slice(0, startOffset) + text + merged.text.slice(startOffset)
           muyaEditor.activeContentBlock = merged
           merged.domNode.textContent = nextText
@@ -4062,7 +4124,9 @@ onMounted(() => {
           if (
             corePlainTextAdapter === observedAdapter &&
             observedAdapter.state().status === 'faulted'
-          ) { emit('core-fault', error) }
+          ) {
+            emit('core-fault', error)
+          }
         })
       }
       return
@@ -4656,6 +4720,8 @@ onBeforeUnmount(() => {
   padding: 6px 4px;
 }
 .core-review-item-actions button {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: min-content;
+  overflow-wrap: normal;
 }
 </style>
