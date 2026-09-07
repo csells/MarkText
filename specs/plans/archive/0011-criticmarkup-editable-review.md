@@ -1,9 +1,10 @@
 # Editable CriticMarkup review in MarkText
 
-- **Status:** Active; implementation and release verification incomplete.
+- **Status:** Archived incomplete on 2026-09-07 at the owner’s request; superseded by [0012](../0012-criticmarkup-upstream-integration-review.md).
+- **Archival note:** Requirements and historical evidence below are retained. Later review findings and current completion work live in 0012; earlier passing subsets do not establish completion.
 - **Started:** 2026-09-05, following the owner's acceptance of the recovery recommendations.
-- **Supersedes:** [0010](archive/0010-marktext-criticmarkup-core-integration.md), retired incomplete; [0009](archive/0009-criticmarkup-document-engine-rebuild.md) also remains incomplete.
-- **Authority:** [vision](../vision/criticmarkup-vision.md), [domain language](../../CONTEXT.md), semantic ADRs, and [Profile 1](../language/marktext-markdown-profile-1.md).
+- **Supersedes:** [0010](0010-marktext-criticmarkup-core-integration.md), retired incomplete; [0009](0009-criticmarkup-document-engine-rebuild.md) also remains incomplete.
+- **Authority:** [vision](../../vision/criticmarkup-vision.md), [domain language](../../../CONTEXT.md), semantic ADRs, and [Profile 1](../../language/marktext-markdown-profile-1.md).
 - **Working upstream baseline:** `e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c`; refresh before any eventual PR submission.
 
 ## Outcome and retained scope
@@ -55,7 +56,7 @@ Exercise stale/rejected edits, dependent drafts, save during pending input, undo
 
 ### 3. Complete editorial workflows and consumers
 
-Deliver the [native MarkText experience defined in the vision](../vision/criticmarkup-vision.md#what-native-integration-means), including the existing left sidebar and ordinary selection, menu, command, and history workflows. A separate functioning Review surface does not close this slice. Demonstrate all of the following through WYSIWYG and Source, with installed coverage for the full editorial pass:
+Deliver the [native MarkText experience defined in the vision](../../vision/criticmarkup-vision.md#what-native-integration-means), including the existing left sidebar and ordinary selection, menu, command, and history workflows. A separate functioning Review surface does not close this slice. Demonstrate all of the following through WYSIWYG and Source, with installed coverage for the full editorial pass:
 
 - Faithful editable Markup and read-only Original/Revised projections; canonical standalone Highlight and Comment behavior; gapless Highlight+Comment presentation derived from current source adjacency.
 - Selection-based Add Comment, comment editing/removal, passive selection, explicit Review focus/navigation, and target/draft preservation across cancel, stale revisions, validation, and submission failure.
@@ -362,7 +363,7 @@ One earlier Linux Review shutdown timeout remains unexplained. Its isolated diag
 
 Current source checks: desktop 1,856 tests and types pass; Muya 1,484, Core 290, Chromium 244 and 1,347 CommonMark/GFM baseline checks pass for unchanged relevant source. The baseline retains the same 78 CommonMark / 90 GFM expected failures as pinned upstream. Changed-file, workflow and final root lint pass; root lint has no errors and 322 warnings. Local review traced the complete working-change inventory and ownership boundaries; independent review was unavailable because the agent quota was exhausted.
 
-Historical candidate: `marktext-sep06-source-ready-candidate-x5oer7c4`, renderer `index-CtQxlysF.js`; Linux: `/tmp/marktext-linux-validation.dvvBbM/sep06-source-ready-l8r7egww`. The candidate records 880 compiled and 1,041 runtime source hashes. Detailed repairs, evidence and measurement limits are in [the candidate validation report](../research/criticmarkup-candidate-validation-2026-09-06.md). Prior blocker details are preserved in the candidate's `plan-blockers-before-source-ready.txt`. Entries below are historical evidence, not final-candidate claims.
+Historical candidate: `marktext-sep06-source-ready-candidate-x5oer7c4`, renderer `index-CtQxlysF.js`; Linux: `/tmp/marktext-linux-validation.dvvBbM/sep06-source-ready-l8r7egww`. The candidate records 880 compiled and 1,041 runtime source hashes. Detailed repairs, evidence and measurement limits are in [the candidate validation report](../../research/criticmarkup-candidate-validation-2026-09-06.md). Prior blocker details are preserved in the candidate's `plan-blockers-before-source-ready.txt`. Entries below are historical evidence, not final-candidate claims.
 
 Comment-boundary evidence: `/tmp/marktext-sep06-nested-comment-{red,green,native-red2,native-green}.log` and `/tmp/marktext-sep06-comment-ownership-{red,green,native-red}.log`. The visible nested edit passed both packaged cases before the hidden-ownership repair. The intermediate `index-CXacCji4.js` package was superseded and its broader runs intentionally interrupted (macOS: 28 Review plus four consumer passes; Linux: 11 Review passes). They are not completed suites. The earlier nested-comment installed expectation was corrected against the already documented outer-Comment ownership rule; its replacement also edits the outer raw payload while preserving the nested bytes and undo history. Final source checks are `/tmp/marktext-sep06-review-{desktop,types,lint}.log`.
 
