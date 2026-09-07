@@ -678,9 +678,10 @@ test('Core completes one CriticMarkup Review lifecycle and reopens exact bytes',
       const bridge = window.__marktextDocumentCore
       if (bridge?.selectPlainText === undefined) throw new Error('Selection unavailable')
       bridge.selectPlainText(2, 0, 7)
-      window.prompt = () => 'replaced'
     })
     await page.getByTestId('critic-review-track-replacement').click()
+    await page.getByTestId('critic-review-replacement-input').fill('replaced')
+    await page.getByTestId('critic-review-replacement-submit').click()
     await expect.poll(() => page.evaluate(() =>
       (window.__marktextDocumentCore?.latest() as {
         form?: string
@@ -725,6 +726,7 @@ test('Core completes one CriticMarkup Review lifecycle and reopens exact bytes',
   try {
     await waitForEditor(reopened.page)
     await waitForMenuReady(reopened.app)
+    await reopened.page.getByRole('button', { name: 'Review', exact: true }).click()
     await expectEditorWindowHidden(reopened.app)
     expectEditorNotFrontmost(reopened.app)
     await reopened.page.waitForFunction(
