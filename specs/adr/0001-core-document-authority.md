@@ -4,7 +4,9 @@ status: accepted
 
 # Keep one durable document authority
 
-Accepted as the architecture under [plan 0011](../plans/0011-criticmarkup-editable-review.md).
+Accepted as the architecture under [archived plan 0011](../plans/archive/0011-criticmarkup-editable-review.md),
+retained by [plan 0012](../plans/0012-criticmarkup-upstream-integration-review.md)
+and the [native integration architecture](../architecture/criticmarkup-native-integration.md).
 Implementation and installed verification remain incomplete; acceptance is not a
 claim that the product passes every rule below.
 
@@ -64,7 +66,7 @@ prove before production default enablement.
   transactions, and replay work; reaching one creates a new checkpoint only at
   a settled barrier and drops the superseded journal.
 
-Production default enablement follows plan 0011 after installed tests cover these
+Production default enablement and release verification follow plan 0012; installed tests must cover these
 rules, including native IME, pending save, tab and mode handoff, Worker restart,
 continuous editable Review, parity, and realistic performance. A document approval
 field is not an additional implementation or release gate.

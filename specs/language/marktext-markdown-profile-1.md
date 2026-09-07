@@ -1,6 +1,6 @@
 # MarkText Markdown Profile 1 — Language Specification
 
-- **Status:** Draft 2 semantic record (2026-08-10), carried forward by plan 0011; accepted rulings and unresolved proposals retain their individual status.
+- **Status:** Draft 2 semantic record (2026-08-10), carried forward by plan 0012; accepted rulings and unresolved proposals retain their individual status.
 - **Identifiers:** `markdownProfile: 'markdown-profile-1'` ·
   `criticMarkupProfile: 'marktext-profile-1'`
 - **Derived from:** the canonical CriticMarkup specification, CommonMark and GFM, historical
@@ -8,8 +8,8 @@
   2026-07-24.
 - **Audience:** the document-core parser, its test corpus, adapters, and any future
   reimplementation (including a port). This document defines the candidate _language_;
-  [plan 0011](../plans/0011-criticmarkup-editable-review.md) owns architecture,
-  migration, performance, and acceptance. Where implementation status lags this document,
+  [native integration architecture](../architecture/criticmarkup-native-integration.md) owns integration boundaries;
+  [plan 0012](../plans/0012-criticmarkup-upstream-integration-review.md) owns migration, performance, and acceptance. Where implementation status lags this document,
   established rulings remain the language target. Plan 0011 supersedes blanket packet
   ratification as an implementation prerequisite; genuinely disputed semantics require
   a focused decision and are not silently accepted from current parser behavior.
@@ -36,7 +36,7 @@ Principles every rule below serves:
   The parse product accounts for every decoded code unit exactly once, including line-ending
   spellings, blank lines, marker spellings, escapes, trailing-space trivia, and a leading U+FEFF.
   Normalization is only ever an explicit transform. File bytes, encoding, BOM policy, and
-  byte-exact no-op save behavior belong to the file layer and plan 0011's compatibility contract.
+  byte-exact no-op save behavior belong to the file layer and plan 0012's retained compatibility contract.
 - **P3 — One language decision per source run.** Literal ownership and CriticMarkup delimiter
   activity have one deterministic meaning. No projection, materializer, adapter, or consumer may
   revise a recognition decision (§7).
@@ -129,6 +129,7 @@ rendering preference.
   paragraph content; an unmarked marker remains active. The marker never changes retained source
   or ordinary paragraph text. A consumer that supports generated tables of contents may activate
   it in HTML, PDF, or print output.
+
 - **Inline math.** `$…$` spans, recognized as a literal range with CommonMark-code-span-like
   ownership (§7), are enabled exactly when `math` is true.
 - **Math blocks.** `$$` blocks are enabled exactly when `math` is true. A fenced block whose
@@ -396,21 +397,21 @@ Nested annotations resolve recursively per the same table.
 Deliberate, named divergences from reference implementations — each MUST appear in user-facing
 compatibility documentation:
 
-| #   | Profile 1 behavior                                                                               | Diverges from                                                              | Rationale                                                                                                                                |
-| --- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | Literal ranges win over CM markers (L1)                                                          | MMD-6 accept/reject and the toolkit consume markers inside code/math       | Their behavior is an acknowledged defect class (patched piecemeal by MMD's own author)                                                   |
-| D2  | Multi-block annotations render (R3)                                                              | MMD-6 _rendering_ treats them as literal (its accept/reject honors them)   | Owner ruling; toolkit precedent; MMD's confinement is a parser artifact. Note MMD's own render/accept asymmetry when documenting interop |
-| D3  | Backslash escaping of delimiters (E1)                                                            | No reference tool has any escape                                           | Natural consequence of intrinsic parsing; code-span escape (E2) remains the portable form                                                |
-| D4  | Stray `~>` is literal (R4)                                                                       | MMD-6 erases it under accept/reject                                        | Error tolerance (T2)                                                                                                                     |
-| D5  | No `{<del>`-style aliases, no `@@` metadata (CM1)                                                | Fevol/Commentator grammar                                                  | Not canonical CM; payload bytes must round-trip                                                                                          |
-| D6  | Recursive nesting incl. same-form (N1)                                                           | lang-criticmarkup/Fevol parse nested markers as flat text                  | MMD-6's tested recursion is the authoritative precedent                                                                                  |
-| D7  | Comments retain isolated full Profile 1 Markdown+CriticMarkup subdocuments (R5)                  | Toolkit/MMD erase or render the payload as inline metadata                 | A portable note may contain full Markdown while remaining one unstructured payload; local resolution and Comment Display stay lossless  |
-| D8  | An annotation closer stands against an in-arm open literal whose completion lies beyond it (L2a) | An alternative shared-loop parser reading defers the closer                | Reliable closer behavior and arm containment (ADR-0014)                                                                                 |
+| #   | Profile 1 behavior                                                                               | Diverges from                                                            | Rationale                                                                                                                                |
+| --- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Literal ranges win over CM markers (L1)                                                          | MMD-6 accept/reject and the toolkit consume markers inside code/math     | Their behavior is an acknowledged defect class (patched piecemeal by MMD's own author)                                                   |
+| D2  | Multi-block annotations render (R3)                                                              | MMD-6 _rendering_ treats them as literal (its accept/reject honors them) | Owner ruling; toolkit precedent; MMD's confinement is a parser artifact. Note MMD's own render/accept asymmetry when documenting interop |
+| D3  | Backslash escaping of delimiters (E1)                                                            | No reference tool has any escape                                         | Natural consequence of intrinsic parsing; code-span escape (E2) remains the portable form                                                |
+| D4  | Stray `~>` is literal (R4)                                                                       | MMD-6 erases it under accept/reject                                      | Error tolerance (T2)                                                                                                                     |
+| D5  | No `{<del>`-style aliases, no `@@` metadata (CM1)                                                | Fevol/Commentator grammar                                                | Not canonical CM; payload bytes must round-trip                                                                                          |
+| D6  | Recursive nesting incl. same-form (N1)                                                           | lang-criticmarkup/Fevol parse nested markers as flat text                | MMD-6's tested recursion is the authoritative precedent                                                                                  |
+| D7  | Comments retain isolated full Profile 1 Markdown+CriticMarkup subdocuments (R5)                  | Toolkit/MMD erase or render the payload as inline metadata               | A portable note may contain full Markdown while remaining one unstructured payload; local resolution and Comment Display stay lossless   |
+| D8  | An annotation closer stands against an in-arm open literal whose completion lies beyond it (L2a) | An alternative shared-loop parser reading defers the closer              | Reliable closer behavior and arm containment (ADR-0014)                                                                                  |
 
 ## 13. Implementation boundary
 
 Performance targets, resource limits, incremental equivalence, accounting, parser APIs, and
-failure publication are engine requirements owned by plan 0011 and implementation baselines.
+failure publication are engine requirements retained by plan 0012 and implementation baselines.
 They do not change Profile 1 language meaning.
 
 ## 14. Versioning
