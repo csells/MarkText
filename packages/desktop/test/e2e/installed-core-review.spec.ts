@@ -252,6 +252,13 @@ const launchInstalled = async(
     timeout: 60_000
   })
   try {
+    await app.evaluate(({ ipcMain }) => {
+      const host = globalThis as typeof globalThis & { installedSaveRequests?: unknown[] }
+      host.installedSaveRequests = []
+      ipcMain.on('mt::response-file-save', (_event, id, filename, pathname, source, options, _defaultPath, identity) => {
+        host.installedSaveRequests?.push({ at: Date.now(), id, filename, pathname, source, options, identity })
+      })
+    })
     const page = await app.firstWindow()
     await page.waitForLoadState('domcontentloaded')
     await waitForEditor(page, 60_000)
@@ -610,6 +617,33 @@ test.describe('installed Core Review authority', () => {
           await expect(launched.page.getByTestId('critic-review-kind'))
             .toHaveAttribute('data-kind', testCase.reviewKind)
         }
+      } catch (error) {
+        if (launched !== undefined) {
+          const observations = await Promise.allSettled([
+            launched.app.evaluate(() => (globalThis as typeof globalThis & {
+              installedSaveRequests?: unknown[]
+            }).installedSaveRequests),
+            launched.page.evaluate(async() => ({
+              source: await window.__marktextDocumentCore?.authoritySource?.(),
+              latest: window.__marktextDocumentCore?.latest(),
+              body: document.body.innerText
+            }))
+          ])
+          await test.info().attach('save-failure-observations', {
+            body: JSON.stringify({ observations, disk: fs.readFileSync(filePath, 'utf8') }, null, 2),
+            contentType: 'application/json'
+          })
+          const logRoot = path.join(userDataDir, 'logs')
+          if (fs.existsSync(logRoot)) {
+            for (const entry of fs.readdirSync(logRoot)) {
+              const logfile = path.join(logRoot, entry)
+              if (fs.statSync(logfile).isFile()) {
+                await test.info().attach(entry, { path: logfile })
+              }
+            }
+          }
+        }
+        throw error
       } finally {
         if (launched !== undefined) await launched.app.close()
         fs.rmSync(root, { recursive: true, force: true })
