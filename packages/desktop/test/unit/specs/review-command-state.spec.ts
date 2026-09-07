@@ -3,9 +3,16 @@ import { reviewCommandEnabled, type ReviewCommandState } from '../../../src/comm
 
 describe('review command availability', () => {
   const reader: ReviewCommandState = {
-    available: true, editable: false, canAuthor: true, canTrack: true,
-    tracking: false, hasItem: true, hasComment: false, removable: false,
-    busy: false, mode: 'original'
+    available: true,
+    editable: false,
+    canAuthor: true,
+    canTrack: true,
+    tracking: false,
+    hasItem: true,
+    hasComment: false,
+    removable: false,
+    busy: false,
+    mode: 'original'
   }
   it('permits review decisions on a read-only projection while preventing text authoring', () => {
     expect(reviewCommandEnabled('accept', reader)).toBe(true)
