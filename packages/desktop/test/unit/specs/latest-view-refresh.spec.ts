@@ -70,3 +70,53 @@ describe('latest asynchronous view refresh', () => {
     expect(pending).toHaveBeenLastCalledWith(false)
   })
 })
+
+describe('interactive Review ownership', () => {
+  it('does not disable a valid control while a passive refresh is pending', async() => {
+    const publish = vi.fn()
+    const pending = vi.fn()
+    const refresh = createLatestViewRefresh<string>({ publish, pending, fault: vi.fn() })
+    await refresh.request(async() => 'current')
+    pending.mockClear()
+    const reply = deferred<string>()
+    const passive = refresh.request(async() => reply.promise, { passive: true })
+    expect(pending).not.toHaveBeenCalledWith(true)
+    await refresh.request(async() => 'next')
+    reply.resolve('old passive anchor')
+    await passive
+    expect(publish).toHaveBeenLastCalledWith('next')
+  })
+
+  it('lets navigation publish before a queued passive read chooses its anchor', async() => {
+    let selected = 'old'
+    const refresh = createLatestViewRefresh<string>({
+      publish: value => { selected = value }, pending: vi.fn(), fault: vi.fn()
+    })
+    const reply = deferred<string>()
+    const navigation = refresh.request(async() => reply.promise)
+    const read = vi.fn(async() => selected)
+    const passive = refresh.request(read, { passive: true })
+    expect(read).not.toHaveBeenCalled()
+    reply.resolve('next')
+    await navigation
+    await passive
+    expect(selected).toBe('next')
+  })
+
+  it('does not let invalidated navigation hold newer passive reads behind an old reply', async() => {
+    const publish = vi.fn()
+    const refresh = createLatestViewRefresh<string>({ publish, pending: vi.fn(), fault: vi.fn() })
+    const reply = deferred<string>()
+    const old = refresh.request(async() => reply.promise)
+    const oldPassive = vi.fn(async() => 'old passive')
+    const waiting = refresh.request(oldPassive, { passive: true })
+    refresh.invalidate()
+    await refresh.request(async() => 'current document', { passive: true })
+    await waiting
+    expect(oldPassive).not.toHaveBeenCalled()
+    expect(publish).toHaveBeenCalledExactlyOnceWith('current document')
+    reply.resolve('old')
+    await old
+    expect(publish).toHaveBeenCalledExactlyOnceWith('current document')
+  })
+})
