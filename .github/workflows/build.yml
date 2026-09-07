@@ -220,7 +220,7 @@ jobs:
   inspect-windows-ime-environment:
     if: github.event_name == 'workflow_dispatch' && inputs.candidate_run != '' && inputs.candidate_platform == 'windows-ime-environment'
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions: {}
     steps:
       - name: Inspect native composition prerequisites in the disposable runner
@@ -235,6 +235,18 @@ jobs:
           Get-Process ctfmon, TextInputHost -ErrorAction SilentlyContinue | Select-Object ProcessName, SessionId
           # This is environment discovery, not a claim of native IME verification.
           exit 0
+      - name: Install missing native Japanese input prerequisites in the disposable runner
+        shell: pwsh
+        run: |
+          $capability = Get-WindowsCapability -Online -Name 'Language.Basic~~~ja-JP~0.0.1.0'
+          if ($capability.State -ne 'Installed') {
+            Add-WindowsCapability -Online -Name $capability.Name -ErrorAction Stop | Format-List
+          }
+          $languages = Get-WinUserLanguageList
+          if (!($languages.LanguageTag -contains 'ja-JP')) { $languages.Add('ja-JP') }
+          Set-WinUserLanguageList $languages -Force
+          Get-WinUserLanguageList | Format-List LanguageTag, InputMethodTips
+          Get-WindowsCapability -Online -Name 'Language.Basic~~~ja-JP~0.0.1.0' | Format-List Name, State
 
   verify-existing-linux-candidate:
     if: github.event_name == 'workflow_dispatch' && inputs.candidate_run != '' && inputs.candidate_platform == 'linux'
