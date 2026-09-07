@@ -26,211 +26,217 @@
     />
     <Teleport to="#core-review-panel">
       <section class="core-review-panel-content">
-        <h2>{{ t('editor.coreReview.sidebarTitle') }}</h2>
-        <p
-          v-if="coreLease === undefined || sourceCode"
-          class="core-review-hint"
-        >
-          {{ t('editor.coreReview.sourceHint') }}
-        </p>
-        <nav
-          v-if="coreLease !== undefined && !sourceCode"
-          class="core-review-views"
-          :aria-label="t('editor.coreReview.viewTitle')"
-        >
-          <button
-            v-for="mode in (['markup', 'original', 'revised'] as const)"
-            :key="mode"
-            type="button"
-            :data-testid="`critic-review-${mode}`"
-            :aria-pressed="coreDisplayMode === mode"
-            :disabled="!reviewCommandEnabled(mode, coreReviewCommandState)"
-            @click="handleCoreReviewCommand(mode)"
+        <h2 class="side-bar-title">
+          {{ t('editor.coreReview.sidebarTitle') }}
+        </h2>
+        <div class="core-review-controls">
+          <p
+            v-if="coreLease === undefined || sourceCode"
+            class="core-review-hint"
           >
-            {{ t(`editor.coreReview.${mode}`) }}
-          </button>
-        </nav>
-        <details
-          v-if="coreLease !== undefined && !sourceCode"
-          class="core-review-hint"
-        >
-          <summary>{{ t('editor.coreReview.viewHelp') }}</summary>
-          <p>{{ t('editor.coreReview.viewHint') }}</p>
-        </details>
-        <button
-          v-if="coreLease !== undefined && !sourceCode && coreDisplayMode === 'markup'"
-          class="core-track-toggle"
-          type="button"
-          data-testid="critic-review-track-changes"
-          :aria-pressed="coreTrackChangesEnabled"
-          :disabled="!reviewCommandEnabled('track-changes', coreReviewCommandState)"
-          :title="t('editor.coreReview.trackChangesDescription')"
-          @click="handleCoreReviewCommand('track-changes')"
-        >
-          {{ t('editor.coreReview.trackChanges') }}
-        </button>
-        <nav
-          v-if="coreReviewItem !== null && coreLease !== undefined && !sourceCode && !coreCommentOpen"
-          class="core-review-navigation"
-          :aria-label="t('editor.coreReview.title')"
-        >
-          <button
-            type="button"
-            data-testid="critic-review-previous"
-            :disabled="!reviewCommandEnabled('previous', coreReviewCommandState)"
-            @click="handleCoreReviewCommand('previous')"
+            {{ t('editor.coreReview.sourceHint') }}
+          </p>
+          <nav
+            v-if="coreLease !== undefined && !sourceCode"
+            class="core-review-views"
+            :aria-label="t('editor.coreReview.viewTitle')"
           >
-            {{ t('editor.coreReview.previous') }}
-          </button>
-          <button
-            type="button"
-            data-testid="critic-review-next"
-            :disabled="!reviewCommandEnabled('next', coreReviewCommandState)"
-            @click="handleCoreReviewCommand('next')"
-          >
-            {{ t('editor.coreReview.next') }}
-          </button>
-          <span class="core-review-position">{{ t('editor.coreReview.position', { current: coreReviewPosition, total: coreReviewOverview.length }) }}</span>
-        </nav>
-        <CoreReviewList
-          v-if="coreLease !== undefined && !sourceCode"
-          :entries="coreReviewOverview"
-          :active-start="coreReviewItem?.range.start"
-          :busy="coreReviewResolving || coreCommentOpen"
-          @select="selectCoreReviewEntry"
-        >
-          <template #actions>
-            <div
-              v-if="!coreCommentOpen"
-              class="core-review-item-actions"
+            <button
+              v-for="mode in (['markup', 'original', 'revised'] as const)"
+              :key="mode"
+              type="button"
+              :data-testid="`critic-review-${mode}`"
+              :aria-pressed="coreDisplayMode === mode"
+              :disabled="!reviewCommandEnabled(mode, coreReviewCommandState)"
+              @click="handleCoreReviewCommand(mode)"
             >
-              <button
-                v-if="!coreReviewUsesRemove"
-                type="button"
-                data-testid="critic-review-accept"
-                :disabled="!reviewCommandEnabled('accept', coreReviewCommandState)"
-                @click="handleCoreReviewCommand('accept')"
+              {{ t(`editor.coreReview.${mode}`) }}
+            </button>
+          </nav>
+          <button
+            v-if="coreLease !== undefined && !sourceCode && coreDisplayMode === 'markup'"
+            class="core-track-toggle"
+            type="button"
+            data-testid="critic-review-track-changes"
+            :aria-pressed="coreTrackChangesEnabled"
+            :disabled="!reviewCommandEnabled('track-changes', coreReviewCommandState)"
+            :title="t('editor.coreReview.trackChangesDescription')"
+            @click="handleCoreReviewCommand('track-changes')"
+          >
+            {{ t('editor.coreReview.trackChanges') }}
+          </button>
+          <nav
+            v-if="coreReviewItem !== null && coreLease !== undefined && !sourceCode && !coreCommentOpen"
+            class="core-review-navigation"
+            :aria-label="t('editor.coreReview.title')"
+          >
+            <button
+              type="button"
+              data-testid="critic-review-previous"
+              :disabled="!reviewCommandEnabled('previous', coreReviewCommandState)"
+              @click="handleCoreReviewCommand('previous')"
+            >
+              {{ t('editor.coreReview.previous') }}
+            </button>
+            <button
+              type="button"
+              data-testid="critic-review-next"
+              :disabled="!reviewCommandEnabled('next', coreReviewCommandState)"
+              @click="handleCoreReviewCommand('next')"
+            >
+              {{ t('editor.coreReview.next') }}
+            </button>
+            <span class="core-review-position">{{ t('editor.coreReview.position', { current: coreReviewPosition, total: coreReviewOverview.length }) }}</span>
+          </nav>
+        </div>
+        <div class="core-review-scroll side-bar-scroll">
+          <details
+            v-if="coreLease !== undefined && !sourceCode"
+            class="core-review-hint"
+          >
+            <summary>{{ t('editor.coreReview.viewHelp') }}</summary>
+            <p>{{ t('editor.coreReview.viewHint') }}</p>
+          </details>
+          <CoreReviewList
+            v-if="coreLease !== undefined && !sourceCode"
+            :entries="coreReviewOverview"
+            :active-start="coreReviewItem?.range.start"
+            :busy="coreReviewResolving || coreCommentOpen"
+            @select="selectCoreReviewEntry"
+          >
+            <template #actions>
+              <div
+                v-if="!coreCommentOpen"
+                class="core-review-item-actions"
               >
-                {{ t('editor.coreReview.accept') }}
+                <button
+                  v-if="!coreReviewUsesRemove"
+                  type="button"
+                  data-testid="critic-review-accept"
+                  :disabled="!reviewCommandEnabled('accept', coreReviewCommandState)"
+                  @click="handleCoreReviewCommand('accept')"
+                >
+                  {{ t('editor.coreReview.accept') }}
+                </button>
+                <button
+                  v-if="!coreReviewUsesRemove"
+                  type="button"
+                  data-testid="critic-review-reject"
+                  :disabled="!reviewCommandEnabled('reject', coreReviewCommandState)"
+                  @click="handleCoreReviewCommand('reject')"
+                >
+                  {{ t('editor.coreReview.reject') }}
+                </button>
+                <button
+                  v-if="coreReviewHasComment"
+                  type="button"
+                  data-testid="critic-review-edit-comment"
+                  :disabled="!reviewCommandEnabled('edit-comment', coreReviewCommandState)"
+                  @click="handleCoreReviewCommand('edit-comment')"
+                >
+                  {{ t('editor.coreReview.editComment') }}
+                </button>
+                <button
+                  v-if="coreReviewUsesRemove"
+                  type="button"
+                  data-testid="critic-review-remove"
+                  :disabled="!reviewCommandEnabled('remove', coreReviewCommandState)"
+                  @click="handleCoreReviewCommand('remove')"
+                >
+                  {{ coreReviewRemoveLabel }}
+                </button>
+              </div>
+            </template>
+          </CoreReviewList>
+          <div v-if="coreReviewItem !== null && !sourceCode && !coreCommentOpen">
+            <div class="core-review-bulk">
+              <button
+                type="button"
+                data-testid="critic-review-accept-all"
+                :disabled="!reviewCommandEnabled('accept-all', coreReviewCommandState)"
+                @click="handleCoreReviewCommand('accept-all')"
+              >
+                {{ t('editor.coreReview.acceptAll') }}
               </button>
               <button
-                v-if="!coreReviewUsesRemove"
                 type="button"
-                data-testid="critic-review-reject"
-                :disabled="!reviewCommandEnabled('reject', coreReviewCommandState)"
-                @click="handleCoreReviewCommand('reject')"
+                data-testid="critic-review-reject-all"
+                :disabled="!reviewCommandEnabled('reject-all', coreReviewCommandState)"
+                @click="handleCoreReviewCommand('reject-all')"
               >
-                {{ t('editor.coreReview.reject') }}
-              </button>
-              <button
-                v-if="coreReviewHasComment"
-                type="button"
-                data-testid="critic-review-edit-comment"
-                :disabled="!reviewCommandEnabled('edit-comment', coreReviewCommandState)"
-                @click="handleCoreReviewCommand('edit-comment')"
-              >
-                {{ t('editor.coreReview.editComment') }}
-              </button>
-              <button
-                v-if="coreReviewUsesRemove"
-                type="button"
-                data-testid="critic-review-remove"
-                :disabled="!reviewCommandEnabled('remove', coreReviewCommandState)"
-                @click="handleCoreReviewCommand('remove')"
-              >
-                {{ coreReviewRemoveLabel }}
+                {{ t('editor.coreReview.rejectAll') }}
               </button>
             </div>
-          </template>
-        </CoreReviewList>
-        <div v-if="coreReviewItem !== null && !sourceCode && !coreCommentOpen">
-          <div class="core-review-bulk">
+          </div>
+          <p
+            v-if="coreLease !== undefined && !sourceCode && !coreReviewItem && !coreReviewRefreshPending"
+            class="core-review-hint"
+          >
+            {{ t('editor.coreReview.empty') }}
+          </p>
+          <CoreReviewCommentEditor
+            v-if="coreCommentTarget !== undefined"
+            v-model="coreCommentOpen"
+            :target-id="coreCommentTarget.id"
+            :default-text="coreCommentTarget.text"
+            :submitting="coreReviewResolving"
+            :error="coreCommentError"
+            :test-id-prefix="coreCommentTarget.form === 'substitution' ? 'critic-review-replacement' : 'critic-review-comment'"
+            :allow-empty="coreCommentTarget.form !== 'substitution'"
+            :label="t(coreCommentTarget.form === 'substitution' ? 'editor.coreReview.replacementPrompt' : 'editor.coreReview.commentPrompt')"
+            :submit-label="t(coreCommentTarget.form === 'substitution' ? 'editor.coreReview.suggestReplacement' : 'editor.coreReview.saveComment')"
+            :cancel-label="t('editor.coreReview.cancel')"
+            :target-changed-label="t('editor.coreReview.commentTargetChanged')"
+            @submit="submitCoreComment"
+          />
+          <p
+            v-if="coreLease !== undefined && !sourceCode && coreDisplayMode === 'markup' && coreAuthorSelection !== undefined"
+            class="core-review-hint"
+          >
+            {{ t('editor.coreReview.selectionHint') }}
+          </p>
+          <div
+            v-if="coreLease !== undefined && !sourceCode && coreDisplayMode === 'markup' && coreAuthorSelection !== undefined"
+            class="core-review-author-bar"
+            :aria-label="t('editor.coreReview.authorTitle')"
+          >
             <button
               type="button"
-              data-testid="critic-review-accept-all"
-              :disabled="!reviewCommandEnabled('accept-all', coreReviewCommandState)"
-              @click="handleCoreReviewCommand('accept-all')"
+              data-testid="critic-review-mark-addition"
+              :disabled="!reviewCommandEnabled('mark-addition', coreReviewCommandState)"
+              @mousedown.prevent="captureCoreAuthorSelection"
+              @click="handleCoreReviewCommand('mark-addition')"
             >
-              {{ t('editor.coreReview.acceptAll') }}
+              {{ t('editor.coreReview.markAddition') }}
             </button>
             <button
               type="button"
-              data-testid="critic-review-reject-all"
-              :disabled="!reviewCommandEnabled('reject-all', coreReviewCommandState)"
-              @click="handleCoreReviewCommand('reject-all')"
+              data-testid="critic-review-add-comment"
+              :disabled="!reviewCommandEnabled('add-comment', coreReviewCommandState)"
+              @mousedown.prevent="captureCoreAuthorSelection"
+              @click="handleCoreReviewCommand('add-comment')"
             >
-              {{ t('editor.coreReview.rejectAll') }}
+              {{ t('editor.coreReview.addComment') }}
+            </button>
+            <button
+              type="button"
+              data-testid="critic-review-track-replacement"
+              :disabled="!reviewCommandEnabled('suggest-replacement', coreReviewCommandState)"
+              @mousedown.prevent="captureCoreAuthorSelection"
+              @click="handleCoreReviewCommand('suggest-replacement')"
+            >
+              {{ t('editor.coreReview.suggestReplacement') }}
+            </button>
+            <button
+              type="button"
+              data-testid="critic-review-mark-highlight"
+              :disabled="!reviewCommandEnabled('mark-highlight', coreReviewCommandState)"
+              @mousedown.prevent="captureCoreAuthorSelection"
+              @click="handleCoreReviewCommand('mark-highlight')"
+            >
+              {{ t('editor.coreReview.markHighlight') }}
             </button>
           </div>
-        </div>
-        <p
-          v-if="coreLease !== undefined && !sourceCode && !coreReviewItem && !coreReviewRefreshPending"
-          class="core-review-hint"
-        >
-          {{ t('editor.coreReview.empty') }}
-        </p>
-        <CoreReviewCommentEditor
-          v-if="coreCommentTarget !== undefined"
-          v-model="coreCommentOpen"
-          :target-id="coreCommentTarget.id"
-          :default-text="coreCommentTarget.text"
-          :submitting="coreReviewResolving"
-          :error="coreCommentError"
-          :test-id-prefix="coreCommentTarget.form === 'substitution' ? 'critic-review-replacement' : 'critic-review-comment'"
-          :allow-empty="coreCommentTarget.form !== 'substitution'"
-          :label="t(coreCommentTarget.form === 'substitution' ? 'editor.coreReview.replacementPrompt' : 'editor.coreReview.commentPrompt')"
-          :submit-label="t(coreCommentTarget.form === 'substitution' ? 'editor.coreReview.suggestReplacement' : 'editor.coreReview.saveComment')"
-          :cancel-label="t('editor.coreReview.cancel')"
-          :target-changed-label="t('editor.coreReview.commentTargetChanged')"
-          @submit="submitCoreComment"
-        />
-        <p
-          v-if="coreLease !== undefined && !sourceCode && coreDisplayMode === 'markup' && coreAuthorSelection !== undefined"
-          class="core-review-hint"
-        >
-          {{ t('editor.coreReview.selectionHint') }}
-        </p>
-        <div
-          v-if="coreLease !== undefined && !sourceCode && coreDisplayMode === 'markup' && coreAuthorSelection !== undefined"
-          class="core-review-author-bar"
-          :aria-label="t('editor.coreReview.authorTitle')"
-        >
-          <button
-            type="button"
-            data-testid="critic-review-mark-addition"
-            :disabled="!reviewCommandEnabled('mark-addition', coreReviewCommandState)"
-            @mousedown.prevent="captureCoreAuthorSelection"
-            @click="handleCoreReviewCommand('mark-addition')"
-          >
-            {{ t('editor.coreReview.markAddition') }}
-          </button>
-          <button
-            type="button"
-            data-testid="critic-review-add-comment"
-            :disabled="!reviewCommandEnabled('add-comment', coreReviewCommandState)"
-            @mousedown.prevent="captureCoreAuthorSelection"
-            @click="handleCoreReviewCommand('add-comment')"
-          >
-            {{ t('editor.coreReview.addComment') }}
-          </button>
-          <button
-            type="button"
-            data-testid="critic-review-track-replacement"
-            :disabled="!reviewCommandEnabled('suggest-replacement', coreReviewCommandState)"
-            @mousedown.prevent="captureCoreAuthorSelection"
-            @click="handleCoreReviewCommand('suggest-replacement')"
-          >
-            {{ t('editor.coreReview.suggestReplacement') }}
-          </button>
-          <button
-            type="button"
-            data-testid="critic-review-mark-highlight"
-            :disabled="!reviewCommandEnabled('mark-highlight', coreReviewCommandState)"
-            @mousedown.prevent="captureCoreAuthorSelection"
-            @click="handleCoreReviewCommand('mark-highlight')"
-          >
-            {{ t('editor.coreReview.markHighlight') }}
-          </button>
         </div>
       </section>
     </Teleport>
@@ -4085,8 +4091,9 @@ onBeforeUnmount(() => {
   overflow-anchor: none !important;
 }
 
-.core-review-panel-content { color: var(--sideBarColor); font-size: 13px; }
-.core-review-panel-content h2 { font-size: 14px; font-weight: 600; margin: 0 0 18px; }
+.core-review-panel-content { height: 100%; min-height: 0; display: flex; flex-direction: column; color: var(--sideBarColor); font-size: 13px; }
+.core-review-controls { flex: none; padding: 0 12px; }
+.core-review-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 12px 16px; }
 .core-review-hint { font-size: 12px; line-height: 1.5; opacity: 0.7; margin: 12px 0; }
 .core-review-views { display: flex; border: 1px solid var(--floatBorderColor); border-radius: 5px; }
 .core-review-panel-content .core-review-views button { flex: 1 1 0; min-width: 0; padding: 6px 2px; font-size: 11px; border: 0; }
@@ -4097,7 +4104,8 @@ onBeforeUnmount(() => {
 .core-track-toggle { width: 100%; margin-top: 8px; }
 .core-review-position { width: 100%; font-size: 12px; opacity: 0.7; }
 .core-review-panel-content button { border: 1px solid var(--floatBorderColor); border-radius: 4px; padding: 6px 8px; background: transparent; color: inherit; font: inherit; font-size: 12px; min-width: 0; cursor: pointer; }
-.core-review-panel-content button:hover:not(:disabled) { background: var(--itemBgColor); }
+.core-review-panel-content button:hover:not(:disabled), .core-review-panel-content button:focus-visible { background: var(--sideBarItemHoverBgColor); }
+.core-review-panel-content button:focus-visible { outline: 2px solid var(--themeColor); outline-offset: -2px; }
 .core-review-panel-content button:disabled { opacity: 0.38; cursor: default; }
 .core-review-panel-content button[aria-pressed="true"] { color: var(--themeColor); background: var(--itemBgColor); border-color: var(--themeColor); }
 .core-review-enabled { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); box-sizing: border-box; }
@@ -4105,7 +4113,7 @@ onBeforeUnmount(() => {
 /* Retain space below the final block for heading jumps and typewriter scrolling. */
 .core-review-enabled .editor-surface .mu-container { padding-bottom: 100vh; }
 .core-review-enabled > .editor-surface, .core-review-enabled > .core-document-projection { grid-row: 1; grid-column: 1; min-height: 0; min-width: 0; overflow: auto; }
-.core-review-enabled > .core-document-projection { padding: 24px 50px 100px; max-width: var(--editor-area-width, 800px); margin: 0 auto; font-size: v-bind("fontSize + 'px'"); line-height: v-bind(lineHeight); font-family: v-bind('resolveEditorFont(editorFontFamily)'); }
+.core-review-enabled > .core-document-projection { font-size: v-bind("fontSize + 'px'"); line-height: v-bind(lineHeight); font-family: v-bind('resolveEditorFont(editorFontFamily)'); }
 .core-review-enabled > .search-bar { z-index: 3; }
 .editor-surface .core-review-current-block { outline: 2px solid var(--themeColor); outline-offset: 5px; border-radius: 2px; }
 

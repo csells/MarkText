@@ -76,7 +76,7 @@
     </div>
     <div
       v-if="searchResult.length"
-      class="search-result"
+      class="search-result side-bar-scroll"
     >
       <search-result-item
         v-for="(item, index) of searchResult"
@@ -86,7 +86,7 @@
     </div>
     <div
       v-else
-      class="empty"
+      class="empty side-bar-scroll"
     >
       <div class="no-data">
         <el-button
@@ -419,9 +419,6 @@ onMounted(() => {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  &::-webkit-scrollbar:vertical {
-    width: 8px;
-  }
 }
 .empty {
   font-size: 14px;
