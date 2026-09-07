@@ -40,7 +40,7 @@ const openFixture = async(filePath: string): Promise<OpenedEditor> => {
   let app: ElectronApplication
   let page: Page
   if (binary === undefined) {
-    ({ app, page } = await launchElectron([filePath], {
+    ;({ app, page } = await launchElectron([filePath], {
       suppressErrorDialog: true,
       env: { ...env, MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined }
     }))
@@ -61,7 +61,9 @@ const openFixture = async(filePath: string): Promise<OpenedEditor> => {
     }
   }
   const pageErrors: string[] = []
-  page.on('pageerror', error => { pageErrors.push(error.message) })
+  page.on('pageerror', (error) => {
+    pageErrors.push(error.message)
+  })
   try {
     await waitForEditor(page, 60_000)
     await waitForMenuReady(app, 60_000)
@@ -83,7 +85,11 @@ const fixture = (source: string): string => {
   return filePath
 }
 
-const saveExact = async(app: ElectronApplication, filePath: string, source: string): Promise<void> => {
+const saveExact = async(
+  app: ElectronApplication,
+  filePath: string,
+  source: string
+): Promise<void> => {
   await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
   await expect.poll(() => fs.readFileSync(filePath, 'utf8')).toBe(source)
 }
@@ -155,7 +161,22 @@ test.describe('Core structural and editorial compatibility', () => {
         await expect(content).toBeVisible()
         await expect(content).toHaveAttribute('contenteditable', 'true')
         await content.click()
-        await page.keyboard.press('End')
+        await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End')
+        const caret = await content.evaluate((element) => {
+          const selection = window.getSelection()
+          if (!selection?.focusNode || !element.contains(selection.focusNode)) return null
+          const prefix = document.createRange()
+          prefix.selectNodeContents(element)
+          prefix.setEnd(selection.focusNode, selection.focusOffset)
+          return {
+            offset: prefix.toString().length,
+            length: element.textContent?.length,
+            collapsed: selection.isCollapsed
+          }
+        })
+        expect(caret).not.toBeNull()
+        expect(caret?.collapsed).toBe(true)
+        expect(caret?.offset).toBe(caret?.length)
         await page.keyboard.type('!')
         await saveExact(app, filePath, block.editedSource)
         await expect(content).toContainText(`${block.initialText}!`)
@@ -169,8 +190,12 @@ test.describe('Core structural and editorial compatibility', () => {
         await app.close()
 
         opened = await openFixture(filePath)
-        await expect(opened.page.locator(block.selector).filter({ hasText: `${block.initialText}!` }).first())
-          .toHaveAttribute('contenteditable', 'true')
+        await expect(
+          opened.page
+            .locator(block.selector)
+            .filter({ hasText: `${block.initialText}!` })
+            .first()
+        ).toHaveAttribute('contenteditable', 'true')
         await saveExact(opened.app, filePath, block.editedSource)
         await expectHealthy(opened)
       } finally {
@@ -180,7 +205,8 @@ test.describe('Core structural and editorial compatibility', () => {
   }
 
   test('shows all five forms in Markup and preserves them through Source and reopen', async() => {
-    const source = 'Before {++added++} {--removed--} {~~old~>new~~} {==highlight==} {>>note<<} after.\n'
+    const source =
+      'Before {++added++} {--removed--} {~~old~>new~~} {==highlight==} {>>note<<} after.\n'
     const filePath = fixture(source)
     let opened = await openFixture(filePath)
     try {
@@ -189,15 +215,23 @@ test.describe('Core structural and editorial compatibility', () => {
       await expect(paragraph).toHaveAttribute('contenteditable', 'true')
       await expect(paragraph.locator('[data-critic-kind="addition"]')).toHaveText('added')
       await expect(paragraph.locator('[data-critic-kind="deletion"]')).toHaveText('removed')
-      await expect(paragraph.locator('[data-critic-kind="substitution"][data-critic-arm="old"]')).toHaveText('old')
-      await expect(paragraph.locator('[data-critic-kind="substitution"][data-critic-arm="new"]')).toHaveText('new')
+      await expect(
+        paragraph.locator('[data-critic-kind="substitution"][data-critic-arm="old"]')
+      ).toHaveText('old')
+      await expect(
+        paragraph.locator('[data-critic-kind="substitution"][data-critic-arm="new"]')
+      ).toHaveText('new')
       await expect(paragraph.locator('[data-critic-kind="highlight"]')).toHaveText('highlight')
       await expect(paragraph).not.toContainText('note')
       for (const kind of ['addition', 'deletion', 'substitution', 'highlight', 'comment']) {
         await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', kind)
         if (kind === 'comment') {
-          const entry = page.getByTestId('critic-review-entry').filter({ has: page.getByTestId('critic-review-kind') })
-          await expect(entry.getByRole('region', { name: 'Comment', exact: true })).toHaveText('note')
+          const entry = page
+            .getByTestId('critic-review-entry')
+            .filter({ has: page.getByTestId('critic-review-kind') })
+          await expect(entry.getByRole('region', { name: 'Comment', exact: true })).toHaveText(
+            'note'
+          )
         } else {
           await page.getByTestId('critic-review-next').click()
         }
@@ -233,7 +267,7 @@ for (const tracked of [false, true]) {
         if (tracked) await page.getByTestId('critic-review-track-changes').click()
         const paragraph = page.locator('.mu-paragraph-content').first()
         await paragraph.click()
-        await paragraph.evaluate(node => {
+        await paragraph.evaluate((node) => {
           const range = document.createRange()
           const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT)
           let last = walker.nextNode()
@@ -246,9 +280,13 @@ for (const tracked of [false, true]) {
           selection?.addRange(range)
         })
         await sendIpcToRenderer(app, 'mt::editor-paragraph-action', { type: container.command })
-        const formatted = tracked ? `{++${container.prefix}first\nsecond++}\n` : `${container.prefix}${source}`
+        const formatted = tracked
+          ? `{++${container.prefix}first\nsecond++}\n`
+          : `${container.prefix}${source}`
         await saveExact(app, filePath, formatted)
-        await expect(page.locator('.editor-component').locator(container.selector).first()).toBeVisible()
+        await expect(
+          page.locator('.editor-component').locator(container.selector).first()
+        ).toBeVisible()
         await page.keyboard.type('!')
         await saveExact(app, filePath, formatted.replace('second', 'second!'))
         await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
@@ -257,7 +295,9 @@ for (const tracked of [false, true]) {
         await sendIpcToRenderer(app, 'mt::editor-paragraph-action', { type: container.command })
         await saveExact(app, filePath, source)
         expect(await getMarkdownContent(page, app)).toBe(source)
-        expect(await page.evaluate(() => window.electron.ipcRenderer.invoke('mt::core-draft::list'))).toEqual([])
+        expect(
+          await page.evaluate(() => window.electron.ipcRenderer.invoke('mt::core-draft::list'))
+        ).toEqual([])
         await expectHealthy(opened)
       } finally {
         await app.close()
