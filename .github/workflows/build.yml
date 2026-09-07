@@ -79,6 +79,25 @@ jobs:
         if: matrix.platform == 'windows'
         run: pnpm run build:win:${{ matrix.arch }}
 
+      - name: Verify default-enabled Linux package
+        if: matrix.platform == 'linux'
+        env:
+          MARKTEXT_E2E_HIDDEN_WINDOW: '1'
+          MARKTEXT_E2E_PRIVATE_DISPLAY: '1'
+        run: |
+          pnpm -C packages/desktop exec playwright install-deps chromium
+          app_binary=$(find dist -path '*linux*unpacked/marktext' -type f)
+          test -n "$app_binary"
+          launch_dir=$(mktemp -d)
+          ln -s "$PWD/$(dirname "$app_binary")/resources" "$launch_dir/resources"
+          printf '#!/bin/sh\nexec "%s" --no-sandbox "$@"\n' "$PWD/$app_binary" > "$launch_dir/marktext"
+          chmod +x "$launch_dir/marktext"
+          export MARKTEXT_PACKAGED_APP="$launch_dir/marktext"
+          MARKTEXT_EXPECTED_COMMIT=$(git rev-parse HEAD)
+          export MARKTEXT_EXPECTED_COMMIT
+          xvfb-run -a pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts installed-core-review.spec.ts installed-core-clipboard.spec.ts --project=installed --workers=1 --retries=0 --reporter=line --output=../../test-results/linux-installed
+          xvfb-run -a pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts criticmarkup-rendering-security.spec.ts criticmarkup-list-format.spec.ts criticmarkup-container-structure.spec.ts criticmarkup-nested-comment.spec.ts criticmarkup-idle-worker-recovery.spec.ts criticmarkup-source-ready.spec.ts criticmarkup-default-authority.spec.ts criticmarkup-draft-recovery.spec.ts criticmarkup-orphaned-recovery.spec.ts criticmarkup-ime-review.spec.ts installed-core-search.spec.ts installed-core-export-consumers.spec.ts image-ingestion.spec.ts --project=unpacked --workers=1 --retries=0 --reporter=line --output=../../test-results/linux-editorial
+
       - name: Verify macOS signature and default-enabled package
         if: matrix.platform == 'macos'
         env:
@@ -109,7 +128,7 @@ jobs:
           $env:MARKTEXT_EXPECTED_COMMIT = (git rev-parse HEAD).Trim()
           pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts installed-core-review.spec.ts installed-core-clipboard.spec.ts --project=installed --workers=1 --retries=0 --reporter=line --output=../../test-results/windows-installed
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts criticmarkup-list-format.spec.ts criticmarkup-container-structure.spec.ts criticmarkup-nested-comment.spec.ts criticmarkup-idle-worker-recovery.spec.ts criticmarkup-source-ready.spec.ts criticmarkup-default-authority.spec.ts criticmarkup-draft-recovery.spec.ts criticmarkup-orphaned-recovery.spec.ts criticmarkup-ime-review.spec.ts installed-core-search.spec.ts installed-core-export-consumers.spec.ts image-ingestion.spec.ts --project=unpacked --workers=1 --retries=0 --reporter=line --output=../../test-results/windows-editorial
+          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts criticmarkup-rendering-security.spec.ts criticmarkup-list-format.spec.ts criticmarkup-container-structure.spec.ts criticmarkup-nested-comment.spec.ts criticmarkup-idle-worker-recovery.spec.ts criticmarkup-source-ready.spec.ts criticmarkup-default-authority.spec.ts criticmarkup-draft-recovery.spec.ts criticmarkup-orphaned-recovery.spec.ts criticmarkup-ime-review.spec.ts installed-core-search.spec.ts installed-core-export-consumers.spec.ts image-ingestion.spec.ts --project=unpacked --workers=1 --retries=0 --reporter=line --output=../../test-results/windows-editorial
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload verification evidence
