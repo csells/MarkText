@@ -4,7 +4,7 @@ import { expectNoRendererErrors, launchWithMarkdown, sendIpcToRenderer } from '.
 
 const source = 'An {++addition++} and a {--deletion--}.\n'
 
-test('reader projections disable resolution consistently and navigation reveals the next editable target', async() => {
+test('reader projections retain review decisions consistently and navigation reveals the next editable target', async() => {
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1', MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined }
@@ -13,13 +13,13 @@ test('reader projections disable resolution consistently and navigation reveals 
     await page.getByRole('button', { name: 'Review', exact: true }).click()
     for (const mode of ['original', 'revised']) {
       await page.getByTestId(`critic-review-${mode}`).click()
-      await expect(page.getByTestId('critic-review-accept')).toBeDisabled()
+      await expect(page.getByTestId('critic-review-accept')).toBeEnabled()
       await expect.poll(() => app.evaluate(({ Menu }, selected) => {
         const menu = Menu.getApplicationMenu()
         return { selected: menu?.getMenuItemById(`critic-${selected}`)?.checked, accept: menu?.getMenuItemById('critic-accept')?.enabled }
-      }, mode)).toEqual({ selected: true, accept: false })
-      await expect(page.getByTestId('critic-review-reject')).toBeDisabled()
-      await expect(page.getByTestId('critic-review-accept-all')).toBeDisabled()
+      }, mode)).toEqual({ selected: true, accept: true })
+      await expect(page.getByTestId('critic-review-reject')).toBeEnabled()
+      await expect(page.getByTestId('critic-review-accept-all')).toBeEnabled()
       await page.getByTestId('critic-review-next').click()
       await expect(page.getByTestId('critic-review-markup')).toHaveAttribute('aria-pressed', 'true')
       await expect(page.locator('.core-review-current-block')).toBeVisible()
