@@ -74,6 +74,54 @@ annotation metadata and Comment conversations. “CM2” is only its working nam
 unless the canonical CriticMarkup maintainers adopt and version it.
 _Avoid_: CriticMarkup 2, MarkText metadata format
 
+**Metadata marker**:
+The optional `<!--cmid:ID-->` following an Addition, Deletion, Substitution, or
+Comment on the same line. Zero or more intervening ASCII spaces or tabs are
+allowed and remain ordinary document content; a line ending or any other
+character breaks the association. Writers use the gapless canonical form. `ID`
+alone is the annotation's durable, document-local identifier; `cmid:` is marker
+grammar and is not part of it. Highlights do not have metadata markers.
+_Avoid_: ID comment, CM2 Comment
+
+**Metadata definition**:
+The hidden, one-line Markdown reference definition `[ID]: <JSON>` whose label
+is the same identifier carried by a Metadata marker. Its JSON augments the
+inline CriticMarkup content with creation provenance, relationships, and
+current state; it does not own or duplicate the annotation's human-authored
+body or CM1 kind. It carries no edit provenance because unrestricted source
+edits cannot be detected or attributed reliably. Its unversioned JSON schema
+evolves only by adding optional members with defined absence behavior; existing
+meanings and types remain stable, and unknown members survive record rewrites.
+_Avoid_: registry, metadata block
+
+**Reply**:
+An inline CriticMarkup Comment with its own Metadata marker and definition,
+whose metadata relates it to an earlier annotated Change or Comment. It inherits
+the original annotation's Anchor when applicable; its human-authored body never
+lives only in JSON.
+_Avoid_: JSON reply body, nested Comment record
+
+**Comment conversation**:
+A root Comment together with the flat set of Replies whose metadata refers to
+it, regardless of their physical adjacency. Replies are presented in source
+order; writers normally keep the conversation together for CM1 and source
+readability. Resolution is current state of the whole conversation, recorded
+only on the root Comment; individual Replies cannot be resolved. Reopening
+removes that resolution state. Any participant may resolve or reopen the
+conversation, with the actor and time recorded as resolution provenance.
+Changes instead leave review through accept or reject.
+_Avoid_: nested thread, resolved reply
+
+**Contribution author**:
+The optional, self-asserted identity recorded when an Addition, Deletion,
+Substitution, Comment, or Reply is created. An extension-aware WYSIWYG editor
+offers body editing only to that author; accepting, rejecting, replying, and
+resolving are separate actions. Source editing is unrestricted, unauthenticated,
+and carries no reliable edit provenance. When authorship is absent or invalid,
+WYSIWYG editing is unrestricted and never assigns creation attribution
+retroactively.
+_Avoid_: owner, authenticated author
+
 ## Authority
 
 **Acknowledged revision**:
