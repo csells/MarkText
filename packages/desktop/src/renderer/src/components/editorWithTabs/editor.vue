@@ -1680,7 +1680,8 @@ const showCoreProjection = async (mode: 'markup' | 'original' | 'revised'): Prom
 
 const refreshCoreReviewItem = async (
   direction: 'next' | 'previous',
-  from: number
+  from: number | (() => number),
+  passive = false
 ): Promise<void> => {
   const adapter = corePlainTextAdapter
   const lease = coreBoundLease
@@ -1688,14 +1689,15 @@ const refreshCoreReviewItem = async (
   await coreReviewRefresh.request(async current => {
     await adapter.settled()
     if (!current()) return undefined
-    let reply = await lease.binding.reviewItemAtBarrier(direction, from, true)
+    const anchor = typeof from === 'function' ? from() : from
+    let reply = await lease.binding.reviewItemAtBarrier(direction, anchor, true)
     if (!current()) return undefined
     if (reply.type !== 'review-item') {
       throw new Error('Core Review navigation became stale')
     }
     if (reply.item === null) {
       const wrappedFrom = direction === 'next' ? 0 : reply.sourceLength
-      if (wrappedFrom !== from) {
+      if (wrappedFrom !== anchor) {
         reply = await lease.binding.reviewItemAtBarrier(direction, wrappedFrom, true)
         if (!current()) return undefined
         if (reply.type !== 'review-item') {
@@ -1704,7 +1706,7 @@ const refreshCoreReviewItem = async (
       }
     }
     return reply
-  })
+  }, { passive })
 }
 
 const updateCoreCommentPositions = (): void => {
@@ -2090,7 +2092,7 @@ const refreshCoreConsumerCount = async (): Promise<boolean> => {
 // the next edit. Explicit search, clipboard and export still use their barriers.
 const refreshCorePassiveConsumers = debounce(() => {
   refreshCoreConsumerCount()
-  refreshCoreReviewItem('next', coreReviewItem.value?.range.start ?? 0)
+  refreshCoreReviewItem('next', () => coreReviewItem.value?.range.start ?? 0, true)
 }, 150)
 
 const prepareCoreSelectionClipboard = async (
@@ -3959,10 +3961,12 @@ onBeforeUnmount(() => {
 .core-review-enabled { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); box-sizing: border-box; }
 .core-review-enabled.core-review-open { grid-template-columns: minmax(0, 1fr) 220px; }
 .editor-surface { height: 100%; min-height: 0; overflow: hidden; }
+/* Retain space below the final block for heading jumps and typewriter scrolling. */
+.core-review-enabled .editor-surface .mu-container { padding-bottom: 100vh; }
 .core-review-enabled > .editor-surface, .core-review-enabled > .core-document-projection { grid-row: 1; grid-column: 1; min-height: 0; min-width: 0; overflow: auto; }
 .core-review-enabled > .core-document-projection { padding: 24px 50px 100px; max-width: var(--editor-area-width, 800px); margin: 0 auto; font-size: v-bind("fontSize + 'px'"); line-height: v-bind(lineHeight); font-family: v-bind('resolveEditorFont(editorFontFamily)'); }
 .core-review-enabled > .search-bar { z-index: 3; }
-.editor-surface :deep(.core-review-current-block) { outline: 2px solid var(--themeColor); outline-offset: 5px; border-radius: 2px; }
+.editor-surface .core-review-current-block { outline: 2px solid var(--themeColor); outline-offset: 5px; border-radius: 2px; }
 
 .typewriter .editor-component {
   padding-top: calc(50vh - 136px);
