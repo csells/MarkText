@@ -56,6 +56,10 @@ test('sustains deletion, native paste, navigation and Review resolution without 
       const navigationStart = performance.now()
       await page.keyboard.press('ArrowLeft')
       await page.keyboard.press('ArrowRight')
+      // The passive sidebar refresh can still be pending after Core settles.
+      // Observe readiness at the input cadence so click retry backoff does not
+      // dominate the sustained session's wall time; retain the real UI click.
+      await expect.poll(() => page.getByTestId('critic-review-next').isEnabled(), { intervals: [20] }).toBe(true)
       await page.getByTestId('critic-review-next').click()
       await page.getByTestId('critic-review-previous').click()
       const suggestions = page.locator('.editor-component [data-critic-kind]')

@@ -52,12 +52,10 @@ test.describe('a11y / host page scan', () => {
     });
 
     test('inline format toolbar visible: no critical violations', async ({ page }) => {
-        // Select text in the host's initial markdown to surface the IFT.
-        await page.locator(editor.paragraph).first().click();
-        await page.keyboard.press('Home');
-        await page.keyboard.down('Shift');
-        await page.keyboard.press('End');
-        await page.keyboard.up('Shift');
+        // Select a word: on macOS Home/Shift+End spans the document,
+        // while the inline toolbar intentionally requires a same-block range.
+        await page.locator(editor.paragraph).first().dblclick({ position: { x: 30, y: 10 } });
+        await expect.poll(() => page.evaluate(() => window.muya!.getSelection()?.isSelectionInSameBlock)).toBe(true);
         await expect(page.locator(floats.inlineFormatToolbar)).toBeVisible();
 
         const results = await new AxeBuilder({ page }).exclude([...EXCLUDE_HOST_TOOLBAR]).analyze();
