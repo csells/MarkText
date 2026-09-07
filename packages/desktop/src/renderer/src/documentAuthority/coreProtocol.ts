@@ -41,17 +41,27 @@ export type CoreConsumerSearchReplacement = Readonly<{
   readonly insert: string
 }>
 
-export type CoreReviewItemLocator = Readonly<{
-  readonly kind: CriticMarkupKind
-  readonly range: Readonly<{ readonly start: number; readonly end: number }>
-}> | Readonly<{
-  readonly kind: 'commented-span'
-  readonly range: Readonly<{ readonly start: number; readonly end: number }>
-  readonly highlightRange: Readonly<{ readonly start: number; readonly end: number }>
-  readonly commentRange: Readonly<{ readonly start: number; readonly end: number }>
-}>
+export type CoreReviewItemLocator =
+  | Readonly<{
+    readonly kind: CriticMarkupKind
+    readonly range: Readonly<{ readonly start: number; readonly end: number }>
+  }>
+  | Readonly<{
+    readonly kind: 'commented-span'
+    readonly range: Readonly<{ readonly start: number; readonly end: number }>
+    readonly highlightRange: Readonly<{ readonly start: number; readonly end: number }>
+    readonly commentRange: Readonly<{ readonly start: number; readonly end: number }>
+  }>
 
 export type CoreRequest =
+  | Readonly<{
+    readonly type: 'configure'
+    readonly session: number
+    readonly sequence: number
+    readonly baseRevision: number
+    readonly options: Readonly<Partial<MarkdownOptions>>
+    readonly projections: readonly DocumentProjectionRequest[]
+  }>
   | Readonly<{
     readonly type: 'open'
     readonly session: number

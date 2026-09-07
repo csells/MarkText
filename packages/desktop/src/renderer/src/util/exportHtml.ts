@@ -16,7 +16,7 @@ import {
   type DocumentConsumerProjection
 } from '@/documentConsumers/documentProjectionConsumers'
 import { sanitize, EXPORT_DOMPURIFY_CONFIG } from './dompurify'
-import { resolveLocalImageSrc } from './resolveImageSrc'
+import { rewriteImageSrcs } from './rewriteImageSrcs'
 import { resolveLocalLinkHref } from './resolveLinkHref'
 
 export interface HeaderFooterPart {
@@ -93,9 +93,10 @@ const hf = (value: string): string => sanitize(value, EXPORT_DOMPURIFY_CONFIG) a
 
 const createTableHeader = (header: HeaderFooterPart, headerFooterStyled?: boolean): string => {
   const { type, left = '', center = '', right = '' } = header
-  const headerClass = `page-header ${(type === 1 ? 'single' : '') + styledClass(headerFooterStyled)}`
-    .replace(/\s+/g, ' ')
-    .trim()
+  const headerClass =
+    `page-header ${(type === 1 ? 'single' : '') + styledClass(headerFooterStyled)}`
+      .replace(/\s+/g, ' ')
+      .trim()
   return `<thead class="${headerClass}"><tr><th>
   <div class="hf-container">
     <div class="header-content-left">${hf(left)}</div>
@@ -107,9 +108,10 @@ const createTableHeader = (header: HeaderFooterPart, headerFooterStyled?: boolea
 
 const createRealFooter = (footer: HeaderFooterPart, headerFooterStyled?: boolean): string => {
   const { type, left = '', center = '', right = '' } = footer
-  const footerClass = `page-footer ${(type === 1 ? 'single' : '') + styledClass(headerFooterStyled)}`
-    .replace(/\s+/g, ' ')
-    .trim()
+  const footerClass =
+    `page-footer ${(type === 1 ? 'single' : '') + styledClass(headerFooterStyled)}`
+      .replace(/\s+/g, ' ')
+      .trim()
   return `<div class="${footerClass}">
   <div class="hf-container">
     <div class="footer-content-left">${hf(left)}</div>
@@ -128,26 +130,6 @@ const createTableBody = (article: string): string =>
 
 // Match a standalone `[TOC]` line (mirrors legacy marked TOC block token).
 const TOC_REG = /^ {0,3}\[TOC\] *$/im
-
-// Match the `src="…"` of an <img> tag in the (already sanitized, double-quoted)
-// engine output, so relative image paths can be rewritten to absolute `file://`
-// URLs. A string rewrite avoids re-serializing the whole article DOM (which
-// holds rendered KaTeX / diagram SVG).
-const IMG_SRC_REG = /(<img\b[^>]*?\ssrc=")([^"]*)(")/gi
-
-/**
- * Rewrite relative / absolute-local `<img src>` to absolute `file://` URLs so a
- * saved styled-HTML document still resolves its images after it is moved out of
- * the source folder (legacy muyajs `correctImageSrc` parity, issue 230). Remote
- * URLs and `data:` URIs are left untouched. Idempotent: a `file://` src is left
- * as-is, so the PDF / print path (which rewrites again via printService) is a
- * no-op the second time.
- */
-const rewriteImageSrcs = (html: string): string =>
-  html.replace(IMG_SRC_REG, (match, pre: string, src: string, post: string) => {
-    const resolved = resolveLocalImageSrc(src)
-    return resolved === src ? match : `${pre}${resolved}${post}`
-  })
 
 // Match the `href="…"` of an <a> tag in the (already sanitized, double-quoted)
 // engine output, so relative local links are rewritten to absolute `file://`
@@ -172,9 +154,7 @@ const rewriteAnchorHrefs = (html: string): string =>
  * at the `[TOC]` marker, and — when a header/footer is supplied — wraps the
  * article in the page-container table for paged PDF / print export.
  */
-const optionsWithHeaderFooterCss = (
-  options: ExportStyledHtmlOptions
-): ExportStyledHtmlOptions => {
+const optionsWithHeaderFooterCss = (options: ExportStyledHtmlOptions): ExportStyledHtmlOptions => {
   const { header, footer } = options
   let { extraCss = '' } = options
   if (header || footer) {
@@ -244,16 +224,13 @@ export const exportStyledHTML = async(
     dir
   })
   const articleMatch = /<article class="markdown-body">([\s\S]*)<\/article>/.exec(fullDoc)
-  return finalizeStyledHtml(
-    fullDoc,
-    articleMatch ? articleMatch[1] : fullDoc,
-    prepared
-  )
+  return finalizeStyledHtml(fullDoc, articleMatch ? articleMatch[1] : fullDoc, prepared)
 }
 
 /**
  * Core authority path. The document body comes only from the parser-owned AST;
- * Muya generates an empty styled shell and never receives document Markdown.
+ * Muya processes the interpreted HTML through its shared media/export pipeline
+ * without receiving or reinterpreting document Markdown.
  */
 export const exportStyledHTMLFromProjection = async(
   muya: Muya,
@@ -262,14 +239,17 @@ export const exportStyledHTMLFromProjection = async(
 ): Promise<string> => {
   const prepared = optionsWithHeaderFooterCss(options)
   const { title = '', extraCss = '', dir } = prepared
-  const shell = await new MarkdownToHtml('', muya).generate({
+  const shell = await MarkdownToHtml.fromHtml(
+    renderProjectedDocumentHtml(projection),
+    muya
+  ).generate({
     title,
     extraCSS: extraCss,
     dir
   })
   return finalizeStyledHtml(
     shell,
-    renderProjectedDocumentHtml(projection),
+    /<article class="markdown-body">([\s\S]*)<\/article>/.exec(shell)?.[1] ?? shell,
     prepared
   )
 }

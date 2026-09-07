@@ -48,7 +48,8 @@
     "perf:inspect-brk": "electron-vite preview -- --inspect-brk=5858",
     "test": "vitest run",
     "test:unit": "vitest run test/unit",
-    "test:e2e": "playwright test test/e2e",
+    "test:e2e": "playwright test --project=unpacked",
+    "test:e2e:installed": "playwright test --project=installed",
     "typecheck": "pnpm --filter @muyajs/core build:types && vue-tsc --noEmit -p tsconfig.json",
     "typecheck:watch": "pnpm --filter @muyajs/core build:types && vue-tsc --noEmit -p tsconfig.json --watch"
   },

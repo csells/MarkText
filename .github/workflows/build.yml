@@ -110,8 +110,8 @@ jobs:
           export MARKTEXT_PACKAGED_APP="$launch_dir/marktext"
           MARKTEXT_EXPECTED_COMMIT=$(git rev-parse HEAD)
           export MARKTEXT_EXPECTED_COMMIT
-          xvfb-run -a pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts installed-core-review.spec.ts installed-core-clipboard.spec.ts --project=installed --workers=1 --retries=0 --reporter=line --output=../../test-results/linux-installed
-          xvfb-run -a pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts criticmarkup-rendering-security.spec.ts criticmarkup-list-format.spec.ts criticmarkup-container-structure.spec.ts criticmarkup-nested-comment.spec.ts criticmarkup-idle-worker-recovery.spec.ts criticmarkup-source-ready.spec.ts criticmarkup-default-authority.spec.ts criticmarkup-draft-recovery.spec.ts criticmarkup-orphaned-recovery.spec.ts criticmarkup-ime-review.spec.ts installed-core-search.spec.ts installed-core-export-consumers.spec.ts image-ingestion.spec.ts --project=unpacked --workers=1 --retries=0 --reporter=line --output=../../test-results/linux-editorial
+          xvfb-run -a pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts installed-core-review.spec.ts installed-core-clipboard.spec.ts installed-core-search.spec.ts installed-core-export-consumers.spec.ts --project=installed --workers=1 --retries=0 --reporter=line --output=../../test-results/linux-installed
+          xvfb-run -a pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts criticmarkup-rendering-security.spec.ts criticmarkup-list-format.spec.ts criticmarkup-container-structure.spec.ts criticmarkup-nested-comment.spec.ts criticmarkup-idle-worker-recovery.spec.ts criticmarkup-source-ready.spec.ts criticmarkup-default-authority.spec.ts criticmarkup-draft-recovery.spec.ts criticmarkup-orphaned-recovery.spec.ts criticmarkup-ime-review.spec.ts image-ingestion.spec.ts --project=unpacked --workers=1 --retries=0 --reporter=line --output=../../test-results/linux-editorial
 
       - name: Verify macOS signature and default-enabled package
         if: matrix.platform == 'macos'
@@ -124,7 +124,7 @@ jobs:
           export MARKTEXT_PACKAGED_APP="$PWD/$app_bundle/Contents/MacOS/marktext"
           MARKTEXT_EXPECTED_COMMIT=$(git rev-parse HEAD)
           export MARKTEXT_EXPECTED_COMMIT
-          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts installed-core-review.spec.ts installed-core-clipboard.spec.ts --project=installed --workers=1 --retries=0 --reporter=line --output=../../test-results/macos-installed
+          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts installed-core-review.spec.ts installed-core-clipboard.spec.ts installed-core-search.spec.ts installed-core-export-consumers.spec.ts --project=installed --workers=1 --retries=0 --reporter=line --output=../../test-results/macos-installed
 
       - name: Verify default-enabled Windows package
         if: matrix.platform == 'windows'
@@ -141,9 +141,9 @@ jobs:
           $env:MARKTEXT_PACKAGED_APP = Join-Path $destination 'marktext.exe'
           if (!(Test-Path $env:MARKTEXT_PACKAGED_APP)) { throw 'Installer did not produce marktext.exe' }
           $env:MARKTEXT_EXPECTED_COMMIT = (git rev-parse HEAD).Trim()
-          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts installed-core-review.spec.ts installed-core-clipboard.spec.ts --project=installed --workers=1 --retries=0 --reporter=line --output=../../test-results/windows-installed
+          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts installed-core-review.spec.ts installed-core-clipboard.spec.ts installed-core-search.spec.ts installed-core-export-consumers.spec.ts --project=installed --workers=1 --retries=0 --reporter=line --output=../../test-results/windows-installed
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts criticmarkup-rendering-security.spec.ts criticmarkup-list-format.spec.ts criticmarkup-container-structure.spec.ts criticmarkup-nested-comment.spec.ts criticmarkup-idle-worker-recovery.spec.ts criticmarkup-source-ready.spec.ts criticmarkup-default-authority.spec.ts criticmarkup-draft-recovery.spec.ts criticmarkup-orphaned-recovery.spec.ts criticmarkup-ime-review.spec.ts installed-core-search.spec.ts installed-core-export-consumers.spec.ts image-ingestion.spec.ts --project=unpacked --workers=1 --retries=0 --reporter=line --output=../../test-results/windows-editorial
+          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts criticmarkup-rendering-security.spec.ts criticmarkup-list-format.spec.ts criticmarkup-container-structure.spec.ts criticmarkup-nested-comment.spec.ts criticmarkup-idle-worker-recovery.spec.ts criticmarkup-source-ready.spec.ts criticmarkup-default-authority.spec.ts criticmarkup-draft-recovery.spec.ts criticmarkup-orphaned-recovery.spec.ts criticmarkup-ime-review.spec.ts image-ingestion.spec.ts --project=unpacked --workers=1 --retries=0 --reporter=line --output=../../test-results/windows-editorial
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload verification evidence
@@ -205,9 +205,9 @@ jobs:
           if (!(Test-Path $env:MARKTEXT_PACKAGED_APP)) { throw 'Installer did not produce marktext.exe' }
           pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts installed-core-review.spec.ts --project=installed --grep 'addition.block-boundary.author' --repeat-each=10 --workers=1 --retries=0 --trace=on --reporter=line --output=../../test-results/windows-save-diagnostic
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts installed-core-review.spec.ts installed-core-clipboard.spec.ts --project=installed --workers=1 --retries=0 --trace=retain-on-failure --reporter=line --output=../../test-results/windows-installed
+          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts installed-core-review.spec.ts installed-core-clipboard.spec.ts installed-core-search.spec.ts installed-core-export-consumers.spec.ts --project=installed --workers=1 --retries=0 --trace=retain-on-failure --reporter=line --output=../../test-results/windows-installed
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts criticmarkup-rendering-security.spec.ts criticmarkup-list-format.spec.ts criticmarkup-container-structure.spec.ts criticmarkup-nested-comment.spec.ts criticmarkup-idle-worker-recovery.spec.ts criticmarkup-source-ready.spec.ts criticmarkup-default-authority.spec.ts criticmarkup-draft-recovery.spec.ts criticmarkup-orphaned-recovery.spec.ts criticmarkup-ime-review.spec.ts installed-core-search.spec.ts installed-core-export-consumers.spec.ts image-ingestion.spec.ts --project=unpacked --workers=1 --retries=0 --trace=retain-on-failure --reporter=line --output=../../test-results/windows-editorial
+          pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts criticmarkup-rendering-security.spec.ts criticmarkup-list-format.spec.ts criticmarkup-container-structure.spec.ts criticmarkup-nested-comment.spec.ts criticmarkup-idle-worker-recovery.spec.ts criticmarkup-source-ready.spec.ts criticmarkup-default-authority.spec.ts criticmarkup-draft-recovery.spec.ts criticmarkup-orphaned-recovery.spec.ts criticmarkup-ime-review.spec.ts image-ingestion.spec.ts --project=unpacked --workers=1 --retries=0 --trace=retain-on-failure --reporter=line --output=../../test-results/windows-editorial
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Retain existing-candidate verification results
         if: always()
@@ -307,8 +307,8 @@ jobs:
           printf '#!/bin/sh\nexec /opt/marktext/marktext --no-sandbox "$@"\n' > "$launch_dir/marktext"
           chmod +x "$launch_dir/marktext"
           export MARKTEXT_PACKAGED_APP="$launch_dir/marktext"
-          xvfb-run -a pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts installed-core-review.spec.ts installed-core-clipboard.spec.ts --project=installed --workers=1 --retries=0 --trace=retain-on-failure --reporter=line --output=../../test-results/linux-installed
-          xvfb-run -a pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts criticmarkup-rendering-security.spec.ts criticmarkup-list-format.spec.ts criticmarkup-container-structure.spec.ts criticmarkup-nested-comment.spec.ts criticmarkup-idle-worker-recovery.spec.ts criticmarkup-source-ready.spec.ts criticmarkup-default-authority.spec.ts criticmarkup-draft-recovery.spec.ts criticmarkup-orphaned-recovery.spec.ts criticmarkup-ime-review.spec.ts installed-core-search.spec.ts installed-core-export-consumers.spec.ts image-ingestion.spec.ts --project=unpacked --workers=1 --retries=0 --trace=retain-on-failure --reporter=line --output=../../test-results/linux-editorial
+          xvfb-run -a pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts installed-core-review.spec.ts installed-core-clipboard.spec.ts installed-core-search.spec.ts installed-core-export-consumers.spec.ts --project=installed --workers=1 --retries=0 --trace=retain-on-failure --reporter=line --output=../../test-results/linux-installed
+          xvfb-run -a pnpm -C packages/desktop exec playwright test --config=test/e2e/playwright.config.ts criticmarkup-rendering-security.spec.ts criticmarkup-list-format.spec.ts criticmarkup-container-structure.spec.ts criticmarkup-nested-comment.spec.ts criticmarkup-idle-worker-recovery.spec.ts criticmarkup-source-ready.spec.ts criticmarkup-default-authority.spec.ts criticmarkup-draft-recovery.spec.ts criticmarkup-orphaned-recovery.spec.ts criticmarkup-ime-review.spec.ts image-ingestion.spec.ts --project=unpacked --workers=1 --retries=0 --trace=retain-on-failure --reporter=line --output=../../test-results/linux-editorial
       - name: Retain Debian verification results
         if: always()
         uses: actions/upload-artifact@v4

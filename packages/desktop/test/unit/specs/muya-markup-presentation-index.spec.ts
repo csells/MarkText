@@ -6,6 +6,29 @@ import { renderMuyaMarkupBinding } from '@/documentAuthority/muyaMarkupPresentat
 import { createMuyaMarkupPresentationIndex } from '@/documentAuthority/muyaMarkupPresentationIndex'
 
 describe('Muya Markup presentation index', () => {
+  it('refreshes localized comment names without changing source or reusing the old locale cache', () => {
+    const core = createDocumentCore()
+    const revision = core.open('a{>>note<<}b')
+    const view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations)
+    const english = createMuyaMarkupPresentationIndex(view, undefined, undefined, 'Comment')
+    expect(english.render([0, 'text'], 'ab')).toContain('aria-label="Comment"')
+    const french = createMuyaMarkupPresentationIndex(view, english, undefined, 'Commentaire')
+    expect(french.changedPaths).toContainEqual([0, 'text'])
+    expect(french.render([0, 'text'], 'ab')).toContain('aria-label="Commentaire"')
+    const escaped = createMuyaMarkupPresentationIndex(
+      view,
+      french,
+      undefined,
+      'Note "quoted" <safe>'
+    )
+    const host = document.createElement('div')
+    host.innerHTML = escaped.render([0, 'text'], 'ab') ?? ''
+    expect(host.querySelector('[role="button"]')?.getAttribute('aria-label')).toBe(
+      'Note "quoted" <safe>'
+    )
+    expect(host.textContent).toBe('ab')
+  })
+
   it('retains a shifted comment leaf but refreshes changed comment locations and annotation extents', () => {
     const core = createDocumentCore()
     const renderer = vi.fn(renderMuyaMarkupBinding)
@@ -15,7 +38,9 @@ describe('Muya Markup presentation index', () => {
     const html = previous.render([1, 'text'], 'ab')
     const host = document.createElement('div')
     host.innerHTML = html ?? ''
-    expect(host.querySelector('[data-critic-kind="comment"]')?.getAttribute('data-critic-start')).toBe('1')
+    expect(
+      host.querySelector('[data-critic-kind="comment"]')?.getAttribute('data-critic-start')
+    ).toBe('1')
 
     const shifted = core.open('first expanded\n\na{>>note<<}b')
     const shiftedView = createMuyaMarkupView(core.project(shifted, 'markup'), shifted.annotations)
@@ -51,7 +76,10 @@ describe('Muya Markup presentation index', () => {
     const text = 'old**new**'
     const host = document.createElement('div')
     index.render([0, 'text'], text)
-    const context = { renderImage: () => undefined, highlights: [{ start: 5, end: 8, active: true }] }
+    const context = {
+      renderImage: () => undefined,
+      highlights: [{ start: 5, end: 8, active: true }]
+    }
     host.innerHTML = index.render([0, 'text'], text, context) ?? ''
     expect(host.querySelector('.mu-highlight')?.textContent).toBe('new')
     expect(host.querySelector('.mu-highlight strong')?.textContent).toBe('new')
@@ -84,7 +112,7 @@ describe('Muya Markup presentation index', () => {
     const renderer = vi.fn(renderMuyaMarkupBinding)
     const view = createMuyaMarkupView(core.project(previous, 'markup'), previous.annotations)
     const index = createMuyaMarkupPresentationIndex(view, undefined, renderer)
-    const nodes = view.bindings.map(binding => {
+    const nodes = view.bindings.map((binding) => {
       const node = document.createElement('div')
       node.innerHTML = index.render(binding.path, binding.text) ?? ''
       return node
@@ -100,8 +128,10 @@ describe('Muya Markup presentation index', () => {
     const updated = createMuyaMarkupPresentationIndex(nextView, index, renderer)
     expect(updated.changedPaths).toEqual([[0, 'text']])
     for (const path of updated.changedPaths) {
-      const binding = nextView.bindings.find(candidate => JSON.stringify(candidate.path) === JSON.stringify(path))
-      if (binding !== undefined) nodes[Number(path[0])].innerHTML = updated.render(path, binding.text) ?? ''
+      const binding = nextView.bindings.find(
+        (candidate) => JSON.stringify(candidate.path) === JSON.stringify(path)
+      )
+      if (binding !== undefined) { nodes[Number(path[0])].innerHTML = updated.render(path, binding.text) ?? '' }
     }
     expect(nodes[1].querySelector('strong')).toBe(kept)
     expect(updated.render([1, 'text'], '**kept**')).toBe(nodes[1].innerHTML)

@@ -12,6 +12,7 @@
       <textarea
         ref="input"
         v-model="draft"
+        :dir="textDirection"
         :data-testid="`${testIdPrefix}-input`"
         rows="6"
         :disabled="submitting"
@@ -37,6 +38,7 @@
     <div class="core-comment-actions">
       <button
         type="button"
+        class="button small"
         :data-testid="`${testIdPrefix}-cancel`"
         :disabled="submitting"
         @click="cancel"
@@ -45,6 +47,7 @@
       </button>
       <button
         type="submit"
+        class="button-primary small"
         :data-testid="`${testIdPrefix}-submit`"
         :disabled="submitting || targetChanged || (!allowEmpty && draft.length === 0)"
       >
@@ -57,52 +60,84 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
 
-const props = withDefaults(defineProps<{
-  modelValue: boolean
-  targetId: string
-  defaultText?: string
-  submitting?: boolean
-  error?: string
-  label?: string
-  submitLabel?: string
-  cancelLabel?: string
-  targetChangedLabel?: string
-  testIdPrefix?: string
-  allowEmpty?: boolean
-}>(), {
-  defaultText: '',
-  submitting: false,
-  error: '',
-  label: 'Comment',
-  submitLabel: 'Save comment',
-  cancelLabel: 'Cancel',
-  testIdPrefix: 'critic-review-comment',
-  allowEmpty: true,
-  targetChangedLabel: 'The review selection changed. Your draft is preserved. Cancel it before starting another comment.'
-})
+const props = withDefaults(
+  defineProps<{
+    modelValue: boolean
+    targetId: string
+    defaultText?: string
+    submitting?: boolean
+    error?: string
+    label?: string
+    submitLabel?: string
+    cancelLabel?: string
+    targetChangedLabel?: string
+    testIdPrefix?: string
+    textDirection?: string
+    restoreFocus?: () => void
+    allowEmpty?: boolean
+  }>(),
+  {
+    textDirection: 'ltr',
+    defaultText: '',
+    submitting: false,
+    error: '',
+    label: 'Comment',
+    submitLabel: 'Save comment',
+    cancelLabel: 'Cancel',
+    testIdPrefix: 'critic-review-comment',
+    allowEmpty: true,
+    targetChangedLabel:
+      'The review selection changed. Your draft is preserved. Cancel it before starting another comment.'
+  }
+)
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
-  submit: [draft: { targetId: string, text: string }]
-  cancel: [draft: { targetId: string, text: string }]
+  submit: [draft: { targetId: string; text: string }]
+  cancel: [draft: { targetId: string; text: string }]
 }>()
 const input = ref<HTMLTextAreaElement>()
 const draft = ref('')
 const target = ref(props.targetId)
 const targetChanged = ref(false)
+let opener: HTMLElement | undefined
 
-watch(() => props.modelValue, async (open) => {
-  if (!open) return
-  target.value = props.targetId
-  draft.value = props.defaultText
-  targetChanged.value = false
-  await nextTick()
-  input.value?.focus()
-}, { immediate: true })
+watch(
+  () => props.modelValue,
+  async (open, wasOpen) => {
+    if (!open) {
+      if (!wasOpen) return
+      await nextTick()
+      if (props.restoreFocus) props.restoreFocus()
+      else if (opener?.isConnected) opener.focus()
+      return
+    }
+    opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined
+    target.value = props.targetId
+    draft.value = props.defaultText
+    targetChanged.value = false
+    await nextTick()
+    input.value?.focus()
+  },
+  { immediate: true }
+)
 
-watch(() => props.targetId, value => {
-  if (props.modelValue && value !== target.value) targetChanged.value = true
-})
+watch(
+  () => props.submitting,
+  async (busy, wasBusy) => {
+    if (!busy && wasBusy && props.modelValue) {
+      await nextTick()
+      input.value?.focus()
+    }
+  }
+)
+
+watch(
+  () => props.targetId,
+  (value) => {
+    if (props.modelValue && value !== target.value) targetChanged.value = true
+  }
+)
 
 const submit = (): void => {
   if (!props.allowEmpty && draft.value.length === 0) return
@@ -131,6 +166,7 @@ const onKeydown = (event: KeyboardEvent): void => {
 <style scoped>
 .core-comment-editor {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   width: 100%;
   min-width: 0;
@@ -145,11 +181,14 @@ const onKeydown = (event: KeyboardEvent): void => {
 
 .core-comment-label {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 8px;
 }
 
 textarea {
   width: 100%;
+  min-width: 0;
   min-height: 7em;
   box-sizing: border-box;
   resize: vertical;
@@ -162,6 +201,11 @@ textarea {
   line-height: 1.5;
 }
 
+textarea:focus-visible {
+  outline: 2px solid var(--themeColor);
+  outline-offset: -2px;
+}
+
 .core-comment-error {
   margin: 0;
   font-size: 0.9em;
@@ -169,22 +213,12 @@ textarea {
 
 .core-comment-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
 }
 
-button {
-  padding: 5px 10px;
-  border: 1px solid var(--floatBorderColor);
-  border-radius: 4px;
-  background: var(--buttonBgColor);
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
-button:disabled {
-  opacity: 0.55;
-  cursor: default;
+.core-comment-actions > button {
+  max-width: 100%;
 }
 </style>

@@ -1,4 +1,3 @@
-import type { IMatch, ISearchOption } from '../search/types';
 import { graphemeClusters } from '.';
 
 export interface IStringMatch {
@@ -116,7 +115,18 @@ function createSearchRegExp(source: string, flags: string, isRegexp: boolean): R
     return null;
 }
 
-export function matchString(text: string, value: string, options: ISearchOption): IStringMatch[] {
+export interface ISearchQueryOptions {
+    readonly isCaseSensitive?: boolean;
+    readonly isWholeWord?: boolean;
+    readonly isRegexp?: boolean;
+}
+
+export interface IRegexMatch {
+    readonly match: string;
+    readonly subMatches: readonly (string | undefined)[];
+}
+
+export function matchString(text: string, value: string, options: ISearchQueryOptions): IStringMatch[] {
     const { isCaseSensitive, isWholeWord, isRegexp } = options;
 
     const SPECIAL_CHAR_REG = /[[\]\\^$.|?*+(){}/]/g;
@@ -145,7 +155,7 @@ export function matchString(text: string, value: string, options: ISearchOption)
 // otherwise group n followed by a literal digit. A replacer function, not a
 // replacement string: the latter would read `$$` and `$&` inside the captured
 // text as patterns instead of inserting them.
-export function buildRegexValue(match: IMatch, value: string) {
+export function buildRegexValue(match: IRegexMatch, value: string) {
     const groups = [match.match, ...match.subMatches];
 
     return value.replace(/(?<!\\)\$(0|[1-9]\d?)/g, (reference, digits: string) => {

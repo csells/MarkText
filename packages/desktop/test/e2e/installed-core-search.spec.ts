@@ -11,7 +11,11 @@ import {
   waitForEditor,
   waitForMenuReady
 } from './helpers'
-import { defaultCoreLaunchEnvironment, expectDefaultCoreAuthority, expectInstalledArtifactCommit } from './installedArtifactProvenance'
+import {
+  defaultCoreLaunchEnvironment,
+  expectDefaultCoreAuthority,
+  expectInstalledArtifactCommit
+} from './installedArtifactProvenance'
 
 const initialSource =
   '# cat heading\n\n' +
@@ -44,7 +48,7 @@ const launchInstalled = async(
   binary: string,
   userDataDir: string,
   filePath: string
-): Promise<{ app: ElectronApplication, page: Page }> => {
+): Promise<{ app: ElectronApplication; page: Page }> => {
   const app = await electron.launch({
     executablePath: binary,
     // Explicit preliminary runs may use the repository Electron executable.
@@ -53,7 +57,9 @@ const launchInstalled = async(
       ...(process.env.MARKTEXT_PRELIMINARY_APP_ROOT === undefined
         ? []
         : [path.resolve(process.env.MARKTEXT_PRELIMINARY_APP_ROOT)]),
-      '--user-data-dir', userDataDir, filePath
+      '--user-data-dir',
+      userDataDir,
+      filePath
     ],
     env: defaultCoreLaunchEnvironment({
       PERF_TESTING: 'true',
@@ -76,14 +82,9 @@ const launchInstalled = async(
   }
 }
 
-const counterText = (page: Page): Promise<string> =>
-  page.locator(RESULT_COUNTER).innerText()
+const counterText = (page: Page): Promise<string> => page.locator(RESULT_COUNTER).innerText()
 
-const openReplace = async(
-  app: ElectronApplication,
-  page: Page,
-  query: string
-): Promise<void> => {
+const openReplace = async(app: ElectronApplication, page: Page, query: string): Promise<void> => {
   await sendIpcToRenderer(app, 'mt::editor-edit-action', 'replace')
   await expect(page.locator(SEARCH_BAR)).toBeVisible({ timeout: 5_000 })
   await expect(page.locator(REPLACE_INPUT)).toBeVisible({ timeout: 5_000 })
@@ -102,12 +103,43 @@ const saveAndExpect = async(
 test.describe('installed Core projected search authority', () => {
   test.describe.configure({ timeout: 180_000 })
 
+  test('escaped-hyphen regex selects visible matches and replaces each capture with exact undo', async() => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-search-regex-'))
+    const filePath = path.join(root, 'search.md')
+    const source = '{++cat-12++} cat-34\n'
+    fs.writeFileSync(filePath, source, 'utf8')
+    let launched: { app: ElectronApplication; page: Page } | undefined
+    try {
+      launched = await launchInstalled(installedBinary(), path.join(root, 'profile'), filePath)
+      const { app, page } = launched
+      await expectEditorWindowHidden(app)
+      expectEditorNotFrontmost(app)
+      await openReplace(app, page, '(cat)\\-(\\d+)')
+      await page.locator(`${SEARCH_BAR} .is-regex`).click()
+      await expect.poll(() => counterText(page)).toContain('1 / 2')
+      await expect(page.locator('.mu-highlight')).toHaveText(['cat-12'])
+      await expect(page.locator('.mu-selection')).toHaveText(['cat-34'])
+      await page.locator(REPLACE_INPUT).fill('$2:$1')
+      await page.locator(REPLACE_ALL).click()
+      await page.evaluate(() => window.__marktextDocumentCore?.settled())
+      await saveAndExpect(app, filePath, '{++12:cat++} 34:cat\n')
+      await page.keyboard.press('Escape')
+      await expect(page.locator(SEARCH_BAR)).toBeHidden()
+      await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+      await page.evaluate(() => window.__marktextDocumentCore?.settled())
+      await saveAndExpect(app, filePath, source)
+    } finally {
+      if (launched !== undefined) await launched.app.close()
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test('one Revised match spans retained Markup pieces without highlighting the deletion', async() => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-search-pieces-'))
     const filePath = path.join(root, 'search.md')
     const source = 'a{--old--}b {~~legacy~>cat~~}\n'
     fs.writeFileSync(filePath, source, 'utf8')
-    let launched: { app: ElectronApplication, page: Page } | undefined
+    let launched: { app: ElectronApplication; page: Page } | undefined
     try {
       launched = await launchInstalled(installedBinary(), path.join(root, 'profile'), filePath)
       const { app, page } = launched
@@ -136,15 +168,15 @@ test.describe('installed Core projected search authority', () => {
     const filePath = path.join(root, 'search.md')
     const userDataDir = path.join(root, 'profile')
     fs.writeFileSync(filePath, initialSource, 'utf8')
-    let launched: { app: ElectronApplication, page: Page } | undefined
+    let launched: { app: ElectronApplication; page: Page } | undefined
     try {
       launched = await launchInstalled(binary, userDataDir, filePath)
       const { app, page } = launched
       await expectEditorWindowHidden(app)
       expectEditorNotFrontmost(app)
-      expect(await page.evaluate(() =>
-        window.electron.process.env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
-      )).toBeUndefined()
+      expect(
+        await page.evaluate(() => window.electron.process.env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS)
+      ).toBeUndefined()
 
       const visibleEditorText = await page.locator('.editor-component').innerText()
       expect(visibleEditorText).toContain('legacy-cat')

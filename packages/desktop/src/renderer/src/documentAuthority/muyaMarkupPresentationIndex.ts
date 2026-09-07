@@ -12,7 +12,11 @@ import type {
 export interface MuyaMarkupPresentationIndex {
   /** Includes removed paths, whose provider result becomes undefined. */
   readonly changedPaths: readonly MuyaMarkupPath[]
-  render(path: MuyaMarkupPath, text: string, context?: IInlinePresentationContext): string | undefined
+  render(
+    path: MuyaMarkupPath,
+    text: string,
+    context?: IInlinePresentationContext
+  ): string | undefined
 }
 
 type Renderer = typeof renderMuyaMarkupBinding
@@ -22,18 +26,27 @@ interface Entry {
   readonly decorations: readonly MuyaMarkupDecoration[]
   readonly comments: readonly MuyaMarkupComment[]
   readonly hasImage: boolean
-  rendered?: { readonly text: string, readonly html: string, readonly highlights: Highlights }
+  rendered?: { readonly text: string; readonly html: string; readonly highlights: Highlights }
 }
-const stores = new WeakMap<MuyaMarkupPresentationIndex, {
-  readonly renderer: Renderer
-  readonly entries: ReadonlyMap<string, Entry>
-}>()
+const stores = new WeakMap<
+  MuyaMarkupPresentationIndex,
+  {
+    readonly renderer: Renderer
+    readonly commentLabel: string
+    readonly entries: ReadonlyMap<string, Entry>
+  }
+>()
 const pathKey = (path: MuyaMarkupPath): string => JSON.stringify(path)
-const hasImage = (node: MarkdownAstNode): boolean => node.kind === 'image' || node.children.some(hasImage)
+const hasImage = (node: MarkdownAstNode): boolean =>
+  node.kind === 'image' || node.children.some(hasImage)
 
 // These facts locate reference owners; resolved semantic values, rather than
 // absolute owner positions, determine rendered output.
-const referencePositions = new Set(['resolvedDefinitionStart', 'resolvedDefinitionEnd', 'definitionStart'])
+const referencePositions = new Set([
+  'resolvedDefinitionStart',
+  'resolvedDefinitionEnd',
+  'definitionStart'
+])
 
 const sameSyntax = (before: MarkdownAstNode, after: MarkdownAstNode): boolean => {
   if (before === after) return true
@@ -46,27 +59,39 @@ const sameSyntax = (before: MarkdownAstNode, after: MarkdownAstNode): boolean =>
     const [left, right] = pair
     const leftSpellings = left.semanticTextSegments ?? []
     const rightSpellings = right.semanticTextSegments ?? []
-    if (leftSpellings.length !== rightSpellings.length || leftSpellings.some((spelling, index) => {
-      const other = rightSpellings[index]
-      return spelling.value !== other.value ||
-        spelling.range.start - beforeOrigin !== other.range.start - afterOrigin ||
-        spelling.range.end - beforeOrigin !== other.range.end - afterOrigin
-    })) return false
-    if (left.kind !== right.kind || left.children.length !== right.children.length ||
-        left.range.start - beforeOrigin !== right.range.start - afterOrigin ||
-        left.range.end - beforeOrigin !== right.range.end - afterOrigin) return false
-    const leftKeys = Object.keys(left.attributes).filter(key => !referencePositions.has(key))
-    const rightKeys = Object.keys(right.attributes).filter(key => !referencePositions.has(key))
+    if (
+      leftSpellings.length !== rightSpellings.length ||
+      leftSpellings.some((spelling, index) => {
+        const other = rightSpellings[index]
+        return (
+          spelling.value !== other.value ||
+          spelling.range.start - beforeOrigin !== other.range.start - afterOrigin ||
+          spelling.range.end - beforeOrigin !== other.range.end - afterOrigin
+        )
+      })
+    ) { return false }
+    if (
+      left.kind !== right.kind ||
+      left.children.length !== right.children.length ||
+      left.range.start - beforeOrigin !== right.range.start - afterOrigin ||
+      left.range.end - beforeOrigin !== right.range.end - afterOrigin
+    ) { return false }
+    const leftKeys = Object.keys(left.attributes).filter((key) => !referencePositions.has(key))
+    const rightKeys = Object.keys(right.attributes).filter((key) => !referencePositions.has(key))
     if (leftKeys.length !== rightKeys.length) return false
     for (const key of leftKeys) {
       const leftValue = left.attributes[key]
       const rightValue = right.attributes[key]
       if (!Object.hasOwn(right.attributes, key)) return false
-      if (typeof leftValue === 'number' && typeof rightValue === 'number' && /(?:Start|End)$/u.test(key)) {
+      if (
+        typeof leftValue === 'number' &&
+        typeof rightValue === 'number' &&
+        /(?:Start|End)$/u.test(key)
+      ) {
         if (leftValue - beforeOrigin !== rightValue - afterOrigin) return false
       } else if (leftValue !== rightValue) return false
     }
-    for (let index = 0; index < left.children.length; index += 1) pending.push([left.children[index], right.children[index]])
+    for (let index = 0; index < left.children.length; index += 1) { pending.push([left.children[index], right.children[index]]) }
   }
   return true
 }
@@ -74,28 +99,43 @@ const sameSyntax = (before: MarkdownAstNode, after: MarkdownAstNode): boolean =>
 const samePresentation = (before: Entry, after: Entry): boolean => {
   const left = before.binding
   const right = after.binding
-  if (left.text !== right.text || before.decorations.length !== after.decorations.length ||
-      before.comments.length !== after.comments.length ||
-      left.segments.length !== right.segments.length) return false
+  if (
+    left.text !== right.text ||
+    before.decorations.length !== after.decorations.length ||
+    before.comments.length !== after.comments.length ||
+    left.segments.length !== right.segments.length
+  ) { return false }
   for (let index = 0; index < left.segments.length; index += 1) {
     const a = left.segments[index]
     const b = right.segments[index]
-    if (a.text.start !== b.text.start || a.text.end !== b.text.end ||
-        a.syntax.start - left.syntax.range.start !== b.syntax.start - right.syntax.range.start ||
-        a.syntax.end - left.syntax.range.start !== b.syntax.end - right.syntax.range.start) return false
+    if (
+      a.text.start !== b.text.start ||
+      a.text.end !== b.text.end ||
+      a.syntax.start - left.syntax.range.start !== b.syntax.start - right.syntax.range.start ||
+      a.syntax.end - left.syntax.range.start !== b.syntax.end - right.syntax.range.start
+    ) { return false }
   }
   for (let index = 0; index < before.decorations.length; index += 1) {
     const a = before.decorations[index]
     const b = after.decorations[index]
-    if (a.range.start !== b.range.start || a.range.end !== b.range.end || a.mark.kind !== b.mark.kind ||
-        (a.mark.kind === 'substitution' && (b.mark.kind !== 'substitution' || a.mark.arm !== b.mark.arm))) return false
+    if (
+      a.range.start !== b.range.start ||
+      a.range.end !== b.range.end ||
+      a.mark.kind !== b.mark.kind ||
+      (a.mark.kind === 'substitution' &&
+        (b.mark.kind !== 'substitution' || a.mark.arm !== b.mark.arm))
+    ) { return false }
   }
   for (let index = 0; index < before.comments.length; index += 1) {
     const a = before.comments[index]
     const b = after.comments[index]
-    if (a.offset !== b.offset ||
-        a.annotationRange.start - left.sourceRange.start !== b.annotationRange.start - right.sourceRange.start ||
-        a.annotationRange.end - left.sourceRange.start !== b.annotationRange.end - right.sourceRange.start) return false
+    if (
+      a.offset !== b.offset ||
+      a.annotationRange.start - left.sourceRange.start !==
+        b.annotationRange.start - right.sourceRange.start ||
+      a.annotationRange.end - left.sourceRange.start !==
+        b.annotationRange.end - right.sourceRange.start
+    ) { return false }
   }
   return sameSyntax(left.syntax, right.syntax)
 }
@@ -108,7 +148,8 @@ const samePresentation = (before: Entry, after: Entry): boolean => {
 export function createMuyaMarkupPresentationIndex(
   view: Pick<MuyaMarkupView, 'bindings' | 'decorations' | 'comments'>,
   previous?: MuyaMarkupPresentationIndex,
-  renderer: Renderer = renderMuyaMarkupBinding
+  renderer: Renderer = renderMuyaMarkupBinding,
+  commentLabel = 'Comment'
 ): MuyaMarkupPresentationIndex {
   const previousStore = previous === undefined ? undefined : stores.get(previous)
   const before = previousStore?.renderer === renderer ? previousStore.entries : undefined
@@ -137,9 +178,13 @@ export function createMuyaMarkupPresentationIndex(
       hasImage: hasImage(binding.syntax)
     }
     const retained = before?.get(key)
-    if (retained !== undefined && samePresentation(retained, entry)) {
+    if (
+      retained !== undefined &&
+      (entry.comments.length === 0 || previousStore?.commentLabel === commentLabel) &&
+      samePresentation(retained, entry)
+    ) {
       entry.rendered = retained.rendered
-      if (retained.rendered !== undefined && retained.rendered.text !== binding.text) changedPaths.push(binding.path)
+      if (retained.rendered !== undefined && retained.rendered.text !== binding.text) { changedPaths.push(binding.path) }
     } else changedPaths.push(binding.path)
     entries.set(key, entry)
   }
@@ -155,14 +200,29 @@ export function createMuyaMarkupPresentationIndex(
       // widget renderer on every requested patch while other leaves stay cached.
       const highlights = context?.highlights ?? []
       const cached = entry.rendered
-      if (!entry.hasImage && cached?.text === text && cached.highlights.length === highlights.length &&
-          cached.highlights.every((previous, index) => previous.start === highlights[index].start &&
-            previous.end === highlights[index].end && previous.active === highlights[index].active)) return cached.html
-      const html = renderer(entry.binding, entry.decorations, text, context, entry.comments)
-      entry.rendered = { text, html, highlights: highlights.map(highlight => ({ ...highlight })) }
+      if (
+        !entry.hasImage &&
+        cached?.text === text &&
+        cached.highlights.length === highlights.length &&
+        cached.highlights.every(
+          (previous, index) =>
+            previous.start === highlights[index].start &&
+            previous.end === highlights[index].end &&
+            previous.active === highlights[index].active
+        )
+      ) { return cached.html }
+      const html = renderer(
+        entry.binding,
+        entry.decorations,
+        text,
+        context,
+        entry.comments,
+        commentLabel
+      )
+      entry.rendered = { text, html, highlights: highlights.map((highlight) => ({ ...highlight })) }
       return html
     }
   }
-  stores.set(index, { renderer, entries })
+  stores.set(index, { renderer, entries, commentLabel })
   return index
 }
