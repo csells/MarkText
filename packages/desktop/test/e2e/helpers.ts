@@ -66,6 +66,14 @@ export interface LaunchOptions {
   env?: Readonly<Record<string, string | undefined>>
 }
 
+const closeFailedLaunch = async(app: ElectronApplication): Promise<void> => {
+  // Readiness can fail while a renderer is stuck. Do not depend on that
+  // renderer acknowledging a graceful quit, or leave it owning a temp profile.
+  // This handle belongs exclusively to the launch that failed.
+  app.process().kill('SIGKILL')
+  await app.close().catch(() => {})
+}
+
 export const launchElectron = async(
   userArgs?: string[],
   options: LaunchOptions = {}
@@ -100,12 +108,17 @@ export const launchElectron = async(
     env,
     timeout: 30000
   })
-  if (packagedBinary) expect(await app.evaluate(({ app }) => app.isPackaged)).toBe(true)
-  if (options.suppressErrorDialog) await installRendererErrorCounter(app)
-  const page = await app.firstWindow()
-  await page.waitForLoadState('domcontentloaded')
-  await new Promise((resolve) => setTimeout(resolve, 500))
-  return { app, page }
+  try {
+    if (packagedBinary) expect(await app.evaluate(({ app }) => app.isPackaged)).toBe(true)
+    if (options.suppressErrorDialog) await installRendererErrorCounter(app)
+    const page = await app.firstWindow()
+    await page.waitForLoadState('domcontentloaded')
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    return { app, page }
+  } catch (error) {
+    await closeFailedLaunch(app)
+    throw error
+  }
 }
 
 // Capture renderer-process errors that would otherwise pop the "Unexpected
@@ -374,9 +387,14 @@ export const launchWithDoc = async(
   options: LaunchOptions = {}
 ): Promise<LaunchResult> => {
   const { app, page } = await launchElectron([relativeFixture], options)
-  await waitForEditor(page)
-  await waitForMenuReady(app)
-  return { app, page }
+  try {
+    await waitForEditor(page)
+    await waitForMenuReady(app)
+    return { app, page }
+  } catch (error) {
+    await closeFailedLaunch(app)
+    throw error
+  }
 }
 
 export interface LaunchWithMarkdownResult extends LaunchResult {
@@ -388,9 +406,7 @@ export const launchWithMarkdown = async(
   options: LaunchOptions = {}
 ): Promise<LaunchWithMarkdownResult> => {
   const filePath = writeTempMarkdown(markdown)
-  const { app, page } = await launchElectron([filePath], options)
-  await waitForEditor(page)
-  await waitForMenuReady(app)
+  const { app, page } = await launchWithDoc(filePath, options)
   return { app, page, filePath }
 }
 
