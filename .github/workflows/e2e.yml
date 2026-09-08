@@ -37,4 +37,6 @@ jobs:
         run: pnpm build
 
       - name: Run E2E Tests
+        env:
+          MARKTEXT_E2E_PRIVATE_DISPLAY: '1'
         run: xvfb-run --auto-servernum pnpm test:e2e

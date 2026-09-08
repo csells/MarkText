@@ -32,15 +32,11 @@ import type {
 import { deepClone } from '../utils';
 
 import logger from '../utils/logger';
-import stringWidth from '../utils/stringWidth';
+import { tableToMarkdown } from './tableToMarkdown';
 import { isAnyListState } from './types';
 
 const debug = logger('export markdown: ');
 const SETEXT_SAFE_BULLET_MARKER = '*';
-
-function escapeText(str: string) {
-    return str.replace(/(?<!\\)\|/g, '\\|');
-}
 
 export interface IExportMarkdownOptions {
     listIndentation: number | string;
@@ -460,84 +456,7 @@ export default class ExportMarkdown {
     }
 
     private _serializeTable(state: ITableState, indent: string) {
-        const result: string[] = [];
-        const row = state.children.length;
-        const tableData = [];
-
-        for (const rowState of state.children) {
-            tableData.push(
-                rowState.children.map(cell => escapeText(cell.text.trim())),
-            );
-        }
-
-        const columnWidth = state.children[0].children.map(th => ({
-            width: 5,
-            align: th.meta.align,
-        }));
-
-        let i;
-        let j;
-
-        for (i = 0; i < row; i++) {
-            const cells = Math.min(tableData[i].length, columnWidth.length);
-            for (j = 0; j < cells; j++) {
-                columnWidth[j].width = Math.max(
-                    columnWidth[j].width,
-                    stringWidth(tableData[i][j]) + 2,
-                ); // add 2, because have two space around text
-            }
-        }
-
-        tableData.forEach((r, i) => {
-            const rs
-                = `${indent
-                }|${
-                    r
-                        .slice(0, columnWidth.length)
-                        .map((cell, j) => {
-                            // Pad by visual column width, not code-unit length,
-                            // so combining marks and wide characters stay
-                            // aligned (#1983). One leading space + cell + fill.
-                            const fill = columnWidth[j].width - 1 - stringWidth(cell);
-
-                            return ` ${cell}${' '.repeat(Math.max(fill, 0))}`;
-                        })
-                        .join('|')
-                }|`;
-            result.push(rs);
-            if (i === 0) {
-                const cutOff
-                    = `${indent
-                    }|${
-                        columnWidth
-                            .map(({ width, align }) => {
-                                let raw = '-'.repeat(width - 2);
-                                switch (align) {
-                                    case 'left':
-                                        raw = `:${raw} `;
-                                        break;
-
-                                    case 'center':
-                                        raw = `:${raw}:`;
-                                        break;
-
-                                    case 'right':
-                                        raw = ` ${raw}:`;
-                                        break;
-                                    default:
-                                        raw = ` ${raw} `;
-                                        break;
-                                }
-
-                                return raw;
-                            })
-                            .join('|')
-                    }|`;
-                result.push(cutOff);
-            }
-        });
-
-        return `${result.join('\n')}\n`;
+        return `${tableToMarkdown(state, indent)}\n`;
     }
 
     private _serializeList(

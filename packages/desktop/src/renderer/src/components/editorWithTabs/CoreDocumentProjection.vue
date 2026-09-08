@@ -96,6 +96,11 @@ onBeforeUnmount(() => refresh.dispose())
   line-height: inherit;
 }
 
+.core-document-projection:focus-visible {
+  outline: 2px solid var(--themeColor);
+  outline-offset: -2px;
+}
+
 .core-projection-content :deep(pre) {
   overflow-x: auto;
   white-space: pre;

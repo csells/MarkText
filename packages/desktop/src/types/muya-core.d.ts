@@ -19,6 +19,10 @@
 
 declare module '@muyajs/core' {
   export function applyNativeOperation(previous: unknown, operation: unknown): unknown
+  export function serializeNativeTable(
+    state: unknown,
+    maximumSourceUnits: number
+  ): string | undefined
   export function serializeNativeState(
     states: unknown,
     options?: {
@@ -113,6 +117,7 @@ declare module '@muyajs/core' {
   export function escapeHTML(str: string): string
   export function unescapeHTML(str: string): string
   export function sanitize(html: string, config?: any, isInline?: boolean): string
+  export function createHeadingIdAllocator(reservedIds?: Iterable<string>): (text: string) => string
   export function generateGithubSlug(text: string): string
   export function renderFootnoteReference(number: number, prefix?: string): string
   export function appendFootnoteSection(

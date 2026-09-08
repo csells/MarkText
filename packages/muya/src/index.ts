@@ -3,7 +3,7 @@ export type { IInlinePresentationContext, IInlinePresentationImage, TInlinePrese
 export { de, en, es, fr, ja, ko, pt, tr, zhCN, zhTW } from './locales';
 export { Muya } from './muya';
 
-export { applyNativeOperation, serializeNativeState } from './state/applyNativeOperation';
+export { applyNativeOperation, serializeNativeState, serializeNativeTable } from './state/applyNativeOperation';
 export type { ITocItem } from './state/getTOC';
 export { MarkdownToHtml } from './state/markdownToHtml';
 export { renderToStaticHTML } from './state/renderToStaticHTML';
@@ -39,4 +39,4 @@ export { renderMath } from './utils/marked/extensions/math';
 export { highlightCode } from './utils/marked/getHighlightHtml';
 export { buildRegexValue, matchString } from './utils/search';
 export type { IRegexMatch, ISearchQueryOptions } from './utils/search';
-export { generateGithubSlug } from './utils/slug';
+export { createHeadingIdAllocator, generateGithubSlug } from './utils/slug';

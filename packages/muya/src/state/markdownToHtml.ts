@@ -8,7 +8,7 @@ import { isHTMLElement, sanitize, unescapeHTML } from '../utils';
 import loadRenderer from '../utils/diagram';
 
 import { getHighlightHtml } from '../utils/marked';
-import { generateGithubSlug } from '../utils/slug';
+import { createHeadingIdAllocator } from '../utils/slug';
 import { transformFootnotes } from './transformFootnotes';
 
 // The core stylesheets (github-markdown-css, katex, prism) are inlined into the
@@ -155,36 +155,16 @@ export class MarkdownToHtml {
         }
     }
 
-    // Assign a github-compatible slug `id` to every `<h1>..<h6>` in the
-    // export container. Headings that already carry an explicit id (none today,
-    // but defensive) are left as-is and reserve that id. Duplicates are
-    // deduplicated by incrementing a `-N` suffix until the *full* candidate id
-    // is unused — so a later heading whose text already looks like an earlier
-    // `-N` slug (e.g. `heading`, `heading`, `heading-1`) still resolves to a
-    // unique anchor, matching github.
+    // Core projections already carry semantic heading IDs. Preserve those and
+    // reserve them before allocating anchors for headings emitted by marked.
     private _injectHeadingIds(container: HTMLElement) {
         const headings = container.querySelectorAll('h1, h2, h3, h4, h5, h6');
-        const seen = new Set<string>();
-
-        // Reserve any pre-existing ids first so generated slugs never collide
-        // with them.
+        const allocateId = createHeadingIdAllocator(
+            [...headings].map(heading => heading.id).filter(Boolean),
+        );
         for (const heading of headings) {
-            if (heading.id)
-                seen.add(heading.id);
-        }
-
-        for (const heading of headings) {
-            if (heading.id)
-                continue;
-
-            const base = generateGithubSlug(heading.textContent ?? '') || 'heading';
-            let slug = base;
-            let n = 1;
-            while (seen.has(slug))
-                slug = `${base}-${n++}`;
-
-            seen.add(slug);
-            heading.id = slug;
+            if (!heading.id)
+                heading.id = allocateId(heading.textContent ?? '');
         }
     }
 

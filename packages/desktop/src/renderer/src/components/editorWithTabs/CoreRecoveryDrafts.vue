@@ -21,6 +21,7 @@
     <textarea
       v-if="pendingText !== undefined"
       :value="pendingText"
+      :dir="textDirection"
       readonly
       :aria-label="t('editor.coreRecovery.draftText')"
     />
@@ -45,6 +46,7 @@
       <textarea
         v-if="!draft.readError"
         :value="draft.visibleText"
+        :dir="textDirection"
         readonly
         :aria-label="t('editor.coreRecovery.draftText')"
       />
@@ -72,7 +74,12 @@
 import type { CoreRecoveryDraftRecord } from '@shared/types/coreRecoveryDraft'
 import { useI18n } from 'vue-i18n'
 const { t } = useI18n()
-defineProps<{ drafts: readonly CoreRecoveryDraftRecord[]; error: string; pendingText?: string }>()
+defineProps<{
+  drafts: readonly CoreRecoveryDraftRecord[]
+  error: string
+  pendingText?: string
+  textDirection: string
+}>()
 defineEmits<{
   (event: 'archive', id: string): void
   (event: 'reveal', path: string): void
