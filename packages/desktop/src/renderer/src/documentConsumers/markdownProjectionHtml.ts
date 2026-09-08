@@ -2,7 +2,7 @@ import type { MarkdownAstNode, MarkdownProjection } from '@marktext/document-cor
 import {
   appendFootnoteSection,
   renderFootnoteReference,
-  generateGithubSlug,
+  createHeadingIdAllocator,
   renderMath,
   highlightCode,
   MarkdownToHtml,
@@ -14,7 +14,7 @@ import { rewriteImageSrcs } from '@/util/rewriteImageSrcs'
 
 interface RenderContext {
   readonly tightList: boolean
-  readonly headingSlugs: Map<string, number>
+  readonly allocateHeadingId: (text: string) => string
 }
 
 export interface MarkdownProjectionRenderOptions {
@@ -72,13 +72,6 @@ const taskCheckboxOf = (node: MarkdownAstNode): string => {
     : '<input disabled="" type="checkbox">'
 }
 
-const headingIdOf = (node: MarkdownAstNode, headingSlugs: Map<string, number>): string => {
-  const base = generateGithubSlug(semanticPlainTextOf(node)) || 'heading'
-  const count = headingSlugs.get(base) ?? 0
-  headingSlugs.set(base, count + 1)
-  return count === 0 ? base : `${base}-${String(count)}`
-}
-
 const renderListItem = (
   node: MarkdownAstNode,
   context: RenderContext,
@@ -133,7 +126,7 @@ export function renderMarkdownProjectionToSafeHtml(
         if (!Number.isInteger(level) || typeof level !== 'number' || level < 1 || level > 6) {
           throw new Error('Projected Markdown heading has no valid level')
         }
-        const id = headingIdOf(node, context.headingSlugs)
+        const id = context.allocateHeadingId(semanticPlainTextOf(node))
         return `<h${String(level)} id="${escapeHtml(id)}">${children()}</h${String(level)}>\n`
       }
       case 'blockquote':
@@ -142,7 +135,7 @@ export function renderMarkdownProjectionToSafeHtml(
         const tag = node.attributes['ordered'] === true ? 'ol' : 'ul'
         const content = children({
           tightList: node.attributes['tight'] === true,
-          headingSlugs: context.headingSlugs
+          allocateHeadingId: context.allocateHeadingId
         })
         const start =
           tag === 'ol' &&
@@ -288,7 +281,7 @@ export function renderMarkdownProjectionToSafeHtml(
 
   const context: RenderContext = {
     tightList: false,
-    headingSlugs: new Map()
+    allocateHeadingId: createHeadingIdAllocator()
   }
   const body = render(projection.ast.root, context)
   const definitions: Array<{ number: number; html: string }> = []
