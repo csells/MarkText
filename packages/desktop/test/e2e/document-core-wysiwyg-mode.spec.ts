@@ -1560,107 +1560,124 @@ test('Core mode renders and saves one native math-block conversion', async() => 
   }
 })
 
-test('Core mode saves one native Markdown table paste', async() => {
-  const source = 'seed\n'
-  const table = '| a | b |\n| - | - |\n| 1 | 2 |'
-  const canonical = '| a   | b   |\n| --- | --- |\n| 1   | 2   |\n'
-  const { app, page, filePath } = await launchWithMarkdown(source, {
-    suppressErrorDialog: true,
-    env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
-      MARKTEXT_E2E_HIDDEN_WINDOW: '1'
-    }
-  })
-  try {
-    await expectEditorWindowHidden(app)
-    expectEditorNotFrontmost(app)
-    await enterSourceMode(page, app)
-    await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core')
-    await exitSourceMode(page, app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.pasteMarkdownTable !== undefined
-    )
-
-    await page.evaluate(async(markdown) => {
-      const bridge = window.__marktextDocumentCore
-      if (bridge?.pasteMarkdownTable === undefined) {
-        throw new Error('Core Muya table-paste test operation is unavailable')
-      }
-      await bridge.pasteMarkdownTable(0, markdown)
-    }, table)
-    await expect
-      .poll(() => page.evaluate(() => document.querySelectorAll('.editor-component table').length))
-      .toBe(1)
-    await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
-
-    await page.waitForTimeout(100)
-    expect(readFileSync(filePath, 'utf8')).toBe(source)
-    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(canonical)
-    await expectEditorWindowHidden(app)
-    expectEditorNotFrontmost(app)
-    await expectNoRendererErrors(app)
-  } finally {
-    await app.close()
+const nativeTableFixtures = [
+  {
+    label: 'ASCII',
+    table: '| a | b |\n| - | - |\n| 1 | 2 |',
+    canonical: '| a   | b   |\n| --- | --- |\n| 1   | 2   |'
+  },
+  {
+    label: 'CJK and combining marks',
+    table: '| 中 | e\u0301 |\n| - | - |\n| ab | xyz |',
+    canonical: '| 中  | e\u0301   |\n| --- | --- |\n| ab  | xyz |'
   }
-})
+] as const
 
-test('Core WYSIWYG tracks one Markdown table paste through actor history', async() => {
-  const source = 'seed\n'
-  const table = '| a | b |\n| - | - |\n| 1 | 2 |'
-  const canonical = '| a   | b   |\n| --- | --- |\n| 1   | 2   |'
-  const tracked = `{~~seed~>${canonical}~~}\n`
-  const { app, page, filePath } = await launchWithMarkdown(source, {
-    suppressErrorDialog: true,
-    env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
-      MARKTEXT_E2E_HIDDEN_WINDOW: '1'
-    }
-  })
-  try {
-    await expectEditorWindowHidden(app)
-    expectEditorNotFrontmost(app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.pasteMarkdownTable !== undefined
-    )
-
-    await page.getByTestId('critic-review-track-changes').click()
-    await page.evaluate(async(markdown) => {
-      const bridge = window.__marktextDocumentCore
-      if (bridge?.pasteMarkdownTable === undefined) {
-        throw new Error('Core Muya table-paste test operation is unavailable')
+for (const { label, table, canonical } of nativeTableFixtures) {
+  test(`Core mode saves one native Markdown table paste (${label})`, async() => {
+    const source = 'seed\n'
+    const { app, page, filePath } = await launchWithMarkdown(source, {
+      suppressErrorDialog: true,
+      env: {
+        MARKTEXT_DOCUMENT_CORE_MODE: '1',
+        MARKTEXT_E2E_HIDDEN_WINDOW: '1'
       }
-      await bridge.pasteMarkdownTable(0, markdown)
-    }, table)
-    await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
-
-    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
-    await expect
-      .poll(() => page.evaluate(() => document.querySelectorAll('.editor-component table').length))
-      .toBe(1)
-    await expect(page.getByTestId('critic-review-kind')).toHaveAttribute(
-      'data-kind',
-      'substitution'
-    )
-
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
-    await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
-    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(source)
-    await expect
-      .poll(() =>
-        page.evaluate(() => document.querySelector('span.mu-paragraph-content')?.textContent)
+    })
+    try {
+      await expectEditorWindowHidden(app)
+      expectEditorNotFrontmost(app)
+      await enterSourceMode(page, app)
+      await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core')
+      await exitSourceMode(page, app)
+      await page.waitForFunction(
+        () => window.__marktextDocumentCore?.pasteMarkdownTable !== undefined
       )
-      .toBe('seed')
 
-    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
-    await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
-    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
-    await expect
-      .poll(() => page.evaluate(() => document.querySelectorAll('.editor-component table').length))
-      .toBe(1)
-    await expectEditorWindowHidden(app)
-    expectEditorNotFrontmost(app)
-    await expectNoRendererErrors(app)
-  } finally {
-    await app.close()
-  }
-})
+      await page.evaluate(async(markdown) => {
+        const bridge = window.__marktextDocumentCore
+        if (bridge?.pasteMarkdownTable === undefined) {
+          throw new Error('Core Muya table-paste test operation is unavailable')
+        }
+        await bridge.pasteMarkdownTable(0, markdown)
+      }, table)
+      await expect
+        .poll(() =>
+          page.evaluate(() => document.querySelectorAll('.editor-component table').length)
+        )
+        .toBe(1)
+      await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+
+      await page.waitForTimeout(100)
+      expect(readFileSync(filePath, 'utf8')).toBe(source)
+      await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(canonical + '\n')
+      await expectEditorWindowHidden(app)
+      expectEditorNotFrontmost(app)
+      await expectNoRendererErrors(app)
+    } finally {
+      await app.close()
+    }
+  })
+
+  test(`Core WYSIWYG tracks one Markdown table paste through actor history (${label})`, async() => {
+    const source = 'seed\n'
+    const tracked = `{~~seed~>${canonical}~~}\n`
+    const { app, page, filePath } = await launchWithMarkdown(source, {
+      suppressErrorDialog: true,
+      env: {
+        MARKTEXT_DOCUMENT_CORE_MODE: '1',
+        MARKTEXT_E2E_HIDDEN_WINDOW: '1'
+      }
+    })
+    try {
+      await expectEditorWindowHidden(app)
+      expectEditorNotFrontmost(app)
+      await page.waitForFunction(
+        () => window.__marktextDocumentCore?.pasteMarkdownTable !== undefined
+      )
+
+      await page.getByTestId('critic-review-track-changes').click()
+      await page.evaluate(async(markdown) => {
+        const bridge = window.__marktextDocumentCore
+        if (bridge?.pasteMarkdownTable === undefined) {
+          throw new Error('Core Muya table-paste test operation is unavailable')
+        }
+        await bridge.pasteMarkdownTable(0, markdown)
+      }, table)
+      await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+
+      await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
+      await expect
+        .poll(() =>
+          page.evaluate(() => document.querySelectorAll('.editor-component table').length)
+        )
+        .toBe(1)
+      await expect(page.getByTestId('critic-review-kind')).toHaveAttribute(
+        'data-kind',
+        'substitution'
+      )
+
+      await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+      await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+      await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(source)
+      await expect
+        .poll(() =>
+          page.evaluate(() => document.querySelector('span.mu-paragraph-content')?.textContent)
+        )
+        .toBe('seed')
+
+      await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
+      await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+      await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(tracked)
+      await expect
+        .poll(() =>
+          page.evaluate(() => document.querySelectorAll('.editor-component table').length)
+        )
+        .toBe(1)
+      await expectEditorWindowHidden(app)
+      expectEditorNotFrontmost(app)
+      await expectNoRendererErrors(app)
+    } finally {
+      await app.close()
+    }
+  })
+}

@@ -67,6 +67,22 @@ jobs:
 
       - uses: ./.github/actions/setup
 
+      - name: Install macOS PDF verification tools
+        if: matrix.platform == 'macos'
+        run: |
+          brew install poppler
+          pdftotext -v
+
+      - name: Install Windows PDF verification tools
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          choco install poppler --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Command pdftotext -ErrorAction Stop
+          pdftotext -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       # Must be set before postinstall runs electron-rebuild
       - name: Set C++20 for MacOS
         if: matrix.platform == 'macos'
@@ -180,6 +196,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
+      - name: Install Windows PDF verification tools
+        shell: pwsh
+        run: |
+          choco install poppler --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Command pdftotext -ErrorAction Stop
+          pdftotext -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/download-artifact@v4
         with:
           name: marktext-windows-x64
