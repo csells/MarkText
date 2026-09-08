@@ -70,6 +70,34 @@ test('keyboard comment editing restores the selected review item after Escape an
   }
 })
 
+test('reader and comment regions show keyboard focus in both themes', async() => {
+  const { app, page } = await launchWithMarkdown(source, {
+    env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
+  })
+  try {
+    await page.locator('.mu-critic-comment-marker').focus()
+    await page.keyboard.press('Enter')
+    for (const theme of ['light', 'dark']) {
+      await sendIpcToRenderer(app, 'mt::user-preference', { theme })
+      for (const mode of ['comment', 'original', 'revised']) {
+        if (mode !== 'comment') await page.getByTestId(`critic-review-${mode}`).click()
+        const region = page.locator(`[data-projection="${mode}"]`)
+        await expect(region).toBeVisible()
+        await expect(region).toHaveAttribute('aria-busy', 'false')
+        await region.focus()
+        await page.keyboard.press('Tab')
+        await page.keyboard.press('Shift+Tab')
+        await expect(region).toBeFocused()
+        await expect(region).toHaveCSS('outline-style', 'solid')
+        await expect(region).toHaveCSS('outline-width', '2px')
+        await page.screenshot({ path: test.info().outputPath(`${theme}-${mode}-focus.png`) })
+      }
+    }
+  } finally {
+    await app.close()
+  }
+})
+
 test('review labels and marker names switch language while teleported comment text retains RTL direction', async() => {
   const { app, page, filePath } = await launchWithMarkdown('مرحبا.{>>ملاحظة (ABC 123).<<}\n', {
     env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }

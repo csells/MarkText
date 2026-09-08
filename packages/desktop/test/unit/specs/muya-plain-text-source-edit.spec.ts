@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { Muya } from '@muyajs/core'
+import { canonicalSourceForMuyaTable } from '@/documentAuthority/muyaTableSourceCodec'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -39,11 +40,20 @@ describe('Muya plain-text source edit adapter', () => {
     block.setCursor(4, 4)
     let observed: unknown
     muya.eventCenter.on('json-change', (change: unknown) => {
-      observed = sourceEditForMuyaTwoParagraphPaste([{
-        path: [0, 'text'], text: 'seed', sourceRange: { start: 0, end: 4 }
-      }], change)
+      observed = sourceEditForMuyaTwoParagraphPaste(
+        [
+          {
+            path: [0, 'text'],
+            text: 'seed',
+            sourceRange: { start: 0, end: 4 }
+          }
+        ],
+        change
+      )
     })
-    block.enterHandler(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+    block.enterHandler(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+    )
     muya.flush()
     expect(observed).toEqual({ start: 4, end: 4, insert: '\n\n' })
   })
@@ -71,11 +81,13 @@ describe('Muya plain-text source edit adapter', () => {
     for (const text of ['seed AB', 'seed ABC']) {
       block.domNode.textContent = text
       block.setCursor(text.length, text.length)
-      block.inputHandler(new InputEvent('input', {
-        bubbles: true,
-        data: text.at(-1),
-        inputType: 'insertText'
-      }))
+      block.inputHandler(
+        new InputEvent('input', {
+          bubbles: true,
+          data: text.at(-1),
+          inputType: 'insertText'
+        })
+      )
       muya.flush()
     }
     expect(observed).toEqual([
@@ -105,11 +117,13 @@ describe('Muya plain-text source edit adapter', () => {
     muya.editor.activeContentBlock = block
     block.domNode.textContent = 'midXle'
     block.setCursor(4, 4)
-    block.inputHandler(new InputEvent('input', {
-      bubbles: true,
-      data: 'X',
-      inputType: 'insertText'
-    }))
+    block.inputHandler(
+      new InputEvent('input', {
+        bubbles: true,
+        data: 'X',
+        inputType: 'insertText'
+      })
+    )
     muya.flush()
 
     expect(observed).toEqual({
@@ -140,19 +154,23 @@ describe('Muya plain-text source edit adapter', () => {
 
     block.domNode.textContent = 'midXle'
     block.setCursor(4, 4)
-    block.inputHandler(new InputEvent('input', {
-      bubbles: true,
-      data: 'X',
-      inputType: 'insertText'
-    }))
+    block.inputHandler(
+      new InputEvent('input', {
+        bubbles: true,
+        data: 'X',
+        inputType: 'insertText'
+      })
+    )
     muya.flush()
     block.domNode.textContent = 'midXYle'
     block.setCursor(5, 5)
-    block.inputHandler(new InputEvent('input', {
-      bubbles: true,
-      data: 'Y',
-      inputType: 'insertText'
-    }))
+    block.inputHandler(
+      new InputEvent('input', {
+        bubbles: true,
+        data: 'Y',
+        inputType: 'insertText'
+      })
+    )
     muya.flush()
 
     expect(observed).toEqual([
@@ -168,18 +186,20 @@ describe('Muya plain-text source edit adapter', () => {
       text: 'middle'
     })
 
-    expect(adapter.accept({
-      source: 'user',
-      op: [1, 'text', { es: [3, { d: 'q' }, 'X'] }],
-      prevDoc: [
-        { name: 'paragraph', text: 'head' },
-        { name: 'paragraph', text: 'middle' }
-      ],
-      doc: [
-        { name: 'paragraph', text: 'head' },
-        { name: 'paragraph', text: 'midXle' }
-      ]
-    })).toEqual({
+    expect(
+      adapter.accept({
+        source: 'user',
+        op: [1, 'text', { es: [3, { d: 'q' }, 'X'] }],
+        prevDoc: [
+          { name: 'paragraph', text: 'head' },
+          { name: 'paragraph', text: 'middle' }
+        ],
+        doc: [
+          { name: 'paragraph', text: 'head' },
+          { name: 'paragraph', text: 'midXle' }
+        ]
+      })
+    ).toEqual({
       kind: 'unsupported',
       reason: 'operation-mismatch'
     })
@@ -188,7 +208,9 @@ describe('Muya plain-text source edit adapter', () => {
   it('captures the native paragraph-to-heading operation for the structural lane', () => {
     const muya = boot('plain\n')
     let observed: unknown
-    muya.eventCenter.on('json-change', (change: unknown) => { observed = change })
+    muya.eventCenter.on('json-change', (change: unknown) => {
+      observed = change
+    })
     const block = muya.editor.scrollPage?.queryBlock([0, 'text'])
     if (block === undefined || block === null || !block.isContent()) {
       throw new Error('Expected the paragraph content block')
@@ -197,21 +219,26 @@ describe('Muya plain-text source edit adapter', () => {
     muya.editor.activeContentBlock = block
     block.domNode.textContent = '# title'
     block.setCursor(7, 7)
-    block.inputHandler(new InputEvent('input', {
-      bubbles: true,
-      data: '# title',
-      inputType: 'insertText'
-    }))
+    block.inputHandler(
+      new InputEvent('input', {
+        bubbles: true,
+        data: '# title',
+        inputType: 'insertText'
+      })
+    )
     muya.flush()
 
     expect(observed).toEqual({
       source: 'user',
       prevDoc: [{ name: 'paragraph', text: 'plain' }],
       doc: [{ name: 'atx-heading', text: '# title', meta: { level: 1 } }],
-      op: [0, {
-        r: true,
-        i: { name: 'atx-heading', text: '# title', meta: { level: 1 } }
-      }]
+      op: [
+        0,
+        {
+          r: true,
+          i: { name: 'atx-heading', text: '# title', meta: { level: 1 } }
+        }
+      ]
     })
   })
 
@@ -219,15 +246,19 @@ describe('Muya plain-text source edit adapter', () => {
     const muya = boot('alpha\n\nbeta\n\ngamma\n')
     const first = muya.editor.scrollPage?.queryBlock([0, 'text'])
     const last = muya.editor.scrollPage?.queryBlock([2, 'text'])
-    if (first === undefined || first === null || !first.isContent() ||
-        last === undefined || last === null || !last.isContent()) {
+    if (
+      first === undefined ||
+      first === null ||
+      !first.isContent() ||
+      last === undefined ||
+      last === null ||
+      !last.isContent()
+    ) {
       throw new Error('Expected the endpoint paragraph content blocks')
     }
     const firstPath = first.path
     const lastPath = last.path
-    const originalSelection = muya.editor.selection.getSelection.bind(
-      muya.editor.selection
-    )
+    const originalSelection = muya.editor.selection.getSelection.bind(muya.editor.selection)
     muya.editor.selection.getSelection = () => ({
       anchor: { offset: 2, block: first, path: firstPath },
       focus: { offset: 2, block: last, path: lastPath },
@@ -237,23 +268,26 @@ describe('Muya plain-text source edit adapter', () => {
       type: 'Range' as never
     })
     let observed: unknown
-    muya.eventCenter.on('json-change', (change: unknown) => { observed = change })
+    muya.eventCenter.on('json-change', (change: unknown) => {
+      observed = change
+    })
 
     muya.editor.clipboard.cutHandler()
     muya.editor.selection.getSelection = originalSelection
     const merged = muya.editor.scrollPage?.queryBlock([0, 'text'])
-    if (merged === undefined || merged === null || !merged.isContent() ||
-        merged.domNode === null) {
+    if (merged === undefined || merged === null || !merged.isContent() || merged.domNode === null) {
       throw new Error('Expected the merged paragraph content block')
     }
     muya.editor.activeContentBlock = merged
     merged.domNode.textContent = 'alXmma'
     merged.setCursor(3, 3)
-    merged.inputHandler(new InputEvent('input', {
-      bubbles: true,
-      data: 'X',
-      inputType: 'insertText'
-    }))
+    merged.inputHandler(
+      new InputEvent('input', {
+        bubbles: true,
+        data: 'X',
+        inputType: 'insertText'
+      })
+    )
     muya.flush()
 
     expect(observed).toEqual({
@@ -277,48 +311,57 @@ describe('Muya plain-text source edit adapter', () => {
     const observed: unknown[] = []
     muya.eventCenter.on('json-change', (change: unknown) => observed.push(change))
     const block = muya.editor.scrollPage?.queryBlock([0, 'text'])
-    if (block === undefined || block === null || !block.isContent() ||
-        block.domNode === null) {
+    if (block === undefined || block === null || !block.isContent() || block.domNode === null) {
       throw new Error('Expected the paragraph content block')
     }
     muya.editor.activeContentBlock = block
     block.setCursor(4, 4)
-    block.composeHandler(new CompositionEvent('compositionstart', {
-      bubbles: true,
-      data: ''
-    }))
+    block.composeHandler(
+      new CompositionEvent('compositionstart', {
+        bubbles: true,
+        data: ''
+      })
+    )
 
     block.domNode.textContent = 'seedに'
     block.setCursor(5, 5)
-    block.inputHandler(new InputEvent('input', {
-      bubbles: true,
-      data: 'に',
-      inputType: 'insertCompositionText',
-      isComposing: true
-    }))
+    block.inputHandler(
+      new InputEvent('input', {
+        bubbles: true,
+        data: 'に',
+        inputType: 'insertCompositionText',
+        isComposing: true
+      })
+    )
     block.domNode.textContent = 'seed日本'
     block.setCursor(6, 6)
-    block.inputHandler(new InputEvent('input', {
-      bubbles: true,
-      data: '日本',
-      inputType: 'insertCompositionText',
-      isComposing: true
-    }))
+    block.inputHandler(
+      new InputEvent('input', {
+        bubbles: true,
+        data: '日本',
+        inputType: 'insertCompositionText',
+        isComposing: true
+      })
+    )
     muya.flush()
     expect(observed).toEqual([])
 
-    block.composeHandler(new CompositionEvent('compositionend', {
-      bubbles: true,
-      data: '日本'
-    }))
+    block.composeHandler(
+      new CompositionEvent('compositionend', {
+        bubbles: true,
+        data: '日本'
+      })
+    )
     muya.flush()
 
-    expect(observed).toEqual([{
-      source: 'user',
-      prevDoc: [{ name: 'paragraph', text: 'seed' }],
-      doc: [{ name: 'paragraph', text: 'seed日本' }],
-      op: [0, 'text', { es: [4, '日本'] }]
-    }])
+    expect(observed).toEqual([
+      {
+        source: 'user',
+        prevDoc: [{ name: 'paragraph', text: 'seed' }],
+        doc: [{ name: 'paragraph', text: 'seed日本' }],
+        op: [0, 'text', { es: [4, '日本'] }]
+      }
+    ])
   })
 
   it('captures the native paragraph-to-math-block operation and canonical result', () => {
@@ -326,57 +369,87 @@ describe('Muya plain-text source edit adapter', () => {
     const observed: unknown[] = []
     muya.eventCenter.on('json-change', (change: unknown) => observed.push(change))
     const block = muya.editor.scrollPage?.queryBlock([0, 'text'])
-    if (block === undefined || block === null || !block.isContent() ||
-        block.domNode === null) {
+    if (block === undefined || block === null || !block.isContent() || block.domNode === null) {
       throw new Error('Expected the paragraph content block')
     }
     muya.editor.activeContentBlock = block
     block.domNode.textContent = '$$'
     block.setCursor(2, 2)
-    block.inputHandler(new InputEvent('input', {
-      bubbles: true,
-      data: '$$',
-      inputType: 'insertText'
-    }))
-    block.enterHandler(new KeyboardEvent('keydown', {
-      bubbles: true,
-      cancelable: true,
-      key: 'Enter'
-    }))
+    block.inputHandler(
+      new InputEvent('input', {
+        bubbles: true,
+        data: '$$',
+        inputType: 'insertText'
+      })
+    )
+    block.enterHandler(
+      new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        key: 'Enter'
+      })
+    )
     muya.flush()
     const math = muya.editor.scrollPage?.queryBlock([0, 'text'])
-    if (math === undefined || math === null || !math.isContent() ||
-        math.domNode === null) {
+    if (math === undefined || math === null || !math.isContent() || math.domNode === null) {
       throw new Error('Expected the mounted math content block')
     }
     muya.editor.activeContentBlock = math
     math.domNode.textContent = 'x^2'
     math.setCursor(3, 3)
-    math.inputHandler(new InputEvent('input', {
-      bubbles: true,
-      data: 'x^2',
-      inputType: 'insertText'
-    }))
+    math.inputHandler(
+      new InputEvent('input', {
+        bubbles: true,
+        data: 'x^2',
+        inputType: 'insertText'
+      })
+    )
     muya.flush()
 
     expect({ observed, markdown: muya.getMarkdown() }).toEqual({
-      observed: [{
-        source: 'user',
-        prevDoc: [{ name: 'paragraph', text: 'seed' }],
-        doc: [{ name: 'math-block', text: '', meta: { mathStyle: '' } }],
-        op: [0, {
-          r: true,
-          i: { name: 'math-block', text: '', meta: { mathStyle: '' } }
-        }]
-      }, {
-        source: 'user',
-        prevDoc: [{ name: 'math-block', text: '', meta: { mathStyle: '' } }],
-        doc: [{ name: 'math-block', text: 'x^2', meta: { mathStyle: '' } }],
-        op: [0, 'text', { es: ['x^2'] }]
-      }],
+      observed: [
+        {
+          source: 'user',
+          prevDoc: [{ name: 'paragraph', text: 'seed' }],
+          doc: [{ name: 'math-block', text: '', meta: { mathStyle: '' } }],
+          op: [
+            0,
+            {
+              r: true,
+              i: { name: 'math-block', text: '', meta: { mathStyle: '' } }
+            }
+          ]
+        },
+        {
+          source: 'user',
+          prevDoc: [{ name: 'math-block', text: '', meta: { mathStyle: '' } }],
+          doc: [{ name: 'math-block', text: 'x^2', meta: { mathStyle: '' } }],
+          op: [0, 'text', { es: ['x^2'] }]
+        }
+      ],
       markdown: '$$\nx^2\n$$\n'
     })
   })
+
+  it.each(['---', ':---', '---:', ':---:'])(
+    'matches native Unicode table spelling for %s alignment within its exact source budget',
+    (delimiter) => {
+      const muya = boot(`| 中 | e\u0301 |\n| ${delimiter} | ${delimiter} |\n| ab | xyz |\n`)
+      try {
+        const expected = muya.getMarkdown().replace(/\n$/u, '')
+        const table = muya.getState()[0]
+        expect(canonicalSourceForMuyaTable(table, expected.length)).toEqual({
+          kind: 'source',
+          markdown: expected
+        })
+        expect(canonicalSourceForMuyaTable(table, expected.length - 1)).toEqual({
+          kind: 'unsupported'
+        })
+      } finally {
+        muya.destroy()
+      }
+    }
+  )
 
   it('captures the native markdown-table paste operation and canonical result', async() => {
     const muya = boot('seed\n')
@@ -398,7 +471,7 @@ describe('Muya plain-text source edit adapter', () => {
       preventDefault() {},
       stopPropagation() {},
       clipboardData: {
-        getData: (type: string) => type === 'text/plain' ? markdown : '',
+        getData: (type: string) => (type === 'text/plain' ? markdown : ''),
         files: [],
         items: []
       }
@@ -429,12 +502,14 @@ describe('Muya plain-text source edit adapter', () => {
       ]
     }
     expect({ observed, markdown: muya.getMarkdown() }).toEqual({
-      observed: [{
-        source: 'user',
-        prevDoc: [{ name: 'paragraph', text: 'seed' }],
-        doc: [table],
-        op: [0, { r: true, i: table }]
-      }],
+      observed: [
+        {
+          source: 'user',
+          prevDoc: [{ name: 'paragraph', text: 'seed' }],
+          doc: [table],
+          op: [0, { r: true, i: table }]
+        }
+      ],
       markdown: '| a   | b   |\n| --- | --- |\n| 1   | 2   |\n'
     })
   })
@@ -459,22 +534,31 @@ describe('Muya plain-text source edit adapter', () => {
       preventDefault() {},
       stopPropagation() {},
       clipboardData: {
-        getData: (type: string) => type === 'text/plain' ? text : '',
+        getData: (type: string) => (type === 'text/plain' ? text : ''),
         files: [],
         items: []
       }
     } as unknown as ClipboardEvent
     let observed: unknown
-    muya.eventCenter.on('json-change', (change: unknown) => { observed = change })
+    muya.eventCenter.on('json-change', (change: unknown) => {
+      observed = change
+    })
 
     await muya.editor.clipboard.pasteHandler(event, text, '')
     muya.flush()
 
-    expect(sourceEditForMuyaTwoParagraphPaste(Object.freeze([{
-      path: Object.freeze([0, 'text'] as const),
-      sourceRange: Object.freeze({ start: 0, end: 1 }),
-      text: 'Z'
-    }]), observed)).toEqual({
+    expect(
+      sourceEditForMuyaTwoParagraphPaste(
+        Object.freeze([
+          {
+            path: Object.freeze([0, 'text'] as const),
+            sourceRange: Object.freeze({ start: 0, end: 1 }),
+            text: 'Z'
+          }
+        ]),
+        observed
+      )
+    ).toEqual({
       start: 1,
       end: 1,
       insert: text

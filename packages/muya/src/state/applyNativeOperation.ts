@@ -1,8 +1,9 @@
 import type { Doc, JSONOp } from 'ot-json1';
-import type { TState } from './types';
+import type { ITableState, TState } from './types';
 import diff from 'fast-diff';
 import * as json1 from 'ot-json1';
 import StateToMarkdown from './stateToMarkdown';
+import { tableToMarkdown } from './tableToMarkdown';
 
 const metadata: Record<string, Record<string, string>> = {
     'paragraph': {},
@@ -71,27 +72,21 @@ function retainLineEndings(markdown: string, source: string): string {
     return result.join('');
 }
 
-/** Native Markdown spelling, with source EOL provenance when supplied by a host. */
-export function serializeNativeState(states: unknown, options: INativeSerializationOptions = {}): string | undefined {
-    const maximumUnits = options.maximumUnits ?? Number.MAX_SAFE_INTEGER;
-    if (!Number.isSafeInteger(maximumUnits) || maximumUnits < 0)
-        return undefined;
-    if ((options.sourceLineEndings?.length ?? 0) > maximumUnits)
-        return undefined;
+function validNativeStates(states: unknown, maximumUnits: number): states is TState[] {
     if (!Array.isArray(states))
-        return undefined;
+        return false;
     const seen = new Set<object>();
     const pending: unknown[] = [...states];
     let units = 0;
     while (pending.length > 0) {
         const value = pending.pop();
         if (value === null || typeof value !== 'object' || seen.has(value))
-            return undefined;
+            return false;
         seen.add(value);
         const node = value as Record<string, unknown>;
         if (typeof node.name !== 'string' || !hasOwn(metadata, node.name)
             || Object.keys(node).some(key => !['name', 'text', 'meta', 'children'].includes(key))) {
-            return undefined;
+            return false;
         }
         const spec = metadata[node.name];
         const meta = node.meta ?? {};
@@ -99,7 +94,7 @@ export function serializeNativeState(states: unknown, options: INativeSerializat
             || Object.keys(meta).some(key => !hasOwn(spec, key))
             // eslint-disable-next-line valid-typeof -- The schema contains only primitive JavaScript type names.
             || Object.entries(spec).some(([key, type]) => typeof (meta as Record<string, unknown>)[key] !== type)) {
-            return undefined;
+            return false;
         }
         const attrs = meta as Record<string, unknown>;
         if (('level' in attrs && (!Number.isSafeInteger(attrs.level) || Number(attrs.level) < 1 || Number(attrs.level) > 6))
@@ -107,21 +102,52 @@ export function serializeNativeState(states: unknown, options: INativeSerializat
             || ('delimiter' in attrs && !['.', ')'].includes(String(attrs.delimiter)))
             || ('start' in attrs && (!Number.isSafeInteger(attrs.start) || Number(attrs.start) < 0))
             || ('align' in attrs && !['none', 'left', 'center', 'right'].includes(String(attrs.align)))) {
-            return undefined;
+            return false;
         }
         units += node.name.length + (typeof node.text === 'string' ? node.text.length : 0)
             + Object.values(attrs).reduce<number>((sum, value) => sum + (typeof value === 'string' ? value.length : 1), 0);
         if (units > maximumUnits)
-            return undefined;
+            return false;
         if (containers.has(node.name)) {
             if (!Array.isArray(node.children) || node.text !== undefined)
-                return undefined;
+                return false;
             pending.push(...node.children);
         }
         else if (typeof node.text !== 'string' || node.children !== undefined) {
-            return undefined;
+            return false;
         }
     }
+    return true;
+}
+
+/** Bounded native table fragment; its enclosing source owns the final line ending. */
+export function serializeNativeTable(value: unknown, maximumSourceUnits: number): string | undefined {
+    if (!Number.isSafeInteger(maximumSourceUnits) || maximumSourceUnits < 0)
+        return undefined;
+    const states = [value];
+    if (!validNativeStates(states, Number.MAX_SAFE_INTEGER) || states[0].name !== 'table')
+        return undefined;
+    const table = states[0] as ITableState;
+    if (table.children.length === 0
+        || table.children.some(row => row.name !== 'table.row' || row.children.length === 0
+            || row.children.some(cell => cell.name !== 'table.cell'))) {
+        return undefined;
+    }
+    const columns = table.children[0].children.length;
+    if (table.children.some(row => row.children.length !== columns))
+        return undefined;
+    return tableToMarkdown(table, '', maximumSourceUnits);
+}
+
+/** Native Markdown spelling, with source EOL provenance when supplied by a host. */
+export function serializeNativeState(states: unknown, options: INativeSerializationOptions = {}): string | undefined {
+    const maximumUnits = options.maximumUnits ?? Number.MAX_SAFE_INTEGER;
+    if (!Number.isSafeInteger(maximumUnits) || maximumUnits < 0)
+        return undefined;
+    if ((options.sourceLineEndings?.length ?? 0) > maximumUnits)
+        return undefined;
+    if (!validNativeStates(states, maximumUnits))
+        return undefined;
     const markdown = new StateToMarkdown().generate(states as TState[]);
     const result = options.sourceLineEndings === undefined ? markdown : retainLineEndings(markdown, options.sourceLineEndings);
     return result.length > maximumUnits ? undefined : result;
