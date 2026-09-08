@@ -8,6 +8,7 @@
       :drafts="coreRecoveryDrafts"
       :error="coreDraftBackupError"
       :pending-text="coreUnbackedDraft?.visibleText"
+      :text-direction="textDirection"
       @archive="archiveCoreRecoveryDraft"
       @reveal="revealCoreRecoveryDraft"
       @retry="retryCoreDraftBackup"
@@ -317,7 +318,9 @@ const prepareCoreReplacementView = async (
       ? await lease.projectAcknowledgedPlainTextView(lease.identity.revision)
       : undefined
   const view = projection?.view
-  if (view !== undefined && view.kind !== 'view') { throw new Error('Core replacement has no WYSIWYG view') }
+  if (view !== undefined && view.kind !== 'view') {
+    throw new Error('Core replacement has no WYSIWYG view')
+  }
   const source = view?.markdown ?? (await lease.sourceAtBarrier())
   return () => {
     // A replacement lease and its initial text must come from the same revision.
