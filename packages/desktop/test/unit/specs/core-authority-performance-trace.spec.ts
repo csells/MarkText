@@ -76,30 +76,38 @@ describe('Core authority performance trace', () => {
     trace.record('ack', 'a.md', { transaction: 1 })
     trace.record('reconcile', 'a.md', { transaction: 1, corrected: true })
 
-    expect(first).toEqual([{
-      phase: 'dispatch',
-      documentId: 'a.md',
-      transaction: 1,
-      pendingDepth: 1,
-      at: 7
-    }])
+    expect(first).toEqual([
+      {
+        phase: 'dispatch',
+        documentId: 'a.md',
+        transaction: 1,
+        pendingDepth: 1,
+        at: 7
+      }
+    ])
     expect(trace.events()).toHaveLength(2)
-    expect(() => trace.record('dispatch', 'a.md', {
-      transaction: 0,
-      pendingDepth: 1
-    })).not.toThrow()
+    expect(() =>
+      trace.record('dispatch', 'a.md', {
+        transaction: 0,
+        pendingDepth: 1
+      })
+    ).not.toThrow()
   })
 
-  it('brackets an accepted open but never publishes an acknowledgement on failure', async() => {
+  it('brackets synchronous model admission before returning and never acknowledges failure', () => {
     let now = 1
     const trace = createCoreAuthorityPerformanceTrace({ clock: () => now })
-    await measureCoreDocumentOpen(trace, 'ok.md', async() => {
+    const result = measureCoreDocumentOpen(trace, 'ok.md', () => {
       now = 4
+      return 'opened'
     })
-    await expect(measureCoreDocumentOpen(trace, 'bad.md', async() => {
-      now = 7
-      throw new Error('open failed')
-    })).rejects.toThrow('open failed')
+    expect(result).toBe('opened')
+    expect(() =>
+      measureCoreDocumentOpen(trace, 'bad.md', () => {
+        now = 7
+        throw new Error('open failed')
+      })
+    ).toThrow('open failed')
 
     expect(trace.events()).toEqual([
       { phase: 'open-request', documentId: 'ok.md', at: 1 },

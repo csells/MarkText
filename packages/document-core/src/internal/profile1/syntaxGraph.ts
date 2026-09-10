@@ -82,6 +82,7 @@ export interface Profile1SyntaxGraph extends Profile1SyntaxGraphCore {
   readonly revised: Profile1ProjectedMarkdown
   readonly commentDisplays: () => readonly Profile1ProjectedMarkdown[]
   readonly commentDisplay: (comment: NodeId) => Profile1ProjectedMarkdown
+  readonly commentEditing: (comment: NodeId) => Profile1ProjectedMarkdown
   // The editing selection is admitted during open(); this accessor only
   // materializes the already-emitted selection on first read.
   readonly editing: () => Profile1ProjectedMarkdown
@@ -94,6 +95,7 @@ export interface Profile1SyntaxGraphProducts {
   readonly revised: Profile1ProjectedMarkdown
   readonly commentDisplays: () => readonly Profile1ProjectedMarkdown[]
   readonly commentDisplay: (comment: NodeId) => Profile1ProjectedMarkdown
+  readonly commentEditing: (comment: NodeId) => Profile1ProjectedMarkdown
   readonly editing: () => Profile1ProjectedMarkdown
 }
 
@@ -398,6 +400,11 @@ export function finalizeProfile1SyntaxGraph(
     revised: products.revised,
     commentDisplays: Object.freeze(commentDisplays),
     commentDisplay: Object.freeze(commentDisplay),
+    commentEditing: (comment: NodeId) => {
+      const editing = products.commentEditing(comment)
+      validateMappedProjection(core, editing)
+      return editing
+    },
     editing: products.editing,
     markdownLiterals: core.markdownLiterals
   })

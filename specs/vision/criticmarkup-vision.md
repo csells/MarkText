@@ -64,6 +64,20 @@ Two things keep "100% CriticMarkup" honest against the canonical toolkit:
    all), and the editing view derive from that shared interpretation; no consumer invents
    a second meaning by rescanning flattened text.
 
+   **One unified stack, from raw source through the renderer and UI.** All existing
+   MarkText features and all CM features rest on the same parser stack, document model,
+   and editing semantics, as though they were built together from day one. Comments,
+   suggestions, and highlights are intrinsic parts of that model. There is no parallel
+   annotation store, hidden side data, or supplemental metadata field that repairs an
+   otherwise CM-unaware editing path. Typing, selection, formatting, source highlighting,
+   search, review, history, and exports consume and operate on this shared model.
+   Reconstructing the user's operation from differences between rendered strings does
+   not meet this requirement. A single save authority alone is insufficient.
+
+   The [architecture contract and verification gate](../architecture/criticmarkup-native-integration.md#one-parser-to-ui-stack)
+   make this principle an implementation and review requirement. It remains in force
+   across plans, handoffs, and releases; unfinished integration remains a blocker.
+
 4. **True WYSIWYG.** Suggestions and comments are authored, reviewed, accepted, and rejected
    in the WYSIWYG surface — not only in a source pane. A tracked change looks like a tracked
    change while you write around it.

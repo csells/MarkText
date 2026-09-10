@@ -1,3 +1,4 @@
+import type { IDOMSelection } from './domTypes';
 import type Table from '../block/gfm/table';
 import type TableBodyCell from '../block/gfm/table/cell';
 import type { Muya } from '../muya';
@@ -37,6 +38,59 @@ class TableRectSelection {
 
     get hasSelection(): boolean {
         return this._table != null && this._anchor != null && this._focus != null;
+    }
+
+    /** Connected cell endpoints from the existing native rectangle, before an action. */
+    getDOMSelection(): { kind: 'table'; ranges: IDOMSelection[]; primary: number } | null {
+        if (!this.hasSelection)
+            return null;
+        const selected = [];
+        const minRow = Math.min(this._anchor!.row, this._focus!.row);
+        const maxRow = Math.max(this._anchor!.row, this._focus!.row);
+        const minColumn = Math.min(this._anchor!.column, this._focus!.column);
+        const maxColumn = Math.max(this._anchor!.column, this._focus!.column);
+        let primary = 0;
+        for (let row = minRow; row <= maxRow; row++) {
+            for (let column = minColumn; column <= maxColumn; column++) {
+                const cell = this._table!.cellAt(row, column);
+                const node = cell?.firstChild?.domNode;
+                if (!node?.isConnected)
+                    return null;
+                if (cell === this._anchor!.cell)
+                    primary = selected.length;
+                selected.push({ anchor: { node, offset: 0 }, focus: { node, offset: node.childNodes.length } });
+            }
+        }
+        return { kind: 'table', ranges: selected, primary };
+    }
+
+    /** Present a model-owned rectangle using current native cell geometry. */
+    setDOMSelection(ranges: readonly IDOMSelection[], primary: number): void {
+        const cells = ranges.map((range) => {
+            const element = range.anchor.node instanceof Element ? range.anchor.node : range.anchor.node.parentElement;
+            const cellDOM = element?.closest('td.mu-table-cell');
+            const block = cellDOM?.isConnected ? getBlock(cellDOM) : null;
+            if (block?.blockName !== 'table.cell')
+                throw new Error('Table selection has no current native cell');
+            return block as TableBodyCell;
+        });
+        const anchor = cells[primary];
+        if (!anchor || cells.some(cell => cell.table !== anchor.table))
+            throw new Error('Table selection is outside one native table');
+        const minRow = Math.min(...cells.map(cell => cell.rowOffset));
+        const maxRow = Math.max(...cells.map(cell => cell.rowOffset));
+        const minColumn = Math.min(...cells.map(cell => cell.columnOffset));
+        const maxColumn = Math.max(...cells.map(cell => cell.columnOffset));
+        const focus = anchor.table.cellAt(anchor.rowOffset === minRow ? maxRow : minRow, anchor.columnOffset === minColumn ? maxColumn : minColumn);
+        if (!focus || new Set(cells).size !== (maxRow - minRow + 1) * (maxColumn - minColumn + 1))
+            throw new Error('Table selection is not a native rectangle');
+        this.clear();
+        this._table = anchor.table;
+        this._anchor = { cell: anchor, row: anchor.rowOffset, column: anchor.columnOffset };
+        this._focus = { cell: focus, row: focus.rowOffset, column: focus.columnOffset };
+        this._isSelecting = true;
+        this._freezeNativeSelection();
+        this._renderHighlight();
     }
 
     isSingleCellSelected(): boolean {

@@ -4,13 +4,23 @@ import type { IInlinePresentationContext } from '@muyajs/core'
 import { createMuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
 import { renderMuyaMarkupBinding } from '@/documentAuthority/muyaMarkupPresentation'
 
-const rendered = (source: string, currentText?: string, context?: IInlinePresentationContext): HTMLDivElement => {
+const rendered = (
+  source: string,
+  currentText?: string,
+  context?: IInlinePresentationContext
+): HTMLDivElement => {
   const core = createDocumentCore()
   const revision = core.open(source)
   const view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations)
   const binding = view.bindings[0]
   const host = document.createElement('div')
-  host.innerHTML = renderMuyaMarkupBinding(binding, view.decorations, currentText ?? binding.text, context, view.comments)
+  host.innerHTML = renderMuyaMarkupBinding(
+    binding,
+    view.decorations,
+    currentText ?? binding.text,
+    context,
+    view.comments
+  )
   return host
 }
 
@@ -20,10 +30,21 @@ describe('Muya Core Markup presentation', () => {
     const markers = [...host.querySelectorAll('[data-critic-kind="comment"]')]
     expect(markers).toHaveLength(3)
     expect(host.textContent).toBe('ab')
-    expect(markers.map(marker => marker.previousSibling?.textContent ?? '')).toEqual(['', 'a', 'b'])
-    expect(markers.map(marker => [marker.getAttribute('data-critic-start'), marker.getAttribute('data-critic-end')])).toEqual([
+    expect(markers.map((marker) => marker.previousSibling?.textContent ?? '')).toEqual([
+      '',
+      'a',
+      'b'
+    ])
+    expect(
+      markers.map((marker) => [
+        marker.getAttribute('data-critic-start'),
+        marker.getAttribute('data-critic-end')
+      ])
+    ).toEqual([
       // This leaf starts at the first visible character, after the first note.
-      ['-11', '0'], ['1', '13'], ['14', '24']
+      ['-11', '0'],
+      ['1', '13'],
+      ['14', '24']
     ])
     for (const marker of markers) {
       expect(marker.getAttribute('contenteditable')).toBe('false')
@@ -41,19 +62,30 @@ describe('Muya Core Markup presentation', () => {
   it('retains only trusted native link coordinates through the browser sanitizer', () => {
     const host = rendered('prefix {++[name](https://example.com)++}')
     const link = host.querySelector<HTMLAnchorElement>('a.mu-link')
-    expect(link?.dataset).toMatchObject({ start: '7', end: '34', raw: '[name](https://example.com)' })
-    expect(rendered('[unsafe](javascript:alert(1))').querySelector('a')?.getAttribute('href')).toBeNull()
+    expect(link?.dataset).toMatchObject({
+      start: '7',
+      end: '34',
+      raw: '[name](https://example.com)'
+    })
+    expect(
+      rendered('[unsafe](javascript:alert(1))').querySelector('a')?.getAttribute('href')
+    ).toBeNull()
   })
 
   it('delegates Core image semantics to native widgets and keeps raw text offsets', () => {
     const renderImage = vi.fn(() => ({
       open: '<span class="mu-inline-image" contenteditable="false" data-raw="![**alt**][ref]"><span class="mu-hide mu-remove">',
-      close: '</span><span class="mu-image-container"><img src="file:///safe.png" alt="alt"></span></span>'
+      close:
+        '</span><span class="mu-image-container"><img src="file:///safe.png" alt="alt"></span></span>'
     }))
     const source = '{++![**alt**][ref]++}\n\n[ref]: /safe.png "Title"'
     const host = rendered(source, undefined, { renderImage })
     expect(renderImage).toHaveBeenCalledWith({
-      raw: '![**alt**][ref]', range: { start: 0, end: 15 }, src: '/safe.png', alt: 'alt', title: 'Title'
+      raw: '![**alt**][ref]',
+      range: { start: 0, end: 15 },
+      src: '/safe.png',
+      alt: 'alt',
+      title: 'Title'
     })
     expect(host.textContent).toBe('![**alt**][ref]')
     expect(host.querySelector('[data-critic-kind="addition"] .mu-inline-image')).not.toBeNull()
@@ -61,12 +93,63 @@ describe('Muya Core Markup presentation', () => {
     expect(host.querySelector('img')?.getAttribute('src')).toBe('file:///safe.png')
   })
 
+  it.each([
+    'before <img src="old.png" alt="a&amp;b" title="Title"> after',
+    '<img src="old.png" alt="a&amp;b" title="Title">'
+  ])('renders parser-owned HTML image semantics through the existing widget: %s', (source) => {
+    const renderImage = vi.fn(() => ({
+      open: '<span class="mu-inline-image" contenteditable="false"><span class="mu-hide mu-remove">',
+      close: '</span><span class="mu-image-container"></span></span>'
+    }))
+    const host = rendered(source, undefined, { renderImage })
+    const start = source.indexOf('<img')
+    expect(renderImage).toHaveBeenCalledWith({
+      raw: source.slice(start, source.indexOf('>') + 1),
+      range: { start, end: source.indexOf('>') + 1 },
+      src: 'old.png',
+      alt: 'a&b',
+      title: 'Title'
+    })
+    expect(host.querySelectorAll('.mu-inline-image')).toHaveLength(1)
+    expect(host.textContent).toBe(source)
+  })
+
+  it('passes parser-owned HTML image dimensions and alignment to the native renderer', () => {
+    const renderImage = vi.fn(() => ({ open: '<span>', close: '</span>' }))
+    rendered('<img src="a.png" width="120" height="80" data-align="center">', undefined, {
+      renderImage
+    })
+    expect(renderImage).toHaveBeenCalledWith(
+      expect.objectContaining({ width: '120', height: '80', align: 'center' })
+    )
+  })
+
+  it('renders one native image when a suggestion spans only part of its alt text', () => {
+    const renderImage = vi.fn(() => ({
+      open: '<span class="mu-inline-image" contenteditable="false"><span class="mu-hide mu-remove">',
+      close: '</span><span class="mu-image-container"></span></span>'
+    }))
+    const host = rendered('![a{++a++}a]()', undefined, { renderImage })
+    expect(renderImage).toHaveBeenCalledTimes(1)
+    expect(host.querySelectorAll('.mu-inline-image')).toHaveLength(1)
+    expect(host.textContent).toBe('![aaa]()')
+    expect(host.querySelectorAll('[data-critic-kind="addition"]')).toHaveLength(1)
+  })
+
   it('uses Core spelling ranges for entities and escapes, retaining every caret character', () => {
     const source = 'x &amp; y \\* &#x1F600; \\&copy; &unknown;'
     const host = rendered(source)
     expect(host.textContent).toBe(source)
-    expect([...host.querySelectorAll('[data-character]')].map(node => [node.textContent, node.getAttribute('data-character')])).toEqual([
-      ['&amp;', '&'], ['\\*', '*'], ['&#x1F600;', '😀'], ['\\&', '&']
+    expect(
+      [...host.querySelectorAll('[data-character]')].map((node) => [
+        node.textContent,
+        node.getAttribute('data-character')
+      ])
+    ).toEqual([
+      ['&amp;', '&'],
+      ['\\*', '*'],
+      ['&#x1F600;', '😀'],
+      ['\\&', '&']
     ])
   })
 
@@ -74,42 +157,59 @@ describe('Muya Core Markup presentation', () => {
     const source = ':smile: `:smile:` {~~:smi~>le:~~} :unknown:'
     const host = rendered(source)
     expect(host.textContent).toBe(':smile: `:smile:` :smile: :unknown:')
-    expect([...host.querySelectorAll('[data-emoji]')].map(node => node.getAttribute('data-emoji'))).toEqual(['😄'])
+    expect(
+      [...host.querySelectorAll('[data-emoji]')].map((node) => node.getAttribute('data-emoji'))
+    ).toEqual(['😄'])
   })
 
   it('presents angle and extended autolinks with their Core destinations', () => {
     const source = '<https://example.com> <person@example.com> https://example.org'
     const host = rendered(source)
     expect(host.textContent).toBe(source)
-    expect([...host.querySelectorAll('a')].map(link => [link.textContent, link.getAttribute('href')])).toEqual([
+    expect(
+      [...host.querySelectorAll('a')].map((link) => [link.textContent, link.getAttribute('href')])
+    ).toEqual([
       ['https://example.com', 'https://example.com'],
       ['person@example.com', 'mailto:person@example.com'],
       ['https://example.org', 'https://example.org']
     ])
-    expect([...host.querySelectorAll('.mu-hide.mu-remove')].map(node => node.textContent)).toEqual(['<', '>', '<', '>'])
+    expect(
+      [...host.querySelectorAll('.mu-hide.mu-remove')].map((node) => node.textContent)
+    ).toEqual(['<', '>', '<', '>'])
   })
 
   it('presents both Core hard-break spellings without altering editing characters', () => {
     const source = 'one  \ntwo\\\nthree'
     const host = rendered(source)
     expect(host.textContent).toBe(source)
-    expect([...host.querySelectorAll('.mu-hard-line-break-space')].map(node => node.textContent)).toEqual(['  ', '\\'])
-    expect([...host.querySelectorAll('.mu-line-end')].map(node => node.textContent)).toEqual(['\n', '\n'])
+    expect(
+      [...host.querySelectorAll('.mu-hard-line-break-space')].map((node) => node.textContent)
+    ).toEqual(['  ', '\\'])
+    expect([...host.querySelectorAll('.mu-line-end')].map((node) => node.textContent)).toEqual([
+      '\n',
+      '\n'
+    ])
   })
 
   it('keeps stars literal when they belong to separate substitution arms', () => {
     const host = rendered('{~~*old~>new*~~}')
     expect(host.textContent).toBe('*oldnew*')
     expect(host.querySelector('em')).toBeNull()
-    expect(host.querySelector('[data-critic-kind="substitution"][data-critic-arm="old"]')?.textContent).toBe('*old')
-    expect(host.querySelector('[data-critic-kind="substitution"][data-critic-arm="new"]')?.textContent).toBe('new*')
+    expect(
+      host.querySelector('[data-critic-kind="substitution"][data-critic-arm="old"]')?.textContent
+    ).toBe('*old')
+    expect(
+      host.querySelector('[data-critic-kind="substitution"][data-critic-arm="new"]')?.textContent
+    ).toBe('new*')
   })
 
   it('renders Core strong syntax with hidden markers and unchanged raw editing offsets', () => {
     const host = rendered('**bold**')
     expect(host.textContent).toBe('**bold**')
     expect(host.querySelector('strong')?.textContent).toBe('bold')
-    expect([...host.querySelectorAll('.mu-hide.mu-remove')].map(node => node.textContent)).toEqual(['**', '**'])
+    expect(
+      [...host.querySelectorAll('.mu-hide.mu-remove')].map((node) => node.textContent)
+    ).toEqual(['**', '**'])
   })
 
   it('renders semantic emphasis, code and links from the Core AST', () => {

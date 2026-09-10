@@ -2,6 +2,30 @@
 
 This file provides guidance to AI agents when working with code in this repository.
 
+## Unified-stack contract
+
+Standing requirement: all existing Markdown and new CriticMarkup features share
+one parser, document model and editing stack through rendering and UI. Semantic
+sidecars and supplemental legacy-event metadata do not satisfy this requirement.
+
+Before implementing, refactoring, testing or reviewing parsing, document state,
+editing, rendering, or a UI feature that consumes document semantics, read the
+[unified-stack contract and verification gate](specs/architecture/criticmarkup-native-integration.md#one-parser-to-ui-stack).
+It governs existing Markdown and CriticMarkup together. Existing code is not proof
+of compliance; known violations are recorded in the CURRENT blockers of the
+[active integration plan](specs/plans/0012-criticmarkup-upstream-integration-review.md#current-completion-blockers).
+
+Check the intended production path against that contract before choosing an
+implementation, then apply its verification gate before declaring a migration
+complete or a candidate ready. Carry
+the contract link, affected blockers and unresolved regressions into delegated
+tasks and handoffs. Keep unfinished requirements active when plans are archived;
+repair this pointer when the active plan changes. A passing subset or a new plan
+does not waive the contract.
+
+The rest of this file describes repository tooling and package conventions; its
+descriptions of current implementation do not supersede the architecture contract.
+
 ## Project Overview
 
 MarkText is a WYSIWYG markdown editor built on Electron + Vue 3. It supports CommonMark, GitHub Flavored Markdown, math (KaTeX), Mermaid diagrams, PlantUML, and multiple editing modes (focus, typewriter, source-code).
@@ -220,6 +244,9 @@ Follow `.github/COMMENTING-GUIDELINES.md` for every comment you write. The core 
 
 All Electron processes live in `packages/desktop/`. Muya is a separate
 workspace package that the renderer (and tests) consume as `@muyajs/core`.
+The legacy backend description below is implementation history, not permission
+to maintain an independent language engine. Document authority and semantic
+integration follow the contract linked in AGENTS.md.
 
 ```
 main process  (packages/desktop/src/main/)

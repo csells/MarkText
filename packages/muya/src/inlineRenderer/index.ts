@@ -65,6 +65,9 @@ class InlineRenderer {
 
     patch(block: Format, cursor?: IRenderCursor, highlights: IHighlight[] = []) {
         const { domNode } = block;
+        // Model boundary anchors are DOM children without editable text. They
+        // need the same native caret surface as a structurally empty leaf.
+        domNode!.classList.toggle('mu-empty-content', block.text.length === 0);
         // New blocks render before attachment, when their document path is unknown.
         if (this.presentation && !block.outMostBlock) {
             domNode!.textContent = block.text;
@@ -75,6 +78,14 @@ class InlineRenderer {
         const presentation = this.presentation?.(block.path, block.text, {
             highlights,
             renderImage: (image) => {
+                const anchor = cursor?.start?.offset ?? cursor?.anchor?.offset;
+                const focus = cursor?.end?.offset ?? cursor?.focus?.offset;
+                if ((cursor?.block === undefined || cursor.block === block)
+                    && [anchor, focus].some(offset => offset !== undefined && image.range.start < offset && offset < image.range.end)) {
+                    // Active syntax uses the same owned source text as the
+                    // widget, with editable DOM for exact interior selections.
+                    return { open: '<span class="mu-gray">', close: '</span>' };
+                }
                 if (!isValidAttribute('img', 'src', image.src)
                     && !/^(?:file:\/\/|[a-z]:[\\/])/i.test(image.src)) {
                     return undefined;
@@ -86,10 +97,11 @@ class InlineRenderer {
                 if (!wrapper)
                     return undefined;
                 wrapper.dataset.coreImage = JSON.stringify(image);
+                const tail = host.innerHTML.slice(wrapper.outerHTML.length);
                 const shell = (wrapper.cloneNode(false) as HTMLElement).outerHTML;
                 return {
                     open: `${shell.slice(0, -7)}<span class="mu-hide mu-remove">`,
-                    close: `</span>${wrapper.innerHTML}</span>`,
+                    close: `</span>${wrapper.innerHTML}</span>${tail}`,
                 };
             },
         });
