@@ -1,28 +1,84 @@
 import type {
   CriticMarkupAnnotation, DocumentCore, DocumentRevision,
-  DocumentSourceEdit, MarkdownAstNode, SourceRange
+  DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange
 } from './documentCore.js'
+import { markupAnnotations as annotationTree, markupReplacementRange } from './markupEditOwnership.js'
+
+/** Protective spelling retains exactly where the language compiler inserts escapes. */
+export const nativeCriticSpelling = (value: string): Readonly<{ text: string, escapes: readonly number[] }> => {
+  const escapes: number[] = []
+  const text = value.replace(
+    /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\}/g,
+    (token, offset: number) => {
+      escapes.push(offset)
+      return `\\${token}`
+    }
+  )
+  return Object.freeze({ text, escapes: Object.freeze(escapes) })
+}
 
 /** Protective spelling for native text, shared by tracked and ordinary authoring. */
-export const protectNativeCriticText = (value: string): string => value.replace(
-  /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\}/g,
-  token => `\\${token}`
-)
+export const protectNativeCriticText = (value: string): string => nativeCriticSpelling(value).text
 
-const annotationTree = (
-  roots: readonly CriticMarkupAnnotation[]
-): readonly CriticMarkupAnnotation[] => {
-  const result: CriticMarkupAnnotation[] = []
-  const pending = [...roots].reverse()
+/** Enclose an authored block before compiling its tracked arms. */
+export function prepareTrackedBlockEdit(
+  core: DocumentCore,
+  revision: DocumentRevision,
+  edit: DocumentSourceEdit,
+  syntax: MarkupSyntax
+): DocumentSourceEdit {
+  const insertedEnd = edit.start + edit.insert.length
+  const pending = [syntax.ast.root]
   while (pending.length > 0) {
-    const annotation = pending.pop()
-    if (annotation === undefined) break
-    result.push(annotation)
-    for (const arm of [...annotation.arms].reverse()) {
-      pending.push(...[...arm.annotations].reverse())
+    const node = pending.pop()
+    if (node === undefined) break
+    pending.push(...node.children)
+    if (node.kind !== 'html-block' || node.attributes.termination !== 'blank-line') continue
+    const start = syntax.coordinates.toSource(node.range.start, 'next')
+    const end = syntax.coordinates.toSource(node.range.end, 'previous')
+    if (start < edit.start || start >= insertedEnd || end < insertedEnd) continue
+    // The literal can swallow later blocks until we terminate it. The actual
+    // operation owns only its insertion and the immediately retained EOL,
+    // never that later text, regardless of the candidate literal's extent.
+    const suffix = core.sourceSlice(revision, { start: edit.end, end: Math.min(edit.end + 2, revision.sourceLength) })
+      .match(/^(?:\r\n|\r|\n)/u)?.[0] ?? ''
+    const originalEnd = edit.end + suffix.length
+    const eol = suffix.match(/\r\n|\r|\n/u)?.[0] ?? edit.insert.match(/\r\n|\r|\n/u)?.[0] ?? '\n'
+    const payload = edit.insert + suffix
+    const terminated = payload.endsWith(eol + eol) ? payload : payload.endsWith(eol) ? payload + eol : payload + eol + eol
+    return Object.freeze({ start: edit.start, end: originalEnd, insert: terminated })
+  }
+  return edit
+}
+
+/** Pending draft arms use ordinary replacement ownership, including nested marks. */
+export function createTrackedPendingArmEdits(
+  core: DocumentCore,
+  revision: DocumentRevision,
+  edits: readonly DocumentSourceEdit[]
+): readonly DocumentSourceEdit[] | undefined {
+  if (!edits.some(edit => edit.start < edit.end)) return undefined
+  const annotations = annotationTree(revision.annotations)
+  let owner: CriticMarkupAnnotation | undefined
+  for (const annotation of annotations) {
+    const content = annotation.arms.find(arm =>
+      arm.name === (annotation.kind === 'addition' ? 'content' : annotation.kind === 'substitution' ? 'new' : ''))
+    if (content !== undefined && edits.every(edit =>
+      content.range.start <= edit.start && edit.end <= content.range.end) &&
+      (owner === undefined || annotation.range.end - annotation.range.start < owner.range.end - owner.range.start)) {
+      owner = annotation
     }
   }
-  return result
+  const content = owner?.arms.find(arm => arm.name === (owner.kind === 'addition' ? 'content' : 'new'))
+  if (content === undefined || content.annotations.length === 0) return undefined
+  // A replacement of the enclosing draft may remove nested suggestions, but
+  // typing within an existing old/deleted/comment arm cannot rewrite its history.
+  if (annotations.some(annotation => annotation.arms.some(arm =>
+    (arm.name === 'old' || arm.name === 'comment' || annotation.kind === 'deletion') &&
+    edits.some(edit => arm.range.start <= edit.start && edit.end <= arm.range.end)))) return undefined
+  const planned = core.markupEdits(revision, edits)
+  if (planned === undefined || planned.some(edit => edit.start < content.range.start || edit.end > content.range.end)) return undefined
+  return planned
 }
 
 /** Literal payloads cannot contain active CM; suggest a replacement of their owned syntax. */
@@ -60,6 +116,23 @@ export function createTrackedLiteralSourceEdit(
   return createTrackedSourceEdit(core, revision, { ...owner, insert }, preview)
 }
 
+/** Exterior typing may extend an inline draft, but cannot acquire container syntax. */
+function pendingArmOwnsInlineEdge(core: DocumentCore, revision: DocumentRevision, range: SourceRange, after: boolean): boolean {
+  if (range.start === range.end) return true
+  const syntax = core.project(revision, 'markup').syntax
+  const edge = syntax.coordinates.toProjected(after ? range.end : range.start, after ? 'previous' : 'next')
+  const visit = (node: MarkdownAstNode): boolean => {
+    if (after ? node.range.start >= edge || node.range.end < edge : node.range.start > edge || node.range.end <= edge) return false
+    if (['text', 'inline-code', 'inline-math', 'inline-html', 'autolink', 'image', 'footnote-reference'].includes(node.kind)) {
+      const start = syntax.coordinates.toSource(node.range.start, 'next')
+      const end = syntax.coordinates.toSource(node.range.end, 'previous')
+      return start < range.end && end > range.start
+    }
+    return node.children.some(visit)
+  }
+  return visit(syntax.ast.root)
+}
+
 // Author tracked changes from the revision-owned syntax. Candidate validation
 // preserves the exact arms before the caller admits the resulting source edit.
 export const createTrackedSourceEdit = (
@@ -67,7 +140,8 @@ export const createTrackedSourceEdit = (
   activeRevision: DocumentRevision,
   edit: DocumentSourceEdit,
   preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision,
-  preserveCanonicalMarkup = false
+  preserveCanonicalMarkup = false,
+  scope: 'visible' | 'structure' = 'visible'
 ): DocumentSourceEdit | undefined => {
   const request = { range: { start: edit.start, end: edit.end }, text: edit.insert }
   if (
@@ -78,6 +152,11 @@ export const createTrackedSourceEdit = (
     request.range.start < 0 || request.range.end < request.range.start ||
     request.range.end > activeRevision.sourceLength
   ) return undefined
+  if (request.range.start < request.range.end && request.text.length > 0) {
+    const range = markupReplacementRange(activeCore, activeRevision, edit, scope)
+    if (range === undefined) return undefined
+    request.range = range
+  }
   const insertion = request.range.start === request.range.end && request.text.length > 0
   if (insertion) {
     const annotations = annotationTree(activeRevision.annotations)
@@ -102,10 +181,11 @@ export const createTrackedSourceEdit = (
       arm.name === (adjacent.kind === 'addition' ? 'content' : 'new')
     )
     if (adjacent !== undefined && arm !== undefined) {
-      const offset = adjacent.range.end === request.range.start
-        ? arm.range.end
-        : arm.range.start
-      request.range = { start: offset, end: offset }
+      const after = adjacent.range.end === request.range.start
+      if (pendingArmOwnsInlineEdge(activeCore, activeRevision, arm.range, after)) {
+        const offset = after ? arm.range.end : arm.range.start
+        request.range = { start: offset, end: offset }
+      }
     }
   }
   const deletion = request.range.end > request.range.start && request.text.length === 0
@@ -208,7 +288,7 @@ export const createTrackedSourceEdit = (
           ? annotation.arms.find(arm => arm.name === 'new')
           : undefined
       if (
-        content !== undefined && content.annotations.length === 0 &&
+        content !== undefined && (content.annotations.length === 0 || preserveCanonicalMarkup) &&
         request.range.start >= content.range.start &&
         request.range.end <= content.range.end &&
         (deepestAnnotation === undefined ||
@@ -276,7 +356,7 @@ export const createTrackedSourceEdit = (
           ? replaced?.arms.find(arm => arm.name === 'old')
           : undefined
         return replaced !== undefined && replacedContent !== undefined &&
-          replacedContent.annotations.length === 0 &&
+          (replacedContent.annotations.length === 0 || preserveCanonicalMarkup) &&
           (deepestAnnotation.kind !== 'substitution' ||
             (replacedOld !== undefined && originalOldSource !== undefined &&
               candidate.source.slice(replacedOld.range.start, replacedOld.range.end) ===
@@ -293,12 +373,27 @@ export const createTrackedSourceEdit = (
       }
       const rawReplacement = replacementCandidate(request.text)
       if (rawReplacement !== undefined) return rawReplacement
+      if (preserveCanonicalMarkup) return undefined
       return protectedNativeText === request.text
         ? undefined
         : replacementCandidate(protectedNativeText)
     }
   }
   if (deletion) {
+    const annotations = annotationTree(activeRevision.annotations)
+    const cancelled = annotations.find(annotation => annotation.kind === 'addition' &&
+      annotation.range.start === request.range.start && annotation.range.end === request.range.end)
+    if (cancelled !== undefined) {
+      const retainedHistory = annotations.some(annotation => annotation !== cancelled && annotation.arms.some(arm =>
+        (annotation.kind === 'deletion' || arm.name === 'old' || arm.name === 'comment') &&
+        arm.range.start <= cancelled.range.start && cancelled.range.end <= arm.range.end))
+      if (retainedHistory) return undefined
+      // Cancelling proposed text uses the same owned deletion whether the
+      // native selection encloses its complete wrapper or only its payload.
+      const removal = Object.freeze({ ...cancelled.range, insert: '' })
+      preview([removal])
+      return removal
+    }
     const pending = [...activeRevision.annotations]
     while (pending.length > 0) {
       const annotation = pending.pop()

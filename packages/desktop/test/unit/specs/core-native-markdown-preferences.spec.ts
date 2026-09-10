@@ -12,7 +12,7 @@ it('reinterprets a hidden native view with footnotes and GitLab math without adm
     '```math\nx^2\n```\n\nText.{>>Comment 2^n^.<<}\n'
   const actor = createCoreActor()
   const binding = createEditorCoreBinding({
-    request: async(request) => actor.handle(request),
+    request: (request) => actor.handle(request),
     dispose: () => actor.dispose()
   })
   await binding.open({
@@ -20,9 +20,11 @@ it('reinterprets a hidden native view with footnotes and GitLab math without adm
     source,
     options: { footnotes: false, gitLabMath: false, subscriptAndSuperscript: false }
   })
-  const view = async() => {
-    const result = await binding.plainTextViewAtBarrier()
-    if (result.type !== 'plain-text-view' || !('state' in result.view)) { throw new Error('Expected native view') }
+  const view = () => {
+    const result = binding.plainTextViewAtBarrier()
+    if (result.type !== 'plain-text-view' || !('state' in result.view)) {
+      throw new Error('Expected native view')
+    }
     return result.view
   }
   const initial = await view()
@@ -46,8 +48,8 @@ it('reinterprets a hidden native view with footnotes and GitLab math without adm
   }
   install(initial)
   muya.domNode.style.display = 'none'
-  const reconcile = async() => {
-    const next = await view()
+  const reconcile = () => {
+    const next = view()
     install(next)
     return next.bindings
   }
@@ -60,7 +62,7 @@ it('reinterprets a hidden native view with footnotes and GitLab math without adm
   try {
     await adapter.configure(
       { footnotes: true, subscriptAndSuperscript: true, gitLabMath: true },
-      async() => {
+      () => {
         muya.setOptions({
           footnote: true,
           superSubScript: true,

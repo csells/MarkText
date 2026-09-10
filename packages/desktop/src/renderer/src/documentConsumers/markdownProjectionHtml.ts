@@ -120,6 +120,7 @@ export function renderMarkdownProjectionToSafeHtml(
       case 'document':
         return children()
       case 'paragraph':
+        if (node.range.start === node.range.end && node.children.length === 0) return ''
         return context.tightList ? children() : `<p>${children()}</p>\n`
       case 'heading': {
         const level = node.attributes['level']

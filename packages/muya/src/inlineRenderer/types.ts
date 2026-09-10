@@ -16,6 +16,9 @@ export interface IInlinePresentationImage {
     readonly src: string;
     readonly alt: string;
     readonly title: string;
+    readonly width?: string;
+    readonly height?: string;
+    readonly align?: string;
 }
 
 export interface IInlinePresentationContext {

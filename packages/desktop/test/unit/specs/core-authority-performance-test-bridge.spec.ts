@@ -5,7 +5,7 @@ import {
   createCoreAuthorityPerformanceTestBridge,
   createCoreDocumentSessionManager,
   createEditorCoreBinding,
-  type CoreActorPort,
+  type CoreModelOwner,
   type CoreReply,
   type CoreRequest
 } from '@/documentAuthority'
@@ -14,7 +14,7 @@ const actorPort = (
   rejectSource = false
 ): Readonly<{
   actor: ReturnType<typeof createCoreActor>
-  port: CoreActorPort
+  port: CoreModelOwner
   requests: CoreRequest[]
 }> => {
   const actor = createCoreActor()
@@ -23,7 +23,7 @@ const actorPort = (
     actor,
     requests,
     port: {
-      async request(request: CoreRequest): Promise<CoreReply> {
+      request(request: CoreRequest): CoreReply {
         requests.push(structuredClone(request))
         if (rejectSource && request.type === 'source-at-barrier') {
           return Object.freeze({
@@ -38,15 +38,14 @@ const actorPort = (
         }
         return structuredClone(actor.handle(structuredClone(request)))
       },
-      dispose(): void { actor.dispose() }
+      dispose(): void {
+        actor.dispose()
+      }
     }
   })
 }
 
-const managedLease = async(
-  source: string,
-  rejectSource = false
-) => {
+const managedLease = async(source: string, rejectSource = false) => {
   const { port } = actorPort(rejectSource)
   const manager = createCoreDocumentSessionManager({
     createBinding: () => createEditorCoreBinding(port)
@@ -59,15 +58,14 @@ describe('Core authority performance test bridge', () => {
   it('omits the bridge when PERF_TESTING is disabled', async() => {
     const lease = await managedLease('')
 
-    expect(createCoreAuthorityPerformanceTestBridge(false, lease))
-      .toBeUndefined()
+    expect(createCoreAuthorityPerformanceTestBridge(false, lease)).toBeUndefined()
   })
 
   it('delegates exact empty authority through the manager barrier without view bypass', async() => {
     const lease = await managedLease('')
     const bridge = createCoreAuthorityPerformanceTestBridge(true, lease)
 
-    await expect(lease.binding.sourceAtBarrier()).rejects.toThrow(/cannot bypass/i)
+    await expect(() => lease.binding.sourceAtBarrier()).toThrow(/cannot bypass/i)
     await expect(bridge?.authoritySource()).resolves.toBe('')
   })
 
@@ -75,9 +73,7 @@ describe('Core authority performance test bridge', () => {
     const lease = await managedLease('', true)
     const bridge = createCoreAuthorityPerformanceTestBridge(true, lease)
 
-    await expect(bridge?.authoritySource()).rejects.toThrow(
-      /save barrier.*stale/i
-    )
+    await expect(bridge?.authoritySource()).rejects.toThrow(/save barrier.*stale/i)
   })
 
   it('rejects a released lease before issuing a manager source barrier request', async() => {

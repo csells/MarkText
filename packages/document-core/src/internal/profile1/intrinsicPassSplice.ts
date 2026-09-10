@@ -300,6 +300,12 @@ function shiftTransition(
           : {
             pendingLine: Object.freeze({
               ...transition.emittedFacts.block.pendingLine,
+              containerOpeners: Object.freeze(
+                transition.emittedFacts.block.pendingLine.containerOpeners.map(range => Object.freeze({
+                  start: range.start + delta,
+                  end: range.end + delta
+                }))
+              ),
               listContinuationIndentations: Object.freeze(
                 transition.emittedFacts.block.pendingLine
                   .listContinuationIndentations.map((fact) => Object.freeze({

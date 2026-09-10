@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 
 import type Format from '../../block/base/format';
-import type { ImageToken } from '../../inlineRenderer/types';
 import type { Muya } from '../../muya';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { tokenizer } from '../../inlineRenderer/lexer';
 import { Muya as MuyaClass } from '../../muya';
 
 // Cutting a selected inline image removes it from the document (muyajs parity).
@@ -50,11 +50,7 @@ function bootMuya(markdown: string): Muya {
 function selectImage(muya: Muya): Format {
     const block = muya.editor.scrollPage!.firstContentInDescendant() as Format;
     const raw = block.text;
-    const token = {
-        type: 'image',
-        raw,
-        range: { start: 0, end: raw.length },
-    } as unknown as ImageToken;
+    const token = tokenizer(raw).find(token => token.type === 'image')!;
     muya.editor.selection.selectImage({ token, imageId: 'cut-img', block });
     return block;
 }
@@ -76,13 +72,7 @@ describe('track C — cut a selected inline image deletes it (muyajs parity)', (
         const muya = bootMuya('before ![alt](https://example.com/a.png) after\n');
         const block = muya.editor.scrollPage!.firstContentInDescendant() as Format;
         const raw = block.text;
-        const start = raw.indexOf('![');
-        const end = raw.indexOf(')', start) + 1;
-        const token = {
-            type: 'image',
-            raw: raw.slice(start, end),
-            range: { start, end },
-        } as unknown as ImageToken;
+        const token = tokenizer(raw).find(token => token.type === 'image')!;
         muya.editor.selection.selectImage({ token, imageId: 'cut-img', block });
 
         muya.editor.clipboard.cutHandler();

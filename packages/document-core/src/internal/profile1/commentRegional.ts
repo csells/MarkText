@@ -389,7 +389,7 @@ export function admitCommentRegionalChange(
     index.source.start,
     index.source.end + delta
   )
-  const parseWindow = (source: string) => parseProfile1Document(
+  const parseWindow = (source: string, endsAtDocumentEnd: boolean) => parseProfile1Document(
     source,
     executionBudget,
     undefined,
@@ -397,9 +397,11 @@ export function admitCommentRegionalChange(
     true,
     undefined,
     createProfile1DocumentReuseCache(),
-    physicalRecorder
+    physicalRecorder,
+    undefined,
+    endsAtDocumentEnd
   )
-  const previousProducts = parseWindow(previousWindow)
+  const previousProducts = parseWindow(previousWindow, index.source.end === previousSource.length)
   if (previousProducts.kind !== 'complete') {
     return Object.freeze({
       kind: 'resource-failure',
@@ -410,7 +412,7 @@ export function admitCommentRegionalChange(
     })
   }
   if (touchesNestedMarker(previousProducts, index, edit)) return undefined
-  const nextProducts = parseWindow(nextWindow)
+  const nextProducts = parseWindow(nextWindow, index.source.end + delta === nextSource.length)
   if (nextProducts.kind !== 'complete') {
     return Object.freeze({
       kind: 'resource-failure',

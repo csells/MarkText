@@ -1,6 +1,6 @@
 import type { VNode } from 'snabbdom';
+import type { IDocumentActiveFormat } from '../../editor/documentEditingTypes';
 import type { Muya } from '../../index';
-import type { Token } from '../../inlineRenderer/types';
 import type { IInlineToolbarAction } from '../../types';
 import type { IBaseOptions } from '../types';
 
@@ -68,7 +68,7 @@ export class InlineFormatToolbar extends BaseFloat {
     private _block: Format | null = null;
 
     /** Currently applied formats in the selection */
-    private _formats: Token[] = [];
+    private _formats: readonly IDocumentActiveFormat[] = [];
 
     /** Toolbar configuration options */
     public override options: IBaseOptions;
@@ -104,7 +104,7 @@ export class InlineFormatToolbar extends BaseFloat {
         eventCenter.subscribe('muya-format-picker', ({ reference, block }) => {
             if (reference) {
                 this._block = block;
-                this._formats = block.getFormatsInRange().formats;
+                this._formats = block.getActiveFormats();
                 requestAnimationFrame(() => {
                     this.show(reference);
                     this._render();
@@ -253,7 +253,7 @@ export class InlineFormatToolbar extends BaseFloat {
      * @param formats - Currently applied formats
      * @param i18n - Internationalization instance
      */
-    private _createIconItem(icon: FormatToolIcon, formats: Token[], i18n: typeof this.muya.i18n) {
+    private _createIconItem(icon: FormatToolIcon, formats: readonly IDocumentActiveFormat[], i18n: typeof this.muya.i18n) {
         const iconElement = h(
             'i.icon',
             h(
@@ -318,7 +318,7 @@ export class InlineFormatToolbar extends BaseFloat {
             this.hide();
         }
         else {
-            this._formats = this._block!.getFormatsInRange().formats;
+            this._formats = this._block!.getActiveFormats();
             this._render();
         }
     }

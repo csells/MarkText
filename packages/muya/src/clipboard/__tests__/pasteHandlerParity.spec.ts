@@ -106,6 +106,7 @@ function makeAnchorBlock(
         firstContentInDescendant: () => block,
         getState: () => ({ name: blockName, text: block.text }),
         update: vi.fn(),
+        isContent: () => true,
     };
     return block;
 }
@@ -113,19 +114,22 @@ function makeAnchorBlock(
 function makeClipboard(
     anchorBlock: any,
     options: Record<string, unknown> = {},
-    tableStub: { hasSelection: boolean; getStateForCopy: () => any; clear: ReturnType<typeof vi.fn> } = {
+    tableStub: { hasSelection: boolean; getStateForCopy: () => any; getDOMSelection: () => any; isSingleCellSelected: () => boolean; clear: ReturnType<typeof vi.fn> } = {
         hasSelection: false,
         getStateForCopy: () => null,
+        getDOMSelection: () => null,
+        isSingleCellSelected: () => false,
         clear: vi.fn(),
     },
 ) {
     const clipboard = new Clipboard({
         options: { bulletListMarker: '-', frontMatter: true, ...options },
-        editor: {},
+        editor: { scrollPage: { queryBlock: () => anchorBlock } },
     } as unknown as Muya);
     Object.defineProperty(clipboard, 'selection', {
         get: () => ({
             getSelection: () => ({ isSelectionInSameBlock: true, anchor: { block: anchorBlock } }),
+            getTextPoint: () => ({ path: [0], offset: 0 }),
             table: tableStub,
         }),
     });
@@ -316,6 +320,8 @@ describe('pasteHandler — table-cell paste guards (sub-item 4)', () => {
         const tableStub = {
             hasSelection,
             getStateForCopy: () => ({ name: 'table', children: rows }),
+            getDOMSelection: () => ({ kind: 'table', ranges: [{ anchor: { node: anchorBlock, offset: 0 }, focus: { node: anchorBlock, offset: anchorBlock.text.length } }] }),
+            isSingleCellSelected: () => isSingleCell,
             clear: vi.fn(),
         };
         return makeClipboard(anchorBlock, {}, tableStub);

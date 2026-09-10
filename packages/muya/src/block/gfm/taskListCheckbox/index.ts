@@ -4,7 +4,9 @@ import type { Nullable } from '../../../types';
 import type Parent from '../../base/parent';
 import type TaskList from '../taskList';
 import type TaskListItem from '../taskListItem';
+import { taskCheckedChanges } from '@marktext/input-policy';
 import { CLASS_NAMES, isFirefox } from '../../../config';
+import { dispatchDocumentTask } from '../../../editor/documentEditing';
 import { isHTMLInputElement, isMouseEvent } from '../../../utils';
 import { operateClassName } from '../../../utils/dom';
 import logger from '../../../utils/logger';
@@ -59,51 +61,6 @@ function nestedTaskListOf(item: TaskListItem): TaskList | null {
     });
 
     return nested;
-}
-
-// Cascade `checked` to every descendant task item (depth-first).
-function cascadeToDescendants(item: TaskListItem, checked: boolean): void {
-    const nested = nestedTaskListOf(item);
-    if (!nested)
-        return;
-
-    nested.children.forEach((child: TreeNode) => {
-        if (!isTaskListItem(child))
-            return;
-
-        setItemChecked(child, checked);
-        cascadeToDescendants(child, checked);
-    });
-}
-
-// A parent item is checked iff every sibling in its task-list is checked.
-function allSiblingsChecked(list: TaskList): boolean {
-    let all = true;
-    list.children.forEach((child: TreeNode) => {
-        if (isTaskListItem(child) && !child.checked)
-            all = false;
-    });
-
-    return all;
-}
-
-// Re-derive each ancestor task item: walking up from the toggled item's list,
-// set every enclosing item to the computed state until one is unchanged.
-function rederiveAncestors(item: TaskListItem): void {
-    let list = item.parent;
-
-    while (isTaskList(list)) {
-        const ancestor = list.parent;
-        if (!isTaskListItem(ancestor))
-            return;
-
-        const computed = allSiblingsChecked(list);
-        if (ancestor.checked === computed)
-            return;
-
-        setItemChecked(ancestor, computed);
-        list = ancestor.parent;
-    }
 }
 
 // The Task List Item component is Firefox compatible, because in Firefox,
@@ -164,6 +121,13 @@ class TaskListCheckbox extends TreeNode {
 
             event.stopPropagation();
 
+            if (muya.editor.documentEditing) {
+                const checked = isHTMLInputElement(event.target) ? event.target.checked : !this._checked;
+                this.syncDom(this._checked);
+                this.update(checked, 'user');
+                return;
+            }
+
             if (isFirefox) {
                 this._checked = !this._checked;
 
@@ -192,6 +156,15 @@ class TaskListCheckbox extends TreeNode {
         const taskListItem = this.parent as TaskListItem;
         const taskList = taskListItem!.parent as TaskList;
 
+        if (source !== 'api' && this.muya.editor.documentEditing) {
+            const content = taskListItem.firstContentInDescendant();
+            const point = content && this.muya.editor.selection.getDOMPoint({ path: content.path, offset: 0 });
+            if (!point)
+                throw new Error('Task checkbox has no current content position');
+            dispatchDocumentTask(this.muya, checked, { anchor: point, focus: point });
+            return;
+        }
+
         this._applyChecked(checked, source);
 
         // marktext `clickCtrl.js#listItemCheckBoxClick` cascaded a user toggle
@@ -201,8 +174,14 @@ class TaskListCheckbox extends TreeNode {
         // is the silent, OT-free path used by the cascade itself, so it never
         // recurses.
         if (source !== 'api' && this.muya.options.autoCheck) {
-            cascadeToDescendants(taskListItem, checked);
-            rederiveAncestors(taskListItem);
+            const changes = taskCheckedChanges(taskListItem, checked, true, {
+                checked: item => item.checked,
+                children: item => nestedTaskListOf(item)?.children.map(child => child).filter(isTaskListItem) ?? [],
+                siblings: item => isTaskList(item.parent) ? item.parent.children.map(child => child).filter(isTaskListItem) : [],
+                parent: item => isTaskList(item.parent) && isTaskListItem(item.parent.parent) ? item.parent.parent : undefined,
+            });
+            for (const [item, value] of changes)
+                setItemChecked(item, value);
         }
 
         taskList.orderIfNecessary();

@@ -4,37 +4,37 @@ import { createCoreActor } from '@/documentAuthority/coreActor'
 import { createEditorCoreBinding } from '@/documentAuthority/editorCoreBinding'
 import { createCodeMirrorCoreAdapter } from '@/documentAuthority/codeMirrorCoreAdapter'
 
-it('retains Source text and rejected intent before a queue-cap reconciliation', async() => {
+it('retains Source text and rejected intent during a pending native history paint', async() => {
   const actor = createCoreActor()
-  let release: (() => void) | undefined
   const binding = createEditorCoreBinding({
-    request: request => request.type === 'apply'
-      ? new Promise(resolve => { release = () => { release = undefined; resolve(actor.handle(request)) } })
-      : Promise.resolve(actor.handle(request)),
-    dispose: () => {}
+    request: (request) => actor.handle(request),
+    dispose: () => actor.dispose()
   })
-  await binding.open({ documentId: 'source.md', source: 'seed' })
+  binding.open({ documentId: 'source.md', source: 'seed' })
   const doc = new codeMirror.Doc('seed')
   const adapter = createCodeMirrorCoreAdapter(doc, binding, {
-    canonicalSource: 'seed', insertedLineEnding: '\n', maxPending: 1
+    canonicalSource: 'seed',
+    insertedLineEnding: '\n',
+    maxPending: 1
   })
   try {
-    doc.replaceRange('a', { line: 0, ch: 4 })
-    await new Promise(resolve => setTimeout(resolve, 0))
-    doc.replaceRange('b', { line: 0, ch: 5 })
+    doc.replaceRange('q', { line: 0, ch: 4 })
+    await adapter.settled()
+    const undoing = adapter.history('undo')
+    undoing.catch(() => {})
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    doc.replaceRange('a', { line: 0, ch: 5 })
+    doc.replaceRange('b', { line: 0, ch: 6 })
     await expect(adapter.settled()).rejects.toThrow('reconciliation')
     expect(adapter.recoveryDraft()).toMatchObject({
-      text: 'seedab',
-      revision: 1,
-      unsubmittedEdits: [{ start: 5, end: 5, insert: 'b' }]
+      text: 'seedqab',
+      revision: 3,
+      unsubmittedEdits: [{ start: 5, end: 5, insert: 'a' }]
     })
-    expect(adapter.recoveryDraft().commands).toHaveLength(1)
-    release?.()
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(await binding.sourceAtBarrier()).toMatchObject({ source: 'seeda' })
-    expect(doc.getValue()).toBe('seedab')
+    await Promise.allSettled([undoing])
+    expect(binding.sourceAtBarrier()).toMatchObject({ source: 'seed' })
+    expect(doc.getValue()).toBe('seedqab')
   } finally {
-    release?.()
     adapter.dispose()
     binding.dispose()
   }

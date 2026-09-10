@@ -7,6 +7,7 @@ import type { TBlockPath } from '../../types';
 import type TableBodyCell from './cell';
 import type TableRow from './row';
 import type TableInner from './table';
+import { toggleTableAlignment } from '@marktext/input-policy';
 import diff from 'fast-diff';
 import { fromEvent } from 'rxjs';
 import { diffToTextOp } from '../../../utils';
@@ -16,6 +17,13 @@ import Parent from '../../base/parent';
 import { ScrollPage } from '../../scrollPage';
 
 const debug = logger('table:');
+
+function outsideTableContent(table: Table): Nullable<Content> {
+    // Context navigation begins at a content leaf and walks its parent's
+    // siblings. Starting at the table would skip its adjacent blocks.
+    return table.lastContentInDescendant()?.nextContentInContext()
+        ?? table.firstContentInDescendant()?.previousContentInContext();
+}
 
 class Table extends Parent {
     override children: LinkedList<TableInner> = new LinkedList();
@@ -195,11 +203,7 @@ class Table extends Parent {
         // block OUTSIDE the table so the caret never lands inside the
         // about-to-be-detached table itself.
         const survivor = (row.next as TableRow | null) ?? (row.prev as TableRow | null);
-        // Always grab the outside-of-table fallback as well, in case the
-        // whole table is going away. `nextContentInContext` / `prev` walk
-        // out of the table by design.
-        const outsideContent
-            = this.nextContentInContext() ?? this.previousContentInContext();
+        const outsideContent = outsideTableContent(this);
 
         row.remove();
 
@@ -223,8 +227,7 @@ class Table extends Parent {
             // Same outside-of-table fallback as removeRow when the whole
             // table is removed — never leave the caret inside a detached
             // subtree.
-            const outsideContent
-                = this.nextContentInContext() ?? this.previousContentInContext();
+            const outsideContent = outsideTableContent(this);
             this.remove();
             return outsideContent ?? null;
         }
@@ -260,7 +263,7 @@ class Table extends Parent {
             const cell = (row as TableRow).find(offset) as TableBodyCell;
             if (cell) {
                 const { align: oldValue } = cell;
-                cell.align = oldValue === value ? 'none' : value;
+                cell.align = toggleTableAlignment(oldValue, value);
                 // dispatch change to modify json state
                 const diffs = diff(oldValue, cell.align);
                 const { path } = cell;

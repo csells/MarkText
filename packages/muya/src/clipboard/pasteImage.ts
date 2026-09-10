@@ -106,7 +106,7 @@ async function insertImageSrc(
 // Resolve a pasted image to an `src`: a clipboard FILE path (via the
 // `clipboardFilePath` hook) first, then an in-memory bitmap File read as a
 // base64 `data:` URL. Returns null when the clipboard carries no image.
-async function resolveImageSrc(
+export async function resolveImageSrc(
     clipboard: Clipboard,
     imageFile: Nullable<File>,
 ): Promise<Nullable<string>> {
@@ -139,6 +139,20 @@ export async function pasteImageSrc(
 ): Promise<void> {
     if (!src)
         return;
+
+    const model = clipboard.muya.editor.documentEditing;
+    if (model) {
+        const selection = clipboard.selection.image
+            ? clipboard.selection.getImageDOMSelection()
+            : clipboard.selection.getDOMSelection();
+        if (!selection)
+            throw new Error('Image paste has no document selection');
+        await model.prepareClipboard(selection, { imageSource: src }, async () => {
+            const resolved = await clipboard.muya.options.imageAction?.({ src, alt: '', title: '' });
+            return { markdown: `![](${encodeImageSrc(resolved || src)})` };
+        });
+        return;
+    }
 
     const anchorBlock
         = clipboard.selection.getSelection()?.anchor.block

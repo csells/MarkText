@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import type Parent from '../block/base/parent';
+import type { DocumentInput } from '../editor/documentEditingTypes';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Muya } from '../muya';
 
@@ -140,4 +141,43 @@ describe('cross-block paragraph wrapping', () => {
         expect(sel.anchorBlock!.text).toBe('alpha');
         expect(sel.focusBlock!.text).toBe('bravo');
     });
+});
+
+it('keeps cross-block code wrapping under the bound owner when it declines the operation', () => {
+    const muya = boot('alpha\n\nbravo\n');
+    selectFirstTwoBlocks(muya);
+    const before = structuredClone(muya.getState());
+    const changes: unknown[] = [];
+    muya.eventCenter.on('json-change', (change: unknown) => {
+        if (change && typeof change === 'object' && (change as { source?: unknown }).source === 'user')
+            changes.push(change);
+    });
+    const unexpected = (): never => {
+        throw new Error('Unexpected bound operation');
+    };
+    const input = vi.fn((_operation: DocumentInput, present: () => void) => {
+        present();
+        return false;
+    });
+    muya.editor.bindDocumentEditing({
+        activeFormats: () => [],
+        clipboard: unexpected,
+        prepareImage: unexpected,
+        prepareClipboard: unexpected,
+        compositionStart: unexpected,
+        compositionUpdate: unexpected,
+        compositionEnd: unexpected,
+        format: unexpected,
+        input,
+    });
+    try {
+        muya.updateParagraph('pre');
+        expect(input).toHaveBeenCalledOnce();
+        expect(input.mock.calls[0][0]).toMatchObject({ kind: 'command', command: 'wrapCodeBlocks' });
+        expect(muya.getState()).toEqual(before);
+        expect(changes).toEqual([]);
+    }
+    finally {
+        muya.destroy();
+    }
 });

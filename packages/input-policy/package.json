@@ -1,0 +1,36 @@
+{
+  "name": "@marktext/input-policy",
+  "version": "0.1.0",
+  "description": "Shared pure native typing policy for MarkText document engines",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/esm/index.d.ts",
+        "import": "./dist/esm/index.js",
+        "require": "./dist/cjs/index.cjs"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.cjs.json && node scripts/finalize-build.cjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  },
+  "dependencies": {
+    "html-tags": "5.1.0"
+  }
+}

@@ -199,16 +199,39 @@ class History {
     }
 
     preserveInputGrouping(update: () => void): void {
+        this._withInputGrouping(() => {
+            update();
+            return false;
+        });
+    }
+
+    /** Record a native command with its actual selection before source mutation. */
+    recordCommand(update: () => void): void {
+        this._muya.flush();
+        this._getLastSelection();
+        update();
+        this._muya.flush();
+    }
+
+    /** Commit grouping only when the bound model accepts a source edit. */
+    recordModelInput(inputType: string, data: Nullable<string>, apply: (group: number) => boolean): void {
+        this._withInputGrouping(() => apply(this.inputGroupFor(inputType, data)));
+    }
+
+    private _withInputGrouping(update: () => boolean): void {
         const recorded = this._lastRecorded;
         const group = this._inputGroup;
         const kind = this._lastInputKind;
+        let committed = false;
         try {
-            update();
+            committed = update();
         }
         finally {
-            this._lastRecorded = recorded;
-            this._inputGroup = group;
-            this._lastInputKind = kind;
+            if (!committed) {
+                this._lastRecorded = recorded;
+                this._inputGroup = group;
+                this._lastInputKind = kind;
+            }
         }
     }
 
@@ -297,6 +320,24 @@ class History {
         this._lastRecorded = 0;
     }
 
+    /** Allocate native input grouping without recording a second undo history. */
+    inputGroupFor(inputType: string, data: Nullable<string>): number {
+        this.markInputBoundary(inputType, data);
+        const timestamp = Date.now();
+        if (!this._sharesInputGroup(timestamp))
+            this._startInputGroup(timestamp);
+        return this._inputGroup!;
+    }
+
+    private _sharesInputGroup(timestamp: number): boolean {
+        return this._lastRecorded + this._options.delay > timestamp && this._inputGroup !== undefined;
+    }
+
+    private _startInputGroup(timestamp: number): void {
+        this._lastRecorded = timestamp;
+        this._inputGroup = ++this._nextInputGroup;
+    }
+
     markInputBoundary(inputType: string, data: Nullable<string>): void {
         const kind = classifyInputKind(inputType);
         if (kind == null)
@@ -324,8 +365,7 @@ class History {
         let undoOperation = json1.type.invertWithDoc(op, asDoc(doc));
 
         const timestamp = Date.now();
-        const sharesInputGroup = this._lastRecorded + this._options.delay > timestamp
-            && this._inputGroup !== undefined;
+        const sharesInputGroup = this._sharesInputGroup(timestamp);
         if (
             this._lastRecorded + this._options.delay > timestamp
             && this._stack.undo.length > 0
@@ -335,11 +375,8 @@ class History {
             selection = lastSelection;
             undoOperation = json1.type.compose(undoOperation, lastOperation);
         }
-        else if (!sharesInputGroup) {
-            this._lastRecorded = timestamp;
-        }
         if (!sharesInputGroup)
-            this._inputGroup = ++this._nextInputGroup;
+            this._startInputGroup(timestamp);
 
         if (!undoOperation || undoOperation.length === 0)
             return;
