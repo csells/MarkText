@@ -13,6 +13,7 @@ import type { IQuickInsertMenuItem } from '../paragraphQuickInsertMenu/config';
 import { replaceBlockByLabel } from '../../block/blockTransforms';
 import { ScrollPage } from '../../block/scrollPage';
 import emptyStates from '../../config/emptyStates';
+import { dispatchDocumentBlockquote, dispatchDocumentHeading, dispatchDocumentList } from '../../editor/documentEditing';
 
 import { isAnyListState, isAtxHeadingState } from '../../state/types';
 import { deepClone, isHTMLElement } from '../../utils';
@@ -125,6 +126,7 @@ export class ParagraphFrontMenu extends BaseFloat {
                 itemSelector,
                 {
                     on: {
+                        mousedown: event => event.preventDefault(),
                         click: (event) => {
                             this.selectItem(event, { label });
                         },
@@ -198,18 +200,25 @@ export class ParagraphFrontMenu extends BaseFloat {
         if (!block?.parent)
             return;
 
-        const oldState = block.getState();
+        this.muya.flush();
+        this.muya.editor.history.cutoff();
+        try {
+            const oldState = block.getState();
+            const cursorBlock = /duplicate|new|delete/.test(label)
+                ? this._applyMetaAction(label, block, oldState)
+                : this._turnIntoBlock(label, block, oldState);
 
-        const cursorBlock = /duplicate|new|delete/.test(label)
-            ? this._applyMetaAction(label, block, oldState)
-            : this._turnIntoBlock(label, block, oldState);
-
-        if (cursorBlock) {
-            // mock cursorBlock focus
-            cursorBlock.setCursor(0, 0, true);
+            if (cursorBlock) {
+                // mock cursorBlock focus
+                cursorBlock.setCursor(0, 0, true);
+            }
         }
-        // Delay hide to avoid dispatch enter handler
-        setTimeout(this.hide.bind(this));
+        finally {
+            this.muya.flush();
+            this.muya.editor.history.cutoff();
+            // Delay hide to avoid dispatch enter handler
+            setTimeout(this.hide.bind(this));
+        }
     }
 
     private _applyMetaAction(label: string, block: Parent, oldState: TState) {
@@ -277,6 +286,22 @@ export class ParagraphFrontMenu extends BaseFloat {
                     return null;
                 }
 
+                const targetLevel = ['atx-heading 1', 'atx-heading 2', 'atx-heading 3', 'atx-heading 4', 'atx-heading 5', 'atx-heading 6'].indexOf(label) + 1;
+                if (muya.editor.documentEditing && (targetLevel > 0 || label === 'paragraph' || label === 'block-quote')) {
+                    const content = block.firstContentInDescendant();
+                    if (!content)
+                        throw new Error('Heading menu target has no content');
+                    content.setCursor(content.text.length, content.text.length, true);
+                    const selection = muya.editor.selection.getDOMSelection();
+                    if (!selection)
+                        throw new Error('Heading menu target has no document selection');
+                    if (label === 'block-quote')
+                        dispatchDocumentBlockquote(muya, 'set', selection);
+                    else
+                        dispatchDocumentHeading(muya, label === 'paragraph' ? { type: 'paragraph' } : { type: 'set', level: targetLevel }, selection);
+                    return null;
+                }
+
                 const rawText = 'text' in oldState ? oldState.text : '';
                 const text
                     = block.blockName === 'paragraph'
@@ -311,6 +336,20 @@ export class ParagraphFrontMenu extends BaseFloat {
 
         if (!isAnyListState(oldState))
             return null;
+
+        if (muya.editor.documentEditing) {
+            const kind = label === 'bullet-list' ? 'bullet' : label === 'order-list' ? 'ordered' : label === 'task-list' ? 'task' : undefined;
+            if (!kind)
+                throw new Error('Unsupported list front-menu target');
+            const selected = muya.editor.selection.getSelection();
+            if (selected?.anchor.block.outMostBlock !== block || selected.focus.block.outMostBlock !== block)
+                block.firstContentInDescendant()?.setCursor(0, 0, true);
+            const selection = muya.editor.selection.getDOMSelection();
+            if (!selection)
+                throw new Error('List front-menu has no document selection');
+            dispatchDocumentList(muya, { type: 'front', kind }, selection);
+            return null;
+        }
 
         // Clicking the active list type toggles the list off,
         // unwrapping every item back into plain paragraphs (matches

@@ -1,6 +1,11 @@
 import type { DocumentSourceEdit, SourceRange } from '@marktext/document-core'
 import { advanceMuyaSourceStructure } from './muyaContainerSourceEdit'
-import { mappedMuyaSourceRange, type MuyaDocumentEnd, type MuyaSourceStructure } from './muyaMarkupView'
+import {
+  createMuyaNormalizedTextValidator,
+  mappedMuyaSourceRange,
+  type MuyaDocumentEnd,
+  type MuyaSourceStructure
+} from './muyaMarkupView'
 
 export interface MuyaPlainTextSourceBinding {
   /** Muya state path ending in a content block's text field. */
@@ -11,46 +16,35 @@ export interface MuyaPlainTextSourceBinding {
   /** A current annotation owns text or an elided anchor in this leaf. */
   readonly annotationContext?: true
   /** Parser-owned unannotated outer block; carried by its first leaf only. */
-  readonly outerBlock?: Readonly<{ range: SourceRange, source: string, followingSource?: string }>
+  readonly outerBlock?: Readonly<{ range: SourceRange; source: string; followingSource?: string }>
   /** Canonical EOF lies beyond elided annotation closers and comments. */
   readonly documentEnd?: MuyaDocumentEnd
   readonly sourceStructure?: MuyaSourceStructure
   readonly paragraphPrefixPosition?: number
   /** Exact parser-owned prefix for a single-paragraph native container. */
-  readonly containerPrefix?: Readonly<{ range: SourceRange, source: string }>
-  readonly segments?: readonly Readonly<{ text: SourceRange, source: SourceRange }>[]
+  readonly containerPrefix?: Readonly<{ range: SourceRange; source: string }>
+  readonly segments?: readonly Readonly<{ text: SourceRange; source: SourceRange }>[]
   /** Pending drafts place insertion after newly exposed old review content. */
   readonly insertionAffinity?: 'previous' | 'next'
   /** Parser-delimited spelling for a new sibling list item. */
-  readonly listContinuation?: Readonly<{ prefix: string, lineEnding: string }>
+  readonly listContinuation?: Readonly<{ prefix: string; lineEnding: string }>
   /** False keeps the structural paragraph selectable for Review but not editable. */
   readonly editable?: false
   /** Empty fenced bodies need a line ending before their existing closer. */
   readonly emptyLiteralLineEnding?: string
 }
 
-export interface MuyaMathSourceBinding {
-  readonly blockIndex: number
-  readonly sourceRange: SourceRange
-  readonly text: string
-}
-
-export type MuyaMathSourceEditResult = Readonly<{
-  readonly edit: DocumentSourceEdit
-  readonly binding: MuyaMathSourceBinding
-}>
-
 export type MuyaPlainTextSourceEditResult =
   | Readonly<{ readonly kind: 'edit'; readonly edit: DocumentSourceEdit }>
   | Readonly<{
     readonly kind: 'unsupported'
     readonly reason:
-      | 'binding-mismatch'
-      | 'block-shape'
-      | 'no-text-change'
-      | 'non-user-change'
-      | 'operation-mismatch'
-      | 'operation-shape'
+        | 'binding-mismatch'
+        | 'block-shape'
+        | 'no-text-change'
+        | 'non-user-change'
+        | 'operation-mismatch'
+        | 'operation-shape'
   }>
 
 export interface MuyaPlainTextSourceEditAdapter {
@@ -62,46 +56,73 @@ export function nativeMuyaTextEdit(changeValue: unknown): DocumentSourceEdit | u
   const change = jsonChangeOf(changeValue)
   if (change?.source !== 'user' || !Array.isArray(change.op)) return undefined
   const path = change.op.slice(0, -1)
-  if (path.at(-1) !== 'text' || !path.every(part => typeof part === 'string' || typeof part === 'number')) return undefined
+  if (
+    path.at(-1) !== 'text' ||
+    !path.every((part) => typeof part === 'string' || typeof part === 'number')
+  ) { return undefined }
   const previous = textAtPath(change.prevDoc, path)
   const next = textAtPath(change.doc, path)
   const operation = textEditAtPath(change.op, path)
-  if (previous === undefined || next === undefined || operation === undefined ||
-      applyNativeTextEdit(previous, operation) !== next) return undefined
+  if (
+    previous === undefined ||
+    next === undefined ||
+    operation === undefined ||
+    applyNativeTextEdit(previous, operation) !== next
+  ) { return undefined }
   return changedTextEdit(0, previous, next)
 }
 
 /** Retain one validated native composition intent for later source mapping. */
-export function composeMuyaNativeTextChange(previousValue: unknown, nextValue: unknown): unknown | undefined {
+export function composeMuyaNativeTextChange(
+  previousValue: unknown,
+  nextValue: unknown
+): unknown | undefined {
   const next = jsonChangeOf(nextValue)
-  if (nativeMuyaTextEdit(nextValue) === undefined || next === undefined || !Array.isArray(next.op)) return undefined
+  if (nativeMuyaTextEdit(nextValue) === undefined || next === undefined || !Array.isArray(next.op)) { return undefined }
   if (previousValue === undefined) return structuredClone(nextValue)
   const previous = jsonChangeOf(previousValue)
   if (previous === undefined || !Array.isArray(previous.op)) return undefined
   const path = next.op.slice(0, -1)
-  if (JSON.stringify(path) !== JSON.stringify(previous.op.slice(0, -1)) ||
-      textAtPath(previous.doc, path) !== textAtPath(next.prevDoc, path)) return undefined
+  if (
+    JSON.stringify(path) !== JSON.stringify(previous.op.slice(0, -1)) ||
+    textAtPath(previous.doc, path) !== textAtPath(next.prevDoc, path)
+  ) { return undefined }
   const before = textAtPath(previous.prevDoc, path)
   const after = textAtPath(next.doc, path)
   if (before === undefined || after === undefined) return undefined
-  const edit = changedTextEdit(0, before, after) ?? { start: before.length, end: before.length, insert: '' }
+  const edit = changedTextEdit(0, before, after) ?? {
+    start: before.length,
+    end: before.length,
+    insert: ''
+  }
   return {
     source: 'user',
     prevDoc: previous.prevDoc,
     doc: structuredClone(next.doc),
-    op: [...path, {
-      es: [edit.start, ...(edit.end === edit.start ? [] : [{ d: before.slice(edit.start, edit.end) }]),
-        ...(edit.insert.length === 0 ? [] : [edit.insert])]
-    }]
+    op: [
+      ...path,
+      {
+        es: [
+          edit.start,
+          ...(edit.end === edit.start ? [] : [{ d: before.slice(edit.start, edit.end) }]),
+          ...(edit.insert.length === 0 ? [] : [edit.insert])
+        ]
+      }
+    ]
   }
 }
 
 /** Preserve the canonical EOF and its exact newline suffix through pending edits. */
-export function advanceMuyaDocumentEnd(boundary: MuyaDocumentEnd, edit: DocumentSourceEdit): MuyaDocumentEnd {
+export function advanceMuyaDocumentEnd(
+  boundary: MuyaDocumentEnd,
+  edit: DocumentSourceEdit
+): MuyaDocumentEnd {
   const offset = boundary.offset + edit.insert.length - (edit.end - edit.start)
   const suffixStart = boundary.offset - boundary.trailingLineEndings.length
   if (edit.end < suffixStart) return { ...boundary, offset }
-  const suffix = boundary.trailingLineEndings.slice(0, Math.max(0, edit.start - suffixStart)) + edit.insert +
+  const suffix =
+    boundary.trailingLineEndings.slice(0, Math.max(0, edit.start - suffixStart)) +
+    edit.insert +
     boundary.trailingLineEndings.slice(Math.max(0, edit.end - suffixStart))
   const trailingLineEndings = suffix.match(/(?:\r\n|\r|\n)+$/u)?.[0] ?? ''
   const lineEnding = trailingLineEndings.match(/\r\n|\r|\n/u)?.[0] ?? boundary.lineEnding
@@ -115,9 +136,10 @@ export function advanceMuyaSourceBinding(
 ): MuyaPlainTextSourceBinding {
   const delta = edit.insert.length - (edit.end - edit.start)
   const outer = previous.outerBlock
-  let binding = previous.documentEnd === undefined
-    ? previous
-    : { ...previous, documentEnd: advanceMuyaDocumentEnd(previous.documentEnd, edit) }
+  let binding =
+    previous.documentEnd === undefined
+      ? previous
+      : { ...previous, documentEnd: advanceMuyaDocumentEnd(previous.documentEnd, edit) }
   if (previous.sourceStructure !== undefined) {
     const sourceStructure = advanceMuyaSourceStructure(previous.sourceStructure, edit)
     const { sourceStructure: _oldStructure, ...rest } = binding
@@ -129,7 +151,8 @@ export function advanceMuyaSourceBinding(
       binding = {
         ...binding,
         containerPrefix: {
-          ...prefix, range: { start: prefix.range.start + delta, end: prefix.range.end + delta }
+          ...prefix,
+          range: { start: prefix.range.start + delta, end: prefix.range.end + delta }
         }
       }
     } else if (edit.start < prefix.range.end) {
@@ -137,8 +160,11 @@ export function advanceMuyaSourceBinding(
       binding = rest
     }
   }
-  if (previous.paragraphPrefixPosition !== undefined && edit.end <= previous.paragraphPrefixPosition &&
-      edit.start < previous.paragraphPrefixPosition) {
+  if (
+    previous.paragraphPrefixPosition !== undefined &&
+    edit.end <= previous.paragraphPrefixPosition &&
+    edit.start < previous.paragraphPrefixPosition
+  ) {
     binding = { ...binding, paragraphPrefixPosition: previous.paragraphPrefixPosition + delta }
   }
   if (outer !== undefined) {
@@ -157,8 +183,10 @@ export function advanceMuyaSourceBinding(
         outerBlock: {
           ...outer,
           range: { start: outer.range.start, end: outer.range.end + delta },
-          source: outer.source.slice(0, edit.start - outer.range.start) + edit.insert +
-          outer.source.slice(edit.end - outer.range.start)
+          source:
+            outer.source.slice(0, edit.start - outer.range.start) +
+            edit.insert +
+            outer.source.slice(edit.end - outer.range.start)
         }
       }
     } else if (edit.start < outer.range.end && edit.end > outer.range.start) {
@@ -167,15 +195,20 @@ export function advanceMuyaSourceBinding(
     }
   }
   const segments = binding.segments
-  if (edit.end < binding.sourceRange.start ||
-      (edit.end === binding.sourceRange.start && edit.start < edit.end)) {
+  if (
+    edit.end < binding.sourceRange.start ||
+    (edit.end === binding.sourceRange.start && edit.start < edit.end)
+  ) {
     return {
       ...binding,
-      sourceRange: { start: binding.sourceRange.start + delta, end: binding.sourceRange.end + delta },
+      sourceRange: {
+        start: binding.sourceRange.start + delta,
+        end: binding.sourceRange.end + delta
+      },
       ...(segments === undefined
         ? {}
         : {
-          segments: segments.map(segment => ({
+          segments: segments.map((segment) => ({
             text: segment.text,
             source: { start: segment.source.start + delta, end: segment.source.end + delta }
           }))
@@ -185,29 +218,39 @@ export function advanceMuyaSourceBinding(
   if (edit.start > binding.sourceRange.end) return binding
   // An empty parser-owned leaf has no text segments yet. Its collapsed source
   // position still anchors the first speculative insertion and subsequent keys.
-  const sourceSegments = segments === undefined ||
-    (segments.length === 0 && binding.text.length === 0 && binding.sourceRange.start === binding.sourceRange.end)
-    ? [{ text: { start: 0, end: binding.text.length }, source: binding.sourceRange }]
-    : segments
-  const first = sourceSegments.find(segment =>
-    segment.source.start <= edit.start && edit.start <= segment.source.end)
-  const last = sourceSegments.find(segment =>
-    segment.source.start <= edit.end && edit.end <= segment.source.end)
+  const sourceSegments =
+    segments === undefined ||
+    (segments.length === 0 &&
+      binding.text.length === 0 &&
+      binding.sourceRange.start === binding.sourceRange.end)
+      ? [{ text: { start: 0, end: binding.text.length }, source: binding.sourceRange }]
+      : segments
+  const first = sourceSegments.find(
+    (segment) => segment.source.start <= edit.start && edit.start <= segment.source.end
+  )
+  const last = sourceSegments.find(
+    (segment) => segment.source.start <= edit.end && edit.end <= segment.source.end
+  )
   if (first === undefined || last === undefined) return binding
-  const textOffset = (segment: typeof sourceSegments[number], offset: number): number | undefined => {
+  const textOffset = (
+    segment: (typeof sourceSegments)[number],
+    offset: number
+  ): number | undefined => {
     if (offset === segment.source.start) return segment.text.start
     if (offset === segment.source.end) return segment.text.end
     return segment.text.end - segment.text.start === segment.source.end - segment.source.start
       ? segment.text.start + offset - segment.source.start
       : undefined
   }
-  const sourceOffset = (segment: typeof sourceSegments[number], offset: number): number =>
-    offset === segment.text.end ? segment.source.end : segment.source.start + offset - segment.text.start
+  const sourceOffset = (segment: (typeof sourceSegments)[number], offset: number): number =>
+    offset === segment.text.end
+      ? segment.source.end
+      : segment.source.start + offset - segment.text.start
   const start = textOffset(first, edit.start)
   const end = textOffset(last, edit.end)
   if (start === undefined || end === undefined) return binding
   const textDelta = edit.insert.length - (end - start)
-  const nextSegments: { text: SourceRange, source: SourceRange }[] = []
+  const nextSegments: { text: SourceRange; source: SourceRange }[] = []
   for (const segment of sourceSegments) {
     const beforeEnd = Math.min(segment.text.end, start)
     if (beforeEnd > segment.text.start) {
@@ -228,7 +271,10 @@ export function advanceMuyaSourceBinding(
     if (segment.text.end > afterStart) {
       nextSegments.push({
         text: { start: afterStart + textDelta, end: segment.text.end + textDelta },
-        source: { start: sourceOffset(segment, afterStart) + delta, end: segment.source.end + delta }
+        source: {
+          start: sourceOffset(segment, afterStart) + delta,
+          end: segment.source.end + delta
+        }
       })
     }
   }
@@ -251,30 +297,47 @@ export function sourceEditForMuyaTwoParagraphPaste(
   changeValue: unknown
 ): DocumentSourceEdit | undefined {
   const change = jsonChangeOf(changeValue)
-  if (change?.source === 'user' && Array.isArray(change.op) &&
-      change.op.length === 2 && typeof change.op[0] === 'number' &&
-      Array.isArray(change.prevDoc) && Array.isArray(change.doc) &&
-      change.doc.length === change.prevDoc.length + 1) {
+  if (
+    change?.source === 'user' &&
+    Array.isArray(change.op) &&
+    change.op.length === 2 &&
+    typeof change.op[0] === 'number' &&
+    Array.isArray(change.prevDoc) &&
+    Array.isArray(change.doc) &&
+    change.doc.length === change.prevDoc.length + 1
+  ) {
     const index = change.op[0]
-    const descriptor = change.op[1] as { i?: { name?: string, text?: string } } | null
-    const prior = bindings.find(item => item.path.length === 2 && item.path[0] === index - 1)
-    if (prior !== undefined && descriptor !== null &&
-        descriptor.i?.name === 'paragraph' && descriptor.i.text === '' &&
-        paragraphTextAt(change.doc, index) === '' &&
-        change.prevDoc.every((_, previousIndex) =>
+    const descriptor = change.op[1] as { i?: { name?: string; text?: string } } | null
+    const prior = bindings.find((item) => item.path.length === 2 && item.path[0] === index - 1)
+    if (
+      prior !== undefined &&
+      descriptor !== null &&
+      descriptor.i?.name === 'paragraph' &&
+      descriptor.i.text === '' &&
+      paragraphTextAt(change.doc, index) === '' &&
+      change.prevDoc.every(
+        (_, previousIndex) =>
           paragraphTextAt(change.prevDoc, previousIndex) ===
-          paragraphTextAt(change.doc, previousIndex < index ? previousIndex : previousIndex + 1))) {
-      const end = mappedMuyaSourceRange(prior, { start: prior.text.length, end: prior.text.length })?.end
+          paragraphTextAt(change.doc, previousIndex < index ? previousIndex : previousIndex + 1)
+      )
+    ) {
+      const end = mappedMuyaSourceRange(prior, {
+        start: prior.text.length,
+        end: prior.text.length
+      })?.end
       return end === undefined ? undefined : { start: end, end, insert: '\n\n' }
     }
   }
   if (
-    change === undefined || change.source !== 'user' ||
-    !Array.isArray(change.op) || change.op.length < 2 ||
-    !Array.isArray(change.prevDoc) || !Array.isArray(change.doc) ||
+    change === undefined ||
+    change.source !== 'user' ||
+    !Array.isArray(change.op) ||
+    change.op.length < 2 ||
+    !Array.isArray(change.prevDoc) ||
+    !Array.isArray(change.doc) ||
     change.prevDoc.length !== bindings.length ||
     change.doc.length !== change.prevDoc.length + change.op.length - 1
-  ) return undefined
+  ) { return undefined }
 
   const firstComponent = change.op[0]
   if (!Array.isArray(firstComponent) || firstComponent.length !== 3) {
@@ -286,10 +349,7 @@ export function sourceEditForMuyaTwoParagraphPaste(
   }
   const index = blockIndex as number
   const binding = bindings[index]
-  if (
-    binding === undefined || binding.path[0] !== index ||
-    binding.path[1] !== 'text'
-  ) return undefined
+  if (binding === undefined || binding.path[0] !== index || binding.path[1] !== 'text') { return undefined }
 
   for (let previousIndex = 0; previousIndex < bindings.length; previousIndex += 1) {
     const previousBinding = bindings[previousIndex]
@@ -298,16 +358,14 @@ export function sourceEditForMuyaTwoParagraphPaste(
       previousBinding.path[0] !== previousIndex ||
       previousBinding.path[1] !== 'text' ||
       paragraphTextAt(change.prevDoc, previousIndex) !== previousBinding.text
-    ) return undefined
+    ) { return undefined }
     if (
       previousIndex !== index &&
       paragraphTextAt(
         change.doc,
-        previousIndex < index
-          ? previousIndex
-          : previousIndex + change.op.length - 1
+        previousIndex < index ? previousIndex : previousIndex + change.op.length - 1
       ) !== previousBinding.text
-    ) return undefined
+    ) { return undefined }
   }
 
   const nativeTextEdit = textEditAt(firstComponent, index)
@@ -323,29 +381,29 @@ export function sourceEditForMuyaTwoParagraphPaste(
   if (prefixUnits === undefined) return undefined
   const suffix = binding.text.slice(prefixUnits)
   const deletion = nativeTextEdit.length === 3 ? nativeTextEdit[1] : undefined
-  const firstInsert = nativeTextEdit.length === 3
-    ? nativeTextEdit[2]
-    : nativeTextEdit[1]
+  const firstInsert = nativeTextEdit.length === 3 ? nativeTextEdit[2] : nativeTextEdit[1]
   if (
-    typeof firstInsert !== 'string' || firstInsert.length === 0 ||
+    typeof firstInsert !== 'string' ||
+    firstInsert.length === 0 ||
     (suffix.length === 0
       ? deletion !== undefined
-      : deletion === null || typeof deletion !== 'object' ||
+      : deletion === null ||
+        typeof deletion !== 'object' ||
         Object.keys(deletion).length !== 1 ||
         (deletion as { readonly d?: unknown }).d !== suffix) ||
-    paragraphTextAt(change.doc, index) !==
-      `${binding.text.slice(0, prefixUnits)}${firstInsert}`
-  ) return undefined
+    paragraphTextAt(change.doc, index) !== `${binding.text.slice(0, prefixUnits)}${firstInsert}`
+  ) { return undefined }
 
   const insertedText = [firstInsert]
   for (let offset = 1; offset < change.op.length; offset += 1) {
     const insertionComponent = change.op[offset]
     if (
-      !Array.isArray(insertionComponent) || insertionComponent.length !== 2 ||
+      !Array.isArray(insertionComponent) ||
+      insertionComponent.length !== 2 ||
       insertionComponent[0] !== index + offset ||
       insertionComponent[1] === null ||
       typeof insertionComponent[1] !== 'object'
-    ) return undefined
+    ) { return undefined }
     const insertionDescriptor = insertionComponent[1] as {
       readonly i?: unknown
     }
@@ -353,7 +411,7 @@ export function sourceEditForMuyaTwoParagraphPaste(
       Object.keys(insertionDescriptor).length !== 1 ||
       insertionDescriptor.i === null ||
       typeof insertionDescriptor.i !== 'object'
-    ) return undefined
+    ) { return undefined }
     const insertedBlock = insertionDescriptor.i as {
       readonly name?: unknown
       readonly text?: unknown
@@ -362,7 +420,7 @@ export function sourceEditForMuyaTwoParagraphPaste(
       insertedBlock.name !== 'paragraph' ||
       typeof insertedBlock.text !== 'string' ||
       paragraphTextAt(change.doc, index + offset) !== insertedBlock.text
-    ) return undefined
+    ) { return undefined }
     const isLast = offset === change.op.length - 1
     let contribution: string | undefined = insertedBlock.text
     if (isLast && suffix.length > 0) {
@@ -383,106 +441,6 @@ export function sourceEditForMuyaTwoParagraphPaste(
   })
 }
 
-/**
- * Decodes the currently proven native Muya cross-paragraph typing operation.
- * The operation removes a contiguous run of top-level paragraphs and merges
- * the endpoint fragments plus typed text. Endpoints use Core's source maps;
- * callers must send annotated selections through the semantic Markup planner.
- */
-export function sourceEditForMuyaCrossParagraphChange(
-  bindings: readonly MuyaPlainTextSourceBinding[],
-  changeValue: unknown
-): DocumentSourceEdit | undefined {
-  const change = jsonChangeOf(changeValue)
-  if (
-    change === undefined || change.source !== 'user' ||
-    !Array.isArray(change.op) || change.op.length < 2 ||
-    !Array.isArray(change.prevDoc) || !Array.isArray(change.doc)
-  ) return undefined
-
-  const firstComponent = change.op[0]
-  if (!Array.isArray(firstComponent) || firstComponent.length !== 3) {
-    return undefined
-  }
-  const startIndex = firstComponent[0]
-  if (!Number.isSafeInteger(startIndex) || (startIndex as number) < 0) {
-    return undefined
-  }
-  const first = startIndex as number
-  const removalCount = change.op.length - 1
-  const endIndex = first + removalCount
-  for (let offset = 1; offset < change.op.length; offset += 1) {
-    const removal = change.op[offset]
-    if (
-      !Array.isArray(removal) || removal.length !== 2 ||
-      removal[0] !== first + offset || removal[1] === null ||
-      typeof removal[1] !== 'object'
-    ) return undefined
-    const descriptor = removal[1] as { readonly r?: unknown }
-    if (Object.keys(descriptor).length !== 1 || descriptor.r !== true) {
-      return undefined
-    }
-  }
-
-  if (
-    change.prevDoc.length !== bindings.length ||
-    change.doc.length !== change.prevDoc.length - removalCount
-  ) return undefined
-  const startBinding = bindings[first]
-  const endBinding = bindings[endIndex]
-  if (
-    startBinding === undefined || endBinding === undefined ||
-    startBinding.path[0] !== first || startBinding.path[1] !== 'text' ||
-    endBinding.path[0] !== endIndex || endBinding.path[1] !== 'text'
-  ) return undefined
-  for (let index = first; index <= endIndex; index += 1) {
-    const binding = bindings[index]
-    if (
-      binding === undefined || binding.path[0] !== index ||
-      binding.path[1] !== 'text' ||
-      paragraphTextAt(change.prevDoc, index) !== binding.text
-    ) return undefined
-    if (
-      index > first &&
-      binding.sourceRange.start < (bindings[index - 1]?.sourceRange.end ?? 0)
-    ) return undefined
-  }
-
-  const nativeTextEdit = textEditAt(firstComponent, first)
-  const previous = startBinding.text
-  const next = paragraphTextAt(change.doc, first)
-  if (
-    nativeTextEdit === undefined || next === undefined ||
-    applyNativeTextEdit(previous, nativeTextEdit) !== next
-  ) return undefined
-  const leadingSkip = nativeTextEdit[0]
-  if (typeof leadingSkip !== 'number') return undefined
-  const prefixUnits = utf16UnitsOfCodePoints(previous, leadingSkip)
-  if (
-    prefixUnits === undefined ||
-    !next.startsWith(previous.slice(0, prefixUnits))
-  ) return undefined
-
-  const maximumSuffix = Math.min(
-    endBinding.text.length,
-    next.length - prefixUnits
-  )
-  let suffixUnits = 0
-  while (
-    suffixUnits < maximumSuffix &&
-    endBinding.text.charCodeAt(endBinding.text.length - suffixUnits - 1) ===
-      next.charCodeAt(next.length - suffixUnits - 1)
-  ) suffixUnits += 1
-  const insert = next.slice(prefixUnits, next.length - suffixUnits)
-
-  const selectedEnd = endBinding.text.length - suffixUnits
-  const start = mappedMuyaSourceRange(startBinding, { start: prefixUnits, end: prefixUnits }, 'next')?.start
-  const end = mappedMuyaSourceRange(endBinding, { start: selectedEnd, end: selectedEnd }, 'previous')?.end
-  if (start === undefined || end === undefined) return undefined
-  if (end <= start) return undefined
-  return Object.freeze({ start, end, insert })
-}
-
 interface MuyaJsonChange {
   readonly op: unknown
   readonly source: unknown
@@ -492,10 +450,11 @@ interface MuyaJsonChange {
 
 const unsupported = (
   reason: Extract<MuyaPlainTextSourceEditResult, { kind: 'unsupported' }>['reason']
-): MuyaPlainTextSourceEditResult => Object.freeze({
-  kind: 'unsupported',
-  reason
-})
+): MuyaPlainTextSourceEditResult =>
+  Object.freeze({
+    kind: 'unsupported',
+    reason
+  })
 
 const jsonChangeOf = (value: unknown): MuyaJsonChange | undefined => {
   if (value === null || typeof value !== 'object') return undefined
@@ -508,10 +467,7 @@ const jsonChangeOf = (value: unknown): MuyaJsonChange | undefined => {
   }
 }
 
-const paragraphTextAt = (
-  state: unknown,
-  index: number
-): string | undefined => {
+const paragraphTextAt = (state: unknown, index: number): string | undefined => {
   if (!Array.isArray(state)) return undefined
   const block: unknown = state[index]
   if (block === null || typeof block !== 'object') return undefined
@@ -519,26 +475,6 @@ const paragraphTextAt = (
   if (candidate.name !== 'paragraph' || typeof candidate.text !== 'string') {
     return undefined
   }
-  return candidate.text
-}
-
-const mathTextAt = (
-  state: unknown,
-  index: number
-): string | undefined => {
-  if (!Array.isArray(state)) return undefined
-  const block: unknown = state[index]
-  if (block === null || typeof block !== 'object') return undefined
-  const candidate = block as {
-    readonly name?: unknown
-    readonly text?: unknown
-    readonly meta?: unknown
-  }
-  if (
-    candidate.name !== 'math-block' || typeof candidate.text !== 'string' ||
-    candidate.meta === null || typeof candidate.meta !== 'object' ||
-    (candidate.meta as { readonly mathStyle?: unknown }).mathStyle !== ''
-  ) return undefined
   return candidate.text
 }
 
@@ -555,8 +491,11 @@ const textEditAtPath = (
   operation: unknown,
   path: readonly (number | string)[]
 ): readonly unknown[] | undefined => {
-  if (!Array.isArray(operation) || operation.length !== path.length + 1 ||
-      !path.every((key, index) => operation[index] === key)) return undefined
+  if (
+    !Array.isArray(operation) ||
+    operation.length !== path.length + 1 ||
+    !path.every((key, index) => operation[index] === key)
+  ) { return undefined }
   const component: unknown = operation.at(-1)
   if (component === null || typeof component !== 'object') return undefined
   const fields = Object.keys(component)
@@ -565,16 +504,13 @@ const textEditAtPath = (
   return Array.isArray(edit) ? edit : undefined
 }
 
-const textEditAt = (
-  operation: unknown,
-  blockIndex: number
-): readonly unknown[] | undefined => {
+const textEditAt = (operation: unknown, blockIndex: number): readonly unknown[] | undefined => {
   if (
     !Array.isArray(operation) ||
     operation.length !== 3 ||
     operation[0] !== blockIndex ||
     operation[1] !== 'text'
-  ) return undefined
+  ) { return undefined }
   const component: unknown = operation[2]
   if (component === null || typeof component !== 'object') return undefined
   const fields = Object.keys(component)
@@ -583,10 +519,7 @@ const textEditAt = (
   return Array.isArray(edit) ? edit : undefined
 }
 
-const utf16UnitsOfCodePoints = (
-  text: string,
-  count: number
-): number | undefined => {
+const utf16UnitsOfCodePoints = (text: string, count: number): number | undefined => {
   if (!Number.isSafeInteger(count) || count <= 0) return undefined
   let codePoints = 0
   let units = 0
@@ -621,10 +554,12 @@ const applyNativeTextEdit = (
     const fields = Object.keys(component)
     const deletion = (component as { readonly d?: unknown }).d
     if (
-      fields.length !== 1 || fields[0] !== 'd' ||
-      typeof deletion !== 'string' || deletion.length === 0 ||
+      fields.length !== 1 ||
+      fields[0] !== 'd' ||
+      typeof deletion !== 'string' ||
+      deletion.length === 0 ||
       !remaining.startsWith(deletion)
-    ) return undefined
+    ) { return undefined }
     remaining = remaining.slice(deletion.length)
   }
   output.push(remaining)
@@ -638,18 +573,14 @@ const changedTextEdit = (
 ): DocumentSourceEdit | undefined => {
   let prefix = 0
   const sharedLimit = Math.min(previous.length, next.length)
-  while (
-    prefix < sharedLimit &&
-    previous.charCodeAt(prefix) === next.charCodeAt(prefix)
-  ) prefix += 1
+  while (prefix < sharedLimit && previous.charCodeAt(prefix) === next.charCodeAt(prefix)) { prefix += 1 }
 
   let suffix = 0
   while (
     suffix < previous.length - prefix &&
     suffix < next.length - prefix &&
-    previous.charCodeAt(previous.length - suffix - 1) ===
-      next.charCodeAt(next.length - suffix - 1)
-  ) suffix += 1
+    previous.charCodeAt(previous.length - suffix - 1) === next.charCodeAt(next.length - suffix - 1)
+  ) { suffix += 1 }
 
   if (prefix === previous.length && prefix === next.length) return undefined
   return Object.freeze({
@@ -659,60 +590,62 @@ const changedTextEdit = (
   })
 }
 
-export function sourceEditForMuyaMathTextChange(
-  binding: MuyaMathSourceBinding,
-  changeValue: unknown
-): MuyaMathSourceEditResult | undefined {
-  const change = jsonChangeOf(changeValue)
-  if (change === undefined || change.source !== 'user') return undefined
-  const operation = textEditAt(change.op, binding.blockIndex)
-  if (operation === undefined) return undefined
-  const previous = mathTextAt(change.prevDoc, binding.blockIndex)
-  const next = mathTextAt(change.doc, binding.blockIndex)
-  if (
-    previous === undefined || next === undefined || previous !== binding.text ||
-    binding.sourceRange.end - binding.sourceRange.start !== previous.length ||
-    applyNativeTextEdit(previous, operation) !== next
-  ) return undefined
-  const edit = changedTextEdit(binding.sourceRange.start, previous, next)
-  if (edit === undefined) return undefined
-  const delta = edit.insert.length - (edit.end - edit.start)
-  return Object.freeze({
-    edit,
-    binding: Object.freeze({
-      blockIndex: binding.blockIndex,
-      sourceRange: Object.freeze({
-        start: binding.sourceRange.start,
-        end: binding.sourceRange.end + delta
-      }),
-      text: next
-    })
-  })
-}
-
 /** Validate source coordinates before native edits can be admitted. */
 export function assertMuyaPlainTextSourceBinding(binding: MuyaPlainTextSourceBinding): void {
+  validateMuyaSourceBinding(binding, false)
+}
+
+/** Model presentation may normalize owned text; native diff decoding may not. */
+export function assertMuyaDocumentSourceBinding(binding: MuyaPlainTextSourceBinding): void {
+  validateMuyaSourceBinding(binding, true)
+}
+
+function validateMuyaSourceBinding(
+  binding: MuyaPlainTextSourceBinding,
+  modelPresentation: boolean
+): void {
   const blockIndex = binding.path[0]
   const field = binding.path.at(-1)
   const { start, end } = binding.sourceRange
   if (
-    typeof blockIndex !== 'number' || !Number.isSafeInteger(blockIndex) ||
-    blockIndex < 0 || field !== 'text' ||
-    !Number.isSafeInteger(start) || !Number.isSafeInteger(end) ||
-    start < 0 || end < start ||
+    typeof blockIndex !== 'number' ||
+    !Number.isSafeInteger(blockIndex) ||
+    blockIndex < 0 ||
+    field !== 'text' ||
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    start < 0 ||
+    end < start ||
     (binding.segments === undefined && end - start !== binding.text.length)
-  ) throw new RangeError('Muya plain-text source binding is invalid')
+  ) { throw new RangeError('Muya plain-text source binding is invalid') }
   const segments = binding.segments
   if (segments !== undefined) {
     let textEnd = 0
     let sourceEnd = start
+    let normalizedTextIsOwned: ReturnType<typeof createMuyaNormalizedTextValidator> | undefined
     for (const segment of segments) {
-      const normalizedNewline = segment.text.end - segment.text.start === 1 &&
-        segment.source.end - segment.source.start === 2 && binding.text[segment.text.start] === '\n'
-      if (segment.text.start !== textEnd || segment.source.start < sourceEnd ||
-          segment.text.end < segment.text.start || segment.source.end > end ||
-          (!normalizedNewline && segment.text.end - segment.text.start !==
-            segment.source.end - segment.source.start)) {
+      const normalizedNewline =
+        segment.text.end - segment.text.start === 1 &&
+        segment.source.end - segment.source.start === 2 &&
+        binding.text[segment.text.start] === '\n'
+      const removedNativeText = segment.source.start === segment.source.end
+      const normalizedText =
+        modelPresentation &&
+        !normalizedNewline &&
+        !removedNativeText &&
+        segment.text.end - segment.text.start !== segment.source.end - segment.source.start &&
+        (normalizedTextIsOwned ??= createMuyaNormalizedTextValidator(binding))(segment)
+      if (
+        segment.text.start !== textEnd ||
+        segment.source.start < sourceEnd ||
+        segment.text.end < segment.text.start ||
+        segment.source.end < segment.source.start ||
+        segment.source.end > end ||
+        (!normalizedNewline &&
+          !removedNativeText &&
+          !normalizedText &&
+          segment.text.end - segment.text.start !== segment.source.end - segment.source.start)
+      ) {
         throw new RangeError('Muya source segments are invalid')
       }
       textEnd = segment.text.end
@@ -733,8 +666,9 @@ export function createMuyaPlainTextSourceEditAdapter(
   assertMuyaPlainTextSourceBinding(binding)
   let acceptedBinding = binding
   let acceptedText = binding.text
-  let segments = binding.segments?.map(segment => ({
-    text: { ...segment.text }, source: { ...segment.source }
+  let segments = binding.segments?.map((segment) => ({
+    text: { ...segment.text },
+    source: { ...segment.source }
   }))
   return Object.freeze({
     accept(changeValue: unknown): MuyaPlainTextSourceEditResult {
@@ -758,24 +692,34 @@ export function createMuyaPlainTextSourceEditAdapter(
       const local = changedTextEdit(0, previous, next)
       if (local === undefined) return unsupported('no-text-change')
       const map = {
-        text: acceptedText, sourceRange: acceptedBinding.sourceRange, segments
+        text: acceptedText,
+        sourceRange: acceptedBinding.sourceRange,
+        segments
       }
-      const contiguous = mappedMuyaSourceRange(map, local,
-        local.start === local.end ? acceptedBinding.insertionAffinity : undefined)
-      const first = semanticSelection && contiguous === undefined
-        ? mappedMuyaSourceRange(map, { start: local.start, end: local.start }, 'next')
-        : undefined
-      const last = semanticSelection && contiguous === undefined
-        ? mappedMuyaSourceRange(map, { start: local.end, end: local.end }, 'previous')
-        : undefined
-      const source = contiguous ?? (first !== undefined && last !== undefined
-        ? { start: first.start, end: last.end }
-        : undefined)
+      const contiguous = mappedMuyaSourceRange(
+        map,
+        local,
+        local.start === local.end ? acceptedBinding.insertionAffinity : undefined
+      )
+      const first =
+        semanticSelection && contiguous === undefined
+          ? mappedMuyaSourceRange(map, { start: local.start, end: local.start }, 'next')
+          : undefined
+      const last =
+        semanticSelection && contiguous === undefined
+          ? mappedMuyaSourceRange(map, { start: local.end, end: local.end }, 'previous')
+          : undefined
+      const source =
+        contiguous ??
+        (first !== undefined && last !== undefined
+          ? { start: first.start, end: last.end }
+          : undefined)
       if (source === undefined) return unsupported('operation-shape')
       const edit = Object.freeze({ ...source, insert: local.insert })
       acceptedBinding = advanceMuyaSourceBinding(acceptedBinding, edit)
-      segments = acceptedBinding.segments?.map(segment => ({
-        text: { ...segment.text }, source: { ...segment.source }
+      segments = acceptedBinding.segments?.map((segment) => ({
+        text: { ...segment.text },
+        source: { ...segment.source }
       }))
       acceptedText = next
       return Object.freeze({ kind: 'edit', edit })

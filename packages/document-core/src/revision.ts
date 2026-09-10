@@ -305,6 +305,9 @@ export interface MarkdownHeadingIndex {
  * never re-derive a prefix with their own recognizer (non-negotiable 2).
  */
 export interface MarkdownPhysicalLine {
+  readonly listMarkers: readonly Readonly<{ depth: number, start: number, end: number, contentOffset: number, ordered: boolean, delimiterCodeUnit: number }>[]
+  readonly listIndentations: readonly Readonly<{ depth: number, start: number, end: number, columns: number }>[]
+  readonly blockquoteMarkers: readonly Readonly<{ depth: number, start: number, end: number }>[]
   readonly start: number
   readonly contentOffset: number
   /** End of content, before the line terminator. */

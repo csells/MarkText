@@ -682,7 +682,8 @@ export function createRegionalInventory(
     const markdownRoots: MarkdownNode[] = []
     while (markdownCursor < editingRoot.childCount) {
       const child = editingRoot.childAt(markdownCursor)
-      if (child.range.start >= syntaxEnd) break
+      if (child.range.start >= syntaxEnd && !(sourceEnd === sourceLength &&
+        child.range.start === syntaxEnd && child.range.end === syntaxEnd)) break
       recorder.recordBuildUnit()
       if (!(syntaxStart <= child.range.start && child.range.end <= syntaxEnd)) {
         return undefined
@@ -1056,7 +1057,9 @@ function evaluateRegionalInventory(
     false,
     undefined,
     createProfile1DocumentReuseCache(),
-    physicalRecorder
+    physicalRecorder,
+    undefined,
+    start.sourceStart + start.leaf.sourceLength + delta === nextSource.length
   )
   if (result.kind !== 'complete') {
     return Object.freeze({
@@ -1158,7 +1161,9 @@ function evaluateRegionalInventory(
       false,
       undefined,
       createProfile1DocumentReuseCache(),
-      physicalRecorder
+      physicalRecorder,
+      undefined,
+      nextSourceStart + resolved.located.leaf.sourceLength === nextSource.length
     )
     if (parsed.kind !== 'complete') {
       return Object.freeze({

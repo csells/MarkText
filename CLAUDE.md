@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Read and follow [AGENTS.md](AGENTS.md) before implementation or review. It routes
+document-related work to the standing architecture contract and its verification
+gate; the implementation descriptions below are not exceptions to that contract.
+
 # MarkText
 
 ## Project Overview
@@ -239,6 +243,9 @@ Follow `.github/COMMENTING-GUIDELINES.md` for every comment you write. The core 
 
 All Electron processes live in `packages/desktop/`. Muya is a separate
 workspace package that the renderer (and tests) consume as `@muyajs/core`.
+The legacy backend description below is implementation history, not permission
+to maintain an independent language engine. Document authority and semantic
+integration follow the contract linked in AGENTS.md.
 
 ```
 main process  (packages/desktop/src/main/)

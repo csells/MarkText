@@ -51,10 +51,10 @@ await ensureIntlSegmenter();
 const PICKED_IMAGE_URL = 'https://example.test/picked-image.png';
 const UPLOADED_IMAGE_URL = 'https://example.test/uploaded-image.png';
 async function imagePathPicker() {
-    return PICKED_IMAGE_URL;
+    return window.__e2e?.imagePathPicker ? window.__e2e.imagePathPicker() : PICKED_IMAGE_URL;
 }
-async function imageAction() {
-    return UPLOADED_IMAGE_URL;
+async function imageAction(state: { src: string; alt: string; title: string }) {
+    return window.__e2e?.imageAction ? window.__e2e.imageAction(state) : UPLOADED_IMAGE_URL;
 }
 
 // Record jumpClick invocations so specs can assert via window.__e2e.linkJumps.

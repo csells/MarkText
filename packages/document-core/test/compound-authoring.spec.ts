@@ -27,7 +27,14 @@ it('keeps tracked list padding outside a fenced literal while preserving existin
     if (node.kind === 'code-block') content.push(node.attributes.content)
     pending.push(...node.children)
   }
-  expect(content).toEqual(['let x = 1\n', 'let x = 1\n'])
+  // The unchanged fenced body belongs to neither prefix replacement. Keeping
+  // the edits separate must not duplicate it into a broad old/new wrapper.
+  expect(content).toEqual(['let x = 1\n'])
+  expect(result.source).toBe('{~~- ~>1. ~~}{++first++}{>>keep<<}\n\n{~~  ~>   ~~}```js\n{~~  ~>   ~~}let x = 1\n{~~  ~>   ~~}```\n{~~- ~>2. ~~}second\n')
+  expect(result.annotations.map(annotation => annotation.kind)).toEqual([
+    'substitution', 'addition', 'comment', 'substitution', 'substitution', 'substitution', 'substitution'
+  ])
+  expect(core.open(result.source).source).toBe(result.source)
 })
 
 it.each(['markup', 'tracked'] as const)('plans %s container prefixes atomically without copying annotation source into native text', lane => {
@@ -61,4 +68,62 @@ it('accepts adjacent disjoint ranges in a compound ordinary edit', () => {
   expect(edits).toBeDefined()
   if (edits === undefined) throw new Error('Expected adjacent edits to be admitted')
   expect(core.apply(revision, edits).revision.source).toBe('xy')
+})
+
+it('keeps unselected payload and hidden comments during an atomic sparse deletion', () => {
+  const core = createDocumentCore()
+  const source = 'a{++bcde++}{>>note<<}f'
+  const revision = core.open(source)
+  const planned = core.markupEdits(revision, [
+    { start: 4, end: 5, insert: '' },
+    { start: 6, end: 7, insert: '' }
+  ])
+  expect(planned).toBeDefined()
+  if (planned === undefined) throw new Error('Sparse payload deletion was refused')
+  expect(core.apply(revision, planned).revision.source).toBe('a{++ce++}{>>note<<}f')
+})
+
+it('compiles formatting around an existing suggestion together with neighboring text replacement', () => {
+  const core = createDocumentCore()
+  const revision = core.open('a{++bc++}d')
+  const planned = core.markupEdits(revision, [
+    { start: 0, end: 1, insert: 'z' },
+    { start: 1, end: 1, insert: '**' },
+    { start: 9, end: 9, insert: '**' }
+  ])
+  expect(planned).toBeDefined()
+  if (planned === undefined) throw new Error('Atomic formatting was refused')
+  const next = core.apply(revision, planned).revision
+  expect(next.source).toBe('z**{++bc++}**d')
+  expect(next.annotations.map(annotation => annotation.kind)).toEqual(['addition'])
+})
+
+it('rejects overlapping sparse input before publishing any document changes', () => {
+  const core = createDocumentCore()
+  const revision = core.open('{++bcde++}')
+  expect(() => core.markupEdits(revision, [
+    { start: 3, end: 6, insert: 'x' },
+    { start: 5, end: 7, insert: 'y' }
+  ])).toThrow()
+  expect(revision.source).toBe('{++bcde++}')
+  expect(core.apply(revision, [{ start: 3, end: 4, insert: 'B' }]).revision.source).toBe('{++Bcde++}')
+})
+
+it.each(['\n', '\r\n', '\r'])('preserves both projections when a sparse edit changes a later suggestion context (%s)', ending => {
+  const source = '> a\n\n100. C\n\n     D\n'.replaceAll('\n', ending)
+  const core = createDocumentCore()
+  const revision = core.open(source)
+  const prefix = source.indexOf('     D')
+  const planned = core.trackedEdits(revision, [
+    { start: 3, end: source.indexOf('C'), insert: '' },
+    { start: prefix - ending.length, end: prefix - ending.length, insert: '>' },
+    { start: prefix, end: prefix + 5, insert: '> ' }
+  ])
+  if (planned === undefined) throw new Error('Expected atomic tracked container changes')
+  const result = core.apply(revision, planned).revision
+  expect(core.project(result, 'original').markdown).toBe(source)
+  expect(core.project(result, 'revised').markdown).toBe('> aC\n>\n> D\n'.replaceAll('\n', ending))
+  const reopened = core.open(result.source)
+  expect(core.project(reopened, 'original').markdown).toBe(source)
+  expect(core.project(reopened, 'revised').markdown).toBe('> aC\n>\n> D\n'.replaceAll('\n', ending))
 })

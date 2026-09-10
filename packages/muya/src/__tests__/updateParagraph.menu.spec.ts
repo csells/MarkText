@@ -319,3 +319,23 @@ describe('updateParagraph toggle-off active types', () => {
         expect(muya.editor.selection.anchor?.offset).toBe(3); // 6 - len("## ")
     });
 });
+
+describe('list conversion selection ownership', () => {
+    it.each(['bravo', 'alpha'])('retains the selected later list items when converting list type (%s)', (middle) => {
+        const muya = bootMuya(`- alpha\n- ${middle}\n- alpha\n`);
+        const first = muya.editor.scrollPage!.firstContentInDescendant()!;
+        const second = first.nextContentInContext()!;
+        const third = second.nextContentInContext()!;
+        second.setCursor(1, 1, true);
+        muya.editor.selection.setSelection(
+            { block: second, path: second.path, offset: 1 },
+            { block: third, path: third.path, offset: 2 },
+        );
+        muya.updateParagraph('ol-order');
+        expect(muya.getMarkdown()).toBe(`1. alpha\n2. ${middle}\n3. alpha\n`);
+        expect(muya.editor.selection.anchorBlock?.path).toEqual([0, 'children', 1, 'children', 0, 'text']);
+        expect(muya.editor.selection.focusBlock?.path).toEqual([0, 'children', 2, 'children', 0, 'text']);
+        expect(muya.editor.selection.anchor?.offset).toBe(1);
+        expect(muya.editor.selection.focus?.offset).toBe(2);
+    });
+});

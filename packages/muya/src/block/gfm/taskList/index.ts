@@ -1,6 +1,7 @@
 import type { Muya } from '../../../muya';
 import type { ITaskListMeta, ITaskListState } from '../../../state/types';
 import type TaskListItem from '../taskListItem';
+import { taskListOrder } from '@marktext/input-policy';
 import { CLASS_NAMES } from '../../../config';
 import { mixins } from '../../../utils';
 import Parent from '../../base/parent';
@@ -54,24 +55,13 @@ class TaskList extends Parent {
         if (!autoMoveCheckedToEnd)
             return;
 
-        let first = this.firstChild as TaskListItem;
-        let last = this.lastChild as TaskListItem;
-        let anchor = first;
-
-        while (first !== last) {
-            if (!first.checked) {
-                first = first.next as TaskListItem;
-                anchor = first;
-            }
-            else if (last.checked) {
-                last = last.prev as TaskListItem;
-            }
-            else {
-                const temp = last;
-                last = last.prev as TaskListItem;
-                temp.insertInto(this, anchor);
-                anchor = temp;
-            }
+        const ordered = taskListOrder(this.children.map(child => child as TaskListItem), item => item.checked);
+        let anchor = this.firstChild as Parent | null;
+        for (const item of ordered) {
+            if (item === anchor)
+                anchor = anchor.next as Parent | null;
+            else
+                item.insertInto(this, anchor);
         }
     }
 

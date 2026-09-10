@@ -2,6 +2,7 @@ import type Content from '../block/base/content';
 import type Parent from '../block/base/parent';
 import type { TState } from '../state/types';
 import type { Nullable } from '../types';
+import { headingPasteLines } from '@marktext/input-policy';
 
 interface IPasteCursor {
     startOffset: number;
@@ -50,10 +51,10 @@ export function mergePasteIntoHeading(
     else {
         // An atx heading is a single line: only the first soft-line stays; the
         // following lines become a paragraph block below it.
-        const [firstLine, ...restLines] = first.text.split('\n');
-        anchorBlock.text = head + firstLine;
-        if (restLines.length > 0)
-            remaining.unshift({ name: 'paragraph', text: restLines.join('\n') });
+        const lines = headingPasteLines(first.text);
+        anchorBlock.text = head + lines.first;
+        if (lines.rest.length > 0)
+            remaining.unshift({ name: 'paragraph', text: lines.rest });
     }
     anchorBlock.update();
 

@@ -208,6 +208,7 @@ export class ImageEditTool extends BaseFloat {
         if (!isKeyboardEvent(event))
             return;
         if (event.key === EVENT_KEYS.Enter) {
+            event.preventDefault();
             event.stopPropagation();
             this._handleConfirm();
         }
@@ -242,6 +243,7 @@ export class ImageEditTool extends BaseFloat {
         const picker = this._getOpenImagePathPicker();
         if (!picker) {
             if (event.key === EVENT_KEYS.Enter) {
+                event.preventDefault();
                 event.stopPropagation();
                 this._handleConfirm();
             }
@@ -393,6 +395,10 @@ export class ImageEditTool extends BaseFloat {
      * Shows loading state, uploads the image, then replaces with uploaded URL
      */
     private async _replaceImageWithUpload(alt: string, src: string, title: string) {
+        if (this.muya.editor.documentEditing) {
+            await this._prepareDocumentImage(alt, src, title);
+            return;
+        }
         // Create unique ID for loading state
         const loadingId = `loading-${getUniqueId()}`;
 
@@ -429,15 +435,42 @@ export class ImageEditTool extends BaseFloat {
         }
     }
 
+    /** Capture this widget before any resource or native chooser yields. */
+    private async _prepareDocumentImage(alt: string, src: string, title: string, choose?: () => Promise<string>): Promise<void> {
+        const model = this.muya.editor.documentEditing!;
+        const selection = this._block && this._imageInfo
+            ? this.muya.editor.selection.getImageDOMSelection({ ...this._imageInfo, block: this._block })
+            : null;
+        if (!selection)
+            throw new Error('Image preparation has no current document image');
+        const upload = this.options.imageAction;
+        this.hide();
+        await model.prepareImage({ format: 'image-properties', selection, properties: { alt, src, title } }, choose ? { alt, src, title } : { imageSource: src, alt, title }, async (capturePayload) => {
+            const selectedSrc = choose ? await choose() : src;
+            if (!selectedSrc)
+                return undefined;
+            capturePayload({ imageSource: selectedSrc, alt, title });
+            const uploadedSrc = upload && !URL_REG.test(selectedSrc) ? await upload({ src: selectedSrc, alt, title }) : selectedSrc;
+            const finalSrc = uploadedSrc || selectedSrc;
+            const { src: localPath } = getImageSrc(selectedSrc);
+            if (localPath)
+                this.muya.editor.inlineRenderer.renderer.urlMap.set(finalSrc, localPath);
+            return { alt, src: finalSrc, title };
+        });
+    }
+
     /**
      * Hide the tool and dismiss the autocomplete picker alongside it so a
      * confirm/close never leaves a dangling suggestions dropdown.
      */
     override hide() {
+        const returnFocus = this.floatBox?.contains(document.activeElement) === true;
         const picker = this._getOpenImagePathPicker();
         if (picker)
             picker.hide();
         super.hide();
+        if (returnFocus)
+            this.muya.focus();
     }
 
     /**
@@ -448,6 +481,12 @@ export class ImageEditTool extends BaseFloat {
     private async _handleSelectButtonClick() {
         if (!this.options.imagePathPicker) {
             console.warn('You need to add a imagePathPicker option');
+            return;
+        }
+
+        if (this.muya.editor.documentEditing) {
+            const { alt, src, title } = this._state;
+            await this._prepareDocumentImage(alt, src, title, this.options.imagePathPicker);
             return;
         }
 

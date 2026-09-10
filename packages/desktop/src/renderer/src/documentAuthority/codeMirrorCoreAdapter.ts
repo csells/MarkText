@@ -1,5 +1,6 @@
 import type CodeMirror from 'codemirror'
 import type {
+  DocumentTextSelection,
   MarkdownOptions,
   DocumentProjectionRequest,
   DocumentSourceEdit,
@@ -18,7 +19,10 @@ import {
 } from './canonicalEolIndex'
 
 export interface CodeMirrorCoreAdapter {
+  sourcePosition(offset: number): CodeMirror.Position
   recoveryDraft(): CodeMirrorRecoveryDraft
+  isComposing(): boolean
+  isSettled(): boolean
   settled(): Promise<CoreAppliedReply | undefined>
   configure(options: Readonly<Partial<MarkdownOptions>>): Promise<CoreAppliedReply | undefined>
   history(command: 'undo' | 'redo'): Promise<CoreAppliedReply | undefined>
@@ -77,6 +81,8 @@ export interface CodeMirrorCoreAdapterOptions {
 
 interface QueuedSourceChange {
   readonly kind: 'source'
+  readonly beforeSelection: DocumentTextSelection
+  readonly afterSelection: DocumentTextSelection
   readonly generation: number
   readonly edits: readonly DocumentSourceEdit[]
   readonly nativeHistoryGroup?: string
@@ -113,6 +119,8 @@ interface Settlement {
 }
 
 interface CapturedNativeChange {
+  beforeSelection: DocumentTextSelection
+  afterSelection?: DocumentTextSelection
   canceled: boolean
   indexApplied: boolean
   suppressed: boolean
@@ -203,7 +211,9 @@ function createAdapterWithIndex(
         event === null ||
         typeof event !== 'object' ||
         !Array.isArray((event as { changes?: unknown }).changes)
-      ) { continue }
+      ) {
+        continue
+      }
       let group = nativeGroups.get(event)
       if (group === undefined) {
         group = ++nextNativeGroup
@@ -220,6 +230,35 @@ function createAdapterWithIndex(
   // its declaration says `null`; normalize both before choosing the event seam.
   const editor = doc.getEditor() ?? undefined
   const nativeOperationEdits: DocumentSourceEdit[] = []
+  let nativeOperationBeforeSelection: DocumentTextSelection | undefined
+  let compositionBeforeSelection: DocumentTextSelection | undefined
+  const sourceSelection = (
+    ranges = doc.listSelections(),
+    primary?: number
+  ): DocumentTextSelection => {
+    const anchor = doc.getCursor('anchor')
+    const head = doc.getCursor('head')
+    const primaryIndex =
+      primary ??
+      ranges.findIndex(
+        (range) =>
+          range.anchor.line === anchor.line &&
+          range.anchor.ch === anchor.ch &&
+          range.head.line === head.line &&
+          range.head.ch === head.ch
+      )
+    return Object.freeze({
+      ranges: Object.freeze(
+        ranges.map((range) =>
+          Object.freeze({
+            anchor: eolIndex.offset(range.anchor),
+            focus: eolIndex.offset(range.head)
+          })
+        )
+      ),
+      primary: Math.max(0, Math.min(primaryIndex, ranges.length - 1))
+    })
+  }
   const settlements: Settlement[] = []
   let generation = 0
   const sourceCommandLedger: Array<
@@ -260,9 +299,9 @@ function createAdapterWithIndex(
       readonly transaction: number
       readonly corrected: boolean
     }>
-  const recordPerformance = (event: PerformanceEventInput): void => {
+  const recordPerformance = (event: PerformanceEventInput, capturedAt?: number): void => {
     if (performanceTrace === undefined) return
-    const at = (performanceTrace.clock ?? (() => performance.now()))()
+    const at = capturedAt ?? (performanceTrace.clock ?? (() => performance.now()))()
     if (!Number.isFinite(at) || at < 0) return
     try {
       performanceTrace.record(
@@ -321,12 +360,21 @@ function createAdapterWithIndex(
   }
   const applyHistoryToOptimisticView = async(
     appliedEdits: readonly DocumentSourceEdit[],
-    nextSourceLength: number
+    nextSourceLength: number,
+    selection?: CoreAppliedReply['historyResult']
   ): Promise<void> => {
     // A native edit mutates the Doc synchronously but CodeMirror publishes its
     // matching `change` notification later. Drain that turn before rebasing so
     // every draft already visible in the view is represented in the queue.
     await nextMacrotask()
+    while (
+      captures.some((capture) => !capture.canceled && !isNoopCapture(capture)) ||
+      nativeOperationEdits.length > 0
+    ) {
+      if (disposed || terminalError !== undefined) break
+      await nextMacrotask()
+    }
+    if (terminalError !== undefined) throw terminalError
     if (disposed) return
     const sourceCommands = queue.filter(
       (command): command is QueuedSourceChange => command.kind === 'source'
@@ -338,7 +386,11 @@ function createAdapterWithIndex(
     const transformed = transformOptimisticHistory({
       baseSourceLength: nextSourceLength - historyDelta,
       appliedEdits,
-      queuedTransactions: sourceCommands.map((command) => command.edits)
+      queuedTransactions: sourceCommands.map((command) => command.edits),
+      queuedSelections: sourceCommands.map((command) => ({
+        before: command.beforeSelection,
+        after: command.afterSelection
+      }))
     })
     if (transformed.kind === 'conflict') {
       throw new Error('Core history overlaps pending editor input')
@@ -351,11 +403,16 @@ function createAdapterWithIndex(
       if (rebasedSource === undefined) {
         throw new Error('Core history transform lost a pending transaction')
       }
+      const selected = transformed.rebasedSelections?.[transactionIndex]
+      if (selected === undefined) throw new Error('Core history transform lost a pending selection')
       transactionIndex += 1
       queue[index] = Object.freeze({
+        ...command,
         kind: 'source',
         generation: command.generation,
-        edits: rebasedSource
+        edits: rebasedSource,
+        beforeSelection: selected.before,
+        afterSelection: selected.after
       })
     }
     suppressingAuthoritativeChange = true
@@ -374,6 +431,28 @@ function createAdapterWithIndex(
       suppressingAuthoritativeChange = false
     }
     await nextMacrotask()
+    // Wait for CodeMirror's own change notification to update the canonical
+    // index. A later native edit owns its selection in the optimistic view.
+    if (
+      sourceCommands.length === 0 &&
+      !queue.some((command) => command.kind === 'source') &&
+      nativeOperationEdits.length === 0 &&
+      selection !== undefined
+    ) {
+      let sourceSelection = selection.selection
+      if (!('ranges' in sourceSelection)) {
+        const projected = binding.sourceSelectionAtBarrier(sourceSelection)
+        if (projected.type !== 'source-selection') { throw new Error('Core history Source selection is unavailable') }
+        sourceSelection = projected.selection
+      }
+      doc.setSelections(
+        sourceSelection.ranges.map((range) => ({
+          anchor: eolIndex.position(range.anchor),
+          head: eolIndex.position(range.focus)
+        })),
+        sourceSelection.primary
+      )
+    }
   }
   const pump = (): void => {
     if (active || disposed || terminalError !== undefined) return
@@ -385,10 +464,19 @@ function createAdapterWithIndex(
     let acknowledged: ReturnType<EditorCoreBinding['submit']>['acknowledged']
     let transactionId = 0
     try {
+      const dispatchedAt =
+        performanceTrace === undefined
+          ? undefined
+          : (performanceTrace.clock ?? (() => performance.now()))()
       const submission = binding.submit(
         queued.kind === 'source'
           ? {
-            edits: queued.edits,
+            kind: 'source-input',
+            action: {
+              edits: queued.edits,
+              beforeSelection: queued.beforeSelection,
+              afterSelection: queued.afterSelection
+            },
             projections: projections(),
             ...(queued.nativeHistoryGroup === undefined
               ? {}
@@ -408,11 +496,14 @@ function createAdapterWithIndex(
       )
       acknowledged = submission.acknowledged
       transactionId = submission.identity.transactionId
-      recordPerformance({
-        phase: 'dispatch',
-        transaction: transactionId,
-        pendingDepth: queue.length + 1
-      })
+      recordPerformance(
+        {
+          phase: 'dispatch',
+          transaction: transactionId,
+          pendingDepth: queue.length + 1
+        },
+        dispatchedAt
+      )
     } catch (error) {
       active = false
       activeCommand = undefined
@@ -420,111 +511,119 @@ function createAdapterWithIndex(
       failCommandLane(error)
       return
     }
-    acknowledged.then(
-      async(reply) => {
-        recordPerformance({ phase: 'ack', transaction: transactionId })
-        if (disposed) return
-        if (queued.kind === 'source') {
-          pendingInsertUnits -= queued.edits.reduce((sum, edit) => sum + edit.insert.length, 0)
-        }
-        if (
-          queued.kind === 'history' &&
-          reply.type === 'rejected' &&
-          reply.reason === 'history-empty'
-        ) {
-          active = false
-          activeCommand = undefined
-          completedGeneration = queued.generation
-          queued.resolve(undefined)
-          resolveSettlements()
-          pump()
-          return
-        }
-        if (queued.kind === 'source' && reply.type === 'rejected' && reply.reason === 'no-change') {
-          active = false
-          activeCommand = undefined
-          completedGeneration = queued.generation
-          resolveSettlements()
-          pump()
-          return
-        }
-        if (
-          queued.kind === 'resolve' &&
-          reply.type === 'rejected' &&
-          reply.reason === 'history-resource'
-        ) {
-          active = false
-          activeCommand = undefined
-          completedGeneration = queued.generation
-          queued.resolve(undefined)
-          resolveSettlements()
-          pump()
-          return
-        }
-        if (
-          queued.kind === 'resolve' &&
-          reply.type === 'rejected' &&
-          (reply.reason === 'stale-base' ||
-            reply.reason === 'annotation-not-found' ||
-            reply.reason === 'resolution-invalid')
-        ) {
-          active = false
-          activeCommand = undefined
-          completedGeneration = queued.generation
-          queued.reject(new Error('Core resolution target is no longer current'))
-          resolveSettlements()
-          pump()
-          return
-        }
-        if (reply.type !== 'applied') {
-          active = false
-          activeCommand = undefined
-          reconciliationReason = reply.type === 'resource' ? 'resource' : 'rejected'
-          terminalError = new Error('CodeMirror Core reconciliation required')
-          if (queued.kind !== 'source') queued.reject(terminalError)
-          failedDraft ??= captureDraft()
-          for (const command of queue.splice(0)) {
-            if (command.kind !== 'source') command.reject(terminalError)
-          }
-          rejectSettlements(terminalError)
-          return
-        }
-        if (queued.kind !== 'source') {
-          try {
-            await applyHistoryToOptimisticView(reply.change.appliedEdits, reply.sourceLength)
-            if (disposed) return
-          } catch (error) {
-            active = false
-            activeCommand = undefined
-            queued.reject(error)
-            failCommandLane(error)
-            return
-          }
-        }
-        latestReply = reply
-        lastAcceptedRevision = reply.revision
-        completedGeneration = queued.generation
-        recordPerformance({
-          phase: 'reconcile',
-          transaction: transactionId,
-          corrected: queued.kind !== 'source'
-        })
-        active = false
-        activeCommand = undefined
-        if (queued.kind !== 'source') queued.resolve(reply)
-        resolveSettlements()
-        pump()
-      },
-      (error) => {
-        if (disposed) return
-        active = false
-        activeCommand = undefined
-        if (queued.kind !== 'source') queued.reject(error)
-        failCommandLane(error)
+    const reply = acknowledged
+    recordPerformance({ phase: 'ack', transaction: transactionId })
+    if (disposed) return
+    if (queued.kind === 'source') {
+      pendingInsertUnits -= queued.edits.reduce((sum, edit) => sum + edit.insert.length, 0)
+    }
+    if (
+      queued.kind === 'history' &&
+      reply.type === 'rejected' &&
+      reply.reason === 'history-empty'
+    ) {
+      active = false
+      activeCommand = undefined
+      completedGeneration = queued.generation
+      queued.resolve(undefined)
+      resolveSettlements()
+      pump()
+      return
+    }
+    if (queued.kind === 'source' && reply.type === 'rejected' && reply.reason === 'no-change') {
+      active = false
+      activeCommand = undefined
+      completedGeneration = queued.generation
+      resolveSettlements()
+      pump()
+      return
+    }
+    if (
+      queued.kind === 'resolve' &&
+      reply.type === 'rejected' &&
+      reply.reason === 'history-resource'
+    ) {
+      active = false
+      activeCommand = undefined
+      completedGeneration = queued.generation
+      queued.resolve(undefined)
+      resolveSettlements()
+      pump()
+      return
+    }
+    if (
+      queued.kind === 'resolve' &&
+      reply.type === 'rejected' &&
+      (reply.reason === 'stale-base' ||
+        reply.reason === 'annotation-not-found' ||
+        reply.reason === 'resolution-invalid')
+    ) {
+      active = false
+      activeCommand = undefined
+      completedGeneration = queued.generation
+      queued.reject(new Error('Core resolution target is no longer current'))
+      resolveSettlements()
+      pump()
+      return
+    }
+    if (reply.type !== 'applied') {
+      active = false
+      activeCommand = undefined
+      reconciliationReason = reply.type === 'resource' ? 'resource' : 'rejected'
+      terminalError = new Error('CodeMirror Core reconciliation required')
+      if (queued.kind !== 'source') queued.reject(terminalError)
+      failedDraft ??= captureDraft()
+      for (const command of queue.splice(0)) {
+        if (command.kind !== 'source') command.reject(terminalError)
       }
-    )
+      rejectSettlements(terminalError)
+      return
+    }
+    const finish = (): void => {
+      latestReply = reply
+      lastAcceptedRevision = reply.revision
+      completedGeneration = queued.generation
+      recordPerformance({
+        phase: 'reconcile',
+        transaction: transactionId,
+        corrected: queued.kind !== 'source'
+      })
+      active = false
+      activeCommand = undefined
+      if (queued.kind !== 'source') queued.resolve(reply)
+      resolveSettlements()
+      pump()
+    }
+    // Model admission and revision are immediate. Only native history painting
+    // may wait for CodeMirror's already-started operation notifications.
+    lastAcceptedRevision = reply.revision
+    if (queued.kind !== 'source') {
+      applyHistoryToOptimisticView(
+        reply.change.appliedEdits,
+        reply.sourceLength,
+        reply.historyResult
+      ).then(
+        () => {
+          if (!disposed) finish()
+        },
+        (error) => {
+          if (disposed) return
+          active = false
+          activeCommand = undefined
+          queued.reject(error)
+          failCommandLane(error)
+        }
+      )
+    } else {
+      finish()
+    }
   }
-  const enqueue = (edits: readonly DocumentSourceEdit[]): void => {
+
+  const enqueue = (
+    edits: readonly DocumentSourceEdit[],
+    beforeSelection: DocumentTextSelection,
+    afterSelection: DocumentTextSelection
+  ): void => {
     latestNativeEdits = edits
     if (queue.length + (active ? 1 : 0) >= maxPending) {
       reconciliationReason = 'pending-limit'
@@ -558,6 +657,8 @@ function createAdapterWithIndex(
       kind: 'source',
       generation,
       edits: stableEdits,
+      beforeSelection,
+      afterSelection,
       ...(nativeHistoryScope === undefined ? {} : { nativeHistoryGroup: currentNativeGroup() })
     })
     queue.push(command)
@@ -647,7 +748,7 @@ function createAdapterWithIndex(
     })
   }
   const onBeforeChange = (
-    changed: CodeMirror.Doc,
+    _changed: CodeMirror.Doc,
     change: CodeMirror.EditorChangeCancellable
   ): void => {
     if (disposed || terminalError !== undefined) return
@@ -663,6 +764,7 @@ function createAdapterWithIndex(
       break
     }
     const capture: CapturedNativeChange = {
+      beforeSelection: sourceSelection(),
       canceled: false,
       indexApplied: false,
       suppressed: suppressingAuthoritativeChange,
@@ -704,10 +806,13 @@ function createAdapterWithIndex(
     captures.push(capture)
   }
   const onChange = (_changed: CodeMirror.Doc, change: CodeMirror.EditorChange): void => {
+    if (disposed || terminalError !== undefined) return
     while (
       captures[0]?.canceled === true ||
       (captures[0] !== undefined && isNoopCapture(captures[0]))
-    ) { captures.shift() }
+    ) {
+      captures.shift()
+    }
     const capture = captures.shift()
     if (capture === undefined) {
       faultMessage = 'CodeMirror Core change lacked a pre-change capture'
@@ -746,8 +851,9 @@ function createAdapterWithIndex(
     })
     if (!composing) {
       if (editor === undefined) {
-        enqueue([edit])
+        enqueue([edit], capture.beforeSelection, capture.afterSelection ?? sourceSelection())
       } else {
+        nativeOperationBeforeSelection ??= capture.beforeSelection
         nativeOperationEdits.push(edit)
       }
       return
@@ -782,15 +888,47 @@ function createAdapterWithIndex(
     if (nativeOperationEdits.length === 0) return
     const edits = nativeOperationEdits.splice(0)
     if (disposed || terminalError !== undefined) return
-    enqueue(edits)
+    const beforeSelection = nativeOperationBeforeSelection
+    nativeOperationBeforeSelection = undefined
+    if (beforeSelection === undefined) { throw new Error('Source operation lost its original selection') }
+    enqueue(edits, beforeSelection, sourceSelection())
   }
+  const onBeforeSelectionChange = (
+    _changed: CodeMirror.Doc,
+    selection: { ranges: readonly CodeMirror.Range[] }
+  ): void => {
+    const capture = captures.at(-1)
+    if (capture === undefined || capture.canceled || capture.suppressed) return
+    if (!capture.indexApplied) {
+      eolIndex.replace(capture.from, capture.to, capture.text, insertedLineEnding)
+      capture.indexApplied = true
+    }
+    capture.afterSelection = sourceSelection([...selection.ranges], capture.beforeSelection.primary)
+  }
+  doc.on('beforeSelectionChange', onBeforeSelectionChange)
   doc.on('beforeChange', onBeforeChange)
   doc.on('change', onChange)
   editor?.on('changes', onChanges)
 
   const adapter: CodeMirrorCoreAdapter = Object.freeze({
+    sourcePosition: (offset: number) => eolIndex.position(offset),
     recoveryDraft(): CodeMirrorRecoveryDraft {
       return failedDraft ?? captureDraft()
+    },
+    isComposing(): boolean {
+      return composing
+    },
+    isSettled(): boolean {
+      return (
+        !disposed &&
+        terminalError === undefined &&
+        !composing &&
+        !active &&
+        queue.length === 0 &&
+        completedGeneration >= generation &&
+        nativeOperationEdits.length === 0 &&
+        !captures.some((capture) => !capture.canceled && !isNoopCapture(capture))
+      )
     },
     async settled(): Promise<CoreAppliedReply | undefined> {
       // CodeMirror 5 delivers Doc change notifications through signalLater.
@@ -821,6 +959,7 @@ function createAdapterWithIndex(
       if (composing) throw new Error('CodeMirror composition is already active')
       composing = true
       compositionEdit = undefined
+      compositionBeforeSelection = sourceSelection()
       compositionFinished = new Promise((resolve, reject) => {
         finishComposition = resolve
         failComposition = reject
@@ -838,7 +977,9 @@ function createAdapterWithIndex(
       if (edit === undefined) {
         finishComposition?.(latestReply)
       } else {
-        enqueue([edit])
+        if (compositionBeforeSelection === undefined) { throw new Error('Source composition lost its original selection') }
+        enqueue([edit], compositionBeforeSelection, sourceSelection())
+        compositionBeforeSelection = undefined
         adapter.settled().then(finishComposition, failComposition)
       }
       try {
@@ -909,6 +1050,7 @@ function createAdapterWithIndex(
     dispose(): void {
       if (disposed) return
       disposed = true
+      doc.off('beforeSelectionChange', onBeforeSelectionChange)
       doc.off('beforeChange', onBeforeChange)
       doc.off('change', onChange)
       editor?.off('changes', onChanges)

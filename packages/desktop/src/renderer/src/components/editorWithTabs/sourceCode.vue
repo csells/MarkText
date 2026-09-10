@@ -27,11 +27,12 @@ import {
   type CoreDocumentViewLease,
   type CoreAuthorityPerformanceTrace
 } from '@/documentAuthority'
+import { bindCodeMirrorSourceSyntax } from '@/documentAuthority/codeMirrorSourceSyntax'
+import { createCodeMirrorRecoveryDraftCapture } from '@/documentAuthority/codeMirrorRecoveryDraftCapture'
 import { sourceCodeCoreAdapterOptions } from '@/documentAuthority/sourceCodeCoreAdapterOptions'
 import type { CoreRecoveryDraftInput } from '@shared/types/coreRecoveryDraft'
 import {
   copyCodeMirrorPosition,
-  copyCodeMirrorSelections,
   captureCodeMirrorViewState,
   restoreCodeMirrorViewState,
   type CodeMirrorViewState
@@ -64,36 +65,15 @@ const commitTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const viewDestroyed = ref(false)
 const tabId = ref<string | null>(null)
 let coreAdapter: CodeMirrorCoreAdapter | undefined
+let detachCoreSourceSyntax: (() => void) | undefined
 let coreCompositionInput: HTMLElement | undefined
 let coreCompositionStart: (() => void) | undefined
 let coreCompositionEnd: (() => void) | undefined
 let coreSettlementCheck: (() => void) | undefined
 let requestedSourceSnapshots = 0
-let capturedRecoveryDraft: CoreRecoveryDraftInput | undefined
-const captureRecoveryDraft = (error: unknown): CoreRecoveryDraftInput | undefined => {
-  if (capturedRecoveryDraft !== undefined) return capturedRecoveryDraft
-  const lease = props.coreLease
-  const cm = editor.value
-  if (lease === undefined || cm === null) return undefined
-  cm.setOption('readOnly', true)
-  const text = cm.getValue()
-  capturedRecoveryDraft = {
-    documentId: lease.documentId,
-    pathname: currentTab.value?.pathname,
-    generation: lease.identity.generation,
-    revision: lease.identity.revision,
-    reason: error instanceof Error ? error.message : String(error),
-    visibleText: text,
-    nativeState: {
-      surface: 'source',
-      text,
-      selections: copyCodeMirrorSelections(cm.listSelections())
-    },
-    nativeIntent: coreAdapter?.recoveryDraft(),
-    acknowledgedView: { initialSource: props.markdown, lineEnding: lease.lineEnding }
-  }
-  return capturedRecoveryDraft
-}
+let coreRecoveryDraftCapture: ReturnType<typeof createCodeMirrorRecoveryDraftCapture> | undefined
+const captureRecoveryDraft = (error: unknown): CoreRecoveryDraftInput | undefined =>
+  coreRecoveryDraftCapture?.(error)
 const captureViewState = (): CodeMirrorViewState | undefined =>
   editor.value && sourceCodeContainer.value
     ? captureCodeMirrorViewState(editor.value, sourceCodeContainer.value)
@@ -106,7 +86,15 @@ const configureCorePreferences = async (
   const outcome = await coreAdapter.configure(options)
   if (outcome === undefined) throw new Error('Core preferences were not applied')
 }
-defineExpose({ captureRecoveryDraft, captureViewState, configureCorePreferences })
+const assertCloseAllowed = (): void => {
+  if (coreAdapter?.isComposing()) { throw new Error('Finish text composition before closing the window') }
+}
+defineExpose({
+  captureRecoveryDraft,
+  captureViewState,
+  configureCorePreferences,
+  assertCloseAllowed
+})
 
 const {
   theme,
@@ -148,7 +136,7 @@ const markdownMathMode = () => ({
 })
 
 watch([texMathDollars, texMathGfm, texMathSingleBackslash, texMathDoubleBackslash], () => {
-  editor.value?.setOption('mode', markdownMathMode())
+  if (props.coreLease === undefined) editor.value?.setOption('mode', markdownMathMode())
 })
 
 const getMuyaCursor = (cm: CodeMirror.Editor): MuyaIndexCursorLike => {
@@ -481,7 +469,9 @@ const updateSourceToc = async () => {
       props.coreLease !== lease ||
       viewDestroyed.value ||
       lease.consumerProjection() !== projection
-    ) { return }
+    ) {
+      return
+    }
     sourceTocIdentity = { ...lease.identity }
     editorStore.UPDATE_CORE_CONSUMER_TOC(
       lease.documentId,
@@ -506,7 +496,9 @@ const handleScrollToHeader = async (slug: unknown) => {
       sourceTocIdentity?.generation !== identity.generation ||
       sourceTocIdentity.revision !== identity.revision ||
       typeof offset !== 'number'
-    ) { return }
+    ) {
+      return
+    }
     scrollSourceEditorToLine(
       editor.value,
       editor.value.posFromIndex(offset).line,
@@ -562,8 +554,10 @@ onMounted(() => {
   // CodeMirror's line tree relies on object identity and must not be proxied by Vue.
   const codeMirrorInstance = markRaw(codeMirror(container, codeMirrorConfig))
 
-  // See src/renderer/src/codeMirror/markdownMathMode.ts.
-  codeMirrorInstance.setOption('mode', markdownMathMode())
+  // Standalone compatibility retains its mode (see
+  // src/renderer/src/codeMirror/markdownMathMode.ts); bound Source installs the
+  // common model's syntax below, including owned literal-language boundaries.
+  if (props.coreLease === undefined) codeMirrorInstance.setOption('mode', markdownMathMode())
 
   codeMirrorInstance.on('contextmenu', (_cm: CodeMirror.Editor, event: Event) => {
     event.preventDefault()
@@ -600,6 +594,22 @@ onMounted(() => {
             })
       }
     )
+    const syntaxLease = props.coreLease
+    detachCoreSourceSyntax = bindCodeMirrorSourceSyntax({
+      editor: codeMirrorInstance,
+      adapter: coreAdapter,
+      read: (revision) => syntaxLease.projectAcknowledgedSourceSyntax(revision),
+      observe: (refresh) => syntaxLease.binding.observe(refresh),
+      onFailure: (error) => emit('core-fault', error)
+    })
+    coreRecoveryDraftCapture = createCodeMirrorRecoveryDraftCapture({
+      editor: codeMirrorInstance,
+      lease: props.coreLease,
+      pathname: currentTab.value?.pathname,
+      initialSource: props.markdown,
+      nativeIntent: () => coreAdapter?.recoveryDraft()
+    })
+    props.coreLease.setRecoveryDraftCapture(coreRecoveryDraftCapture)
     const input = codeMirrorInstance.getInputField?.() as HTMLElement | undefined
     if (input !== undefined) {
       coreCompositionInput = input
@@ -659,18 +669,23 @@ onMounted(() => {
     }
     codeMirrorInstance.on('change', coreSettlementCheck)
     updateSourceToc()
-    props.coreLease.settleView(async () => {
-      try {
-        await coreAdapter?.settled()
-      } catch (error) {
-        requestCoreRecovery(error)
-        throw error
-      }
-    })
+    props.coreLease.settleView(
+      async () => {
+        try {
+          await coreAdapter?.settled()
+        } catch (error) {
+          requestCoreRecovery(error)
+          throw error
+        }
+      },
+      () => coreAdapter?.isSettled() === true
+    )
     props.corePerformanceTrace?.record('first-editable-viewport', props.coreLease.documentId, {
       surface: 'source'
     })
     props.coreLease.onHandoff(() => {
+      detachCoreSourceSyntax?.()
+      detachCoreSourceSyntax = undefined
       refreshSourceToc.cancel()
       sourceTocIdentity = undefined
       if (coreSettlementCheck !== undefined) {
@@ -689,6 +704,7 @@ onMounted(() => {
       stopObserving()
       coreAdapter?.dispose()
       coreAdapter = undefined
+      coreRecoveryDraftCapture = undefined
       delete window.__marktextDocumentCore
     })
     const corePerformanceTestBridge = createCoreAuthorityPerformanceTestBridge(
@@ -740,7 +756,9 @@ onMounted(() => {
   const initialViewState = props.initialViewState
   if (initialViewState !== undefined) {
     const restore = () => {
-      if (!viewDestroyed.value && container !== null) { restoreCodeMirrorViewState(codeMirrorInstance, container, initialViewState) }
+      if (!viewDestroyed.value && container !== null) {
+        restoreCodeMirrorViewState(codeMirrorInstance, container, initialViewState)
+      }
     }
     restore()
     // The replacement's scroll extent settles after its first layout.
@@ -753,6 +771,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  detachCoreSourceSyntax?.()
+  detachCoreSourceSyntax = undefined
   refreshSourceToc.cancel()
   viewDestroyed.value = true
   if (props.coreLease !== undefined) delete window.__marktextDocumentCore

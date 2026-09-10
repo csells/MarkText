@@ -368,24 +368,31 @@ describe('replaceBlockByLabel — in-editor "table" shows the grid picker (rever
         }
     });
 
-    it('the picker handler creates a table at (row + 1) × (column + 1)', () => {
-        const { muya, emit, createTable } = makeTableMuya();
-        const block = makeTableBlock();
+    it('the picker handler creates a table at (row + 1) × (column + 1)', async () => {
+        const muya = bootMuya('-');
+        const emit = vi.spyOn(muya.eventCenter, 'emit');
+        const createTable = vi.spyOn(muya, 'createTable');
+        try {
+            const block = muya.editor.scrollPage!.firstContentInDescendant()!.outMostBlock!;
+            replaceBlockByLabel({
+                block,
+                muya,
+                label: 'table',
+            });
 
-        replaceBlockByLabel({
-            block,
-            muya,
-            label: 'table',
-        });
+            const picker = emit.mock.calls.find(([event]) => event === 'muya-table-picker')!;
+            const handler = picker[3] as (row: number, column: number) => void;
+            // Grid coordinates are zero-based; this selection creates 3 × 4 cells.
+            handler(2, 3);
 
-        const handler = emit.mock.calls[0][3] as (row: number, column: number) => void;
-        // The chessboard pick is zero-based, e.g. picking the 3rd row / 4th
-        // column reports (2, 3) -> a 3×4 table.
-        handler(2, 3);
-
-        expect(createTable).toHaveBeenCalledTimes(1);
-        // The picker always replaces its disposable trigger block.
-        expect(createTable).toHaveBeenCalledWith({ rows: 3, columns: 4 }, { replace: true, block });
+            expect(createTable).toHaveBeenCalledTimes(1);
+            expect(createTable).toHaveBeenCalledWith({ rows: 3, columns: 4 }, { replace: true, block });
+        }
+        finally {
+            emit.mockRestore();
+            createTable.mockRestore();
+            await muya.destroy();
+        }
     });
 
     it('falls back to the block DOM node as the reference when the cursor has no coords', () => {
@@ -415,6 +422,7 @@ let originalVersion: string | undefined;
 let hadVersion = false;
 
 beforeEach(() => {
+    window.getSelection()?.removeAllRanges();
     hadVersion = 'MUYA_VERSION' in window;
     originalVersion = window.MUYA_VERSION;
     window.MUYA_VERSION = 'test';

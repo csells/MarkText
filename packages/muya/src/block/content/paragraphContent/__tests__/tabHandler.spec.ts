@@ -25,6 +25,7 @@ function makeKeyEvent(shiftKey: boolean) {
 }
 
 interface IFakeParagraph {
+    muya: { editor: { documentEditing: undefined } };
     getCursor: ReturnType<typeof vi.fn>;
     isCollapsed: boolean;
     _getUnindentType: ReturnType<typeof vi.fn>;
@@ -38,6 +39,7 @@ interface IFakeParagraph {
 
 function makeFakeParagraph(overrides: Partial<IFakeParagraph> = {}): IFakeParagraph {
     return {
+        muya: { editor: { documentEditing: undefined } },
         getCursor: vi.fn(() => ({ start: { offset: 0 }, end: { offset: 0 } })),
         isCollapsed: true,
         _getUnindentType: vi.fn(() => null),

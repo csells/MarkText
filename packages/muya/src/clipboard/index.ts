@@ -4,6 +4,7 @@ import type { IClipboardPayload } from './copyData';
 import Format from '../block/base/format';
 import { classifyInputKind } from '../history';
 import { isClipboardEvent, isInputEvent, isKeyboardEvent } from '../utils';
+import { ownsDocumentTextKey } from '../editor/documentEditing';
 import { getClipboardData, writeClipboardData } from './copyData';
 import { cutSelection, deleteTableSelection, insertTextAtCursor } from './cut';
 import { pastePlainText, pasteSelection } from './paste';
@@ -95,6 +96,9 @@ class Clipboard {
                 return;
             const { key, metaKey } = event;
 
+            if (this.muya.editor.documentCompositionActive)
+                return;
+
             if (this.selection.table.hasSelection) {
                 if (!metaKey && (key === 'Backspace' || key === 'Delete')) {
                     event.preventDefault();
@@ -102,6 +106,10 @@ class Clipboard {
                 }
                 return;
             }
+
+            // The document model consumes this pre-edit selection in beforeinput.
+            if (ownsDocumentTextKey(this.muya, event))
+                return;
 
             const { isSelectionInSameBlock } = this.selection.getSelection() ?? {};
             if (isSelectionInSameBlock)
@@ -128,8 +136,12 @@ class Clipboard {
         };
 
         const beforeInputHandler = (event: Event) => {
-            if (!ownsEvent() || !isInputEvent(event) || !event.cancelable)
+            // The document model owns native input once it is attached; it
+            // replaces a cross-block selection as one model operation.
+            if (!ownsEvent() || !isInputEvent(event) || !event.cancelable
+                || event.defaultPrevented || this.muya.editor.documentEditing) {
                 return;
+            }
 
             const replacement = crossBlockReplacement(event.inputType, event.data);
             if (replacement == null || document.getSelection()?.isCollapsed !== false)
@@ -168,7 +180,11 @@ class Clipboard {
     }
 
     cutHandler(): void {
-        cutSelection(this);
+        if (this.muya.editor.documentEditing) {
+            cutSelection(this);
+            return;
+        }
+        this.muya.editor.history.recordCommand(() => cutSelection(this));
     }
 
     pasteHandler(
@@ -202,6 +218,20 @@ class Clipboard {
     // event, so the old flag + execCommand approach pasted nothing. Read the
     // clipboard text ourselves and feed it through the paste pipeline.
     async pasteAsPlainText(): Promise<void> {
+        const model = this.muya.editor.documentEditing;
+        if (model) {
+            const selection = this.selection.table.getDOMSelection() ?? (this.selection.image
+                ? this.selection.getImageDOMSelection()
+                : this.selection.getDOMSelection());
+            if (!selection)
+                throw new Error('Plain-text paste has no document selection');
+            await model.prepareClipboard(selection, { kind: 'clipboard-text-read' }, async (capturePayload) => {
+                const text = (await this._readClipboardText()).replace(/\r\n?/g, '\n');
+                capturePayload({ text });
+                return { markdown: text, plainText: text, pasteAsPlainText: true };
+            });
+            return;
+        }
         const text = await this._readClipboardText();
         if (text)
             await pastePlainText(this, text);

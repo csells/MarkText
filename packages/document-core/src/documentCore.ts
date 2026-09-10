@@ -1,5 +1,16 @@
-import { createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText } from './trackedAuthoring.js'
-import { createMarkupSourceEdits } from './markupEditing.js'
+import { planAuthor, type DocumentAuthorAction, type DocumentAuthorPlan } from './authorPlanning.js'
+import { planSourceInput, type DocumentSourceInputAction } from './sourceInputPlanning.js'
+import { sourceSyntaxSpans, type DocumentSourceSyntaxSpan } from './sourceSyntax.js'
+import { paragraphEnterConversion } from './internal/profile1/markdownParser.js'
+import { planClipboard, type DocumentClipboardAction, type DocumentClipboardPlan } from './clipboardPlanning.js'
+import { planFormat, type DocumentFormatAction, type DocumentFormatPlan } from './formatPlanning.js'
+import { planInput, reconcileInput, inputSourceRange, type DocumentInputAction, type DocumentInputPlan, type DocumentInputResult } from './inputPlanning.js'
+import { editingReconciliation } from './editingReconciliation.js'
+import { paragraphBackwardCodeTarget } from './paragraphJoinPlanning.js'
+import { isLiteralBlock } from './literalBlock.js'
+import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText } from './trackedAuthoring.js'
+import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
+import { markupAnnotations } from './markupEditOwnership.js'
 import {
   admitProfile1PlainParagraphRegion,
   createProfile1DocumentReuseCache,
@@ -209,7 +220,7 @@ export interface MarkdownAstNode {
   /**
    * Parser-owned scalar facts for this node.
    *
-   * Text nodes expose their decoded CommonMark value as `semanticText` while
+   * Text nodes expose their CommonMark value as `semanticText` (literal in code) while
    * retaining the exact authored spelling through `range`. Inline-code nodes
    * expose `semanticContent`; this differs from `content` when a containing
    * GFM table consumes an escaped pipe. Fenced code blocks expose decoded
@@ -230,7 +241,7 @@ export interface MarkdownAstNode {
    * directly without re-recognizing Markdown syntax.
    */
   readonly attributes: Readonly<Record<string, MarkdownAttribute>>
-  /** Decoded entity/escape spellings; ranges use the same coordinates as this node. */
+  /** Normalized entity, escape or literal indentation spellings; ranges use this node's coordinates. */
   readonly semanticTextSegments?: readonly {
     readonly range: SourceRange
     readonly value: string
@@ -527,6 +538,22 @@ export class DocumentSourceEditError extends RangeError {
  * revision. Older revisions remain projectable but cannot be reopened.
  */
 export interface DocumentCore {
+  /** Source highlighting from this revision’s shared Markdown and CriticMarkup syntax. */
+  sourceSyntax(revision: DocumentRevision): readonly DocumentSourceSyntaxSpan[]
+  /** Plans an imported clipboard action against the exact current source selection. */
+  planAuthor(previous: DocumentRevision, action: DocumentAuthorAction): DocumentAuthorPlan | undefined
+  planClipboard(previous: DocumentRevision, action: DocumentClipboardAction): DocumentClipboardPlan
+  /** Plans a native inline-format action using owned syntax and exact source positions. */
+  planSourceInput(previous: DocumentRevision, action: DocumentSourceInputAction): DocumentSourceInputAction
+  planFormat(previous: DocumentRevision, action: DocumentFormatAction): DocumentFormatPlan
+  /** Plan an actual native action using the current owned language context. */
+  planInput(previous: DocumentRevision, action: DocumentInputAction): DocumentInputPlan
+  /** Compile a planned input with its actual operation's annotation-consumption scope. */
+  inputEdits(previous: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, tracked: boolean): readonly DocumentSourceEdit[] | undefined
+  /** Locate a planned input selection in its admitted canonical source. */
+  reconcileInput(previous: DocumentRevision, policy: DocumentInputPlan, commit: DocumentCommit | null, action: DocumentInputAction): DocumentInputResult
+  /** Maps the exact edited payload into admitted syntax, including review arms and escapes. */
+  editingReconciliation(previous: DocumentRevision, input: DocumentSourceEdit, commit: DocumentCommit): readonly DocumentSourceEdit[] | undefined
   /**
    * Plans ordinary editing across a source envelope selected in Markup. Hidden
    * comments and surviving annotation wrappers remain intact. Undefined refuses
@@ -806,7 +833,8 @@ function markdownAstOf(
     node: ParserMarkdownNode
     ready: boolean
     inTable: boolean
-  }>> = [{ node: root, ready: false, inTable: false }]
+    inLiteral: boolean
+  }>> = [{ node: root, ready: false, inTable: false, inLiteral: false }]
 
   while (pending.length > 0) {
     const task = pending.pop()
@@ -815,11 +843,13 @@ function markdownAstOf(
     if (!task.ready) {
       pending.push({ ...task, ready: true })
       const inTable = task.inTable || task.node.kind === 'table'
+      const inLiteral = task.inLiteral || isLiteralBlock(task.node.kind)
       for (let ordinal = task.node.childCount - 1; ordinal >= 0; ordinal -= 1) {
         pending.push({
           node: task.node.childAt(ordinal),
           ready: false,
-          inTable
+          inTable,
+          inLiteral
         })
       }
       continue
@@ -829,7 +859,13 @@ function markdownAstOf(
       ...task.node.attributes
     }
     const semanticTextSegments: Array<{ readonly range: SourceRange, readonly value: string }> = []
-    if (task.node.kind === 'text') {
+    if (task.node.kind === 'text' && task.inLiteral) {
+      const value = attributes.semanticText
+      if (typeof value !== 'string') throw new Error('Literal payload text has no literal value')
+      if (semanticMarkdown.source.slice(task.node.range.start, task.node.range.end) !== value) {
+        semanticTextSegments.push(Object.freeze({ range: projectedRange(task.node.range), value }))
+      }
+    } else if (task.node.kind === 'text') {
       const semanticStart = task.node.attributes['semanticStart']
       const semanticEnd = task.node.attributes['semanticEnd']
       const start = typeof semanticStart === 'number' ? semanticStart : task.node.range.start
@@ -3757,10 +3793,11 @@ function createDocumentCoreWithExecutionBudget(
   // Authoring validates the complete candidate in the acknowledged parser
   // context, but cannot publish, demote, or alter the live reuse cache. Only
   // detached facts leave this callback; candidate parser products are discarded.
-  const previewSourceEdits = (
+  const withSourceEditPreview = <T>(
     previous: DocumentRevision,
-    edits: readonly DocumentSourceEdit[]
-  ): DocumentRevision => {
+    edits: readonly DocumentSourceEdit[],
+    inspect: (products: Profile1DocumentProducts, source: string) => T
+  ): T => {
     const state = currentStateOf(previous)
     const stableEdits = stableSourceEdits(edits)
     preflightSourceEdits(state.source.length, stableEdits)
@@ -3770,14 +3807,17 @@ function createDocumentCoreWithExecutionBudget(
       const retained = previousProducts.retainedIntrinsic
       const products = isolatedProducts(source, state.markdownOptions,
         retained === undefined ? undefined : { retained, edits: stableEdits })
-      return Object.freeze({
-        source,
-        sourceLength: source.length,
-        annotations: annotationsOf(products).annotations,
-        diagnostics: diagnosticsOf(products)
-      })
+      return inspect(products, source)
     })
   }
+
+  const previewSourceEdits = (previous: DocumentRevision, edits: readonly DocumentSourceEdit[]): DocumentRevision =>
+    withSourceEditPreview(previous, edits, (products, source) => Object.freeze({
+      source,
+      sourceLength: source.length,
+      annotations: annotationsOf(products).annotations,
+      diagnostics: diagnosticsOf(products)
+    }))
 
   // A same-shape regional preview proves marker ownership, diagnostics and
   // Markdown context without publishing or opening the revision's full products.
@@ -3904,14 +3944,39 @@ function createDocumentCoreWithExecutionBudget(
     tracked: boolean
   ): readonly DocumentSourceEdit[] | undefined => {
     const state = currentStateOf(previous)
-    const edits = stableSourceEdits(input)
+    let edits = stableSourceEdits(input)
     preflightSourceEdits(state.source.length, edits)
     if (edits.length === 0) return Object.freeze([])
+    if (tracked) {
+      const pending = createTrackedPendingArmEdits(core, previous, edits)
+      if (pending !== undefined) return pending
+      // Adjacent declared edits are one contiguous replacement. Compile that
+      // replacement before descending through independent spans; otherwise an
+      // insertion at a replaced prefix's start is mistaken for an overlap and
+      // widens the suggestion across untouched content to a later edit.
+      const groups: Array<{ start: number, end: number, inserts: string[] }> = []
+      for (const current of edits) {
+        const last = groups.at(-1)
+        if (last !== undefined && last.end === current.start) {
+          last.end = current.end
+          last.inserts.push(current.insert)
+        } else {
+          groups.push({ start: current.start, end: current.end, inserts: [current.insert] })
+        }
+      }
+      edits = Object.freeze(groups.map(group => Object.freeze({
+        start: group.start, end: group.end, insert: group.inserts.join('')
+      })))
+    }
     const edit = edits[0]
     if (edits.length === 1 && edit !== undefined) {
       if (!tracked) return core.markupEdit(previous, edit)
       const planned = core.trackedEdit(previous, edit)
       return planned === undefined ? undefined : Object.freeze([planned])
+    }
+    if (!tracked) {
+      return createMarkupCompoundSourceEdits(core, previous, edits,
+        candidateEdits => previewSourceEdits(previous, candidateEdits))
     }
     const compoundSuggestion = (): readonly DocumentSourceEdit[] | undefined => {
       if (!tracked) return undefined
@@ -3927,17 +3992,7 @@ function createDocumentCoreWithExecutionBudget(
       const planned = createTrackedSourceEdit(core, previous, { start, end, insert },
         candidateEdits => previewSourceEdits(previous, candidateEdits), true)
       if (planned === undefined) return undefined
-      const flatten = (roots: readonly CriticMarkupAnnotation[]): CriticMarkupAnnotation[] => {
-        const result: CriticMarkupAnnotation[] = []
-        const pending = [...roots].reverse()
-        while (pending.length > 0) {
-          const annotation = pending.pop()!
-          result.push(annotation)
-          for (const arm of [...annotation.arms].reverse()) pending.push(...[...arm.annotations].reverse())
-        }
-        return result
-      }
-      const retained = flatten(previous.annotations).filter(annotation =>
+      const retained = markupAnnotations(previous.annotations).filter(annotation =>
         annotation.range.start >= start && annotation.range.end <= end &&
         !edits.some(edit => edit.start <= annotation.range.start && edit.end >= annotation.range.end))
       const offset = (position: number, after: boolean): number => position - start + protectedEdits.reduce((delta, edit) =>
@@ -3945,11 +4000,11 @@ function createDocumentCoreWithExecutionBudget(
           ? edit.insert.length - (edit.end - edit.start)
           : 0), 0)
       const candidate = previewSourceEdits(previous, [planned])
-      const wrapper = flatten(candidate.annotations).find(annotation => annotation.range.start === planned.start &&
+      const wrapper = markupAnnotations(candidate.annotations).find(annotation => annotation.range.start === planned.start &&
         annotation.range.end === planned.start + planned.insert.length)
       const arm = wrapper?.arms.find(arm => arm.name === 'new')
       if (arm === undefined) return undefined
-      const actual = flatten(arm.annotations)
+      const actual = markupAnnotations(arm.annotations)
       // Structural edits retain existing marks, but cannot activate new marks
       // by joining delimiter fragments across their source boundaries.
       if (actual.length !== retained.length || actual.some((annotation, index) => {
@@ -3967,6 +4022,7 @@ function createDocumentCoreWithExecutionBudget(
     const { schema: _schema, ...options } = state.markdownOptions
     let candidate = candidateCore.open(previous.source, options)
     const result: DocumentSourceEdit[] = []
+    const authored: Array<{ edit: DocumentSourceEdit, annotation: CriticMarkupAnnotation }> = []
     let boundary = previous.sourceLength + 1
     for (const edit of [...edits].reverse()) {
       if (edit.start >= boundary || edit.end > boundary) return compoundSuggestion()
@@ -3978,10 +4034,34 @@ function createDocumentCoreWithExecutionBudget(
       if (planned === undefined || planned.some(item => item.start >= boundary || item.end > boundary)) return compoundSuggestion()
       if (planned.length === 0) continue
       candidate = candidateCore.apply(candidate, planned).revision
+      for (const edit of planned) {
+        for (const annotation of markupAnnotations(candidate.annotations)) {
+          if (annotation.range.start >= edit.start && annotation.range.end <= edit.start + edit.insert.length) authored.push({ edit, annotation })
+        }
+      }
       boundary = Math.min(...planned.map(item => item.start))
       result.unshift(...planned)
     }
     if (tracked) {
+      // Each suggestion must still be recognized after the entire sparse
+      // operation. An earlier prefix change can move a later suggestion into
+      // a different literal/container context despite its unchanged bytes.
+      const actual = new Map(markupAnnotations(candidate.annotations).map(annotation =>
+        [`${annotation.kind}:${annotation.range.start}:${annotation.range.end}`, annotation]))
+      const shifts = new Map<DocumentSourceEdit, number>()
+      let delta = 0
+      for (const edit of result) {
+        shifts.set(edit, delta)
+        delta += edit.insert.length - (edit.end - edit.start)
+      }
+      for (const { edit, annotation } of authored) {
+        const shift = shifts.get(edit)!
+        const retained = actual.get(`${annotation.kind}:${annotation.range.start + shift}:${annotation.range.end + shift}`)
+        if (retained === undefined || retained.arms.length !== annotation.arms.length || retained.arms.some((arm, index) => {
+          const previous = annotation.arms[index]!
+          return arm.name !== previous.name || arm.range.start !== previous.range.start + shift || arm.range.end !== previous.range.end + shift
+        })) return compoundSuggestion()
+      }
       const { ast, coordinates } = candidateCore.project(candidate, 'markup').syntax
       const pending = [ast.root]
       while (pending.length > 0) {
@@ -4009,6 +4089,120 @@ function createDocumentCoreWithExecutionBudget(
   }
 
   const core: DocumentCore = Object.freeze({
+    planAuthor(previous: DocumentRevision, action: DocumentAuthorAction) {
+      currentStateOf(previous)
+      return planAuthor(core, previous, action, edits => previewSourceEdits(previous, edits))
+    },
+    planClipboard(previous: DocumentRevision, action: DocumentClipboardAction) {
+      currentStateOf(previous)
+      return planClipboard(core, previous, action, edits => previewSourceEdits(previous, edits), source => {
+        const state = currentStateOf(previous)
+        const products = isolatedProducts(source, state.markdownOptions)
+        return markupProjectionOf(products, annotationsOf(products).rangeByNodeId, source.length).syntax
+      }, edits => withSourceEditPreview(previous, edits, (products, source) =>
+        markupProjectionOf(products, annotationsOf(products).rangeByNodeId, source.length).syntax), edits =>
+        createMarkupCompoundSourceEdits(core, previous, edits, candidate => previewSourceEdits(previous, candidate), false, 'structure'))
+    },
+    planSourceInput(previous: DocumentRevision, action: DocumentSourceInputAction) {
+      currentStateOf(previous)
+      return planSourceInput(core, previous, action)
+    },
+    planFormat(previous: DocumentRevision, action: DocumentFormatAction) {
+      currentStateOf(previous)
+      return planFormat(core, previous, action, edits => previewSourceEdits(previous, edits),
+        edits => withSourceEditPreview(previous, edits, (products, source) =>
+          markupProjectionOf(products, annotationsOf(products).rangeByNodeId, source.length).syntax))
+    },
+    inputEdits(previous: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, tracked: boolean) {
+      currentStateOf(previous)
+      const joinSyntax = 'kind' in action && action.command === 'joinParagraphBackward' ? core.project(previous, 'markup').syntax : undefined
+      const codeJoin = joinSyntax !== undefined && paragraphBackwardCodeTarget(joinSyntax,
+        joinSyntax.coordinates.toProjected(inputSourceRange(core, previous, action.selection).start, 'next')) !== undefined
+      if ('kind' in action && (action.command === 'moveTableColumn' || action.command === 'moveTableRow')) {
+        if (!tracked) {
+          return createMarkupCompoundSourceEdits(core, previous, plan.edits,
+            edits => previewSourceEdits(previous, edits), true, 'structure')
+        }
+        const edits = plan.edits.map(edit => createTrackedSourceEdit(core, previous, edit,
+          edits => previewSourceEdits(previous, edits), true))
+        return edits.every(edit => edit !== undefined) ? edits : undefined
+      }
+      if ('kind' in action && action.command === 'resetCodeBlock') {
+        const first = plan.edits[0]
+        const last = plan.edits.at(-1)
+        if (first === undefined || last === undefined) return Object.freeze([])
+        // A literal reset is one declared operation. Preserve its exact raw
+        // payload while removing the parser-owned syntax spans atomically;
+        // separate fence suggestions would change the literal context midway.
+        const syntax = core.project(previous, 'markup').syntax
+        const at = syntax.coordinates.toProjected(inputSourceRange(core, previous, action.selection).start, 'next')
+        const codeAt = (node: MarkdownAstNode): MarkdownAstNode | undefined => {
+          if (at < node.range.start || at > node.range.end) return undefined
+          if (node.kind === 'code-block') return node
+          for (const child of node.children) {
+            const code = codeAt(child)
+            if (code !== undefined) return code
+          }
+          return undefined
+        }
+        const code = codeAt(syntax.ast.root)
+        if (code === undefined) throw new RangeError('Code reset compilation requires the owned literal')
+        const start = first.start
+        let end = Math.max(last.end, syntax.coordinates.toSource(code.range.end, 'previous'))
+        for (const annotation of markupAnnotations(previous.annotations)) {
+          for (const arm of annotation.arms) {
+            if (arm.range.start <= start && last.end <= arm.range.end) end = Math.min(end, arm.range.end)
+          }
+        }
+        let insert = core.sourceSlice(previous, { start, end })
+        for (const edit of [...plan.edits].reverse()) {
+          insert = insert.slice(0, edit.start - start) + edit.insert + insert.slice(edit.end - start)
+        }
+        const replacement = { start, end, insert }
+        if (!tracked) {
+          return createMarkupCompoundSourceEdits(core, previous, [replacement],
+            edits => previewSourceEdits(previous, edits), true)
+        }
+        const edit = createTrackedSourceEdit(core, previous, replacement,
+          edits => previewSourceEdits(previous, edits), true)
+        return edit === undefined ? undefined : Object.freeze([edit])
+      }
+      if (codeJoin || 'kind' in action && (action.command === 'createTable' || action.command === 'createFrontMatter' || action.command === 'changeThematicBreak' || action.command === 'createMathBlock' || action.command === 'createCodeBlock' || action.command === 'wrapCodeBlocks' || action.command === 'setTaskChecked' && action.autoMoveCheckedToEnd)) {
+        if (!tracked) {
+          return createMarkupCompoundSourceEdits(core, previous, plan.edits,
+            edits => previewSourceEdits(previous, edits), true, 'structure')
+        }
+        const edits = plan.edits.map(edit => createTrackedSourceEdit(core, previous, edit,
+          edits => previewSourceEdits(previous, edits), true, 'structure'))
+        return edits.every(edit => edit !== undefined) ? edits : undefined
+      }
+      if (!tracked && 'kind' in action && (action.command === 'removeTableRow' || action.command === 'removeTableColumn' || action.command === 'tableBoundaryBackspace' || (action.command === 'changeHeading' || action.command === 'changeBlockquote') && action.change.type === 'quick-insert')) {
+        return createMarkupCompoundSourceEdits(core, previous, plan.edits,
+          edits => previewSourceEdits(previous, edits), false, 'structure')
+      }
+      return planNativeEdits(previous, plan.edits, tracked)
+    },
+    planInput(previous: DocumentRevision, action: DocumentInputAction) {
+      const state = currentStateOf(previous)
+      if ('inputType' in action) preflightSourceEdits(state.source.length, stableSourceEdits([{ ...inputSourceRange(core, previous, action.range), insert: action.data ?? '' }]))
+      preflightSourceEdits(state.source.length, stableSourceEdits([{ ...inputSourceRange(core, previous, action.selection), insert: '' }]))
+      return planInput(core, previous, action, range => state.productStore.withProduct(products =>
+        paragraphEnterConversion(products.editing().source, range.start, range.end)),
+      () => state.productStore.withProduct(products => products.editing().markdown.lines))
+    },
+    reconcileInput(previous: DocumentRevision, policy: DocumentInputPlan, commit: DocumentCommit | null, action: DocumentInputAction) {
+      if (!stateByRevision.has(previous) || commit !== null && !stateByRevision.has(commit.revision)) throw new Error('Document revision belongs to another core')
+      return reconcileInput(core, previous, policy, commit, action)
+    },
+    editingReconciliation(previous: DocumentRevision, input: DocumentSourceEdit, commit: DocumentCommit) {
+      const previousState = stateByRevision.get(previous)
+      if (previousState === undefined || !stateByRevision.has(commit.revision)) throw new Error('Document revision belongs to another core')
+      const edits = stableSourceEdits([input])
+      preflightSourceEdits(previousState.source.length, edits)
+      const edit = edits[0]
+      if (edit === undefined) throw new Error('Editing reconciliation input is missing')
+      return editingReconciliation(core, previous, edit, commit, 'visible')
+    },
     markupEdits(previous: DocumentRevision, edits: readonly DocumentSourceEdit[]) {
       return planNativeEdits(previous, edits, false)
     },
@@ -4038,6 +4232,21 @@ function createDocumentCoreWithExecutionBudget(
       preflightSourceEdits(state.source.length, edits)
       const stableEdit = edits[0]
       if (stableEdit === undefined) throw new Error('Tracked source edit is missing')
+      const pending = createTrackedPendingArmEdits(core, previous, [stableEdit])
+      if (pending !== undefined && pending.length > 0) {
+        const first = pending[0]
+        const last = pending.at(-1)
+        if (first === undefined || last === undefined) return undefined
+        // This singular API carries the same exact script as one source edit.
+        // Untouched gaps (including comments) come directly from the revision.
+        let insert = ''
+        let cursor = first.start
+        for (const edit of pending) {
+          insert += core.sourceSlice(previous, { start: cursor, end: edit.start }) + edit.insert
+          cursor = edit.end
+        }
+        return Object.freeze({ start: first.start, end: last.end, insert })
+      }
       const regional = regionalPayloadEdit(state, stableEdit, true)
       if (regional !== undefined) return regional
       return createTrackedSourceEdit(
@@ -4225,6 +4434,23 @@ function createDocumentCoreWithExecutionBudget(
       )
     },
 
+    sourceSyntax(revision: DocumentRevision) {
+      const markup = projectRevision(revision, 'markup')
+      const state = stateByRevision.get(revision)
+      if (state === undefined) throw new Error('Document revision belongs to another core')
+      return withFacts(state, facts => sourceSyntaxSpans(markup, revision.annotations, comment => {
+        const nodeId = facts.nodeIdByAnnotation.get(comment)
+        if (nodeId === undefined) throw new Error('Comment does not belong to this revision')
+        const projected = facts.products.commentEditing(nodeId)
+        return Object.freeze({
+          kind: 'comment' as const,
+          annotationRange: comment.range,
+          markdown: projected.source,
+          ast: markdownAstOf(projected),
+          coordinates: projectionCoordinatesOf(projected, state.source.length)
+        })
+      }), revision === currentRevision)
+    },
     project: projectRevision,
     projectComment
   })

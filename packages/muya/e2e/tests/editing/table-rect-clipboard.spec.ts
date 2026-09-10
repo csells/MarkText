@@ -3,6 +3,7 @@ import { expect, test } from '../fixtures/muya';
 import { getMarkdown } from '../helpers/api';
 import { metaKey } from '../helpers/keyboard';
 import { editor } from '../helpers/selectors';
+import { dragSelect, selectedCount } from '../helpers/tableSelection';
 
 /**
  * Gate for PR5 (table rect selection exclusive of text selection). The frozen
@@ -28,34 +29,6 @@ const TABLE_MD = [
 async function seedTable(page: Page): Promise<void> {
     await page.evaluate(md => window.muya!.setContent(md), TABLE_MD);
     await expect(page.locator(editor.table).first()).toBeVisible();
-}
-
-async function cellCenter(page: Page, row: number, column: number) {
-    const cell = page.locator(editor.table).first()
-        .locator('tr').nth(row)
-        .locator('td').nth(column);
-    const box = await cell.boundingBox();
-    if (!box)
-        throw new Error(`cell (${row}, ${column}) has no bounding box`);
-    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-}
-
-async function dragSelect(
-    page: Page,
-    from: { row: number; column: number },
-    to: { row: number; column: number },
-): Promise<void> {
-    const start = await cellCenter(page, from.row, from.column);
-    const end = await cellCenter(page, to.row, to.column);
-    await page.mouse.move(start.x, start.y);
-    await page.mouse.down();
-    await page.mouse.move((start.x + end.x) / 2, (start.y + end.y) / 2, { steps: 4 });
-    await page.mouse.move(end.x, end.y, { steps: 4 });
-    await page.mouse.up();
-}
-
-function selectedCount(page: Page) {
-    return page.locator(`${editor.table} td.mu-table-cell-selected`).count();
 }
 
 test.describe('table rect clipboard (root-focus exclusivity)', () => {

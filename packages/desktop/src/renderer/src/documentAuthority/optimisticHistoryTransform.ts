@@ -1,4 +1,4 @@
-import type { DocumentSourceEdit } from '@marktext/document-core'
+import type { DocumentSourceEdit, DocumentTextSelection } from '@marktext/document-core'
 
 export interface OptimisticHistoryTransformInput {
   /** UTF-16 code-unit length before actor history and optimistic transactions. */
@@ -7,6 +7,11 @@ export interface OptimisticHistoryTransformInput {
   readonly appliedEdits: readonly DocumentSourceEdit[]
   /** Each transaction uses the optimistic coordinates produced by its predecessor. */
   readonly queuedTransactions: readonly (readonly DocumentSourceEdit[])[]
+  /** Canonical selection state travels with source transactions that own it. */
+  readonly queuedSelections?: readonly Readonly<{
+    before: DocumentTextSelection
+    after: DocumentTextSelection
+  }>[]
 }
 
 export interface OptimisticHistoryTransformConflict {
@@ -24,6 +29,10 @@ export interface OptimisticHistoryTransformed {
   readonly rebasedTransactions: readonly (readonly DocumentSourceEdit[])[]
   /** Base-coordinate edits from the final optimistic view to the actor result. */
   readonly reconciliationEdits: readonly DocumentSourceEdit[]
+  readonly rebasedSelections?: readonly Readonly<{
+    before: DocumentTextSelection
+    after: DocumentTextSelection
+  }>[]
 }
 
 export type OptimisticHistoryTransformResult =
@@ -75,10 +84,7 @@ const pieceLength = (piece: ProvenancePiece): number => piece.end - piece.start
 const sequenceLength = (pieces: readonly ProvenancePiece[]): number =>
   pieces.reduce((sum, piece) => sum + pieceLength(piece), 0)
 
-const appendPiece = (
-  output: ProvenancePiece[],
-  piece: ProvenancePiece
-): void => {
+const appendPiece = (output: ProvenancePiece[], piece: ProvenancePiece): void => {
   if (piece.start === piece.end) return
   const previous = output.at(-1)
   if (
@@ -120,13 +126,15 @@ const stableEdits = (
     ) {
       throw new RangeError(`${label} edit ${String(index)} is invalid`)
     }
-    stable.push(Object.freeze({
-      start: edit.start,
-      end: edit.end,
-      insert: edit.insert,
-      ordinal: index,
-      insertionOrigin: nextOrigin()
-    }))
+    stable.push(
+      Object.freeze({
+        start: edit.start,
+        end: edit.end,
+        insert: edit.insert,
+        ordinal: index,
+        insertionOrigin: nextOrigin()
+      })
+    )
     previousEnd = edit.end
   }
   return Object.freeze(stable)
@@ -144,12 +152,15 @@ const moveCursor = (
     const available = pieceLength(piece) - cursor.pieceOffset
     const consumed = Math.min(available, target - cursor.position)
     if (output !== undefined) {
-      appendPiece(output, Object.freeze({
-        origin: piece.origin,
-        start: piece.start + cursor.pieceOffset,
-        end: piece.start + cursor.pieceOffset + consumed,
-        ...(piece.buffer === undefined ? {} : { buffer: piece.buffer })
-      }))
+      appendPiece(
+        output,
+        Object.freeze({
+          origin: piece.origin,
+          start: piece.start + cursor.pieceOffset,
+          end: piece.start + cursor.pieceOffset + consumed,
+          ...(piece.buffer === undefined ? {} : { buffer: piece.buffer })
+        })
+      )
     }
     cursor.position += consumed
     cursor.pieceOffset += consumed
@@ -170,12 +181,15 @@ const applyEdits = (
   for (const edit of edits) {
     moveCursor(pieces, cursor, edit.start, output)
     if (edit.insert.length > 0) {
-      appendPiece(output, Object.freeze({
-        origin: edit.insertionOrigin,
-        start: 0,
-        end: edit.insert.length,
-        buffer: edit.insert
-      }))
+      appendPiece(
+        output,
+        Object.freeze({
+          origin: edit.insertionOrigin,
+          start: 0,
+          end: edit.insert.length,
+          buffer: edit.insert
+        })
+      )
     }
     moveCursor(pieces, cursor, edit.end)
   }
@@ -220,7 +234,9 @@ const boundaryContext = (
           offset: piece.start + position - cursor
         }),
         ...(position === cursor
-          ? (left === undefined ? {} : { left: Object.freeze(left) })
+          ? left === undefined
+            ? {}
+            : { left: Object.freeze(left) }
           : {
             left: Object.freeze({
               origin: piece.origin,
@@ -235,7 +251,7 @@ const boundaryContext = (
   return Object.freeze(left === undefined ? {} : { left: Object.freeze(left) })
 }
 
-const positionAfterEditSet = (
+export const positionAfterEditSet = (
   position: number,
   edits: readonly DocumentSourceEdit[],
   affinity: BoundaryAffinity
@@ -275,34 +291,24 @@ const mapBoundary = (
   affinity: BoundaryAffinity
 ): number | undefined => {
   const context = boundaryContext(optimistic, position)
-  const mappedRight = context.right === undefined
-    ? undefined
-    : authoritativePositionOf(
-      authoritative,
-      context.right.origin,
-      context.right.offset
-    )
-  const mappedLeft = context.left === undefined
-    ? undefined
-    : authoritativePositionOf(
-      authoritative,
-      context.left.origin,
-      context.left.offset
-    )
+  const mappedRight =
+    context.right === undefined
+      ? undefined
+      : authoritativePositionOf(authoritative, context.right.origin, context.right.offset)
+  const mappedLeft =
+    context.left === undefined
+      ? undefined
+      : authoritativePositionOf(authoritative, context.left.origin, context.left.offset)
   if (affinity === 'before' && mappedLeft !== undefined) return mappedLeft + 1
   if (affinity === 'after' && mappedRight !== undefined) return mappedRight
-  const baseBoundary = context.right?.origin === BASE_ORIGIN
-    ? context.right.offset
-    : context.right === undefined && context.left?.origin === BASE_ORIGIN
-      ? context.left.offset + 1
-      : undefined
+  const baseBoundary =
+    context.right?.origin === BASE_ORIGIN
+      ? context.right.offset
+      : context.right === undefined && context.left?.origin === BASE_ORIGIN
+        ? context.left.offset + 1
+        : undefined
   if (baseBoundary !== undefined) {
-    return positionAfterTransactions(
-      baseBoundary,
-      history,
-      priorTransactions,
-      affinity
-    )
+    return positionAfterTransactions(baseBoundary, history, priorTransactions, affinity)
   }
   if (affinity === 'after' && mappedLeft !== undefined) return mappedLeft + 1
   if (affinity === 'before' && mappedRight !== undefined) return mappedRight
@@ -384,11 +390,13 @@ const commonSpans = (
     let position = 0
     for (const piece of pieces) {
       const intervals = index.get(piece.origin) ?? []
-      intervals.push(Object.freeze({
-        start: piece.start,
-        end: piece.end,
-        position
-      }))
+      intervals.push(
+        Object.freeze({
+          start: piece.start,
+          end: piece.end,
+          position
+        })
+      )
       index.set(piece.origin, intervals)
       position += pieceLength(piece)
     }
@@ -412,14 +420,15 @@ const commonSpans = (
       const start = Math.max(optimisticInterval.start, authoritativeInterval.start)
       const end = Math.min(optimisticInterval.end, authoritativeInterval.end)
       if (start < end) {
-        spans.push(Object.freeze({
-          origin,
-          optimisticStart: optimisticInterval.position +
-            start - optimisticInterval.start,
-          authoritativeStart: authoritativeInterval.position +
-            start - authoritativeInterval.start,
-          length: end - start
-        }))
+        spans.push(
+          Object.freeze({
+            origin,
+            optimisticStart: optimisticInterval.position + start - optimisticInterval.start,
+            authoritativeStart:
+              authoritativeInterval.position + start - authoritativeInterval.start,
+            length: end - start
+          })
+        )
       }
       if (optimisticInterval.end <= authoritativeInterval.end) optimisticIndex += 1
       if (authoritativeInterval.end <= optimisticInterval.end) authoritativeIndex += 1
@@ -435,13 +444,10 @@ const commonSpans = (
   const scores: SpanChainScore[] = []
   const predecessors: Array<number | undefined> = []
   let bestIndex: number | undefined
-  const isBetter = (
-    candidate: SpanChainScore,
-    incumbent: SpanChainScore | undefined
-  ): boolean => incumbent === undefined ||
+  const isBetter = (candidate: SpanChainScore, incumbent: SpanChainScore | undefined): boolean =>
+    incumbent === undefined ||
     candidate.baseUnits > incumbent.baseUnits ||
-    candidate.baseUnits === incumbent.baseUnits &&
-    candidate.totalUnits > incumbent.totalUnits
+    (candidate.baseUnits === incumbent.baseUnits && candidate.totalUnits > incumbent.totalUnits)
 
   for (let index = 0; index < spans.length; index += 1) {
     const span = spans[index]!
@@ -455,11 +461,10 @@ const commonSpans = (
       if (
         prior.optimisticStart + prior.length > span.optimisticStart ||
         prior.authoritativeStart + prior.length > span.authoritativeStart
-      ) continue
+      ) { continue }
       const priorScore = scores[priorIndex]!
       const candidate: SpanChainScore = {
-        baseUnits: priorScore.baseUnits +
-          (span.origin === BASE_ORIGIN ? span.length : 0),
+        baseUnits: priorScore.baseUnits + (span.origin === BASE_ORIGIN ? span.length : 0),
         totalUnits: priorScore.totalUnits + span.length
       }
       if (isBetter(candidate, score)) {
@@ -493,19 +498,13 @@ const insertedText = (
   while (cursor.position < end) {
     const piece = pieces[cursor.pieceIndex]
     if (piece === undefined) throw new RangeError('Text range exceeds the source')
-    const consumed = Math.min(
-      pieceLength(piece) - cursor.pieceOffset,
-      end - cursor.position
-    )
+    const consumed = Math.min(pieceLength(piece) - cursor.pieceOffset, end - cursor.position)
     if (consumed > 0) {
       if (piece.buffer === undefined) {
         throw new Error('History transform cannot synthesize unknown base source')
       }
       const bufferStart = piece.start + cursor.pieceOffset
-      output.push(piece.buffer.slice(
-        bufferStart,
-        bufferStart + consumed
-      ))
+      output.push(piece.buffer.slice(bufferStart, bufferStart + consumed))
     }
     cursor.position += consumed
     cursor.pieceOffset += consumed
@@ -534,50 +533,46 @@ const reconciliationEdits = (
       span.optimisticStart !== optimisticPosition ||
       span.authoritativeStart !== authoritativePosition
     ) {
-      edits.push(Object.freeze({
-        start: optimisticPosition,
-        end: span.optimisticStart,
-        insert: insertedText(
-          authoritative,
-          authoritativePosition,
-          span.authoritativeStart,
-          authoritativeCursor
-        )
-      }))
+      edits.push(
+        Object.freeze({
+          start: optimisticPosition,
+          end: span.optimisticStart,
+          insert: insertedText(
+            authoritative,
+            authoritativePosition,
+            span.authoritativeStart,
+            authoritativeCursor
+          )
+        })
+      )
     }
-    moveCursor(
-      authoritative,
-      authoritativeCursor,
-      span.authoritativeStart + span.length
-    )
+    moveCursor(authoritative, authoritativeCursor, span.authoritativeStart + span.length)
     optimisticPosition = span.optimisticStart + span.length
     authoritativePosition = span.authoritativeStart + span.length
   }
   const optimisticLength = sequenceLength(optimistic)
   const authoritativeLength = sequenceLength(authoritative)
-  if (
-    optimisticPosition !== optimisticLength ||
-    authoritativePosition !== authoritativeLength
-  ) {
-    edits.push(Object.freeze({
-      start: optimisticPosition,
-      end: optimisticLength,
-      insert: insertedText(
-        authoritative,
-        authoritativePosition,
-        authoritativeLength,
-        authoritativeCursor
-      )
-    }))
+  if (optimisticPosition !== optimisticLength || authoritativePosition !== authoritativeLength) {
+    edits.push(
+      Object.freeze({
+        start: optimisticPosition,
+        end: optimisticLength,
+        insert: insertedText(
+          authoritative,
+          authoritativePosition,
+          authoritativeLength,
+          authoritativeCursor
+        )
+      })
+    )
   }
   return Object.freeze(edits)
 }
 
-const publicEdits = (
-  edits: readonly StableEdit[]
-): readonly DocumentSourceEdit[] => Object.freeze(edits.map(edit =>
-  Object.freeze({ start: edit.start, end: edit.end, insert: edit.insert })
-))
+const publicEdits = (edits: readonly StableEdit[]): readonly DocumentSourceEdit[] =>
+  Object.freeze(
+    edits.map((edit) => Object.freeze({ start: edit.start, end: edit.end, insert: edit.insert }))
+  )
 
 /**
  * Rebases optimistic transactions after one earlier actor transaction without
@@ -587,23 +582,23 @@ const publicEdits = (
 export function transformOptimisticHistory(
   input: OptimisticHistoryTransformInput
 ): OptimisticHistoryTransformResult {
-  if (
-    !Number.isSafeInteger(input.baseSourceLength) ||
-    input.baseSourceLength < 0
-  ) throw new RangeError('Base source length must be a non-negative integer')
+  if (!Number.isSafeInteger(input.baseSourceLength) || input.baseSourceLength < 0) { throw new RangeError('Base source length must be a non-negative integer') }
   if (!Array.isArray(input.queuedTransactions)) {
     throw new TypeError('Queued transactions must be an array')
   }
 
   let origin = 1
   const nextOrigin = (): number => origin++
-  const base = Object.freeze<readonly ProvenancePiece[]>(input.baseSourceLength === 0
-    ? []
-    : [Object.freeze({
-      origin: BASE_ORIGIN,
-      start: 0,
-      end: input.baseSourceLength
-    })]
+  const base = Object.freeze<readonly ProvenancePiece[]>(
+    input.baseSourceLength === 0
+      ? []
+      : [
+        Object.freeze({
+          origin: BASE_ORIGIN,
+          start: 0,
+          end: input.baseSourceLength
+        })
+      ]
   )
   const history = stableEdits(
     input.appliedEdits,
@@ -614,6 +609,42 @@ export function transformOptimisticHistory(
   let optimistic = base
   let authoritative = applyEdits(base, input.baseSourceLength, history)
   const transactions: Array<readonly DocumentSourceEdit[]> = []
+  const rebasedSelections: Array<
+    Readonly<{ before: DocumentTextSelection; after: DocumentTextSelection }>
+  > = []
+  if (
+    input.queuedSelections !== undefined &&
+    input.queuedSelections.length !== input.queuedTransactions.length
+  ) {
+    throw new RangeError('Every selected transaction requires its original selection state')
+  }
+  const rebaseSelection = (selection: DocumentTextSelection): DocumentTextSelection =>
+    Object.freeze({
+      primary: selection.primary,
+      ranges: Object.freeze(
+        selection.ranges.map((range) => {
+          const collapsed = range.anchor === range.focus
+          const anchor = mapBoundary(
+            optimistic,
+            authoritative,
+            range.anchor,
+            history,
+            transactions,
+            collapsed || range.anchor < range.focus ? 'after' : 'before'
+          )
+          const focus = mapBoundary(
+            optimistic,
+            authoritative,
+            range.focus,
+            history,
+            transactions,
+            collapsed || range.focus < range.anchor ? 'after' : 'before'
+          )
+          if (anchor === undefined || focus === undefined) { throw new RangeError('Core history deleted a pending native selection boundary') }
+          return Object.freeze({ anchor, focus })
+        })
+      )
+    })
 
   for (
     let transactionIndex = 0;
@@ -635,49 +666,59 @@ export function transformOptimisticHistory(
       transactionIndex
     )
     if ('kind' in rebased) return rebased
-    optimistic = applyEdits(
-      optimistic,
-      sequenceLength(optimistic),
-      transaction
-    )
-    authoritative = applyEdits(
-      authoritative,
-      sequenceLength(authoritative),
-      rebased
-    )
+    const selected = input.queuedSelections?.[transactionIndex]
+    const before = selected === undefined ? undefined : rebaseSelection(selected.before)
+    optimistic = applyEdits(optimistic, sequenceLength(optimistic), transaction)
+    authoritative = applyEdits(authoritative, sequenceLength(authoritative), rebased)
     transactions.push(publicEdits(rebased))
+    if (selected !== undefined && before !== undefined) {
+      rebasedSelections.push(Object.freeze({ before, after: rebaseSelection(selected.after) }))
+    }
   }
 
   return Object.freeze({
     kind: 'transformed',
+    ...(input.queuedSelections === undefined
+      ? {}
+      : { rebasedSelections: Object.freeze(rebasedSelections) }),
     rebasedTransactions: Object.freeze(transactions),
     reconciliationEdits: reconciliationEdits(optimistic, authoritative)
   })
 }
 
 /** Relate the native draft to an acknowledged edit that adds semantic syntax. */
-export function reconcileOptimisticTransaction(input: Readonly<{
-  baseSourceLength: number
-  precedingEdits: readonly DocumentSourceEdit[]
-  optimisticEdits: readonly DocumentSourceEdit[]
-  appliedEdits: readonly DocumentSourceEdit[]
-}>): readonly DocumentSourceEdit[] {
+export function reconcileOptimisticTransaction(
+  input: Readonly<{
+    baseSourceLength: number
+    precedingEdits: readonly DocumentSourceEdit[]
+    optimisticEdits: readonly DocumentSourceEdit[]
+    appliedEdits: readonly DocumentSourceEdit[]
+  }>
+): readonly DocumentSourceEdit[] {
   if (!Number.isSafeInteger(input.baseSourceLength) || input.baseSourceLength < 0) {
     throw new RangeError('Base source length must be a non-negative integer')
   }
-  const base: readonly ProvenancePiece[] = input.baseSourceLength === 0
-    ? []
-    : [
-      { origin: BASE_ORIGIN, start: 0, end: input.baseSourceLength }
-    ]
+  const base: readonly ProvenancePiece[] =
+    input.baseSourceLength === 0
+      ? []
+      : [{ origin: BASE_ORIGIN, start: 0, end: input.baseSourceLength }]
   let origin = 1
   const nextOrigin = (): number => origin++
-  const optimistic = applyEdits(base, input.baseSourceLength,
-    stableEdits(input.optimisticEdits, input.baseSourceLength, nextOrigin, 'Native draft'))
-  const preceding = applyEdits(base, input.baseSourceLength,
-    stableEdits(input.precedingEdits, input.baseSourceLength, nextOrigin, 'Preceding history'))
+  const optimistic = applyEdits(
+    base,
+    input.baseSourceLength,
+    stableEdits(input.optimisticEdits, input.baseSourceLength, nextOrigin, 'Native draft')
+  )
+  const preceding = applyEdits(
+    base,
+    input.baseSourceLength,
+    stableEdits(input.precedingEdits, input.baseSourceLength, nextOrigin, 'Preceding history')
+  )
   const length = sequenceLength(preceding)
-  const authoritative = applyEdits(preceding, length,
-    stableEdits(input.appliedEdits, length, nextOrigin, 'Acknowledged edit'))
+  const authoritative = applyEdits(
+    preceding,
+    length,
+    stableEdits(input.appliedEdits, length, nextOrigin, 'Acknowledged edit')
+  )
   return reconciliationEdits(optimistic, authoritative)
 }

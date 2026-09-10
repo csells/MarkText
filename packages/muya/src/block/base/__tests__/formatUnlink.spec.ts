@@ -15,7 +15,7 @@ import Format from '../format';
 interface IFakeFormatThis {
     text: string;
     setCursor: ReturnType<typeof vi.fn>;
-    muya: { eventCenter: { emit: ReturnType<typeof vi.fn> } };
+    muya: { editor: { documentEditing: undefined }; eventCenter: { emit: ReturnType<typeof vi.fn> } };
 }
 
 // `Format.prototype.unlink` is a real instance method (declared on the class)
@@ -29,7 +29,7 @@ function applyUnlink(text: string, range: { start: number; end: number }, anchor
     const fakeThis: IFakeFormatThis = {
         text,
         setCursor,
-        muya: { eventCenter: { emit } },
+        muya: { editor: { documentEditing: undefined }, eventCenter: { emit } },
     };
     (Format.prototype as unknown as IFormatProtoUnlink).unlink.call(fakeThis, { range, text: anchorText });
     return { text: fakeThis.text as string, emit, setCursor };
@@ -84,7 +84,7 @@ describe('format.unlink — replaces link source with visible anchor', () => {
         const fakeThis: IFakeFormatThis = {
             text: src,
             setCursor,
-            muya: { eventCenter: { emit } },
+            muya: { editor: { documentEditing: undefined }, eventCenter: { emit } },
         };
         (Format.prototype as unknown as IFormatProtoUnlink).unlink.call(fakeThis, { range: null, text: 'whatever' });
         expect(fakeThis.text).toBe(src);
