@@ -1,5 +1,20 @@
 import type {
+  DocumentAuthorForm,
+  DocumentTableSelection,
+  SourceRange,
+  DocumentSelection,
+  DocumentTextSelection,
+  DocumentModelTextSelection,
+  DocumentSourceInputAction,
+  DocumentSourceSyntaxSpan,
   DocumentChange,
+  DocumentInputAction,
+  DocumentInputSelection,
+  DocumentClipboardSelection,
+  DocumentClipboardPasteAction,
+  DocumentFormatAction,
+  DocumentClipboardAction,
+  DocumentInputResult,
   DocumentCoreErrorCode,
   DocumentDiagnostic,
   DocumentProjectionRequest,
@@ -17,6 +32,9 @@ import type { MuyaPlainTextViewResult } from './muyaPlainTextView'
 export type CoreHistoryEntry = Readonly<{
   readonly undo: readonly DocumentSourceEdit[]
   readonly redo: readonly DocumentSourceEdit[]
+  /** Canonical transaction selection; absent only for unmigrated authoring commands. */
+  readonly beforeSelection?: DocumentSelection
+  readonly afterSelection?: DocumentSelection
 }>
 
 export type CoreHistorySnapshot = Readonly<{
@@ -27,7 +45,7 @@ export type CoreHistorySnapshot = Readonly<{
 }>
 
 export type CoreReviewDecision = DocumentResolutionDecision | 'remove'
-export type CoreAuthorForm = 'addition' | 'comment' | 'highlight' | 'substitution'
+export type CoreAuthorForm = DocumentAuthorForm
 
 export type CoreConsumerSearchMatch = Readonly<{
   readonly path: readonly number[]
@@ -53,7 +71,107 @@ export type CoreReviewItemLocator =
     readonly commentRange: Readonly<{ readonly start: number; readonly end: number }>
   }>
 
+export type CorePreparedOperation =
+  | Readonly<{
+    kind: 'clipboard'
+    action:
+        | Omit<Extract<DocumentClipboardPasteAction, { kind: 'paste' }>, 'selection'>
+        | Omit<Extract<DocumentClipboardPasteAction, { kind: 'table' }>, 'selection'>
+  }>
+  | Readonly<{
+    kind: 'format'
+    action: Omit<Extract<DocumentFormatAction, { format: 'image-properties' }>, 'selection'>
+  }>
+
+export type CoreRetainedSelectionReply = Readonly<{
+  type: 'retained-selection'
+  session: number
+  sequence: number
+  revision: number
+  accepted: true
+  sourceLength: number
+  id: string
+  selection: DocumentClipboardSelection
+  selectionRevision: number
+  status: 'ready' | 'conflict'
+}>
+
+export type CoreReleasedSelectionReply = Readonly<{
+  type: 'selection-released'
+  session: number
+  sequence: number
+  revision: number
+  accepted: true
+  sourceLength: number
+  id: string
+}>
+
 export type CoreRequest =
+  | Readonly<{
+    type: 'retain-selection'
+    selection: DocumentClipboardSelection
+    session: number
+    sequence: number
+    baseRevision: number
+  }>
+  | Readonly<{
+    type: 'read-retained-selection'
+    id: string
+    session: number
+    sequence: number
+    baseRevision: number
+  }>
+  | Readonly<{
+    type: 'release-selection'
+    id: string
+    session: number
+    sequence: number
+    baseRevision: number
+  }>
+  | Readonly<{
+    type: 'apply-prepared'
+    target: string
+    operation: CorePreparedOperation
+    session: number
+    sequence: number
+    baseRevision: number
+    projections: readonly DocumentProjectionRequest[]
+  }>
+  | Readonly<{
+    readonly type: 'clipboard'
+    readonly action: DocumentClipboardAction
+    readonly session: number
+    readonly sequence: number
+    readonly baseRevision: number
+    readonly projections: readonly DocumentProjectionRequest[]
+  }>
+  | Readonly<{
+    readonly type: 'format'
+    readonly action: DocumentFormatAction
+    readonly session: number
+    readonly sequence: number
+    readonly baseRevision: number
+    readonly projections: readonly DocumentProjectionRequest[]
+  }>
+  | Readonly<{
+    readonly type: 'source-input'
+    readonly action: DocumentSourceInputAction
+    readonly nativeHistoryGroup?: string
+    readonly session: number
+    readonly sequence: number
+    readonly baseRevision: number
+    readonly projections: readonly DocumentProjectionRequest[]
+  }>
+  | Readonly<{
+    readonly type: 'input'
+    readonly action: DocumentInputAction
+    readonly tracked: boolean
+    readonly nativeHistoryGroup?: string
+    readonly session: number
+    readonly sequence: number
+    readonly baseRevision: number
+    readonly projections: readonly DocumentProjectionRequest[]
+  }>
   | Readonly<{
     readonly type: 'configure'
     readonly session: number
@@ -88,6 +206,19 @@ export type CoreRequest =
     readonly baseRevision: number
   }>
   | Readonly<{
+    readonly type: 'source-selection-at-barrier'
+    readonly selection: DocumentSelection
+    readonly session: number
+    readonly sequence: number
+    readonly baseRevision: number
+  }>
+  | Readonly<{
+    readonly type: 'source-syntax-at-barrier'
+    readonly session: number
+    readonly sequence: number
+    readonly baseRevision: number
+  }>
+  | Readonly<{
     readonly type: 'plain-text-view-at-barrier'
     readonly session: number
     readonly sequence: number
@@ -111,7 +242,7 @@ export type CoreRequest =
     readonly session: number
     readonly sequence: number
     readonly baseRevision: number
-    readonly range: Readonly<{ readonly start: number; readonly end: number }>
+    readonly range: SourceRange | DocumentTableSelection | DocumentModelTextSelection
   }>
   | Readonly<{
     readonly type: 'replace-consumer-search'
@@ -204,7 +335,15 @@ export type CoreAppliedReply = Readonly<{
   readonly diagnosticCount: number
   readonly diagnostics: readonly DocumentDiagnostic[]
   readonly change: DocumentChange
-  /** Insertions of review syntax/old content into the native post-edit source domain. */
+  /** A native input action may be accepted at the same revision when it only moves the selection. */
+  readonly sourceInputResult?: Readonly<{ selection: DocumentSelection }>
+  readonly historyResult?: Readonly<{ selection: DocumentSelection }>
+  readonly inputResult?: DocumentInputResult
+  readonly preparedSelection?: DocumentClipboardSelection
+  readonly clipboardResult?: Readonly<{ selection: DocumentSelection }>
+  readonly authorResult?: Readonly<{ selection: Readonly<{ start: number; end: number }> }>
+  readonly formatResult?: Readonly<{ selection: DocumentInputSelection }>
+  /** Core-owned spelling and review-arm insertions into the operation’s post-edit source domain. */
   readonly nativeReconciliation?: readonly DocumentSourceEdit[]
 }>
 export type CoreRejectedReply = Readonly<{
@@ -224,6 +363,9 @@ export type CoreRejectedReply = Readonly<{
     | 'resolution-invalid'
     | 'author-invalid'
     | 'consumer-search-match-invalid'
+    | 'prepared-selection-unavailable'
+    | 'prepared-selection-conflict'
+    | 'prepared-selection-limit'
   readonly sourceLength: number
 }>
 export type CoreResourceReply = Readonly<{
@@ -248,6 +390,24 @@ export type CoreSourceReply = Readonly<{
   readonly sourceLength: number
   readonly source: string
   readonly recoveryHistory: CoreHistorySnapshot
+}>
+export type CoreSourceSelectionReply = Readonly<{
+  readonly type: 'source-selection'
+  readonly session: number
+  readonly sequence: number
+  readonly revision: number
+  readonly accepted: true
+  readonly sourceLength: number
+  readonly selection: DocumentTextSelection
+}>
+export type CoreSourceSyntaxReply = Readonly<{
+  readonly type: 'source-syntax'
+  readonly session: number
+  readonly sequence: number
+  readonly revision: number
+  readonly accepted: true
+  readonly sourceLength: number
+  readonly spans: readonly DocumentSourceSyntaxSpan[]
 }>
 export type CorePlainTextViewReply = Readonly<{
   readonly type: 'plain-text-view'
@@ -317,17 +477,28 @@ export type CoreReviewItemReply = Readonly<{
   readonly commentProjection?: Readonly<{ readonly ast: MarkdownAst }>
 }>
 export type CoreReply =
+  | CoreRetainedSelectionReply
+  | CoreReleasedSelectionReply
   | CoreOpenedReply
   | CoreAppliedReply
   | CoreRejectedReply
   | CoreResourceReply
   | CoreSourceReply
+  | CoreSourceSyntaxReply
+  | CoreSourceSelectionReply
   | CorePlainTextViewReply
   | CoreDisplayProjectionReply
   | CoreConsumerProjectionReply
   | CoreSelectionProjectionReply
   | CoreReviewItemReply
 
+/** The one live document model, synchronously consulted before native presentation. */
+export interface CoreModelOwner {
+  request(request: CoreRequest): CoreReply
+  dispose(): void
+}
+
+/** Asynchronous transport used by retained worker transport tests, never the editor binding. */
 export interface CoreActorPort {
   request(request: CoreRequest): Promise<CoreReply>
   dispose(): void

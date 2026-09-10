@@ -19,13 +19,23 @@ it('exposes visible review comments from their owning Core scope without promoti
       from: 0,
       includeOverview: true
     }) as CoreReviewItemReply
-    expect(reply.overview?.map(entry => entry.item.kind)).toEqual(['commented-span', 'comment'])
-    expect(reply.overview?.map(entry => entry.commentText)).toEqual(['First **note**.', 'Outer {>>nested<<}.'])
-    expect(reply.overview?.every(entry => entry.commentProjection !== undefined)).toBe(true)
-    expect(actor.handle({
-      type: 'source-at-barrier', session: 1, sequence: 3, baseRevision: opened.revision
-    })).toMatchObject({ source, revision: opened.revision })
-  } finally { actor.dispose() }
+    expect(reply.overview?.map((entry) => entry.item.kind)).toEqual(['commented-span', 'comment'])
+    expect(reply.overview?.map((entry) => entry.commentText)).toEqual([
+      'First **note**.',
+      'Outer {>>nested<<}.'
+    ])
+    expect(reply.overview?.every((entry) => entry.commentProjection !== undefined)).toBe(true)
+    expect(
+      actor.handle({
+        type: 'source-at-barrier',
+        session: 1,
+        sequence: 3,
+        baseRevision: opened.revision
+      })
+    ).toMatchObject({ source, revision: opened.revision })
+  } finally {
+    actor.dispose()
+  }
 })
 
 it('carries the overview through the document view lease without bypassing its ownership', async() => {
@@ -33,7 +43,7 @@ it('carries the overview through the document view lease without bypassing its o
     createBinding: () => {
       const actor = createCoreActor()
       return createEditorCoreBinding({
-        request: async request => structuredClone(actor.handle(request)),
+        request: (request) => structuredClone(actor.handle(request)),
         dispose: () => actor.dispose()
       })
     }
@@ -45,7 +55,7 @@ it('carries the overview through the document view lease without bypassing its o
     const reply = await lease.binding.reviewItemAtBarrier('next', 0, true)
     expect(reply.type).toBe('review-item')
     if (reply.type !== 'review-item') throw new Error('Review read was rejected')
-    expect(reply.overview?.map(entry => entry.commentText)).toEqual(['Margin comment.'])
+    expect(reply.overview?.map((entry) => entry.commentText)).toEqual(['Margin comment.'])
     expect((await sessions.saveBarrier('margin')).source).toBe(source)
   } finally {
     await sessions.handoff(lease)
@@ -67,16 +77,27 @@ it('provides source-owned excerpts for every suggestion and standalone highlight
       from: 0,
       includeOverview: true
     }) as CoreReviewItemReply
-    expect(reply.overview?.map(entry => ({
-      kind: entry.item.kind, text: entry.text, replacementText: entry.replacementText
-    }))).toEqual([
+    expect(
+      reply.overview?.map((entry) => ({
+        kind: entry.item.kind,
+        text: entry.text,
+        replacementText: entry.replacementText
+      }))
+    ).toEqual([
       { kind: 'addition', text: 'New', replacementText: undefined },
       { kind: 'deletion', text: 'Old', replacementText: undefined },
       { kind: 'substitution', text: 'Before', replacementText: 'After' },
       { kind: 'highlight', text: 'Important', replacementText: undefined }
     ])
-    expect(actor.handle({
-      type: 'source-at-barrier', session: 1, sequence: 3, baseRevision: opened.revision
-    })).toMatchObject({ source, revision: opened.revision })
-  } finally { actor.dispose() }
+    expect(
+      actor.handle({
+        type: 'source-at-barrier',
+        session: 1,
+        sequence: 3,
+        baseRevision: opened.revision
+      })
+    ).toMatchObject({ source, revision: opened.revision })
+  } finally {
+    actor.dispose()
+  }
 })

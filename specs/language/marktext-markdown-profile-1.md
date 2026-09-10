@@ -106,12 +106,14 @@ Layer C is controlled by a versioned set of syntax-affecting options. A disabled
 its production from the composed language before CriticMarkup recognition; it is not merely a
 rendering preference.
 
-- **YAML front matter.** A `---` line at the very start of decoded source (offset 0, or immediately
-  after a BOM) opens front matter, closed by a `---` or `...` line. Front matter is a literal
+- **Front matter.** A delimiter line at the very start of decoded source (offset 0, or immediately
+  after a BOM) opens front matter: YAML `---` closes with `---` or `...`; TOML `+++` closes
+  with `+++`; JSON `;;;` closes with `;;;`; JSON `{` closes with `}`. These are the existing
+  MarkText front matter formats, recognized by the common parser. Front matter is a literal
   range: no Markdown and no CriticMarkup is recognized inside it (§7). A `---` line anywhere
   else is ordinary Markdown (setext underline or thematic break per CommonMark). This
-  production is enabled exactly when `frontMatter` is true. TOML `+++`, semicolon-delimited
-  JSON, and brace-delimited JSON are ordinary Markdown in Profile 1.
+  production is enabled exactly when `frontMatter` is true. The `frontmatterType` preference
+  determines the format of newly inserted front matter; it does not rewrite existing source.
 - **Table-of-contents marker.** A single physical top-level line which would otherwise be a
   paragraph is a table-of-contents marker when removing
   zero or more ASCII spaces (`U+0020`) and tabs (`U+0009`) from both ends leaves exactly the

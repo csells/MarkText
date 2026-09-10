@@ -5,6 +5,7 @@ import type { Muya } from '../muya';
 import type { IHistorySelection } from '../selection/types';
 import type { TState } from '../state/types';
 import type { Nullable } from '../types';
+import type { DocumentEditing } from './documentEditing';
 import * as otText from 'ot-text-unicode';
 import { fromEvent, merge } from 'rxjs';
 import { registerBlocks } from '../block';
@@ -19,6 +20,7 @@ import JSONState from '../state';
 import { hasPick, isHTMLElement } from '../utils';
 import { getBlock } from '../utils/dom';
 import logger from '../utils/logger';
+import { attachDocumentEditing } from './documentEditing';
 import { attachDragDropImageHandlers } from './dragDropImage';
 import { attachLinkMouseHandlers } from './linkMouseEvents';
 
@@ -293,10 +295,24 @@ export class Editor {
         this.focus();
     }
 
+    private _isModelCompositionEvent(event: Event): boolean {
+        if (!this.documentEditing)
+            return false;
+        if (event.type === 'compositionstart' || event.type === 'compositionend')
+            return true;
+        if (event.type === 'keydown' || event.type === 'keyup')
+            return this.documentCompositionActive;
+        return event instanceof InputEvent
+            && (this.documentCompositionActive || event.isComposing || event.inputType === 'insertCompositionText');
+    }
+
     private _dispatchEvents() {
         const { domNode } = this._muya;
 
         const eventHandler = (event: Event) => {
+            if (this._isModelCompositionEvent(event)) {
+                return;
+            }
             const selectionResult = this.selection.getSelection();
             const anchorBlock = selectionResult?.anchor.block;
             const isSelectionInSameBlock = selectionResult?.isSelectionInSameBlock;
@@ -354,9 +370,48 @@ export class Editor {
         ).subscribe(eventHandler);
     }
 
+    private _detachDocumentEditing?: () => void;
+    documentEditing?: DocumentEditing;
+    documentCompositionActive = false;
+
+    unbindDocumentEditing(): void {
+        this._detachDocumentEditing?.();
+        this._detachDocumentEditing = undefined;
+        this.documentEditing = undefined;
+    }
+
+    bindDocumentEditing(model: DocumentEditing): () => void {
+        this._detachDocumentEditing?.();
+        this.documentEditing = model;
+        const detach = attachDocumentEditing(this._muya, model);
+        this._detachDocumentEditing = detach;
+        return () => {
+            detach();
+            if (this.documentEditing === model) {
+                this.documentEditing = undefined;
+                this._detachDocumentEditing = undefined;
+            }
+        };
+    }
+
     focus() {
         const { selection, scrollPage } = this;
-        const { anchorBlock, anchorPath, anchor, focus } = selection;
+        if (this.documentEditing) {
+            const dom = selection.getDOMSelection();
+            const point = dom && selection.getTextPoint(dom.focus);
+            const block = point && scrollPage?.queryBlock([...point.path]);
+            if (dom && block?.isContent() && block.domNode) {
+                // Return keyboard focus without reducing the model's exact DOM
+                // boundary to a potentially ambiguous native text offset.
+                // Nested contenteditable leaves are not independent keyboard
+                // focus targets. Focus the editing host, then restore the exact
+                // model boundary (including beside block-displayed widgets).
+                this._muya.domNode.focus({ preventScroll: true });
+                selection.setDOMSelection(dom.anchor, dom.focus);
+                return;
+            }
+        }
+        const { anchorBlock, focusBlock, anchorPath, focusPath, anchor, focus } = selection;
 
         // Restore the user's last caret when it is still in the tree, so a
         // focus() triggered after a blur (e.g. the command palette) keeps
@@ -366,9 +421,16 @@ export class Editor {
             anchorBlock
             && anchor
             && focus
-            && scrollPage?.queryBlock(anchorPath) === anchorBlock
+            && focusBlock
+            && scrollPage?.queryBlock([...anchorPath]) === anchorBlock
+            && scrollPage.queryBlock([...focusPath]) === focusBlock
         ) {
-            anchorBlock.setCursor(anchor.offset, focus.offset, true);
+            this._muya.domNode.focus({ preventScroll: true });
+            this.activeContentBlock = focusBlock;
+            selection.setSelection(
+                { block: anchorBlock, path: [...anchorPath], offset: anchor.offset },
+                { block: focusBlock, path: [...focusPath], offset: focus.offset },
+            );
             return;
         }
 
@@ -438,7 +500,7 @@ export class Editor {
         const end = Math.max(anchor.offset, focus.offset);
 
         if (isSelectionInSameBlock && cursorBlock && cursorBlock.isContent()) {
-            cursorBlock.setCursor(begin, end, true);
+            cursorBlock.setCursor(anchor.offset, focus.offset, true);
             return;
         }
 

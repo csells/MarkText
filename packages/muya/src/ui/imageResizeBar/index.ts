@@ -33,6 +33,7 @@ export class ImageResizeBar {
     private _resizing: boolean = false;
     // Stops the autoUpdate reposition loop set up in `_render`.
     private _cleanup: (() => void) | null = null;
+    private _pendingRender: ReturnType<typeof setTimeout> | undefined;
     // A container for storing drag strips
     private _container: HTMLDivElement;
 
@@ -67,11 +68,14 @@ export class ImageResizeBar {
         };
 
         eventCenter.on('muya-transformer', ({ block, reference, imageInfo }) => {
+            clearTimeout(this._pendingRender);
+            this._pendingRender = undefined;
             this._reference = reference;
             if (reference) {
                 this._block = block;
                 this._imageInfo = imageInfo;
-                setTimeout(() => {
+                this._pendingRender = setTimeout(() => {
+                    this._pendingRender = undefined;
                     if (this._reference === reference)
                         this._render();
                 });
@@ -224,6 +228,8 @@ export class ImageResizeBar {
     }
 
     hide() {
+        clearTimeout(this._pendingRender);
+        this._pendingRender = undefined;
         const { eventCenter } = this.muya;
         this._cleanup?.();
         this._cleanup = null;
@@ -241,6 +247,8 @@ export class ImageResizeBar {
     // Remove the `.mu-transformer` container appended to document.body in the
     // constructor; invoked by `Muya.destroy()` so it is not leaked (#3315).
     destroy() {
+        clearTimeout(this._pendingRender);
+        this._pendingRender = undefined;
         this._cleanup?.();
         this._cleanup = null;
         this._container.remove();

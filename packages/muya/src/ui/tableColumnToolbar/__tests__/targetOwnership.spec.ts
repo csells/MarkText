@@ -23,6 +23,9 @@ it.each([false, true])('a rapid column change owns removal with toolbar pointer 
         }
         const remove = toolbar.container!.querySelector('li.item.remove');
         expect(remove).not.toBeNull();
+        const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+        remove!.dispatchEvent(down);
+        expect(down.defaultPrevented).toBe(true);
         if (moveWithinToolbar) {
             const event = new MouseEvent('mousemove', { bubbles: true });
             Object.defineProperties(event, { x: { value: 0 }, y: { value: 0 } });

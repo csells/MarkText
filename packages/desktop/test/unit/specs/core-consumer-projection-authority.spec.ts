@@ -5,7 +5,7 @@ import {
   createCoreConsumerProjectionRegistry,
   createCoreDocumentSessionManager,
   createEditorCoreBinding,
-  type CoreActorPort,
+  type CoreModelOwner,
   type CoreReply,
   type CoreRequest
 } from '@/documentAuthority'
@@ -14,10 +14,10 @@ import {
   searchProjectedDocument
 } from '@/documentConsumers/documentProjectionConsumers'
 
-const inMemoryPort = (): CoreActorPort => {
+const inMemoryPort = (): CoreModelOwner => {
   const actor = createCoreActor()
   return {
-    async request(request: CoreRequest): Promise<CoreReply> {
+    request(request: CoreRequest): CoreReply {
       return structuredClone(actor.handle(structuredClone(request)))
     },
     dispose(): void {
@@ -33,7 +33,7 @@ describe('Core consumer projection authority', () => {
     const manager = createCoreDocumentSessionManager({
       createBinding: () =>
         createEditorCoreBinding({
-          async request(request) {
+          request(request) {
             requests.push(request)
             return structuredClone(actor.handle(structuredClone(request)))
           },
@@ -66,44 +66,38 @@ describe('Core consumer projection authority', () => {
     await manager.close('shared.md')
   })
 
-  it('rejects all readers of a delayed stale snapshot and retries the current revision', async() => {
-    let release: (() => void) | undefined
-    let requested: (() => void) | undefined
-    const observed = new Promise<void>((resolve) => {
-      requested = resolve
-    })
+  it('rejects stale owner snapshots for concurrent consumers and retries the current revision', async() => {
     const actor = createCoreActor()
+    let stale: CoreReply | undefined
+    let replayStale = false
     const manager = createCoreDocumentSessionManager({
       createBinding: () =>
         createEditorCoreBinding({
-          async request(request) {
+          request(request) {
             const reply = structuredClone(actor.handle(request))
-            if (request.type === 'consumer-projection-at-barrier' && request.baseRevision === 1) {
-              requested?.()
-              await new Promise<void>((resolve) => {
-                release = resolve
-              })
+            if (request.type === 'consumer-projection-at-barrier') {
+              if (replayStale && stale !== undefined) return stale
+              stale = reply
             }
             return reply
           },
-          dispose() {
-            actor.dispose()
-          }
+          dispose: () => actor.dispose()
         })
     })
-    await manager.open({ documentId: 'delayed.md', source: 'old', lineEnding: '\n' })
-    const lease = manager.lease('delayed.md')
-    const first = expect(lease.consumerProjectionAtBarrier()).rejects.toThrow('stale')
-    const second = expect(lease.consumerProjectionAtBarrier()).rejects.toThrow('stale')
-    await observed
-    await lease.binding.submit({ edits: [{ start: 0, end: 3, insert: 'new' }], projections: [] })
-      .acknowledged
-    release?.()
-    await Promise.all([first, second])
+    manager.open({ documentId: 'stale.md', source: 'old', lineEnding: '\n' })
+    const lease = manager.lease('stale.md')
+    await lease.consumerProjectionAtBarrier()
+    lease.binding.submit({ edits: [{ start: 0, end: 3, insert: 'new' }], projections: [] })
+    replayStale = true
+    await Promise.all([
+      expect(lease.consumerProjectionAtBarrier()).rejects.toThrow('stale'),
+      expect(lease.consumerProjectionAtBarrier()).rejects.toThrow('stale')
+    ])
     expect(lease.consumerProjection()).toBeUndefined()
+    replayStale = false
     expect((await lease.consumerProjectionAtBarrier()).markdown).toBe('new')
     await manager.handoff(lease)
-    await manager.close('delayed.md')
+    await manager.close('stale.md')
   })
 
   it('transports one detached Revised AST without canonical source', () => {
@@ -229,14 +223,14 @@ describe('Core consumer projection authority', () => {
         documentId: 'selection.md',
         source: 'before {++**new**++} after\n'
       })
-    ).resolves.toMatchObject({ type: 'opened', revision: 1 })
+    ).toMatchObject({ type: 'opened', revision: 1 })
 
     await expect(
       binding.selectionProjectionAtBarrier({
         start: 7,
         end: 20
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'selection-projection',
       revision: 1,
       projection: {
@@ -302,8 +296,8 @@ describe('Core consumer projection authority', () => {
         ],
         projections: []
       }).acknowledged
-    ).resolves.toMatchObject({ type: 'applied', revision: 2 })
-    await expect(binding.sourceAtBarrier()).resolves.toMatchObject({
+    ).toMatchObject({ type: 'applied', revision: 2 })
+    await expect(binding.sourceAtBarrier()).toMatchObject({
       source: 'dog cat\n'
     })
     binding.dispose()
@@ -417,7 +411,7 @@ describe('Core consumer projection authority', () => {
         kind: 'undo',
         projections: []
       }).acknowledged
-    ).resolves.toMatchObject({ type: 'applied', revision: 3 })
+    ).toMatchObject({ type: 'applied', revision: 3 })
     await expect(manager.saveBarrier('replace-lease.md')).resolves.toMatchObject({
       source: 'cat cat\n'
     })
@@ -481,7 +475,7 @@ describe('Core consumer projection authority', () => {
       })
       await expect(
         lease.binding.submit({ kind: 'undo', projections: [] }).acknowledged
-      ).resolves.toMatchObject({ type: 'applied', revision: 3 })
+      ).toMatchObject({ type: 'applied', revision: 3 })
       await expect(manager.saveBarrier('escaped-query.md')).resolves.toMatchObject({ source })
     } finally {
       await manager.handoff(lease)
@@ -634,7 +628,7 @@ describe('Core consumer projection authority', () => {
         edits: [{ start: 11, end: 11, insert: '!' }],
         projections: []
       }).acknowledged
-    ).resolves.toMatchObject({ type: 'applied', revision: 2 })
+    ).toMatchObject({ type: 'applied', revision: 2 })
     await expect(
       lease.replaceConsumerSearchAtBarrier(identity, [
         {
@@ -686,11 +680,108 @@ describe('Core consumer projection authority', () => {
         kind: 'undo',
         projections: []
       }).acknowledged
-    ).resolves.toMatchObject({ type: 'applied', revision: 3 })
+    ).toMatchObject({ type: 'applied', revision: 3 })
     await expect(manager.saveBarrier('replace-recover.md')).resolves.toMatchObject({
       source: 'cat\n'
     })
     await manager.handoff(replacement)
     await manager.close('replace-recover.md')
   })
+})
+
+it('copies a parser-normalized text selection without materializing or changing source history', () => {
+  const actor = createCoreActor()
+  const source = '  ```\n\tbody\n  ```\n'
+  actor.handle({ type: 'open', session: 81, sequence: 1, source })
+  const before = actor.handle({
+    type: 'source-at-barrier',
+    session: 81,
+    sequence: 2,
+    baseRevision: 1
+  })
+  try {
+    for (const [index, offsets] of [
+      [1, 2],
+      [2, 1]
+    ].entries()) {
+      const selection = {
+        kind: 'model-text' as const,
+        anchor: { text: { start: 6, end: 7 }, offset: offsets[0] },
+        focus: { text: { start: 6, end: 7 }, offset: offsets[1] }
+      }
+      const reply = actor.handle({
+        type: 'selection-projection-at-barrier',
+        session: 81,
+        sequence: 3 + index,
+        baseRevision: 1,
+        range: selection
+      })
+      expect(reply).toMatchObject({
+        type: 'selection-projection',
+        revision: 1,
+        accepted: true,
+        projection: {
+          kind: 'markdown-consumer-projection',
+          name: 'revised',
+          markdown: ' ',
+          ast: { root: { kind: 'document' } }
+        }
+      })
+      expect(structuredClone(reply)).toEqual(reply)
+    }
+    expect(
+      actor.handle({
+        type: 'selection-projection-at-barrier',
+        session: 81,
+        sequence: 5,
+        baseRevision: 1,
+        range: {
+          kind: 'model-text',
+          anchor: { text: { start: 6, end: 7 }, offset: 1 },
+          focus: { text: { start: 6, end: 7 }, offset: 3 }
+        }
+      })
+    ).toMatchObject({ type: 'rejected', revision: 1, accepted: false, reason: 'invalid-edit' })
+    const after = actor.handle({
+      type: 'source-at-barrier',
+      session: 81,
+      sequence: 6,
+      baseRevision: 1
+    })
+    expect(before.type).toBe('source')
+    expect(after).toMatchObject({ type: 'source', revision: 1, source })
+    if (before.type !== 'source' || after.type !== 'source') { throw new Error('Expected acknowledged source') }
+    expect(after.recoveryHistory).toEqual(before.recoveryHistory)
+  } finally {
+    actor.dispose()
+  }
+})
+
+it('transports normalized text addresses through the lease and binding without replacing the document projection', async() => {
+  const source = '  ```\n\tbody\n  ```\n'
+  const manager = createCoreDocumentSessionManager({
+    createBinding: () => createEditorCoreBinding(inMemoryPort())
+  })
+  await manager.open({ documentId: 'normalized-selection.md', source, lineEnding: '\n' })
+  const lease = manager.lease('normalized-selection.md')
+  try {
+    const document = await lease.consumerProjectionAtBarrier()
+    await expect(
+      lease.selectionProjectionAtBarrier({
+        kind: 'model-text',
+        anchor: { text: { start: 6, end: 7 }, offset: 1 },
+        focus: { text: { start: 6, end: 7 }, offset: 2 }
+      })
+    ).resolves.toMatchObject({
+      name: 'revised',
+      markdown: ' ',
+      ast: { root: { kind: 'document' } }
+    })
+    expect(lease.consumerProjection()).toEqual(document)
+    expect(await lease.sourceAtBarrier()).toBe(source)
+    expect(lease.identity.revision).toBe(1)
+  } finally {
+    await manager.handoff(lease)
+    await manager.close('normalized-selection.md')
+  }
 })

@@ -67,8 +67,9 @@ async function expectShown(page: Page, selector: string) {
  * mousemove handler picks `barType === 'right'`: the cursor is in no cell,
  * but `(x - 20, y)` lands inside the rightmost cell.
  */
-async function revealRightBar(page: Page, table: ReturnType<Page['locator']>) {
-    const lastRowLastCell = table.locator('tr').last().locator('td, th').last();
+async function revealRightBar(page: Page, table: ReturnType<Page['locator']>, rowIndex?: number) {
+    const rows = table.locator('tr');
+    const lastRowLastCell = (rowIndex === undefined ? rows.last() : rows.nth(rowIndex)).locator('td, th').last();
     const box = await lastRowLastCell.boundingBox();
     if (!box)
         throw new Error('last-row cell has no bounding box');
@@ -194,3 +195,186 @@ test.describe('TableRowColumMenu (row/column bar popup)', () => {
         }).toBe(0);
     });
 });
+
+const REVIEW_TABLE = 'away\n\n| a{++a++} | aa |\n| :--- | ---: |\n| aa | aa |\n';
+
+for (const row of [0, 1]) {
+    test(`upstream row popup removes row ${row} and selects its surviving neighbour`, async ({ page }) => {
+        const table = await makeTwoByTwo(page);
+        const bar = await revealRightBar(page, table, row);
+        await quickClickBar(page, bar);
+        await menuContainer(page).locator('li.item', { hasText: 'Remove Row' }).click();
+        await expect(table.locator('tr')).toHaveCount(1);
+        await expect(table.locator('tr').first().locator('td, th').first()).toHaveText(row === 0 ? 'a' : 'h1');
+        expect(await table.locator('.mu-content').first().evaluate(node => window.muya!.getSelection()?.anchor.block.domNode === node)).toBe(true);
+    });
+}
+
+for (const example of [
+    { name: 'clicked body row while preserving unrelated suggestions', source: REVIEW_TABLE, row: 1, tracked: false, expected: 'away\n\n| a{++a++} | aa |\n| :--- | ---: |\n', next: 'away\n\n| xa{++a++} | aa |\n| :--- | ---: |\n' },
+    { name: 'clicked body row with Track enabled', source: REVIEW_TABLE, row: 1, tracked: true, expected: 'away\n\n| a{++a++} | aa |\n| :--- | ---: |{--\n| aa | aa |--}\n', next: 'away\n\n| {++x++}a{++a++} | aa |\n| :--- | ---: |{--\n| aa | aa |--}\n' },
+    { name: 'clicked header and promotes its annotated next row', source: 'away\n\n| aa | aa |\n| :--- | ---: |\n| a{++a++} | aa |\n', row: 0, tracked: false, expected: 'away\n\n| a{++a++} | aa |\n| :--- | ---: |\n', next: 'away\n\n| xa{++a++} | aa |\n| :--- | ---: |\n' },
+    { name: 'clicked header with Track enabled', source: 'away\n\n| aa | aa |\n| :--- | ---: |\n| a{++a++} | aa |\n', row: 0, survivor: 1, tracked: true, expected: 'away\n\n{--| aa | aa |\n| :--- | ---: |\n--}| a{++a++} | aa |{++\n| :--- | ---: |++}\n', next: 'away\n\n{--| aa | aa |\n| :--- | ---: |\n--}| {++x++}a{++a++} | aa |{++\n| :--- | ---: |++}\n' },
+]) {
+    test(`Core row popup removes the ${example.name}`, async ({ page }) => {
+        await page.evaluate(async ({ source, tracked }) => {
+            const modulePath = '/coreBoundaryControl.ts';
+            const control = await import(/* @vite-ignore */ modulePath);
+            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
+            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(2, 2);
+        }, { source: example.source, tracked: example.tracked });
+        try {
+            const table = page.locator(editor.table).first();
+            const bar = await revealRightBar(page, table, example.row);
+            await quickClickBar(page, bar);
+            await menuContainer(page).locator('li.item', { hasText: 'Remove Row' }).click();
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.expected }, anchor: 0, caret: 0, legacyCalls: [] });
+            expect(await table.locator('tr').nth(example.survivor ?? 0).locator('.mu-content').first().evaluate(node => window.muya!.getSelection()?.anchor.block.domNode === node)).toBe(true);
+            await page.keyboard.type('x');
+            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.next });
+            await page.evaluate(() => window.coreBoundary.history('undo'));
+            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.expected });
+            await page.evaluate(() => window.coreBoundary.history('undo'));
+            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.source });
+        }
+        finally {
+            await page.evaluate(() => window.coreBoundary.dispose());
+        }
+    });
+}
+
+for (const example of [
+    { name: 'after the clicked body row', item: 'Insert Row Below', row: 1, insertedRow: 2, expected: 'away\n\n| a{++a++} | aa |\n| :--- | ---: |\n| aa | aa |\n|     |     |\n', next: 'away\n\n| a{++a++} | aa |\n| :--- | ---: |\n| aa | aa |\n|     x|     |\n' },
+    { name: 'before the clicked header', item: 'Insert Row Above', row: 0, insertedRow: 0, expected: 'away\n\n|     |     |\n| :--- | ---: |\n| a{++a++} | aa |\n| aa | aa |\n', next: 'away\n\n|     x|     |\n| :--- | ---: |\n| a{++a++} | aa |\n| aa | aa |\n' },
+    { name: 'above the clicked body row', item: 'Insert Row Above', row: 1, insertedRow: 1, expected: 'away\n\n| a{++a++} | aa |\n| :--- | ---: |\n|     |     |\n| aa | aa |\n', next: 'away\n\n| a{++a++} | aa |\n| :--- | ---: |\n|     x|     |\n| aa | aa |\n' },
+    { name: 'a tracked header before the clicked header', item: 'Insert Row Above', row: 0, insertedRow: 0, tracked: true, expected: 'away\n\n{++|     |     |\n| :--- | ---: |\n++}| a{++a++} | aa |{--\n| :--- | ---: |--}\n| aa | aa |\n', next: 'away\n\n{++|     x|     |\n| :--- | ---: |\n++}| a{++a++} | aa |{--\n| :--- | ---: |--}\n| aa | aa |\n' },
+]) {
+    test(`Core row popup inserts ${example.name} with the editor caret elsewhere`, async ({ page }) => {
+        await page.evaluate(async ({ source, tracked }) => {
+            const modulePath = '/coreBoundaryControl.ts';
+            const control = await import(/* @vite-ignore */ modulePath);
+            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
+            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(2, 2);
+        }, { source: REVIEW_TABLE, tracked: 'tracked' in example && example.tracked === true });
+        try {
+            const table = page.locator(editor.table).first();
+            const bar = await revealRightBar(page, table, example.row);
+            await quickClickBar(page, bar);
+            await expectShown(page, floats.tableRowColumMenu);
+            await menuContainer(page).locator('li.item', { hasText: example.item }).click();
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.expected }, anchor: 0, caret: 0, legacyCalls: [] });
+            expect(await page.evaluate(() => window.coreBoundary.read().actions)).toHaveLength(1);
+            const selectedCell = table.locator('tr').nth(example.insertedRow).locator('.mu-content').first();
+            expect(await selectedCell.evaluate(node => window.muya!.getSelection()?.anchor.block.domNode === node)).toBe(true);
+            await page.keyboard.type('x');
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.next }, anchor: 1, caret: 1, legacyCalls: [] });
+            await page.evaluate(() => window.coreBoundary.history('undo'));
+            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.expected });
+            await page.evaluate(() => window.coreBoundary.history('undo'));
+            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: REVIEW_TABLE });
+        }
+        finally {
+            await page.evaluate(() => window.coreBoundary.dispose());
+        }
+    });
+}
+
+for (const bound of [false, true]) {
+    test(`${bound ? 'Core' : 'upstream'} row popup removes its only row and selects outside the table`, async ({ page }) => {
+        const source = 'away\n\n| aa | aa |\n| :--- | ---: |\n\nafter\n';
+        await page.evaluate(async ({ source, bound }) => {
+            if (bound) {
+                const modulePath = '/coreBoundaryControl.ts';
+                const control = await import(/* @vite-ignore */ modulePath);
+                window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
+            }
+            else {
+                window.muya!.setContent(source);
+            }
+            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(2, 2);
+        }, { source, bound });
+        try {
+            const table = page.locator(editor.table).first();
+            const bar = await revealRightBar(page, table, 0);
+            await quickClickBar(page, bar);
+            await menuContainer(page).locator('li.item', { hasText: 'Remove Row' }).click();
+            await expect(page.locator(editor.table)).toHaveCount(0);
+            expect(await page.evaluate(() => window.muya!.getSelection()?.anchor.block.text)).toBe('after');
+            await page.keyboard.type('x');
+            expect(await page.evaluate(() => window.muya!.getSelection()?.anchor.block.text)).toBe('xafter');
+            if (bound) {
+                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: 'away\n\n\n\nxafter\n' });
+                await page.evaluate(() => window.coreBoundary.history('undo'));
+                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: 'away\n\n\n\nafter\n' });
+                await page.evaluate(() => window.coreBoundary.history('undo'));
+                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
+            }
+        }
+        finally {
+            if (bound)
+                await page.evaluate(() => window.coreBoundary.dispose());
+        }
+    });
+}
+
+for (const tracked of [false, true]) {
+    test(`Core row popup removes a document's sole table with Track ${tracked} and accepts the next key`, async ({ page }) => {
+        const source = '| aa | aa |\n| :--- | ---: |\n';
+        await page.evaluate(async ({ source, tracked }) => {
+            const modulePath = '/coreBoundaryControl.ts';
+            const control = await import(/* @vite-ignore */ modulePath);
+            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
+        }, { source, tracked });
+        try {
+            const table = page.locator(editor.table).first();
+            const bar = await revealRightBar(page, table, 0);
+            await quickClickBar(page, bar);
+            await menuContainer(page).locator('li.item', { hasText: 'Remove Row' }).click();
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ legacyCalls: [] });
+            await page.keyboard.type('x');
+            expect(await page.evaluate(() => window.coreBoundary.read().actions.map(action => action.accepted))).toEqual([true, true]);
+            const saved = await page.evaluate(() => window.coreBoundary.reopen());
+            if (tracked) {
+                expect(saved).toMatchObject({ source: '{--| aa | aa |\n| :--- | ---: |--}{++x++}\n' });
+            }
+            else {
+                expect(saved).toMatchObject({ source: 'x\n' });
+            }
+            await page.evaluate(() => window.coreBoundary.history('undo'));
+            await page.evaluate(() => window.coreBoundary.history('undo'));
+            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
+        }
+        finally {
+            await page.evaluate(() => window.coreBoundary.dispose());
+        }
+    });
+}
+
+for (const ending of ['\n', '\r\n', '\r']) {
+    test(`Core row popup retains nested list ownership with ${JSON.stringify(ending)}`, async ({ page }) => {
+        const source = ['- {++first++}{>>note<<}', '- second', '', '  | col |', '  | --- |', '  | cell |', ''].join(ending);
+        await page.evaluate(async source => {
+            const modulePath = '/coreBoundaryControl.ts';
+            const control = await import(/* @vite-ignore */ modulePath);
+            window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
+            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(2, 2);
+        }, source);
+        try {
+            const table = page.locator(editor.table).first();
+            await quickClickBar(page, await revealRightBar(page, table, 1));
+            await menuContainer(page).locator('li.item', { hasText: 'Insert Row Below' }).click();
+            const expected = source + '  |     |' + ending;
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected }, anchor: 0, caret: 0, legacyCalls: [] });
+            expect(await table.locator('tr').nth(2).locator('.mu-content').first().evaluate(node => window.muya!.getSelection()?.anchor.block.domNode === node)).toBe(true);
+            await page.keyboard.type('x');
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: source + '  |     x|' + ending }, anchor: 1, caret: 1, legacyCalls: [] });
+            await page.evaluate(() => window.coreBoundary.history('undo'));
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected } });
+            await page.evaluate(() => window.coreBoundary.history('undo'));
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source } });
+            await page.evaluate(() => window.coreBoundary.history('redo'));
+            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+        }
+        finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+    });
+}

@@ -2,6 +2,7 @@ import type { Muya } from '../../../muya';
 import type { IFrontmatterMeta, IFrontmatterState } from '../../../state/types';
 // import { operateClassName } from '../../../utils/dom'
 import type { TBlockPath } from '../../types';
+import { frontMatterPolicy } from '@marktext/input-policy';
 import logger from '../../../utils/logger';
 // import { diffToTextOp } from '../../../utils'
 import { loadLanguage } from '../../../utils/prism';
@@ -10,20 +11,6 @@ import Parent from '../../base/parent';
 import { ScrollPage } from '../../scrollPage';
 
 const debug = logger('frontmatter:');
-
-// The before/after focus markers mirror the delimiters `stateToMarkdown`
-// serializes for each front-matter type, so they reflect the real fences:
-// yaml `---`, toml `+++`, json `;;;`, or the json-braces variant (`{` / `}`).
-function delimiters(meta: IFrontmatterMeta): [string, string] {
-    switch (meta.lang) {
-        case 'toml':
-            return ['+++', '+++'];
-        case 'json':
-            return meta.style === ';' ? [';;;', ';;;'] : ['{', '}'];
-        default:
-            return ['---', '---'];
-    }
-}
 
 class Frontmatter extends Parent {
     public meta: IFrontmatterMeta;
@@ -81,7 +68,7 @@ class Frontmatter extends Parent {
         this.tagName = 'pre';
         this.meta = meta;
         this.classList = ['mu-frontmatter'];
-        const [start, end] = delimiters(meta);
+        const { open: start, close: end } = frontMatterPolicy(meta.style);
         this.attributes.frontMatterStart = start;
         this.attributes.frontMatterEnd = end;
         this.createDomNode();

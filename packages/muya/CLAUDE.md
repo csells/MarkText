@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code when working inside `packages/muya`.
 
+Follow the [repository instructions](../../AGENTS.md), including the unified-stack
+contract, for editing, parser, model, renderer and UI work. The architecture below
+describes existing Muya machinery, including paths that still require migration;
+it does not authorize an independent interpretation of document semantics.
+
 > **Location.** `packages/muya` is the TypeScript rewrite of muya (upstream: <https://github.com/marktext/muya>), migrated into this marktext monorepo and published as `@muyajs/core`. The desktop renderer now consumes `@muyajs/core` as its editor engine; the legacy JS engine `packages/muyajs` (`@marktext/muyajs`, the `muya/` alias) is being retired and only a handful of call sites still reference it. `packages/muya` keeps its own toolchain (ESLint/antfu, stylelint, madge, vitest), and the marktext-root ESLint ignores `packages/muya/**` — treat it as a self-contained package with its own conventions.
 
 ## Layout inside `packages/muya`
@@ -54,7 +59,11 @@ Concrete blocks live under `src/block/{commonMark,gfm,extra,content}` and **must
 
 ### State and markdown round-trip (`src/state/`)
 
-- `JSONState` (`state/index.ts`) is the source-of-truth document. It exposes `ot-json1` `invert`/`compose`/`transform` statics — the architecture is set up for OT-based collaborative editing even if no transport is wired in.
+This subsection and the inline-rendering subsection describe current native
+mechanisms, including independent parsing that must be retired as consumers move
+onto the shared model. They are not patterns to extend for CM integration.
+
+- `JSONState` (`state/index.ts`) holds the native editor's local block state and exposes `ot-json1` `invert`/`compose`/`transform` statics. In the integrated application it is not canonical document or history authority; see the [document-authority ADR](../../specs/adr/0001-core-document-authority.md). Collaboration is outside the current delivery scope.
 - `markdownToState.ts` parses Markdown (via `marked`) into the state tree; `stateToMarkdown.ts` serializes back; `markdownToHtml.ts` and `htmlToMarkdown.ts` (using `turndown` + `joplin-turndown-plugin-gfm`) bridge HTML. `MarkdownToHtml` is re-exported from the public API.
 - Inline text edits are encoded as `ot-text-unicode` ops nested inside the json1 ops (see the `d.es` branch in `Editor.updateContents`).
 - **Reference link/image definitions** (`[ref]: url "title"`) are NOT a first-class block type in state. `markdownToState`'s `case 'def'` re-emits the raw definition line back into a `paragraph` state node so it round-trips losslessly through the markdown serializer. `InlineRenderer.collectReferenceDefinitions()` runs over the live block tree on every render pass to populate a labels Map that the lexer consults when expanding `[text][ref]` and `![alt][ref]`. `ILinkReferenceDefinitionState` exists as a deprecated stub for compatibility — do not introduce new code paths that produce it.

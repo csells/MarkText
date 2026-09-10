@@ -1,4 +1,5 @@
 import debounce from 'lodash/debounce'
+import equal from 'deep-equal'
 import { useEditorStore } from './editor'
 import { useProjectStore } from './project'
 import { useLayoutStore } from './layout'
@@ -7,79 +8,83 @@ import { coreDocumentSaveAuthority } from '../documentAuthority/coreDocumentSave
 const BUFFERED_STATE_DEBOUNCE_MS = 1000
 const BUFFERED_STATE_VERSION = 1
 
-interface StoreCache {
-  editorStore: ReturnType<typeof useEditorStore> | null
-  projectStore: ReturnType<typeof useProjectStore> | null
-  layoutStore: ReturnType<typeof useLayoutStore> | null
-}
-
-const stores: StoreCache = {
-  editorStore: null,
-  projectStore: null,
-  layoutStore: null
-}
-
-export const createBufferedState = (): Record<string, unknown> | null => {
-  if (!stores.editorStore) {
-    stores.editorStore = useEditorStore()
-  }
-  if (!stores.projectStore) {
-    stores.projectStore = useProjectStore()
-  }
-  if (!stores.layoutStore) {
-    stores.layoutStore = useLayoutStore()
-  }
-
-  const editorState = stores.editorStore.CREATE_BUFFERED_STATE()
+export const createBufferedState = () => {
+  const editorState = useEditorStore().CREATE_BUFFERED_STATE()
   if (!editorState) return null
-
   return {
     version: BUFFERED_STATE_VERSION,
     ...editorState,
-    project: stores.projectStore?.CREATE_BUFFERED_STATE?.() || null,
-    layout: stores.layoutStore?.CREATE_BUFFERED_STATE?.() || null
+    project: useProjectStore().CREATE_BUFFERED_STATE(),
+    layout: useLayoutStore().CREATE_BUFFERED_STATE()
   }
 }
 
-export const sendBufferedState = (): Promise<unknown> => {
-  const snapshot = createBufferedState()
-  if (snapshot) {
-    const tabs = Array.isArray(snapshot.tabs)
-      ? snapshot.tabs.filter(
-        (tab): tab is Record<string, unknown> & { id: string; markdown: string } =>
-          typeof tab === 'object' && tab !== null &&
-          typeof (tab as { id?: unknown }).id === 'string' &&
-          typeof (tab as { markdown?: unknown }).markdown === 'string'
-      )
-      : []
-    const sources = coreDocumentSaveAuthority.resolve(
-      tabs.map(tab => ({ documentId: tab.id, fallbackSource: tab.markdown }))
-    )
-    const persist = (resolved: readonly { source: string }[]): Promise<unknown> => {
-      // A Core edit can become acknowledged while its source barrier is in
-      // flight. Re-read the live dirty bit after the barrier so recovery never
-      // stores authoritative new bytes under the stale pre-barrier `isSaved`
-      // value captured above.
-      const liveTabs = new Map(
-        (stores.editorStore?.CREATE_BUFFERED_STATE()?.tabs ?? [])
-          .map(tab => [tab.id, tab] as const)
-      )
-      const authoritativeSnapshot = {
-        ...snapshot,
-        tabs: tabs.map((tab, index) => ({
-          ...tab,
-          markdown: resolved[index]!.source,
-          ...(liveTabs.has(tab.id)
-            ? { isSaved: liveTabs.get(tab.id)!.isSaved }
-            : {})
-        }))
-      }
-      return window.electron.ipcRenderer.invoke('update-buffer-state', authoritativeSnapshot)
-    }
-    return sources instanceof Promise ? sources.then(persist) : persist(sources)
-  }
+export type BufferedSnapshot = NonNullable<ReturnType<typeof createBufferedState>>
+export type ResolvedSources = Awaited<ReturnType<typeof coreDocumentSaveAuthority.resolve>>
 
-  return Promise.resolve(false)
+const authoritativeBufferedState = async(): Promise<{
+  snapshot: BufferedSnapshot | null
+  sources: ResolvedSources
+}> => {
+  for (;;) {
+    const snapshot = createBufferedState()
+    if (snapshot === null) return { snapshot, sources: [] }
+    const sources = await coreDocumentSaveAuthority.resolve(
+      snapshot.tabs.map((tab) => ({ documentId: tab.id, fallbackSource: tab.markdown }))
+    )
+    const live = createBufferedState()
+    // A tab may be opened, closed or changed while another tab is settling.
+    // Resolve again for that live set; never combine unrelated tab snapshots.
+    if (
+      live === null ||
+      !equal(
+        snapshot.tabs.map((tab) => tab.id),
+        live.tabs.map((tab) => tab.id)
+      ) ||
+      sources.some(
+        (source, index) =>
+          source.authority === 'fallback' && source.source !== live.tabs[index]!.markdown
+      )
+    ) { continue }
+    return {
+      snapshot: {
+        ...live,
+        tabs: live.tabs.map((tab, index) => ({ ...tab, markdown: sources[index]!.source }))
+      },
+      sources
+    }
+  }
+}
+
+export const sendBufferedState = async(): Promise<unknown> => {
+  const { snapshot } = await authoritativeBufferedState()
+  return snapshot === null
+    ? false
+    : window.electron.ipcRenderer.invoke('update-buffer-state', snapshot)
+}
+
+// Quit has a stronger contract than a periodic checkpoint: a write that was
+// current when dispatched may already be obsolete when main acknowledges it.
+// Keep the final comparison and close authorization in the same continuation.
+export const withPersistedBufferedState = async(
+  close: (snapshot: BufferedSnapshot | null, sources: ResolvedSources) => void
+): Promise<void> => {
+  let current = await authoritativeBufferedState()
+  for (;;) {
+    if (current.snapshot !== null) {
+      const persisted = await window.electron.ipcRenderer.invoke(
+        'update-buffer-state',
+        current.snapshot
+      )
+      if (persisted !== true) throw new Error('Window recovery checkpoint was not persisted')
+    }
+    const latest = await authoritativeBufferedState()
+    if (equal(current, latest) && coreDocumentSaveAuthority.isCurrent(latest.sources)) {
+      close(latest.snapshot, latest.sources)
+      return
+    }
+    current = latest
+  }
 }
 
 export const debouncedSendBufferedState = debounce(() => {

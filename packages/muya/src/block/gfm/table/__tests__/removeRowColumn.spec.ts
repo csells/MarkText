@@ -110,19 +110,19 @@ type TNeighbourReturn = ReturnType<Table['nextContentInContext']>;
 
 function makeFakeTable(rowCount: number, cellCount: number) {
     const inner = makeTableInner(rowCount, cellCount);
-    return {
+    const fake = {
         firstChild: inner,
         columnCount: cellCount,
         remove: vi.fn(),
-        // The whole-table-removed branch (marktext 6293d408 cover-the-edge
-        // case) calls `nextContentInContext()` / `previousContentInContext()`
-        // on `this` before `this.remove()`. Stub both to return null in the
-        // base fixture; specific tests override to assert the outside-
-        // content fallback.
+        // Row deletion navigates from its boundary content leaves; the real
+        // browser control verifies that traversal escapes the removed table.
         nextContentInContext: vi.fn((): TNeighbourReturn => null),
         previousContentInContext: vi.fn((): TNeighbourReturn => null),
+        lastContentInDescendant: () => ({ nextContentInContext: (): TNeighbourReturn => fake.nextContentInContext() }),
+        firstContentInDescendant: () => ({ previousContentInContext: (): TNeighbourReturn => fake.previousContentInContext() }),
         inner,
     };
+    return fake;
 }
 
 describe('table.removeRow — returns surviving cell content for cursor placement (marktext 6293d408)', () => {

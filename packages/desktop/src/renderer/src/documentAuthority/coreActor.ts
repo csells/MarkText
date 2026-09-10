@@ -1,9 +1,22 @@
 import {
   createDocumentCore,
+  projectTableSelection,
+  projectModelTextSelection,
+  projectSourceSelection,
+  rebaseDocumentInputSelection,
+  type DocumentClipboardSelection,
   DOCUMENT_RESOURCE_POLICY_V1,
   DocumentCoreError,
   DocumentSourceEditError,
+  copyDocumentSelection,
+  type DocumentSelection,
+  type DocumentSourceInputAction,
+  type SourceRange,
   type DocumentCore,
+  type DocumentInputPlan,
+  type DocumentFormatPlan,
+  type DocumentClipboardPlan,
+  type DocumentAuthorPlan,
   type DocumentRevision,
   type DocumentSourceEdit,
   type CriticMarkupAnnotation,
@@ -16,6 +29,8 @@ import {
 
 import type {
   CoreHistoryEntry,
+  CoreRetainedSelectionReply,
+  CoreRejectedReply,
   CoreHistorySnapshot,
   CoreConsumerSearchMatch,
   CoreReply,
@@ -111,7 +126,9 @@ const projectedRangeForConsumerMatch = (
     match.end <= match.start ||
     typeof match.match !== 'string' ||
     match.match.length !== match.end - match.start
-  ) { return undefined }
+  ) {
+    return undefined
+  }
   const block = nodeAtConsumerPath(projection.ast, match.path)
   if (block === undefined || !consumerSearchBlockKinds.has(block.kind)) return undefined
   if (consumerSemanticTextOf(block).slice(match.start, match.end) !== match.match) {
@@ -159,7 +176,9 @@ const projectedRangeForConsumerMatch = (
   if (
     resolved === undefined ||
     projection.markdown.slice(resolved.start, resolved.end) !== match.match
-  ) { return undefined }
+  ) {
+    return undefined
+  }
   return resolved
 }
 
@@ -295,6 +314,17 @@ export function createCoreActor(
   let revisionNumber = 0
   let markdownOptions: Readonly<Partial<MarkdownOptions>> | undefined
   let disposed = false
+  let nextRetainedSelection = 0
+  const retainedSelections = new Map<
+    string,
+    {
+      id: string
+      order: number
+      selection: DocumentClipboardSelection
+      selectionRevision: number
+      status: 'ready' | 'conflict'
+    }
+  >()
   type HistoryEntry = CoreHistoryEntry
   const undoStack: HistoryEntry[] = []
   let nativeHistoryGroup: Readonly<{ id: string; entry: HistoryEntry }> | undefined
@@ -325,10 +355,25 @@ export function createCoreActor(
 
   const copyEdits = (edits: readonly DocumentSourceEdit[]) =>
     Object.freeze(edits.map((edit) => Object.freeze({ ...edit })))
+  const copySelection = (selection: DocumentSelection): DocumentSelection =>
+    copyDocumentSelection(selection, Number.MAX_SAFE_INTEGER)
+  const singleSelection = (selection: SourceRange | DocumentSelection): DocumentSelection =>
+    !('start' in selection)
+      ? copySelection(selection)
+      : Object.freeze({
+        ranges: Object.freeze([Object.freeze({ anchor: selection.start, focus: selection.end })]),
+        primary: 0
+      })
   const copyEntry = (entry: HistoryEntry): HistoryEntry =>
     Object.freeze({
       undo: copyEdits(entry.undo),
-      redo: copyEdits(entry.redo)
+      redo: copyEdits(entry.redo),
+      ...(entry.beforeSelection === undefined
+        ? {}
+        : { beforeSelection: copySelection(entry.beforeSelection) }),
+      ...(entry.afterSelection === undefined
+        ? {}
+        : { afterSelection: copySelection(entry.afterSelection) })
     })
   const recoveryHistory = (): CoreHistorySnapshot =>
     Object.freeze({
@@ -354,7 +399,9 @@ export function createCoreActor(
         edit.start < previousEnd ||
         edit.end < edit.start ||
         edit.end > source.length
-      ) { return undefined }
+      ) {
+        return undefined
+      }
       nextLength += edit.insert.length - (edit.end - edit.start)
       previousEnd = edit.end
     }
@@ -379,7 +426,9 @@ export function createCoreActor(
       typeof snapshot !== 'object' ||
       !Array.isArray(snapshot.undo) ||
       !Array.isArray(snapshot.redo)
-    ) { return 'invalid' }
+    ) {
+      return 'invalid'
+    }
     if (
       snapshot.nativeHistoryGroup !== undefined &&
       (typeof snapshot.nativeHistoryGroup !== 'string' ||
@@ -387,12 +436,28 @@ export function createCoreActor(
         snapshot.nativeHistoryGroup.length > 128 ||
         snapshot.undo.length === 0 ||
         snapshot.redo.length > 0)
-    ) { return 'invalid' }
+    ) {
+      return 'invalid'
+    }
+    const validSelection = (
+      value: unknown,
+      length = Number.MAX_SAFE_INTEGER
+    ): value is DocumentSelection => {
+      try {
+        copyDocumentSelection(value as DocumentSelection, length)
+        return true
+      } catch {
+        return false
+      }
+    }
     const validEntry = (value: unknown): value is HistoryEntry => {
       if (value === null || typeof value !== 'object') return false
       const entry = value as Partial<HistoryEntry>
       if (!Array.isArray(entry.undo) || !Array.isArray(entry.redo)) return false
       if (entry.undo.length === 0 || entry.redo.length === 0) return false
+      if (entry.beforeSelection !== undefined || entry.afterSelection !== undefined) {
+        if (!validSelection(entry.beforeSelection) || !validSelection(entry.afterSelection)) { return false }
+      }
       return [...entry.undo, ...entry.redo].every(
         (edit) =>
           edit !== null &&
@@ -441,9 +506,15 @@ export function createCoreActor(
       if (
         prior === undefined ||
         prior === undoSource ||
+        (entry.beforeSelection !== undefined &&
+          !validSelection(entry.beforeSelection, prior.length)) ||
+        (entry.afterSelection !== undefined &&
+          !validSelection(entry.afterSelection, undoSource.length)) ||
         !isReachableSource(prior) ||
         applyRecoveryEdits(prior, entry.redo) !== undoSource
-      ) { return 'invalid' }
+      ) {
+        return 'invalid'
+      }
       undoSource = prior
     }
     let redoSource = checkpointSource
@@ -454,9 +525,15 @@ export function createCoreActor(
       if (
         next === undefined ||
         next === redoSource ||
+        (entry.beforeSelection !== undefined &&
+          !validSelection(entry.beforeSelection, redoSource.length)) ||
+        (entry.afterSelection !== undefined &&
+          !validSelection(entry.afterSelection, next.length)) ||
         !isReachableSource(next) ||
         applyRecoveryEdits(next, entry.undo) !== redoSource
-      ) { return 'invalid' }
+      ) {
+        return 'invalid'
+      }
       redoSource = next
     }
     undoStack.push(...restoredUndo)
@@ -524,14 +601,21 @@ export function createCoreActor(
     if (before === undefined || after === undefined) return undefined
     if (before === after) return null
     let prefix = 0
-    while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) { prefix += 1 }
+    while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) {
+      prefix += 1
+    }
     let suffix = 0
     while (
       suffix < before.length - prefix &&
       suffix < after.length - prefix &&
       before[before.length - suffix - 1] === after[after.length - suffix - 1]
-    ) { suffix += 1 }
+    ) {
+      suffix += 1
+    }
     return Object.freeze({
+      ...(previous.beforeSelection === undefined
+        ? {}
+        : { beforeSelection: previous.beforeSelection }),
       undo: Object.freeze([
         {
           start: start + prefix,
@@ -564,7 +648,9 @@ export function createCoreActor(
         annotation.kind === locator.kind &&
         annotation.range.start === locator.range.start &&
         annotation.range.end === locator.range.end
-      ) { return annotation }
+      ) {
+        return annotation
+      }
       for (const arm of annotation.arms) pending.push(...arm.annotations)
     }
     return undefined
@@ -729,7 +815,9 @@ export function createCoreActor(
           (containsCursor === (best.range.start < from && best.range.end > from) &&
             annotation.range.start < best.range.start) ||
           (annotation.range.start === best.range.start && annotation.range.end < best.range.end)
-        ) { best = annotation }
+        ) {
+          best = annotation
+        }
       } else {
         const containsCursor = annotation.range.start < from && annotation.range.end > from
         if (annotation.range.end > from && !containsCursor) continue
@@ -739,7 +827,9 @@ export function createCoreActor(
           (containsCursor === (best.range.start < from && best.range.end > from) &&
             annotation.range.start > best.range.start) ||
           (annotation.range.start === best.range.start && annotation.range.end > best.range.end)
-        ) { best = annotation }
+        ) {
+          best = annotation
+        }
       }
     }
     if (direction === 'next' && best !== undefined) {
@@ -750,7 +840,9 @@ export function createCoreActor(
           candidate.range.start >= best.range.start &&
           candidate.range.end <= best.range.end &&
           (candidate.range.start > best.range.start || candidate.range.end < best.range.end)
-        ) { best = candidate }
+        ) {
+          best = candidate
+        }
       }
     }
     return best
@@ -851,7 +943,9 @@ export function createCoreActor(
           (diagnostic) =>
             diagnostic.range.start < end && diagnostic.range.end > annotation.range.start
         )
-      ) { return undefined }
+      ) {
+        return undefined
+      }
       const edited = annotationFor(candidate, {
         kind: 'comment',
         range: { start: annotation.range.start, end }
@@ -934,205 +1028,6 @@ export function createCoreActor(
     }
     visit(activeRevision.annotations)
     return Object.freeze(suggestions)
-  }
-
-  const authoredEditFor = (
-    activeCore: DocumentCore,
-    activeRevision: DocumentRevision,
-    request: Extract<CoreRequest, { readonly type: 'author' }>
-  ): DocumentSourceEdit | undefined => {
-    if (
-      (request.form !== 'addition' &&
-        request.form !== 'comment' &&
-        request.form !== 'highlight' &&
-        request.form !== 'substitution') ||
-      request.range === null ||
-      typeof request.range !== 'object' ||
-      typeof request.text !== 'string' ||
-      !Number.isSafeInteger(request.range.start) ||
-      !Number.isSafeInteger(request.range.end) ||
-      request.range.start < 0 ||
-      request.range.end <= request.range.start ||
-      request.range.end > activeRevision.sourceLength ||
-      (request.form === 'substitution' && request.text.length === 0)
-    ) { return undefined }
-    const projection = activeCore.project(activeRevision, 'revised')
-    let authoredRange = request.range
-    const visitForCompleteLink = (node: MarkdownAstNode): void => {
-      if (node.kind === 'link' && node.children.length > 0) {
-        const first = node.children[0]
-        const last = node.children.at(-1)
-        if (first !== undefined && last !== undefined) {
-          const contentStart = projection.coordinates.toSource(first.range.start, 'next')
-          const contentEnd = projection.coordinates.toSource(last.range.end, 'previous')
-          if (contentStart === request.range.start && contentEnd === request.range.end) {
-            authoredRange = Object.freeze({
-              start: projection.coordinates.toSource(node.range.start, 'next'),
-              end: projection.coordinates.toSource(node.range.end, 'previous')
-            })
-            return
-          }
-        }
-      }
-      for (const child of node.children) visitForCompleteLink(child)
-    }
-    visitForCompleteLink(projection.ast.root)
-    const pendingAnnotations = [...activeRevision.annotations]
-    while (pendingAnnotations.length > 0) {
-      const annotation = pendingAnnotations.pop()
-      if (annotation === undefined) break
-      const overlaps =
-        authoredRange.start < annotation.range.end && authoredRange.end > annotation.range.start
-      const contains =
-        authoredRange.start <= annotation.range.start && authoredRange.end >= annotation.range.end
-      if (overlaps && !contains) return undefined
-      for (const arm of annotation.arms) {
-        pendingAnnotations.push(...arm.annotations)
-      }
-    }
-    const protectCriticPayload = (source: string): string => {
-      const protectedAnnotations: Array<
-        Readonly<{
-          readonly start: number
-          readonly end: number
-        }>
-      > = []
-      const pending = [...activeRevision.annotations]
-      while (pending.length > 0) {
-        const annotation = pending.pop()
-        if (annotation === undefined) break
-        if (
-          annotation.range.start >= authoredRange.start &&
-          annotation.range.end <= authoredRange.end
-        ) {
-          protectedAnnotations.push(annotation.range)
-          continue
-        }
-        for (const arm of annotation.arms) pending.push(...arm.annotations)
-      }
-      protectedAnnotations.sort((left, right) => left.start - right.start || right.end - left.end)
-      const escapeUnowned = (value: string): string =>
-        value.replace(
-          /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\}/g,
-          (token) => `\\${token}`
-        )
-      const parts: string[] = []
-      let offset = 0
-      for (const range of protectedAnnotations) {
-        const start = range.start - authoredRange.start
-        const end = range.end - authoredRange.start
-        if (start < offset) continue
-        parts.push(escapeUnowned(source.slice(offset, start)))
-        parts.push(source.slice(start, end))
-        offset = end
-      }
-      parts.push(escapeUnowned(source.slice(offset)))
-      return parts.join('')
-    }
-    const rawSelected = activeCore.sourceSlice(activeRevision, authoredRange)
-    const prefix = activeCore.sourceSlice(activeRevision, {
-      start: 0,
-      end: authoredRange.start
-    })
-    const suffix = activeCore.sourceSlice(activeRevision, {
-      start: authoredRange.end,
-      end: activeRevision.sourceLength
-    })
-    const candidateFor = (
-      selected: string,
-      authoredText: string
-    ): DocumentSourceEdit | undefined => {
-      const insert =
-        request.form === 'addition'
-          ? `{++${selected}++}`
-          : request.form === 'comment'
-            ? `{==${selected}==}{>>${authoredText}<<}`
-            : request.form === 'highlight'
-              ? `{==${selected}==}`
-              : `{~~${selected}~>${authoredText}~~}`
-      const edit = Object.freeze({
-        start: authoredRange.start,
-        end: authoredRange.end,
-        insert
-      })
-
-      // The detached parse uses the active grammar and proves both the outer
-      // form and its exact authored arms. Raw Markdown remains untouched when
-      // it is already unambiguous (including code/HTML/math literal ownership).
-      const candidateCore = createDocumentCore()
-      const candidate = candidateCore.open(prefix + insert + suffix, markdownOptions)
-      const authoredEnd = authoredRange.start + insert.length
-      if (
-        candidate.diagnostics.some(
-          (diagnostic) =>
-            diagnostic.range.start < authoredEnd && diagnostic.range.end > authoredRange.start
-        )
-      ) { return undefined }
-      if (request.form === 'substitution') {
-        const annotation = candidate.annotations.find(
-          (item) =>
-            item.kind === 'substitution' &&
-            item.range.start === authoredRange.start &&
-            item.range.end === authoredRange.start + insert.length
-        )
-        const oldArm = annotation?.arms.find((arm) => arm.name === 'old')
-        const newArm = annotation?.arms.find((arm) => arm.name === 'new')
-        return annotation !== undefined &&
-          oldArm !== undefined &&
-          newArm !== undefined &&
-          newArm.annotations.length === 0 &&
-          candidateCore.sourceSlice(candidate, oldArm.range) === selected &&
-          candidateCore.sourceSlice(candidate, newArm.range) === authoredText
-          ? edit
-          : undefined
-      }
-      if (request.form === 'addition' || request.form === 'highlight') {
-        const annotation = candidate.annotations.find(
-          (item) =>
-            item.kind === request.form &&
-            item.range.start === authoredRange.start &&
-            item.range.end === authoredRange.start + insert.length
-        )
-        const content = annotation?.arms.find((arm) => arm.name === 'content')
-        return annotation !== undefined &&
-          content !== undefined &&
-          candidateCore.sourceSlice(candidate, content.range) === selected
-          ? edit
-          : undefined
-      }
-      const highlight = candidate.annotations.find(
-        (item) => item.kind === 'highlight' && item.range.start === authoredRange.start
-      )
-      const comment = candidate.annotations.find(
-        (item) => item.kind === 'comment' && item.range.end === authoredRange.start + insert.length
-      )
-      const highlightContent = highlight?.arms.find((arm) => arm.name === 'content')
-      const commentContent = comment?.arms.find((arm) => arm.name === 'comment')
-      return highlight !== undefined &&
-        comment !== undefined &&
-        highlightContent !== undefined &&
-        commentContent !== undefined &&
-        commentContent.annotations.length === 0 &&
-        highlight.range.end === comment.range.start &&
-        candidateCore.sourceSlice(candidate, highlightContent.range) === selected &&
-        candidateCore.sourceSlice(candidate, commentContent.range) === authoredText
-        ? edit
-        : undefined
-    }
-    const rawCandidate = candidateFor(rawSelected, request.text)
-    if (rawCandidate !== undefined) return rawCandidate
-    const protectedSelected = protectCriticPayload(rawSelected)
-    if (protectedSelected !== rawSelected) {
-      const selectedCandidate = candidateFor(protectedSelected, request.text)
-      if (selectedCandidate !== undefined) return selectedCandidate
-    }
-    if (request.form === 'addition' || request.form === 'highlight') return undefined
-    const protectedText = request.text.replace(
-      /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<</g,
-      (token) => `\\${token}`
-    )
-    if (protectedText === request.text) return undefined
-    return candidateFor(protectedSelected, protectedText)
   }
 
   const trackedEditFor = (
@@ -1234,6 +1129,125 @@ export function createCoreActor(
           sourceLength: revision.sourceLength
         })
       }
+      const rejectPrepared = (reason: CoreRejectedReply['reason']): CoreRejectedReply =>
+        Object.freeze({
+          type: 'rejected',
+          session,
+          sequence,
+          revision: revisionNumber,
+          accepted: false,
+          reason,
+          sourceLength: revision!.sourceLength
+        })
+      const retainedReply = (
+        target: NonNullable<ReturnType<typeof retainedSelections.get>>
+      ): CoreRetainedSelectionReply =>
+        Object.freeze({
+          type: 'retained-selection',
+          session,
+          sequence,
+          revision: revisionNumber,
+          accepted: true,
+          sourceLength: revision!.sourceLength,
+          id: target.id,
+          selection: target.selection,
+          selectionRevision: target.selectionRevision,
+          status: target.status
+        })
+      if (request.type === 'retain-selection') {
+        if (retainedSelections.size >= DOCUMENT_RESOURCE_POLICY_V1.maximumJournalOutcomes) { return rejectPrepared('prepared-selection-limit') }
+        let selection: DocumentClipboardSelection
+        try {
+          if ('start' in request.selection) {
+            core.sourceSlice(revision, request.selection)
+            selection = Object.freeze({ ...request.selection })
+          } else {
+            projectSourceSelection(core, revision, request.selection)
+            selection = copyDocumentSelection(request.selection, revision.sourceLength)
+          }
+        } catch (error) {
+          if (error instanceof RangeError || error instanceof DocumentSourceEditError) { return rejectPrepared('author-invalid') }
+          throw error
+        }
+        const order = ++nextRetainedSelection
+        const id = `${session}:${order}`
+        const target = {
+          id,
+          order,
+          selection,
+          selectionRevision: revisionNumber,
+          status: 'ready' as const
+        }
+        retainedSelections.set(id, target)
+        return retainedReply(target)
+      }
+      if (request.type === 'read-retained-selection') {
+        const target = retainedSelections.get(request.id)
+        return target === undefined
+          ? rejectPrepared('prepared-selection-unavailable')
+          : retainedReply(target)
+      }
+      if (request.type === 'release-selection') {
+        if (typeof request.id !== 'string' || !request.id.startsWith(`${session}:`)) { return rejectPrepared('prepared-selection-unavailable') }
+        retainedSelections.delete(request.id)
+        return Object.freeze({
+          type: 'selection-released',
+          session,
+          sequence,
+          revision: revisionNumber,
+          accepted: true,
+          sourceLength: revision.sourceLength,
+          id: request.id
+        })
+      }
+      let preparedTarget: NonNullable<ReturnType<typeof retainedSelections.get>> | undefined
+      if (request.type === 'apply-prepared') {
+        preparedTarget = retainedSelections.get(request.target)
+        if (preparedTarget === undefined) return rejectPrepared('prepared-selection-unavailable')
+        if (preparedTarget.status === 'conflict') { return rejectPrepared('prepared-selection-conflict') }
+        const { operation, projections, baseRevision } = request
+        if (operation.kind === 'clipboard') {
+          const target = preparedTarget.selection
+          if (operation.action.kind === 'table') {
+            if (!('kind' in target) || target.kind !== 'table') { return rejectPrepared('author-invalid') }
+            request = Object.freeze({
+              type: 'clipboard',
+              session,
+              sequence,
+              baseRevision,
+              projections,
+              action: Object.freeze({ ...operation.action, selection: target })
+            })
+          } else {
+            if ('start' in target || target.kind === 'table') { return rejectPrepared('author-invalid') }
+            request = Object.freeze({
+              type: 'clipboard',
+              session,
+              sequence,
+              baseRevision,
+              projections,
+              action: Object.freeze({ ...operation.action, selection: target })
+            })
+          }
+        } else {
+          if (!('start' in preparedTarget.selection)) return rejectPrepared('author-invalid')
+          request = Object.freeze({
+            type: 'format',
+            session,
+            sequence,
+            baseRevision,
+            projections,
+            action: Object.freeze({ ...operation.action, selection: preparedTarget.selection })
+          })
+        }
+      }
+      const consumedPreparedSelection = (): Readonly<{
+        preparedSelection?: DocumentClipboardSelection
+      }> => {
+        if (preparedTarget === undefined) return Object.freeze({})
+        retainedSelections.delete(preparedTarget.id)
+        return Object.freeze({ preparedSelection: preparedTarget.selection })
+      }
       if (request.type === 'source-at-barrier') {
         return Object.freeze({
           type: 'source',
@@ -1244,6 +1258,28 @@ export function createCoreActor(
           sourceLength: revision.sourceLength,
           source: revision.source,
           recoveryHistory: recoveryHistory()
+        })
+      }
+      if (request.type === 'source-selection-at-barrier') {
+        return Object.freeze({
+          type: 'source-selection',
+          session,
+          sequence,
+          revision: revisionNumber,
+          accepted: true,
+          sourceLength: revision.sourceLength,
+          selection: projectSourceSelection(core, revision, request.selection)
+        })
+      }
+      if (request.type === 'source-syntax-at-barrier') {
+        return Object.freeze({
+          type: 'source-syntax',
+          session,
+          sequence,
+          revision: revisionNumber,
+          accepted: true,
+          sourceLength: revision.sourceLength,
+          spans: core.sourceSyntax(revision)
         })
       }
       if (request.type === 'plain-text-view-at-barrier') {
@@ -1301,6 +1337,53 @@ export function createCoreActor(
         })
       }
       if (request.type === 'selection-projection-at-barrier') {
+        if (
+          request.range !== null &&
+          typeof request.range === 'object' &&
+          'kind' in request.range
+        ) {
+          try {
+            const projection =
+              request.range.kind === 'model-text'
+                ? projectModelTextSelection(core, revision, request.range)
+                : projectTableSelection(core, revision, request.range)
+            return Object.freeze({
+              type: 'selection-projection',
+              session,
+              sequence,
+              revision: revisionNumber,
+              accepted: true,
+              sourceLength: revision.sourceLength,
+              projection: Object.freeze({ kind: 'markdown-consumer-projection', ...projection })
+            })
+          } catch (error) {
+            if (error instanceof DocumentCoreError) {
+              return Object.freeze({
+                type: 'resource',
+                session,
+                sequence,
+                revision: revisionNumber,
+                accepted: false,
+                sourceLength: revision.sourceLength,
+                resource: Object.freeze({
+                  code: error.code,
+                  range: Object.freeze({ ...error.range }),
+                  metadata: Object.freeze({ ...error.metadata })
+                })
+              })
+            }
+            if (!(error instanceof RangeError || error instanceof TypeError)) throw error
+            return Object.freeze({
+              type: 'rejected',
+              session,
+              sequence,
+              revision: revisionNumber,
+              accepted: false,
+              reason: 'invalid-edit',
+              sourceLength: revision.sourceLength
+            })
+          }
+        }
         if (
           request.range === null ||
           typeof request.range !== 'object' ||
@@ -1402,10 +1485,12 @@ export function createCoreActor(
           : request.type === 'redo'
             ? redoStack.at(-1)
             : undefined
+      let authorPlan: DocumentAuthorPlan | undefined
       let authoredEdit: DocumentSourceEdit | undefined
       if (request.type === 'author') {
         try {
-          authoredEdit = authoredEditFor(core, revision, request)
+          authorPlan = core.planAuthor(revision, request)
+          authoredEdit = authorPlan?.edit
         } catch (error) {
           if (error instanceof DocumentCoreError) {
             return Object.freeze({
@@ -1516,7 +1601,9 @@ export function createCoreActor(
               replacement === null ||
               typeof replacement !== 'object' ||
               typeof replacement.insert !== 'string'
-            ) { return [] }
+            ) {
+              return []
+            }
             const range = projectedRangeForConsumerMatch(projection, replacement.match)
             if (range === undefined) return []
             const start = projection.coordinates.toSource(range.start, 'next')
@@ -1524,7 +1611,9 @@ export function createCoreActor(
             if (
               end < start ||
               activeCore.sourceSlice(activeRevision, { start, end }) !== replacement.match.match
-            ) { return [] }
+            ) {
+              return []
+            }
             return [Object.freeze({ start, end, insert: replacement.insert })]
           })
           .sort((left, right) => left.start - right.start || left.end - right.end)
@@ -1806,42 +1895,83 @@ export function createCoreActor(
           sourceLength: revision.sourceLength
         })
       }
+      let sourceInputPlan: DocumentSourceInputAction | undefined
+      let clipboardPlan: DocumentClipboardPlan | undefined
+      let formatPlan: DocumentFormatPlan | undefined
+      let inputPlan: DocumentInputPlan | undefined
       let effectiveApplyEdits: readonly DocumentSourceEdit[] | undefined
       try {
         effectiveApplyEdits =
-          request.type === 'apply'
+          request.type === 'source-input'
             ? (() => {
-              const activeCore = core
-              const activeRevision = revision
-              if (!Array.isArray(request.edits)) return undefined
-              if (request.markup === true && request.tracked === true) return undefined
-              if (request.markup === true) { return activeCore.markupEdits(activeRevision, request.edits) }
-              if (request.tracked === true) { return activeCore.trackedEdits(activeRevision, request.edits) }
-              let previousEnd = 0
-              const valid = request.edits.every((edit) => {
-                const accepted =
-                    edit !== null &&
-                    typeof edit === 'object' &&
-                    Number.isSafeInteger(edit.start) &&
-                    Number.isSafeInteger(edit.end) &&
-                    typeof edit.insert === 'string' &&
-                    edit.start >= previousEnd &&
-                    edit.end >= edit.start &&
-                    edit.end <= activeRevision.sourceLength
-                previousEnd = edit?.end ?? previousEnd
-                return accepted
-              })
-              return valid
-                ? Object.freeze(
-                  request.edits.filter(
-                    (edit) => activeCore.sourceSlice(activeRevision, edit) !== edit.insert
-                  )
-                )
-                : request.edits
+              sourceInputPlan = core.planSourceInput(revision, request.action)
+              return sourceInputPlan.edits
             })()
-            : undefined
+            : request.type === 'clipboard'
+              ? (() => {
+                clipboardPlan = core.planClipboard(revision, request.action)
+                return clipboardPlan.edits
+              })()
+              : request.type === 'format'
+                ? (() => {
+                  formatPlan = core.planFormat(revision, request.action)
+                  return formatPlan.edits
+                })()
+                : request.type === 'input'
+                  ? (() => {
+                    inputPlan = core.planInput(revision, request.action)
+                    return core.inputEdits(
+                      revision,
+                      request.action,
+                      inputPlan,
+                      request.tracked === true
+                    )
+                  })()
+                  : request.type === 'apply'
+                    ? (() => {
+                      const activeCore = core
+                      const activeRevision = revision
+                      if (!Array.isArray(request.edits)) return undefined
+                      if (request.markup === true && request.tracked === true) return undefined
+                      if (request.markup === true) {
+                        return activeCore.markupEdits(activeRevision, request.edits)
+                      }
+                      if (request.tracked === true) {
+                        return activeCore.trackedEdits(activeRevision, request.edits)
+                      }
+                      let previousEnd = 0
+                      const valid = request.edits.every((edit) => {
+                        const accepted =
+                            edit !== null &&
+                            typeof edit === 'object' &&
+                            Number.isSafeInteger(edit.start) &&
+                            Number.isSafeInteger(edit.end) &&
+                            typeof edit.insert === 'string' &&
+                            edit.start >= previousEnd &&
+                            edit.end >= edit.start &&
+                            edit.end <= activeRevision.sourceLength
+                        previousEnd = edit?.end ?? previousEnd
+                        return accepted
+                      })
+                      return valid
+                        ? Object.freeze(
+                          request.edits.filter(
+                            (edit) =>
+                              activeCore.sourceSlice(activeRevision, edit) !== edit.insert
+                          )
+                        )
+                        : request.edits
+                    })()
+                    : undefined
       } catch (error) {
-        if (error instanceof DocumentSourceEditError || error instanceof RangeError) {
+        if (
+          error instanceof DocumentSourceEditError ||
+          error instanceof RangeError ||
+          ((request.type === 'input' ||
+            request.type === 'format' ||
+            request.type === 'clipboard') &&
+            error instanceof TypeError)
+        ) {
           return Object.freeze({
             type: 'rejected',
             session,
@@ -1870,8 +2000,10 @@ export function createCoreActor(
         throw error
       }
       if (
-        request.type === 'apply' &&
-        (request.markup === true || request.tracked === true) &&
+        (request.type === 'clipboard' ||
+          request.type === 'format' ||
+          request.type === 'input' ||
+          (request.type === 'apply' && (request.markup === true || request.tracked === true))) &&
         effectiveApplyEdits === undefined
       ) {
         return Object.freeze({
@@ -1882,6 +2014,90 @@ export function createCoreActor(
           accepted: false,
           reason: 'author-invalid',
           sourceLength: revision.sourceLength
+        })
+      }
+      if (
+        request.type === 'clipboard' &&
+        effectiveApplyEdits?.length === 0 &&
+        clipboardPlan !== undefined
+      ) {
+        return Object.freeze({
+          type: 'applied',
+          ...consumedPreparedSelection(),
+          session,
+          sequence,
+          revision: revisionNumber,
+          accepted: true,
+          sourceLength: revision.sourceLength,
+          ...diagnosticsOf(revision),
+          change: Object.freeze({
+            appliedEdits: Object.freeze([]),
+            projections: Object.freeze([])
+          }),
+          clipboardResult: Object.freeze({ selection: clipboardPlan.selection })
+        })
+      }
+      if (
+        request.type === 'format' &&
+        effectiveApplyEdits?.length === 0 &&
+        formatPlan !== undefined
+      ) {
+        return Object.freeze({
+          type: 'applied',
+          ...consumedPreparedSelection(),
+          session,
+          sequence,
+          revision: revisionNumber,
+          accepted: true,
+          sourceLength: revision.sourceLength,
+          ...diagnosticsOf(revision),
+          change: Object.freeze({
+            appliedEdits: Object.freeze([]),
+            projections: Object.freeze([])
+          }),
+          formatResult: Object.freeze({ selection: formatPlan.selection })
+        })
+      }
+      if (
+        request.type === 'input' &&
+        effectiveApplyEdits?.length === 0 &&
+        inputPlan !== undefined
+      ) {
+        return Object.freeze({
+          type: 'applied',
+          ...consumedPreparedSelection(),
+          session,
+          sequence,
+          revision: revisionNumber,
+          accepted: true,
+          sourceLength: revision.sourceLength,
+          ...diagnosticsOf(revision),
+          change: Object.freeze({
+            appliedEdits: Object.freeze([]),
+            projections: Object.freeze([])
+          }),
+          inputResult: core.reconcileInput(revision, inputPlan, null, request.action)
+        })
+      }
+      if (
+        request.type === 'source-input' &&
+        effectiveApplyEdits?.length === 0 &&
+        sourceInputPlan !== undefined
+      ) {
+        return Object.freeze({
+          type: 'applied',
+          ...consumedPreparedSelection(),
+          session,
+          sequence,
+          revision: revisionNumber,
+          accepted: true,
+          sourceLength: revision.sourceLength,
+          ...diagnosticsOf(revision),
+          change: Object.freeze({
+            appliedEdits: Object.freeze([]),
+            projections: Object.freeze([])
+          }),
+          sourceInputResult: Object.freeze({ selection: sourceInputPlan.afterSelection })
         })
       }
       if (request.type === 'apply' && effectiveApplyEdits?.length === 0) {
@@ -1898,7 +2114,11 @@ export function createCoreActor(
       const edits =
         request.type === 'configure'
           ? Object.freeze([])
-          : request.type === 'apply'
+          : request.type === 'source-input' ||
+              request.type === 'apply' ||
+              request.type === 'input' ||
+              request.type === 'format' ||
+              request.type === 'clipboard'
             ? effectiveApplyEdits!
             : request.type === 'replace-consumer-search'
               ? consumerSearchEdits!
@@ -1915,17 +2135,21 @@ export function createCoreActor(
                         : request.type === 'undo'
                           ? historyEntry!.undo
                           : historyEntry!.redo
-      const nativeValue =
-        request.type === 'track' &&
-        trackedEdit !== undefined &&
-        trackedEdit.start <= request.range.start &&
-        request.range.end <= trackedEdit.end
-          ? core.sourceSlice(revision, { start: trackedEdit.start, end: request.range.start }) +
-            request.text +
-            core.sourceSlice(revision, { start: request.range.end, end: trackedEdit.end })
-          : undefined
+      const editingInput =
+        request.type === 'track'
+          ? { ...request.range, insert: request.text }
+          : request.type === 'apply' &&
+              (request.markup === true || request.tracked === true) &&
+              request.edits.length === 1
+            ? request.edits[0]
+            : undefined
+      const editingRevision = revision
       if (
-        (request.type === 'apply' ||
+        (request.type === 'source-input' ||
+          request.type === 'clipboard' ||
+          request.type === 'format' ||
+          request.type === 'input' ||
+          request.type === 'apply' ||
           request.type === 'resolve-all' ||
           request.type === 'replace-consumer-search') &&
         edits!.length > maximumHistoryEditsPerEntry
@@ -1941,7 +2165,12 @@ export function createCoreActor(
         })
       }
       if (
-        (request.type === 'apply' || request.type === 'replace-consumer-search') &&
+        (request.type === 'source-input' ||
+          request.type === 'clipboard' ||
+          request.type === 'format' ||
+          request.type === 'input' ||
+          request.type === 'apply' ||
+          request.type === 'replace-consumer-search') &&
         edits!.length > 1
       ) {
         const prospectiveSource = applyRecoveryEdits(revision.source, edits!)
@@ -1960,7 +2189,10 @@ export function createCoreActor(
       let inverse: readonly DocumentSourceEdit[] | undefined
       let prospectiveEntry: HistoryEntry | undefined
       const requestedGroup =
-        request.type === 'apply' || request.type === 'track'
+        request.type === 'source-input' ||
+        request.type === 'input' ||
+        request.type === 'apply' ||
+        request.type === 'track'
           ? request.nativeHistoryGroup
           : undefined
       if (
@@ -1983,6 +2215,10 @@ export function createCoreActor(
       let commit
       try {
         inverse =
+          request.type === 'source-input' ||
+          request.type === 'clipboard' ||
+          request.type === 'format' ||
+          request.type === 'input' ||
           request.type === 'apply' ||
           request.type === 'replace-consumer-search' ||
           request.type === 'author' ||
@@ -1995,7 +2231,26 @@ export function createCoreActor(
         if (inverse !== undefined) {
           prospectiveEntry = Object.freeze({
             undo: inverse,
-            redo: copyEdits(edits!)
+            redo: copyEdits(edits!),
+            ...(sourceInputPlan === undefined
+              ? {}
+              : { beforeSelection: sourceInputPlan.beforeSelection }),
+            ...(request.type === 'author'
+              ? { beforeSelection: singleSelection(request.range) }
+              : {}),
+            ...(request.type === 'input' ||
+            request.type === 'format' ||
+            request.type === 'clipboard'
+              ? {
+                beforeSelection: singleSelection(
+                  request.type === 'clipboard' && 'currentSelection' in request.action
+                    ? (request.action.currentSelection ?? request.action.selection)
+                    : request.type === 'format' && request.action.format === 'image-properties'
+                      ? (request.action.currentSelection ?? request.action.selection)
+                      : request.action.selection
+                )
+              }
+              : {})
           })
           if (
             requestedGroup !== undefined &&
@@ -2060,10 +2315,80 @@ export function createCoreActor(
         }
         throw error
       }
+      const inputResult =
+        inputPlan === undefined
+          ? undefined
+          : core.reconcileInput(
+            editingRevision,
+            inputPlan,
+            commit,
+            request.type === 'input'
+              ? request.action
+              : (() => {
+                throw new Error('Input plan requires an input action')
+              })()
+          )
+      const primaryAfterSelection =
+        authorPlan?.selection ??
+        formatPlan?.selection ??
+        clipboardPlan?.selection ??
+        inputResult?.selection
+      const afterSelection =
+        sourceInputPlan?.afterSelection ??
+        (primaryAfterSelection === undefined ? undefined : singleSelection(primaryAfterSelection))
+      if (prospectiveEntry !== undefined) {
+        // A grouped transaction retains the first actual selection and the last
+        // model-planned selection. Unmigrated commands never invent endpoints.
+        const beforeSelection = prospectiveEntry.beforeSelection
+        prospectiveEntry = Object.freeze({
+          undo: prospectiveEntry.undo,
+          redo: prospectiveEntry.redo,
+          ...(beforeSelection === undefined || afterSelection === undefined
+            ? {}
+            : { beforeSelection, afterSelection: copySelection(afterSelection) })
+        })
+      }
+      for (const target of retainedSelections.values()) {
+        if (target === preparedTarget || target.status === 'conflict') continue
+        try {
+          const rebased = rebaseDocumentInputSelection(
+            core,
+            editingRevision,
+            commit,
+            target.selection,
+            {
+              affinity:
+                preparedTarget !== undefined && preparedTarget.order < target.order
+                  ? 'after'
+                  : 'before',
+              operation:
+                request.type === 'input'
+                  ? { kind: 'input', action: request.action, tracked: request.tracked }
+                  : request.type === 'clipboard'
+                    ? { kind: 'clipboard', action: request.action }
+                    : { kind: 'edits' }
+            }
+          )
+          if (rebased.kind === 'conflict') target.status = 'conflict'
+          else {
+            target.selection = rebased.selection
+            target.selectionRevision = revisionNumber + 1
+          }
+        } catch (error) {
+          if (!(error instanceof RangeError)) throw error
+          target.status = 'conflict'
+        }
+      }
       revision = commit.revision
-      if (request.type === 'configure') { markdownOptions = Object.freeze({ ...markdownOptions, ...request.options }) }
+      if (request.type === 'configure') {
+        markdownOptions = Object.freeze({ ...markdownOptions, ...request.options })
+      }
       revisionNumber += 1
       if (
+        request.type === 'source-input' ||
+        request.type === 'clipboard' ||
+        request.type === 'format' ||
+        request.type === 'input' ||
         request.type === 'apply' ||
         request.type === 'replace-consumer-search' ||
         request.type === 'resolve' ||
@@ -2109,55 +2434,13 @@ export function createCoreActor(
         undoEditRecords += historyEditRecords(historyEntry!)
       }
       const diagnostics = diagnosticsOf(commit.revision)
-      let nativeReconciliation: readonly DocumentSourceEdit[] | undefined
-      if (trackedEdit !== undefined && nativeValue !== undefined) {
-        if (trackedEdit.insert === nativeValue) nativeReconciliation = []
-        else {
-          const pending = [...commit.revision.annotations]
-          while (pending.length > 0) {
-            const annotation = pending.pop()!
-            if (
-              annotation.range.start === trackedEdit.start &&
-              annotation.range.end === trackedEdit.start + trackedEdit.insert.length
-            ) {
-              const arm = annotation.arms.find(
-                (arm) => arm.name === (annotation.kind === 'substitution' ? 'new' : 'content')
-              )
-              if (annotation.kind === 'deletion' && nativeValue === '') {
-                nativeReconciliation = [
-                  { start: trackedEdit.start, end: trackedEdit.start, insert: trackedEdit.insert }
-                ]
-              } else if (
-                (annotation.kind === 'addition' || annotation.kind === 'substitution') &&
-                arm !== undefined &&
-                core.sourceSlice(commit.revision, arm.range) === nativeValue
-              ) {
-                const start = trackedEdit.start
-                const end = start + nativeValue.length
-                nativeReconciliation = [
-                  {
-                    start,
-                    end: start,
-                    insert: core.sourceSlice(commit.revision, { start, end: arm.range.start })
-                  },
-                  {
-                    start: end,
-                    end,
-                    insert: core.sourceSlice(commit.revision, {
-                      start: arm.range.end,
-                      end: annotation.range.end
-                    })
-                  }
-                ]
-              }
-              break
-            }
-            for (const arm of annotation.arms) pending.push(...arm.annotations)
-          }
-        }
-      }
+      const nativeReconciliation =
+        editingInput === undefined
+          ? undefined
+          : core.editingReconciliation(editingRevision, editingInput, commit)
       return Object.freeze({
         type: 'applied',
+        ...consumedPreparedSelection(),
         session,
         sequence,
         revision: revisionNumber,
@@ -2165,11 +2448,30 @@ export function createCoreActor(
         sourceLength: commit.revision.sourceLength,
         ...diagnostics,
         change: commit.change,
+        ...(formatPlan === undefined
+          ? {}
+          : { formatResult: Object.freeze({ selection: formatPlan.selection }) }),
+        ...(clipboardPlan === undefined
+          ? {}
+          : { clipboardResult: Object.freeze({ selection: clipboardPlan.selection }) }),
+        ...(inputResult === undefined ? {} : { inputResult }),
+        ...(authorPlan === undefined
+          ? {}
+          : { authorResult: Object.freeze({ selection: authorPlan.selection }) }),
+        ...(sourceInputPlan === undefined
+          ? {}
+          : { sourceInputResult: Object.freeze({ selection: sourceInputPlan.afterSelection }) }),
+        ...(request.type === 'undo' && historyEntry?.beforeSelection !== undefined
+          ? { historyResult: Object.freeze({ selection: historyEntry.beforeSelection }) }
+          : request.type === 'redo' && historyEntry?.afterSelection !== undefined
+            ? { historyResult: Object.freeze({ selection: historyEntry.afterSelection }) }
+            : {}),
         ...(nativeReconciliation === undefined ? {} : { nativeReconciliation })
       })
     },
     dispose(): void {
       disposed = true
+      retainedSelections.clear()
       nativeHistoryGroup = undefined
       core = undefined
       revision = undefined

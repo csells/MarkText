@@ -10,24 +10,42 @@ and the [native integration architecture](../architecture/criticmarkup-native-in
 Implementation and installed verification remain incomplete; acceptance is not a
 claim that the product passes every rule below.
 
-Core mode keeps canonical source and durable undo history in the document
-authority module. Its Worker actor owns the live `DocumentRevision`; its
-renderer-side session keeps a bounded recovery record outside the editable view.
+The owner's 8 September 2026 restatement reaffirms the unified parser-to-UI
+requirement already explicit in July, not a new requirement for this branch.
+A single durable save owner alone does not satisfy it. All existing Markdown and new CM behavior
+must use the same language model and editing semantics. Native commands may not
+reinterpret projected text through another Markdown parser or rely on supplemental
+change-event metadata to recover missing CM meaning. The
+[native integration architecture](../architecture/criticmarkup-native-integration.md#one-parser-to-ui-stack)
+defines that requirement. The reproduced wrong-location edits and formatting that
+removes suggestions demonstrate why the earlier authority boundary alone was
+insufficient; the input, history, save and recovery guarantees below still apply.
+
+## Authority and input ordering
+
+Core mode keeps canonical source and durable undo history in one document
+authority. The actor owns the live `DocumentRevision`; its session keeps a
+bounded recovery record outside the editable view.
 That record contains a compact source checkpoint, accepted transactions since
 the checkpoint, and the undo-group metadata needed to reproduce authority
-history. Editor views may echo input
-immediately as a pending draft, but Pinia, Muya, and CodeMirror do not become
-alternate source owners. Each editor command is ordered against an acknowledged
+history. Pinia, Muya, and CodeMirror do not become alternate source or semantic
+owners. Each editor command is ordered against an acknowledged
 revision and produces an accepted commit, a typed rejection, or a terminal
 fault.
 
-The alternatives were to keep saving renderer snapshots or to block visible
-input on every actor response. Snapshots preserve two competing histories and
-can persist a draft that the actor rejects. Blocking input avoids that split but
-misses the latency target and makes IME fragile. Immediate presentation plus an
-actor-owned acknowledgement stream preserves both constraints, at the cost of
-finite pending-work and reconciliation rules that the production tests must
-prove before production default enablement.
+The model's resulting document and selection must be available before the next
+action depends on them. Asynchronous persistence, composition drafts and view
+lifecycle work still require barriers and recovery, but cannot justify a second
+semantic owner or a speculative selection used to interpret subsequent input.
+
+The earlier Worker placement and raw input echo were implementation decisions,
+not product requirements. Native queued wrapping demonstrated their failure:
+the next key used a collapsed selection before the model's wrapping result
+arrived. That design is superseded at this boundary. The current migration moves
+the same actor into synchronous session ownership; it must prove the unchanged
+latency, composition, history, save and recovery requirements before release.
+This ADR does not claim that migration or its verification is complete; see the
+[CURRENT blockers](../plans/0012-criticmarkup-upstream-integration-review.md#current-completion-blockers).
 
 ## Session rules
 
@@ -57,9 +75,9 @@ prove before production default enablement.
   the old session without discarding its pending work. Switching Source and
   WYSIWYG within a document waits for a view-handoff barrier, then mounts the new
   view from the acknowledged projection and mapped selection.
-- On Worker failure or a pending-work limit, the session stops accepting edits
+- On authority failure or a pending-work limit, the session stops accepting edits
   and preserves the native draft before replacing its speculative presentation.
-  Worker recovery creates a new generation from its last compact checkpoint and
+  Authority recovery creates a new generation from its last compact checkpoint and
   replays only transactions whose acceptance the session recorded. Replies from
   the failed generation are ignored. Save remains blocked until recovery reaches
   the last acknowledged revision. The record has limits on source units,
@@ -67,6 +85,6 @@ prove before production default enablement.
   a settled barrier and drops the superseded journal.
 
 Production default enablement and release verification follow plan 0012; installed tests must cover these
-rules, including native IME, pending save, tab and mode handoff, Worker restart,
+rules, including native IME, pending save, tab and mode handoff, authority restart,
 continuous editable Review, parity, and realistic performance. A document approval
 field is not an additional implementation or release gate.
