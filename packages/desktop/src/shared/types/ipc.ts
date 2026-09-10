@@ -17,7 +17,13 @@
  *   3. Wire the caller via the typed preload bridge in src/preload/index.ts.
  */
 
-import type { ReviewCommand, ReviewCommandState, ReviewContextRequest, ReviewContextReply, ReviewContextAction } from '../../common/commands/review'
+import type {
+  ReviewCommand,
+  ReviewCommandState,
+  ReviewContextRequest,
+  ReviewContextReply,
+  ReviewContextAction
+} from '../../common/commands/review'
 import type { IKeyboardLayoutInfo, IKeyboardMapping } from 'native-keymap'
 import type {
   MarkdownDocument,
@@ -36,6 +42,10 @@ import type { BufferedState as BufferedStateType } from './bufferedState'
 import type { MenuTemplate, MenuPopupPosition } from './menu'
 import type { CoreRecoveryDraftInput, CoreRecoveryDraftRecord } from './coreRecoveryDraft'
 
+export type WindowClosePreparedReply =
+  | { requestId: number; files: UnsavedFile[]; requiresConfirmation: boolean }
+  | { requestId: number; error: string }
+
 // =================================================================
 // Invoke channels (renderer → main, returns Promise<T>)
 // =================================================================
@@ -50,7 +60,10 @@ export interface IpcInvokeChannels {
   'mt::cmd::exists': { args: [name: string]; ret: boolean }
   'mt::fonts::list': { args: []; ret: string[] }
   'mt::fs-trash-item': { args: [pathname: string]; ret: void }
-  'mt::fs::copy': { args: [src: string, dest: string, options?: { overwrite: false; errorOnExist: true }]; ret: void }
+  'mt::fs::copy': {
+    args: [src: string, dest: string, options?: { overwrite: false; errorOnExist: true }]
+    ret: void
+  }
   'mt::fs::empty-dir': { args: [path: string]; ret: void }
   'mt::fs::ensure-dir': { args: [path: string]; ret: void }
   'mt::fs::is-directory': { args: [path: string]; ret: boolean }
@@ -63,7 +76,10 @@ export interface IpcInvokeChannels {
   'mt::fs::readdir': { args: [path: string]; ret: string[] }
   'mt::fs::stat': { args: [path: string]; ret: SerializedStat }
   'mt::fs::unlink': { args: [path: string]; ret: void }
-  'mt::fs::write-file': { args: [path: string, data: string | Uint8Array, options?: { flag: 'wx' }]; ret: void }
+  'mt::fs::write-file': {
+    args: [path: string, data: string | Uint8Array, options?: { flag: 'wx' }]
+    ret: void
+  }
   'mt::i18n::is-supported': { args: [lang: string]; ret: boolean }
   'mt::i18n::load': { args: [language: string]; ret: Record<string, unknown> }
   'mt::i18n::supported': { args: []; ret: string[] }
@@ -87,7 +103,7 @@ export interface IpcInvokeChannels {
   'mt::win::is-maximized': { args: []; ret: boolean }
   // Main derives the BrowserWindow via BrowserWindow.fromWebContents(e.sender);
   // no need to pass windowId. Payload is the editor+project+layout snapshot.
-  'update-buffer-state': { args: [payload: unknown]; ret: void }
+  'update-buffer-state': { args: [payload: unknown]; ret: boolean }
 }
 
 // =================================================================
@@ -119,6 +135,8 @@ export interface IpcSendChannels {
   'mt::clipboard::write-text': [text: string]
   'mt::close-window': []
   'mt::close-window-confirm': [unsavedFiles: UnsavedFile[]]
+  'mt::window-close-prepared': [reply: WindowClosePreparedReply]
+  'mt::window-close-resumed': [requestId: number]
   'mt::cmd-close-window': []
   'mt::cmd-import-file': []
   'mt::cmd-new-editor-window': []
@@ -137,7 +155,9 @@ export interface IpcSendChannels {
   'mt::open-file-by-window-id': [windowId: number, filePath: string, options?: unknown]
   'mt::open-keybindings-config': []
   'mt::open-setting-window': []
-  'mt::rename': [payload: { id: string; pathname: string; newPathname: string; currentFile?: unknown }]
+  'mt::rename': [
+    payload: { id: string; pathname: string; newPathname: string; currentFile?: unknown }
+  ]
   'mt::request-keybindings': []
   'mt::set-editor-format-menus-enabled': [windowId: number, enabled: boolean]
   'mt::response-export': [
@@ -217,7 +237,7 @@ export interface IpcSendChannels {
 export interface IpcSyncChannels {
   'mt::core-draft::preserve': {
     args: [draft: CoreRecoveryDraftInput]
-    ret: { ok: true, record: CoreRecoveryDraftRecord } | { ok: false, message: string }
+    ret: { ok: true; record: CoreRecoveryDraftRecord } | { ok: false; message: string }
   }
   'mt::boot-info': { args: []; ret: BootInfo }
   'mt::paths::is-same-sync': { args: [a: string, b: string]; ret: boolean }
@@ -239,6 +259,8 @@ export interface IpcMainEventChannels {
   'mt::UPDATE_NOT_AVAILABLE': [info?: unknown]
   'mt::about-dialog': []
   'mt::ask-for-close': []
+  'mt::prepare-window-close': [requestId: number]
+  'mt::cancel-window-close': [requestId: number]
   'mt::bootstrap-editor': [config: BootstrapEditorConfig]
   'mt::cm-copy-as-html': []
   'mt::cm-copy-as-rich': []
@@ -256,10 +278,15 @@ export interface IpcMainEventChannels {
   'mt::execute-command-by-id': [commandId: string]
   'mt::export-success': [payload: { type: string; filePath: string }]
   'mt::file-saved': [tabId: string]
-  'mt::force-close-tabs-by-id': [tabIds: Array<string | {
-    id: string
-    saveIdentity?: DocumentSaveIdentity
-  }>]
+  'mt::force-close-tabs-by-id': [
+    tabIds: Array<
+      | string
+      | {
+        id: string
+        saveIdentity?: DocumentSaveIdentity
+      }
+    >
+  ]
   'mt::invalidate-image-cache': []
   'mt::keybindings-response': [bindings: unknown]
   'mt::load-state': [state: BufferedStateType]
@@ -281,13 +308,15 @@ export interface IpcMainEventChannels {
   'mt::rg::progress': [payload: unknown]
   'mt::screenshot-captured': [filePath: string]
   'mt::set-line-ending': [lineEnding: LineEnding]
-  'mt::set-pathname': [payload: {
-    id: string
-    pathname: string
-    filename: string
-    saveIdentity?: DocumentSaveIdentity | null
-    savedSource?: string
-  }]
+  'mt::set-pathname': [
+    payload: {
+      id: string
+      pathname: string
+      filename: string
+      saveIdentity?: DocumentSaveIdentity | null
+      savedSource?: string
+    }
+  ]
   'mt::set-view-layout': [layout: unknown]
   'mt::show-command-palette': []
   'mt::show-export-dialog': [type: ExportType]

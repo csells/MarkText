@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+/// <reference path="../../desktop/src/types/shims.d.ts" />
 
 import type { IMuyaOptions, MarkdownToHtml, Muya } from '@muyajs/core';
 
@@ -8,6 +9,9 @@ declare global {
         // Set by host/main.ts after muya.init() so Playwright page.evaluate()
         // callbacks can drive the editor through the public API.
         muya?: Muya;
+
+        // Desktop clipboard projection type surface; local-file cases install the real host bridge.
+        path: typeof import('node:path');
 
         // Public class exposed by host/main.ts for Phase 4 export specs that
         // exercise the static markdown → HTML pipeline.
@@ -20,6 +24,8 @@ declare global {
             INITIAL_MARKDOWN: string;
             PICKED_IMAGE_URL: string;
             UPLOADED_IMAGE_URL: string;
+            imageAction?: (state: { src: string; alt: string; title: string }) => Promise<string>;
+            imagePathPicker?: () => Promise<string>;
             /**
              * Tear down the current Muya instance and create a fresh one with
              * the given options merged over the host defaults. Mirrors the

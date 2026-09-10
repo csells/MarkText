@@ -1,9 +1,10 @@
-/* eslint-disable no-fallthrough */
+import type { IDocumentActiveFormat } from '../../editor/documentEditingTypes';
 import type {
     CodeEmojiMathToken,
     TextToken,
     Token,
 } from '../../inlineRenderer/types';
+/* eslint-disable no-fallthrough */
 import type { IContentCursor, IRenderCursor } from '../../selection/types';
 import type { IBulletListState, IListItemState, IOrderListState, IParagraphState } from '../../state/types';
 import type { Nullable } from '../../types';
@@ -13,6 +14,7 @@ import type BulletList from '../commonMark/bulletList';
 import type SetextHeading from '../commonMark/setextHeading';
 import type Parent from './parent';
 import type TreeNode from './treeNode';
+import { formatDelimiters } from '@marktext/input-policy';
 import Content from '../../block/base/content';
 import { ScrollPage } from '../../block/scrollPage';
 import {
@@ -23,6 +25,7 @@ import {
     PARAGRAPH_STATE,
     THEMATIC_BREAK_STATE,
 } from '../../config';
+import { createDocumentTextDraft, dispatchDocumentFormat, dispatchDocumentParagraphJoin } from '../../editor/documentEditing';
 import { generator, tokenizer } from '../../inlineRenderer/lexer';
 import Selection, { getCursorReference } from '../../selection';
 import { getTextContent } from '../../selection/dom';
@@ -302,6 +305,13 @@ class Format extends Content {
         const focusOffset = cEnd ? cEnd.offset : focus?.offset;
         if (anchorOffset == null || focusOffset == null)
             return false;
+        if (this.muya.editor.documentEditing) {
+            // The model already rendered syntax. Refresh cursor-dependent
+            // presentation without recognizing the projected text again.
+            return this.domNode?.querySelector(
+                `.${CLASS_NAMES.MU_HIDE}, .${CLASS_NAMES.MU_GRAY}, .${CLASS_NAMES.MU_INLINE_IMAGE}`,
+            ) != null;
+        }
         const NO_NEED_TOKEN_REG = /text|hard_line_break|soft_line_break/;
 
         for (const token of tokenizer(text, {
@@ -361,7 +371,17 @@ class Format extends Content {
         }
     }
 
-    replaceImage({ token }: IImageInfo, { alt = '', src = '', title = '' }) {
+    replaceImage(imageInfo: IImageInfo, { alt = '', src = '', title = '' }) {
+        const model = this.muya.editor.documentEditing;
+        if (model) {
+            const selection = this.muya.editor.selection.getImageDOMSelection({ ...imageInfo, block: this });
+            if (!selection)
+                throw new Error('The image property target has no current document boundary');
+            this.muya.flush();
+            model.format({ format: 'image-properties', selection, properties: { alt, src, title } });
+            return;
+        }
+        const { token } = imageInfo;
         const { type } = token;
         const { start, end } = token.range;
         const oldText = this.text;
@@ -403,11 +423,29 @@ class Format extends Content {
     }
 
     updateImage(
-        { imageId, token }: IImageInfo,
+        imageInfo: IImageInfo,
         attrName: string,
         attrValue: string,
     ) {
-    // inline/left/center/right
+        const model = this.muya.editor.documentEditing;
+        if (model) {
+            if (attrName !== 'width' && attrName !== 'height' && attrName !== 'data-align')
+                throw new RangeError('Unsupported image layout property');
+            const selection = this.muya.editor.selection.getImageDOMSelection({ ...imageInfo, block: this });
+            if (!selection)
+                throw new Error('The image layout target has no current document boundary');
+            this.muya.flush();
+            if (!model.format({ format: 'image-properties', selection, properties: { [attrName]: attrValue } })) {
+                // Discard the resize preview by rendering the accepted model.
+                const current = this.selection.getSelection();
+                this.update();
+                if (current)
+                    this.selection.setSelection(current.anchor, current.focus);
+            }
+            return;
+        }
+        const { imageId, token } = imageInfo;
+        // inline/left/center/right
         const { start, end } = token.range;
         const oldText = this.text;
         let imageText = '';
@@ -447,7 +485,18 @@ class Format extends Content {
     // visible anchor text only (`Anthropic`), stripping the markdown / HTML
     // around it. We keep the visible text rather than substituting the URL,
     // matching the contemporary norm (Notion, GDocs, Slack).
-    unlink({ range, text }: { range: { start: number; end: number } | null; text: string }) {
+    unlink({ range, text }: { range: { start: number; end: number } | null; text: string }, reference?: HTMLElement) {
+        const model = this.muya.editor.documentEditing;
+        if (model) {
+            if (reference?.isConnected && reference.parentNode && this.domNode?.contains(reference)) {
+                const parent = reference.parentNode;
+                const index = Array.prototype.indexOf.call(parent.childNodes, reference) as number;
+                this.muya.flush();
+                model.format({ format: 'unlink', selection: { anchor: { node: parent, offset: index }, focus: { node: parent, offset: index + 1 } } });
+            }
+            this.muya.eventCenter.emit('muya-link-tools', { reference: null });
+            return;
+        }
         if (!range)
             return;
 
@@ -457,7 +506,20 @@ class Format extends Content {
         this.muya.eventCenter.emit('muya-link-tools', { reference: null });
     }
 
-    deleteImage({ token }: IImageInfo) {
+    deleteImage(imageInfo: IImageInfo) {
+        const model = this.muya.editor.documentEditing;
+        if (model) {
+            const selection = this.muya.editor.selection.getImageDOMSelection({ ...imageInfo, block: this });
+            if (!selection)
+                throw new Error('The selected image has no current document boundary');
+            const draft = createDocumentTextDraft(this.muya, selection, '');
+            this.muya.flush();
+            model.clipboard({ kind: 'cut', selection }, draft);
+            this.muya.eventCenter.emit('muya-transformer', { reference: null });
+            this.muya.eventCenter.emit('muya-image-toolbar', { reference: null });
+            return;
+        }
+        const { token } = imageInfo;
         const oldText = this.text;
         const { start, end } = token.range;
         const { eventCenter } = this.muya;
@@ -1480,6 +1542,14 @@ class Format extends Content {
 
         event.preventDefault();
 
+        if (this.muya.editor.documentEditing && ['paragraph.content', 'atxheading.content', 'setextheading.content'].includes(this.blockName)) {
+            const selection = this.muya.editor.selection.getDOMSelection();
+            if (!selection)
+                throw new Error('Forward paragraph Delete has no document selection');
+            dispatchDocumentParagraphJoin(this.muya, 'forward', selection);
+            return;
+        }
+
         const paragraphBlock = nextBlock.parent!;
 
         this.text = text + nextBlock.text;
@@ -1551,6 +1621,15 @@ class Format extends Content {
         cursorBlock.setCursor(0, 0, true);
     }
 
+    /** UI context uses the same model as the rendered document. */
+    getActiveFormats(): readonly IDocumentActiveFormat[] {
+        const model = this.muya.editor.documentEditing;
+        if (!model)
+            return this.getFormatsInRange().formats;
+        const selection = this.muya.editor.selection.getDOMSelection();
+        return selection ? model.activeFormats(selection) : [];
+    }
+
     getFormatsInRange(cursor: IContentCursor | null = this.getCursor()) {
         if (cursor == null)
             return { formats: [], tokens: [], neighbors: [] };
@@ -1595,6 +1674,12 @@ class Format extends Content {
     }
 
     format(type: string) {
+        if (dispatchDocumentFormat(this.muya, type))
+            return;
+        this.muya.editor.history.recordCommand(() => this._format(type));
+    }
+
+    private _format(type: string) {
         const cursor = this.getCursor();
         if (cursor == null)
             return;
@@ -1691,7 +1776,11 @@ class Format extends Content {
             }
         }
 
-        this.setCursor(start.offset, end.offset, true);
+        this.setCursor(
+            cursor.direction === 'backward' ? end.offset : start.offset,
+            cursor.direction === 'backward' ? start.offset : end.offset,
+            true,
+        );
     }
 
     private _addFormat(
@@ -1753,11 +1842,14 @@ class Format extends Content {
             case 'image': {
                 const oldText = this.text;
                 const anchorTextLen = end.offset - start.offset;
+                const spelling = formatDelimiters(type);
+                if (spelling === undefined)
+                    throw new Error('Unknown link formatting action');
                 this.text
                     = `${oldText.substring(0, start.offset)
-                    + (type === 'link' ? '[' : '![')
+                    + spelling.open
                     + oldText.substring(start.offset, end.offset)
-                    }]()${
+                    }${spelling.close}${
                         oldText.substring(end.offset)}`;
                 // put cursor between `()`
                 start.offset += type === 'link' ? 3 + anchorTextLen : 4 + anchorTextLen;

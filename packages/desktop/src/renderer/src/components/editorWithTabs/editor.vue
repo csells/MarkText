@@ -416,6 +416,7 @@ import {
   tr,
   zhCN,
   zhTW,
+  type DocumentInput,
   type ILocale
 } from '@muyajs/core'
 import { registerDesktopMuyaPlugins } from './muyaPluginRegistration'
@@ -495,8 +496,20 @@ import {
   createMuyaMarkupPresentationIndex,
   type MuyaMarkupPresentationIndex
 } from '@/documentAuthority/muyaMarkupPresentationIndex'
-import { applyMuyaMarkupChanges } from '@/documentAuthority/muyaMarkupChanges'
+import { createMuyaRecoveryDraftCapture } from '@/documentAuthority/muyaRecoveryDraftCapture'
+import { presentPendingClipboardImage } from '@/documentAuthority/muyaPendingClipboardImage'
+import {
+  muyaClipboardSelection,
+  muyaClipboardInputSelection,
+  muyaClipboardCurrentSelection,
+  muyaClipboardToModel,
+  muyaActiveFormats,
+  muyaFormatToModel,
+  muyaInputToModel
+} from '@/documentAuthority/muyaModelSelection'
+import { resolveMuyaViewAcknowledgement } from '@/documentAuthority/resolveMuyaViewAcknowledgement'
 import type { MuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
+import { reconcileMuyaDocumentView } from '@/documentAuthority/reconcileMuyaDocumentView'
 import type {
   MuyaPlainTextAuthorSelection,
   MuyaPlainTextCoreAdapter,
@@ -728,8 +741,6 @@ const coreReviewRemoveLabel = computed(() =>
 )
 let uninstallCoreInputDelivery: (() => void) | undefined
 let coreCompositionRoot: HTMLElement | undefined
-let coreCompositionStart: (() => void) | undefined
-let coreCompositionEnd: (() => void) | undefined
 let uninstallCoreSelectionClipboardGuard: (() => void) | undefined
 let coreSelectionClipboardAuthority: ProjectedSelectionClipboardAuthority | undefined
 let coreSearchPresentation: ProjectedSearchPresentation | undefined
@@ -1364,7 +1375,7 @@ watch(
         // json-change/selection-change avoids serializing the whole document on
         // each keystroke/caret move, and guarantees a fresh (never stale) value.
         if (currentFile.value) {
-          currentFile.value.muyaIndexCursor = editor.value.getCursorOffset() ?? null
+          currentFile.value.muyaIndexCursor = captureViewState() ?? null
         }
         // Capture the block-key caret too (same fresh selection getCursorOffset
         // reads) so the post-handoff undo can restore it — see
@@ -1614,31 +1625,45 @@ let coreMarkupBindingsByPath = new Map<string, MuyaMarkupView['bindings'][number
 let coreAcknowledgedViewRevision = props.coreLease?.identity.revision
 const coreMarkupDirtyPaths = new Map<string, readonly (string | number)[]>()
 let coreDraftFrozen = false
-let coreCapturedDraft: CoreRecoveryDraftInput | undefined
+let coreRecoveryDraftCapture: ReturnType<typeof createMuyaRecoveryDraftCapture> | undefined
 const captureRecoveryDraft = (error: unknown): CoreRecoveryDraftInput | undefined => {
-  if (coreCapturedDraft !== undefined) return coreCapturedDraft
-  const muya = editor.value
-  const lease = coreBoundLease
-  if (muya === null || lease === undefined) return undefined
-  // Flush native DOM into Muya's typed draft while preventing further admission.
-  // The draft is copied only on failure, never on the normal input path.
   coreDraftFrozen = true
-  muya.flush()
-  const nativeState = structuredClone(muya.getState())
-  const visibleText = muya.domNode.innerText ?? muya.domNode.textContent ?? ''
-  muya.setEditablePaths([])
-  coreCapturedDraft = {
-    documentId: lease.documentId,
-    pathname: currentFile.value?.pathname,
-    generation: lease.identity.generation,
-    revision: lease.identity.revision,
-    reason: error instanceof Error ? error.message : String(error),
-    visibleText,
-    nativeState,
-    nativeIntent: corePlainTextAdapter?.recoveryDraft(),
-    acknowledgedView: structuredClone(coreAcknowledgedMarkupView ?? props.corePlainTextView)
+  return coreRecoveryDraftCapture?.(error)
+}
+
+const invalidateCoreInputConsumers = (): void => {
+  coreReviewRefresh.invalidate()
+  refreshCorePassiveConsumers()
+  coreConsumerInputEpoch += 1
+  coreSearchProjectionEpoch = -1
+  coreSearchSnapshot = undefined
+  coreSearchPresentation?.clear()
+  coreSelectionClipboardAuthority?.reset()
+}
+
+// Both direct document operations and not-yet-migrated native commands use the
+// same fault observation. Recovery snapshots the attempted view before rollback.
+const observeCoreInput = (
+  adapter: MuyaPlainTextCoreAdapter,
+  result: 'accepted' | 'unsupported',
+  tracked: boolean,
+  input: unknown
+): void => {
+  latestCorePlainTextChange = Object.freeze({
+    result,
+    tracked,
+    state: adapter.state(),
+    change: structuredClone(input)
+  })
+  if (result === 'unsupported') {
+    emit('core-fault', new Error('Core Muya operation requires reconciliation'))
+    return
   }
-  return coreCapturedDraft
+  adapter.settled().catch((error) => {
+    if (corePlainTextAdapter === adapter && adapter.state().status === 'faulted') {
+      emit('core-fault', error)
+    }
+  })
 }
 const configureCorePreferences = async (
   options: Readonly<Partial<MarkdownOptions>>
@@ -1647,7 +1672,7 @@ const configureCorePreferences = async (
   const lease = coreBoundLease
   if (!adapter || !lease || !editor.value) throw new Error('Core preference view is unavailable')
   editor.value.flush()
-  const outcome = await adapter.configure(options, async (applied) => {
+  const outcome = await adapter.configure(options, (applied) => {
     // The actor has accepted the interpretation. Update presentation options
     // without asking Muya to reparse its flattened pending source.
     editor.value.setOptions({
@@ -1659,7 +1684,16 @@ const configureCorePreferences = async (
   })
   if (outcome === undefined) throw new Error('Core preferences were not applied')
 }
-defineExpose({ captureRecoveryDraft, configureCorePreferences })
+const captureViewState = () => editor.value?.getCursorOffset()
+const assertCloseAllowed = (): void => {
+  if (corePlainTextAdapter?.isComposing()) { throw new Error('Finish text composition before closing the window') }
+}
+defineExpose({
+  captureRecoveryDraft,
+  configureCorePreferences,
+  assertCloseAllowed,
+  captureViewState
+})
 const installCoreMarkupPresentation = (muya: Muya, view: MuyaPlainTextViewResult): void => {
   if (!('state' in view)) {
     coreMarkupPresentation = undefined
@@ -1685,30 +1719,25 @@ const installCoreMarkupPresentation = (muya: Muya, view: MuyaPlainTextViewResult
   muya.setInlinePresentation(coreMarkupPresentation.render)
 }
 
-const reconcileCoreHistoryView = async (
+const reconcileCoreHistoryView = (
   outcome: CoreAppliedReply
-): Promise<readonly MuyaPlainTextSourceBinding[]> => {
+): readonly MuyaPlainTextSourceBinding[] => {
   if (coreDraftFrozen) {
     return coreAcknowledgedMarkupView?.bindings ?? props.corePlainTextView?.bindings ?? []
   }
-  const lease = coreBoundLease
-  const muya = editor.value
-  if (lease === undefined || muya === null) {
-    throw new Error('Core Muya history view is unavailable')
-  }
-  const regional = outcome.change.projections.find(
-    (change) => change.name === 'markup' && change.scope === 'regions'
-  )
-  const patched =
-    coreAcknowledgedMarkupView !== undefined &&
-    coreAcknowledgedViewRevision === outcome.revision - 1 &&
-    regional?.name === 'markup' &&
-    regional.scope === 'regions'
-      ? applyMuyaMarkupChanges(coreAcknowledgedMarkupView, regional)
-      : undefined
-  const view = patched ?? (await lease.projectAcknowledgedPlainTextView(outcome.revision)).view
+  const { view, muya } = resolveMuyaViewAcknowledgement({
+    lease: coreBoundLease,
+    outcome,
+    previousView: coreAcknowledgedMarkupView,
+    previousRevision: coreAcknowledgedViewRevision,
+    currentEditor: () => editor.value
+  })
   if (coreDraftFrozen) return view.bindings
   coreAcknowledgedViewRevision = outcome.revision
+  if (muya === null) {
+    coreAcknowledgedMarkupView = 'state' in view ? view : undefined
+    return view.bindings
+  }
   installCoreMarkupPresentation(muya, view)
   // Native input may still be waiting for Muya's animation-frame batch. Admit
   // that draft before deciding whether the acknowledged view can replace DOM.
@@ -1716,104 +1745,14 @@ const reconcileCoreHistoryView = async (
   // Later native input is already visible. Its queued operation will be mapped
   // against these acknowledged bindings before the final draft is reconciled.
   if (corePlainTextAdapter?.hasPendingEdits()) return view.bindings
-  const selection = muya.getSelection()
-  const reconciledAnchor =
-    selection === null
-      ? undefined
-      : corePlainTextAdapter?.reconciledSourcePosition(selection.anchor)
-  const reconciledFocus =
-    selection === null ? undefined : corePlainTextAdapter?.reconciledSourcePosition(selection.focus)
-  // A native structural command may differ only in container metadata (for
-  // example a one-item list's loose flag). Replacing that presentation must
-  // retain the native caret when both endpoint leaves still have the same text.
-  const retainSelection =
-    selection !== null &&
-    [selection.anchor, selection.focus].every((endpoint) =>
-      view.bindings.some(
-        (binding) =>
-          isEqual(binding.path, endpoint.path) &&
-          binding.text === endpoint.block.text &&
-          endpoint.offset <= binding.text.length
-      )
-    )
-  const unchanged = 'state' in view && isEqual(muya.getState(), view.state)
-  if (!unchanged) {
-    muya.setContent('state' in view ? structuredClone([...view.state]) : view.markdown, false, {
-      preserveInputGrouping: true
-    })
-  }
-  applyCorePlainTextEditability(view.bindings)
-  if (unchanged) {
-    for (const path of coreMarkupDirtyPaths.values()) {
-      const block = muya.editor.scrollPage?.queryBlock([...path])
-      if (block?.isContent()) block.update()
-    }
-  }
-  if (retainSelection && selection !== null) {
-    const anchorBlock = muya.editor.scrollPage?.queryBlock([...selection.anchor.path])
-    const focusBlock = muya.editor.scrollPage?.queryBlock([...selection.focus.path])
-    if (anchorBlock?.isContent() && focusBlock?.isContent()) {
-      if (anchorBlock === focusBlock) {
-        anchorBlock.setCursor(selection.anchor.offset, selection.focus.offset, true)
-      } else {
-        muya.editor.selection.setSelection(
-          { block: anchorBlock, path: anchorBlock.path, offset: selection.anchor.offset },
-          { block: focusBlock, path: focusBlock.path, offset: selection.focus.offset }
-        )
-      }
-    }
-  } else if (!unchanged && reconciledAnchor !== undefined && reconciledFocus !== undefined) {
-    const endpoint = (source: number) => {
-      for (const binding of view.bindings) {
-        const segments =
-          'segments' in binding
-            ? binding.segments
-            : [{ text: { start: 0, end: binding.text.length }, source: binding.sourceRange }]
-        const segment = segments.find(
-          (item) => item.source.start <= source && source <= item.source.end
-        )
-        if (segment === undefined) continue
-        const block = muya.editor.scrollPage?.queryBlock([...binding.path])
-        if (block?.isContent()) {
-          return {
-            block,
-            path: block.path,
-            offset:
-              source === segment.source.end
-                ? segment.text.end
-                : segment.text.start + source - segment.source.start
-          }
-        }
-      }
-      return undefined
-    }
-    const anchor = endpoint(reconciledAnchor)
-    const focus = endpoint(reconciledFocus)
-    if (anchor !== undefined && focus !== undefined) {
-      muya.editor.selection.setSelection(anchor, focus)
-    }
-  } else if (!unchanged) {
-    const appliedEdit = outcome.change.appliedEdits.at(-1)
-    if (appliedEdit !== undefined) {
-      const caret = appliedEdit.start + appliedEdit.insert.length
-      const binding =
-        view.bindings.find(
-          (item) => item.sourceRange.start <= caret && caret <= item.sourceRange.end
-        ) ?? view.bindings.at(-1)
-      if (binding !== undefined) {
-        const block = muya.editor.scrollPage?.queryBlock([...binding.path])
-        const segments = 'segments' in binding ? binding.segments : undefined
-        const segment = segments?.find(
-          (item) => item.source.start <= caret && caret <= item.source.end
-        )
-        const offset =
-          segment === undefined
-            ? Math.min(binding.text.length, Math.max(0, caret - binding.sourceRange.start))
-            : segment.text.start + caret - segment.source.start
-        if (block?.isContent()) block.setCursor(offset, offset, true)
-      }
-    }
-  }
+  reconcileMuyaDocumentView({
+    muya,
+    view,
+    outcome,
+    sourcePosition: corePlainTextAdapter?.reconciledSourcePosition,
+    dirtyPaths: coreMarkupDirtyPaths.values(),
+    applyEditability: applyCorePlainTextEditability
+  })
   coreMarkupDirtyPaths.clear()
   return view.bindings
 }
@@ -2574,15 +2513,12 @@ const refreshCorePassiveConsumers = debounce(() => {
   refreshCoreReviewItem('next', () => coreReviewItem.value?.range.start ?? 0, true)
 }, 150)
 
-const prepareCoreSelectionClipboard = async (
-  selection: MuyaPlainTextAuthorSelection,
-  flavor: 'html' | 'rich'
-): Promise<boolean> => {
+const prepareCoreSelectionClipboard = async (flavor: 'html' | 'rich'): Promise<boolean> => {
   const authority = coreSelectionClipboardAuthority
   if (authority === undefined) return false
   const inputEpoch = coreConsumerInputEpoch
   try {
-    const payload = await authority.prepare(selection, flavor)
+    const payload = await authority.prepare(flavor)
     return inputEpoch === coreConsumerInputEpoch && payload !== undefined
   } catch (error) {
     if (inputEpoch === coreConsumerInputEpoch) emit('core-fault', error)
@@ -2591,23 +2527,12 @@ const prepareCoreSelectionClipboard = async (
 }
 
 const retryCoreSelectionClipboard = (operation: ProjectedSelectionClipboardOperation): void => {
-  const selection = coreAuthorSelection.value
-  if (selection === undefined) return
-  const inputEpoch = coreConsumerInputEpoch
-  prepareCoreSelectionClipboard(selection, 'rich')
+  prepareCoreSelectionClipboard('rich')
     .then((prepared) => {
-      if (
-        prepared &&
-        inputEpoch === coreConsumerInputEpoch &&
-        coreAuthorSelection.value === selection
-      ) {
-        document.execCommand(operation)
-      }
+      if (prepared && coreSelectionClipboardAuthority?.payload() !== undefined) { document.execCommand(operation) }
     })
     .catch((error) => {
-      if (inputEpoch === coreConsumerInputEpoch && coreAuthorSelection.value === selection) {
-        emit('core-fault', error)
-      }
+      emit('core-fault', error)
     })
 }
 
@@ -2625,11 +2550,7 @@ const handleCopyPaste = async (type: unknown): Promise<void> => {
     const method = COPY_PASTE_METHOD_MAP[type as string]
     if (method === undefined) return
     if (props.coreLease !== undefined && method !== 'pasteAsPlainText') {
-      const selection = coreAuthorSelection.value
-      if (selection === undefined) return
-      if (
-        await prepareCoreSelectionClipboard(selection, method === 'copyAsHtml' ? 'html' : 'rich')
-      ) {
+      if (await prepareCoreSelectionClipboard(method === 'copyAsHtml' ? 'html' : 'rich')) {
         document.execCommand('copy')
       }
       return
@@ -3656,11 +3577,225 @@ onMounted(() => {
       props.coreLease.identity.revision,
       true
     )
+    coreRecoveryDraftCapture = createMuyaRecoveryDraftCapture({
+      muya,
+      lease: activeCoreLease,
+      pathname: currentFile.value?.pathname,
+      nativeIntent: () => corePlainTextAdapter?.recoveryDraft(),
+      acknowledgedView: () => coreAcknowledgedMarkupView ?? props.corePlainTextView
+    })
+    activeCoreLease.setRecoveryDraftCapture(captureRecoveryDraft)
     coreTrackChangesMode = createCoreTrackChangesMode({
       accept: (change) => corePlainTextAdapter?.accept(change) ?? 'unsupported',
       acceptTracked: (change) =>
         corePlainTextAdapter?.acceptTracked(change, reconcileCoreHistoryView) ?? 'unsupported'
     })
+    const detachDocumentEditing = muya.editor.bindDocumentEditing({
+      activeFormats: (selection) =>
+        coreAcknowledgedMarkupView === undefined
+          ? []
+          : muyaActiveFormats(muya, coreAcknowledgedMarkupView, selection),
+      prepareImage: async (operation, payload, prepare): Promise<boolean> => {
+        const adapter = corePlainTextAdapter
+        const lease = props.coreLease
+        if (adapter === undefined || coreAcknowledgedMarkupView === undefined || coreDraftFrozen) { throw new Error('Image preparation has no active document owner') }
+        const action = muyaFormatToModel(
+          muya,
+          coreAcknowledgedMarkupView,
+          operation,
+          coreTrackChangesMode?.enabled() ?? false
+        )
+        if (action.format !== 'image-properties') { throw new Error('Image preparation requires image properties') }
+        const preparation = adapter.prepareImage(action, payload, (outcome) => {
+          if (props.coreLease !== lease) { throw new Error('Image view lease changed during preparation') }
+          return reconcileCoreHistoryView(outcome)
+        })
+        const presentImage = presentPendingClipboardImage(
+          muya,
+          preparation,
+          () => (props.coreLease === lease ? coreAcknowledgedMarkupView : undefined),
+          payload
+        )
+        try {
+          const properties = await prepare((payload) => {
+            preparation.capturePayload(payload)
+            presentImage(payload)
+          })
+          if (properties === undefined) {
+            preparation.cancel()
+            return false
+          }
+          if (props.coreLease !== lease || coreAcknowledgedMarkupView === undefined) { throw new Error('Image owner changed during preparation') }
+          const currentSelection = () => {
+            if (props.coreLease !== lease || coreAcknowledgedMarkupView === undefined) { throw new Error('Prepared image selection owner changed') }
+            const selection = muyaClipboardInputSelection(muya, coreAcknowledgedMarkupView)
+            if (selection === undefined) throw new Error('Prepared image has no current selection')
+            return selection
+          }
+          const result = await preparation.complete(properties, currentSelection)
+          observeCoreInput(adapter, result.accepted ? 'accepted' : 'unsupported', action.tracked, {
+            ...action,
+            properties
+          })
+          return result.changed
+        } catch (error) {
+          preparation.fail(error instanceof Error ? error : new Error(String(error)))
+          emit('core-fault', error)
+          throw error
+        }
+      },
+      prepareClipboard: async (selection, payload, prepare): Promise<boolean> => {
+        const adapter = corePlainTextAdapter
+        const lease = props.coreLease
+        if (adapter === undefined || coreAcknowledgedMarkupView === undefined || coreDraftFrozen) { throw new Error('Clipboard preparation has no active document owner') }
+        const action = muyaClipboardToModel(
+          muya,
+          coreAcknowledgedMarkupView,
+          'kind' in selection
+            ? { kind: 'table', operation: 'paste', selection, markdown: '' }
+            : { kind: 'paste', selection, markdown: '' },
+          coreTrackChangesMode?.enabled() ?? false
+        )
+        if (action.kind !== 'paste' && !(action.kind === 'table' && action.operation === 'paste')) { throw new Error('Clipboard preparation requires a paste') }
+        const preparation = adapter.prepareClipboard(action, payload, (outcome) => {
+          if (props.coreLease !== lease) { throw new Error('Clipboard view lease changed during preparation') }
+          return reconcileCoreHistoryView(outcome)
+        })
+        const presentImage = presentPendingClipboardImage(
+          muya,
+          preparation,
+          () => (props.coreLease === lease ? coreAcknowledgedMarkupView : undefined),
+          payload
+        )
+        try {
+          const imported = await prepare((payload) => {
+            preparation.capturePayload(payload)
+            presentImage(payload)
+          })
+          const { markdown } = imported
+          if (props.coreLease !== lease || coreAcknowledgedMarkupView === undefined) { throw new Error('Clipboard selection owner changed during preparation') }
+          const currentSelection = () => {
+            if (props.coreLease !== lease || coreAcknowledgedMarkupView === undefined) { throw new Error('Prepared clipboard selection owner changed') }
+            const selection = muyaClipboardCurrentSelection(muya, coreAcknowledgedMarkupView)
+            if (selection === undefined) { throw new Error('Prepared clipboard has no current selection') }
+            return selection
+          }
+          const result = await preparation.complete(markdown, { ...imported, currentSelection })
+          observeCoreInput(adapter, result.accepted ? 'accepted' : 'unsupported', action.tracked, {
+            ...action,
+            markdown
+          })
+          return result.changed
+        } catch (error) {
+          preparation.fail(error instanceof Error ? error : new Error(String(error)))
+          emit('core-fault', error)
+          throw error
+        }
+      },
+      clipboard: (operation, present): boolean => {
+        const adapter = corePlainTextAdapter
+        if (adapter === undefined || coreDraftFrozen) return false
+        invalidateCoreInputConsumers()
+        const tracked = coreTrackChangesMode?.enabled() ?? false
+        let result: ReturnType<MuyaPlainTextCoreAdapter['clipboard']> | undefined
+        let presented = false
+        const presentDraft = (): void => {
+          if (presented) return
+          presented = true
+          present()
+        }
+        try {
+          if (coreAcknowledgedMarkupView === undefined) { throw new Error('Core clipboard has no current model view') }
+          const action = muyaClipboardToModel(muya, coreAcknowledgedMarkupView, operation, tracked)
+          result = adapter.clipboard(action, reconcileCoreHistoryView)
+          if (!result.accepted) presentDraft()
+          observeCoreInput(adapter, result.accepted ? 'accepted' : 'unsupported', tracked, action)
+          return result.changed
+        } catch (error) {
+          if (!result?.accepted) presentDraft()
+          emit('core-fault', error)
+          return result?.changed ?? false
+        }
+      },
+      compositionStart: (operation) => {
+        try {
+          if (corePlainTextAdapter === undefined || coreAcknowledgedMarkupView === undefined) { throw new Error('Core composition has no current model view') }
+          invalidateCoreInputConsumers()
+          corePlainTextAdapter.compositionStart(
+            muyaInputToModel(muya, coreAcknowledgedMarkupView, operation)
+          )
+        } catch (error) {
+          emit('core-fault', error)
+        }
+      },
+      compositionUpdate: (data) => {
+        try {
+          corePlainTextAdapter?.compositionUpdate(data)
+        } catch (error) {
+          emit('core-fault', error)
+        }
+      },
+      compositionEnd: (outcome, present) => {
+        const adapter = corePlainTextAdapter
+        const tracked = coreTrackChangesMode?.enabled() ?? false
+        let result: ReturnType<MuyaPlainTextCoreAdapter['compositionEnd']> | undefined
+        try {
+          if (adapter === undefined) throw new Error('Core composition owner is unavailable')
+          result = adapter.compositionEnd(outcome, reconcileCoreHistoryView, tracked)
+          if (!result.accepted) present()
+          observeCoreInput(adapter, result.accepted ? 'accepted' : 'unsupported', tracked, outcome)
+          return result.changed
+        } catch (error) {
+          if (!result?.accepted) present()
+          emit('core-fault', error)
+          return result?.changed ?? false
+        }
+      },
+      format: (operation): boolean => {
+        const adapter = corePlainTextAdapter
+        if (adapter === undefined || coreDraftFrozen) return false
+        invalidateCoreInputConsumers()
+        const tracked = coreTrackChangesMode?.enabled() ?? false
+        try {
+          if (coreAcknowledgedMarkupView === undefined) { throw new Error('Core native formatting has no current model view') }
+          const action = muyaFormatToModel(muya, coreAcknowledgedMarkupView, operation, tracked)
+          const result = adapter.format(action, reconcileCoreHistoryView)
+          observeCoreInput(adapter, result.accepted ? 'accepted' : 'unsupported', tracked, action)
+          return result.changed
+        } catch (error) {
+          emit('core-fault', error)
+          return false
+        }
+      },
+      input: (operation: DocumentInput, present: () => void): boolean => {
+        const adapter = corePlainTextAdapter
+        if (adapter === undefined || coreDraftFrozen) return false
+        invalidateCoreInputConsumers()
+        const tracked = coreTrackChangesMode?.enabled() ?? false
+        let result: ReturnType<MuyaPlainTextCoreAdapter['input']> | undefined
+        let presented = false
+        const presentDraft = (): void => {
+          if (presented) return
+          presented = true
+          present()
+        }
+        try {
+          if (coreAcknowledgedMarkupView === undefined) { throw new Error('Core native input has no current model view') }
+          const input = muyaInputToModel(muya, coreAcknowledgedMarkupView, operation)
+          result = adapter.input(input, reconcileCoreHistoryView, tracked)
+          if (!result.accepted) presentDraft()
+          observeCoreInput(adapter, !result.accepted ? 'unsupported' : 'accepted', tracked, input)
+          return result.changed
+        } catch (error) {
+          // Only unaccepted input needs a raw draft. Accepted input already
+          // belongs to the model even when presentation or fault handling fails.
+          if (!result?.accepted) presentDraft()
+          emit('core-fault', error)
+          return result?.changed ?? false
+        }
+      }
+    })
+    activeCoreLease.onHandoff(detachDocumentEditing)
     applyCorePlainTextEditability(props.corePlainTextView.bindings)
     refreshCoreReviewItem('next', 0).catch((error) => {
       emit('core-fault', error)
@@ -3677,7 +3812,15 @@ onMounted(() => {
     })
     coreSelectionClipboardAuthority = createProjectedSelectionClipboardAuthority({
       settle: () => corePlainTextAdapter?.settled() ?? Promise.resolve(),
-      selectionSourceRange: (selection) => corePlainTextAdapter?.selectionSourceRange(selection),
+      currentSelection: () => {
+        if (coreAcknowledgedMarkupView === undefined) return undefined
+        const range = muyaClipboardSelection(muya, coreAcknowledgedMarkupView)
+        return range === undefined ||
+          (!('kind' in range) && range.start === range.end) ||
+          ('kind' in range && range.kind === 'model-text' && isEqual(range.anchor, range.focus))
+          ? undefined
+          : { range, revision: activeCoreLease.identity.revision }
+      },
       selectionProjectionAtBarrier: (range) => activeCoreLease.selectionProjectionAtBarrier(range)
     })
     uninstallCoreSelectionClipboardGuard = installProjectedSelectionClipboardGuard(
@@ -3688,24 +3831,6 @@ onMounted(() => {
       },
       retryCoreSelectionClipboard
     )
-    coreCompositionStart = () => {
-      try {
-        corePlainTextAdapter?.compositionStart()
-      } catch (error) {
-        emit('core-fault', error)
-      }
-    }
-    coreCompositionEnd = () => {
-      // Muya's earlier root listener has already queued the committed native
-      // operation. Flush it synchronously so the adapter observes that edit
-      // while its composition barrier is still active.
-      editor.value?.flush()
-      corePlainTextAdapter?.compositionEnd().catch((error) => {
-        emit('core-fault', error)
-      })
-    }
-    coreCompositionRoot.addEventListener('compositionstart', coreCompositionStart)
-    coreCompositionRoot.addEventListener('compositionend', coreCompositionEnd)
     const stopObserving = props.coreLease.binding.observe((event) => {
       if (event.outcome.type !== 'applied') return
       coreConsumerInputEpoch += 1
@@ -3729,12 +3854,20 @@ onMounted(() => {
         showCoreProjection(coreDisplayMode.value).catch((error) => emit('core-fault', error))
       }
     })
-    props.coreLease.settleView(async () => {
-      // A barrier can run before native input delivery. Publish the batch while
-      // this view still owns the document before reading acknowledged source.
-      muya.flush()
-      await corePlainTextAdapter?.settled()
-    })
+    props.coreLease.settleView(
+      async () => {
+        // A barrier can run before native input delivery. Publish the batch while
+        // this view still owns the document before reading acknowledged source.
+        muya.flush()
+        await corePlainTextAdapter?.settled()
+      },
+      () => {
+        // Native commands awaiting Muya's change publication still belong to this
+        // lease. Deliver them before the owner compares the final close identity.
+        muya.flush()
+        return corePlainTextAdapter?.isSettled() === true
+      }
+    )
     refreshCoreConsumerCount()
     props.coreLease.onHandoff(() => {
       uninstallCoreInputDelivery?.()
@@ -3750,18 +3883,11 @@ onMounted(() => {
       coreSearchPresentation = undefined
       coreSearchProjectionEpoch = -1
       coreSearchSnapshot = undefined
-      if (coreCompositionStart !== undefined) {
-        coreCompositionRoot?.removeEventListener('compositionstart', coreCompositionStart)
-      }
-      if (coreCompositionEnd !== undefined) {
-        coreCompositionRoot?.removeEventListener('compositionend', coreCompositionEnd)
-      }
       coreCompositionRoot = undefined
-      coreCompositionStart = undefined
-      coreCompositionEnd = undefined
       stopObserving()
       corePlainTextAdapter?.dispose()
       corePlainTextAdapter = undefined
+      coreRecoveryDraftCapture = undefined
       coreBoundLease = undefined
       coreNativeHistoryScope = undefined
       coreAuthorityPerformanceTrace = undefined
@@ -4087,13 +4213,14 @@ onMounted(() => {
     const { id } = currentFile.value
     if (!id) return
     if (corePlainTextAdapter !== undefined) {
-      coreReviewRefresh.invalidate()
-      refreshCorePassiveConsumers()
-      coreConsumerInputEpoch += 1
-      coreSearchProjectionEpoch = -1
-      coreSearchSnapshot = undefined
-      coreSearchPresentation?.clear()
-      coreSelectionClipboardAuthority?.reset()
+      // Applying a document operation patches its view through the native API.
+      // The originating model operation already owns submission and observation.
+      if (
+        change !== null &&
+        typeof change === 'object' &&
+        (change as { source?: unknown }).source === 'api'
+      ) { return }
+      invalidateCoreInputConsumers()
       const inputGroup = editor.value.getInputHistoryGroup()
       const nativeChange =
         coreNativeHistoryScope !== undefined &&
@@ -4109,26 +4236,7 @@ onMounted(() => {
           tracked: false
         })
       const { result } = route
-      latestCorePlainTextChange = Object.freeze({
-        result,
-        tracked: route.tracked,
-        state: corePlainTextAdapter.state(),
-        change: structuredClone(change)
-      })
-      if (result === 'unsupported') {
-        const error = new Error('Core Muya operation requires reconciliation')
-        emit('core-fault', error)
-      } else {
-        const observedAdapter = corePlainTextAdapter
-        observedAdapter.settled().catch((error) => {
-          if (
-            corePlainTextAdapter === observedAdapter &&
-            observedAdapter.state().status === 'faulted'
-          ) {
-            emit('core-fault', error)
-          }
-        })
-      }
+      observeCoreInput(corePlainTextAdapter, result, route.tracked, change)
       return
     }
     const markdown = editor.value.getMarkdown()
@@ -4290,7 +4398,7 @@ onMounted(() => {
           offset: changes.focus.offset
         })
       })
-      prepareCoreSelectionClipboard(coreAuthorSelection.value, 'rich').catch((error) => {
+      prepareCoreSelectionClipboard('rich').catch((error) => {
         emit('core-fault', error)
       })
     } else if (

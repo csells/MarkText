@@ -6,6 +6,7 @@ import type {
 import Fuse from 'fuse.js';
 import { replaceBlockByLabel } from '../../block/blockTransforms';
 import ParagraphContent from '../../block/content/paragraphContent';
+import { dispatchDocumentBlockquote, dispatchDocumentHeading } from '../../editor/documentEditing';
 import { deepClone } from '../../utils';
 import { query } from '../../utils/dom';
 import { h, patch } from '../../utils/snabbdom';
@@ -102,11 +103,7 @@ export class ParagraphQuickInsertMenu extends BaseScrollFloat {
                 const label = getLabelFromEvent(event);
                 if (label) {
                     event.preventDefault();
-                    replaceBlockByLabel({
-                        label,
-                        block: anchorBlock.parent!,
-                        muya: this.muya,
-                    });
+                    this._insertBlock(label, anchorBlock);
                 }
             }
         };
@@ -183,6 +180,7 @@ export class ParagraphQuickInsertMenu extends BaseScrollFloat {
                         {
                             dataset: { label },
                             on: {
+                                mousedown: event => event.preventDefault(),
                                 click: () => {
                                     this.selectItem(item);
                                 },
@@ -255,14 +253,38 @@ export class ParagraphQuickInsertMenu extends BaseScrollFloat {
     }
 
     override selectItem({ label }: IQuickInsertMenuItem['children'][number]) {
-        const { _block: block, muya } = this;
-        replaceBlockByLabel({
-            label,
-            block: block!.parent!,
-            muya,
-        });
+        const { _block: block } = this;
+        this._insertBlock(label, block!);
         // delay hide to avoid dispatch enter handler
         setTimeout(this.hide.bind(this));
+    }
+
+    private _insertBlock(label: string, block: ParagraphContent) {
+        const { muya } = this;
+        muya.flush();
+        muya.editor.history.cutoff();
+        try {
+            const level = ['atx-heading 1', 'atx-heading 2', 'atx-heading 3', 'atx-heading 4', 'atx-heading 5', 'atx-heading 6'].indexOf(label) + 1;
+            if (muya.editor.documentEditing && (level > 0 || label === 'block-quote')) {
+                if (!block.domNode?.isConnected)
+                    throw new Error('Quick-insert target is no longer in the document');
+                block.setCursor(block.text.length, block.text.length, true);
+                const selection = muya.editor.selection.getDOMSelection();
+                if (!selection)
+                    throw new Error('Quick-insert target has no document selection');
+                if (label === 'block-quote')
+                    dispatchDocumentBlockquote(muya, 'quick-insert', selection);
+                else
+                    dispatchDocumentHeading(muya, { type: 'quick-insert', level }, selection);
+            }
+            else {
+                replaceBlockByLabel({ label, block: block.parent!, muya });
+            }
+            muya.flush();
+        }
+        finally {
+            muya.editor.history.cutoff();
+        }
     }
 
     getItemElement(item: IQuickInsertMenuItem['children'][number]) {

@@ -15,6 +15,7 @@ export interface MarkdownLiteralRange {
     | 'diagram'
   readonly construct?: MarkdownInlineConstruct
   readonly blockKind?: 'footnote-definition'
+  readonly htmlTermination?: 'blank-line' | 'explicit'
 }
 
 export interface MarkdownInlineConstruct {

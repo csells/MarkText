@@ -52,6 +52,12 @@ class JSONState {
 
     private _state: TState[] = [];
 
+    destroy() {
+        // Deliver the outgoing edit while Muya's change listeners still exist.
+        // Cancelling the batch here loses input when its owner drains later.
+        this.flush();
+    }
+
     constructor(private _muya: Muya, stateOrMarkdown: TState[] | string) {
         this.setContent(stateOrMarkdown);
     }

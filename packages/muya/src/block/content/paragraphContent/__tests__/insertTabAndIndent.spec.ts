@@ -214,6 +214,31 @@ describe('paragraphContent.tabHandler — indent / unindent a list item', () => 
 });
 
 describe('paragraphContent.tabHandler — jump past a closing inline marker', () => {
+    it('retains the nested HTML closer before list indentation', async () => {
+        const source = '- first\n- **<u>word</u>**\n';
+        const muya = bootMuya(source);
+        const content = contentByText(muya, '**<u>word</u>**');
+        tabAt(muya, content, 9);
+        await flush();
+        expect(muya.getMarkdown()).toBe(source);
+        expect(content.getCursor()!.start.offset).toBe(13);
+    });
+
+    it.each([
+        ['- first\n- [ ] second\n', '- first\n\n- [ ] se    cond\n'],
+        ['- [ ] first\n- second\n', '- [ ] first\n\n- se    cond\n'],
+    ])('retains the first item boundary in a task/plain group: %s', async (source, expected) => {
+        const muya = bootMuya(source);
+        // Native serialization separates different list widget groups even
+        // before Tab; the model-backed path retains the imported source bytes.
+        expect(muya.getMarkdown()).toBe(expected.replace('se    cond', 'second'));
+        const content = contentByText(muya, 'second');
+        tabAt(muya, content, 2);
+        await flush();
+        expect(muya.getMarkdown()).toBe(expected);
+        expect(content.getCursor()!.start.offset).toBe(6);
+    });
+
     it('tab just inside a closing `**` moves the caret past the marker with no text change', async () => {
         const muya = bootMuya('**bold**\n');
         const content = contentByText(muya, '**bold**');

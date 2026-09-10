@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { Muya } from '@muyajs/core'
+import { type as json1, type JSONOp } from 'ot-json1'
 import { canonicalSourceForMuyaTable } from '@/documentAuthority/muyaTableSourceCodec'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -242,7 +243,7 @@ describe('Muya plain-text source edit adapter', () => {
     })
   })
 
-  it('captures the native cross-paragraph typing replacement operation', () => {
+  it('preserves the native cross-paragraph replacement across Cut and typing publications', () => {
     const muya = boot('alpha\n\nbeta\n\ngamma\n')
     const first = muya.editor.scrollPage?.queryBlock([0, 'text'])
     const last = muya.editor.scrollPage?.queryBlock([2, 'text'])
@@ -267,9 +268,9 @@ describe('Muya plain-text source edit adapter', () => {
       direction: 'forward' as never,
       type: 'Range' as never
     })
-    let observed: unknown
-    muya.eventCenter.on('json-change', (change: unknown) => {
-      observed = change
+    const observed: Array<{ source: string; prevDoc: unknown; doc: unknown; op: JSONOp }> = []
+    muya.eventCenter.on('json-change', (change: (typeof observed)[number]) => {
+      observed.push(change)
     })
 
     muya.editor.clipboard.cutHandler()
@@ -290,7 +291,17 @@ describe('Muya plain-text source edit adapter', () => {
     )
     muya.flush()
 
-    expect(observed).toEqual({
+    // This explicit Cut is now published before the following input. The
+    // composed native operation must still produce the exact original result.
+    expect(observed).toHaveLength(2)
+    expect(observed.map((change) => change.source)).toEqual(['user', 'user'])
+    expect(observed[0].doc).toEqual(observed[1].prevDoc)
+    expect({
+      source: observed[0].source,
+      prevDoc: observed[0].prevDoc,
+      doc: observed[1].doc,
+      op: json1.compose(observed[0].op, observed[1].op)
+    }).toEqual({
       source: 'user',
       prevDoc: [
         { name: 'paragraph', text: 'alpha' },
@@ -304,6 +315,13 @@ describe('Muya plain-text source edit adapter', () => {
         [2, { r: true }]
       ]
     })
+    expect(muya.getMarkdown()).toBe('alXmma\n')
+    muya.undo()
+    muya.flush()
+    expect(muya.getMarkdown()).toBe('alpha\n\nbeta\n\ngamma\n')
+    muya.redo()
+    muya.flush()
+    expect(muya.getMarkdown()).toBe('alXmma\n')
   })
 
   it('emits no native change until IME composition commits its final text', () => {

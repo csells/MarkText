@@ -18,6 +18,30 @@
  */
 
 declare module '@muyajs/core' {
+  import type {
+    DocumentClipboardInput,
+    DocumentCompositionResult,
+    DocumentDOMPoint,
+    DocumentEditing,
+    DocumentFormatInput,
+    DocumentInput,
+    DocumentInputSyntaxContext,
+    DocumentTextInput,
+    DocumentTextPoint,
+    DocumentTextReplacement
+  } from '@muyajs/core/document-editing'
+  export type {
+    DocumentClipboardInput,
+    DocumentCompositionResult,
+    DocumentDOMPoint,
+    DocumentEditing,
+    DocumentFormatInput,
+    DocumentInput,
+    DocumentInputSyntaxContext,
+    DocumentTextInput,
+    DocumentTextPoint,
+    DocumentTextReplacement
+  }
   export function applyNativeOperation(previous: unknown, operation: unknown): unknown
   export function serializeNativeTable(
     state: unknown,
@@ -73,6 +97,7 @@ declare module '@muyajs/core' {
   // The editor instance surface is kept permissive (`any`) — every member
   // that crosses the editor boundary was already `any` in editor.vue.
   export class Muya {
+    editor: { bindDocumentEditing(model: DocumentEditing): () => void; [key: string]: any }
     showImageSelectorAtSelection(): boolean
     static use(plugin: any, options?: Record<string, unknown>): void
     constructor(element: HTMLElement, options?: Record<string, unknown>)
@@ -86,6 +111,14 @@ declare module '@muyajs/core' {
   export const FootnoteTool: any
   export const ImageEditTool: any
   export const ImagePathPicker: any
+  export class PendingImage {
+    constructor(muya: Muya)
+    present(
+      src: string,
+      reference: { contextElement: Element; getBoundingClientRect(): DOMRect }
+    ): void
+    destroy(): void
+  }
   export const ImageResizeBar: any
   export const ImageToolBar: any
   export const InlineFormatToolbar: any

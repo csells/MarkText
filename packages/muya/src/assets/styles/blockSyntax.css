@@ -946,7 +946,8 @@ pre.mu-active.mu-fenced-code::after {
     outline: none;
 }
 
-.mu-content:empty::after {
+.mu-content:empty::after,
+.mu-content.mu-empty-content::after {
     content: '\200B';
 }
 

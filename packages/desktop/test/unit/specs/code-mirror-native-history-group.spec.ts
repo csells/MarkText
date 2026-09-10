@@ -6,11 +6,16 @@ import { createCodeMirrorCoreAdapter } from '@/documentAuthority/codeMirrorCoreA
 
 it('uses the native CodeMirror typing group for one authoritative undo and redo', async() => {
   const actor = createCoreActor()
-  const binding = createEditorCoreBinding({ request: async request => actor.handle(request), dispose: () => actor.dispose() })
+  const binding = createEditorCoreBinding({
+    request: (request) => actor.handle(request),
+    dispose: () => actor.dispose()
+  })
   await binding.open({ documentId: 'source-groups.md', source: 'seed\n' })
   const doc = new codeMirror.Doc('seed\n')
   const adapter = createCodeMirrorCoreAdapter(doc, binding, {
-    canonicalSource: 'seed\n', insertedLineEnding: '\n', nativeHistoryScope: 'source-view'
+    canonicalSource: 'seed\n',
+    insertedLineEnding: '\n',
+    nativeHistoryScope: 'source-view'
   })
   try {
     for (const [index, text] of ['A', 'B', 'C'].entries()) {

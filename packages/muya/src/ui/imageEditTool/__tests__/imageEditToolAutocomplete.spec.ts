@@ -26,6 +26,7 @@ function makeFakeMuya(imagePathAutoComplete?: (src: string) => Promise<unknown[]
 
     const muya = {
         domNode: editorDomNode,
+        focus: vi.fn(),
         eventCenter,
         i18n: { t: (s: string) => s },
         ui: { shownFloat: new Set() },
@@ -65,6 +66,21 @@ describe('imageEditTool — imagePathAutoComplete wiring', () => {
     afterEach(() => {
         tool?.hide();
         vi.restoreAllMocks();
+    });
+
+    it.each(['src', 'alt', 'title'])('consumes Enter in %s before returning keyboard focus', (field) => {
+        const { muya, eventCenter } = makeFakeMuya();
+        tool = new ImageEditTool(muya);
+        openTool(eventCenter, 'https://example.com/image.png');
+        if (field !== 'src')
+            tool.container!.querySelector<HTMLElement>('.description a')!.click();
+        const input = tool.container!.querySelector<HTMLInputElement>(`input.${field}`)!;
+        input.focus();
+        const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+        input.dispatchEvent(event);
+        expect(event.defaultPrevented).toBe(true);
+        expect(tool.status).toBe(false);
+        expect(muya.focus).toHaveBeenCalled();
     });
 
     it('calls imagePathAutoComplete with the current src value and dispatches muya-image-picker on keyup', async () => {

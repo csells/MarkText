@@ -4,7 +4,7 @@ import {
   createCoreActor,
   createCoreDocumentSessionManager,
   createEditorCoreBinding,
-  type CoreActorPort,
+  type CoreModelOwner,
   type CoreReply,
   type CoreRequest
 } from '@/documentAuthority'
@@ -13,11 +13,14 @@ describe('Core actor Markup WYSIWYG barrier', () => {
   it('edits a visible selection across hidden annotation syntax atomically', async() => {
     const actor = createCoreActor()
     const binding = createEditorCoreBinding({
-      request: async request => structuredClone(actor.handle(request)), dispose: () => actor.dispose()
+      request: (request) => structuredClone(actor.handle(request)),
+      dispose: () => actor.dispose()
     })
     await binding.open({ documentId: 'markup.md', source: 'a{++bc++}d\n' })
     const outcome = await binding.submit({
-      kind: 'markup-edits', edits: [{ start: 5, end: 10, insert: '' }], projections: []
+      kind: 'markup-edits',
+      edits: [{ start: 5, end: 10, insert: '' }],
+      projections: []
     }).acknowledged
     expect(outcome.type).toBe('applied')
     expect(await binding.sourceAtBarrier()).toMatchObject({ source: 'a{++b++}\n' })
@@ -26,11 +29,13 @@ describe('Core actor Markup WYSIWYG barrier', () => {
   })
   it('exposes the view through the production binding barrier', async() => {
     const actor = createCoreActor()
-    const port: CoreActorPort = {
-      async request(request: CoreRequest): Promise<CoreReply> {
+    const port: CoreModelOwner = {
+      request(request: CoreRequest): CoreReply {
         return structuredClone(actor.handle(structuredClone(request)))
       },
-      dispose(): void { actor.dispose() }
+      dispose(): void {
+        actor.dispose()
+      }
     }
     const binding = createEditorCoreBinding(port)
     await binding.open({
@@ -38,7 +43,7 @@ describe('Core actor Markup WYSIWYG barrier', () => {
       source: 'head\n\nmiddle\n\ntail\n'
     })
 
-    await expect(binding.plainTextViewAtBarrier()).resolves.toMatchObject({
+    await expect(binding.plainTextViewAtBarrier()).toMatchObject({
       type: 'plain-text-view',
       revision: 1,
       view: {
@@ -92,11 +97,13 @@ describe('Core actor Markup WYSIWYG barrier', () => {
             path: [1, 'text'],
             sourceRange: { start: 6, end: 12 },
             text: 'middle',
-            segments: [{
-              text: { start: 0, end: 6 },
-              source: { start: 6, end: 12 },
-              syntax: { start: 6, end: 12 }
-            }],
+            segments: [
+              {
+                text: { start: 0, end: 6 },
+                source: { start: 6, end: 12 },
+                syntax: { start: 6, end: 12 }
+              }
+            ],
             syntax: { kind: 'paragraph', range: { start: 6, end: 12 } }
           },
           { path: [2, 'text'], sourceRange: { start: 14, end: 18 }, text: 'tail' }
@@ -109,12 +116,15 @@ describe('Core actor Markup WYSIWYG barrier', () => {
   it('drains the live view before the manager requests its projection', async() => {
     const actor = createCoreActor()
     const manager = createCoreDocumentSessionManager({
-      createBinding: () => createEditorCoreBinding({
-        async request(request: CoreRequest): Promise<CoreReply> {
-          return structuredClone(actor.handle(structuredClone(request)))
-        },
-        dispose(): void { actor.dispose() }
-      })
+      createBinding: () =>
+        createEditorCoreBinding({
+          request(request: CoreRequest): CoreReply {
+            return structuredClone(actor.handle(structuredClone(request)))
+          },
+          dispose(): void {
+            actor.dispose()
+          }
+        })
     })
     await manager.open({
       documentId: 'managed.md',
@@ -123,7 +133,9 @@ describe('Core actor Markup WYSIWYG barrier', () => {
     })
     const lease = manager.lease('managed.md')
     const order: string[] = []
-    lease.settleView(async() => { order.push('settled') })
+    lease.settleView(async() => {
+      order.push('settled')
+    })
 
     const result = await manager.plainTextViewBarrier('managed.md')
 
@@ -138,12 +150,15 @@ describe('Core actor Markup WYSIWYG barrier', () => {
   it('projects an acknowledged history revision without re-entering its view barrier', async() => {
     const actor = createCoreActor()
     const manager = createCoreDocumentSessionManager({
-      createBinding: () => createEditorCoreBinding({
-        async request(request: CoreRequest): Promise<CoreReply> {
-          return structuredClone(actor.handle(structuredClone(request)))
-        },
-        dispose(): void { actor.dispose() }
-      })
+      createBinding: () =>
+        createEditorCoreBinding({
+          request(request: CoreRequest): CoreReply {
+            return structuredClone(actor.handle(structuredClone(request)))
+          },
+          dispose(): void {
+            actor.dispose()
+          }
+        })
     })
     await manager.open({
       documentId: 'history.md',
@@ -151,9 +166,9 @@ describe('Core actor Markup WYSIWYG barrier', () => {
       lineEnding: '\n'
     })
     const lease = manager.lease('history.md')
-    lease.settleView(() => Promise.reject(
-      new Error('history projection must not re-enter its own settlement')
-    ))
+    lease.settleView(() =>
+      Promise.reject(new Error('history projection must not re-enter its own settlement'))
+    )
     const edited = await lease.binding.submit({
       edits: [{ start: 4, end: 4, insert: '!' }],
       projections: []
@@ -165,9 +180,7 @@ describe('Core actor Markup WYSIWYG barrier', () => {
     }).acknowledged
     expect(undone).toMatchObject({ type: 'applied', revision: 3 })
 
-    await expect(
-      lease.projectAcknowledgedPlainTextView(3)
-    ).resolves.toMatchObject({
+    await expect(lease.projectAcknowledgedPlainTextView(3)).toMatchObject({
       type: 'plain-text-view',
       revision: 3,
       source: 'seed\n',
@@ -200,38 +213,46 @@ describe('Core actor Markup WYSIWYG barrier', () => {
         kind: 'view',
         markdown: '# heading\n',
         state: [{ name: 'atx-heading', text: '# heading', meta: { level: 1 } }],
-        bindings: [{
-          path: [0, 'text'],
-          text: '# heading',
-          sourceRange: { start: 0, end: 9 },
-          segments: [{
-            text: { start: 0, end: 9 },
-            source: { start: 0, end: 9 },
-            syntax: { start: 0, end: 9 }
-          }],
-          syntax: {
-            kind: 'heading',
-            range: { start: 0, end: 9 },
-            attributes: { level: 1 },
-            children: [{
-              kind: 'text',
-              range: { start: 2, end: 9 },
-              attributes: { semanticText: 'heading' }
-            }]
+        bindings: [
+          {
+            path: [0, 'text'],
+            text: '# heading',
+            sourceRange: { start: 0, end: 9 },
+            segments: [
+              {
+                text: { start: 0, end: 9 },
+                source: { start: 0, end: 9 },
+                syntax: { start: 0, end: 9 }
+              }
+            ],
+            syntax: {
+              kind: 'heading',
+              range: { start: 0, end: 9 },
+              attributes: { level: 1 },
+              children: [
+                {
+                  kind: 'text',
+                  range: { start: 2, end: 9 },
+                  attributes: { semanticText: 'heading' }
+                }
+              ]
+            }
           }
-        }]
+        ]
       }
     })
     if (reply.type !== 'plain-text-view' || reply.view.kind !== 'view') {
       throw new Error('Expected a mapped heading view')
     }
     expect(reply.view.bindings[0]?.editable).not.toBe(false)
-    expect(actor.handle({
-      type: 'source-at-barrier',
-      session: 12,
-      sequence: 3,
-      baseRevision: 1
-    })).toMatchObject({
+    expect(
+      actor.handle({
+        type: 'source-at-barrier',
+        session: 12,
+        sequence: 3,
+        baseRevision: 1
+      })
+    ).toMatchObject({
       type: 'source',
       revision: 1,
       source: '# heading\n'

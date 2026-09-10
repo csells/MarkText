@@ -1,3 +1,4 @@
+import { frontMatterPolicy, type FrontMatterPolicy } from '@marktext/input-policy'
 import {
   composeMarkdownLiteralRanges,
   type MarkdownContainerDepthFailure,
@@ -62,6 +63,7 @@ interface MarkdownFenceState {
 interface MarkdownFrontMatterState {
   readonly openStart: number
   readonly openLineStart: number
+  readonly style: FrontMatterPolicy['style']
 }
 
 interface MarkdownIndentedCodeState {
@@ -180,10 +182,16 @@ export interface MarkdownLaneAdvance {
 }
 
 export interface MarkdownPendingLineBlockFact {
+  /** No content remains after the line's owned container prefixes. */
+  readonly blank: boolean
+  /** Indentation remaining after the line's owned container prefixes. */
+  readonly indentation: number
   readonly paragraphOpen: boolean
   readonly continuesExistingParagraph: boolean
   readonly containerPath: readonly ('blockquote' | 'list-item')[]
   readonly containers: readonly MarkdownPendingLineContainerFact[]
+  /** Canonical ranges of new container markers present on this pending line. */
+  readonly containerOpeners: readonly Readonly<{ start: number; end: number }>[]
   readonly listContinuationIndentations:
   readonly MarkdownPendingListContinuationIndentationFact[]
 }
@@ -439,6 +447,7 @@ export interface PlainMarkdownLaneParseWithDefinitions
 }
 
 export interface PlainMarkdownLine {
+  readonly listContinuationIndentations: readonly ListContinuationIndentationState[]
   readonly start: number
   readonly contentEnd: number
   readonly end: number
@@ -457,6 +466,7 @@ export interface PlainMarkdownLine {
 export type PlainMarkdownContainer =
   | Readonly<{
     readonly kind: 'blockquote'
+    readonly markerRange?: Readonly<{ start: number, end: number }>
     readonly continued: boolean
     readonly start: number
     readonly end: number
@@ -488,6 +498,8 @@ type NextBacktickRunStart = (
 ) => number | undefined
 
 export interface MarkdownMatchingScopePolicy {
+  /** End of contiguous canonical spelling; elided arm markers cannot join a run. */
+  readonly delimiterRunLimit?: (start: number, ceiling: number) => number
   readonly matchingScopeAt: (
     offset: number
   ) => Readonly<{ readonly id: number; readonly depth: number }> | undefined
@@ -626,6 +638,7 @@ interface ListMarker {
 }
 
 interface ContainerLineState {
+  readonly blockquoteMarkers: readonly Readonly<{ depth: number, start: number, end: number }>[]
   readonly activeContainers: readonly ActiveBlockContainer[]
   readonly continuedContainerDepth: number
   readonly listContinuationIndentations:
@@ -664,6 +677,8 @@ interface MarkdownContainerOpener {
 function isSpaceOrTab(codeUnit: number): boolean {
   return codeUnit === 32 || codeUnit === 9
 }
+
+export { advanceColumn as advanceMarkdownColumn }
 
 function advanceColumn(column: number, codeUnit: number): number {
   return codeUnit === 9 ? column + (4 - (column % 4)) : column + 1
@@ -815,6 +830,7 @@ function analyzeContainerLine(
   // List indentation is relative to its parent container, so flattening lists
   // and block quotes into separate counters cannot represent `> -` and `- >`.
   const activeContainers: ActiveBlockContainer[] = []
+  const blockquoteMarkers: Array<Readonly<{ depth: number, start: number, end: number }>> = []
   const listContinuationIndentations: ListContinuationIndentationState[] = []
   let containerBaseColumn = column
   for (const inherited of inheritedContainers) {
@@ -837,6 +853,7 @@ function analyzeContainerLine(
         column = matchStartColumn
         break
       }
+      const markerStart = offset
       column += 1
       offset += 1
       let contentColumn = column
@@ -845,6 +862,7 @@ function analyzeContainerLine(
         column = advanceColumn(column, source.charCodeAt(offset))
         offset += 1
       }
+      blockquoteMarkers.push(Object.freeze({ depth: activeContainers.length, start: markerStart, end: offset }))
       containerBaseColumn = contentColumn
     } else {
       const triviaStart = offset
@@ -927,6 +945,7 @@ function analyzeContainerLine(
         column = advanceColumn(column, source.charCodeAt(offset))
         offset += 1
       }
+      blockquoteMarkers.push(Object.freeze({ depth: activeContainers.length - 1, start: markerStart, end: offset }))
       containerBaseColumn = contentColumn
       continue
     }
@@ -986,6 +1005,7 @@ function analyzeContainerLine(
   }
   const provisionalState: ContainerLineState = Object.freeze({
     activeContainers: Object.freeze(activeContainers),
+    blockquoteMarkers: Object.freeze(blockquoteMarkers),
     continuedContainerDepth: inheritedMatchDepth,
     listContinuationIndentations: Object.freeze(listContinuationIndentations),
     blockQuoteDepth: activeContainers.reduce(
@@ -1176,7 +1196,7 @@ export function inspectMarkdownPendingLineBlock(
     checkpoint.definition !== undefined ||
     (
       checkpoint.frontMatterEligible &&
-      trimMarkdownLineWhitespace(lineText) === '---'
+      frontMatterOpeningStyle(lineText) !== undefined
     ) ||
     (!checkpoint.paragraphOpen && lineState.indentation >= 4) ||
     htmlBlockOpening(lineText, lineState, checkpoint.paragraphOpen) !== undefined ||
@@ -1234,6 +1254,8 @@ export function inspectMarkdownPendingLineBlock(
         })])
     })
   return Object.freeze({
+    blank: lineState.blank,
+    indentation: lineState.indentation,
     paragraphOpen,
     continuesExistingParagraph:
       checkpoint.paragraphOpen &&
@@ -1254,6 +1276,10 @@ export function inspectMarkdownPendingLineBlock(
           contentIndent: container.contentIndent
         })
     )),
+    containerOpeners: Object.freeze(lineState.openers.flatMap(opener => {
+      const range = mapContiguousTrivia(opener.start, opener.end)
+      return range === undefined ? [] : [range]
+    })),
     listContinuationIndentations: Object.freeze(listContinuationIndentations)
   })
 }
@@ -2012,8 +2038,9 @@ function createNextBacktickRunStart(
       reportThrough(offset)
       continue
     }
+    const runLimit = matchingPolicy?.delimiterRunLimit?.(offset, source.length) ?? source.length
     let runEnd = offset + 1
-    while (runEnd < source.length && source.charCodeAt(runEnd) === 96) {
+    while (runEnd < runLimit && source.charCodeAt(runEnd) === 96) {
       runEnd += 1
       reportThrough(runEnd)
     }
@@ -2102,8 +2129,9 @@ function createNextMathRunStart(
       reportThrough(offset)
       continue
     }
+    const runLimit = matchingPolicy?.delimiterRunLimit?.(offset, source.length) ?? source.length
     let runEnd = offset + 1
-    while (runEnd < source.length && source.charCodeAt(runEnd) === 36) {
+    while (runEnd < runLimit && source.charCodeAt(runEnd) === 36) {
       runEnd += 1
       reportThrough(runEnd)
     }
@@ -2301,19 +2329,27 @@ function trimMarkdownLineWhitespace(value: string): string {
   return value.slice(start, end)
 }
 
-function isFrontMatterDelimiter(line: string): boolean {
+function frontMatterOpeningStyle(line: string): FrontMatterPolicy['style'] | undefined {
   const delimiter = trimMarkdownLineWhitespace(line)
-  return delimiter === '---' || delimiter === '...'
+  const style = delimiter[0]
+  if (style !== '-' && style !== '+' && style !== ';' && style !== '{') return undefined
+  return frontMatterPolicy(style).open === delimiter ? style : undefined
+}
+
+function isFrontMatterDelimiter(line: string, style: FrontMatterPolicy['style']): boolean {
+  const delimiter = trimMarkdownLineWhitespace(line)
+  return delimiter === frontMatterPolicy(style).close || (style === '-' && delimiter === '...')
 }
 
 function hasFrontMatterCloser(
   source: string,
   start: number,
-  limit: number
+  limit: number,
+  style: FrontMatterPolicy['style']
 ): boolean {
   for (let lineStart = start; lineStart < limit;) {
     const contentEnd = sourceLineContentEnd(source, lineStart, limit)
-    if (isFrontMatterDelimiter(source.slice(lineStart, contentEnd))) {
+    if (isFrontMatterDelimiter(source.slice(lineStart, contentEnd), style)) {
       return true
     }
     const next = sourceLineEnd(source, contentEnd, limit)
@@ -2633,6 +2669,7 @@ export function createMarkdownLaneState(
       ) {
         completedLiterals.push(Object.freeze({
           kind: 'html-block',
+          htmlTermination: htmlBlock.terminator === undefined ? 'blank-line' : 'explicit',
           start: htmlBlock.openStart,
           end: Math.min(htmlBlock.lastOwnedEnd, lineStart)
         }))
@@ -3035,8 +3072,9 @@ export function createMarkdownLaneState(
               }
             }
             if (mathEnabled && source.charCodeAt(offset) === 36) {
+              const runLimit = matchingScopePolicy?.delimiterRunLimit?.(offset, sourceEnd) ?? sourceEnd
               let runEnd = offset + 1
-              while (runEnd < sourceEnd && source.charCodeAt(runEnd) === 36) {
+              while (runEnd < runLimit && source.charCodeAt(runEnd) === 36) {
                 runEnd += 1
               }
               const delimiterLength = runEnd - offset
@@ -3154,8 +3192,9 @@ export function createMarkdownLaneState(
           offset += 1
           continue
         }
+        const runLimit = matchingScopePolicy?.delimiterRunLimit?.(offset, sourceEnd) ?? sourceEnd
         let runEnd = offset + 1
-        while (runEnd < sourceEnd && source.charCodeAt(runEnd) === 96) {
+        while (runEnd < runLimit && source.charCodeAt(runEnd) === 96) {
           runEnd += 1
         }
         const markerLength = runEnd - offset
@@ -3224,7 +3263,7 @@ export function createMarkdownLaneState(
       sourceEnd === boundaryEnd
     ) {
       const boundaryLine = materializeMarkdownLine(checkpoint.linePath) + text
-      if (isFrontMatterDelimiter(boundaryLine)) {
+      if (isFrontMatterDelimiter(boundaryLine, frontMatter.style)) {
         completedLiterals.push(Object.freeze({
           kind: 'front-matter',
           start: frontMatter.openStart,
@@ -3243,6 +3282,7 @@ export function createMarkdownLaneState(
       if (htmlBlockTerminatedOnLine(boundaryLine, htmlBlock)) {
         completedLiterals.push(Object.freeze({
           kind: 'html-block',
+          htmlTermination: htmlBlock.terminator === undefined ? 'blank-line' : 'explicit',
           start: htmlBlock.openStart,
           end: sourceEnd
         }))
@@ -3337,6 +3377,7 @@ export function createMarkdownLaneState(
       ) {
         completedLiterals.push(Object.freeze({
           kind: 'html-block',
+          htmlTermination: htmlBlock.terminator === undefined ? 'blank-line' : 'explicit',
           start: htmlBlock.openStart,
           end: Math.min(htmlBlock.lastOwnedEnd, lineStart)
         }))
@@ -3344,6 +3385,7 @@ export function createMarkdownLaneState(
       }
       const lineEnteredWithFence = fence !== undefined
       const lineEnteredWithFrontMatter = frontMatter !== undefined
+      const frontMatterStyle = frontMatterEligible ? frontMatterOpeningStyle(completedLine) : undefined
       let lineOwnedByIndentedCode = false
       if (indentedCode !== undefined) {
         if (
@@ -3374,6 +3416,7 @@ export function createMarkdownLaneState(
           if (htmlBlockTerminatedOnLine(completedLine, htmlBlock)) {
             completedLiterals.push(Object.freeze({
               kind: 'html-block',
+              htmlTermination: htmlBlock.terminator === undefined ? 'blank-line' : 'explicit',
               start: htmlBlock.openStart,
               end: sourceEnd
             }))
@@ -3387,6 +3430,7 @@ export function createMarkdownLaneState(
         } else if (lineState.blank) {
           completedLiterals.push(Object.freeze({
             kind: 'html-block',
+            htmlTermination: htmlBlock.terminator === undefined ? 'blank-line' : 'explicit',
             start: htmlBlock.openStart,
             end: htmlBlock.lastOwnedEnd
           }))
@@ -3448,7 +3492,7 @@ export function createMarkdownLaneState(
       } else if (frontMatter !== undefined) {
         if (
           lineStart !== frontMatter.openLineStart &&
-          isFrontMatterDelimiter(completedLine)
+          isFrontMatterDelimiter(completedLine, frontMatter.style)
         ) {
           completedLiterals.push(Object.freeze({
             kind: 'front-matter',
@@ -3458,14 +3502,14 @@ export function createMarkdownLaneState(
           frontMatter = undefined
         }
       } else if (
-        frontMatterEligible &&
-        trimMarkdownLineWhitespace(completedLine) === '---' &&
-        hasFrontMatterCloser(source, sourceEnd, laneEnd)
+        frontMatterStyle !== undefined &&
+        hasFrontMatterCloser(source, sourceEnd, laneEnd, frontMatterStyle)
       ) {
         frontMatter = Object.freeze({
           openStart:
             linePathSourceOffsetAt(checkpoint.linePath, 0) ?? lineStart,
-          openLineStart: lineStart
+          openLineStart: lineStart,
+          style: frontMatterStyle
         })
       } else if (fence !== undefined) {
         if (
@@ -3673,6 +3717,7 @@ export function createMarkdownLaneState(
     if (checkpoint.htmlBlock !== undefined) {
       completedLiterals.push(Object.freeze({
         kind: 'html-block',
+        htmlTermination: checkpoint.htmlBlock.terminator === undefined ? 'blank-line' : 'explicit',
         start: checkpoint.htmlBlock.openStart,
         end: boundary
       }))
@@ -3731,6 +3776,7 @@ export function createMarkdownLaneState(
     if (releasesHtmlBlock && checkpoint.htmlBlock !== undefined) {
       completedLiterals.push(Object.freeze({
         kind: 'html-block',
+        htmlTermination: checkpoint.htmlBlock.terminator === undefined ? 'blank-line' : 'explicit',
         start: checkpoint.htmlBlock.openStart,
         end: Math.min(checkpoint.htmlBlock.lastOwnedEnd, boundary)
       }))
@@ -3766,6 +3812,21 @@ export function createMarkdownLaneState(
     markerOffset: number,
     laneEnd: number
   ): MarkdownLaneAdvance => {
+    if (checkpoint.pendingCarriageReturn !== undefined) {
+      // A marker is not LF. Complete the preceding CR line before deciding
+      // whether its literal owner still governs this delimiter.
+      const pending = checkpoint.pendingCarriageReturn
+      const flushed = advanceCore(
+        Object.freeze({ ...checkpoint, pendingCarriageReturn: undefined }),
+        pending.sourceStart, pending.sourceEnd, 0, laneEnd, markerOffset, false
+      )
+      const prepared = prepareForMarker(flushed.checkpoint, markerOffset, laneEnd)
+      return Object.freeze({
+        checkpoint: prepared.checkpoint,
+        completedLiterals: Object.freeze([...flushed.completedLiterals, ...prepared.completedLiterals]),
+        completedLines: Object.freeze([...(flushed.completedLines ?? []), ...(prepared.completedLines ?? [])])
+      })
+    }
     if (
       checkpoint.indentedCode === undefined &&
       checkpoint.definition === undefined &&
@@ -3853,6 +3914,7 @@ export function createMarkdownLaneState(
     ) {
       completedLiterals.push(Object.freeze({
         kind: 'html-block',
+        htmlTermination: htmlBlock.terminator === undefined ? 'blank-line' : 'explicit',
         start: htmlBlock.openStart,
         end: Math.min(htmlBlock.lastOwnedEnd, checkpoint.lineStart)
       }))
@@ -4091,13 +4153,18 @@ export function buildPlainMarkdownLine(
     literalOpen
   )
   let openerIndex = 0
+  let quoteMarkerIndex = 0
   const containers = lineState.activeContainers.map(
     (container, depth): PlainMarkdownContainer => {
       const continued = depth < lineState.continuedContainerDepth
       const opener = continued ? undefined : lineState.openers[openerIndex++]
       if (container.kind === 'blockquote') {
+        const candidate = lineState.blockquoteMarkers[quoteMarkerIndex]
+        const marker = candidate?.depth === depth ? candidate : undefined
+        if (marker !== undefined) quoteMarkerIndex += 1
         return Object.freeze({
           kind: 'blockquote',
+          ...(marker === undefined ? {} : { markerRange: Object.freeze({ start: marker.start, end: marker.end }) }),
           continued,
           start: opener?.start ?? start,
           end: opener?.end ?? start
@@ -4119,6 +4186,7 @@ export function buildPlainMarkdownLine(
     start,
     contentEnd,
     end,
+    listContinuationIndentations: lineState.listContinuationIndentations,
     blank: lineState.blank,
     lazy: lineState.lazy,
     contentOffset: lineState.contentOffset,

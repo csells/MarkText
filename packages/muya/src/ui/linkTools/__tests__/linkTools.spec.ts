@@ -20,6 +20,7 @@ import LinkTools from '../index';
 // White-box view onto LinkTools' private render state, which these tests
 // inject directly to exercise `selectItem`'s dispatch branches.
 interface ILinkToolsView {
+    _linkReference: HTMLElement | null;
     _linkBlock: Format | null;
     _linkInfo: {
         href?: string | null;
@@ -90,6 +91,8 @@ describe('linkTools.selectItem — dispatches to block.unlink / jumpClick', () =
     it('unlink: routes to block.unlink with { range, text } from linkInfo', () => {
         const { tools } = bootLinkTools();
         const blockUnlink = vi.fn();
+        const reference = document.createElement('a');
+        tools._linkReference = reference;
         // linkBlock is typed as Format | null; the fake only implements
         // `unlink` (the only method selectItem calls).
         tools._linkBlock = { unlink: blockUnlink } as unknown as Format;
@@ -106,7 +109,7 @@ describe('linkTools.selectItem — dispatches to block.unlink / jumpClick', () =
         expect(blockUnlink).toHaveBeenCalledWith({
             range: { start: 5, end: 30 },
             text: 'hi',
-        });
+        }, reference);
     });
 
     it('unlink: no-ops when block is missing (defensive)', () => {

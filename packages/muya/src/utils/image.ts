@@ -1,3 +1,4 @@
+export { encodeImageSrc } from '@marktext/input-policy';
 import type { ImageToken } from '../inlineRenderer/types';
 import { isWin } from '../config/index';
 import { tokenizer } from '../inlineRenderer/lexer';
@@ -219,16 +220,6 @@ export async function checkImageContentType(url: string): Promise<boolean | null
     }
 }
 
-// Percent-encode the chars that break a markdown image destination — an
-// unbalanced `)` truncates the path (#3060). `encodeURIComponent` leaves `(`/`)`
-// untouched, so encode them explicitly.
-export function encodeImageSrc(src: string): string {
-    return src
-        .replace(/ /g, encodeURI(' '))
-        .replace(/#/g, encodeURIComponent('#'))
-        .replace(/\(/g, '%28')
-        .replace(/\)/g, '%29');
-}
 
 export function correctImageSrc(src: string) {
     if (src) {

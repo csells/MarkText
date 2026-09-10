@@ -45,6 +45,7 @@ class LinkTools extends BaseFloat {
     private _oldVNode: VNode | null = null;
     private _linkInfo: ILinkInfo | null = null;
     private _linkBlock: Format | null = null;
+    private _linkReference: HTMLElement | null = null;
     private _icons: LinkToolIcon[] = iconsConfig;
     private _hideTimer: ReturnType<typeof setTimeout> | null = null;
     private _linkContainer: HTMLElement;
@@ -68,6 +69,7 @@ class LinkTools extends BaseFloat {
         super.listen();
         eventCenter.subscribe('muya-link-tools', ({ reference, linkInfo, block }: ILinkToolsEventPayload) => {
             if (reference) {
+                this._linkReference = reference;
                 this._linkInfo = linkInfo ?? null;
                 this._linkBlock = block ?? null;
                 setTimeout(() => {
@@ -164,7 +166,7 @@ class LinkTools extends BaseFloat {
                     block.unlink({
                         range: linkInfo.range,
                         text: linkInfo.text ?? '',
-                    });
+                    }, this._linkReference ?? undefined);
                 }
                 this.hide();
                 break;

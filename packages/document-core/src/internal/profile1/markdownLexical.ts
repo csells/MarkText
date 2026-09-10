@@ -88,10 +88,42 @@ function inlineParagraphLimit(
   return limit
 }
 
+/** Tag-name facts from the same lexer used to admit an inline HTML token. */
+export function inlineHtmlTagPrefix(source: string, start: number, limit: number):
+  { name: string, closing: boolean, end: number } | undefined {
+  let offset = start + 1
+  const closing = source.charCodeAt(offset) === 47
+  if (closing) offset += 1
+  if (offset >= limit || !isAsciiLetter(source.charCodeAt(offset))) return undefined
+  const nameStart = offset++
+  while (offset < limit && isHtmlTagNameCodeUnit(source.charCodeAt(offset))) offset += 1
+  return { name: source.slice(nameStart, offset).toLowerCase(), closing, end: offset }
+}
+
+export interface InlineHtmlAttribute {
+  readonly name: string
+  readonly start: number
+  readonly end: number
+  readonly valueStart?: number
+  readonly valueEnd?: number
+  readonly quote: string
+}
+
+export interface InlineHtmlTag {
+  readonly name: string
+  readonly closing: boolean
+  readonly selfClosing: boolean
+  readonly start: number
+  readonly end: number
+  readonly closeStart: number
+  readonly attributes: readonly InlineHtmlAttribute[]
+}
+
 export function findInlineHtmlEnd(
   source: string,
   start: number,
-  limit: number = source.length
+  limit: number = source.length,
+  onTag?: (tag: InlineHtmlTag) => void
 ): number | undefined {
   limit = inlineParagraphLimit(source, start, limit)
   if (source.startsWith('<!--', start)) {
@@ -107,35 +139,31 @@ export function findInlineHtmlEnd(
     return boundedTerminatorEnd(source, '>', start + 3, limit)
   }
 
-  let offset = start + 1
-  const closingTag = source.charCodeAt(offset) === 47
-  if (closingTag) {
-    offset += 1
+  const tag = inlineHtmlTagPrefix(source, start, limit)
+  if (tag === undefined) return undefined
+  let offset = tag.end
+  const attributes: InlineHtmlAttribute[] | undefined = onTag === undefined ? undefined : []
+  const finish = (closeStart: number, end: number): number => {
+    onTag?.({ ...tag, start, end, closeStart, selfClosing: end - closeStart === 2, attributes: attributes ?? [] })
+    return end
   }
-  if (!isAsciiLetter(source.charCodeAt(offset))) {
-    return undefined
-  }
-  offset += 1
-  while (offset < limit && isHtmlTagNameCodeUnit(source.charCodeAt(offset))) {
-    offset += 1
-  }
-  if (closingTag) {
+  if (tag.closing) {
     while (offset < limit && isHtmlWhitespace(source.charCodeAt(offset))) {
       offset += 1
     }
-    return source.charCodeAt(offset) === 62 && offset < limit ? offset + 1 : undefined
+    return source.charCodeAt(offset) === 62 && offset < limit ? finish(offset, offset + 1) : undefined
   }
 
   while (offset < limit) {
     if (source.charCodeAt(offset) === 62) {
-      return offset + 1
+      return finish(offset, offset + 1)
     }
     if (
       source.charCodeAt(offset) === 47 &&
       offset + 1 < limit &&
       source.charCodeAt(offset + 1) === 62
     ) {
-      return offset + 2
+      return finish(offset, offset + 2)
     }
     if (!isHtmlWhitespace(source.charCodeAt(offset))) {
       return undefined
@@ -144,18 +172,19 @@ export function findInlineHtmlEnd(
       offset += 1
     }
     if (source.charCodeAt(offset) === 62 && offset < limit) {
-      return offset + 1
+      return finish(offset, offset + 1)
     }
     if (
       source.charCodeAt(offset) === 47 &&
       offset + 1 < limit &&
       source.charCodeAt(offset + 1) === 62
     ) {
-      return offset + 2
+      return finish(offset, offset + 2)
     }
     if (!isHtmlAttributeNameStart(source.charCodeAt(offset))) {
       return undefined
     }
+    const attributeStart = offset
     offset += 1
     while (offset < limit && isHtmlAttributeNameCodeUnit(source.charCodeAt(offset))) {
       offset += 1
@@ -168,6 +197,7 @@ export function findInlineHtmlEnd(
       // Leave the separator for the outer loop. It authenticates the next
       // attribute; consuming it here makes a following attribute look as
       // though it began without required whitespace.
+      attributes?.push({ name: source.slice(attributeStart, attributeNameEnd).toLowerCase(), start: attributeStart, end: attributeNameEnd, quote: '' })
       offset = attributeNameEnd
       continue
     }
@@ -178,12 +208,14 @@ export function findInlineHtmlEnd(
     const quote = source.charCodeAt(offset)
     if (quote === 34 || quote === 39) {
       offset += 1
+      const valueStart = offset
       while (offset < limit && source.charCodeAt(offset) !== quote) {
         offset += 1
       }
       if (source.charCodeAt(offset) !== quote || offset >= limit) {
         return undefined
       }
+      attributes?.push({ name: source.slice(attributeStart, attributeNameEnd).toLowerCase(), start: attributeStart, end: offset + 1, valueStart, valueEnd: offset, quote: String.fromCharCode(quote) })
       offset += 1
       continue
     }
@@ -207,6 +239,7 @@ export function findInlineHtmlEnd(
     if (offset === valueStart) {
       return undefined
     }
+    attributes?.push({ name: source.slice(attributeStart, attributeNameEnd).toLowerCase(), start: attributeStart, end: offset, valueStart, valueEnd: offset, quote: '' })
   }
   return undefined
 }

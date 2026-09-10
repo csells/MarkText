@@ -6,7 +6,8 @@ import type { IRenderCursor } from '../../../selection/types';
 import type { ImageToken } from '../../types';
 import type Renderer from '../index';
 import { describe, expect, it, vi } from 'vitest';
-import { h } from '../../../utils/snabbdom';
+import { h, toHTML } from '../../../utils/snabbdom';
+import { createPresentationImageToken } from '../../presentationImage';
 import image from '../image';
 
 // Regression tests for marktext commit cb7be189 (#1318):
@@ -99,6 +100,26 @@ const fakeCursor = {} as unknown as IRenderCursor;
 function asRenderer(r: IFakeRenderer): Renderer {
     return r as unknown as Renderer;
 }
+
+it('renders owned HTML image dimensions and alignment through the native widget', () => {
+    const renderer = makeRenderer({ id: 'model-image', isSuccess: true, width: 640, height: 480 });
+    const token = createPresentationImageToken({
+        raw: '<img src="a.png" width="120" height="80" data-align="center">',
+        range: { start: 0, end: 59 },
+        src: 'a.png',
+        alt: 'a{b}',
+        title: '',
+        width: '120',
+        height: '80',
+        align: 'center',
+    });
+    const output = image.call(asRenderer(renderer), { h, block: fakeBlock, token, cursor: fakeCursor });
+    const host = document.createElement('div');
+    host.innerHTML = toHTML(h('div', Array.isArray(output) ? output : [output]));
+    expect(host.querySelector('.mu-inline-image.center img')?.getAttribute('width')).toBe('120');
+    expect(host.querySelector('img')?.getAttribute('height')).toBe('80');
+    expect(host.querySelector('img')?.getAttribute('alt')).toBe('a{b}');
+});
 
 describe('image renderer — small image class (marktext cb7be189)', () => {
     it('adds `mu-small-image` class when loaded width is below 100px', () => {
@@ -286,4 +307,37 @@ describe('image renderer — fail / empty wrapper classes', () => {
 
         expect(renderer.loadImageAsync).not.toHaveBeenCalled();
     });
+});
+
+describe('cached image selection identity', () => {
+    it('retains the exact rendered wrapper ID when the selected image uses a cached preview', () => {
+        const renderer = makeRenderer({ id: 'image-cache', isSuccess: true });
+        const token = makeImageToken();
+        const selected = { token, imageId: 'image-cache_0', block: fakeBlock };
+        renderer.muya.editor.selection.image = selected;
+        renderer.urlMap.set(token.attrs.src, 'data:image/png;base64,AQID');
+        const out = image.call(asRenderer(renderer), { h, block: fakeBlock, token, cursor: fakeCursor });
+        expect(getWrapperSelector(out)).toContain(`#${selected.imageId}.`);
+        expect(selected.imageId).toBe('image-cache_0');
+    });
+
+    it('does not retarget a selected image when another block renders the same cached source', () => {
+        const renderer = makeRenderer({ id: 'other-cache', isSuccess: true });
+        const token = makeImageToken();
+        const selected = { token, imageId: 'selected_0', block: {} as Format };
+        renderer.muya.editor.selection.image = selected;
+        renderer.urlMap.set(token.attrs.src, 'data:image/png;base64,AQID');
+        image.call(asRenderer(renderer), { h, block: fakeBlock, token, cursor: fakeCursor });
+        expect(selected.imageId).toBe('selected_0');
+    });
+});
+
+it('updates selected wrapper identity when the image finishes loading during selection rendering', () => {
+    const renderer = makeRenderer({ id: 'image-cache', isSuccess: true });
+    const token = makeImageToken();
+    const selected = { token, imageId: 'image-cache', block: fakeBlock };
+    renderer.muya.editor.selection.image = selected;
+    const out = image.call(asRenderer(renderer), { h, block: fakeBlock, token, cursor: fakeCursor });
+    expect(getWrapperSelector(out)).toContain(`#${selected.imageId}.`);
+    expect(selected.imageId).toBe('image-cache_0');
 });

@@ -8,6 +8,7 @@ import type Clipboard from './index';
 import Format from '../block/base/format';
 import { ScrollPage } from '../block/scrollPage';
 import { CLASS_NAMES } from '../config';
+import { createDocumentTextDraft } from '../editor/documentEditing';
 import { SelectionDirection, SelectionType } from '../selection/types';
 import { getBlock } from '../utils/dom';
 
@@ -343,6 +344,27 @@ function cutTableStructure(clipboard: Clipboard): boolean {
 }
 
 export function cutSelection(clipboard: Clipboard): void {
+    const model = clipboard.muya.editor.documentEditing;
+    if (model && clipboard.selection.table.hasSelection) {
+        const selection = clipboard.selection.table.getDOMSelection();
+        if (!selection)
+            throw new Error('Table cut has no current cell selection');
+        clipboard.muya.flush();
+        model.clipboard({ kind: 'table', operation: 'cut', selection }, () => {});
+        return;
+    }
+    if (model) {
+        const selection = clipboard.selection.image
+            ? clipboard.selection.getImageDOMSelection()
+            : clipboard.selection.getDOMSelection();
+        if (selection) {
+            const draft = createDocumentTextDraft(clipboard.muya, selection, '');
+            clipboard.muya.flush();
+            model.clipboard({ kind: 'cut', selection }, draft);
+        }
+        return;
+    }
+
     // Cut a selected image: the copy half wrote its raw markdown; remove it here.
     const selectedImage = clipboard.selection.image;
     if (selectedImage) {
@@ -457,6 +479,15 @@ function collapseLanguageInputCut(
 // frozen; once the cells are empty, the next press removes whole column(s) /
 // row(s) / the whole table, or drops the selection for a partial rectangle.
 export function deleteTableSelection(clipboard: Clipboard): void {
+    const model = clipboard.muya.editor.documentEditing;
+    if (model) {
+        const selection = clipboard.selection.table.getDOMSelection();
+        if (!selection)
+            throw new Error('Table delete has no current cell selection');
+        clipboard.muya.flush();
+        model.clipboard({ kind: 'table', operation: 'delete', selection }, () => {});
+        return;
+    }
     if (clipboard.selection.table.emptySelectedCells())
         return;
 

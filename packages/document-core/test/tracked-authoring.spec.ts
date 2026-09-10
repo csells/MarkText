@@ -240,3 +240,40 @@ describe('tracked text authoring', () => {
     expect(next.revision.source).toBe('{~~old~>new!~~}')
   })
 })
+
+it.each([
+  { source: 'a{++b++}c', start: 1, end: 8, expected: 'ac' },
+  { source: 'a{++b{>>inside<<}++}{>>outside<<}c', start: 1, end: 20, expected: 'a{>>outside<<}c' },
+  { source: 'a{++b++}{++c++}d', start: 1, end: 8, expected: 'a{++c++}d' }
+])('cancels the exact owned pending addition in $source', ({ source, start, end, expected }) => {
+  const core = createDocumentCore()
+  const revision = core.open(source)
+  const edit = core.trackedEdit(revision, { start, end, insert: '' })
+  expect(edit).toBeDefined()
+  if (edit === undefined) throw new Error('Pending addition cancellation refused')
+  const next = core.apply(revision, [edit]).revision
+  expect(next.source).toBe(expected)
+  expect(core.project(next, 'original').markdown).toBe(core.project(revision, 'original').markdown)
+})
+
+it('does not cancel an addition within an existing deleted arm', () => {
+  const core = createDocumentCore()
+  const revision = core.open('a{--{++b++}--}c')
+  expect(core.trackedEdit(revision, { start: 4, end: 11, insert: '' })).toBeUndefined()
+  expect(revision.source).toBe('a{--{++b++}--}c')
+})
+
+it.each([
+  { source: '{++ab++}', at: 0, expected: '{++Xab++}' },
+  { source: '{++ab++}', at: 3, expected: '{++Xab++}' },
+  { source: '{++ab++}', at: 5, expected: '{++abX++}' },
+  { source: '{++ab++}', at: 8, expected: '{++abX++}' },
+  { source: '{~~old~>new~~}', at: 0, expected: '{~~old~>Xnew~~}' },
+  { source: '{~~old~>new~~}', at: 8, expected: '{~~old~>Xnew~~}' },
+  { source: '{~~old~>new~~}', at: 11, expected: '{~~old~>newX~~}' },
+  { source: '{~~old~>new~~}', at: 14, expected: '{~~old~>newX~~}' }
+])('preserves inline draft merging at the exterior or interior boundary $at in $source', ({ source, at, expected }) => {
+  const core = createDocumentCore()
+  const previous = core.open(source)
+  expect(core.track(previous, { start: at, end: at, insert: 'X' }).revision.source).toBe(expected)
+})

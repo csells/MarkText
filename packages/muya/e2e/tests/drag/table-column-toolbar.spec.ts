@@ -223,3 +223,148 @@ test.describe('TableColumnToolbar (per-column alignment popup)', () => {
             .toBe(0);
     });
 });
+
+const REVIEW_COLUMNS = 'away\n\n| a{++a++} | aa |\n| :--- | ---: |\n| aa | aa |\n';
+
+for (const example of [
+    { name: 'consumes hidden comments within the removed column', source: 'away\n\n| first | second |\r\n| :--- | ---: |\r\n| {++cell++}{>>note<<} | remove |\r\n', button: 'li.item.remove', target: 0, survivor: 0, expected: 'away\n\n| second |\r\n| ---: |\r\n| remove |\r\n', next: 'away\n\n| xsecond |\r\n| ---: |\r\n| remove |\r\n' },
+    { name: 'inserts before the clicked column', button: 'li.item.insert.left', survivor: 1, expected: 'away\n\n| a{++a++} |     | aa |\n| :--- | --- | ---: |\n| aa |     | aa |\n', next: 'away\n\n| a{++a++} |     x| aa |\n| :--- | --- | ---: |\n| aa |     | aa |\n' },
+    { name: 'removes the clicked column', button: 'li.item.remove', survivor: 0, expected: 'away\n\n| a{++a++} |\n| :--- |\n| aa |\n', next: 'away\n\n| xa{++a++} |\n| :--- |\n| aa |\n' },
+    { name: 'inserts after the last column', button: 'li.item.insert.right', survivor: 2, expected: 'away\n\n| a{++a++} | aa |     |\n| :--- | ---: | --- |\n| aa | aa |     |\n', next: 'away\n\n| a{++a++} | aa |     x|\n| :--- | ---: | --- |\n| aa | aa |     |\n' },
+    { name: 'removes the first annotated column', button: 'li.item.remove', target: 0, survivor: 0, expected: 'away\n\n| aa |\n| ---: |\n| aa |\n', next: 'away\n\n| xaa |\n| ---: |\n| aa |\n' },
+    { name: 'tracks insertion before the clicked column', button: 'li.item.insert.left', tracked: true, survivor: 1, expected: 'away\n\n| a{++a++} |{++     |++} aa |\n| :--- |{++ --- |++} ---: |\n| aa |{++     |++} aa |\n', next: 'away\n\n| a{++a++} |{++     x|++} aa |\n| :--- |{++ --- |++} ---: |\n| aa |{++     |++} aa |\n' },
+    { name: 'tracks removal of the clicked column', button: 'li.item.remove', tracked: true, survivor: 0, expected: 'away\n\n| a{++a++} {--| aa --}|\n| :--- {--| ---: --}|\n| aa {--| aa --}|\n', next: 'away\n\n| {++x++}a{++a++} {--| aa --}|\n| :--- {--| ---: --}|\n| aa {--| aa --}|\n' },
+    { name: 'inserts before implicit cells in a short body row', source: 'away\n\n| aa | bb |\n|---|---|\n| cc |\n', button: 'li.item.insert.left', survivor: 1, expected: 'away\n\n| aa |     | bb |\n|---| --- |---|\n| cc |     |\n', next: 'away\n\n| aa |     x| bb |\n|---| --- |---|\n| cc |     |\n' },
+    { name: 'removes the physical cell beside an implicit body cell', source: 'away\n\n| aa | bb |\n|---|---|\n| cc |\n', button: 'li.item.remove', target: 0, survivor: 0, expected: 'away\n\n| bb |\n|---|\n||\n', next: 'away\n\n| xbb |\n|---|\n||\n' },
+]) {
+    test(`Core column toolbar ${example.name} with the editor caret elsewhere`, async ({ page }) => {
+        await page.evaluate(async ({ source, tracked }) => {
+            const modulePath = '/coreBoundaryControl.ts';
+            const control = await import(/* @vite-ignore */ modulePath);
+            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
+            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(2, 2);
+        }, { source: example.source ?? REVIEW_COLUMNS, tracked: example.tracked === true });
+        try {
+            const table = page.locator(editor.table).first();
+            const toolbar = await revealColumnToolbar(page, table, example.target ?? 1);
+            await toolbar.locator(example.button).click();
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.expected }, anchor: 0, caret: 0, legacyCalls: [] });
+            const cell = table.locator('tr').first().locator('th, td').nth(example.survivor).locator('.mu-content');
+            expect(await cell.evaluate(node => window.muya!.getSelection()?.anchor.block.domNode === node)).toBe(true);
+            await page.keyboard.type('x');
+            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.next });
+            await page.evaluate(() => window.coreBoundary.history('undo'));
+            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.expected });
+            await page.evaluate(() => window.coreBoundary.history('undo'));
+            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.source ?? REVIEW_COLUMNS });
+        }
+        finally {
+            await page.evaluate(() => window.coreBoundary.dispose());
+        }
+    });
+}
+
+for (const bound of [false, true]) {
+    test(`${bound ? 'Core' : 'upstream'} column toolbar removes the sole column and selects outside its table`, async ({ page }) => {
+        const source = 'away\n\n| aa |\n| --- |\n| aa |\n\nafter\n';
+        await page.evaluate(async ({ source, bound }) => {
+            if (bound) {
+                const modulePath = '/coreBoundaryControl.ts';
+                const control = await import(/* @vite-ignore */ modulePath);
+                window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
+            }
+            else {
+                window.muya!.setContent(source);
+            }
+            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(2, 2);
+        }, { source, bound });
+        try {
+            const table = page.locator(editor.table).first();
+            const toolbar = await revealColumnToolbar(page, table, 0);
+            await toolbar.locator('li.item.remove').click();
+            await expect(page.locator(editor.table)).toHaveCount(0);
+            expect(await page.evaluate(() => window.muya!.getSelection()?.anchor.block.text)).toBe('after');
+            await page.keyboard.type('x');
+            expect(await page.evaluate(() => window.muya!.getSelection()?.anchor.block.text)).toBe('xafter');
+            if (bound) {
+                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: 'away\n\n\n\nxafter\n' });
+                await page.evaluate(() => window.coreBoundary.history('undo'));
+                await page.evaluate(() => window.coreBoundary.history('undo'));
+                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
+            }
+        }
+        finally {
+            if (bound)
+                await page.evaluate(() => window.coreBoundary.dispose());
+        }
+    });
+}
+
+for (const tracked of [false, true]) {
+    test(`Core column alignment toggle preserves owned review text and the existing editor caret with Track ${tracked}`, async ({ page }) => {
+        const source = 'away\n\n| head {++one++} | head two | head three |\n| --- | --- | --- |\n| alpha{>>note<<} | bravo | charlie |\n';
+        const aligned = source.replace('| --- | --- | --- |', tracked ? '| {++:++}---{++:++} | --- | --- |' : '| :---: | --- | --- |');
+        await page.evaluate(async ({ source, tracked }) => {
+            const modulePath = '/coreBoundaryControl.ts';
+            const control = await import(/* @vite-ignore */ modulePath);
+            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, tracked);
+            window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(2, 2);
+        }, { source, tracked });
+        try {
+            const table = page.locator(editor.table).first();
+            expect(await columnAligns(table, 0)).toEqual(['none', 'none']);
+            let toolbar = await revealColumnToolbar(page, table, 0);
+            await toolbar.locator('li.item.center').click();
+            await page.evaluate(() => window.muya!.flush());
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: aligned }, anchor: 2, caret: 2, legacyCalls: [] });
+            expect(await columnAligns(table, 0)).toEqual(['center', 'center']);
+            expect(await columnAligns(table, 1)).toEqual(['none', 'none']);
+            expect(await columnAligns(table, 2)).toEqual(['none', 'none']);
+            await page.mouse.move(5, 5);
+            await page.waitForTimeout(80);
+            toolbar = await revealColumnToolbar(page, table, 0);
+            await toolbar.locator('li.item.center').click();
+            await page.evaluate(() => window.muya!.flush());
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, anchor: 2, caret: 2, legacyCalls: [] });
+            expect(await columnAligns(table, 0)).toEqual(['none', 'none']);
+            await page.keyboard.type('x');
+            const next = source.replace('away', tracked ? 'aw{++x++}ay' : 'awxay');
+            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: next });
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ anchor: 3, caret: 3, legacyCalls: [] });
+            for (const expected of [source, aligned, source]) {
+                await page.evaluate(() => window.coreBoundary.history('undo'));
+                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+            }
+            for (const expected of [aligned, source, next]) {
+                await page.evaluate(() => window.coreBoundary.history('redo'));
+                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+            }
+        }
+        finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+    });
+}
+
+test('upstream column alignment toggle keeps the existing editor caret outside the table', async ({ page }) => {
+    const source = 'away\n\n| head {++one++} | head two | head three |\n| --- | --- | --- |\n| alpha{>>note<<} | bravo | charlie |\n';
+    await page.evaluate((source) => {
+        window.muya!.setContent(source);
+        window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(2, 2);
+    }, source);
+    const table = page.locator(editor.table).first();
+    for (const alignment of ['center', 'none']) {
+        const toolbar = await revealColumnToolbar(page, table, 0);
+        await toolbar.locator('li.item.center').click();
+        await page.evaluate(() => window.muya!.flush());
+        expect(await columnAligns(table, 0)).toEqual([alignment, alignment]);
+        expect(await page.evaluate(() => {
+            const selection = window.muya!.getSelection();
+            return { anchor: selection?.anchor.offset, focus: selection?.focus.offset, text: selection?.focus.block.text };
+        })).toEqual({ anchor: 2, focus: 2, text: 'away' });
+        await page.mouse.move(5, 5);
+        await page.waitForTimeout(80);
+    }
+    await page.keyboard.type('x');
+    expect(await page.evaluate(() => window.muya!.getSelection()?.focus.block.text)).toBe('awxay');
+    await page.evaluate(() => window.muya!.flush());
+    expect(await getMarkdown(page)).toMatch(/^awxay\n/);
+});

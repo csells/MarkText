@@ -15,7 +15,7 @@ const managerForTest = () =>
     createBinding: () => {
       const actor = createCoreActor()
       return createEditorCoreBinding({
-        request: async(request) => actor.handle(request),
+        request: (request) => actor.handle(request),
         dispose: () => actor.dispose()
       })
     }
@@ -24,15 +24,10 @@ const managerForTest = () =>
 describe('Core Markdown preference changes', () => {
   it('waits for an admitted configuration before reading a review item', async() => {
     const actor = createCoreActor()
-    let release: (() => void) | undefined
-    const held = new Promise<void>((resolve) => {
-      release = resolve
-    })
     const manager = createCoreDocumentSessionManager({
       createBinding: () =>
         createEditorCoreBinding({
-          request: async(request) => {
-            if (request.type === 'configure') await held
+          request: (request) => {
             return actor.handle(request)
           },
           dispose: () => actor.dispose()
@@ -46,8 +41,7 @@ describe('Core Markdown preference changes', () => {
       projections: []
     }).acknowledged
     const reading = lease.binding.reviewItemAtBarrier('next', 0)
-    const checked = expect(reading).resolves.toMatchObject({ type: 'review-item', revision: 2 })
-    release?.()
+    const checked = expect(reading).toMatchObject({ type: 'review-item', revision: 2 })
     try {
       await changing
       await checked
@@ -61,15 +55,10 @@ describe('Core Markdown preference changes', () => {
     'orders a %s read before configuration admitted at the pending-drain boundary',
     async(readKind) => {
       const actor = createCoreActor()
-      let releaseConfigure: (() => void) | undefined
-      const heldConfigure = new Promise<void>((resolve) => {
-        releaseConfigure = resolve
-      })
       const manager = createCoreDocumentSessionManager({
         createBinding: () =>
           createEditorCoreBinding({
-            request: async(request) => {
-              if (request.type === 'configure') await heldConfigure
+            request: (request) => {
               return actor.handle(request)
             },
             dispose: () => actor.dispose()
@@ -89,7 +78,7 @@ describe('Core Markdown preference changes', () => {
                 : readKind === 'review'
                   ? Promise.resolve().then(() => lease.binding.reviewItemAtBarrier('next', 0))
                   : lease.projectAcknowledgedPlainTextView(1)
-      let changing: Promise<unknown> | undefined
+      let changing: unknown
       queueMicrotask(() => {
         changing = lease.binding.submit({
           kind: 'configure',
@@ -98,9 +87,8 @@ describe('Core Markdown preference changes', () => {
         }).acknowledged
       })
       try {
-        await expect(read).resolves.toBeDefined()
+        expect(await read).toBeDefined()
       } finally {
-        releaseConfigure?.()
         await changing
         await manager.handoff(lease)
         await manager.close(lease.documentId)
@@ -128,7 +116,9 @@ describe('Core Markdown preference changes', () => {
     )
     const comment = await lease.binding.reviewItemAtBarrier('previous', source.length)
     expect(comment.type).toBe('review-item')
-    if (comment.type !== 'review-item' || comment.commentProjection === undefined) { throw new Error('Expected isolated comment') }
+    if (comment.type !== 'review-item' || comment.commentProjection === undefined) {
+      throw new Error('Expected isolated comment')
+    }
     expect(kinds(comment.commentProjection.ast.root)).toEqual(
       expect.arrayContaining(['superscript', 'footnote-reference', 'footnote-definition'])
     )
@@ -221,14 +211,14 @@ describe('Core Markdown preference changes', () => {
   it('queues Markup preferences after composition without replacing its binding or adding an undo step', async() => {
     const actor = createCoreActor()
     const binding = createEditorCoreBinding({
-      request: async(request) => actor.handle(request),
+      request: (request) => actor.handle(request),
       dispose: () => actor.dispose()
     })
     await binding.open({ documentId: 'markup.md', source: 'H~2~O' })
     const initial = await binding.plainTextViewAtBarrier()
     if (initial.type !== 'plain-text-view') throw new Error('Expected initial view')
-    const reconcile = async() => {
-      const view = await binding.plainTextViewAtBarrier()
+    const reconcile = () => {
+      const view = binding.plainTextViewAtBarrier()
       if (view.type !== 'plain-text-view') throw new Error('Expected configured view')
       return view.view.bindings
     }
@@ -238,15 +228,14 @@ describe('Core Markdown preference changes', () => {
       undefined,
       reconcile
     )
-    adapter.compositionStart()
-    expect(
-      adapter.accept({
-        source: 'user',
-        prevDoc: [{ name: 'paragraph', text: 'H~2~O' }],
-        doc: [{ name: 'paragraph', text: '日H~2~O' }],
-        op: [0, 'text', { es: ['日'] }]
-      })
-    ).toBe('accepted')
+    adapter.compositionStart({
+      range: { start: 0, end: 0 },
+      selection: { ranges: [{ anchor: 0, focus: 0 }], primary: 0 },
+      inputType: 'insertCompositionText',
+      data: null,
+      options: { autoPairBracket: true, autoPairQuote: true, autoPairMarkdownSyntax: true }
+    })
+    adapter.compositionUpdate('日')
     let configured = false
     const changing = adapter
       .configure({ subscriptAndSuperscript: true }, reconcile)
@@ -256,7 +245,10 @@ describe('Core Markdown preference changes', () => {
       })
     await Promise.resolve()
     expect(configured).toBe(false)
-    await adapter.compositionEnd()
+    expect(adapter.compositionEnd({ kind: 'commit', data: '日' }, reconcile)).toEqual({
+      accepted: true,
+      changed: true
+    })
     expect((await changing)?.type).toBe('applied')
     expect(await binding.sourceAtBarrier()).toMatchObject({ source: '日H~2~O' })
     const projected = await binding.displayProjectionAtBarrier!('revised')

@@ -319,10 +319,13 @@ function applySyntaxReplacementForOracle(
 ): MarkdownAstNode {
   const delta = replacement.next.syntax.end - replacement.previous.syntax.end
   const prefix = previousRoot.children.filter(
-    child => child.range.end <= replacement.previous.syntax.start
+    child => child.range.end <= replacement.previous.syntax.start &&
+      child.range.start < replacement.previous.syntax.start
   )
   const suffix = previousRoot.children
-    .filter(child => child.range.start >= replacement.previous.syntax.end)
+    .filter(child => child.range.start >= replacement.previous.syntax.end &&
+      !(child.range.start === child.range.end && child.range.start === previousRoot.range.end &&
+        replacement.previous.syntax.end === previousRoot.range.end))
     .map(child => shiftMarkdownAstNodeForOracle(child, delta))
   return Object.freeze({
     kind: previousRoot.kind,
@@ -1902,11 +1905,16 @@ describe('document-core semantic changes', () => {
     }
     const replacement = markup.replacements[0]
     if (replacement === undefined) throw new Error('Expected replacement')
-    expect(replacement.syntaxBlocks).toEqual([])
+    expect(replacement.syntaxBlocks).toEqual([{
+      kind: 'paragraph', range: { start: 6, end: 6 }, attributes: {}, children: []
+    }])
 
     const freshCore = createDocumentCore()
     const fresh = freshCore.open(nextSource)
     const freshMarkup = freshCore.project(fresh, 'markup')
+    for (const mode of ['original', 'revised'] as const) {
+      expect(freshCore.project(fresh, mode).ast.root.children).toHaveLength(2)
+    }
     expect(applyMarkupReplacement(previousMarkup.events, replacement))
       .toEqual(freshMarkup.events)
     expect(applySyntaxReplacementForOracle(
@@ -3900,7 +3908,17 @@ describe('document-core semantic changes', () => {
 
     const projection = core.project(opened, 'markup')
 
-    expect(projection.syntax.ast.root.children).toHaveLength(paragraphCount)
+    expect(projection.syntax.ast.root.children).toHaveLength(paragraphCount + 1)
+    expect(projection.syntax.ast.root.children.slice(0, paragraphCount).every(node =>
+      node.kind === 'paragraph' && node.range.end - node.range.start === 1
+    )).toBe(true)
+    expect(projection.syntax.ast.root.children.at(-1)).toEqual({
+      kind: 'paragraph', range: { start: 390_000, end: 390_000 }, attributes: {}, children: []
+    })
+    expect(projection.syntax.coordinates.toSource(390_000, 'next')).toBe(390_000)
+    for (const mode of ['original', 'revised'] as const) {
+      expect(core.project(opened, mode).ast.root.children).toHaveLength(paragraphCount)
+    }
   }, 15_000)
 
   it('keeps canonical source persistent across 100 regional edits', () => {

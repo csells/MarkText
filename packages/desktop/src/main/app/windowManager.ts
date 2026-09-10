@@ -12,6 +12,7 @@ import type Preference from '../preferences'
 import { WindowType } from '../windows/base'
 import type { WindowTypeValue } from '../windows/base'
 import type EditorWindow from '../windows/editor'
+import { isWindowPreparingToClose } from '../windows/prepareClose'
 
 class WindowActivityList {
   // Oldest             Newest
@@ -76,10 +77,7 @@ interface AppMenuLike {
 }
 
 interface EditorBufferStoreLike {
-  handleClose(
-    restoreBufferId: string | undefined,
-    windows: { id: number; win: BaseWindow }[]
-  ): void
+  handleClose(restoreBufferId: string | undefined, windows: { id: number; win: BaseWindow }[]): void
 }
 
 class WindowManager extends TypedEmitter<WindowManagerEvents> {
@@ -256,26 +254,33 @@ class WindowManager extends TypedEmitter<WindowManagerEvents> {
   findBestWindowToOpenIn(fileList: string[]): { windowId: number | null; fileList: string[] }[] {
     if (!fileList || !Array.isArray(fileList) || !fileList.length) return []
     const { windows } = this
-    const lastActiveEditorId = this.getActiveEditorId() // editor id or null
+    const editors = [...windows.values()].filter(
+      (window): window is EditorWindow =>
+        window.type === WindowType.EDITOR &&
+        window.browserWindow !== null &&
+        !isWindowPreparingToClose(window.browserWindow)
+    )
+    const activeEditorId = this.getActiveEditorId()
+    const lastActiveEditorId = editors.some((editor) => editor.id === activeEditorId)
+      ? activeEditorId
+      : (editors[0]?.id ?? null)
 
-    if (this.windowCount <= 1) {
+    if (this.windowCount <= 1 || editors.length === 0) {
       return [{ windowId: lastActiveEditorId, fileList }]
     }
 
     // Array of scores, same order like fileList.
     let filePathScores: { id: number | null; score: number }[] | null = null
-    for (const window of windows.values()) {
-      if (window.type === WindowType.EDITOR) {
-        const scores = (window as EditorWindow).getCandidateScores(fileList)
-        if (!filePathScores) {
-          filePathScores = scores
-        } else {
-          const len = filePathScores.length
-          for (let i = 0; i < len; ++i) {
-            // Update score only if the file is not already opened.
-            if (filePathScores[i].score !== -1 && filePathScores[i].score < scores[i].score) {
-              filePathScores[i] = scores[i]
-            }
+    for (const window of editors) {
+      const scores = window.getCandidateScores(fileList)
+      if (!filePathScores) {
+        filePathScores = scores
+      } else {
+        const len = filePathScores.length
+        for (let i = 0; i < len; ++i) {
+          // Update score only if the file is not already opened.
+          if (filePathScores[i].score !== -1 && filePathScores[i].score < scores[i].score) {
+            filePathScores[i] = scores[i]
           }
         }
       }
@@ -377,17 +382,6 @@ class WindowManager extends TypedEmitter<WindowManagerEvents> {
       editor.addToOpenedFiles(filePath)
     })
 
-    // Force close a BrowserWindow
-    ipcMain.on('mt::close-window', (e) => {
-      const win = BrowserWindow.fromWebContents(e.sender)
-      // Before closing, update the buffer store if needed
-      this.editorBufferStore.handleClose(
-        (win as unknown as { restoreBufferId?: string })?.restoreBufferId,
-        this.getWindowsByType('editor')
-      )
-      this.forceClose(win)
-    })
-
     ipcMain.on('mt::open-file', (e, filePath: string, options: Record<string, unknown>) => {
       const win = BrowserWindow.fromWebContents(e.sender)
       if (!win) return
@@ -460,8 +454,30 @@ class WindowManager extends TypedEmitter<WindowManagerEvents> {
       this._watcher.ignoreChangedEvent(windowId, pathname, duration)
     })
 
-    onInternalChannel('window-close-by-id', (id: number) => {
-      this.forceCloseById(id)
+    const closingWindows = new Set<number>()
+    onInternalChannel('window-close-by-id', async(id: number) => {
+      if (closingWindows.has(id)) return
+      const window = this.get(id)
+      if (!window) return
+      closingWindows.add(id)
+      try {
+        const finishClose = (): void => {
+          if (this.get(id) !== window) return
+          if (window.type === WindowType.EDITOR) {
+            const win = BrowserWindow.fromId(id)
+            this.editorBufferStore.handleClose(
+              (win as unknown as { restoreBufferId?: string })?.restoreBufferId,
+              this.getWindowsByType('editor')
+            )
+          }
+          this.forceCloseById(id)
+        }
+        if (window.type === WindowType.EDITOR) { await (window as EditorWindow).withPendingFilesOpened(finishClose) } else finishClose()
+      } catch (error) {
+        log.error('Unable to finish pending file opens before closing:', error)
+      } finally {
+        closingWindows.delete(id)
+      }
     })
     onInternalChannel('window-reload-by-id', (id: number) => {
       const window = this.get(id)

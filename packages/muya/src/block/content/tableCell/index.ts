@@ -5,6 +5,7 @@ import type Cell from '../../gfm/table/cell';
 import type Row from '../../gfm/table/row';
 import type TableInner from '../../gfm/table/table';
 import { EVENT_KEYS, isOsx } from '../../../config';
+import { dispatchDocumentTableCommand } from '../../../editor/documentEditing';
 import { isKeyboardEvent } from '../../../utils';
 import Format from '../../base/format';
 import { ScrollPage } from '../../scrollPage';
@@ -167,6 +168,14 @@ class TableCellContent extends Format {
         else if (event.key === EVENT_KEYS.ArrowDown) {
             event.preventDefault();
 
+            if (!nextRow && this.muya.editor.documentEditing) {
+                const selection = this.muya.editor.selection.getDOMSelection();
+                if (!selection)
+                    throw new Error('Table exit has no current document selection');
+                dispatchDocumentTableCommand(this.muya, { command: 'exitTable', selection });
+                return;
+            }
+
             if (nextRow) {
                 const cursorBlock = (
                     nextRow.find(offset) as Cell
@@ -211,10 +220,17 @@ class TableCellContent extends Format {
         event.preventDefault();
         event.stopPropagation();
 
+        if (this.muya.editor.documentEditing) {
+            const selection = this.muya.editor.selection.getDOMSelection();
+            if (!selection)
+                throw new Error('Table boundary Backspace has no current document selection');
+            dispatchDocumentTableCommand(this.muya, { command: 'tableBoundaryBackspace', selection });
+            return;
+        }
+
         if (
-            !previousContentBlock
-            || (previousContentBlock.blockName !== 'table.cell.content'
-                && this.table.isEmpty())
+            this.table.isEmpty()
+            && (!previousContentBlock || previousContentBlock.blockName !== 'table.cell.content')
         ) {
             const state = {
                 name: 'paragraph',
@@ -227,7 +243,7 @@ class TableCellContent extends Format {
             this.table.replaceWith(newParagraphBlock);
             newParagraphBlock.firstChild.setCursor(0, 0);
         }
-        else {
+        else if (previousContentBlock) {
             const offset = previousContentBlock.text.length;
             previousContentBlock.setCursor(offset, offset, true);
         }

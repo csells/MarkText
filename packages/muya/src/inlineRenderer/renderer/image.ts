@@ -1,4 +1,3 @@
-import type { VNode } from 'snabbdom';
 import type Format from '../../block/base/format';
 import type { IImageSelectionData } from '../../selection/types';
 import type { H, ImageToken, ISyntaxRenderOptions } from '../types';
@@ -8,6 +7,7 @@ import ImageIcon from '../../assets/icons/image/2.png';
 import ImageFailIcon from '../../assets/icons/image_fail/2.png';
 import { CLASS_NAMES } from '../../config';
 import { getImageSrc } from '../../utils/image';
+import { renderImageContainer } from './imageContainer';
 
 function renderIcon(h: H, className: string, icon: string) {
     // A `<span>`, not an `<a>`: these hover controls carry no href, and an `<a>`
@@ -37,11 +37,16 @@ function shouldSyncSelectedImageId(
     selectedImage: IImageSelectionData | null,
     src: string,
     id: string,
+    block: Format,
+    token: ImageToken,
 ): selectedImage is IImageSelectionData {
     return (
         !!selectedImage
         && selectedImage.token.attrs.src === src
         && selectedImage.imageId !== id
+        && selectedImage.block === block
+        && selectedImage.token.range.start === token.range.start
+        && selectedImage.token.range.end === token.range.end
     );
 }
 
@@ -117,10 +122,11 @@ export default function image(
     // with the base64 preview below.
     let imgSrc = resolvedUrl ?? src;
 
-    let wrapperSelector = id
-        ? `span#${isSuccess ? `${id}_${token.range.start}` : id}.${
-            CLASS_NAMES.MU_INLINE_IMAGE
-        }`
+    const wrapperId = id && (isSuccess ? `${id}_${token.range.start}` : id);
+    if (shouldSyncSelectedImageId(selectedImage, src, wrapperId, block, token))
+        selectedImage.imageId = wrapperId;
+    let wrapperSelector = wrapperId
+        ? `span#${wrapperId}.${CLASS_NAMES.MU_INLINE_IMAGE}`
         : `span.${CLASS_NAMES.MU_INLINE_IMAGE}`;
 
     const imageIcons = [
@@ -129,31 +135,18 @@ export default function image(
         renderIcon(h, 'mu-image-icon-close', DeleteIcon),
     ];
 
-    /**
-     * The image is used to wrap the img element.
-     * @param args
-     * @returns The wrapping span VNode containing the image element.
-     */
-    const renderImageContainer = (...args: VNode[]) => {
-        const data = {};
-        if (title) {
-            Object.assign(data, {
-                dataset: { title },
-            });
-        }
-
-        return h(`span.${CLASS_NAMES.MU_IMAGE_CONTAINER}`, data, args);
-    };
-
     if (typeof token.attrs['data-align'] === 'string')
         wrapperSelector += `.${token.attrs['data-align']}`;
 
+    // A terminal block-displayed atom needs an editable caret line after it.
+    // This layout break has no source text and is shared by all image views.
+    const caretLine = ['left', 'center', 'right'].includes(token.attrs['data-align'])
+        && token.range.end === block.text?.length
+        ? [h('br')]
+        : [];
+
     // the src image is still loading, so use the url Map base64.
     if (this.urlMap.has(src)) {
-    // fix: it will generate a new id if the image is not loaded.
-        if (shouldSyncSelectedImageId(selectedImage, src, id))
-            selectedImage.imageId = id;
-
         imgSrc = this.urlMap.get(src)!;
         isSuccess = true;
     }
@@ -219,18 +212,18 @@ export default function image(
             ? [
                     h(wrapperSelector, data, [
                         ...imageIcons,
-                        renderImageContainer(
+                        renderImageContainer(h, title,
                             // An image description has inline elements as its contents.
                             // When an image is rendered to HTML, this is used as the image’s alt attribute.
-                            renderImage(),
-                        ),
+                            renderImage()),
                     ]),
+                    ...caretLine,
                 ]
-            : [h(wrapperSelector, data, [...imageIcons, renderImageContainer()])];
+            : [h(wrapperSelector, data, [...imageIcons, renderImageContainer(h, title)]), ...caretLine];
     }
     else {
         wrapperSelector += `.${CLASS_NAMES.MU_EMPTY_IMAGE}`;
 
-        return [h(wrapperSelector, data, [...imageIcons, renderImageContainer()])];
+        return [h(wrapperSelector, data, [...imageIcons, renderImageContainer(h, title)]), ...caretLine];
     }
 }

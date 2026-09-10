@@ -3,6 +3,7 @@ import type CellBlock from '../../block/gfm/table/cell';
 import type { Muya } from '../../index';
 import type { TableColumnToolIcon } from './config';
 import { BLOCK_DOM_PROPERTY } from '../../config';
+import { dispatchDocumentTableCommand } from '../../editor/documentEditing';
 import { isMouseEvent } from '../../utils';
 import { h, patch } from '../../utils/snabbdom';
 import BaseFloat from '../baseFloat';
@@ -126,6 +127,8 @@ export class TableColumnToolbar extends BaseFloat {
                         title: `${i18n.t(i.tooltip)}`,
                     },
                     on: {
+                        // Keep the live editor selection, as the inline toolbar does.
+                        mousedown: event => event.preventDefault(),
                         click: (event) => {
                             this.selectItem(event, i);
                         },
@@ -153,6 +156,43 @@ export class TableColumnToolbar extends BaseFloat {
         // Block is not null, just in case
         if (!block || !block.parent)
             return;
+
+        if (this.muya.editor.documentEditing && (item.type === 'remove' || item.type === 'insert left' || item.type === 'insert right')) {
+            const content = block.firstContentInDescendant();
+            const point = content?.domNode?.isConnected
+                ? this.muya.editor.selection.getDOMPoint({ path: content.path, offset: 0 })
+                : null;
+            if (point) {
+                dispatchDocumentTableCommand(this.muya, {
+                    selection: { anchor: point, focus: point },
+                    ...(item.type === 'remove'
+                        ? { command: 'removeTableColumn' }
+                        : { command: 'insertTableColumn', placement: item.type === 'insert left' ? 'before' : 'after' }),
+                });
+            }
+            this.hide();
+            return;
+        }
+
+        if (this.muya.editor.documentEditing && (item.type === 'left' || item.type === 'center' || item.type === 'right')) {
+            const content = block.firstContentInDescendant();
+            const target = content?.domNode?.isConnected
+                ? this.muya.editor.selection.getDOMPoint({ path: content.path, offset: 0 })
+                : null;
+            const selection = this.muya.editor.selection.getDOMSelection();
+            if (!target || !selection)
+                return this.hide();
+            const path = [...block.path];
+            dispatchDocumentTableCommand(this.muya, { command: 'alignTableColumn', target, alignment: item.type, selection });
+            // Alignment retains the caret and popup. Rebind its presentation
+            // reference after the model may have replaced the table view.
+            const current = this.muya.editor.scrollPage?.queryBlock(path);
+            if (current?.blockName !== 'table.cell' || !current.domNode?.isConnected)
+                return this.hide();
+            this._block = current as CellBlock;
+            this.show(current.domNode);
+            return this.render();
+        }
 
         const offset = block.parent.offset(block);
         const { table, row } = block;

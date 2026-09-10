@@ -8,71 +8,14 @@ import type {
 } from '../../../state/types';
 import type Code from '../../commonMark/codeBlock/code';
 import type HTMLPreview from '../../commonMark/html/htmlPreview';
-import { HTML_TAGS, VOID_HTML_TAGS } from '../../../config';
+import { codeEnter, codeTabExpansion } from '@marktext/input-policy';
+import { dispatchDocumentTab } from '../../../editor/documentEditing';
 import { adjustOffset, escapeHTML, firstWordOfInfo } from '../../../utils';
 import { computeLineCount, repositionLineNumberSpans, syncLineNumbersSpans } from '../../../utils/codeBlockLineNumbers';
 import { getHighlightHtml, MARKER_HASH } from '../../../utils/highlightHTML';
 import prism, { loadedLanguages, transformAliasToOrigin, walkTokens } from '../../../utils/prism/index';
 import Content from '../../base/content';
 import { ScrollPage } from '../../scrollPage';
-
-function checkAutoIndent(text: string, offset: number) {
-    const pairStr = text.substring(offset - 1, offset + 1);
-
-    return /^(?:\{\}|\[\]|\(\)|><)$/.test(pairStr);
-}
-
-function getIndentSpace(text: string, offset: number) {
-    const lineStart = text.lastIndexOf('\n', offset - 1) + 1;
-    let lineEnd = text.indexOf('\n', lineStart);
-    if (lineEnd === -1)
-        lineEnd = text.length;
-    const match = /^(\s*)\S/.exec(text.slice(lineStart, lineEnd));
-
-    return match ? match[1] : '';
-}
-
-/**
- * parseSelector
- * div#id.className => {tag: 'div', id: 'id', className: 'className', isVoid: false}
- */
-
-function parseSelector(str = '') {
-    const REG_EXP = /(#|\.)([^#.]+)/;
-    let tag = '';
-    let id = '';
-    let className = '';
-    let isVoid = false;
-    let cap;
-
-    for (const tagName of HTML_TAGS) {
-        if (
-            str.startsWith(tagName)
-            && (!str[tagName.length] || /#|\./.test(str[tagName.length]))
-        ) {
-            tag = tagName;
-            if ((VOID_HTML_TAGS as readonly string[]).includes(tagName))
-                isVoid = true;
-
-            str = str.substring(tagName.length);
-        }
-    }
-
-    if (tag !== '') {
-        cap = REG_EXP.exec(str);
-        while (cap && str.length) {
-            if (cap[1] === '#')
-                id = cap[2];
-            else
-                className = cap[2];
-
-            str = str.substring(cap[0].length);
-            cap = REG_EXP.exec(str);
-        }
-    }
-
-    return { tag, id, className, isVoid };
-}
 
 const LANG_HASH = {
     'html-block': 'html',
@@ -299,97 +242,30 @@ class CodeBlockContent extends Content {
         const { tabSize } = this.muya.options;
         const { start } = this.getCursor()!;
         const { text } = this;
-        const autoIndent = checkAutoIndent(text, start.offset);
-        const indent = getIndentSpace(text, start.offset);
-
-        this.text
-            = `${text.substring(0, start.offset)
-            }\n${
-                autoIndent ? `${indent + ' '.repeat(tabSize)}\n` : ''
-            }${indent
-            }${text.substring(start.offset)}`;
-
-        let offset = start.offset + 1 + indent.length;
-
-        if (autoIndent)
-            offset += tabSize;
+        const plan = codeEnter(text, start.offset, tabSize);
+        this.text = text.substring(0, start.offset) + plan.insert + text.substring(start.offset);
+        const offset = start.offset + plan.caret;
 
         this.setCursor(offset, offset, true);
     }
 
     override tabHandler(event: KeyboardEvent): void {
         event.preventDefault();
+        if (this.muya?.editor.documentEditing) {
+            const selection = this.muya.editor.selection.getDOMSelection();
+            if (!selection)
+                throw new Error('Code Tab has no document selection');
+            dispatchDocumentTab(this.muya, event.shiftKey, selection);
+            return;
+        }
         const { start, end } = this.getCursor()!;
-        const { _lang: lang, text } = this;
-        const isMarkupCodeContent = /markup|html|xml|svg|mathml/.test(lang);
-
-        if (isMarkupCodeContent) {
-            const lastWordBeforeCursor
-                = text.substring(0, start.offset).split(/\s+/).pop() ?? '';
-            const { tag, isVoid, id, className }
-                = parseSelector(lastWordBeforeCursor);
-
-            if (tag) {
-                const preText = text.substring(
-                    0,
-                    start.offset - lastWordBeforeCursor.length,
-                );
-                const postText = text.substring(end.offset);
-                let html = `<${tag}`;
-                let startOffset = 0;
-                let endOffset = 0;
-
-                switch (tag) {
-                    case 'img':
-                        html += ' alt="" src=""';
-                        startOffset = endOffset = html.length - 1;
-                        break;
-
-                    case 'input':
-                        html += ' type="text"';
-                        startOffset = html.length - 5;
-                        endOffset = html.length - 1;
-                        break;
-
-                    case 'a':
-                        html += ' href=""';
-                        startOffset = endOffset = html.length - 1;
-                        break;
-
-                    case 'link':
-                        html += ' rel="stylesheet" href=""';
-                        startOffset = endOffset = html.length - 1;
-                        break;
-                }
-
-                if (id)
-                    html += ` id="${id}"`;
-
-                if (className)
-                    html += ` class="${className}"`;
-
-                html += '>';
-
-                if (startOffset === 0 && endOffset === 0)
-                    startOffset = endOffset = html.length;
-
-                if (!isVoid)
-                    html += `</${tag}>`;
-
-                this.text = preText + html + postText;
-                this.setCursor(
-                    startOffset + preText.length,
-                    endOffset + preText.length,
-                    true,
-                );
-            }
-            else {
-                this.insertTab();
-            }
-        }
-        else {
+        const expansion = codeTabExpansion(this.text, start.offset, end.offset, this._lang);
+        if (!expansion) {
             this.insertTab();
+            return;
         }
+        this.text = this.text.substring(0, expansion.start) + expansion.insert + this.text.substring(expansion.end);
+        this.setCursor(expansion.selection.start, expansion.selection.end, true);
     }
 
     override backspaceHandler(event: KeyboardEvent): void {

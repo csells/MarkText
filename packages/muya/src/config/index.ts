@@ -26,37 +26,7 @@ function generateKeyHash(keys: string[]): Record<string, string> {
     }, {});
 }
 
-interface ITag {
-    open: string;
-    close: string;
-}
-
-export const FORMAT_MARKER_MAP: Record<string, string> = {
-    em: '*',
-    inline_code: '`',
-    strong: '**',
-    del: '~~',
-    inline_math: '$',
-};
-
-export const FORMAT_TAG_MAP: Record<string, ITag> = {
-    u: {
-        open: '<u>',
-        close: '</u>',
-    },
-    sub: {
-        open: '<sub>',
-        close: '</sub>',
-    },
-    sup: {
-        open: '<sup>',
-        close: '</sup>',
-    },
-    mark: {
-        open: '<mark>',
-        close: '</mark>',
-    },
-};
+export { FORMAT_MARKER_MAP, FORMAT_TAG_MAP } from '@marktext/input-policy';
 
 export const FORMAT_TYPES = [
     'strong',
@@ -282,29 +252,7 @@ export const BLOCK_TYPE6 = [
     'ul',
 ];
 
-export const BRACKET_HASH: Record<string, string> = {
-    '{': '}',
-    '[': ']',
-    '(': ')',
-    '*': '*',
-    '_': '_',
-    '"': '"',
-    '\'': '\'',
-    '$': '$',
-    '~': '~',
-};
-
-export const BACK_HASH: Record<string, string> = {
-    '}': '{',
-    ']': '[',
-    ')': '(',
-    '*': '*',
-    '_': '_',
-    '"': '"',
-    '\'': '\'',
-    '$': '$',
-    '~': '~',
-};
+export { BRACKET_HASH, BACK_HASH } from '@marktext/input-policy';
 
 export const MUYA_DEFAULT_OPTIONS = {
     fontSize: 16,

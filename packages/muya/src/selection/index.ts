@@ -1,11 +1,13 @@
 import type TableBodyCell from '../block/gfm/table/cell';
 import type { Muya } from '../muya';
-import type { IAnchorFocusInfo, IImageSelectionData, ISelection } from './types';
+import type { IAnchorFocusInfo, IDOMPoint, IDOMSelection, IImageSelectionData, ISelection, ITextPoint } from './types';
+import { CLASS_NAMES } from '../config';
 import {
     getCursorCoords,
     getCursorYOffset,
     getSelectionStart,
 } from './cursorCoords';
+import { getOffsetOfParagraph } from './dom';
 import ImageSelection from './ImageSelection';
 import TableRectSelection from './TableRectSelection';
 import TextSelection from './TextSelection';
@@ -120,6 +122,40 @@ class Selection {
 
     getSelection(): ISelection | null {
         return this._text.getSelection();
+    }
+
+    getDOMSelection(): IDOMSelection | null {
+        return this._text.getDOMSelection();
+    }
+
+    /** The current image widget's exact DOM extent, without flattening its text. */
+    getImageDOMSelection(selected: IImageSelectionData | null = this._image.selected): IDOMSelection | null {
+        if (!selected?.block.domNode)
+            return null;
+        const wrappers = [...selected.block.domNode.querySelectorAll<HTMLElement>(`.${CLASS_NAMES.MU_INLINE_IMAGE}`)]
+            .filter(node => node.id === selected.imageId
+                && getOffsetOfParagraph(node, selected.block.domNode!) === selected.token.range.start
+                && node.getAttribute('data-raw')?.length === selected.token.range.end - selected.token.range.start);
+        if (wrappers.length !== 1)
+            return null;
+        const wrapper = wrappers[0]!;
+        const parent = wrapper.parentNode;
+        if (!parent || !wrapper.isConnected)
+            return null;
+        const offset = [...parent.childNodes].indexOf(wrapper);
+        return { anchor: { node: parent, offset }, focus: { node: parent, offset: offset + 1 } };
+    }
+
+    setDOMSelection(anchor: IDOMPoint, focus: IDOMPoint): void {
+        this._text.setDOMSelection(anchor, focus);
+    }
+
+    getDOMPoint(point: ITextPoint): IDOMPoint | null {
+        return this._text.getDOMPoint(point);
+    }
+
+    getTextPoint(point: IDOMPoint): ITextPoint | null {
+        return this._text.getTextPoint(point);
     }
 
     setSelection(anchor: IAnchorFocusInfo, focus: IAnchorFocusInfo): void {

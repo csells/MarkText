@@ -58,6 +58,20 @@ function bootMuya(markdown: string, options: Record<string, unknown> = {}): Muya
 //   task-list > task-list-item(meta.checked) > [ paragraph, task-list > ... ]
 const NESTED_TASKS = '- [ ] parent\n\n  - [ ] child1\n  - [ ] child2\n';
 
+it('keeps unchecked and checked task order stable after a native checkbox update', async () => {
+    const muya = bootMuya('- [ ] first\n- [ ] second\n- [x] third\n- [ ] fourth\n', { autoMoveCheckedToEnd: true });
+    checkboxOf(taskItems(muya)[0]).update(true, 'user');
+    muya.flush();
+    await vi.waitFor(() => expect(muya.getMarkdown().trimEnd()).toBe('- [ ] second\n- [ ] fourth\n- [x] first\n- [x] third'));
+});
+
+it('keeps ordinary items between native task groups when a later checkbox changes', async () => {
+    const muya = bootMuya('- [x] first\n- ordinary\n- [ ] last\n', { autoMoveCheckedToEnd: true });
+    checkboxOf(taskItems(muya)[1]).update(true, 'user');
+    muya.flush();
+    await vi.waitFor(() => expect(muya.getMarkdown().trimEnd()).toBe('- [x] first\n\n- ordinary\n\n- [x] last'));
+});
+
 // Collect every task-list-item block in document order [parent, child1, child2].
 function taskItems(muya: Muya): TaskListItem[] {
     const items: TaskListItem[] = [];

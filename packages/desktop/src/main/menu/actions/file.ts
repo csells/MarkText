@@ -11,7 +11,11 @@ import {
 } from 'electron'
 import log from 'electron-log'
 import { isDirectory, isFile, exists } from 'common/filesystem'
-import { MARKDOWN_EXTENSIONS, isDangerousExecutableFile, isMarkdownFile } from 'common/filesystem/paths'
+import {
+  MARKDOWN_EXTENSIONS,
+  isDangerousExecutableFile,
+  isMarkdownFile
+} from 'common/filesystem/paths'
 import { checkUpdates, userSetting } from './marktext'
 import { showTabBar } from './view'
 import { COMMANDS } from '../../commands'
@@ -23,6 +27,7 @@ import { getPath, getRecommendTitleFromMarkdownString } from '../../utils'
 import pandoc from '../../utils/pandoc'
 import { t } from '../../i18n'
 import type { DocumentSaveIdentity, UnsavedFile } from '@shared/types/files'
+import { prepareWindowClose } from '../../windows/prepareClose'
 
 type Win = BrowserWindow | null | undefined
 
@@ -222,9 +227,7 @@ const handleResponseForSave = async(
         ipcMain.emit('window-file-saved', win.id, filePath)
         win.webContents.send('mt::tab-saved', id, saveIdentity, ...(saveIdentity ? [markdown] : []))
       }
-      return saveIdentity === undefined || saveIdentity === null
-        ? id
-        : { id, saveIdentity }
+      return saveIdentity === undefined || saveIdentity === null ? id : { id, saveIdentity }
     })
     .catch((err: unknown) => {
       log.error('Error while saving:', err)
@@ -412,7 +415,12 @@ ipcMain.on(
             })
           } else {
             ipcMain.emit('window-file-saved', win.id, filePath)
-            win.webContents.send('mt::tab-saved', id, saveIdentity, ...(saveIdentity ? [markdown] : []))
+            win.webContents.send(
+              'mt::tab-saved',
+              id,
+              saveIdentity,
+              ...(saveIdentity ? [markdown] : [])
+            )
           }
         })
         .catch((err: unknown) => {
@@ -424,57 +432,86 @@ ipcMain.on(
   }
 )
 
-ipcMain.on('mt::close-window-confirm', async(e, unsavedFiles: UnsavedFile[]) => {
+const closingWindows = new WeakSet<BrowserWindow>()
+
+const handleWindowClose = async(e: IpcMainEvent, unsavedFiles?: UnsavedFile[]): Promise<void> => {
   const win = BrowserWindow.fromWebContents(e.sender)
-  if (!win) {
-    return
-  }
-  const userResult = await showUnsavedFilesMessage(win, unsavedFiles)
-  if (!userResult) {
-    return
-  }
-
-  const { needSave } = userResult
-  if (needSave) {
-    Promise.all(
-      unsavedFiles.map((file) =>
-        handleResponseForSave(
-          e,
-          file.id,
-          file.filename,
-          file.pathname,
-          file.markdown,
-          file.options,
-          file.defaultPath,
-          file.saveIdentity
+  if (!win || closingWindows.has(win)) return
+  closingWindows.add(win)
+  let preparation: ReturnType<typeof prepareWindowClose> | undefined
+  let destroy = false
+  try {
+    let choice =
+      unsavedFiles === undefined ? undefined : await showUnsavedFilesMessage(win, unsavedFiles)
+    if (choice === null) return
+    preparation = prepareWindowClose(win)
+    const prepared = await preparation.ready
+    const initialIds = new Set(unsavedFiles?.map((file) => file.id))
+    const membershipChanged =
+      unsavedFiles !== undefined &&
+      (initialIds.size !== prepared.files.length ||
+        prepared.files.some((file) => !initialIds.has(file.id)))
+    if (
+      prepared.files.length > 0 &&
+      ((choice === undefined && prepared.requiresConfirmation) || membershipChanged)
+    ) {
+      choice = await showUnsavedFilesMessage(win, prepared.files)
+      if (choice === null) return
+    }
+    if (choice?.needSave) {
+      try {
+        const results = await Promise.allSettled(
+          prepared.files.map((file) =>
+            handleResponseForSave(
+              e,
+              file.id,
+              file.filename,
+              file.pathname,
+              file.markdown,
+              file.options,
+              file.defaultPath,
+              file.saveIdentity
+            )
+          )
         )
-      )
-    )
-      .then(() => {
-        ipcMain.emit('window-close-by-id', win.id)
-      })
-      .catch((err: unknown) => {
-        log.error('Error while saving before quit:', err)
-
-        const msg = err instanceof Error ? err.message : String(err)
-        // Notify user about the problem.
-        dialog
-          .showMessageBox(win, {
-            type: 'error',
-            buttons: [t('dialog.close'), t('dialog.keepOpen')],
-            message: t('dialog.saveFailure'),
-            detail: msg
-          })
-          .then(({ response }) => {
-            if (win.id && response === 0) {
-              ipcMain.emit('window-close-by-id', win.id)
-            }
-          })
-      })
-  } else {
+        const failure = results.find((result) => result.status === 'rejected')
+        if (failure?.status === 'rejected') throw failure.reason
+        if (results.some((result) => result.status === 'fulfilled' && result.value === undefined)) { return }
+      } catch (error) {
+        log.error('Error while saving before quit:', error)
+        const { response } = await dialog.showMessageBox(win, {
+          type: 'error',
+          buttons: [t('dialog.close'), t('dialog.keepOpen')],
+          message: t('dialog.saveFailure'),
+          detail: error instanceof Error ? error.message : String(error)
+        })
+        if (response !== 0) return
+      }
+    }
     ipcMain.emit('window-close-by-id', win.id)
+    destroy = true
+  } catch (error) {
+    log.error('Unable to preserve editor input before close:', error)
+    if (!win.webContents.isDestroyed()) {
+      win.webContents.send('mt::show-notification', {
+        title: t('dialog.saveFailure'),
+        type: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      })
+    }
+  } finally {
+    try {
+      if (!destroy && preparation !== undefined && !win.webContents.isDestroyed()) {
+        win.webContents.send('mt::cancel-window-close', preparation.requestId)
+      }
+    } finally {
+      closingWindows.delete(win)
+    }
   }
-})
+}
+
+ipcMain.on('mt::close-window-confirm', handleWindowClose)
+ipcMain.on('mt::close-window', (e) => handleWindowClose(e))
 
 ipcMain.on('mt::response-file-save', handleResponseForSave as Parameters<typeof ipcMain.on>[1])
 

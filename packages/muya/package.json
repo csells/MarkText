@@ -8,6 +8,7 @@
         "markdown"
     ],
     "exports": {
+        "./document-editing": "./src/editor/documentEditingTypes.ts",
         ".": "./src/index.ts",
         "./*": "./src/*"
     },
@@ -19,6 +20,11 @@
         "main": "./lib/cjs/index.js",
         "module": "./lib/es/index.js",
         "exports": {
+            "./document-editing": {
+                "types": "./lib/types/editor/documentEditingTypes.d.ts",
+                "import": "./lib/es/editor/documentEditingTypes.js",
+                "require": "./lib/cjs/editor/documentEditingTypes.js"
+            },
             ".": {
                 "import": "./lib/es/index.js",
                 "require": "./lib/cjs/index.js",
@@ -84,7 +90,8 @@
         "vega": "^6.2.0",
         "vega-embed": "^7.1.0",
         "vega-lite": "^6.4.3",
-        "webfontloader": "^1.6.28"
+        "webfontloader": "^1.6.28",
+        "@marktext/input-policy": "workspace:*"
     },
     "devDependencies": {
         "@antfu/eslint-config": "^9.0.0",

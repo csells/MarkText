@@ -7,7 +7,9 @@ import type Parent from './parent';
 import diff from 'fast-diff';
 import TreeNode from '../../block/base/treeNode';
 import { ScrollPage } from '../../block/scrollPage';
-import { BACK_HASH, BRACKET_HASH, EVENT_KEYS, isFirefox } from '../../config';
+import { BRACKET_HASH, EVENT_KEYS, isFirefox } from '../../config';
+import { ownsDocumentTextKey } from '../../editor/documentEditing';
+import { pairedDeletionRange, selectionPairForKey, shouldInsertClosingPair, shouldRemoveClosingChar } from '@marktext/input-policy';
 import Selection from '../../selection';
 import {
     adjustOffset,
@@ -93,89 +95,6 @@ function extractWord(
     };
 }
 
-function shouldRemoveClosingChar(
-    inputChar: string,
-    preInputChar: string,
-    options: { autoPairBracket: boolean; autoPairMarkdownSyntax: boolean; autoPairQuote: boolean },
-) {
-    const { autoPairBracket, autoPairMarkdownSyntax, autoPairQuote } = options;
-
-    return (
-        (autoPairQuote && /'/.test(inputChar))
-        || (autoPairQuote && /"/.test(inputChar))
-        || (autoPairBracket && /[}\])]/.test(inputChar))
-        || (autoPairMarkdownSyntax && /\$/.test(inputChar))
-        || (autoPairMarkdownSyntax
-            && /[*$`~_]/.test(inputChar)
-            && preInputChar !== inputChar)
-    );
-}
-
-function shouldInsertClosingPair(
-    inputChar: string,
-    preInputChar: string,
-    postIsNotTouching: boolean,
-    ctx: {
-        autoPairBracket: boolean;
-        autoPairMarkdownSyntax: boolean;
-        autoPairQuote: boolean;
-        isInInlineMath: boolean;
-        isInInlineCode: boolean;
-        type: string;
-    },
-) {
-    const {
-        autoPairBracket,
-        autoPairMarkdownSyntax,
-        autoPairQuote,
-        isInInlineMath,
-        isInInlineCode,
-        type,
-    } = ctx;
-
-    return (
-        (autoPairQuote
-            && /'/.test(inputChar)
-            && postIsNotTouching
-            && !/[a-z\d]/i.test(preInputChar))
-        || (autoPairQuote && /"/.test(inputChar) && postIsNotTouching)
-        || (autoPairBracket && /[{[(]/.test(inputChar) && postIsNotTouching)
-        || (type === 'format'
-            && !isInInlineMath
-            && !isInInlineCode
-            && autoPairMarkdownSyntax
-            && !/[a-z0-9]/i.test(preInputChar)
-            && /[*$`~_]/.test(inputChar))
-    );
-}
-
-function selectionPairForKey(
-    key: string,
-    options: {
-        autoPairBracket: boolean;
-        autoPairMarkdownSyntax: boolean;
-        autoPairQuote: boolean;
-    },
-    type: string,
-) {
-    if (key.length !== 1)
-        return null;
-
-    const close = key === '`' ? '`' : BRACKET_HASH[key];
-    if (!close)
-        return null;
-
-    const { autoPairBracket, autoPairMarkdownSyntax, autoPairQuote } = options;
-    if (autoPairQuote && /['"]/.test(key))
-        return { open: key, close };
-    if (autoPairBracket && /[{[(]/.test(key))
-        return { open: key, close };
-    if (type === 'format' && autoPairMarkdownSyntax && /[*$~_`]/.test(key))
-        return { open: key, close };
-
-    return null;
-}
-
 interface IAutoPairCollapsedContext {
     blockText: string;
     options: {
@@ -194,16 +113,14 @@ function deleteAutoPair(
     start: INodeOffset,
     end: INodeOffset,
     offset: number,
-    inputChar: string,
-    postInputChar: string,
     blockText: string,
 ) {
     let needRender = false;
     // handle `deleteContentBackward` or `deleteContentForward`
-    const deletedChar = blockText[offset];
+    const range = pairedDeletionRange(blockText, offset, offset + 1, event.inputType);
     if (
         event.inputType === 'deleteContentBackward'
-        && postInputChar === BRACKET_HASH[deletedChar]
+        && range.end > offset + 1
     ) {
         needRender = true;
         text = text.substring(0, offset) + text.substring(offset + 1);
@@ -211,7 +128,7 @@ function deleteAutoPair(
 
     if (
         event.inputType === 'deleteContentForward'
-        && inputChar === BACK_HASH[deletedChar]
+        && range.start < offset
     ) {
         needRender = true;
         start.offset -= 1;
@@ -238,7 +155,7 @@ function collapsedInputAutoPair(
     let needRender = false;
 
     if (event.inputType.startsWith('delete'))
-        return deleteAutoPair(event, text, start, end, offset, inputChar, postInputChar, blockText);
+        return deleteAutoPair(event, text, start, end, offset, blockText);
 
     if (
         !event.inputType.includes('delete')
@@ -715,6 +632,10 @@ class Content extends TreeNode {
             return;
 
         if (this.muya.ui.handleContentKeydown(event))
+            return;
+
+        // The document model consumes this pre-edit selection in beforeinput.
+        if (ownsDocumentTextKey(this.muya, event))
             return;
 
         if (this._wrapSelectionWithAutoPair(event))

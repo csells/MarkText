@@ -1,6 +1,7 @@
 import type { Muya } from '../muya';
 import type { IClipboardPayload } from './copyData';
 import Format from '../block/base/format';
+import { ownsDocumentTextKey } from '../editor/documentEditing';
 import { isClipboardEvent, isKeyboardEvent } from '../utils';
 import { getClipboardData, writeClipboardData } from './copyData';
 import { cutSelection, deleteTableSelection } from './cut';
@@ -67,6 +68,9 @@ class Clipboard {
                 return;
             const { key, metaKey } = event;
 
+            if (this.muya.editor.documentCompositionActive)
+                return;
+
             if (this.selection.table.hasSelection) {
                 if (!metaKey && (key === 'Backspace' || key === 'Delete')) {
                     event.preventDefault();
@@ -74,6 +78,10 @@ class Clipboard {
                 }
                 return;
             }
+
+            // The document model consumes this pre-edit selection in beforeinput.
+            if (ownsDocumentTextKey(this.muya, event))
+                return;
 
             const { isSelectionInSameBlock } = this.selection.getSelection() ?? {};
             if (isSelectionInSameBlock)
@@ -121,7 +129,11 @@ class Clipboard {
     }
 
     cutHandler(): void {
-        cutSelection(this);
+        if (this.muya.editor.documentEditing) {
+            cutSelection(this);
+            return;
+        }
+        this.muya.editor.history.recordCommand(() => cutSelection(this));
     }
 
     pasteHandler(
@@ -155,6 +167,20 @@ class Clipboard {
     // event, so the old flag + execCommand approach pasted nothing. Read the
     // clipboard text ourselves and feed it through the paste pipeline.
     async pasteAsPlainText(): Promise<void> {
+        const model = this.muya.editor.documentEditing;
+        if (model) {
+            const selection = this.selection.table.getDOMSelection() ?? (this.selection.image
+                ? this.selection.getImageDOMSelection()
+                : this.selection.getDOMSelection());
+            if (!selection)
+                throw new Error('Plain-text paste has no document selection');
+            await model.prepareClipboard(selection, { kind: 'clipboard-text-read' }, async (capturePayload) => {
+                const text = (await this._readClipboardText()).replace(/\r\n?/g, '\n');
+                capturePayload({ text });
+                return { markdown: text, plainText: text, pasteAsPlainText: true };
+            });
+            return;
+        }
         const text = await this._readClipboardText();
         if (text)
             await pastePlainText(this, text);

@@ -4,6 +4,7 @@ import type TableInner from '../../block/gfm/table/table';
 
 import type { Muya } from '../../index';
 import type { MenuItem } from './config';
+import { dispatchDocumentTableCommand } from '../../editor/documentEditing';
 import { h, patch } from '../../utils/snabbdom';
 import BaseFloat from '../baseFloat';
 import { toolList } from './config';
@@ -99,11 +100,30 @@ export class TableRowColumMenu extends BaseFloat {
         event.preventDefault();
         event.stopPropagation();
 
+        const { location, action, target } = item;
+
+        if (this.muya.editor.documentEditing) {
+            // The popup owns its clicked cell. The text caret can be in another
+            // paragraph, so resolve this attached widget's actual DOM point.
+            const content = this._block?.firstContentInDescendant();
+            const point = content?.domNode?.isConnected
+                ? this.muya.editor.selection.getDOMPoint({ path: content.path, offset: 0 })
+                : null;
+            if (point) {
+                dispatchDocumentTableCommand(this.muya, {
+                    selection: { anchor: point, focus: point },
+                    ...(action === 'insert'
+                        ? { command: target === 'row' ? 'insertTableRow' : 'insertTableColumn', placement: location === 'previous' || location === 'left' ? 'before' : 'after' }
+                        : { command: target === 'row' ? 'removeTableRow' : 'removeTableColumn' }),
+                });
+            }
+            this.hide();
+            return;
+        }
+
         const { table, row } = this._block!;
         const rowCount = (table.firstChild as TableInner).offset(row);
         const columnCount = row.offset(this._block!);
-        const { location, action, target } = item;
-
         if (action === 'insert') {
             let cursorBlock = null;
 

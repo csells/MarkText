@@ -1,4 +1,3 @@
-/* eslint-disable no-fallthrough */
 import type {
     IAtxHeadingState,
     IBlockQuoteState,
@@ -19,6 +18,8 @@ import type {
     IThematicBreakState,
     TState,
 } from './types';
+/* eslint-disable no-fallthrough */
+import { fencedCodeMarkdown, frontMatterPolicy, listItemMarker } from '@marktext/input-policy';
 /**
  * Hi contributors!
  *
@@ -277,30 +278,9 @@ export default class ExportMarkdown {
     }
 
     private _serializeFrontMatter(state: IFrontmatterState) {
-        let startToken;
-        let endToken;
-        switch (state.meta.lang) {
-            case 'yaml':
-                startToken = '---\n';
-                endToken = '---\n';
-                break;
-
-            case 'toml':
-                startToken = '+++\n';
-                endToken = '+++\n';
-                break;
-
-            case 'json':
-                if (state.meta.style === ';') {
-                    startToken = ';;;\n';
-                    endToken = ';;;\n';
-                }
-                else {
-                    startToken = '{\n';
-                    endToken = '}\n';
-                }
-                break;
-        }
+        const { open, close } = frontMatterPolicy(state.meta.style);
+        const startToken = `${open}\n`;
+        const endToken = `${close}\n`;
 
         const result = [];
         result.push(startToken);
@@ -348,19 +328,14 @@ export default class ExportMarkdown {
     }
 
     private _serializeCodeBlock(state: ICodeBlockState, indent: string) {
-        const result = [];
+        const result: string[] = [];
         const { text, meta } = state;
         const textList = text.split('\n');
         // `meta.lang` holds the full info string verbatim, so emit it as-is.
         const { type, lang } = meta;
 
         if (type === 'fenced') {
-            const fence = '`'.repeat(this._codeFenceLength(text, meta.fenceLength));
-            result.push(`${indent}${lang ? `${fence}${lang}\n` : `${fence}\n`}`);
-            textList.forEach((text) => {
-                result.push(`${indent}${text}\n`);
-            });
-            result.push(`${indent}${fence}\n`);
+            return fencedCodeMarkdown(text, lang, indent, meta.fenceLength).markdown;
         }
         else {
             textList.forEach((text) => {
@@ -369,20 +344,6 @@ export default class ExportMarkdown {
         }
 
         return result.join('');
-    }
-
-    // The opening fence must be longer than any all-backtick line in the body
-    // (else that line closes the block early), at least as long as the original
-    // fence, and never shorter than the markdown minimum of 3.
-    private _codeFenceLength(text: string, stored?: number): number {
-        let longestInterior = 0;
-        for (const line of text.split('\n')) {
-            const trimmed = line.trim();
-            if (/^`+$/.test(trimmed))
-                longestInterior = Math.max(longestInterior, trimmed.length);
-        }
-
-        return Math.max(3, stored ?? 3, longestInterior + 1);
     }
 
     private _serializeHtmlBlock(state: IHtmlBlockState, indent: string) {
@@ -480,30 +441,16 @@ export default class ExportMarkdown {
         // We discriminate on presence of `marker` to pick the right fields.
         const marker = 'marker' in listInfo ? listInfo.marker : undefined;
         const delimiter = 'delimiter' in listInfo ? listInfo.delimiter : undefined;
-        const isUnorderedList = !!marker;
         const { children, name } = state;
-        let itemMarker;
-
-        if (isUnorderedList) {
-            itemMarker = marker ? `${marker} ` : '- ';
-        }
-        else if ('start' in listInfo) {
-            // NOTE: GitHub and Bitbucket limit the list count to 99 but this is nowhere defined.
-            //  We limit the number to 99 for Daring Fireball Markdown to prevent indentation issues.
-            let n = listInfo.start;
-            if ((this._listIndentation === 'dfm' && n > 99) || n > 999999999)
-                n = 1;
-
-            listInfo.start++;
-
-            itemMarker = `${n}${delimiter || '.'} `;
-        }
-        else {
-            itemMarker = '- ';
-        }
-
-        // Subsequent paragraph indentation
-        const newIndent = indent + ' '.repeat(itemMarker.length);
+        const spelling = listItemMarker({
+            bullet: marker,
+            ordinal: 'start' in listInfo ? listInfo.start++ : undefined,
+            delimiter,
+            checked: name === 'task-list-item' ? state.meta.checked : undefined,
+            dfm: this._listIndentation === 'dfm',
+        });
+        const itemMarker = spelling.text;
+        const newIndent = indent + ' '.repeat(spelling.indentation);
 
         // Extra indentation for a NESTED list, added on top of the parent
         // item's content column — `newIndent` above already advanced by the
@@ -520,7 +467,7 @@ export default class ExportMarkdown {
         let listIndent = '';
         const { _listIndentation: listIndentation } = this;
         if (listIndentation === 'dfm')
-            listIndent = ' '.repeat(4 - itemMarker.length);
+            listIndent = ' '.repeat(4 - spelling.indentation);
         else if (listIndentation === 'number')
             listIndent = ' '.repeat(this._listIndentationCount - 1);
 
@@ -528,9 +475,6 @@ export default class ExportMarkdown {
         //  Problem: "convertStatesToMarkdown" use "indent" in spaces to indent elements. How should
         //  we integrate tabs in block quotes and subsequent paragraphs and how to combine with spaces?
         //  I don't know how to combine tabs and spaces and it seems not specified, so work for another day.
-
-        if (name === 'task-list-item')
-            itemMarker += state.meta.checked ? '[x] ' : '[ ] ';
 
         if (!children.length)
             return `${indent}${itemMarker}\n`;

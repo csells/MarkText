@@ -1,13 +1,22 @@
-import type { MarkdownAstNode, SourceRange } from '@marktext/document-core'
+import { imageAltText } from '@marktext/document-core'
+import type { DocumentSourceEdit, MarkdownAstNode, SourceRange } from '@marktext/document-core'
 import type { IInlinePresentationContext } from '@muyajs/core'
 import { validEmoji } from '@muyajs/core'
 import { sanitize, PREVIEW_DOMPURIFY_CONFIG, EXPORT_DOMPURIFY_CONFIG } from '../util/dompurify'
 import type { MuyaMarkupBinding, MuyaMarkupComment, MuyaMarkupDecoration } from './muyaMarkupView'
 
+/** Parser-owned nodes rendered by the existing native image widget. */
+export const isMuyaImageSyntax = (node: MarkdownAstNode): boolean =>
+  node.kind === 'image' ||
+  ((node.kind === 'inline-html' || node.kind === 'html-block') &&
+    node.attributes.tagName === 'img' &&
+    node.attributes.closingTag !== true)
+
 interface PresentationSpan {
   readonly range: SourceRange
   readonly open: string
   readonly close: string
+  readonly atomic?: boolean
 }
 
 interface PresentationMarker {
@@ -35,11 +44,20 @@ const rebaseMarks = (
     oldEnd -= 1
     newEnd -= 1
   }
+  return rebaseMarkRange({ start, end: oldEnd, insert: after.slice(start, newEnd) })
+}
+
+// Pending view geometry follows the common document operation. It never
+// recognizes syntax or decides which canonical annotations survive an edit.
+const rebaseMarkRange = ({ start, end: oldEnd, insert }: DocumentSourceEdit) => {
+  const newEnd = start + insert.length
   const delta = newEnd - oldEnd
-  return (range) => {
+  return (range: SourceRange): SourceRange | undefined => {
     if (range.end <= start) return range
     if (range.start >= oldEnd) return { start: range.start + delta, end: range.end + delta }
-    if (range.start <= start && range.end >= oldEnd) { return { start: range.start, end: range.end + delta } }
+    if (range.start <= start && range.end >= oldEnd) {
+      return { start: range.start, end: range.end + delta }
+    }
     // A replacement crossing a mark boundary has no acknowledged attribution.
     // Keep only the unchanged part rather than inventing a new marked extent.
     if (range.start < start) return { start: range.start, end: start }
@@ -47,15 +65,6 @@ const rebaseMarks = (
     return undefined
   }
 }
-
-const imageAlt = (node: MarkdownAstNode): string =>
-  node.kind === 'text'
-    ? String(node.attributes.semanticText ?? '')
-    : node.kind === 'inline-code'
-      ? String(node.attributes.semanticContent ?? '')
-      : node.kind === 'soft-break' || node.kind === 'hard-break'
-        ? '\n'
-        : node.children.map(imageAlt).join('')
 
 const syntaxSpans = (
   binding: MuyaMarkupBinding,
@@ -98,17 +107,28 @@ const syntaxSpans = (
   const hide = (range: SourceRange): void =>
     add(range, '<span class="mu-hide mu-remove">', '</span>')
   const visit = (node: MarkdownAstNode): void => {
-    if (node.kind === 'image') {
-      const range = nativeRange(node.range)
+    if (isMuyaImageSyntax(node)) {
+      const range = nativeRange(
+        node.kind !== 'image'
+          ? { start: Number(node.attributes.tagStart), end: Number(node.attributes.tagEnd) }
+          : node.range
+      )
       if (range !== undefined) {
         const widget = context?.renderImage({
           range,
           raw: binding.text.slice(range.start, range.end),
           src: String(node.attributes.semanticDestination ?? ''),
-          alt: imageAlt(node),
-          title: String(node.attributes.semanticTitle ?? '')
+          alt: imageAltText(node),
+          title: String(node.attributes.semanticTitle ?? ''),
+          ...(node.attributes.semanticWidth
+            ? { width: String(node.attributes.semanticWidth) }
+            : {}),
+          ...(node.attributes.semanticHeight
+            ? { height: String(node.attributes.semanticHeight) }
+            : {}),
+          ...(node.attributes.semanticAlign ? { align: String(node.attributes.semanticAlign) } : {})
         })
-        if (widget !== undefined) add(node.range, widget.open, widget.close)
+        if (widget !== undefined) { spans.push({ range, open: widget.open, close: widget.close, atomic: true }) }
       }
       return
     }
@@ -138,7 +158,9 @@ const syntaxSpans = (
             node.semanticTextSegments?.some(
               (spelling) => spelling.range.start < range.end && spelling.range.end > range.start
             )
-          ) { continue }
+          ) {
+            continue
+          }
           hide({ start: range.start, end: range.start + 1 })
           add(
             { start: range.start + 1, end: range.end - 1 },
@@ -252,10 +274,27 @@ const renderSpans = (
   for (let index = 0; index < boundaries.length - 1; index += 1) {
     const start = boundaries[index]
     const end = boundaries[index + 1]
-    const next = spans.filter((span) => span.range.start <= start && span.range.end >= end)
+    let next = spans.filter((span) => span.range.start <= start && span.range.end >= end)
+    const widget = next.find((span) => span.atomic)
+    if (widget !== undefined) {
+      // A partial decoration must nest inside an indivisible native widget.
+      // Closing/reopening that widget at decoration edges duplicates its UI.
+      // Enclosing links and whole-widget marks retain their outer position.
+      const containsWidget = (span: PresentationSpan) =>
+        span !== widget &&
+        span.range.start <= widget.range.start &&
+        span.range.end >= widget.range.end
+      next = [
+        ...next.filter(containsWidget),
+        widget,
+        ...next.filter((span) => span !== widget && !containsWidget(span))
+      ]
+    }
     let common = 0
     while (common < active.length && active[common] === next[common]) common += 1
-    for (let close = active.length - 1; close >= common; close -= 1) { output.push(active[close].close) }
+    for (let close = active.length - 1; close >= common; close -= 1) {
+      output.push(active[close].close)
+    }
     output.push(...(markersAt.get(start) ?? []))
     for (let open = common; open < next.length; open += 1) output.push(next[open].open)
     output.push(escapeHtml(text.slice(start, end)))
@@ -273,7 +312,8 @@ export function renderMuyaMarkupBinding(
   currentText: string,
   context?: IInlinePresentationContext,
   comments: readonly MuyaMarkupComment[] = [],
-  commentLabel = 'Comment'
+  commentLabel = 'Comment',
+  pendingEdits?: readonly DocumentSourceEdit[]
 ): string {
   const spans: PresentationSpan[] = []
   for (const highlight of context?.highlights ?? []) {
@@ -283,7 +323,9 @@ export function renderMuyaMarkupBinding(
       highlight.start < 0 ||
       highlight.end > currentText.length ||
       highlight.end <= highlight.start
-    ) { continue }
+    ) {
+      continue
+    }
     spans.push({
       range: highlight,
       open: `<span class="${highlight.active ? 'mu-highlight' : 'mu-selection'}">`,
@@ -291,17 +333,30 @@ export function renderMuyaMarkupBinding(
     })
   }
   const rebase =
-    currentText === binding.text
-      ? (range: SourceRange): SourceRange => range
-      : rebaseMarks(binding.text, currentText)
+    pendingEdits !== undefined
+      ? (range: SourceRange): SourceRange | undefined => {
+        let mapped: SourceRange | undefined = range
+        for (const edit of pendingEdits) {
+          if (mapped === undefined) break
+          mapped = rebaseMarkRange(edit)(mapped)
+        }
+        return mapped
+      }
+      : currentText === binding.text
+        ? (range: SourceRange): SourceRange => range
+        : rebaseMarks(binding.text, currentText)
   const markers: PresentationMarker[] = []
   for (const comment of comments) {
     if (
       comment.path.length !== binding.path.length ||
       comment.path.some((part, index) => part !== binding.path[index])
-    ) { continue }
+    ) {
+      continue
+    }
     const location = rebase({ start: comment.offset, end: comment.offset })
-    if (location === undefined || location.start < 0 || location.start > currentText.length) { continue }
+    if (location === undefined || location.start < 0 || location.start > currentText.length) {
+      continue
+    }
     // An empty native affordance adds neither hidden payload nor a caret
     // character to Muya's editable text. Core remains the annotation owner.
     markers.push({
@@ -313,10 +368,21 @@ export function renderMuyaMarkupBinding(
     if (
       decoration.path.length !== binding.path.length ||
       decoration.path.some((part, index) => part !== binding.path[index])
-    ) { continue }
+    ) {
+      continue
+    }
     const range = rebase(decoration.range)
-    if (range === undefined || range.end <= range.start) continue
+    if (range === undefined) continue
     const { mark } = decoration
+    if (range.start === range.end && decoration.sourcePosition !== undefined) {
+      const arm = mark.kind === 'substitution' ? ` data-critic-arm="${escapeHtml(mark.arm)}"` : ''
+      markers.push({
+        offset: range.start,
+        html: `<span data-critic-kind="${escapeHtml(mark.kind)}" data-critic-start="${mark.annotationRange.start - binding.sourceRange.start}" data-critic-end="${mark.annotationRange.end - binding.sourceRange.start}" data-critic-position="${decoration.sourcePosition - binding.sourceRange.start}"${arm}></span>`
+      })
+      continue
+    }
+    if (range.end <= range.start) continue
     // Leaf-relative locations survive cached sibling rendering when an earlier
     // edit uniformly shifts the Core source coordinates.
     const arm = mark.kind === 'substitution' ? ` data-critic-arm="${escapeHtml(mark.arm)}"` : ''
@@ -326,7 +392,7 @@ export function renderMuyaMarkupBinding(
       close: '</span>'
     })
   }
-  if (currentText === binding.text) spans.push(...syntaxSpans(binding, context))
+  if (currentText === binding.text && !pendingEdits?.length) { spans.push(...syntaxSpans(binding, context)) }
   return sanitize(renderSpans(currentText, spans, markers), {
     ...PREVIEW_DOMPURIFY_CONFIG,
     // Styles and contenteditable are generated only by the trusted native
@@ -338,6 +404,7 @@ export function renderMuyaMarkupBinding(
       'data-critic-kind',
       'data-critic-arm',
       'data-critic-start',
+      'data-critic-position',
       'data-critic-end',
       'data-character',
       'data-emoji',

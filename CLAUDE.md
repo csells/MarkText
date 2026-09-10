@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Read and follow [AGENTS.md](AGENTS.md) before implementation or review. It routes
+document-related work to the standing architecture contract and its verification
+gate; the implementation descriptions below are not exceptions to that contract.
+
 # MarkText
 
 ## Project Overview
@@ -233,9 +237,11 @@ Follow `.github/COMMENTING-GUIDELINES.md` for every comment you write. The core 
 
 ## Architecture: Three-Process Electron Model
 
-All Electron processes live in `packages/desktop/`. Muya is a separate
-workspace package that the renderer (and tests) consume via the `muya`
-alias / `@marktext/muyajs` workspace dep.
+All Electron processes live in `packages/desktop/`. The renderer consumes the
+TypeScript editor in `packages/muya` via `@muyajs/core`; remaining legacy consumers
+use the `muya` alias / `@marktext/muyajs`. The legacy backend description below is
+implementation history, not permission to maintain an independent language engine.
+Document authority and semantic integration follow the contract linked in AGENTS.md.
 
 ```
 main process  (packages/desktop/src/main/)
@@ -256,8 +262,8 @@ renderer  (packages/desktop/src/renderer/)
   ├── Hosts both Muya (WYSIWYG) and CodeMirror (source-code mode)
   └── Compiled to ES Modules only
 
-Muya  (packages/muyajs/)            ← workspace package @marktext/muyajs
-  ├── Self-contained editor backend
+Legacy Muya  (packages/muyajs/)     ← workspace package @marktext/muyajs
+  ├── Previous self-contained editor backend, being retired
   ├── Primarily avoids Electron APIs; uses Node's zlib for PlantUML encoding
   ├── Handles markdown parsing, block data structure, document export, rendering
   └── packages/muya/ (@muyajs/core, the TS rewrite from

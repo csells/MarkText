@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
 
 import type Format from '../../block/base/format';
-import type { ImageToken } from '../../inlineRenderer/types';
 import type { Muya } from '../../muya';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { tokenizer } from '../../inlineRenderer/lexer';
 import { Muya as MuyaClass } from '../../muya';
 import { SelectionCaretType, SelectionDirection } from '../../selection/types';
 
@@ -50,11 +50,7 @@ function bootMuya(markdown: string, options: Record<string, unknown> = {}): Muya
 function selectWholeImage(muya: Muya): Format {
     const block = muya.editor.scrollPage!.firstContentInDescendant() as Format;
     const raw = block.text;
-    const token = {
-        type: 'image',
-        raw,
-        range: { start: 0, end: raw.length },
-    } as unknown as ImageToken;
+    const token = tokenizer(raw).find(token => token.type === 'image')!;
     muya.editor.selection.selectImage({ token, imageId: 'sel-img', block });
 
     // happy-dom doesn't round-trip the range that `setCursor` writes, so stub
@@ -105,7 +101,7 @@ describe('paste — replace a selected inline image (muyajs parity)', () => {
         const block = muya.editor.scrollPage!.firstContentInDescendant() as Format;
         const raw = block.text;
         muya.editor.selection.selectImage({
-            token: { type: 'image', raw, range: { start: 0, end: raw.length } } as unknown as ImageToken,
+            token: tokenizer(raw).find(token => token.type === 'image')!,
             imageId: 'sel-img',
             block,
         });

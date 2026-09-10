@@ -156,44 +156,14 @@ export function getNodeAndOffset(
                 && child.classList
                 && child.classList.contains(`${CLASS_NAMES.MU_INLINE_IMAGE}`)
             ) {
-                const imageContainer = child.querySelector(
-                    `.${CLASS_NAMES.MU_IMAGE_CONTAINER}`,
-                )!;
-                const hasImg = imageContainer.querySelector('img');
-
-                if (!hasImg) {
-                    return {
-                        node: child,
-                        offset: 0,
-                    };
-                }
-
-                if (count + textLength === offset) {
-                    if (child.nextElementSibling) {
-                        return {
-                            node: child.nextElementSibling,
-                            offset: 0,
-                        };
-                    }
-                    else {
-                        return {
-                            node: imageContainer,
-                            offset: 1,
-                        };
-                    }
-                }
-                else if (count === offset && count === 0) {
-                    return {
-                        node: imageContainer,
-                        offset: 0,
-                    };
-                }
-                else {
-                    return {
-                        node: child,
-                        offset: 0,
-                    };
-                }
+                // An atomic image's outer text offsets are editable DOM
+                // boundaries, regardless of loading state. Interior offsets
+                // are resolved by active source presentation before editing.
+                if (offset === count)
+                    return { node, offset: i };
+                if (offset === count + textLength)
+                    return { node, offset: i + 1 };
+                return { node: child, offset: 0 };
             }
             else {
                 return getNodeAndOffset(child, offset - count);

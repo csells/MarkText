@@ -60,9 +60,10 @@ function makeClipboard(
     options: Record<string, unknown>,
     anchorBlock: Content,
 ) {
-    const clipboard = new Clipboard({ options } as unknown as Muya);
+    const clipboard = new Clipboard({ options, editor: { documentEditing: undefined } } as unknown as Muya);
     Object.defineProperty(clipboard, 'selection', {
         get: () => ({
+            table: { hasSelection: false },
             getSelection: () => ({
                 isSelectionInSameBlock: true,
                 anchor: { block: anchorBlock },

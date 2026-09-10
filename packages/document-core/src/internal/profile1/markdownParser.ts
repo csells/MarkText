@@ -1,3 +1,5 @@
+import { frontMatterPolicy } from '@marktext/input-policy'
+import { htmlTagAttributes } from './htmlTagAttributes.js'
 import type {
   MarkdownDocument,
   MarkdownLineIndex,
@@ -13,6 +15,7 @@ import {
   type ParseExecutionTracker
 } from '../../parseExecutionControl.js'
 import {
+  advanceMarkdownColumn,
   normalizeMarkdownReferenceLabel,
   parseIntrinsicForkMarkdownLaneFacts,
   type MarkdownCheckpoint,
@@ -304,6 +307,7 @@ interface MappedMarkdownLiteral {
   readonly end: number
   readonly construct?: MarkdownInlineConstruct
   readonly blockKind?: 'footnote-definition'
+  readonly htmlTermination?: 'blank-line' | 'explicit'
 }
 
 export interface MappedMarkdownLane {
@@ -342,6 +346,7 @@ export interface MappedMarkdownMatchingScope {
   readonly start: number
   readonly end: number
   readonly depth: number
+  readonly owner?: IntrinsicProfile1ForkLane['owner']
 }
 
 export interface MappedMarkdownCanonicalIdentityRun {
@@ -393,6 +398,7 @@ export type MarkdownArmBoundaryProjectionEdit =
     readonly sourcePosition: number
     readonly lineEnding: '\n' | '\r' | '\r\n'
     readonly blankLine?: true
+    readonly continuationPrefix?: string
     readonly indentationElision?: Readonly<{
       readonly candidateStart: number
       readonly candidateEnd: number
@@ -454,25 +460,7 @@ function stableAttributesKey(
     // These are view-coordinate projections of parser-owned source facts. They
     // move when an earlier CriticMarkup arm is elided, but that must not give
     // the same canonical syntax node a different identity in another view.
-    .filter((key) => ![
-      'destinationStart',
-      'destinationEnd',
-      'definitionStart',
-      'titleStart',
-      'titleEnd',
-      'taskMarkerStart',
-      'taskMarkerEnd',
-      'labelStart',
-      'labelEnd',
-      'bodyStart',
-      'bodyEnd',
-      'contentStart',
-      'contentEnd',
-      'delimiterStart',
-      'delimiterEnd',
-      'semanticStart',
-      'semanticEnd'
-    ].includes(key))
+    .filter((key) => !(typeof attributes[key] === 'number' && isPositionalMarkdownAttribute(key)))
     .sort()
     .map((key) => `${key}=${String(attributes[key])}`)
     .join('&')
@@ -649,6 +637,8 @@ interface ParsedReferenceLink {
   readonly labelEnd: number
   readonly end: number
   readonly referenceLabel: string
+  readonly rawReferenceLabel: string
+  readonly referenceKind: 'full' | 'collapsed' | 'shortcut'
 }
 
 function findBalancedLabelEnd(
@@ -760,6 +750,8 @@ function findReferenceLink(
   )
   let constructEnd = labelEnd + 1
   let referenceLabel = normalizedLabel
+  let rawReferenceLabel = source.slice(opener + 1, labelEnd)
+  let referenceKind: ParsedReferenceLink['referenceKind'] = 'shortcut'
   if (source.charCodeAt(constructEnd) === 91) {
     const referenceStart = constructEnd
     const referenceEnd = findBalancedLabelEnd(source, referenceStart, end)
@@ -776,6 +768,8 @@ function findReferenceLink(
     ) {
       return undefined
     }
+    referenceKind = referenceEnd === constructEnd + 1 ? 'collapsed' : 'full'
+    if (referenceKind === 'full') rawReferenceLabel = source.slice(constructEnd + 1, referenceEnd)
     referenceLabel = referenceEnd === constructEnd + 1
       ? normalizedLabel
       : normalizeMarkdownReferenceLabel(
@@ -797,7 +791,9 @@ function findReferenceLink(
     labelStart: opener + 1,
     labelEnd,
     end: constructEnd,
-    referenceLabel
+    referenceLabel,
+    rawReferenceLabel,
+    referenceKind
   })
 }
 
@@ -1672,7 +1668,7 @@ function appendInlineRange(
           referenceDefinitions,
           boundaryPolicy
         ),
-        scanLinkTargetAttributes(source, destinationStart, nodeEnd - 1)
+        { ...scanLinkTargetAttributes(source, destinationStart, nodeEnd - 1), labelStart: construct.labelStart, labelEnd }
       ))
       offset = nodeEnd
       textStart = offset
@@ -1820,7 +1816,7 @@ function appendInlineRange(
           referenceDefinitions,
           boundaryPolicy
         ),
-        { referenceLabel: referenceLink.referenceLabel }
+        { referenceLabel: referenceLink.referenceLabel, rawReferenceLabel: referenceLink.rawReferenceLabel, referenceKind: referenceLink.referenceKind, labelStart: referenceLink.labelStart, labelEnd: referenceLink.labelEnd }
       ))
       offset = referenceLink.end
       textStart = offset
@@ -1881,6 +1877,7 @@ function appendInlineRange(
               ? (() => {
                 const content = source.slice(offset, nodeEnd)
                 return Object.freeze({
+                  ...htmlTagAttributes(source, offset, nodeEnd),
                   content,
                   contentStart: offset,
                   contentEnd: nodeEnd,
@@ -2070,19 +2067,25 @@ function parseAtxHeading(
       boundaryPolicy
     )
     : []
-  return createNode('heading', start, end, children, { level })
+  return createNode('heading', start, end, children, { level, contentStart: offset, contentEnd: Math.max(offset, contentEnd) })
 }
 
 // Code content is a line-level fact: container prefixes ('> ', list padding)
 // and the code indent live BEFORE each line's content offset, which only the
 // line records know. Extracting here keeps every consumer (HTML materializer,
 // editor view) off raw-slice re-derivation.
-function codeBlockAttributes(
+interface LiteralBlockLayout {
+  readonly attributes: Readonly<Record<string, string | number | boolean>>
+  readonly lines: readonly PlainMarkdownLine[]
+  readonly stripColumns: number | 'all' | 'html'
+}
+
+function codeBlockLayout(
   source: string,
   literal: MappedMarkdownLiteral,
   lines: readonly PlainMarkdownLine[],
   fromLineIndex: number
-): Readonly<Record<string, string | number | boolean>> {
+): LiteralBlockLayout {
   const covered: PlainMarkdownLine[] = []
   for (let index = fromLineIndex; index < lines.length; index += 1) {
     const line = lines[index]
@@ -2102,19 +2105,27 @@ function codeBlockAttributes(
     const contentStart = covered[0]?.contentOffset ?? literal.start
     const contentEnd = covered.at(-1)?.end ?? contentStart
     return Object.freeze({
-      provider: literal.provider,
-      content: content === '' ? '' : `${content}\n`,
-      contentStart,
-      contentEnd
+      attributes: Object.freeze({
+        provider: literal.provider,
+        content: content === '' ? '' : `${content}\n`,
+        contentStart,
+        contentEnd
+      }),
+      lines: Object.freeze(covered),
+      stripColumns: 4
     })
   }
   const opener = covered[0]
   if (opener === undefined) {
     return Object.freeze({
-      provider: literal.provider,
-      content: '',
-      contentStart: literal.start,
-      contentEnd: literal.start
+      attributes: Object.freeze({
+        provider: literal.provider,
+        content: '',
+        contentStart: literal.start,
+        contentEnd: literal.start
+      }),
+      lines: Object.freeze([]),
+      stripColumns: 0
     })
   }
   const openerText = source.slice(opener.contentOffset, opener.contentEnd)
@@ -2131,20 +2142,68 @@ function codeBlockAttributes(
     closerPattern.test(source.slice(last.contentOffset, last.contentEnd))
   const interior = covered.slice(1, hasCloser ? covered.length - 1 : covered.length)
   const content = interior.map((line) => lineText(line, fenceIndent)).join('\n')
-  const contentStart = interior[0]?.contentOffset ?? opener.end
+  const contentStart = interior[0]?.start ?? opener.end
   const contentEnd = interior.at(-1)?.end ?? contentStart
   // The info string's exact extent — everything after the fence marker on
   // the opener line — so no consumer re-recognizes the fence to edit it.
   const infoStart = opener.contentOffset + (markerMatch?.[1]?.length ?? 0)
   return Object.freeze({
-    provider: literal.provider,
-    content: interior.length === 0 ? '' : `${content}\n`,
-    contentStart,
-    contentEnd,
-    infoStart,
-    infoEnd: opener.contentEnd,
-    ...(info === '' ? {} : { info })
+    attributes: Object.freeze({
+      provider: literal.provider,
+      content: interior.length === 0 ? '' : `${content}\n`,
+      contentStart,
+      contentEnd,
+      infoStart,
+      infoEnd: opener.contentEnd,
+      ...(info === '' ? {} : { info })
+    }),
+    lines: Object.freeze(interior),
+    stripColumns: fenceIndent
   })
+}
+
+/** Literal payload is text, never another inline Markdown recognition pass. */
+function literalBlockPayloadNodes(
+  source: string,
+  layout: LiteralBlockLayout
+): readonly MarkdownNode[] {
+  const result: MarkdownNode[] = []
+  for (const [ordinal, line] of layout.lines.entries()) {
+    if (layout.stripColumns === 'html' && line.containers.length === 0) {
+      result.push(createNode('text', line.start, line.contentEnd, [], { semanticText: source.slice(line.start, line.contentEnd) }))
+      if (ordinal + 1 < layout.lines.length) result.push(createNode('soft-break', line.contentEnd, line.end))
+      continue
+    }
+    const stripColumns = layout.stripColumns === 'all' ? line.indentation : layout.stripColumns === 'html' ? 0 : layout.stripColumns
+    const kept = Math.max(0, line.indentation - stripColumns)
+    let column = 0
+    for (let offset = line.start; offset < line.contentOffset; offset += 1) {
+      column = advanceMarkdownColumn(column, source.charCodeAt(offset))
+    }
+    const keptFromColumn = column - kept
+    column = 0
+    let textStart = line.contentOffset
+    for (let offset = line.start; offset < line.contentOffset; offset += 1) {
+      const nextColumn = advanceMarkdownColumn(column, source.charCodeAt(offset))
+      if (nextColumn > keptFromColumn) {
+        if (source.charCodeAt(offset) === 9) {
+          if (textStart < offset) result.push(createNode('text', textStart, offset, [], { semanticText: source.slice(textStart, offset) }))
+          result.push(createNode('text', offset, offset + 1, [], { semanticText: ' '.repeat(nextColumn - Math.max(column, keptFromColumn)) }))
+          textStart = offset + 1
+        } else if (textStart > offset) textStart = offset
+      }
+      column = nextColumn
+    }
+    if (textStart < line.contentEnd || textStart === line.contentOffset) {
+      result.push(createNode('text', textStart, line.contentEnd, [], { semanticText: source.slice(textStart, line.contentEnd) }))
+    }
+    if (ordinal + 1 < layout.lines.length) result.push(createNode('soft-break', line.contentEnd, line.end))
+  }
+  if (result.length === 0) {
+    const at = Number(layout.attributes.contentStart)
+    result.push(createNode('text', at, at, [], { semanticText: '' }))
+  }
+  return Object.freeze(result)
 }
 
 function inlineMathAttributes(
@@ -2198,41 +2257,40 @@ function inlineCodeAttributes(
   })
 }
 
-function fencedBlockPayloadAttributes(
-  source: string,
-  literal: MappedMarkdownLiteral,
-  lines: readonly PlainMarkdownLine[],
-  fromLineIndex: number
-): Readonly<Record<string, string | number | boolean>> {
-  return codeBlockAttributes(source, literal, lines, fromLineIndex)
+function isMathBlockMarker(source: string, start: number, end: number): boolean {
+  return source.slice(start, end).trim() === '$$'
 }
 
-function mathBlockAttributes(
+function mathBlockLayout(
   source: string,
   literal: MappedMarkdownLiteral,
   lines: readonly PlainMarkdownLine[],
   fromLineIndex: number
-): Readonly<Record<string, string | number>> {
+): LiteralBlockLayout {
   const opener = lines[fromLineIndex]
   if (
     opener === undefined ||
-    source.slice(opener.contentOffset, opener.contentEnd).trim() !== '$$'
+    !isMathBlockMarker(source, opener.contentOffset, opener.contentEnd)
   ) {
-    const fenced = fencedBlockPayloadAttributes(
+    const layout = codeBlockLayout(
       source,
       literal,
       lines,
       fromLineIndex
     )
+    const fenced = layout.attributes
     return Object.freeze({
-      content: typeof fenced['content'] === 'string' ? fenced['content'] : '',
-      contentStart: typeof fenced['contentStart'] === 'number'
-        ? fenced['contentStart']
-        : literal.start,
-      contentEnd: typeof fenced['contentEnd'] === 'number'
-        ? fenced['contentEnd']
-        : literal.start,
-      syntax: 'fenced'
+      ...layout,
+      attributes: Object.freeze({
+        content: typeof fenced['content'] === 'string' ? fenced['content'] : '',
+        contentStart: typeof fenced['contentStart'] === 'number'
+          ? fenced['contentStart']
+          : literal.start,
+        contentEnd: typeof fenced['contentEnd'] === 'number'
+          ? fenced['contentEnd']
+          : literal.start,
+        syntax: 'fenced'
+      })
     })
   }
 
@@ -2248,27 +2306,31 @@ function mathBlockAttributes(
   const hasCloser =
     last !== undefined &&
     last !== opener &&
-    source.slice(last.contentOffset, last.contentEnd).trim() === '$$'
+    isMathBlockMarker(source, last.contentOffset, last.contentEnd)
   const interior = covered.slice(1, hasCloser ? -1 : undefined)
   const content = interior.map((line) =>
     source.slice(line.contentOffset, line.contentEnd)
   ).join('\n')
-  const contentStart = interior[0]?.contentOffset ?? opener.end
+  const contentStart = interior[0]?.start ?? opener.end
   const contentEnd = interior.at(-1)?.end ?? contentStart
   return Object.freeze({
-    content: interior.length === 0 ? '' : `${content}\n`,
-    contentStart,
-    contentEnd,
-    syntax: 'dollar'
+    attributes: Object.freeze({
+      content: interior.length === 0 ? '' : `${content}\n`,
+      contentStart,
+      contentEnd,
+      syntax: 'dollar'
+    }),
+    lines: Object.freeze(interior),
+    stripColumns: 'all'
   })
 }
 
-function frontMatterAttributes(
+function frontMatterLayout(
   source: string,
   literal: MappedMarkdownLiteral,
   lines: readonly PlainMarkdownLine[],
   fromLineIndex: number
-): Readonly<Record<string, string | number>> {
+): LiteralBlockLayout {
   const covered: PlainMarkdownLine[] = []
   for (let index = fromLineIndex; index < lines.length; index += 1) {
     const line = lines[index]
@@ -2280,54 +2342,68 @@ function frontMatterAttributes(
   const opener = covered[0]
   if (opener === undefined) {
     return Object.freeze({
-      content: '',
-      contentStart: literal.start,
-      contentEnd: literal.start
+      attributes: Object.freeze({ content: '', contentStart: literal.start, contentEnd: literal.start }),
+      lines: Object.freeze([]),
+      stripColumns: 'all'
     })
   }
   const last = covered.at(-1)
+  const openerText = source.slice(opener.contentOffset, opener.contentEnd).trim()
+  const policy = frontMatterPolicy(openerText[0] ?? '-')
   const closerText = last === undefined
     ? ''
     : source.slice(last.contentOffset, last.contentEnd).trim()
   const hasCloser =
     last !== undefined &&
     last !== opener &&
-    (closerText === '---' || closerText === '...')
+    (closerText === policy.close || (policy.style === '-' && closerText === '...'))
   const interior = covered.slice(1, hasCloser ? -1 : undefined)
   const content = interior.map((line) =>
     source.slice(line.contentOffset, line.contentEnd)
   ).join('\n')
-  const contentStart = interior[0]?.contentOffset ?? opener.end
+  const contentStart = interior[0]?.start ?? opener.end
   const contentEnd = interior.at(-1)?.end ?? contentStart
   return Object.freeze({
-    content: interior.length === 0 ? '' : `${content}\n`,
-    contentStart,
-    contentEnd
+    attributes: Object.freeze({
+      lang: policy.lang,
+      style: policy.style,
+      opener: openerText,
+      closer: hasCloser ? closerText : '',
+      content: interior.length === 0 ? '' : `${content}\n`,
+      contentStart,
+      contentEnd
+    }),
+    lines: Object.freeze(interior),
+    stripColumns: 'all'
   })
 }
 
-function diagramAttributes(
+function diagramLayout(
   source: string,
   literal: MappedMarkdownLiteral,
   lines: readonly PlainMarkdownLine[],
   fromLineIndex: number
-): Readonly<Record<string, string | number>> {
-  const fenced = fencedBlockPayloadAttributes(
+): LiteralBlockLayout {
+  const layout = codeBlockLayout(
     source,
     literal,
     lines,
     fromLineIndex
   )
+  const fenced = layout.attributes
   const info = typeof fenced['info'] === 'string' ? fenced['info'] : ''
   return Object.freeze({
-    content: typeof fenced['content'] === 'string' ? fenced['content'] : '',
-    contentStart: typeof fenced['contentStart'] === 'number'
-      ? fenced['contentStart']
-      : literal.start,
-    contentEnd: typeof fenced['contentEnd'] === 'number'
-      ? fenced['contentEnd']
-      : literal.start,
-    language: info.split(/[\t ]/, 1)[0]?.toLowerCase() ?? ''
+    ...layout,
+    attributes: Object.freeze({
+      content: typeof fenced['content'] === 'string' ? fenced['content'] : '',
+      contentStart: typeof fenced['contentStart'] === 'number'
+        ? fenced['contentStart']
+        : literal.start,
+      contentEnd: typeof fenced['contentEnd'] === 'number'
+        ? fenced['contentEnd']
+        : literal.start,
+      language: info.split(/[\t ]/, 1)[0]?.toLowerCase() ?? ''
+    })
   })
 }
 
@@ -2482,13 +2558,14 @@ function footnoteDefinitionParts(
   })
 }
 
-function htmlBlockAttributes(
+function htmlBlockLayout(
   source: string,
   literal: MappedMarkdownLiteral,
   lines: readonly PlainMarkdownLine[],
   fromLineIndex: number
-): Readonly<Record<string, string | number | boolean>> {
+): LiteralBlockLayout {
   const content: string[] = []
+  const covered: PlainMarkdownLine[] = []
   let contentStart = literal.start
   let contentEnd = literal.start
   for (let index = fromLineIndex; index < lines.length; index += 1) {
@@ -2496,6 +2573,7 @@ function htmlBlockAttributes(
     if (line === undefined || line.start >= literal.end) {
       break
     }
+    covered.push(line)
     const lineContentStart =
       line.containers.length === 0 ? line.start : line.contentOffset
     if (content.length === 0) {
@@ -2510,12 +2588,18 @@ function htmlBlockAttributes(
     )
   }
   return Object.freeze({
-    content: content.length === 0 ? '' : `${content.join('\n')}\n`,
-    contentStart,
-    contentEnd,
-    ...(gfmTagFilterApplies(content.join('\n'))
-      ? { gfmTagFilter: true }
-      : {})
+    attributes: Object.freeze({
+      ...htmlTagAttributes(source, contentStart, contentEnd, true),
+      ...(literal.htmlTermination === undefined ? {} : { termination: literal.htmlTermination }),
+      content: content.length === 0 ? '' : `${content.join('\n')}\n`,
+      contentStart,
+      contentEnd,
+      ...(gfmTagFilterApplies(content.join('\n'))
+        ? { gfmTagFilter: true }
+        : {})
+    }),
+    lines: Object.freeze(covered),
+    stripColumns: 'html'
   })
 }
 
@@ -2572,12 +2656,13 @@ function scanLinkTargetAttributes(
     }
     destinationEnd = offset
   }
+  const destinationSyntaxEnd = offset
   while (offset < end && isLinkWhitespace(source.charCodeAt(offset))) {
     offset += 1
   }
   const titleOpen = source.charCodeAt(offset)
   if (titleOpen !== 34 && titleOpen !== 39 && titleOpen !== 40) {
-    return { destinationStart, destinationEnd }
+    return { destinationStart, destinationEnd, destinationSyntaxEnd }
   }
   const titleClose = titleOpen === 40 ? 41 : titleOpen
   const titleStart = offset + 1
@@ -2593,7 +2678,7 @@ function scanLinkTargetAttributes(
     }
     offset += 1
   }
-  return { destinationStart, destinationEnd, titleStart, titleEnd: offset }
+  return { destinationStart, destinationEnd, destinationSyntaxEnd, titleStart, titleEnd: offset }
 }
 
 function isLinkWhitespace(codeUnit: number): boolean {
@@ -2643,32 +2728,19 @@ function blockLiteralNode(
   boundaryPolicy?: InlineBoundaryPolicy
 ): MarkdownNode | undefined {
   if (literal.provider === 'fenced-code' || literal.provider === 'indented-code') {
-    return createNode('code-block', start, literal.end, [],
-      lines !== undefined && fromLineIndex !== undefined
-        ? codeBlockAttributes(source, literal, lines, fromLineIndex)
-        : { provider: literal.provider })
+    if (lines === undefined || fromLineIndex === undefined) throw new Error('Code block payload requires its owned physical lines')
+    const layout = codeBlockLayout(source, literal, lines, fromLineIndex)
+    return createNode('code-block', start, literal.end, literalBlockPayloadNodes(source, layout), layout.attributes)
   }
   if (literal.provider === 'html-block') {
-    return createNode(
-      'html-block',
-      start,
-      literal.end,
-      [],
-      lines !== undefined && fromLineIndex !== undefined
-        ? htmlBlockAttributes(source, literal, lines, fromLineIndex)
-        : EMPTY_ATTRIBUTES
-    )
+    if (lines === undefined || fromLineIndex === undefined) throw new Error('HTML block requires its owned physical lines')
+    const layout = htmlBlockLayout(source, literal, lines, fromLineIndex)
+    return createNode('html-block', start, literal.end, literalBlockPayloadNodes(source, layout), layout.attributes)
   }
   if (literal.provider === 'front-matter') {
-    return createNode(
-      'front-matter',
-      start,
-      literal.end,
-      [],
-      lines !== undefined && fromLineIndex !== undefined
-        ? frontMatterAttributes(source, literal, lines, fromLineIndex)
-        : EMPTY_ATTRIBUTES
-    )
+    if (lines === undefined || fromLineIndex === undefined) throw new Error('Front matter requires its owned physical lines')
+    const layout = frontMatterLayout(source, literal, lines, fromLineIndex)
+    return createNode('front-matter', start, literal.end, literalBlockPayloadNodes(source, layout), layout.attributes)
   }
   if (literal.provider === 'definition') {
     const attributes = definitionAttributes(source, literal)
@@ -2702,15 +2774,9 @@ function blockLiteralNode(
     return createNode('definition', start, literal.end, [], attributes)
   }
   if (literal.provider === 'diagram') {
-    return createNode(
-      'diagram',
-      start,
-      literal.end,
-      [],
-      lines !== undefined && fromLineIndex !== undefined
-        ? diagramAttributes(source, literal, lines, fromLineIndex)
-        : EMPTY_ATTRIBUTES
-    )
+    if (lines === undefined || fromLineIndex === undefined) throw new Error('Diagram requires its owned physical lines')
+    const layout = diagramLayout(source, literal, lines, fromLineIndex)
+    return createNode('diagram', start, literal.end, literalBlockPayloadNodes(source, layout), layout.attributes)
   }
   if (literal.provider === 'math') {
     const firstLineEndCandidates = [
@@ -2725,15 +2791,9 @@ function blockLiteralNode(
       firstLine === '$$' ||
       /^(?:`{3,}|~{3,})[\t ]*math(?:[\t ].*)?$/i.test(firstLine)
     ) {
-      return createNode(
-        'math-block',
-        start,
-        literal.end,
-        [],
-        lines !== undefined && fromLineIndex !== undefined
-          ? mathBlockAttributes(source, literal, lines, fromLineIndex)
-          : EMPTY_ATTRIBUTES
-      )
+      if (lines === undefined || fromLineIndex === undefined) throw new Error('Math block requires its owned physical lines')
+      const layout = mathBlockLayout(source, literal, lines, fromLineIndex)
+      return createNode('math-block', start, literal.end, literalBlockPayloadNodes(source, layout), layout.attributes)
     }
   }
   return undefined
@@ -2825,6 +2885,8 @@ interface TaskListItemMarker {
   readonly checked: boolean
   readonly start: number
   readonly end: number
+  readonly stateStart: number
+  readonly stateEnd: number
 }
 
 /**
@@ -2835,7 +2897,8 @@ interface TaskListItemMarker {
  */
 function taskListItemMarker(
   source: string,
-  line: PlainMarkdownLine
+  line: PlainMarkdownLine,
+  boundaryPolicy?: InlineBoundaryPolicy
 ): TaskListItemMarker | undefined {
   let start = line.contentOffset
   let optionalSpaces = 0
@@ -2847,8 +2910,24 @@ function taskListItemMarker(
     start += 1
     optionalSpaces += 1
   }
-  const state = source.charCodeAt(start + 1)
-  const close = start + 2
+  let stateStart = start + 1
+  let close = start + 2
+  const oldScope = matchingScopeAt(boundaryPolicy, stateStart)
+  const newScope = matchingScopeAt(boundaryPolicy, close)
+  const oldOwner = oldScope?.owner
+  const newOwner = newScope?.owner
+  const validState = (offset: number) => [32, 9, 120, 88].includes(source.charCodeAt(offset))
+  // A substitution contributes two states to Markup, but the task itself is
+  // one control. Its proposed state and interval come from the intrinsic fork.
+  if (oldScope?.start === stateStart && oldScope.end === close &&
+      newScope?.start === close && newScope.end === close + 1 &&
+      oldOwner?.kind === 'critic-arm' && newOwner?.kind === 'critic-arm' &&
+      oldOwner.node.kind === 'substitution' && oldOwner.node === newOwner.node &&
+      oldOwner.arm === 'old' && newOwner.arm === 'new' && validState(stateStart) && validState(close)) {
+    stateStart = close
+    close += 1
+  }
+  const state = source.charCodeAt(stateStart)
   const following = source.charCodeAt(close + 1)
   if (
     source.charCodeAt(start) !== 91 ||
@@ -2861,7 +2940,9 @@ function taskListItemMarker(
   return Object.freeze({
     checked: state === 120 || state === 88,
     start,
-    end: close + 1
+    end: close + 1,
+    stateStart,
+    stateEnd: stateStart + 1
   })
 }
 
@@ -2964,7 +3045,8 @@ function sameContainerKind(
   return descriptor.kind !== 'list-item' || (
     context.descriptor.kind === 'list-item' &&
     context.descriptor.ordered === descriptor.ordered &&
-    context.descriptor.delimiterCodeUnit === descriptor.delimiterCodeUnit
+    context.descriptor.delimiterCodeUnit === descriptor.delimiterCodeUnit &&
+    (!descriptor.ordered || context.descriptor.startNumber === descriptor.startNumber)
   )
 }
 
@@ -3577,16 +3659,31 @@ function parseOrderedContainerSequence(
       parent.kind === 'list-item' &&
       parent.children.length === 0 &&
       paragraph === undefined
-        ? taskListItemMarker(source, line)
+        ? taskListItemMarker(source, line, boundaryPolicy)
         : undefined
     if (taskMarker !== undefined) {
       parent.attributes = Object.freeze({
         ...parent.attributes,
         task: true,
         checked: taskMarker.checked,
+        taskStateStart: taskMarker.stateStart,
+        taskStateEnd: taskMarker.stateEnd,
         taskMarkerStart: taskMarker.start,
         taskMarkerEnd: taskMarker.end
       })
+      let contentStart = taskMarker.end
+      while (contentStart < line.contentEnd &&
+        (source.charCodeAt(contentStart) === 32 || source.charCodeAt(contentStart) === 9)) {
+        contentStart += 1
+      }
+      // A marker-only task line owns the checkbox, but no paragraph text.
+      // Its following continuation starts the first paragraph without a
+      // synthetic initial soft break, just as an empty ordinary list marker.
+      if (contentStart === line.contentEnd) {
+        extendOpenContainers(line.contentEnd)
+        nextLineIndex += 1
+        continue
+      }
     }
     const contentLine =
       taskMarker === undefined
@@ -3659,7 +3756,7 @@ function parseOrderedContainerSequence(
             referenceDefinitions,
             boundaryPolicy
           ),
-          { level: underlineLevel, style: 'setext' }
+          { level: underlineLevel, style: 'setext', contentStart: paragraphLines[0]?.contentOffset ?? paragraph.start, contentEnd: paragraphLines.at(-1)?.contentEnd ?? paragraph.end }
         )
         parent.children[parent.children.indexOf(paragraph)] = heading
         paragraphOwner = undefined
@@ -3810,11 +3907,13 @@ function isThematicBreak(source: string, line: PlainMarkdownLine): boolean {
 interface TableCellRange {
   readonly start: number
   readonly end: number
+  readonly cellStart: number
+  readonly cellEnd: number
 }
 
 function splitTableCells(
   source: string,
-  line: PlainMarkdownLine
+  line: Pick<PlainMarkdownLine, 'contentOffset' | 'contentEnd'>
 ): readonly TableCellRange[] | undefined {
   const separators: number[] = []
   for (let offset = line.contentOffset; offset < line.contentEnd; offset += 1) {
@@ -3836,6 +3935,8 @@ function splitTableCells(
     if (index > 0) {
       start += 1
     }
+    const cellStart = start
+    const cellEnd = end
     while (
       start < end &&
       (source.charCodeAt(start) === 32 || source.charCodeAt(start) === 9)
@@ -3851,18 +3952,39 @@ function splitTableCells(
     const isLeadingEmpty = index === 0 && start === end
     const isTrailingEmpty = index + 2 === boundaries.length && start === end
     if (!isLeadingEmpty && !isTrailingEmpty) {
-      cells.push(Object.freeze({ start, end }))
+      cells.push(Object.freeze({ start, end, cellStart, cellEnd }))
     }
   }
   return cells.length === 0 ? undefined : Object.freeze(cells)
 }
 
+// The editor's Enter shortcut shares GFM's cell scanner and escape policy.
+function tableHeaderColumnCount(source: string, start: number, end: number): number | undefined {
+  if (source.charCodeAt(start) !== 124 || /[\r\n]/u.test(source.slice(start, end))) return undefined
+  const cells = splitTableCells(source, { contentOffset: start, contentEnd: end })
+  if (cells === undefined || cells.length < 2) return undefined
+  let separators = cells.length - 1
+  if (cells[0] !== undefined && cells[0].start > start) separators += 1
+  const last = cells[cells.length - 1]
+  if (last !== undefined && source.slice(last.end, end).includes('|')) separators += 1
+  return separators >= 3 ? cells.length : undefined
+}
+
+export type ParagraphEnterConversion = { readonly kind: 'math' } | { readonly kind: 'table', readonly columns: number }
+
+/** An Enter operation queries the retained parser domain, not a native text projection. */
+export function paragraphEnterConversion(source: string, start: number, end: number): ParagraphEnterConversion | undefined {
+  if (isMathBlockMarker(source, start, end)) return { kind: 'math' }
+  const columns = tableHeaderColumnCount(source, start, end)
+  return columns === undefined ? undefined : { kind: 'table', columns }
+}
+
 type TableAlignment = 'none' | 'left' | 'center' | 'right'
 
-function tableDelimiterAlignments(
+function parseTableDelimiter(
   source: string,
   line: PlainMarkdownLine
-): readonly TableAlignment[] | undefined {
+): Readonly<{ cells: readonly TableCellRange[], alignments: readonly TableAlignment[] }> | undefined {
   const cells = splitTableCells(source, line)
   if (cells === undefined) {
     return undefined
@@ -3883,7 +4005,7 @@ function tableDelimiterAlignments(
             : 'none'
     )
   }
-  return Object.freeze(alignments)
+  return Object.freeze({ cells, alignments: Object.freeze(alignments) })
 }
 
 interface ParsedTable {
@@ -3915,10 +4037,11 @@ function parseTable(
       descriptor.kind === headerLine.containers[index]?.kind)
   if (!continuesContainer(delimiterLine)) return undefined
   const headerCells = splitTableCells(source, headerLine)
-  const alignments = tableDelimiterAlignments(source, delimiterLine)
+  const delimiter = parseTableDelimiter(source, delimiterLine)
+  const alignments = delimiter?.alignments
   if (
     headerCells === undefined ||
-    alignments === undefined ||
+    alignments === undefined || delimiter === undefined ||
     headerCells.length !== alignments.length
   ) {
     return undefined
@@ -3949,7 +4072,19 @@ function parseTable(
           referenceDefinitions,
           boundaryPolicy
         ),
-        { header, alignment }
+        {
+          header,
+          alignment,
+          ...(cells[index] === undefined ? {} : { cellStart: cells[index].cellStart, cellEnd: cells[index].cellEnd }),
+          ...(header && delimiter.cells[index] !== undefined
+            ? {
+              delimiterStart: delimiter.cells[index].cellStart,
+              delimiterEnd: delimiter.cells[index].cellEnd,
+              delimiterContentStart: delimiter.cells[index].start,
+              delimiterContentEnd: delimiter.cells[index].end
+            }
+            : {})
+        }
       )
     }),
     { header }
@@ -3977,7 +4112,7 @@ function parseTable(
       ) {
         end -= 1
       }
-      return Object.freeze([Object.freeze({ start, end })])
+      return Object.freeze([Object.freeze({ start, end, cellStart: line.contentOffset, cellEnd: line.contentEnd })])
     })()
     rows.push(createRow(line, cells, false))
     nextLineIndex += 1
@@ -4183,7 +4318,7 @@ function parseBlocksRegion(
           referenceDefinitions,
           boundaryPolicy
         ),
-        { level: setextLevel, style: 'setext' }
+        { level: setextLevel, style: 'setext', contentStart: line.contentOffset, contentEnd: paragraphEnd }
       ))
       lineIndex = nextLineIndex
       continue
@@ -4201,11 +4336,7 @@ function parseBlocksRegion(
       paragraphStart,
       paragraphEnd,
       children,
-      tableOfContentsParagraphAttributes(
-        source,
-        paragraphStart,
-        paragraphEnd
-      )
+      tableOfContentsParagraphAttributes(source, paragraphStart, paragraphEnd)
     ))
     lineIndex = nextLineIndex
   }
@@ -4530,27 +4661,9 @@ function retainFragmentEntry<Value>(
   budget.queue.push({ cache, key, keyBytes, valueBytes })
 }
 
-const POSITIONAL_MARKDOWN_ATTRIBUTES = new Set([
-  'destinationStart',
-  'destinationEnd',
-  'infoStart',
-  'infoEnd',
-  'definitionStart',
-  'titleStart',
-  'titleEnd',
-  'taskMarkerStart',
-  'taskMarkerEnd',
-  'labelStart',
-  'labelEnd',
-  'bodyStart',
-  'bodyEnd',
-  'contentStart',
-  'contentEnd',
-  'delimiterStart',
-  'delimiterEnd',
-  'semanticStart',
-  'semanticEnd'
-])
+// Public AST *Start/*End scalar facts are projection coordinates everywhere,
+// including retained fragment identities and incremental coordinate shifts.
+const isPositionalMarkdownAttribute = (key: string): boolean => /(?:Start|End)$/.test(key)
 
 function shiftedMarkdownAttributes(
   attributes: Readonly<Record<string, string | number | boolean>>,
@@ -4559,7 +4672,7 @@ function shiftedMarkdownAttributes(
   return Object.freeze(Object.fromEntries(
     Object.entries(attributes).map(([key, value]) => [
       key,
-      POSITIONAL_MARKDOWN_ATTRIBUTES.has(key) && typeof value === 'number'
+      isPositionalMarkdownAttribute(key) && typeof value === 'number'
         ? value + offset
         : value
     ])
@@ -4793,6 +4906,7 @@ function markdownAstRegionLinesKey(
     line.indentation,
     line.blockQuoteDepth,
     line.listDepth,
+    line.listContinuationIndentations.map(indentation => [indentation.containerDepth, indentation.contentIndent, indentation.triviaStart - start, indentation.triviaEnd - start]),
     line.listMarkers.map((marker) => [
       marker.start - start,
       marker.end - start,
@@ -4805,7 +4919,8 @@ function markdownAstRegionLinesKey(
         container.kind,
         container.continued,
         container.start - start,
-        container.end - start
+        container.end - start,
+        container.markerRange === undefined ? null : [container.markerRange.start - start, container.markerRange.end - start]
       ]
       : [
         container.kind,
@@ -4829,6 +4944,7 @@ function markdownAstRegionLiteralsKey(
     literal.start - start,
     literal.end - start,
     literal.blockKind,
+    literal.htmlTermination,
     literal.construct === undefined
       ? undefined
       : {
@@ -4850,6 +4966,7 @@ function markdownRegionLine(
     contentEnd: line.contentEnd - regionStart,
     end: line.end - regionStart,
     contentOffset: line.contentOffset - regionStart,
+    listContinuationIndentations: Object.freeze(line.listContinuationIndentations.map(indentation => Object.freeze({ ...indentation, triviaStart: indentation.triviaStart - regionStart, triviaEnd: indentation.triviaEnd - regionStart, exitTriviaStart: indentation.exitTriviaStart - regionStart, exitTriviaEnd: indentation.exitTriviaEnd - regionStart }))),
     listMarkers: Object.freeze(line.listMarkers.map((marker) =>
       Object.freeze({
         ...marker,
@@ -4862,7 +4979,8 @@ function markdownRegionLine(
         ? Object.freeze({
           ...container,
           start: container.start - regionStart,
-          end: container.end - regionStart
+          end: container.end - regionStart,
+          ...(container.markerRange === undefined ? {} : { markerRange: Object.freeze({ start: container.markerRange.start - regionStart, end: container.markerRange.end - regionStart }) })
         })
         : Object.freeze({
           ...container,
@@ -6252,7 +6370,7 @@ function validatedMatchingScopeRuns(
       offset < nextOffset
     ) {
       runs.push(Object.freeze({
-        id: selected.id,
+        ...selected,
         start: offset,
         end: nextOffset,
         depth: selected.depth
@@ -6278,7 +6396,10 @@ function mappedLiteralsFromFacts(
         : { construct: literal.construct }),
       ...(literal.blockKind === undefined
         ? {}
-        : { blockKind: literal.blockKind })
+        : { blockKind: literal.blockKind }),
+      ...(literal.htmlTermination === undefined
+        ? {}
+        : { htmlTermination: literal.htmlTermination })
     })
   ))
 }
@@ -6338,6 +6459,9 @@ function slimPhysicalLines(
   offset: number
 ): readonly MarkdownPhysicalLine[] {
   return lines.map((line) => Object.freeze({
+    listMarkers: Object.freeze(line.containers.flatMap((container, depth) => container.kind === 'list-item' && !container.continued ? [Object.freeze({ depth, start: container.start + offset, end: container.end + offset, contentOffset: container.contentOffset + offset, ordered: container.ordered, delimiterCodeUnit: container.delimiterCodeUnit })] : [])),
+    listIndentations: Object.freeze(line.listContinuationIndentations.map(indentation => Object.freeze({ depth: indentation.containerDepth - 1, start: indentation.triviaStart + offset, end: indentation.triviaEnd + offset, columns: indentation.contentIndent }))),
+    blockquoteMarkers: Object.freeze(line.containers.flatMap((container, depth) => container.kind === 'blockquote' && container.markerRange !== undefined ? [Object.freeze({ depth, start: container.markerRange.start + offset, end: container.markerRange.end + offset })] : [])),
     start: line.start + offset,
     contentOffset: line.contentOffset + offset,
     contentEnd: line.contentEnd + offset,
@@ -6363,15 +6487,125 @@ function markdownLineIndex(
   })
 }
 
+/** Generated arm-separation lines have no canonical insertion point. */
+function sourceBackedBlankLines(
+  lines: readonly MarkdownPhysicalLine[],
+  runs: readonly MappedMarkdownCanonicalIdentityRun[]
+): ReadonlySet<MarkdownPhysicalLine> {
+  const owned = new Set<MarkdownPhysicalLine>()
+  let first = 0
+  for (const line of lines) {
+    if (!line.blank) continue
+    while ((runs[first]?.candidateEnd ?? Infinity) <= line.start) first += 1
+    let covered = line.start
+    for (let ordinal = first; covered < line.end; ordinal += 1) {
+      const run = runs[ordinal]
+      if (run === undefined || run.candidateStart > covered) break
+      covered = Math.min(line.end, run.candidateEnd)
+    }
+    if (covered === line.end) owned.add(line)
+  }
+  return owned
+}
+
+/** Editable blank paragraphs are derived from owned separator lines, not DOM history. */
+function editingParagraphNodes(
+  children: readonly MarkdownNode[],
+  start: number,
+  end: number,
+  physicalLines: readonly MarkdownPhysicalLine[],
+  sourceBlankLines: ReadonlySet<MarkdownPhysicalLine>,
+  documentEnd: number,
+  paragraphContainer: 'root' | 'container' | false = 'root',
+  containerDepth = 0
+): readonly MarkdownNode[] {
+  const firstLineAtOrAfter = (position: number): number => {
+    let first = 0
+    let last = physicalLines.length
+    while (first < last) {
+      const middle = first + Math.floor((last - first) / 2)
+      if ((physicalLines[middle]?.start ?? Infinity) < position) first = middle + 1
+      else last = middle
+    }
+    return first
+  }
+  const expanded = children.map((node, index) => {
+    if (!['list', 'blockquote', 'list-item', 'footnote-definition'].includes(node.kind)) return node
+    const nested = Array.from({ length: node.childCount }, (_, index) => node.childAt(index))
+    let ownedEnd = node.range.end
+    const limit = children[index + 1]?.range.start ?? end
+    if (node.kind === 'blockquote' || node.kind === 'list-item') {
+      for (let ordinal = firstLineAtOrAfter(node.range.end); ordinal < physicalLines.length; ordinal += 1) {
+        const line = physicalLines[ordinal]
+        if (line === undefined || line.end > limit || !line.blank) break
+        const owned = node.kind === 'blockquote'
+          ? line.blockquoteMarkers.some(marker => marker.depth === containerDepth)
+          : line.listIndentations.some(indentation => indentation.depth === containerDepth)
+        if (owned) ownedEnd = line.end
+        else if (node.kind === 'blockquote') break
+      }
+    }
+    const next = editingParagraphNodes(nested, node.range.start, node.kind === 'list' ? limit : ownedEnd, physicalLines, sourceBlankLines, documentEnd, node.kind === 'list' ? false : 'container', containerDepth + (node.kind === 'list' ? 0 : 1))
+    return next.length === nested.length && next.every((child, index) => child === nested[index])
+      ? node
+      : createNode(node.kind, node.range.start, Math.max(node.kind === 'list' ? node.range.end : ownedEnd, next.at(-1)?.range.end ?? ownedEnd), next, node.attributes)
+  })
+  if (!paragraphContainer) return Object.freeze(expanded)
+  if (expanded.length === 0) {
+    const next = firstLineAtOrAfter(end)
+    const at = physicalLines[next]
+    const line = at?.start === end ? at : physicalLines[next - 1]
+    const position = paragraphContainer === 'root' ? start : Math.max(start, end, line?.contentOffset ?? end)
+    return Object.freeze([createNode('paragraph', position, position)])
+  }
+  const result: MarkdownNode[] = []
+  const firstChild = expanded[0]
+  const leading: MarkdownPhysicalLine[] = []
+  for (let ordinal = firstLineAtOrAfter(start); ordinal < physicalLines.length; ordinal += 1) {
+    const line = physicalLines[ordinal]
+    if (line === undefined || line.end > (firstChild?.range.start ?? start)) break
+    if (sourceBlankLines.has(line)) leading.push(line)
+  }
+  for (let ordinal = 0; ordinal + 1 < leading.length; ordinal += 2) {
+    const line = leading[ordinal]
+    if (line !== undefined) result.push(createNode('paragraph', line.contentOffset, line.contentOffset))
+  }
+  for (const [index, node] of expanded.entries()) {
+    result.push(node)
+    const next = expanded[index + 1]
+    const limit = next?.range.start ?? end
+    const blank: MarkdownPhysicalLine[] = []
+    for (let ordinal = firstLineAtOrAfter(node.range.end); ordinal < physicalLines.length; ordinal += 1) {
+      const line = physicalLines[ordinal]
+      if (line === undefined || line.end > limit) break
+      if (sourceBlankLines.has(line)) blank.push(line)
+    }
+    const tail = next === undefined && limit === documentEnd
+    for (let ordinal = 1; ordinal < blank.length - (tail || (next === undefined && paragraphContainer === 'container') ? 0 : 1); ordinal += 2) {
+      const line = blank[ordinal]
+      if (line !== undefined) result.push(createNode('paragraph', line.contentOffset, line.contentOffset))
+    }
+    if (tail && blank.length % 2 === 1) {
+      const position = blank.at(-1)?.end
+      if (position !== undefined) result.push(createNode('paragraph', position, position))
+    }
+  }
+  return Object.freeze(result)
+}
+
 function intrinsicForkDocumentFromNodes(
   lane: MappedMarkdownLane,
   children: readonly MarkdownNode[],
   containerDepthFailure: MarkdownContainerDepthFailure | undefined,
   execution: ParseExecutionTracker,
-  physicalLines: readonly MarkdownPhysicalLine[]
+  physicalLines: readonly MarkdownPhysicalLine[],
+  endsAtDocumentEnd = true
 ): Profile1MarkdownParse {
   return withMappedMarkdownIdentity(lane, () => {
-    const root = createNode('document', 0, lane.source.length, children)
+    const editingChildren = lane.forkView === 'editing'
+      ? editingParagraphNodes(children, 0, lane.source.length, physicalLines, sourceBackedBlankLines(physicalLines, lane.canonicalIdentityRuns ?? []), endsAtDocumentEnd ? lane.source.length : -1)
+      : children
+    const root = createNode('document', 0, lane.source.length, editingChildren)
     const registry = activeMarkdownSyntaxIdentity?.registry
     if (registry === undefined) {
       throw new Error('Markdown document index lost parser reference identity')
@@ -6615,7 +6849,9 @@ function projectedReferenceDefinitionsFromCanonicalFacts(
         scope.id,
         scope.start,
         scope.end,
-        scope.depth
+        scope.depth,
+        scope.owner?.kind === 'critic-arm' ? scope.owner.node.nodeId : '',
+        scope.owner?.kind === 'critic-arm' ? scope.owner.arm : ''
       ]))
     ),
     hasAny: Object.freeze((normalizedLabel: string): boolean =>
@@ -6879,6 +7115,28 @@ function sliceIntrinsicForkRegionLane(
   })
 }
 
+/** A table arm cannot consume text appended outside it on the same line. */
+function editingTableBoundaryScope(
+  lane: MappedMarkdownLane,
+  node: MarkdownNode,
+  lines: readonly PlainMarkdownLine[]
+): MappedMarkdownMatchingScope | undefined {
+  if (lane.forkView !== 'editing' || node.kind !== 'table') return undefined
+  // Active inline runs are split around nested scopes. Use the original arm's
+  // full extent, not the end of the run preceding an annotated table cell.
+  let owner: MappedMarkdownMatchingScope | undefined
+  for (const scope of lane.matchingScopes ?? []) {
+    if (scope.start <= node.range.start && scope.end > node.range.start &&
+      (owner === undefined || scope.depth > owner.depth)) owner = scope
+  }
+  const delimiterEnd = node.attributes['delimiterEnd']
+  return owner !== undefined && typeof delimiterEnd === 'number' &&
+    delimiterEnd < owner.end && owner.end < node.range.end &&
+    lines.some(line => line.start < owner.end && owner.end < line.contentEnd)
+    ? owner
+    : undefined
+}
+
 function intrinsicForkRegionLanes(
   forkLane: IntrinsicProfile1ForkLane,
   lane: MappedMarkdownLane
@@ -6951,13 +7209,35 @@ function forkRegionBoundaryFacts(
     lane.source.length,
     lane.matchingScopes
   )
-  const boundaryPolicy = scopes.length === 0
+  // The same intrinsic source identities that own scopes also delimit runs:
+  // adjacent projected backticks may have canonical CM markers between them.
+  const delimiterBoundaries: number[] = []
+  for (const [index, current] of identityRuns.entries()) {
+    const previous = identityRuns[index - 1]
+    if (previous === undefined) continue
+    if (previous.candidateEnd !== current.candidateStart ||
+      previous.sourceStart + previous.candidateEnd - previous.candidateStart !== current.sourceStart) {
+      delimiterBoundaries.push(previous.candidateEnd)
+      if (previous.candidateEnd !== current.candidateStart) delimiterBoundaries.push(current.candidateStart)
+    }
+  }
+  const boundaryPolicy = scopes.length === 0 && delimiterBoundaries.length === 0
     ? undefined
     : createInlineBoundaryPolicy(scopes, identityRuns)
   const matchingScopePolicy: MarkdownMatchingScopePolicy | undefined =
     boundaryPolicy === undefined
       ? undefined
       : Object.freeze({
+        delimiterRunLimit: Object.freeze((start: number, ceiling: number): number => {
+          let low = 0
+          let high = delimiterBoundaries.length
+          while (low < high) {
+            const middle = low + Math.floor((high - low) / 2)
+            if ((delimiterBoundaries[middle] ?? Number.POSITIVE_INFINITY) <= start) low = middle + 1
+            else high = middle
+          }
+          return Math.min(ceiling, delimiterBoundaries[low] ?? ceiling)
+        }),
         ...(trace === undefined
           ? {}
           : {
@@ -7190,6 +7470,66 @@ function intrinsicCanonicalRegionFacts(
   })
 }
 
+// A selected arm retains the containers in which the intrinsic parser entered
+// it. In Markup, its sibling may have ended in a different list item; that
+// presentation order cannot replace the arm's canonical prefix ownership.
+function intrinsicForkLineFacts(
+  index: IntrinsicCanonicalFactIndex,
+  lane: MappedMarkdownLane,
+  lines: readonly PlainMarkdownLine[]
+): readonly PlainMarkdownLine[] {
+  const runs = validatedCanonicalIdentityRuns(lane.source.length, lane.canonicalIdentityRuns)
+  let runIndex = 0
+  return Object.freeze(lines.map((line) => {
+    while ((runs[runIndex]?.candidateEnd ?? Infinity) <= line.start) runIndex += 1
+    const run = runs[runIndex]
+    // A prefix split by a fork may acquire additional nested markers in its
+    // selected arms. Retain canonical ownership only when the entire emitted
+    // prefix has the same contiguous identity, not just inherited indentation.
+    if (run === undefined || run.candidateStart > line.start || line.contentOffset > run.candidateEnd) return line
+    const sourceStart = run.sourceStart + line.start - run.candidateStart
+    const canonical = index.linesByStart.get(sourceStart)?.find((candidate) =>
+      candidate.contentOffset <= run.sourceStart + run.candidateEnd - run.candidateStart
+    )
+    if (canonical === undefined) return line
+    const mapped = markdownRegionLine(canonical, sourceStart - line.start)
+    return Object.freeze({
+      ...mapped,
+      contentEnd: line.contentEnd,
+      end: line.end,
+      blank: line.blank
+    })
+  }))
+}
+
+// Markup presents both substitution arms. Their presentation order cannot
+// revoke a document-head literal recognized in either arm by the common lane.
+function intrinsicForkFrontMatterFacts(
+  index: IntrinsicCanonicalFactIndex,
+  lane: MappedMarkdownLane,
+  literals: readonly MarkdownLiteralRange[]
+): readonly MarkdownLiteralRange[] {
+  if (lane.forkView !== 'editing') return literals
+  const runs = validatedCanonicalIdentityRuns(lane.source.length, lane.canonicalIdentityRuns)
+  const owned: MarkdownLiteralRange[] = []
+  for (const literal of index.literals) {
+    if (literal.kind !== 'front-matter') continue
+    const start = projectedOffsetForCanonicalPoint(runs, literal.start)
+    const end = projectedOffsetForCanonicalPoint(runs, literal.end)
+    if (start === undefined || end === undefined || end - start !== literal.end - literal.start) continue
+    const delta = literal.start - start
+    if (runs.some(run => run.candidateEnd > start && run.candidateStart < end &&
+      run.sourceStart - run.candidateStart !== delta)) continue
+    owned.push(Object.freeze({ ...literal, start, end }))
+  }
+  return owned.length === 0
+    ? literals
+    : composeMarkdownLiteralRanges([
+      ...literals.filter(literal => !owned.some(owner => literal.start < owner.end && literal.end > owner.start)),
+      ...owned
+    ])
+}
+
 function parseIntrinsicForkRegionFacts(
   canonicalFacts: IntrinsicCanonicalFactIndex,
   lane: MappedMarkdownLane,
@@ -7263,6 +7603,10 @@ function parseIntrinsicForkRegionFacts(
   return Object.freeze({
     facts: Object.freeze({
       ...parsed,
+      lines: retainedFacts === undefined
+        ? intrinsicForkLineFacts(canonicalFacts, lane, parsed.lines)
+        : parsed.lines,
+      literals: intrinsicForkFrontMatterFacts(canonicalFacts, lane, parsed.literals),
       referenceDefinitions: localReferenceDefinitions
     }),
     boundaryPolicy: boundary.boundaryPolicy
@@ -7456,6 +7800,10 @@ export interface Profile1MarkdownForkAstRequest {
   readonly forkLane: IntrinsicProfile1ForkLane
   readonly lane: MappedMarkdownLane
   readonly publishForkAlternative?: boolean
+  /** A bounded parser window must not publish a document-EOF insertion point. */
+  readonly endsAtDocumentEnd?: boolean
+  /** Equivalent parser selections share recognition and emitted region nodes. */
+  readonly reuseSyntaxFrom?: string
 }
 
 export interface Profile1MarkdownForkAst {
@@ -7607,13 +7955,28 @@ export function createProfile1MarkdownForkParser(
         requestByKey.set(request.key, request)
       }
 
+      const recognitionRequestCount = [...requestByKey.values()].filter(
+        request => request.reuseSyntaxFrom === undefined
+      ).length
       const parseByKey = new Map<string, Profile1MarkdownParse>()
       const emitRequest = (
         request: Profile1MarkdownForkAstRequest
       ): Profile1MarkdownParse => {
-        const children: MarkdownNode[] = []
-        const physicalLines: MarkdownPhysicalLine[] = []
-        let depthFailure: MarkdownContainerDepthFailure | undefined
+        const reused = request.reuseSyntaxFrom === undefined ? undefined : parseByKey.get(request.reuseSyntaxFrom)
+        if (request.reuseSyntaxFrom !== undefined && reused === undefined) {
+          throw new Error('Equivalent Markdown selection has not been emitted')
+        }
+        const children: MarkdownNode[] = reused === undefined
+          ? []
+          : Array.from(
+            { length: reused.document.root.childCount }, (_, ordinal) => reused.document.root.childAt(ordinal)
+          )
+        const physicalLines: MarkdownPhysicalLine[] = reused === undefined
+          ? []
+          : Array.from(
+            { length: reused.document.lines.count }, (_, ordinal) => reused.document.lines.at(ordinal)
+          )
+        let depthFailure = reused?.containerDepthFailure
         const selectionReferenceDefinitions =
           projectedReferenceDefinitionsFromCanonicalFacts(
             canonicalReferenceDefinitions,
@@ -7623,18 +7986,21 @@ export function createProfile1MarkdownForkParser(
             ),
             request.lane.matchingScopes ?? Object.freeze([])
           )
-        const regionLanes = [...intrinsicForkRegionLanes(
-          request.forkLane,
-          request.lane
-        )]
+        const regionLanes = reused === undefined
+          ? [...intrinsicForkRegionLanes(
+            request.forkLane,
+            request.lane
+          )]
+          : []
         // Splice provenance applies exactly when one fork-region lane spans
         // the document from zero — the CM-free root emission, where lane
         // coordinates are document coordinates. The index refreshes on every
         // such emission (spliced or full) so the next reopen can consult it.
-        // One request means the projections coincide — the CM-free case —
-        // and every fork-region lane's start is already the document
-        // coordinate the provenance index keys by.
-        const provenanceEligible = requestByKey.size === 1
+        // One recognized selection means the projections coincide. Editing
+        // may still assemble its blank nodes from that same emitted syntax.
+        // Every fork-region start already uses the document coordinates
+        // indexed by splice provenance.
+        const provenanceEligible = reused === undefined && recognitionRequestCount === 1
         const provenanceContext = provenanceEligible
           ? Object.freeze({
             prev: spliceProvenance === undefined
@@ -7706,7 +8072,8 @@ export function createProfile1MarkdownForkParser(
           Object.freeze(children),
           depthFailure,
           execution,
-          Object.freeze(physicalLines)
+          Object.freeze(physicalLines),
+          request.endsAtDocumentEnd
         )
         parseByKey.set(request.key, parsed)
         const registry = request.lane.syntaxIdentity?.registry
@@ -7818,11 +8185,30 @@ export function createProfile1MarkdownForkParser(
           execution,
           physicalRecorder
         )
+        const tableBoundaryEdits: MarkdownArmBoundaryProjectionEdit[] = []
         const pendingNodes = [...regionNodes]
         while (pendingNodes.length > 0) {
           const node = pendingNodes.pop()
           if (node === undefined) {
             continue
+          }
+          const tableScope = editingTableBoundaryScope(localLane, node, emitted.facts.lines)
+          if (tableScope !== undefined && !terminationEdits.some(edit =>
+            edit.kind === 'separate-following-block' && edit.candidateOffset === tableScope.end)) {
+            const sourcePosition = canonicalOffsetForProjectedOffset(
+              localLane.canonicalIdentityRuns ?? Object.freeze([]), tableScope.end, 'previous'
+            )
+            if (sourcePosition !== undefined) {
+              const line = emitted.facts.lines.find(line => line.end > line.contentEnd)
+              const ending = line === undefined ? '\n' : localLane.source.slice(line.contentEnd, line.end)
+              tableBoundaryEdits.push(Object.freeze({
+                kind: 'separate-following-block',
+                candidateOffset: tableScope.end,
+                sourcePosition,
+                lineEnding: ending === '\r\n' ? '\r\n' : ending === '\r' ? '\r' : '\n',
+                blankLine: true
+              }))
+            }
           }
           const label = node.attributes['label']
           if (
@@ -7858,7 +8244,7 @@ export function createProfile1MarkdownForkParser(
             new Set<number>(),
           planningBoundaryPolicy?.enclosingEmphasisRespellings ??
             new Map(),
-          terminationEdits,
+          [...terminationEdits, ...tableBoundaryEdits],
           regionTrace
         )
         planned.push(...localEdits.map((edit) =>

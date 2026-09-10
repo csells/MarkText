@@ -35,6 +35,7 @@ import {
 } from './profile1/referenceDefinitionIndex.js'
 import {
   createMarkdownLaneState,
+  inspectMarkdownPendingLineBlock,
   type MarkdownArmMode,
   type MarkdownCheckpoint,
   type MarkdownLaneState,
@@ -1364,7 +1365,8 @@ function parseIntrinsicProfile1Pass(
       preparedForMarker.checkpoint,
       run.range.start,
       run.range.start,
-      preparedForMarker.completedLiterals
+      preparedForMarker.completedLiterals,
+      preparedForMarker.completedLines
     )
     if (preparedForMarker.checkpoint !== checkpoint) {
       stagedMarkdownLiterals.push(...preparedForMarker.completedLiterals)
@@ -2822,7 +2824,9 @@ function applyMarkdownArmBoundaryProjectionEdits(
       }
       insertions.push(Object.freeze({
         candidateOffset: edit.candidateOffset,
-        text: edit.blankLine === true ? edit.lineEnding.repeat(2) : edit.lineEnding,
+        text: edit.blankLine === true
+          ? edit.lineEnding + (edit.continuationPrefix?.trimEnd() ?? '') + edit.lineEnding + (edit.continuationPrefix ?? '')
+          : edit.lineEnding + (edit.continuationPrefix ?? ''),
         sourcePosition: edit.sourcePosition,
         affinity: 'next'
       }))
@@ -3645,15 +3649,31 @@ interface PreparedProfile1Projection {
 // Markup text. An inherited line (for example `# {~~old~>new~~}`) still owns
 // both inline arms and must remain one heading.
 function armOwnsEditingBlock(lane: IntrinsicProfile1ForkLane): boolean {
-  if (lane.entryCheckpoint.linePath !== undefined || lane.range.start === lane.range.end) {
-    return false
+  if (lane.range.start === lane.range.end) return false
+  const inherited = lane.entryCheckpoint.linePath === undefined
+    ? undefined
+    : inspectMarkdownPendingLineBlock(lane.entryCheckpoint)
+  if (lane.entryCheckpoint.linePath !== undefined) {
+    if (inherited?.blank !== true || inherited.containerPath.length === 0 && inherited.indentation === 0) return false
   }
   return lane.transitions.some((transition) => {
     const facts = transition.emittedFacts
     const pending = facts.block.pendingLine
-    return facts.lines.some((line) => line.end > line.contentEnd) ||
+    const ownsContainer = pending?.containerOpeners.some(range =>
+      range.start >= lane.range.start && range.end <= lane.range.end
+    ) === true
+    // A leading line ending finishes the inherited line, not a block owned
+    // by this arm. Likewise an empty container prefix does not acquire the
+    // inherited item's following content merely because its lane ends here.
+    // An inherited quote/list prefix also keeps ordinary inline arms in one
+    // paragraph; only a newly introduced container gives that arm a block.
+    return facts.lines.some((line) =>
+      line.end > line.contentEnd && line.contentEnd > lane.range.start
+    ) ||
       (pending !== undefined &&
-        (!pending.paragraphOpen || pending.containerPath.length > 0))
+        !(pending.blank && lane.entryCheckpoint.activeContainers.length > 0) &&
+        (!pending.blank || ownsContainer) &&
+        (!pending.paragraphOpen || ownsContainer))
   })
 }
 
@@ -3745,12 +3765,17 @@ function prepareProjection(
     if (task.kind === 'arm-boundary') {
       if (task.role === 'enter') {
         if (task.separateEditingArms === true && projectedLength > 0) {
+          const inherited = inspectMarkdownPendingLineBlock(task.lane.entryCheckpoint)
+          const continuationPrefix = inherited?.blank === true
+            ? inherited.containers.map(container => container.kind === 'blockquote' ? '> ' : ' '.repeat(container.contentIndent)).join('') + ' '.repeat(inherited.indentation)
+            : ''
           armTerminationEdits.push(Object.freeze({
             kind: 'separate-following-block',
             candidateOffset: projectedLength,
             sourcePosition: task.sourcePosition,
             lineEnding: lastProjectionLineEnding(source, task.lane.range.start, task.lane.range.end),
-            blankLine: true
+            blankLine: true,
+            ...(continuationPrefix === '' ? {} : { continuationPrefix })
           }))
         }
         if (openMatchingScopes.has(task.laneId)) {
@@ -3832,6 +3857,7 @@ function prepareProjection(
         if (open.start < projectedLength) {
           matchingScopes.push(Object.freeze({
             id: task.laneId + 1,
+            owner: task.lane.owner,
             start: open.start,
             end: projectedLength,
             depth: open.depth
@@ -4162,6 +4188,8 @@ interface PreparedCommentDisplayProjection {
   readonly nodeId: NodeId
   readonly key: string
   readonly projection: PreparedProfile1Projection
+  readonly editing: PreparedProfile1Projection
+  readonly editingKey: string
 }
 
 function prepareCommentDisplayProjections(
@@ -4191,9 +4219,16 @@ function prepareCommentDisplayProjections(
       forkParser,
       physicalRecorder
     )
+    const editingDiffers = forestContainsKind(branch.node.arms[0].children, EDITING_DIFFERS_FROM_REVISED)
     return Object.freeze([Object.freeze({
       nodeId: branch.node.nodeId,
       key: `comment:${branch.node.nodeId}`,
+      editingKey: editingDiffers
+        ? `comment-editing:${branch.node.nodeId}`
+        : `comment:${branch.node.nodeId}`,
+      editing: editingDiffers
+        ? prepareProjection(graph, 'editing', armLane, markdownDepthLimit, undefined, 'comment-display', markdownOptions, forkParser, physicalRecorder)
+        : projection,
       projection
     })])
   }))
@@ -4464,7 +4499,7 @@ function tryIncrementalIntrinsicParse(
     createProfile1SyntaxIdentityRegistry(window.length, accounting),
     cmDepthLimit,
     markdownDepthLimit,
-    Object.freeze({ ...markdownOptions, frontMatter: false }),
+    bracket.start === 0 ? markdownOptions : Object.freeze({ ...markdownOptions, frontMatter: false }),
     execution,
     undefined,
     physicalRecorder
@@ -4639,12 +4674,12 @@ export function admitProfile1PlainParagraphRegion(
   )
   const nextWindow = source.slice(bracket.start, bracket.endNext)
   const options = bracket.start === 0 ? markdownOptions : Object.freeze({ ...markdownOptions, frontMatter: false })
-  const parse = (window: string): Profile1DocumentResult => parseProfile1Document(
+  const parse = (window: string, endsAtDocumentEnd: boolean): Profile1DocumentResult => parseProfile1Document(
     window, executionBudget, undefined, options, false, undefined,
-    createProfile1DocumentReuseCache(), physicalRecorder
+    createProfile1DocumentReuseCache(), physicalRecorder, undefined, endsAtDocumentEnd
   )
-  const previous = parse(previousWindow)
-  const parsed = parse(nextWindow)
+  const previous = parse(previousWindow, bracket.endPrevious === previousSource.length)
+  const parsed = parse(nextWindow, bracket.endNext === source.length)
   if (parsed.kind === 'complete' && (parsed.retainedIntrinsic?.referenceDefinitionCount ?? 0) !== 0) {
     return Object.freeze({ kind: 'reference-dependency' })
   }
@@ -4695,7 +4730,8 @@ export function parseProfile1Document(
   reuseCache?: Profile1DocumentReuseCache,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
   createPhysicalTraversalRecorderV1(),
-  previousPass?: PreviousIntrinsicPass
+  previousPass?: PreviousIntrinsicPass,
+  endsAtDocumentEnd = true
 ): Profile1DocumentResult {
   const execution = createParseExecutionTracker(executionControl)
   try {
@@ -4708,7 +4744,8 @@ export function parseProfile1Document(
       execution,
       reuseCache,
       physicalRecorder,
-      previousPass
+      previousPass,
+      endsAtDocumentEnd
     )
   } catch (error) {
     if (!(error instanceof Profile1LogicalNodeLimitError)) {
@@ -4736,7 +4773,8 @@ function parseProfile1DocumentWithExecution(
   execution: ParseExecutionTracker,
   reuseCache: Profile1DocumentReuseCache | undefined,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1,
-  previousPass: PreviousIntrinsicPass | undefined
+  previousPass: PreviousIntrinsicPass | undefined,
+  endsAtDocumentEnd: boolean
 ): Profile1DocumentResult {
   const usesDesktopLimits = executionBudget.limitsProfile === 'desktop-v1'
   let accounting = createProfile1SyntaxAccountingRecorderV1(
@@ -4970,7 +5008,7 @@ function parseProfile1DocumentWithExecution(
     criticMarkup.roots,
     EDITING_DIFFERS_FROM_ORIGINAL
   )
-  const editingPrepared =
+  const sharedEditingPrepared =
     editingUsesRevised
       ? revisedPrepared
       : editingUsesOriginal
@@ -4985,6 +5023,14 @@ function parseProfile1DocumentWithExecution(
           markdownOptions,
           forkParser
         )
+  // The editing document shares recognized regions and coordinates with an
+  // equivalent reader projection, but retains its own editable blank nodes.
+  const editingPrepared = sharedEditingPrepared.markdownLane.forkView === 'editing'
+    ? sharedEditingPrepared
+    : Object.freeze({
+      ...sharedEditingPrepared,
+      markdownLane: Object.freeze({ ...sharedEditingPrepared.markdownLane, forkView: 'editing' as const })
+    })
   const preparedCommentDisplays = prepareCommentDisplayProjections(
     graphCore,
     markdownDepthLimit,
@@ -5013,11 +5059,16 @@ function parseProfile1DocumentWithExecution(
       return
     }
     preparedByKey.set(key, prepared)
+    const reuseSyntaxFrom = prepared === editingPrepared && sharedEditingPrepared !== editingPrepared
+      ? sharedEditingPrepared === revisedPrepared ? rootRevisedKey : rootOriginalKey
+      : undefined
     requestByKey.set(key, Object.freeze({
       key,
       role: prepared.traceView,
       forkLane: prepared.forkLane,
       lane: prepared.markdownLane,
+      ...(key === rootEditingKey ? { endsAtDocumentEnd } : {}),
+      ...(reuseSyntaxFrom === undefined ? {} : { reuseSyntaxFrom }),
       ...(prepared.semanticMarkdownLane === undefined
         ? {}
         : { publishForkAlternative: false })
@@ -5028,7 +5079,8 @@ function parseProfile1DocumentWithExecution(
         key: semanticKey,
         role: prepared.traceView,
         forkLane: prepared.forkLane,
-        lane: prepared.semanticMarkdownLane
+        lane: prepared.semanticMarkdownLane,
+        ...(reuseSyntaxFrom === undefined ? {} : { reuseSyntaxFrom: `${reuseSyntaxFrom}:semantic` })
       }))
     }
   }
@@ -5037,13 +5089,21 @@ function parseProfile1DocumentWithExecution(
   addRequest(rootEditingKey, editingPrepared)
   for (const comment of preparedCommentDisplays) {
     addRequest(comment.key, comment.projection)
+    addRequest(comment.editingKey, comment.editing)
   }
+  const accountedProjectionTapes = new Set<PreparedProfile1Projection['mappedTape']>()
   for (const [key, prepared] of preparedByKey) {
     const request = requestByKey.get(key)
     if (request === undefined || prepared.markdownLane !== request.lane) {
       throw new Error('Fork AST accounting lost its prepared projection')
     }
-    emitProjectionAccounting(accounting, key, prepared)
+    // Equivalent reader/editing selections retain the same segment storage.
+    // Their distinct Markdown nodes are charged by the syntax registry; aliasing
+    // the projection tape must not charge its segments a second time.
+    if (!accountedProjectionTapes.has(prepared.mappedTape)) {
+      accountedProjectionTapes.add(prepared.mappedTape)
+      emitProjectionAccounting(accounting, key, prepared)
+    }
   }
   const forkAst = forkParser.emitAst(Object.freeze([...requestByKey.values()]))
   const original = materializePreparedProjection(
@@ -5106,6 +5166,20 @@ function parseProfile1DocumentWithExecution(
     }
     return display
   }
+  const commentEditingCache = new Map<NodeId, Profile1ProjectedMarkdown>()
+  const preparedCommentById = new Map(preparedCommentDisplays.map(comment => [comment.nodeId, comment]))
+  const commentEditing = (comment: NodeId): Profile1ProjectedMarkdown => {
+    const cached = commentEditingCache.get(comment)
+    if (cached !== undefined) return cached
+    const prepared = preparedCommentById.get(comment)
+    if (prepared === undefined) throw new RangeError('Comment identity is outside this revision')
+    const projection = prepared.editingKey === prepared.key
+      ? commentDisplay(comment)
+      : materializePreparedProjection(graphCore, prepared.editing, forkAst.read(prepared.editingKey),
+        prepared.editing.semanticMarkdownLane === undefined ? undefined : forkAst.read(`${prepared.editingKey}:semantic`))
+    commentEditingCache.set(comment, projection)
+    return projection
+  }
   let editingCache =
     rootEditingKey === rootRevisedKey
       ? revised
@@ -5145,6 +5219,7 @@ function parseProfile1DocumentWithExecution(
     revised,
     commentDisplays,
     commentDisplay: Object.freeze(commentDisplay),
+    commentEditing: Object.freeze(commentEditing),
     editing
   })
   const products = Object.freeze({

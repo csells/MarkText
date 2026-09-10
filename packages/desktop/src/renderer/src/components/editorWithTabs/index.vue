@@ -15,6 +15,7 @@
     />
     <div class="container">
       <editor
+        v-if="!coreCloseInputsRetired"
         ref="coreEditor"
         :key="coreEditorGeneration"
         :markdown="coreProjectionMarkdown ?? markdown"
@@ -31,7 +32,7 @@
         @core-fault="handleCoreViewFault"
       />
       <source-code
-        v-if="coreSourceVisible && (!coreMode || activeCoreLease)"
+        v-if="!coreCloseInputsRetired && coreSourceVisible && (!coreMode || activeCoreLease)"
         ref="coreSourceEditor"
         :key="coreSourceGeneration"
         :markdown="coreProjectionMarkdown ?? markdown"
@@ -60,7 +61,7 @@ import { usePreferencesStore } from '@/store/preferences'
 import {
   createCoreDocumentSessionManager,
   createEditorCoreBinding,
-  createWorkerCorePort,
+  createLocalCoreOwner,
   canonicalCoreLineEnding,
   coordinateCoreDocumentRecovery,
   coreDocumentRecoveryAuthority,
@@ -73,9 +74,12 @@ import {
   leaseCorePlainTextView,
   type CoreDocumentViewLease,
   type CoreAuthorityPerformanceTrace,
-  type CoreWorkerTestControl
+  type CoreModelTestControl
 } from '@/documentAuthority'
-import { teardownCoreDocumentSessions } from '@/documentAuthority/coreDocumentSessionTeardown'
+import {
+  createCoreTeardownDraftPreserver,
+  teardownCoreDocumentSessions
+} from '@/documentAuthority/coreDocumentSessionTeardown'
 import { retireClosedCoreDocumentSessions } from '@/documentAuthority/coreDocumentSessionRetirement'
 import {
   handoffCoreDocumentView,
@@ -115,22 +119,21 @@ const coreMarkdownOptions = computed(() => coreMarkdownOptionsFromPreferences(pr
 const { currentFile } = storeToRefs(editorStore)
 const coreLaunchPolicy = resolveCoreDocumentLaunchPolicy(window.electron.process.env)
 const coreMode = coreLaunchPolicy.coreEnabled
-interface CoreWorkerOwner {
-  control?: CoreWorkerTestControl
+interface CoreModelOwnerRegistration {
+  control?: CoreModelTestControl
 }
-const coreWorkers = new Map<string, CoreWorkerOwner>()
+const coreModelOwners = new Map<string, CoreModelOwnerRegistration>()
 const coreManager = coreMode
   ? createCoreDocumentSessionManager({
     createBinding: (documentId) => {
-      const owner: CoreWorkerOwner = {}
-      coreWorkers.set(documentId, owner)
+      const owner: CoreModelOwnerRegistration = {}
+      coreModelOwners.set(documentId, owner)
       return createEditorCoreBinding(
-        createWorkerCorePort(undefined, {
-          onFailure: (error) => handleCoreWorkerFailure(documentId, owner, error),
+        createLocalCoreOwner({
+          onFailure: (error) => handleCoreModelFailure(documentId, owner, error),
           ...(coreLaunchPolicy.testControlsEnabled
             ? {
-                responseDelayMs: 250,
-                registerTestControl: (control: CoreWorkerTestControl) => {
+                registerTestControl: (control: CoreModelTestControl) => {
                   owner.control = control
                 }
               }
@@ -147,6 +150,8 @@ const coreRecoveryRegistrations = new Map<string, () => void>()
 const coreEditor = ref<InstanceType<typeof Editor>>()
 const coreSourceEditor = ref<InstanceType<typeof SourceCode>>()
 const coreSourceViewState = shallowRef<CodeMirrorViewState>()
+const coreCloseInputsRetired = ref(false)
+const coreClosePending = ref(false)
 const coreRecoveryDrafts = shallowRef<readonly CoreRecoveryDraftRecord[]>([])
 const coreDraftBackupError = ref('')
 const coreUnbackedDraft = shallowRef<CoreRecoveryDraftInput>()
@@ -209,8 +214,8 @@ const coreTestCrashWorker = computed<(() => void) | undefined>(() => {
   const documentId = coreLease.value?.documentId
   if (!coreLaunchPolicy.testControlsEnabled || documentId === undefined) return undefined
   return () => {
-    const control = coreWorkers.get(documentId)?.control
-    if (control === undefined) throw new Error('Core Worker test control is unavailable')
+    const control = coreModelOwners.get(documentId)?.control
+    if (control === undefined) throw new Error('Core model test control is unavailable')
     control.crash()
   }
 })
@@ -218,11 +223,24 @@ const coreTestStaleNextTransaction = computed<(() => void) | undefined>(() => {
   const documentId = coreLease.value?.documentId
   if (!coreLaunchPolicy.testControlsEnabled || documentId === undefined) return undefined
   return () => {
-    const control = coreWorkers.get(documentId)?.control
-    if (control === undefined) throw new Error('Core Worker test control is unavailable')
+    const control = coreModelOwners.get(documentId)?.control
+    if (control === undefined) throw new Error('Core model test control is unavailable')
     control.staleNextTransaction()
   }
 })
+
+const preserveCoreRecoveryDraft = (
+  draft: CoreRecoveryDraftInput,
+  lease: CoreDocumentViewLease
+): void => {
+  if (preservedCoreDrafts.has(draft)) return
+  coreUnbackedDraft.value = draft
+  coreDraftFaultLease = lease
+  const result = window.electron.ipcRenderer.sendSync('mt::core-draft::preserve', draft)
+  if (!result.ok) throw new Error(result.message)
+  preservedCoreDrafts.add(draft)
+  coreRecoveryDrafts.value = [...coreRecoveryDrafts.value, result.record]
+}
 
 const handleCoreViewFault = (error: unknown): void => {
   const lease = coreDraftFaultLease ?? coreLease.value
@@ -233,19 +251,8 @@ const handleCoreViewFault = (error: unknown): void => {
   if (coreDocumentRecoveryAuthority.settled(lease.documentId) !== undefined) return
   coreDraftFault = error
   try {
-    const draft =
-      coreUnbackedDraft.value ??
-      (coreViewState.value === 'source'
-        ? coreSourceEditor.value?.captureRecoveryDraft(error)
-        : coreEditor.value?.captureRecoveryDraft(error))
-    if (draft !== undefined && !preservedCoreDrafts.has(draft)) {
-      coreUnbackedDraft.value = draft
-      coreDraftFaultLease = lease
-      const result = window.electron.ipcRenderer.sendSync('mt::core-draft::preserve', draft)
-      if (!result.ok) throw new Error(result.message)
-      preservedCoreDrafts.add(draft)
-      coreRecoveryDrafts.value = [...coreRecoveryDrafts.value, result.record]
-    }
+    const draft = coreUnbackedDraft.value ?? lease.captureRecoveryDraft(error)
+    if (draft !== undefined) preserveCoreRecoveryDraft(draft, lease)
     coreUnbackedDraft.value = undefined
     coreDraftFaultLease = undefined
     coreDraftBackupError.value = ''
@@ -269,17 +276,17 @@ const handleCoreViewFault = (error: unknown): void => {
   })
   console.error('Core WYSIWYG operation requires reconciliation', error)
 }
-// Transport failure belongs to the document owner, even when there is no
-// pending command to reject. The owner identity fences retired Workers.
-const handleCoreWorkerFailure = (
+// Model failure belongs to its document even between native actions.
+// Registration identity fences owners retired by recovery or replacement.
+const handleCoreModelFailure = (
   documentId: string,
-  owner: CoreWorkerOwner,
+  owner: CoreModelOwnerRegistration,
   error: Error
 ): void => {
   const current = () =>
     !coreOwnerDisposed &&
     openedCoreDocuments.has(documentId) &&
-    coreWorkers.get(documentId) === owner
+    coreModelOwners.get(documentId) === owner
   if (!current()) return
   if (coreLease.value?.documentId === documentId) {
     handleCoreViewFault(error)
@@ -337,7 +344,7 @@ const prepareCoreReplacementView = async (
 }
 
 watch(coreMarkdownOptions, (options) => {
-  if (!coreManager) return
+  if (!coreManager || coreClosePending.value) return
   const change = coreTransition.then(async () => {
     if (coreOwnerDisposed) return
     await nextTick()
@@ -381,10 +388,20 @@ watch(
   [
     () => props.sourceCode,
     () => currentFile.value?.id,
-    () => editorStore.tabs.map((tab) => tab.id).join('\u0000')
+    () => editorStore.tabs.map((tab) => tab.id).join('\u0000'),
+    () => coreClosePending.value
   ],
-  ([sourceMode]) => {
-    if (!coreMode || coreManager === undefined) return
+  ([sourceMode, documentId, tabIds], previous) => {
+    if (!coreMode || coreManager === undefined || coreClosePending.value) return
+    // A refused close retained its original live view. Do not acquire a
+    // second lease just because close admission reopened.
+    if (
+      previous[3] === true &&
+      previous[0] === sourceMode &&
+      previous[1] === documentId &&
+      previous[2] === tabIds &&
+      coreLease.value !== undefined
+    ) { return }
     const file = currentFile.value
     const target =
       file === null
@@ -400,8 +417,8 @@ watch(
     }
     const nextTransition = coreTransition.then(async () => {
       if (coreOwnerDisposed) return
-      coreSourceViewState.value = undefined
       const prior = coreLease.value
+      if (prior !== undefined) coreSourceViewState.value = undefined
       if (!sourceMode && prior === undefined && target !== undefined) {
         if (!openedCoreDocuments.has(target.id)) {
           await measureCoreDocumentOpen(corePerformanceTrace, target.id, () =>
@@ -524,7 +541,7 @@ watch(
           coreReloadRegistrations.delete(documentId)
           coreRecoveryRegistrations.get(documentId)?.()
           coreRecoveryRegistrations.delete(documentId)
-          coreWorkers.delete(documentId)
+          coreModelOwners.delete(documentId)
         }
         return
       }
@@ -534,9 +551,9 @@ watch(
         liveDocumentIds,
         registrations: coreSaveRegistrations
       })
-      for (const documentId of coreWorkers.keys()) {
+      for (const documentId of coreModelOwners.keys()) {
         if (!liveDocumentIds.has(documentId)) {
-          coreWorkers.delete(documentId)
+          coreModelOwners.delete(documentId)
         }
       }
       for (const [documentId, unregister] of coreReloadRegistrations) {
@@ -563,17 +580,30 @@ watch(
       }
       await coreManager.activate(target.id)
       const incomingLease = coreManager.lease(target.id)
+      coreProjectionMarkdown.value = await incomingLease.sourceAtBarrier()
       editorStore.REGISTER_CORE_SAVE_IDENTITY(target.id, incomingLease.identity)
       coreLease.value = incomingLease
       corePlainTextView.value = undefined
       coreViewState.value = 'source'
     })
     if (target !== undefined && !coreSaveRegistrations.has(target.id)) {
-      const unregister = coreDocumentSaveAuthority.register(target.id, async () => {
-        await coreDocumentRecoveryAuthority.settled(target.id)
-        await coreTransition
-        return coreManager.saveBarrier(target.id)
-      })
+      let settledTransition: Promise<void> | undefined
+      const unregister = coreDocumentSaveAuthority.register(
+        target.id,
+        async () => {
+          await coreDocumentRecoveryAuthority.settled(target.id)
+          const transition = coreTransition
+          await transition
+          const snapshot = await coreManager.saveBarrier(target.id)
+          settledTransition = transition
+          return snapshot
+        },
+        (identity) =>
+          !coreOwnerDisposed &&
+          settledTransition === coreTransition &&
+          coreDocumentRecoveryAuthority.settled(target.id) === undefined &&
+          coreManager.isSaveSnapshotCurrent(target.id, identity)
+      )
       coreSaveRegistrations.set(target.id, unregister)
     }
     if (target !== undefined && !coreReloadRegistrations.has(target.id)) {
@@ -644,7 +674,7 @@ watch(
         coreReloadRegistrations.delete(target.id)
         coreRecoveryRegistrations.get(target.id)?.()
         coreRecoveryRegistrations.delete(target.id)
-        coreWorkers.delete(target.id)
+        coreModelOwners.delete(target.id)
       }
       console.error('Core document session transition failed', error)
       if (!sourceMode) {
@@ -656,8 +686,82 @@ watch(
   { immediate: true }
 )
 
+// Close retires input surfaces, not document actors. The same actors/history
+// remain available if native confirmation or Save As is cancelled.
+const assertCoreCloseAllowed = (): void => {
+  coreEditor.value?.assertCloseAllowed()
+  coreSourceEditor.value?.assertCloseAllowed()
+}
+const unregisterCoreClose = coreDocumentSaveAuthority.registerClose(
+  () => {
+    if (coreClosePending.value) throw new Error('Window close is already pending')
+    coreClosePending.value = true
+    let releaseOwners: (() => void) | undefined
+    const restoreInput = async (): Promise<void> => {
+      releaseOwners?.()
+      releaseOwners = undefined
+      coreCloseInputsRetired.value = false
+      coreClosePending.value = false
+      // The existing tab/surface watcher remounts the current selection from its
+      // retained actor; it also handles a tab selected while native UI was open.
+      await nextTick()
+      await coreTransition
+      await nextTick()
+      const target = currentFile.value?.id
+      const view = props.sourceCode ? coreSourceEditor.value : coreEditor.value
+      if (
+        coreManager !== undefined &&
+        target !== undefined &&
+        (coreLease.value?.documentId !== target || view === undefined)
+      ) {
+        coreClosePending.value = true
+        coreCloseInputsRetired.value = true
+        await nextTick()
+        throw new Error('Unable to restore the document input owner after closing was cancelled')
+      }
+    }
+    const work = coreTransition.then(async () => {
+      assertCoreCloseAllowed()
+      const retire = async (): Promise<void> => {
+        const prior = coreLease.value
+        // Composition and already prepared input complete while their native
+        // listeners and recovery capture still own the active view.
+        if (prior !== undefined) await coreManager?.saveBarrier(prior.documentId)
+        if (coreViewState.value === 'source') {
+          coreSourceViewState.value = coreSourceEditor.value?.captureViewState()
+        } else if (currentFile.value?.id === prior?.documentId && currentFile.value !== null) {
+          currentFile.value.muyaIndexCursor = coreEditor.value?.captureViewState() ?? null
+        }
+        coreCloseInputsRetired.value = true
+        await nextTick()
+        // Native destruction flushes before listeners detach. The second barrier
+        // drains those deliveries before relinquishing this view's live lease.
+        if (prior !== undefined) await coreManager?.handoff(prior)
+        coreLease.value = undefined
+      }
+      if (coreManager === undefined) await retire()
+      else releaseOwners = await coreManager.prepareClose(retire)
+    })
+    coreTransition = work.catch(() => {})
+    let held = true
+    return {
+      ready: work,
+      async resume (): Promise<void> {
+        if (!held) return
+        await coreTransition
+        await restoreInput()
+        held = false
+      }
+    }
+  },
+  assertCoreCloseAllowed,
+  () => coreClosePending.value
+)
+onBeforeUnmount(unregisterCoreClose)
+
 onBeforeUnmount(() => {
   coreOwnerDisposed = true
+  let retainedForRecovery = false
   if (coreManager !== undefined) {
     teardownCoreDocumentSessions({
       manager: coreManager,
@@ -666,19 +770,28 @@ onBeforeUnmount(() => {
       clearFinalLease: () => {
         coreLease.value = undefined
       },
-      documentIds: openedCoreDocuments
+      documentIds: openedCoreDocuments,
+      preserveFailure: createCoreTeardownDraftPreserver({
+        preserve: (draft, lease) => {
+          preserveCoreRecoveryDraft(draft, lease)
+          coreUnbackedDraft.value = undefined
+          coreDraftFaultLease = undefined
+        }
+      })
     })
       .catch((error) => {
+        retainedForRecovery = true
         console.error('Core document teardown failed', error)
       })
       .finally(() => {
+        if (retainedForRecovery) return
         for (const unregister of coreSaveRegistrations.values()) unregister()
         coreSaveRegistrations.clear()
         for (const unregister of coreReloadRegistrations.values()) unregister()
         coreReloadRegistrations.clear()
         for (const unregister of coreRecoveryRegistrations.values()) unregister()
         coreRecoveryRegistrations.clear()
-        coreWorkers.clear()
+        coreModelOwners.clear()
         openedCoreDocuments.clear()
       })
   }

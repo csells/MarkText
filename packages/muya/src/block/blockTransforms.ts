@@ -1,7 +1,9 @@
 import type { Muya } from '../muya';
 import type { IFrontmatterMeta } from '../state/types';
 import type Parent from './base/parent';
+import { frontMatterPolicy } from '@marktext/input-policy';
 import emptyStates from '../config/emptyStates';
+import { dispatchDocumentCodeBlock, dispatchDocumentCodeReset, dispatchDocumentFrontMatter, dispatchDocumentMathBlock, dispatchDocumentThematicBreak } from '../editor/documentEditing';
 import { getCursorReference } from '../selection';
 import { isParagraphState } from '../state/types';
 import { deepClone } from '../utils';
@@ -10,25 +12,10 @@ import { ScrollPage } from './scrollPage';
 
 const debug = logger('quickInsert:');
 
-/**
- * Derive the frontmatter `lang`/`style` from the user's `frontmatterType`
- * preference: `-` -> yaml `---`, `+` -> toml `+++`,
- * `;`/`{` -> json (`;;;`/`{}`). The serializer (`serializeFrontMatter`)
- * switches on `lang`, so getting `lang` right is what makes YAML/TOML emit
- * their fences instead of falling through to JSON braces.
- */
+/** Native state uses the same preference spelling as model commands. */
 export function frontmatterMeta(frontmatterType: string): IFrontmatterMeta {
-    switch (frontmatterType) {
-        case '+':
-            return { lang: 'toml', style: '+' };
-        case ';':
-            return { lang: 'json', style: ';' };
-        case '{':
-            return { lang: 'json', style: '{' };
-        case '-':
-        default:
-            return { lang: 'yaml', style: '-' };
-    }
+    const { lang, style } = frontMatterPolicy(frontmatterType);
+    return { lang, style };
 }
 
 /**
@@ -39,7 +26,21 @@ export function frontmatterMeta(frontmatterType: string): IFrontmatterMeta {
  * the block. Shared by `Muya.updateParagraph('front-matter')` and the
  * quick-insert menu's `frontmatter` entry so both follow identical semantics.
  */
-export function insertFrontMatterAtStart(muya: Muya): boolean {
+export function insertFrontMatterAtStart(muya: Muya, trigger?: Parent): boolean {
+    if (muya.editor.documentEditing) {
+        if (trigger) {
+            const content = trigger.firstContentInDescendant();
+            if (!content?.domNode?.isConnected)
+                throw new Error('Front matter trigger is no longer in the document');
+            const current = muya.editor.selection.getSelection();
+            if (!current || !trigger.domNode?.contains(current.anchor.block.domNode ?? null))
+                content.setCursor(content.text.length, content.text.length, true);
+        }
+        const selection = muya.editor.selection.getDOMSelection();
+        if (!selection)
+            throw new Error('Front matter insertion has no document selection');
+        return dispatchDocumentFrontMatter(muya, !!trigger, selection);
+    }
     const { scrollPage } = muya.editor;
     if (!scrollPage)
         return false;
@@ -77,6 +78,10 @@ export function showTablePicker(muya: Muya, block: Parent) {
         return;
 
     const handler = (row: number, column: number) => {
+        const content = block.firstContentInDescendant();
+        if (!content?.domNode?.isConnected)
+            throw new Error('Table picker target is no longer in the document');
+        content.setCursor(content.text.length, content.text.length, true);
         // The picker's trigger block (a `/table` quick-insert line or the empty
         // paragraph the front-menu offers) is disposable, so always replace it
         // rather than inserting the table below it.
@@ -194,12 +199,48 @@ export function buildReplacementBlock(label: string, muya: Muya, text: string) {
     }
 }
 
+function createModelBlock(muya: Muya, block: Parent, replace: boolean, label: 'math-block' | 'code-block' | 'thematic-break' | 'reset-thematic-break' | 'reset-code-block'): void {
+    const content = block.firstContentInDescendant();
+    if (!content?.domNode?.isConnected)
+        throw new Error('Block insertion target is no longer in the document');
+    const current = muya.editor.selection.getSelection();
+    const start = current?.direction === 'backward' ? current.focus : current?.anchor;
+    // Format acts at the user's selection; a front-menu target may be elsewhere.
+    // Preserve that selection for canonical undo unless the target must change.
+    if (!start || !block.domNode?.contains(start.block.domNode ?? null))
+        content.setCursor(content.text.length, content.text.length, true);
+    const selection = muya.editor.selection.getDOMSelection();
+    if (!selection)
+        throw new Error('Block insertion target has no document selection');
+    if (label === 'reset-code-block')
+        dispatchDocumentCodeReset(muya, 'end', selection);
+    else if (label === 'reset-thematic-break')
+        dispatchDocumentThematicBreak(muya, 'reset', selection);
+    else if (label === 'thematic-break')
+        dispatchDocumentThematicBreak(muya, replace ? 'replace' : 'insert', selection);
+    else if (label === 'math-block')
+        dispatchDocumentMathBlock(muya, replace, selection);
+    else dispatchDocumentCodeBlock(muya, replace, selection);
+}
+
 export function replaceBlockByLabel({ block, muya, label, text = '' }: {
     block: Parent;
     muya: Muya;
     label: string;
     text?: string;
 }) {
+    if (label === 'paragraph' && block.blockName === 'code-block' && muya.editor.documentEditing) {
+        createModelBlock(muya, block, true, 'reset-code-block');
+        return;
+    }
+    if (label === 'paragraph' && block.blockName === 'thematic-break' && muya.editor.documentEditing) {
+        createModelBlock(muya, block, true, 'reset-thematic-break');
+        return;
+    }
+    if ((label === 'math-block' || label === 'code-block' || label === 'thematic-break') && muya.editor.documentEditing) {
+        createModelBlock(muya, block, true, label);
+        return;
+    }
     // Front matter is only valid as the document's first block, so the
     // quick-insert "Front Matter" entry must NOT replace the cursor block in
     // place (which destroyed its content and produced invalid mid-document
@@ -207,6 +248,10 @@ export function replaceBlockByLabel({ block, muya, label, text = '' }: {
     // `block.replaceWith` below — sharing the idempotent doc-start logic with
     // `Muya.updateParagraph('front-matter')`.
     if (label === 'frontmatter') {
+        if (muya.editor.documentEditing) {
+            insertFrontMatterAtStart(muya, block);
+            return;
+        }
         // Every other label drops the `/` quick-insert trigger text implicitly
         // via `block.replaceWith(newBlock)`. Front matter is prepended at the
         // document start instead (the trigger paragraph survives), so clear its
@@ -276,6 +321,10 @@ export function insertBlockBelowByLabel({ block, muya, label }: {
     muya: Muya;
     label: string;
 }) {
+    if ((label === 'math-block' || label === 'code-block' || label === 'thematic-break') && muya.editor.documentEditing) {
+        createModelBlock(muya, block, false, label);
+        return;
+    }
     const newBlock = buildReplacementBlock(label, muya, '');
     if (!newBlock)
         return;

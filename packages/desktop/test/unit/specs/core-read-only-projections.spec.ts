@@ -10,7 +10,7 @@ const createSessions = () =>
     createBinding: () => {
       const actor = createCoreActor()
       return createEditorCoreBinding({
-        request: async(request) => structuredClone(actor.handle(request)),
+        request: (request) => structuredClone(actor.handle(request)),
         dispose: () => {}
       })
     }
@@ -167,39 +167,27 @@ describe('Core read-only display projections', () => {
     await sessions.close('pending')
   })
 
-  it('refuses a delayed display projection after its acknowledged revision changes', async() => {
-    let release: (() => void) | undefined
-    let requested: (() => void) | undefined
-    const observedRequest = new Promise<void>((resolve) => {
-      requested = resolve
-    })
+  it('refuses a stale owner display projection after its acknowledged revision changes', async() => {
+    const actor = createCoreActor()
+    let previous: ReturnType<typeof actor.handle> | undefined
     const sessions = createCoreDocumentSessionManager({
-      createBinding: () => {
-        const actor = createCoreActor()
-        return createEditorCoreBinding({
-          request: async(request) => {
+      createBinding: () =>
+        createEditorCoreBinding({
+          request(request) {
             const reply = structuredClone(actor.handle(request))
-            if (request.type === 'display-projection-at-barrier') {
-              requested?.()
-              await new Promise<void>((resolve) => {
-                release = resolve
-              })
-            }
-            return reply
+            if (request.type !== 'display-projection-at-barrier') return reply
+            const result = previous ?? reply
+            previous ??= reply
+            return result
           },
-          dispose: () => {}
+          dispose: () => actor.dispose()
         })
-      }
     })
-    await sessions.open({ documentId: 'race', source: 'old', lineEnding: '\n' })
+    sessions.open({ documentId: 'race', source: 'old', lineEnding: '\n' })
     const lease = sessions.lease('race')
-    const reading = lease.displayProjectionAtBarrier('original')
-    const rejected = expect(reading).rejects.toThrow('stale')
-    await observedRequest
-    await lease.binding.submit({ edits: [{ start: 0, end: 3, insert: 'new' }], projections: [] })
-      .acknowledged
-    release?.()
-    await rejected
+    await lease.displayProjectionAtBarrier('original')
+    lease.binding.submit({ edits: [{ start: 0, end: 3, insert: 'new' }], projections: [] })
+    await expect(lease.displayProjectionAtBarrier('original')).rejects.toThrow('stale')
     expect((await sessions.saveBarrier('race')).source).toBe('new')
     await sessions.handoff(lease)
     await sessions.close('race')

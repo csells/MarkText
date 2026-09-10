@@ -1,5 +1,5 @@
 {
-  "runtimeDependencies": [],
+  "runtimeDependencies": ["@marktext/input-policy", "entities"],
   "ambientLibraries": ["ES2022"],
   "forbiddenPackages": ["marked", "vue", "pinia", "electron"]
 }

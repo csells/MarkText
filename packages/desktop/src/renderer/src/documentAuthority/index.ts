@@ -1,8 +1,10 @@
-export { createInMemoryShadowPort } from './inMemoryShadowPort'
 export {
-  createCodeMirrorCoreAdapter,
-  type CodeMirrorCoreAdapter
-} from './codeMirrorCoreAdapter'
+  createLocalCoreOwner,
+  type CoreModelTestControl,
+  type LocalCoreOwnerOptions
+} from './localCoreOwner'
+export { createInMemoryShadowPort } from './inMemoryShadowPort'
+export { createCodeMirrorCoreAdapter, type CodeMirrorCoreAdapter } from './codeMirrorCoreAdapter'
 export { createMuyaPlainTextCoreAdapter } from './muyaPlainTextCoreAdapter'
 export {
   createCoreAuthorityPerformanceTrace,
@@ -19,10 +21,7 @@ export {
   createCoreTrackChangesMode,
   type CoreTrackChangesMode
 } from './coreTrackChangesMode'
-export {
-  handoffCorePlainTextView,
-  leaseCorePlainTextView
-} from './corePlainTextViewHandoff'
+export { handoffCorePlainTextView, leaseCorePlainTextView } from './corePlainTextViewHandoff'
 export { createCoreActor, type CoreActor } from './coreActor'
 export {
   createCoreConsumerProjectionRegistry,
@@ -67,10 +66,7 @@ export {
   type EditorShadowBinding,
   type EditorShadowSnapshot
 } from './editorShadowBinding'
-export {
-  createWorkerShadowPort,
-  type ShadowWorkerLike
-} from './workerShadowPort'
+export { createWorkerShadowPort, type ShadowWorkerLike } from './workerShadowPort'
 export {
   createShadowDocumentAuthority,
   type ShadowDocumentAuthority,
@@ -81,6 +77,7 @@ export {
 } from './shadowDocumentAuthority'
 export type {
   CoreActorPort,
+  CoreModelOwner,
   CoreAppliedReply,
   CoreConsumerProjection,
   CoreConsumerProjectionReply,
@@ -94,6 +91,7 @@ export type {
   CoreRejectedReply,
   CoreResourceReply,
   CoreSourceReply,
+  CoreSourceSyntaxReply,
   CoreReply,
   CoreRequest,
   CoreWorkerRequestEnvelope,

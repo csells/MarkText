@@ -66,7 +66,7 @@ function importedPackages(source: string, fileName: string): readonly string[] {
 }
 
 describe('document-core package boundary', () => {
-  it('has no runtime dependencies or forbidden framework imports', async() => {
+  it('imports only the shared pure input policy and no forbidden frameworks', async() => {
     const packageRoot = new URL('..', import.meta.url)
     const policy = JSON.parse(await readFile(
       new URL('boundary-policy.json', packageRoot),
@@ -92,5 +92,18 @@ describe('document-core package boundary', () => {
         packageName === forbidden || packageName.startsWith(`${forbidden}/`)
       )
     )).toEqual([])
+  })
+
+  it('keeps the shared policy independent of runtimes except the existing HTML tag data', async() => {
+    const root = new URL('../../input-policy/', import.meta.url)
+    const manifest = JSON.parse(await readFile(new URL('package.json', root), 'utf8')) as {
+      dependencies?: Record<string, string>
+    }
+    expect(manifest.dependencies ?? {}).toEqual({ 'html-tags': '5.1.0' })
+    const files = await sourceFiles(fileURLToPath(new URL('src', root)))
+    for (const file of files) {
+      const imports = importedPackages(await readFile(file, 'utf8'), file)
+      expect(imports).toEqual(file === fileURLToPath(new URL('src/codeTab.ts', root)) ? ['html-tags'] : [])
+    }
   })
 })

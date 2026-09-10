@@ -16,7 +16,9 @@ import type Content from '../../base/content';
 import type Parent from '../../base/parent';
 import type BulletList from '../../commonMark/bulletList';
 import type Paragraph from '../../commonMark/paragraph';
+import { listTabAction } from '@marktext/input-policy';
 import { HTML_TAGS, VOID_HTML_TAGS } from '../../../config';
+import { dispatchDocumentList, dispatchDocumentParagraphJoin, dispatchDocumentTab } from '../../../editor/documentEditing';
 import { tokenizer } from '../../../inlineRenderer/lexer';
 import { isListItemState, isTaskListItemState } from '../../../state/types';
 import { isKeyboardEvent, isLengthEven } from '../../../utils';
@@ -604,6 +606,16 @@ class ParagraphContent extends Format {
         if (!previousContentBlock)
             return;
 
+        const modelJoinTarget = ['paragraph.content', 'atxheading.content', 'setextheading.content'].includes(previousContentBlock.blockName)
+            || previousContentBlock.getAnchor()?.blockName === 'code-block';
+        if (this.muya.editor.documentEditing && modelJoinTarget) {
+            const selection = this.muya.editor.selection.getDOMSelection();
+            if (!selection)
+                throw new Error('Paragraph boundary Backspace has no document selection');
+            dispatchDocumentParagraphJoin(this.muya, 'backward', selection);
+            return;
+        }
+
         const { text: oldText } = previousContentBlock;
         const offset = oldText.length;
         previousContentBlock.text += this.text;
@@ -640,6 +652,19 @@ class ParagraphContent extends Format {
 
         if (!parent.isFirstChild())
             return this._handleBackspaceInParagraph();
+
+        if (this.muya.editor.documentEditing) {
+            this.muya.flush();
+            this.muya.editor.history.cutoff();
+            try {
+                const selection = this.muya.editor.selection.getDOMSelection();
+                if (!selection)
+                    throw new Error('List boundary Backspace has no document selection');
+                dispatchDocumentList(this.muya, { type: 'backspace' }, selection);
+            }
+            finally { this.muya.editor.history.cutoff(); }
+            return;
+        }
 
         if (listItem.isOnlyChild()) {
             listItem.forEach((node, i: number) => {
@@ -688,7 +713,7 @@ class ParagraphContent extends Format {
             && (listParent.blockName === 'list-item'
                 || listParent.blockName === 'task-list-item')
         ) {
-            return list.prev ? UnindentType.INDENT : UnindentType.REPLACEMENT;
+            return listTabAction({ shift: true, collapsed: this.isCollapsed, paragraphInItem: true, previousItem: false, nestedList: true, previousBlock: !!list.prev }) === 'outdent' ? UnindentType.INDENT : UnindentType.REPLACEMENT;
         }
 
         return null;
@@ -714,7 +739,7 @@ class ParagraphContent extends Format {
             return false;
         }
 
-        return list && /ol|ul/.test(list.tagName) && listItem.prev;
+        return listTabAction({ shift: false, collapsed: this.isCollapsed, paragraphInItem: /ol|ul/.test(list.tagName), previousItem: !!listItem.prev, nestedList: false, previousBlock: false }) === 'indent';
     }
 
     private _placeCursorIn(block: Nullable<Parent>, startOffset: number, endOffset: number) {
@@ -925,6 +950,14 @@ class ParagraphContent extends Format {
 
         if (!isKeyboardEvent(event))
             return;
+
+        if (this.muya.editor.documentEditing) {
+            const selection = this.muya.editor.selection.getDOMSelection();
+            if (!selection)
+                throw new Error('Paragraph Tab has no document selection');
+            dispatchDocumentTab(this.muya, event.shiftKey, selection);
+            return;
+        }
 
         const { start, end } = this.getCursor()!;
         if (!start || !end)

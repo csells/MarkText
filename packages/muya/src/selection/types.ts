@@ -7,6 +7,8 @@ export interface INodeOffset {
     offset: number;
 }
 
+export type { IDOMPoint, IDOMSelection, ITextPoint } from './domTypes';
+
 export interface IContentCursor extends ISelection {
     start: INodeOffset;
     end: INodeOffset;

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { DocumentInput } from '../../../../editor/documentEditingTypes';
 import type Content from '../../../base/content';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Muya } from '../../../../muya';
@@ -89,6 +90,72 @@ function blockText(state: ReturnType<Muya['getState']>, index: number): string {
 }
 
 describe('backspace at start-of-paragraph — merge with previous block', () => {
+    it.each(['a', 'a{++literal++}'])('preserves standalone code content %j and the join caret', (body) => {
+        const muya = bootMuya(`\`\`\`\n${body}\n\`\`\`\nb\n`);
+        try {
+            backspaceAtStart(muya, contentByText(muya, 'b'));
+            muya.flush();
+            expect(muya.getState()).toMatchObject([{ name: 'code-block', text: `${body}b` }]);
+            expect(muya.getState()).toHaveLength(1);
+            expect(muya.getSelection()).toMatchObject({ anchor: { offset: body.length }, focus: { offset: body.length } });
+        }
+        finally { muya.destroy(); }
+    });
+
+    it('preserves standalone math joining through the shared code content widget', () => {
+        const muya = bootMuya('$$\na\n$$\nb\n');
+        try {
+            const literal = contentByText(muya, 'a');
+            expect(literal.blockName).toBe('codeblock.content');
+            expect(literal.getAnchor()?.blockName).toBe('math-block');
+            backspaceAtStart(muya, contentByText(muya, 'b'));
+            muya.flush();
+            expect(muya.getState()).toMatchObject([{ name: 'math-block', text: 'ab' }]);
+            expect(muya.getState()).toHaveLength(1);
+            expect(muya.getSelection()).toMatchObject({ anchor: { offset: 1 }, focus: { offset: 1 } });
+        }
+        finally { muya.destroy(); }
+    });
+
+    it('keeps a rejected code-boundary join under the bound document owner', () => {
+        const muya = bootMuya('```\na\n```\nb\n');
+        const paragraph = contentByText(muya, 'b');
+        const before = structuredClone(muya.getState());
+        const changes: unknown[] = [];
+        muya.eventCenter.on('json-change', (change: unknown) => {
+            if (change && typeof change === 'object' && (change as { source?: unknown }).source === 'user')
+                changes.push(change);
+        });
+        const unexpected = (): never => {
+            throw new Error('Unexpected bound operation');
+        };
+        const input = vi.fn((_operation: DocumentInput, present: () => void) => {
+            present();
+            return false;
+        });
+        muya.editor.bindDocumentEditing({
+            activeFormats: () => [],
+            clipboard: unexpected,
+            prepareImage: unexpected,
+            prepareClipboard: unexpected,
+            compositionStart: unexpected,
+            compositionUpdate: unexpected,
+            compositionEnd: unexpected,
+            format: unexpected,
+            input,
+        });
+        try {
+            backspaceAtStart(muya, paragraph);
+            muya.flush();
+            expect(input).toHaveBeenCalledOnce();
+            expect(input.mock.calls[0][0]).toMatchObject({ kind: 'command', command: 'joinParagraphBackward' });
+            expect(muya.getState()).toEqual(before);
+            expect(muya.getSelection()).toMatchObject({ anchor: { block: paragraph, offset: 0 }, focus: { offset: 0 } });
+            expect(changes).toEqual([]);
+        }
+        finally { muya.destroy(); }
+    });
+
     it('merges `beta` onto the end of `alpha` into a single paragraph', async () => {
         const muya = bootMuya('alpha\n\nbeta\n');
         const beta = contentByText(muya, 'beta');
@@ -196,4 +263,32 @@ describe('backspace at start-of-paragraph — unwrap block-quote / list', () => 
         expect(state.length).toBe(1);
         expect(state[0].name).toBe('bullet-list');
     });
+});
+
+it.each([
+    { name: 'first bullet item', source: '- one\n- target\n- three\n', target: 'one', expected: 'one\n\n- target\n- three\n' },
+    { name: 'middle bullet item', source: '- one\n- target\n- three\n', target: 'target', expected: '- one\n\n  target\n- three\n' },
+    { name: 'first ordered item', source: '8) one\n9) target\n10) three\n', target: 'one', expected: 'one\n\n8) target\n9) three\n' },
+    { name: 'middle ordered item', source: '8) one\n9) target\n10) three\n', target: 'target', expected: '8) one\n\n   target\n9) three\n' },
+    { name: 'first task item', source: '- [x] one\n- [ ] target\n- [x] three\n', target: 'one', expected: 'one\n\n- [ ] target\n- [x] three\n' },
+    { name: 'middle task item', source: '- [x] one\n- [ ] target\n- [x] three\n', target: 'target', expected: '- [x] one\n\n  target\n- [x] three\n' },
+    { name: 'nested first item', source: '- outer\n  - target\n  - same\n- final\n', target: 'target', expected: '- outer\n\n  target\n  - same\n- final\n' },
+    { name: 'multiline middle item', source: '- first\n- target\n  continuation\n\n  second\n- final\n', target: 'target\ncontinuation', expected: '- first\n\n  target\n  continuation\n\n  second\n\n- final\n' },
+])('preserves native $name source and moved paragraph caret', ({ source, target, expected }) => {
+    const muya = bootMuya(source);
+    try {
+        backspaceAtStart(muya, contentByText(muya, target));
+        muya.flush();
+        expect(muya.getMarkdown()).toBe(expected);
+        expect(muya.getSelection()).toMatchObject({ anchor: { block: { text: target }, offset: 0 }, focus: { offset: 0 } });
+    }
+    finally { muya.destroy(); }
+});
+
+it.each(['\n', '\r\n', '\r'])('native task leading empty line with %j', (eol) => {
+    const muya = bootMuya(`- [ ] ${eol}  same${eol}`);
+    try {
+        expect(muya.editor.scrollPage!.firstContentInDescendant()!.text).toBe(eol === '\r' ? '\r  same' : 'same');
+    }
+    finally { muya.destroy(); }
 });

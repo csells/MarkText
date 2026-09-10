@@ -14,6 +14,7 @@ import { requestReviewContext } from '../contextMenu/editor/reviewContext'
 import { loadMarkdownFile } from '../filesystem/markdown'
 import { switchLanguage } from '../spellchecker'
 import fs from 'fs'
+import { isWindowPreparingToClose } from './prepareClose'
 
 type RawMarkdownDocument = Awaited<ReturnType<typeof loadMarkdownFile>>
 
@@ -22,6 +23,16 @@ interface PendingFile {
   doc: RawMarkdownDocument
   options: Record<string, unknown>
   selected: boolean
+}
+
+interface PendingMarkdown {
+  markdown: string
+  selected: boolean
+}
+
+export interface PendingEditorOpen {
+  files?: PendingFile[]
+  markdown?: PendingMarkdown[]
 }
 
 interface BufferStoreInfo {
@@ -53,7 +64,8 @@ class EditorWindow extends BaseWindow {
   // Root directory and file list to open when the window is ready.
   private _directoryToOpen: string | null
   private _filesToOpen: PendingFile[] | null
-  private _markdownToOpen: string[] | null
+  private readonly _pendingFileOpens = new Set<Promise<void>>()
+  private _markdownToOpen: PendingMarkdown[] | null
   // Root directory and file list that are currently opened. These lists are
   // used to find the best window to open new files in.
   private _openedRootDirectory: string | null
@@ -71,7 +83,7 @@ class EditorWindow extends BaseWindow {
     // Root directory and file list to open when the window is ready.
     this._directoryToOpen = null
     this._filesToOpen = [] // {doc: IMarkdownDocumentRaw, options: any, selected: boolean}
-    this._markdownToOpen = [] // List of markdown strings or an empty string will open a new untitled tab
+    this._markdownToOpen = []
 
     // Root directory and file list that are currently opened. These lists are
     // used to find the best window to open new files in.
@@ -94,6 +106,8 @@ class EditorWindow extends BaseWindow {
     const { menu: appMenu, env, preferences, editorBufferStore } = this._accessor
     const addBlankTab =
       !bufferStoreInfo && !rootDirectory && fileList.length === 0 && markdownList.length === 0
+
+    this._markdownToOpen!.push(...markdownList.map((markdown) => ({ markdown, selected: true })))
 
     const mainWindowState = windowStateKeeper({
       defaultWidth: 1200,
@@ -164,12 +178,22 @@ class EditorWindow extends BaseWindow {
     let contextMenuRequest = 0
     win.webContents.on('context-menu', (event, params) => {
       const request = ++contextMenuRequest
-      requestReviewContext(win!, params.x, params.y).catch(error => {
-        log.error('Unable to prepare annotation context actions', error)
-        return undefined
-      }).then(context => {
-        if (request === contextMenuRequest && win && !win.isDestroyed()) showEditorContextMenu(win, event, params, preferences.getItem('spellcheckerEnabled'), context)
-      })
+      requestReviewContext(win!, params.x, params.y)
+        .catch((error) => {
+          log.error('Unable to prepare annotation context actions', error)
+          return undefined
+        })
+        .then((context) => {
+          if (request === contextMenuRequest && win && !win.isDestroyed()) {
+            showEditorContextMenu(
+              win,
+              event,
+              params,
+              preferences.getItem('spellcheckerEnabled'),
+              context
+            )
+          }
+        })
     })
 
     win.webContents.once('did-finish-load', () => {
@@ -183,8 +207,9 @@ class EditorWindow extends BaseWindow {
       appMenu.updateLineEndingMenu(this.id!, lineEnding)
 
       win!.webContents.send('mt::bootstrap-editor', {
-        addBlankTab,
-        markdownList: this.bufferStoreInfo!.filePath ? [] : this._markdownToOpen,
+        addBlankTab:
+          addBlankTab && this._filesToOpen!.length === 0 && this._markdownToOpen!.length === 0,
+        markdownList: [],
         lineEnding,
         sideBarVisibility: resolvedSideBarVisibility,
         tabBarVisibility,
@@ -195,7 +220,6 @@ class EditorWindow extends BaseWindow {
         this._restoreAllState()
       } else {
         this._doOpenFilesToOpen()
-        this._markdownToOpen!.length = 0
       }
 
       // Listen on default system mouse zoom event (e.g. Ctrl+MouseWheel on Linux/Windows).
@@ -308,8 +332,6 @@ class EditorWindow extends BaseWindow {
    * Open a new tab from a markdown file.
    */
   openTab(filePath: string, options: Record<string, unknown> = {}, selected: boolean = true): void {
-    // TODO: Don't allow new files if quitting.
-    if (this.lifecycle === WindowLifecycle.QUITTED) return
     this.openTabs([{ filePath, options, selected }])
   }
 
@@ -330,9 +352,6 @@ class EditorWindow extends BaseWindow {
   openTabs(
     fileList: { filePath: string; selected: boolean; options: Record<string, unknown> }[]
   ): void {
-    // TODO: Don't allow new files if quitting.
-    if (this.lifecycle === WindowLifecycle.QUITTED) return
-
     const { browserWindow } = this
     const { preferences } = this._accessor
     const eol = preferences.getPreferredEol()
@@ -340,12 +359,16 @@ class EditorWindow extends BaseWindow {
       preferences.getAll()
 
     for (const { filePath, options, selected } of fileList) {
-      if (this._openedFiles!.includes(filePath)) {
+      if (
+        this._openedFiles?.includes(filePath) &&
+        browserWindow &&
+        !isWindowPreparingToClose(browserWindow)
+      ) {
         // File is already opened - avoid opening it again so we dont have duplicate watchers
         browserWindow!.webContents.send('mt::switch-tab-by-file_path', filePath)
         continue
       }
-      loadMarkdownFile(
+      const opening = loadMarkdownFile(
         filePath,
         eol,
         autoGuessEncoding,
@@ -353,11 +376,7 @@ class EditorWindow extends BaseWindow {
         autoNormalizeLineEndings
       )
         .then((rawDocument) => {
-          if (this.lifecycle === WindowLifecycle.READY) {
-            this._doOpenTab(rawDocument, options, selected)
-          } else {
-            this._filesToOpen!.push({ doc: rawDocument, options, selected })
-          }
+          this.openPending({ files: [{ doc: rawDocument, options, selected }] })
         })
         .catch((err: Error) => {
           const { message, stack } = err
@@ -368,21 +387,43 @@ class EditorWindow extends BaseWindow {
             message: err.message
           })
         })
+        .finally(() => {
+          this._pendingFileOpens.delete(opening)
+        })
+      this._pendingFileOpens.add(opening)
     }
+  }
+
+  /** Keep main alive until every already-started read has delivered its content. */
+  async withPendingFilesOpened(close: () => void): Promise<void> {
+    while (this._pendingFileOpens.size > 0) await Promise.all([...this._pendingFileOpens])
+    close()
   }
 
   /**
    * Open a new untitled tab optional with a markdown string.
    */
   openUntitledTab(selected: boolean = true, markdown: string = ''): void {
-    // TODO: Don't allow new files if quitting.
-    if (this.lifecycle === WindowLifecycle.QUITTED) return
+    this.openPending({ markdown: [{ selected, markdown }] })
+  }
 
-    if (this.lifecycle === WindowLifecycle.READY) {
-      const { browserWindow } = this
-      browserWindow!.webContents.send('mt::new-untitled-tab', selected, markdown)
-    } else {
-      this._markdownToOpen!.push(markdown)
+  /** Deliver loaded content, retaining its source and options across window handoff. */
+  openPending(request: PendingEditorOpen): void {
+    if (
+      this.lifecycle === WindowLifecycle.QUITTED ||
+      (this.browserWindow && isWindowPreparingToClose(this.browserWindow))
+    ) {
+      ipcMain.emit('app-create-editor-window', request)
+      return
+    }
+    for (const { doc, options, selected } of request.files ?? []) {
+      if (this.lifecycle === WindowLifecycle.READY) this._doOpenTab(doc, options, selected)
+      else this._filesToOpen!.push({ doc, options, selected })
+    }
+    for (const { markdown, selected } of request.markdown ?? []) {
+      if (this.lifecycle === WindowLifecycle.READY) {
+        this.browserWindow!.webContents.send('mt::new-untitled-tab', selected, markdown)
+      } else this._markdownToOpen!.push({ markdown, selected })
     }
   }
 
@@ -561,10 +602,10 @@ class EditorWindow extends BaseWindow {
     }
     this._directoryToOpen = null
 
-    for (const { doc, options, selected } of this._filesToOpen!) {
-      this._doOpenTab(doc, options, selected)
-    }
-    this._filesToOpen!.length = 0
+    this.openPending({
+      files: this._filesToOpen!.splice(0),
+      markdown: this._markdownToOpen!.splice(0)
+    })
   }
 
   private _restoreAllState(): void {

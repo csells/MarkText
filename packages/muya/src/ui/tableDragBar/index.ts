@@ -5,6 +5,7 @@ import type { Muya } from '../../index';
 
 import { ScrollPage } from '../../block/scrollPage';
 import { BLOCK_DOM_PROPERTY } from '../../config';
+import { dispatchDocumentTableCommand } from '../../editor/documentEditing';
 import { isMouseEvent, throttle } from '../../utils';
 import BaseFloat from '../baseFloat';
 import './index.css';
@@ -324,6 +325,26 @@ export class TableDragBar extends BaseFloat {
         this._dragEventIds = [];
         if (!this._isDragTableBar)
             return;
+
+        if (this.muya.editor.documentEditing && this._dragInfo) {
+            const { cells, index, curIndex, barType } = this._dragInfo;
+            const cell = (barType === 'bottom' ? cells[0]?.[index] : cells[index]?.[0])?.[BLOCK_DOM_PROPERTY];
+            const content = cell?.isParent() ? cell.firstContentInDescendant() : null;
+            const target = content?.domNode?.isConnected
+                ? this.muya.editor.selection.getDOMPoint({ path: content.path, offset: 0 })
+                : null;
+            const selection = this.muya.editor.selection.getDOMSelection();
+            for (const row of cells) {
+                for (const element of row) {
+                    element.classList.remove('mu-cell-transform', 'mu-drag-cell', 'mu-drag-bottom', 'mu-drag-right');
+                    element.style.transform = '';
+                }
+            }
+            this._resetDragTableBar();
+            if (target && selection)
+                dispatchDocumentTableCommand(this.muya, { ...(barType === 'bottom' ? { command: 'moveTableColumn', column: curIndex } as const : { command: 'moveTableRow', row: curIndex } as const), target, selection });
+            return;
+        }
 
         this._setDropTargetStyle();
 

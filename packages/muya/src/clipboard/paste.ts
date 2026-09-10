@@ -5,17 +5,20 @@ import type { Muya } from '../muya';
 import type { TState } from '../state/types';
 import type { Nullable } from '../types';
 import type Clipboard from './index';
+import { plainHtmlPasteLines, tableCellPaste } from '@marktext/input-policy';
 import CodeBlockContent from '../block/content/codeBlockContent';
 import LangInputContent from '../block/content/langInputContent';
 import { ScrollPage } from '../block/scrollPage';
 import { URL_REG } from '../config';
+import { createDocumentTextDraft } from '../editor/documentEditing';
 import { tokenizer } from '../inlineRenderer/lexer';
 import HtmlToMarkdown from '../state/htmlToMarkdown';
 import { MarkdownToState } from '../state/markdownToState';
 import { isAnyListState, isParagraphState } from '../state/types';
+import { encodeImageSrc } from '../utils/image';
 import { getClipboardImageFile, getCopyTextType, isStandaloneTableHtml, normalizePastedHTML } from '../utils/paste';
 import { mergePasteIntoHeading } from './mergePasteIntoHeading';
-import { tryPasteImage, tryReplaceSelectedImage } from './pasteImage';
+import { resolveImageSrc, tryPasteImage, tryReplaceSelectedImage } from './pasteImage';
 import { PasteType } from './types';
 
 // Everything the per-anchor paste handlers need from the synchronous snapshot
@@ -28,20 +31,6 @@ interface IPasteContext {
     start: { offset: number };
     end: { offset: number };
     content: string;
-}
-
-/**
- * Whether the frozen table-cell selection covers exactly one cell. Mirrors
- * the single-cell shape check used by the copy path: one row containing one
- * cell. Used to decide between replacing a single cell's text and cancelling
- * a multi-cell paste.
- */
-function isSingleCellSelected(clipboard: Clipboard): boolean {
-    const state = clipboard.selection.table.getStateForCopy();
-    if (state == null)
-        return false;
-
-    return state.children.length === 1 && state.children[0].children.length === 1;
 }
 
 // The deepest last text-bearing leaf of a parsed state (a paragraph inside a
@@ -462,10 +451,10 @@ function applyLiteralPaste(
         anchorBlock.blockName === 'table.cell.content'
         && clipboard.selection.table.hasSelection
     ) {
-        if (!isSingleCellSelected(clipboard))
+        if (!clipboard.selection.table.isSingleCellSelected())
             return;
 
-        anchorBlock.text = markdown.trim().replace(/\n/g, '<br/>');
+        anchorBlock.text = tableCellPaste(markdown);
         const offset = anchorBlock.text.length;
         anchorBlock.setCursor(offset, offset, true);
         clipboard.selection.table.clear();
@@ -494,7 +483,7 @@ function applyLiteralPaste(
     // A table cell holds a single visual line: trim and fold newlines to
     // `<br/>` (muyajs trims pasted cell text on both the framed and normal path).
     if (anchorBlock.blockName === 'table.cell.content')
-        markdown = markdown.trim().replace(/\n/g, '<br/>');
+        markdown = tableCellPaste(markdown);
 
     anchorBlock.text
         = content.substring(0, start.offset)
@@ -530,17 +519,17 @@ function applyPlainTextBlockHtml(clipboard: Clipboard, ctx: IPasteContext, text:
     const { anchorBlock, start, end, content } = ctx;
     const head = content.substring(0, start.offset);
     const tail = content.substring(end.offset);
-    const lines = text.trim().split('\n');
+    const { first, rest } = plainHtmlPasteLines(text);
 
-    anchorBlock.text = head + lines[0] + tail;
+    anchorBlock.text = head + first + tail;
     anchorBlock.update();
-    const offset = head.length + lines[0].length;
+    const offset = head.length + first.length;
     anchorBlock.setCursor(offset, offset, true);
 
-    if (lines.length === 1)
+    if (rest === '')
         return;
 
-    const htmlState = { name: 'html-block', text: lines.slice(1).join('\n') };
+    const htmlState = { name: 'html-block', text: rest };
     const newBlock = ScrollPage.loadBlock(htmlState.name).create(clipboard.muya, htmlState);
     ctx.wrapperBlock?.parent?.insertAfter(newBlock, ctx.wrapperBlock);
 }
@@ -579,6 +568,64 @@ interface IPasteData {
     pasteType: PasteType;
 }
 
+function applyPreparedDocumentPaste(clipboard: Clipboard, data: IPasteData): boolean {
+    // Prepared plain Markdown is submitted before any asynchronous import or
+    // native mutation. Resource/HTML imports retain their existing preparation
+    // service until their captured-command lifecycle is migrated.
+    const { muya } = clipboard;
+    const model = muya.editor.documentEditing;
+    if (model && !clipboard.selection.table.hasSelection
+        && data.html === '' && data.imageFile === null && !muya.options.clipboardFilePath
+        && !isSinglePlainUrl(data.text) && !isStandaloneTableHtml(data.text)) {
+        const selection = clipboard.selection.image
+            ? clipboard.selection.getImageDOMSelection()
+            : clipboard.selection.getDOMSelection();
+        if (selection) {
+            const markdown = data.text.replace(/\r\n?/g, '\n');
+            const draft = createDocumentTextDraft(muya, selection, markdown);
+            muya.flush();
+            model.clipboard({ kind: 'paste', selection, markdown, pasteAsPlainText: data.pasteType === PasteType.PASTE_AS_PLAIN_TEXT }, draft);
+        }
+        return true;
+    }
+    return false;
+}
+
+async function importClipboardData(clipboard: Clipboard, data: IPasteData, capturePayload: (payload: unknown) => void) {
+    const { muya } = clipboard;
+    const text = data.text.replace(/\r\n?/g, '\n');
+    const src = await resolveImageSrc(clipboard, data.imageFile);
+    if (src) {
+        capturePayload({ text, html: data.html, imageSource: src });
+        const resolved = await muya.options.imageAction?.({ src, alt: '', title: '' });
+        return { markdown: `![](${encodeImageSrc(resolved || src)})` };
+    }
+    let html = data.html;
+    const bareUrl = html !== '' && isSinglePlainUrl(text) ? text : undefined;
+    if (isSinglePlainUrl(text) && !html)
+        html = `<a href="${text}">${text}</a>`;
+    if (!html && isStandaloneTableHtml(text))
+        html = text;
+    html = await normalizePastedHTML(html, { preserveBareUrlLinks: bareUrl !== undefined });
+    const copyType = getCopyTextType(html, text, data.pasteType);
+    const markdown = copyType === 'html'
+        ? new HtmlToMarkdown({ bulletListMarker: muya.options.bulletListMarker }).generate(html)
+        : text;
+    return { markdown, plainText: text, pasteAsPlainText: data.pasteType === PasteType.PASTE_AS_PLAIN_TEXT, ...(bareUrl === undefined ? {} : { bareUrl }) };
+}
+
+async function applyPreparedDocumentImport(clipboard: Clipboard, data: IPasteData): Promise<void> {
+    const { muya } = clipboard;
+    const model = muya.editor.documentEditing;
+    const selection = clipboard.selection.table.getDOMSelection() ?? (clipboard.selection.image
+        ? clipboard.selection.getImageDOMSelection()
+        : clipboard.selection.getDOMSelection());
+    if (!model || !selection)
+        throw new Error('Clipboard import has no document selection');
+    const text = data.text.replace(/\r\n?/g, '\n');
+    await model.prepareClipboard(selection, { text, html: data.html, imageFile: data.imageFile }, capturePayload => importClipboardData(clipboard, data, capturePayload));
+}
+
 // The paste pipeline, decoupled from the DOM `paste` event so it can be driven
 // either by a trusted paste event (`pasteSelection`) or by an explicit
 // clipboard read (`pastePlainText`). The latter exists because Chromium removed
@@ -588,6 +635,41 @@ interface IPasteData {
 async function applyPaste(clipboard: Clipboard, data: IPasteData): Promise<void> {
     const { muya } = clipboard;
     const { bulletListMarker } = muya.options;
+
+    if (clipboard.selection.table.hasSelection) {
+        const rectangle = clipboard.selection.table.getDOMSelection();
+        if (!rectangle)
+            throw new Error('Table paste has no current cell selection');
+        if (!clipboard.selection.table.isSingleCellSelected()) {
+            if (muya.editor.documentEditing) {
+                muya.flush();
+                muya.editor.documentEditing.clipboard({ kind: 'table', operation: 'paste', selection: rectangle, markdown: data.text }, () => {});
+            }
+            return;
+        }
+        if (muya.editor.documentEditing) {
+            await applyPreparedDocumentImport(clipboard, data);
+        }
+        else {
+            const point = clipboard.selection.getTextPoint(rectangle.ranges[0]!.anchor);
+            const block = point && muya.editor.scrollPage?.queryBlock([...point.path]);
+            if (!block?.isContent())
+                throw new Error('Table paste has no current cell content');
+            const imported = await importClipboardData(clipboard, data, () => {});
+            const current = clipboard.selection.table.getDOMSelection();
+            if (current?.ranges.length !== 1 || current.ranges[0]!.anchor.node !== rectangle.ranges[0]!.anchor.node)
+                return;
+            applyLiteralPaste(clipboard, { anchorBlock: block, wrapperBlock: block.getAnchor(), originWrapperBlock: block.getAnchor(), start: { offset: 0 }, end: { offset: block.text.length }, content: block.text }, imported.markdown);
+        }
+        return;
+    }
+
+    if (applyPreparedDocumentPaste(clipboard, data))
+        return;
+    if (muya.editor.documentEditing && !clipboard.selection.table.hasSelection) {
+        await applyPreparedDocumentImport(clipboard, data);
+        return;
+    }
 
     // A selected inline image collapses the text selection, so handle the
     // "paste an image over a selected image" replace before reading the

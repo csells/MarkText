@@ -1,6 +1,12 @@
-import type { MarkdownAstNode } from '@marktext/document-core'
-import type { IInlinePresentationContext } from '@muyajs/core'
-import { renderMuyaMarkupBinding } from './muyaMarkupPresentation'
+import type { DocumentSourceEdit, MarkdownAstNode } from '@marktext/document-core'
+import { documentInputContext } from '@marktext/document-core'
+import type {
+  DocumentInputSyntaxContext,
+  DocumentTextPoint,
+  DocumentTextReplacement,
+  IInlinePresentationContext
+} from '@muyajs/core'
+import { isMuyaImageSyntax, renderMuyaMarkupBinding } from './muyaMarkupPresentation'
 import type {
   MuyaMarkupBinding,
   MuyaMarkupComment,
@@ -10,6 +16,10 @@ import type {
 } from './muyaMarkupView'
 
 export interface MuyaMarkupPresentationIndex {
+  /** Returns only syntax established by the shared document model. */
+  syntaxContext(point: DocumentTextPoint): DocumentInputSyntaxContext | undefined
+  /** Advances pending view locations using the common model's exact operation. */
+  replaceText(operation: DocumentTextReplacement): void
   /** Includes removed paths, whose provider result becomes undefined. */
   readonly changedPaths: readonly MuyaMarkupPath[]
   render(
@@ -26,6 +36,7 @@ interface Entry {
   readonly decorations: readonly MuyaMarkupDecoration[]
   readonly comments: readonly MuyaMarkupComment[]
   readonly hasImage: boolean
+  pendingEdits?: DocumentSourceEdit[]
   rendered?: { readonly text: string; readonly html: string; readonly highlights: Highlights }
 }
 const stores = new WeakMap<
@@ -38,7 +49,26 @@ const stores = new WeakMap<
 >()
 const pathKey = (path: MuyaMarkupPath): string => JSON.stringify(path)
 const hasImage = (node: MarkdownAstNode): boolean =>
-  node.kind === 'image' || node.children.some(hasImage)
+  isMuyaImageSyntax(node) || node.children.some(hasImage)
+const inputContext = (
+  binding: MuyaMarkupBinding,
+  offset: number
+): DocumentInputSyntaxContext | undefined => {
+  if (!Number.isInteger(offset) || offset < 0 || offset > binding.text.length) return undefined
+  const segment =
+    binding.segments.find((item) => item.text.start <= offset && offset < item.text.end) ??
+    binding.segments.find((item) => item.text.end === offset)
+  const syntaxOffset =
+    segment === undefined
+      ? binding.text.length === 0
+        ? binding.syntax.range.start
+        : undefined
+      : offset === segment.text.end
+        ? segment.syntax.end
+        : segment.syntax.start + offset - segment.text.start
+  if (syntaxOffset === undefined) return undefined
+  return documentInputContext(binding.syntax, syntaxOffset)
+}
 
 // These facts locate reference owners; resolved semantic values, rather than
 // absolute owner positions, determine rendered output.
@@ -69,13 +99,17 @@ const sameSyntax = (before: MarkdownAstNode, after: MarkdownAstNode): boolean =>
           spelling.range.end - beforeOrigin !== other.range.end - afterOrigin
         )
       })
-    ) { return false }
+    ) {
+      return false
+    }
     if (
       left.kind !== right.kind ||
       left.children.length !== right.children.length ||
       left.range.start - beforeOrigin !== right.range.start - afterOrigin ||
       left.range.end - beforeOrigin !== right.range.end - afterOrigin
-    ) { return false }
+    ) {
+      return false
+    }
     const leftKeys = Object.keys(left.attributes).filter((key) => !referencePositions.has(key))
     const rightKeys = Object.keys(right.attributes).filter((key) => !referencePositions.has(key))
     if (leftKeys.length !== rightKeys.length) return false
@@ -91,7 +125,9 @@ const sameSyntax = (before: MarkdownAstNode, after: MarkdownAstNode): boolean =>
         if (leftValue - beforeOrigin !== rightValue - afterOrigin) return false
       } else if (leftValue !== rightValue) return false
     }
-    for (let index = 0; index < left.children.length; index += 1) { pending.push([left.children[index], right.children[index]]) }
+    for (let index = 0; index < left.children.length; index += 1) {
+      pending.push([left.children[index], right.children[index]])
+    }
   }
   return true
 }
@@ -104,7 +140,9 @@ const samePresentation = (before: Entry, after: Entry): boolean => {
     before.decorations.length !== after.decorations.length ||
     before.comments.length !== after.comments.length ||
     left.segments.length !== right.segments.length
-  ) { return false }
+  ) {
+    return false
+  }
   for (let index = 0; index < left.segments.length; index += 1) {
     const a = left.segments[index]
     const b = right.segments[index]
@@ -113,7 +151,9 @@ const samePresentation = (before: Entry, after: Entry): boolean => {
       a.text.end !== b.text.end ||
       a.syntax.start - left.syntax.range.start !== b.syntax.start - right.syntax.range.start ||
       a.syntax.end - left.syntax.range.start !== b.syntax.end - right.syntax.range.start
-    ) { return false }
+    ) {
+      return false
+    }
   }
   for (let index = 0; index < before.decorations.length; index += 1) {
     const a = before.decorations[index]
@@ -121,10 +161,17 @@ const samePresentation = (before: Entry, after: Entry): boolean => {
     if (
       a.range.start !== b.range.start ||
       a.range.end !== b.range.end ||
+      (a.sourcePosition === undefined
+        ? b.sourcePosition !== undefined
+        : b.sourcePosition === undefined ||
+          a.sourcePosition - left.sourceRange.start !==
+            b.sourcePosition - right.sourceRange.start) ||
       a.mark.kind !== b.mark.kind ||
       (a.mark.kind === 'substitution' &&
         (b.mark.kind !== 'substitution' || a.mark.arm !== b.mark.arm))
-    ) { return false }
+    ) {
+      return false
+    }
   }
   for (let index = 0; index < before.comments.length; index += 1) {
     const a = before.comments[index]
@@ -135,7 +182,9 @@ const samePresentation = (before: Entry, after: Entry): boolean => {
         b.annotationRange.start - right.sourceRange.start ||
       a.annotationRange.end - left.sourceRange.start !==
         b.annotationRange.end - right.sourceRange.start
-    ) { return false }
+    ) {
+      return false
+    }
   }
   return sameSyntax(left.syntax, right.syntax)
 }
@@ -168,6 +217,7 @@ export function createMuyaMarkupPresentationIndex(
     else group.push(comment)
   }
   const entries = new Map<string, Entry>()
+  let pendingStructure = false
   const changedPaths: MuyaMarkupPath[] = []
   for (const binding of view.bindings) {
     const key = pathKey(binding.path)
@@ -180,11 +230,14 @@ export function createMuyaMarkupPresentationIndex(
     const retained = before?.get(key)
     if (
       retained !== undefined &&
+      !retained.pendingEdits?.length &&
       (entry.comments.length === 0 || previousStore?.commentLabel === commentLabel) &&
       samePresentation(retained, entry)
     ) {
       entry.rendered = retained.rendered
-      if (retained.rendered !== undefined && retained.rendered.text !== binding.text) { changedPaths.push(binding.path) }
+      if (retained.rendered !== undefined && retained.rendered.text !== binding.text) {
+        changedPaths.push(binding.path)
+      }
     } else changedPaths.push(binding.path)
     entries.set(key, entry)
   }
@@ -193,6 +246,32 @@ export function createMuyaMarkupPresentationIndex(
   }
   const index: MuyaMarkupPresentationIndex = {
     changedPaths,
+    syntaxContext(point) {
+      const entry = entries.get(pathKey(point.path))
+      // Exact positions alone cannot establish syntax after an unacknowledged
+      // edit: even one delimiter can change the remainder of a paragraph.
+      return pendingStructure || entry === undefined || entry.pendingEdits?.length
+        ? undefined
+        : inputContext(entry.binding, point.offset)
+    },
+    replaceText(operation) {
+      const { anchor, focus } = operation.selection
+      const key = pathKey(anchor.path)
+      if (key !== pathKey(focus.path)) {
+        pendingStructure = true
+        return
+      }
+      if (/[\r\n]/u.test(operation.text)) pendingStructure = true
+      const entry = entries.get(key)
+      if (entry === undefined) return
+      const edit = {
+        start: Math.min(anchor.offset, focus.offset),
+        end: Math.max(anchor.offset, focus.offset),
+        insert: operation.text
+      }
+      ;(entry.pendingEdits ??= []).push(edit)
+      entry.rendered = undefined
+    },
     render(path, text, context) {
       const entry = entries.get(pathKey(path))
       if (entry === undefined) return undefined
@@ -210,14 +289,17 @@ export function createMuyaMarkupPresentationIndex(
             previous.end === highlights[index].end &&
             previous.active === highlights[index].active
         )
-      ) { return cached.html }
+      ) {
+        return cached.html
+      }
       const html = renderer(
         entry.binding,
         entry.decorations,
         text,
         context,
         entry.comments,
-        commentLabel
+        commentLabel,
+        entry.pendingEdits
       )
       entry.rendered = { text, html, highlights: highlights.map((highlight) => ({ ...highlight })) }
       return html

@@ -53,3 +53,34 @@ export {
   type SourceRange
 } from './documentCore.js'
 export { DOCUMENT_RESOURCE_POLICY_V1 } from './resourcePolicy.js'
+
+export { documentInputContext, type DocumentInputSelection, type DocumentInputTarget, type DocumentInputAction, type DocumentBrowserInputAction, type DocumentCommandInputAction, type DocumentInputPlan, type DocumentInputResult, type DocumentInputSyntaxContext } from './inputPlanning.js'
+
+export type { DocumentFormatAction, DocumentFormatPlan } from './formatPlanning.js'
+
+export { copyClipboardAction } from './clipboardPlanning.js'
+export type { DocumentClipboardSelection, DocumentClipboardContent, DocumentClipboardPasteAction, DocumentClipboardAction, DocumentTextClipboardAction, DocumentTableClipboardAction, DocumentClipboardPlan } from './clipboardPlanning.js'
+
+export { documentActiveFormats, type DocumentActiveFormat } from './documentFormatContext.js'
+
+export type { DocumentSourceSyntaxSpan } from './sourceSyntax.js'
+
+export { copyDocumentSelection } from './sourceInputPlanning.js'
+export type { DocumentSelection, DocumentTextSelection, DocumentTableSelection, DocumentTableCellAddress, DocumentTableCellSelection, DocumentSourceInputAction } from './sourceInputPlanning.js'
+
+export type { DocumentAuthorAction, DocumentAuthorForm, DocumentAuthorPlan } from './authorPlanning.js'
+
+export { imageAltText } from './imagePropertyPlanning.js'
+
+export { projectTableSelection, type DocumentTableSelectionProjection } from './tableSelectionProjection.js'
+
+export { resolveTableCell } from './tableSelection.js'
+
+export { projectSourceSelection } from './sourceSelectionProjection.js'
+
+export { rebaseDocumentInputSelection, type DocumentSelectionMutation, type DocumentSelectionRebaseResult } from './selectionRebasing.js'
+
+export { paragraphPrefixPosition, paragraphImageRange } from './paragraphBoundary.js'
+
+export type { DocumentModelTextPoint, DocumentModelTextSelection } from './sourceInputPlanning.js'
+export { projectModelTextSelection } from './modelTextSelectionProjection.js'

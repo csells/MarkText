@@ -57,7 +57,10 @@ const defaultFileStateWithoutId = {
 export const defaultFileState: Omit<IFileState, 'id'> = defaultFileStateWithoutId
 
 export const getOptionsFromState = (
-  file: IFileState
+  file: Pick<
+    IFileState,
+    'encoding' | 'lineEnding' | 'adjustLineEndingOnSave' | 'trimTrailingNewline'
+  >
 ): {
   encoding: IFileState['encoding']
   lineEnding: IFileState['lineEnding']

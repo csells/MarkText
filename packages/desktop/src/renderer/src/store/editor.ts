@@ -21,7 +21,12 @@ import { useProjectStore } from './project'
 import { useLayoutStore } from './layout'
 import { useMainStore } from '.'
 import { t } from '../i18n'
-import { debouncedSendBufferedState, sendBufferedState } from './bufferedState'
+import {
+  debouncedSendBufferedState,
+  withPersistedBufferedState,
+  type BufferedSnapshot,
+  type ResolvedSources
+} from './bufferedState'
 import { coreDocumentSaveAuthority } from '../documentAuthority/coreDocumentSaveAuthority'
 import {
   canonicalCoreLineEnding,
@@ -739,13 +744,17 @@ export const useEditorStore = defineStore('editor', {
           const coreIdentity = coreIdentityByTab.get(tabId)
           // The completed write establishes the disk baseline even when newer
           // input makes its revision too old to clear the current dirty flag.
-          if (coreIdentity !== undefined && typeof savedSource === 'string') { coreSavedSourceByTab.set(tab, savedSource) }
+          if (coreIdentity !== undefined && typeof savedSource === 'string') {
+            coreSavedSourceByTab.set(tab, savedSource)
+          }
           if (
             coreIdentity !== undefined &&
             (saveIdentity === undefined ||
               saveIdentity === null ||
               !saveIdentitiesEqual(saveIdentity, coreIdentity))
-          ) { return }
+          ) {
+            return
+          }
           const lastEditIndex = tab.history.lastEditIndex
           if (
             typeof lastEditIndex === 'number' &&
@@ -788,39 +797,112 @@ export const useEditorStore = defineStore('editor', {
     LISTEN_FOR_CLOSE(): void {
       const projectStore = useProjectStore()
       const preferencesStore = usePreferencesStore()
-      window.electron.ipcRenderer.on('mt::ask-for-close', () => {
-        sendBufferedState()
-          .then(() => {
-            const unsavedFiles = this.tabs
-              .filter((file) => !file.isSaved)
-              .map((file) => {
-                const { id, filename, pathname, markdown } = file
-                const options = getOptionsFromState(file)
-                return {
-                  id,
-                  filename,
-                  pathname,
-                  markdown,
-                  options,
-                  defaultPath: getRootFolderFromState(projectStore)
-                }
-              })
-
-            const close = (authoritativeFiles: typeof unsavedFiles): void => {
-              if (authoritativeFiles.length && preferencesStore.startUpAction !== 'restoreAll') {
-                // Ignore unsaved files when user has chosen to restore all on startup, as they will be restored anyway.
+      const unsavedFilesFrom = (snapshot: BufferedSnapshot | null, sources: ResolvedSources) =>
+        (snapshot?.tabs ?? []).flatMap((file, index) => {
+          if (file.isSaved) return []
+          const { id, filename, pathname, markdown } = file
+          const identity = sources[index]!.identity
+          return [
+            {
+              id,
+              filename,
+              pathname,
+              markdown,
+              options: getOptionsFromState(file),
+              defaultPath: getRootFolderFromState(projectStore),
+              ...(identity === null ? {} : { saveIdentity: identity })
+            }
+          ]
+        })
+      type CloseRequest = {
+        id: number
+        cancelled: boolean
+        resumed?: boolean
+        resume?: () => Promise<void>
+      }
+      let request: CloseRequest | undefined
+      let transition = Promise.resolve()
+      const resume = async(attempt: CloseRequest): Promise<void> => {
+        if (attempt.resumed) return
+        const restore = attempt.resume
+        await restore?.()
+        attempt.resume = undefined
+        attempt.resumed = true
+        window.electron.ipcRenderer.send('mt::window-close-resumed', attempt.id)
+        if (request === attempt) request = undefined
+      }
+      window.electron.ipcRenderer.on('mt::prepare-window-close', (_, requestId) => {
+        if (request !== undefined && !request.cancelled) {
+          window.electron.ipcRenderer.send('mt::window-close-prepared', {
+            requestId,
+            error: 'Window close is already pending'
+          })
+          return
+        }
+        const attempt: CloseRequest = { id: requestId, cancelled: false }
+        request = attempt
+        transition = transition
+          .then(async() => {
+            if (attempt.cancelled) return
+            try {
+              const preparation = coreDocumentSaveAuthority.prepareClose()
+              attempt.resume = () => preparation.resume()
+              await preparation.ready
+              if (attempt.cancelled) {
+                await resume(attempt)
+                return
+              }
+              await withPersistedBufferedState((snapshot, sources) => {
+                if (attempt.cancelled) return
+                const files = unsavedFilesFrom(snapshot, sources)
                 window.electron.ipcRenderer.send(
-                  'mt::close-window-confirm',
-                  deepClone(authoritativeFiles)
+                  'mt::window-close-prepared',
+                  deepClone({
+                    requestId,
+                    files,
+                    requiresConfirmation:
+                      files.length > 0 && preferencesStore.startUpAction !== 'restoreAll'
+                  })
                 )
-              } else {
-                window.electron.ipcRenderer.send('mt::close-window')
+              })
+              if (attempt.cancelled) await resume(attempt)
+            } catch (error) {
+              try {
+                await resume(attempt)
+              } catch (restoreError) {
+                reportSaveBarrierFailure(restoreError)
+              }
+              if (!attempt.cancelled) {
+                window.electron.ipcRenderer.send('mt::window-close-prepared', {
+                  requestId,
+                  error: error instanceof Error ? error.message : String(error)
+                })
               }
             }
-
-            return withAuthoritativeFileSources(unsavedFiles, close)
           })
           .catch(reportSaveBarrierFailure)
+      })
+      window.electron.ipcRenderer.on('mt::cancel-window-close', (_, requestId) => {
+        const attempt = request
+        if (attempt === undefined || attempt.id !== requestId) return
+        attempt.cancelled = true
+        transition = transition.then(() => resume(attempt)).catch(reportSaveBarrierFailure)
+      })
+      window.electron.ipcRenderer.on('mt::ask-for-close', () => {
+        try {
+          coreDocumentSaveAuthority.assertCloseAllowed()
+        } catch (error) {
+          reportSaveBarrierFailure(error)
+          return
+        }
+        withPersistedBufferedState((snapshot, sources) => {
+          const unsavedFiles = unsavedFilesFrom(snapshot, sources)
+          if (unsavedFiles.length && preferencesStore.startUpAction !== 'restoreAll') {
+            window.electron.ipcRenderer.send('mt::close-window-confirm', deepClone(unsavedFiles))
+          } else {
+            window.electron.ipcRenderer.send('mt::close-window')
+          }
+        }).catch(reportSaveBarrierFailure)
       })
     },
 
@@ -1343,7 +1425,9 @@ export const useEditorStore = defineStore('editor', {
             coreIdentity !== undefined &&
             (entry.saveIdentity === undefined ||
               !saveIdentitiesEqual(entry.saveIdentity, coreIdentity))
-          ) { return }
+          ) {
+            return
+          }
         }
         const index = this.tabs.findIndex((f) => f.id === id)
         if (index === -1) return
@@ -1509,6 +1593,9 @@ export const useEditorStore = defineStore('editor', {
       markdown?: string
       selected?: boolean
     }): void {
+      // A blank-tab command has no payload to preserve. Populated open requests
+      // remain owned/routed by main while this window is preparing to close.
+      if (!markdownString && coreDocumentSaveAuthority.isClosing()) return
       if (selected == null) {
         selected = true
       }
@@ -1818,7 +1905,9 @@ export const useEditorStore = defineStore('editor', {
         current === undefined ||
         !saveIdentitiesEqual(current, identity) ||
         !coreSavedSourceByTab.has(tab)
-      ) { return }
+      ) {
+        return
+      }
       tab.isSaved = coreSavedSourceByTab.get(tab) === source
       debouncedSendBufferedState()
     },
@@ -1836,7 +1925,9 @@ export const useEditorStore = defineStore('editor', {
       wordCount: IFileState['wordCount']
     ): void {
       const registeredIdentity = coreIdentityByTab.get(id)
-      if (registeredIdentity === undefined || !saveIdentitiesEqual(registeredIdentity, identity)) { return }
+      if (registeredIdentity === undefined || !saveIdentitiesEqual(registeredIdentity, identity)) {
+        return
+      }
       const tab =
         this.tabs.find((candidate) => candidate.id === id) ??
         (this.currentFile?.id === id ? this.currentFile : undefined)
@@ -1849,7 +1940,9 @@ export const useEditorStore = defineStore('editor', {
       searchMatches: IFileState['searchMatches']
     ): void {
       const registeredIdentity = coreIdentityByTab.get(id)
-      if (registeredIdentity === undefined || !saveIdentitiesEqual(registeredIdentity, identity)) { return }
+      if (registeredIdentity === undefined || !saveIdentitiesEqual(registeredIdentity, identity)) {
+        return
+      }
       const tab =
         this.tabs.find((candidate) => candidate.id === id) ??
         (this.currentFile?.id === id ? this.currentFile : undefined)
@@ -1862,7 +1955,9 @@ export const useEditorStore = defineStore('editor', {
         registeredIdentity === undefined ||
         !saveIdentitiesEqual(registeredIdentity, identity) ||
         this.currentFile?.id !== id
-      ) { return }
+      ) {
+        return
+      }
       this.UPDATE_TOC(toc)
     },
 
