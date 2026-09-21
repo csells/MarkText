@@ -18,6 +18,7 @@ import type { CoreAppliedReply } from '@/documentAuthority/coreProtocol'
 import { createMuyaMarkupPresentationIndex } from '@/documentAuthority/muyaMarkupPresentationIndex'
 import {
   muyaActiveFormats,
+  muyaCodeLanguage,
   muyaInputToModel,
   muyaFormatToModel
 } from '@/documentAuthority/muyaModelSelection'
@@ -74,14 +75,18 @@ describe('actual native composition on the shared model', () => {
       const binding = createEditorCoreBinding(createLocalCoreOwner())
       binding.open({ documentId: 'composition.md', source })
       const initial = binding.plainTextViewAtBarrier()
-      if (initial.type !== 'plain-text-view' || !('state' in initial.view)) { throw new Error('Missing native Core view') }
+      if (initial.type !== 'plain-text-view' || !('state' in initial.view)) {
+        throw new Error('Missing native Core view')
+      }
       let current = initial.view
       let presentation = createMuyaMarkupPresentationIndex(current)
       const host = document.body.appendChild(document.createElement('div'))
       const muya = new Muya(host)
       const reconcile = (outcome: CoreAppliedReply) => {
         const next = binding.plainTextViewAtBarrier()
-        if (next.type !== 'plain-text-view' || !('state' in next.view)) { throw new Error('Missing native Core view') }
+        if (next.type !== 'plain-text-view' || !('state' in next.view)) {
+          throw new Error('Missing native Core view')
+        }
         current = next.view
         presentation = createMuyaMarkupPresentationIndex(current, presentation)
         muya.setInlinePresentation(presentation.render)
@@ -112,6 +117,8 @@ describe('actual native composition on the shared model', () => {
           prepareClipboard() {
             throw new Error('Unexpected async clipboard preparation in this test')
           },
+          emojiContext: () => undefined,
+          codeLanguage: (point) => muyaCodeLanguage(muya, current, point),
           activeFormats: (selection) => muyaActiveFormats(muya, current, selection),
           clipboard() {
             throw new Error('Unexpected clipboard in composition test')
@@ -278,7 +285,9 @@ describe('active native composition teardown', () => {
       manager.open({ documentId, source, lineEnding: '\n' })
       const lease = manager.lease(documentId)
       const projection = lease.projectAcknowledgedPlainTextView(lease.identity.revision)
-      if (projection.type !== 'plain-text-view' || !('state' in projection.view)) { throw new Error('Missing native model view') }
+      if (projection.type !== 'plain-text-view' || !('state' in projection.view)) {
+        throw new Error('Missing native model view')
+      }
       const view = projection.view
       const host = document.body.appendChild(document.createElement('div'))
       const muya = new Muya(host)
@@ -301,6 +310,8 @@ describe('active native composition teardown', () => {
           prepareClipboard() {
             throw new Error('Unexpected async clipboard preparation in this test')
           },
+          emojiContext: () => undefined,
+          codeLanguage: (point) => muyaCodeLanguage(muya, view, point),
           activeFormats: (selection) => muyaActiveFormats(muya, view, selection),
           clipboard() {
             throw new Error('Unexpected clipboard in composition test')

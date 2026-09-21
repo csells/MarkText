@@ -6,13 +6,14 @@ import { resolveTableCell, resolveTableSelection, resolveTableSelectionInSyntax,
 import { materializeTableCellEdit } from './tableCellEditing.js'
 import { planTableClipboard } from './tableClipboardPlanning.js'
 import { positionAfter } from './sourcePosition.js'
-import { prepareClipboardMarkdown } from './clipboardMarkdown.js'
+import { prepareBlockClipboardMarkdown, prepareClipboardMarkdown } from './clipboardMarkdown.js'
 import { createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { createTrackedSourceEdit, prepareTrackedBlockEdit } from './trackedAuthoring.js'
+import type { MarkdownLineIndex } from './revision.js'
 
 export type DocumentClipboardSelection = SourceRange | DocumentSelection
 
-export type DocumentClipboardContent = Readonly<{ markdown: string, plainText?: string, bareUrl?: string, pasteAsPlainText?: boolean, currentSelection?: DocumentSelection }>
+export type DocumentClipboardContent = Readonly<{ markdown: string, plainText?: string, bareUrl?: string, pasteAsPlainText?: boolean, blockPlacement?: 'before' | 'after', initialSelection?: DocumentSelection, currentSelection?: DocumentSelection }>
 
 export type DocumentTextClipboardAction = Readonly<{
   selection: DocumentInputSelection
@@ -33,11 +34,12 @@ export function copyClipboardAction(action: DocumentClipboardAction): DocumentCl
   if (action.kind === 'table') {
     const selection = copyDocumentSelection(action.selection, Number.MAX_SAFE_INTEGER)
     if (selection.kind !== 'table') throw new RangeError('Table clipboard requires a table selection')
-    return Object.freeze({ ...action, selection, ...('currentSelection' in action && action.currentSelection !== undefined ? { currentSelection: copyClipboardSelection(action.currentSelection) } : {}) })
+    return Object.freeze({ ...action, selection, ...('initialSelection' in action && action.initialSelection !== undefined ? { initialSelection: copyClipboardSelection(action.initialSelection) } : {}), ...('currentSelection' in action && action.currentSelection !== undefined ? { currentSelection: copyClipboardSelection(action.currentSelection) } : {}) })
   }
   return Object.freeze({
     ...action,
     selection: copyClipboardSelection(action.selection),
+    ...(action.kind === 'paste' && action.initialSelection !== undefined ? { initialSelection: copyClipboardSelection(action.initialSelection) } : {}),
     ...(action.kind === 'paste' && action.currentSelection !== undefined ? { currentSelection: copyClipboardSelection(action.currentSelection) } : {})
   })
 }
@@ -67,6 +69,12 @@ export interface DocumentClipboardPlan {
   readonly selection: DocumentSelection
 }
 
+/** Optional proofs from the current canonical region, using apply's parser. */
+interface RegionalClipboardPlanning {
+  syntax(range: SourceRange): MarkupSyntax | undefined
+  compile(edits: readonly DocumentSourceEdit[]): readonly DocumentSourceEdit[] | undefined
+}
+
 /** The clipboard importer supplies Markdown; the current document owns its insertion. */
 export function planClipboard(
   core: DocumentCore,
@@ -75,7 +83,9 @@ export function planClipboard(
   preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision,
   importSyntax: (source: string) => MarkupSyntax,
   previewSyntax: (edits: readonly DocumentSourceEdit[]) => MarkupSyntax,
-  compileStructuralDeletion: (edits: readonly DocumentSourceEdit[]) => readonly DocumentSourceEdit[] | undefined
+  compileStructuralDeletion: (edits: readonly DocumentSourceEdit[]) => readonly DocumentSourceEdit[] | undefined,
+  physicalLines: () => MarkdownLineIndex,
+  regional?: RegionalClipboardPlanning
 ): DocumentClipboardPlan {
   if (action.kind === 'table') {
     if (action.operation !== 'paste') return planTableClipboard(core, previous, action, preview, previewSyntax, compileStructuralDeletion)
@@ -91,17 +101,21 @@ export function planClipboard(
       ...(action.bareUrl === undefined ? {} : { bareUrl: action.bareUrl }),
       ...(action.currentSelection === undefined || sameClipboardSelection(action.currentSelection, action.selection) ? {} : { currentSelection: action.currentSelection }),
       selection: { kind: 'table-cell', cell: { table: selected.selection.table, row: cell.row, column: cell.column }, anchor: 0, focus: cell.end - cell.start }
-    }, preview, importSyntax, previewSyntax, compileStructuralDeletion)
+    }, preview, importSyntax, previewSyntax, compileStructuralDeletion, physicalLines, regional)
   }
-  if (action.selection.kind === 'model-text') return retainClipboardSelection(core, previous, action, planModelTextClipboard(core, previous, action, preview), previewSyntax)
+  const blockPlacement = action.kind === 'paste' ? action.blockPlacement : undefined
+  if (action.selection.kind === 'model-text' && blockPlacement === undefined) return retainClipboardSelection(core, previous, action, planModelTextClipboard(core, previous, action, preview), previewSyntax)
   const { start, end } = inputSourceRange(core, previous, action.selection)
-  const selectedCell = 'ranges' in action.selection ? undefined : resolveTableCell(core, previous, action.selection.cell)
+  const selectedCell = 'ranges' in action.selection || action.selection.kind === 'model-text' || blockPlacement !== undefined ? undefined : resolveTableCell(core, previous, action.selection.cell)
   if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || end > previous.sourceLength) {
     throw new RangeError('Clipboard selection is outside the current document')
   }
   let insert = action.kind === 'paste' ? action.markdown : ''
+  let ownedSyntax: MarkupSyntax | undefined
   if (action.kind === 'paste') {
-    const syntax = core.project(previous, 'markup').syntax
+    const syntax = ownedSyntax = (selectedCell === undefined && blockPlacement === undefined
+      ? regional?.syntax({ start, end })
+      : undefined) ?? core.project(previous, 'markup').syntax
     const point = syntax.coordinates.toProjected(start, 'next')
     let literal = false
     const visit = (node: typeof syntax.ast.root): void => {
@@ -127,8 +141,10 @@ export function planClipboard(
     }
   }
   if (typeof insert !== 'string') throw new TypeError('Clipboard Markdown must be text')
-  if (start === end && insert === '') return { edits: [], selection: copyClipboardSelection(action.selection) }
-  const prepared = prepareClipboardMarkdown(core, previous, { start, end, insert }, action.selection, importSyntax, action.kind === 'paste' && action.pasteAsPlainText === true)
+  if (start === end && insert === '') return { edits: [], selection: copyClipboardSelection(action.kind === 'paste' && action.currentSelection !== undefined ? action.currentSelection : action.selection) }
+  const prepared = blockPlacement === undefined
+    ? prepareClipboardMarkdown(core, previous, { start, end, insert }, action.selection, importSyntax, action.kind === 'paste' && action.pasteAsPlainText === true, ownedSyntax)
+    : prepareBlockClipboardMarkdown(core, previous, { start, end, insert }, blockPlacement, physicalLines())
   const input = prepared.edit
   const inputs = [input, ...(prepared.after ?? [])]
   const trackedInputs = action.tracked
@@ -139,7 +155,7 @@ export function planClipboard(
     : undefined
   const tracked = trackedInputs?.[0]
   let edits = trackedInputs === undefined
-    ? createMarkupCompoundSourceEdits(core, previous, inputs, preview, true)
+    ? (action.kind === 'paste' ? regional?.compile(inputs) : undefined) ?? createMarkupCompoundSourceEdits(core, previous, inputs, preview, true)
     : trackedInputs.every(edit => edit !== undefined) ? trackedInputs : undefined
   if (edits === undefined) throw new RangeError('Clipboard action has no safe source edit')
   let materializedPrefix = 0
@@ -149,10 +165,11 @@ export function planClipboard(
     edits = [materialized.edit]
     materializedPrefix = materialized.prefixLength
   }
-  let caret = start
+  const insertionStart = input.start
+  let caret = insertionStart
   let shift = 0
   for (const edit of edits) {
-    if (edit.start <= start && start <= edit.end && (edit.insert.length > 0 || insert === '')) {
+    if (edit.start <= insertionStart && insertionStart <= edit.end && (edit.insert.length > 0 || insert === '')) {
       caret = edit.start + shift + (edit.insert.length > 0 && !action.tracked ? prepared.caret + materializedPrefix : edit.insert.length)
       break
     }
@@ -166,7 +183,7 @@ export function planClipboard(
       if (annotation === undefined) break
       if (annotation.range.start === tracked.start + materializedPrefix && annotation.range.end === tracked.start + materializedPrefix + tracked.insert.length) {
         const arm = annotation.arms.find(item => item.name === (annotation.kind === 'substitution' ? 'new' : 'content'))
-        if (arm !== undefined) caret = arm.range.end
+        if (arm !== undefined) caret = blockPlacement === undefined ? arm.range.end : arm.range.start + input.start - tracked.start + prepared.caret
       }
       for (const arm of annotation.arms) pending.push(...arm.annotations)
     }
@@ -176,7 +193,7 @@ export function planClipboard(
     resultSyntax ??= previewSyntax(edits)
     return tableCellSelectionAfter(resultSyntax, previous.sourceLength + edits.reduce((sum, edit) => sum + edit.insert.length - (edit.end - edit.start), 0), edits, original, sourceAnchor, sourceFocus)
   }
-  const selection: DocumentSelection = 'ranges' in action.selection ? { ranges: [{ anchor: caret, focus: caret }], primary: 0 } : resultCellSelection(action.selection, caret)
+  const selection: DocumentSelection = 'ranges' in action.selection || action.selection.kind === 'model-text' || blockPlacement !== undefined ? { ranges: [{ anchor: caret, focus: caret }], primary: 0 } : resultCellSelection(action.selection, caret)
   return retainClipboardSelection(core, previous, action, { edits, selection }, previewSyntax)
 }
 
@@ -186,7 +203,8 @@ function retainClipboardSelection(core: DocumentCore, previous: DocumentRevision
   let { selection } = plan
   let resultSyntax: MarkupSyntax | undefined
   const sourceLength = previous.sourceLength + edits.reduce((sum, edit) => sum + edit.insert.length - (edit.end - edit.start), 0)
-  if (action.kind === 'paste' && action.currentSelection !== undefined && !sameClipboardSelection(action.currentSelection, action.selection)) {
+  const focusInsertedBlock = action.kind === 'paste' && action.blockPlacement !== undefined && action.initialSelection !== undefined && action.currentSelection !== undefined && sameClipboardSelection(action.initialSelection, action.currentSelection)
+  if (action.kind === 'paste' && action.currentSelection !== undefined && !focusInsertedBlock && !sameClipboardSelection(action.currentSelection, action.selection)) {
     const current = action.currentSelection
     if ('kind' in current && current.kind === 'table') {
       resultSyntax ??= previewSyntax(edits)

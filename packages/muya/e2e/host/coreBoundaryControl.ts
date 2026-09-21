@@ -1,9 +1,9 @@
 import type { Muya, TState } from '@muyajs/core';
 import type { CoreAppliedReply } from '../../../desktop/src/renderer/src/documentAuthority/coreProtocol';
-import { createEditorCoreBinding } from '../../../desktop/src/renderer/src/documentAuthority/editorCoreBinding';
+import { createEditorCoreBinding, type EditorCoreOpenInput } from '../../../desktop/src/renderer/src/documentAuthority/editorCoreBinding';
 import { createLocalCoreOwner } from '../../../desktop/src/renderer/src/documentAuthority/localCoreOwner';
 import { createMuyaMarkupPresentationIndex } from '../../../desktop/src/renderer/src/documentAuthority/muyaMarkupPresentationIndex';
-import { createMuyaModelSelection, muyaActiveFormats, muyaClipboardSelection, muyaClipboardInputSelection, muyaClipboardCurrentSelection, muyaClipboardToModel, muyaFormatToModel, muyaInputToModel } from '../../../desktop/src/renderer/src/documentAuthority/muyaModelSelection';
+import { createMuyaModelSelection, muyaActiveFormats, muyaCodeLanguage, muyaEmojiContext, muyaClipboardSelection, muyaClipboardInputSelection, muyaClipboardCurrentSelection, muyaClipboardToModel, muyaFormatToModel, muyaInputToModel } from '../../../desktop/src/renderer/src/documentAuthority/muyaModelSelection';
 import { presentPendingClipboardImage } from '../../../desktop/src/renderer/src/documentAuthority/muyaPendingClipboardImage';
 import { createMuyaPlainTextCoreAdapter } from '../../../desktop/src/renderer/src/documentAuthority/muyaPlainTextCoreAdapter';
 import { reconcileMuyaDocumentView } from '../../../desktop/src/renderer/src/documentAuthority/reconcileMuyaDocumentView';
@@ -11,10 +11,10 @@ import { reconcileMuyaDocumentView } from '../../../desktop/src/renderer/src/doc
 import { installProjectedSelectionClipboardGuard } from '../../../desktop/src/renderer/src/documentConsumers/projectedClipboardGuard';
 import { createProjectedSelectionClipboardAuthority } from '../../../desktop/src/renderer/src/documentConsumers/projectedSelectionClipboardAuthority';
 
-export function bootCoreBoundary(muya: Muya, source: string, tracked = false, existingBinding?: ReturnType<typeof createEditorCoreBinding>) {
+export function bootCoreBoundary(muya: Muya, source: string, tracked = false, existingBinding?: ReturnType<typeof createEditorCoreBinding>, options?: EditorCoreOpenInput['options']) {
     const binding = existingBinding ?? createEditorCoreBinding(createLocalCoreOwner());
     if (existingBinding === undefined)
-        binding.open({ documentId: 'browser-boundary.md', source });
+        binding.open({ documentId: 'browser-boundary.md', source, options });
     const initial = binding.plainTextViewAtBarrier();
     if (initial.type !== 'plain-text-view' || !('state' in initial.view))
         throw new Error('Missing initial view');
@@ -43,7 +43,6 @@ export function bootCoreBoundary(muya: Muya, source: string, tracked = false, ex
         if (change !== null && typeof change === 'object' && (change as { source?: unknown }).source === 'api')
             return;
         legacyCalls.push(change);
-        adapter.accept(change);
     };
     muya.on('json-change', legacyChange);
     const actions: Array<{ selection: unknown; range: unknown; accepted: boolean; result: ReturnType<typeof snapshot> }> = [];
@@ -88,11 +87,11 @@ export function bootCoreBoundary(muya: Muya, source: string, tracked = false, ex
                 throw error;
             }
         },
-        async prepareClipboard(selection, payload, prepare) {
+        async prepareClipboard(selection, payload, prepare, blockPlacement) {
             const action = muyaClipboardToModel(muya, view, 'kind' in selection ? { kind: 'table', operation: 'paste', selection, markdown: '' } : { kind: 'paste', selection, markdown: '' }, tracked);
             if (action.kind !== 'paste' && !(action.kind === 'table' && action.operation === 'paste'))
                 throw new Error('Clipboard preparation requires a paste');
-            const preparation = adapter.prepareClipboard(action, payload, reconcile);
+            const preparation = adapter.prepareClipboard({ ...action, ...(blockPlacement === undefined ? {} : { blockPlacement, currentSelection: muyaClipboardCurrentSelection(muya, view) }) }, payload, reconcile);
             const presentImage = presentPendingClipboardImage(muya, preparation, () => view, payload);
             try {
                 const imported = await prepare((payload) => {
@@ -101,7 +100,7 @@ export function bootCoreBoundary(muya: Muya, source: string, tracked = false, ex
                 });
                 const currentSelection = () => {
                     const selection = muyaClipboardCurrentSelection(muya, view);
-                    if (selection === undefined)
+                    if (selection === undefined && blockPlacement === undefined)
                         throw new Error('Prepared clipboard has no current selection');
                     return selection;
                 };
@@ -113,6 +112,8 @@ export function bootCoreBoundary(muya: Muya, source: string, tracked = false, ex
             }
         },
         activeFormats: selection => muyaActiveFormats(muya, view, selection),
+        emojiContext: point => muyaEmojiContext(muya, view, point),
+        codeLanguage: point => muyaCodeLanguage(muya, view, point),
         clipboard(operation, present) {
             const result = adapter.clipboard(muyaClipboardToModel(muya, view, operation, tracked), reconcile);
             if (!result.accepted)
@@ -191,7 +192,7 @@ export function bootCoreBoundary(muya: Muya, source: string, tracked = false, ex
                 throw new Error('Missing acknowledged source');
             const reopened = createEditorCoreBinding(createLocalCoreOwner());
             try {
-                reopened.open({ documentId: 'reopened-browser-boundary.md', source: saved.source });
+                reopened.open({ documentId: 'reopened-browser-boundary.md', source: saved.source, options });
                 const result = reopened.sourceAtBarrier();
                 if (result.type !== 'source')
                     throw new Error('Reopened source is unavailable');

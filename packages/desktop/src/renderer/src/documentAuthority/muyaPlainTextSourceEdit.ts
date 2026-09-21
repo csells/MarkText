@@ -59,7 +59,9 @@ export function nativeMuyaTextEdit(changeValue: unknown): DocumentSourceEdit | u
   if (
     path.at(-1) !== 'text' ||
     !path.every((part) => typeof part === 'string' || typeof part === 'number')
-  ) { return undefined }
+  ) {
+    return undefined
+  }
   const previous = textAtPath(change.prevDoc, path)
   const next = textAtPath(change.doc, path)
   const operation = textEditAtPath(change.op, path)
@@ -68,7 +70,9 @@ export function nativeMuyaTextEdit(changeValue: unknown): DocumentSourceEdit | u
     next === undefined ||
     operation === undefined ||
     applyNativeTextEdit(previous, operation) !== next
-  ) { return undefined }
+  ) {
+    return undefined
+  }
   return changedTextEdit(0, previous, next)
 }
 
@@ -78,7 +82,13 @@ export function composeMuyaNativeTextChange(
   nextValue: unknown
 ): unknown | undefined {
   const next = jsonChangeOf(nextValue)
-  if (nativeMuyaTextEdit(nextValue) === undefined || next === undefined || !Array.isArray(next.op)) { return undefined }
+  if (
+    nativeMuyaTextEdit(nextValue) === undefined ||
+    next === undefined ||
+    !Array.isArray(next.op)
+  ) {
+    return undefined
+  }
   if (previousValue === undefined) return structuredClone(nextValue)
   const previous = jsonChangeOf(previousValue)
   if (previous === undefined || !Array.isArray(previous.op)) return undefined
@@ -86,7 +96,9 @@ export function composeMuyaNativeTextChange(
   if (
     JSON.stringify(path) !== JSON.stringify(previous.op.slice(0, -1)) ||
     textAtPath(previous.doc, path) !== textAtPath(next.prevDoc, path)
-  ) { return undefined }
+  ) {
+    return undefined
+  }
   const before = textAtPath(previous.prevDoc, path)
   const after = textAtPath(next.doc, path)
   if (before === undefined || after === undefined) return undefined
@@ -337,7 +349,9 @@ export function sourceEditForMuyaTwoParagraphPaste(
     !Array.isArray(change.doc) ||
     change.prevDoc.length !== bindings.length ||
     change.doc.length !== change.prevDoc.length + change.op.length - 1
-  ) { return undefined }
+  ) {
+    return undefined
+  }
 
   const firstComponent = change.op[0]
   if (!Array.isArray(firstComponent) || firstComponent.length !== 3) {
@@ -349,7 +363,9 @@ export function sourceEditForMuyaTwoParagraphPaste(
   }
   const index = blockIndex as number
   const binding = bindings[index]
-  if (binding === undefined || binding.path[0] !== index || binding.path[1] !== 'text') { return undefined }
+  if (binding === undefined || binding.path[0] !== index || binding.path[1] !== 'text') {
+    return undefined
+  }
 
   for (let previousIndex = 0; previousIndex < bindings.length; previousIndex += 1) {
     const previousBinding = bindings[previousIndex]
@@ -358,14 +374,18 @@ export function sourceEditForMuyaTwoParagraphPaste(
       previousBinding.path[0] !== previousIndex ||
       previousBinding.path[1] !== 'text' ||
       paragraphTextAt(change.prevDoc, previousIndex) !== previousBinding.text
-    ) { return undefined }
+    ) {
+      return undefined
+    }
     if (
       previousIndex !== index &&
       paragraphTextAt(
         change.doc,
         previousIndex < index ? previousIndex : previousIndex + change.op.length - 1
       ) !== previousBinding.text
-    ) { return undefined }
+    ) {
+      return undefined
+    }
   }
 
   const nativeTextEdit = textEditAt(firstComponent, index)
@@ -392,7 +412,9 @@ export function sourceEditForMuyaTwoParagraphPaste(
         Object.keys(deletion).length !== 1 ||
         (deletion as { readonly d?: unknown }).d !== suffix) ||
     paragraphTextAt(change.doc, index) !== `${binding.text.slice(0, prefixUnits)}${firstInsert}`
-  ) { return undefined }
+  ) {
+    return undefined
+  }
 
   const insertedText = [firstInsert]
   for (let offset = 1; offset < change.op.length; offset += 1) {
@@ -403,7 +425,9 @@ export function sourceEditForMuyaTwoParagraphPaste(
       insertionComponent[0] !== index + offset ||
       insertionComponent[1] === null ||
       typeof insertionComponent[1] !== 'object'
-    ) { return undefined }
+    ) {
+      return undefined
+    }
     const insertionDescriptor = insertionComponent[1] as {
       readonly i?: unknown
     }
@@ -411,7 +435,9 @@ export function sourceEditForMuyaTwoParagraphPaste(
       Object.keys(insertionDescriptor).length !== 1 ||
       insertionDescriptor.i === null ||
       typeof insertionDescriptor.i !== 'object'
-    ) { return undefined }
+    ) {
+      return undefined
+    }
     const insertedBlock = insertionDescriptor.i as {
       readonly name?: unknown
       readonly text?: unknown
@@ -420,7 +446,9 @@ export function sourceEditForMuyaTwoParagraphPaste(
       insertedBlock.name !== 'paragraph' ||
       typeof insertedBlock.text !== 'string' ||
       paragraphTextAt(change.doc, index + offset) !== insertedBlock.text
-    ) { return undefined }
+    ) {
+      return undefined
+    }
     const isLast = offset === change.op.length - 1
     let contribution: string | undefined = insertedBlock.text
     if (isLast && suffix.length > 0) {
@@ -495,7 +523,9 @@ const textEditAtPath = (
     !Array.isArray(operation) ||
     operation.length !== path.length + 1 ||
     !path.every((key, index) => operation[index] === key)
-  ) { return undefined }
+  ) {
+    return undefined
+  }
   const component: unknown = operation.at(-1)
   if (component === null || typeof component !== 'object') return undefined
   const fields = Object.keys(component)
@@ -510,7 +540,9 @@ const textEditAt = (operation: unknown, blockIndex: number): readonly unknown[] 
     operation.length !== 3 ||
     operation[0] !== blockIndex ||
     operation[1] !== 'text'
-  ) { return undefined }
+  ) {
+    return undefined
+  }
   const component: unknown = operation[2]
   if (component === null || typeof component !== 'object') return undefined
   const fields = Object.keys(component)
@@ -559,7 +591,9 @@ const applyNativeTextEdit = (
       typeof deletion !== 'string' ||
       deletion.length === 0 ||
       !remaining.startsWith(deletion)
-    ) { return undefined }
+    ) {
+      return undefined
+    }
     remaining = remaining.slice(deletion.length)
   }
   output.push(remaining)
@@ -573,14 +607,18 @@ const changedTextEdit = (
 ): DocumentSourceEdit | undefined => {
   let prefix = 0
   const sharedLimit = Math.min(previous.length, next.length)
-  while (prefix < sharedLimit && previous.charCodeAt(prefix) === next.charCodeAt(prefix)) { prefix += 1 }
+  while (prefix < sharedLimit && previous.charCodeAt(prefix) === next.charCodeAt(prefix)) {
+    prefix += 1
+  }
 
   let suffix = 0
   while (
     suffix < previous.length - prefix &&
     suffix < next.length - prefix &&
     previous.charCodeAt(previous.length - suffix - 1) === next.charCodeAt(next.length - suffix - 1)
-  ) { suffix += 1 }
+  ) {
+    suffix += 1
+  }
 
   if (prefix === previous.length && prefix === next.length) return undefined
   return Object.freeze({
@@ -611,13 +649,16 @@ function validateMuyaSourceBinding(
     typeof blockIndex !== 'number' ||
     !Number.isSafeInteger(blockIndex) ||
     blockIndex < 0 ||
-    field !== 'text' ||
+    (field !== 'text' &&
+      !(modelPresentation && field === 'lang' && binding.path.at(-2) === 'meta')) ||
     !Number.isSafeInteger(start) ||
     !Number.isSafeInteger(end) ||
     start < 0 ||
     end < start ||
     (binding.segments === undefined && end - start !== binding.text.length)
-  ) { throw new RangeError('Muya plain-text source binding is invalid') }
+  ) {
+    throw new RangeError('Muya plain-text source binding is invalid')
+  }
   const segments = binding.segments
   if (segments !== undefined) {
     let textEnd = 0

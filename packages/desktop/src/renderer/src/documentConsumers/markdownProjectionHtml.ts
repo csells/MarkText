@@ -56,6 +56,18 @@ const titleAttributeOf = (node: MarkdownAstNode): string => {
   return typeof title === 'string' ? ` title="${escapeHtml(title)}"` : ''
 }
 
+const imageLayoutAttributesOf = (node: MarkdownAstNode): string =>
+  [
+    ['width', 'semanticWidth'],
+    ['height', 'semanticHeight'],
+    ['data-align', 'semanticAlign']
+  ]
+    .map(([name, attribute]) => {
+      const value = node.attributes[attribute]
+      return typeof value === 'string' ? ` ${name}="${escapeHtml(value)}"` : ''
+    })
+    .join('')
+
 const filteredHtmlContentOf = (node: MarkdownAstNode): string => {
   const content = stringAttribute(node, 'content')
   if (node.attributes['gfmTagFilter'] !== true) return content
@@ -197,7 +209,7 @@ export function renderMarkdownProjectionToSafeHtml(
       case 'image':
         return (
           `<img src="${escapeHtml(stringAttribute(node, 'semanticDestination'))}" ` +
-          `alt="${escapeHtml(semanticPlainTextOf(node))}"${titleAttributeOf(node)} />`
+          `alt="${escapeHtml(semanticPlainTextOf(node))}"${titleAttributeOf(node)}${imageLayoutAttributesOf(node)} />`
         )
       case 'autolink':
         return (

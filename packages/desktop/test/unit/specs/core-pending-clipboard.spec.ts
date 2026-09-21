@@ -478,7 +478,8 @@ it('does not resolve settlement after composition while a captured resource is s
     })
     await Promise.resolve()
     expect(settled).toBe(false)
-    expect(app.adapter.hasPendingEdits()).toBe(true)
+    expect(app.adapter.isSettled()).toBe(false)
+    expect(app.adapter.hasPendingEdits()).toBe(false)
     expect(await preparation.complete('P')).toMatchObject({ accepted: true })
     await barrier
     expect(settled).toBe(true)

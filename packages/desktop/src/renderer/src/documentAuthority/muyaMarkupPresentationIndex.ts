@@ -6,7 +6,7 @@ import type {
   DocumentTextReplacement,
   IInlinePresentationContext
 } from '@muyajs/core'
-import { isMuyaImageSyntax, renderMuyaMarkupBinding } from './muyaMarkupPresentation'
+import { escapeHtml, isMuyaImageSyntax, renderMuyaMarkupBinding } from './muyaMarkupPresentation'
 import type {
   MuyaMarkupBinding,
   MuyaMarkupComment,
@@ -20,13 +20,9 @@ export interface MuyaMarkupPresentationIndex {
   syntaxContext(point: DocumentTextPoint): DocumentInputSyntaxContext | undefined
   /** Advances pending view locations using the common model's exact operation. */
   replaceText(operation: DocumentTextReplacement): void
-  /** Includes removed paths, whose provider result becomes undefined. */
+  /** Includes removed paths, which remain literal until their view is removed. */
   readonly changedPaths: readonly MuyaMarkupPath[]
-  render(
-    path: MuyaMarkupPath,
-    text: string,
-    context?: IInlinePresentationContext
-  ): string | undefined
+  render(path: MuyaMarkupPath, text: string, context?: IInlinePresentationContext): string
 }
 
 type Renderer = typeof renderMuyaMarkupBinding
@@ -274,7 +270,10 @@ export function createMuyaMarkupPresentationIndex(
     },
     render(path, text, context) {
       const entry = entries.get(pathKey(path))
-      if (entry === undefined) return undefined
+      // Mount and reconciliation can briefly expose a native placeholder
+      // before its model path exists. Keep it literal: returning undefined
+      // would delegate to Muya's independent inline parser.
+      if (entry === undefined) return escapeHtml(text)
       // Native images have mutable loading/cache/selection state. Consult the
       // widget renderer on every requested patch while other leaves stay cached.
       const highlights = context?.highlights ?? []

@@ -162,6 +162,13 @@ describe('Muya Core Markup presentation', () => {
     ).toEqual(['😄'])
   })
 
+  it('renders one parser-owned emoji across an additive arm while preserving its editable text', () => {
+    const host = rendered(':s{++mi++}le:')
+    expect(host.textContent).toBe(':smile:')
+    expect(host.querySelectorAll('[data-emoji]')).toHaveLength(1)
+    expect(host.querySelector('[data-emoji] [data-critic-kind=addition]')?.textContent).toBe('mi')
+  })
+
   it('presents angle and extended autolinks with their Core destinations', () => {
     const source = '<https://example.com> <person@example.com> https://example.org'
     const host = rendered(source)

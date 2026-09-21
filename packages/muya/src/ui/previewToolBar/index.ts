@@ -4,6 +4,7 @@ import type MathBlock from '../../block/extra/math';
 import type { Muya } from '../../index';
 import { ScrollPage } from '../../block/scrollPage';
 import { BLOCK_DOM_PROPERTY } from '../../config';
+import { dispatchDocumentBlock } from '../../editor/documentEditing';
 import { isMouseEvent, throttle } from '../../utils';
 import { h, patch } from '../../utils/snabbdom';
 import BaseFloat from '../baseFloat';
@@ -97,6 +98,7 @@ export class PreviewToolBar extends BaseFloat {
                         title: `${i.tooltip}`,
                     },
                     on: {
+                        mousedown: (event: Event) => event.preventDefault(),
                         click: (event) => {
                             this.selectItem(event, i);
                         },
@@ -119,6 +121,16 @@ export class PreviewToolBar extends BaseFloat {
     selectItem(event: Event, i: typeof ICONS[number]) {
         event.preventDefault();
         const { _block: block } = this;
+        if (i.type === 'delete' && this.muya.editor.documentEditing) {
+            const content = block?.firstContentInDescendant();
+            const at = content && this.muya.editor.selection.getDOMPoint({ path: content.path, offset: 0 });
+            if (!at)
+                throw new Error('Preview deletion requires a document target');
+            const selection = this.muya.editor.selection.getDOMSelection() ?? { anchor: at, focus: at };
+            dispatchDocumentBlock(this.muya, { type: 'clear', at, scope: 'outer', selectionMode: 'start' }, selection);
+            this.hide();
+            return;
+        }
         let cursorBlock = null;
         switch (i.type) {
             case 'edit': {

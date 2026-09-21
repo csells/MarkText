@@ -7,7 +7,13 @@ import type {
   ProjectionCoordinateMap,
   SourceRange
 } from '@marktext/document-core'
-import { createMuyaMarkupView, type MuyaMarkupBinding, type MuyaMarkupView } from './muyaMarkupView'
+import {
+  appendMuyaMarkdownSegment,
+  createMuyaMarkupView,
+  type MuyaMarkdownSegment,
+  type MuyaMarkupBinding,
+  type MuyaMarkupView
+} from './muyaMarkupView'
 
 const shiftRange = (range: SourceRange, delta: number): SourceRange => ({
   start: range.start + delta,
@@ -30,10 +36,14 @@ const coordinatesOf = (replacement: MarkupRegionReplacement): ProjectionCoordina
       if (
         runs[middle][from].end < offset ||
         (affinity === 'next' && runs[middle][from].end === offset)
-      ) { low = middle + 1 } else high = middle
+      ) {
+        low = middle + 1
+      } else high = middle
     }
     const next = runs[low]
-    if (next !== undefined && next[from].start <= offset) { return next[to].start + offset - next[from].start }
+    if (next !== undefined && next[from].start <= offset) {
+      return next[to].start + offset - next[from].start
+    }
     const previous = runs[low - 1]
     if (affinity === 'previous') {
       return (
@@ -49,6 +59,7 @@ const coordinatesOf = (replacement: MarkupRegionReplacement): ProjectionCoordina
     )
   }
   return {
+    sourceSegments: runs,
     toSource: (offset, affinity) => position(offset, 'projected', affinity),
     toProjected: (offset, affinity) => position(offset, 'source', affinity),
     intersectsSource: (range) =>
@@ -89,8 +100,12 @@ const completeSourceCoverage = (replacement: MarkupRegionReplacement): boolean =
       active.push({ mark: event.mark, end: range.start + 3 })
     } else {
       const owner = active.pop()
-      if (owner?.mark !== event.mark || owner.end === owner.mark.annotationRange.start + 3) { return false }
-      if (event.mark.kind === 'substitution' && event.mark.arm === 'old') { covered.push({ start: owner.end, end: owner.end + 2 }) }
+      if (owner?.mark !== event.mark || owner.end === owner.mark.annotationRange.start + 3) {
+        return false
+      }
+      if (event.mark.kind === 'substitution' && event.mark.arm === 'old') {
+        covered.push({ start: owner.end, end: owner.end + 2 })
+      }
       for (const parent of active) parent.end = event.mark.annotationRange.end
     }
   }
@@ -104,39 +119,16 @@ const completeSourceCoverage = (replacement: MarkupRegionReplacement): boolean =
   return cursor === replacement.next.source.end
 }
 
-/** Locate paragraph spelling in compatibility text without interpreting Markdown. */
+/** Read paragraph positions from the detached common projection coordinates. */
 const markdownOffsets = (
   view: MuyaMarkupView
 ): ((syntax: number) => number | undefined) | undefined => {
-  const anchors: Array<{ syntax: number; text: number }> = [{ syntax: 0, text: 0 }]
-  let cursor = 0
-  for (const binding of view.bindings) {
-    if (binding.text.length === 0) continue
-    const start = view.markdown.indexOf(binding.text, cursor)
-    if (start < 0) return undefined
-    for (const segment of binding.segments) {
-      anchors.push(
-        { syntax: segment.syntax.start, text: start + segment.text.start },
-        { syntax: segment.syntax.end, text: start + segment.text.end }
-      )
-    }
-    cursor = start + binding.text.length
-  }
-  const last = anchors[anchors.length - 1]
-  anchors.push({
-    syntax: last.syntax + view.markdown.length - last.text,
-    text: view.markdown.length
-  })
+  if (view.markdownSegments.length === 0) return undefined
   return (syntax) => {
-    let previous = anchors[0]
-    for (const next of anchors) {
-      if (syntax === next.syntax) return next.text
-      if (syntax < next.syntax) {
-        if (next.text === previous.text) return previous.text
-        return next.syntax - previous.syntax === next.text - previous.text
-          ? previous.text + syntax - previous.syntax
-          : undefined
-      }
+    let previous: MuyaMarkdownSegment | undefined
+    for (const next of view.markdownSegments) {
+      if (syntax < next.syntax.start) { return previous?.text.end === next.text.start ? next.text.start : undefined }
+      if (syntax <= next.syntax.end) return next.text.start + syntax - next.syntax.start
       previous = next
     }
     return undefined
@@ -197,7 +189,9 @@ export function applyMuyaMarkupChanges(
       !Number.isSafeInteger(root) ||
       root < 0 ||
       root >= previous.state.length
-    ) { return undefined }
+    ) {
+      return undefined
+    }
     const group = byRoot.get(root) ?? []
     group.push(binding)
     byRoot.set(root, group)
@@ -212,10 +206,33 @@ export function applyMuyaMarkupChanges(
   const decorations: MuyaMarkupView['decorations'][number][] = []
   const comments: MuyaMarkupView['comments'][number][] = []
   const markdown: string[] = []
+  const markdownSegments: MuyaMarkdownSegment[] = []
   let previousIndex = 0
   let markdownIndex = 0
   let sourceDelta = 0
   let syntaxDelta = 0
+  let markdownLength = 0
+  const appendMarkdown = (
+    view: MuyaMarkupView,
+    start: number,
+    end: number,
+    shift: number
+  ): void => {
+    markdown.push(view.markdown.slice(start, end))
+    for (const segment of view.markdownSegments) {
+      const from = Math.max(start, segment.text.start)
+      const to = Math.min(end, segment.text.end)
+      if (from >= to) continue
+      appendMuyaMarkdownSegment(markdownSegments, {
+        syntax: {
+          start: segment.syntax.start + from - segment.text.start + shift,
+          end: segment.syntax.start + to - segment.text.start + shift
+        },
+        text: { start: markdownLength + from - start, end: markdownLength + to - start }
+      })
+    }
+    markdownLength += end - start
+  }
   const retainUntil = (end: number): void => {
     const start = previousIndex
     const pathDelta = state.length - start
@@ -330,13 +347,17 @@ export function applyMuyaMarkupChanges(
     if (
       replacement.next.source.start !== replacement.previous.source.start + sourceDelta ||
       replacement.next.syntax.start !== replacement.previous.syntax.start + syntaxDelta
-    ) { return undefined }
+    ) {
+      return undefined
+    }
     if (
       replacement.syntaxBlocks.some((node) => node.kind !== 'paragraph') ||
       replacement.syntaxBlocks.length === 0 ||
       !validCoordinates(replacement.coordinates) ||
       !completeSourceCoverage(replacement)
-    ) { return undefined }
+    ) {
+      return undefined
+    }
     const firstBinding = previous.bindings.find(
       (binding) =>
         binding.syntax.range.end > replacement.previous.syntax.start ||
@@ -347,7 +368,9 @@ export function applyMuyaMarkupChanges(
     if (
       typeof start !== 'number' ||
       firstBinding?.syntax.range.start !== replacement.previous.syntax.start
-    ) { return undefined }
+    ) {
+      return undefined
+    }
     if (start < previousIndex || start < 0) return undefined
     let end = start
     while (end < previous.state.length) {
@@ -360,7 +383,9 @@ export function applyMuyaMarkupChanges(
           (binding.text.length === 0 &&
             binding.syntax.range.start === replacement.previous.syntax.end)
         )
-      ) { break }
+      ) {
+        break
+      }
       if (
         group?.length !== 1 ||
         previous.state[end].name !== 'paragraph' ||
@@ -371,7 +396,9 @@ export function applyMuyaMarkupChanges(
         binding.syntax.range.end > replacement.previous.syntax.end ||
         binding.sourceRange.start < replacement.previous.source.start ||
         binding.sourceRange.end > replacement.previous.source.end
-      ) { return undefined }
+      ) {
+        return undefined
+      }
       end += 1
     }
     if (end === start) return undefined
@@ -387,7 +414,9 @@ export function applyMuyaMarkupChanges(
             comment.annotationRange.end > replacement.previous.source.start)
         )
       })
-    ) { return undefined }
+    ) {
+      return undefined
+    }
     // Multi-paragraph annotation owners and reference dependencies require a
     // complete inventory, which this first paragraph slice deliberately lacks.
     for (const decoration of previous.decorations) {
@@ -397,7 +426,9 @@ export function applyMuyaMarkupChanges(
           range.end > replacement.previous.source.start) ||
         (range.start < replacement.previous.source.end &&
           range.end > replacement.previous.source.end)
-      ) { return undefined }
+      ) {
+        return undefined
+      }
     }
     retainUntil(start)
     const local = createMuyaMarkupView({
@@ -426,7 +457,9 @@ export function applyMuyaMarkupChanges(
       expectedEnd !== undefined &&
       local.bindings.at(-1)?.documentEnd?.offset !==
         expectedEnd.offset + replacement.next.source.end - replacement.previous.source.end
-    ) { return undefined }
+    ) {
+      return undefined
+    }
     bindings.push(
       ...local.bindings.slice(0, localLength).map((binding) => {
         const { documentEnd, ...rest } = binding
@@ -442,13 +475,22 @@ export function applyMuyaMarkupChanges(
         .filter((decoration) => Number(decoration.path[0]) < localLength)
         .map((decoration) => ({ ...decoration, path: [Number(decoration.path[0]) + base, 'text'] }))
     )
-    markdown.push(previous.markdown.slice(markdownIndex, from), local.markdown)
+    appendMarkdown(previous, markdownIndex, from, syntaxDelta)
+    appendMarkdown(local, 0, local.markdown.length, 0)
     markdownIndex = to
     previousIndex = end
     sourceDelta = replacement.next.source.end - replacement.previous.source.end
     syntaxDelta = replacement.next.syntax.end - replacement.previous.syntax.end
   }
   retainUntil(previous.state.length)
-  markdown.push(previous.markdown.slice(markdownIndex))
-  return { kind: 'view', markdown: markdown.join(''), state, bindings, decorations, comments }
+  appendMarkdown(previous, markdownIndex, previous.markdown.length, syntaxDelta)
+  return {
+    kind: 'view',
+    markdown: markdown.join(''),
+    markdownSegments,
+    state,
+    bindings,
+    decorations,
+    comments
+  }
 }

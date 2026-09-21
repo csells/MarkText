@@ -44,7 +44,7 @@ export type IDocumentCommandInput = {
     readonly selection: IDocumentTextInput['selection'];
     readonly options: IDocumentTextInput['options'];
     readonly historyGroup?: number;
-} & ({ readonly command: 'tab'; readonly shift: boolean } | { readonly command: 'setTaskChecked'; readonly checked: boolean; readonly autoCheck: boolean; readonly autoMoveCheckedToEnd: boolean } | { readonly command: 'createCodeBlock'; readonly replace: boolean } | { readonly command: 'wrapCodeBlocks' } | { readonly command: 'resetCodeBlock'; readonly selectionMode: 'preserve' | 'end' } | { readonly command: 'createMathBlock'; readonly replace: boolean } | { readonly command: 'changeThematicBreak'; readonly change: { readonly type: 'insert' | 'replace' | 'toggle' | 'reset' | 'enter' } } | { readonly command: 'createFrontMatter'; readonly replace: boolean; readonly style: string } | { readonly command: 'createTable'; readonly rows: number; readonly columns: number; readonly replace: boolean } | { readonly command: 'moveTableRow'; readonly target: DocumentDOMPoint; readonly row: number } | { readonly command: 'moveTableColumn'; readonly target: DocumentDOMPoint; readonly column: number } | { readonly command: 'insertTableRow' | 'insertTableColumn'; readonly placement: 'before' | 'after' } | { readonly command: 'removeTableRow' | 'removeTableColumn' | 'tableBoundaryBackspace' | 'exitTable' | 'joinParagraphBackward' | 'joinParagraphForward' } | { readonly command: 'changeList'; readonly change: ListChange; readonly listOptions: ListMarkerOptions } | { readonly command: 'changeHeading'; readonly change: HeadingChange } | { readonly command: 'changeBlockquote'; readonly change: { readonly type: 'set' | 'quick-insert' | 'toggle' | 'reset' } } | { readonly command: 'alignTableColumn'; readonly target: DocumentDOMPoint; readonly alignment: 'left' | 'center' | 'right' });
+} & ({ readonly command: 'moveText'; readonly target: IDocumentTextInput['range']; readonly copy: boolean } | { readonly command: 'moveBlock'; readonly from: DocumentDOMPoint; readonly to: DocumentDOMPoint; readonly placement: 'before' | 'after' } | { readonly command: 'createFootnote'; readonly identifier: string } | { readonly command: 'setCodeLanguage'; readonly language: string } | { readonly command: 'changeBlock'; readonly change: { readonly type: 'duplicate' | 'new' | 'delete' | 'clear' | 'reset'; readonly at?: DocumentDOMPoint; readonly placement?: 'before' | 'after'; readonly text?: string; readonly scope: 'outer' | 'leaf'; readonly selectionMode: 'start' | 'preserve' | 'end' } } | { readonly command: 'tab'; readonly shift: boolean } | { readonly command: 'setTaskChecked'; readonly checked: boolean; readonly autoCheck: boolean; readonly autoMoveCheckedToEnd: boolean } | { readonly command: 'createCodeBlock'; readonly replace: boolean } | { readonly command: 'wrapCodeBlocks' } | { readonly command: 'resetCodeBlock'; readonly selectionMode: 'preserve' | 'end' } | { readonly command: 'createMathBlock'; readonly replace: boolean } | { readonly command: 'changeThematicBreak'; readonly change: { readonly type: 'insert' | 'replace' | 'toggle' | 'reset' | 'enter' } } | { readonly command: 'createFrontMatter'; readonly replace: boolean; readonly style: string } | { readonly command: 'createTable'; readonly rows: number; readonly columns: number; readonly replace: boolean } | { readonly command: 'moveTableRow'; readonly target: DocumentDOMPoint; readonly row: number } | { readonly command: 'moveTableColumn'; readonly target: DocumentDOMPoint; readonly column: number } | { readonly command: 'insertTableRow' | 'insertTableColumn'; readonly placement: 'before' | 'after' } | { readonly command: 'removeTableRow' | 'removeTableColumn' | 'tableBoundaryBackspace' | 'exitTable' | 'joinParagraphBackward' | 'joinParagraphForward' } | { readonly command: 'changeList'; readonly change: ListChange; readonly listOptions: ListMarkerOptions } | { readonly command: 'changeHeading'; readonly change: HeadingChange } | { readonly command: 'changeBlockquote'; readonly change: { readonly type: 'set' | 'quick-insert' | 'toggle' | 'reset' } } | { readonly command: 'alignTableColumn'; readonly target: DocumentDOMPoint; readonly alignment: 'left' | 'center' | 'right' });
 
 export type DocumentInput = IDocumentTextInput | IDocumentCommandInput;
 
@@ -56,6 +56,7 @@ export type IDocumentFormatInput = {
     };
 } & ({
     readonly format: 'strong' | 'em' | 'del' | 'inline_code' | 'inline_math' | 'u' | 'mark' | 'sub' | 'sup' | 'link' | 'image' | 'unlink' | 'clear';
+    readonly image?: Readonly<{ src: string; alt: string }>;
 } | {
     readonly format: 'image-properties';
     readonly properties: ImagePropertyPatch;
@@ -87,10 +88,14 @@ export interface IDocumentActiveFormat {
 
 /** The bound document model receives user actions before presentation changes. */
 export interface IDocumentEditing {
+    /** Alias and replacement range recognized by the owning document parser. */
+    emojiContext: (point: DocumentDOMPoint) => { readonly alias: string; readonly range: { readonly anchor: DocumentDOMPoint; readonly focus: DocumentDOMPoint } } | undefined;
+    /** The parser-owned fence info string at a native picker target. */
+    codeLanguage: (point: DocumentDOMPoint) => string | undefined;
     activeFormats: (selection: { readonly anchor: DocumentDOMPoint; readonly focus: DocumentDOMPoint }) => readonly IDocumentActiveFormat[];
     clipboard: (operation: DocumentClipboardInput, present: () => void) => boolean;
     prepareImage: (operation: Extract<DocumentFormatInput, { format: 'image-properties' }>, payload: unknown, prepare: (capturePayload: (payload: unknown) => void) => Promise<{ alt: string; src: string; title: string } | undefined>) => Promise<boolean>;
-    prepareClipboard: (selection: DocumentClipboardInput['selection'], payload: unknown, prepare: (capturePayload: (payload: unknown) => void) => Promise<DocumentPreparedClipboard>) => Promise<boolean>;
+    prepareClipboard: (selection: DocumentClipboardInput['selection'], payload: unknown, prepare: (capturePayload: (payload: unknown) => void) => Promise<DocumentPreparedClipboard>, blockPlacement?: 'before' | 'after') => Promise<boolean>;
     compositionStart: (operation: DocumentTextInput) => void;
     compositionUpdate: (data: string) => void;
     compositionEnd: (result: DocumentCompositionResult, present: () => void) => boolean;

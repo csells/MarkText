@@ -9,6 +9,7 @@ import type { CoreAppliedReply } from '@/documentAuthority/coreProtocol'
 import { createMuyaMarkupPresentationIndex } from '@/documentAuthority/muyaMarkupPresentationIndex'
 import {
   muyaActiveFormats,
+  muyaCodeLanguage,
   muyaInputToModel,
   muyaFormatToModel
 } from '@/documentAuthority/muyaModelSelection'
@@ -423,6 +424,8 @@ describe('native input preferences in the shared document', () => {
         prepareClipboard() {
           throw new Error('Unexpected async clipboard preparation in this test')
         },
+        emojiContext: () => undefined,
+        codeLanguage: (point) => muyaCodeLanguage(muya, currentView, point),
         activeFormats: (selection) => muyaActiveFormats(muya, currentView, selection),
         clipboard() {
           throw new Error('Unexpected clipboard action in this input test')

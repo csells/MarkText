@@ -14,6 +14,7 @@ it('retains Source text and rejected intent during a pending native history pain
   const doc = new codeMirror.Doc('seed')
   const adapter = createCodeMirrorCoreAdapter(doc, binding, {
     canonicalSource: 'seed',
+    canonicalRevision: 1,
     insertedLineEnding: '\n',
     maxPending: 1
   })

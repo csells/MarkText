@@ -1,5 +1,7 @@
-import { resolveModelTextSelection, planModelTextInput } from './modelText.js'
+import { constrainLiteralDeletion, resolveModelTextSelection, planModelTextInput } from './modelText.js'
 import type { MarkdownLineIndex } from './revision.js'
+import { planTextMove } from './textMovePlanning.js'
+import { planBlockMove } from './blockMovePlanning.js'
 import { planTableMove, movedTableIndex } from './tableMovePlanning.js'
 import { materializeTableCellEdit } from './tableCellEditing.js'
 import { copyDocumentSelection, type DocumentTextSelection, type DocumentModelTextSelection, type DocumentTableCellSelection, type DocumentTableCellAddress } from './sourceInputPlanning.js'
@@ -7,10 +9,10 @@ import { previousTableCell, resolveTableCell, tableCellSelectionAfter, tableCell
 import { positionAfter } from './sourcePosition.js'
 import type { HeadingChange, ListChange, ListMarkerOptions } from '@marktext/input-policy'
 import type { ParagraphEnterConversion } from './internal/profile1/markdownParser.js'
-import type { DocumentCore, DocumentCommit, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, SourceRange } from './documentCore.js'
+import type { DocumentCore, DocumentCommit, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
 import { applyInputPairing, type IInputPairingOptions, type IInputPairingSyntaxContext } from './inputPolicy.js'
 import { planStructuralInput } from './structuralInputPlanning.js'
-import { paragraphBackwardCodeTarget } from './paragraphJoinPlanning.js'
+import { paragraphBackwardStructuralTarget } from './paragraphJoinPlanning.js'
 import { syntaxPathAt } from './syntaxPath.js'
 import { isLiteralBlock } from './literalBlock.js'
 import { editingReconciliation, retainedSourceEndpoint, sparseEditingReconciliation } from './editingReconciliation.js'
@@ -31,13 +33,15 @@ export type DocumentCommandInputAction<Selection extends DocumentInputSelection 
   readonly kind: 'command'
   readonly selection: Selection
   readonly options: DocumentBrowserInputAction['options']
-} & ({ readonly command: 'tab', readonly shift: boolean } | { readonly command: 'setTaskChecked', readonly checked: boolean, readonly autoCheck: boolean, readonly autoMoveCheckedToEnd: boolean } | { readonly command: 'createCodeBlock', readonly replace: boolean } | { readonly command: 'wrapCodeBlocks' } | { readonly command: 'resetCodeBlock', readonly selectionMode: 'preserve' | 'end' } | { readonly command: 'createMathBlock', readonly replace: boolean } | { readonly command: 'changeThematicBreak', readonly change: { readonly type: 'insert' | 'replace' | 'toggle' | 'reset' | 'enter' } } | { readonly command: 'createFrontMatter', readonly replace: boolean, readonly style: string } | { readonly command: 'createTable', readonly rows: number, readonly columns: number, readonly replace: boolean } | { readonly command: 'moveTableRow', readonly target: DocumentTableCellAddress, readonly row: number } | { readonly command: 'moveTableColumn', readonly target: DocumentTableCellAddress, readonly column: number } | { readonly command: 'alignTableColumn', readonly target: DocumentTableCellAddress, readonly alignment: 'left' | 'center' | 'right' } | { readonly command: 'insertTableRow' | 'insertTableColumn', readonly placement: 'before' | 'after' } | { readonly command: 'removeTableRow' | 'removeTableColumn' | 'tableBoundaryBackspace' | 'exitTable' | 'joinParagraphBackward' | 'joinParagraphForward' } | { readonly command: 'changeList', readonly change: ListChange, readonly listOptions: ListMarkerOptions } | { readonly command: 'changeHeading', readonly change: HeadingChange } | { readonly command: 'changeBlockquote', readonly change: { readonly type: 'set' | 'quick-insert' | 'toggle' | 'reset' } })
+} & ({ readonly command: 'moveText', readonly target: DocumentInputTarget, readonly copy: boolean } | { readonly command: 'moveBlock', readonly from: number, readonly to: number, readonly placement: 'before' | 'after' } | { readonly command: 'createFootnote', readonly identifier: string } | { readonly command: 'setCodeLanguage', readonly language: string } | { readonly command: 'changeBlock', readonly change: { readonly type: 'duplicate' | 'new' | 'delete' | 'clear' | 'reset', readonly at?: number, readonly placement?: 'before' | 'after', readonly text?: string, readonly scope: 'outer' | 'leaf', readonly selectionMode: 'start' | 'preserve' | 'end' } } | { readonly command: 'tab', readonly shift: boolean } | { readonly command: 'setTaskChecked', readonly checked: boolean, readonly autoCheck: boolean, readonly autoMoveCheckedToEnd: boolean } | { readonly command: 'createCodeBlock', readonly replace: boolean } | { readonly command: 'wrapCodeBlocks' } | { readonly command: 'resetCodeBlock', readonly selectionMode: 'preserve' | 'end' } | { readonly command: 'createMathBlock', readonly replace: boolean } | { readonly command: 'changeThematicBreak', readonly change: { readonly type: 'insert' | 'replace' | 'toggle' | 'reset' | 'enter' } } | { readonly command: 'createFrontMatter', readonly replace: boolean, readonly style: string } | { readonly command: 'createTable', readonly rows: number, readonly columns: number, readonly replace: boolean } | { readonly command: 'moveTableRow', readonly target: DocumentTableCellAddress, readonly row: number } | { readonly command: 'moveTableColumn', readonly target: DocumentTableCellAddress, readonly column: number } | { readonly command: 'alignTableColumn', readonly target: DocumentTableCellAddress, readonly alignment: 'left' | 'center' | 'right' } | { readonly command: 'insertTableRow' | 'insertTableColumn', readonly placement: 'before' | 'after' } | { readonly command: 'removeTableRow' | 'removeTableColumn' | 'tableBoundaryBackspace' | 'exitTable' | 'joinParagraphBackward' | 'joinParagraphForward' } | { readonly command: 'changeList', readonly change: ListChange, readonly listOptions: ListMarkerOptions } | { readonly command: 'changeHeading', readonly change: HeadingChange } | { readonly command: 'changeBlockquote', readonly change: { readonly type: 'set' | 'quick-insert' | 'toggle' | 'reset' } })
 
 export type DocumentInputAction<Selection extends DocumentInputSelection | SourceRange = DocumentInputSelection> = DocumentBrowserInputAction<Selection> | DocumentCommandInputAction<Selection>
 
 export interface DocumentInputPlan {
   /** Policy-authored source operations, before ordinary/tracked spelling compilation. */
   readonly edits: readonly DocumentSourceEdit[]
+  /** Owned materialization may retain visible carriers instead of transporting their syntax. */
+  readonly editScope?: 'visible' | 'structure'
   /** Selection in the source domain after applying these edits. */
   readonly selection: DocumentInputSelection
   /** Exact edits from the raw native echo domain into the policy-authored domain. */
@@ -96,7 +100,10 @@ export function inputSourceRange(core: DocumentCore, revision: DocumentRevision,
 }
 
 /** Normalize current model addresses only; physical cell materialization is an edit. */
-export function planInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex): DocumentInputPlan {
+export function planInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, regionalSyntax?: (range: SourceRange) => MarkupSyntax | undefined): DocumentInputPlan {
+  if ('kind' in action && action.command === 'moveText') return planTextMove(core, revision, action, physicalLines())
+  if ('kind' in action && action.command === 'moveBlock') return planBlockMove(core, revision, action, physicalLines())
+  action = constrainLiteralDeletion(core, revision, action, regionalSyntax)
   if (action.selection.kind === 'model-text' || 'range' in action && 'kind' in action.range && action.range.kind === 'model-text') return planModelTextInput(core, revision, action, physicalLines(), normalized => planStructuralInput(core, revision, normalized, enterConversion, physicalLines))
   if ('kind' in action && (action.command === 'moveTableColumn' || action.command === 'moveTableRow')) return planTableMove(core, revision, action)
   const actual = copyDocumentSelection(action.selection, revision.sourceLength)
@@ -118,7 +125,7 @@ export function planInput(core: DocumentCore, revision: DocumentRevision, action
   const normalized: DocumentInputAction<SourceRange> = 'range' in action
     ? { ...action, selection, range: inputSourceRange(core, revision, action.range) }
     : { ...action, selection }
-  const plan = planSourceInput(core, revision, normalized, enterConversion, physicalLines, selectedCell)
+  const plan = planSourceInput(core, revision, normalized, enterConversion, physicalLines, selectedCell, regionalSyntax)
   if ('kind' in action && action.command === 'tableBoundaryBackspace' && plan.edits.length === 0 && plan.selection.start === selection.start && plan.selection.end === selection.end) return Object.freeze({ ...plan, selection: actual })
   if (selectedCell === undefined || selectedCell.slotStart !== undefined || 'kind' in action || action.inputType === 'insertParagraph' ||
     plan.edits.length === 0 || plan.edits.every(edit => edit.start === edit.end && edit.insert.length === 0)) return finish(plan)
@@ -134,14 +141,16 @@ export function planInput(core: DocumentCore, revision: DocumentRevision, action
 }
 
 /** Plans native input against the current revision's owned syntax, without reparsing a draft. */
-function planSourceInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction<SourceRange>, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, selectedCell?: ReturnType<typeof resolveTableCell>): DocumentSourceInputPlan {
+function planSourceInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction<SourceRange>, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, selectedCell?: ReturnType<typeof resolveTableCell>, regionalSyntax?: (range: SourceRange) => MarkupSyntax | undefined): DocumentSourceInputPlan {
   if ('kind' in action) return planStructuralInput(core, revision, action, enterConversion, physicalLines, selectedCell)
   const { selection, inputType, data, options } = action
   if (inputType === 'cancelComposition') {
     return Object.freeze({ edits: Object.freeze([]), selection: Object.freeze({ ...selection }), reconciliation: Object.freeze([]) })
   }
   if (inputType === 'insertParagraph' || inputType === 'insertLineBreak') return planStructuralInput(core, revision, action, enterConversion, physicalLines, selectedCell)
-  const { syntax } = core.project(revision, 'markup')
+  const syntax = selectedCell === undefined && selection.start === selection.end
+    ? regionalSyntax?.({ start: Math.min(selection.start, action.range.start), end: Math.max(selection.end, action.range.end) }) ?? core.project(revision, 'markup').syntax
+    : core.project(revision, 'markup').syntax
   // Plain typing belongs to the live caret. Browser normalization can move its
   // collapsed target across an elided annotation edge or out of an empty cell.
   // Expanded replacements and non-typing insertion targets retain their intent.
@@ -278,13 +287,13 @@ export function reconcileInput(
   })
   const edit = policy.edits.length === 1 ? policy.edits[0] : undefined
   const joinSyntax = 'kind' in action && action.command === 'joinParagraphBackward' ? core.project(previous, 'markup').syntax : undefined
-  const codeJoin = joinSyntax !== undefined && paragraphBackwardCodeTarget(joinSyntax,
+  const codeJoin = joinSyntax !== undefined && paragraphBackwardStructuralTarget(joinSyntax,
     joinSyntax.coordinates.toProjected(inputSourceRange(core, previous, action.selection).start, 'next')) !== undefined
   const compilerReconciliation = unchanged || commit === null
     ? Object.freeze([])
     : edit === undefined
-      ? sparseEditingReconciliation(core, previous, policy.edits, commit)
-      : editingReconciliation(core, previous, edit, commit, codeJoin || 'kind' in action && (action.command === 'createTable' || action.command === 'createFrontMatter' || action.command === 'changeThematicBreak' || action.command === 'createMathBlock' || action.command === 'createCodeBlock' || action.command === 'wrapCodeBlocks' || action.command === 'resetCodeBlock' || (action.command === 'changeHeading' || action.command === 'changeBlockquote') && action.change.type === 'quick-insert') ? 'structure' : 'visible')
+      ? sparseEditingReconciliation(core, previous, policy.edits, commit, 'kind' in action && action.command === 'moveText', policy.editScope ?? 'structure')
+      : editingReconciliation(core, previous, edit, commit, codeJoin || 'kind' in action && (action.command === 'changeBlock' || action.command === 'createFootnote' || action.command === 'setCodeLanguage' || action.command === 'createTable' || action.command === 'createFrontMatter' || action.command === 'changeThematicBreak' || action.command === 'createMathBlock' || action.command === 'createCodeBlock' || action.command === 'wrapCodeBlocks' || action.command === 'resetCodeBlock' || (action.command === 'changeHeading' || action.command === 'changeBlockquote') && action.change.type === 'quick-insert') ? 'structure' : 'visible')
   if (compilerReconciliation === undefined) return Object.freeze({ policy })
   const deletion = policy.edits.length > 0 && policy.edits.every(edit => edit.insert.length === 0)
   const point = (position: number): number => {
@@ -299,11 +308,23 @@ export function reconcileInput(
     return position + delta
   }
   if (policy.selection.kind === 'model-text') {
+    if ('kind' in action && action.command === 'moveBlock') {
+      const mapped = (position: DocumentModelTextSelection['anchor']) => typeof position === 'number' ? point(position) : { text: { start: point(position.text.start), end: point(position.text.end) }, offset: position.offset }
+      const selection = { ...policy.selection, anchor: mapped(policy.selection.anchor), focus: mapped(policy.selection.focus) }
+      resolveModelTextSelection(core, next, selection)
+      return Object.freeze({ policy, compilerReconciliation, selection })
+    }
     resolveModelTextSelection(core, next, policy.selection)
     if (policy.edits.length !== 0 || applied.length !== 0) throw new RangeError('Retained intrinsic input requires an unchanged document')
     return Object.freeze({ policy, compilerReconciliation, selection: policy.selection })
   }
   if (policy.selection.kind === 'table-cell') {
+    if ('kind' in action && action.command === 'moveBlock') {
+      const original = policy.selection.cell
+      const cell = { ...original, table: { start: point(original.table.start), end: point(original.table.end) } }
+      resolveTableCell(core, next, cell)
+      return Object.freeze({ policy, compilerReconciliation, selection: { ...policy.selection, cell } })
+    }
     if (policy.edits.length !== 0 || applied.length !== 0) throw new RangeError('Intrinsic navigation selection requires an unchanged document')
     resolveTableCell(core, next, policy.selection.cell)
     return Object.freeze({ policy, compilerReconciliation, selection: copyDocumentSelection(policy.selection, next.sourceLength) })
@@ -313,7 +334,7 @@ export function reconcileInput(
   // Structural commands may preserve selected source even when their syntax
   // edits compile into suggestions. Retained boundaries belong outside those
   // inserted delimiters; newly authored payload keeps the compiler's own map.
-  const original = 'kind' in action && 'ranges' in action.selection ? action.selection.ranges[action.selection.primary] : undefined
+  const original = 'kind' in action && action.command !== 'moveBlock' && action.command !== 'moveText' && 'ranges' in action.selection ? action.selection.ranges[action.selection.primary] : undefined
   const anchor = (original === undefined ? undefined : retainedSourceEndpoint(core, previous, original.anchor, planned.anchor, policy.edits, applied)) ?? point(planned.anchor)
   const focus = (original === undefined ? undefined : retainedSourceEndpoint(core, previous, original.focus, planned.focus, policy.edits, applied)) ?? point(planned.focus)
   const selection = { start: Math.min(anchor, focus), end: Math.max(anchor, focus) }

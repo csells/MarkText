@@ -8,6 +8,7 @@ import { createMuyaPlainTextCoreAdapter } from '@/documentAuthority/muyaPlainTex
 import { createMuyaMarkupPresentationIndex } from '@/documentAuthority/muyaMarkupPresentationIndex'
 import {
   muyaActiveFormats,
+  muyaCodeLanguage,
   muyaInputToModel,
   muyaFormatToModel
 } from '@/documentAuthority/muyaModelSelection'
@@ -31,7 +32,9 @@ it.each([
     binding.open({ documentId: 'tracked-queue.md', source: fixture.before + '\n' })
     const view = () => {
       const reply = binding.plainTextViewAtBarrier()
-      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Expected view') }
+      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+        throw new Error('Expected view')
+      }
       return reply.view
     }
     const initial = view()
@@ -64,6 +67,8 @@ it.each([
         prepareClipboard() {
           throw new Error('Unexpected async clipboard preparation in this test')
         },
+        emojiContext: () => undefined,
+        codeLanguage: (point) => muyaCodeLanguage(muya, view(), point),
         activeFormats: (selection) => muyaActiveFormats(muya, view(), selection),
         clipboard() {
           throw new Error('Unexpected clipboard action in this input test')

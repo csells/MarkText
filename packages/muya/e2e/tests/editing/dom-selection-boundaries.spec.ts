@@ -28,6 +28,8 @@ async function prepare(page: Page): Promise<IInputCapture[]> {
             offset: value.offset,
         });
         muya.editor.bindDocumentEditing({
+            emojiContext: () => undefined,
+            codeLanguage: () => undefined,
             activeFormats: () => [],
             clipboard() { throw new Error('Unexpected clipboard in DOM geometry control'); },
             prepareImage() { throw new Error('Unexpected image preparation'); },

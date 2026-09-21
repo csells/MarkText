@@ -25,7 +25,7 @@ import {
     PARAGRAPH_STATE,
     THEMATIC_BREAK_STATE,
 } from '../../config';
-import { createDocumentTextDraft, dispatchDocumentFormat, dispatchDocumentParagraphJoin } from '../../editor/documentEditing';
+import { createDocumentTextDraft, dispatchDocumentBlock, dispatchDocumentFormat, dispatchDocumentParagraphJoin } from '../../editor/documentEditing';
 import { generator, tokenizer } from '../../inlineRenderer/lexer';
 import Selection, { getCursorReference } from '../../selection';
 import { getTextContent } from '../../selection/dom';
@@ -364,7 +364,17 @@ class Format extends Content {
      * @param {string} text emoji text
      */
     setEmoji(text: string) {
-    // TODO: @JOCS remove use this.selection directly.
+        const model = this.muya.editor.documentEditing;
+        if (model) {
+            const selection = this.muya.editor.selection.getDOMSelection();
+            const context = selection && model.emojiContext(selection.anchor);
+            if (!selection || !context)
+                return;
+            this.muya.flush();
+            model.input({ selection, range: context.range, inputType: 'insertReplacementText', data: `:${text}:`, options: this.muya.options }, () => {});
+            return;
+        }
+        // TODO: @JOCS remove use this.selection directly.
         const { anchor } = this.selection;
         const editEmoji = this._checkCursorInTokenType(
             this.text,
@@ -595,7 +605,7 @@ class Format extends Content {
             if (needRender)
                 this.update(cursor);
 
-            this.setCursor(currentCursor.anchor.offset, currentCursor.focus.offset);
+            this.commitNativeCursor(currentCursor.anchor.offset, currentCursor.focus.offset);
 
             // Check and show format picker
             if (cursor.start.offset !== cursor.end.offset) {
@@ -639,20 +649,19 @@ class Format extends Content {
             if (needUpdate)
                 this.update(cursor);
 
-            this.setCursor(anchor.offset, focus.offset);
+            this.commitNativeCursor(anchor.offset, focus.offset);
         }
 
-        // Check not edit emoji
-        const editEmoji = this._checkCursorInTokenType(
-            this.text,
-            anchor.offset,
-            'emoji',
-        );
-
-        if (!editEmoji) {
-            this.muya.eventCenter.emit('muya-emoji-picker', {
-                emojiText: '',
-            });
+        const model = this.muya.editor.documentEditing;
+        if (model) {
+            const selection = this.muya.editor.selection.getDOMSelection();
+            const context = anchor.offset === focus.offset && selection ? model.emojiContext(selection.anchor) : undefined;
+            this.muya.eventCenter.emit('muya-emoji-picker', context
+                ? { reference: getCursorReference(), emojiText: context.alias, block: this }
+                : { emojiText: '' });
+        }
+        else if (!this._checkCursorInTokenType(this.text, anchor.offset, 'emoji')) {
+            this.muya.eventCenter.emit('muya-emoji-picker', { emojiText: '' });
         }
 
         // Check and show format picker
@@ -1358,6 +1367,13 @@ class Format extends Content {
 
         const { text, muya, hasSelection } = this;
         const { start, end } = this.getCursor()!;
+        if (muya.editor.documentEditing) {
+            const selection = muya.editor.selection.getDOMSelection();
+            if (!selection)
+                throw new Error('Paragraph conversion has no document selection');
+            dispatchDocumentBlock(muya, { type: 'reset', scope: 'leaf', selectionMode: 'preserve' }, selection);
+            return;
+        }
 
         const newNodeState = {
             name: 'paragraph',

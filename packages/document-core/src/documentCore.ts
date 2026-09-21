@@ -6,9 +6,11 @@ import { planClipboard, type DocumentClipboardAction, type DocumentClipboardPlan
 import { planFormat, type DocumentFormatAction, type DocumentFormatPlan } from './formatPlanning.js'
 import { planInput, reconcileInput, inputSourceRange, type DocumentInputAction, type DocumentInputPlan, type DocumentInputResult } from './inputPlanning.js'
 import { editingReconciliation } from './editingReconciliation.js'
-import { paragraphBackwardCodeTarget } from './paragraphJoinPlanning.js'
+import { paragraphBackwardStructuralTarget } from './paragraphJoinPlanning.js'
 import { isLiteralBlock } from './literalBlock.js'
-import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText } from './trackedAuthoring.js'
+import { syntaxPathAt } from './syntaxPath.js'
+import { blockCommandTarget } from './blockCommandPlanning.js'
+import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import {
@@ -887,8 +889,12 @@ function markdownAstOf(
       }
     } else if (task.node.kind === 'code-block') {
       const info = task.node.attributes['info']
-      if (typeof info === 'string') {
-        attributes.semanticInfo = decodeMarkdownSemanticText(info)
+      if (typeof info === 'string') attributes.semanticInfo = decodeMarkdownSemanticText(info)
+      const infoStart = task.node.attributes['infoStart']
+      const infoEnd = task.node.attributes['infoEnd']
+      if (typeof infoStart === 'number' && typeof infoEnd === 'number') {
+        attributes.infoInputValue = decodeMarkdownSemanticText(semanticMarkdown.source.slice(infoStart, infoEnd),
+          (from, to, value) => semanticTextSegments.push(Object.freeze({ range: projectedRange({ start: infoStart + from, end: infoStart + to }), value })))
       }
     }
     delete attributes.semanticStart
@@ -3819,6 +3825,77 @@ function createDocumentCoreWithExecutionBudget(
       diagnostics: diagnosticsOf(products)
     }))
 
+  // Use the canonical region and the same admission parser as apply(). This
+  // does not publish a revision or materialize a whole-document projection.
+  const regionalCandidate = (
+    state: RevisionState,
+    edit: DocumentSourceEdit
+  ): Readonly<{ sourceStart: number, nextProducts: Profile1DocumentProducts, nextWindow: string }> | undefined => {
+    const edits = Object.freeze([edit])
+    const source = state.source.applyExact(edits, 'Authoring regional candidate')
+    if (state.regionalInventory !== undefined) {
+      const candidate = previewRegionalInventory(
+        state.regionalInventory, state.source, source, edits, [], executionBudget,
+        state.markdownOptions, regionalPhysicalRecorder
+      )
+      if (candidate.kind === 'resource-failure') throw documentCoreError(candidate.fatalDiagnostic)
+      if (candidate.kind === 'validated') return candidate
+    }
+    if (state.criticMarkupIndex !== undefined) {
+      const candidate = admitCriticMarkupRegionalChange(
+        state.source, source, state.criticMarkupIndex, edits, executionBudget,
+        state.markdownOptions, regionalPhysicalRecorder
+      )
+      if (candidate?.kind === 'resource-failure') throw documentCoreError(candidate.fatalDiagnostic)
+      if (candidate !== undefined) {
+        return Object.freeze({
+          sourceStart: state.criticMarkupIndex.source.start,
+          nextProducts: candidate.nextProducts,
+          nextWindow: candidate.nextWindow
+        })
+      }
+    }
+    if (state.retainedIndex !== undefined &&
+        (state.retainedIndex.dependencyPrefixEnd === 0 || edit.start > state.retainedIndex.dependencyPrefixEnd)) {
+      const candidate = admitProfile1PlainParagraphRegion(
+        state.source, source, state.retainedIndex, edits, executionBudget,
+        state.markdownOptions, regionalPhysicalRecorder
+      )
+      if (candidate?.kind === 'admitted' && candidate.parsed.kind === 'complete') {
+        return Object.freeze({
+          sourceStart: candidate.bracket.start,
+          nextProducts: candidate.parsed,
+          nextWindow: candidate.nextWindow
+        })
+      }
+    }
+    return undefined
+  }
+
+  const regionalInputSyntax = (state: RevisionState, range: SourceRange): MarkupSyntax | undefined => {
+    const candidate = regionalCandidate(state, { start: range.start, end: range.start, insert: '' })
+    if (candidate === undefined || range.end > candidate.sourceStart + candidate.nextWindow.length) return undefined
+    const editing = candidate.nextProducts.editing()
+    const local = projectionCoordinatesOf(editing, candidate.nextWindow.length)
+    const shift = candidate.sourceStart
+    const coordinates = Object.freeze<ProjectionCoordinateMap>({
+      originAt(offset) {
+        const origin = local.originAt(offset)
+        return origin.kind === 'source'
+          ? Object.freeze({ ...origin, sourceOffset: origin.sourceOffset + shift })
+          : Object.freeze({ ...origin, sourcePosition: origin.sourcePosition + shift })
+      },
+      toSource: (offset, affinity) => local.toSource(offset, affinity) + shift,
+      toProjected: (offset, affinity) => local.toProjected(offset - shift, affinity),
+      intersectsSource: range => local.intersectsSource({ start: range.start - shift, end: range.end - shift }),
+      sourceSegments: Object.freeze((local.sourceSegments ?? []).map(segment => Object.freeze({
+        projected: segment.projected,
+        source: Object.freeze({ start: segment.source.start + shift, end: segment.source.end + shift })
+      })))
+    })
+    return Object.freeze({ ast: markdownAstOf(editing), coordinates })
+  }
+
   // A same-shape regional preview proves marker ownership, diagnostics and
   // Markdown context without publishing or opening the revision's full products.
   // The general planners remain responsible for changing suggestion structure.
@@ -3827,15 +3904,9 @@ function createDocumentCoreWithExecutionBudget(
     edit: DocumentSourceEdit,
     tracked: boolean
   ): DocumentSourceEdit | undefined => {
-    if (state.regionalInventory === undefined || edit.start === edit.end && edit.insert.length === 0) return undefined
-    const edits = Object.freeze([edit])
-    const source = state.source.applyExact(edits, 'Authoring regional candidate')
-    const candidate = previewRegionalInventory(
-      state.regionalInventory, state.source, source, edits, [], executionBudget,
-      state.markdownOptions, regionalPhysicalRecorder
-    )
-    if (candidate.kind === 'resource-failure') throw documentCoreError(candidate.fatalDiagnostic)
-    if (candidate.kind !== 'validated') return undefined
+    if (edit.start === edit.end && edit.insert.length === 0) return undefined
+    const candidate = regionalCandidate(state, edit)
+    if (candidate === undefined) return undefined
     const start = edit.start - candidate.sourceStart
     const end = start + edit.insert.length
     let visible = false
@@ -4094,14 +4165,26 @@ function createDocumentCoreWithExecutionBudget(
       return planAuthor(core, previous, action, edits => previewSourceEdits(previous, edits))
     },
     planClipboard(previous: DocumentRevision, action: DocumentClipboardAction) {
-      currentStateOf(previous)
+      const state = currentStateOf(previous)
       return planClipboard(core, previous, action, edits => previewSourceEdits(previous, edits), source => {
         const state = currentStateOf(previous)
         const products = isolatedProducts(source, state.markdownOptions)
         return markupProjectionOf(products, annotationsOf(products).rangeByNodeId, source.length).syntax
       }, edits => withSourceEditPreview(previous, edits, (products, source) =>
         markupProjectionOf(products, annotationsOf(products).rangeByNodeId, source.length).syntax), edits =>
-        createMarkupCompoundSourceEdits(core, previous, edits, candidate => previewSourceEdits(previous, candidate), false, 'structure'))
+        createMarkupCompoundSourceEdits(core, previous, edits, candidate => previewSourceEdits(previous, candidate), false, 'structure'),
+      () => state.productStore.withProduct(products => products.editing().markdown.lines), {
+        syntax: range => regionalInputSyntax(state, range),
+        compile: inputs => {
+          if (inputs.length !== 1) return undefined
+          const edits = stableSourceEdits(inputs)
+          preflightSourceEdits(state.source.length, edits)
+          const edit = edits[0]
+          if (edit === undefined) return undefined
+          const regional = regionalPayloadEdit(state, edit, false)
+          return regional === undefined ? undefined : Object.freeze([regional])
+        }
+      })
     },
     planSourceInput(previous: DocumentRevision, action: DocumentSourceInputAction) {
       currentStateOf(previous)
@@ -4116,37 +4199,43 @@ function createDocumentCoreWithExecutionBudget(
     inputEdits(previous: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, tracked: boolean) {
       currentStateOf(previous)
       const joinSyntax = 'kind' in action && action.command === 'joinParagraphBackward' ? core.project(previous, 'markup').syntax : undefined
-      const codeJoin = joinSyntax !== undefined && paragraphBackwardCodeTarget(joinSyntax,
+      const codeJoin = joinSyntax !== undefined && paragraphBackwardStructuralTarget(joinSyntax,
         joinSyntax.coordinates.toProjected(inputSourceRange(core, previous, action.selection).start, 'next')) !== undefined
-      if ('kind' in action && (action.command === 'moveTableColumn' || action.command === 'moveTableRow')) {
+      if ('kind' in action && (action.command === 'moveText' || action.command === 'moveBlock' || action.command === 'moveTableColumn' || action.command === 'moveTableRow')) {
         if (!tracked) {
           return createMarkupCompoundSourceEdits(core, previous, plan.edits,
-            edits => previewSourceEdits(previous, edits), true, 'structure')
+            edits => previewSourceEdits(previous, edits), true, plan.editScope ?? 'structure')
         }
-        const edits = plan.edits.map(edit => createTrackedSourceEdit(core, previous, edit,
-          edits => previewSourceEdits(previous, edits), true))
-        return edits.every(edit => edit !== undefined) ? edits : undefined
+        const edits: DocumentSourceEdit[] = []
+        for (const edit of plan.edits) {
+          const pending = action.command === 'moveText'
+            ? createTrackedPendingArmEdits(core, previous, [edit], edits =>
+              createMarkupCompoundSourceEdits(core, previous, edits,
+                candidate => previewSourceEdits(previous, candidate), true, plan.editScope ?? 'structure'))
+            : undefined
+          if (pending !== undefined) {
+            edits.push(...pending)
+            continue
+          }
+          const compiled = createTrackedSourceEdit(core, previous, edit,
+            edits => previewSourceEdits(previous, edits), true) ??
+            (action.command === 'moveText' ? retainedTrackedHistoryEdit(core, previous, edit) : undefined)
+          if (compiled === undefined) return undefined
+          edits.push(compiled)
+        }
+        return Object.freeze(edits)
       }
-      if ('kind' in action && action.command === 'resetCodeBlock') {
+      const resetSyntax = 'kind' in action && (action.command === 'resetCodeBlock' || action.command === 'changeBlock' && action.change.type === 'reset') ? core.project(previous, 'markup').syntax : undefined
+      const resetTarget = resetSyntax === undefined ? undefined : blockCommandTarget(syntaxPathAt(resetSyntax.ast.root, resetSyntax.coordinates.toProjected('kind' in action && action.command === 'changeBlock' ? action.change.at ?? inputSourceRange(core, previous, action.selection).start : inputSourceRange(core, previous, action.selection).start, 'next')), 'kind' in action && action.command === 'changeBlock' ? action.change.scope : 'leaf')
+      if (resetSyntax !== undefined && resetTarget !== undefined && isLiteralBlock(resetTarget.kind)) {
         const first = plan.edits[0]
         const last = plan.edits.at(-1)
         if (first === undefined || last === undefined) return Object.freeze([])
         // A literal reset is one declared operation. Preserve its exact raw
         // payload while removing the parser-owned syntax spans atomically;
         // separate fence suggestions would change the literal context midway.
-        const syntax = core.project(previous, 'markup').syntax
-        const at = syntax.coordinates.toProjected(inputSourceRange(core, previous, action.selection).start, 'next')
-        const codeAt = (node: MarkdownAstNode): MarkdownAstNode | undefined => {
-          if (at < node.range.start || at > node.range.end) return undefined
-          if (node.kind === 'code-block') return node
-          for (const child of node.children) {
-            const code = codeAt(child)
-            if (code !== undefined) return code
-          }
-          return undefined
-        }
-        const code = codeAt(syntax.ast.root)
-        if (code === undefined) throw new RangeError('Code reset compilation requires the owned literal')
+        const syntax = resetSyntax
+        const code = resetTarget
         const start = first.start
         let end = Math.max(last.end, syntax.coordinates.toSource(code.range.end, 'previous'))
         for (const annotation of markupAnnotations(previous.annotations)) {
@@ -4167,7 +4256,7 @@ function createDocumentCoreWithExecutionBudget(
           edits => previewSourceEdits(previous, edits), true)
         return edit === undefined ? undefined : Object.freeze([edit])
       }
-      if (codeJoin || 'kind' in action && (action.command === 'createTable' || action.command === 'createFrontMatter' || action.command === 'changeThematicBreak' || action.command === 'createMathBlock' || action.command === 'createCodeBlock' || action.command === 'wrapCodeBlocks' || action.command === 'setTaskChecked' && action.autoMoveCheckedToEnd)) {
+      if (codeJoin || 'kind' in action && (action.command === 'changeBlock' || action.command === 'createFootnote' || action.command === 'setCodeLanguage' || action.command === 'createTable' || action.command === 'createFrontMatter' || action.command === 'changeThematicBreak' || action.command === 'createMathBlock' || action.command === 'createCodeBlock' || action.command === 'wrapCodeBlocks' || action.command === 'setTaskChecked' && action.autoMoveCheckedToEnd)) {
         if (!tracked) {
           return createMarkupCompoundSourceEdits(core, previous, plan.edits,
             edits => previewSourceEdits(previous, edits), true, 'structure')
@@ -4188,7 +4277,8 @@ function createDocumentCoreWithExecutionBudget(
       preflightSourceEdits(state.source.length, stableSourceEdits([{ ...inputSourceRange(core, previous, action.selection), insert: '' }]))
       return planInput(core, previous, action, range => state.productStore.withProduct(products =>
         paragraphEnterConversion(products.editing().source, range.start, range.end)),
-      () => state.productStore.withProduct(products => products.editing().markdown.lines))
+      () => state.productStore.withProduct(products => products.editing().markdown.lines),
+      range => regionalInputSyntax(state, range))
     },
     reconcileInput(previous: DocumentRevision, policy: DocumentInputPlan, commit: DocumentCommit | null, action: DocumentInputAction) {
       if (!stateByRevision.has(previous) || commit !== null && !stateByRevision.has(commit.revision)) throw new Error('Document revision belongs to another core')

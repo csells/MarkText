@@ -8,9 +8,9 @@ const images = (node: MarkdownAstNode): MarkdownAstNode[] =>
     : node.children.flatMap(images)
 
 it.each([
-  { source: '![cat](image.png "caption")\n', expected: '<img src="image.png" alt="cat" title="caption" width="120" />\n' },
+  { source: '![cat](image.png "caption")\n', expected: '![cat](image.png "caption"){width=120}\n' },
   { source: '<IMG alt=cat src="image.png" data-align=left>\n', expected: '<IMG alt=cat src="image.png" data-align=left width="120" />\n' },
-  { source: '![cat][ref] ![cat][ref]\n\n[ref]: image.png "caption"\n', expected: '<img src="image.png" alt="cat" title="caption" width="120" /> ![cat][ref]\n\n[ref]: image.png "caption"\n' }
+  { source: '![cat][ref] ![cat][ref]\n\n[ref]: image.png "caption"\n', expected: '![cat][ref]{width=120} ![cat][ref]\n\n[ref]: image.png "caption"\n' }
 ])('authors a native image width through the owned source while retaining siblings: $source', ({ source, expected }) => {
   const core = createDocumentCore()
   const revision = core.open(source)
@@ -60,19 +60,19 @@ it.each([false, true])('keeps an enclosing suggestion while converting its plain
   const revision = core.open(source)
   const plan = core.planFormat(revision, { format: 'image-properties', tracked, selection: { start: 3, end: source.indexOf('++}') }, properties: { width: '120' } })
   const result = core.apply(revision, plan.edits).revision
-  expect(result.source).toBe('{++<img src="image.png" alt="cat" width="120" />++}\n')
+  expect(result.source).toBe('{++![cat](image.png){width=120}++}\n')
   expect(result.annotations.map(annotation => annotation.kind)).toEqual(['addition'])
   expect(core.project(result, 'original').markdown).toBe('\n')
   expect(imageAltText(images(core.project(result, 'revised').ast.root)[0]!)).toBe('cat')
 })
 
-it('tracks layout as one complete image suggestion through the existing compiler', () => {
+it('tracks layout independently of the image label through the existing compiler', () => {
   const core = createDocumentCore()
   const source = '![cat](image.png)\n'
   const revision = core.open(source)
   const plan = core.planFormat(revision, { format: 'image-properties', tracked: true, selection: { start: 0, end: source.length - 1 }, properties: { 'data-align': 'center' } })
   const result = core.apply(revision, plan.edits).revision
-  expect(result.source).toBe('{~~![cat](image.png)~><img src="image.png" alt="cat" data-align="center" />~~}\n')
+  expect(result.source).toBe('![cat](image.png){++{data-align=center}++}\n')
   expect(core.project(result, 'original').markdown).toBe(source)
-  expect(core.project(result, 'revised').markdown).toBe('<img src="image.png" alt="cat" data-align="center" />\n')
+  expect(core.project(result, 'revised').markdown).toBe('![cat](image.png){data-align=center}\n')
 })

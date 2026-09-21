@@ -26,7 +26,22 @@ afterEach(() => {
   }
 })
 
-function fixture(source: string, failRead: () => boolean = () => false) {
+function fixture(
+  source: string,
+  failRead: () => boolean = () => false,
+  beforeMount?: { start: number; end: number; insert: string }
+) {
+  const binding = createEditorCoreBinding(createLocalCoreOwner())
+  const manager = createCoreDocumentSessionManager({ createBinding: () => binding })
+  manager.open({ documentId: 'source-syntax.md', source, lineEnding: '\r\n' })
+  const lease = manager.lease('source-syntax.md')
+  if (beforeMount !== undefined) {
+    const outcome = lease.binding.submit({ edits: [beforeMount], projections: [] }).acknowledged
+    if (outcome.type !== 'applied') throw new Error('Expected an edit before mounting Source')
+    const current = binding.sourceAtBarrier()
+    if (current.type !== 'source') throw new Error('Expected current canonical source')
+    source = current.source
+  }
   const host = document.body.appendChild(document.createElement('div'))
   const editor = codeMirror(host, { value: source, viewportMargin: Infinity })
   Object.defineProperty(editor.getScrollerElement(), 'clientHeight', {
@@ -37,12 +52,9 @@ function fixture(source: string, failRead: () => boolean = () => false) {
     clientWidth: { configurable: true, value: 800 },
     offsetWidth: { configurable: true, value: 800 }
   })
-  const binding = createEditorCoreBinding(createLocalCoreOwner())
-  const manager = createCoreDocumentSessionManager({ createBinding: () => binding })
-  manager.open({ documentId: 'source-syntax.md', source, lineEnding: '\r\n' })
-  const lease = manager.lease('source-syntax.md')
   const adapter = createCodeMirrorCoreAdapter(editor.getDoc(), lease.binding, {
     canonicalSource: source,
+    canonicalRevision: lease.identity.revision,
     insertedLineEnding: '\r\n',
     nativeHistoryScope: 'source-syntax'
   })
@@ -79,6 +91,31 @@ function fixture(source: string, failRead: () => boolean = () => false) {
 }
 
 describe('Source syntax through the existing CodeMirror presentation', () => {
+  it.each([
+    { source: '```js\r\nconst value = 42\r\n```\r\n', selector: '.cm-keyword', token: 'const' },
+    { source: '- one\r\n  - two\r\n', selector: '.cm-variable-2', token: 'two' }
+  ])(
+    'mounts the current revision after earlier document edits without recovery: $source',
+    async({ source, selector, token }) => {
+      const app = fixture('seed\r\n', () => false, { start: 0, end: 6, insert: source })
+      try {
+        expect(app.errors).toEqual([])
+        expect(app.adapter.state()).toEqual({ status: 'ready', lastAcceptedRevision: 2 })
+        expect(app.painted(selector)).toContain(token)
+        const identity = app.lease.identity
+        expect(app.binding.sourceAtBarrier()).toMatchObject({ source, revision: 2 })
+        await app.adapter.history('undo')
+        expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'seed\r\n' })
+        await app.adapter.history('redo')
+        expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
+        expect(app.lease.identity.generation).toBe(identity.generation)
+        expect(app.errors).toEqual([])
+      } finally {
+        app.dispose()
+      }
+    }
+  )
+
   it.each([
     {
       source: '{++**new**++} {--old--}\r\n{>>*note* $x_y$<<}\r\n',

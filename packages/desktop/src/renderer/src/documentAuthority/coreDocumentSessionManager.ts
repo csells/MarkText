@@ -193,46 +193,65 @@ const copySubmitInput = (input: EditorCoreSubmitInput): EditorCoreSubmitInput =>
   if (input.kind === 'input') {
     return Object.freeze({
       kind: input.kind,
-      action: Object.freeze({
-        ...input.action,
-        ...('range' in input.action
-          ? {
-            range:
-                'kind' in input.action.range
-                  ? copyDocumentSelection(input.action.range, Number.MAX_SAFE_INTEGER)
-                  : Object.freeze({ ...input.action.range })
-          }
-          : {}),
-        ...('change' in input.action
-          ? input.action.command === 'changeList'
-            ? {
-              command: input.action.command,
-              change: Object.freeze({ ...input.action.change }),
-              listOptions: Object.freeze({ ...input.action.listOptions })
-            }
-            : input.action.command === 'changeHeading'
-              ? { command: input.action.command, change: Object.freeze({ ...input.action.change }) }
-              : input.action.command === 'changeBlockquote'
+      action:
+        'kind' in input.action && input.action.command === 'moveText'
+          ? Object.freeze({
+            ...input.action,
+            target:
+                'kind' in input.action.target
+                  ? copyDocumentSelection(input.action.target, Number.MAX_SAFE_INTEGER)
+                  : Object.freeze({ ...input.action.target }),
+            selection: copyDocumentSelection(input.action.selection, Number.MAX_SAFE_INTEGER),
+            options: Object.freeze({ ...input.action.options })
+          })
+          : Object.freeze({
+            ...input.action,
+            ...('range' in input.action
+              ? {
+                range:
+                      'kind' in input.action.range
+                        ? copyDocumentSelection(input.action.range, Number.MAX_SAFE_INTEGER)
+                        : Object.freeze({ ...input.action.range })
+              }
+              : {}),
+            ...('change' in input.action
+              ? input.action.command === 'changeList'
                 ? {
                   command: input.action.command,
-                  change: Object.freeze({ ...input.action.change })
+                  change: Object.freeze({ ...input.action.change }),
+                  listOptions: Object.freeze({ ...input.action.listOptions })
                 }
-                : {
-                  command: input.action.command,
-                  change: Object.freeze({ ...input.action.change })
-                }
-          : {}),
-        ...('target' in input.action
-          ? {
-            target: Object.freeze({
-              ...input.action.target,
-              table: Object.freeze({ ...input.action.target.table })
-            })
-          }
-          : {}),
-        selection: copyDocumentSelection(input.action.selection, Number.MAX_SAFE_INTEGER),
-        options: Object.freeze({ ...input.action.options })
-      }),
+                : input.action.command === 'changeHeading'
+                  ? {
+                    command: input.action.command,
+                    change: Object.freeze({ ...input.action.change })
+                  }
+                  : input.action.command === 'changeBlock'
+                    ? {
+                      command: input.action.command,
+                      change: Object.freeze({ ...input.action.change })
+                    }
+                    : input.action.command === 'changeBlockquote'
+                      ? {
+                        command: input.action.command,
+                        change: Object.freeze({ ...input.action.change })
+                      }
+                      : {
+                        command: input.action.command,
+                        change: Object.freeze({ ...input.action.change })
+                      }
+              : {}),
+            ...('target' in input.action
+              ? {
+                target: Object.freeze({
+                  ...input.action.target,
+                  table: Object.freeze({ ...input.action.target.table })
+                })
+              }
+              : {}),
+            selection: copyDocumentSelection(input.action.selection, Number.MAX_SAFE_INTEGER),
+            options: Object.freeze({ ...input.action.options })
+          }),
       tracked: input.tracked,
       ...(input.nativeHistoryGroup === undefined
         ? {}
@@ -350,14 +369,18 @@ const resolvedPreparedInput = (
   if (selection === undefined) throw new Error('Prepared operation lost its model-owned target')
   if (input.operation.kind === 'clipboard') {
     if (input.operation.action.kind === 'table') {
-      if (!('kind' in selection) || selection.kind !== 'table') { throw new Error('Prepared table paste lost its rectangle') }
+      if (!('kind' in selection) || selection.kind !== 'table') {
+        throw new Error('Prepared table paste lost its rectangle')
+      }
       return copySubmitInput({
         kind: 'clipboard',
         action: { ...input.operation.action, selection },
         projections: input.projections
       })
     }
-    if ('start' in selection || selection.kind === 'table') { throw new Error('Prepared text paste lost its text target') }
+    if ('start' in selection || selection.kind === 'table') {
+      throw new Error('Prepared text paste lost its text target')
+    }
     return copySubmitInput({
       kind: 'clipboard',
       action: { ...input.operation.action, selection },
@@ -436,7 +459,9 @@ export function createCoreDocumentSessionManager(
       session.recovery !== undefined ||
       session.terminalFault !== undefined ||
       sessions.get(session.documentId) !== session
-    ) { return }
+    ) {
+      return
+    }
     try {
       const result = session.binding.sourceAtBarrier()
       if (
@@ -510,8 +535,12 @@ export function createCoreDocumentSessionManager(
       let captureDraft: ((error: unknown) => CoreRecoveryDraftInput | undefined) | undefined
       const viewObservers = new Set<(event: EditorCoreObservation) => void>()
       const assertSelectionOwner = (): void => {
-        if (released || sessions.get(documentId) !== session) { throw new Error('Core document view lease is released') }
-        if (session.recovery !== undefined || session.terminalFault !== undefined) { throw new Error('Core document recovery is required') }
+        if (released || sessions.get(documentId) !== session) {
+          throw new Error('Core document view lease is released')
+        }
+        if (session.recovery !== undefined || session.terminalFault !== undefined) {
+          throw new Error('Core document recovery is required')
+        }
         if (session.barrierFailure !== undefined) throw session.barrierFailure
       }
       const viewBinding: EditorCoreBinding = Object.freeze({
@@ -608,8 +637,12 @@ export function createCoreDocumentSessionManager(
           throw new Error('Core view cannot bypass the session save barrier')
         },
         sourceSelectionAtBarrier: (selection: DocumentSelection) => {
-          if (released || sessions.get(documentId) !== session) { throw new Error('Core document view lease is released') }
-          if (session.recovery !== undefined || session.terminalFault !== undefined) { throw new Error('Core document recovery is required') }
+          if (released || sessions.get(documentId) !== session) {
+            throw new Error('Core document view lease is released')
+          }
+          if (session.recovery !== undefined || session.terminalFault !== undefined) {
+            throw new Error('Core document recovery is required')
+          }
           if (session.barrierFailure !== undefined) throw session.barrierFailure
           return session.binding.sourceSelectionAtBarrier(selection)
         },

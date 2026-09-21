@@ -31,14 +31,14 @@ for (const resize of [false, true]) {
                 await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2, { steps: 4 });
                 const width = await images.last().getAttribute('width');
                 expect(Number(width)).toBeGreaterThan(160);
-                property = `width="${width}"`;
+                property = `width=${width}`;
                 await page.mouse.up();
             }
             else {
                 await page.locator('.mu-image-toolbar li.center').click();
-                property = 'data-align="center"';
+                property = 'data-align=center';
             }
-            const expected = `${image} <img src="${url}" alt="cat" ${property} />\n`;
+            const expected = `${image} ${image}{${property}}\n`;
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected }, legacyCalls: [] });
             await page.keyboard.type('X');
             const typed = `${expected.slice(0, -1)}X\n`;
@@ -56,12 +56,14 @@ for (const resize of [false, true]) {
     });
 }
 
-test('a rejected CM-label resize preserves source and restores the canonical rendered width', async ({ page }) => {
+test('native resizing preserves independent CM labels and comments through input, history and a mounted reopen', async ({ page }) => {
     await page.route(url, route => route.fulfill({
         contentType: 'image/svg+xml',
         body: '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80"><rect width="160" height="80" fill="blue"/></svg>',
     }));
-    const original = `![a{++b++}c](${url})\n`;
+    const original = `![A {++sunny ++}{++sandy ++}beach{>>keep<<}](${url})\n`;
+    const expected = `![A {++sunny ++}{++sandy ++}beach{>>keep<<}](${url}){width=200}\n`;
+    const caret = `![A sunny sandy beach](${url}){width=200}`.length;
     await page.evaluate(async (source) => {
         const modulePath = '/coreBoundaryControl.ts';
         const control = await import(/* @vite-ignore */ modulePath);
@@ -70,7 +72,6 @@ test('a rejected CM-label resize preserves source and restores the canonical ren
     try {
         const image = page.locator('#editor .mu-inline-image img');
         await expect.poll(() => image.evaluate(image => (image as HTMLImageElement).naturalWidth)).toBe(160);
-        const width = await image.getAttribute('width');
         await image.click();
         const handle = page.locator('.mu-transformer .bar.right');
         await expect(handle).toBeVisible();
@@ -79,21 +80,155 @@ test('a rejected CM-label resize preserves source and restores the canonical ren
         await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
         await page.mouse.down();
         await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2, { steps: 4 });
-        expect(Number(await image.getAttribute('width'))).toBeGreaterThan(160);
+        await expect(image).toHaveAttribute('width', '200');
         await page.mouse.up();
-        const result = await page.evaluate(async () => {
-            let rejected = false;
-            try { await window.coreBoundary.settle(); }
-            catch { rejected = true; }
-            return { rejected, state: window.coreBoundary.read(), recovery: window.coreBoundary.recovery() };
-        });
-        console.log('Rejected CM image resize', JSON.stringify({ result, width: await image.getAttribute('width') }));
-        expect(result.state).toMatchObject({ source: { source: original, revision: 1, recoveryHistory: { undo: [], redo: [] } }, legacyCalls: [] });
-        expect(result.recovery?.commands).toEqual([{ kind: 'format', action: { format: 'image-properties', selection: { start: 0, end: original.length - 1 }, tracked: false, properties: { width: '200' } } }]);
-        expect(result.rejected).toBe(false);
-        expect(await image.getAttribute('width')).toBe(width);
+        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected }, anchor: caret, caret, legacyCalls: [] });
+        await expect(image).toHaveAttribute('width', '200');
+        await expect(image).toHaveAttribute('alt', 'A sunny sandy beach');
+        await page.keyboard.type('X');
+        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: `${expected.slice(0, -1)}X\n` }, legacyCalls: [] });
+        await page.evaluate(() => window.coreBoundary.history('undo'));
+        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected } });
+        await page.evaluate(() => window.coreBoundary.history('undo'));
+        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: original } });
+        await page.evaluate(() => window.coreBoundary.history('redo'));
+        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+        await page.evaluate(async (source) => {
+            window.coreBoundary.dispose();
+            const modulePath = '/coreBoundaryControl.ts';
+            const control = await import(/* @vite-ignore */ modulePath);
+            window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
+        }, expected);
+        await expect(image).toHaveAttribute('width', '200');
+        await expect(image).toHaveAttribute('alt', 'A sunny sandy beach');
+        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected }, legacyCalls: [] });
     }
     finally {
         await page.evaluate(() => window.coreBoundary.dispose());
     }
+});
+
+for (const annotated of [false, true]) {
+    test(`native rich clipboard preserves image layout from ${annotated ? 'CM' : 'plain'} labels`, async ({ page }) => {
+        await page.route(url, route => route.fulfill({
+            contentType: 'image/svg+xml',
+            body: '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80"><rect width="160" height="80" fill="blue"/></svg>',
+        }));
+        const label = annotated ? 'A {++sunny ++}{++sandy ++}beach{>>keep<<}' : 'A sunny sandy beach';
+        const original = `![${label}](${url}){width=160 height=80 data-align=center}\n\nend\n`;
+        const imported = `<img src="${url}" alt="A sunny sandy beach" width="160" height="80" data-align="center">`;
+        const standalone = await page.evaluate(async (html) => {
+            const muya = window.muya!;
+            muya.setContent('end\n');
+            muya.editor.scrollPage!.firstContentInDescendant()!.setCursor(3, 3);
+            const data = new DataTransfer();
+            data.setData('text/plain', 'A sunny sandy beach');
+            data.setData('text/html', `<p>${html}</p>`);
+            await muya.editor.clipboard.pasteHandler(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+            muya.flush();
+            return muya.getMarkdown();
+        }, imported);
+        expect(standalone).toBe(`end${imported}\n`);
+        await page.evaluate(async (source) => {
+            const modulePath = '/coreBoundaryControl.ts';
+            const control = await import(/* @vite-ignore */ modulePath);
+            window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
+            await window.coreBoundary.prepareClipboardCopy();
+        }, original);
+        try {
+            const images = page.locator('#editor .mu-inline-image img');
+            await images.first().click();
+            const copied = await page.evaluate(() => window.coreBoundary.guardedClipboard('copy'));
+            // Ordinary rich copy publishes Revised text and HTML; the original
+            // document retains its independent suggestions and comment.
+            expect(copied.text.trim()).toBe(`![A sunny sandy beach](${url}){width=160 height=80 data-align=center}`);
+            expect(copied.html).toContain('width="160" height="80" data-align="center"');
+            await page.locator('#editor .mu-paragraph-content').last().click();
+            await page.keyboard.press('End');
+            await page.evaluate(async ({ text, html }) => {
+                const data = new DataTransfer();
+                data.setData('text/plain', text);
+                data.setData('text/html', html);
+                await window.muya!.editor.clipboard.pasteHandler(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+                window.muya!.flush();
+                await window.coreBoundary.settle();
+            }, copied);
+            const expected = `${original.slice(0, -1)}${imported}\n`;
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected }, legacyCalls: [] });
+            await expect(images).toHaveCount(2);
+            await expect(images.last()).toHaveAttribute('width', '160');
+            await expect(images.last()).toHaveAttribute('height', '80');
+            await page.keyboard.type('X');
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: `${expected.slice(0, -1)}X\n` }, legacyCalls: [] });
+            await page.evaluate(() => window.coreBoundary.history('undo'));
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected } });
+            await page.evaluate(() => window.coreBoundary.history('undo'));
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: original } });
+            await page.evaluate(() => window.coreBoundary.history('redo'));
+            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+        }
+        finally { await page.evaluate(() => window.coreBoundary.dispose()); }
+    });
+}
+
+test('repeated tracked native resizing presents the latest width while preserving the old width and alt suggestions', async ({ page }) => {
+    await page.route(url, route => route.fulfill({
+        contentType: 'image/svg+xml',
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80"><rect width="160" height="80" fill="blue"/></svg>',
+    }));
+    const original = `![a{++b++}c{>>keep<<}](${url}){width=120}\n`;
+    const firstResize = `![a{++b++}c{>>keep<<}](${url}){width={~~120~>200~~}}\n`;
+    const expected = `![a{++b++}c{>>keep<<}](${url}){width={~~120~>240~~}}\n`;
+    await page.evaluate(async (source) => {
+        const modulePath = '/coreBoundaryControl.ts';
+        const control = await import(/* @vite-ignore */ modulePath);
+        window.coreBoundary = control.bootCoreBoundary(window.muya!, source, true);
+    }, original);
+    try {
+        const image = page.locator('#editor .mu-inline-image img');
+        await expect(image).toHaveAttribute('width', '120');
+        await image.click();
+        const handle = page.locator('.mu-transformer .bar.right');
+        await expect(handle).toBeVisible();
+        const box = await handle.boundingBox();
+        if (!box) throw new Error('Missing tracked image resize handle');
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height / 2, { steps: 4 });
+        await page.mouse.up();
+        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: firstResize }, legacyCalls: [] });
+        await expect(image).toHaveAttribute('width', '200');
+        await expect(image).toHaveAttribute('alt', 'abc');
+        await image.click();
+        await expect(handle).toBeVisible();
+        const secondBox = await handle.boundingBox();
+        if (!secondBox) throw new Error('Missing repeated image resize handle');
+        await page.mouse.move(secondBox.x + secondBox.width / 2, secondBox.y + secondBox.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(secondBox.x + secondBox.width / 2 + 40, secondBox.y + secondBox.height / 2, { steps: 4 });
+        await page.mouse.up();
+        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected }, legacyCalls: [] });
+        await expect(image).toHaveAttribute('width', '240');
+        await page.keyboard.type('X');
+        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: `${expected.slice(0, -1)}{++X++}\n` }, legacyCalls: [] });
+        await page.evaluate(() => window.coreBoundary.history('undo'));
+        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected } });
+        await page.evaluate(() => window.coreBoundary.history('undo'));
+        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: firstResize } });
+        await page.evaluate(() => window.coreBoundary.history('undo'));
+        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: original } });
+        await expect(image).toHaveAttribute('width', '120');
+        await page.evaluate(() => window.coreBoundary.history('redo'));
+        await page.evaluate(() => window.coreBoundary.history('redo'));
+        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
+        await page.evaluate(async (source) => {
+            window.coreBoundary.dispose();
+            const modulePath = '/coreBoundaryControl.ts';
+            const control = await import(/* @vite-ignore */ modulePath);
+            window.coreBoundary = control.bootCoreBoundary(window.muya!, source, true);
+        }, expected);
+        await expect(image).toHaveAttribute('width', '240');
+        await expect(image).toHaveAttribute('alt', 'abc');
+    }
+    finally { await page.evaluate(() => window.coreBoundary.dispose()); }
 });

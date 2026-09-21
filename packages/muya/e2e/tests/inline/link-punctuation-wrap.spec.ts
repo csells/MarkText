@@ -10,7 +10,7 @@ import { expect, test } from '../fixtures/muya';
 
 test.describe('punctuation after a link does not wrap (#2258/#3025)', () => {
     test('a zero-size hidden marker introduces no wrap opportunity before a period', async ({ page }) => {
-        await page.goto('http://localhost:5174/');
+        await page.goto('/');
 
         const sameLine = await page.evaluate(() => {
             const host = document.createElement('div');
