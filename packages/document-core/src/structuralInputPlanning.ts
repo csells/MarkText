@@ -1,4 +1,5 @@
 import { planParagraphTab } from './listTabPlanning.js'
+import { planCodeLanguage } from './codeLanguagePlanning.js'
 import { codeTabExpansion, frontMatterPolicy } from '@marktext/input-policy'
 import { planListChange } from './listInputPlanning.js'
 import { planTaskChecked } from './taskInputPlanning.js'
@@ -11,10 +12,12 @@ import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNod
 import type { DocumentInputAction, DocumentSourceInputPlan } from './inputPlanning.js'
 import { resolveTableCell } from './tableSelection.js'
 import { positionAfter } from './sourcePosition.js'
-import { tableRowCompletion } from './tableCellEditing.js'
+import { materializeTableCellEdit, tableRowCompletion } from './tableCellEditing.js'
 import { paragraphPrefixPosition, paragraphImageRange } from './paragraphBoundary.js'
-import { codeJoinParagraphText, emptyParagraphJoinContainer, paragraphJoinBlock, paragraphJoinAdjacent, paragraphJoinTrailingEdits } from './paragraphJoinPlanning.js'
+import { literalJoinParagraphText, tableJoinParagraphText, emptyParagraphJoinContainer, paragraphJoinBlock, paragraphJoinAdjacent, paragraphJoinTrailingEdits } from './paragraphJoinPlanning.js'
 import { syntaxPathAt } from './syntaxPath.js'
+import { blockCommandTarget, planBlockCommand } from './blockCommandPlanning.js'
+import { isLiteralBlock, literalParagraphSpelling } from './literalBlock.js'
 
 /** Shared sparse removal for native table commands and rectangular selections. */
 export function planTableRemoval(
@@ -121,7 +124,8 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
   const preceding = core.sourceSlice(revision, { start: 0, end: start })
   const lineEnding = preceding.match(/\r\n|\r|\n/u)?.[0] ?? core.sourceSlice(revision, { start, end: revision.sourceLength }).match(/\r\n|\r|\n/u)?.[0] ?? '\n'
   const projection = core.project(revision, 'markup').syntax
-  const projected = projection.coordinates.toProjected(start, 'next')
+  const targetPosition = 'kind' in action && action.command === 'changeBlock' ? action.change.at ?? start : start
+  const projected = projection.coordinates.toProjected(targetPosition, 'next')
   const ancestors: MarkdownAstNode[] = []
   const ownsTrailingMarker = (node: MarkdownAstNode): boolean => {
     const emptyContainer = ['list', 'list-item', 'blockquote'].includes(node.kind) &&
@@ -129,7 +133,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     return emptyContainer && projected > node.range.end &&
       /^[ \t]*$/u.test(core.sourceSlice(revision, { start: projection.coordinates.toSource(node.range.end, 'previous'), end: start }))
   }
-  if (selectedCell === undefined) ancestors.push(...syntaxPathAt(projection.ast.root, projected, ownsTrailingMarker))
+  if (selectedCell === undefined || 'kind' in action && action.command === 'changeBlock' && action.change.at !== undefined) ancestors.push(...syntaxPathAt(projection.ast.root, projected, ownsTrailingMarker))
   else {
     const visit = (node: MarkdownAstNode): boolean => {
       if (node === selectedCell.table) { ancestors.push(node); return true }
@@ -213,6 +217,46 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
   }
   if ('kind' in action) {
     switch (action.command) {
+      case 'createFootnote': {
+        if (action.identifier === '' || /[[\]\r\n]/u.test(action.identifier)) throw new RangeError('Footnote creation requires a valid identifier')
+        const tail = core.sourceSlice(revision, { start: Math.max(0, revision.sourceLength - lineEnding.length * 2), end: revision.sourceLength })
+        const separator = revision.sourceLength === 0 || tail.endsWith(lineEnding + lineEnding) ? '' : tail.endsWith(lineEnding) ? lineEnding : lineEnding + lineEnding
+        const insert = separator + '[^' + action.identifier + ']: '
+        const caret = revision.sourceLength + insert.length
+        return result([{ start: revision.sourceLength, end: revision.sourceLength, insert }], { start: caret, end: caret })
+      }
+      case 'setCodeLanguage': {
+        const planned = planCodeLanguage(core, revision, action.selection, action.language)
+        return result(planned.edits, planned.selection)
+      }
+      case 'changeBlock': {
+        const target = blockCommandTarget(ancestors, action.change.scope)
+        if (action.change.type !== 'reset') {
+          const plan = planBlockCommand(core, revision, projection, physicalLines(), target, action.change, lineEnding)
+          return result(plan.edits, plan.selection)
+        }
+        if (target.kind === 'table') return result([], { start, end })
+        if (target.kind === 'paragraph') {
+          const caret = projection.coordinates.toSource(action.change.selectionMode === 'end' ? target.range.end : target.range.start, action.change.selectionMode === 'end' ? 'previous' : 'next')
+          return result([], action.change.selectionMode === 'preserve' ? { start, end } : { start: caret, end: caret })
+        }
+        const converted: DocumentInputAction<SourceRange> = target.kind === 'list'
+          ? { ...action, command: 'changeList', change: { type: 'reset' }, listOptions: { bulletListMarker: '-', orderListDelimiter: '.' } }
+          : target.kind === 'blockquote'
+            ? { ...action, command: 'changeBlockquote', change: { type: 'reset' } }
+            : target.kind === 'heading'
+              ? { ...action, command: 'changeHeading', change: { type: 'paragraph' } }
+              : target.kind === 'thematic-break'
+                ? { ...action, command: 'changeThematicBreak', change: { type: 'reset' } }
+                : { ...action, command: 'resetCodeBlock', selectionMode: action.change.selectionMode === 'preserve' ? 'preserve' : 'end' }
+        const targetSelection = action.change.at === undefined ? action.selection : { start: action.change.at, end: action.change.at }
+        const plan = planStructuralInput(core, revision, { ...converted, selection: targetSelection }, enterConversion, physicalLines)
+        if (action.change.selectionMode !== 'end' || isLiteralBlock(target.kind)) return result([...plan.edits], plan.selection)
+        let lastContent = target
+        for (let child = lastContent.children.at(-1); child !== undefined; child = lastContent.children.at(-1)) lastContent = child
+        const caret = positionAfter(plan.edits, projection.coordinates.toSource(lastContent.range.end, 'previous'), false)
+        return result([...plan.edits], { start: caret, end: caret })
+      }
       case 'joinParagraphBackward':
       case 'joinParagraphForward': {
         const forward = action.command === 'joinParagraphForward'
@@ -235,11 +279,55 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
         if (current === undefined || start !== end) throw new RangeError('Paragraph join requires a block-boundary caret')
         const boundary = forward && current.attributes.style === 'setext' ? Number(current.attributes.contentEnd) : forward ? contentEnd(current) : emptyContainer(current) ? contentEnd(current) : paragraphImageRange(current)?.start ?? current.range.start
         if (projected !== boundary && !(forward && current.kind === 'definition' && projected === current.range.end)) throw new RangeError('Paragraph join requires a block-boundary caret')
+        const containers = ancestors.filter(node => node.kind === 'blockquote' || node.kind === 'list-item')
+        const container = containers.at(-1)
+        if (!forward && container?.kind === 'blockquote' && (container.children[0] === current || container === current)) {
+          const edits: DocumentSourceEdit[] = []
+          const lines = physicalLines()
+          const next = container.children[1]
+          let limit = container.range.end
+          if (next !== undefined) {
+            for (let index = 0; index < lines.count; index++) {
+              const line = lines.at(index)
+              if (line.start <= next.range.start && line.end > next.range.start) { limit = line.start; break }
+            }
+          }
+          for (let index = 0; index < lines.count; index++) {
+            const line = lines.at(index)
+            for (const marker of line.blockquoteMarkers) {
+              if (marker.depth === containers.length - 1 && marker.start >= container.range.start && marker.end <= limit) {
+                edits.push({ start: sourceAt(marker.start), end: projection.coordinates.toSource(marker.end, 'previous'), insert: '' })
+              }
+            }
+          }
+          const caret = positionAfter(edits, start, true)
+          return result(edits, { start: caret, end: caret })
+        }
         const adjacent = paragraphJoinAdjacent(projection, current, forward)
         if (adjacent === undefined) return result([], { start, end })
         const previous = forward ? current : adjacent
         const paragraph = forward ? adjacent : current
-        if (!forward && previous.kind === 'code-block' && paragraphLike(paragraph)) {
+        if (!forward && previous.kind === 'table-cell' && paragraphLike(paragraph)) {
+          const path = syntaxPathAt(projection.ast.root, previous.range.start)
+          const table = path.find(node => node.kind === 'table')
+          const row = path.find(node => node.kind === 'table-row')
+          if (table === undefined || row === undefined) throw new RangeError('Paragraph join requires an owned table cell')
+          const address = { table: { start: projection.coordinates.toSource(table.range.start, 'previous'), end: projection.coordinates.toSource(table.range.end, 'next') }, row: table.children.indexOf(row), column: row.children.indexOf(previous) }
+          const cell = resolveTableCell(core, revision, address)
+          const target = cell.end
+          const donor = paragraphImageRange(paragraph) ?? paragraph.range
+          const text = tableJoinParagraphText(core, revision, projection, paragraph)
+          const spelled = tableToMarkdownWithPositions({ children: [{ children: [{ text, meta: { align: 'none' } }] }] })
+          const spelledCell = spelled.rows[0]?.cells[0]
+          if (spelledCell === undefined) throw new RangeError('Joined table text has no cell spelling')
+          const materialized = materializeTableCellEdit(cell, { start: target, end: target, insert: spelled.markdown.slice(spelledCell.start, spelledCell.end) })
+          const from = address.table.start
+          const tableEnd = projection.coordinates.toSource(table.range.end, 'previous')
+          const insert = core.sourceSlice(revision, { start: from, end: target }) + materialized.edit.insert + core.sourceSlice(revision, { start: target, end: tableEnd })
+          const caret = target + materialized.prefixLength
+          return result([{ start: from, end: projection.coordinates.toSource(donor.end, 'next'), insert }], { start: caret, end: caret })
+        }
+        if (!forward && isLiteralBlock(previous.kind) && paragraphImageRange(previous) === undefined && paragraphLike(paragraph)) {
           const payloadEnd = previous.children.at(-1)?.range.end
           if (payloadEnd === undefined) throw new RangeError('Code join requires its owned literal payload')
           const target = projection.coordinates.toSource(payloadEnd, 'previous')
@@ -251,15 +339,31 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
             if (line.start > paragraph.range.end) break
           }
           const from = sourceAt(previous.range.start)
-          const codeEnd = projection.coordinates.toSource(previous.range.end, 'previous')
-          const donor = codeJoinParagraphText(core, revision, projection, lines, previous, paragraph)
-          const insert = core.sourceSlice(revision, { start: from, end: target }) +
+          let literalEnd = previous.range.end
+          for (let index = 0; index < lines.count; index++) {
+            const line = lines.at(index)
+            if (line.start < literalEnd && line.contentEnd === literalEnd) { literalEnd = line.end; break }
+            if (line.start > literalEnd) break
+          }
+          const codeEnd = projection.coordinates.toSource(literalEnd, 'previous')
+          const donor = literalJoinParagraphText(core, revision, projection, lines, previous, paragraph)
+          let insert = core.sourceSlice(revision, { start: from, end: target }) +
             donor.text +
             core.sourceSlice(revision, { start: target, end: codeEnd })
+          if (previous.kind === 'html-block' && previous.attributes.termination === 'blank-line') {
+            for (let index = 0; index < lines.count; index++) {
+              const line = lines.at(index)
+              if (line.start === removedEnd && line.blank) {
+                insert += core.sourceSlice(revision, { start: sourceAt(line.start), end: projection.coordinates.toSource(line.end, 'previous') })
+                removedEnd = line.end
+                break
+              }
+            }
+          }
           const caret = target + donor.emptyPrefix.length
           return result([{ start: from, end: projection.coordinates.toSource(removedEnd, 'next'), insert }], { start: caret, end: caret })
         }
-        if (!paragraphLike(previous) && previous.kind !== 'heading' || !paragraphLike(paragraph)) throw new RangeError('Paragraph join requires an adjacent paragraph or heading')
+        if (!paragraphLike(previous) && previous.kind !== 'heading' && previous.kind !== 'thematic-break' || !paragraphLike(paragraph)) throw new RangeError('Paragraph join requires an adjacent paragraph or heading')
         const from = sourceAt(contentEnd(previous))
         const to = projection.coordinates.toSource(emptyContainer(paragraph) ? contentEnd(paragraph) : paragraphImageRange(paragraph)?.start ?? paragraph.range.start, 'previous')
         const trailing = forward ? paragraphJoinTrailingEdits(core, revision, projection, physicalLines(), previous, paragraph) : []
@@ -339,7 +443,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
       }
       case 'resetCodeBlock': {
         if (action.selectionMode !== 'preserve' && action.selectionMode !== 'end') throw new RangeError('Invalid code reset selection mode')
-        const code = [...ancestors].reverse().find(node => node.kind === 'code-block')
+        const code = [...ancestors].reverse().find(node => isLiteralBlock(node.kind))
         if (code === undefined || typeof code.attributes.contentStart !== 'number' || typeof code.attributes.contentEnd !== 'number') throw new RangeError('Code reset requires an owned code block')
         const payload = code.children
         const first = payload[0]
@@ -380,8 +484,9 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
             remove(sourceAt(prefixEnd(line)), range.start)
             previousLine = line.start
           }
-          const text = child.attributes.semanticText
-          if (typeof text !== 'string') throw new RangeError('Code reset requires literal payload text')
+          const value = child.attributes.semanticText
+          if (typeof value !== 'string') throw new RangeError('Code reset requires literal payload text')
+          const text = code.kind === 'html-block' ? literalParagraphSpelling(value) : value
           if (core.sourceSlice(revision, range) !== text) edits.push({ ...range, insert: text })
         }
         remove(payloadEnd, to)
@@ -490,6 +595,8 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
         const caret = at + prefix.length + first.start - (replace ? continuation.length : 0)
         return result([{ start: at, end: replace ? to : at, insert }], { start: caret, end: caret })
       }
+      case 'moveText':
+      case 'moveBlock':
       case 'moveTableColumn':
       case 'moveTableRow':
         throw new RangeError('Table moves require the directed model input boundary')
@@ -618,14 +725,29 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
           ? paragraphPrefixPosition(revision.annotations, { start: paragraphStart, end: to }) ?? paragraphStart
           : paragraphStart
         const payloadStart = block.kind === 'paragraph' ? from : sourceAt(contentStart)
-        const payloadEnd = projection.coordinates.toSource(contentEnd, 'previous')
         const marker = level === 0 ? '' : '#'.repeat(level) + ' '
         if (change.type === 'quick-insert') {
           if (block.kind !== 'paragraph') throw new RangeError('Quick insertion requires a paragraph')
           return result([{ start: from, end: to, insert: marker }], { start: from + marker.length, end: from + marker.length })
         }
-        const edits: DocumentSourceEdit[] = [{ start: from, end: payloadStart, insert: marker }]
-        if (payloadEnd < to) edits.push({ start: payloadEnd, end: to, insert: '' })
+        const edits: DocumentSourceEdit[] = []
+        const removeMarkers = (start: number, end: number) => {
+          for (const segment of projection.coordinates.sourceSegments ?? []) {
+            const left = Math.max(start, segment.projected.start)
+            const right = Math.min(end, segment.projected.end)
+            if (right <= left) continue
+            edits.push({ start: segment.source.start + left - segment.projected.start, end: segment.source.start + right - segment.projected.start, insert: '' })
+          }
+        }
+        // Prefixes and closing markers own their visible spelling, not any
+        // zero-width comments or annotations between those delimiter spans.
+        if (block.kind === 'heading') {
+          removeMarkers(block.range.start, contentStart)
+          const first = edits[0]
+          if (first?.start === from) edits[0] = { ...first, insert: marker }
+          else if (marker !== '') edits.unshift({ start: from, end: from, insert: marker })
+          removeMarkers(contentEnd, block.range.end)
+        } else edits.push({ start: from, end: payloadStart, insert: marker })
         return result(edits, {
           start: positionAfter(edits, Math.max(start, payloadStart), true),
           end: positionAfter(edits, Math.max(end, payloadStart), true)

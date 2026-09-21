@@ -9,7 +9,9 @@ import { createMuyaMarkupPresentationIndex } from '@/documentAuthority/muyaMarku
 import {
   muyaInputToModel,
   muyaFormatToModel,
-  muyaActiveFormats
+  muyaClipboardToModel,
+  muyaActiveFormats,
+  muyaCodeLanguage
 } from '@/documentAuthority/muyaModelSelection'
 import { reconcileMuyaDocumentView } from '@/documentAuthority/reconcileMuyaDocumentView'
 import type { CoreAppliedReply } from '@/documentAuthority/coreProtocol'
@@ -82,7 +84,9 @@ it.each(
     binding.open({ documentId: 'native-formatting.md', source })
     const view = () => {
       const reply = binding.plainTextViewAtBarrier()
-      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Missing model view') }
+      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+        throw new Error('Missing model view')
+      }
       return reply.view
     }
     const initial = view()
@@ -110,7 +114,9 @@ it.each(
         change !== null &&
         typeof change === 'object' &&
         (change as { source?: unknown }).source === 'user'
-      ) { results.push(adapter.accept(change)) }
+      ) {
+        results.push(adapter.accept(change))
+      }
     })
     try {
       muya.setInlinePresentation(presentation.render)
@@ -123,6 +129,8 @@ it.each(
         prepareClipboard() {
           throw new Error('Unexpected async clipboard preparation in this test')
         },
+        emojiContext: () => undefined,
+        codeLanguage: (point) => muyaCodeLanguage(muya, view(), point),
         activeFormats: (selection) => muyaActiveFormats(muya, view(), selection),
         clipboard() {
           throw new Error('Unexpected clipboard action in this input test')
@@ -163,7 +171,9 @@ it.each(
       })
       if (route === 'menu') muya.format(type)
       else {
-        if (!('format' in block) || typeof block.format !== 'function') { throw new Error('Missing toolbar format receiver') }
+        if (!('format' in block) || typeof block.format !== 'function') {
+          throw new Error('Missing toolbar format receiver')
+        }
         block.format(type)
       }
       muya.flush()
@@ -232,7 +242,9 @@ const bootFormatting = (source: string, tracked = false, legacyFallback = false)
   binding.open({ documentId: 'format-controls.md', source })
   const view = () => {
     const reply = binding.plainTextViewAtBarrier()
-    if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Missing model view') }
+    if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+      throw new Error('Missing model view')
+    }
     return reply.view
   }
   const host = document.body.appendChild(document.createElement('div'))
@@ -275,9 +287,16 @@ const bootFormatting = (source: string, tracked = false, legacyFallback = false)
     prepareClipboard() {
       throw new Error('Unexpected async clipboard preparation in this test')
     },
+    emojiContext: () => undefined,
+    codeLanguage: (point) => muyaCodeLanguage(muya, view(), point),
     activeFormats: (selection) => muyaActiveFormats(muya, view(), selection),
-    clipboard() {
-      throw new Error('Unexpected clipboard action in this input test')
+    clipboard(operation, present) {
+      const result = adapter.clipboard(
+        muyaClipboardToModel(muya, view(), operation, tracked),
+        reconcile
+      )
+      if (!result.accepted) present()
+      return result.changed
     },
     compositionStart: unexpectedComposition,
     compositionUpdate: unexpectedComposition,
@@ -467,7 +486,9 @@ it.each([
     const binding = createEditorCoreBinding(createLocalCoreOwner())
     binding.open({ documentId: 'active-formats.md', source })
     const reply = binding.plainTextViewAtBarrier()
-    if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Missing model view') }
+    if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+      throw new Error('Missing model view')
+    }
     const view = reply.view
     const host = document.body.appendChild(document.createElement('div'))
     const muya = new Muya(host)
@@ -482,6 +503,8 @@ it.each([
         prepareClipboard() {
           throw new Error('Unexpected async clipboard preparation in this test')
         },
+        emojiContext: () => undefined,
+        codeLanguage: (point) => muyaCodeLanguage(muya, view, point),
         activeFormats: (selection) => muyaActiveFormats(muya, view, selection),
         clipboard: unexpectedComposition,
         compositionStart: unexpectedComposition,
@@ -794,6 +817,17 @@ it.each([
     source: '![aaa][ref]\n\n[ref]: old.png\n',
     cursor: 11,
     expected: '![aaa](https://example.com/image.png)\n\n[ref]: old.png\n'
+  },
+  {
+    source: '![a{++a++}a](old.png){width=120 height=50% data-align=center}\n',
+    cursor: '![aaa](old.png){width=120 height=50% data-align=center}'.length,
+    expected:
+      '![a{++a++}a](https://example.com/image.png){width=120 height=50% data-align=center}\n'
+  },
+  {
+    source: '![a{++a++}a][ref]{width=120}\n\n[ref]: old.png\n',
+    cursor: '![aaa][ref]{width=120}'.length,
+    expected: '![a{++a++}a](https://example.com/image.png){width=120}\n\n[ref]: old.png\n'
   }
 ])(
   'changes the actual native image destination without rewriting its label or shared definition: $source',
@@ -864,7 +898,7 @@ it.each([
     source: '![cat](image.png)\n',
     attr: 'width',
     value: '120',
-    expected: '<img src="image.png" alt="cat" width="120" />\n'
+    expected: '![cat](image.png){width=120}\n'
   },
   {
     source: '<img src="image.png" alt="cat" width=90 data-align=left>\n',
@@ -876,13 +910,26 @@ it.each([
     source: '![cat][ref] ![cat][ref]\n\n[ref]: image.png\n',
     attr: 'width',
     value: '120',
-    expected: '![cat][ref] <img src="image.png" alt="cat" width="120" />\n\n[ref]: image.png\n'
+    expected: '![cat][ref] ![cat][ref]{width=120}\n\n[ref]: image.png\n'
   },
   {
     source: '![cat](image.png) ![cat](image.png)\n',
     attr: 'data-align',
     value: 'center',
-    expected: '![cat](image.png) <img src="image.png" alt="cat" data-align="center" />\n'
+    expected: '![cat](image.png) ![cat](image.png){data-align=center}\n'
+  },
+  {
+    source: '![A {++sunny ++}{++sandy ++}beach{>>keep<<}](image.png)\n',
+    attr: 'width',
+    value: '120',
+    expected: '![A {++sunny ++}{++sandy ++}beach{>>keep<<}](image.png){width=120}\n'
+  },
+  {
+    source: '![A {++sunny ++}{++sandy ++}beach{>>keep<<}][ref]{width=120}\n\n[ref]: image.png\n',
+    attr: 'data-align',
+    value: 'center',
+    expected:
+      '![A {++sunny ++}{++sandy ++}beach{>>keep<<}][ref]{width=120 data-align=center}\n\n[ref]: image.png\n'
   }
 ])(
   'authors the actual selected native image layout through Core: $source',
@@ -930,6 +977,291 @@ it.each([
       const reopened = bootFormatting(saved.source)
       try {
         expect(reopened.binding.sourceAtBarrier()).toMatchObject({ source: expected })
+      } finally {
+        reopened.dispose()
+      }
+    } finally {
+      setup.dispose()
+    }
+  }
+)
+
+it.each([
+  { sunny: 'accept', sandy: 'accept', label: 'A sunny sandy beach' },
+  { sunny: 'accept', sandy: 'reject', label: 'A sunny beach' },
+  { sunny: 'reject', sandy: 'accept', label: 'A sandy beach' },
+  { sunny: 'reject', sandy: 'reject', label: 'A beach' }
+] as const)(
+  'keeps resized alt suggestions independently reviewable: $sunny/$sandy',
+  async({ sunny, sandy, label }) => {
+    const source = '![A {++sunny ++}{++sandy ++}beach{>>keep<<}](image.png)\n'
+    const resized = source.replace(')\n', '){width=120}\n')
+    const setup = bootFormatting(source)
+    let picker:
+      | {
+        imageInfo: unknown
+        block: { updateImage(info: unknown, attr: string, value: string): void }
+      }
+      | undefined
+    setup.muya.on('muya-image-selector', (event: typeof picker) => {
+      picker = event
+    })
+    try {
+      const block = setup.muya.editor.scrollPage?.firstContentInDescendant()
+      if (!block) throw new Error('Missing native image paragraph')
+      block.setCursor(block.text.length, block.text.length, true)
+      expect(setup.muya.showImageSelectorAtSelection()).toBe(true)
+      if (!picker) throw new Error('Missing selected image')
+      picker.block.updateImage(picker.imageInfo, 'width', '120')
+      expect(setup.binding.sourceAtBarrier()).toMatchObject({ source: resized })
+      for (const [text, decision] of [
+        ['sunny ', sunny],
+        ['sandy ', sandy]
+      ] as const) {
+        const current = setup.binding.sourceAtBarrier()
+        if (current.type !== 'source') throw new Error('Missing review source')
+        const annotation = `{++${text}++}`
+        const start = current.source.indexOf(annotation)
+        expect(start).toBeGreaterThan(0)
+        await setup.adapter.resolve(
+          { kind: 'addition', range: { start, end: start + annotation.length } },
+          current.revision,
+          decision,
+          setup.reconcile
+        )
+        expect(setup.binding.sourceAtBarrier()).toMatchObject({
+          source: current.source.replace(annotation, decision === 'accept' ? text : '')
+        })
+      }
+      const expected = `![${label}{>>keep<<}](image.png){width=120}\n`
+      expect(setup.binding.sourceAtBarrier()).toMatchObject({ source: expected })
+      expect(setup.legacyChanges).toEqual([])
+      await setup.adapter.history('undo', setup.reconcile)
+      await setup.adapter.history('undo', setup.reconcile)
+      expect(setup.binding.sourceAtBarrier()).toMatchObject({ source: resized })
+      await setup.adapter.history('redo', setup.reconcile)
+      await setup.adapter.history('redo', setup.reconcile)
+      const saved = setup.binding.sourceAtBarrier()
+      if (saved.type !== 'source') throw new Error('Missing saved resized image')
+      const reopened = bootFormatting(saved.source)
+      try {
+        expect(reopened.binding.sourceAtBarrier()).toMatchObject({ source: expected })
+      } finally {
+        reopened.dispose()
+      }
+    } finally {
+      setup.dispose()
+    }
+  }
+)
+
+it.each([
+  { suffix: '', decision: 'accept', annotation: '{++{width=120}++}', reviewed: '{width=120}' },
+  { suffix: '', decision: 'reject', annotation: '{++{width=120}++}', reviewed: '' },
+  {
+    suffix: '{width=90}',
+    decision: 'accept',
+    annotation: '{~~90~>120~~}',
+    reviewed: '{width=120}'
+  },
+  { suffix: '{width=90}', decision: 'reject', annotation: '{~~90~>120~~}', reviewed: '{width=90}' }
+] as const)(
+  'reviews a tracked native resize independently from alt suggestions: $suffix/$decision',
+  async({ suffix, decision, annotation, reviewed }) => {
+    const image = '![A {++sunny ++}{++sandy ++}beach{>>keep<<}](image.png)'
+    const source = `${image}${suffix}\n`
+    const resized = `${image}${suffix ? `{width=${annotation}}` : annotation}\n`
+    const setup = bootFormatting(source, true)
+    let picker:
+      | {
+        imageInfo: unknown
+        block: { updateImage(info: unknown, attr: string, value: string): void }
+      }
+      | undefined
+    setup.muya.on('muya-image-selector', (event: typeof picker) => {
+      picker = event
+    })
+    try {
+      const block = setup.muya.editor.scrollPage?.firstContentInDescendant()
+      if (!block) throw new Error('Missing native image paragraph')
+      block.setCursor(block.text.length, block.text.length, true)
+      expect(setup.muya.showImageSelectorAtSelection()).toBe(true)
+      if (!picker) throw new Error('Missing selected image')
+      picker.block.updateImage(picker.imageInfo, 'width', '120')
+      const current = setup.binding.sourceAtBarrier()
+      expect(current).toMatchObject({ source: resized })
+      if (current.type !== 'source') throw new Error('Missing resized source')
+      const start = resized.indexOf(annotation)
+      await setup.adapter.resolve(
+        {
+          kind: suffix ? 'substitution' : 'addition',
+          range: { start, end: start + annotation.length }
+        },
+        current.revision,
+        decision,
+        setup.reconcile
+      )
+      expect(setup.binding.sourceAtBarrier()).toMatchObject({ source: `${image}${reviewed}\n` })
+      expect(setup.legacyChanges).toEqual([])
+      await setup.adapter.history('undo', setup.reconcile)
+      expect(setup.binding.sourceAtBarrier()).toMatchObject({ source: resized })
+      await setup.adapter.history('undo', setup.reconcile)
+      expect(setup.binding.sourceAtBarrier()).toMatchObject({ source })
+      await setup.adapter.history('redo', setup.reconcile)
+      expect(setup.binding.sourceAtBarrier()).toMatchObject({ source: resized })
+    } finally {
+      setup.dispose()
+    }
+  }
+)
+
+it.each([false, true].flatMap((tracked) => [false, true].map((height) => ({ tracked, height }))))(
+  'resizes, clears and resizes the same native image without consuming its label suggestions (tracked=$tracked, height=$height)',
+  async({ tracked, height }) => {
+    const image = '![A {++sunny ++}{++sandy ++}beach{>>keep<<}](image.png)'
+    const source = `${image}{width=120${height ? ' height=80' : ''}}\n`
+    const steps: ReadonlyArray<readonly [string, string]> = tracked
+      ? height
+        ? [
+          ['200', '{width={~~120~>200~~} height=80}'],
+          ['240', '{width={~~120~>240~~} height=80}'],
+          ['', '{{--width={~~120~>240~~}--} height=80}'],
+          ['180', '{~~{{--width={~~120~>240~~}--} height=80}~>{width=180 height=80}~~}']
+        ]
+        : [
+          ['200', '{width={~~120~>200~~}}'],
+          ['240', '{width={~~120~>240~~}}'],
+          ['', '{--{width={~~120~>240~~}}--}'],
+          ['180', '{--{width={~~120~>240~~}}--}{++{width=180}++}']
+        ]
+      : height
+        ? [
+          ['200', '{width=200 height=80}'],
+          ['240', '{width=240 height=80}'],
+          ['', '{ height=80}'],
+          ['180', '{ height=80 width=180}']
+        ]
+        : [
+          ['200', '{width=200}'],
+          ['240', '{width=240}'],
+          ['', ''],
+          ['180', '{width=180}']
+        ]
+    const setup = bootFormatting(source, tracked)
+    let picker:
+      | {
+        imageInfo: unknown
+        block: { updateImage(info: unknown, attr: string, value: string): void }
+      }
+      | undefined
+    setup.muya.on('muya-image-selector', (event: typeof picker) => {
+      picker = event
+    })
+    const history = [source]
+    try {
+      for (const [width, suffix] of steps) {
+        const block = setup.muya.editor.scrollPage?.firstContentInDescendant()
+        if (!block) throw new Error('Missing native image paragraph')
+        block.setCursor(block.text.length, block.text.length, true)
+        expect(setup.muya.showImageSelectorAtSelection()).toBe(true)
+        if (!picker) throw new Error('Missing selected image')
+        picker.block.updateImage(picker.imageInfo, 'width', width)
+        setup.muya.flush()
+        const expected = `${image}${suffix}\n`
+        history.push(expected)
+        expect(setup.binding.sourceAtBarrier()).toMatchObject({ source: expected })
+        const target = setup.muya.getSelection()?.focus.block.domNode
+        if (!target) throw new Error('Repeated image layout lost native caret')
+        target.dispatchEvent(
+          new InputEvent('beforeinput', {
+            inputType: 'insertText',
+            data: 'X',
+            bubbles: true,
+            cancelable: true
+          })
+        )
+        const typed =
+          tracked && width === '180'
+            ? height
+              ? `${image}{~~{{--width={~~120~>240~~}--} height=80}~>{width=180 height=80}X~~}\n`
+              : `${image}{--{width={~~120~>240~~}}--}{++{width=180}X++}\n`
+            : `${image}${suffix}${tracked ? '{++X++}' : 'X'}\n`
+        expect(setup.binding.sourceAtBarrier()).toMatchObject({ source: typed })
+        await setup.adapter.history('undo', setup.reconcile)
+        expect(setup.binding.sourceAtBarrier()).toMatchObject({ source: expected })
+      }
+      expect(setup.legacyChanges).toEqual([])
+      for (const expected of history.slice(0, -1).reverse()) {
+        await setup.adapter.history('undo', setup.reconcile)
+        expect(setup.binding.sourceAtBarrier()).toMatchObject({ source: expected })
+      }
+      for (const expected of history.slice(1)) {
+        await setup.adapter.history('redo', setup.reconcile)
+        expect(setup.binding.sourceAtBarrier()).toMatchObject({ source: expected })
+      }
+      const saved = setup.binding.sourceAtBarrier()
+      if (saved.type !== 'source') throw new Error('Missing saved image layout')
+      const reopened = bootFormatting(saved.source)
+      try {
+        expect(reopened.binding.sourceAtBarrier()).toMatchObject({ source: history.at(-1) })
+      } finally {
+        reopened.dispose()
+      }
+    } finally {
+      setup.dispose()
+    }
+  }
+)
+
+it.each(['A sunny beach', 'A {++sunny ++}beach{>>keep<<}'])(
+  'deletes the selected sized native image while preserving hidden comments: %s',
+  async(label) => {
+    const source = `before ![${label}](image.png){width=120} after\n`
+    const comment = label.includes('{>>keep<<}') ? '{>>keep<<}' : ''
+    const deleted = `before ${comment} after\n`
+    const setup = bootFormatting(source)
+    let picker: { imageInfo: unknown; block: { deleteImage(info: unknown): void } } | undefined
+    setup.muya.on('muya-image-selector', (event: typeof picker) => {
+      picker = event
+    })
+    try {
+      const block = setup.muya.editor.scrollPage?.firstContentInDescendant()
+      if (!block) throw new Error('Missing native image paragraph')
+      const end = 'before ![A sunny beach](image.png){width=120}'.length
+      block.setCursor(end, end, true)
+      expect(setup.muya.showImageSelectorAtSelection()).toBe(true)
+      if (!picker) throw new Error('Missing selected image')
+      picker.block.deleteImage(picker.imageInfo)
+      setup.muya.flush()
+      expect(setup.binding.sourceAtBarrier()).toMatchObject({ source: deleted })
+      expect(setup.muya.getSelection()).toMatchObject({
+        anchor: { offset: 7 },
+        focus: { offset: 7 }
+      })
+      expect(setup.legacyChanges).toEqual([])
+      const target = setup.muya.getSelection()?.focus.block.domNode
+      if (!target) throw new Error('Image deletion lost native caret')
+      target.dispatchEvent(
+        new InputEvent('beforeinput', {
+          inputType: 'insertText',
+          data: 'X',
+          bubbles: true,
+          cancelable: true
+        })
+      )
+      expect(setup.binding.sourceAtBarrier()).toMatchObject({
+        source: `before X${comment} after\n`
+      })
+      await setup.adapter.history('undo', setup.reconcile)
+      expect(setup.binding.sourceAtBarrier()).toMatchObject({ source: deleted })
+      await setup.adapter.history('undo', setup.reconcile)
+      expect(setup.binding.sourceAtBarrier()).toMatchObject({ source })
+      await setup.adapter.history('redo', setup.reconcile)
+      const saved = setup.binding.sourceAtBarrier()
+      if (saved.type !== 'source') throw new Error('Missing saved image deletion')
+      const reopened = bootFormatting(saved.source)
+      try {
+        expect(reopened.binding.sourceAtBarrier()).toMatchObject({ source: deleted })
       } finally {
         reopened.dispose()
       }

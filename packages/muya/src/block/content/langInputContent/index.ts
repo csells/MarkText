@@ -24,6 +24,10 @@ class LangInputContent extends Content {
         this.createDomNode();
     }
 
+    override get path() {
+        return [...(this.parent?.path ?? []), 'meta', 'lang'];
+    }
+
     override getAnchor() {
         return this.parent;
     }
@@ -37,6 +41,17 @@ class LangInputContent extends Content {
      * @param lang
      */
     private _updateLanguage(lang: string) {
+        const model = this.muya.editor.documentEditing;
+        if (model) {
+            const selection = this.muya.editor.selection.getDOMSelection();
+            const anchor = this.muya.editor.selection.getDOMPoint({ path: this.path, offset: 0 });
+            const focus = this.muya.editor.selection.getDOMPoint({ path: this.path, offset: this.text.length });
+            if (!selection || !anchor || !focus)
+                throw new Error('Code info replacement has no current document boundary');
+            this.muya.flush();
+            model.input({ selection, range: { anchor, focus }, inputType: 'insertReplacementText', data: lang, options: this.muya.options }, () => {});
+            return;
+        }
         const { start, end } = this.getCursor()!;
         this.text = lang;
         this.parent!.lang = lang;
@@ -51,6 +66,11 @@ class LangInputContent extends Content {
     // updates; the DOM input handlers use `_updateLanguage` directly.
     updateLanguage(lang: string): void {
         this._updateLanguage(lang);
+    }
+
+    override keyupHandler() {
+        if (this.muya.editor.documentEditing)
+            this.muya.eventCenter.emit('content-change', { block: this });
     }
 
     override inputHandler() {

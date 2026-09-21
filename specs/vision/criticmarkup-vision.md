@@ -12,10 +12,13 @@ CriticMarkup makes MarkText a place where editorial change is first-class and lo
 Suggestions and comments live in the document as plain, standard CriticMarkup, and you
 author, review, and resolve them in true WYSIWYG. Anyone or anything — a co-author, an
 editor, an external tool, an AI — proposes a change by writing CriticMarkup; you accept or
-reject it with a gesture, not by reading a diff. Because the document is _only ever_
-standard Markdown plus the five CriticMarkup forms, other CriticMarkup-aware tools can
-retain and expose the same markers. MarkText documents its behavior where the ecosystem
-does not define one common semantic answer.
+reject it with a gesture, not by reading a diff. Suggestions retain the five standard
+CriticMarkup forms, so other CriticMarkup-aware tools can retain and expose the same
+markers. MarkText documents its Markdown extensions and its behavior where the ecosystem
+does not define one common semantic answer. The owner-authorized
+[image-layout extension](../language/marktext-markdown-profile-2.md) preserves independent
+label suggestions when an image is resized; tools without that extension may show its
+size suffix as text.
 
 Comments, suggestions, and highlights must feel as though MarkText was built with them
 from the beginning. Language-engine integration and native MarkText UI integration are
@@ -159,15 +162,15 @@ The integration privileges no source of suggestions.
 
 The CriticMarkup work spans several documents; they differ by **role**, not by subject:
 
-| Role                                                                                   | Document                                                                |
-| -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| **Why** — this vision                                                                  | `specs/vision/criticmarkup-vision.md`                                   |
-| **Decisions** — binding, hard to reverse                                               | Semantic/product ADRs `0001`–`0005`, `0007`–`0010`, and `0013`–`0015`   |
-| **What the language means** — semantic target, with historical proposals distinguished | `specs/language/marktext-markdown-profile-1.md`                         |
-| **How it fits MarkText** — ownership and upstream reuse                                | `specs/architecture/criticmarkup-native-integration.md`                 |
-| **How we get there** — the integration plan                                            | `specs/plans/0012-criticmarkup-upstream-integration-review.md`          |
-| **Vocabulary**                                                                         | `CONTEXT.md`                                                            |
-| **Evidence** — upstream research answering a specific question                         | `specs/architecture/criticmarkup-host-markdown-interaction-evidence.md` |
+| Role                                                                                   | Document                                                                                                                     |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| **Why** — this vision                                                                  | `specs/vision/criticmarkup-vision.md`                                                                                        |
+| **Decisions** — binding, hard to reverse                                               | Semantic/product ADRs `0001`–`0005`, `0007`–`0010`, and `0013`–`0015`                                                        |
+| **What the language means** — semantic target, with historical proposals distinguished | `specs/language/marktext-markdown-profile-1.md` and its [image-layout extension](../language/marktext-markdown-profile-2.md) |
+| **How it fits MarkText** — ownership and upstream reuse                                | `specs/architecture/criticmarkup-native-integration.md`                                                                      |
+| **How we get there** — the integration plan                                            | `specs/plans/0012-criticmarkup-upstream-integration-review.md`                                                               |
+| **Vocabulary**                                                                         | `CONTEXT.md`                                                                                                                 |
+| **Evidence** — upstream research answering a specific question                         | `specs/architecture/criticmarkup-host-markdown-interaction-evidence.md`                                                      |
 
 The architecture lives in the active ADRs, `specs/architecture/criticmarkup-native-integration.md`,
 and this vision. Plans 0009, 0010 and 0011 are archived incomplete; their remaining product
@@ -184,4 +187,5 @@ defines target behavior.
 Run a complete editorial pass — receive suggestions and comments, weigh them, accept or
 reject each — through MarkText’s familiar WYSIWYG editor and native UI, with zero perceptible lag,
 and save a byte-exact document
-that is nothing but standard Markdown and CriticMarkup any other tool can open.
+using Markdown with documented MarkText extensions and standard CriticMarkup
+that other tools can open without losing the review markers.

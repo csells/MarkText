@@ -11,7 +11,7 @@ export const verifyPackagedApp = (executable: string): void => {
   const archive = join(resources, 'app.asar')
   let verifiedBundleSignature = false
   uncache(archive)
-  let manifest: { main?: unknown, dependencies?: Readonly<Record<string, unknown>> } | null
+  let manifest: { main?: unknown, dependencies?: Readonly<Record<string, unknown>>, optionalDependencies?: Readonly<Record<string, unknown>> } | null
   try {
     manifest = JSON.parse(extractFile(archive, 'package.json').toString('utf8'))
   } catch (cause) {
@@ -29,6 +29,18 @@ export const verifyPackagedApp = (executable: string): void => {
       if (extractFile(archive, addon).length === 0) throw new Error('Empty encoding addon')
     } catch (cause) {
       throw new Error(`Missing packaged encoding addon: ${addon} in ${archive}`, { cause })
+    }
+  }
+  if (manifest?.dependencies?.['native-keymap'] !== undefined || manifest?.optionalDependencies?.['native-keymap'] !== undefined) {
+    // Installation is optional only to allow the patched Electron rebuild;
+    // the main process imports this package before application startup.
+    for (const relative of ['package.json', 'index.js', 'build/Release/keymapping.node']) {
+      const file = join('node_modules', 'native-keymap', relative)
+      try {
+        if (extractFile(archive, file).length === 0) throw new Error('Empty keyboard runtime file')
+      } catch (cause) {
+        throw new Error(`Missing packaged keyboard runtime: ${file} in ${archive}`, { cause })
+      }
     }
   }
   for (const entry of listPackage(archive, { isPack: false })) {

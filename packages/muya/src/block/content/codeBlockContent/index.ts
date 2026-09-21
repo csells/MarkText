@@ -9,7 +9,7 @@ import type {
 import type Code from '../../commonMark/codeBlock/code';
 import type HTMLPreview from '../../commonMark/html/htmlPreview';
 import { codeEnter, codeTabExpansion } from '@marktext/input-policy';
-import { dispatchDocumentTab } from '../../../editor/documentEditing';
+import { dispatchDocumentBlock, dispatchDocumentTab } from '../../../editor/documentEditing';
 import { adjustOffset, escapeHTML, firstWordOfInfo } from '../../../utils';
 import { computeLineCount, repositionLineNumberSpans, syncLineNumbersSpans } from '../../../utils/codeBlockLineNumbers';
 import { getHighlightHtml, MARKER_HASH } from '../../../utils/highlightHTML';
@@ -274,6 +274,14 @@ class CodeBlockContent extends Content {
         // when backspace is pressed, this time the code block should be converted to a normal paragraph
         if (start.offset === end.offset && start.offset === 0) {
             event.preventDefault();
+            if (this.muya.editor.documentEditing) {
+                event.stopPropagation();
+                const selection = this.muya.editor.selection.getDOMSelection();
+                if (!selection)
+                    throw new Error('Literal boundary reset requires a document selection');
+                dispatchDocumentBlock(this.muya, { type: 'reset', scope: 'leaf', selectionMode: 'preserve' }, selection);
+                return;
+            }
             const { text, muya } = this;
             const state = {
                 name: 'paragraph',
@@ -349,7 +357,7 @@ class CodeBlockContent extends Content {
             anchor.offset !== oldAnchor?.offset
             || focus.offset !== oldFocus?.offset
         ) {
-            this.setCursor(anchor.offset, focus.offset);
+            this.commitNativeCursor(anchor.offset, focus.offset);
         }
     }
 }

@@ -8,7 +8,11 @@ import { createLocalCoreOwner } from '@/documentAuthority/localCoreOwner'
 import { createEditorCoreBinding } from '@/documentAuthority/editorCoreBinding'
 import { createMuyaPlainTextCoreAdapter } from '@/documentAuthority/muyaPlainTextCoreAdapter'
 import { createMuyaMarkupPresentationIndex } from '@/documentAuthority/muyaMarkupPresentationIndex'
-import { muyaInputToModel, muyaActiveFormats } from '@/documentAuthority/muyaModelSelection'
+import {
+  muyaInputToModel,
+  muyaActiveFormats,
+  muyaCodeLanguage
+} from '@/documentAuthority/muyaModelSelection'
 import { reconcileMuyaDocumentView } from '@/documentAuthority/reconcileMuyaDocumentView'
 import type { CoreAppliedReply } from '@/documentAuthority/coreProtocol'
 
@@ -20,7 +24,9 @@ const bootMarkup = (binding: ReturnType<typeof createEditorCoreBinding>) => {
   ;(window as Window & { MUYA_VERSION?: string }).MUYA_VERSION = 'test'
   const view = () => {
     const reply = binding.plainTextViewAtBarrier()
-    if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Missing model view') }
+    if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+      throw new Error('Missing model view')
+    }
     return reply.view
   }
   const host = document.body.appendChild(document.createElement('div'))
@@ -50,6 +56,8 @@ const bootMarkup = (binding: ReturnType<typeof createEditorCoreBinding>) => {
   muya.editor.bindDocumentEditing({
     prepareImage: unexpectedAction,
     prepareClipboard: unexpectedAction,
+    emojiContext: () => undefined,
+    codeLanguage: (point) => muyaCodeLanguage(muya, view(), point),
     activeFormats: (selection) => muyaActiveFormats(muya, view(), selection),
     clipboard: unexpectedAction,
     compositionStart: unexpectedAction,
@@ -108,6 +116,7 @@ it.each([
     const cm = CodeMirror(sourceHost, { value: source, mode: null })
     const sourceAdapter = createCodeMirrorCoreAdapter(cm.getDoc(), binding, {
       canonicalSource: source,
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
     cm.setSelection({ line: 0, ch: labelStart }, { line: 0, ch: labelStart + 3 })

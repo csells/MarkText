@@ -115,7 +115,9 @@ class CodeBlock extends Parent {
             return this;
         }
         else {
-            if (path[0] === 'meta' || path[0] === 'type')
+            if (path[0] === 'meta' && path[1] === 'lang')
+                return this.firstContentInDescendant();
+            else if (path[0] === 'meta' || path[0] === 'type')
                 return this;
             else if (path[0] === 'lang')
                 return this.firstContentInDescendant();

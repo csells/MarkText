@@ -113,7 +113,9 @@ describe('canonical transaction history selection', () => {
         format.type !== 'applied' ||
         !format.formatResult ||
         !('ranges' in format.formatResult.selection)
-      ) { throw new Error('Missing format result') }
+      ) {
+        throw new Error('Missing format result')
+      }
       const selected = format.formatResult.selection.ranges[0]
       binding.submit(typing(selected.anchor, selected.focus, 'X'))
       const checkpoint = binding.sourceAtBarrier()
@@ -144,6 +146,7 @@ describe('canonical transaction history selection', () => {
     const doc = new CodeMirror.Doc('X')
     const adapter = createCodeMirrorCoreAdapter(doc, binding, {
       canonicalSource: 'X',
+      canonicalRevision: 2,
       insertedLineEnding: '\n'
     })
     try {

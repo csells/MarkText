@@ -212,6 +212,8 @@ class ParagraphContent extends Format {
 
     override update(cursor?: IRenderCursor, highlights = []) {
         this.inlineRenderer.patch(this, cursor, highlights);
+        if (this.inlineRenderer.presentation || this.muya.editor.documentEditing)
+            return;
         const { label } = this.inlineRenderer.getLabelInfo(this);
 
         if (this.scrollPage && label)
@@ -606,9 +608,7 @@ class ParagraphContent extends Format {
         if (!previousContentBlock)
             return;
 
-        const modelJoinTarget = ['paragraph.content', 'atxheading.content', 'setextheading.content'].includes(previousContentBlock.blockName)
-            || previousContentBlock.getAnchor()?.blockName === 'code-block';
-        if (this.muya.editor.documentEditing && modelJoinTarget) {
+        if (this.muya.editor.documentEditing) {
             const selection = this.muya.editor.selection.getDOMSelection();
             if (!selection)
                 throw new Error('Paragraph boundary Backspace has no document selection');
@@ -624,6 +624,13 @@ class ParagraphContent extends Format {
     }
 
     private _handleBackspaceInBlockQuote() {
+        if (this.muya.editor.documentEditing) {
+            const selection = this.muya.editor.selection.getDOMSelection();
+            if (!selection)
+                throw new Error('Blockquote boundary Backspace has no document selection');
+            dispatchDocumentParagraphJoin(this.muya, 'backward', selection);
+            return;
+        }
         const parent = this.parent!;
         const blockQuote = parent!.parent!;
         let cursorBlock: Content | null;

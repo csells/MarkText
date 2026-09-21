@@ -93,6 +93,7 @@ export class EmojiSelector extends BaseScrollFloat {
                         dataset: { label: e.aliases[0] },
                         props: { title: e.description },
                         on: {
+                            mousedown: (event: MouseEvent) => event.preventDefault(),
                             click: () => {
                                 this.selectItem(e);
                             },

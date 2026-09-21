@@ -1,4 +1,8 @@
-import { createDocumentCore, type DocumentSourceEdit, type MarkupRegionProjectionChange } from '@marktext/document-core'
+import {
+  createDocumentCore,
+  type DocumentSourceEdit,
+  type MarkupRegionProjectionChange
+} from '@marktext/document-core'
 import { describe, expect, it } from 'vitest'
 import { createMuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
 import { applyMuyaMarkupChanges } from '@/documentAuthority/muyaMarkupChanges'
@@ -9,33 +13,103 @@ const fixture = (source: string, edit: DocumentSourceEdit) => {
   const previous = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations)
   const commit = core.apply(revision, [edit], { projections: ['markup'] })
   const change = commit.change.projections[0]
-  if (change?.name !== 'markup' || change.scope !== 'regions') throw new Error('Expected a real regional Core reply')
+  if (change?.name !== 'markup' || change.scope !== 'regions') { throw new Error('Expected a real regional Core reply') }
   const actual = applyMuyaMarkupChanges(previous, structuredClone(change))
-  const expected = createMuyaMarkupView(core.project(commit.revision, 'markup'), commit.revision.annotations)
+  const expected = createMuyaMarkupView(
+    core.project(commit.revision, 'markup'),
+    commit.revision.annotations
+  )
   return { actual, expected, previous, change }
 }
 
 describe('Applying Core Markup regions to an existing Muya view', () => {
   it('updates the first punctuated paragraph of a large plain document through a regional reply', () => {
-    const source = ['Warm editing paragraph.', ...Array.from({ length: 1000 }, () =>
-      'Writing a useful document takes careful editing and a clear view of the text.'
-    )].join('\n\n') + '\n'
+    const source =
+      [
+        'Warm editing paragraph.',
+        ...Array.from(
+          { length: 1000 },
+          () => 'Writing a useful document takes careful editing and a clear view of the text.'
+        )
+      ].join('\n\n') + '\n'
     const start = 'Warm editing paragraph.'.length
     const { actual, expected, previous } = fixture(source, { start, end: start, insert: ' More.' })
     expect(actual).toEqual(expected)
     expect(actual?.state[1000]).toBe(previous.state[1000])
-    expect(actual?.bindings[1000].sourceRange.start).toBe(previous.bindings[1000].sourceRange.start + 6)
+    expect(actual?.bindings[1000].sourceRange.start).toBe(
+      previous.bindings[1000].sourceRange.start + 6
+    )
   })
 
   it('retains heterogeneous native blocks while replacing one paragraph region', () => {
-    const source = 'first {++target++} paragraph\n\n# Heading\n\n- first\n- second **bold**\n\n> quoted\n\n```js\nconst answer = 42\n```\n\n$$\nx^2\n$$\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n---\n\ntail {==marked==}{>>note<<}\n'
+    const source =
+      'first {++target++} paragraph\n\n# Heading\n\n- first\n- second **bold**\n\n> quoted\n\n```js\nconst answer = 42\n```\n\n$$\nx^2\n$$\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n---\n\ntail {==marked==}{>>note<<}\n'
     const start = source.indexOf('target') + 2
     const { actual, expected, previous } = fixture(source, { start, end: start, insert: 'NEW' })
     expect(actual).toEqual(expected)
     for (let index = 0; index < previous.state.length; index += 1) {
       if (index !== 0) expect(actual?.state[index]).toBe(previous.state[index])
     }
-    expect(actual?.bindings.some(binding => binding.path.length > 2)).toBe(true)
+    expect(actual?.bindings.some((binding) => binding.path.length > 2)).toBe(true)
+  })
+
+  it.each([
+    { language: 'js', visible: 'js', editBefore: true },
+    { language: 'js', visible: 'js', editBefore: false },
+    { language: '&fjlig;', visible: 'fj', editBefore: true },
+    { language: '&fjlig;', visible: 'fj', editBefore: false }
+  ])(
+    'retains the distinct language field across a paragraph region ($language, before=$editBefore)',
+    ({ language, visible, editBefore }) => {
+      const source = `before {++target++} paragraph\n\n\`\`\`${language}\nconst answer = 42\n\`\`\`\n\nafter {++target++} paragraph\n`
+      const start = (editBefore ? source.indexOf('target') : source.lastIndexOf('target')) + 2
+      const { actual, expected, previous } = fixture(source, { start, end: start, insert: 'NEW' })
+      expect(actual).toEqual(expected)
+      expect(actual?.state[1]).toBe(previous.state[1])
+      const oldInfo = previous.bindings.find((binding) => binding.path.at(-1) === 'lang')
+      const nextInfo = actual?.bindings.find((binding) => binding.path.at(-1) === 'lang')
+      expect(oldInfo).toBeDefined()
+      expect(nextInfo).toMatchObject({ path: [1, 'meta', 'lang'], text: visible })
+      expect(nextInfo?.sourceRange.start).toBe(
+        (oldInfo?.sourceRange.start ?? 0) + (editBefore ? 3 : 0)
+      )
+      expect(
+        actual?.bindings.find((binding) => binding.path[0] === 1 && binding.path.at(-1) === 'text')
+          ?.text
+      ).toBe('const answer = 42')
+    }
+  )
+
+  it('composes exact regions around repeated paragraphs and a normalized literal body', () => {
+    const core = createDocumentCore()
+    const source =
+      'same {++target++} paragraph\n\n  ```&fjlig;\n\tbody\n  ```\n\nsame {++target++} paragraph\n'
+    let revision = core.open(source)
+    let view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations)
+    const retainedCode = view.state[1]
+    expect(
+      view.bindings.find((binding) => binding.path[0] === 1 && binding.path.at(-1) === 'text')?.text
+    ).toBe('  body')
+    for (const editBefore of [true, false]) {
+      const start =
+        (editBefore ? revision.source.indexOf('target') : revision.source.lastIndexOf('target')) + 2
+      const commit = core.apply(revision, [{ start, end: start, insert: 'NEW' }], {
+        projections: ['markup']
+      })
+      const change = commit.change.projections[0]
+      if (change?.name !== 'markup' || change.scope !== 'regions') { throw new Error('Expected a real regional reply') }
+      const next = applyMuyaMarkupChanges(view, structuredClone(change))
+      expect(next).toEqual(
+        createMuyaMarkupView(core.project(commit.revision, 'markup'), commit.revision.annotations)
+      )
+      expect(next?.state[1]).toBe(retainedCode)
+      if (next === undefined) throw new Error('Expected retained normalized literal')
+      view = next
+      revision = commit.revision
+    }
+    expect(revision.source).toBe(
+      'same {++taNEWrget++} paragraph\n\n  ```&fjlig;\n\tbody\n  ```\n\nsame {++taNEWrget++} paragraph\n'
+    )
   })
 
   it('retains a heading before the replacement and rebases nested suffix leaves', () => {
@@ -65,7 +139,11 @@ describe('Applying Core Markup regions to an existing Muya view', () => {
   it('matches the full annotated view including marks, Core spelling ranges, and shifted suffix bindings', () => {
     const source = 'head\n\nbefore {++added text++} after\n\n**tail** &amp;'
     const start = source.indexOf('text')
-    const { actual, expected, previous } = fixture(source, { start, end: start + 4, insert: 'TEXTS' })
+    const { actual, expected, previous } = fixture(source, {
+      start,
+      end: start + 4,
+      insert: 'TEXTS'
+    })
     expect(actual).toEqual(expected)
     expect(actual?.state[2]).toBe(previous.state[2])
   })
@@ -75,7 +153,11 @@ describe('Applying Core Markup regions to an existing Muya view', () => {
     const start = source.indexOf('new')
     const { actual, expected } = fixture(source, { start, end: start + 1, insert: 'N' })
     expect(actual).toEqual(expected)
-    expect(actual?.decorations.map(decoration => decoration.mark.kind === 'substitution' && decoration.mark.arm)).toEqual(['old', 'new'])
+    expect(
+      actual?.decorations.map(
+        (decoration) => decoration.mark.kind === 'substitution' && decoration.mark.arm
+      )
+    ).toEqual(['old', 'new'])
   })
 
   it('retains and shifts comment anchors outside the changed paragraph', () => {
@@ -91,9 +173,13 @@ describe('Applying Core Markup regions to an existing Muya view', () => {
   })
 
   it('consumes the real first-paragraph reply in a dense document with all five annotation forms', () => {
-    const source = 'first target\n\n' + Array.from({ length: 20 }, (_, index) =>
-      `Block ${index}: {++added++} {--removed--} {~~old~>new~~} {==marked==}{>>note<<}.\n\n`
-    ).join('')
+    const source =
+      'first target\n\n' +
+      Array.from(
+        { length: 20 },
+        (_, index) =>
+          `Block ${index}: {++added++} {--removed--} {~~old~>new~~} {==marked==}{>>note<<}.\n\n`
+      ).join('')
     const { actual, expected, previous } = fixture(source, { start: 8, end: 8, insert: 'more' })
     expect(actual).toEqual(expected)
     expect(actual?.comments).toHaveLength(20)
@@ -111,13 +197,23 @@ describe('Applying Core Markup regions to an existing Muya view', () => {
     const change: MarkupRegionProjectionChange = {
       name: 'markup',
       scope: 'regions',
-      replacements: [{
-        previous: { source: { start: 6, end: 14 }, syntax: { start: 6, end: 14 }, events: { start: 1, end: 2 } },
-        next: { source: { start: 6, end: 16 }, syntax: { start: 6, end: 16 }, events: { start: 1, end: 3 } },
-        events: [{ kind: 'text', sourceRange: { start: 6, end: 16 }, text: 'sec\n\nond\n\n' }],
-        syntaxBlocks: projection.syntax.ast.root.children.slice(1, 3),
-        coordinates: [{ source: { start: 6, end: 16 }, projected: { start: 6, end: 16 } }]
-      }]
+      replacements: [
+        {
+          previous: {
+            source: { start: 6, end: 14 },
+            syntax: { start: 6, end: 14 },
+            events: { start: 1, end: 2 }
+          },
+          next: {
+            source: { start: 6, end: 16 },
+            syntax: { start: 6, end: 16 },
+            events: { start: 1, end: 3 }
+          },
+          events: [{ kind: 'text', sourceRange: { start: 6, end: 16 }, text: 'sec\n\nond\n\n' }],
+          syntaxBlocks: projection.syntax.ast.root.children.slice(1, 3),
+          coordinates: [{ source: { start: 6, end: 16 }, projected: { start: 6, end: 16 } }]
+        }
+      ]
     }
     const actual = applyMuyaMarkupChanges(previous, change)
     expect(actual).toEqual(createMuyaMarkupView(projection))
@@ -126,27 +222,50 @@ describe('Applying Core Markup regions to an existing Muya view', () => {
 
     const mixedBefore = core.open('# H\n\n\nsecond\n\n- tail\n- retained')
     const mixedNext = core.open('# H\n\n\nsec\n\nond\n\n- tail\n- retained')
-    const mixedPrevious = createMuyaMarkupView(core.project(mixedBefore, 'markup'), mixedBefore.annotations)
+    const mixedPrevious = createMuyaMarkupView(
+      core.project(mixedBefore, 'markup'),
+      mixedBefore.annotations
+    )
     const mixedActual = applyMuyaMarkupChanges(mixedPrevious, change)
-    expect(mixedActual).toEqual(createMuyaMarkupView(core.project(mixedNext, 'markup'), mixedNext.annotations))
+    expect(mixedActual).toEqual(
+      createMuyaMarkupView(core.project(mixedNext, 'markup'), mixedNext.annotations)
+    )
     expect(mixedActual?.state[3]).toBe(mixedPrevious.state[2])
     expect(mixedActual?.bindings.at(-1)?.path).toEqual([3, 'children', 1, 'children', 0, 'text'])
   })
 
   it('requests the full-view fallback for unsupported structure and missing comment inventory', () => {
-    const { previous, change } = fixture('head\n\nsecond\n\ntail', { start: 6, end: 7, insert: 'S' })
+    const { previous, change } = fixture('head\n\nsecond\n\ntail', {
+      start: 6,
+      end: 7,
+      insert: 'S'
+    })
     const core = createDocumentCore()
     const nested = core.open('> head\n\nsecond\n\ntail')
-    expect(applyMuyaMarkupChanges(createMuyaMarkupView(core.project(nested, 'markup')), change)).toBeUndefined()
+    expect(
+      applyMuyaMarkupChanges(createMuyaMarkupView(core.project(nested, 'markup')), change)
+    ).toBeUndefined()
     const withComment = core.open('head{>>note<<}\n\nsecond\n\ntail')
-    expect(applyMuyaMarkupChanges(createMuyaMarkupView(core.project(withComment, 'markup'), withComment.annotations), change)).toBeUndefined()
+    expect(
+      applyMuyaMarkupChanges(
+        createMuyaMarkupView(core.project(withComment, 'markup'), withComment.annotations),
+        change
+      )
+    ).toBeUndefined()
     const replacement = change.replacements[0]
-    expect(applyMuyaMarkupChanges(previous, {
-      ...change,
-      replacements: [{
-        ...replacement,
-        next: { ...replacement.next, source: { ...replacement.next.source, end: replacement.next.source.end + 10 } }
-      }]
-    })).toBeUndefined()
+    expect(
+      applyMuyaMarkupChanges(previous, {
+        ...change,
+        replacements: [
+          {
+            ...replacement,
+            next: {
+              ...replacement.next,
+              source: { ...replacement.next.source, end: replacement.next.source.end + 10 }
+            }
+          }
+        ]
+      })
+    ).toBeUndefined()
   })
 })

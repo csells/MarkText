@@ -6,11 +6,13 @@ import type {
   DocumentFormatInput,
   DocumentTextInput,
   DocumentInput,
+  DocumentEditing,
   Muya
 } from '@muyajs/core'
 
 import type {
   DocumentClipboardAction,
+  MarkdownAstNode,
   DocumentSelection,
   DocumentInputTarget,
   DocumentInputSelection,
@@ -164,7 +166,9 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
           segment !== undefined &&
           source.offset >= 0 &&
           source.offset <= segment.text.end - segment.text.start
-        ) { return { path: binding.path, offset: segment.text.start + source.offset } }
+        ) {
+          return { path: binding.path, offset: segment.text.start + source.offset }
+        }
       }
       return undefined
     }
@@ -175,7 +179,9 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
         const offset = nativeOffsetAtSource(segment, source)
         if (offset !== undefined) return { path: binding.path, offset }
       }
-      if (binding.text.length === 0 && binding.sourceRange.end === source) { return { path: binding.path, offset: 0 } }
+      if (binding.text.length === 0 && binding.sourceRange.end === source) {
+        return { path: binding.path, offset: 0 }
+      }
     }
     return undefined
   }
@@ -233,7 +239,14 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
     const anchor = domPointToModel(selection.anchor)
     const focus = domPointToModel(selection.focus)
     if (anchor === undefined || focus === undefined) return undefined
-    if (typeof anchor !== 'number' || typeof focus !== 'number') { return { kind: 'model-text', anchor, focus } }
+    if (
+      typeof anchor !== 'number' ||
+      typeof focus !== 'number' ||
+      anchorBinding?.path.at(-1) === 'lang' ||
+      focusBinding?.path.at(-1) === 'lang'
+    ) {
+      return { kind: 'model-text', anchor, focus }
+    }
     const content = anchorBinding?.tableCellContent
     // Annotation exterior anchors may be rendered beside a cell's text while
     // identifying a document position outside that cell.
@@ -258,7 +271,9 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
     focus: DocumentDOMPoint
   }): DocumentInputTarget | undefined => {
     const model = domSelectionToModel(selection)
-    if (model === undefined || model.kind === 'table-cell' || model.kind === 'model-text') { return model }
+    if (model === undefined || model.kind === 'table-cell' || model.kind === 'model-text') {
+      return model
+    }
     const range = model.ranges[model.primary]
     return range === undefined
       ? undefined
@@ -275,6 +290,39 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
       ? undefined
       : modelPointToText(binding.tableCellContent.start + offset, selection.cell)
   }
+  const projectSourcePoint = (source: number): number => {
+    if (modelPointToDOM(source) !== undefined) return source
+    const end = view.bindings.at(-1)?.documentEnd?.offset
+    if (!Number.isSafeInteger(source) || source < 0 || end === undefined || source > end) {
+      throw new RangeError('Source caret is outside the current document')
+    }
+    // Omitted delimiters, container prefixes and terminal line endings have no
+    // editable DOM. Project them onto existing parser-owned boundaries only.
+    const boundaries = [
+      ...new Set([
+        ...view.bindings.flatMap((binding) =>
+          binding.text.length === 0
+            ? [binding.sourceRange.end]
+            : binding.segments.flatMap((segment) => [segment.source.start, segment.source.end])
+        ),
+        ...view.decorations.flatMap((mark) => [
+          mark.mark.annotationRange.start,
+          mark.mark.annotationRange.end
+        ]),
+        ...view.comments.flatMap((comment) => [
+          comment.annotationRange.start,
+          comment.annotationRange.end
+        ])
+      ])
+    ].sort((left, right) => left - right)
+    const candidates = [
+      ...boundaries.filter((point) => point >= source),
+      ...boundaries.filter((point) => point < source).reverse()
+    ]
+    const position = candidates.find((point) => modelPointToDOM(point) !== undefined)
+    if (position === undefined) throw new Error('Source caret has no rendered model boundary')
+    return position
+  }
   return {
     domPointToModel,
     domPointToTableCell: (point: DocumentDOMPoint) => bindingFor(point)?.tableCell,
@@ -283,7 +331,8 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
     modelPointToDOM,
     modelPointToText,
     modelCellPointToDOM,
-    modelCellPointToText
+    modelCellPointToText,
+    projectSourcePoint
   }
 }
 
@@ -303,18 +352,73 @@ export function muyaInputToModel(
   view: MuyaMarkupView,
   input: DocumentInput
 ): MuyaModelInput {
-  const { domSelectionToModel, domSelectionToTarget, domPointToTableCell } =
+  const { domSelectionToModel, domSelectionToTarget, domPointToTableCell, domPointToModel } =
     createMuyaModelSelection(muya, view)
   const selection = domSelectionToModel(input.selection)
-  if (selection === undefined) { throw new Error('The current model has no position for the native input selection') }
+  if (selection === undefined) {
+    throw new Error('The current model has no position for the native input selection')
+  }
   if ('kind' in input) {
+    if (input.command === 'moveText') {
+      const target = domSelectionToTarget(input.target)
+      if (target === undefined) throw new Error('Text drop has no current model target')
+      return {
+        kind: input.kind,
+        command: input.command,
+        selection,
+        target,
+        copy: input.copy,
+        options: input.options
+      }
+    }
+    if (input.command === 'moveBlock') {
+      const from = domPointToModel(input.from)
+      const to = domPointToModel(input.to)
+      if (from === undefined || to === undefined) { throw new Error('Block drag has no current model target') }
+      return {
+        kind: input.kind,
+        command: input.command,
+        from: typeof from === 'number' ? from : from.text.start,
+        to: typeof to === 'number' ? to : to.text.start,
+        placement: input.placement,
+        selection,
+        options: input.options
+      }
+    }
+    if (input.command === 'createFootnote') {
+      return {
+        kind: input.kind,
+        command: input.command,
+        identifier: input.identifier,
+        selection,
+        options: input.options
+      }
+    }
+    if (input.command === 'changeBlock') {
+      const at = input.change.at === undefined ? undefined : domPointToModel(input.change.at)
+      if (input.change.at !== undefined && at === undefined) { throw new Error('Block command target has no model position') }
+      const { at: _nativeTarget, ...change } = input.change
+      return {
+        kind: input.kind,
+        command: input.command,
+        change: {
+          ...change,
+          ...(at === undefined ? {} : { at: typeof at === 'number' ? at : at.text.start })
+        },
+        selection,
+        options: input.options,
+        ...(input.historyGroup === undefined ? {} : { historyGroup: input.historyGroup })
+      }
+    }
     if (
       input.command === 'alignTableColumn' ||
       input.command === 'moveTableColumn' ||
       input.command === 'moveTableRow'
     ) {
       const target = domPointToTableCell(input.target)
-      if (target === undefined) { throw new Error('The current model has no cell for the table command target') }
+      if (target === undefined) {
+        throw new Error('The current model has no cell for the table command target')
+      }
       return {
         kind: input.kind,
         ...(input.command === 'alignTableColumn'
@@ -330,50 +434,54 @@ export function muyaInputToModel(
     }
     return {
       kind: input.kind,
-      ...(input.command === 'tab'
-        ? { command: input.command, shift: input.shift }
-        : input.command === 'setTaskChecked'
-          ? {
-            command: input.command,
-            checked: input.checked,
-            autoCheck: input.autoCheck,
-            autoMoveCheckedToEnd: input.autoMoveCheckedToEnd
-          }
-          : input.command === 'resetCodeBlock'
-            ? { command: input.command, selectionMode: input.selectionMode }
-            : input.command === 'createMathBlock' || input.command === 'createCodeBlock'
-              ? { command: input.command, replace: input.replace }
-              : input.command === 'changeThematicBreak'
-                ? { command: input.command, change: Object.freeze({ ...input.change }) }
-                : input.command === 'createFrontMatter'
-                  ? { command: input.command, replace: input.replace, style: input.style }
-                  : input.command === 'createTable'
-                    ? {
-                      command: input.command,
-                      rows: input.rows,
-                      columns: input.columns,
-                      replace: input.replace
-                    }
-                    : input.command === 'changeList'
+      ...(input.command === 'setCodeLanguage'
+        ? { command: input.command, language: input.language }
+        : input.command === 'tab'
+          ? { command: input.command, shift: input.shift }
+          : input.command === 'setTaskChecked'
+            ? {
+              command: input.command,
+              checked: input.checked,
+              autoCheck: input.autoCheck,
+              autoMoveCheckedToEnd: input.autoMoveCheckedToEnd
+            }
+            : input.command === 'resetCodeBlock'
+              ? { command: input.command, selectionMode: input.selectionMode }
+              : input.command === 'createMathBlock' || input.command === 'createCodeBlock'
+                ? { command: input.command, replace: input.replace }
+                : input.command === 'changeThematicBreak'
+                  ? { command: input.command, change: Object.freeze({ ...input.change }) }
+                  : input.command === 'createFrontMatter'
+                    ? { command: input.command, replace: input.replace, style: input.style }
+                    : input.command === 'createTable'
                       ? {
                         command: input.command,
-                        change: Object.freeze({ ...input.change }),
-                        listOptions: Object.freeze({ ...input.listOptions })
+                        rows: input.rows,
+                        columns: input.columns,
+                        replace: input.replace
                       }
-                      : input.command === 'changeHeading'
-                        ? { command: input.command, change: Object.freeze({ ...input.change }) }
-                        : input.command === 'changeBlockquote'
+                      : input.command === 'changeList'
+                        ? {
+                          command: input.command,
+                          change: Object.freeze({ ...input.change }),
+                          listOptions: Object.freeze({ ...input.listOptions })
+                        }
+                        : input.command === 'changeHeading'
                           ? { command: input.command, change: Object.freeze({ ...input.change }) }
-                          : 'placement' in input
-                            ? { command: input.command, placement: input.placement }
-                            : { command: input.command }),
+                          : input.command === 'changeBlockquote'
+                            ? { command: input.command, change: Object.freeze({ ...input.change }) }
+                            : 'placement' in input
+                              ? { command: input.command, placement: input.placement }
+                              : { command: input.command }),
       selection,
       options: input.options,
       ...(input.historyGroup === undefined ? {} : { historyGroup: input.historyGroup })
     }
   }
   const range = domSelectionToTarget(input.range)
-  if (range === undefined) { throw new Error('The current model has no position for the native input boundary') }
+  if (range === undefined) {
+    throw new Error('The current model has no position for the native input boundary')
+  }
   return {
     selection,
     range,
@@ -394,10 +502,19 @@ export function muyaFormatToModel(
   const { domPointToModel } = createMuyaModelSelection(muya, view)
   const anchor = domPointToModel(input.selection.anchor)
   const focus = domPointToModel(input.selection.focus)
-  if (anchor === undefined || focus === undefined) { throw new Error('The current model has no source position for the native formatting selection') }
+  if (anchor === undefined || focus === undefined) {
+    throw new Error('The current model has no source position for the native formatting selection')
+  }
   if (typeof anchor !== 'number' || typeof focus !== 'number') {
-    if (input.format === 'image-properties') { throw new Error('Image properties require an image source selection') }
-    return { format: input.format, selection: { kind: 'model-text', anchor, focus }, tracked }
+    if (input.format === 'image-properties') {
+      throw new Error('Image properties require an image source selection')
+    }
+    return {
+      format: input.format,
+      selection: { kind: 'model-text', anchor, focus },
+      tracked,
+      ...(input.image === undefined ? {} : { image: { ...input.image } })
+    }
   }
   return input.format === 'image-properties'
     ? {
@@ -406,7 +523,12 @@ export function muyaFormatToModel(
       tracked,
       properties: { ...input.properties }
     }
-    : { format: input.format, selection: { ranges: [{ anchor, focus }], primary: 0 }, tracked }
+    : {
+      format: input.format,
+      selection: { ranges: [{ anchor, focus }], primary: 0 },
+      tracked,
+      ...(input.image === undefined ? {} : { image: { ...input.image } })
+    }
 }
 
 /** Prepared clipboard payloads use the same live selection mapping as typing. */
@@ -422,7 +544,9 @@ function muyaTableSelectionToModel(
       anchor && focus && samePath(anchor.path, focus.path)
         ? view.bindings.find((item) => samePath(item.path, anchor.path))
         : undefined
-    if (binding?.tableCell === undefined) { throw new Error('The current model has no address for a selected table cell') }
+    if (binding?.tableCell === undefined) {
+      throw new Error('The current model has no address for a selected table cell')
+    }
     return binding.tableCell
   })
   const anchor = cells[selection.primary]
@@ -479,7 +603,9 @@ export function muyaClipboardToModel(
     return { ...input, tracked, selection: muyaTableSelectionToModel(muya, view, input.selection) }
   }
   const selection = createMuyaModelSelection(muya, view).domSelectionToModel(input.selection)
-  if (selection === undefined) { throw new Error('The current model has no position for the clipboard selection') }
+  if (selection === undefined) {
+    throw new Error('The current model has no position for the clipboard selection')
+  }
   return input.kind === 'paste'
     ? {
       kind: 'paste',
@@ -491,7 +617,68 @@ export function muyaClipboardToModel(
     : { kind: 'cut', selection, tracked }
 }
 
+/** The picker consumes intrinsic authoring facts in the same syntax used to render. */
+export function muyaEmojiContext(
+  muya: Muya,
+  view: MuyaMarkupView,
+  point: DocumentDOMPoint
+): ReturnType<DocumentEditing['emojiContext']> {
+  const text = muya.editor.selection.getTextPoint(point)
+  if (text == null) return undefined
+  const binding = view.bindings.find((binding) => samePath(binding.path, text.path))
+  if (binding === undefined) return undefined
+  const visit = (node: MarkdownAstNode): ReturnType<DocumentEditing['emojiContext']> => {
+    const alias = node.attributes.emojiAlias
+    if (typeof alias === 'string') {
+      const first = binding.segments.find(
+        (segment) =>
+          segment.syntax.start <= node.range.start && node.range.start < segment.syntax.end
+      )
+      const last = [...binding.segments]
+        .reverse()
+        .find(
+          (segment) => segment.syntax.start < node.range.end && node.range.end <= segment.syntax.end
+        )
+      if (first === undefined || last === undefined) return undefined
+      const start = first.text.start + node.range.start - first.syntax.start
+      const end = last.text.start + node.range.end - last.syntax.start
+      if (
+        text.offset <= start ||
+        text.offset > end ||
+        (text.offset === end && node.attributes.emojiClosed === true)
+      ) { return undefined }
+      const { modelPointToDOM } = createMuyaModelSelection(muya, view)
+      const anchor = modelPointToDOM(first.source.start + node.range.start - first.syntax.start)
+      const focus = modelPointToDOM(last.source.start + node.range.end - last.syntax.start)
+      return anchor == null || focus == null ? undefined : { alias, range: { anchor, focus } }
+    }
+    for (const child of node.children) {
+      const context = visit(child)
+      if (context !== undefined) return context
+    }
+    return undefined
+  }
+  return visit(binding.syntax)
+}
+
 /** Present active formats from owned syntax; never tokenize the displayed text. */
+/** The picker consumes the fence already recognized by the document parser. */
+export function muyaCodeLanguage(
+  muya: Muya,
+  view: MuyaMarkupView,
+  point: DocumentDOMPoint
+): string | undefined {
+  const text = muya.editor.selection.getTextPoint(point)
+  if (text == null) return undefined
+  const syntax = view.bindings.find((binding) => samePath(binding.path, text.path))?.syntax
+  if (
+    syntax === undefined ||
+    !['code-block', 'diagram'].includes(syntax.kind) ||
+    syntax.attributes.provider !== 'fenced-code'
+  ) { return undefined }
+  return String(syntax.attributes.semanticInfo ?? syntax.attributes.info ?? '')
+}
+
 export function muyaActiveFormats(
   muya: Muya,
   view: MuyaMarkupView,

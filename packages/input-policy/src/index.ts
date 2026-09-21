@@ -183,12 +183,15 @@ export { codeEnter } from './codeEnter.js'
 export { fencedCodeMarkdown } from './codeBlock.js'
 export { FORMAT_MARKER_MAP, FORMAT_TAG_MAP, formatDelimiters, type HeadingChange } from './formatting.js'
 
-export { tableCellPaste, headingPasteLines, plainHtmlPasteLines } from './clipboard.js'
+export { tableCellInlineBreak, tableCellPaste, tableCellPasteCaret, headingPasteLines, plainHtmlPasteLines } from './clipboard.js'
 
-export { encodeImageSrc, type ImagePropertyPatch } from './image.js'
+export { encodeImageSrc, encodeImageInsertionSrc, IMAGE_URL_REG, IMAGE_DATA_URL_REG, type ImagePropertyPatch } from './image.js'
 
 export { listItemMarker, listTabAction, type ListKind, type ListChange, type ListMarkerOptions } from './listMarkdown.js'
 export { taskCheckedChanges, taskListOrder, type TaskTree } from './taskList.js'
 
 export { codeTabExpansion } from './codeTab.js'
 export { frontMatterPolicy, type FrontMatterPolicy } from './frontMatter.js'
+
+export { default as emojis, type Emoji } from './emojis.js'
+export { emojiPattern, emojiAt, validEmoji } from './emoji.js'

@@ -4,7 +4,9 @@ import type { Nullable } from '../../types';
 import type Content from '../base/content';
 import type TreeNode from '../base/treeNode';
 import type { IConstructor, TBlockPath } from '../types';
+import { isEqual } from 'underscore';
 import { BLOCK_DOM_PROPERTY } from '../../config';
+import { dispatchDocumentBlock } from '../../editor/documentEditing';
 import { isHTMLElement, isMouseEvent } from '../../utils';
 import logger from '../../utils/logger';
 import Parent from '../base/parent';
@@ -106,6 +108,52 @@ export class ScrollPage extends Parent {
         muya.editor.inlineRenderer.flushPendingPresentation();
     }
 
+    /** Apply a supplied view state without rebuilding its unchanged root blocks. */
+    reconcileState(state: readonly TState[]): boolean {
+        const roots = [...this.children.iterator()].map((root) => {
+            if (!root.isParent())
+                throw new Error('Document view root must be a parent block');
+            return root;
+        });
+        const before = roots.map(block => block.getState());
+        let changed = false;
+        if (roots.length === state.length) {
+            for (let index = 0; index < state.length; index++) {
+                if (isEqual(before[index], state[index]))
+                    continue;
+                const root = roots[index];
+                root.replaceWith(ScrollPage.loadBlock(state[index].name).create(this.muya, state[index]), 'api');
+                changed = true;
+            }
+        }
+        else {
+            let start = 0;
+            while (start < roots.length && start < state.length && isEqual(before[start], state[start]))
+                start++;
+            let retainedTail = 0;
+            while (
+                retainedTail < roots.length - start
+                && retainedTail < state.length - start
+                && isEqual(before[roots.length - retainedTail - 1], state[state.length - retainedTail - 1])
+            ) {
+                retainedTail++;
+            }
+            const boundary = roots[roots.length - retainedTail] ?? null;
+            for (let index = start; index < roots.length - retainedTail; index++)
+                roots[index].remove('api');
+            for (let index = start; index < state.length - retainedTail; index++) {
+                this.insertBefore(
+                    ScrollPage.loadBlock(state[index].name).create(this.muya, state[index]),
+                    boundary,
+                    'api',
+                );
+            }
+            changed = true;
+        }
+        this.muya.editor.inlineRenderer.flushPendingPresentation();
+        return changed;
+    }
+
     /**
      * Find the content block by the path
      * @param {Array} path
@@ -203,6 +251,14 @@ export class ScrollPage extends Parent {
                     lastContentBlock.setCursor(0, 0);
                 }
                 else {
+                    if (this.muya.editor.documentEditing) {
+                        const at = this.muya.editor.selection.getDOMPoint({ path: lastContentBlock.path, offset: lastContentBlock.text.length });
+                        if (!at)
+                            throw new Error('Page tail has no model position');
+                        const selection = this.muya.editor.selection.getDOMSelection() ?? { anchor: at, focus: at };
+                        dispatchDocumentBlock(this.muya, { type: 'new', at, scope: 'outer', placement: 'after', selectionMode: 'start' }, selection);
+                        return;
+                    }
                     const state = {
                         name: 'paragraph',
                         text: '',

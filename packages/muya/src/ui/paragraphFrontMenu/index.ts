@@ -13,7 +13,7 @@ import type { IQuickInsertMenuItem } from '../paragraphQuickInsertMenu/config';
 import { replaceBlockByLabel } from '../../block/blockTransforms';
 import { ScrollPage } from '../../block/scrollPage';
 import emptyStates from '../../config/emptyStates';
-import { dispatchDocumentBlockquote, dispatchDocumentHeading, dispatchDocumentList } from '../../editor/documentEditing';
+import { dispatchDocumentBlock, dispatchDocumentBlockquote, dispatchDocumentHeading, dispatchDocumentList } from '../../editor/documentEditing';
 
 import { isAnyListState, isAtxHeadingState } from '../../state/types';
 import { deepClone, isHTMLElement } from '../../utils';
@@ -203,6 +203,17 @@ export class ParagraphFrontMenu extends BaseFloat {
         this.muya.flush();
         this.muya.editor.history.cutoff();
         try {
+            if (this.muya.editor.documentEditing && (label === 'duplicate' || label === 'new' || label === 'delete')) {
+                const content = block.firstContentInDescendant();
+                if (!content)
+                    throw new Error('Block menu target has no content');
+                const at = this.muya.editor.selection.getDOMPoint({ path: content.path, offset: 0 });
+                if (!at)
+                    throw new Error('Block menu target has no document position');
+                const selection = this.muya.editor.selection.getDOMSelection() ?? { anchor: at, focus: at };
+                dispatchDocumentBlock(this.muya, { type: label, at, scope: 'outer', selectionMode: 'start' }, selection);
+                return;
+            }
             const oldState = block.getState();
             const cursorBlock = /duplicate|new|delete/.test(label)
                 ? this._applyMetaAction(label, block, oldState)

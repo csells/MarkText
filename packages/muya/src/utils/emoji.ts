@@ -1,14 +1,6 @@
 import { CLASS_NAMES } from '../config';
-import emojis from '../config/emojis';
 
-/**
- * check if one emoji code is in emojis, return undefined or found emoji
- */
-export function validEmoji(text: string) {
-    return emojis.find((emoji) => {
-        return emoji.aliases.includes(text);
-    });
-}
+export { validEmoji } from '@marktext/input-policy';
 
 /**
  * check edit emoji

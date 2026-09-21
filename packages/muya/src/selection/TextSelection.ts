@@ -275,6 +275,14 @@ class TextSelection {
     private _listenSelectActions() {
         const { eventCenter, domNode } = this._muya;
 
+        const commitNativeSelection = (anchor: IAnchorFocusInfo, focus: IAnchorFocusInfo) => {
+            const native = this._muya.editor.documentEditing ? this.getDOMSelection() : null;
+            if (native)
+                this.setDOMSelection(native.anchor, native.focus);
+            else
+                this.setSelection(anchor, focus);
+        };
+
         const handleMousedown = () => {
             this._selectInfo = {
                 isSelect: true,
@@ -284,7 +292,7 @@ class TextSelection {
 
         const handleMouseupOrLeave = () => {
             if (this._selectInfo.selection)
-                this.setSelection(this._selectInfo.selection.anchor, this._selectInfo.selection.focus);
+                commitNativeSelection(this._selectInfo.selection.anchor, this._selectInfo.selection.focus);
 
             this._selectInfo = {
                 isSelect: false,
@@ -321,7 +329,7 @@ class TextSelection {
             if (type === 'mousemove')
                 this._selectInfo.selection = { anchor: endpointAnchor, focus: endpointFocus };
             else
-                this.setSelection(endpointAnchor, endpointFocus);
+                commitNativeSelection(endpointAnchor, endpointFocus);
         };
 
         eventCenter.attachDOMEvent(domNode, 'mousedown', handleMousedown);

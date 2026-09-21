@@ -32,11 +32,15 @@ it('validates a long normalized code payload within the retained reconciliation 
   const core = createDocumentCore()
   const revision = core.open(source)
   const view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, source)
-  expect(view.bindings).toHaveLength(1)
-  expect(view.bindings[0].text).toBe(Array(4000).fill('  body').join('\n'))
+  expect(view.bindings).toHaveLength(2)
+  const body = view.bindings.find((binding) => binding.path.at(-1) === 'text')
+  const info = view.bindings.find((binding) => binding.path.at(-1) === 'lang')
+  expect(body?.text).toBe(Array(4000).fill('  body').join('\n'))
+  expect(info).toMatchObject({ path: [0, 'meta', 'lang'], text: '' })
+  if (body === undefined) throw new Error('Expected normalized code body')
   const times = Array.from({ length: 5 }, () => {
     const start = performance.now()
-    assertMuyaDocumentSourceBinding(view.bindings[0])
+    assertMuyaDocumentSourceBinding(body)
     return performance.now() - start
   })
   // Validation is one part of the existing 50 ms acknowledgement/reconcile budget.
