@@ -1,6 +1,9 @@
 # MarkText Markdown Profile 1 — Language Specification
 
 - **Status:** Draft 2 semantic record (2026-08-10), carried forward by plan 0012; accepted rulings and unresolved proposals retain their individual status.
+- **Image-layout extension:** [Markdown Profile 2](marktext-markdown-profile-2.md) adds
+  image sizing while retaining this CriticMarkup profile. Profile 1 remains the
+  base semantic record; its existing text is not silently redefined.
 - **Identifiers:** `markdownProfile: 'markdown-profile-1'` ·
   `criticMarkupProfile: 'marktext-profile-1'`
 - **Derived from:** the canonical CriticMarkup specification, CommonMark and GFM, historical

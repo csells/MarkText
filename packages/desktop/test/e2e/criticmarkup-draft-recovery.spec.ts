@@ -22,7 +22,7 @@ import {
 import { expectInstalledArtifactCommit } from './installedArtifactProvenance'
 
 for (const failure of [
-  'queue limit',
+  'synchronous input burst',
   'Worker failure',
   'rejected edit',
   'backup failure',
@@ -92,8 +92,8 @@ for (const failure of [
         failure === 'backup failure' ? 'accepted unsaved مرحبا (ABC 123).' : 'accepted unsaved'
       await paragraph.fill(acceptedText)
       await page.evaluate(() => window.__marktextDocumentCore?.settled())
-      // A fault must recover every acknowledged edit, including edits made
-      // after the last save. The speculative suffix belongs in the backup.
+      // A fault must recover every acknowledged edit, including unsaved work.
+      // Rejected input is kept in the backup without becoming canonical source.
       expect(readFileSync(filePath, 'utf8')).toBe('accepted\n')
       if (failure === 'Source Worker failure') {
         await page.evaluate(() => {
@@ -105,21 +105,32 @@ for (const failure of [
       }
       const initialGeneration = await page.evaluate(() => window.__marktextDocumentCore?.generation)
       const draftText =
-        failure === 'queue limit'
+        failure === 'synchronous input burst'
           ? acceptedText + 'x'.repeat(129)
           : failure === 'Source Worker failure'
             ? acceptedText + ' draft\n'
             : acceptedText + ' draft'
-      if (failure === 'queue limit') {
-        // The existing public bridge flushes real Muya changes synchronously,
-        // deterministically reaching the documented queue cap before held ack.
-        await page.evaluate((accepted) => {
+      if (failure === 'synchronous input burst') {
+        // The live model decides each action in this call. A burst cannot build
+        // the retired Worker acknowledgement queue; every accepted key survives.
+        const burst = await page.evaluate((accepted) => {
           const bridge = window.__marktextDocumentCore
+          if (bridge?.inputPlainText === undefined) throw new Error('Missing native input bridge')
+          const start = bridge.performanceEvents?.().length ?? 0
           for (let index = 1; index <= 129; index += 1) {
             const text = accepted + 'x'.repeat(index)
-            bridge?.inputPlainText?.(0, text, text.length)
+            bridge.inputPlainText(0, text, text.length)
+          }
+          const events = bridge.performanceEvents?.().slice(start) ?? []
+          const dispatch = events.filter((event) => event.phase === 'dispatch')
+          return {
+            dispatched: dispatch.length,
+            acknowledged: events.filter((event) => event.phase === 'ack').length,
+            maximumPending: Math.max(...dispatch.map((event) => event.pendingDepth))
           }
         }, acceptedText)
+        expect(burst).toEqual({ dispatched: 129, acknowledged: 129, maximumPending: 1 })
+        await page.evaluate(() => window.__marktextDocumentCore?.crashWorker?.())
       } else if (failure === 'Source Worker failure') {
         await page.evaluate((offset) => {
           const host = document.querySelector('.source-code .CodeMirror') as Element & {
@@ -131,15 +142,19 @@ for (const failure of [
         await page.keyboard.type(' draft')
         await page.evaluate((expected) => {
           const host = window as typeof window & { crashSourceWorker?: () => void }
-          if (host.crashSourceWorker === undefined) { throw new Error('Missing Source Worker failure control') }
+          if (host.crashSourceWorker === undefined) {
+            throw new Error('Missing Source Worker failure control')
+          }
           const cm = (
             document.querySelector('.source-code .CodeMirror') as Element & {
               CodeMirror: { getValue(): string }
             }
           ).CodeMirror
-          // Fault a real pending draft, without waiting for its acknowledgement.
-          // A missing browser input must not be mistaken for lost recovery data.
-          if (cm.getValue() !== expected) { throw new Error('Source draft was not delivered before the Worker fault') }
+          // Source input is already accepted synchronously. Fault before saving;
+          // a missing browser input must not be mistaken for lost recovery data.
+          if (cm.getValue() !== expected) {
+            throw new Error('Source draft was not delivered before the Worker fault')
+          }
           host.crashSourceWorker()
         }, draftText)
       } else {
@@ -192,9 +207,13 @@ for (const failure of [
       })
       if (app === undefined) throw new Error('Electron application is unavailable')
       await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
-      await expect
-        .poll(() => readFileSync(filePath, 'utf8'))
-        .toBe(acceptedText + (failure === 'queue limit' ? 'x\n' : '\n'))
+      const savedText =
+        failure === 'Source Worker failure'
+          ? draftText
+          : (failure === 'synchronous input burst' || failure === 'Worker failure'
+            ? draftText
+            : acceptedText) + '\n'
+      await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(savedText)
       await app.close()
       app = undefined
       const reopened = await launch()

@@ -11,7 +11,8 @@ import { createMuyaMarkupPresentationIndex } from '@/documentAuthority/muyaMarku
 import {
   muyaInputToModel,
   muyaFormatToModel,
-  muyaActiveFormats
+  muyaActiveFormats,
+  muyaCodeLanguage
 } from '@/documentAuthority/muyaModelSelection'
 import { reconcileMuyaDocumentView } from '@/documentAuthority/reconcileMuyaDocumentView'
 import type { CoreAppliedReply } from '@/documentAuthority/coreProtocol'
@@ -26,7 +27,9 @@ const bootAuthoring = (source: string, tracked = false, legacyFallback = false) 
   binding.open({ documentId: 'author-controls.md', source })
   const view = () => {
     const reply = binding.plainTextViewAtBarrier()
-    if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Missing model view') }
+    if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+      throw new Error('Missing model view')
+    }
     return reply.view
   }
   const host = document.body.appendChild(document.createElement('div'))
@@ -69,6 +72,8 @@ const bootAuthoring = (source: string, tracked = false, legacyFallback = false) 
     prepareClipboard() {
       throw new Error('Unexpected async clipboard preparation in this test')
     },
+    emojiContext: () => undefined,
+    codeLanguage: (point) => muyaCodeLanguage(muya, view(), point),
     activeFormats: (selection) => muyaActiveFormats(muya, view(), selection),
     clipboard() {
       throw new Error('Unexpected clipboard action in this input test')
@@ -185,6 +190,7 @@ it.each(['highlight', 'addition'] as const)(
       const doc = new CodeMirror.Doc(saved.source)
       const source = createCodeMirrorCoreAdapter(doc, app.binding, {
         canonicalSource: saved.source,
+        canonicalRevision: saved.revision,
         insertedLineEnding: '\n'
       })
       try {

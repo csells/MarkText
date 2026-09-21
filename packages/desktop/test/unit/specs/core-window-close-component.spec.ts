@@ -7,8 +7,17 @@ import ts from 'typescript'
 import codeMirror from 'codemirror'
 import { Muya } from '@muyajs/core'
 import { createMuyaMarkupPresentationIndex } from '@/documentAuthority/muyaMarkupPresentationIndex'
-import { muyaActiveFormats, muyaInputToModel } from '@/documentAuthority/muyaModelSelection'
-import { reconcileMuyaDocumentView } from '@/documentAuthority/reconcileMuyaDocumentView'
+import {
+  muyaActiveFormats,
+  muyaCodeLanguage,
+  muyaInputToModel,
+  muyaClipboardCurrentSelection
+} from '@/documentAuthority/muyaModelSelection'
+import {
+  reconcileMuyaDocumentView,
+  restoreMuyaDocumentSelection
+} from '@/documentAuthority/reconcileMuyaDocumentView'
+import type { DocumentSelection } from '@marktext/document-core'
 import type { MuyaPlainTextCoreAdapter } from '@/documentAuthority/muyaPlainTextCoreAdapter'
 import type { CoreAppliedReply } from '@/documentAuthority/coreProtocol'
 import * as authority from '@/documentAuthority'
@@ -16,6 +25,8 @@ import * as teardown from '@/documentAuthority/coreDocumentSessionTeardown'
 import * as retirement from '@/documentAuthority/coreDocumentSessionRetirement'
 import * as handoff from '@/documentAuthority/coreDocumentViewHandoff'
 import * as preferences from '@/documentAuthority/coreMarkdownPreferences'
+import * as eol from '@/documentAuthority/canonicalEolIndex'
+import * as cursor from '@/util/cursor'
 import type { CodeMirrorCoreAdapter } from '@/documentAuthority/codeMirrorCoreAdapter'
 import type {
   CoreDocumentSessionManager,
@@ -36,6 +47,8 @@ function loadOwner(deps: Record<string, unknown>): Vue.Component {
   // eslint-disable-next-line no-new-func
   new Function('require', 'exports', js)((name: string) => {
     if (name === 'vue') return Vue
+    if (name === '@/documentAuthority/canonicalEolIndex') return eol
+    if (name === '@/util/cursor') return cursor
     if (name in deps) return deps[name]
     throw new Error(`Unexpected owner dependency ${name}`)
   }, exports)
@@ -65,6 +78,7 @@ it('retires the mounted Source input through close and restores its live actor, 
         if (initial) doc.setSelections(initial.selections)
         adapter = authority.createCodeMirrorCoreAdapter(doc, lease.binding, {
           canonicalSource: snapshot.source,
+          canonicalRevision: lease.identity.revision,
           insertedLineEnding: '\n'
         })
         lease.settleView(
@@ -77,8 +91,11 @@ it('retires the mounted Source input through close and restores its live actor, 
         mounted()
       })
       expose({
+        captureDocumentSelection: () => adapter.documentSelection(),
         assertCloseAllowed: () => {
-          if (adapter.isComposing()) { throw new Error('Finish text composition before closing the window') }
+          if (adapter.isComposing()) {
+            throw new Error('Finish text composition before closing the window')
+          }
         },
         captureViewState: () => ({
           selections: doc.listSelections(),
@@ -238,10 +255,11 @@ it('retires real Muya input and restores the same owner and caret before the nex
   let mounts = 0
   let unmounts = 0
   const native = Vue.defineComponent({
-    props: ['coreLease', 'corePlainTextView', 'muyaIndexCursor'],
+    props: ['coreLease', 'corePlainTextView', 'initialDocumentSelection'],
     setup(props, { expose }) {
       const host = Vue.ref<HTMLElement>()
       let ownMuya: Muya | undefined
+      let captureDocumentSelection: () => DocumentSelection | undefined = () => undefined
       Vue.onMounted(() => {
         if (!props.coreLease) return
         lease = props.coreLease
@@ -252,6 +270,7 @@ it('retires real Muya input and restores the same owner and caret before the nex
           return reply.view
         }
         muya = ownMuya = new Muya(host.value!)
+        captureDocumentSelection = () => muyaClipboardCurrentSelection(ownMuya!, view())
         let presentation = createMuyaMarkupPresentationIndex(view())
         const ownReconcile = (outcome: CoreAppliedReply) => {
           const current = view()
@@ -286,6 +305,8 @@ it('retires real Muya input and restores the same owner and caret before the nex
           prepareClipboard: unexpected,
           clipboard: unexpected,
           format: unexpected,
+          emojiContext: () => undefined,
+          codeLanguage: (point) => muyaCodeLanguage(ownMuya!, view(), point),
           activeFormats: (selection) => muyaActiveFormats(ownMuya!, view(), selection),
           compositionStart: (operation) =>
             ownAdapter.compositionStart(muyaInputToModel(ownMuya!, view(), operation)),
@@ -315,15 +336,17 @@ it('retires real Muya input and restores the same owner and caret before the nex
           }
         )
         ownLease.onHandoff(() => ownAdapter.dispose())
-        if (props.muyaIndexCursor) muya.setCursorByOffset(props.muyaIndexCursor)
+        if (props.initialDocumentSelection) { restoreMuyaDocumentSelection(muya, view(), props.initialDocumentSelection) }
         mounts++
         mounted()
       })
       expose({
         assertCloseAllowed: () => {
-          if (ownMuya && adapter.isComposing()) { throw new Error('Finish text composition before closing the window') }
+          if (ownMuya && adapter.isComposing()) {
+            throw new Error('Finish text composition before closing the window')
+          }
         },
-        captureViewState: () => ownMuya?.getCursorOffset()
+        captureDocumentSelection: () => captureDocumentSelection()
       })
       Vue.onBeforeUnmount(() => {
         if (!ownMuya) return
@@ -338,7 +361,7 @@ it('retires real Muya input and restores the same owner and caret before the nex
     id: 'close-native',
     markdown: 'a{++b++}c\n',
     lineEnding: 'lf',
-    muyaIndexCursor: undefined as unknown
+    muyaIndexCursor: { anchor: { line: 0, ch: 9 }, focus: { line: 0, ch: 9 } } as unknown
   })
   const editorStore = Vue.reactive({
     currentFile: file,
@@ -410,10 +433,12 @@ it('retires real Muya input and restores the same owner and caret before the nex
   }
   try {
     await nextMounted
-    const first = muya.editor.scrollPage!.firstContentInDescendant()!
-    first.setCursor(3, 3, true)
+    expect(muya.getSelection()).toMatchObject({ anchor: { offset: 3 }, focus: { offset: 3 } })
     type('X')
     expect((await manager.saveBarrier(file.id)).source).toBe('a{++b++}cX\n')
+    vi.spyOn(muya, 'getCursorOffset').mockImplementation(() => {
+      throw new Error('Core caret capture must not serialize native Markdown')
+    })
     const generation = lease.identity.generation
     const preparation = authority.coreDocumentSaveAuthority.prepareClose()
     await preparation.ready

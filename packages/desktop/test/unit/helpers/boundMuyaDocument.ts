@@ -9,9 +9,12 @@ import { createMuyaPlainTextCoreAdapter } from '@/documentAuthority/muyaPlainTex
 import { createMuyaMarkupPresentationIndex } from '@/documentAuthority/muyaMarkupPresentationIndex'
 import {
   muyaInputToModel,
+  muyaCodeLanguage,
+  muyaEmojiContext,
   muyaActiveFormats,
   muyaFormatToModel,
-  muyaClipboardToModel
+  muyaClipboardToModel,
+  muyaClipboardCurrentSelection
 } from '@/documentAuthority/muyaModelSelection'
 import { reconcileMuyaDocumentView } from '@/documentAuthority/reconcileMuyaDocumentView'
 import type { CoreAppliedReply } from '@/documentAuthority/coreProtocol'
@@ -22,7 +25,9 @@ export const bootBoundMuya = (source: string, options?: EditorCoreOpenInput['opt
   binding.open({ documentId: 'bound-editor.md', source, options })
   const view = () => {
     const next = binding.plainTextViewAtBarrier()
-    if (next.type !== 'plain-text-view' || !('state' in next.view)) { throw new Error('Expected typed view') }
+    if (next.type !== 'plain-text-view' || !('state' in next.view)) {
+      throw new Error('Expected typed view')
+    }
     return next.view
   }
   const host = document.body.appendChild(document.createElement('div'))
@@ -32,6 +37,10 @@ export const bootBoundMuya = (source: string, options?: EditorCoreOpenInput['opt
     const current = view()
     presentation = createMuyaMarkupPresentationIndex(current, presentation)
     muya.setInlinePresentation(presentation.render)
+    // Match the production acknowledgement gate: an already visible native
+    // draft must survive until its own model operation has been admitted.
+    muya.flush()
+    if (adapter.hasPendingEdits()) return current.bindings
     reconcileMuyaDocumentView({
       muya,
       view: current,
@@ -50,7 +59,9 @@ export const bootBoundMuya = (source: string, options?: EditorCoreOpenInput['opt
       change !== null &&
       typeof change === 'object' &&
       (change as { source?: unknown }).source === 'user'
-    ) { legacyChanges.push(change) }
+    ) {
+      legacyChanges.push(change)
+    }
   })
   muya.setInlinePresentation(presentation.render)
   muya.init()
@@ -59,8 +70,42 @@ export const bootBoundMuya = (source: string, options?: EditorCoreOpenInput['opt
     throw new Error('Unexpected operation in bound editor test')
   }
   muya.editor.bindDocumentEditing({
+    emojiContext: (point) => muyaEmojiContext(muya, view(), point),
+    codeLanguage: (point) => muyaCodeLanguage(muya, view(), point),
     prepareImage: unexpected,
-    prepareClipboard: unexpected,
+    async prepareClipboard(selection, payload, prepare, blockPlacement) {
+      const operation =
+        'kind' in selection
+          ? { kind: 'table' as const, operation: 'paste' as const, selection, markdown: '' }
+          : { kind: 'paste' as const, selection, markdown: '' }
+      const action = muyaClipboardToModel(muya, view(), operation, tracking)
+      if (action.kind !== 'paste' && !(action.kind === 'table' && action.operation === 'paste')) { throw new Error('Expected clipboard paste') }
+      const pending = adapter.prepareClipboard(
+        {
+          ...action,
+          ...(blockPlacement === undefined
+            ? {}
+            : { blockPlacement, currentSelection: muyaClipboardCurrentSelection(muya, view()) })
+        },
+        payload,
+        reconcile
+      )
+      try {
+        const imported = await prepare((payload) => pending.capturePayload(payload))
+        const result = await pending.complete(imported.markdown, {
+          ...imported,
+          currentSelection: () => {
+            const selection = muyaClipboardCurrentSelection(muya, view())
+            if (!selection && blockPlacement === undefined) { throw new Error('Expected current clipboard selection') }
+            return selection
+          }
+        })
+        return result.changed
+      } catch (error) {
+        pending.fail(error instanceof Error ? error : new Error(String(error)))
+        throw error
+      }
+    },
     activeFormats: (selection) => muyaActiveFormats(muya, view(), selection),
     clipboard(operation, present) {
       const result = adapter.clipboard(

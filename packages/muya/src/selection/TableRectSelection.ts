@@ -1,9 +1,9 @@
-import type { IDOMSelection } from './domTypes';
 import type Table from '../block/gfm/table';
 import type TableBodyCell from '../block/gfm/table/cell';
 import type { Muya } from '../muya';
 import type { ITableState } from '../state/types';
 import type { Nullable } from '../types';
+import type { IDOMSelection } from './domTypes';
 import { CLASS_NAMES } from '../config';
 import { isMouseEvent } from '../utils';
 import { getBlock } from '../utils/dom';

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -10,7 +10,8 @@ import {
   expectNoRendererErrors,
   launchWithMarkdown,
   placeCaretInEditor,
-  sendIpcToRenderer
+  sendIpcToRenderer,
+  waitForEditor
 } from './helpers'
 import {
   expectDefaultCoreAuthority,
@@ -85,9 +86,40 @@ const chooseSavePath = (app: ElectronApplication, filePath?: string) =>
 const closeNativeWindow = (app: ElectronApplication) =>
   app.evaluate(({ BrowserWindow }) => {
     const win = BrowserWindow.getAllWindows()[0]
-    if (!win || win.isVisible() || win.isFocused()) { throw new Error("Expected this run's hidden editor window") }
+    if (!win || win.isVisible() || win.isFocused()) {
+      throw new Error("Expected this run's hidden editor window")
+    }
     win.close()
   })
+
+const quitNativeApp = (application: ElectronApplication) =>
+  application.evaluate(({ app, BrowserWindow }) => {
+    const windows = BrowserWindow.getAllWindows()
+    if (windows.length !== 1 || windows.some((win) => win.isVisible() || win.isFocused())) {
+      throw new Error("Expected this run's single hidden editor window")
+    }
+    app.quit()
+  })
+
+async function sendToPage(
+  app: ElectronApplication,
+  page: Page,
+  channel: string,
+  ...args: unknown[]
+): Promise<void> {
+  const window = await app.browserWindow(page)
+  try {
+    await window.evaluate(
+      (win, payload) => win.webContents.send(payload.channel, ...payload.args),
+      {
+        channel,
+        args
+      }
+    )
+  } finally {
+    await window.dispose()
+  }
+}
 
 async function disposeTestApp(app: ElectronApplication): Promise<void> {
   // Resolve only this run's controlled dialogs, then let its ordinary quit path
@@ -175,6 +207,38 @@ const launchOptions = {
 } as const
 
 for (const surface of ['markup', 'source'] as const) {
+  test(`${surface}: application quit saves late input before the process exits`, async() => {
+    const retained = '\n\n{++keep++} {>>preserve this comment<<}\n'
+    const { app, page, filePath } = await launchWithMarkdown(`see${retained}`, launchOptions)
+    const childProcess = app.process()
+    try {
+      await assertLaunch(app, page)
+      await installDialogControl(app)
+      await prepareSurface(page, app, surface)
+      await page.keyboard.type('d')
+      await expect.poll(async() => (await visibleText(page, surface)).split('\n')[0]).toBe('seed')
+      await quitNativeApp(app)
+      await expect.poll(async() => (await probe(app)).decisions).toBe(1)
+      await page.keyboard.type(' late')
+      await expect
+        .poll(async() => (await visibleText(page, surface)).split('\n')[0])
+        .toBe('seed late')
+      expect(readFileSync(filePath, 'utf8')).toBe(`see${retained}`)
+      expect(childProcess.exitCode).toBeNull()
+      await expectEditorWindowHidden(app)
+      expectEditorNotFrontmost(app)
+      await expectNoRendererErrors(app)
+      const closed = app.waitForEvent('close')
+      await decideSave(app)
+      await closed
+      await expect.poll(() => childProcess.exitCode).toBe(0)
+      expect(page.isClosed()).toBe(true)
+      expect(readFileSync(filePath, 'utf8')).toBe(`seed late${retained}`)
+    } finally {
+      await disposeTestApp(app)
+    }
+  })
+
   test(`${surface}: native close saves input accepted while the Save decision was pending`, async() => {
     const { app, page, filePath } = await launchWithMarkdown('see\n', launchOptions)
     try {
@@ -247,6 +311,97 @@ for (const surface of ['markup', 'source'] as const) {
       await expect(page.getByTestId('core-recovery-draft')).toHaveCount(0)
       await expectNoRendererErrors(app)
       await expectEditorWindowHidden(app)
+      expectEditorNotFrontmost(app)
+    } finally {
+      await disposeTestApp(app)
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test(`${surface}: incoming open survives a retired window and cancelled Save As`, async() => {
+    const root = mkdtempSync(join(tmpdir(), 'marktext-close-incoming-'))
+    const originalPath = join(root, 'resumed.md')
+    const incomingPath = join(root, 'incoming.md')
+    const retained = '\n\n{++keep++} {>>incoming comment<<}\n'
+    writeFileSync(incomingPath, `incoming${retained}`, { flag: 'wx' })
+    const { app, page } = await launchWithMarkdown('untouched\n', launchOptions)
+    try {
+      await assertLaunch(app, page)
+      await installDialogControl(app)
+      await sendIpcToRenderer(app, 'mt::new-untitled-tab', true, '')
+      await expect.poll(() => visibleText(page, 'markup')).toBe('')
+      await prepareSurface(page, app, surface)
+      await page.keyboard.type('seed')
+      await closeNativeWindow(app)
+      await expect.poll(async() => (await probe(app)).decisions).toBe(1)
+      await page.keyboard.type(' late')
+      await expect.poll(() => visibleText(page, surface)).toBe('seed late')
+      await decideSave(app)
+      await expect.poll(async() => (await probe(app)).saveAs).toBe(1)
+      const retired = await probe(app)
+      expect(retired.prepared).toHaveLength(1)
+      expect(retired.prepared[0]?.files?.map((file) => file.markdown)).toEqual(['seed late'])
+      await expect(page.locator('.mu-paragraph-content, .source-code .CodeMirror')).toHaveCount(0)
+
+      // Main must carry the loaded document into a fresh window while the
+      // original renderer has no live view. Only the OS Save As answer is held.
+      const opened = app.waitForEvent('window')
+      await page.evaluate(
+        (path) => window.electron.ipcRenderer.send('mt::open-file', path),
+        incomingPath
+      )
+      const incoming = await opened
+      await incoming.waitForLoadState('domcontentloaded')
+      await waitForEditor(incoming)
+      await expectDefaultCoreAuthority(incoming)
+      if (process.env.MARKTEXT_PACKAGED_APP) await expectInstalledArtifactCommit(incoming)
+      const incomingSurface: Surface =
+        (await incoming.locator('.source-code .CodeMirror').count()) > 0 ? 'source' : 'markup'
+      await expect
+        .poll(async() => (await visibleText(incoming, incomingSurface)).split('\n')[0])
+        .toBe('incoming')
+      expect(readFileSync(incomingPath, 'utf8')).toBe(`incoming${retained}`)
+      await expect(page.locator('.mu-paragraph-content, .source-code .CodeMirror')).toHaveCount(0)
+      expect(
+        await app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows().map((win) => ({
+            visible: win.isVisible(),
+            focused: win.isFocused()
+          }))
+        )
+      ).toEqual([
+        { visible: false, focused: false },
+        { visible: false, focused: false }
+      ])
+      expectEditorNotFrontmost(app)
+
+      await chooseSavePath(app)
+      await expect
+        .poll(async() => (await probe(app)).resumed)
+        .toEqual([retired.prepared[0]!.requestId])
+      await page.keyboard.type('X')
+      await expect.poll(() => visibleText(page, surface)).toBe('seed lateX')
+      await sendToPage(app, page, 'mt::editor-edit-action', 'undo')
+      await expect.poll(() => visibleText(page, surface)).toBe('seed late')
+      await sendToPage(app, page, 'mt::editor-edit-action', 'redo')
+      await expect.poll(() => visibleText(page, surface)).toBe('seed lateX')
+      await sendToPage(app, page, 'mt::editor-ask-file-save')
+      await expect.poll(async() => (await probe(app)).saveAs).toBe(2)
+      await chooseSavePath(app, originalPath)
+      await expect(() => expect(readFileSync(originalPath, 'utf8')).toBe('seed lateX')).toPass({
+        timeout: 5000
+      })
+
+      await prepareSurface(incoming, app, incomingSurface)
+      await incoming.keyboard.type('X')
+      await expect
+        .poll(async() => (await visibleText(incoming, incomingSurface)).split('\n')[0])
+        .toBe('incomingX')
+      await sendToPage(app, incoming, 'mt::editor-ask-file-save')
+      await expect.poll(() => readFileSync(incomingPath, 'utf8')).toBe(`incomingX${retained}`)
+      await expect(page.getByTestId('core-recovery-draft')).toHaveCount(0)
+      await expect(incoming.getByTestId('core-recovery-draft')).toHaveCount(0)
+      await expectNoRendererErrors(app)
       expectEditorNotFrontmost(app)
     } finally {
       await disposeTestApp(app)

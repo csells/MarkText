@@ -17,7 +17,7 @@ import InlineRenderer from '../inlineRenderer';
 import { Search } from '../search';
 import Selection from '../selection';
 import JSONState from '../state';
-import { hasPick, isHTMLElement } from '../utils';
+import { deepClone, hasPick, isHTMLElement } from '../utils';
 import { getBlock } from '../utils/dom';
 import logger from '../utils/logger';
 import { attachDocumentEditing } from './documentEditing';
@@ -566,5 +566,17 @@ export class Editor {
 
         if (autoFocus)
             this.focus();
+    }
+
+    /** Install an owned view projection; this does not dispatch an editing operation. */
+    reconcileContent(content: readonly TState[]): boolean {
+        const state = deepClone([...content]);
+        this.jsonState.setContent(state);
+        const changed = this.scrollPage!.reconcileState(state);
+        if (changed) {
+            this.history.clear();
+            this.searchModule.reset();
+        }
+        return changed;
     }
 }

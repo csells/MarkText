@@ -89,6 +89,7 @@ export class FootnoteTool extends BaseFloat {
             'a.btn',
             {
                 on: {
+                    mousedown: (event: Event) => event.preventDefault(),
                     click: (event: Event) => this._handleButtonClick(event, hasFootnote),
                 },
             },
@@ -126,6 +127,24 @@ export class FootnoteTool extends BaseFloat {
     }
 
     private _createDefinition() {
+        const model = this.muya.editor.documentEditing;
+        if (model) {
+            const selection = this.muya.editor.selection.getDOMSelection();
+            if (!selection)
+                throw new Error('Footnote creation requires a document selection');
+            model.input({
+                kind: 'command',
+                command: 'createFootnote',
+                identifier: this._identifier,
+                selection,
+                options: {
+                    autoPairBracket: this.muya.options.autoPairBracket,
+                    autoPairQuote: this.muya.options.autoPairQuote,
+                    autoPairMarkdownSyntax: this.muya.options.autoPairMarkdownSyntax,
+                },
+            }, () => {});
+            return;
+        }
         const { scrollPage } = this.muya.editor;
         if (!scrollPage)
             return;

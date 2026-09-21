@@ -1,3 +1,4 @@
+import { emojiPattern } from '@marktext/input-policy';
 import { escapeCharacters } from '../config/escapeCharacter';
 
 export const beginRules = {
@@ -56,7 +57,7 @@ export const commonMarkRules = {
 export type CommonMarkRules = typeof commonMarkRules;
 
 export const gfmRules = {
-    emoji: /^(:)([a-z_\d+-]+)\1/,
+    emoji: emojiPattern,
     // eslint-disable-next-line regexp/no-super-linear-backtracking
     del: /^(~{2})(?=\S)([\s\S]*?\S)(\\*)\1/, // can nest
     auto_link:

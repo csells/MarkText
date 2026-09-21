@@ -87,7 +87,17 @@ export class CodeBlockLanguageSelector extends BaseScrollFloat {
 
             const { text, domNode } = block;
             let lang = '';
-            if (block.blockName === 'paragraph.content')
+            const model = this.muya.editor.documentEditing;
+            if (model) {
+                const point = this.muya.editor.selection.getDOMPoint({ path: block.path, offset: 0 });
+                const language = point && model.codeLanguage(point);
+                if (language === undefined || language === null) {
+                    this.hide();
+                    return;
+                }
+                lang = language;
+            }
+            else if (block.blockName === 'paragraph.content')
                 lang = typedFence(text).lang;
             else if (block.blockName === 'language-input')
                 lang = text;
@@ -151,6 +161,7 @@ export class CodeBlockLanguageSelector extends BaseScrollFloat {
                         label: item.name,
                     },
                     on: {
+                        mousedown: (event: MouseEvent) => event.preventDefault(),
                         click: () => {
                             this.selectItem(item);
                         },
@@ -191,6 +202,26 @@ export class CodeBlockLanguageSelector extends BaseScrollFloat {
         // stayed open — mutating an orphaned block crashes on a null parent (#4654).
         if (!block.outMostBlock)
             return;
+
+        const model = muya.editor.documentEditing;
+        if (model) {
+            const selection = muya.editor.selection.getDOMSelection();
+            if (!selection)
+                throw new Error('Code language selector has no model selection');
+            model.input({
+                kind: 'command',
+                command: 'setCodeLanguage',
+                language: name,
+                selection,
+                options: {
+                    autoPairBracket: muya.options.autoPairBracket,
+                    autoPairQuote: muya.options.autoPairQuote,
+                    autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
+                },
+            }, () => {});
+            super.selectItem(item);
+            return;
+        }
 
         function isParagraphContent(
             b: ParagraphContent | LangInputContent,

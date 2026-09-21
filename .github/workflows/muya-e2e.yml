@@ -12,6 +12,9 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
+      - 'packages/document-core/**'
+      - 'packages/input-policy/**'
+      - 'packages/desktop/src/renderer/src/documentAuthority/**'
       - 'packages/muya/src/**'
       - 'packages/muya/e2e/**'
       - 'packages/muya/examples/**'

@@ -133,6 +133,18 @@ export function usePluginsAddRules(turndownService: TurndownService) {
     turndownService.use(strikethrough);
     turndownService.use(tables);
 
+    // The default image rule drops layout. Keep the imported HTML spelling,
+    // which both the standalone editor and the shared document model support.
+    turndownService.addRule('imageLayout', {
+        filter(node: Node) {
+            return isHTMLElement(node) && node.nodeName === 'IMG'
+                && ['width', 'height', 'data-align'].some(name => node.hasAttribute(name));
+        },
+        replacement(_content: string, node: Node) {
+            return isHTMLElement(node) ? node.outerHTML : '';
+        },
+    });
+
     // We need a extra strikethrough rule because the strikethrough rule in gfm is single `~`.
     turndownService.addRule('strikethrough', {
         filter: ['del', 's'], // <strike> is not support by the web standard, so I remove the use `strike` in filter...

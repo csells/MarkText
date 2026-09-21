@@ -6,7 +6,11 @@
 </template>
 
 <script setup lang="ts">
-import type { MarkdownOptions } from '@marktext/document-core'
+import type {
+  DocumentSelection,
+  DocumentTextSelection,
+  MarkdownOptions
+} from '@marktext/document-core'
 import { ref, shallowRef, markRaw, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { debounce } from 'lodash'
 import { createCoreHeadingToc } from '@/documentAuthority/coreHeadingToc'
@@ -50,6 +54,7 @@ const props = defineProps<{
   coreLease?: CoreDocumentViewLease
   corePerformanceTrace?: CoreAuthorityPerformanceTrace
   initialViewState?: CodeMirrorViewState
+  initialDocumentSelection?: DocumentSelection
 }>()
 const emit = defineEmits<{ (event: 'core-fault', error: unknown): void }>()
 
@@ -72,12 +77,25 @@ let coreCompositionEnd: (() => void) | undefined
 let coreSettlementCheck: (() => void) | undefined
 let requestedSourceSnapshots = 0
 let coreRecoveryDraftCapture: ReturnType<typeof createCodeMirrorRecoveryDraftCapture> | undefined
+let projectedInitialSelection: DocumentTextSelection | undefined
+let initialSelectionRevision: number | undefined
 const captureRecoveryDraft = (error: unknown): CoreRecoveryDraftInput | undefined =>
   coreRecoveryDraftCapture?.(error)
 const captureViewState = (): CodeMirrorViewState | undefined =>
   editor.value && sourceCodeContainer.value
     ? captureCodeMirrorViewState(editor.value, sourceCodeContainer.value)
     : undefined
+const captureDocumentSelection = (): DocumentSelection | undefined => {
+  const selection = coreAdapter?.documentSelection()
+  if (selection === undefined) return undefined
+  // A source caret cannot express a position inside a normalized model value.
+  // Preserve that same position only while its exact projection is unchanged.
+  return props.initialDocumentSelection !== undefined &&
+    props.coreLease?.identity.revision === initialSelectionRevision &&
+    JSON.stringify(selection) === JSON.stringify(projectedInitialSelection)
+    ? props.initialDocumentSelection
+    : selection
+}
 const configureCorePreferences = async (
   options: Readonly<Partial<MarkdownOptions>>
 ): Promise<void> => {
@@ -87,11 +105,14 @@ const configureCorePreferences = async (
   if (outcome === undefined) throw new Error('Core preferences were not applied')
 }
 const assertCloseAllowed = (): void => {
-  if (coreAdapter?.isComposing()) { throw new Error('Finish text composition before closing the window') }
+  if (coreAdapter?.isComposing()) {
+    throw new Error('Finish text composition before closing the window')
+  }
 }
 defineExpose({
   captureRecoveryDraft,
   captureViewState,
+  captureDocumentSelection,
   configureCorePreferences,
   assertCloseAllowed
 })
@@ -170,6 +191,11 @@ const getMuyaCursor = (cm: CodeMirror.Editor): MuyaIndexCursorLike => {
   }
   return { focus, anchor }
 }
+
+const getSourceCursor = (cm: CodeMirror.Editor): MuyaIndexCursorLike => ({
+  anchor: copyCodeMirrorPosition(cm.getCursor('anchor')),
+  focus: copyCodeMirrorPosition(cm.getCursor('head'))
+})
 
 const getMarkdownAndCursor = (cm: CodeMirror.Editor) => {
   const cursor = getMuyaCursor(cm)
@@ -250,7 +276,7 @@ const handleFileChange = (payload: unknown) => {
   }
 
   // t('editor.sourceCode.cursorNullComment')
-  if (isValidMuyaIndexCursor(muyaIndexCursor)) {
+  if (props.coreLease === undefined && isValidMuyaIndexCursor(muyaIndexCursor)) {
     const { anchor, focus } = muyaIndexCursor
 
     editor.value.setSelection(copyCodeMirrorPosition(anchor), copyCodeMirrorPosition(focus), {
@@ -564,7 +590,7 @@ onMounted(() => {
     event.stopPropagation()
   })
 
-  if (isValidMuyaIndexCursor(muyaIndexCursor)) {
+  if (props.coreLease === undefined && isValidMuyaIndexCursor(muyaIndexCursor)) {
     const { anchor, focus } = muyaIndexCursor
     codeMirrorInstance.setSelection(copyCodeMirrorPosition(anchor), copyCodeMirrorPosition(focus), {
       scroll: true
@@ -583,7 +609,11 @@ onMounted(() => {
       props.coreLease.binding,
       {
         nativeHistoryScope: crypto.randomUUID(),
-        ...sourceCodeCoreAdapterOptions(props.markdown ?? '', props.coreLease.lineEnding),
+        ...sourceCodeCoreAdapterOptions(
+          props.markdown ?? '',
+          props.coreLease.lineEnding,
+          props.coreLease.identity.revision
+        ),
         ...(props.corePerformanceTrace === undefined
           ? {}
           : {
@@ -594,6 +624,22 @@ onMounted(() => {
             })
       }
     )
+    if (props.initialDocumentSelection !== undefined) {
+      const projection = props.coreLease.binding.sourceSelectionAtBarrier(
+        props.initialDocumentSelection
+      )
+      if (projection.type !== 'source-selection') { throw new Error('Core Source caret projection is unavailable') }
+      projectedInitialSelection = projection.selection
+      initialSelectionRevision = projection.revision
+      codeMirrorInstance.setSelections(
+        projection.selection.ranges.map(({ anchor, focus }) => ({
+          anchor: coreAdapter!.sourcePosition(anchor),
+          head: coreAdapter!.sourcePosition(focus)
+        })),
+        projection.selection.primary,
+        { scroll: true }
+      )
+    }
     const syntaxLease = props.coreLease
     detachCoreSourceSyntax = bindCodeMirrorSourceSyntax({
       editor: codeMirrorInstance,
@@ -654,12 +700,12 @@ onMounted(() => {
       updateSelectionWordCount(cm)
       editorStore.LISTEN_FOR_CORE_CURSOR_CHANGE(
         props.coreLease?.documentId ?? '',
-        getMuyaCursor(cm)
+        getSourceCursor(cm)
       )
     })
     editorStore.LISTEN_FOR_CORE_CURSOR_CHANGE(
       props.coreLease.documentId,
-      getMuyaCursor(codeMirrorInstance)
+      getSourceCursor(codeMirrorInstance)
     )
     coreSettlementCheck = () => {
       sourceTocIdentity = undefined

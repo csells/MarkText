@@ -215,6 +215,60 @@ describe('first-class Core native input command', () => {
 })
 
 describe('input command document recovery', () => {
+  it('retains an intrinsic text-drop target before caller mutation and recovery', async() => {
+    const manager = createCoreDocumentSessionManager({
+      createBinding: () => {
+        const actor = createCoreActor()
+        return createEditorCoreBinding({
+          request: (request) => actor.handle(request),
+          dispose: () => actor.dispose()
+        })
+      }
+    })
+    const documentId = 'intrinsic-text-drop.md'
+    const source = 'A&fjlig;B tail\n'
+    await manager.open({ documentId, source, lineEnding: '\n' })
+    let lease = manager.lease(documentId)
+    const target = {
+      kind: 'model-text' as const,
+      anchor: { text: { start: 0, end: 14 }, offset: 3 },
+      focus: { text: { start: 0, end: 14 }, offset: 3 }
+    }
+    try {
+      expect(
+        lease.binding.submit({
+          kind: 'input',
+          action: {
+            kind: 'command',
+            command: 'moveText',
+            copy: true,
+            target,
+            selection: {
+              kind: 'model-text',
+              anchor: { text: { start: 0, end: 14 }, offset: 2 },
+              focus: { text: { start: 0, end: 14 }, offset: 1 }
+            },
+            options
+          },
+          tracked: false,
+          projections: []
+        }).acknowledged
+      ).toMatchObject({ type: 'applied' })
+      target.anchor.offset = 99
+      target.focus.text.end = 99
+      lease.faultView(new Error('Controlled presentation disconnect after text drop'))
+      lease = await manager.recover(lease)
+      expect(await manager.saveBarrier(documentId)).toMatchObject({ source: 'AfjfB tail\n' })
+      expect(lease.binding.submit({ kind: 'undo', projections: [] }).acknowledged).toMatchObject({
+        type: 'applied'
+      })
+      expect(await manager.saveBarrier(documentId)).toMatchObject({ source })
+    } finally {
+      await manager.handoff(lease)
+      await manager.close(documentId)
+    }
+  })
+
   it('replays accepted input actions without journaling closer skips', async() => {
     let generation = 0
     const replayed: string[] = []
@@ -225,7 +279,9 @@ describe('input command document recovery', () => {
         return createEditorCoreBinding({
           request: (request) => {
             if (currentGeneration > 1 && request.type === 'input') {
-              if (!('data' in request.action)) { throw new Error('Unexpected structural command in text replay fixture') }
+              if (!('data' in request.action)) {
+                throw new Error('Unexpected structural command in text replay fixture')
+              }
               replayed.push(request.action.data ?? '')
             }
             return actor.handle(request)

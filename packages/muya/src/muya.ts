@@ -11,7 +11,7 @@ import type { IHistorySelection, IPublicCursorInput } from './selection/types';
 import type { ITocItem } from './state/getTOC';
 import type { IBulletListState, IOrderListState, ITableState, ITaskListState, TState } from './state/types';
 import type { IMuyaOptions, Nullable } from './types';
-import { normalizeTableDimensions } from '@marktext/input-policy';
+import { encodeImageInsertionSrc, normalizeTableDimensions } from '@marktext/input-policy';
 import Format from './block/base/format';
 import { canTurnInto, insertBlockBelowByLabel, insertFrontMatterAtStart, replaceBlockByLabel } from './block/blockTransforms';
 import { ScrollPage } from './block/scrollPage';
@@ -19,12 +19,10 @@ import emptyStates from './config/emptyStates';
 import {
     BLOCK_DOM_PROPERTY,
     CLASS_NAMES,
-    DATA_URL_REG,
     MUYA_DEFAULT_OPTIONS,
-    URL_REG,
 } from './config/index';
 
-import { dispatchDocumentBlockquote, dispatchDocumentCodeReset, dispatchDocumentCodeWrap, dispatchDocumentFormat, dispatchDocumentHeading, dispatchDocumentList, dispatchDocumentTableCommand, dispatchDocumentThematicBreak } from './editor/documentEditing';
+import { dispatchDocumentBlock, dispatchDocumentBlockquote, dispatchDocumentCodeReset, dispatchDocumentCodeWrap, dispatchDocumentFormat, dispatchDocumentHeading, dispatchDocumentList, dispatchDocumentTableCommand, dispatchDocumentThematicBreak } from './editor/documentEditing';
 import { Editor } from './editor/index';
 import EventCenter from './event/index';
 import I18n from './i18n/index';
@@ -37,7 +35,7 @@ import {
 import { isAnyListState, isAtxHeadingState, isCodeBlockState, isSetextHeadingState } from './state/types';
 import { Ui } from './ui/ui';
 import { deepClone } from './utils';
-import { encodeImageSrc, getImageInfo } from './utils/image';
+import { getImageInfo } from './utils/image';
 import './assets/styles/blockSyntax.css';
 import './assets/styles/index.css';
 import './assets/styles/inlineSyntax.css';
@@ -293,6 +291,18 @@ export class Muya {
         else
             this.editor.setContent(content, autoFocus);
         this._applyEditablePaths();
+    }
+
+    /**
+     * Present an acknowledged document state while retaining unchanged native roots.
+     * Its owner installs current editable paths before restoring model selection.
+     */
+    reconcileContent(content: readonly TState[]): boolean {
+        let changed = false;
+        this.editor.history.preserveInputGrouping(() => {
+            changed = this.editor.reconcileContent(content);
+        });
+        return changed;
     }
 
     getInputHistoryGroup(): number | undefined {
@@ -970,6 +980,12 @@ export class Muya {
      * copy. No-op when there is no current block.
      */
     duplicate() {
+        if (this.editor.documentEditing) {
+            const selection = this.editor.selection.getDOMSelection();
+            if (selection)
+                dispatchDocumentBlock(this, { type: 'duplicate', scope: 'outer', selectionMode: 'start' }, selection);
+            return;
+        }
         const block = this._outmostBlockAtCursor();
         if (!block)
             return;
@@ -991,6 +1007,12 @@ export class Muya {
      *   context-menu "Insert Paragraph Before/After" behaviour.
      */
     insertParagraph(location: 'before' | 'after' = 'after', text = '', outMost = false) {
+        if (this.editor.documentEditing) {
+            const selection = this.editor.selection.getDOMSelection();
+            if (selection)
+                dispatchDocumentBlock(this, { type: 'new', placement: location, text, scope: outMost ? 'outer' : 'leaf', selectionMode: 'start' }, selection);
+            return;
+        }
         const block = outMost
             ? this._outmostBlockAtCursor()
             : this._immediateBlockAtCursor();
@@ -1013,6 +1035,12 @@ export class Muya {
      * block, or to a fresh empty paragraph when it was the only block.
      */
     deleteParagraph() {
+        if (this.editor.documentEditing) {
+            const selection = this.editor.selection.getDOMSelection();
+            if (selection)
+                dispatchDocumentBlock(this, { type: 'delete', scope: 'outer', selectionMode: 'start' }, selection);
+            return;
+        }
         const block = this._outmostBlockAtCursor();
         if (!block)
             return;
@@ -1125,18 +1153,15 @@ export class Muya {
             alt = match?.[1] ?? '';
         }
 
-        // Only percent-encode plain paths; leave full URLs / well-formed data
-        // URLs as-is. `DATA_URL_REG` requires the full `data:image/<type>...,<payload>`
-        // shape (the same regex `utils/image.ts` `getImageSrc` uses), so a bare
-        // `data:image/` prefix is not embedded verbatim and instead falls through
-        // to the plain-path branch.
-        let imgUrl: string;
-        if (URL_REG.test(src))
-            imgUrl = encodeURI(src);
-        else if (DATA_URL_REG.test(src))
-            imgUrl = src;
-        else
-            imgUrl = encodeImageSrc(src);
+        if (this.editor.documentEditing) {
+            const selection = this.editor.selection.getDOMSelection();
+            if (!selection)
+                throw new Error('Image insertion has no model selection');
+            this.editor.documentEditing.format({ format: 'image', image: { src, alt }, selection });
+            return;
+        }
+
+        const imgUrl = encodeImageInsertionSrc(src);
 
         const { start, end } = cursor;
         const { text } = block;
@@ -1392,6 +1417,13 @@ export class Muya {
                 dispatchDocumentHeading(this, change, selection);
                 return;
             }
+            if (model && (type === 'paragraph' || type === 'reset-to-paragraph')) {
+                const selection = this.editor.selection.getDOMSelection();
+                if (!selection)
+                    throw new Error('Paragraph reset has no document selection');
+                dispatchDocumentBlock(this, { type: 'reset', scope: type === 'paragraph' ? 'leaf' : 'outer', selectionMode: type === 'paragraph' ? 'preserve' : 'end' }, selection);
+                return;
+            }
             this.editor.history.recordCommand(() => this._updateParagraph(type));
         }
         finally {
@@ -1615,6 +1647,19 @@ export class Muya {
             if (!selection)
                 throw new Error('List reset has no document selection');
             dispatchDocumentList(this, { type: 'reset' }, selection);
+            return;
+        }
+        if (this.editor.documentEditing) {
+            if (block.blockName === 'table')
+                return;
+            const content = block.firstContentInDescendant();
+            if (!content)
+                throw new Error('Paragraph reset target has no content');
+            const at = this.editor.selection.getDOMPoint({ path: content.path, offset: 0 });
+            if (!at)
+                throw new Error('Paragraph reset target has no document position');
+            const selection = this.editor.selection.getDOMSelection() ?? { anchor: at, focus: at };
+            dispatchDocumentBlock(this, { type: 'reset', at, scope: block.isOutMostBlock ? 'outer' : 'leaf', selectionMode: 'end' }, selection);
             return;
         }
         if (block.blockName === 'table')

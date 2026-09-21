@@ -8,6 +8,7 @@ import dragIcon from '../../assets/icons/drag/2.png';
 import BulletList from '../../block/commonMark/bulletList';
 import OrderList from '../../block/commonMark/orderList';
 import { BLOCK_DOM_PROPERTY } from '../../config';
+import { dispatchDocumentBlockMove } from '../../editor/documentEditing';
 import { isMouseEvent, throttle, verticalPositionInRect } from '../../utils';
 import { h, patch } from '../../utils/snabbdom';
 import { getIcon } from './config';
@@ -228,12 +229,24 @@ export class ParagraphFrontButton {
         document.body.style.cursor = 'auto';
         this._dragTimer = null;
         const { block, target, position } = this._dragInfo || {};
+        this._dragInfo = null;
 
         if (target && position && block) {
             if (
                 (position === 'down' && block.prev === target)
                 || (position === 'up' && block.next === target)
             ) {
+                return;
+            }
+
+            if (this.muya.editor.documentEditing) {
+                const first = block.firstContentInDescendant();
+                const destination = target.firstContentInDescendant();
+                const from = first && this.muya.editor.selection.getDOMPoint({ path: first.path, offset: 0 });
+                const to = destination && this.muya.editor.selection.getDOMPoint({ path: destination.path, offset: 0 });
+                if (!from || !to)
+                    throw new Error('Block drag has no owned native target');
+                dispatchDocumentBlockMove(this.muya, from, to, position === 'up' ? 'before' : 'after');
                 return;
             }
 
@@ -256,8 +269,6 @@ export class ParagraphFrontButton {
                 anchorBlock.setCursor(begin, end);
             }
         }
-
-        this._dragInfo = null;
     };
 
     private _startDrag = () => {

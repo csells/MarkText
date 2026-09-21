@@ -20,6 +20,7 @@ import {
 
 export interface CodeMirrorCoreAdapter {
   sourcePosition(offset: number): CodeMirror.Position
+  documentSelection(): DocumentTextSelection
   recoveryDraft(): CodeMirrorRecoveryDraft
   isComposing(): boolean
   isSettled(): boolean
@@ -70,6 +71,8 @@ export interface CodeMirrorCoreAdapterOptions {
   readonly maxPendingInsertUnits?: number
   /** Canonical source opened by the Core actor before CodeMirror normalized it. */
   readonly canonicalSource: string
+  /** Revision owning that source, including when mounting an already-edited document. */
+  readonly canonicalRevision: number
   readonly insertedLineEnding: CanonicalLineEnding
   readonly projections?: () => readonly DocumentProjectionRequest[]
   readonly performanceTrace?: Readonly<{
@@ -172,12 +175,16 @@ export function createCodeMirrorCoreAdapter(
   if (!Number.isSafeInteger(maxPendingInsertUnits) || maxPendingInsertUnits < 1) {
     throw new TypeError('CodeMirror Core insert-unit limit must be a positive integer')
   }
+  if (!Number.isSafeInteger(options.canonicalRevision) || options.canonicalRevision < 1) {
+    throw new TypeError('CodeMirror Core canonical revision must be a positive integer')
+  }
   return createAdapterWithIndex(
     doc,
     binding,
     maxPending,
     maxPendingInsertUnits,
     createCanonicalEolIndex(options.canonicalSource),
+    options.canonicalRevision,
     options.insertedLineEnding,
     options.projections ?? (() => []),
     options.performanceTrace,
@@ -191,6 +198,7 @@ function createAdapterWithIndex(
   maxPending: number,
   maxPendingInsertUnits: number,
   initialEolIndex: ReturnType<typeof createCanonicalEolIndex>,
+  canonicalRevision: number,
   insertedLineEnding: CanonicalLineEnding,
   projections: () => readonly DocumentProjectionRequest[],
   performanceTrace: CodeMirrorCoreAdapterOptions['performanceTrace'],
@@ -274,7 +282,7 @@ function createAdapterWithIndex(
   let latestNativeEdits: readonly DocumentSourceEdit[] = []
   let failedDraft: CodeMirrorRecoveryDraft | undefined
   let pendingInsertUnits = 0
-  let lastAcceptedRevision = 1
+  let lastAcceptedRevision = canonicalRevision
   let reconciliationReason: 'rejected' | 'resource' | 'pending-limit' | undefined
   let faultMessage: string | undefined
   let latestReply: CoreAppliedReply | undefined
@@ -442,7 +450,9 @@ function createAdapterWithIndex(
       let sourceSelection = selection.selection
       if (!('ranges' in sourceSelection)) {
         const projected = binding.sourceSelectionAtBarrier(sourceSelection)
-        if (projected.type !== 'source-selection') { throw new Error('Core history Source selection is unavailable') }
+        if (projected.type !== 'source-selection') {
+          throw new Error('Core history Source selection is unavailable')
+        }
         sourceSelection = projected.selection
       }
       doc.setSelections(
@@ -890,7 +900,9 @@ function createAdapterWithIndex(
     if (disposed || terminalError !== undefined) return
     const beforeSelection = nativeOperationBeforeSelection
     nativeOperationBeforeSelection = undefined
-    if (beforeSelection === undefined) { throw new Error('Source operation lost its original selection') }
+    if (beforeSelection === undefined) {
+      throw new Error('Source operation lost its original selection')
+    }
     enqueue(edits, beforeSelection, sourceSelection())
   }
   const onBeforeSelectionChange = (
@@ -912,6 +924,7 @@ function createAdapterWithIndex(
 
   const adapter: CodeMirrorCoreAdapter = Object.freeze({
     sourcePosition: (offset: number) => eolIndex.position(offset),
+    documentSelection: () => sourceSelection(),
     recoveryDraft(): CodeMirrorRecoveryDraft {
       return failedDraft ?? captureDraft()
     },
@@ -977,7 +990,9 @@ function createAdapterWithIndex(
       if (edit === undefined) {
         finishComposition?.(latestReply)
       } else {
-        if (compositionBeforeSelection === undefined) { throw new Error('Source composition lost its original selection') }
+        if (compositionBeforeSelection === undefined) {
+          throw new Error('Source composition lost its original selection')
+        }
         enqueue([edit], compositionBeforeSelection, sourceSelection())
         compositionBeforeSelection = undefined
         adapter.settled().then(finishComposition, failComposition)
