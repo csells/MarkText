@@ -4,12 +4,12 @@ import type { IContentCursor, INodeOffset, IRenderCursor } from '../../selection
 import type { Nullable } from '../../types';
 import type { TBlockPath } from '../types';
 import type Parent from './parent';
+import { pairedDeletionRange, selectionPairForKey, shouldInsertClosingPair, shouldRemoveClosingChar } from '@marktext/input-policy';
 import diff from 'fast-diff';
 import TreeNode from '../../block/base/treeNode';
 import { ScrollPage } from '../../block/scrollPage';
 import { BRACKET_HASH, CLASS_NAMES, EVENT_KEYS } from '../../config';
-import { ownsDocumentTextKey } from '../../editor/documentEditing';
-import { pairedDeletionRange, selectionPairForKey, shouldInsertClosingPair, shouldRemoveClosingChar } from '@marktext/input-policy';
+import { dispatchDocumentBlock, ownsDocumentTextKey } from '../../editor/documentEditing';
 import Selection from '../../selection';
 import { offsetInBlockAtPoint } from '../../selection/dom';
 import {
@@ -310,10 +310,6 @@ class Content extends TreeNode {
         const oldText = this._text;
         this._text = text;
         const { path } = this;
-        if (this.blockName === 'language-input') {
-            path.pop();
-            path.push('meta', 'lang');
-        }
 
         // dispatch change to modify json state
         if (oldText !== text) {
@@ -361,7 +357,10 @@ class Content extends TreeNode {
             if (!cursor)
                 return;
 
-            this.setCursor(cursor.start.offset, cursor.end.offset);
+            if (this.muya.editor.documentEditing)
+                this.commitNativeCursor(cursor.anchor.offset, cursor.focus.offset);
+            else
+                this.setCursor(cursor.start.offset, cursor.end.offset);
         });
     }
 
@@ -433,6 +432,14 @@ class Content extends TreeNode {
         else {
             cursorBlock = this.nextContentInContext();
             if (!cursorBlock && this.text.length > 0) {
+                const { muya } = this;
+                if (muya.editor.documentEditing) {
+                    const selection = muya.editor.selection.getDOMSelection();
+                    if (!selection)
+                        throw new Error('Trailing paragraph has no model selection');
+                    dispatchDocumentBlock(muya, { type: 'new', scope: 'outer', placement: 'after', selectionMode: 'start' }, selection);
+                    return;
+                }
                 const newNodeState = { name: 'paragraph', text: '' };
                 const newNode = ScrollPage.loadBlock(newNodeState.name).create(
                     this.muya,
@@ -592,6 +599,22 @@ class Content extends TreeNode {
         this.muya.editor.activeContentBlock = this;
 
         this.selection.setSelection(anchor, focus);
+    }
+
+    /** Commit browser movement without replacing its exact annotation boundary. */
+    protected commitNativeCursor(begin: number, end: number): void {
+        const geometry = this.muya.editor.documentEditing ? this.selection.getSelection() : null;
+        const native = geometry?.anchor.block === this && geometry.anchor.offset === begin
+            && geometry.focus.block === this && geometry.focus.offset === end
+            ? this.selection.getDOMSelection()
+            : null;
+        if (native) {
+            this.muya.editor.activeContentBlock = this;
+            this.selection.setDOMSelection(native.anchor, native.focus);
+        }
+        else {
+            this.setCursor(begin, end);
+        }
     }
 
     update(_cursor?: IRenderCursor, _highlights: IHighlight[] = []) {
@@ -809,6 +832,26 @@ class Content extends TreeNode {
         const { left, right, word: selectedWord } = wordInfo;
         if (selectedWord !== word)
             return false;
+
+        const model = this.muya.editor.documentEditing;
+        if (model) {
+            const selection = this.muya.editor.selection.getDOMSelection();
+            const anchor = this.muya.editor.selection.getDOMPoint({ path: this.path, offset: left });
+            const focus = this.muya.editor.selection.getDOMPoint({ path: this.path, offset: right });
+            if (!selection || !anchor || !focus)
+                throw new Error('Spelling replacement has no model selection');
+            return model.input({
+                inputType: 'insertReplacementText',
+                data: replacement,
+                selection,
+                range: { anchor, focus },
+                options: {
+                    autoPairBracket: this.muya.options.autoPairBracket,
+                    autoPairQuote: this.muya.options.autoPairQuote,
+                    autoPairMarkdownSyntax: this.muya.options.autoPairMarkdownSyntax,
+                },
+            }, () => {});
+        }
 
         // Reuse the text setter so the change dispatches a json edit op.
         this.text = text.substring(0, left) + replacement + text.substring(right);

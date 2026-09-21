@@ -3,6 +3,10 @@ import type { Page } from 'playwright'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
+  expectDefaultCoreAuthority,
+  expectInstalledArtifactCommit
+} from './installedArtifactProvenance'
+import {
   enterSourceMode,
   exitSourceMode,
   expectEditorNotFrontmost,
@@ -108,13 +112,21 @@ test('supported Markdown preferences apply live and when another document opens'
 })
 
 for (const mode of ['Markup', 'Source'] as const) {
-  test(`${mode} pending input and undo history survive a live Markdown preference change`, async() => {
+  test(`${mode} pending composition and undo history survive a live Markdown preference change`, async() => {
     const source = 'seed\n\nH~2~O\n\nText.{>>Note.<<}\n'
     const { app, page, filePath } = await launchWithMarkdown(source, {
       suppressErrorDialog: true,
-      env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1', MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: '1' }
+      env: {
+        MARKTEXT_E2E_HIDDEN_WINDOW: '1',
+        MARKTEXT_DOCUMENT_CORE_MODE: undefined,
+        MARKTEXT_DOCUMENT_CORE_SHADOW: undefined,
+        MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined
+      }
     })
+    const cdp = await page.context().newCDPSession(page)
     try {
+      await expectDefaultCoreAuthority(page)
+      if (process.env.MARKTEXT_PACKAGED_APP) await expectInstalledArtifactCommit(page)
       if (mode === 'Source') {
         await enterSourceMode(page, app)
         await page.evaluate(() => {
@@ -131,40 +143,128 @@ for (const mode of ['Markup', 'Source'] as const) {
       const traceStart = await page.evaluate(
         () => window.__marktextDocumentCore?.performanceEvents?.().length ?? 0
       )
-      await page.keyboard.type('X')
-      // The existing test control holds Worker replies. Confirm the request is
-      // still pending when Preferences changes, rather than inferring a race
-      // from a sleep or a later final-source assertion.
-      await expect
-        .poll(
-          () =>
-            page.evaluate((offset) => {
-              return window.__marktextDocumentCore
-                ?.performanceEvents?.()
-                .slice(offset)
-                .some((event) => event.phase === 'dispatch')
-            }, traceStart),
-          { intervals: [5, 10, 20] }
+      await page.evaluate(() => {
+        const probe = {
+          active: false,
+          startedTrusted: false,
+          composingInputTrusted: false,
+          preferenceReceived: false,
+          settled: false,
+          error: ''
+        }
+        const receivedPreferences = new Set<string>()
+        document.addEventListener(
+          'compositionstart',
+          (event) => {
+            probe.active = true
+            probe.startedTrusted = event.isTrusted
+          },
+          true
         )
-        .toBe(true)
-      const preferenceIssuedWhilePending = await page.evaluate(
-        ({ preferences, offset }) => {
-          const events = window.__marktextDocumentCore?.performanceEvents?.().slice(offset) ?? []
-          const dispatch = events.find((event) => event.phase === 'dispatch')
-          const pending =
-            dispatch !== undefined &&
-            !events.some(
-              (event) =>
-                event.phase === 'ack' &&
-                event.transaction === dispatch.transaction &&
-                event.documentId === dispatch.documentId
-            )
-          window.electron.ipcRenderer.send('mt::set-user-preference', preferences)
-          return pending
-        },
-        { preferences: languagePreferences(true), offset: traceStart }
-      )
-      expect(preferenceIssuedWhilePending).toBe(true)
+        document.addEventListener(
+          'compositionend',
+          () => {
+            probe.active = false
+          },
+          true
+        )
+        document.addEventListener(
+          'input',
+          (event) => {
+            if (event instanceof InputEvent && event.isComposing && event.isTrusted) {
+              probe.composingInputTrusted = true
+            }
+          },
+          true
+        )
+        window.electron.ipcRenderer.on('mt::user-preference', (_event, preferences) => {
+          if (typeof preferences === 'object' && preferences !== null) {
+            // Main persists and broadcasts each preference separately.
+            for (const key of ['superSubScript', 'footnote', 'isGitlabCompatibilityEnabled']) {
+              if ((preferences as Record<string, unknown>)[key] === true) { receivedPreferences.add(key) }
+            }
+            probe.preferenceReceived = receivedPreferences.size === 3
+          }
+        })
+        ;(
+          window as unknown as { preferenceCompositionProbe: typeof probe }
+        ).preferenceCompositionProbe = probe
+      })
+      // Chromium supplies the real composition/input events and native draft.
+      // The synchronous model has no Worker reply to hold; active composition
+      // is the actual pending-input boundary for both native editors.
+      await cdp.send('Input.imeSetComposition', { text: 'X', selectionStart: 1, selectionEnd: 1 })
+      const draft = page
+        .locator(mode === 'Source' ? '.source-code .CodeMirror-line' : '.mu-paragraph-content')
+        .first()
+      await expect(draft).toHaveText('seedX')
+      await page.evaluate(() => {
+        const probe = (
+          window as unknown as {
+            preferenceCompositionProbe: { settled: boolean; error: string }
+          }
+        ).preferenceCompositionProbe
+        const core = window.__marktextDocumentCore
+        if (!core) throw new Error('Missing Core composition owner')
+        core.settled().then(
+          () => {
+            probe.settled = true
+          },
+          (error) => {
+            probe.error = String(error)
+          }
+        )
+      })
+      await setLanguagePreferences(page, true)
+      const compositionProbe = () =>
+        page.evaluate(
+          () =>
+            (
+              window as unknown as {
+                preferenceCompositionProbe: {
+                  active: boolean
+                  startedTrusted: boolean
+                  composingInputTrusted: boolean
+                  preferenceReceived: boolean
+                  settled: boolean
+                  error: string
+                }
+              }
+            ).preferenceCompositionProbe
+        )
+      await expect.poll(compositionProbe).toMatchObject({ preferenceReceived: true })
+      // Source configuration crosses a deferred native change-delivery turn.
+      // Observe after that turn: delivery happened, but neither the draft nor
+      // the queued configuration may commit while composition is active.
+      await page.evaluate(() => new Promise<void>((resolve) => setTimeout(resolve, 0)))
+      expect(await compositionProbe()).toEqual({
+        active: true,
+        startedTrusted: true,
+        composingInputTrusted: true,
+        preferenceReceived: true,
+        settled: false,
+        error: ''
+      })
+      expect(
+        await page.evaluate(
+          (offset) =>
+            window.__marktextDocumentCore
+              ?.performanceEvents?.()
+              .slice(offset)
+              .filter((event) => event.phase === 'dispatch'),
+          traceStart
+        )
+      ).toEqual([])
+      await expect(draft).toHaveText('seedX')
+      if (mode === 'Markup') await expect(page.locator('.editor-component sub')).toHaveCount(0)
+      await cdp.send('Input.insertText', { text: 'X' })
+      await page.keyboard.type('Y')
+      await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+      await expect
+        .poll(() => readFileSync(filePath, 'utf8'))
+        .toBe('seedXY\n\nH~2~O\n\nText.{>>Note.<<}\n')
+      expect(await compositionProbe()).toMatchObject({ active: false, settled: true, error: '' })
+      await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
       await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
       await expect
         .poll(() => readFileSync(filePath, 'utf8'))
@@ -177,6 +277,11 @@ for (const mode of ['Markup', 'Source'] as const) {
       await expect
         .poll(() => readFileSync(filePath, 'utf8'))
         .toBe('seedX\n\nH~2~O\n\nText.{>>Note.<<}\n')
+      await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
+      await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+      await expect
+        .poll(() => readFileSync(filePath, 'utf8'))
+        .toBe('seedXY\n\nH~2~O\n\nText.{>>Note.<<}\n')
       if (mode === 'Source') await exitSourceMode(page, app)
       await page.getByRole('button', { name: 'Review', exact: true }).click()
       await page.getByTestId('critic-review-revised').click()
@@ -189,7 +294,17 @@ for (const mode of ['Markup', 'Source'] as const) {
       await attachPreferenceDiagnostics(page, filePath)
       throw error
     } finally {
-      await app.close()
+      // A failed pending-state assertion must not leave the owned application
+      // waiting for unfinished native composition during its normal close.
+      try {
+        await cdp.send('Input.imeSetComposition', { text: '', selectionStart: 0, selectionEnd: 0 })
+      } finally {
+        try {
+          await cdp.detach()
+        } finally {
+          await app.close()
+        }
+      }
     }
   })
 }

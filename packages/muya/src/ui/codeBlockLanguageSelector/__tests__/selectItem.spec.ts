@@ -38,7 +38,7 @@ describe('codeBlockLanguageSelector.selectItem', () => {
             outMostBlock: parent, // truthy => attached to the document
             update: vi.fn(),
         };
-        const fakeThis = { _block: block, muya: {}, hide: vi.fn() };
+        const fakeThis = { _block: block, muya: { editor: {} }, hide: vi.fn() };
 
         selectLanguage(fakeThis, 'python');
 

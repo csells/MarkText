@@ -123,6 +123,32 @@ function insertImageParagraph(
     return imageBlock;
 }
 
+/**
+ * Capture the real drop target before awaiting URL checks or persistence. The
+ * bound owner retains pending payload, rebases the target and applies source.
+ */
+function prepareModelImageDrop(
+    muya: Muya,
+    target: IDropTarget,
+    payload: unknown,
+    prepare: (capturePayload: (payload: unknown) => void) => Promise<string>,
+): boolean {
+    const model = muya.editor.documentEditing;
+    if (!model)
+        return false;
+    muya.flush();
+    const content = target.anchor.firstContentInDescendant();
+    if (!content?.domNode?.isConnected)
+        throw new Error('Image drop has no live document target');
+    const point = muya.editor.selection.getDOMPoint({ path: content.path, offset: 0 });
+    if (!point)
+        throw new Error('Image drop has no document point');
+    void model.prepareClipboard({ anchor: point, focus: point }, payload, async capturePayload => ({
+        markdown: await prepare(capturePayload),
+    }), target.position === 'up' ? 'before' : 'after').catch(error => debug.warn(`Image drop preparation failed: ${String(error)}`));
+    return true;
+}
+
 // `text/uri-list` is a CRLF-delimited format whose lines may include `#`
 // comments; the dragged image URL is the first non-comment line. Trimming it
 // also keeps a trailing CRLF out of the inserted markdown and out of the way of
@@ -170,6 +196,17 @@ function handleWebLinkImage(
     // store is still in read-only (not protected) mode.
     const uriPromise = readItem(uriItem);
     const htmlPromise = readItem(htmlItem);
+
+    if (prepareModelImageDrop(muya, target, { kind: 'web-image-drop' }, async (capturePayload) => {
+        const url = firstUri(await uriPromise);
+        const html = await htmlPromise;
+        capturePayload({ imageSource: url, html });
+        if (!URL_REG.test(url) || !(/<img\b/i.test(html) || IMAGE_EXT_REG.test(url) || await checkImageContentType(url)))
+            return '';
+        return `![](${encodeImageSrc(url)})`;
+    })) {
+        return true;
+    }
 
     void (async () => {
         const url = firstUri(await uriPromise);
@@ -256,6 +293,13 @@ function handleFileImage(
 
     const { name } = image;
     const encodedPath = encodeImageSrc(path);
+
+    if (prepareModelImageDrop(muya, target, { imageSource: path, alt: name, file: image }, async () => {
+        const resolved = await muya.options.imageAction?.({ src: path, alt: name, title: '' });
+        return `![${name}](${encodeImageSrc(resolved || path)})`;
+    })) {
+        return true;
+    }
 
     if (!muya.options.imageAction) {
         insertImageParagraph(muya, target, `![${name}](${encodedPath})`);

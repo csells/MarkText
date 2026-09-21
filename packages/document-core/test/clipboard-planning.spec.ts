@@ -1,6 +1,24 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore } from '../src/index.js'
 
+it.each([false, true])('pastes one sized HTML image inline at the actual repeated-text caret (tracked=%s)', tracked => {
+  const core = createDocumentCore()
+  const source = 'end{++kept++}{>>note<<}\n\nendTAIL\n'
+  const image = '<img src="https://example.test/layout.svg" alt="A sunny sandy beach" width="160" height="80" data-align="center">'
+  const at = source.indexOf('endTAIL') + 3
+  const revision = core.open(source)
+  const plan = core.planClipboard(revision, { kind: 'paste', selection: { ranges: [{ anchor: at, focus: at }], primary: 0 }, markdown: image, tracked })
+  const result = core.apply(revision, plan.edits).revision
+  const pasted = tracked ? `{++${image}++}` : image
+  expect(result.source).toBe(source.slice(0, at) + pasted + source.slice(at))
+  const caret = at + (tracked ? 3 : 0) + image.length
+  expect(plan.selection).toEqual({ ranges: [{ anchor: caret, focus: caret }], primary: 0 })
+  const typed = tracked ? core.track(result, { start: caret, end: caret, insert: 'X' }).revision : core.apply(result, [{ start: caret, end: caret, insert: 'X' }]).revision
+  expect(typed.source).toBe(source.slice(0, at) + (tracked ? `{++${image}X++}` : image + 'X') + source.slice(at))
+  expect(core.project(core.open(typed.source), 'revised').markdown).toBe(`endkept\n\nend${image}XTAIL\n`)
+  expect(result.diagnostics).toEqual([])
+})
+
 describe('owned clipboard actions', () => {
   it.each([
     { kind: 'cut' as const, markdown: '', expected: 'a\n', caret: 0 },

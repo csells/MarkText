@@ -75,15 +75,21 @@ function selectionMeasurement(selection: DocumentInputSelection): { deletedUnits
       )
     }
   }
-  if (selection.kind === 'table-cell') { return { deletedUnits: Math.abs(selection.focus - selection.anchor) } }
+  if (selection.kind === 'table-cell') {
+    return { deletedUnits: Math.abs(selection.focus - selection.anchor) }
+  }
   const { anchor, focus } = selection
-  if (typeof anchor === 'number' && typeof focus === 'number') { return { deletedUnits: Math.abs(focus - anchor) } }
+  if (typeof anchor === 'number' && typeof focus === 'number') {
+    return { deletedUnits: Math.abs(focus - anchor) }
+  }
   if (
     typeof anchor !== 'number' &&
     typeof focus !== 'number' &&
     anchor.text.start === focus.text.start &&
     anchor.text.end === focus.text.end
-  ) { return { deletedUnits: Math.abs(focus.offset - anchor.offset) } }
+  ) {
+    return { deletedUnits: Math.abs(focus.offset - anchor.offset) }
+  }
   return {}
 }
 
@@ -105,6 +111,7 @@ interface MuyaResourcePreparation {
 
 interface PendingResourcePreparation {
   target: string
+  initialSelectionTarget?: string
   selection: DocumentClipboardSelection
   selectionRevision: number
   tracked: boolean
@@ -135,7 +142,7 @@ export interface MuyaClipboardPreparation extends MuyaResourcePreparation {
       plainText?: string
       bareUrl?: string
       pasteAsPlainText?: boolean
-      currentSelection?: () => DocumentSelection
+      currentSelection?: () => DocumentSelection | undefined
     }>
   ): Promise<Readonly<{ accepted: boolean; changed: boolean }>>
   fail(error: Error): void
@@ -355,7 +362,9 @@ export function createMuyaPlainTextCoreAdapter(
       if (target.type === 'retained-selection') {
         preparation.selection = structuredClone(target.selection)
         preparation.selectionRevision = target.selectionRevision
-        if (target.status === 'conflict') { preparation.targetFailure = 'Prepared resource overlaps newer input' }
+        if (target.status === 'conflict') {
+          preparation.targetFailure = 'Prepared resource overlaps newer input'
+        }
       } else preparation.targetFailure = `Prepared resource target read was ${target.reason}`
     } catch (error) {
       preparation.targetFailure = error instanceof Error ? error.message : String(error)
@@ -364,7 +373,10 @@ export function createMuyaPlainTextCoreAdapter(
   const releasePreparation = (preparation: PendingResourcePreparation): void => {
     try {
       const reply = binding.releaseSelection(preparation.target)
-      if (reply.type !== 'selection-released') { preparation.targetFailure = `Prepared resource release was ${reply.reason}` }
+      if (reply.type !== 'selection-released') {
+        preparation.targetFailure = `Prepared resource release was ${reply.reason}`
+      }
+      if (preparation.initialSelectionTarget !== undefined) { binding.releaseSelection(preparation.initialSelectionTarget) }
     } catch (error) {
       preparation.targetFailure = error instanceof Error ? error.message : String(error)
     }
@@ -587,7 +599,9 @@ export function createMuyaPlainTextCoreAdapter(
       latestNativeChange === undefined &&
       compositionChange === undefined &&
       preparations.size === 0
-    ) { return undefined }
+    ) {
+      return undefined
+    }
     for (const preparation of preparations) refreshPreparation(preparation)
     const submitted = active ?? latestSubmitted
     return structuredClone({
@@ -633,8 +647,12 @@ export function createMuyaPlainTextCoreAdapter(
           ? ('data' in command.input ? (command.input.data ?? '') : '').length
           : command.edit!.insert.length
     }
-    if (command.kind === 'apply-prepared' && command.operation.kind === 'clipboard') { pendingInsertUnits -= command.operation.action.markdown.length }
-    if (command.kind === 'clipboard') { pendingInsertUnits -= 'markdown' in command.action ? command.action.markdown.length : 0 }
+    if (command.kind === 'apply-prepared' && command.operation.kind === 'clipboard') {
+      pendingInsertUnits -= command.operation.action.markdown.length
+    }
+    if (command.kind === 'clipboard') {
+      pendingInsertUnits -= 'markdown' in command.action ? command.action.markdown.length : 0
+    }
     if (command.kind === 'author' || command.kind === 'edit-comment') {
       pendingInsertUnits -= command.text.length
     }
@@ -725,13 +743,13 @@ export function createMuyaPlainTextCoreAdapter(
             kind: 'apply-prepared' as const,
             target: command.target,
             operation: command.operation,
-            projections: Object.freeze([])
+            projections: regionalMarkup ? Object.freeze(['markup'] as const) : Object.freeze([])
           })
           : command.kind === 'clipboard'
             ? Object.freeze({
               kind: 'clipboard' as const,
               action: command.action,
-              projections: Object.freeze([])
+              projections: regionalMarkup ? Object.freeze(['markup'] as const) : Object.freeze([])
             })
             : command.kind === 'format'
               ? Object.freeze({
@@ -805,14 +823,21 @@ export function createMuyaPlainTextCoreAdapter(
                           options: command.options!,
                           projections: Object.freeze([])
                         })
-                        : Object.freeze({ kind: command.command, projections: Object.freeze([]) })
+                        : Object.freeze({
+                          kind: command.command,
+                          projections: regionalMarkup
+                            ? Object.freeze(['markup'] as const)
+                            : Object.freeze([])
+                        })
                       : command.kind === 'resolve'
                         ? Object.freeze({
                           kind: 'resolve' as const,
                           authoredRevision: command.authoredRevision,
                           annotation: command.annotation,
                           decision: command.decision,
-                          projections: Object.freeze([])
+                          projections: regionalMarkup
+                            ? Object.freeze(['markup'] as const)
+                            : Object.freeze([])
                         })
                         : command.kind === 'resolve-all'
                           ? Object.freeze({
@@ -970,7 +995,9 @@ export function createMuyaPlainTextCoreAdapter(
         command.kind === 'clipboard' ||
         command.kind === 'format' ||
         (command.kind === 'track' && command.input !== undefined)
-      ) { command.resolve(outcome) }
+      ) {
+        command.resolve(outcome)
+      }
       reconciledNativePositionReady = false
       if (
         command.kind === 'track' &&
@@ -1095,7 +1122,9 @@ export function createMuyaPlainTextCoreAdapter(
             command.kind !== 'clipboard' &&
             command.kind !== 'format' &&
             (command.kind !== 'track' || command.input === undefined)
-          ) { command.resolve(outcome) }
+          ) {
+            command.resolve(outcome)
+          }
         } catch (error) {
           const failure =
             error instanceof Error
@@ -1225,7 +1254,9 @@ export function createMuyaPlainTextCoreAdapter(
     reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
   ): Readonly<{ accepted: boolean; changed: boolean }> => {
     latestNativeChange = { target, operation }
-    if (disposed || terminalError !== undefined || composing) { return Object.freeze({ accepted: false, changed: false }) }
+    if (disposed || terminalError !== undefined || composing) {
+      return Object.freeze({ accepted: false, changed: false })
+    }
     const insertUnits = operation.kind === 'clipboard' ? operation.action.markdown.length : 0
     if (
       queued.length + (active === undefined ? 0 : 1) >= MAXIMUM_PENDING_TRANSACTIONS ||
@@ -1265,21 +1296,33 @@ export function createMuyaPlainTextCoreAdapter(
     apply: (
       target: string,
       value: T,
-      currentSelection?: C
-    ) => Readonly<{ accepted: boolean; changed: boolean }>
+      currentSelection?: C,
+      initialSelection?: DocumentSelection
+    ) => Readonly<{ accepted: boolean; changed: boolean }>,
+    initialSelection?: DocumentSelection
   ): MuyaResourcePreparation & {
     complete(
       value: T,
-      currentSelection?: () => C
+      currentSelection?: () => C | undefined
     ): Promise<Readonly<{ accepted: boolean; changed: boolean }>>
   } => {
     if (disposed) throw new Error('Core Muya adapter is disposed')
     if (terminalError !== undefined) throw terminalError
-    if (preparations.size >= MAXIMUM_PENDING_TRANSACTIONS) { throw new Error('Core resource preparation exceeds its resource policy') }
+    if (preparations.size >= MAXIMUM_PENDING_TRANSACTIONS) {
+      throw new Error('Core resource preparation exceeds its resource policy')
+    }
     const captured = structuredClone(action)
     const capturedPayload = structuredClone(payload)
     const retained = binding.retainSelection(captured.selection)
-    if (retained.type !== 'retained-selection') { throw new Error(`Core resource target was ${retained.reason}`) }
+    if (retained.type !== 'retained-selection') {
+      throw new Error(`Core resource target was ${retained.reason}`)
+    }
+    const initial =
+      initialSelection === undefined ? undefined : binding.retainSelection(initialSelection)
+    if (initial !== undefined && initial.type !== 'retained-selection') {
+      binding.releaseSelection(retained.id)
+      throw new Error(`Core resource initial selection was ${initial.reason}`)
+    }
     let finish!: () => void
     const finished = new Promise<void>((resolve) => {
       finish = resolve
@@ -1288,6 +1331,7 @@ export function createMuyaPlainTextCoreAdapter(
       ...captured,
       submitting: false,
       target: retained.id,
+      ...(initial === undefined ? {} : { initialSelectionTarget: initial.id }),
       selection: structuredClone(retained.selection),
       selectionRevision: retained.selectionRevision,
       finish,
@@ -1314,7 +1358,7 @@ export function createMuyaPlainTextCoreAdapter(
         preparations.delete(preparation)
         resolveWaiters()
       },
-      async complete(value: T, currentSelection?: () => C) {
+      async complete(value: T, currentSelection?: () => C | undefined) {
         if (completed) throw new Error('Resource preparation already completed')
         completed = true
         const completion = structuredClone(value)
@@ -1336,7 +1380,17 @@ export function createMuyaPlainTextCoreAdapter(
           // Keep the payload discoverable if presentation fails after admission.
           // The captured model position is recovery provenance, never a retry.
           preparation.submitting = true
-          const result = apply(preparation.target, completion, selection)
+          const initial =
+            preparation.initialSelectionTarget === undefined
+              ? undefined
+              : binding.retainedSelectionAtBarrier(preparation.initialSelectionTarget)
+          const initialSelection =
+            initial?.type === 'retained-selection' &&
+            initial.status === 'ready' &&
+            !('start' in initial.selection)
+              ? initial.selection
+              : undefined
+          const result = apply(preparation.target, completion, selection, initialSelection)
           if (result.accepted && terminalError === undefined) preparations.delete(preparation)
           else failedDraft = captureDraft()
           return result
@@ -1365,7 +1419,9 @@ export function createMuyaPlainTextCoreAdapter(
       tracked = false
     ): Readonly<{ accepted: boolean; changed: boolean }> {
       latestNativeChange = operation
-      if (disposed || terminalError !== undefined || composing) { return Object.freeze({ accepted: false, changed: false }) }
+      if (disposed || terminalError !== undefined || composing) {
+        return Object.freeze({ accepted: false, changed: false })
+      }
       if (
         queued.length + (active === undefined ? 0 : 1) >= MAXIMUM_PENDING_TRANSACTIONS ||
         pendingInsertUnits + ('data' in operation ? (operation.data ?? '') : '').length >
@@ -1410,7 +1466,8 @@ export function createMuyaPlainTextCoreAdapter(
         (
           target,
           value: Omit<DocumentClipboardContent, 'currentSelection'>,
-          currentSelection?: DocumentSelection
+          currentSelection?: DocumentSelection,
+          initialSelection?: DocumentSelection
         ) =>
           applyPrepared(
             target,
@@ -1422,11 +1479,16 @@ export function createMuyaPlainTextCoreAdapter(
                   : { kind: 'paste' as const }),
                 tracked: captured.tracked,
                 ...value,
+                ...(captured.blockPlacement === undefined
+                  ? {}
+                  : { blockPlacement: captured.blockPlacement }),
+                ...(initialSelection === undefined ? {} : { initialSelection }),
                 ...(currentSelection === undefined ? {} : { currentSelection })
               }
             },
             reconcile
-          )
+          ),
+        captured.blockPlacement === undefined ? undefined : captured.currentSelection
       )
       return Object.freeze({
         ...prepared,
@@ -1436,7 +1498,7 @@ export function createMuyaPlainTextCoreAdapter(
             plainText?: string
             bareUrl?: string
             pasteAsPlainText?: boolean
-            currentSelection?: () => DocumentSelection
+            currentSelection?: () => DocumentSelection | undefined
           }
         ) => {
           const { currentSelection, ...content } = imported ?? {}
@@ -1485,7 +1547,9 @@ export function createMuyaPlainTextCoreAdapter(
       reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
     ): Readonly<{ accepted: boolean; changed: boolean }> {
       latestNativeChange = action
-      if (disposed || terminalError !== undefined || composing) { return Object.freeze({ accepted: false, changed: false }) }
+      if (disposed || terminalError !== undefined || composing) {
+        return Object.freeze({ accepted: false, changed: false })
+      }
       if (
         queued.length + (active === undefined ? 0 : 1) >= MAXIMUM_PENDING_TRANSACTIONS ||
         pendingInsertUnits + ('markdown' in action ? action.markdown.length : 0) >
@@ -1518,7 +1582,9 @@ export function createMuyaPlainTextCoreAdapter(
       reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
     ): Readonly<{ accepted: boolean; changed: boolean }> {
       latestNativeChange = action
-      if (disposed || terminalError !== undefined || composing) { return Object.freeze({ accepted: false, changed: false }) }
+      if (disposed || terminalError !== undefined || composing) {
+        return Object.freeze({ accepted: false, changed: false })
+      }
       if (queued.length + (active === undefined ? 0 : 1) >= MAXIMUM_PENDING_TRANSACTIONS) {
         fault('Core Muya pending work exceeds its resource policy')
         return Object.freeze({ accepted: false, changed: false })
@@ -1554,8 +1620,10 @@ export function createMuyaPlainTextCoreAdapter(
       return failedDraft ?? captureDraft()
     },
     hasPendingEdits(): boolean {
+      // Resource preparations retain model targets and recovery payloads, not
+      // unacknowledged native text. They keep isSettled() false without blocking
+      // presentation of accepted edits, including their own completion.
       return (
-        preparations.size > 0 ||
         composing ||
         queued.some(
           (command) =>
@@ -1800,7 +1868,9 @@ export function createMuyaPlainTextCoreAdapter(
     compositionStart(operation: MuyaModelInput): void {
       if (disposed) throw new Error('Core Muya adapter is disposed')
       if (terminalError !== undefined) throw terminalError
-      if (composing || active !== undefined || queued.length > 0) { throw new Error('Core Muya composition requires its settled starting revision') }
+      if (composing || active !== undefined || queued.length > 0) {
+        throw new Error('Core Muya composition requires its settled starting revision')
+      }
       composing = true
       if ('kind' in operation) throw new Error('Composition requires browser input')
       compositionInput = structuredClone(operation)
@@ -1820,16 +1890,22 @@ export function createMuyaPlainTextCoreAdapter(
       }
     },
     compositionUpdate(data: string): void {
-      if (!composing || compositionInput === undefined) { throw new Error('Core Muya composition is not active') }
+      if (!composing || compositionInput === undefined) {
+        throw new Error('Core Muya composition is not active')
+      }
       compositionChange = { input: compositionInput, data }
-      if (data.length > MAXIMUM_PENDING_INSERT_UNITS) { fault('Core Muya composition exceeds its resource policy') }
+      if (data.length > MAXIMUM_PENDING_INSERT_UNITS) {
+        fault('Core Muya composition exceeds its resource policy')
+      }
     },
     compositionEnd(
       result: DocumentCompositionResult,
       reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
       tracked = false
     ): Readonly<{ accepted: boolean; changed: boolean }> {
-      if (!composing || compositionInput === undefined || compositionBarrier === undefined) { throw new Error('Core Muya composition is not active') }
+      if (!composing || compositionInput === undefined || compositionBarrier === undefined) {
+        throw new Error('Core Muya composition is not active')
+      }
       const input = compositionInput
       const barrier = compositionBarrier
       composing = false

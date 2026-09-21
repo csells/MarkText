@@ -1,9 +1,10 @@
-export { encodeImageSrc } from '@marktext/input-policy';
 import type { ImageToken } from '../inlineRenderer/types';
 import { isWin } from '../config/index';
 import { tokenizer } from '../inlineRenderer/lexer';
 import { createPresentationImageToken } from '../inlineRenderer/presentationImage';
 import { findContentDOM, getOffsetOfParagraph } from '../selection/dom';
+
+export { encodeImageSrc } from '@marktext/input-policy';
 
 export interface IImageInfo {
     token: ImageToken;
@@ -249,7 +250,6 @@ export async function checkImageContentType(url: string): Promise<boolean | null
         return null;
     }
 }
-
 
 export function correctImageSrc(src: string) {
     if (src) {

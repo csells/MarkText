@@ -12,7 +12,22 @@ import { SelectionDirection } from '../selection/types';
 
 export type { DocumentDOMPoint, DocumentEditing, DocumentTextInput, DocumentTextReplacement } from './documentEditingTypes';
 
-const inputTypes = new Set(['insertText', 'insertReplacementText', 'insertParagraph', 'insertLineBreak', 'deleteContentBackward', 'deleteContentForward']);
+const inputTypes = new Set([
+    'insertText',
+    'insertReplacementText',
+    'insertFromDrop',
+    'insertParagraph',
+    'insertLineBreak',
+    'deleteContentBackward',
+    'deleteContentForward',
+    'deleteWordBackward',
+    'deleteWordForward',
+    'deleteSoftLineBackward',
+    'deleteSoftLineForward',
+    'deleteHardLineBackward',
+    'deleteHardLineForward',
+    'deleteEntireSoftLine',
+]);
 
 function point(endpoint: ISelection['anchor']): DocumentTextPoint {
     return {
@@ -25,6 +40,19 @@ interface IViewNode { name: string; text?: string; children?: IViewNode[]; [key:
 
 function replaceViewRange(states: TState[], start: DocumentTextPoint, end: DocumentTextPoint, text: string) {
     const roots = structuredClone(states) as IViewNode[];
+    if (start.path[start.path.length - 1] === 'lang' && start.path.length === end.path.length && start.path.every((part, index) => part === end.path[index])) {
+        let target: unknown = roots;
+        for (const part of start.path.slice(0, -1)) {
+            if (target === null || typeof target !== 'object')
+                throw new Error('Code info draft target is unavailable');
+            target = (target as Record<string | number, unknown>)[part];
+        }
+        if (target === null || typeof target !== 'object' || !('lang' in target) || typeof target.lang !== 'string')
+            throw new Error('Code info draft value is unavailable');
+        target.lang = target.lang.slice(0, start.offset) + text + target.lang.slice(end.offset);
+        return { state: roots as TState[], path: [...start.path] };
+    }
+
     const leaves: Array<{ node: IViewNode; path: (string | number)[] }> = [];
     const visit = (nodes: IViewNode[], parent: (string | number)[] = []) => {
         nodes.forEach((node, index) => {
@@ -95,11 +123,21 @@ export function ownsDocumentTextKey(muya: Muya, event: KeyboardEvent): boolean {
         || muya.editor.selection.table.hasSelection) {
         return false;
     }
-    if ((event.metaKey || event.ctrlKey || event.altKey) && event.key !== 'Enter')
-        return false;
+    const selection = muya.editor.selection.getSelection();
+    if ((event.metaKey || event.ctrlKey || event.altKey) && event.key !== 'Enter') {
+        // Word and line boundaries belong to the browser's beforeinput range.
+        // Literal widget boundaries retain their native reset/no-op commands;
+        // a browser range can otherwise cross the separate language field.
+        if (selection?.isCollapsed && selection.anchor.block.blockName === 'codeblock.content') {
+            if (event.key === 'Backspace' && selection.anchor.offset === 0)
+                return false;
+            if (event.key === 'Delete' && selection.focus.offset === selection.focus.block.text.length)
+                return false;
+        }
+        return ['Backspace', 'Delete'].includes(event.key);
+    }
     if (Array.from(event.key).length === 1)
         return true;
-    const selection = muya.editor.selection.getSelection();
     if (!selection)
         return false;
     if (event.key === 'Enter') {
@@ -175,6 +213,42 @@ function replacementRange(range: ISelection, inputType: string) {
 /** Native input and view echo share the exact selected range; neither diffs text. */
 export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () => void {
     let composition: { state: TState[]; start: DocumentTextPoint; end: DocumentTextPoint; candidate: string; cancelled: boolean; collapsed: boolean } | undefined;
+    let drag: { selection: DocumentTextInput['selection']; moving: boolean } | undefined;
+    const dragStart = (event: DragEvent) => {
+        if ((event.target as HTMLElement)?.tagName === 'IMG')
+            return;
+        muya.flush();
+        const selected = muya.editor.selection.getSelection();
+        const selection = muya.editor.selection.getDOMSelection();
+        drag = selected && !selected.isCollapsed && selection ? { selection, moving: false } : undefined;
+    };
+    const dragEnd = (event: DragEvent) => {
+        const dropped = drag;
+        drag = undefined;
+        // A successful move into another editing host has no local insertion.
+        // Admit its source cut only now; internal moves already consumed drag.
+        if (!dropped?.moving || event.dataTransfer?.dropEffect !== 'move')
+            return;
+        const browser = muya.domNode.ownerDocument.getSelection();
+        const external = browser?.anchorNode && browser.focusNode && !muya.domNode.contains(browser.anchorNode)
+            ? { anchor: { node: browser.anchorNode, offset: browser.anchorOffset }, focus: { node: browser.focusNode, offset: browser.focusOffset } }
+            : undefined;
+        const focused = muya.domNode.ownerDocument.activeElement;
+        const draft = createDocumentTextDraft(muya, dropped.selection, '');
+        muya.flush();
+        muya.editor.history.cutoff();
+        try {
+            model.clipboard({ kind: 'cut', selection: dropped.selection }, draft);
+        }
+        finally {
+            muya.editor.history.cutoff();
+            if (external?.anchor.node.isConnected && external.focus.node.isConnected) {
+                if (focused instanceof HTMLElement)
+                    focused.focus({ preventScroll: true });
+                browser!.setBaseAndExtent(external.anchor.node, external.anchor.offset, external.focus.node, external.focus.offset);
+            }
+        }
+    };
     const compositionStart = () => {
         muya.flush();
         const selection = muya.editor.selection.getSelection();
@@ -275,6 +349,8 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
         };
         event.preventDefault();
         muya.flush();
+        if (inputType === 'insertFromDrop')
+            muya.editor.history.cutoff();
         muya.editor.history.recordModelInput(inputType, operation.data, historyGroup => model.input({ ...operation, historyGroup }, () => {
             if (first === last) {
                 const prefixUnits = Array.from(first.text.slice(0, start.offset)).length;
@@ -298,7 +374,7 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
                     leaf.setCursor(start.offset + text.length, start.offset + text.length, true);
             }
         }));
-        if (structural)
+        if (structural || inputType === 'insertFromDrop')
             muya.editor.history.cutoff();
     };
     const commandKey = (event: KeyboardEvent) => {
@@ -332,9 +408,45 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
             }
             return;
         }
+        if (event instanceof InputEvent && event.inputType === 'deleteByDrag' && drag) {
+            // The following insertFromDrop supplies the destination. Keep the
+            // source untouched so the model admits the whole move atomically.
+            event.preventDefault();
+            drag.moving = true;
+            return;
+        }
         if (!(event instanceof InputEvent) || event.isComposing || !inputTypes.has(event.inputType))
             return;
-        applyInput(event, event.inputType, event.data);
+        const data = event.inputType === 'insertFromDrop'
+            ? event.data ?? event.dataTransfer?.getData('text/plain') ?? null
+            : event.data;
+        if (event.inputType === 'insertFromDrop' && drag) {
+            const input = inputSelection(muya, event);
+            const dropped = drag;
+            drag = undefined;
+            event.preventDefault();
+            if (!input)
+                throw new Error('Text drop has no document target');
+            const draft = createDocumentTextDraft(muya, input.domRange, data ?? '');
+            muya.flush();
+            muya.editor.history.cutoff();
+            model.input({
+                kind: 'command',
+                command: 'moveText',
+                selection: dropped.selection,
+                target: input.domRange,
+                copy: !dropped.moving,
+                options: {
+                    autoPairBracket: muya.options.autoPairBracket,
+                    autoPairQuote: muya.options.autoPairQuote,
+                    autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
+                    tabSize: muya.options.tabSize,
+                },
+            }, draft);
+            muya.editor.history.cutoff();
+            return;
+        }
+        applyInput(event, event.inputType, data);
     };
     muya.domNode.addEventListener('beforeinput', beforeInput, true);
     muya.domNode.addEventListener('compositionstart', compositionStart, true);
@@ -342,6 +454,8 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
     muya.domNode.addEventListener('compositionend', compositionEnd, true);
     muya.domNode.addEventListener('keydown', compositionKey, true);
     muya.domNode.addEventListener('keydown', commandKey, true);
+    muya.domNode.addEventListener('dragstart', dragStart, true);
+    muya.domNode.addEventListener('dragend', dragEnd, true);
 
     return () => {
         if (composition)
@@ -352,6 +466,8 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
         muya.domNode.removeEventListener('compositionend', compositionEnd, true);
         muya.domNode.removeEventListener('keydown', compositionKey, true);
         muya.domNode.removeEventListener('keydown', commandKey, true);
+        muya.domNode.removeEventListener('dragstart', dragStart, true);
+        muya.domNode.removeEventListener('dragend', dragEnd, true);
     };
 }
 
@@ -410,6 +526,48 @@ export function dispatchDocumentCodeBlock(muya: Muya, replace: boolean, selectio
         kind: 'command',
         command: 'createCodeBlock',
         replace,
+        selection,
+        options: {
+            autoPairBracket: muya.options.autoPairBracket,
+            autoPairQuote: muya.options.autoPairQuote,
+            autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
+        },
+    }, () => {});
+}
+
+/** Dispatch paragraph menu actions before the native tree is mutated. */
+export function dispatchDocumentBlockMove(muya: Muya, from: DocumentDOMPoint, to: DocumentDOMPoint, placement: 'before' | 'after'): void {
+    const model = muya.editor.documentEditing;
+    if (!model)
+        throw new Error('Block drag requires a bound document');
+    const selection = muya.editor.selection.getDOMSelection() ?? { anchor: from, focus: from };
+    muya.flush();
+    muya.editor.history.cutoff();
+    model.input({
+        kind: 'command',
+        command: 'moveBlock',
+        from,
+        to,
+        placement,
+        selection,
+        options: {
+            autoPairBracket: muya.options.autoPairBracket,
+            autoPairQuote: muya.options.autoPairQuote,
+            autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
+        },
+    }, () => {});
+    muya.editor.history.cutoff();
+}
+
+/** Dispatch paragraph menu actions before the native tree is mutated. */
+export function dispatchDocumentBlock(muya: Muya, change: Extract<IDocumentCommandInput, { command: 'changeBlock' }>['change'], selection: IDocumentCommandInput['selection']): void {
+    const model = muya.editor.documentEditing;
+    if (!model)
+        throw new Error('Block command requires a bound document');
+    model.input({
+        kind: 'command',
+        command: 'changeBlock',
+        change,
         selection,
         options: {
             autoPairBracket: muya.options.autoPairBracket,

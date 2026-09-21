@@ -25,6 +25,7 @@
         :platform="platform"
         :core-required="coreMode"
         :core-lease="wysiwygCoreLease"
+        :initial-document-selection="coreInitialDocumentSelection"
         :core-plain-text-view="corePlainTextView"
         :core-performance-trace="corePerformanceTrace"
         :core-test-crash-worker="coreTestCrashWorker"
@@ -39,6 +40,7 @@
         :muya-index-cursor="muyaIndexCursor"
         :text-direction="textDirection"
         :core-lease="activeCoreLease"
+        :initial-document-selection="coreInitialDocumentSelection"
         :core-performance-trace="corePerformanceTrace"
         :initial-view-state="coreSourceViewState"
         @core-fault="handleCoreViewFault"
@@ -93,6 +95,10 @@ import type {
 } from '@shared/types/coreRecoveryDraft'
 import type { MuyaPlainTextViewResult } from '@/documentAuthority/muyaPlainTextView'
 import type { CodeMirrorViewState } from '@/documentAuthority/codeMirrorViewState'
+import type { DocumentSelection } from '@marktext/document-core'
+import type { DocumentSaveIdentity } from '@shared/types/files'
+import { createCanonicalEolIndex } from '@/documentAuthority/canonicalEolIndex'
+import { isIndexCursor } from '@/util/cursor'
 import Tabs from './tabs.vue'
 import Editor from './editor.vue'
 import SourceCode from './sourceCode.vue'
@@ -183,6 +189,51 @@ onMounted(async () => {
 })
 onBeforeUnmount(() => window.removeEventListener('beforeunload', preventUnbackedDraftClose))
 const coreLease = shallowRef<CoreDocumentViewLease>()
+const coreInitialDocumentSelection = shallowRef<DocumentSelection>()
+// View positions belong to one acknowledged revision; replacement/recovery
+// generations cannot reuse them against another document interpretation.
+const coreViewSelections = new Map<
+  string,
+  { identity: DocumentSaveIdentity; selection: DocumentSelection }
+>()
+const captureCoreDocumentSelection = (lease: CoreDocumentViewLease): void => {
+  const view = corePlainTextView.value === undefined ? coreSourceEditor.value : coreEditor.value
+  const selection = view?.captureDocumentSelection()
+  if (selection !== undefined) {
+    coreViewSelections.set(lease.documentId, { identity: { ...lease.identity }, selection })
+  }
+}
+const installCoreDocumentSelection = (
+  lease: CoreDocumentViewLease,
+  initial?: { source: string; cursor: unknown }
+): void => {
+  const retained = coreViewSelections.get(lease.documentId)
+  coreInitialDocumentSelection.value =
+    retained?.identity.generation === lease.identity.generation &&
+    retained.identity.revision === lease.identity.revision
+      ? retained.selection
+      : undefined
+  if (
+    coreInitialDocumentSelection.value === undefined &&
+    initial &&
+    isIndexCursor(initial.cursor)
+  ) {
+    // Folder search and persisted source locators address the source used to
+    // open this owner. Convert coordinates once; no native Markdown round trip.
+    const index = createCanonicalEolIndex(initial.source)
+    try {
+      coreInitialDocumentSelection.value = {
+        ranges: [
+          { anchor: index.offset(initial.cursor.anchor), focus: index.offset(initial.cursor.focus) }
+        ],
+        primary: 0
+      }
+    } catch (error) {
+      // A saved locator can be beyond the end of an externally changed file.
+      if (!(error instanceof RangeError)) throw error
+    }
+  }
+}
 const coreSourceGeneration = ref(0)
 const coreEditorGeneration = ref(0)
 const coreProjectionMarkdown = ref<string>()
@@ -336,6 +387,7 @@ const prepareCoreReplacementView = async (
     coreProjectionMarkdown.value = source
     corePlainTextView.value = view
     coreSourceViewState.value = sourceViewState
+    installCoreDocumentSelection(lease)
     coreLease.value = lease
     if (surface === 'wysiwyg') coreEditorGeneration.value += 1
     else coreSourceGeneration.value += 1
@@ -401,7 +453,9 @@ watch(
       previous[1] === documentId &&
       previous[2] === tabIds &&
       coreLease.value !== undefined
-    ) { return }
+    ) {
+      return
+    }
     const file = currentFile.value
     const target =
       file === null
@@ -409,6 +463,7 @@ watch(
         : Object.freeze({
           id: file.id,
           source: file.markdown,
+          cursor: props.muyaIndexCursor,
           lineEnding: canonicalCoreLineEnding(file.lineEnding)
         })
     const liveDocumentIds = new Set(editorStore.tabs.map((tab) => tab.id))
@@ -418,9 +473,17 @@ watch(
     const nextTransition = coreTransition.then(async () => {
       if (coreOwnerDisposed) return
       const prior = coreLease.value
+      if (prior !== undefined) {
+        await coreManager.saveBarrier(prior.documentId)
+        captureCoreDocumentSelection(prior)
+      }
       if (prior !== undefined) coreSourceViewState.value = undefined
+      for (const documentId of coreViewSelections.keys()) {
+        if (!liveDocumentIds.has(documentId)) coreViewSelections.delete(documentId)
+      }
       if (!sourceMode && prior === undefined && target !== undefined) {
-        if (!openedCoreDocuments.has(target.id)) {
+        const newlyOpened = !openedCoreDocuments.has(target.id)
+        if (newlyOpened) {
           await measureCoreDocumentOpen(corePerformanceTrace, target.id, () =>
             coreManager.open({
               documentId: target.id,
@@ -433,6 +496,7 @@ watch(
         }
         const incoming = await leaseCorePlainTextView(coreManager, target.id)
         editorStore.REGISTER_CORE_SAVE_IDENTITY(target.id, incoming.lease.identity)
+        installCoreDocumentSelection(incoming.lease, newlyOpened ? target : undefined)
         coreLease.value = incoming.lease
         corePlainTextView.value = incoming.view
         coreProjectionMarkdown.value = incoming.view.markdown
@@ -453,7 +517,8 @@ watch(
           registrations: coreSaveRegistrations
         })
         if (target === undefined) return
-        if (!openedCoreDocuments.has(target.id)) {
+        const newlyOpened = !openedCoreDocuments.has(target.id)
+        if (newlyOpened) {
           await measureCoreDocumentOpen(corePerformanceTrace, target.id, () =>
             coreManager.open({
               documentId: target.id,
@@ -466,6 +531,7 @@ watch(
         }
         const incoming = await leaseCorePlainTextView(coreManager, target.id)
         editorStore.REGISTER_CORE_SAVE_IDENTITY(target.id, incoming.lease.identity)
+        installCoreDocumentSelection(incoming.lease, newlyOpened ? target : undefined)
         coreLease.value = incoming.lease
         corePlainTextView.value = incoming.view
         coreProjectionMarkdown.value = incoming.view.markdown
@@ -483,6 +549,7 @@ watch(
         try {
           const handoff = await handoffCorePlainTextView(coreManager, prior)
           editorStore.REGISTER_CORE_SAVE_IDENTITY(prior.documentId, handoff.lease.identity)
+          installCoreDocumentSelection(handoff.lease)
           coreLease.value = handoff.lease
           corePlainTextView.value = handoff.view
           coreProjectionMarkdown.value = handoff.view.markdown
@@ -542,6 +609,7 @@ watch(
           coreRecoveryRegistrations.get(documentId)?.()
           coreRecoveryRegistrations.delete(documentId)
           coreModelOwners.delete(documentId)
+          coreViewSelections.delete(documentId)
         }
         return
       }
@@ -567,7 +635,8 @@ watch(
         coreRecoveryRegistrations.delete(documentId)
       }
       if (target === undefined) return
-      if (!openedCoreDocuments.has(target.id)) {
+      const newlyOpened = !openedCoreDocuments.has(target.id)
+      if (newlyOpened) {
         await measureCoreDocumentOpen(corePerformanceTrace, target.id, () =>
           coreManager.open({
             documentId: target.id,
@@ -582,6 +651,7 @@ watch(
       const incomingLease = coreManager.lease(target.id)
       coreProjectionMarkdown.value = await incomingLease.sourceAtBarrier()
       editorStore.REGISTER_CORE_SAVE_IDENTITY(target.id, incomingLease.identity)
+      installCoreDocumentSelection(incomingLease, newlyOpened ? target : undefined)
       coreLease.value = incomingLease
       corePlainTextView.value = undefined
       coreViewState.value = 'source'
@@ -727,10 +797,9 @@ const unregisterCoreClose = coreDocumentSaveAuthority.registerClose(
         // Composition and already prepared input complete while their native
         // listeners and recovery capture still own the active view.
         if (prior !== undefined) await coreManager?.saveBarrier(prior.documentId)
+        if (prior !== undefined) captureCoreDocumentSelection(prior)
         if (coreViewState.value === 'source') {
           coreSourceViewState.value = coreSourceEditor.value?.captureViewState()
-        } else if (currentFile.value?.id === prior?.documentId && currentFile.value !== null) {
-          currentFile.value.muyaIndexCursor = coreEditor.value?.captureViewState() ?? null
         }
         coreCloseInputsRetired.value = true
         await nextTick()

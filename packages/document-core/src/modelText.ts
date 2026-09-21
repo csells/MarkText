@@ -2,7 +2,7 @@ import { codeEnter, codeTabExpansion } from '@marktext/input-policy'
 import { compiledEditReconciliation } from './editingReconciliation.js'
 import type { DocumentClipboardAction, DocumentClipboardPlan } from './clipboardPlanning.js'
 import { positionAfter } from './sourcePosition.js'
-import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, SourceRange } from './documentCore.js'
+import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
 import type { MarkdownLineIndex } from './revision.js'
 import { copyDocumentSelection, type DocumentModelTextPoint, type DocumentModelTextSelection } from './sourceInputPlanning.js'
 import { advanceMarkdownColumn } from './internal/profile1/markdownLaneState.js'
@@ -12,14 +12,31 @@ import { isLiteralBlock } from './literalBlock.js'
 
 /** Resolve values only from the current parser; an address contains no cached semantics. */
 export function resolveModelTextPoint(core: DocumentCore, revision: DocumentRevision, point: DocumentModelTextPoint) {
-  const syntax = core.project(revision, 'markup').syntax
+  return resolveModelTextPointInSyntax(core, revision, point, core.project(revision, 'markup').syntax)
+}
+
+/** The supplied syntax owns the point's entire canonical region. */
+function resolveModelTextPointInSyntax(core: DocumentCore, revision: DocumentRevision, point: DocumentModelTextPoint, syntax: MarkupSyntax) {
   const numeric = typeof point === 'number'
   if (numeric) core.sourceSlice(revision, { start: point, end: point })
   let found: MarkdownAstNode | undefined
   let literal: MarkdownAstNode | undefined
+  let info: MarkdownAstNode | undefined
+  let fieldText: string | undefined
   let normalized: { range: SourceRange, offset: number, text: string } | undefined
   const visit = (node: MarkdownAstNode, code?: MarkdownAstNode): void => {
     const owner = isLiteralBlock(node.kind) ? node : code
+    if (node.kind === 'code-block' && typeof node.attributes.infoInputValue === 'string') {
+      const from = syntax.coordinates.toSource(Number(node.attributes.infoStart), 'next')
+      const to = syntax.coordinates.toSource(Number(node.attributes.infoEnd), 'previous')
+      if (numeric && from <= point && point <= to) { found = node; info = node; literal = undefined }
+      if (!numeric) {
+        for (const spelling of node.semanticTextSegments ?? []) {
+          const range = { start: syntax.coordinates.toSource(spelling.range.start, 'next'), end: syntax.coordinates.toSource(spelling.range.end, 'previous') }
+          if (range.start === point.text.start && range.end === point.text.end) { found = node; info = node; literal = undefined; fieldText = spelling.value }
+        }
+      }
+    }
     if (node.kind === 'text') {
       const range = { start: syntax.coordinates.toSource(node.range.start, 'next'), end: syntax.coordinates.toSource(node.range.end, 'previous') }
       if (numeric) {
@@ -31,10 +48,14 @@ export function resolveModelTextPoint(core: DocumentCore, revision: DocumentRevi
             normalized = { range, offset: point === range.start ? 0 : text.length, text }
           } else if (found === undefined) { found = node; literal = owner }
         }
-      } else if (range.start === point.text.start && range.end === point.text.end) {
-        if (found !== undefined) throw new RangeError('Model text point is ambiguous')
-        found = node
-        literal = owner
+      } else {
+        const spelling = node.semanticTextSegments?.find(segment => syntax.coordinates.toSource(segment.range.start, 'next') === point.text.start && syntax.coordinates.toSource(segment.range.end, 'previous') === point.text.end)
+        if (spelling !== undefined || range.start === point.text.start && range.end === point.text.end) {
+          if (found !== undefined) throw new RangeError('Model text point is ambiguous')
+          found = node
+          literal = owner
+          fieldText = spelling?.value
+        }
       }
     }
     for (const child of node.children) visit(child, owner)
@@ -43,17 +64,21 @@ export function resolveModelTextPoint(core: DocumentCore, revision: DocumentRevi
   const node = found as MarkdownAstNode | undefined
   if (numeric) {
     const value = normalized as { range: SourceRange, offset: number, text: string } | undefined
-    return { point, range: value?.range ?? { start: point, end: point }, offset: value?.offset ?? 0, text: value?.text ?? '', node, literal, syntax }
+    return { point, range: value?.range ?? { start: point, end: point }, offset: value?.offset ?? 0, text: value?.text ?? '', node, literal, info, syntax }
   }
-  const text = node?.attributes.semanticText
+  const text = fieldText ?? node?.attributes.semanticText
   if (node === undefined || typeof text !== 'string' || !Number.isSafeInteger(point.offset) || point.offset < 0 || point.offset > text.length) throw new RangeError('Model text point has no current owned value')
-  return { point, range: point.text, offset: point.offset, text, node, literal, syntax }
+  return { point, range: point.text, offset: point.offset, text, node, literal, info, syntax }
 }
 
 export function resolveModelTextSelection(core: DocumentCore, revision: DocumentRevision, selection: DocumentModelTextSelection) {
+  return resolveModelTextSelectionInSyntax(core, revision, selection, core.project(revision, 'markup').syntax)
+}
+
+function resolveModelTextSelectionInSyntax(core: DocumentCore, revision: DocumentRevision, selection: DocumentModelTextSelection, syntax: MarkupSyntax) {
   const copied = copyDocumentSelection(selection, revision.sourceLength)
-  const anchor = resolveModelTextPoint(core, revision, copied.anchor)
-  const focus = resolveModelTextPoint(core, revision, copied.focus)
+  const anchor = resolveModelTextPointInSyntax(core, revision, copied.anchor, syntax)
+  const focus = resolveModelTextPointInSyntax(core, revision, copied.focus, syntax)
   const backward = anchor.range.start > focus.range.start || anchor.range.start === focus.range.start && anchor.offset > focus.offset
   const first = backward ? focus : anchor
   const last = backward ? anchor : focus
@@ -96,12 +121,59 @@ function materializationPrefix(core: DocumentCore, revision: DocumentRevision, p
   return ' '.repeat(Math.max(0, advanceMarkdownColumn(column, 9) - column - point.text.length))
 }
 
+function infoTextContext(core: DocumentCore, revision: DocumentRevision, node: MarkdownAstNode) {
+  const syntax = core.project(revision, 'markup').syntax
+  const spans: { text: string, start: number, end: number, source: SourceRange }[] = []
+  let from = Number(node.attributes.infoStart)
+  let length = 0
+  const append = (end: number, value?: string) => {
+    const range = { start: syntax.coordinates.toSource(from, 'next'), end: syntax.coordinates.toSource(end, 'previous') }
+    const text = value ?? core.sourceSlice(revision, range)
+    spans.push({ text, start: length, end: length + text.length, source: range })
+    length += text.length
+    from = end
+  }
+  for (const spelling of node.semanticTextSegments ?? []) {
+    if (from < spelling.range.start) append(spelling.range.start)
+    append(spelling.range.end, spelling.value)
+  }
+  if (from < Number(node.attributes.infoEnd) || spans.length === 0) append(Number(node.attributes.infoEnd))
+  return {
+    text: spans.map(span => span.text).join(''),
+    offset(point: DocumentModelTextPoint): number {
+      for (const span of spans) {
+        if (typeof point !== 'number' && point.text.start === span.source.start && point.text.end === span.source.end) return span.start + point.offset
+        if (typeof point === 'number' && point >= span.source.start && point <= span.source.end) {
+          if (point === span.source.start) return span.start
+          if (point === span.source.end) return span.end
+          if (span.text.length === span.source.end - span.source.start) return span.start + point - span.source.start
+        }
+      }
+      throw new RangeError('Point is outside its code info value')
+    },
+    point(offset: number): DocumentModelTextPoint {
+      for (const span of spans) {
+        if (offset < span.start || offset > span.end) continue
+        if (offset === span.start) return span.source.start
+        if (offset === span.end) return span.source.end
+        return span.text.length === span.source.end - span.source.start ? span.source.start + offset - span.start : { text: span.source, offset: offset - span.start }
+      }
+      throw new RangeError('Code info value position is outside its field')
+    }
+  }
+}
+
+const spellInfoValue = (value: string): string => value.replace(/\r\n|[\\&`\r\n]/gu, character => character === '`' ? '&#96;' : character === '\r\n' || character === '\r' || character === '\n' ? ' ' : `\\${character}`)
+
 /** One declared value replacement, including only its touched authored spellings. */
 export function materializeModelTextEdit(core: DocumentCore, revision: DocumentRevision, selection: DocumentModelTextSelection, insert: string, lines: MarkdownLineIndex) {
   const resolved = resolveModelTextSelection(core, revision, selection)
   const { first, last } = resolved
-  const prefix = materializationPrefix(core, revision, first, lines) + first.text.slice(0, first.offset)
-  const suffix = last.text.slice(last.offset)
+  const info = first.info !== undefined && first.info === last.info
+  const prefixValue = materializationPrefix(core, revision, first, lines) + first.text.slice(0, first.offset)
+  const prefix = info ? spellInfoValue(prefixValue) : prefixValue
+  const suffixValue = last.text.slice(last.offset)
+  const suffix = info ? spellInfoValue(suffixValue) : suffixValue
   let continuation = ''
   if (first.node !== undefined && first.literal !== undefined && /[\r\n]/u.test(insert)) {
     const line = physicalLineAt(lines, first.node.range.start)
@@ -111,33 +183,37 @@ export function materializeModelTextEdit(core: DocumentCore, revision: DocumentR
       continuation = projectedSourceSlice(core, revision, first, line.start, firstPayload.range.start) + materializationPrefix(core, revision, resolveModelTextPoint(core, revision, address), lines)
     }
   }
-  const spell = (value: string) => value.replace(/\r\n|\r|\n/gu, ending => ending + continuation)
+  const spell = (value: string) => info ? spellInfoValue(value) : value.replace(/\r\n|\r|\n/gu, ending => ending + continuation)
   const edit: DocumentSourceEdit = { start: first.range.start, end: last.range.end, insert: prefix + spell(insert) + suffix }
   const insertedStart = edit.start + prefix.length
   const position = (offset: number) => insertedStart + spell(insert.slice(0, offset)).length
   return { edit, caret: position(insert.length), insertedStart, position, resolved }
 }
 
-export function modelTextSelectionValue(core: DocumentCore, revision: DocumentRevision, selection: DocumentModelTextSelection): string {
+export function modelTextSelectionValue(core: DocumentCore, revision: DocumentRevision, selection: DocumentModelTextSelection, preserveLineEndings = false): string {
   const { first, last } = resolveModelTextSelection(core, revision, selection)
   if (first.range.start === last.range.start && first.range.end === last.range.end) return first.text.slice(first.offset, last.offset)
+  if (first.info !== undefined && first.info === last.info) {
+    const context = infoTextContext(core, revision, first.info)
+    return context.text.slice(context.offset(first.point), context.offset(last.point))
+  }
   if (first.literal !== undefined && first.literal === last.literal) {
-    const content = literalTextContext(core, revision, first.literal)
+    const content = literalTextContext(core, revision, first.literal, preserveLineEndings)
     return content.text.slice(content.offset(first.point), content.offset(last.point))
   }
   return first.text.slice(first.offset) + projectedSourceSlice(core, revision, first, first.syntax.coordinates.toProjected(first.range.end, 'next'), first.syntax.coordinates.toProjected(last.range.start, 'previous')) + last.text.slice(0, last.offset)
 }
 
 /** Literal value coordinates come from the parser's ordinary payload children. */
-function literalTextContext(core: DocumentCore, revision: DocumentRevision, literal: MarkdownAstNode) {
-  const syntax = core.project(revision, 'markup').syntax
+function literalTextContext(core: DocumentCore, revision: DocumentRevision, literal: MarkdownAstNode, preserveLineEndings = false, syntax = core.project(revision, 'markup').syntax) {
   let length = 0
   const spans = literal.children.map(node => {
-    const text = node.kind === 'soft-break' ? '\n' : node.attributes.semanticText
+    const source = { start: syntax.coordinates.toSource(node.range.start, 'next'), end: syntax.coordinates.toSource(node.range.end, 'previous') }
+    const text = node.kind === 'soft-break' ? preserveLineEndings ? core.sourceSlice(revision, source) : '\n' : node.attributes.semanticText
     if (typeof text !== 'string') throw new RangeError('Literal text requires its owned payload')
     const start = length
     length += text.length
-    return { node, text, start, end: length, source: { start: syntax.coordinates.toSource(node.range.start, 'next'), end: syntax.coordinates.toSource(node.range.end, 'previous') } }
+    return { node, text, start, end: length, source }
   })
   return {
     text: spans.map(span => span.text).join(''),
@@ -161,6 +237,49 @@ function literalTextContext(core: DocumentCore, revision: DocumentRevision, lite
       }
       throw new RangeError('Literal value position is outside its payload')
     }
+  }
+}
+
+/** A collapsed deletion edits its owned literal value, never adjacent widgets or delimiters. */
+export function constrainLiteralDeletion(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, regionalSyntax?: (range: SourceRange) => MarkupSyntax | undefined): DocumentInputAction {
+  if ('kind' in action || !action.inputType.startsWith('delete')) return action
+  const intrinsic = (selection: typeof action.selection | typeof action.range): DocumentModelTextSelection | undefined => {
+    if ('start' in selection) return { kind: 'model-text', anchor: selection.start, focus: selection.end }
+    if (selection.kind === 'model-text') return selection
+    if ('ranges' in selection && selection.ranges.length === 1) {
+      const range = selection.ranges[selection.primary]
+      if (range !== undefined) return { kind: 'model-text', anchor: range.anchor, focus: range.focus }
+    }
+    return undefined
+  }
+  const selection = intrinsic(action.selection)
+  const range = intrinsic(action.range)
+  if (selection === undefined || range === undefined) return action
+  const extent = (point: DocumentModelTextPoint): SourceRange => typeof point === 'number' ? { start: point, end: point } : point.text
+  const anchor = extent(selection.anchor)
+  const focus = extent(selection.focus)
+  const syntax = regionalSyntax?.({ start: Math.min(anchor.start, focus.start), end: Math.max(anchor.end, focus.end) }) ?? core.project(revision, 'markup').syntax
+  const actual = resolveModelTextSelectionInSyntax(core, revision, selection, syntax)
+  const literal = actual.first.literal
+  if (!actual.collapsed || literal === undefined) return action
+  const content = literalTextContext(core, revision, literal, false, syntax)
+  const start = content.point(0)
+  const end = content.point(content.text.length)
+  const lower = typeof start === 'number' ? start : start.text.start
+  const upper = typeof end === 'number' ? end : end.text.end
+  const clamp = (point: DocumentModelTextPoint): DocumentModelTextPoint => {
+    const first = typeof point === 'number' ? point : point.text.start
+    const last = typeof point === 'number' ? point : point.text.end
+    return first < lower ? start : last > upper ? end : point
+  }
+  const clampedAnchor = clamp(range.anchor)
+  const clampedFocus = clamp(range.focus)
+  if (clampedAnchor === range.anchor && clampedFocus === range.focus) return action
+  return {
+    ...action,
+    range: 'start' in action.range && typeof clampedAnchor === 'number' && typeof clampedFocus === 'number'
+      ? { start: Math.min(clampedAnchor, clampedFocus), end: Math.max(clampedAnchor, clampedFocus) }
+      : { kind: 'model-text', anchor: clampedAnchor, focus: clampedFocus }
   }
 }
 
@@ -197,7 +316,7 @@ export function planModelTextInput(core: DocumentCore, revision: DocumentRevisio
     const sourceSelection = { start: actual.first.range.start, end: actual.collapsed ? actual.first.range.start : actual.last.range.end }
     const planned = structural({ ...action, selection: sourceSelection })
     if (planned.edits.length === 0 && planned.selection.start === sourceSelection.start && planned.selection.end === sourceSelection.end) return { ...planned, selection: actual.selection }
-    if (action.command === 'resetCodeBlock' && action.selectionMode === 'preserve') {
+    if (action.command === 'resetCodeBlock' && action.selectionMode === 'preserve' || action.command === 'changeBlock' && action.change.type === 'reset' && action.change.selectionMode === 'preserve') {
       const map = (point: DocumentModelTextPoint): DocumentModelTextPoint => {
         if (typeof point === 'number') return positionAfter(planned.edits, point, false)
         const value = resolveModelTextPoint(core, revision, point)
@@ -226,9 +345,20 @@ export function planModelTextInput(core: DocumentCore, revision: DocumentRevisio
     const planned = structural({ ...action, selection, range: selection })
     return { ...planned, selection: { ranges: [{ anchor: planned.selection.start, focus: planned.selection.end }], primary: 0 } }
   }
-  const target = intrinsic(action.range)
+  let target = intrinsic(action.range)
+  if (action.inputType.startsWith('delete') && actual.collapsed && actual.first.info !== undefined) {
+    const info = actual.first.info
+    const from = actual.first.syntax.coordinates.toSource(Number(info.attributes.infoStart), 'next')
+    const to = actual.first.syntax.coordinates.toSource(Number(info.attributes.infoEnd), 'previous')
+    const clamp = (point: DocumentModelTextPoint): DocumentModelTextPoint => {
+      const range = typeof point === 'number' ? { start: point, end: point } : point.text
+      return range.start < from ? from : range.end > to ? to : point
+    }
+    target = { kind: 'model-text', anchor: clamp(target.anchor), focus: clamp(target.focus) }
+  }
   const resolved = resolveModelTextSelection(core, revision, target)
-  const literal = resolved.first.literal !== undefined && resolved.first.literal === resolved.last.literal ? literalTextContext(core, revision, resolved.first.literal) : undefined
+  const info = resolved.first.info !== undefined && resolved.first.info === resolved.last.info ? infoTextContext(core, revision, resolved.first.info) : undefined
+  const literal = info ?? (resolved.first.literal !== undefined && resolved.first.literal === resolved.last.literal ? literalTextContext(core, revision, resolved.first.literal) : undefined)
   const literalStart = literal?.offset(resolved.first.point)
   const literalEnd = literal?.offset(resolved.last.point)
   const before = literal !== undefined && literalStart !== undefined ? literal.text.slice(Math.max(0, literalStart - 1), literalStart) : resolved.first.offset > 0 ? resolved.first.text.slice(resolved.first.offset - 1, resolved.first.offset) : ''
@@ -243,9 +373,10 @@ export function planModelTextInput(core: DocumentCore, revision: DocumentRevisio
     inputType: action.inputType,
     data: action.data,
     options: action.options,
-    context: { type: resolved.first.literal !== undefined || resolved.last.literal !== undefined ? 'literal' : 'format', isInInlineCode: false, isInInlineMath: false }
+    context: { type: resolved.first.info !== undefined || resolved.last.info !== undefined || resolved.first.literal !== undefined || resolved.last.literal !== undefined ? 'literal' : 'format', isInInlineCode: false, isInInlineMath: false }
   })
   const moved = (point: DocumentModelTextPoint, delta: number): DocumentModelTextPoint => {
+    if (info !== undefined) return info.point(Math.max(0, Math.min(info.text.length, info.offset(point) + delta)))
     if (typeof point === 'number') return point + delta
     const value = resolveModelTextPoint(core, revision, point)
     const offset = point.offset + delta
@@ -293,7 +424,7 @@ export function rebaseModelTextPoint(point: DocumentModelTextPoint, edits: reado
 export function planModelTextClipboard(core: DocumentCore, revision: DocumentRevision, action: DocumentClipboardAction, preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision): DocumentClipboardPlan {
   if (action.kind === 'table' || action.selection.kind !== 'model-text') throw new RangeError('Expected intrinsic text clipboard selection')
   const resolved = resolveModelTextSelection(core, revision, action.selection)
-  const literal = resolved.first.literal !== undefined || resolved.last.literal !== undefined
+  const literal = resolved.first.info !== undefined || resolved.last.info !== undefined || resolved.first.literal !== undefined || resolved.last.literal !== undefined
   const data = action.kind === 'cut' ? null : literal && action.plainText !== undefined ? action.plainText : action.markdown
   const input = {
     selection: action.selection,

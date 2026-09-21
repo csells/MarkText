@@ -32,6 +32,7 @@ const boot = (bound: boolean) => {
   const adapter = bound
     ? createCodeMirrorCoreAdapter(editor.getDoc(), binding, {
       canonicalSource: 'abc\ndef',
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
     : undefined
@@ -151,6 +152,7 @@ it('presents restored table-cell identity in Source and uses its actual raw care
   const editor = CodeMirror(host, { value: saved.source, mode: null })
   const adapter = createCodeMirrorCoreAdapter(editor.getDoc(), binding, {
     canonicalSource: saved.source,
+    canonicalRevision: saved.revision,
     insertedLineEnding: '\r\n'
   })
   try {
@@ -216,7 +218,9 @@ it('copies the intrinsic cell address before native input enters the model', () 
     action.range.cell.column = 0
     expect(captured[0]).toMatchObject({ selection: position(), range: position() })
     const submitted = captured[0]
-    if (submitted === undefined || submitted.selection.kind !== 'table-cell') { throw new Error('Expected intrinsic cell input') }
+    if (submitted === undefined || submitted.selection.kind !== 'table-cell') {
+      throw new Error('Expected intrinsic cell input')
+    }
     expect(Object.isFrozen(submitted.selection.cell.table)).toBe(true)
   } finally {
     binding.dispose()
@@ -249,6 +253,7 @@ it('projects restored normalized Markup history into Source without replacing it
     const editor = CodeMirror(host, { value: saved.source, mode: null })
     adapter = createCodeMirrorCoreAdapter(editor.getDoc(), markup.binding, {
       canonicalSource: saved.source,
+      canonicalRevision: saved.revision,
       insertedLineEnding: '\n'
     })
     const handedOff = markup.binding.sourceAtBarrier()

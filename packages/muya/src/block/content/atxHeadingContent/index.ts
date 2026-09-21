@@ -1,6 +1,7 @@
 import type { Muya } from '../../../muya';
 import type { IRenderCursor } from '../../../selection/types';
 import type AtxHeading from '../../commonMark/atxHeading';
+import { dispatchDocumentHeading } from '../../../editor/documentEditing';
 import { isKeyboardEvent } from '../../../utils';
 import Format from '../../base/format';
 import { ScrollPage } from '../../scrollPage';
@@ -63,6 +64,15 @@ class AtxHeadingContent extends Format {
 
     override backspaceHandler(event: Event) {
         const { start, end } = this.getCursor()!;
+        if (this.muya.editor.documentEditing && ((start.offset === 0 && end.offset === 0) || (start.offset === 1 && end.offset === 1 && this.text === '#'))) {
+            event.preventDefault();
+            event.stopPropagation();
+            const selection = this.muya.editor.selection.getDOMSelection();
+            if (!selection)
+                throw new Error('Heading Backspace has no document selection');
+            dispatchDocumentHeading(this.muya, { type: 'paragraph' }, selection);
+            return;
+        }
         if (start.offset === 0 && end.offset === 0) {
             event.preventDefault();
             this.text = this.text.replace(/^ {0,3}#{1,6} */, '');

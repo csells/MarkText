@@ -84,6 +84,9 @@ export const launchElectron = async(
   userArgs = userArgs || []
   const packagedBinary = process.env.MARKTEXT_PACKAGED_APP
   const executablePath = packagedBinary ?? getElectronPath()
+  const applicationRoot = process.env.MARKTEXT_E2E_APP_ROOT
+    ? path.resolve(process.env.MARKTEXT_E2E_APP_ROOT)
+    : projectRoot
   // Pass project root as entry so Electron reads package.json and getAppPath() returns project root.
   // Passing out/main/index.js directly bypasses package.json and breaks __static path resolution.
   const userDataDir = trackTempDir(getTempPath())
@@ -95,18 +98,22 @@ export const launchElectron = async(
       'utf-8'
     )
   }
-  const args = [...(packagedBinary ? [] : [projectRoot]), '--user-data-dir', userDataDir].concat(userArgs)
+  const args = [
+    ...(packagedBinary ? [] : [applicationRoot]),
+    '--user-data-dir',
+    userDataDir
+  ].concat(userArgs)
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v
   env.PERF_TESTING = 'true'
-  // Repository Core authority tracers deliberately hold Worker replies so
-  // pending-save/recovery races are deterministic. Packaged and performance
-  // runners launch the built binary directly and omit this test-only flag.
+  // Unpacked fault/recovery tracers need explicit Core test hooks. Installed
+  // checks use the normal launch policy unless the individual test opts in.
   env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS = '1'
   if (options.suppressErrorDialog) env.MARKTEXT_ERROR_INTERACTION = '1'
   if (packagedBinary) {
     delete env.MARKTEXT_DOCUMENT_CORE_MODE
     delete env.MARKTEXT_DOCUMENT_CORE_SHADOW
+    delete env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
   }
   for (const [key, value] of Object.entries(options.env ?? {})) {
     if (value === undefined) delete env[key]
@@ -115,7 +122,7 @@ export const launchElectron = async(
   const app = await _electron.launch({
     executablePath,
     args,
-    cwd: projectRoot,
+    cwd: applicationRoot,
     env,
     timeout: 30000
   })
@@ -177,7 +184,9 @@ export const clearRendererErrors = async(app: ElectronApplication): Promise<void
 export const expectNoRendererErrors = async(app: ElectronApplication): Promise<void> => {
   const errors = await getRendererErrors(app)
   if (errors.length > 0) {
-    const summary = errors.map((e) => `- ${e.name ?? 'Error'}: ${e.message}\n${e.stack ?? ''}`).join('\n\n')
+    const summary = errors
+      .map((e) => `- ${e.name ?? 'Error'}: ${e.message}\n${e.stack ?? ''}`)
+      .join('\n\n')
     throw new Error(`Expected no renderer errors, captured ${errors.length}:\n\n${summary}`)
   }
   expect(errors.length).toBe(0)
@@ -251,12 +260,11 @@ export const waitForEditor = async(page: Page, timeout = 15000): Promise<void> =
   )
   // Core first mounts its authority-backed view after the placeholder editor.
   // Synthetic caret setup must not target that outgoing placeholder subtree.
-  const coreExpected = resolveCoreDocumentLaunchPolicy(await page.evaluate(() =>
-    window.electron.process.env
-  )).coreEnabled
+  const coreExpected = resolveCoreDocumentLaunchPolicy(
+    await page.evaluate(() => window.electron.process.env)
+  ).coreEnabled
   await page.waitForFunction(
-    coreExpected => !coreExpected ||
-      window.__marktextDocumentCore?.mode === 'core',
+    (coreExpected) => !coreExpected || window.__marktextDocumentCore?.mode === 'core',
     coreExpected,
     { timeout }
   )
@@ -314,10 +322,7 @@ export const exitSourceMode = async(page: Page, app: ElectronApplication): Promi
   await expect(page.locator('.core-view-handoff')).toHaveCount(0)
 }
 
-export const getMarkdownContent = async(
-  page: Page,
-  app: ElectronApplication
-): Promise<string> => {
+export const getMarkdownContent = async(page: Page, app: ElectronApplication): Promise<string> => {
   const wasInSource = await page.evaluate(
     () => !!document.querySelector('.source-code .CodeMirror')
   )
@@ -338,10 +343,15 @@ export const typeIntoEditor = async(page: Page, text: string): Promise<void> => 
   const hasEditorSelection = await page.evaluate(() => {
     const root = document.querySelector('.editor-component')
     const selection = window.getSelection()
-    return !!root && !!selection?.anchorNode && !!selection.focusNode &&
-      root.contains(selection.anchorNode) && root.contains(selection.focusNode)
+    return (
+      !!root &&
+      !!selection?.anchorNode &&
+      !!selection.focusNode &&
+      root.contains(selection.anchorNode) &&
+      root.contains(selection.focusNode)
+    )
   })
-  if (!hasEditorSelection) await page.locator('.editor-component [contenteditable="true"]').first().click()
+  if (!hasEditorSelection) { await page.locator('.editor-component [contenteditable="true"]').first().click() }
   await page.keyboard.type(text, { delay: 0 })
 }
 
@@ -388,7 +398,10 @@ export const focusEditor = async(page: Page): Promise<void> => {
 }
 
 export const placeCaretInEditor = async(page: Page): Promise<void> => {
-  await page.locator('.editor-component span.mu-paragraph-content[contenteditable="true"]').first().click()
+  await page
+    .locator('.editor-component span.mu-paragraph-content[contenteditable="true"]')
+    .first()
+    .click()
   // macOS End scrolls the document; Cmd+Right moves the insertion point.
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End')
 }
@@ -459,9 +472,7 @@ export const launchWithReviewMarkdown = async(
   }
 }
 
-export const expectEditorWindowHidden = async(
-  app: ElectronApplication
-): Promise<void> => {
+export const expectEditorWindowHidden = async(app: ElectronApplication): Promise<void> => {
   const state = await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0]
     return {

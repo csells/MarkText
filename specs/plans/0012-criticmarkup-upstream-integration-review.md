@@ -1,9 +1,9 @@
 # Finish CriticMarkup through native MarkText reuse
 
-- **Status:** Active; unified parser-to-UI integration is incomplete. Unconverted semantic consumers and incomplete integrated/candidate verification block delivery. The selection-only metadata patch is not an accepted solution. Earlier convention-review results remain historical; sustained performance and external/deferred verification remain open.
+- **Status:** Active for external/deferred gates E1/E2/D1; the identified local implementation and verification work is complete. Candidate `eed5f5d9` passes Core 1,346, Desktop 3,322, Chromium 850 and all 82 installed functional cases, with all 14 screenshots inspected. All six 1,200-input typing workloads, 15 cold-open observations and the full 200-cycle native-Paste editorial workload pass at unchanged limits; the final editorial runner completes in 151.703 seconds against the 180-second test deadline. Clipboard contents are restored. Prior failed/interrupted attempts remain recorded below. This closes the demonstrated local U1/U2/V1 work without claiming native OS IME/Intel, distribution trust or deferred platform verification. The selection-only metadata patch is not an accepted solution.
 - **Started:** 2026-09-07 at the owner's request following the branch review.
 - **Supersedes:** [0011](archive/0011-criticmarkup-editable-review.md), archived incomplete. Its full product scope and unfinished requirements carry forward; archival is not completion.
-- **Authority:** [vision](../vision/criticmarkup-vision.md), [domain language](../../CONTEXT.md), [Profile 1](../language/marktext-markdown-profile-1.md), semantic ADRs, [document authority](../adr/0001-core-document-authority.md), and [native integration architecture](../architecture/criticmarkup-native-integration.md).
+- **Authority:** [vision](../vision/criticmarkup-vision.md), [domain language](../../CONTEXT.md), [Profile 1](../language/marktext-markdown-profile-1.md), [Markdown image-layout extension](../language/marktext-markdown-profile-2.md), semantic ADRs, [document authority](../adr/0001-core-document-authority.md), and [native integration architecture](../architecture/criticmarkup-native-integration.md).
 - **Reviewed source:** `2f2a09d72a0c85227f31c0fb23b0c3bfecf946b7`, clean at review, compared with upstream HEAD `develop` at `33777a7abc435468201aec1b914c39f2b27e115d`. There is no upstream `main` branch.
 
 ## Outcome and retained scope
@@ -27,16 +27,909 @@ macOS remains the implementation and verification priority. Windows/Linux requir
 
 ## CURRENT completion blockers
 
-R1–R8 were verified on the historical `5e5c6178` candidate. Later convention repairs are recorded below. The latest architecture review demonstrated U1 against the installed package and current source; those failures take priority over the historical green subsets. The full retained scope and release blockers remain open. Changed runtime inputs must not inherit earlier candidate verification.
+R1–R8 were verified on the historical `5e5c6178` candidate. Later convention repairs are recorded below. The 20 September architecture review demonstrated U1 violations against the installed package and source; their migrations and fresh verification are recorded below. The full retained scope and release blockers remain open. Changed runtime inputs must not inherit earlier candidate verification.
 
-| ID / violated requirement                         | Current evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Responsible boundary and closure                                                                                                                                                                                                                                                                                                                             |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| U1 — one parser-to-UI stack and faithful editing  | Production `json-change` → `decodeNativeEdit` remains reachable for unconverted structural commands, other literal/table Backspace merges and container/leaf resets. Math/diagram/HTML/frontmatter now share intrinsic literal payloads and selection ownership; the source-suffix view reconstruction is removed. Six native CM/plain queued-input controls pass. Retained Core/Desktop/Muya/upstream checks at `c14686e25423` and 104 affected Chromium checks at the subsequent test-only `953957e6bade` checkpoint are recorded below; the retained Core image-label sizing failure remains. Paragraph Backspace into code and the shared adjacent-block input context now pass 19 actual-input and 13 browser controls. The broader code-join source checks below are historical after the literal runtime changes. Completed wrapping and normalized-input checkpoints are recorded below. Other retained semantic consumers and the mounted desktop table dialog remain unverified. CM image-label sizing retains its failure and the owner’s unanswered source-format decision. | Route each actual caller through the live shared model before presentation and retire its legacy semantic path. Preserve immediate selection/next input, exact source, canonical history and save/reopen. Pass retained upstream and integrated checks; no remaining production semantic consumer may depend on the old split.                               |
-| U2 — preserve pending input through view teardown | The corrected lease retirement, durable recovery, final close preparation and cancellation restoration pass retained owner/component tests. Historical final8 built-app tests passed four hidden-window Markup/Source close workflows: late input while Save is pending, exact disk bytes/destruction, cancelled Save As followed by immediate typing/history/save. Incoming-open routing and pending-read drain pass actual main-module tests. Packaged/installed quit, queued-open/recovery workflows and native IME remain unverified.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Preserve the same actor/history while retiring input; wait for durable state and outstanding reads before destruction. Verify complete application quit/recovery against the final installed candidate, including incoming documents and rejected drafts. Controlled native dialog responses in the bundled test do not prove native dialog/IME interaction. |
-| V1 — sustained candidate verification             | No frozen candidate has completed the retained integrated, sustained, upstream and default-enabled installed macOS verification after the synchronous ownership change. The prior measured dispatch-budget miss remains historical evidence below, not a pass.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Freeze source, lock and artifact identities after fixes. On a quiet host, complete all six 1,200-input workloads, 200 editorial cycles and 15 cold observations with unchanged limits, then complete affected integrated/package checks. Measure renderer model execution; no competing workloads.                                                           |
-| E1 — native Mac/Intel execution, external         | Local input sources expose U.S. keyboard only. Mini XCUITest previously failed before launch while enabling automation. Native CJK IME, the actual screenshot picker and Intel Mac execution remain unverified.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Obtain non-disruptive native execution/CJK input and Intel hardware; verify candidate selection/commit, history/save and the picker. Chromium composition and completed-capture IPC do not substitute.                                                                                                                                                       |
-| E2 — distribution trust, external                 | Developer ID/notarization credentials are unavailable. Current ad-hoc signing verifies local integrity only.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Verify signed/notarized distribution and Gatekeeper trust when credentials are available.                                                                                                                                                                                                                                                                    |
-| D1 — Windows/Linux, deferred                      | Windows run `34068611204` once left the first saved file unchanged; ten repetitions passed without explaining it. Native Windows IME and final platform checks remain unfinished.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Preserve ARM64 installation fixes. Resume the unexplained save failure only with a new hypothesis or recurrence, then run the retained installed platform checks when platform work resumes.                                                                                                                                                                 |
+| ID / violated requirement                                           | Current evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Responsible boundary and closure                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| U1 — one parser-to-UI stack and faithful editing, locally verified  | Native producers use common-model operations; production `json-change` decoding is retired. Image layout preserves independent label suggestions. On `eed5f5d9`, Core 1,346, Desktop 3,322 and Chromium 850 pass; Muya 1,580 is reused for 863 byte-identical inputs. All 82 installed functional cases and the full sustained workloads pass, including native clipboard and retained preferences/media/security/accessibility checks. Canonical regional clipboard planning and view acknowledgement replace demonstrated redundant full work. | Identified implementation and local verification are complete. No known unmigrated production caller remains from this reassessment. Keep the contract active for future changes; E1/E2/D1 remain explicit.                                                                                                       |
+| U2 — preserve pending input through view teardown, locally verified | Current installed cases include all eight close/quit/incoming-open checks, Source handoff, pending Save/Save As and durable recovery. Repaired preference fixtures verify actual pending composition, preference delivery, immediate next input, exact source and undo/redo in Markup and Source.                                                                                                                                                                                                                                                | Locally verified on `eed5f5d9`. Native dialog/OS IME interaction remains E1. Keep the same actor/history and durable retirement.                                                                                                                                                                                  |
+| V1 — sustained candidate verification, locally verified             | Current `eed5f5d9` passes all six 1,200-input workloads, 15 cold opens, 82 installed functional cases and the full 200-cycle real-Paste editorial workload. All 20 saved-source checkpoints and the final fixture hash match. The final runner exits successfully in 151.703 seconds; the test deadline remains 180 seconds and pacing 20 ms.                                                                                                                                                                                                    | Local candidate gate complete. Clipboard restored; owned apps closed. Prior timeout and clipboard interruptions remain separate retained evidence. The final pass uses the same runtime, original workload and guard after other clipboard activity was paused; no runtime change or weaker limit was introduced. |
+| E1 — native Mac/Intel execution, external                           | Local input sources expose U.S. keyboard only. Mini XCUITest previously failed before launch while enabling automation. Native CJK IME, the actual screenshot picker and Intel Mac execution remain unverified.                                                                                                                                                                                                                                                                                                                                  | Obtain non-disruptive native execution/CJK input and Intel hardware; verify candidate selection/commit, history/save and the picker. Chromium composition and completed-capture IPC do not substitute.                                                                                                            |
+| E2 — distribution trust, external                                   | Developer ID/notarization credentials are unavailable. Current ad-hoc signing verifies local integrity only.                                                                                                                                                                                                                                                                                                                                                                                                                                     | Verify signed/notarized distribution and Gatekeeper trust when credentials are available.                                                                                                                                                                                                                         |
+| D1 — Windows/Linux, deferred                                        | Windows run `34068611204` once left the first saved file unchanged; ten repetitions passed without explaining it. Native Windows IME and final platform checks remain unfinished.                                                                                                                                                                                                                                                                                                                                                                | Preserve ARM64 installation fixes. Resume the unexplained save failure only with a new hypothesis or recurrence, then run the retained installed platform checks when platform work resumes.                                                                                                                      |
+
+### 20 September reassessment and remaining implementation
+
+Reviewed clean source `cf722bb71de79b63587bd2ebcd1cd46bfaa56e01` against the
+[single-stack contract](../architecture/criticmarkup-native-integration.md#one-parser-to-ui-stack).
+The July and September transcripts confirm this was the original requirement;
+one parser and one save authority never waived model-owned editing and UI context.
+Keep the working Core, synchronous live owner, parser-owned rendering and native
+MarkText services. Finish their actual consumers rather than restart the engine.
+
+The owner authorized updating this plan and completing the identified work on
+20 September. These tasks refine U1 and its verification; U2, V1, E1, E2 and D1
+remain active under the existing scope above.
+
+- [x] **Structural callers:** move literal/table paragraph joins, blockquote
+      boundary Backspace, paragraph-menu Duplicate/New/Delete and remaining generic
+      paragraph resets onto shared-model operations before native mutation. The
+      former `editor.vue` `json-change` →
+      `muyaPlainTextCoreAdapter.decodeNativeEdit` route is now removed from production;
+      operation-shape decoding and native block serialization cannot define the action. Verify ordinary Markdown and CM
+      through actual native callers, including exact source, repeated text, immediate
+      next input, directed selection, history and save/reopen. Retire the replaced
+      production routes and account for every remaining decoder producer.
+      Actual native tests have now reproduced and repaired literal/table joins,
+      blockquote boundary Backspace, menu actions, generic resets and heading
+      Backspace. Additional reachable bypasses found during caller accounting are
+      the language picker and spelling replacement; both now submit actual actions
+      before presentation. The picker reads parser-owned fence context. The audit
+      also found image insertion/drop, block drag, preview deletion, footnote
+      creation and page-tail clicks; those callers are included in this same work.
+      Rendered pointer tests caught and repaired selection loss in floating
+      controls and the missing native footnote wrapper. Annotation-boundary drag and
+      async-drop selection now pass actual-caller tests, including original selection
+      restoration on undo and newer input during asynchronous import. Final accounting
+      also found modified word/line deletion, literal-body and Setext Backspace,
+      parser ownership of emoji picker/rendering context, reference-definition scans
+      during mount/update, and ordinary text drops. Include their migration and
+      immediate next-key/history checks; do not leave a fault-only replacement for
+      a supported user action. Direct editing of a fence's language field also now
+      has its own model address; typing there no longer edits the code body. Text
+      drag/drop carries the original selection and destination as one model action.
+      Its planner preserves annotation/comment ownership, normalized text values,
+      literal indentation/EOLs and the existing table-cell spelling policy.
+      The combined unit, full Chromium, installed and sustained candidate checks
+      now pass on the documented final artifact.
+- [x] **Caret consumers:** replace Core calls to Muya's `getCursorOffset` and
+      `setCursorByOffset` with common-model positions. Core mount, Source handoff
+      and close retirement no longer capture positions by inserting sentinels into
+      serialized native Markdown and reparsing it. They retain
+      intrinsic normalized positions and history across mode/tab changes and a
+      cancelled close, without reparsing the view or materializing source on a
+      selection-only action. Component and hidden application handoff checks pass,
+      including backward DOM selection, normalized positions, the next keystroke
+      and undo/redo. Native selection commits preserve their actual DOM endpoints
+      without changing programmatic cursor placement.
+- [x] **Image-label sizing:** on 20 September the owner explicitly chose option 1:
+      preserve independently reviewable label suggestions using a Markdown image-size
+      suffix. [Markdown Profile 2](../language/marktext-markdown-profile-2.md) records
+      this additive image-layout syntax; the five CriticMarkup forms and their
+      Profile 1 semantics remain unchanged. Apply the same representation to plain
+      and annotated Markdown images, retaining existing HTML images. The common
+      parser owns suffix syntax, values and positions; the image-properties operation
+      edits that structure before existing widgets render it. Verify actual resize
+      and alignment controls, independent Accept/Reject, retained comments, references,
+      subsequent typing, history, Source handoff, reader/clipboard/export output and
+      exact save/reopen. The implementation and actual installed controls pass on
+      `eed5f5d9`, including its completed local V1 verification.
+- [x] **Affected-suite CI:** include shared input-policy changes in Core checks,
+      Core/desktop authority changes in the Muya browser checks, and Muya changes in
+      desktop unit checks. These consumers now share runtime dependencies. Updated
+      `document-core.yml`, `muya-e2e.yml` and `test.yml`; these are trigger changes,
+      not a report of a completed remote CI run. All three pass `actionlint`.
+- [x] **Integrated local verification:** candidate `eed5f5d9` passes the complete Core,
+      Desktop and Chromium suites and all 82 installed functional cases, with all
+      14 generated screenshots inspected, six 1,200-input workloads and 15 cold opens
+      passed. The full 200-cycle native-Paste workload also passes, with exact source
+      and unchanged pacing/deadline. Prior failures/interruption and their repairs
+      remain recorded below. This completes the local candidate gate, not E1/E2/D1;
+      native OS IME/Intel, distribution trust and deferred platforms remain open.
+
+Fresh reassessment checks: selected Core input/literal/compilation/projection/image
+suites passed 60 tests and failed the image-label sizing test; selected desktop
+native-input, Source lifecycle and timing suites passed 49 tests; the independent
+public-AST semantic test passed all 1,324 official CommonMark/GFM cases. No browser,
+installed, native IME or sustained performance run was performed in that assessment.
+The sampled older temporary evidence roots are no longer present locally; their
+recorded counts remain historical reports, not reopened artifacts or validation of
+new runtime inputs. Preserve the actual new run evidence in private test locations.
+
+The assessment against both the wording and intent of the vision is unchanged:
+the shared parser, intrinsic CM nodes, synchronous document owner and reuse of
+native controls are the right foundation. The clean starting revision still
+let supported actions mutate the native tree and then recover their meaning
+from change events. That is a functional gap as well as an architectural one:
+the next key can use a different selection, and duplicate visible text makes
+intent unrecoverable. Keeping native widgets while moving their actual operations
+and context onto the common model addresses the original vision. A new sidecar,
+another save reconciliation layer or a standalone replacement editor would not.
+
+The current production path is the intrinsic parser and model in
+`packages/document-core`, reached through `DocumentEditing` operations captured
+by Muya's native controls and `muyaModelSelection.ts`. The synchronous
+`editorCoreBinding.ts` owner applies them before
+`reconcileMuyaDocumentView.ts` installs the resulting model view and selection.
+`blockCommandPlanning.ts`, `blockMovePlanning.ts`, `textMovePlanning.ts`, `codeLanguagePlanning.ts`,
+`paragraphJoinPlanning.ts`, `formatPlanning.ts` and `clipboardPlanning.ts`
+plan their respective actions from common syntax and actual positions. Shared
+typing, image and emoji policies belong in `packages/input-policy`; consumers
+do not establish Markdown or CM meaning by rescanning view text. Core mounts,
+Source transitions and close leases carry `DocumentSelection`, including
+intrinsic normalized positions. The legacy adapter decoding methods remain for
+old replay tests, but the production `editor.vue` event path no longer calls
+them. Any newly discovered native producer must migrate before U1 can close.
+
+### 21 September image-layout implementation and verification
+
+The owner chose option 1, preserving independent label suggestions, rather than
+bundling them into a whole-image substitution. The production path extends
+`markdownParser.ts` with `imageSizeAttributes.ts`: the same inline/reference image
+nodes own the suffix, dimensions, alignment and exact source positions. Existing
+CriticMarkup arm scopes govern containment and the revised layout shown in Markup.
+`Format.updateImage` submits the actual selected image and property change through
+`DocumentEditing`; `planImageProperties` edits that syntax through the common
+compiler. `muyaMarkupPresentation.ts` and `markdownProjectionHtml.ts` consume the
+same attributes for the existing widget, readers, comments and exports. No UI
+parser, projected-string recognition or supplementary event metadata is added.
+
+The former Markdown-to-HTML conversion and explicit rejection of annotated labels
+are replaced for Markdown images. Existing HTML images keep their attribute-edit
+path. Shared HTML clipboard import retains sized images as HTML, supported by both
+standalone Muya and Core; `prepareClipboardMarkdown` uses the existing parser-owned
+`paragraphImageRange` classification so a copied image stays inline at the native
+paste location. WYSIWYG clipboard content remains the established Revised
+projection, while canonical label suggestions stay independently reviewable.
+
+The initial regressions demonstrated resize rejection/HTML conversion, missing
+reader/export dimensions and lost imported dimensions. Focused controls pass for
+plain/CM resize, alignment, reference images, isolated comments and clipboard.
+Independent review additionally reproduced tracked clear/restore, multi-property
+and partial-value annotation failures, including a next key entering a deleted
+arm. Those fixes now pass focused Core and actual native-caller checks, including
+next-keystroke placement. Final combined verification is in progress; earlier
+green snapshots do not certify this changed source. Detailed logs are preserved under
+`/tmp/marktext-image-layout-xSzfFF/`, `/tmp/marktext-image-size-DAwyuq/` and the
+fresh verification root `/tmp/marktext-image-final-tiQxeG/`.
+
+The frozen private source is `6941c3db438603221767603afb277e8e949b6f30`,
+with 2,637 files recorded in `snapshot-manifest.json`; it contains the authorized
+worktree changes based on `cf722bb71de79b63587bd2ebcd1cd46bfaa56e01`.
+All six type checks pass, and uncached lint reports zero errors (724 root warnings,
+17 Muya warnings). Desktop passes **3,289/3,289**, Muya **1,580/1,580** and
+Chromium **850/850**, with no browser retries or skips. The full Core run passed
+**1,322/1,324**: two 100,000-region retention tests hit the existing five-second
+limit while other suites/builds were running. An isolated rerun of their complete
+file passes **104/104** with that limit unchanged. This is separate-run evidence,
+not a claim that the initial full run passed. A subsequent complete serial Core
+run passes **1,324/1,324** in 58.83 seconds (`core-full-serial.log`), with all limits
+unchanged. The public-AST consumer again
+passes all **1,324** official rows; Muya conformance passes **1,347** checks while
+retaining the existing 78 CommonMark and 90 GFM expected mismatches.
+
+`build:unpack` and ARM64 DMG packaging pass. The DMG SHA-256 is
+`1788c23278d710d821cf426363cfd85583e205d17c415d0187cb14295422677d`.
+The app was copied from a read-only mount into this run's private `installed/`
+directory; all 102 outer bundle files match, all 890 compiled files inside ASAR
+match `build-sha256.json`, and `codesign --verify --deep --strict` passes.
+`installed-artifact.json` records executable/ASAR hashes. This is ad-hoc local
+integrity, not Developer ID/notarization or Gatekeeper trust. The first installed
+26-case run times out inside `electron.launch`, after the main debugger connects
+but before a renderer endpoint or document assertions. One test fails and 25 do
+not run; `electron-installed.log` preserves the failure. Installed diagnosis and
+all sustained measurements remain pending.
+
+The startup diagnosis captured the actual uncaught exception before the native
+error dialog: `Cannot find module 'native-keymap'`. The local postinstall had
+restored that optional-install package, but pnpm's installed dependency graph
+omitted it, so the packager left out a required main-process import.
+`electron-builder.yml` now explicitly includes its runtime and licenses;
+`verifyPackagedApp.ts` rejects missing package metadata, entry point or addon.
+Three red controls now pass with the retained package-integrity checks (**13/13**).
+The source package remains optional for its existing patched rebuild workflow;
+there is no keyboard fallback or suppressed error. A new artifact must verify
+this packaging repair. Four additional hidden installed tests cover real
+application quit and incoming-file handoff while Save As holds a retired view,
+on both Markup and Source; their type/lint checks pass, execution is pending.
+
+### Installed package and lifecycle follow-up
+
+The repaired private candidate is `64c1c9d14d0008d17e0fb38e99d4a42b3e678935`,
+with evidence under
+`/var/folders/6k/xzgngnms6jg4_z2l40y0_9vh0000gn/T/marktext-installed-final-nxkwtn6p/`.
+Its DMG SHA-256 is
+`115ce8f807ccb6b5bb34755d95fc7ffba9a23cf19dbb916734e613c9ba657fee`.
+All 103 outer bundle files match the mounted DMG, all 890 compiled files match
+the build, and deep strict local signature verification passes. Compared with
+the preceding candidate, 889 compiled files are identical; the only compiled
+change is the main-process build-commit literal. The added keyboard addon is
+present and its existing IPC returns the U.S. layout and 119 key mappings in
+the installed app. Default Core, hidden-window and nonfrontmost checks pass.
+
+Both installed image cases pass actual resizing/alignment, independent label
+Accept/Reject, retained comments, immediate typing, Source selection handoff,
+history and exact save/reopen. The final preview assertion now moves the caret
+out of the image label: existing native behavior shows editable image syntax
+while Review locates that label. Source remains exact across this presentation
+change. All eight installed close/quit/incoming-open lifecycle cases also pass.
+The new quit tests retain their ChildProcess handle before Playwright disposes
+its app wrapper, preserving the actual zero-exit and exact saved-byte checks.
+These are overlapping focused runs; a final combined run remains required.
+
+Installed investigation also found that the shared test launcher inherited
+Core test controls by default. Its packaged path now clears mode, shadow and
+control overrides before applying an individual test's explicit fault/recovery
+options. A failing environment-capture regression now passes with the retained
+launch/ownership controls (**11/11**). This changes the test harness, not the
+application's default authority or failure behavior.
+
+The combined installed run reproduced a real table-dialog failure. A trusted
+click on enabled OK reached Vue, but `Muya.createTable` threw `Table creation
+has no document selection` before dispatching a model command. Vue logged the
+caught exception; the window-error IPC counter did not see it. The following
+keystroke was lost and exact saved source stayed unchanged. Bounded repeats
+and console traces are retained in `table-dialog-*-diagnostic.log`; earlier
+passing instances do not waive this failure.
+
+Closing the dialog and awaiting Vue's render flush alone did not fix it. The
+frozen `89c552f7f22c823dbe39ae5d9e5a477fb6c70a6c` build passes Desktop
+**3,296/3,296** and types, but its repeated native control run fails. Debugger
+evidence in `/tmp/marktext-final-table-wflpr83i/table-retained-state.json`
+shows Muya's retained selection pointing at disconnected initial blocks; those
+references are not the clicked target. The old fallback cannot restore them.
+
+The dialog now captures the actual common-model `DocumentSelection` before its
+inputs take focus. After closing the dialog and releasing its focus trap, it
+uses the existing `restoreMuyaDocumentSelection` boundary, then invokes the same
+`Muya.createTable` → `DocumentEditing` → common-model table command. Editor,
+lease and model-view checks prevent applying a retired target to another view.
+This retains the operation's actual location; it adds no parsing, source scanning
+or reconstructed event. The regression retains immediate first-cell caret,
+next key, exact repeated-paragraph location, history and saved-source checks,
+and now observes Vue console errors as well as renderer IPC faults.
+Private source `ac7b5d3d7211cee91a2a9ecfe623ea8327553ef7` under
+`/tmp/marktext-final-selection-0fgonmmq/` passes **20/20** actual table controls
+(ten plain and ten CM), Desktop **3,296/3,296**, types and uncached root lint
+(zero errors, 725 warnings). Independent review then added acknowledged-revision
+and generation checks because a model view can be reused across revisions.
+The first implementation compared identity objects and failed its native check:
+the save barrier replaces that object even at the same generation/revision.
+Debugger evidence in `/tmp/marktext-final-guarded-m8n35bi0/table-guard-repeat.log`
+records identical generation/revision values and view, but unequal identity
+objects. The guard now compares values; an actual save while the dialog is open
+is added to the regression. That deterministic control fails on the reference
+guard and passes both plain/CM cases on the value guard, without a post-click
+wait. Desktop types and targeted uncached lint pass after the correction.
+
+The resulting frozen candidate is
+`1d860277318cf6a0cac5a0ce07bcfa90efa6d0c6`, with evidence under
+`/tmp/marktext-final-candidate-0l39t2qy/`. Its ARM64 DMG SHA-256 is
+`2c6e72941da9942f10c74633d3f981fab76e0b270ce3121d753792048de4b9ec`;
+the installed ASAR is
+`048f9c27559e086811583004db514c121a4b8bf44de49bb0b5f5e58f12904451`.
+All 103 outer files match the read-only mounted DMG, all 890 compiled ASAR files
+match the frozen build, and deep strict local signature verification passes.
+Default Core startup and the actual keyboard-addon IPC pass in the installed,
+hidden, nonfrontmost application. `broad-suite-source-delta.json` records the
+changes since the full Core/Muya/Chromium snapshot: their runtime source is
+unchanged; subsequent runtime edits are in the desktop table dialog and package
+contents. All **30/30** combined installed image/table/selection/recovery/lifecycle
+cases pass in 56.9 seconds, without retries or skips.
+
+The retained 36 consumer checks then expose a prepared-paste regression: Copy
+and Cut pass, Paste fails, and 33 checks do not run. The actual paste event
+carries the correct Revised rich/plain payload. Core accepts it and the real
+save barrier returns exact pasted source at revision 2, but the view remains
+unchanged. The next native `X` enters at the old caret (`ZXcopied…be`), rather
+than the common operation's result (`Zcopied…beX`). Same-artifact diagnostics and
+their private profiles are retained in `clipboard-*-diagnostic.log` and the
+recorded runtime directory.
+
+The cause is the native reconciliation guard: while an asynchronous clipboard
+preparation submits its now-accepted operation, it remains in the recovery-owned
+preparation set. `hasPendingEdits()` counts that set and suppresses the view
+update; removing the completed preparation afterward does not reconcile it.
+Pending resource ownership and an unreconciled native text draft are different
+conditions. The repair must preserve payload/settlement/recovery ownership while
+allowing accepted model operations to install their view and selection before
+the next input. Native-helper regressions are being strengthened to use the
+same guard as production, including another pending resource and intervening
+typing. Four plain/CM and simultaneous-resource controls reproduce the defect
+before the fix and pass afterward. The view guard no longer counts resource
+preparations; composition/native drafts remain protected, and resource
+settlement/recovery ownership is unchanged. The affected 61 files pass
+**1,079/1,079**, along with Desktop types and targeted lint. Evidence is under
+`/tmp/marktext-prepared-clipboard-Whzx22/`. Final installed verification remains
+required for this changed runtime.
+
+The independent remaining-consumer run passes 29 export/Review cases, then
+fails the last Review case's timing probe; three Search cases do not run there
+and pass in a separate **3/3** run. The Review UI correctly shows `seed!`.
+Its probe was registered on the editor after the synchronous production input
+handler, so it captures that edited state, predicts `seed!!`, and timestamps
+the event after dispatch/acknowledgement/reconciliation. The same-artifact
+`review-latency-diagnostic.log` demonstrates all four facts. Moving the observer
+to the earlier capture phase must preserve exact DOM checkpoints and timestamp
+ordering; no timing limit is relaxed. Final candidate and sustained checks
+remain open.
+
+The corrected observer has a failing-before/passing-after ordering regression
+plus outside-editor and cleanup controls; the 19 affected helper checks pass.
+Candidate `b9d5bea1f2b308b6fcb16b39b51accbcac27b3e3`, under
+`/tmp/marktext-final-prepared-9t4otf1i/`, includes the prepared-paste and observer
+repairs. Desktop passes **3,303/3,303** (297 files), types pass and uncached root
+lint reports zero errors and 725 warnings. Its installed startup/addon smoke
+and both previously failing native Paste/Review cases pass. Paste now includes
+an immediate next `X`, exact final `beX`, two-step history and reopen.
+
+Review also identified an overly strict precondition added to the table repair:
+global adapter settlement includes pending imports, so invoking Table during an
+import would trigger recovery despite a valid acknowledged model target. The
+dialog must retain that target through Core's existing selection owner and
+wait for resource settlement before taking editor focus. This preserves the
+pending paste's live selection while its result is reconciled, then uses the
+rebased model target when the dialog confirms. Cancellation, supersession and
+view retirement release that retained target. Two actual native tests
+hold only the OS clipboard bridge response to exercise this interaction for
+plain and annotated paragraphs. A third cancels the waiting table request with
+Escape, then requires the original import to finish without a late dialog and
+checks the immediate next key, exact source, history and reopen. The correction
+uses the existing Core retained-selection owner; there is no separate target
+mapping. Desktop types and targeted lint pass. Final native verification uses
+private candidate `c115c6c3df2d232e6d4e82a933bb9ae4690d3ba8` under
+`/tmp/marktext-final-table-owner-nqiao2hq/`; its manifest records 2,639 source files
+and 890 compiled files. Relative to the previous candidate, only the table
+component, table native test and this plan changed.
+The three new native cases explicitly exclude Linux because production bypasses
+that OS image-path lookup there; ordinary table cases and common pending-resource
+tests still run. Equivalent native Linux interaction proof remains D1, rather
+than being counted as verified by this macOS-only gate.
+
+All **5/5** final unpacked table cases pass, including real Save while the
+dialog is open, both pending-import targets and Escape cancellation. The final
+ARM64 DMG SHA-256 is
+`f60de7c3844bcdbfa29d256f1c01dc108bdef535c697e92bf77036a1742993ff`;
+its installed ASAR is
+`ab9a1d01cfdafd8eaa164005a8daa40f36b6eafd00d15a8c4ede91e128394037`.
+All 103 outer files match the read-only mounted DMG, all 890 compiled files match
+the frozen build, the keyboard runtime/addon is present, and deep strict local
+signature verification passes. `snapshot-delta.json` also confirms that Core,
+Muya and shared input-policy runtime source is unchanged since the full broad
+verification above. Installed startup/default Core/native keyboard smoke and
+all **69/69** cases pass: 33 image/table/selection/recovery/lifecycle and 36
+clipboard/export/Review/Search cases, with zero failures, skips or retries.
+`native-functional-verification.json` records the exact inputs. A subsequent
+test-only cleanup correction guarantees clipboard restoration if app shutdown
+rejects; its original and changed hashes are retained in
+`table-cleanup-test-overlay.json`. Packaged runtime is unchanged.
+
+The first unchanged sustained workload fails after all **1,200** measured keys
+in a 1,000-paragraph plain document. p95 echo is **73.5 ms** (limit 16.7), dispatch
+**0.2 ms** (limit 8), acknowledgement **42 ms** (limit 50), and reconciliation
+**73.1 ms** (limit 50). Pairing is valid, maximum pending depth is one, and saved
+source is exact. After explicit GC, renderer JavaScript heap grows from
+22,934,696 to 787,038,696 bytes; embedder heap grows from 9,907,120 to
+1,230,635,488 bytes. These observations require diagnosis: retained test-probe
+DOM references and full native-tree replacement are separate hypotheses, not
+established application leak causes. `performance-plain.log` and the raw data
+under `/tmp/marktext-perf-runtime-zx5_vyxz/marktext-warm-plain-ofObmH/` preserve
+the failure. All other task-owned tests/builds had finished; existing unrelated
+host activity is recorded in `performance-host-before.json`. The other five
+warm workloads, editorial cycles and cold observations have not run. Limits
+remain unchanged; V1 remains open.
+
+A separate 120-key diagnostic on that installed artifact confirms that completed
+timing samples retain detached DOM references. Releasing only those references
+after timing and saving reduces retained JavaScript heap from 104.1 to 29.1 MB
+and embedder heap from 129.0 to 14.1 MB. This is a test-probe retention defect;
+the original heap growth must not be reported as an established application
+leak. The CPU profile still identifies real runtime costs: full canonical parsing
+inside input planning and edit preview accounts for roughly 39 ms per key;
+whole native-tree replacement then forces selection restoration and layout.
+The short profiled run is diagnostic evidence, not a calibrated performance
+pass. Raw profiles and before/after heap observations are under
+`/tmp/mt-probe-n6ru4day/marktext-warm-plain-VXQPzf/`. Repairs remain subject to
+the same common-model path, exact-source/selection checks and original limits.
+The probe now releases completed/cancelled DOM references while retaining scalar
+timing and exact checkpoint evidence. Its regression changes from six failures
+and one pass to **7/7** passing. Repeating the 120-key diagnostic with that
+test-only correction retains zero completed DOM references: JavaScript heap
+22.2 → 28.2 MB and embedder heap 9.0 → 9.0 MB, without post-hoc cleanup. Source
+and pairing remain exact; runtime echo p95 still fails at 67.4 ms. This separates
+the repaired measurement retention from the unresolved application latency.
+
+The runtime correction reuses existing canonical-region parser admission in
+`documentCore.ts` for `inputPlanning.ts` and payload-preview validation. It
+retains the full common-parser path for syntax requiring wider context; it adds
+no projected-text parser or independent typing interpretation. The exact prior
+candidate fails six of the nine resulting controls; the corrected source passes
+**9/9**, with **196** affected Core checks, types and scoped lint passing. Tests
+retain old-revision/source/AST parity and validate reference, literal and boundary
+fallbacks as well as repeated plain and CM input.
+
+At the rendering boundary, `reconcileMuyaDocumentView.ts` now gives the accepted
+state to `Muya.reconcileContent`. Its existing native tree operations retain
+unchanged roots and replace only changed roots, without dispatching an editing
+operation or reconstructing its meaning. The desktop owner applies the current
+editable paths once, then restores the common-model selection synchronously.
+The prior native control fails unchanged-block identity; corrected ordinary/CM
+input, Enter/history, composition cancellation, reference repaint and prepared
+paste controls pass **22/22**. Desktop/Muya types and scoped lint pass. These are
+source-level corrections; the changed runtime still needs the full affected
+suites and installed sustained gate before V1 can close.
+
+Private candidate `6f89d5bdf1d85eb09144d949178f9be06d70e14a`, under
+`/tmp/marktext-final-incremental-gvjj619y/`, freezes these corrections in 2,641
+source files. Its bounded native 120-key/1,000-paragraph check passes unchanged
+limits: p95 echo 11.2 ms, dispatch 0.3 ms, acknowledgement 2.3 ms and
+reconciliation 10.9 ms. Saved source and pairing are exact, pending depth is one,
+and no completed probe retains DOM. This shorter unpacked measurement supports
+the fix but does not replace the installed 1,200-key gate.
+All full affected suites pass on that frozen source: Core **1,333/1,333**
+(88 files), Desktop **3,310/3,310** (298), Muya **1,580/1,580** (235), and
+Chromium **850/850** (128), with no retries or skips. Types and affected lint
+checks pass. Installed and sustained results for this revision follow below.
+
+The installed ARM64 DMG has SHA-256
+`4679d64fe4226deee4d1e72afe71f0024d81976da2576953353f86e358fac7c7`;
+its ASAR is `9c7a9b4e95574de2236fc9fa31955f58b6660a0eaf6acfb3d79a333627149b6c`.
+All 103 installed bundle files match the read-only mounted DMG; all 890 compiled
+files match the build manifest. Ad-hoc deep/strict signature verification passes.
+Startup exercises the actual native keyboard addon (U.S., 119 entries), with
+Core override flags absent, the window hidden and the application nonfrontmost.
+All **33 functional + 36 consumer cases pass**, with no skips, retries or test
+overlays (`native-functional-verification.json`). This establishes local artifact
+integrity and default-enabled behavior, not E2 distribution trust.
+
+All six installed **1,200-input** workloads pass the unchanged timing limits.
+Each includes eight unmeasured warm-up inputs and 20 ms input pacing. Source is
+exact, pairing is valid and maximum pending depth is one in every workload.
+
+| Workload                                  | Echo p95 ms | Dispatch p95 ms | Acknowledgement p95 ms | Reconciliation p95 ms | JS heap before → after MB |
+| ----------------------------------------- | ----------: | --------------: | ---------------------: | --------------------: | ------------------------: |
+| Plain, 1,000 paragraphs                   |         6.7 |             0.2 |                    1.7 |                   6.4 |             21.38 → 30.16 |
+| Dense CM, ordinary typing, 80 sections    |         3.3 |             0.2 |                    1.3 |                   3.0 |             20.75 → 28.40 |
+| Dense CM, tracked typing, 80 sections     |         4.2 |             0.2 |                    1.9 |                   3.9 |             21.28 → 28.72 |
+| Unicode, tracked typing, 80 sections      |         4.6 |             0.2 |                    2.2 |                   4.2 |             21.56 → 29.72 |
+| Mixed blocks, tracked typing, 80 sections |         8.6 |             0.2 |                    1.9 |                   8.3 |             24.73 → 37.01 |
+| Mixed media, tracked typing, 20 sections  |         5.0 |             0.2 |                    2.2 |                   4.6 |             24.31 → 29.86 |
+
+Echo/dispatch/acknowledgement/reconciliation limits remain 16.7/8/50/50 ms p95.
+Heap observations use collection outside the timed loop and include retained
+history; they do not establish a leak-free long-running application. DOM echo
+checkpoints do not measure physical paint or OS input latency. Task-owned builds
+and tests did not compete with these runs; unrelated host activity was recorded
+in `performance-host-before.json`, without attributing individual delays to it.
+Raw data and summaries remain under this candidate and
+`/tmp/marktext-perf-runtime-wr8bih07/` (`performance-summary.json`).
+
+All **15 cold-open observations pass**: five fresh processes/profiles each for
+plain 80 paragraphs (Core open 13.6–14.0 ms, editable 28.1–29.0 ms), dense CM
+80 sections (51.6–55.3 / 79.7–83.0 ms) and plain 1,000 paragraphs
+(42.4–45.0 / 120.0–123.9 ms). Limits remain 500/1,500 ms. These measure renderer
+document opening, not whole-application startup or a cold filesystem cache.
+
+The **200-cycle editorial gate remains incomplete**. Exact saved source was
+confirmed through 70 cycles before an external clipboard change interrupted
+native Paste. The preservation fixture retained its private backup and did not
+overwrite the newer clipboard contents. The interrupted run is neither a pass
+nor a product paste failure. Its private log is retained; clipboard contents
+are not reproduced here. The test now checks its owned payload immediately
+before native Paste and stops without printing unexpected clipboard contents.
+This check does not isolate the system clipboard.
+
+A separate **10-cycle clipboard-free diagnostic** uses native text insertion
+in place of Paste and is explicitly not the required gate. It preserves exact
+source, has no Playwright action retries and identifies runtime work: Backspace
+acknowledgement p95 67.3 ms/reconciliation 70.9 ms, Review accept median
+reconciliation 117.0 ms and undo 110.4 ms. Text/count assertions total about
+66 ms across the run. Deletion still obtains full-document syntax before its
+regional input planner; Review resolution/history also trigger full model and
+view work. Repair these common paths and verify the real 200-cycle workload
+without changing its deadline, cadence or operations. Diagnostic evidence is in
+`editorial-diagnostic/`; it does not supersede native clipboard verification.
+
+The renderer CPU profile confirms 4.81 seconds of full-document parsing across
+90 Backspaces. Ten Accept actions spend about 529 ms parsing and 531 ms building
+the full Muya view; ten undos spend 507/499 ms. Actual DOM reconciliation is
+small (about 25 ms for the ten accepts). Passive Review/consumer refresh adds
+587 ms parsing across the diagnostic, alongside its existing readiness debounce.
+The profile and raw diagnostic remain at
+`/tmp/mt-editorial-profile-2shffdp0/marktext-sustained-editorial-kfg4RR/`.
+
+Deletion now resolves literal context through the same admitted canonical syntax
+used by input planning. Private syntax-owned point helpers retain the public
+full-document API; literal clamps use that syntax's coordinate map. Pairing
+requires an admitted region covering both the caret and actual browser target.
+Cross-region, literal and unsupported contexts retain the common parser's full
+path. Eight repeated plain/CM deletion cases first failed for full parsing;
+all 13 new cases and **204 affected Core cases pass**, with types and scoped
+lint clean. Controls include forward/backward deletion, code-boundary targets,
+hidden comments, exact next selection, unchanged old revisions and fresh-parser
+parity. Evidence: `/tmp/marktext-core-deletion-regions-CK5mqC/`. Independent source
+review found no alternate parser or semantic lane. Installed verification of this
+new runtime remains pending.
+
+Review resolve and undo/redo now request Core's existing markup projection,
+as native edits already do. The acknowledgement resolver applies an eligible
+regional result only to its exact preceding view revision; structural or
+reference-sensitive cases retain the full canonical view. This does not make
+structural resolution incrementally eligible or claim to eliminate its full
+parse. Two actual manager/Muya regressions first failed for the absent request;
+**75 affected tests**, Desktop types and scoped lint pass. They verify exact
+source, immediate next-key caret/history and canonical reference rendering on
+document fallback. Independent source review found no changes to pending input,
+authority, history grouping or selection ownership. Logs:
+`/tmp/marktext-regional-review-{red,green,types,lint-final}-20260921.log`.
+
+Private candidate `68b2272d57eb7d23328fffd017157117e8112cb5` in
+`/tmp/marktext-final-editorial-1o8_0lmi/` freezes the deletion and projection-request
+corrections plus the guarded native-Paste test. Its 2,643 source files match the
+user worktree before this documentation update; the build succeeds and all 890
+compiled files are hashed. Its 10-cycle clipboard-free native diagnostic passes
+with exact source: Backspace acknowledgement p95 **0.8 ms**, reconciliation
+**4.9 ms**, compared with 67.3/70.9 ms on the preceding candidate. Review remains
+about 520 ms per cycle. The observed loop pace estimates about 167 seconds for
+200 cycles before startup/cleanup and actual Paste; this is not a gate result.
+The profile-identified repeated line-position scan in the full view builder is
+being reduced before installed editorial verification, without changing the
+workload or its 180-second deadline. Diagnostic summaries and raw provenance are
+in this candidate's `editorial-diagnostic/` directory.
+
+The full view builder now lazily maps canonical event line endings once per
+view and reuses that array for structural leaves. Event order, coordinate
+map/affinity and strict range bounds are unchanged; nothing is cached across
+revisions. The original repeated-work regression made 2,861 coordinate lookups
+for 781 source units and 65 line endings, exceeding its linear-work bound.
+The correction passes that regression and independent CM/CRLF nested list,
+blockquote and table position expectations. All **124 affected tests**,
+Desktop types and scoped lint pass; independent review found no semantic lane
+or old-view ownership change. Logs are
+`/tmp/marktext-view-line-index-{red-final,focused,types,lint}-20260921.log`.
+
+Candidate `9385086a46947496745b6dd1788686d6d163ae3f` in
+`/tmp/marktext-final-view-8bptnqe2/` freezes all these corrections (2,644 source
+files, 890 compiled files). The full Core suite passes **1,346/1,346** in
+89 files on `68b2272d`; all 203 Core/input-policy and workspace inputs match
+this new candidate by hash (`core-source-equivalence.json`). The final Desktop
+suite passes **3,314/3,314** (300 files) and Chromium **850/850** (128 files),
+with no retries/skips. The 863 unchanged Muya/input-policy/workspace inputs match
+`6f89d5bd`, whose Muya suite passed 1,580/1,580 (`muya-source-equivalence.json`).
+Types and affected lint pass; `git diff --check` is clean.
+
+The final ARM64 DMG SHA-256 is
+`a957fa66d56a14fb6ca015244a29e2052984e25ba3d3ceb95d6b846f237ef4b5`;
+ASAR SHA-256 is `bfad77b1bbc52244b11cec3651e4412e69944d7cea2c0a3a123f0f3c3c32d66e`.
+All 103 installed bundle files match the mounted DMG and all 890 compiled files
+match the build. Ad-hoc deep/strict signature verification and actual native
+keyboard startup pass. The installed build runs default Core with all three
+Core override flags absent, hidden and nonfrontmost. All **30 clipboard-free
+functional + 33 clipboard-free consumer checks pass**, without overlays, retries
+or skips (`native-nonclipboard-verification.json`). Three pending-table clipboard
+cases and three native clipboard consumer cases are explicitly held, not skipped
+or passed; their exact command is preserved in `clipboard-held-command.txt`.
+
+The installed 10-cycle clipboard-free diagnostic preserves exact source and
+shows Backspace acknowledgement/reconciliation p95 **0.8/4.6 ms**. Accept/undo
+median reconciliation is **69.85/67.75 ms**. Its observed loop pace extrapolates
+to 152.1 seconds for 200 cycles, excluding setup/cleanup and substituting native
+text insertion for Paste. This remains diagnostic evidence, not a passed native
+clipboard gate.
+
+All six final **1,200-input workloads pass** at unchanged limits, with exact
+source, valid pairing and maximum pending depth one. Eight warm-up keys, 20 ms
+cadence and heap collection outside timing are unchanged. Other task-owned
+builds/tests had exited before the run; host activity is recorded separately.
+
+| Workload                           | Echo p95 ms | Dispatch p95 ms | Acknowledgement p95 ms | Reconciliation p95 ms | JS heap before → after MB |
+| ---------------------------------- | ----------: | --------------: | ---------------------: | --------------------: | ------------------------: |
+| Plain, 1,000 paragraphs            |         6.6 |             0.2 |                    1.7 |                   6.4 |             21.44 → 30.21 |
+| Dense CM, ordinary, 80 sections    |         3.5 |             0.2 |                    1.3 |                   3.1 |             20.74 → 28.56 |
+| Dense CM, tracked, 80 sections     |         4.1 |             0.2 |                    2.0 |                   3.8 |             21.28 → 28.72 |
+| Unicode, tracked, 80 sections      |         4.5 |             0.2 |                    2.1 |                   4.1 |             21.56 → 29.72 |
+| Mixed blocks, tracked, 80 sections |         8.1 |             0.2 |                    1.8 |                   7.7 |             24.76 → 36.97 |
+| Mixed media, tracked, 20 sections  |         4.6 |             0.2 |                    2.0 |                   4.4 |             24.33 → 29.85 |
+
+All **15 cold-open observations pass** (five fresh processes/profiles each):
+plain 80 paragraphs opens in 13.6–14.2 ms and becomes editable in 28.3–29.5 ms;
+dense CM 80 sections takes 53.1–56.7 / 80.6–84.8 ms; plain 1,000 paragraphs
+takes 42.6–44.0 / 120.5–123.6 ms. Existing timing/heap qualifications above still
+apply: renderer DOM/document observations do not measure OS input, physical
+paint or whole-application cold startup. Raw data and command outcomes are in
+`/tmp/marktext-perf-runtime-0guo4sc3/` and the candidate's
+`performance-summary.json` / `performance-typing-cold-completed.json`.
+
+The owner explicitly authorized the clipboard window. All six remaining installed
+cases pass in **18.4 seconds**, with no retries/skips/failures, bringing this
+artifact to **69/69** installed functional/consumer checks. The combined manifest
+is `native-functional-verification.json`; clipboard fixtures preserve their backups.
+
+The unchanged **200-cycle native-Paste editorial run fails its 180-second deadline**.
+It confirms exact saved source at every ten-cycle checkpoint through **180 cycles**;
+it does not finish all 200, and source at the interrupted final action is not
+claimed as a completed checkpoint. The wrapper exits after 181.12 seconds.
+Evidence is `performance-editorial.log`, `performance-result-editorial.json` and
+`performance-editorial-artifacts/` under this candidate, with runtime data in
+`/tmp/marktext-perf-runtime-0guo4sc3/marktext-sustained-editorial-ye1yJl/`.
+The worker's final clipboard-restoration log did not appear after timeout;
+a read-only comparison confirms every current clipboard item/format matches
+the pre-test backup (`editorial-timeout-clipboard-verification.json`). No manual
+clipboard write was needed. All task-owned apps closed, and the owner was told
+the clipboard is free again.
+
+The remaining V1 work is to distinguish production paste planning/render cost
+from asynchronous test-observation delays, using clipboard-free diagnostics
+before requesting another native run. Preserve the real operations, 200 cycles,
+20 ms cadence and 180-second deadline. E1/E2/D1 remain in CURRENT blockers.
+
+A clipboard-free diagnostic then dispatches a real `ClipboardEvent` with a
+task-owned `DataTransfer` through the installed application's async import path.
+Only that private application's image-path IPC handler returns an empty result,
+avoiding an OS clipboard read; no model or semantic handler is replaced. This
+is explicitly diagnostic, not native-gate proof. Exact source survives ten cycles.
+Median event-to-visible-paste is **194.4 ms** versus **197.2 ms** for the assertion;
+logs show no assertion retries. Test polling is not the main cause.
+
+Across ten pastes the CPU profile records about 592 ms parsing the current
+clipboard context, 539 ms parsing candidate validation, and 676 ms in the full
+acknowledged view, while actual DOM reconciliation takes only 15 ms. The real
+manager/lease/adapter regression reproduces 25,731 full-parser source units for
+an eight-character paste. Core now reuses its existing canonical region for
+literal/placement context and the existing validated regional payload proof for
+one untracked edit; the import itself still uses the common parser. Unsupported
+and structural cases retain the full compiler. The adapter requests existing
+markup changes for prepared and direct clipboard commands, allowing the normal
+revision-checked acknowledgement resolver to consume regional results.
+
+The repeated prepared/direct regression now parses only the **eight-character
+import** and materializes no whole source. All **99 affected Core tests**, Core
+types and scoped lint pass. Independent source review finds no alternate grammar,
+partial-Core facade or reconstructed semantics. Desktop passes **139 distinct
+affected checks**, including three repeated prepared/direct paste cycles and
+reference, literal and new-structure fallbacks with next input, history and reopen.
+The old-adapter control still parses 8,585 source units despite the Core repair;
+requesting the existing regional projection reduces that to the eight-character
+import. Desktop types and scoped lint pass (zero errors, 22 existing warnings).
+Final installed verification is still required. Diagnostic evidence:
+`/tmp/mt-editorial-paste-0qlmrpdz/marktext-sustained-editorial-5RVN34/`; Core red/green
+logs: `/tmp/marktext-core-clipboard-regions-EZUyEp/`. The official editorial test
+also retains completed-cycle timings and the interrupted stage in a fresh partial
+artifact on a failure after launch and before the complete result is written;
+cleanup still runs if artifact writing fails. Its actions,
+assertions, cadence and deadline are unchanged.
+
+Private candidate `eed5f5d949632d60bb6662254a7911b11b533187` freezes these
+corrections in `/tmp/marktext-final-paste-z76pgws1/` (2,645 source files and
+890 compiled files). Build and packaging succeed. DMG SHA-256 is
+`a5ce6b4bcf67cd40c481a7baaff45a57306b57fe4548ced871c92686b3a13b3d`;
+ASAR SHA-256 is `b7f2dcdeeaf80d116a6cb106f47c51fc934f2d5113ab1c51547d391a3bbfff20`.
+All 103 installed bundle files match the read-only DMG and all 890 compiled files
+match the frozen build. Ad-hoc deep/strict signature verification passes.
+All 863 Muya/input-policy and root package/lock/workspace inputs match candidate
+`6f89d5bd` on disk and in both manifests; its **1,580/1,580** unit result is
+reused only for that unchanged scope (`muya-source-equivalence.json`).
+
+The same clipboard-free async-Paste diagnostic now passes ten exact-source cycles
+with median event-to-visible-paste **4.5 ms**, down from 194.4 ms, and assertion
+duration **6.57 ms**, down from 197.23 ms. The ten-cycle loop takes 7.762 seconds;
+its approximately 155.2-second extrapolation excludes setup and real clipboard
+acquisition and is not the required 200-cycle gate. Runtime evidence remains in
+`/tmp/mt-editorial-paste-l-wm065lyp/marktext-sustained-editorial-YnLChk/`.
+Affected candidate suites and installed workflows are in progress; changed inputs
+do not inherit earlier results.
+
+On this frozen candidate the complete Core suite passes **1,346/1,346** in
+89 files (66.09 seconds), including the official public-AST corpus, and Desktop
+passes **3,322/3,322** in 301 files (105.27 seconds). The ordinary installed groups
+pass **30 functional + 33 consumer** cases, without retries or skips. Startup
+again verifies the default live owner, absent overrides, hidden/nonfrontmost
+window and 119 native U.S. key mappings. Chromium subsequently passes
+**850/850** in 128 files (210.47 seconds), with no retries or skips. Sustained
+gates remain pending at this checkpoint; six native clipboard cases remain held.
+
+The final checklist review also identified 13 retained installed cases outside
+the earlier 69-case groups: preferences (four), media projections (one), rendering
+security (four), and accessibility/localization (four). Run those unchanged cases
+and inspect their generated screenshots on this same artifact before claiming
+the local candidate gate complete. Their historical R2–R8 results alone do not
+verify the changed Core and view paths. The first run passes all four
+accessibility/localization cases and the live-preferences case, then fails before
+the pending-input preference assertion: it assumes the old Worker test flag
+holds acknowledgements, but the current synchronous owner has already accepted
+`X` (dispatch 738.8 ms, acknowledgement 743.3 ms, reconciliation 745.1 ms).
+Exact visible source is `seedX`, with a ready revision and no recovery draft.
+Five cases pass, one fails and seven do not run; this is not a completed group.
+
+Repair the two preference fixtures at the actual pending boundary: an active
+composition, whose settlement the existing adapters await before configuration.
+Issue the real preference IPC during composition, prove configuration is waiting,
+then commit and retain exact source, immediate input, undo/redo, Source handoff
+and no-draft assertions. This changes test setup, not the synchronous production
+owner or the pending-input requirement. Native OS IME-panel coverage remains E1.
+The 12 completed accessibility screenshots have been inspected: light/dark focus,
+narrow controls and localized RTL content remain visible and contained. The
+French mode label wraps midword at its narrow width; no control is clipped.
+
+The first repaired preference harness passes the live-preferences case but stalls
+in its new message observer before composition commit. The captured owned app
+shows a trusted active `seedX` composition, an unresolved settlement promise,
+no model dispatch and no recovery draft. The observer incorrectly expects all
+three settings in one message; main Preferences broadcasts one changed key per
+message. Aggregate those real deliveries, and end any remaining test composition
+during cleanup so a failed assertion can close its owned app. This is another
+fixture failure, not evidence of a production preference failure. Preserve the
+failed `/tmp/marktext-final-paste-z76pgws1/preferences-repair/` harness and logs;
+the frozen runtime remains unchanged.
+
+The second preference harness passes **4/4** in 7.6 seconds, including both
+actual pending-composition cases, immediate `Y`, two-step undo/redo, configured
+semantics and exact saved bytes. Scoped lint and Desktop types pass. Only the
+two preference tests and their provenance imports changed after the freeze;
+`preferences-repair-2/provenance.json` records the test hashes and import-only
+harness mapping. Production source, compiled output and the installed artifact
+are unchanged. Both failed fixture attempts remain recorded separately.
+
+The remaining frozen media/security group passes **5/5** in 7.5 seconds. Combined
+with the four accessibility cases, all **13 retained additional cases** pass;
+the current installed total is **76 clipboard-free cases**, with six native
+clipboard cases still held. All **14 screenshots** are inspected: Original and
+Revised retain math, diagrams, highlighted code, links, fixture images and
+comment content; their suggestion visibility differs correctly. No blocking
+visual defect is found. `native-nonclipboard-completion.json` records this
+combined coverage, exact runtime and explicit test-fixture changes. Sustained
+verification is now running with other task-owned builds/tests stopped.
+
+All **six 1,200-input typing workloads pass** on `eed5f5d9`, with eight warmup
+keys, 20 ms pacing, valid event pairing, maximum pending depth one and exact
+saved source. Echo/dispatch/acknowledgement/reconciliation limits remain
+16.7/8/50/50 ms p95. Results below are milliseconds; heap is collected outside
+the timed loop and includes retained history.
+
+| Workload                                  | Echo p95 | Dispatch p95 | Ack p95 | Reconcile p95 | JS heap MB before → after |
+| ----------------------------------------- | -------: | -----------: | ------: | ------------: | ------------------------: |
+| Plain, 1,000 paragraphs                   |      6.8 |          0.2 |     1.7 |           6.5 |             21.39 → 30.28 |
+| Dense CM, ordinary typing, 80 sections    |      3.3 |          0.2 |     1.2 |           3.0 |             20.75 → 28.53 |
+| Dense CM, tracked typing, 80 sections     |      4.2 |          0.2 |     1.9 |           3.9 |             21.28 → 28.74 |
+| Unicode, tracked typing, 80 sections      |      4.7 |          0.2 |     2.2 |           4.3 |             21.56 → 29.84 |
+| Mixed blocks, tracked typing, 80 sections |      8.8 |          0.3 |     1.9 |           8.4 |             24.75 → 36.97 |
+| Mixed media, tracked typing, 20 sections  |      4.6 |          0.2 |     2.1 |           4.3 |             24.31 → 29.87 |
+
+All **15 cold-open observations pass**: five fresh processes/profiles each for
+plain 80 paragraphs (Core open 14.4–15.0 ms, editable 30.2–32.0 ms), dense CM
+80 sections (54.2–57.3 / 84.2–86.7 ms), and plain 1,000 paragraphs
+(44.7–46.7 / 129.5–132.0 ms). Limits remain 500/1,500 ms. All 15 records match
+the installed executable/ASAR, exact commit, 890 compiled file hashes and saved
+fixture hashes (`cold-artifact-verification.json`). Task-owned builds and other
+tests were stopped. `performance-host-before.json` retains unrelated host
+context without attributing individual delays to it.
+
+Raw measurements remain under `/tmp/marktext-perf-runtime-ar0lbicg/` and
+`performance-preclipboard-summary.json` in the candidate directory. DOM echo is
+not physical paint or OS input latency; cold measurements cover renderer
+document opening, not whole-app or cold-filesystem startup. Heap observations
+do not establish leak-free long-running behavior. All independent checks are
+ready; the six native clipboard cases and full 200-cycle editorial rerun await
+another coordinated window. No shared clipboard access occurred in these checks.
+
+The owner then explicitly authorized another clipboard window. All **six native
+clipboard cases pass** in 19.2 seconds, bringing current installed functional
+coverage to **82/82**, with no retries or skips in the successful runs. Four
+restoration messages account for the three table fixtures and the shared native
+clipboard fixture; preserved backups remain on disk. The combined manifest is
+`native-functional-verification.json`, including the 14 inspected screenshots
+and the recorded test-only preference repairs.
+
+The same window's **200-cycle native-Paste gate is interrupted**, not timed out.
+It completes **99 cycles** and confirms exact saved source at every checkpoint
+through **90**. Before cycle 100 Paste, the guard detects that the shared clipboard
+no longer contains the fixture payload and stops before inserting it. The runner
+exits after 76.505 seconds. Completed-cycle medians are **291.2 ms editing** and
+**426.3 ms Review/navigation**; their summed measured duration is 71.281 seconds.
+These are partial workload observations, not a passed 200-cycle run or proof of
+exact source after its interrupted action.
+
+The fixture preserves the newer clipboard instead of overwriting it with the
+older backup. The pre-test backup, generic guard error and partial timings remain
+in `/tmp/marktext-perf-runtime-ar0lbicg/marktext-sustained-editorial-pWDM2n/` and
+`editorial-interruption-summary.json`. All owned app/test processes close; the
+owner is told the clipboard is free again. A bounded independent source review
+finds no clipboard write in the exercised Review, undo or navigation paths; the
+fixture writes only once before the loop. Existing pasteboard-daemon logs do not
+identify the writer. No current clipboard or backup contents were read during
+diagnosis. `editorial-clipboard-interruption-review.json` retains this conclusion
+and its limits. Do not attribute the change to the owner, relax the guard, or
+start another native run without coordinating genuinely exclusive clipboard
+availability. No additional production change is justified by this interruption.
+
+The owner subsequently confirmed that other clipboard activity was paused.
+The editorial-only rerun on the **same installed `eed5f5d9` artifact passes all
+200 cycles**, with one test, one worker, zero retries/skips and no code or workload
+change. All 20 ten-cycle saved-source checkpoints and the final independently
+reconstructed 8,569-unit fixture hash match. The runner completes in
+**151.703 seconds**; the original **180-second test deadline and 20 ms cadence**
+are unchanged. Native Paste, deletion, navigation, actual Review Accept and Undo,
+final Save, empty recovery drafts, renderer-error and hidden/nonfrontmost checks
+all pass.
+
+Completed-cycle editing p50/p95 is **294.9/306.6 ms**; Review/navigation is
+**423.8/439.9 ms**. These include automation, pacing, assertions and authority
+barriers, not per-input latency or physical paint. Retained renderer JS heap is
+**26.01 → 32.39 MB** after collection outside the loop and includes undo history.
+The bounded diagnostic trace reaches its existing 4,096-event capacity; all 200
+separate cycle timings and exact-source checks remain complete. This is not a
+claim of an unbounded per-event trace or leak-free indefinite use.
+
+The final fixture reports **Clipboard restored**, keeps its private backup and
+closes the owned app/runner. The owner is told the clipboard is free. Raw data is
+`/tmp/marktext-editorial-retry-1oc1670_/marktext-sustained-editorial-Kz8J7W/result.json`;
+the successful log, runner result and independent verification are in
+`/tmp/marktext-final-paste-z76pgws1/editorial-attempt-2/`. The installed executable,
+ASAR and compiled main hash still match the frozen artifact. The combined final
+`performance-summary.json` joins this full editorial pass to the six typing
+workloads and 15 cold observations, while explicitly retaining the preceding
+interruption as a separate attempt.
+
+This completes the demonstrated local U1/U2/V1 work under the unified-stack
+verification gate. The implementation uses canonical parser/model products,
+actual model commands and returned model selection through the native controls;
+the retired production decoder is not a fallback. No further production change
+is warranted by the passing affected checks. Keep this plan active for E1/E2/D1:
+actual native OS CJK composition/screenshot picker/Intel execution, distribution
+trust, and the deferred Windows/Linux requirements are not established by these
+local results. Preserve the original user worktree; private verification commits
+do not constitute a commit or push of the user's branch.
+
+At the owner's rebase request, `git ls-remote --symref origin HEAD` identified
+`develop` as this repository's default branch. A fresh `git fetch origin develop`
+confirmed `43bd8b77795fb27b1a9512737c000f7362031ea0` was already an ancestor of
+current HEAD (zero behind, 163 ahead); there was nothing new to rebase onto.
+No branch rewrite, stash or worktree change was required. Source hashes still
+matched the frozen candidate before this plan-result update.
+
+### 20 September combined verification
+
+Combined testing exposed and repaired three further integration failures.
+Regional view updates now use exact parser-owned display-coordinate segments
+instead of finding binding text with `indexOf`. Source remounts receive the live
+lease’s canonical revision instead of assuming revision one. Actual native
+selection commits preserve DOM endpoints; programmatic cursor placement keeps
+its existing behavior. These repairs pass immediate typing, directed selection,
+history and exact saved-source checks. Text moves also retain old/deleted arms
+at their origin and preserve normalized values, comments, literal EOLs and the
+shared table-cell spelling policy.
+
+Evidence is preserved in `/tmp/marktext-0012-verification-L9MQ3S/`.
+The final private snapshot is `1e5b24d3b1a77efbd67be30505086e88d85cd5a9`,
+copied from the uncommitted user worktree based on
+`cf722bb71de79b63587bd2ebcd1cd46bfaa56e01`.
+`snapshot4-manifest.json` records its 2,630 source-file hashes. The unchanged
+lock SHA-256 is
+`b5ab09c6768caa2ec0cda19f73471a7c1d3e3cc46082ad5dc12a48181f6dec93`.
+`build:unpack` succeeds; `build-snapshot4-sha256.json` records all 890 compiled
+files and was independently checked after the application tests. This plan’s
+result update follows the source freeze; runtime and test inputs are unchanged.
+
+- Desktop: **3,265/3,265**; Muya: **1,575/1,575** (`*-snapshot4-full.log`).
+- Full Chromium: **847/847**, with no retries or skips
+  (`chromium-snapshot4.log`).
+- Hidden unpacked Electron: **24/24**, with no retries or skips
+  (`electron-snapshot4.log`). Fresh private profiles cover table dialogs,
+  Source handoff, close/cancelled Save As, initial/incoming-file authority,
+  acknowledged-input recovery and native input/history. Recovery assertions
+  now reflect synchronous admission: all acknowledged input must survive;
+  rejected input remains a separate durable draft. Renderer-error checks remain.
+- Desktop, Muya and browser types pass at the final snapshot. Core and shared
+  input-policy types passed before the final desktop/Muya-only repairs.
+  Final lint has zero errors (703 root warnings, 17 Muya warnings);
+  all three changed workflows pass `actionlint`.
+- The latest full Core run passes **1,270/1,271**, with only the retained
+  image-label sizing case failing (`core-final.log`). It precedes Core
+  formatting-only changes and the final desktop/Muya repairs; it is not a
+  claimed full Core rerun at snapshot four.
+- The independent Core public-AST consumer passes all **1,324** official
+  CommonMark/GFM rows. Retained Muya conformance passes **1,347/1,347** while
+  preserving its existing 78 CommonMark and 90 GFM expected mismatches; that
+  harness result is not a claim of complete standards conformance.
+
+Earlier failed/intermediate snapshots and their logs remain preserved as
+diagnostic evidence. The final results supersede their affected failures;
+no performance limits or retained product requirements were weakened.
+This private unpacked artifact is not an installed or distribution candidate.
+These results precede the owner-authorized image-layout extension, which requires
+new affected verification. U2’s installed quit/queued-open
+checks, V1’s six 1,200-input workloads, 200 editorial cycles and 15 cold
+observations, and E1/E2/D1 remain open under their existing requirements.
 
 ## Migration history — not a release candidate
 

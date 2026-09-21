@@ -2,8 +2,32 @@ import { headingPasteLines, plainHtmlPasteLines, tableCellPaste, tableToMarkdown
 import type { DocumentInputSelection } from './inputPlanning.js'
 import { resolveTableCell } from './tableSelection.js'
 import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax } from './documentCore.js'
+import { syntaxPathAt } from './syntaxPath.js'
+import { blockCommandTarget } from './blockCommandPlanning.js'
+import { paragraphImageRange } from './paragraphBoundary.js'
+import type { MarkdownLineIndex } from './revision.js'
 
 interface ClipboardInsertion { edit: DocumentSourceEdit, caret: number, after?: readonly DocumentSourceEdit[] }
+
+/** A dropped block is placed beside the parser-owned outer block. */
+export function prepareBlockClipboardMarkdown(core: DocumentCore, previous: DocumentRevision, input: DocumentSourceEdit, placement: 'before' | 'after', lines: MarkdownLineIndex): ClipboardInsertion {
+  const syntax = core.project(previous, 'markup').syntax
+  const target = blockCommandTarget(syntaxPathAt(syntax.ast.root, syntax.coordinates.toProjected(input.start, 'next')), 'outer')
+  const sourceStart = syntax.coordinates.toSource(target.range.start, 'previous')
+  let projectedEnd = target.range.end
+  for (let index = 0; index < lines.count; index++) {
+    const line = lines.at(index)
+    if (line.end === projectedEnd) { projectedEnd = line.contentEnd; break }
+    if (line.end > projectedEnd) break
+  }
+  const sourceEnd = syntax.coordinates.toSource(projectedEnd, 'next')
+  const ending = core.sourceSlice(previous, { start: sourceStart, end: previous.sourceLength }).match(/\r\n|\r|\n/u)?.[0] ?? '\n'
+  const before = placement === 'before'
+  const at = before ? sourceStart : sourceEnd
+  const prefix = before ? '' : ending + ending
+  const suffix = before ? ending + ending : ''
+  return { edit: { start: at, end: at, insert: prefix + input.insert + suffix }, caret: prefix.length }
+}
 
 /** Imported Markdown is interpreted by the same parser and merged using its owned block ranges. */
 export function prepareClipboardMarkdown(
@@ -12,11 +36,12 @@ export function prepareClipboardMarkdown(
   input: DocumentSourceEdit,
   selection: DocumentInputSelection,
   importSyntax: (source: string) => MarkupSyntax,
-  pasteAsPlainText = false
+  pasteAsPlainText = false,
+  ownedSyntax?: MarkupSyntax
 ): ClipboardInsertion {
   const unchanged = { edit: input, caret: input.insert.length }
   if (input.insert === '') return unchanged
-  const current = core.project(previous, 'markup').syntax
+  const current = ownedSyntax ?? core.project(previous, 'markup').syntax
   const from = current.coordinates.toProjected(input.start, 'next')
   const to = current.coordinates.toProjected(input.end, 'previous')
   let anchor: MarkdownAstNode | undefined
@@ -59,6 +84,7 @@ export function prepareClipboardMarkdown(
       after: [{ start: outsideEnd, end: outsideEnd, insert: remainder }]
     }
   }
+  if (syntax.ast.root.children.length === 1 && paragraphImageRange(first) !== undefined) return unchanged
   const firstHeadingChild = first.children[0]
   const lastHeadingChild = first.children.at(-1)
   if (first.kind === 'heading' && nonempty && firstHeadingChild !== undefined && lastHeadingChild !== undefined) {

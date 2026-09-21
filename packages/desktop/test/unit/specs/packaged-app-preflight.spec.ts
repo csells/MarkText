@@ -48,16 +48,55 @@ describe('packaged app preflight', () => {
   })
 
   it('rejects an encoding addon missing from the path its production loader requires', async() => {
-    const fixture = await packageFixture('{"name":"marktext","main":"main.js","dependencies":{"ced":"2.0.0"}}', {
-      'node_modules/ced/bin/linux-arm64-146/ced.node': 'addon at an unusable path'
-    })
+    const fixture = await packageFixture(
+      '{"name":"marktext","main":"main.js","dependencies":{"ced":"2.0.0"}}',
+      {
+        'node_modules/ced/bin/linux-arm64-146/ced.node': 'addon at an unusable path'
+      }
+    )
     expect(() => verifyPackagedApp(fixture.executable)).toThrow(/ced.*build.*Release/i)
   })
 
   it('accepts the required encoding addon at its loader path', async() => {
-    const fixture = await packageFixture('{"name":"marktext","main":"main.js","dependencies":{"ced":"2.0.0"}}', {
-      'node_modules/ced/build/Release/ced.node': 'fixture addon bytes'
-    })
+    const fixture = await packageFixture(
+      '{"name":"marktext","main":"main.js","dependencies":{"ced":"2.0.0"}}',
+      {
+        'node_modules/ced/build/Release/ced.node': 'fixture addon bytes'
+      }
+    )
+    expect(() => verifyPackagedApp(fixture.executable)).not.toThrow()
+  })
+
+  it.each(['package.json', 'index.js', 'build/Release/keymapping.node'])(
+    'rejects an optional-install keyboard runtime missing %s',
+    async(missing) => {
+      const files: Record<string, string> = {
+        'node_modules/native-keymap/package.json': '{"name":"native-keymap","main":"index.js"}',
+        'node_modules/native-keymap/index.js':
+          'module.exports = require("./build/Release/keymapping")',
+        'node_modules/native-keymap/build/Release/keymapping.node': 'fixture keyboard addon'
+      }
+      delete files[`node_modules/native-keymap/${missing}`]
+      const fixture = await packageFixture(
+        '{"name":"marktext","main":"main.js","optionalDependencies":{"native-keymap":"3.3.9"}}',
+        files
+      )
+      expect(() => verifyPackagedApp(fixture.executable)).toThrow(
+        /keyboard runtime.*native-keymap/i
+      )
+    }
+  )
+
+  it('accepts the complete keyboard runtime even though installation declares it optional', async() => {
+    const fixture = await packageFixture(
+      '{"name":"marktext","main":"main.js","optionalDependencies":{"native-keymap":"3.3.9"}}',
+      {
+        'node_modules/native-keymap/package.json': '{"name":"native-keymap","main":"index.js"}',
+        'node_modules/native-keymap/index.js':
+          'module.exports = require("./build/Release/keymapping")',
+        'node_modules/native-keymap/build/Release/keymapping.node': 'fixture keyboard addon'
+      }
+    )
     expect(() => verifyPackagedApp(fixture.executable)).not.toThrow()
   })
 
@@ -66,10 +105,13 @@ describe('packaged app preflight', () => {
     expect(() => verifyPackagedApp(fixture.executable)).not.toThrow()
   })
 
-  it.each(['./out/main/index.js', '.\\out\\main\\index.js'])('resolves a nested main entry with portable separators: %s', async main => {
-    const fixture = await packageFixture(JSON.stringify({ name: 'marktext', main }), {
-      'out/main/index.js': 'module.exports = "nested main"'
-    })
-    expect(() => verifyPackagedApp(fixture.executable)).not.toThrow()
-  })
+  it.each(['./out/main/index.js', '.\\out\\main\\index.js'])(
+    'resolves a nested main entry with portable separators: %s',
+    async(main) => {
+      const fixture = await packageFixture(JSON.stringify({ name: 'marktext', main }), {
+        'out/main/index.js': 'module.exports = "nested main"'
+      })
+      expect(() => verifyPackagedApp(fixture.executable)).not.toThrow()
+    }
+  )
 })

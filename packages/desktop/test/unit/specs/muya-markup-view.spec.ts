@@ -179,7 +179,8 @@ describe('Muya Markup editing view', () => {
     expect(view.bindings.map((binding) => binding.path)).toEqual([
       [0, 'text'],
       [1, 'children', 0, 'children', 0, 'text'],
-      [2, 'text']
+      [2, 'text'],
+      [2, 'meta', 'lang']
     ])
     expect(view.decorations.map((decoration) => decoration.path)).toEqual([
       [0, 'text'],

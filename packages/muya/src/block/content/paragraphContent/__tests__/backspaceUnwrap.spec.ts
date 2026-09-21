@@ -134,6 +134,8 @@ describe('backspace at start-of-paragraph — merge with previous block', () => 
             return false;
         });
         muya.editor.bindDocumentEditing({
+            emojiContext: () => undefined,
+            codeLanguage: () => undefined,
             activeFormats: () => [],
             clipboard: unexpected,
             prepareImage: unexpected,

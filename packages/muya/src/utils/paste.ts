@@ -1,5 +1,5 @@
 import { PasteType } from '../clipboard/types';
-import { IMAGE_EXT_REG, PARAGRAPH_TYPES, PREVIEW_DOMPURIFY_CONFIG, URL_REG } from '../config';
+import { EXPORT_DOMPURIFY_CONFIG, IMAGE_EXT_REG, PARAGRAPH_TYPES, PREVIEW_DOMPURIFY_CONFIG, URL_REG } from '../config';
 import { sanitize } from '../utils';
 
 const TIMEOUT = 1500;
@@ -76,7 +76,7 @@ export async function normalizePastedHTML(
     // Prevent XSS and sanitize HTML.
     const sanitizedHtml = sanitize(
         html,
-        PREVIEW_DOMPURIFY_CONFIG,
+        EXPORT_DOMPURIFY_CONFIG,
         false,
     ) as string;
     const tempWrapper = document.createElement('div');

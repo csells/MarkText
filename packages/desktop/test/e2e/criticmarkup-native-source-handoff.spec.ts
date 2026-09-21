@@ -21,7 +21,7 @@ test('preserves one native Source typing group through save, undo, redo and WYSI
     await enterSourceMode(page, app)
     await page.evaluate(() => {
       const host = document.querySelector('.source-code .CodeMirror') as Element & {
-        CodeMirror: { focus(): void, setCursor(position: { line: number, ch: number }): void }
+        CodeMirror: { focus(): void; setCursor(position: { line: number; ch: number }): void }
       }
       host.CodeMirror.focus()
       host.CodeMirror.setCursor({ line: 0, ch: 4 })
@@ -45,30 +45,47 @@ test('preserves one native Source typing group through save, undo, redo and WYSI
   }
 })
 
-test('an earlier acknowledgement preserves native input buffered for the next animation frame', async() => {
+test('native input commits before the next animation frame and retains one typing history group', async() => {
   const { app, page } = await launchWithMarkdown('seed\n', {
     suppressErrorDialog: true,
     env: { MARKTEXT_DOCUMENT_CORE_MODE: '1', MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
   })
   try {
-    await expect.poll(() => page.evaluate(() => window.__marktextDocumentCore?.generation)).toEqual(expect.any(Number))
+    await expect
+      .poll(() => page.evaluate(() => window.__marktextDocumentCore?.generation))
+      .toEqual(expect.any(Number))
     const paragraph = page.locator('.mu-paragraph-content').first()
     await paragraph.click()
     await page.keyboard.press('End')
     await page.keyboard.type('X')
-    await expect.poll(() => page.evaluate(() =>
-      window.__marktextDocumentCore?.performanceEvents?.().some(event => event.phase === 'dispatch')
-    ), { intervals: [5, 10, 20] }).toBe(true)
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() =>
+            window.__marktextDocumentCore
+              ?.performanceEvents?.()
+              .some((event) => event.phase === 'dispatch')
+          ),
+        { intervals: [5, 10, 20] }
+      )
+      .toBe(true)
+    const acknowledgedBeforeY = await page.evaluate(
+      () =>
+        window.__marktextDocumentCore
+          ?.performanceEvents?.()
+          .filter((event) => event.phase === 'ack').length ?? 0
+    )
+    expect(acknowledgedBeforeY).toBeGreaterThan(0)
     await page.evaluate(() => {
       const request = window.requestAnimationFrame.bind(window)
       const cancel = window.cancelAnimationFrame.bind(window)
       const callbacks = new Map<number, FrameRequestCallback>()
       let identifier = 1000000000
-      window.requestAnimationFrame = callback => {
+      window.requestAnimationFrame = (callback) => {
         callbacks.set(++identifier, callback)
         return identifier
       }
-      window.cancelAnimationFrame = id => {
+      window.cancelAnimationFrame = (id) => {
         if (!callbacks.delete(id)) cancel(id)
       }
       ;(window as unknown as { releaseNativeFrames(): void }).releaseNativeFrames = () => {
@@ -80,18 +97,33 @@ test('an earlier acknowledgement preserves native input buffered for the next an
     })
     await page.keyboard.type('Y')
     await expect(paragraph).toHaveText('seedXY')
-    expect(await page.evaluate(() =>
-      window.__marktextDocumentCore?.performanceEvents?.().some(event => event.phase === 'ack')
-    )).toBe(false)
-    await expect.poll(() => page.evaluate(() =>
-      window.__marktextDocumentCore?.performanceEvents?.().some(event => event.phase === 'reconcile')
-    ), { intervals: [5, 10, 20] }).toBe(true)
+    expect(
+      await page.evaluate(
+        () =>
+          window.__marktextDocumentCore
+            ?.performanceEvents?.()
+            .filter((event) => event.phase === 'ack').length ?? 0
+      )
+    ).toBeGreaterThan(acknowledgedBeforeY)
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() =>
+            window.__marktextDocumentCore
+              ?.performanceEvents?.()
+              .some((event) => event.phase === 'reconcile')
+          ),
+        { intervals: [5, 10, 20] }
+      )
+      .toBe(true)
     await expect(paragraph).toHaveText('seedXY')
-    await page.evaluate(() => (window as unknown as { releaseNativeFrames(): void }).releaseNativeFrames())
+    await page.evaluate(() =>
+      (window as unknown as { releaseNativeFrames(): void }).releaseNativeFrames()
+    )
     expect(await getMarkdownContent(page, app)).toBe('seedXY\n')
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
-    // These consecutive keys share Muya's native typing group, even though an
-    // authority acknowledgement arrived between their native frame flushes.
+    // Synchronous model acceptance preserves the native typing group even when
+    // visual animation-frame work has not been allowed to run.
     expect(await getMarkdownContent(page, app)).toBe('seed\n')
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
     expect(await getMarkdownContent(page, app)).toBe('seedXY\n')
@@ -110,7 +142,7 @@ test('native fence language selection survives pending typing and Source handoff
   })
   try {
     const errors: string[] = []
-    page.on('console', message => {
+    page.on('console', (message) => {
       if (message.type() === 'error') errors.push(message.text())
     })
     await setSourceMarkdown(page, app, '\n')
@@ -131,7 +163,8 @@ test('native fence language selection survives pending typing and Source handoff
     const diagnosticPath = test.info().outputPath('fence-native-transition.json')
     await writeFile(diagnosticPath, JSON.stringify({ before, after, errors, source }, null, 2))
     await test.info().attach('fence-native-transition', {
-      path: diagnosticPath, contentType: 'application/json'
+      path: diagnosticPath,
+      contentType: 'application/json'
     })
     expect(source).toBe('```js\n\n```\n')
     expect(errors).toEqual([])
@@ -143,7 +176,7 @@ test('native fence language selection survives pending typing and Source handoff
   }
 })
 
-test('Source handoff preserves unacknowledged native typing and its history', async() => {
+test('Source handoff preserves the latest synchronously accepted typing and its history', async() => {
   const source = 'seed\n'
   const { app, page } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
@@ -152,17 +185,29 @@ test('Source handoff preserves unacknowledged native typing and its history', as
   try {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await expect.poll(() => page.evaluate(() => window.__marktextDocumentCore?.generation)).toEqual(expect.any(Number))
+    await expect
+      .poll(() => page.evaluate(() => window.__marktextDocumentCore?.generation))
+      .toEqual(expect.any(Number))
     const generation = await page.evaluate(() => window.__marktextDocumentCore?.generation)
     await page.locator('.mu-paragraph-content').first().click()
     await page.keyboard.press('End')
     await page.keyboard.type('X')
-    await expect.poll(() => page.evaluate(() =>
-      window.__marktextDocumentCore?.performanceEvents?.().some(event => event.phase === 'dispatch')
-    ), { intervals: [5, 10, 20] }).toBe(true)
-    expect(await page.evaluate(() =>
-      window.__marktextDocumentCore?.performanceEvents?.().some(event => event.phase === 'ack')
-    )).toBe(false)
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() =>
+            window.__marktextDocumentCore
+              ?.performanceEvents?.()
+              .some((event) => event.phase === 'dispatch')
+          ),
+        { intervals: [5, 10, 20] }
+      )
+      .toBe(true)
+    expect(
+      await page.evaluate(() =>
+        window.__marktextDocumentCore?.performanceEvents?.().some((event) => event.phase === 'ack')
+      )
+    ).toBe(true)
     expect(await getMarkdownContent(page, app)).toBe('seedX\n')
     expect(await page.evaluate(() => window.__marktextDocumentCore?.generation)).toBe(generation)
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
@@ -186,19 +231,21 @@ for (const mode of ['direct', 'source-roundtrip'] as const) {
     })
     try {
       const errors: string[] = []
-      page.on('console', message => {
+      page.on('console', (message) => {
         if (message.type() === 'error') errors.push(message.text())
       })
       await expectEditorWindowHidden(app)
       expectEditorNotFrontmost(app)
       if (mode === 'source-roundtrip') await setSourceMarkdown(page, app, source)
-      await expect.poll(() => page.evaluate(() => window.__marktextDocumentCore?.generation)).toEqual(expect.any(Number))
+      await expect
+        .poll(() => page.evaluate(() => window.__marktextDocumentCore?.generation))
+        .toEqual(expect.any(Number))
       const generation = await page.evaluate(() => window.__marktextDocumentCore?.generation)
       await page.locator('.mu-paragraph-content').nth(1).click()
       await page.keyboard.press('End')
       await page.keyboard.press('Tab')
       await expect(page.locator('.editor-component li ul li')).toHaveText('two')
-      // Deliberately enter Source before the test-held acknowledgement arrives.
+      // Enter Source immediately after the native model-owned action.
       expect(await getMarkdownContent(page, app)).toBe('- one\n  - two\n')
       expect(await page.evaluate(() => window.__marktextDocumentCore?.generation)).toBe(generation)
       await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')

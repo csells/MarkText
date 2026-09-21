@@ -1,5 +1,6 @@
-import { frontMatterPolicy } from '@marktext/input-policy'
+import { emojiAt, frontMatterPolicy } from '@marktext/input-policy'
 import { htmlTagAttributes } from './htmlTagAttributes.js'
+import { imageSizeAttributes, type ImageSizeOmission } from './imageSizeAttributes.js'
 import type {
   MarkdownDocument,
   MarkdownLineIndex,
@@ -836,6 +837,8 @@ interface InlineDelimiterRun {
 }
 
 interface InlineBoundaryPolicy {
+  readonly scopeBounds: ReadonlyMap<number, MappedMarkdownMatchingScope>
+  readonly imageSizeOmissions: readonly ImageSizeOmission[]
   readonly scopeRuns: readonly MappedMarkdownMatchingScope[]
   readonly canonicalIdentityRuns:
   readonly MappedMarkdownCanonicalIdentityRun[]
@@ -878,9 +881,13 @@ interface InlineBoundaryPolicy {
 function createInlineBoundaryPolicy(
   scopeRuns: readonly MappedMarkdownMatchingScope[],
   canonicalIdentityRuns: readonly MappedMarkdownCanonicalIdentityRun[],
-  projectionSafetyFlanking: boolean = false
+  projectionSafetyFlanking: boolean = false,
+  imageSizeOmissions: readonly ImageSizeOmission[] = [],
+  scopeBounds: readonly MappedMarkdownMatchingScope[] = scopeRuns
 ): InlineBoundaryPolicy {
   return {
+    scopeBounds: new Map(scopeBounds.map(scope => [scope.id, scope])),
+    imageSizeOmissions,
     scopeRuns,
     canonicalIdentityRuns,
     projectionSafetyFlanking,
@@ -891,6 +898,27 @@ function createInlineBoundaryPolicy(
     projectedBacktickRuns: new Map(),
     bracketOffsets: new Set()
   }
+}
+
+function ownedImageSizeAttributes(source: string, imageStart: number, start: number, end: number, policy?: InlineBoundaryPolicy): Readonly<Record<string, string | number | boolean>> {
+  const imageScope = matchingScopeAt(policy, imageStart)
+  let result: Readonly<Record<string, string | number | boolean>> = {}
+  let offset = start
+  while (offset < end) {
+    const suffixScope = matchingScopeAt(policy, offset)
+    const ceiling = Math.min(end,
+      imageScope === undefined ? end : policy?.scopeBounds.get(imageScope.id)?.end ?? imageScope.end,
+      suffixScope === undefined ? end : policy?.scopeBounds.get(suffixScope.id)?.end ?? suffixScope.end)
+    const size = imageSizeAttributes(source, offset, ceiling, policy?.imageSizeOmissions)
+    if (typeof size.sizeEnd !== 'number' || (suffixScope?.id ?? -1) !== (matchingScopeAt(policy, size.sizeEnd - 1)?.id ?? -1)) break
+    result = size
+    const sizeEnd = size.sizeEnd
+    // An old/deleted complete suffix and its proposed successor share one
+    // image. Plain adjacent suffixes remain ordinary trailing text.
+    if (!policy?.imageSizeOmissions.some(range => range.start <= offset && sizeEnd <= range.end)) break
+    offset = sizeEnd
+  }
+  return result
 }
 
 function recordBoundaryBacktickRun(
@@ -1257,6 +1285,42 @@ function appendInlineItem(list: InlineList, item: InlineItem): void {
   list.tail = item
 }
 
+/** Authoring facts remain intrinsic to the ordinary text nodes that own them.
+ * Delimiters/literals have already been resolved, so this cannot reinterpret
+ * code, escapes, link destinations or emphasis as emoji syntax. */
+function parseEmojiTextNodes(source: string, nodes: readonly MarkdownNode[], boundaryPolicy?: InlineBoundaryPolicy): readonly MarkdownNode[] {
+  return Object.freeze(nodes.flatMap(node => {
+    if (node.kind !== 'text' || node.attributes['emojiAlias'] !== undefined) return [node]
+    const text = source.slice(node.range.start, node.range.end)
+    const nextColon = (from: number): number => {
+      const found = text.indexOf(':', from - node.range.start)
+      return found < 0 ? -1 : node.range.start + found
+    }
+    const result: MarkdownNode[] = []
+    let textStart = node.range.start
+    let start = nextColon(textStart)
+    while (start >= 0 && start < node.range.end) {
+      activeMarkdownExecution?.examineParserWork(1)
+      const emoji = emojiAt(source, start, Math.min(node.range.end, matchingScopeAt(boundaryPolicy, start)?.end ?? node.range.end))
+      if (emoji === undefined) {
+        start = nextColon(start + 1)
+        continue
+      }
+      if (textStart < start) result.push(createTextNode(source, textStart, start))
+      result.push(createNode('text', start, emoji.end, [], {
+        emojiAlias: emoji.alias,
+        emojiClosed: emoji.closed,
+        ...(emoji.value === undefined ? {} : { emojiValue: emoji.value })
+      }))
+      textStart = emoji.end
+      start = nextColon(textStart)
+    }
+    if (result.length === 0) return [node]
+    if (textStart < node.range.end) result.push(createTextNode(source, textStart, node.range.end))
+    return result
+  }))
+}
+
 function appendMergedMarkdownNode(
   source: string,
   nodes: MarkdownNode[],
@@ -1325,7 +1389,8 @@ function wrapInlineDelimiterPair(
   source: string,
   list: InlineList,
   opener: InlineDelimiterItem,
-  closer: InlineDelimiterItem
+  closer: InlineDelimiterItem,
+  boundaryPolicy?: InlineBoundaryPolicy
 ): void {
   const useCount =
     opener.length >= 2 && closer.length >= 2 ? 2 : 1
@@ -1366,7 +1431,7 @@ function wrapInlineDelimiterPair(
       nodeKind,
       openerMarkerStart,
       closerMarkerEnd,
-      children,
+      parseEmojiTextNodes(source, children, boundaryPolicy),
       attributes
     ),
     previous: undefined,
@@ -1572,7 +1637,7 @@ function resolveInlineDelimiterItems(
           }
           continue
         }
-        wrapInlineDelimiterPair(source, list, opener, closer)
+        wrapInlineDelimiterPair(source, list, opener, closer, boundaryPolicy)
         openers.length = openerIndex + (opener.active ? 1 : 0)
         for (const [key, bottom] of bottoms) {
           if (bottom > openers.length) {
@@ -1594,7 +1659,7 @@ function resolveInlineDelimiterItems(
   for (let item = list.head; item !== undefined; item = item.next) {
     appendMergedMarkdownNode(source, nodes, markdownNodeFromInlineItem(source, item))
   }
-  return Object.freeze(nodes)
+  return parseEmojiTextNodes(source, nodes, boundaryPolicy)
 }
 
 function appendInlineRange(
@@ -1648,6 +1713,8 @@ function appendInlineRange(
           ? findInlineLinkDestinationEnd(source, literal.end + 1, end)
           : undefined
       const nodeEnd = enclosingImageEnd ?? literal.end
+      const size = construct.kind === 'image' ? ownedImageSizeAttributes(source, construct.start, nodeEnd, end, boundaryPolicy) : {}
+      const imageEnd = typeof size.sizeEnd === 'number' ? size.sizeEnd : nodeEnd
       const labelEnd = enclosingImageEnd === undefined
         ? construct.labelEnd
         : literal.end
@@ -1659,7 +1726,7 @@ function appendInlineRange(
       appendNode(createNode(
         construct.kind,
         construct.start,
-        nodeEnd,
+        imageEnd,
         parseInlineNodes(
           source,
           construct.labelStart,
@@ -1668,9 +1735,14 @@ function appendInlineRange(
           referenceDefinitions,
           boundaryPolicy
         ),
-        { ...scanLinkTargetAttributes(source, destinationStart, nodeEnd - 1), labelStart: construct.labelStart, labelEnd }
+        {
+          ...scanLinkTargetAttributes(source, destinationStart, nodeEnd - 1),
+          labelStart: construct.labelStart,
+          labelEnd,
+          ...(construct.kind === 'image' ? { imageSyntaxEnd: nodeEnd, ...size } : {})
+        }
       ))
-      offset = nodeEnd
+      offset = imageEnd
       textStart = offset
       continue
     }
@@ -1804,10 +1876,12 @@ function appendInlineRange(
       }
       boundaryPolicy?.bracketOffsets.add(referenceLink.labelStart - 1)
       boundaryPolicy?.bracketOffsets.add(referenceLink.labelEnd)
+      const size = referenceLink.kind === 'image' ? ownedImageSizeAttributes(source, referenceLink.start, referenceLink.end, end, boundaryPolicy) : {}
+      const imageEnd = typeof size.sizeEnd === 'number' ? size.sizeEnd : referenceLink.end
       appendNode(createNode(
         referenceLink.kind,
         referenceLink.start,
-        referenceLink.end,
+        imageEnd,
         parseInlineNodes(
           source,
           referenceLink.labelStart,
@@ -1816,9 +1890,16 @@ function appendInlineRange(
           referenceDefinitions,
           boundaryPolicy
         ),
-        { referenceLabel: referenceLink.referenceLabel, rawReferenceLabel: referenceLink.rawReferenceLabel, referenceKind: referenceLink.referenceKind, labelStart: referenceLink.labelStart, labelEnd: referenceLink.labelEnd }
+        {
+          referenceLabel: referenceLink.referenceLabel,
+          rawReferenceLabel: referenceLink.rawReferenceLabel,
+          referenceKind: referenceLink.referenceKind,
+          labelStart: referenceLink.labelStart,
+          labelEnd: referenceLink.labelEnd,
+          ...(referenceLink.kind === 'image' ? { imageSyntaxEnd: referenceLink.end, ...size } : {})
+        }
       ))
-      offset = referenceLink.end
+      offset = imageEnd
       textStart = offset
       continue
     }
@@ -5119,7 +5200,11 @@ function markdownRegionBoundaryPolicy(
           })])
       }
     )),
-    boundaryPolicy.projectionSafetyFlanking
+    boundaryPolicy.projectionSafetyFlanking,
+    boundaryPolicy.imageSizeOmissions.filter(range => range.start < regionEnd && regionStart < range.end)
+      .map(range => ({ start: Math.max(range.start, regionStart) - regionStart, end: Math.min(range.end, regionEnd) - regionStart })),
+    [...boundaryPolicy.scopeBounds.values()].filter(scope => scope.start < regionEnd && regionStart < scope.end)
+      .map(scope => ({ ...scope, start: Math.max(scope.start, regionStart) - regionStart, end: Math.min(scope.end, regionEnd) - regionStart }))
   )
 }
 
@@ -7221,9 +7306,19 @@ function forkRegionBoundaryFacts(
       if (previous.candidateEnd !== current.candidateStart) delimiterBoundaries.push(current.candidateStart)
     }
   }
+  const imageSizeOmissions: Array<{ start: number; end: number }> = []
+  if (lane.forkView === 'editing') {
+    for (const scope of [...(lane.matchingScopes ?? [])].sort((left, right) => left.start - right.start || right.end - left.end)) {
+      const owner = scope.owner
+      if (owner?.kind !== 'critic-arm' || !(owner.node.kind === 'deletion' || owner.node.kind === 'substitution' && owner.arm === 'old')) continue
+      const last = imageSizeOmissions.at(-1)
+      if (last !== undefined && scope.start <= last.end) last.end = Math.max(last.end, scope.end)
+      else imageSizeOmissions.push({ start: scope.start, end: scope.end })
+    }
+  }
   const boundaryPolicy = scopes.length === 0 && delimiterBoundaries.length === 0
     ? undefined
-    : createInlineBoundaryPolicy(scopes, identityRuns)
+    : createInlineBoundaryPolicy(scopes, identityRuns, false, imageSizeOmissions, lane.matchingScopes)
   const matchingScopePolicy: MarkdownMatchingScopePolicy | undefined =
     boundaryPolicy === undefined
       ? undefined

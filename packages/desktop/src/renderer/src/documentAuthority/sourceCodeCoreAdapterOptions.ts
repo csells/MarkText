@@ -8,10 +8,12 @@ import type { CanonicalLineEnding } from './canonicalEolIndex'
  */
 export function sourceCodeCoreAdapterOptions(
   rendererMarkdown: string,
-  _hostLineEnding: CanonicalLineEnding
+  _hostLineEnding: CanonicalLineEnding,
+  canonicalRevision: number
 ): CodeMirrorCoreAdapterOptions {
   return Object.freeze({
     canonicalSource: rendererMarkdown,
+    canonicalRevision,
     insertedLineEnding: '\n',
     projections: () => Object.freeze([])
   })

@@ -6,12 +6,14 @@ import { formatDelimiters } from '@marktext/input-policy'
 import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
 import { inlineHtmlFormatPairs } from './documentFormatContext.js'
 import { createTrackedSourceEdit } from './trackedAuthoring.js'
-import { planImageProperties, type DocumentImagePropertiesAction } from './imagePropertyPlanning.js'
+import { imageDestination, imageLabel, planImageProperties, type DocumentImagePropertiesAction } from './imagePropertyPlanning.js'
 
 export type DocumentFormatAction = DocumentImagePropertiesAction | {
   readonly format: 'strong' | 'em' | 'del' | 'inline_code' | 'inline_math' | 'u' | 'mark' | 'sub' | 'sup' | 'link' | 'image' | 'unlink' | 'clear'
   readonly selection: DocumentTextSelection | DocumentModelTextSelection
   readonly tracked: boolean
+  /** An explicit Insert Image action; omission retains the native format toggle. */
+  readonly image?: Readonly<{ src: string; alt: string }>
 }
 
 export interface DocumentFormatPlan {
@@ -24,6 +26,32 @@ const clearKinds = new Set(['strong', 'emphasis', 'strikethrough', 'inline-code'
 const htmlFormats = new Set(['u', 'mark', 'sub', 'sup'])
 const contentKinds = new Set(['paragraph', 'heading', 'table-cell'])
 const literalKinds = new Set(['code-block', 'math-block', 'diagram', 'html-block', 'front-matter'])
+
+/** Spell selected literal brackets safely without changing owned inline syntax or escapes. */
+function imageLabelBracketEdits(core: DocumentCore, revision: DocumentRevision, syntax: MarkupSyntax, block: MarkdownAstNode, selection: SourceRange): DocumentSourceEdit[] {
+  const edits: DocumentSourceEdit[] = []
+  const { coordinates } = syntax
+  const visit = (node: MarkdownAstNode): void => {
+    if (node.kind === 'text') {
+      for (const segment of coordinates.sourceSegments ?? []) {
+        const start = Math.max(node.range.start, segment.projected.start, segment.projected.start + selection.start - segment.source.start)
+        const end = Math.min(node.range.end, segment.projected.end, segment.projected.start + selection.end - segment.source.start)
+        if (end <= start) continue
+        const sourceStart = segment.source.start + start - segment.projected.start
+        const text = core.sourceSlice(revision, { start: sourceStart, end: sourceStart + end - start })
+        for (const match of text.matchAll(/\[|\]/gu)) {
+          const at = start + match.index
+          if (node.semanticTextSegments?.some(value => value.range.start <= at && at < value.range.end)) continue
+          edits.push({ start: sourceStart + match.index, end: sourceStart + match.index + 1, insert: `\\${match[0]}` })
+        }
+      }
+    }
+    if (literalKinds.has(node.kind) || node.kind === 'inline-code' || node.kind === 'inline-math') return
+    for (const child of node.children) visit(child)
+  }
+  visit(block)
+  return edits
+}
 
 function allAnnotations(roots: readonly CriticMarkupAnnotation[]): CriticMarkupAnnotation[] {
   const result: CriticMarkupAnnotation[] = []
@@ -64,6 +92,9 @@ export function planFormat(
     return { edits: planned.edits, selection }
   }
   const { format } = action
+  if (action.image !== undefined && (format !== 'image' || typeof action.image.src !== 'string' || typeof action.image.alt !== 'string')) {
+    throw new TypeError('Image insertion requires image fields')
+  }
   const actualSelection = copyDocumentSelection(action.selection, previous.sourceLength)
   if (actualSelection.ranges.length !== 1) throw new RangeError('Native formatting requires exactly one selection')
   const primary = actualSelection.ranges[actualSelection.primary]
@@ -104,7 +135,7 @@ export function planFormat(
   const visit = (node: MarkdownAstNode): void => {
     if (node.range.end < start || node.range.start > end || literalKinds.has(node.kind)) return
     if (contentKinds.has(node.kind)) blocks.push(node)
-    if ((format === 'clear' ? clearKinds.has(node.kind) : node.kind !== 'inline-html' && node.kind === formats[format]) && intersects(node.range)) toggles.push(node)
+    if (action.image === undefined && (format === 'clear' ? clearKinds.has(node.kind) : node.kind !== 'inline-html' && node.kind === formats[format]) && intersects(node.range)) toggles.push(node)
     if (format === 'clear' || htmlFormats.has(format)) {
       for (const { open, close } of inlineHtmlFormatPairs(node)) {
         if ((format === 'clear' || open.attributes.tagName === format) && intersects({ start: open.range.start, end: close.range.end })) htmlDelimiters.push(open.range, close.range)
@@ -185,7 +216,8 @@ export function planFormat(
         const spelling = formatDelimiters(format)
         if (spelling === undefined) throw new RangeError('Unknown formatting action')
         let marker = spelling.open
-        let closer = spelling.close
+        let closer = action.image === undefined ? spelling.close : `](${imageDestination(action.image.src)})`
+        const label = action.image === undefined || range.start !== range.end ? '' : imageLabel(action.image.alt)
         let pad = ''
         if (format === 'inline_code') {
           const payload = core.sourceSlice(previous, range)
@@ -196,10 +228,11 @@ export function planFormat(
               (payload.startsWith(' ') && payload.endsWith(' ') && payload.trim() !== '')) pad = ' '
         }
         if (range.start === range.end) {
-          edits.push({ ...range, insert: marker + closer })
-          emptyCaret = range.start + marker.length
+          edits.push({ ...range, insert: marker + label + closer })
+          emptyCaret = range.start + marker.length + label.length
         } else {
           edits.push({ start: range.start, end: range.start, insert: marker + pad })
+          if (format === 'image') edits.push(...imageLabelBracketEdits(core, previous, syntax, block, range))
           edits.push({ start: range.end, end: range.end, insert: pad + closer })
         }
       }
@@ -226,7 +259,7 @@ export function planFormat(
   if (destinationEnd !== undefined) {
     // Images use an atomic native widget and its existing destination picker.
     // Leave the document caret after the widget, never in its hidden raw text.
-    const suffix = format === 'image' ? 3 : 2
+    const suffix = format === 'image' ? 3 + (action.image === undefined ? 0 : imageDestination(action.image.src).length) : 2
     const caret = emptyCaret === undefined ? positionAfter(unique, destinationEnd, false) + suffix : emptyCaret + suffix
     nextSelection = { start: caret, end: caret }
   }
@@ -258,8 +291,10 @@ export function planFormat(
     return result([tracked], nextSelection)
   }
   const trackedCandidate = preview([tracked])
-  const newArm = allAnnotations(trackedCandidate.annotations).flatMap(annotation => annotation.arms).find(arm =>
-    arm.name === 'new' && arm.range.start >= tracked.start && arm.range.end <= tracked.start + tracked.insert.length &&
+  const newArm = allAnnotations(trackedCandidate.annotations).flatMap(annotation => annotation.arms.filter(arm =>
+    annotation.kind === 'addition' && arm.name === 'content' || annotation.kind === 'substitution' && arm.name === 'new'
+  )).find(arm =>
+    arm.range.start >= tracked.start && arm.range.end <= tracked.start + tracked.insert.length &&
     trackedCandidate.source.slice(arm.range.start, arm.range.end) === formatted)
   if (newArm === undefined) throw new RangeError('Tracked formatting has no proven resulting selection')
   const delta = newArm.range.start - envelope.start

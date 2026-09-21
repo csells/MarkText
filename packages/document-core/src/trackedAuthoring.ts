@@ -20,6 +20,17 @@ export const nativeCriticSpelling = (value: string): Readonly<{ text: string, es
 /** Protective spelling for native text, shared by tracked and ordinary authoring. */
 export const protectNativeCriticText = (value: string): string => nativeCriticSpelling(value).text
 
+/** Moving previously deleted text retains its exact source history at the origin. */
+export function retainedTrackedHistoryEdit(
+  core: DocumentCore, revision: DocumentRevision, edit: DocumentSourceEdit
+): DocumentSourceEdit | undefined {
+  if (edit.insert.length > 0 || edit.start >= edit.end) return undefined
+  const retained = annotationTree(revision.annotations).some(annotation => annotation.arms.some(arm =>
+    (annotation.kind === 'deletion' && arm.name === 'content' || annotation.kind === 'substitution' && arm.name === 'old') &&
+    arm.range.start <= edit.start && edit.end <= arm.range.end))
+  return retained ? Object.freeze({ ...edit, insert: core.sourceSlice(revision, edit) }) : undefined
+}
+
 /** Enclose an authored block before compiling its tracked arms. */
 export function prepareTrackedBlockEdit(
   core: DocumentCore,
@@ -55,7 +66,8 @@ export function prepareTrackedBlockEdit(
 export function createTrackedPendingArmEdits(
   core: DocumentCore,
   revision: DocumentRevision,
-  edits: readonly DocumentSourceEdit[]
+  edits: readonly DocumentSourceEdit[],
+  compile: (edits: readonly DocumentSourceEdit[]) => readonly DocumentSourceEdit[] | undefined = edits => core.markupEdits(revision, edits)
 ): readonly DocumentSourceEdit[] | undefined {
   if (!edits.some(edit => edit.start < edit.end)) return undefined
   const annotations = annotationTree(revision.annotations)
@@ -76,7 +88,7 @@ export function createTrackedPendingArmEdits(
   if (annotations.some(annotation => annotation.arms.some(arm =>
     (arm.name === 'old' || arm.name === 'comment' || annotation.kind === 'deletion') &&
     edits.some(edit => arm.range.start <= edit.start && edit.end <= arm.range.end)))) return undefined
-  const planned = core.markupEdits(revision, edits)
+  const planned = compile(edits)
   if (planned === undefined || planned.some(edit => edit.start < content.range.start || edit.end > content.range.end)) return undefined
   return planned
 }

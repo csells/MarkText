@@ -3,6 +3,8 @@ import type { MarkdownLineIndex } from './revision.js'
 import { paragraphImageRange } from './paragraphBoundary.js'
 import { containerContinuationPrefix } from './clipboardMarkdown.js'
 import { syntaxPathAt } from './syntaxPath.js'
+import { isLiteralBlock } from './literalBlock.js'
+import { tableCellInlineBreak } from '@marktext/input-policy'
 
 export const emptyParagraphJoinContainer = (node: MarkdownAstNode): boolean => ['list-item', 'blockquote', 'footnote-definition'].includes(node.kind) && node.children.length === 0
 
@@ -21,8 +23,8 @@ export function paragraphJoinAdjacent(syntax: MarkupSyntax, current: MarkdownAst
   return adjacent
 }
 
-/** Resolve the declared backward join's literal ownership from common syntax. */
-export function paragraphBackwardCodeTarget(syntax: MarkupSyntax, position: number): MarkdownAstNode | undefined {
+/** Resolve joins that transfer paragraph spelling into a structural target. */
+export function paragraphBackwardStructuralTarget(syntax: MarkupSyntax, position: number): MarkdownAstNode | undefined {
   const visit = (node: MarkdownAstNode): MarkdownAstNode | undefined => {
     if (position < node.range.start || position > node.range.end) return undefined
     if (paragraphJoinBlock(node) && (paragraphImageRange(node)?.start ?? node.range.start) === position) return node
@@ -34,11 +36,29 @@ export function paragraphBackwardCodeTarget(syntax: MarkupSyntax, position: numb
   }
   const current = visit(syntax.ast.root)
   const previous = current === undefined ? undefined : paragraphJoinAdjacent(syntax, current, false)
-  return previous?.kind === 'code-block' ? previous : undefined
+  return previous !== undefined && ((isLiteralBlock(previous.kind) && paragraphImageRange(previous) === undefined) || previous.kind === 'table-cell') ? previous : undefined
+}
+
+/** Only parsed paragraph breaks become table breaks. Hidden annotation payload
+ * and all other spelling remain owned by the original source. */
+export function tableJoinParagraphText(core: DocumentCore, revision: DocumentRevision, syntax: MarkupSyntax, donor: MarkdownAstNode): string {
+  const range = paragraphImageRange(donor) ?? donor.range
+  const start = syntax.coordinates.toSource(range.start, 'previous')
+  const end = syntax.coordinates.toSource(range.end, 'next')
+  const breaks: DocumentSourceEdit[] = []
+  const visit = (node: MarkdownAstNode): void => {
+    if (node.kind === 'soft-break' || node.kind === 'hard-break') {
+      breaks.push({ start: syntax.coordinates.toSource(node.range.start, 'next'), end: syntax.coordinates.toSource(node.range.end, 'previous'), insert: tableCellInlineBreak })
+    } else for (const child of node.children) visit(child)
+  }
+  visit(donor)
+  let text = core.sourceSlice(revision, { start, end })
+  for (const edit of breaks.reverse()) text = text.slice(0, edit.start - start) + edit.insert + text.slice(edit.end - start)
+  return text
 }
 
 /** Move the donor's raw spelling into the target literal's owned line context. */
-export function codeJoinParagraphText(core: DocumentCore, revision: DocumentRevision, syntax: MarkupSyntax, lines: MarkdownLineIndex, code: MarkdownAstNode, donor: MarkdownAstNode): { text: string, emptyPrefix: string } {
+export function literalJoinParagraphText(core: DocumentCore, revision: DocumentRevision, syntax: MarkupSyntax, lines: MarkdownLineIndex, code: MarkdownAstNode, donor: MarkdownAstNode): { text: string, emptyPrefix: string } {
   const sourceAt = (position: number) => syntax.coordinates.toSource(position, 'next')
   const sourceEnd = (position: number) => syntax.coordinates.toSource(position, 'previous')
   const path = syntaxPathAt(syntax.ast.root, code.children[0]?.range.start ?? code.range.start)
