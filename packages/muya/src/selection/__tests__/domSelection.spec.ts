@@ -74,6 +74,8 @@ describe('exact native DOM selection endpoints', () => {
         muya.editor.bindDocumentEditing({
             prepareImage() { throw new Error('Unexpected image preparation'); },
             prepareClipboard() { throw new Error('Unexpected clipboard preparation'); },
+            emojiContext: () => undefined,
+            codeLanguage: () => undefined,
             activeFormats: () => [],
             input,
             clipboard: () => { throw new Error('Unexpected clipboard'); },
@@ -137,6 +139,8 @@ describe('exact native DOM selection endpoints', () => {
         muya.editor.bindDocumentEditing({
             prepareImage() { throw new Error('Unexpected image preparation'); },
             prepareClipboard() { throw new Error('Unexpected clipboard preparation'); },
+            emojiContext: () => undefined,
+            codeLanguage: () => undefined,
             activeFormats: () => [],
             input,
             clipboard: () => { throw new Error('Unexpected clipboard'); },

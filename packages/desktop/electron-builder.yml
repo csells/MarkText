@@ -29,6 +29,16 @@ files:
     to: node_modules/ced/build/Release
     filter:
       - ced.node
+  # Postinstall can restore this required runtime outside pnpm's optional graph.
+  - '!node_modules/native-keymap/**'
+  - from: node_modules/native-keymap
+    to: node_modules/native-keymap
+    filter:
+      - package.json
+      - index.js
+      - build/Release/keymapping.node
+      - License.txt
+      - ThirdPartyNotices.txt
   # Large source files
   - '!node_modules/mermaid/dist/mermaid.js'
   - '!node_modules/mermaid/dist/mermaid.min.js'
@@ -84,6 +94,7 @@ electronLanguages: # Keep Chromium/AppKit locales for the UI languages MarkText 
 asarUnpack:
   - resources/**
   - node_modules/ced/build/Release/ced.node
+  - node_modules/native-keymap/build/Release/keymapping.node
 fileAssociations:
   - ext: md
     name: Markdown

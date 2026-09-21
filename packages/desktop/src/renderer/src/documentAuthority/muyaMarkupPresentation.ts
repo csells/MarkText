@@ -1,7 +1,6 @@
 import { imageAltText } from '@marktext/document-core'
 import type { DocumentSourceEdit, MarkdownAstNode, SourceRange } from '@marktext/document-core'
 import type { IInlinePresentationContext } from '@muyajs/core'
-import { validEmoji } from '@muyajs/core'
 import { sanitize, PREVIEW_DOMPURIFY_CONFIG, EXPORT_DOMPURIFY_CONFIG } from '../util/dompurify'
 import type { MuyaMarkupBinding, MuyaMarkupComment, MuyaMarkupDecoration } from './muyaMarkupView'
 
@@ -24,7 +23,7 @@ interface PresentationMarker {
   readonly html: string
 }
 
-const escapeHtml = (value: string): string =>
+export const escapeHtml = (value: string): string =>
   value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -107,6 +106,25 @@ const syntaxSpans = (
   const hide = (range: SourceRange): void =>
     add(range, '<span class="mu-hide mu-remove">', '</span>')
   const visit = (node: MarkdownAstNode): void => {
+    if (node.kind === 'footnote-reference') {
+      const range = nativeRange(node.range)
+      if (range !== undefined) {
+        spans.push({
+          range,
+          open: `<sup id="noteref-${escapeHtml(String(node.attributes.label))}" class="mu-inline-footnote-identifier mu-inline-rule">`,
+          close: '</sup>',
+          atomic: true
+        })
+        hide({ start: node.range.start, end: node.range.start + 2 })
+        add(
+          { start: node.range.start + 2, end: node.range.end - 1 },
+          '<a spellcheck="false">',
+          '</a>'
+        )
+        hide({ start: node.range.end - 1, end: node.range.end })
+      }
+      return
+    }
     if (isMuyaImageSyntax(node)) {
       const range = nativeRange(
         node.kind !== 'image'
@@ -128,7 +146,9 @@ const syntaxSpans = (
             : {}),
           ...(node.attributes.semanticAlign ? { align: String(node.attributes.semanticAlign) } : {})
         })
-        if (widget !== undefined) { spans.push({ range, open: widget.open, close: widget.close, atomic: true }) }
+        if (widget !== undefined) {
+          spans.push({ range, open: widget.open, close: widget.close, atomic: true })
+        }
       }
       return
     }
@@ -140,35 +160,21 @@ const syntaxSpans = (
           '</span></span>'
         )
       }
-      // Emoji is a Muya presentation extension. Match its aliases only inside
-      // a Core-owned literal text leaf, never in flattened Markdown or code.
-      for (const segment of binding.segments) {
-        const start = Math.max(node.range.start, segment.syntax.start)
-        const end = Math.min(node.range.end, segment.syntax.end)
-        if (end <= start) continue
-        const value = binding.text.slice(
-          segment.text.start + start - segment.syntax.start,
-          segment.text.start + end - segment.syntax.start
-        )
-        for (const match of value.matchAll(/(?<![\w]):([a-z_\d+-]+):/gu)) {
-          const emoji = validEmoji(match[1])
-          if (emoji === undefined) continue
-          const range = { start: start + match.index, end: start + match.index + match[0].length }
-          if (
-            node.semanticTextSegments?.some(
-              (spelling) => spelling.range.start < range.end && spelling.range.end > range.start
-            )
-          ) {
-            continue
-          }
-          hide({ start: range.start, end: range.start + 1 })
-          add(
-            { start: range.start + 1, end: range.end - 1 },
-            `<span class="mu-hide mu-inline-rule mu-emoji-marked-text" data-emoji="${escapeHtml(emoji.emoji)}">`,
-            '</span>'
-          )
-          hide({ start: range.end - 1, end: range.end })
-        }
+      const emoji = node.attributes.emojiValue
+      const emojiRange = nativeRange({ start: node.range.start + 1, end: node.range.end - 1 })
+      if (
+        typeof emoji === 'string' &&
+        node.attributes.emojiClosed === true &&
+        emojiRange !== undefined
+      ) {
+        hide({ start: node.range.start, end: node.range.start + 1 })
+        spans.push({
+          range: emojiRange,
+          open: `<span class="mu-hide mu-inline-rule mu-emoji-marked-text" data-emoji="${escapeHtml(emoji)}">`,
+          close: '</span>',
+          atomic: true
+        })
+        hide({ start: node.range.end - 1, end: node.range.end })
       }
     }
     const tags: Partial<Record<MarkdownAstNode['kind'], string>> = {
@@ -392,7 +398,9 @@ export function renderMuyaMarkupBinding(
       close: '</span>'
     })
   }
-  if (currentText === binding.text && !pendingEdits?.length) { spans.push(...syntaxSpans(binding, context)) }
+  if (currentText === binding.text && !pendingEdits?.length) {
+    spans.push(...syntaxSpans(binding, context))
+  }
   return sanitize(renderSpans(currentText, spans, markers), {
     ...PREVIEW_DOMPURIFY_CONFIG,
     // Styles and contenteditable are generated only by the trusted native

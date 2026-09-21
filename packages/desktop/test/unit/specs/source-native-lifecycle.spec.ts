@@ -64,7 +64,9 @@ describe('Source native input through detached view teardown', () => {
         createBinding: () =>
           createEditorCoreBinding({
             request(request) {
-              if (request.type === 'source-input' && rejectInput) { throw new Error('Worker disconnected') }
+              if (request.type === 'source-input' && rejectInput) {
+                throw new Error('Worker disconnected')
+              }
               return actor.handle(request)
             },
             dispose() {
@@ -78,6 +80,7 @@ describe('Source native input through detached view teardown', () => {
       const editor = codeMirror(host, { value: source, inputStyle: 'textarea' })
       const adapter = createCodeMirrorCoreAdapter(editor.getDoc(), lease.binding, {
         canonicalSource: source,
+        canonicalRevision: 1,
         insertedLineEnding: '\r\n'
       })
       const capture = createCodeMirrorRecoveryDraftCapture({
@@ -190,7 +193,9 @@ it.each(['tab', 'generation'] as const)(
         activeBindings.set(documentId, bindings)
         return createEditorCoreBinding({
           request(request) {
-            if (failingInput && request.type === 'source-input') { throw new Error('New view Worker disconnected') }
+            if (failingInput && request.type === 'source-input') {
+              throw new Error('New view Worker disconnected')
+            }
             return actor.handle(request)
           },
           dispose() {
@@ -200,7 +205,9 @@ it.each(['tab', 'generation'] as const)(
       }
     })
     await manager.open({ documentId: 'old.md', source: 'old text', lineEnding: '\n' })
-    if (kind === 'tab') { await manager.open({ documentId: newDocumentId, source: 'new{++a++}', lineEnding: '\n' }) }
+    if (kind === 'tab') {
+      await manager.open({ documentId: newDocumentId, source: 'new{++a++}', lineEnding: '\n' })
+    }
     const oldLease = manager.lease('old.md')
     const oldGeneration = oldLease.identity.generation
     let currentLease = oldLease
@@ -234,6 +241,7 @@ it.each(['tab', 'generation'] as const)(
       failingInput = true
       const adapter = createCodeMirrorCoreAdapter(newEditor.getDoc(), currentLease.binding, {
         canonicalSource: 'new{++a++}',
+        canonicalRevision: currentLease.identity.revision,
         insertedLineEnding: '\n'
       })
       currentLease.setRecoveryDraftCapture(
@@ -285,7 +293,9 @@ it.each(['tab', 'generation'] as const)(
       newEditor.getInputField().blur()
       oldHost.remove()
       newHost.remove()
-      for (const documentId of documentIds) { if ((activeBindings.get(documentId)?.size ?? 0) > 0) manager.abort(documentId) }
+      for (const documentId of documentIds) {
+        if ((activeBindings.get(documentId)?.size ?? 0) > 0) manager.abort(documentId)
+      }
       rmSync(scratch, { recursive: true, force: true })
     }
   }
@@ -310,6 +320,7 @@ it('publishes every native Source edit and its lease revision before the input e
   const editor = codeMirror(host, { value: 'a{++a++}a\r\n', inputStyle: 'textarea' })
   const adapter = createCodeMirrorCoreAdapter(editor.getDoc(), lease.binding, {
     canonicalSource: 'a{++a++}a\r\n',
+    canonicalRevision: 1,
     insertedLineEnding: '\r\n'
   })
   const published: number[] = []

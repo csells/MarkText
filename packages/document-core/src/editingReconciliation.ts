@@ -1,12 +1,12 @@
 import type { CriticMarkupAnnotation, DocumentCore, DocumentCommit, DocumentRevision, DocumentSourceEdit } from './documentCore.js'
 import { createMarkupCompoundSourceEdits } from './markupEditing.js'
-import { markupReplacementRange } from './markupEditOwnership.js'
-import { nativeCriticSpelling } from './trackedAuthoring.js'
+import { markupEditOwnership, markupReplacementRange } from './markupEditOwnership.js'
+import { nativeCriticSpelling, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { positionAfter } from './sourcePosition.js'
 
 function ordinaryCompilationMatches(
   core: DocumentCore, previous: DocumentRevision, inputs: readonly DocumentSourceEdit[],
-  applied: readonly DocumentSourceEdit[], commitRevision: DocumentRevision, scope: 'visible' | 'structure'
+  applied: readonly DocumentSourceEdit[], commitRevision: DocumentRevision, scope: 'visible' | 'structure', canonicalImport = false
 ): boolean {
   // Reuse the ordinary compiler's source ownership rules. Its validation uses
   // the already committed product only for exactly the same compiled operation;
@@ -20,7 +20,7 @@ function ordinaryCompilationMatches(
         return actual !== undefined && actual.start === edit.start && actual.end === edit.end && actual.insert === edit.insert
       })) throw mismatch
       return commitRevision
-    }, false, scope)
+    }, canonicalImport, scope)
   } catch (error) {
     if (error !== mismatch) throw error
     return false
@@ -38,6 +38,13 @@ function ordinaryReconciliation(
   applied: readonly DocumentSourceEdit[], commitRevision: DocumentRevision, scope: 'visible' | 'structure'
 ): readonly DocumentSourceEdit[] | undefined {
   if (!ordinaryCompilationMatches(core, previous, [input], applied, commitRevision, scope)) return undefined
+  return ordinaryIntervalReconciliation(core, previous, input, applied)
+}
+
+function ordinaryIntervalReconciliation(
+  core: DocumentCore, previous: DocumentRevision, input: DocumentSourceEdit,
+  applied: readonly DocumentSourceEdit[]
+): readonly DocumentSourceEdit[] | undefined {
   const spelling = nativeCriticSpelling(input.insert)
   const payload = applied.filter(edit => edit.insert.length > 0)
   if (input.insert.length > 0 && (payload.length !== 1 ||
@@ -157,6 +164,23 @@ function compiledReplacementReconciliation(
   core: DocumentCore, previous: DocumentRevision, input: DocumentSourceEdit,
   applied: DocumentSourceEdit, committed: DocumentRevision, compiledOffset: number
 ): readonly DocumentSourceEdit[] | undefined {
+  const retained = retainedTrackedHistoryEdit(core, previous, input)
+  if (retained !== undefined && retained.start === applied.start && retained.end === applied.end && retained.insert === applied.insert) {
+    return Object.freeze([Object.freeze({ start: input.start, end: input.start, insert: retained.insert })])
+  }
+  if (input.insert === '' && applied.insert === '') {
+    const ownership = markupEditOwnership(core, previous, [input], 'structure')
+    const deleted = ownership?.deleted.slice().sort((a, b) => a.start - b.start)
+    if (deleted !== undefined && deleted.length > 0) {
+      let end = deleted[0]!.start
+      const contiguous = deleted.every(range => {
+        if (range.start > end) return false
+        end = Math.max(end, range.end)
+        return true
+      })
+      if (contiguous && deleted[0]!.start === applied.start && end === applied.end) return ordinaryIntervalReconciliation(core, previous, input, [applied])
+    }
+  }
   if (input.start === input.end && applied.start === applied.end && input.insert === applied.insert && input.start !== applied.start) {
     // Tracked insertion at a suggestion's exterior may extend its existing
     // content/new arm. Relate those exact owned delimiters to the declared payload;
@@ -232,8 +256,26 @@ function compiledReplacementReconciliation(
 
 /** Compose proven per-operation maps when the compiler retains their exact intervals. */
 export function sparseEditingReconciliation(
-  core: DocumentCore, previous: DocumentRevision, inputs: readonly DocumentSourceEdit[], commit: DocumentCommit
+  core: DocumentCore, previous: DocumentRevision, inputs: readonly DocumentSourceEdit[], commit: DocumentCommit, canonicalImport = false, scope: 'visible' | 'structure' = 'structure'
 ): readonly DocumentSourceEdit[] | undefined {
+  if (canonicalImport && ordinaryCompilationMatches(core, previous, inputs, commit.change.appliedEdits, commit.revision, scope, true)) {
+    // The shared compiler proved the whole operation, including imported CM.
+    // Relate each disjoint declared action to its owned deletion intervals.
+    const used = new Set<DocumentSourceEdit>()
+    const result: DocumentSourceEdit[] = []
+    let offset = 0
+    for (const input of inputs) {
+      const actual = commit.change.appliedEdits.filter(edit => edit.start <= input.end && input.start <= edit.end)
+      if (actual.some(edit => used.has(edit))) return undefined
+      for (const edit of actual) used.add(edit)
+      const mapped = ordinaryIntervalReconciliation(core, previous, input, actual)
+      if (mapped === undefined) return undefined
+      result.push(...mapped.map(edit => ({ ...edit, start: edit.start + offset, end: edit.end + offset })))
+      offset += input.insert.length - (input.end - input.start)
+    }
+    if (used.size !== commit.change.appliedEdits.length) return undefined
+    return Object.freeze(result.sort((a, b) => a.start - b.start || a.end - b.end).map(edit => Object.freeze(edit)))
+  }
   const deletion = sparseDeletionReconciliation(core, previous, inputs, commit)
   if (deletion !== undefined) return deletion
   // Adjacent declared edits have one exact replacement payload. The ordinary
@@ -268,7 +310,7 @@ export function sparseEditingReconciliation(
   let compiledOffset = 0
   for (const [index, input] of inputs.entries()) {
     const actual = applied[index]
-    if (actual === undefined || actual.start !== input.start || actual.end !== input.end) return undefined
+    if (actual === undefined || actual.start > input.start || actual.end < input.end) return undefined
     const mapped = compiledReplacementReconciliation(core, previous, input, actual, commit.revision, compiledOffset)
     if (mapped === undefined) return undefined
     for (const edit of mapped) result.push({ start: edit.start + inputOffset, end: edit.end + inputOffset, insert: edit.insert })

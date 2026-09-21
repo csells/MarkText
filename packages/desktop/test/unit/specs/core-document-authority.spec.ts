@@ -5455,6 +5455,7 @@ describe('Core document session manager', () => {
     const editor = new codeMirror.Doc(source)
     const adapter = createCodeMirrorCoreAdapter(editor, lease.binding, {
       canonicalSource: source,
+      canonicalRevision: 1,
       insertedLineEnding: '\r\n',
       projections: () => ['markup']
     })
@@ -6810,6 +6811,7 @@ describe('Core document session manager', () => {
     const editor = new codeMirror.Doc(source)
     const adapter = createCodeMirrorCoreAdapter(editor, lease.binding, {
       canonicalSource: source,
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
     lease.settleView(() => adapter.settled())
@@ -6891,7 +6893,7 @@ describe('CodeMirror Core adapter', () => {
     const recorded: CoreAuthorityPerformanceEvent[] = []
     const clock = [10, 14, 18]
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
-      ...sourceCodeCoreAdapterOptions(source, '\n'),
+      ...sourceCodeCoreAdapterOptions(source, '\n', 1),
       performanceTrace: {
         documentId: 'source-performance.md',
         clock: () => clock.shift() ?? Number.NaN,
@@ -6942,7 +6944,7 @@ describe('CodeMirror Core adapter', () => {
     const doc = new codeMirror.Doc('abc')
     const events: CoreAuthorityPerformanceEvent[] = []
     const adapter = createCodeMirrorCoreAdapter(doc, binding, {
-      ...sourceCodeCoreAdapterOptions('abc', '\n'),
+      ...sourceCodeCoreAdapterOptions('abc', '\n', 1),
       performanceTrace: {
         documentId: 'source-sync-latency.md',
         clock: () => now,
@@ -6965,10 +6967,11 @@ describe('CodeMirror Core adapter', () => {
   })
 
   it('uses the normalized LF renderer domain under a CRLF host save policy', () => {
-    const options = sourceCodeCoreAdapterOptions('a\nb', '\r\n')
+    const options = sourceCodeCoreAdapterOptions('a\nb', '\r\n', 1)
 
     expect(options).toMatchObject({
       canonicalSource: 'a\nb',
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
     expect(options.projections?.()).toEqual([])
@@ -6981,7 +6984,7 @@ describe('CodeMirror Core adapter', () => {
       testBinding(() => {
         throw new Error('unexpected submit')
       }),
-      { canonicalSource: 'abc', insertedLineEnding: '\n' }
+      { canonicalSource: 'abc', canonicalRevision: 1, insertedLineEnding: '\n' }
     )
 
     ;(
@@ -7018,7 +7021,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n')
+      sourceCodeCoreAdapterOptions(source, '\n', 1)
     )
     const start = source.indexOf('text')
 
@@ -7065,7 +7068,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n')
+      sourceCodeCoreAdapterOptions(source, '\n', 1)
     )
 
     editor.replaceRange('b', { line: 0, ch: 1 }, { line: 0, ch: 2 }, '+input')
@@ -7100,7 +7103,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n')
+      sourceCodeCoreAdapterOptions(source, '\n', 1)
     )
 
     const accepted = adapter.resolve(
@@ -7139,7 +7142,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n')
+      sourceCodeCoreAdapterOptions(source, '\n', 1)
     )
 
     await expect(
@@ -7169,7 +7172,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n')
+      sourceCodeCoreAdapterOptions(source, '\n', 1)
     )
 
     await expect(
@@ -7209,7 +7212,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n')
+      sourceCodeCoreAdapterOptions(source, '\n', 1)
     )
     const locator = {
       kind: 'addition' as const,
@@ -7241,7 +7244,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n')
+      sourceCodeCoreAdapterOptions(source, '\n', 1)
     )
 
     editor.replaceRange('!', { line: 0, ch: 0 }, { line: 0, ch: 0 }, '+input')
@@ -7273,6 +7276,7 @@ describe('CodeMirror Core adapter', () => {
     const doc = editor.getDoc()
     const adapter = createCodeMirrorCoreAdapter(doc, binding, {
       canonicalSource: source,
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
     try {
@@ -7310,6 +7314,7 @@ describe('CodeMirror Core adapter', () => {
     const doc = editor.getDoc()
     const adapter = createCodeMirrorCoreAdapter(doc, binding, {
       canonicalSource: source,
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
     try {
@@ -7346,7 +7351,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n')
+      sourceCodeCoreAdapterOptions(source, '\n', 1)
     )
 
     editor.replaceRange('!', { line: 0, ch: 0 }, { line: 0, ch: 0 }, '+input')
@@ -7374,7 +7379,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n')
+      sourceCodeCoreAdapterOptions(source, '\n', 1)
     )
     const start = source.indexOf('text')
     editor.replaceRange(
@@ -7419,6 +7424,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc(source)
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: source,
+      canonicalRevision: 1,
       insertedLineEnding: '\r\n'
     })
     const viewStart = normalized.indexOf('text')
@@ -7451,6 +7457,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc('abc')
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: 'abc',
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
 
@@ -7483,6 +7490,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc('abc')
     const adapter = createCodeMirrorCoreAdapter(editor, lease.binding, {
       canonicalSource: 'abc',
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
     lease.settleView(() => adapter.settled())
@@ -7512,6 +7520,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc('abc')
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: 'abc',
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
     editor.replaceRange('d', { line: 0, ch: 3 }, undefined, '+input')
@@ -7548,6 +7557,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc('abc')
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: 'abc',
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
     editor.replaceRange('d', { line: 0, ch: 3 }, undefined, '+input')
@@ -7594,6 +7604,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc('abc')
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: 'abc',
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
     editor.replaceRange('X', { line: 0, ch: 1 }, undefined, '+input')
@@ -7635,6 +7646,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc('ab')
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: 'ab',
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
 
@@ -7666,6 +7678,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc('abcd')
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: 'abcd',
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
     editor.replaceRange('X', { line: 0, ch: 1 }, { line: 0, ch: 2 }, '+input')
@@ -7700,6 +7713,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc('abcd')
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: 'abcd',
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
     editor.replaceRange('X', { line: 0, ch: 1 }, { line: 0, ch: 2 }, '+input')
@@ -7735,6 +7749,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc('abcde')
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: 'abcde',
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
     editor.replaceRange('H', { line: 0, ch: 0 }, undefined, '+input')
@@ -7768,6 +7783,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc('abc')
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: 'abc',
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
     editor.replaceRange('d', { line: 0, ch: 3 }, undefined, '+input')
@@ -7791,6 +7807,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc('abc')
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: 'abc',
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
     editor.replaceRange('d', { line: 0, ch: 3 }, undefined, '+input')
@@ -7817,7 +7834,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       binding,
-      sourceCodeCoreAdapterOptions(source, '\n')
+      sourceCodeCoreAdapterOptions(source, '\n', 1)
     )
     const start = source.indexOf('text')
 
@@ -7857,7 +7874,7 @@ describe('CodeMirror Core adapter', () => {
     const adapter = createCodeMirrorCoreAdapter(
       editor,
       lease.binding,
-      sourceCodeCoreAdapterOptions(source, '\n')
+      sourceCodeCoreAdapterOptions(source, '\n', 1)
     )
     lease.settleView(() => adapter.settled())
     lease.onHandoff(() => adapter.dispose())
@@ -7905,6 +7922,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = fixture.editor
     const adapter = createCodeMirrorCoreAdapter(editor.getDoc(), binding, {
       canonicalSource: source,
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
     const textStart = source.indexOf('text')
@@ -7994,6 +8012,7 @@ describe('CodeMirror Core adapter', () => {
     const doc = editor.getDoc()
     const adapter = createCodeMirrorCoreAdapter(doc, binding, {
       canonicalSource: source,
+      canonicalRevision: 1,
       insertedLineEnding: '\r\n'
     })
     doc.setSelections([
@@ -8057,6 +8076,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc(source)
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: source,
+      canonicalRevision: 1,
       insertedLineEnding: '\r\n'
     })
 
@@ -8089,6 +8109,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc(source)
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: source,
+      canonicalRevision: 1,
       insertedLineEnding: '\r\n'
     })
 
@@ -8121,6 +8142,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc(source)
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: source,
+      canonicalRevision: 1,
       insertedLineEnding: '\r\n'
     })
 
@@ -8170,6 +8192,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc(fixture.source)
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: fixture.source,
+      canonicalRevision: 1,
       insertedLineEnding: fixture.policy
     })
 
@@ -8191,6 +8214,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc(source)
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: source,
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
 
@@ -8240,6 +8264,7 @@ describe('CodeMirror Core adapter', () => {
     })
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: source,
+      canonicalRevision: 1,
       insertedLineEnding: '\r\n'
     })
     const before = inspectCodeMirrorCoreAdapter(adapter)
@@ -8301,6 +8326,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc(source)
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: source,
+      canonicalRevision: 1,
       insertedLineEnding: '\r\n',
       maxPending: 2_000
     })
@@ -8340,6 +8366,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc(source)
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: source,
+      canonicalRevision: 1,
       insertedLineEnding: '\n',
       maxPending: 20_000
     })
@@ -8367,6 +8394,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc(source)
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: source,
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
     editor.on('beforeChange', (_doc: CodeMirror.Doc, change: CodeMirror.EditorChangeCancellable) =>
@@ -8389,6 +8417,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc(source)
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: source,
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
     editor.on(
@@ -8418,6 +8447,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc(source)
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: source,
+      canonicalRevision: 1,
       insertedLineEnding: '\n'
     })
 
@@ -8441,6 +8471,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc(source)
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: source,
+      canonicalRevision: 1,
       insertedLineEnding: '\n',
       maxPendingInsertUnits: 3
     })
@@ -8483,6 +8514,7 @@ describe('CodeMirror Core adapter', () => {
     const editor = new codeMirror.Doc(canonical)
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: canonical,
+      canonicalRevision: 1,
       insertedLineEnding: '\r'
     })
     let seed = 0xadda

@@ -28,7 +28,11 @@ export default defineConfig({
     },
     {
       name: 'installed',
-      testMatch: installedArtifactSpecs
+      testMatch: [
+        ...installedArtifactSpecs,
+        '**/criticmarkup-image-size.spec.ts',
+        '**/criticmarkup-window-close.spec.ts'
+      ]
     }
   ],
   use: {

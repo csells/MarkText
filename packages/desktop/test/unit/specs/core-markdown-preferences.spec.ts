@@ -180,7 +180,7 @@ describe('Core Markdown preference changes', () => {
     const adapter = createCodeMirrorCoreAdapter(
       doc,
       lease.binding,
-      sourceCodeCoreAdapterOptions(source, '\n')
+      sourceCodeCoreAdapterOptions(source, '\n', 1)
     )
     lease.settleView(() => adapter.settled())
     lease.onHandoff(() => adapter.dispose())

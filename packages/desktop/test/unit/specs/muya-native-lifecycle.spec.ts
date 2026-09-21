@@ -22,6 +22,7 @@ import { resolveMuyaViewAcknowledgement } from '@/documentAuthority/resolveMuyaV
 import { reconcileMuyaDocumentView } from '@/documentAuthority/reconcileMuyaDocumentView'
 import {
   muyaActiveFormats,
+  muyaCodeLanguage,
   muyaInputToModel,
   muyaFormatToModel
 } from '@/documentAuthority/muyaModelSelection'
@@ -117,6 +118,8 @@ describe('native pending input through desktop document lifecycle', () => {
           prepareClipboard() {
             throw new Error('Unexpected async clipboard preparation in this test')
           },
+          emojiContext: () => undefined,
+          codeLanguage: (point) => muyaCodeLanguage(muya, acknowledgedView, point),
           activeFormats: (selection) => muyaActiveFormats(muya, acknowledgedView, selection),
           clipboard() {
             throw new Error('Unexpected clipboard action in this input test')
@@ -255,7 +258,9 @@ describe('native draft recovery during desktop teardown', () => {
         createBinding: () =>
           createEditorCoreBinding({
             request(request) {
-              if (request.type === 'input' && ++inputCount === 3) { throw new Error('Test authority unavailable') }
+              if (request.type === 'input' && ++inputCount === 3) {
+                throw new Error('Test authority unavailable')
+              }
               return actor.handle(request)
             },
             dispose() {
@@ -319,6 +324,8 @@ describe('native draft recovery during desktop teardown', () => {
           prepareClipboard() {
             throw new Error('Unexpected async clipboard preparation in this test')
           },
+          emojiContext: () => undefined,
+          codeLanguage: (point) => muyaCodeLanguage(muya, acknowledgedView, point),
           activeFormats: (selection) => muyaActiveFormats(muya, acknowledgedView, selection),
           clipboard() {
             throw new Error('Unexpected clipboard action in this input test')
@@ -510,6 +517,8 @@ it('retains accepted paired deletion when presentation fails without replaying i
       prepareClipboard() {
         throw new Error('Unexpected async clipboard preparation in this test')
       },
+      emojiContext: () => undefined,
+      codeLanguage: (point) => muyaCodeLanguage(muya, acknowledgedView, point),
       activeFormats: (selection) => muyaActiveFormats(muya, acknowledgedView, selection),
       clipboard() {
         throw new Error('Unexpected clipboard action in this input test')

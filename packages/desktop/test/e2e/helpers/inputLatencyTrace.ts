@@ -47,7 +47,7 @@ interface MutableInputLatencySample {
   echoDomCheckpoint?: InputDomCheckpoint
   frameDomCheckpoint?: InputDomCheckpoint
   expectedText?: string
-  observedElement: Element
+  observedElement?: Element
   targetIndex: number
 }
 
@@ -75,7 +75,7 @@ export const startInputLatencyTrace = async(
     throw new Error('Input latency trace maxSamples must be a positive integer')
   }
 
-  await page.evaluate(capacity => {
+  await page.evaluate((capacity) => {
     const tracedWindow = window as TracedWindow
     tracedWindow.__marktextInputLatencyProbe?.disconnect()
 
@@ -92,10 +92,7 @@ export const startInputLatencyTrace = async(
     let inputListenerAttached = true
     let observerConnected = true
 
-    const checkpointFor = (
-      targetIndex: number,
-      text: string
-    ): InputDomCheckpoint => {
+    const checkpointFor = (targetIndex: number, text: string): InputDomCheckpoint => {
       let hash = 0x811c9dc5
       for (let index = 0; index < text.length; index += 1) {
         hash ^= text.charCodeAt(index)
@@ -116,16 +113,11 @@ export const startInputLatencyTrace = async(
       return -1
     }
 
-    const selectionOffsets = (
-      target: Element
-    ): { start: number, end: number } | undefined => {
+    const selectionOffsets = (target: Element): { start: number; end: number } | undefined => {
       const selection = window.getSelection()
       if (!selection || selection.rangeCount === 0) return undefined
       const selected = selection.getRangeAt(0)
-      if (
-        !target.contains(selected.startContainer) ||
-        !target.contains(selected.endContainer)
-      ) {
+      if (!target.contains(selected.startContainer) || !target.contains(selected.endContainer)) {
         return undefined
       }
       const prefix = document.createRange()
@@ -143,11 +135,14 @@ export const startInputLatencyTrace = async(
     let handleBeforeInput: (event: Event) => void = () => {}
     const detachInputListener = (): void => {
       if (!inputListenerAttached) return
-      editor.removeEventListener('beforeinput', handleBeforeInput, true)
+      window.removeEventListener('beforeinput', handleBeforeInput, true)
       inputListenerAttached = false
     }
     const discardPendingPayloads = (): void => {
-      for (const sample of pending) sample.expectedText = undefined
+      for (const sample of pending) {
+        sample.expectedText = undefined
+        sample.observedElement = undefined
+      }
       pending.length = 0
     }
 
@@ -156,7 +151,7 @@ export const startInputLatencyTrace = async(
       const observedAt = performance.now()
       const currentTargets = new Map<
         number,
-        { element: Element, text: string, checkpoint: InputDomCheckpoint }
+        { element: Element; text: string; checkpoint: InputDomCheckpoint }
       >()
       let retained = 0
 
@@ -165,16 +160,14 @@ export const startInputLatencyTrace = async(
         let current = currentTargets.get(sample.targetIndex)
         if (!current) {
           let target = sample.observedElement
-          if (!target.isConnected || !editor.contains(target)) {
-            const reacquired = editor
-              .querySelectorAll(targetSelector)
-              .item(sample.targetIndex)
+          if (!target?.isConnected || !editor.contains(target)) {
+            const reacquired = editor.querySelectorAll(targetSelector).item(sample.targetIndex)
             if (reacquired) {
               target = reacquired
               sample.observedElement = reacquired
             }
           }
-          if (target.isConnected && editor.contains(target)) {
+          if (target?.isConnected && editor.contains(target)) {
             const text = target.textContent ?? ''
             current = {
               element: target,
@@ -194,18 +187,17 @@ export const startInputLatencyTrace = async(
           sample.tEcho = observedAt
           sample.echoDomCheckpoint = current.checkpoint
           requestAnimationFrame(() => {
-            const frameTarget = editor
-              .querySelectorAll(targetSelector)
-              .item(sample.targetIndex)
+            const frameTarget = editor.querySelectorAll(targetSelector).item(sample.targetIndex)
             const frameText = frameTarget?.textContent ?? ''
-            if (sample.tFrame !== undefined || sample.tEcho === undefined ||
-                frameText !== sample.expectedText) return
+            if (
+              sample.tFrame !== undefined ||
+              sample.tEcho === undefined ||
+              frameText !== sample.expectedText
+            ) { return }
             sample.tFrame = performance.now()
-            sample.frameDomCheckpoint = checkpointFor(
-              sample.targetIndex,
-              frameText
-            )
+            sample.frameDomCheckpoint = checkpointFor(sample.targetIndex, frameText)
             sample.expectedText = undefined
+            sample.observedElement = undefined
             const pendingIndex = pending.indexOf(sample)
             if (pendingIndex >= 0) pending.splice(pendingIndex, 1)
             if (!accepting && pending.length === 0 && observerConnected) {
@@ -248,14 +240,13 @@ export const startInputLatencyTrace = async(
 
     handleBeforeInput = (event: Event): void => {
       const inputEvent = event as InputEvent
-      if (!(event.target instanceof Element)) return
+      if (!(event.target instanceof Element) || !editor.contains(event.target)) return
+      const tEvent = performance.now()
       const selectionNode = window.getSelection()?.anchorNode
-      const selectionElement = selectionNode instanceof Element
-        ? selectionNode
-        : selectionNode?.parentElement
+      const selectionElement =
+        selectionNode instanceof Element ? selectionNode : selectionNode?.parentElement
       const observedElement =
-        event.target.closest(targetSelector) ??
-        selectionElement?.closest(targetSelector)
+        event.target.closest(targetSelector) ?? selectionElement?.closest(targetSelector)
       if (!observedElement || !editor.contains(observedElement)) return
       if (inputEvent.inputType !== 'insertText' || inputEvent.data === null) {
         stopAccepting('unsupported-input', false)
@@ -270,23 +261,15 @@ export const startInputLatencyTrace = async(
       }
       const baseText = observedElement.textContent ?? ''
       const expectedText =
-        baseText.slice(0, offsets.start) +
-        inputEvent.data +
-        baseText.slice(offsets.end)
-      const expectedDomCheckpoint = checkpointFor(
-        targetIndex,
-        expectedText
-      )
+        baseText.slice(0, offsets.start) + inputEvent.data + baseText.slice(offsets.end)
+      const expectedDomCheckpoint = checkpointFor(targetIndex, expectedText)
 
       // If several browser inputs arrive before MutationObserver runs, advance
       // only the still-pending checkpoints whose prior expected state is the
       // new event's actual base. The final cumulative state then conservatively
       // satisfies every linked prefix at the same observed time.
       for (const sample of pending) {
-        if (
-          sample.targetIndex === targetIndex &&
-          sample.expectedText === baseText
-        ) {
+        if (sample.targetIndex === targetIndex && sample.expectedText === baseText) {
           sample.expectedText = expectedText
           sample.expectedDomCheckpoint = expectedDomCheckpoint
           // An observed echo can still be waiting for a frame when another
@@ -300,7 +283,7 @@ export const startInputLatencyTrace = async(
         sequence: samples.length + 1,
         data: inputEvent.data,
         inputType: inputEvent.inputType,
-        tEvent: performance.now(),
+        tEvent,
         expectedDomCheckpoint,
         expectedText,
         observedElement,
@@ -313,7 +296,9 @@ export const startInputLatencyTrace = async(
       }
     }
 
-    editor.addEventListener('beforeinput', handleBeforeInput, true)
+    // The model's editor capture listener can reconcile synchronously. Observe
+    // at its ancestor so both the base text and event time precede admission.
+    window.addEventListener('beforeinput', handleBeforeInput, true)
     tracedWindow.__marktextInputLatencyProbe = {
       samples,
       pending,
@@ -349,13 +334,13 @@ export const waitForInputLatencyTrace = async(
   timeout = 5000
 ): Promise<void> => {
   await page.waitForFunction(
-    expectedCount => {
+    (expectedCount) => {
       const samples = (window as TracedWindow).__marktextInputLatencyProbe?.samples
-      return samples !== undefined &&
+      return (
+        samples !== undefined &&
         samples.length === expectedCount &&
-        samples.every(sample =>
-          sample.tEcho !== undefined && sample.tFrame !== undefined
-        )
+        samples.every((sample) => sample.tEcho !== undefined && sample.tFrame !== undefined)
+      )
     },
     sampleCount,
     { timeout }
@@ -368,11 +353,13 @@ export const waitForInputLatencyEcho = async(
   timeout = 5000
 ): Promise<void> => {
   await page.waitForFunction(
-    expectedCount => {
+    (expectedCount) => {
       const samples = (window as TracedWindow).__marktextInputLatencyProbe?.samples
-      return samples !== undefined &&
+      return (
+        samples !== undefined &&
         samples.length === expectedCount &&
-        samples.every(sample => sample.tEcho !== undefined)
+        samples.every((sample) => sample.tEcho !== undefined)
+      )
     },
     sampleCount,
     { timeout }
@@ -384,49 +371,55 @@ export const captureInputLatencyPresentation = async(
   capturePage: PerformanceHiddenPageCapture,
   sampleIndex = 0,
   timeout = 30_000
-): Promise<Readonly<{
-  readonly sequence: number
-  readonly tEvent: number
-  readonly tEcho: number
-  readonly tPresent: number
-}>> => {
-  const presentation = await captureExactCompositorPresentation(capturePage, {
-    readAcknowledged: () => page.evaluate(index => {
-      const sample = (window as TracedWindow)
-        .__marktextInputLatencyProbe?.samples[index]
-      if (sample?.tEcho === undefined || sample.echoDomCheckpoint === undefined) {
-        throw new Error('Input latency trace has no acknowledged sample')
-      }
-      return Object.freeze({
-        tEvent: sample.tEvent,
-        tAcknowledged: sample.tEcho,
-        expectedCheckpoint: sample.expectedDomCheckpoint,
-        acknowledgedCheckpoint: sample.echoDomCheckpoint
-      })
-    }, sampleIndex),
-    readPresented: () => page.evaluate(index => {
-      const probe = (window as TracedWindow).__marktextInputLatencyProbe
-      const sample = probe?.samples[index]
-      if (sample === undefined) throw new Error('Input latency trace sample is missing')
-      const editor = document.querySelector('.editor-component')
-      const target = editor?.querySelectorAll('.mu-paragraph-content')
-        .item(sample.targetIndex)
-      const text = target?.textContent ?? ''
-      let hash = 0x811c9dc5
-      for (let offset = 0; offset < text.length; offset += 1) {
-        hash ^= text.charCodeAt(offset)
-        hash = Math.imul(hash, 0x01000193)
-      }
-      return Object.freeze({
-        observedAt: performance.now(),
-        checkpoint: Object.freeze({
-          targetIndex: sample.targetIndex,
-          textLength: text.length,
-          textHash: (hash >>> 0).toString(16).padStart(8, '0')
-        })
-      })
-    }, sampleIndex)
-  }, timeout)
+): Promise<
+  Readonly<{
+    readonly sequence: number
+    readonly tEvent: number
+    readonly tEcho: number
+    readonly tPresent: number
+  }>
+> => {
+  const presentation = await captureExactCompositorPresentation(
+    capturePage,
+    {
+      readAcknowledged: () =>
+        page.evaluate((index) => {
+          const sample = (window as TracedWindow).__marktextInputLatencyProbe?.samples[index]
+          if (sample?.tEcho === undefined || sample.echoDomCheckpoint === undefined) {
+            throw new Error('Input latency trace has no acknowledged sample')
+          }
+          return Object.freeze({
+            tEvent: sample.tEvent,
+            tAcknowledged: sample.tEcho,
+            expectedCheckpoint: sample.expectedDomCheckpoint,
+            acknowledgedCheckpoint: sample.echoDomCheckpoint
+          })
+        }, sampleIndex),
+      readPresented: () =>
+        page.evaluate((index) => {
+          const probe = (window as TracedWindow).__marktextInputLatencyProbe
+          const sample = probe?.samples[index]
+          if (sample === undefined) throw new Error('Input latency trace sample is missing')
+          const editor = document.querySelector('.editor-component')
+          const target = editor?.querySelectorAll('.mu-paragraph-content').item(sample.targetIndex)
+          const text = target?.textContent ?? ''
+          let hash = 0x811c9dc5
+          for (let offset = 0; offset < text.length; offset += 1) {
+            hash ^= text.charCodeAt(offset)
+            hash = Math.imul(hash, 0x01000193)
+          }
+          return Object.freeze({
+            observedAt: performance.now(),
+            checkpoint: Object.freeze({
+              targetIndex: sample.targetIndex,
+              textLength: text.length,
+              textHash: (hash >>> 0).toString(16).padStart(8, '0')
+            })
+          })
+        }, sampleIndex)
+    },
+    timeout
+  )
   return Object.freeze({
     sequence: sampleIndex + 1,
     tEvent: presentation.tEvent,
@@ -435,13 +428,11 @@ export const captureInputLatencyPresentation = async(
   })
 }
 
-export const readInputLatencyTrace = async(
-  page: Page
-): Promise<InputLatencySample[]> =>
+export const readInputLatencyTrace = async(page: Page): Promise<InputLatencySample[]> =>
   page.evaluate(() => {
     const samples = (window as TracedWindow).__marktextInputLatencyProbe?.samples
     if (samples === undefined) throw new Error('Input latency trace is not running')
-    return samples.map(sample => ({
+    return samples.map((sample) => ({
       sequence: sample.sequence,
       data: sample.data,
       inputType: sample.inputType,
@@ -454,9 +445,7 @@ export const readInputLatencyTrace = async(
     }))
   })
 
-export const readInputLatencyTraceStatus = async(
-  page: Page
-): Promise<InputLatencyTraceStatus> =>
+export const readInputLatencyTraceStatus = async(page: Page): Promise<InputLatencyTraceStatus> =>
   page.evaluate(() => {
     const probe = (window as TracedWindow).__marktextInputLatencyProbe
     if (!probe) throw new Error('Input latency trace is not running')

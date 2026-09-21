@@ -9,10 +9,10 @@ import { bootCoreBoundary } from './coreBoundaryControl';
 export async function bootSourceImageHistory(muya: Muya, plain = false) {
     const source = plain ? 'x aaay\n' : '![aaa](url)\n';
     const binding = createEditorCoreBinding(createLocalCoreOwner());
-    binding.open({ documentId: 'source-native-history.md', source });
+    const opened = binding.open({ documentId: 'source-native-history.md', source });
     const host = document.body.appendChild(document.createElement('div'));
     const cm = CodeMirror(host, { value: source, mode: null });
-    const adapter = createCodeMirrorCoreAdapter(cm.getDoc(), binding, { canonicalSource: source, insertedLineEnding: '\n' });
+    const adapter = createCodeMirrorCoreAdapter(cm.getDoc(), binding, { canonicalSource: source, canonicalRevision: opened.revision, insertedLineEnding: '\n' });
     try {
         cm.setSelection({ line: 0, ch: 2 }, { line: 0, ch: 5 });
         cm.replaceSelection('bbb', 'end', '+input');

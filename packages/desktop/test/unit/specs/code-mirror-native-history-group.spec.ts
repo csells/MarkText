@@ -14,6 +14,7 @@ it('uses the native CodeMirror typing group for one authoritative undo and redo'
   const doc = new codeMirror.Doc('seed\n')
   const adapter = createCodeMirrorCoreAdapter(doc, binding, {
     canonicalSource: 'seed\n',
+    canonicalRevision: 1,
     insertedLineEnding: '\n',
     nativeHistoryScope: 'source-view'
   })

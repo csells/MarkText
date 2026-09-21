@@ -81,11 +81,36 @@ export interface MuyaMarkupView {
   readonly kind: 'view'
   /** Display-only compatibility text. Never parse or persist this value. */
   readonly markdown: string
+  /** Exact shared-projection runs locating compatibility text in editing syntax. */
+  readonly markdownSegments: readonly MuyaMarkdownSegment[]
   /** Blocks are taken from the Core syntax, never recognized from flattened arms. */
   readonly state: readonly MuyaMarkupState[]
   readonly bindings: readonly MuyaMarkupBinding[]
   readonly decorations: readonly MuyaMarkupDecoration[]
   readonly comments: readonly MuyaMarkupComment[]
+}
+
+export interface MuyaMarkdownSegment {
+  readonly syntax: SourceRange
+  readonly text: SourceRange
+}
+
+/** Coalesce only coordinate-contiguous runs; no spelling determines their positions. */
+export function appendMuyaMarkdownSegment(
+  segments: MuyaMarkdownSegment[],
+  segment: MuyaMarkdownSegment
+): void {
+  const last = segments.at(-1)
+  if (
+    last !== undefined &&
+    last.syntax.end === segment.syntax.start &&
+    last.text.end === segment.text.start
+  ) {
+    segments[segments.length - 1] = {
+      syntax: { start: last.syntax.start, end: segment.syntax.end },
+      text: { start: last.text.start, end: segment.text.end }
+    }
+  } else segments.push(segment)
 }
 
 /** Only an owned text node can explain a non-linear display/source mapping. */
@@ -111,6 +136,13 @@ export function createMuyaNormalizedTextValidator(binding: {
       let ends = values.get(node.range.start)
       if (ends === undefined) values.set(node.range.start, (ends = new Map()))
       ends.set(node.range.end, node.attributes.semanticText)
+    }
+    if (node.kind === 'code-block') {
+      for (const spelling of node.semanticTextSegments ?? []) {
+        let ends = values.get(spelling.range.start)
+        if (ends === undefined) values.set(spelling.range.start, (ends = new Map()))
+        ends.set(spelling.range.end, spelling.value)
+      }
     }
     node.children.forEach(visit)
   }
@@ -225,6 +257,34 @@ export function createMuyaMarkupView(
   canonicalSource?: string
 ): MuyaMarkupView {
   const sourceEvents = projection.events.filter((event) => event.kind === 'text')
+  const markdownSegments: MuyaMarkdownSegment[] = []
+  const sourceRuns = projection.syntax.coordinates.sourceSegments ?? []
+  let markdownOffset = 0
+  let runIndex = 0
+  for (const event of sourceEvents) {
+    while (
+      runIndex < sourceRuns.length &&
+      sourceRuns[runIndex].source.end <= event.sourceRange.start
+    ) { runIndex += 1 }
+    for (let index = runIndex; index < sourceRuns.length; index += 1) {
+      const run = sourceRuns[index]
+      if (run.source.start >= event.sourceRange.end) break
+      const start = Math.max(run.source.start, event.sourceRange.start)
+      const end = Math.min(run.source.end, event.sourceRange.end)
+      if (start >= end) continue
+      appendMuyaMarkdownSegment(markdownSegments, {
+        syntax: {
+          start: run.projected.start + start - run.source.start,
+          end: run.projected.start + end - run.source.start
+        },
+        text: {
+          start: markdownOffset + start - event.sourceRange.start,
+          end: markdownOffset + end - event.sourceRange.start
+        }
+      })
+    }
+    markdownOffset += event.text.length
+  }
   const sourceText = (start: number, end: number): string =>
     sourceEvents
       .flatMap((event) => {
@@ -236,6 +296,20 @@ export function createMuyaMarkupView(
       })
       .join('')
   const sourceCharacter = (offset: number): string => sourceText(offset, offset + 1)
+  let sourceLineStarts: readonly { source: number; projected: number }[] | undefined
+  const lineStartsWithin = (range: SourceRange): readonly number[] => {
+    // Each canonical event line is mapped once for this view. Structural leaves
+    // share that coordinate index rather than re-scanning the whole document.
+    sourceLineStarts ??= sourceEvents.flatMap((event) =>
+      [...event.text.matchAll(/\r\n|\r|\n/gu)].map((match) => {
+        const source = event.sourceRange.start + match.index + match[0].length
+        return { source, projected: projection.syntax.coordinates.toProjected(source, 'next') }
+      })
+    )
+    return sourceLineStarts
+      .filter((line) => line.projected > range.start && line.projected < range.end)
+      .map((line) => line.source)
+  }
   const continuations = new Map<string, Readonly<{ prefix: string; lineEnding: string }>>()
   const taskContentStarts = new Map<string, number>()
   const blocks = projection.syntax.ast.root.children
@@ -274,15 +348,7 @@ export function createMuyaMarkupView(
         )
           ? {}
           : {
-            lineStarts: sourceEvents.flatMap((event) =>
-              [...event.text.matchAll(/\r\n|\r|\n/gu)].flatMap((match) => {
-                const offset = event.sourceRange.start + match.index + match[0].length
-                const projected = projection.syntax.coordinates.toProjected(offset, 'next')
-                return projected > syntax.range.start && projected < syntax.range.end
-                  ? [offset]
-                  : []
-              })
-            )
+            lineStarts: lineStartsWithin(syntax.range)
           }),
         ...(syntax.kind !== 'table'
           ? {}
@@ -318,9 +384,13 @@ export function createMuyaMarkupView(
           lineStart > 0 &&
           sourceCharacter(lineStart - 1) !== '\n' &&
           sourceCharacter(lineStart - 1) !== '\r'
-        ) { lineStart -= 1 }
+        ) {
+          lineStart -= 1
+        }
         let sourceEnd = projection.syntax.coordinates.toSource(syntax.range.end, 'previous')
-        while (sourceCharacter(sourceEnd) === ' ' || sourceCharacter(sourceEnd) === '\t') { sourceEnd += 1 }
+        while (sourceCharacter(sourceEnd) === ' ' || sourceCharacter(sourceEnd) === '\t') {
+          sourceEnd += 1
+        }
         const lineEnding =
           sourceCharacter(sourceEnd) === '\r' && sourceCharacter(sourceEnd + 1) === '\n'
             ? '\r\n'
@@ -463,7 +533,7 @@ export function createMuyaMarkupView(
           'code-block',
           {
             type: attrs.provider === 'fenced-code' ? 'fenced' : 'indented',
-            lang: String(attrs.semanticInfo ?? attrs.info ?? '')
+            lang: String(attrs.infoInputValue ?? attrs.semanticInfo ?? attrs.info ?? '')
           },
           contentRange()
         )
@@ -489,7 +559,9 @@ export function createMuyaMarkupView(
     for (let offset = 0; offset < event.text.length; offset += 1) {
       const source = event.sourceRange.start + offset
       const syntax = projection.syntax.coordinates.toProjected(source, 'next')
-      while (blockIndex < builders.length && syntax >= builders[blockIndex].range.end) { blockIndex += 1 }
+      while (blockIndex < builders.length && syntax >= builders[blockIndex].range.end) {
+        blockIndex += 1
+      }
       const builder = builders[blockIndex]
       if (builder === undefined || syntax < builder.range.start) continue
       if (
@@ -498,7 +570,9 @@ export function createMuyaMarkupView(
         !builder.syntax.children.some(
           (child) => child.range.start <= syntax && syntax < child.range.end
         )
-      ) { continue }
+      ) {
+        continue
+      }
       const text = builder.text.length
       builder.text += event.text[offset]
       const last = builder.segments.at(-1)
@@ -526,15 +600,21 @@ export function createMuyaMarkupView(
       !['code-block', 'math-block', 'diagram', 'html-block', 'front-matter'].includes(
         builder.syntax.kind
       )
-    ) { continue }
+    ) {
+      continue
+    }
     let desired = ''
     const retained: Array<SourceRange & { normalizedText?: string }> = []
     let emptyPosition: number | undefined
     // Literal payload spelling and indentation belong to the common parser.
     // Adapt its literal children to the existing widget's source segments.
-    if (builder.syntax.children.length === 0) { throw new Error('Core literal payload nodes are missing') }
+    if (builder.syntax.children.length === 0) {
+      throw new Error('Core literal payload nodes are missing')
+    }
     for (const child of builder.syntax.children) {
-      if (child.kind !== 'text' && child.kind !== 'soft-break') { throw new Error('Core literal payload must be literal text') }
+      if (child.kind !== 'text' && child.kind !== 'soft-break') {
+        throw new Error('Core literal payload must be literal text')
+      }
       const text = child.kind === 'soft-break' ? '\n' : child.attributes.semanticText
       if (typeof text !== 'string') throw new Error('Core literal text value is missing')
       desired += text
@@ -549,7 +629,9 @@ export function createMuyaMarkupView(
       const last = builder.segments.find(
         (segment) => segment.syntax.start < child.range.end && child.range.end <= segment.syntax.end
       )
-      if (first === undefined || last === undefined) { throw new Error('Core literal payload source mapping is incomplete') }
+      if (first === undefined || last === undefined) {
+        throw new Error('Core literal payload source mapping is incomplete')
+      }
       const start = first.text.start + child.range.start - first.syntax.start
       const end = last.text.end - last.syntax.end + child.range.end
       retained.push({
@@ -568,7 +650,9 @@ export function createMuyaMarkupView(
         const last = builder.segments.find(
           (segment) => segment.text.start < range.end && segment.text.end >= range.end
         )
-        if (first === undefined || last === undefined) { throw new Error('Core literal normalized source mapping is incomplete') }
+        if (first === undefined || last === undefined) {
+          throw new Error('Core literal normalized source mapping is incomplete')
+        }
         segments.push({
           text: { start: textOffset, end: textOffset + range.normalizedText.length },
           source: {
@@ -671,6 +755,50 @@ export function createMuyaMarkupView(
       }
     })
   )
+  // Each editable widget field is a typed binding to its parser-owned value.
+  // Retain the existing body bindings and add the fence's distinct info field.
+  const infoBindings = new Map<MuyaMarkupPath, MuyaMarkupBinding>()
+  for (const builder of builders) {
+    const { infoStart, infoEnd, infoInputValue } = builder.syntax.attributes
+    if (
+      builder.state.name !== 'code-block' ||
+      builder.syntax.attributes.provider !== 'fenced-code' ||
+      typeof infoStart !== 'number' ||
+      typeof infoEnd !== 'number' ||
+      typeof infoInputValue !== 'string'
+    ) { continue }
+    const segments: MuyaMarkupSourceSegment[] = []
+    let syntaxOffset = infoStart
+    let textOffset = 0
+    const append = (end: number, value?: string) => {
+      const length = value?.length ?? end - syntaxOffset
+      segments.push({
+        text: { start: textOffset, end: textOffset + length },
+        syntax: { start: syntaxOffset, end },
+        source: {
+          start: projection.syntax.coordinates.toSource(syntaxOffset, 'next'),
+          end: projection.syntax.coordinates.toSource(end, 'previous')
+        }
+      })
+      textOffset += length
+      syntaxOffset = end
+    }
+    for (const spelling of builder.syntax.semanticTextSegments ?? []) {
+      if (syntaxOffset < spelling.range.start) append(spelling.range.start)
+      append(spelling.range.end, spelling.value)
+    }
+    if (syntaxOffset < infoEnd || segments.length === 0) append(infoEnd)
+    infoBindings.set(builder.path, {
+      path: [...builder.path.slice(0, -1), 'meta', 'lang'],
+      syntax: builder.syntax,
+      text: infoInputValue,
+      segments,
+      sourceRange: {
+        start: projection.syntax.coordinates.toSource(infoStart, 'next'),
+        end: projection.syntax.coordinates.toSource(infoEnd, 'previous')
+      }
+    })
+  }
   const visibleAnnotations: CriticMarkupAnnotation[] = []
   const annotationQueue = [...annotations].reverse()
   while (annotationQueue.length > 0) {
@@ -724,7 +852,9 @@ export function createMuyaMarkupView(
               segment.source.start <= sourcePosition && sourcePosition <= segment.source.end
           )
         )
-      ) { return [] }
+      ) {
+        return []
+      }
       const { binding, offset } = visiblePoint(sourcePosition)
       return [{ path: binding.path, range: { start: offset, end: offset }, mark, sourcePosition }]
     })
@@ -779,7 +909,9 @@ export function createMuyaMarkupView(
       visibleAnnotations.some(
         (annotation) => annotation.range.start < range.end && annotation.range.end > range.start
       )
-    ) { continue }
+    ) {
+      continue
+    }
     const source = sourceText(range.start, range.end)
     if (source.length === range.end - range.start) {
       const followingEnd = projection.syntax.coordinates.toSource(
@@ -824,21 +956,27 @@ export function createMuyaMarkupView(
       })
     }
   }
+  const orderedBindings = builders.flatMap((builder, index) => {
+    const body = bindings[index]
+    const info = infoBindings.get(builder.path)
+    return info === undefined ? [body] : [body, info]
+  })
   const structuralOwners = new Set<number>()
   return {
     kind: 'view',
     markdown: projection.events
       .flatMap((event) => (event.kind === 'text' ? [event.text] : []))
       .join(''),
+    markdownSegments,
     state,
-    bindings: bindings.map((binding, bindingIndex) => {
+    bindings: orderedBindings.map((binding, bindingIndex) => {
       const index = binding.path[0] as number
       const outerBlock = structuralOwners.has(index) ? undefined : outerBlocks.get(index)
       const sourceStructure = structuralOwners.has(index) ? undefined : sourceStructures.get(index)
       structuralOwners.add(index)
       return {
         ...binding,
-        ...(bindingIndex === bindings.length - 1 ? { documentEnd } : {}),
+        ...(bindingIndex === orderedBindings.length - 1 ? { documentEnd } : {}),
         ...(paragraphPrefixes.has(index)
           ? { paragraphPrefixPosition: paragraphPrefixes.get(index) }
           : {}),

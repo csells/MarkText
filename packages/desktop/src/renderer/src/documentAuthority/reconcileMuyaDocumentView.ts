@@ -1,4 +1,6 @@
 import type { Muya } from '@muyajs/core'
+import type { DocumentSelection } from '@marktext/document-core'
+import type { MuyaMarkupView } from './muyaMarkupView'
 import isEqual from 'lodash/isEqual'
 
 import type { CoreAppliedReply } from './coreProtocol'
@@ -10,84 +12,33 @@ import type {
   MuyaPlainTextSourceBinding
 } from './muyaPlainTextCoreAdapter'
 
-/** Installs an acknowledged native view and restores its document selection. */
-export function reconcileMuyaDocumentView({
-  muya,
-  view,
-  outcome,
-  sourcePosition,
-  dirtyPaths,
-  applyEditability
-}: {
-  muya: Muya
-  view: MuyaPlainTextViewResult
-  outcome: CoreAppliedReply
-  sourcePosition?: (point: MuyaPlainTextAuthorSelection['focus']) => number | undefined
-  dirtyPaths: Iterable<readonly (string | number)[]>
-  applyEditability: (bindings: readonly MuyaPlainTextSourceBinding[]) => void
-}): void {
-  const selection = muya.getSelection()
-  const clipboardSelection = outcome.clipboardResult?.selection
-  const formatSelection = outcome.formatResult?.selection
-  const documentSelection =
-    outcome.historyResult?.selection ??
-    outcome.inputResult?.selection ??
-    clipboardSelection ??
-    formatSelection
-  const primaryRange =
-    documentSelection !== undefined && 'ranges' in documentSelection
-      ? documentSelection.ranges[documentSelection.primary]
-      : undefined
-  const cellSelection = documentSelection?.kind === 'table-cell' ? documentSelection : undefined
-  const modelTextSelection =
-    documentSelection?.kind === 'model-text' ? documentSelection : undefined
-  const inputSelection =
-    (primaryRange === undefined
-      ? undefined
-      : { start: primaryRange.anchor, end: primaryRange.focus }) ?? outcome.authorResult?.selection
-  const reconciledAnchor =
-    inputSelection?.start ?? (selection === null ? undefined : sourcePosition?.(selection.anchor))
-  const reconciledFocus =
-    inputSelection?.end ?? (selection === null ? undefined : sourcePosition?.(selection.focus))
-  // A native structural command may differ only in container metadata (for
-  // example a one-item list's loose flag). Replacing that presentation must
-  // retain the native caret when both endpoint leaves still have the same text.
-  const retainSelection =
-    selection !== null &&
-    [selection.anchor, selection.focus].every((endpoint) =>
-      view.bindings.some(
-        (binding) =>
-          isEqual(binding.path, endpoint.path) &&
-          binding.text === endpoint.block.text &&
-          endpoint.offset <= binding.text.length
-      )
-    )
-  const unchanged = 'state' in view && isEqual(muya.getState(), view.state)
-  if (!unchanged) {
-    muya.setContent(
-      'state' in view
-        ? (structuredClone([...view.state]) as Parameters<Muya['setContent']>[0])
-        : view.markdown,
-      false,
-      {
-        preserveInputGrouping: true
-      }
-    )
-  }
-  applyEditability(view.bindings)
-  if (unchanged) {
-    // Native composition can mutate browser DOM without changing the view state.
-    // A same-source input result (including cancellation) must reinstall that
-    // acknowledged presentation before restoring its model-owned selection.
-    const paths =
-      outcome.inputResult === undefined ? dirtyPaths : view.bindings.map((binding) => binding.path)
-    for (const path of paths) {
-      const block = muya.editor.scrollPage?.queryBlock([...path])
-      if (block?.isContent()) block.update()
+/** Restores the same model positions for edits, history and view handoff. */
+export function restoreMuyaDocumentSelection(
+  muya: Muya,
+  view: MuyaMarkupView,
+  documentSelection: DocumentSelection,
+  options: { projectSource?: boolean } = {}
+): void {
+  if (options.projectSource && 'ranges' in documentSelection) {
+    const { projectSourcePoint } = createMuyaModelSelection(muya, view)
+    documentSelection = {
+      ...documentSelection,
+      ranges: documentSelection.ranges.map(({ anchor, focus }) => ({
+        anchor: projectSourcePoint(anchor),
+        focus: projectSourcePoint(focus)
+      }))
     }
   }
+  const primaryRange =
+    'ranges' in documentSelection ? documentSelection.ranges[documentSelection.primary] : undefined
+  const inputSelection =
+    primaryRange === undefined ? undefined : { start: primaryRange.anchor, end: primaryRange.focus }
+  const cellSelection = documentSelection.kind === 'table-cell' ? documentSelection : undefined
+  const modelTextSelection = documentSelection.kind === 'model-text' ? documentSelection : undefined
   if (documentSelection?.kind === 'table') {
-    if (!('state' in view)) { throw new Error('Core table selection requires its model-owned native projection') }
+    if (!('state' in view)) {
+      throw new Error('Core table selection requires its model-owned native projection')
+    }
     const minRow = Math.min(documentSelection.anchor.row, documentSelection.focus.row)
     const maxRow = Math.max(documentSelection.anchor.row, documentSelection.focus.row)
     const minColumn = Math.min(documentSelection.anchor.column, documentSelection.focus.column)
@@ -105,8 +56,12 @@ export function reconcileMuyaDocumentView({
         )
         const block = binding && muya.editor.scrollPage?.queryBlock([...binding.path])
         const node = block?.isContent() ? block.domNode : undefined
-        if (!node?.isConnected) { throw new Error('The accepted model table selection has no native cell boundary') }
-        if (row === documentSelection.anchor.row && column === documentSelection.anchor.column) { primary = ranges.length }
+        if (!node?.isConnected) {
+          throw new Error('The accepted model table selection has no native cell boundary')
+        }
+        if (row === documentSelection.anchor.row && column === documentSelection.anchor.column) {
+          primary = ranges.length
+        }
         ranges.push({
           anchor: { node, offset: 0 },
           focus: { node, offset: node.childNodes.length }
@@ -173,6 +128,82 @@ export function reconcileMuyaDocumentView({
       throw new Error('The accepted model selection has no rendered native boundary')
     }
     muya.editor.selection.setDOMSelection(anchor, focus)
+  }
+}
+
+/** Installs an acknowledged native view and restores its document selection. */
+export function reconcileMuyaDocumentView({
+  muya,
+  view,
+  outcome,
+  sourcePosition,
+  dirtyPaths,
+  applyEditability
+}: {
+  muya: Muya
+  view: MuyaPlainTextViewResult
+  outcome: CoreAppliedReply
+  sourcePosition?: (point: MuyaPlainTextAuthorSelection['focus']) => number | undefined
+  dirtyPaths: Iterable<readonly (string | number)[]>
+  applyEditability: (bindings: readonly MuyaPlainTextSourceBinding[]) => void
+}): void {
+  const selection = muya.getSelection()
+  const clipboardSelection = outcome.clipboardResult?.selection
+  const formatSelection = outcome.formatResult?.selection
+  const documentSelection =
+    outcome.historyResult?.selection ??
+    outcome.inputResult?.selection ??
+    clipboardSelection ??
+    formatSelection
+  const primaryRange =
+    documentSelection !== undefined && 'ranges' in documentSelection
+      ? documentSelection.ranges[documentSelection.primary]
+      : undefined
+  const inputSelection =
+    (primaryRange === undefined
+      ? undefined
+      : { start: primaryRange.anchor, end: primaryRange.focus }) ?? outcome.authorResult?.selection
+  const reconciledAnchor =
+    inputSelection?.start ?? (selection === null ? undefined : sourcePosition?.(selection.anchor))
+  const reconciledFocus =
+    inputSelection?.end ?? (selection === null ? undefined : sourcePosition?.(selection.focus))
+  // A native structural command may differ only in container metadata (for
+  // example a one-item list's loose flag). Replacing that presentation must
+  // retain the native caret when both endpoint leaves still have the same text.
+  const retainSelection =
+    selection !== null &&
+    [selection.anchor, selection.focus].every((endpoint) =>
+      view.bindings.some(
+        (binding) =>
+          isEqual(binding.path, endpoint.path) &&
+          binding.text === endpoint.block.text &&
+          endpoint.offset <= binding.text.length
+      )
+    )
+  const unchanged = 'state' in view && !muya.reconcileContent(view.state)
+  if (!('state' in view)) muya.setContent(view.markdown, false, { preserveInputGrouping: true })
+  applyEditability(view.bindings)
+  // A retained root can have changed inline meaning without changed native
+  // state, such as a reference resolved by an edited definition elsewhere.
+  // Native composition can also mutate DOM without changing the view state.
+  const paths =
+    unchanged && outcome.inputResult !== undefined
+      ? view.bindings.map((binding) => binding.path)
+      : dirtyPaths
+  for (const path of paths) {
+    const block = muya.editor.scrollPage?.queryBlock([...path])
+    if (block?.isContent()) block.update()
+  }
+  if (documentSelection !== undefined || inputSelection !== undefined) {
+    if (!('state' in view)) { throw new Error('Core selection requires its model-owned native projection') }
+    restoreMuyaDocumentSelection(
+      muya,
+      view,
+      documentSelection ?? {
+        ranges: [{ anchor: inputSelection!.start, focus: inputSelection!.end }],
+        primary: 0
+      }
+    )
   } else if (retainSelection && selection !== null) {
     const anchorBlock = muya.editor.scrollPage?.queryBlock([...selection.anchor.path])
     const focusBlock = muya.editor.scrollPage?.queryBlock([...selection.focus.path])

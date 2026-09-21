@@ -10,6 +10,7 @@ import type { CoreAppliedReply } from '@/documentAuthority/coreProtocol'
 import { createMuyaMarkupPresentationIndex } from '@/documentAuthority/muyaMarkupPresentationIndex'
 import {
   muyaActiveFormats,
+  muyaCodeLanguage,
   muyaFormatToModel,
   muyaInputToModel
 } from '@/documentAuthority/muyaModelSelection'
@@ -26,7 +27,9 @@ describe('native fence input on the common model', () => {
     const binding = createEditorCoreBinding(owner)
     binding.open({ documentId: 'native-fence.md', source: '\n' })
     const initial = binding.plainTextViewAtBarrier()
-    if (initial.type !== 'plain-text-view' || !('state' in initial.view)) { throw new Error('Missing Core view') }
+    if (initial.type !== 'plain-text-view' || !('state' in initial.view)) {
+      throw new Error('Missing Core view')
+    }
     let currentView = initial.view
     let presentation = createMuyaMarkupPresentationIndex(initial.view)
     const host = document.createElement('div')
@@ -34,7 +37,9 @@ describe('native fence input on the common model', () => {
     const muya = new Muya(host, { autoPairMarkdownSyntax: false })
     const reconcile = (outcome: CoreAppliedReply) => {
       const next = binding.plainTextViewAtBarrier()
-      if (next.type !== 'plain-text-view' || !('state' in next.view)) { throw new Error('Missing Core view') }
+      if (next.type !== 'plain-text-view' || !('state' in next.view)) {
+        throw new Error('Missing Core view')
+      }
       currentView = next.view
       presentation = createMuyaMarkupPresentationIndex(next.view, presentation)
       muya.setInlinePresentation(presentation.render)
@@ -66,6 +71,8 @@ describe('native fence input on the common model', () => {
         prepareClipboard() {
           throw new Error('Unexpected async clipboard preparation in this test')
         },
+        emojiContext: () => undefined,
+        codeLanguage: (point) => muyaCodeLanguage(muya, currentView, point),
         activeFormats: (selection) => muyaActiveFormats(muya, currentView, selection),
         clipboard() {
           throw new Error('Unexpected clipboard action in this input test')

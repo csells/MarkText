@@ -259,6 +259,7 @@ export function copyFormatAction(action: DocumentFormatAction): DocumentFormatAc
     })
     : Object.freeze({
       ...action,
+      ...(action.image === undefined ? {} : { image: Object.freeze({ ...action.image }) }),
       selection: copyDocumentSelection(action.selection, Number.MAX_SAFE_INTEGER)
     })
 }
@@ -328,17 +329,23 @@ export function createEditorCoreBinding(port: CoreModelOwner): EditorCoreBinding
           ? Object.freeze({ ...selection })
           : copyDocumentSelection(selection, Number.MAX_SAFE_INTEGER)
       const reply = selectionRequest({ type: 'retain-selection', selection: copied })
-      if (reply.type !== 'retained-selection' && reply.type !== 'rejected') { throw new Error('Core retained selection reply is invalid') }
+      if (reply.type !== 'retained-selection' && reply.type !== 'rejected') {
+        throw new Error('Core retained selection reply is invalid')
+      }
       return reply
     },
     retainedSelectionAtBarrier(id: string) {
       const reply = selectionRequest({ type: 'read-retained-selection', id })
-      if (reply.type !== 'retained-selection' && reply.type !== 'rejected') { throw new Error('Core retained selection reply is invalid') }
+      if (reply.type !== 'retained-selection' && reply.type !== 'rejected') {
+        throw new Error('Core retained selection reply is invalid')
+      }
       return reply
     },
     releaseSelection(id: string) {
       const reply = selectionRequest({ type: 'release-selection', id })
-      if (reply.type !== 'selection-released' && reply.type !== 'rejected') { throw new Error('Core released selection reply is invalid') }
+      if (reply.type !== 'selection-released' && reply.type !== 'rejected') {
+        throw new Error('Core released selection reply is invalid')
+      }
       return reply
     },
     mode: 'core',
@@ -483,55 +490,77 @@ export function createEditorCoreBinding(port: CoreModelOwner): EditorCoreBinding
                       session,
                       sequence: transactionId,
                       baseRevision: revision,
-                      action: Object.freeze({
-                        ...input.action,
-                        ...('range' in input.action
-                          ? {
-                            range:
-                                  'kind' in input.action.range
+                      action:
+                          'kind' in input.action && input.action.command === 'moveText'
+                            ? Object.freeze({
+                              ...input.action,
+                              target:
+                                  'kind' in input.action.target
                                     ? copyDocumentSelection(
-                                      input.action.range,
+                                      input.action.target,
                                       Number.MAX_SAFE_INTEGER
                                     )
-                                    : Object.freeze({ ...input.action.range })
-                          }
-                          : {}),
-                        ...('change' in input.action
-                          ? input.action.command === 'changeList'
-                            ? {
-                              command: input.action.command,
-                              change: Object.freeze({ ...input.action.change }),
-                              listOptions: Object.freeze({ ...input.action.listOptions })
-                            }
-                            : input.action.command === 'changeHeading'
-                              ? {
-                                command: input.action.command,
-                                change: Object.freeze({ ...input.action.change })
-                              }
-                              : input.action.command === 'changeBlockquote'
-                                ? {
-                                  command: input.action.command,
-                                  change: Object.freeze({ ...input.action.change })
-                                }
-                                : {
-                                  command: input.action.command,
-                                  change: Object.freeze({ ...input.action.change })
-                                }
-                          : {}),
-                        ...('target' in input.action
-                          ? {
-                            target: Object.freeze({
-                              ...input.action.target,
-                              table: Object.freeze({ ...input.action.target.table })
+                                    : Object.freeze({ ...input.action.target }),
+                              selection: copyDocumentSelection(
+                                input.action.selection,
+                                Number.MAX_SAFE_INTEGER
+                              ),
+                              options: Object.freeze({ ...input.action.options })
                             })
-                          }
-                          : {}),
-                        selection: copyDocumentSelection(
-                          input.action.selection,
-                          Number.MAX_SAFE_INTEGER
-                        ),
-                        options: Object.freeze({ ...input.action.options })
-                      }),
+                            : Object.freeze({
+                              ...input.action,
+                              ...('range' in input.action
+                                ? {
+                                  range:
+                                        'kind' in input.action.range
+                                          ? copyDocumentSelection(
+                                            input.action.range,
+                                            Number.MAX_SAFE_INTEGER
+                                          )
+                                          : Object.freeze({ ...input.action.range })
+                                }
+                                : {}),
+                              ...('change' in input.action
+                                ? input.action.command === 'changeList'
+                                  ? {
+                                    command: input.action.command,
+                                    change: Object.freeze({ ...input.action.change }),
+                                    listOptions: Object.freeze({ ...input.action.listOptions })
+                                  }
+                                  : input.action.command === 'changeHeading'
+                                    ? {
+                                      command: input.action.command,
+                                      change: Object.freeze({ ...input.action.change })
+                                    }
+                                    : input.action.command === 'changeBlock'
+                                      ? {
+                                        command: input.action.command,
+                                        change: Object.freeze({ ...input.action.change })
+                                      }
+                                      : input.action.command === 'changeBlockquote'
+                                        ? {
+                                          command: input.action.command,
+                                          change: Object.freeze({ ...input.action.change })
+                                        }
+                                        : {
+                                          command: input.action.command,
+                                          change: Object.freeze({ ...input.action.change })
+                                        }
+                                : {}),
+                              ...('target' in input.action
+                                ? {
+                                  target: Object.freeze({
+                                    ...input.action.target,
+                                    table: Object.freeze({ ...input.action.target.table })
+                                  })
+                                }
+                                : {}),
+                              selection: copyDocumentSelection(
+                                input.action.selection,
+                                Number.MAX_SAFE_INTEGER
+                              ),
+                              options: Object.freeze({ ...input.action.options })
+                            }),
                       tracked: input.tracked,
                       ...(input.nativeHistoryGroup === undefined
                         ? {}
@@ -746,7 +775,9 @@ export function createEditorCoreBinding(port: CoreModelOwner): EditorCoreBinding
           selection: copyDocumentSelection(selection, Number.MAX_SAFE_INTEGER)
         })
       )
-      if (reply.type !== 'source-selection' && reply.type !== 'rejected') { throw new Error('Core source selection barrier reply is invalid') }
+      if (reply.type !== 'source-selection' && reply.type !== 'rejected') {
+        throw new Error('Core source selection barrier reply is invalid')
+      }
       return reply
     },
     sourceSyntaxAtBarrier(): CoreSourceSyntaxReply | CoreRejectedReply {
