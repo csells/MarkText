@@ -40,6 +40,7 @@ import type {
   UnsavedFile
 } from '@shared/types/files'
 import { prepareWindowClose } from '../../windows/prepareClose'
+import { withSaveDestination } from '../../windows/saveDestination'
 
 type Win = BrowserWindow | null | undefined
 
@@ -273,7 +274,8 @@ const handleResponseForSave = async(
   markdown: string,
   options: UnsavedFile['options'],
   defaultPath?: string,
-  saveIdentity?: DocumentSaveIdentity | null
+  saveIdentity?: DocumentSaveIdentity | null,
+  saveAs: boolean = false
 ): Promise<string | { id: string; saveIdentity: DocumentSaveIdentity } | void> => {
   const win = BrowserWindow.fromWebContents(e.sender)
   if (!win) {
@@ -291,13 +293,16 @@ const handleResponseForSave = async(
 
   let filePath = pathname
 
-  if (!filePath) {
+  if (!filePath || saveAs) {
     const { filePath: dialogPath, canceled } = await dialog.showSaveDialog(win, {
-      defaultPath: path.join(defaultPath || getPath('documents'), `${recommendFilename}.md`)
+      defaultPath:
+        pathname || path.join(defaultPath || getPath('documents'), `${recommendFilename}.md`)
     })
 
     if (dialogPath && !canceled) {
       filePath = dialogPath
+    } else {
+      return
     }
   }
 
@@ -315,32 +320,48 @@ const handleResponseForSave = async(
   // requires the strict `MarkdownDocumentOptions` shape — the renderer always
   // populates every field for the unsaved-file dialog payload, so the cast
   // is safe at this seam.
-  return writeMarkdownFile(filePath, markdown, options as Parameters<typeof writeMarkdownFile>[2])
-    .then(() => {
-      if (!alreadyExistOnDisk) {
-        ipcMain.emit('window-add-file-path', win.id, filePath)
-        ipcMain.emit('menu-add-recently-used', filePath)
+  return withSaveDestination(filePath, pathname, () =>
+    writeMarkdownFile(filePath, markdown, options as Parameters<typeof writeMarkdownFile>[2]).then(
+      () => {
+        if (!alreadyExistOnDisk) {
+          ipcMain.emit('window-add-file-path', win.id, filePath)
+          ipcMain.emit('menu-add-recently-used', filePath)
 
-        const newFilename = path.basename(filePath!)
-        win.webContents.send('mt::set-pathname', {
-          id,
-          pathname: filePath,
-          filename: newFilename,
-          saveIdentity,
-          ...(saveIdentity ? { savedSource: markdown } : {})
-        })
-      } else {
-        ipcMain.emit('window-file-saved', win.id, filePath)
-        win.webContents.send('mt::tab-saved', id, saveIdentity, ...(saveIdentity ? [markdown] : []))
+          const newFilename = path.basename(filePath!)
+          win.webContents.send('mt::set-pathname', {
+            id,
+            pathname: filePath,
+            filename: newFilename,
+            saveIdentity,
+            ...(saveIdentity ? { savedSource: markdown } : {})
+          })
+        } else if (pathname !== filePath) {
+          ipcMain.emit('window-change-file-path', win.id, filePath, pathname)
+          win.webContents.send('mt::set-pathname', {
+            id,
+            pathname: filePath,
+            filename: path.basename(filePath),
+            saveIdentity,
+            ...(saveIdentity ? { savedSource: markdown } : {})
+          })
+        } else {
+          ipcMain.emit('window-file-saved', win.id, filePath)
+          win.webContents.send(
+            'mt::tab-saved',
+            id,
+            saveIdentity,
+            ...(saveIdentity ? [markdown] : [])
+          )
+        }
+        return saveIdentity === undefined || saveIdentity === null ? id : { id, saveIdentity }
       }
-      return saveIdentity === undefined || saveIdentity === null ? id : { id, saveIdentity }
-    })
-    .catch((err: unknown) => {
-      log.error('Error while saving:', err)
-      const msg = err instanceof Error ? err.message : String(err)
-      win.webContents.send('mt::tab-save-failure', id, msg)
-      throw err
-    })
+    )
+  ).catch((err: unknown) => {
+    log.error('Error while saving:', err)
+    const msg = err instanceof Error ? err.message : String(err)
+    win.webContents.send('mt::tab-save-failure', id, msg)
+    throw err
+  })
 }
 
 const showUnsavedFilesMessage = async(
@@ -471,69 +492,17 @@ ipcMain.on(
     defaultPath?: string,
     saveIdentity?: DocumentSaveIdentity | null
   ) => {
-    const win = BrowserWindow.fromWebContents(e.sender)
-    if (!win) {
-      return
-    }
-    let recommendFilename = getRecommendTitleFromMarkdownString(markdown)
-    if (!recommendFilename) {
-      recommendFilename = filename || 'Untitled'
-    }
-
-    // If the file doesn't exist on disk add it to the recently used documents later
-    // and execute file from filesystem watcher for a short time. The file may exists
-    // on disk nevertheless but is already tracked by MarkText.
-    const alreadyExistOnDisk = !!pathname
-
-    let { filePath, canceled } = await dialog.showSaveDialog(win, {
-      defaultPath:
-        pathname || path.join(defaultPath || getPath('documents'), `${recommendFilename}.md`)
-    })
-
-    if (filePath && !canceled) {
-      filePath = path.resolve(filePath)
-      writeMarkdownFile(filePath, markdown, options as Parameters<typeof writeMarkdownFile>[2])
-        .then(() => {
-          if (!alreadyExistOnDisk) {
-            ipcMain.emit('window-add-file-path', win.id, filePath)
-            ipcMain.emit('menu-add-recently-used', filePath)
-
-            const newFilename = path.basename(filePath!)
-            win.webContents.send('mt::set-pathname', {
-              id,
-              pathname: filePath,
-              filename: newFilename,
-              saveIdentity,
-              ...(saveIdentity ? { savedSource: markdown } : {})
-            })
-          } else if (pathname !== filePath) {
-            // Update window file list and watcher.
-            ipcMain.emit('window-change-file-path', win.id, filePath, pathname)
-
-            const newFilename = path.basename(filePath!)
-            win.webContents.send('mt::set-pathname', {
-              id,
-              pathname: filePath,
-              filename: newFilename,
-              saveIdentity,
-              ...(saveIdentity ? { savedSource: markdown } : {})
-            })
-          } else {
-            ipcMain.emit('window-file-saved', win.id, filePath)
-            win.webContents.send(
-              'mt::tab-saved',
-              id,
-              saveIdentity,
-              ...(saveIdentity ? [markdown] : [])
-            )
-          }
-        })
-        .catch((err: unknown) => {
-          log.error('Error while save as:', err)
-          const msg = err instanceof Error ? err.message : String(err)
-          win.webContents.send('mt::tab-save-failure', id, msg)
-        })
-    }
+    await handleResponseForSave(
+      e,
+      id,
+      filename,
+      pathname,
+      markdown,
+      options,
+      defaultPath,
+      saveIdentity,
+      true
+    ).catch(() => {})
   }
 )
 
@@ -581,7 +550,9 @@ const handleWindowClose = async(e: IpcMainEvent, unsavedFiles?: UnsavedFile[]): 
         )
         const failure = results.find((result) => result.status === 'rejected')
         if (failure?.status === 'rejected') throw failure.reason
-        if (results.some((result) => result.status === 'fulfilled' && result.value === undefined)) { return }
+        if (results.some((result) => result.status === 'fulfilled' && result.value === undefined)) {
+          return
+        }
       } catch (error) {
         log.error('Error while saving before quit:', error)
         const { response } = await dialog.showMessageBox(win, {
@@ -618,7 +589,9 @@ const handleWindowClose = async(e: IpcMainEvent, unsavedFiles?: UnsavedFile[]): 
 ipcMain.on('mt::close-window-confirm', handleWindowClose)
 ipcMain.on('mt::close-window', (e) => handleWindowClose(e))
 
-ipcMain.on('mt::response-file-save', handleResponseForSave as Parameters<typeof ipcMain.on>[1])
+ipcMain.on('mt::response-file-save', async(...args: Parameters<typeof handleResponseForSave>) => {
+  await handleResponseForSave(...args).catch(() => {})
+})
 
 ipcMain.on('mt::response-export', handleResponseForExport as Parameters<typeof ipcMain.on>[1])
 
@@ -656,6 +629,35 @@ interface RenamePayload {
   newPathname: string
 }
 
+const renameOpenedFile = async(
+  win: BrowserWindow,
+  { id, pathname, newPathname }: RenamePayload
+): Promise<void> => {
+  try {
+    await withSaveDestination(newPathname, pathname, async() => {
+      await new Promise<void>((resolve, reject) => {
+        fsRename(pathname, newPathname, (error: NodeJS.ErrnoException | null) => {
+          if (error) reject(error)
+          else resolve()
+        })
+      })
+      ipcMain.emit('window-change-file-path', win.id, newPathname, pathname)
+      win.webContents.send('mt::set-pathname', {
+        id,
+        pathname: newPathname,
+        filename: path.basename(newPathname)
+      })
+    })
+  } catch (error) {
+    log.error('Cannot rename file:', error)
+    win.webContents.send('mt::show-notification', {
+      title: t('dialog.saveFailure'),
+      type: 'error',
+      message: error instanceof Error ? error.message : String(error)
+    })
+  }
+}
+
 ipcMain.on('mt::rename', async(e, { id, pathname, newPathname }: RenamePayload) => {
   if (pathname === newPathname) return
   const win = BrowserWindow.fromWebContents(e.sender)
@@ -663,24 +665,8 @@ ipcMain.on('mt::rename', async(e, { id, pathname, newPathname }: RenamePayload) 
     return
   }
 
-  const doRename = (): void => {
-    fsRename(pathname, newPathname, (err: NodeJS.ErrnoException | null) => {
-      if (err) {
-        log.error(`mt::rename: Cannot rename "${pathname}" to "${newPathname}".\n${err.stack}`)
-        return
-      }
-
-      ipcMain.emit('window-change-file-path', win.id, newPathname, pathname)
-      e.sender.send('mt::set-pathname', {
-        id,
-        pathname: newPathname,
-        filename: path.basename(newPathname)
-      })
-    })
-  }
-
   if (!(await exists(newPathname))) {
-    doRename()
+    await renameOpenedFile(win, { id, pathname, newPathname })
   } else {
     const { response } = await dialog.showMessageBox(win, {
       type: 'warning',
@@ -692,7 +678,7 @@ ipcMain.on('mt::rename', async(e, { id, pathname, newPathname }: RenamePayload) 
     })
 
     if (response === 0) {
-      doRename()
+      await renameOpenedFile(win, { id, pathname, newPathname })
     }
   }
 })
@@ -711,19 +697,7 @@ ipcMain.on(
     })
 
     if (filePath && !canceled) {
-      fsRename(pathname, filePath, (err: NodeJS.ErrnoException | null) => {
-        if (err) {
-          log.error(`mt::rename: Cannot rename "${pathname}" to "${filePath}".\n${err.stack}`)
-          return
-        }
-
-        ipcMain.emit('window-change-file-path', win.id, filePath, pathname)
-        e.sender.send('mt::set-pathname', {
-          id,
-          pathname: filePath,
-          filename: path.basename(filePath)
-        })
-      })
+      await renameOpenedFile(win, { id, pathname, newPathname: path.resolve(filePath) })
     }
   }
 )

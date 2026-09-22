@@ -23,9 +23,11 @@ const here = dirname(fileURLToPath(import.meta.url))
 const vuePath = resolve(here, '../../../src/renderer/src/components/search/index.vue')
 
 interface Bindings {
+  search: { value: HTMLInputElement | null }
   searchValue: { value: string }
   showSearch: { value: boolean }
   listenFind: () => void
+  listenReplace: () => void
 }
 
 const loadComponent = (deps: Record<string, unknown>) => {
@@ -49,7 +51,11 @@ const loadComponent = (deps: Record<string, unknown>) => {
       storeToRefs, useI18n, debounce, ArrowDown, ArrowUp, RefreshRight, Switch } = __deps
     ${js}
     return module.exports`
-  ) as (deps: Record<string, unknown>, exports: object, module: object) => {
+  ) as (
+    deps: Record<string, unknown>,
+    exports: object,
+    module: object
+  ) => {
     default: { setup: (props: unknown, ctx: { expose: () => void }) => Bindings }
   }
   const m = { exports: {} as Record<string, unknown> }
@@ -59,7 +65,9 @@ const loadComponent = (deps: Record<string, unknown>) => {
 const makeBindings = () => {
   // currentFile.searchMatches is the channel SELECTION_CHANGE writes the
   // selected text into; storeToRefs hands the component a ref to it.
-  const currentFile = ref<{ searchMatches: { matches: unknown[]; index: number; value: string } } | null>({
+  const currentFile = ref<{
+    searchMatches: { matches: unknown[]; index: number; value: string }
+  } | null>({
     searchMatches: { matches: [], index: -1, value: '' }
   })
   const deps = {
@@ -92,6 +100,20 @@ const makeBindings = () => {
 }
 
 describe('find-bar prefill from selection', () => {
+  it('Replace focuses and selects the query so the next native key edits the query', async() => {
+    const { ret, setSelection } = makeBindings()
+    setSelection('fox')
+    const input = document.createElement('input')
+    const focus = vi.spyOn(input, 'focus')
+    const select = vi.spyOn(input, 'select')
+    ret.search.value = input
+    ret.listenReplace()
+    await nextTick()
+    expect(ret.searchValue.value).toBe('fox')
+    expect(focus).toHaveBeenCalledOnce()
+    expect(select).toHaveBeenCalledOnce()
+  })
+
   it('prefills the input with the selected text when the bar opens', async() => {
     const { ret, setSelection } = makeBindings()
     setSelection('fox')

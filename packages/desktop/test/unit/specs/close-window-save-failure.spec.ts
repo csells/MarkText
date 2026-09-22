@@ -84,7 +84,10 @@ const listener = (channel: string) => {
 
 describe('mt::close-window-confirm save failure', () => {
   beforeEach(() => {
-    emit.mockClear()
+    emit.mockReset()
+    emit.mockImplementation((channel, _pathname, reply) => {
+      if (channel === 'window-check-save-destination') reply(false)
+    })
     send.mockReset()
     preparedFiles = [unsavedFile]
     send.mockImplementation((channel, requestId) => {
@@ -129,7 +132,9 @@ describe('mt::close-window-confirm save failure', () => {
       vi.useFakeTimers()
       try {
         const handler = listeners.get('mt::close-window-confirm')
-        if (handler === undefined) { throw new Error('close-window-confirm handler was not registered') }
+        if (handler === undefined) {
+          throw new Error('close-window-confirm handler was not registered')
+        }
         showSaveDialog.mockResolvedValue({ canceled: true })
         writeMarkdownFile.mockResolvedValue(undefined)
         const files = [
