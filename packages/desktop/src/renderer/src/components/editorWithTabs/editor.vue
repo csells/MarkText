@@ -2606,6 +2606,7 @@ const toSearchMatches = (result: unknown) => {
 }
 
 const handleSearch = async (payload: unknown): Promise<void> => {
+  if (sourceCode.value) return
   const { value, opt } = payload as { value: string; opt: unknown }
   if (props.coreLease !== undefined) {
     const inputEpoch = coreConsumerInputEpoch
@@ -2725,6 +2726,7 @@ const replaceCoreSearch = async (payload: unknown): Promise<void> => {
 }
 
 const handReplace = (payload: unknown) => {
+  if (sourceCode.value) return
   if (props.coreLease !== undefined) {
     replaceCoreSearch(payload).catch((error) => emit('core-fault', error))
     return
@@ -2840,6 +2842,7 @@ const scrollToElement = (selector: string) => {
 }
 
 const handleFindAction = (action: unknown) => {
+  if (sourceCode.value) return
   if (props.coreLease !== undefined) {
     const direction = action === 'prev' ? 'previous' : action
     if (direction !== 'next' && direction !== 'previous') return
@@ -3024,7 +3027,9 @@ const releaseTableDialogTarget = (target = tableDialogTarget): void => {
   if (id === undefined || target.lease === undefined) return
   try {
     const released = target.lease.binding.releaseSelection(id)
-    if (released.type !== 'selection-released') { throw new Error(`Table dialog target release was ${released.reason}`) }
+    if (released.type !== 'selection-released') {
+      throw new Error(`Table dialog target release was ${released.reason}`)
+    }
   } catch (error) {
     if (editor.value === target.muya && props.coreLease === target.lease && !coreDraftFrozen) {
       emit('core-fault', error)
@@ -3052,14 +3057,18 @@ const readTableDialogSelection = (target: NonNullable<typeof tableDialogTarget>)
     target.selectionId === undefined ||
     target.generation !== lease.identity.generation ||
     coreAcknowledgedViewRevision !== lease.identity.revision
-  ) { throw new Error('Table dialog requires the current acknowledged document view') }
+  ) {
+    throw new Error('Table dialog requires the current acknowledged document view')
+  }
   const retained = lease.binding.retainedSelectionAtBarrier(target.selectionId)
   if (
     retained.type !== 'retained-selection' ||
     retained.status !== 'ready' ||
     retained.selectionRevision !== coreAcknowledgedViewRevision ||
     'start' in retained.selection
-  ) { throw new Error('Table dialog target is no longer available') }
+  ) {
+    throw new Error('Table dialog target is no longer available')
+  }
   return { view, selection: retained.selection }
 }
 const showTableDialog = (target: NonNullable<typeof tableDialogTarget>): void => {
@@ -3087,7 +3096,9 @@ watch(
 watch(
   () => props.coreLease,
   (lease) => {
-    if (tableDialogTarget !== undefined && tableDialogTarget.lease !== lease) { releaseTableDialogTarget() }
+    if (tableDialogTarget !== undefined && tableDialogTarget.lease !== lease) {
+      releaseTableDialogTarget()
+    }
   },
   { flush: 'sync' }
 )
@@ -3130,9 +3141,13 @@ const handleEditParagraph = (type: unknown) => {
           throw new Error('Table dialog requires an acknowledged document view')
         }
         const selection = captureDocumentSelection()
-        if (selection === undefined) { throw new Error('Table dialog requires the current document selection') }
+        if (selection === undefined) {
+          throw new Error('Table dialog requires the current document selection')
+        }
         const retained = lease.binding.retainSelection(selection)
-        if (retained.type !== 'retained-selection') { throw new Error(`Table dialog target was ${retained.reason}`) }
+        if (retained.type !== 'retained-selection') {
+          throw new Error(`Table dialog target was ${retained.reason}`)
+        }
         target.selectionId = retained.id
       }
       tableDialogTarget = target
@@ -4599,7 +4614,9 @@ onMounted(() => {
   // Restore the incoming Core caret only after selection observers are live;
   // its native event also restores block-specific menu and toolbar state.
   if (props.coreLease !== undefined && props.initialDocumentSelection !== undefined) {
-    if (coreAcknowledgedMarkupView === undefined) { throw new Error('Core caret has no current model view') }
+    if (coreAcknowledgedMarkupView === undefined) {
+      throw new Error('Core caret has no current model view')
+    }
     restoreMuyaDocumentSelection(muya, coreAcknowledgedMarkupView, props.initialDocumentSelection, {
       projectSource: true
     })
