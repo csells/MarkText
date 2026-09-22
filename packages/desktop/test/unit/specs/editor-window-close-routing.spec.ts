@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events'
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { BrowserWindow } from 'electron'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type Accessor from 'main_renderer/app/accessor'
@@ -74,6 +77,7 @@ vi.mock('main_renderer/filesystem/markdown', () => ({
 }))
 vi.mock('main_renderer/spellchecker', () => ({ switchLanguage: vi.fn(), default: vi.fn() }))
 import EditorWindow, { type PendingEditorOpen } from 'main_renderer/windows/editor'
+import { withSaveDestination } from 'main_renderer/windows/saveDestination'
 import { WindowLifecycle } from 'main_renderer/windows/base'
 vi.mock('main_renderer/filesystem/watcher', () => ({
   default: class {
@@ -128,6 +132,112 @@ describe('incoming documents during window close', () => {
     mocks.emit.mockReset()
     mocks.load.mockReset()
     mocks.quit.mockReset()
+  })
+
+  it('checks Save As ownership across every editor, including pending file reads', async() => {
+    const first = makeEditor()
+    const other = makeEditor()
+    first.editor.id = 1
+    other.editor.id = 2
+    const manager = new WindowManager(
+      {
+        has: () => true,
+        addDefaultMenu: vi.fn(),
+        setActiveWindow: vi.fn(),
+        removeWindowMenu: vi.fn(),
+        updateAlwaysOnTopMenu: vi.fn()
+      },
+      first.accessor.preferences,
+      { handleClose: vi.fn() }
+    )
+    manager.add(first.editor)
+    manager.add(other.editor)
+    first.editor.addToOpenedFiles('/scratch/first.md')
+    other.editor.addToOpenedFiles('/scratch/other.md')
+    const query = mocks.listeners.get('window-check-save-destination')!
+    for (const pathname of ['/scratch/first.md', '/scratch/nested/../other.md']) {
+      const reply = vi.fn()
+      query(pathname, reply)
+      expect(reply).toHaveBeenCalledWith(true)
+    }
+    let finish!: (doc: unknown) => void
+    mocks.load.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        })
+    )
+    other.editor.openTab('/scratch/pending.md')
+    const reply = vi.fn()
+    query('/scratch/pending.md', reply)
+    expect(reply).toHaveBeenCalledWith(true)
+    finish({ pathname: '/scratch/pending.md', markdown: 'loaded' })
+    await other.editor.withPendingFilesOpened(() => {})
+    other.editor.removeFromOpenedFiles('/scratch/pending.md')
+    reply.mockClear()
+    query('/scratch/pending.md', reply)
+    expect(reply).toHaveBeenCalledWith(false)
+  })
+
+  it('does not open a second owner while another editor is saving to a new destination', async() => {
+    const { editor } = makeEditor()
+    const { editor: other, send } = makeEditor()
+    mocks.emit.mockImplementation((channel, _pathname, reply) => {
+      if (channel === 'window-check-save-destination') reply(false)
+    })
+    let finish!: () => void
+    const saving = withSaveDestination('/scratch/saved.md', undefined, async() => {
+      await new Promise<void>((resolve) => {
+        finish = resolve
+      })
+      editor.addToOpenedFiles('/scratch/saved.md')
+    })
+    other.openTab('/scratch/saved.md')
+    expect(mocks.load).not.toHaveBeenCalled()
+    finish()
+    await saving
+    await other.withPendingFilesOpened(() => {})
+    expect(mocks.load).not.toHaveBeenCalled()
+    expect(send).toHaveBeenCalledWith(
+      'mt::show-notification',
+      expect.objectContaining({
+        message: expect.stringContaining('being saved')
+      })
+    )
+  })
+
+  it('recognizes existing files and pending destinations through symlinked directory aliases', async() => {
+    const scratch = mkdtempSync(join(tmpdir(), 'marktext-save-path-alias-'))
+    const real = join(scratch, 'real')
+    const alias = join(scratch, 'alias')
+    mkdirSync(real)
+    symlinkSync(real, alias, 'dir')
+    writeFileSync(join(real, 'existing.md'), 'preserved\n', { flag: 'wx' })
+    const { editor } = makeEditor()
+    editor.addToOpenedFiles(join(real, 'existing.md'))
+    expect(editor.hasOpenedFile(join(alias, 'existing.md'))).toBe(true)
+    mocks.emit.mockImplementation((channel, pathname, reply) => {
+      if (channel === 'window-check-save-destination') reply(editor.hasOpenedFile(pathname))
+    })
+    const write = vi.fn()
+    await expect(withSaveDestination(join(alias, 'existing.md'), undefined, write)).rejects.toThrow(
+      'already open'
+    )
+    expect(write).not.toHaveBeenCalled()
+    let finish!: () => void
+    const saving = withSaveDestination(
+      join(real, 'new.md'),
+      undefined,
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        })
+    )
+    await expect(withSaveDestination(join(alias, 'new.md'), undefined, write)).rejects.toThrow(
+      'being saved'
+    )
+    finish()
+    await saving
   })
 
   it('routes populated untitled source away from a prepared renderer and resumes normal routing after cancellation', () => {

@@ -3,7 +3,10 @@
     class="editor-with-tabs"
     :style="{ 'max-width': `calc(100vw - ${effectiveSideBarWidth}px)` }"
   >
-    <tabs v-show="showTabBar" />
+    <tabs
+      v-if="currentFile"
+      v-show="showTabBar"
+    />
     <CoreDraftRecoveryPanel
       :drafts="coreRecoveryDrafts"
       :error="coreDraftBackupError"
@@ -13,7 +16,11 @@
       @reveal="revealCoreRecoveryDraft"
       @retry="retryCoreDraftBackup"
     />
-    <div class="container">
+    <recent v-if="!currentFile" />
+    <div
+      v-else
+      class="container"
+    >
       <editor
         v-if="!coreCloseInputsRetired"
         ref="coreEditor"
@@ -51,7 +58,7 @@
         aria-busy="true"
       />
     </div>
-    <tab-notifications />
+    <tab-notifications v-if="currentFile" />
   </div>
 </template>
 
@@ -104,6 +111,7 @@ import Editor from './editor.vue'
 import SourceCode from './sourceCode.vue'
 import TabNotifications from './notifications.vue'
 import CoreDraftRecoveryPanel from './CoreRecoveryDrafts.vue'
+import Recent from '../recent/index.vue'
 
 const props = defineProps<{
   markdown: string
@@ -467,6 +475,26 @@ watch(
           lineEnding: canonicalCoreLineEnding(file.lineEnding)
         })
     const liveDocumentIds = new Set(editorStore.tabs.map((tab) => tab.id))
+    const retireClosedDocuments = async (): Promise<void> => {
+      const retiringDocumentIds = [...openedCoreDocuments].filter(
+        (documentId) => !liveDocumentIds.has(documentId)
+      )
+      await retireClosedCoreDocumentSessions({
+        manager: coreManager,
+        openedDocumentIds: openedCoreDocuments,
+        liveDocumentIds,
+        registrations: coreSaveRegistrations
+      })
+      // A later tab transition can register its owner while retirement awaits.
+      // Only the actors retired by this transition relinquish their handlers.
+      for (const documentId of retiringDocumentIds) {
+        coreModelOwners.delete(documentId)
+        coreReloadRegistrations.get(documentId)?.()
+        coreReloadRegistrations.delete(documentId)
+        coreRecoveryRegistrations.get(documentId)?.()
+        coreRecoveryRegistrations.delete(documentId)
+      }
+    }
     if (!sourceMode && target !== undefined && coreLease.value?.documentId !== target.id) {
       coreViewState.value = 'reconciling'
     }
@@ -480,6 +508,18 @@ watch(
       if (prior !== undefined) coreSourceViewState.value = undefined
       for (const documentId of coreViewSelections.keys()) {
         if (!liveDocumentIds.has(documentId)) coreViewSelections.delete(documentId)
+      }
+      if (
+        !sourceMode &&
+        prior !== undefined &&
+        target?.id === prior.documentId &&
+        corePlainTextView.value !== undefined
+      ) {
+        // Background tabs can arrive after the active view mounts. Their list
+        // changes retain its Markup lease even if a later queued tab switch has
+        // already changed the presentation state to reconciling.
+        await retireClosedDocuments()
+        return
       }
       if (!sourceMode && prior === undefined && target !== undefined) {
         const newlyOpened = !openedCoreDocuments.has(target.id)
@@ -510,12 +550,7 @@ watch(
         if (coreLease.value === prior) coreLease.value = undefined
         corePlainTextView.value = undefined
         coreProjectionMarkdown.value = undefined
-        await retireClosedCoreDocumentSessions({
-          manager: coreManager,
-          openedDocumentIds: openedCoreDocuments,
-          liveDocumentIds,
-          registrations: coreSaveRegistrations
-        })
+        await retireClosedDocuments()
         if (target === undefined) return
         const newlyOpened = !openedCoreDocuments.has(target.id)
         if (newlyOpened) {
@@ -613,27 +648,7 @@ watch(
         }
         return
       }
-      await retireClosedCoreDocumentSessions({
-        manager: coreManager,
-        openedDocumentIds: openedCoreDocuments,
-        liveDocumentIds,
-        registrations: coreSaveRegistrations
-      })
-      for (const documentId of coreModelOwners.keys()) {
-        if (!liveDocumentIds.has(documentId)) {
-          coreModelOwners.delete(documentId)
-        }
-      }
-      for (const [documentId, unregister] of coreReloadRegistrations) {
-        if (liveDocumentIds.has(documentId)) continue
-        unregister()
-        coreReloadRegistrations.delete(documentId)
-      }
-      for (const [documentId, unregister] of coreRecoveryRegistrations) {
-        if (liveDocumentIds.has(documentId)) continue
-        unregister()
-        coreRecoveryRegistrations.delete(documentId)
-      }
+      await retireClosedDocuments()
       if (target === undefined) return
       const newlyOpened = !openedCoreDocuments.has(target.id)
       if (newlyOpened) {

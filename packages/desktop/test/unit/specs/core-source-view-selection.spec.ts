@@ -18,16 +18,22 @@ import type { DocumentSelection } from '@marktext/document-core'
 import type CodeMirror from 'codemirror'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
 import { muyaClipboardCurrentSelection } from '@/documentAuthority/muyaModelSelection'
+import { matchString, buildRegexValue } from '@muyajs/core'
+import { scrollSourceEditorToLine } from '@/util/sourceModeToc'
 
 const rect = Object.getOwnPropertyDescriptor(Range.prototype, 'getBoundingClientRect')
 const rects = Object.getOwnPropertyDescriptor(Range.prototype, 'getClientRects')
-beforeEach(() =>
+const scrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTo')
+beforeEach(() => {
+  Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: () => {} })
   Object.defineProperties(Range.prototype, {
     getBoundingClientRect: { configurable: true, value: () => new DOMRect(0, 0, 10, 20) },
     getClientRects: { configurable: true, value: () => [new DOMRect(0, 0, 10, 20)] }
   })
-)
+})
 afterEach(() => {
+  if (scrollTo === undefined) Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo')
+  else Object.defineProperty(HTMLElement.prototype, 'scrollTo', scrollTo)
   for (const [name, descriptor] of [
     ['getBoundingClientRect', rect],
     ['getClientRects', rects]
@@ -47,7 +53,8 @@ async function mountSource(source: string, selection: DocumentSelection) {
     LISTEN_FOR_CORE_CONTENT_CHANGE: vi.fn(),
     LISTEN_FOR_CORE_CURSOR_CHANGE: vi.fn(),
     REFRESH_CORE_SAVED_STATE: vi.fn(),
-    UPDATE_CORE_CONSUMER_TOC: vi.fn()
+    UPDATE_CORE_CONSUMER_TOC: vi.fn(),
+    UPDATE_CORE_CONSUMER_SEARCH: vi.fn()
   })
   const preferences = Vue.reactive({ theme: 'light', sourceCode: true })
   const dependencies: Record<string, unknown> = {
@@ -58,6 +65,8 @@ async function mountSource(source: string, selection: DocumentSelection) {
     '@/store/preferences': { usePreferencesStore: () => preferences },
     '../../codeMirror': { __esModule: true, ...codeMirror },
     '@muyajs/core': {
+      matchString,
+      buildRegexValue,
       wordCount: () => {
         throw new Error('Core Source must not derive semantic counts from text')
       }
@@ -71,7 +80,8 @@ async function mountSource(source: string, selection: DocumentSelection) {
     '@/config': { oneDarkThemes: [], railscastsThemes: [] },
     '@/documentAuthority': authority,
     '@/documentAuthority/coreHeadingToc': toc,
-    '@/util/sourceModeToc': {},
+    '@/util/sourceModeToc': { scrollSourceEditorToLine },
+    '../search/index.vue': { __esModule: true, default: { render: () => null } },
     '@/documentAuthority/codeMirrorSourceSyntax': syntax,
     '@/documentAuthority/codeMirrorRecoveryDraftCapture': capture,
     '@/documentAuthority/sourceCodeCoreAdapterOptions': adapterOptions,
@@ -120,6 +130,7 @@ async function mountSource(source: string, selection: DocumentSelection) {
     editor,
     capture: () => exposed.value!.captureDocumentSelection(),
     faults,
+    search: store.UPDATE_CORE_CONSUMER_SEARCH,
     save: () => manager.saveBarrier(file.id),
     async dispose() {
       await manager.handoff(lease)
@@ -149,6 +160,61 @@ it('Source mounts the directed canonical selection with CRLF save metadata and p
     expect(app.editor.listSelections()).toEqual([
       { anchor: { line: 1, ch: 4 }, head: { line: 0, ch: 8 } }
     ])
+    expect(app.faults).toEqual([])
+  } finally {
+    await app.dispose()
+  }
+})
+
+it('Source search navigates canonical raw matches, replaces captures atomically and preserves subsequent input/history', async() => {
+  const source = 'cat-12 {++cat-34++}\n{--cat-56--} cat-78\n'
+  const replaced = '12:cat {++34:cat++}\n{--56:cat--} 78:cat\n'
+  const app = await mountSource(source, { ranges: [{ anchor: 0, focus: 0 }], primary: 0 })
+  try {
+    bus.emit('searchValue', { value: '(cat)\\-(\\d+)', opt: { isRegexp: true } })
+    await vi.waitFor(() =>
+      expect(app.search.mock.lastCall?.[2]).toMatchObject({ index: 0, matches: { length: 4 } })
+    )
+    bus.emit('find-action', 'next')
+    expect(app.editor.getSelection()).toBe('cat-34')
+    expect(app.capture()).toEqual({ ranges: [{ anchor: 10, focus: 16 }], primary: 0 })
+    bus.emit('replaceValue', { value: '$2:$1', opt: { isSingle: false, isRegexp: true } })
+    await vi.waitFor(async() => expect((await app.save()).source).toBe(replaced))
+    expect(app.editor.getValue()).toBe(replaced)
+    bus.emit('searchValue', { value: '', opt: { selectHighlight: true } })
+    bus.emit('undo')
+    expect((await app.save()).source).toBe(source)
+    bus.emit('redo')
+    expect((await app.save()).source).toBe(replaced)
+    bus.emit('searchValue', { value: 'cat', opt: {} })
+    await vi.waitFor(() =>
+      expect(app.search.mock.lastCall?.[2]).toMatchObject({ index: 0, matches: { length: 4 } })
+    )
+    bus.emit('find-action', 'next')
+    bus.emit('searchValue', { value: '', opt: { selectHighlight: true } })
+    app.editor.replaceSelection('X', 'end', '+input')
+    expect((await app.save()).source).toBe('12:cat {++34:X++}\n{--56:cat--} 78:cat\n')
+    expect(app.faults).toEqual([])
+  } finally {
+    await app.dispose()
+  }
+})
+
+it('Source search refresh does not move the native caret after typing while the bar remains open', async() => {
+  const source = 'cat cat\n'
+  const app = await mountSource(source, { ranges: [{ anchor: 0, focus: 0 }], primary: 0 })
+  try {
+    bus.emit('searchValue', { value: 'cat', opt: {} })
+    await vi.waitFor(() =>
+      expect(app.search.mock.lastCall?.[2]).toMatchObject({ index: 0, matches: { length: 2 } })
+    )
+    app.editor.setCursor({ line: 0, ch: 7 })
+    app.editor.replaceSelection('X', 'end', '+input')
+    await vi.waitFor(() =>
+      expect(app.search.mock.lastCall?.[2]).toMatchObject({ matches: { length: 2 } })
+    )
+    await app.save()
+    expect(app.editor.getCursor()).toMatchObject({ line: 0, ch: 8 })
     expect(app.faults).toEqual([])
   } finally {
     await app.dispose()

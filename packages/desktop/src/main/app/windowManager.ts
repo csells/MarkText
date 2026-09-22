@@ -371,6 +371,17 @@ class WindowManager extends TypedEmitter<WindowManagerEvents> {
   // --- private --------------------------------
 
   private _listenForIpcMain(): void {
+    onInternalChannel(
+      'window-check-save-destination',
+      (pathname: string, reply: (isOpen: boolean) => void) => {
+        reply(
+          this.getWindowsByType(WindowType.EDITOR).some(({ win }) =>
+            (win as EditorWindow).hasOpenedFile(pathname)
+          )
+        )
+      }
+    )
+
     // HACK: Don't use this event! Please see #1034 and #1035
     ipcMain.on('mt::window-add-file-path', (e, filePath: string) => {
       const win = BrowserWindow.fromWebContents(e.sender)
@@ -473,7 +484,9 @@ class WindowManager extends TypedEmitter<WindowManagerEvents> {
           }
           this.forceCloseById(id)
         }
-        if (window.type === WindowType.EDITOR) { await (window as EditorWindow).withPendingFilesOpened(finishClose) } else finishClose()
+        if (window.type === WindowType.EDITOR) {
+          await (window as EditorWindow).withPendingFilesOpened(finishClose)
+        } else finishClose()
       } catch (error) {
         log.error('Unable to finish pending file opens before closing:', error)
       } finally {

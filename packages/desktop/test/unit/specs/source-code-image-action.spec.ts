@@ -47,8 +47,8 @@ const loadComponent = (deps: Record<string, unknown>) => {
     ts.ScriptKind.TS
   )
   const noImports = compiledFile.statements
-    .filter(statement => !ts.isImportDeclaration(statement))
-    .map(statement => statement.getFullText(compiledFile))
+    .filter((statement) => !ts.isImportDeclaration(statement))
+    .map((statement) => statement.getFullText(compiledFile))
     .join('')
   // esbuild's transformSync trips over jsdom's TextEncoder realm, so transpile
   // the TS away with the (pure-JS) typescript compiler.
@@ -64,7 +64,8 @@ const loadComponent = (deps: Record<string, unknown>) => {
     'module',
     `const { _defineComponent, ref, shallowRef, debounce, watch, onMounted, onBeforeUnmount, nextTick,
       useEditorStore, usePreferencesStore, storeToRefs, codeMirror,
-      copyCodeMirrorPosition, setCursorAtFirstLine, setTextDirection, getWordCount, adjustCursor, bus,
+      copyCodeMirrorPosition, setCursorAtFirstLine, setTextDirection, getWordCount, matchString,
+      buildRegexValue, EditorSearch, adjustCursor, bus,
       oneDarkThemes, railscastsThemes, findMarkdownHeadingLine,
       scrollSourceEditorToLine, createCodeMirrorCoreAdapter,
       coreDocumentRecoveryAuthority, sourceCodeCoreAdapterOptions } = __deps
@@ -142,11 +143,7 @@ describe('sourceCode handleImageAction', () => {
   })
 
   it('rewrites only the line carrying the id, leaving siblings intact', () => {
-    const cm = makeCM(
-      'before\n![abc123](old.png)\nafter',
-      { line: 0, ch: 0 },
-      { line: 0, ch: 0 }
-    )
+    const cm = makeCM('before\n![abc123](old.png)\nafter', { line: 0, ch: 0 }, { line: 0, ch: 0 })
     bootHandler(cm)({ id: 'abc123', result: 'new.png', alt: 'cat' })
     expect(cm.getValue()).toBe('before\n![cat](new.png)\nafter')
   })
@@ -197,7 +194,7 @@ describe('sourceCode handleImageAction', () => {
     bootHandler(cm, deps)({ id: 'zzz', result: 'r.png', alt: 'x' })
     expect(cm.getValue()).toBe('no images here')
     expect(cm.setSelection).not.toHaveBeenCalled()
-    expect((deps.setCursorAtFirstLine as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
+    expect(deps.setCursorAtFirstLine as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
   })
 
   it('early-returns on the structure-deleted branch (id present, no image markup)', () => {
@@ -208,7 +205,7 @@ describe('sourceCode handleImageAction', () => {
     bootHandler(cm, deps)({ id: 'abc123', result: 'r.png', alt: 'x' })
     expect(cm.getValue()).toBe('see abc123 ref')
     expect(cm.setSelection).not.toHaveBeenCalled()
-    expect((deps.setCursorAtFirstLine as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled()
+    expect(deps.setCursorAtFirstLine as ReturnType<typeof vi.fn>).not.toHaveBeenCalled()
   })
 
   it('skips an image whose id starts at column 0 (indexOf > 0 quirk)', () => {
@@ -225,6 +222,6 @@ describe('sourceCode handleImageAction', () => {
     bootHandler(cm, deps)({ id: 'abc123', result: 'new.png', alt: 'cat' })
     expect(cm.getValue()).toBe('![cat](new.png)')
     expect(cm.setSelection).not.toHaveBeenCalled()
-    expect((deps.setCursorAtFirstLine as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1)
+    expect(deps.setCursorAtFirstLine as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(1)
   })
 })
