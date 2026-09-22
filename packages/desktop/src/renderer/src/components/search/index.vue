@@ -243,10 +243,10 @@ const toggleCtrl = (ctrl: 'isCaseSensitive' | 'isWholeWord' | 'isRegexp') => {
   searchFn()
 }
 
-const listenFind = () => {
+const openSearch = (searchType: 'search' | 'replace') => {
   prefillFromSelection()
   showSearch.value = true
-  type.value = 'search'
+  type.value = searchType
   nextTick(() => {
     search.value?.focus()
     // Select the existing term so re-opening Find types over it instead of
@@ -258,11 +258,9 @@ const listenFind = () => {
   })
 }
 
-const listenReplace = () => {
-  prefillFromSelection()
-  showSearch.value = true
-  type.value = 'replace'
-}
+const listenFind = () => openSearch('search')
+
+const listenReplace = () => openSearch('replace')
 
 const listenFindNext = () => {
   find('next')

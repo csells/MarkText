@@ -15,6 +15,7 @@ import { loadMarkdownFile } from '../filesystem/markdown'
 import { switchLanguage } from '../spellchecker'
 import fs from 'fs'
 import { isWindowPreparingToClose } from './prepareClose'
+import { isSameSaveDestination, pendingSaveTo } from './saveDestination'
 
 type RawMarkdownDocument = Awaited<ReturnType<typeof loadMarkdownFile>>
 
@@ -64,7 +65,7 @@ class EditorWindow extends BaseWindow {
   // Root directory and file list to open when the window is ready.
   private _directoryToOpen: string | null
   private _filesToOpen: PendingFile[] | null
-  private readonly _pendingFileOpens = new Set<Promise<void>>()
+  private readonly _pendingFileOpens = new Map<Promise<void>, string>()
   private _markdownToOpen: PendingMarkdown[] | null
   // Root directory and file list that are currently opened. These lists are
   // used to find the best window to open new files in.
@@ -359,6 +360,14 @@ class EditorWindow extends BaseWindow {
       preferences.getAll()
 
     for (const { filePath, options, selected } of fileList) {
+      if (pendingSaveTo(filePath)) {
+        browserWindow?.webContents.send('mt::show-notification', {
+          title: 'Cannot open tab',
+          type: 'error',
+          message: 'This file is being saved. Try opening it again when the save finishes.'
+        })
+        continue
+      }
       if (
         this._openedFiles?.includes(filePath) &&
         browserWindow &&
@@ -390,14 +399,22 @@ class EditorWindow extends BaseWindow {
         .finally(() => {
           this._pendingFileOpens.delete(opening)
         })
-      this._pendingFileOpens.add(opening)
+      this._pendingFileOpens.set(opening, filePath)
     }
   }
 
   /** Keep main alive until every already-started read has delivered its content. */
   async withPendingFilesOpened(close: () => void): Promise<void> {
-    while (this._pendingFileOpens.size > 0) await Promise.all([...this._pendingFileOpens])
+    while (this._pendingFileOpens.size > 0) await Promise.all([...this._pendingFileOpens.keys()])
     close()
+  }
+
+  hasOpenedFile(pathname: string): boolean {
+    return [
+      ...(this._openedFiles ?? []),
+      ...(this._filesToOpen?.map(({ doc }) => doc.pathname) ?? []),
+      ...this._pendingFileOpens.values()
+    ].some((openPath) => isSameSaveDestination(openPath, pathname))
   }
 
   /**

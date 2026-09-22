@@ -5,7 +5,12 @@ const installedArtifactSpecs = [
   '**/installed-core-clipboard.spec.ts',
   '**/installed-core-search.spec.ts',
   '**/installed-core-export-consumers.spec.ts',
-  '**/installed-core-performance.spec.ts'
+  '**/installed-core-performance.spec.ts',
+  '**/installed-desktop-basics.spec.ts',
+  '**/installed-basic-file-lifecycle.spec.ts',
+  '**/installed-focused-history.spec.ts',
+  '**/installed-save-as-ownership.spec.ts',
+  '**/installed-source-search.spec.ts'
 ]
 
 // Must stay at the package root: Playwright only auto-loads a config from the

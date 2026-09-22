@@ -13,6 +13,7 @@ vi.hoisted(() => {
 
 import { useListenForMainStore } from '@/store/listenForMain'
 import { useLayoutStore } from '@/store/layout'
+import bus from '@/bus'
 
 // `EDITOR_EDIT_ACTION('findInFolder')` routes through `layoutStore.SET_LAYOUT`,
 // which (because `showSideBar` is defined) reads `window.marktext.env`,
@@ -39,8 +40,10 @@ describe('listenForMain store EDITOR_EDIT_ACTION', () => {
   })
 
   afterEach(() => {
+    document.body.replaceChildren()
     delete win.electron
     delete win.marktext
+    vi.restoreAllMocks()
     vi.clearAllMocks()
   })
 
@@ -64,4 +67,63 @@ describe('listenForMain store EDITOR_EDIT_ACTION', () => {
     expect(layoutStore.rightColumn).toBe('files')
     expect(layoutStore.showSideBar).toBe(false)
   })
+
+  for (const action of ['undo', 'redo'] as const) {
+    for (const control of ['input', 'textarea'] as const) {
+      for (const caller of ['main IPC', 'renderer command'] as const) {
+        it(`${caller} ${action} belongs to the focused ${control}, even with no native history`, () => {
+          const field = document.createElement(control)
+          document.body.append(field)
+          field.focus()
+          const nativeHistory = vi.fn(() => false)
+          Object.defineProperty(document, 'execCommand', {
+            configurable: true,
+            value: nativeHistory
+          })
+          const documentHistory = vi.fn()
+          bus.on(action, documentHistory)
+          const store = useListenForMainStore()
+          store.LISTEN_FOR_EDIT()
+          try {
+            if (caller === 'main IPC') {
+              const listener = win.electron?.ipcRenderer.on.mock.calls.find(
+                ([channel]) => channel === 'mt::editor-edit-action'
+              )?.[1]
+              expect(listener).toBeTypeOf('function')
+              listener({}, action)
+            } else {
+              bus.emit('mt::editor-edit-action', action)
+            }
+            expect(nativeHistory).toHaveBeenCalledExactlyOnceWith(action)
+            expect(documentHistory).not.toHaveBeenCalled()
+          } finally {
+            bus.off(action, documentHistory)
+            bus.all.delete('mt::editor-edit-action')
+            delete (document as unknown as { execCommand?: unknown }).execCommand
+          }
+        })
+      }
+    }
+
+    for (const surface of ['markup', 'source'] as const) {
+      it(`${surface} ${action} retains the document history owner`, () => {
+        const container = document.createElement('div')
+        container.className = surface === 'source' ? 'CodeMirror' : 'muya-content'
+        const field = document.createElement(surface === 'source' ? 'textarea' : 'div')
+        field.setAttribute('contenteditable', 'true')
+        field.tabIndex = 0
+        container.append(field)
+        document.body.append(container)
+        field.focus()
+        const documentHistory = vi.fn()
+        bus.on(action, documentHistory)
+        try {
+          useListenForMainStore().EDITOR_EDIT_ACTION(action)
+          expect(documentHistory).toHaveBeenCalledExactlyOnceWith(action)
+        } finally {
+          bus.off(action, documentHistory)
+        }
+      })
+    }
+  }
 })

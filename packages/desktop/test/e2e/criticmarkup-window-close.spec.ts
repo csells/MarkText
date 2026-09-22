@@ -8,10 +8,12 @@ import {
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
   expectNoRendererErrors,
+  launchElectron,
   launchWithMarkdown,
   placeCaretInEditor,
   sendIpcToRenderer,
-  waitForEditor
+  waitForEditor,
+  waitForMenuReady
 } from './helpers'
 import {
   expectDefaultCoreAuthority,
@@ -178,10 +180,23 @@ const visibleText = (page: Page, surface: Surface): Promise<string> =>
       ).CodeMirror.getValue().replace(/\n$/, '')
     )
 
-async function assertLaunch(app: ElectronApplication, page: Page): Promise<void> {
+async function assertLaunch(
+  app: ElectronApplication,
+  page: Page,
+  hasDocument = true
+): Promise<void> {
   await expectEditorWindowHidden(app)
   expectEditorNotFrontmost(app)
-  await expectDefaultCoreAuthority(page)
+  if (hasDocument) await expectDefaultCoreAuthority(page)
+  else {
+    expect(
+      await page.evaluate(() => [
+        window.electron.process.env.MARKTEXT_DOCUMENT_CORE_MODE,
+        window.electron.process.env.MARKTEXT_DOCUMENT_CORE_SHADOW,
+        window.electron.process.env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
+      ])
+    ).toEqual([undefined, undefined, undefined])
+  }
   if (process.env.MARKTEXT_PACKAGED_APP) await expectInstalledArtifactCommit(page)
   await test.info().attach('candidate.json', {
     contentType: 'application/json',
@@ -206,7 +221,162 @@ const launchOptions = {
   }
 } as const
 
+async function closeLastSavedTab(app: ElectronApplication, page: Page): Promise<void> {
+  // Invoke the actual File > Close Tab menu handler. It must retire the
+  // document through its model owner before displaying the empty window.
+  await app.evaluate(({ Menu, BrowserWindow }) => {
+    const windows = BrowserWindow.getAllWindows()
+    const win = windows[0]
+    if (windows.length !== 1 || !win || win.isVisible() || win.isFocused()) {
+      throw new Error("Expected this run's single hidden editor window")
+    }
+    const items = Menu.getApplicationMenu()?.items.flatMap((item) => item.submenu?.items ?? [])
+    const closeTab = items?.find((item) => item.label === 'Close Tab')
+    if (!closeTab) throw new Error('File > Close Tab menu is unavailable')
+    closeTab.click(undefined, win, win.webContents)
+  })
+  await expect(page.locator('.recent-files-projects')).toContainText('You have no tabs open.')
+  await expect(page.locator('.tabs-container li')).toHaveCount(0)
+  await expect(page.locator('.editor-component, .source-code .CodeMirror')).toHaveCount(0)
+}
+
+for (const initial of ['markup', 'source', 'empty folder startup'] as const) {
+  for (const close of ['native window close', 'application quit'] as const) {
+    test(`empty window: ${initial} permits ${close}`, async() => {
+      const source = 'saved ordinary Markdown {++and a suggestion++}\n'
+      const launched =
+        initial === 'empty folder startup'
+          ? await launchElectron(
+            [mkdtempSync(join(tmpdir(), 'marktext-empty-folder-close-'))],
+            launchOptions
+          )
+          : await launchWithMarkdown(source, launchOptions)
+      const { app, page } = launched
+      const filePath =
+        'filePath' in launched && typeof launched.filePath === 'string'
+          ? launched.filePath
+          : undefined
+      const childProcess = app.process()
+      const stderr: string[] = []
+      childProcess.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk.toString()))
+      try {
+        await waitForMenuReady(app)
+        await assertLaunch(app, page, initial !== 'empty folder startup')
+        await installDialogControl(app)
+        await app.evaluate(({ ipcMain }) => {
+          ipcMain.on('mt::window-close-prepared', (_event, reply) => {
+            console.error('[empty-window-close] prepared', JSON.stringify(reply))
+          })
+        })
+        if (initial !== 'empty folder startup') {
+          await prepareSurface(page, app, initial)
+          await closeLastSavedTab(app, page)
+        }
+        await expect(page.locator('.recent-files-projects')).toContainText('You have no tabs open.')
+        await expect(page.locator('.tabs-container li')).toHaveCount(0)
+        await expect(page.locator('.editor-component, .source-code .CodeMirror')).toHaveCount(0)
+        if (filePath) expect(readFileSync(filePath, 'utf8')).toBe(source)
+        expect((await probe(app)).decisions).toBe(0)
+        await expectNoRendererErrors(app)
+        await expectEditorWindowHidden(app)
+        expectEditorNotFrontmost(app)
+
+        if (close === 'native window close') await closeNativeWindow(app)
+        else await quitNativeApp(app)
+
+        await expect.poll(() => page.isClosed(), { timeout: 5000 }).toBe(true)
+        await expect.poll(() => childProcess.exitCode).toBe(0)
+        if (filePath) expect(readFileSync(filePath, 'utf8')).toBe(source)
+      } finally {
+        if (!page.isClosed()) {
+          await test.info().attach('empty-window-state.txt', {
+            contentType: 'text/plain',
+            body: await page.locator('body').innerText()
+          })
+          await test.info().attach('empty-window-close-probe.json', {
+            contentType: 'application/json',
+            body: JSON.stringify(await probe(app))
+          })
+          // A failed empty-window close cannot clean itself up via app.close().
+          // Destroy only this test's hidden, document-free window, after retaining
+          // the failure evidence. The saved fixture is unchanged above.
+          await app.evaluate(({ BrowserWindow }) => {
+            for (const win of BrowserWindow.getAllWindows()) {
+              if (win.isVisible() || win.isFocused()) {
+                throw new Error('Refusing visible-window cleanup')
+              }
+              win.destroy()
+            }
+          })
+        }
+        await test.info().attach('empty-window-stderr.log', {
+          contentType: 'text/plain',
+          body: stderr.join('')
+        })
+        await disposeTestApp(app)
+      }
+    })
+  }
+}
+
 for (const surface of ['markup', 'source'] as const) {
+  test(`${surface}: empty window New File and reopening the same file retain editing, history and saved source`, async() => {
+    const root = mkdtempSync(join(tmpdir(), 'marktext-empty-reopen-'))
+    const savedPath = join(root, 'created.md')
+    const retained = '\n\n{++keep++} {>>preserve this comment<<}\n'
+    const original = `seed${retained}`
+    const { app, page, filePath } = await launchWithMarkdown(original, launchOptions)
+    try {
+      await assertLaunch(app, page)
+      await installDialogControl(app)
+      await prepareSurface(page, app, surface)
+      await closeLastSavedTab(app, page)
+
+      await page.getByRole('button', { name: 'New File', exact: true }).click()
+      await waitForEditor(page)
+      await expectDefaultCoreAuthority(page)
+      await prepareSurface(page, app, surface)
+      await page.keyboard.type('X')
+      await expect.poll(() => visibleText(page, surface)).toBe('X')
+      await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+      await expect.poll(() => visibleText(page, surface)).toBe('')
+      await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
+      await expect.poll(() => visibleText(page, surface)).toBe('X')
+      await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+      await expect.poll(async() => (await probe(app)).saveAs).toBe(1)
+      await chooseSavePath(app, savedPath)
+      await expect(() => expect(readFileSync(savedPath, 'utf8')).toBe('X')).toPass({
+        timeout: 5000
+      })
+      await closeLastSavedTab(app, page)
+
+      // The production incoming-file path must open a new live model for the
+      // same pathname after its previous tab was retired.
+      await page.evaluate(
+        (path) => window.electron.ipcRenderer.send('mt::open-file', path),
+        filePath
+      )
+      await waitForEditor(page)
+      await expectDefaultCoreAuthority(page)
+      await prepareSurface(page, app, surface)
+      await page.keyboard.type('Y')
+      await expect.poll(async() => (await visibleText(page, surface)).split('\n')[0]).toBe('seedY')
+      await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+      await expect.poll(async() => (await visibleText(page, surface)).split('\n')[0]).toBe('seed')
+      await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
+      await expect.poll(async() => (await visibleText(page, surface)).split('\n')[0]).toBe('seedY')
+      await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+      await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(`seedY${retained}`)
+      expect(readFileSync(savedPath, 'utf8')).toBe('X')
+      await expect(page.getByTestId('core-recovery-draft')).toHaveCount(0)
+      await expectNoRendererErrors(app)
+      await expectEditorWindowHidden(app)
+      expectEditorNotFrontmost(app)
+    } finally {
+      await disposeTestApp(app)
+    }
+  })
+
   test(`${surface}: application quit saves late input before the process exits`, async() => {
     const retained = '\n\n{++keep++} {>>preserve this comment<<}\n'
     const { app, page, filePath } = await launchWithMarkdown(`see${retained}`, launchOptions)

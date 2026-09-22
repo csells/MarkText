@@ -751,15 +751,6 @@ export const useEditorStore = defineStore('editor', {
           return
         }
 
-        // If a tab with the same file path already exists we need to close the tab.
-        // The existing tab is overwritten by this tab.
-        const existingTab = tabs.find(
-          (t) => t.id !== id && window.fileUtils.isSamePathSync(t.pathname, pathname)
-        )
-        if (existingTab) {
-          this.CLOSE_TAB(existingTab)
-        }
-
         // SET_PATHNAME
         const { filename } = fileInfo
         if (id === this.currentFile?.id && pathname) {
