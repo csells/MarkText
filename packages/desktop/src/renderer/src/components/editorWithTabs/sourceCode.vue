@@ -1,8 +1,11 @@
 <template>
-  <div
-    ref="sourceCodeContainer"
-    class="source-code"
-  />
+  <div class="source-view">
+    <div
+      ref="sourceCodeContainer"
+      class="source-code"
+    />
+    <EditorSearch />
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -20,7 +23,13 @@ import { findMarkdownHeadingLine, scrollSourceEditorToLine } from '@/util/source
 import { storeToRefs } from 'pinia'
 import type CodeMirror from 'codemirror'
 import codeMirror, { setCursorAtFirstLine, setTextDirection } from '../../codeMirror'
-import { wordCount as getWordCount } from '@muyajs/core'
+import {
+  wordCount as getWordCount,
+  matchString,
+  buildRegexValue,
+  type ISearchQueryOptions
+} from '@muyajs/core'
+import EditorSearch from '../search/index.vue'
 import { adjustCursor } from '../../util'
 import bus from '../../bus'
 import { oneDarkThemes, railscastsThemes } from '@/config'
@@ -127,6 +136,157 @@ const {
   texMathDoubleBackslash
 } = storeToRefs(preferencesStore)
 const { currentFile: currentTab } = storeToRefs(editorStore)
+
+let sourceSearchEpoch = 0
+let sourceSearchValue = ''
+let sourceSearchOptions: ISearchQueryOptions = {}
+let sourceSearchMatches: ReturnType<typeof matchString> = []
+let sourceSearchIndex = -1
+let sourceSearchRevision: number | undefined
+let sourceSearchMarks: Array<{ clear(): void }> = []
+
+const clearSourceSearchMarks = (): void => {
+  for (const mark of sourceSearchMarks) mark.clear()
+  sourceSearchMarks = []
+}
+
+const publishSourceSearch = (): void => {
+  const result = {
+    value: sourceSearchValue,
+    index: sourceSearchIndex,
+    matches: sourceSearchMatches.map((match) => ({
+      start: match.index,
+      end: match.index + match.match.length,
+      match: match.match
+    }))
+  }
+  const lease = props.coreLease
+  if (lease === undefined) editorStore.SEARCH(result)
+  else editorStore.UPDATE_CORE_CONSUMER_SEARCH(lease.documentId, lease.identity, result)
+}
+
+const sourceSearchPosition = (cm: CodeMirror.Editor, offset: number): CodeMirror.Position =>
+  coreAdapter?.sourcePosition(offset) ?? cm.posFromIndex(offset)
+
+const presentSourceSearch = (selectMatch = true): void => {
+  clearSourceSearchMarks()
+  const cm = editor.value
+  if (!cm) return
+  sourceSearchMarks = sourceSearchMatches.map((match, index) =>
+    cm.markText(
+      sourceSearchPosition(cm, match.index),
+      sourceSearchPosition(cm, match.index + match.match.length),
+      { className: index === sourceSearchIndex ? 'source-search-current' : 'source-search-match' }
+    )
+  )
+  const current = sourceSearchMatches[sourceSearchIndex]
+  if (selectMatch && current !== undefined) {
+    const from = sourceSearchPosition(cm, current.index)
+    const to = sourceSearchPosition(cm, current.index + current.match.length)
+    scrollSourceEditorToLine(cm, from.line, sourceCodeContainer.value)
+    cm.setSelection(from, to, { scroll: false })
+  }
+  publishSourceSearch()
+}
+
+const refreshSourceSearch = async (selectMatch = true): Promise<void> => {
+  const epoch = ++sourceSearchEpoch
+  const lease = props.coreLease
+  const cm = editor.value
+  if (!cm) return
+  const source = lease === undefined ? cm.getValue() : await lease.sourceAtBarrier()
+  if (viewDestroyed.value || epoch !== sourceSearchEpoch) return
+  sourceSearchRevision = lease?.identity.revision
+  sourceSearchMatches =
+    sourceSearchValue === '' ? [] : matchString(source, sourceSearchValue, sourceSearchOptions)
+  sourceSearchIndex = sourceSearchMatches.length === 0 ? -1 : 0
+  presentSourceSearch(selectMatch)
+}
+
+const sourceSearchFailed = (error: unknown): void => {
+  if (!viewDestroyed.value) emit('core-fault', error)
+}
+
+const handleSourceSearch = (payload: unknown): void => {
+  const { value, opt } = payload as {
+    value: string
+    opt?: ISearchQueryOptions & { selectHighlight?: boolean }
+  }
+  sourceSearchValue = value
+  sourceSearchOptions = opt ?? {}
+  if (value === '') {
+    ++sourceSearchEpoch
+    sourceSearchMatches = []
+    sourceSearchIndex = -1
+    clearSourceSearchMarks()
+    publishSourceSearch()
+    if (opt?.selectHighlight) editor.value?.focus()
+    return
+  }
+  refreshSourceSearch().catch(sourceSearchFailed)
+}
+
+const handleSourceFindAction = (direction: unknown): void => {
+  if (direction !== 'prev' && direction !== 'next') return
+  if (
+    sourceSearchMatches.length === 0 ||
+    (props.coreLease !== undefined && sourceSearchRevision !== props.coreLease.identity.revision)
+  ) {
+    return
+  }
+  sourceSearchIndex =
+    (sourceSearchIndex + (direction === 'prev' ? -1 : 1) + sourceSearchMatches.length) %
+    sourceSearchMatches.length
+  presentSourceSearch()
+}
+
+const replaceSourceSearch = async (payload: unknown): Promise<void> => {
+  const { value, opt } = payload as {
+    value: string
+    opt?: { isSingle?: boolean; isRegexp?: boolean }
+  }
+  const epoch = sourceSearchEpoch
+  await coreAdapter?.settled()
+  if (
+    epoch !== sourceSearchEpoch ||
+    viewDestroyed.value ||
+    (props.coreLease !== undefined && sourceSearchRevision !== props.coreLease.identity.revision)
+  ) {
+    return
+  }
+  const matches =
+    opt?.isSingle === false
+      ? sourceSearchMatches
+      : sourceSearchMatches.slice(sourceSearchIndex, sourceSearchIndex + 1)
+  const cm = editor.value
+  if (matches.length === 0 || !cm) return
+  // Reverse source order preserves every authored match position. CodeMirror's
+  // pre-change adapter submits this native operation to Core as one undo step.
+  cm.operation(() => {
+    for (const match of [...matches].reverse()) {
+      cm.replaceRange(
+        opt?.isRegexp ? buildRegexValue(match, value) : value,
+        sourceSearchPosition(cm, match.index),
+        sourceSearchPosition(cm, match.index + match.match.length),
+        'search-replace'
+      )
+    }
+  })
+  await coreAdapter?.settled()
+  await refreshSourceSearch()
+}
+
+const handleSourceReplace = (payload: unknown): void => {
+  replaceSourceSearch(payload).catch(sourceSearchFailed)
+}
+
+const invalidateSourceSearch = (): void => {
+  ++sourceSearchEpoch
+  clearSourceSearchMarks()
+  sourceSearchMatches = []
+  sourceSearchIndex = -1
+  if (sourceSearchValue !== '') refreshSourceSearch(false).catch(sourceSearchFailed)
+}
 
 const isValidMuyaIndexCursor = (cursor: unknown): cursor is MuyaIndexCursorLike => {
   const c = cursor as MuyaIndexCursorLike | null | undefined
@@ -576,6 +736,9 @@ onMounted(() => {
   bus.on('redo', handleRedo)
   bus.on('image-action', handleImageAction)
   bus.on('scroll-to-header', handleScrollToHeader)
+  bus.on('searchValue', handleSourceSearch)
+  bus.on('replaceValue', handleSourceReplace)
+  bus.on('find-action', handleSourceFindAction)
 
   // CodeMirror's line tree relies on object identity and must not be proxied by Vue.
   const codeMirrorInstance = markRaw(codeMirror(container, codeMirrorConfig))
@@ -602,6 +765,8 @@ onMounted(() => {
   editor.value = codeMirrorInstance
   tabId.value = id
   updateSelectionWordCount(codeMirrorInstance)
+  publishSourceSearch()
+  codeMirrorInstance.on('changes', invalidateSourceSearch)
 
   if (props.coreLease !== undefined) {
     coreAdapter = createCodeMirrorCoreAdapter(
@@ -628,7 +793,9 @@ onMounted(() => {
       const projection = props.coreLease.binding.sourceSelectionAtBarrier(
         props.initialDocumentSelection
       )
-      if (projection.type !== 'source-selection') { throw new Error('Core Source caret projection is unavailable') }
+      if (projection.type !== 'source-selection') {
+        throw new Error('Core Source caret projection is unavailable')
+      }
       projectedInitialSelection = projection.selection
       initialSelectionRevision = projection.revision
       codeMirrorInstance.setSelections(
@@ -817,6 +984,9 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  ++sourceSearchEpoch
+  clearSourceSearchMarks()
+  editor.value?.off('changes', invalidateSourceSearch)
   detachCoreSourceSyntax?.()
   detachCoreSourceSyntax = undefined
   refreshSourceToc.cancel()
@@ -833,6 +1003,9 @@ onBeforeUnmount(() => {
   editorStore.SET_SELECTION_WORD_COUNT(null)
   lastSelectionKey = ''
   bus.off('scroll-to-header', handleScrollToHeader)
+  bus.off('searchValue', handleSourceSearch)
+  bus.off('replaceValue', handleSourceReplace)
+  bus.off('find-action', handleSourceFindAction)
 
   if (props.coreLease === undefined && editor.value) {
     const { cursor, markdown: newMarkdown } = getMarkdownAndCursor(editor.value)
@@ -847,6 +1020,15 @@ onBeforeUnmount(() => {
 </script>
 
 <style>
+.source-view {
+  position: relative;
+}
+.source-search-match {
+  background: var(--selectionColor);
+}
+.source-search-current {
+  background: var(--highlightThemeColor);
+}
 .source-code {
   height: calc(100vh - var(--titleBarHeight));
   box-sizing: border-box;

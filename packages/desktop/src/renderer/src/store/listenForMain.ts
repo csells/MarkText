@@ -5,6 +5,17 @@ import { useLayoutStore } from './layout'
 
 export const useListenForMainStore = defineStore('listenForMain', () => {
   function EDITOR_EDIT_ACTION(type: string): void {
+    if (type === 'undo' || type === 'redo') {
+      const focused = document.activeElement
+      const isNativeField =
+        focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement
+      // CodeMirror's hidden textarea is a document input surface. Ordinary
+      // fields keep Chromium's history, even when their undo stack is empty.
+      if (isNativeField && !focused.closest('.CodeMirror')) {
+        document.execCommand(type)
+        return
+      }
+    }
     const layoutStore = useLayoutStore()
     if (type === 'findInFolder') {
       layoutStore.SET_LAYOUT({
@@ -46,10 +57,18 @@ export const useListenForMainStore = defineStore('listenForMain', () => {
     window.electron.ipcRenderer.on('mt::editor-review-context-request', (_e, request) => {
       const call = { request, claimed: false }
       bus.emit('review-context-request', call)
-      if (!call.claimed) window.electron.ipcRenderer.send('mt::review-context-reply', { requestId: request.requestId })
+      if (!call.claimed) {
+        window.electron.ipcRenderer.send('mt::review-context-reply', {
+          requestId: request.requestId
+        })
+      }
     })
-    window.electron.ipcRenderer.on('mt::editor-review-context-action', (_e, action) => bus.emit('review-context-action', action))
-    window.electron.ipcRenderer.on('mt::editor-review-context-closed', (_e, requestId) => bus.emit('review-context-closed', requestId))
+    window.electron.ipcRenderer.on('mt::editor-review-context-action', (_e, action) =>
+      bus.emit('review-context-action', action)
+    )
+    window.electron.ipcRenderer.on('mt::editor-review-context-closed', (_e, requestId) =>
+      bus.emit('review-context-closed', requestId)
+    )
     window.electron.ipcRenderer.on('mt::editor-review-action', (_e, command) => {
       bus.emit('review-command', command)
     })

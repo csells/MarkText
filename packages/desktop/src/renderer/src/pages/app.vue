@@ -18,9 +18,8 @@
         v-if="!init"
         class="editor-placeholder"
       />
-      <recent v-if="!hasCurrentFile && init" />
       <editor-with-tabs
-        v-if="hasCurrentFile && init"
+        v-if="init"
         :markdown="markdown"
         :cursor="cursor"
         :muya-index-cursor="muyaIndexCursor"
@@ -43,7 +42,6 @@ import { computed, watch, nextTick, onMounted, ref } from 'vue'
 import { useMainStore } from '@/store'
 import { storeToRefs } from 'pinia'
 import { addStyles, addThemeStyle, addCustomStyle, type AddStylesOptions } from '@/util/theme'
-import Recent from '@/components/recent/index.vue'
 import EditorWithTabs from '@/components/editorWithTabs/index.vue'
 import TitleBar from '@/components/titleBar/index.vue'
 import SideBar from '@/components/sideBar/index.vue'
@@ -84,10 +82,7 @@ const { currentFile, selectionWordCount } = storeToRefs(editorStore)
 const pathname = computed(() => currentFile.value?.pathname)
 const filename = computed(() => currentFile.value?.filename)
 const isSaved = computed(() => currentFile.value?.isSaved)
-// `markdown` is read by `<editor-with-tabs>` whose prop is `required: true`.
-// In template space we render that subtree only when `hasCurrentFile` is set,
-// but vue-tsc can't see through the v-if guard — coalesce to '' so the prop
-// type is `string`. The `<editor-with-tabs>` mount is still gated.
+// The document owner lives as long as the window, including its empty state.
 const markdown = computed<string>(() => currentFile.value?.markdown ?? '')
 const cursor = computed(() => currentFile.value?.cursor)
 const wordCount = computed(() => currentFile.value?.wordCount)
@@ -96,10 +91,6 @@ const wordCount = computed(() => currentFile.value?.wordCount)
 const muyaIndexCursor = computed<Record<string, unknown> | undefined>(
   () => currentFile.value?.muyaIndexCursor as Record<string, unknown> | undefined
 )
-
-const hasCurrentFile = computed<boolean>(() => {
-  return currentFile.value?.markdown !== undefined
-})
 
 // Watchers
 watch(theme, (value, oldValue) => {
