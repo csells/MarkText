@@ -211,9 +211,9 @@ for (const row of [0, 1]) {
 }
 
 for (const example of [
-    { name: 'clicked body row while preserving unrelated suggestions', source: REVIEW_TABLE, row: 1, tracked: false, expected: 'away\n\n| a{++a++} | aa |\n| :--- | ---: |\n', next: 'away\n\n| xa{++a++} | aa |\n| :--- | ---: |\n' },
+    { name: 'clicked body row while preserving unrelated suggestions', source: REVIEW_TABLE, row: 1, tracked: false, expected: 'away\n\n| a{++a++} | aa  |\n|:-------- | ---:|\n', next: 'away\n\n| xa{++a++} | aa  |\n|:--------- | ---:|\n' },
     { name: 'clicked body row with Track enabled', source: REVIEW_TABLE, row: 1, tracked: true, expected: 'away\n\n| a{++a++} | aa |\n| :--- | ---: |{--\n| aa | aa |--}\n', next: 'away\n\n| {++x++}a{++a++} | aa |\n| :--- | ---: |{--\n| aa | aa |--}\n' },
-    { name: 'clicked header and promotes its annotated next row', source: 'away\n\n| aa | aa |\n| :--- | ---: |\n| a{++a++} | aa |\n', row: 0, tracked: false, expected: 'away\n\n| a{++a++} | aa |\n| :--- | ---: |\n', next: 'away\n\n| xa{++a++} | aa |\n| :--- | ---: |\n' },
+    { name: 'clicked header and promotes its annotated next row', source: 'away\n\n| aa | aa |\n| :--- | ---: |\n| a{++a++} | aa |\n', row: 0, tracked: false, expected: 'away\n\n| a{++a++} | aa  |\n|:-------- | ---:|\n', next: 'away\n\n| xa{++a++} | aa  |\n|:--------- | ---:|\n' },
     { name: 'clicked header with Track enabled', source: 'away\n\n| aa | aa |\n| :--- | ---: |\n| a{++a++} | aa |\n', row: 0, survivor: 1, tracked: true, expected: 'away\n\n{--| aa | aa |\n| :--- | ---: |\n--}| a{++a++} | aa |{++\n| :--- | ---: |++}\n', next: 'away\n\n{--| aa | aa |\n| :--- | ---: |\n--}| {++x++}a{++a++} | aa |{++\n| :--- | ---: |++}\n' },
 ]) {
     test(`Core row popup removes the ${example.name}`, async ({ page }) => {
@@ -244,9 +244,9 @@ for (const example of [
 }
 
 for (const example of [
-    { name: 'after the clicked body row', item: 'Insert Row Below', row: 1, insertedRow: 2, expected: 'away\n\n| a{++a++} | aa |\n| :--- | ---: |\n| aa | aa |\n|     |     |\n', next: 'away\n\n| a{++a++} | aa |\n| :--- | ---: |\n| aa | aa |\n|     x|     |\n' },
-    { name: 'before the clicked header', item: 'Insert Row Above', row: 0, insertedRow: 0, expected: 'away\n\n|     |     |\n| :--- | ---: |\n| a{++a++} | aa |\n| aa | aa |\n', next: 'away\n\n|     x|     |\n| :--- | ---: |\n| a{++a++} | aa |\n| aa | aa |\n' },
-    { name: 'above the clicked body row', item: 'Insert Row Above', row: 1, insertedRow: 1, expected: 'away\n\n| a{++a++} | aa |\n| :--- | ---: |\n|     |     |\n| aa | aa |\n', next: 'away\n\n| a{++a++} | aa |\n| :--- | ---: |\n|     x|     |\n| aa | aa |\n' },
+    { name: 'after the clicked body row', item: 'Insert Row Below', row: 1, insertedRow: 2, expected: 'away\n\n| a{++a++} | aa  |\n|:-------- | ---:|\n| aa       | aa  |\n|          |     |\n', next: 'away\n\n| a{++a++} | aa  |\n|:-------- | ---:|\n| aa       | aa  |\n| x        |     |\n' },
+    { name: 'before the clicked header', item: 'Insert Row Above', row: 0, insertedRow: 0, expected: 'away\n\n|          |     |\n|:-------- | ---:|\n| a{++a++} | aa  |\n| aa       | aa  |\n', next: 'away\n\n| x        |     |\n|:-------- | ---:|\n| a{++a++} | aa  |\n| aa       | aa  |\n' },
+    { name: 'above the clicked body row', item: 'Insert Row Above', row: 1, insertedRow: 1, expected: 'away\n\n| a{++a++} | aa  |\n|:-------- | ---:|\n|          |     |\n| aa       | aa  |\n', next: 'away\n\n| a{++a++} | aa  |\n|:-------- | ---:|\n| x        |     |\n| aa       | aa  |\n' },
     { name: 'a tracked header before the clicked header', item: 'Insert Row Above', row: 0, insertedRow: 0, tracked: true, expected: 'away\n\n{++|     |     |\n| :--- | ---: |\n++}| a{++a++} | aa |{--\n| :--- | ---: |--}\n| aa | aa |\n', next: 'away\n\n{++|     x|     |\n| :--- | ---: |\n++}| a{++a++} | aa |{--\n| :--- | ---: |--}\n| aa | aa |\n' },
 ]) {
     test(`Core row popup inserts ${example.name} with the editor caret elsewhere`, async ({ page }) => {
@@ -353,6 +353,8 @@ for (const tracked of [false, true]) {
 for (const ending of ['\n', '\r\n', '\r']) {
     test(`Core row popup retains nested list ownership with ${JSON.stringify(ending)}`, async ({ page }) => {
         const source = ['- {++first++}{>>note<<}', '- second', '', '  | col |', '  | --- |', '  | cell |', ''].join(ending);
+        // The edited table is written afresh like upstream's, padded to its widest cell.
+        const withRow = (row: string) => ['- {++first++}{>>note<<}', '- second', '', '  | col  |', '  | ---- |', '  | cell |', `  | ${row} |`, ''].join(ending);
         await page.evaluate(async source => {
             const modulePath = '/coreBoundaryControl.ts';
             const control = await import(/* @vite-ignore */ modulePath);
@@ -363,11 +365,11 @@ for (const ending of ['\n', '\r\n', '\r']) {
             const table = page.locator(editor.table).first();
             await quickClickBar(page, await revealRightBar(page, table, 1));
             await menuContainer(page).locator('li.item', { hasText: 'Insert Row Below' }).click();
-            const expected = source + '  |     |' + ending;
+            const expected = withRow('    ');
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected }, anchor: 0, caret: 0, legacyCalls: [] });
             expect(await table.locator('tr').nth(2).locator('.mu-content').first().evaluate(node => window.muya!.getSelection()?.anchor.block.domNode === node)).toBe(true);
             await page.keyboard.type('x');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: source + '  |     x|' + ending }, anchor: 1, caret: 1, legacyCalls: [] });
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: withRow('x   ') }, anchor: 1, caret: 1, legacyCalls: [] });
             await page.evaluate(() => window.coreBoundary.history('undo'));
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected } });
             await page.evaluate(() => window.coreBoundary.history('undo'));

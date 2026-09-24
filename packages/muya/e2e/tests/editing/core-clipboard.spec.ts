@@ -316,7 +316,8 @@ for (const sample of [
     { name: 'heading soft lines', source: '# before after\n', offset: 9, paste: 'first\nsecond', expected: '# before first\n\nsecondafter\n', caret: 6 },
     { name: 'quote paragraphs', source: '> before after\n', offset: 7, paste: 'first\n\nsecond', expected: '> before first\n>\n> secondafter\n', caret: 6 },
     { name: 'list paragraphs', source: '- before after\n', offset: 7, paste: 'first\n\nsecond', expected: '- before first\n\n  secondafter\n', caret: 6 },
-    { name: 'table multiline', source: '| before after |\n| --- |\n| b |\n', offset: 7, paste: 'first\nsecond', expected: '| before first<br/>secondafter |\n| --- |\n| b |\n', normalized: '| before first<br/>secondafter |\n| ---------------------------- |\n| b                            |\n', caret: 23 },
+    // Like upstream, the pasted cell's table is written afresh, padded to its widest cell.
+    { name: 'table multiline', source: '| before after |\n| --- |\n| b |\n', offset: 7, paste: 'first\nsecond', expected: '| before first<br/>secondafter |\n| ---------------------------- |\n| b                            |\n', typed: '| before first<br/>secondXafter |\n| ----------------------------- |\n| b                             |\n', caret: 23 },
 ]) {
     test(`preserves existing ${sample.name} paste behavior through the native caller`, async ({ page }) => {
         const native = await page.evaluate(async (sample) => {
@@ -329,7 +330,7 @@ for (const sample of [
             muya.flush();
             return { source: muya.getMarkdown(), caret: muya.getSelection()?.focus.offset };
         }, sample);
-        expect(native).toEqual({ source: sample.normalized ?? sample.expected, caret: sample.caret });
+        expect(native).toEqual({ source: sample.expected, caret: sample.caret });
         await page.evaluate(async (sample) => {
             const modulePath = '/coreBoundaryControl.ts';
             const control = await import(/* @vite-ignore */ modulePath);
@@ -344,7 +345,7 @@ for (const sample of [
             }, sample.paste);
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: sample.expected }, caret: sample.caret, legacyCalls: [] });
             await page.keyboard.type('X');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: sample.expected.replace('after', 'Xafter') }, legacyCalls: [] });
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: sample.typed ?? sample.expected.replace('after', 'Xafter') }, legacyCalls: [] });
             await page.evaluate(() => window.coreBoundary.history('undo'));
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: sample.expected } });
             await page.evaluate(() => window.coreBoundary.history('undo'));
@@ -470,11 +471,14 @@ for (const { mode, suffix } of [
         const tracked = mode === 'Core Track';
         const source = (bound ? 'fooTAIL{>>note<<}\n' : 'fooTAIL\n') + suffix;
         const markdown = '<ul>\n<li>a</li>\n</ul>';
+        // At the document's end the pasted lines are a plain addition before
+        // its final line ending; before a heading they replace that line ending.
+        const trackedTail = suffix ? `{~~\n~>\n\n<li>a</li>\n</ul>\n\n~~}${suffix}` : '{++\n\n<li>a</li>\n</ul>\n++}\n';
         const expected = tracked
-            ? `foo{++<ul>++}TAIL{>>note<<}{~~\n~>\n\n<li>a</li>\n</ul>\n\n~~}${suffix}`
+            ? `foo{++<ul>++}TAIL{>>note<<}${trackedTail}`
             : bound ? 'foo<ul>TAIL{>>note<<}\n\n<li>a</li>\n</ul>\n' : 'foo<ul>TAIL\n\n<li>a</li>\n</ul>\n';
         const next = tracked
-            ? `foo{++<ul>x++}TAIL{>>note<<}{~~\n~>\n\n<li>a</li>\n</ul>\n\n~~}${suffix}`
+            ? `foo{++<ul>x++}TAIL{>>note<<}${trackedTail}`
             : bound ? 'foo<ul>xTAIL{>>note<<}\n\n<li>a</li>\n</ul>\n' : 'foo<ul>xTAIL\n\n<li>a</li>\n</ul>\n';
         await page.evaluate(async ({ source, markdown, bound, tracked }) => {
             if (bound) {
