@@ -99,7 +99,7 @@ test('Core unlink uses the existing floating link tool on the hovered suggestion
         window.muya!.editor.scrollPage!.lastContentInDescendant()!.setCursor(0, 0);
     }, source);
     try {
-        await page.locator('#editor a').first().hover();
+        await page.locator('#editor span.mu-link').first().hover();
         await page.locator('.mu-link-tools li.item.unlink').click();
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: 'a{++a++}a\n\noutside\n' }, anchor: 3, caret: 3 });
         await page.keyboard.type('X');
