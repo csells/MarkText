@@ -31,7 +31,7 @@ export function bootCoreBoundary(muya: Muya, source: string, tracked = false, ex
         reconcileMuyaDocumentView({ muya, view, outcome, sourcePosition: adapter.reconciledSourcePosition, dirtyPaths: presentation.changedPaths, applyEditability: bindings => muya.setEditablePaths(bindings.filter(item => item.editable !== false).map(item => item.path)) });
         return view.bindings;
     };
-    adapter = createMuyaPlainTextCoreAdapter(view.bindings, binding, undefined, reconcile);
+    adapter = createMuyaPlainTextCoreAdapter(view.bindings, binding, undefined, initial.revision);
     const snapshot = () => ({
         source: binding.sourceAtBarrier(),
         anchor: muya.getSelection()?.anchor.offset,
