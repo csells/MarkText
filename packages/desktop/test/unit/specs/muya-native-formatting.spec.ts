@@ -698,7 +698,7 @@ it('unlinks the actual hovered link through the model without consuming its sugg
     if (event.reference) tools = event
   })
   try {
-    const anchor = setup.muya.domNode.querySelector('a')
+    const anchor = setup.muya.domNode.querySelector<HTMLElement>('.mu-link')
     expect(anchor).not.toBeNull()
     anchor?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
     if (!tools) throw new Error('Missing native link widget')
