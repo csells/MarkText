@@ -5096,6 +5096,8 @@ function markdownAstRegionLiteralsKey(
     literal.end - start,
     literal.blockKind,
     literal.htmlTermination,
+    // `$`…`$` and `$…$` can span the same range; only the form places the formula.
+    literal.mathForm,
     literal.construct === undefined
       ? undefined
       : {
