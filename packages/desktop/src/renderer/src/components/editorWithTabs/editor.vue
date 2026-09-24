@@ -4689,6 +4689,10 @@ onMounted(() => {
     restoreMuyaDocumentSelection(muya, coreAcknowledgedMarkupView, props.initialDocumentSelection, {
       projectSource: true
     })
+  } else if (props.coreLease !== undefined) {
+    // Core documents bypass `setMarkdownToEditor`; a view with no caret to
+    // restore is ready to type into at its start, as a freshly loaded one is.
+    focusFreshEditor()
   }
 
   // Core replaces the mounted view on handoff, bypassing legacy file-changed
