@@ -14,7 +14,7 @@ it.each([false, true])(
       const block = app.muya.editor.scrollPage?.queryBlock([0, 'text'])
       if (!block?.isContent()) throw new Error('Expected code body')
       block.setCursor(2, 1, true)
-      block.domNode.dispatchEvent(
+      block.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: '(',
@@ -27,7 +27,7 @@ it.each([false, true])(
       const input = app.muya.editor.selection.getSelection()?.anchor.block
       if (!input) throw new Error('Expected wrapped code body')
       expect(input.text).toBe(' ( )body')
-      input.domNode.dispatchEvent(
+      input.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'x',
@@ -69,7 +69,7 @@ it('tracks normalized wrapping and its next key in the same live model', async()
     const block = app.muya.editor.scrollPage?.queryBlock([0, 'text'])
     if (!block?.isContent()) throw new Error('Expected code body')
     block.setCursor(2, 1, true)
-    block.domNode.dispatchEvent(
+    block.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: '(',
@@ -84,7 +84,7 @@ it('tracks normalized wrapping and its next key in the same live model', async()
     const input = app.muya.editor.selection.getSelection()?.anchor.block
     if (!input) throw new Error('Expected tracked code body')
     expect.soft(input.text).toBe(' ( )body')
-    input.domNode.dispatchEvent(
+    input.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',
@@ -128,7 +128,7 @@ it('edits inside parser-normalized tab indentation without losing literal text o
     if (!block?.isContent()) throw new Error('Expected code body')
     expect(block.text).toBe('  body')
     block.setCursor(1, 1, true)
-    block.domNode.dispatchEvent(
+    block.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',
@@ -171,7 +171,7 @@ it('keeps normalized literal selection and exact source through a formatting no-
     app.muya.format('strong')
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 1 }, focus: { offset: 1 } })
-    block.domNode.dispatchEvent(
+    block.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',
@@ -194,14 +194,14 @@ it('restores an interior tab caret after canceled native composition before the 
     const block = app.muya.editor.scrollPage?.queryBlock([0, 'text'])
     if (!block?.isContent()) throw new Error('Expected code body')
     block.setCursor(1, 1, true)
-    block.domNode.dispatchEvent(
+    block.domNode!.dispatchEvent(
       new CompositionEvent('compositionstart', { bubbles: true, data: '' })
     )
     expect(app.adapter.isSettled()).toBe(false)
-    block.domNode.dispatchEvent(
+    block.domNode!.dispatchEvent(
       new CompositionEvent('compositionupdate', { bubbles: true, data: 'n' })
     )
-    block.domNode.dispatchEvent(
+    block.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         bubbles: true,
         inputType: 'insertCompositionText',
@@ -209,9 +209,9 @@ it('restores an interior tab caret after canceled native composition before the 
         isComposing: true
       })
     )
-    block.domNode.textContent = ' n body'
+    block.domNode!.textContent = ' n body'
     block.setCursor(2, 2, true)
-    block.domNode.dispatchEvent(
+    block.domNode!.dispatchEvent(
       new InputEvent('input', {
         bubbles: true,
         inputType: 'insertCompositionText',
@@ -220,16 +220,16 @@ it('restores an interior tab caret after canceled native composition before the 
       })
     )
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
-    block.domNode.dispatchEvent(
+    block.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { bubbles: true, key: 'Escape', isComposing: true })
     )
-    block.domNode.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '' }))
+    block.domNode!.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '' }))
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 1 }, focus: { offset: 1 } })
     const restored = app.muya.editor.scrollPage?.queryBlock([0, 'text'])
     if (!restored?.isContent()) throw new Error('Expected restored code body')
     expect(restored.text).toBe('  body')
-    restored.domNode.dispatchEvent(
+    restored.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',

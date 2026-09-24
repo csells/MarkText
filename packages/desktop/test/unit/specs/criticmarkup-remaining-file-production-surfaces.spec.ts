@@ -40,7 +40,8 @@ vi.mock('main_renderer/menu/actions/marktext', () => ({
 vi.mock('main_renderer/menu/actions/view', () => ({
   showTabBar: collaborators.showTabBar
 }))
-vi.mock('main_renderer/utils/pandoc', () => ({
+vi.mock('main_renderer/utils/pandoc', async(importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   default: Object.assign(vi.fn(), { exists: () => false })
 }))
 vi.mock('main_renderer/i18n', () => ({ t: (key: string) => key }))

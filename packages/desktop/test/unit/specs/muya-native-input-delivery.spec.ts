@@ -17,9 +17,9 @@ it('publishes native input before the next animation frame and stops on handoff'
     if (block == null) throw new Error('Expected paragraph')
     muya.editor.activeContentBlock = block
     const text = block.text + character
-    block.domNode.textContent = text
+    block.domNode!.textContent = text
     block.setCursor(text.length, text.length)
-    block.domNode.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: character, bubbles: true }))
+    block.domNode!.dispatchEvent(new InputEvent('input', { inputType: 'insertText', data: character, bubbles: true }))
   }
   try {
     type('X')

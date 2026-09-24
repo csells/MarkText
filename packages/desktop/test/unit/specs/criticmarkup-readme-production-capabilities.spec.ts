@@ -22,13 +22,9 @@ import {
   zhCN,
   zhTW
 } from '@muyajs/core'
-// @ts-expect-error The published package wildcard exposes deep state modules at runtime.
 import HtmlToMarkdown from '@muyajs/core/state/htmlToMarkdown'
-// @ts-expect-error The published package wildcard exposes deep state modules at runtime.
 import { MarkdownToState } from '@muyajs/core/state/markdownToState'
-// @ts-expect-error The published package wildcard exposes deep state modules at runtime.
 import StateToMarkdown from '@muyajs/core/state/stateToMarkdown'
-// @ts-expect-error The published package wildcard exposes deep state modules at runtime.
 import type { TState } from '@muyajs/core/state/types'
 import themeMenuTemplate from 'main_renderer/menu/templates/theme'
 

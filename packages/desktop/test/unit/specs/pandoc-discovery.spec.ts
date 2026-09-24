@@ -17,6 +17,7 @@ let originalPath: string | undefined
 let originalShell: string | undefined
 let originalHome: string | undefined
 let originalOverride: string | undefined
+let originalNpmPrefix: string | undefined
 
 const loadPandoc = async() => {
   vi.resetModules()
@@ -34,6 +35,7 @@ beforeAll(async() => {
   originalShell = process.env.SHELL
   originalHome = process.env.HOME
   originalOverride = process.env.MARKTEXT_PANDOC
+  originalNpmPrefix = process.env.npm_config_prefix
 })
 
 beforeEach(() => {
@@ -43,6 +45,9 @@ beforeEach(() => {
   process.env.PATH = '/usr/bin:/bin'
   process.env.HOME = tmpDir
   delete process.env.MARKTEXT_PANDOC
+  // npm and pnpm export their prefix to scripts they run, and its bin dir is
+  // searched too; a pandoc installed there must not leak into these cases.
+  delete process.env.npm_config_prefix
   setPlatform('freebsd')
 })
 
@@ -53,6 +58,7 @@ afterEach(() => {
   restoreEnv('SHELL', originalShell)
   restoreEnv('HOME', originalHome)
   restoreEnv('MARKTEXT_PANDOC', originalOverride)
+  restoreEnv('npm_config_prefix', originalNpmPrefix)
 })
 
 afterAll(async() => {

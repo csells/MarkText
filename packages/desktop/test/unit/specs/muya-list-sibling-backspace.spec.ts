@@ -90,7 +90,7 @@ it.each(
       let paragraph = muya.editor.scrollPage!.firstContentInDescendant()!
       for (let index = 0; index < target; index++) paragraph = paragraph.nextContentInContext()!
       paragraph.setCursor(0, 0, true)
-      paragraph.domNode.dispatchEvent(
+      paragraph.domNode!.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
       )
       expect(legacyChanges).toEqual([])

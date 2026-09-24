@@ -131,7 +131,7 @@ it('Tab nests the second ordered item as a new list starting at 1', () => {
     const block = app.muya.editor.scrollPage?.firstContentInDescendant()?.nextContentInContext()
     if (!block) throw new Error('Expected second item')
     block.setCursor(2, 2, true)
-    block.domNode.dispatchEvent(
+    block.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
     )
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: '1. alpha\n   1. beta\n' })

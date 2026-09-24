@@ -20,7 +20,7 @@ it.each([
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 2 }, focus: { offset: 2 } })
     if (command === 'direct') {
       const code = block.closestBlock('code-block')
-      if (!code) throw new Error('Expected code parent')
+      if (!code?.isParent()) throw new Error('Expected code parent')
       app.muya.resetToParagraph(code)
     } else app.muya.updateParagraph(command)
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'code here\n' })
@@ -31,7 +31,7 @@ it.each([
     const input = app.muya.editor.selection.getSelection()?.anchor.block
     if (!input) throw new Error('Expected paragraph after code toggle')
     expect(input.blockName).toBe('paragraph.content')
-    input.domNode.dispatchEvent(
+    input.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',
@@ -87,7 +87,7 @@ it.each([
     block.setCursor(2, 2, true)
     if (command === 'direct') {
       const code = block.closestBlock('code-block')
-      if (!code) throw new Error('Expected native code parent')
+      if (!code?.isParent()) throw new Error('Expected native code parent')
       muya.resetToParagraph(code)
     } else muya.updateParagraph(command)
     muya.flush()
@@ -118,7 +118,7 @@ it('resets the selected repeated code block and preserves the selected range for
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 2 }, focus: { offset: 6 } })
     const input = app.muya.editor.selection.getSelection()?.anchor.block
     if (!input) throw new Error('Expected second paragraph selection')
-    input.domNode.dispatchEvent(
+    input.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',
@@ -170,7 +170,7 @@ it.each(['\n', '\r\n', '\r'])(
       const input = app.muya.editor.selection.getSelection()?.anchor.block
       if (!input) throw new Error('Expected accepted new paragraph')
       expect(input.blockName).toBe('paragraph.content')
-      input.domNode.dispatchEvent(
+      input.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'x',

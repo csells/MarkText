@@ -16,7 +16,7 @@ it.each([
     const content = app.muya.editor.scrollPage?.firstContentInDescendant()
     if (!content) throw new Error('Expected annotated paragraph')
     content.setCursor(content.text.length, content.text.length, true)
-    content.domNode.dispatchEvent(
+    content.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'X',

@@ -45,14 +45,14 @@ it.each(
     if (!paragraph) throw new Error('Expected paragraph at the join')
     const at = key === 'Backspace' ? 0 : paragraph.text.length
     paragraph.setCursor(at, at, true)
-    paragraph.domNode.dispatchEvent(
+    paragraph.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
     )
     expect(app.adapter.state().status, JSON.stringify(app.adapter.state())).toBe('ready')
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: joined })
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset }, focus: { offset } })
     const live = app.muya.editor.selection.getSelection()?.anchor.block
-    if (!live?.domNode.isConnected) throw new Error('Expected live joined caret')
+    if (!live?.domNode?.isConnected) throw new Error('Expected live joined caret')
     live.domNode.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',

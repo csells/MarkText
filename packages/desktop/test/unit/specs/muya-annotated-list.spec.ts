@@ -34,7 +34,7 @@ it.each(
       if (item == null) throw new Error('Expected list item')
       const itemEnd = item.text.length
       item.setCursor(itemEnd, itemEnd, true)
-      item.domNode.dispatchEvent(
+      item.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           data: '!',
           inputType: 'insertText',

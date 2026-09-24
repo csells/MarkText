@@ -1,6 +1,6 @@
 import type { Muya } from '@muyajs/core'
 import type { DocumentSelection, DocumentTableCellSelection } from '@marktext/document-core'
-import type { MuyaMarkupState, MuyaMarkupView } from './muyaMarkupView'
+import { asMuyaStates, type MuyaMarkupState, type MuyaMarkupView } from './muyaMarkupView'
 import isEqual from 'lodash/isEqual'
 
 import type { CoreAppliedReply } from './coreProtocol'
@@ -75,7 +75,7 @@ function presentUnownedLines(muya: Muya, view: MuyaMarkupView, points: readonly 
       text: ''
     })
   }
-  muya.reconcileContent(state)
+  muya.reconcileContent(asMuyaStates(state))
   for (const binding of [...blank, ...trailing, ...leading]) {
     const block = muya.editor.scrollPage?.queryBlock([...binding.path])
     if (block?.isContent()) block.update()
@@ -104,7 +104,7 @@ function presentMarkerLines(muya: Muya, view: MuyaMarkupView, points: readonly n
   for (const line of lines) {
     replaceState(state, line.statePath, { name: 'paragraph', text: line.text })
   }
-  muya.reconcileContent(state)
+  muya.reconcileContent(asMuyaStates(state))
   for (const line of lines) {
     const block = muya.editor.scrollPage?.queryBlock([...line.statePath, 'text'])
     if (block?.isContent()) block.update()
@@ -139,7 +139,7 @@ function presentCellPadding(
     leaf = (leaf as Record<string | number, unknown>)[part]
   }
   ;(leaf as MuyaMarkupState).text = binding.text + ' '.repeat(spaces)
-  muya.reconcileContent(state)
+  muya.reconcileContent(asMuyaStates(state))
   const block = muya.editor.scrollPage?.queryBlock([...binding.path])
   if (block?.isContent()) block.update()
 }
@@ -320,7 +320,7 @@ export function reconcileMuyaDocumentView({
           endpoint.offset <= binding.text.length
       )
     )
-  const unchanged = 'state' in view && !muya.reconcileContent(view.state)
+  const unchanged = 'state' in view && !muya.reconcileContent(asMuyaStates(view.state))
   if (!('state' in view)) muya.setContent(view.markdown, false, { preserveInputGrouping: true })
   applyEditability(view.bindings)
   // A retained root can have changed inline meaning without changed native

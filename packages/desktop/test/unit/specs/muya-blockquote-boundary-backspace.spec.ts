@@ -11,13 +11,13 @@ it('unwraps only the first quote paragraph before the next native key', async() 
     const paragraph = app.muya.editor.scrollPage?.firstContentInDescendant()
     if (!paragraph) throw new Error('Expected first quote paragraph')
     paragraph.setCursor(0, 0, true)
-    paragraph.domNode.dispatchEvent(
+    paragraph.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
     )
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: joined })
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
     const live = app.muya.editor.selection.getSelection()?.anchor.block
-    if (!live?.domNode.isConnected) throw new Error('Expected unquoted selection')
+    if (!live?.domNode?.isConnected) throw new Error('Expected unquoted selection')
     live.domNode.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',

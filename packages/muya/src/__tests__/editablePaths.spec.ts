@@ -46,7 +46,7 @@ describe('muya editable content paths', () => {
         expect(paragraphs[0]?.getAttribute('contenteditable')).toBe('false');
         expect(paragraphs[1]?.getAttribute('contenteditable')).toBe('true');
 
-        muya.setOptions({ math: false }, true);
+        muya.setOptions({ texMathDollars: false }, true);
         paragraphs = muya.domNode.querySelectorAll<HTMLElement>(
             'span.mu-paragraph-content',
         );

@@ -68,7 +68,7 @@ it.each(
     try {
       const firstTarget = view().bindings.find((binding) => binding.text === 'first')
       const first = firstTarget && muya.editor.scrollPage?.queryBlock([...firstTarget.path])
-      if (!first) throw new Error('Expected first item')
+      if (!first?.isContent()) throw new Error('Expected first item')
       muya.editor.activeContentBlock = first
       first.setCursor(0, 0, true)
       muya.updateParagraph(command)
@@ -94,11 +94,11 @@ it.each(
       expect(muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       const target = view().bindings.find((binding) => binding.text === 'first')
       const item = target && muya.editor.scrollPage?.queryBlock([...target.path])
-      if (!item) throw new Error('Expected converted list item')
+      if (!item?.isContent()) throw new Error('Expected converted list item')
       muya.editor.activeContentBlock = item
       app.track(false)
       item.setCursor(5, 5, true)
-      item.domNode.dispatchEvent(
+      item.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           data: '!',
           inputType: 'insertText',

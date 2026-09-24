@@ -8,7 +8,7 @@ it('uses paragraph syntax for wrapping immediately after a code boundary', async
     const paragraph = app.muya.editor.scrollPage?.queryBlock([1, 'text'])
     if (!paragraph?.isContent()) throw new Error('Expected paragraph after code')
     paragraph.setCursor(0, 1, true)
-    paragraph.domNode.dispatchEvent(
+    paragraph.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: '*',
@@ -20,7 +20,7 @@ it('uses paragraph syntax for wrapping immediately after a code boundary', async
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 1 }, focus: { offset: 2 } })
     const live = app.muya.editor.selection.getSelection()?.anchor.block
     if (!live) throw new Error('Expected wrapped paragraph selection')
-    live.domNode.dispatchEvent(
+    live.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',
@@ -81,7 +81,7 @@ it.each(
       if (!paragraph?.isContent()) throw new Error('Expected paragraph after code')
       expect(paragraph.text).toBe(visible)
       paragraph.setCursor(0, 0, true)
-      paragraph.domNode.dispatchEvent(
+      paragraph.domNode!.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
       )
       expect(app.adapter.state().status, JSON.stringify(app.adapter.state())).toBe('ready')
@@ -91,7 +91,7 @@ it.each(
         focus: { offset: body.length }
       })
       const live = app.muya.editor.selection.getSelection()?.anchor.block
-      if (!live?.domNode.isConnected) throw new Error('Expected live code selection')
+      if (!live?.domNode?.isConnected) throw new Error('Expected live code selection')
       expect(live.blockName).toBe('codeblock.content')
       expect(live.text).toBe(body + donor)
       live.domNode.dispatchEvent(

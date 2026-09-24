@@ -17,9 +17,10 @@ const fakeWindow = {
   webContents: { send }
 } as unknown as BrowserWindow
 const registeredCommandIds: string[] = []
-const template = paragraphMenu({
-  getAccelerator: () => undefined
-} as never)
+const template = paragraphMenu(
+  { getAccelerator: () => undefined } as never,
+  { getItem: () => undefined } as never
+)
 const submenu = template.submenu as MenuItemConstructorOptions[]
 
 const clickParagraphMenu = (label: string): void => {

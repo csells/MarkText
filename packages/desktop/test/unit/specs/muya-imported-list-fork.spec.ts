@@ -2,6 +2,7 @@
 import { createDocumentCore } from '@marktext/document-core'
 import { expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import type { MaybeContent } from '../helpers/muyaTypes'
 
 it.each(
   ['\n', '\r\n', '\r'].flatMap((ending) => [false, true].map((tracked) => ({ ending, tracked })))
@@ -30,12 +31,12 @@ it.each(
     const { muya, binding, adapter, reconcile, legacyChanges } = app
     app.track(tracked)
     try {
-      let paragraph = muya.editor.scrollPage?.firstContentInDescendant()
+      let paragraph: MaybeContent = muya.editor.scrollPage?.firstContentInDescendant()
       for (let index = 0; index < 3; index++) paragraph = paragraph?.nextContentInContext()
       if (!paragraph) throw new Error('Expected the replacement arm list item')
       expect(paragraph.text).toBe('same')
       paragraph.setCursor(0, 0, true)
-      paragraph.domNode.dispatchEvent(
+      paragraph.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'X',
@@ -47,7 +48,7 @@ it.each(
       const next = muya.editor.selection.getSelection()?.anchor.block
       if (!next) throw new Error('Expected the live selection after input')
       expect(next.text).toBe('Xsame')
-      next.domNode.dispatchEvent(
+      next.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'Y',
