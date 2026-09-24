@@ -764,7 +764,6 @@ onMounted(() => {
 
   editor.value = codeMirrorInstance
   tabId.value = id
-  updateSelectionWordCount(codeMirrorInstance)
   publishSourceSearch()
   codeMirrorInstance.on('changes', invalidateSourceSearch)
 
@@ -977,6 +976,9 @@ onMounted(() => {
     // The replacement's scroll extent settles after its first layout.
     requestAnimationFrame(restore)
   }
+  // A restored selection equal to the projected one raises no cursorActivity,
+  // so the title bar's selected count is read once the caret is final.
+  updateSelectionWordCount(codeMirrorInstance)
   // Constructor autofocus precedes CodeMirror's focus listener registration
   // and leaves a 20 ms interval where native input is ignored. Activate only
   // after its listeners, selection and Core ownership are established.
