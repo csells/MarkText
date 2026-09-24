@@ -152,6 +152,43 @@ function annotationExteriorBreak(annotations: readonly CriticMarkupAnnotation[],
   return syntax.coordinates.toProjected(target, 'next') === syntax.coordinates.toProjected(caret, 'next') ? target : caret
 }
 
+function softBreakBeforeBlankLine(core: DocumentCore, revision: DocumentRevision, projection: MarkupSyntax, lines: MarkdownLineIndex, caret: number): SourceRange | undefined {
+  const projected = projection.coordinates.toProjected(caret, 'next')
+  const sourceAt = (offset: number) => projection.coordinates.toSource(offset, 'next')
+  const contentStartOf = (line: ReturnType<MarkdownLineIndex['at']>) =>
+    Math.max(line.start, ...line.listIndentations.map(part => part.end), ...line.blockquoteMarkers.map(part => part.end))
+  let index = -1
+  for (let candidate = 0; candidate < lines.count; candidate++) {
+    if (lines.at(candidate).start > projected) break
+    index = candidate
+  }
+  if (index < 1) return undefined
+  const line = lines.at(index)
+  const contentStart = contentStartOf(line)
+  if (contentStart > projected || !/^[ \t]*$/u.test(core.sourceSlice(revision, { start: sourceAt(contentStart), end: caret }))) return undefined
+  const previous = lines.at(index - 1)
+  if (previous.blank || previous.contentEnd <= contentStartOf(previous)) return undefined
+  // The line before belongs to the paragraph (or setext heading text) the
+  // caret continues, possibly as its trailing soft break.
+  const block = [...syntaxPathAt(projection.ast.root, previous.contentEnd - 1)].reverse()
+    .find(node => node.kind === 'paragraph' || (node.kind === 'heading' && node.attributes.style === 'setext'))
+  if (block === undefined) return undefined
+  const blockEnd = block.kind === 'heading' ? Number(block.attributes.contentEnd) : block.range.end
+  if (blockEnd < previous.contentEnd) return undefined
+  let start = sourceAt(previous.contentEnd)
+  const previousText = core.sourceSlice(revision, { start: sourceAt(contentStartOf(previous)), end: start })
+  const spaces = /[ \t]+$/u.exec(previousText)?.[0].length ?? 0
+  const backslashes = /\\*$/u.exec(previousText)?.[0].length ?? 0
+  start -= spaces > 0 ? spaces : backslashes % 2
+  let end = caret
+  const next = index + 1 < lines.count ? lines.at(index + 1) : undefined
+  if (next !== undefined && next.start < blockEnd &&
+      /^[ \t]*$/u.test(core.sourceSlice(revision, { start: caret, end: sourceAt(line.contentEnd) }))) {
+    end = sourceAt(contentStartOf(next))
+  }
+  return { start, end }
+}
+
 export function planStructuralInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction<SourceRange>, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, selectedCell?: ReturnType<typeof resolveTableCell>): DocumentSourceInputPlan {
   const inputType = 'inputType' in action ? action.inputType : undefined
   const projection = core.project(revision, 'markup').syntax
@@ -159,6 +196,15 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     ? annotationExteriorBreak(revision.annotations, projection, action.selection.start)
     : undefined
   const { start, end } = breakAt === undefined ? action.selection : { start: breakAt, end: breakAt }
+  // A soft break that would leave an empty line ends the paragraph instead:
+  // the break goes, with a hard-break marker before it, and Enter splits
+  // there (#5300).
+  if (inputType === 'insertLineBreak' && start === end && selectedCell === undefined) {
+    const dropped = softBreakBeforeBlankLine(core, revision, projection, physicalLines(), start)
+    if (dropped !== undefined) {
+      return planStructuralInput(core, revision, { ...action, inputType: 'insertParagraph', data: '\n', selection: dropped, range: dropped } as DocumentInputAction<SourceRange>, enterConversion, physicalLines, selectedCell)
+    }
+  }
   const rawRange = 'range' in action ? action.range : { start, end: start }
   const preceding = core.sourceSlice(revision, { start: 0, end: start })
   const lineEnding = preceding.match(/\r\n|\r|\n/u)?.[0] ?? core.sourceSlice(revision, { start, end: revision.sourceLength }).match(/\r\n|\r|\n/u)?.[0] ?? '\n'
@@ -448,7 +494,12 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
         }
         if (!paragraphLike(previous) && previous.kind !== 'heading' && previous.kind !== 'thematic-break' || !paragraphLike(paragraph)) throw new RangeError('Paragraph join requires an adjacent paragraph or heading')
         const from = sourceAt(contentEnd(previous))
-        const to = projection.coordinates.toSource(emptyContainer(paragraph) ? contentEnd(paragraph) : paragraphImageRange(paragraph)?.start ?? paragraph.range.start, 'previous')
+        // A task item's paragraph begins at the space after its checkbox, which
+        // belongs to the marker and goes with it (#5423).
+        const taskItem = syntaxPathAt(projection.ast.root, paragraph.range.start)
+          .find(node => node.kind === 'list-item' && node.children[0] === paragraph && typeof node.attributes.taskMarkerEnd === 'number')
+        const donorStart = taskItem === undefined ? paragraph.range.start : Math.max(paragraph.range.start, Math.min(paragraph.range.end, Number(taskItem.attributes.taskMarkerEnd) + 1))
+        const to = projection.coordinates.toSource(emptyContainer(paragraph) ? contentEnd(paragraph) : paragraphImageRange(paragraph)?.start ?? donorStart, 'previous')
         const trailing = forward ? paragraphJoinTrailingEdits(core, revision, projection, physicalLines(), previous, paragraph) : []
         if (previous.kind === 'heading' && previous.attributes.style === 'setext') {
           const target = sourceAt(Number(previous.attributes.contentEnd))
