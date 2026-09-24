@@ -33,7 +33,7 @@ for (const example of [
     { name: 'plain repeated text', source: 'aaaa\n', start: 2, end: 2, expected: 'aa\n\naa\n', next: 'aa\n\nxaa\n' },
     { name: 'a suggestion payload', source: 'a{++aa++}a\n', start: 2, end: 2, expected: 'a{++a\n\na++}a\n', next: 'a{++a\n\nxa++}a\n' },
     { name: 'a list item', source: '- aaa\n', start: 1, end: 1, expected: '- a\n- aa\n', next: '- a\n- xaa\n' },
-    { name: 'a blockquote', source: '> aaa\n', start: 1, end: 1, expected: '> a\n> \n> aa\n', next: '> a\n> \n> xaa\n' },
+    { name: 'a blockquote', source: '> aaa\n', start: 1, end: 1, expected: '> a\n>\n> aa\n', next: '> a\n>\n> xaa\n' },
     { name: 'tracked repeated text', source: 'aaaa\n', start: 2, end: 2, expected: 'aa{++\n\n++}aa\n', next: 'aa{++\n\nx++}aa\n', tracked: true },
     { name: 'tracked heading end', source: '# Heading\n', start: 9, end: 9, expected: '# Heading{++\n\n++}\n', next: '# Heading{++\n\nnext++}\n', tracked: true, typed: 'next' },
     { name: 'tracked list end', source: '- item\n', start: 4, end: 4, expected: '- item{++\n- ++}\n', next: '- item{++\n- next++}\n', tracked: true, typed: 'next' },
@@ -127,7 +127,8 @@ for (const source of ['| a | b |\n', '| {++a++} | b |\n']) {
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected }, anchor: 0, caret: 0, legacyCalls: [] });
                 await expect(page.locator('table')).toHaveCount(1);
                 await page.keyboard.type('x');
-                const next = `${source.slice(0, -1)}\n| --- | --- |\n| x| |\n`;
+                // Typing writes the table afresh like upstream's, padded to its widest cell.
+                const next = source.includes('{++') ? '| {++a++} | b   |\n| ------- | --- |\n| x       |     |\n' : '| a   | b   |\n| --- | --- |\n| x   |     |\n';
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: next }, anchor: 1, caret: 1, legacyCalls: [] });
                 await page.evaluate(() => window.coreBoundary.history('undo'));
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected } });
@@ -183,7 +184,7 @@ for (const example of [
 }
 
 for (const example of [
-    { name: 'new trailing paragraph', source: '```js\naaa\n```\n', expected: '```js\naaa\n```\n\n', next: '```js\naaa\n```\n\nx' },
+    { name: 'new trailing paragraph', source: '```js\naaa\n```\n', expected: '```js\naaa\n```\n\n\n', next: '```js\naaa\n```\n\nx\n' },
     { name: 'existing next paragraph', source: '```js\naaa\n```\n\nafter\n', expected: '```js\naaa\n```\n\nafter\n', next: '```js\naaa\n```\n\nxafter\n' },
 ]) {
     test(`Core literal Shift Enter selects the ${example.name}`, async ({ page }) => {
@@ -212,10 +213,10 @@ for (const example of [
 }
 
 for (const example of [
-    { name: 'next table row', key: 'Enter', expected: '| aa | bb |\n| --- | --- |\n| cc | dd |\n', next: '| aa | bb |\n| --- | --- |\n| xcc | dd |\n', caret: 0 },
-    { name: 'table cell line break', key: 'Shift+Enter', expected: '| a<br/>a | bb |\n| --- | --- |\n| cc | dd |\n', next: '| a<br/>xa | bb |\n| --- | --- |\n| cc | dd |\n', caret: 6 },
-    { name: 'annotated cell line break', source: '| a{++aa++}a | bb |\n| --- | --- |\n| cc | dd |\n', at: 2, key: 'Shift+Enter', expected: '| a{++a<br/>a++}a | bb |\n| --- | --- |\n| cc | dd |\n', next: '| a{++a<br/>xa++}a | bb |\n| --- | --- |\n| cc | dd |\n', caret: 7 },
-    { name: 'last row exit', key: 'Enter', body: true, expected: '| aa | bb |\n| --- | --- |\n| cc | dd |\n\n', next: '| aa | bb |\n| --- | --- |\n| cc | dd |\n\nx', caret: 0 },
+    { name: 'next table row', key: 'Enter', expected: '| aa | bb |\n| --- | --- |\n| cc | dd |\n', next: '| aa  | bb  |\n| --- | --- |\n| xcc | dd  |\n', caret: 0 },
+    { name: 'table cell line break', key: 'Shift+Enter', expected: '| a<br/>a | bb  |\n| ------- | --- |\n| cc      | dd  |\n', next: '| a<br/>xa | bb  |\n| -------- | --- |\n| cc       | dd  |\n', caret: 6 },
+    { name: 'annotated cell line break', source: '| a{++aa++}a | bb |\n| --- | --- |\n| cc | dd |\n', at: 2, key: 'Shift+Enter', expected: '| a{++a<br/>a++}a | bb  |\n| --------------- | --- |\n| cc              | dd  |\n', next: '| a{++a<br/>xa++}a | bb  |\n| ---------------- | --- |\n| cc               | dd  |\n', caret: 7 },
+    { name: 'last row exit', key: 'Enter', body: true, expected: '| aa  | bb  |\n| --- | --- |\n| cc  | dd  |\n\n\n', next: '| aa  | bb  |\n| --- | --- |\n| cc  | dd  |\n\nx\n', caret: 0 },
 ]) {
     test(`Core table Enter owns the ${example.name}`, async ({ page }) => {
         await page.evaluate(async (example) => {
@@ -246,11 +247,11 @@ for (const example of [
 test.describe('macOS table command', () => {
     test.use({ userAgent: devices['Desktop Chrome'].userAgent!.replace(/\([^)]*\)/, '(Macintosh; Intel Mac OS X 10_15_7)') });
     for (const example of [
-        { name: 'ordinary cells', source: '| aa | bb |\n| --- | --- |\n| cc | dd |\n', expected: '| aa | bb |\n| --- | --- |\n|     |     |\n| cc | dd |\n', next: '| aa | bb |\n| --- | --- |\n|     x|     |\n| cc | dd |\n', tracked: false },
-        { name: 'primary shortcut precedence with Alt', source: '| aa | bb |\n| --- | --- |\n| cc | dd |\n', expected: '| aa | bb |\n| --- | --- |\n|     |     |\n| cc | dd |\n', next: '| aa | bb |\n| --- | --- |\n|     x|     |\n| cc | dd |\n', tracked: false, key: 'Meta+Alt+Enter' },
-        { name: 'an existing suggestion', source: '| a{++a++} | bb |\n| --- | --- |\n| cc | dd |\n', expected: '| a{++a++} | bb |\n| --- | --- |\n|     |     |\n| cc | dd |\n', next: '| a{++a++} | bb |\n| --- | --- |\n|     x|     |\n| cc | dd |\n', tracked: false },
+        { name: 'ordinary cells', source: '| aa | bb |\n| --- | --- |\n| cc | dd |\n', expected: '| aa  | bb  |\n| --- | --- |\n|     |     |\n| cc  | dd  |\n', next: '| aa  | bb  |\n| --- | --- |\n| x   |     |\n| cc  | dd  |\n', tracked: false },
+        { name: 'primary shortcut precedence with Alt', source: '| aa | bb |\n| --- | --- |\n| cc | dd |\n', expected: '| aa  | bb  |\n| --- | --- |\n|     |     |\n| cc  | dd  |\n', next: '| aa  | bb  |\n| --- | --- |\n| x   |     |\n| cc  | dd  |\n', tracked: false, key: 'Meta+Alt+Enter' },
+        { name: 'an existing suggestion', source: '| a{++a++} | bb |\n| --- | --- |\n| cc | dd |\n', expected: '| a{++a++} | bb  |\n| -------- | --- |\n|          |     |\n| cc       | dd  |\n', next: '| a{++a++} | bb  |\n| -------- | --- |\n| x        |     |\n| cc       | dd  |\n', tracked: false },
         { name: 'tracked row insertion', source: '| aa | bb |\n| --- | --- |\n| cc | dd |\n', expected: '| aa | bb |\n| --- | --- |{++\n|     |     |++}\n| cc | dd |\n', next: '| aa | bb |\n| --- | --- |{++\n|     x|     |++}\n| cc | dd |\n', tracked: true },
-        { name: 'insertion after a body row', source: '| aa | bb |\n| --- | --- |\n| cc | dd |\n', expected: '| aa | bb |\n| --- | --- |\n| cc | dd |\n|     |     |\n', next: '| aa | bb |\n| --- | --- |\n| cc | dd |\n|     x|     |\n', tracked: false, body: true },
+        { name: 'insertion after a body row', source: '| aa | bb |\n| --- | --- |\n| cc | dd |\n', expected: '| aa  | bb  |\n| --- | --- |\n| cc  | dd  |\n|     |     |\n', next: '| aa  | bb  |\n| --- | --- |\n| cc  | dd  |\n| x   |     |\n', tracked: false, body: true },
     ]) {
         test(`Core table row command preserves ${example.name} before native mutation`, async ({ page }) => {
             const { source, expected, next } = example;

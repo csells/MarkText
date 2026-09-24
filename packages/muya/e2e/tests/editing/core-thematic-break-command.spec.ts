@@ -15,8 +15,8 @@ for (const tracked of [false, true]) {
         },
         {
             label: 'Format in an empty document', quick: false, source: '', anchor: 0, focus: 0,
-            inserted: tracked ? '{++---\n\n++}' : '---\n\n',
-            typed: tracked ? '{++---\n\nxy++}' : '---\n\nxy',
+            inserted: tracked ? '{++---\n\n\n++}' : '---\n\n\n',
+            typed: tracked ? '{++---\n\nxy\n++}' : '---\n\nxy\n',
         },
         {
             label: 'Format preserves selected prose before following content', quick: false, source: 'before{>>keep<<}\n\nfollowing\n', anchor: 1, focus: 3,

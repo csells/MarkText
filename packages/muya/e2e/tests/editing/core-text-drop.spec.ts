@@ -239,7 +239,8 @@ test(`trusted table-target ${copy ? 'copy' : 'move'} escapes the selected payloa
         await expect(page.locator('.mu-table-cell-content')).toHaveCount(1);
         expect(await page.evaluate(() => window.muya!.getSelection()?.focus.block.blockName)).toBe('table.cell.content');
         await page.keyboard.type('X');
-        const typed = changed.replace('btarget', 'bXtarget');
+        // Typing writes the table afresh like upstream's, padded to its widest cell.
+        const typed = changed.replace('btarget', 'bXtarget').replace('| --- |', '| ----------- |');
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, legacyCalls: [] });
         await page.evaluate(() => window.coreBoundary.history('undo'));
         await page.evaluate(() => window.coreBoundary.history('undo'));

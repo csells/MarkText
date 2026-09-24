@@ -259,15 +259,15 @@ test.describe('TableColumnToolbar (per-column alignment popup)', () => {
 const REVIEW_COLUMNS = 'away\n\n| a{++a++} | aa |\n| :--- | ---: |\n| aa | aa |\n';
 
 for (const example of [
-    { name: 'consumes hidden comments within the removed column', source: 'away\n\n| first | second |\r\n| :--- | ---: |\r\n| {++cell++}{>>note<<} | remove |\r\n', button: 'li.item.remove', target: 0, survivor: 0, expected: 'away\n\n| second |\r\n| ---: |\r\n| remove |\r\n', next: 'away\n\n| xsecond |\r\n| ---: |\r\n| remove |\r\n' },
-    { name: 'inserts before the clicked column', button: 'li.item.insert.left', survivor: 1, expected: 'away\n\n| a{++a++} |     | aa |\n| :--- | --- | ---: |\n| aa |     | aa |\n', next: 'away\n\n| a{++a++} |     x| aa |\n| :--- | --- | ---: |\n| aa |     | aa |\n' },
-    { name: 'removes the clicked column', button: 'li.item.remove', survivor: 0, expected: 'away\n\n| a{++a++} |\n| :--- |\n| aa |\n', next: 'away\n\n| xa{++a++} |\n| :--- |\n| aa |\n' },
-    { name: 'inserts after the last column', button: 'li.item.insert.right', survivor: 2, expected: 'away\n\n| a{++a++} | aa |     |\n| :--- | ---: | --- |\n| aa | aa |     |\n', next: 'away\n\n| a{++a++} | aa |     x|\n| :--- | ---: | --- |\n| aa | aa |     |\n' },
-    { name: 'removes the first annotated column', button: 'li.item.remove', target: 0, survivor: 0, expected: 'away\n\n| aa |\n| ---: |\n| aa |\n', next: 'away\n\n| xaa |\n| ---: |\n| aa |\n' },
-    { name: 'tracks insertion before the clicked column', button: 'li.item.insert.left', tracked: true, survivor: 1, expected: 'away\n\n| a{++a++} |{++     |++} aa |\n| :--- |{++ --- |++} ---: |\n| aa |{++     |++} aa |\n', next: 'away\n\n| a{++a++} |{++     x|++} aa |\n| :--- |{++ --- |++} ---: |\n| aa |{++     |++} aa |\n' },
+    { name: 'consumes hidden comments within the removed column', source: 'away\n\n| first | second |\r\n| :--- | ---: |\r\n| {++cell++}{>>note<<} | remove |\r\n', button: 'li.item.remove', target: 0, survivor: 0, expected: 'away\n\n| second |\r\n| ------:|\r\n| remove |\r\n', next: 'away\n\n| xsecond |\r\n| -------:|\r\n| remove  |\r\n' },
+    { name: 'inserts before the clicked column', button: 'li.item.insert.left', survivor: 1, expected: 'away\n\n| a{++a++} |     | aa  |\n|:-------- | --- | ---:|\n| aa       |     | aa  |\n', next: 'away\n\n| a{++a++} | x   | aa  |\n|:-------- | --- | ---:|\n| aa       |     | aa  |\n' },
+    { name: 'removes the clicked column', button: 'li.item.remove', survivor: 0, expected: 'away\n\n| a{++a++} |\n|:-------- |\n| aa       |\n', next: 'away\n\n| xa{++a++} |\n|:--------- |\n| aa        |\n' },
+    { name: 'inserts after the last column', button: 'li.item.insert.right', survivor: 2, expected: 'away\n\n| a{++a++} | aa  |     |\n|:-------- | ---:| --- |\n| aa       | aa  |     |\n', next: 'away\n\n| a{++a++} | aa  | x   |\n|:-------- | ---:| --- |\n| aa       | aa  |     |\n' },
+    { name: 'removes the first annotated column', button: 'li.item.remove', target: 0, survivor: 0, expected: 'away\n\n| aa  |\n| ---:|\n| aa  |\n', next: 'away\n\n| xaa |\n| ---:|\n| aa  |\n' },
+    { name: 'tracks insertion before the clicked column', button: 'li.item.insert.left', tracked: true, survivor: 1, expected: 'away\n\n| a{++a++} |{++     |++} aa |\n| :--- |{++ --- |++} ---: |\n| aa |{++     |++} aa |\n', next: 'away\n\n| a{++a++} |{++x++}{++     |++} aa |\n| :--- |{++ --- |++} ---: |\n| aa |{++     |++} aa |\n' },
     { name: 'tracks removal of the clicked column', button: 'li.item.remove', tracked: true, survivor: 0, expected: 'away\n\n| a{++a++} {--| aa --}|\n| :--- {--| ---: --}|\n| aa {--| aa --}|\n', next: 'away\n\n| {++x++}a{++a++} {--| aa --}|\n| :--- {--| ---: --}|\n| aa {--| aa --}|\n' },
-    { name: 'inserts before implicit cells in a short body row', source: 'away\n\n| aa | bb |\n|---|---|\n| cc |\n', button: 'li.item.insert.left', survivor: 1, expected: 'away\n\n| aa |     | bb |\n|---| --- |---|\n| cc |     |\n', next: 'away\n\n| aa |     x| bb |\n|---| --- |---|\n| cc |     |\n' },
-    { name: 'removes the physical cell beside an implicit body cell', source: 'away\n\n| aa | bb |\n|---|---|\n| cc |\n', button: 'li.item.remove', target: 0, survivor: 0, expected: 'away\n\n| bb |\n|---|\n||\n', next: 'away\n\n| xbb |\n|---|\n||\n' },
+    { name: 'inserts before implicit cells in a short body row', source: 'away\n\n| aa | bb |\n|---|---|\n| cc |\n', button: 'li.item.insert.left', survivor: 1, expected: 'away\n\n| aa  |     | bb  |\n| --- | --- | --- |\n| cc  |     |     |\n', next: 'away\n\n| aa  | x   | bb  |\n| --- | --- | --- |\n| cc  |     |     |\n' },
+    { name: 'removes the physical cell beside an implicit body cell', source: 'away\n\n| aa | bb |\n|---|---|\n| cc |\n', button: 'li.item.remove', target: 0, survivor: 0, expected: 'away\n\n| bb  |\n| --- |\n|     |\n', next: 'away\n\n| xbb |\n| --- |\n|     |\n' },
 ]) {
     test(`Core column toolbar ${example.name} with the editor caret elsewhere`, async ({ page }) => {
         await page.evaluate(async ({ source, tracked }) => {
@@ -335,7 +335,11 @@ for (const bound of [false, true]) {
 for (const tracked of [false, true]) {
     test(`Core column alignment toggle preserves owned review text and the existing editor caret with Track ${tracked}`, async ({ page }) => {
         const source = 'away\n\n| head {++one++} | head two | head three |\n| --- | --- | --- |\n| alpha{>>note<<} | bravo | charlie |\n';
-        const aligned = source.replace('| --- | --- | --- |', tracked ? '| {++:++}---{++:++} | --- | --- |' : '| :---: | --- | --- |');
+        // Untracked, the table is written afresh like upstream's: every column
+        // padded to its widest cell. Track Changes records only the colons.
+        const respelled = (delimiter: string) => `away\n\n| head {++one++}  | head two | head three |\n|${delimiter}| -------- | ---------- |\n| alpha{>>note<<} | bravo    | charlie    |\n`;
+        const aligned = tracked ? source.replace('| --- | --- | --- |', '| {++:++}---{++:++} | --- | --- |') : respelled(':---------------:');
+        const toggled = tracked ? source : respelled(' --------------- ');
         await page.evaluate(async ({ source, tracked }) => {
             const modulePath = '/coreBoundaryControl.ts';
             const control = await import(/* @vite-ignore */ modulePath);
@@ -357,17 +361,17 @@ for (const tracked of [false, true]) {
             toolbar = await revealColumnToolbar(page, table, 0);
             await toolbar.locator('li.item.center').click();
             await page.evaluate(() => window.muya!.flush());
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, anchor: 2, caret: 2, legacyCalls: [] });
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: toggled }, anchor: 2, caret: 2, legacyCalls: [] });
             expect(await columnAligns(table, 0)).toEqual(['none', 'none']);
             await page.keyboard.type('x');
-            const next = source.replace('away', tracked ? 'aw{++x++}ay' : 'awxay');
+            const next = toggled.replace('away', tracked ? 'aw{++x++}ay' : 'awxay');
             expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: next });
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ anchor: 3, caret: 3, legacyCalls: [] });
-            for (const expected of [source, aligned, source]) {
+            for (const expected of [toggled, aligned, source]) {
                 await page.evaluate(() => window.coreBoundary.history('undo'));
                 expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
             }
-            for (const expected of [aligned, source, next]) {
+            for (const expected of [aligned, toggled, next]) {
                 await page.evaluate(() => window.coreBoundary.history('redo'));
                 expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });
             }
