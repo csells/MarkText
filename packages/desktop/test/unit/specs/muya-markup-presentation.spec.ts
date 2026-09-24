@@ -61,14 +61,14 @@ describe('Muya Core Markup presentation', () => {
 
   it('retains only trusted native link coordinates through the browser sanitizer', () => {
     const host = rendered('prefix {++[name](https://example.com)++}')
-    const link = host.querySelector<HTMLAnchorElement>('a.mu-link')
+    const link = host.querySelector<HTMLElement>('span.mu-link')
     expect(link?.dataset).toMatchObject({
       start: '7',
       end: '34',
       raw: '[name](https://example.com)'
     })
     expect(
-      rendered('[unsafe](javascript:alert(1))').querySelector('a')?.getAttribute('href')
+      rendered('[unsafe](javascript:alert(1))').querySelector('.mu-link')?.getAttribute('href')
     ).toBeNull()
   })
 
@@ -225,8 +225,8 @@ describe('Muya Core Markup presentation', () => {
     expect(host.textContent).toBe(source)
     expect(host.querySelector('em')?.textContent).toBe('em')
     expect(host.querySelector('code')?.textContent).toBe('code')
-    expect(host.querySelector('a')?.textContent).toBe('hi')
-    expect(host.querySelector('a')?.getAttribute('href')).toBe('https://example.com')
+    expect(host.querySelector('span.mu-link')?.textContent).toBe('hi')
+    expect(host.querySelector('span.mu-link')?.getAttribute('href')).toBe('https://example.com')
   })
 
   it('decorates all visible CriticMarkup forms and elides comments', () => {
@@ -245,7 +245,7 @@ describe('Muya Core Markup presentation', () => {
     expect(host.textContent).toBe(source)
     expect(host.querySelector('img')).toBeNull()
     expect(host.querySelector('[onerror]')).toBeNull()
-    expect(host.querySelector('a')?.hasAttribute('href')).toBe(false)
+    expect(host.querySelector('.mu-link')?.hasAttribute('href')).toBe(false)
   })
 
   it('rebases existing change marks while speculative text waits for Core acknowledgement', () => {

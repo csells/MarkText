@@ -32,7 +32,7 @@ it.each([
       tools = value
     })
     try {
-      const anchor = muya.domNode.querySelector('a')
+      const anchor = muya.domNode.querySelector<HTMLElement>('.mu-link')
       expect(anchor).not.toBeNull()
       anchor?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
       expect(tools?.linkInfo).toEqual({
