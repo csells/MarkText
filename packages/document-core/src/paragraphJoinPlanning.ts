@@ -141,11 +141,16 @@ export function paragraphJoinTrailingEdits(core: DocumentCore, revision: Documen
   const prefix = continuation(after)
   if (prefix === continuation(before)) return []
   const edits: DocumentSourceEdit[] = []
-  const last = trailing.at(-1) ?? donor
+  // Only a list item carries its later blocks along with the joined text
+  // (#1845); a quote or footnote keeps them (#5423), so just the separator
+  // between the donor and them leaves the container with the donor.
+  const keepsTrailing = origin.kind !== 'list-item' && trailing.length > 0
+  const last = keepsTrailing ? trailing[0] ?? donor : trailing.at(-1) ?? donor
   const firstLine = records.find(line => line.start <= donor.range.start && line.end > donor.range.start)
   if (firstLine === undefined) throw new RangeError('Paragraph join donor has no physical line')
   for (const line of records) {
-    if (line.start <= firstLine.start || line.start >= last.range.end) continue
+    if (line.start <= firstLine.start || line.start >= (keepsTrailing ? last.range.start : last.range.end)) continue
+    if (keepsTrailing && !line.blank) continue
     const trivia = [...line.listIndentations, ...line.blockquoteMarkers].filter(part => part.depth < before.length)
     const end = Math.max(line.start, ...trivia.map(part => part.end))
     // Empty separators do not require list indentation. Preserve their exact

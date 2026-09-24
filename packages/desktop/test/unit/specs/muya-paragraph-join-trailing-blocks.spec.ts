@@ -100,10 +100,11 @@ const examples = [
   {
     name: 'quote origin',
     source: 'a\n\n> C\n>\n> D\n',
-    joined: 'aC\n\nD\n',
+    // The quote keeps its later paragraphs (#5423).
+    joined: 'aC\n\n> D\n',
     shape: [
       { name: 'paragraph', text: 'aC' },
-      { name: 'paragraph', text: 'D' }
+      { name: 'block-quote', children: [{ name: 'paragraph', text: 'D' }] }
     ]
   },
   {
