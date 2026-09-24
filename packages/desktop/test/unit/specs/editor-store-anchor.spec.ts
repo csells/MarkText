@@ -232,6 +232,26 @@ describe('useEditorStore cross-file anchor links (#5292)', () => {
     expect(emitSpy).toHaveBeenLastCalledWith('scroll-to-header', 'uid-9')
     expect(store.currentFile).not.toHaveProperty('anchor')
   })
+
+  it('scrolls once a view that publishes its TOC after mounting delivers the target TOC', () => {
+    const store = useEditorStore()
+    store.tabs = [
+      { id: 'tab-1', pathname: '/docs/note.md', markdown: '[x](other.md#english-section)' },
+      { id: 'tab-2', pathname: '/docs/other.md', markdown: '# Other' }
+    ] as unknown as typeof store.tabs
+    store.currentFile = store.tabs[0]
+    store.UPDATE_TOC([])
+    const emitSpy = vi.spyOn(bus, 'emit')
+
+    store.SWITCH_TAB_BY_FILEPATH('/docs/other.md', { anchor: 'english-section' })
+    expect(emitSpy).not.toHaveBeenCalledWith('scroll-to-header', expect.anything())
+
+    store.UPDATE_TOC(targetToc)
+    expect(emitSpy).toHaveBeenLastCalledWith('scroll-to-header', 'uid-9')
+    emitSpy.mockClear()
+    store.UPDATE_TOC(targetToc)
+    expect(emitSpy).not.toHaveBeenCalledWith('scroll-to-header', expect.anything())
+  })
 })
 
 describe('useEditorStore copyGithubSlug', () => {
