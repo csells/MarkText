@@ -6,11 +6,11 @@ import type { IParagraphState, TContainerState, TState } from '../state/types';
 import type { IHighlight, Labels, TInlinePresentation } from './types';
 import { isValidAttribute } from '../utils/dompurify';
 import logger from '../utils/logger';
+import { h } from '../utils/snabbdom';
 import { tokenizer } from './lexer';
 import { createPresentationImageToken } from './presentationImage';
 import Renderer from './renderer';
 import { htmlTagPresentation } from './renderer/htmlTag';
-import { h } from '../utils/snabbdom';
 import { beginRules } from './rules';
 
 const debug = logger('inlineRenderer:');
@@ -80,8 +80,12 @@ class InlineRenderer {
         const presentation = this.presentation?.(block.path, block.text, {
             highlights,
             renderHtmlTag: tag => htmlTagPresentation(this.renderer, h, block, cursor ?? {}, {
-                type: 'html_tag', raw: tag.raw, range: { ...tag.range }, parent: [],
-                tag: tag.tag, attrs: { ...tag.attributes },
+                type: 'html_tag',
+                raw: tag.raw,
+                range: { ...tag.range },
+                parent: [],
+                tag: tag.tag,
+                attrs: { ...tag.attributes },
                 openTag: tag.closing ? '' : tag.raw,
                 closeTag: tag.closing ? tag.raw : '',
                 children: [],

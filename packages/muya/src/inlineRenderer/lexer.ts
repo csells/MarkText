@@ -7,8 +7,8 @@ import type {
 } from './types';
 import escapeCharactersMap from '../config/escapeCharacter';
 import { isLengthEven, union } from '../utils';
-import { beginRules, inlineRules, linkValidateRules, validateRules } from './rules';
 import { isInlineHtmlTagAllowed } from './htmlPolicy';
+import { beginRules, inlineRules, linkValidateRules, validateRules } from './rules';
 import {
     correctUrl,
     getAttributes,
