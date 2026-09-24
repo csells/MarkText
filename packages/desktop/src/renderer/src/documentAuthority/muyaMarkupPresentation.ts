@@ -237,7 +237,14 @@ const syntaxSpans = (
       link: 'a',
       autolink: 'a'
     }
-    const tag = tags[node.kind]
+    // Muya presents an inline `[text](url)` link as `span.mu-link`, keeping
+    // its destination as data rather than a native editable anchor.
+    const tag =
+      node.kind === 'link' &&
+      typeof node.attributes.referenceLabel !== 'string' &&
+      node.attributes.extendedAutolink !== true
+        ? 'span'
+        : tags[node.kind]
     const content =
       node.kind === 'inline-code'
         ? { start: Number(node.attributes.contentStart), end: Number(node.attributes.contentEnd) }

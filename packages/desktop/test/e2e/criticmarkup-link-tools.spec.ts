@@ -14,7 +14,7 @@ test('unlinks an annotated link through its native popover and restores it with 
   try {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await page.locator('.editor-component a.mu-link').hover()
+    await page.locator('.editor-component span.mu-link').hover()
     await page.locator('.mu-link-tools-container li.item.unlink').click()
     await expect(page.locator('span.mu-paragraph-content').first()).toHaveText('prefix name tail')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
@@ -22,7 +22,7 @@ test('unlinks an annotated link through its native popover and restores it with 
     // Chromium keyboard injection does not invoke the hidden window's native
     // menu accelerator. Exercise the same command delivered by Edit > Undo.
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
-    await expect(page.locator('.editor-component a.mu-link')).toHaveText('name')
+    await expect(page.locator('.editor-component span.mu-link')).toHaveText('name')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(source)
     await expectNoRendererErrors(app)
