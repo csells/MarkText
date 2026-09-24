@@ -28,7 +28,7 @@ export function bootCoreBoundary(muya: Muya, source: string, tracked = false, ex
         view = next.view;
         presentation = createMuyaMarkupPresentationIndex(view, presentation);
         muya.setInlinePresentation(presentation.render);
-        reconcileMuyaDocumentView({ muya, view, outcome, sourcePosition: adapter.reconciledSourcePosition, dirtyPaths: presentation.changedPaths, applyEditability: bindings => muya.setEditablePaths(bindings.filter(item => item.editable !== false).map(item => item.path)) });
+        reconcileMuyaDocumentView({ muya, view, outcome, dirtyPaths: presentation.changedPaths, applyEditability: bindings => muya.setEditablePaths(bindings.filter(item => item.editable !== false).map(item => item.path)) });
         return view.bindings;
     };
     adapter = createMuyaPlainTextCoreAdapter(view.bindings, binding, undefined, initial.revision);
