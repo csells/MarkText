@@ -1,11 +1,10 @@
 import type { Muya } from '../muya';
-import type { Nullable } from '../types';
 import type { IClipboardPayload } from './copyData';
 import Format from '../block/base/format';
 import { ownsDocumentTextKey } from '../editor/documentEditing';
-import { classifyInputKind } from '../history';
 import { isClipboardEvent, isInputEvent, isKeyboardEvent } from '../utils';
 import { getClipboardData, writeClipboardData } from './copyData';
+import { crossBlockReplacement } from './crossBlockReplacement';
 import { cutSelection, deleteTableSelection, insertTextAtCursor } from './cut';
 import { pastePlainText, pasteSelection } from './paste';
 import { pasteImageSrc } from './pasteImage';
@@ -26,31 +25,7 @@ export function shouldCrossBlockCut(key: string, metaKey: boolean, ctrlKey: bool
     return true;
 }
 
-const FOREIGN_INPUT_TYPES = new Set([
-    'deleteByCut',
-    'deleteByDrag',
-    'deleteCompositionText',
-    'insertCompositionText',
-    'insertFromDrop',
-    'insertFromPaste',
-    'insertFromPasteAsQuotation',
-    'insertLineBreak',
-    'insertParagraph',
-]);
-
-export function crossBlockReplacement(inputType: string, data: Nullable<string>): Nullable<string> {
-    if (FOREIGN_INPUT_TYPES.has(inputType))
-        return null;
-
-    switch (classifyInputKind(inputType)) {
-        case 'delete':
-            return '';
-        case 'insert':
-            return data ?? '';
-        default:
-            return null;
-    }
-}
+export { crossBlockReplacement };
 
 class Clipboard {
     public copyType: CopyType = CopyType.NORMAL;
