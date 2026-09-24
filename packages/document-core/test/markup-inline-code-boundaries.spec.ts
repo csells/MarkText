@@ -45,8 +45,27 @@ it.each([
   expect(nodes.map(node => ({ start: markup.syntax.coordinates.toSource(node.range.start, 'next'), end: markup.syntax.coordinates.toSource(node.range.end, 'previous') }))).toEqual(spans)
 })
 
-it('retains an ordinary adjacent-dollar expression as one canonical math span', () => {
+// Upstream's editor rule (pandoc tex_math_dollars, #5446, #4904): a lone `$`
+// closes on the first unescaped `$`, and each `$` of a run may open.
+it.each([
+  { source: '$a$$a$$a$', spans: ['$$a$$'] },
+  { source: 'from $13B to $24B and $x+y$', spans: ['$x+y$'] },
+  { source: '$$x$$ y', spans: ['$$x$$'] },
+  { source: '$$$x$$$', spans: ['$$x$$'] },
+  { source: 'a $x $ b', spans: [] },
+  { source: '$x$1', spans: [] },
+  { source: 'a$b$c', spans: ['$b$'] },
+  { source: '$ x$', spans: [] },
+  { source: '$$a$b$$', spans: ['$$a$b$$'] },
+  { source: '$x\ny$', spans: ['$x\ny$'] },
+  { source: '$a$$b$', spans: ['$b$'] }
+])('reads dollar math as upstream does in $source', ({ source, spans }) => {
   const core = createDocumentCore()
-  const markup = core.project(core.open('$a$$a$$a$\n'), 'markup')
-  expect(markup.syntax.ast.root.children[0]?.children).toMatchObject([{ kind: 'inline-math', attributes: { content: 'a$$a$$a' } }])
+  const text = `${source}\n`
+  const markup = core.project(core.open(text), 'markup')
+  const nodes = (markup.syntax.ast.root.children[0]?.children ?? []).filter(node => node.kind === 'inline-math')
+  expect(nodes.map(node => text.slice(
+    markup.syntax.coordinates.toSource(node.range.start, 'next'),
+    markup.syntax.coordinates.toSource(node.range.end, 'previous')
+  ))).toEqual(spans)
 })

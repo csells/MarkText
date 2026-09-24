@@ -2033,6 +2033,23 @@ function continuesBlockContainer(
   return true
 }
 
+function firstRunIndexAtLeast(
+  starts: readonly number[],
+  after: number
+): number {
+  let low = 0
+  let high = starts.length
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2)
+    if ((starts[middle] ?? Number.POSITIVE_INFINITY) < after) {
+      low = middle + 1
+    } else {
+      high = middle
+    }
+  }
+  return low
+}
+
 function firstRunStartAtLeast(
   starts: readonly number[] | undefined,
   after: number
@@ -2176,9 +2193,12 @@ function createNextMathRunStart(
   matchingPolicy?: MarkdownMatchingScopePolicy,
   execution?: ParseExecutionTracker
 ): NextMathRunStart {
-  const startsByLength = new Map<number, number[]>()
+  // Every unescaped `$`, one entry per character: upstream's editor retries
+  // an opener at each `$`, including inside a run of them.
+  const dollars: number[] = []
   let reportedOffset = 0
-  const reportThrough = (offset: number): void => {
+  for (let offset = source.indexOf('$'); offset >= 0; offset = source.indexOf('$', offset + 1)) {
+    if (hasEvenBackslashRunBefore(source, offset)) dollars.push(offset)
     if (
       execution !== undefined &&
       offset - reportedOffset >= PARSE_SOURCE_CHECKPOINT_INTERVAL
@@ -2187,40 +2207,48 @@ function createNextMathRunStart(
       reportedOffset = offset
     }
   }
-  for (let offset = 0; offset < source.length;) {
-    if (source.charCodeAt(offset) !== 36) {
-      offset += 1
-      reportThrough(offset)
-      continue
-    }
-    const runLimit = matchingPolicy?.delimiterRunLimit?.(offset, source.length) ?? source.length
-    let runEnd = offset + 1
-    while (runEnd < runLimit && source.charCodeAt(runEnd) === 36) {
-      runEnd += 1
-      reportThrough(runEnd)
-    }
-    const delimiterLength = runEnd - offset
-    const canClose =
-      hasEvenBackslashRunBefore(source, offset) &&
-      (delimiterLength !== 1 ||
-        (offset > 0 && !isMarkdownWhitespace(source.charCodeAt(offset - 1))))
-    if (canClose) {
-      const starts = startsByLength.get(delimiterLength)
-      if (starts === undefined) {
-        startsByLength.set(delimiterLength, [offset])
-      } else {
-        starts.push(offset)
-      }
-    }
-    offset = runEnd
-    reportThrough(offset)
-  }
   execution?.examineParserWork(source.length - reportedOffset)
 
+  const startsByLength = new Map<number, readonly number[]>([[0, dollars]])
   const scopedStarts =
     matchingPolicy === undefined
       ? undefined
       : scopePartitionedRunStarts(startsByLength, matchingPolicy)
+
+  // pandoc's `tex_math_dollars`, as upstream's editor rule reads it (#5446,
+  // #4904): a single `$` closes on the first unescaped `$` after it, which
+  // must stand alone with no space before it and no digit after it; `$$`
+  // closes on the first `$$`, which must not continue into a third `$`.
+  // Elided CriticMarkup arm markers end a run, so `$` across them never joins.
+  const joinsDollar = (start: number, next: number): boolean =>
+    source.charCodeAt(next) === 36 &&
+    (matchingPolicy?.delimiterRunLimit?.(start, source.length) ?? source.length) > next
+  const candidate = (
+    starts: readonly number[] | undefined,
+    delimiterLength: number,
+    after: number
+  ): number | undefined => {
+    if (starts === undefined) return undefined
+    let index = firstRunIndexAtLeast(starts, after)
+    if (delimiterLength === 2) {
+      while (index < starts.length && !joinsDollar(starts[index] ?? 0, (starts[index] ?? 0) + 1)) {
+        index += 1
+      }
+    }
+    return starts[index]
+  }
+  const closes = (delimiterLength: number, after: number, start: number): boolean => {
+    if (start <= after) return false
+    // `\1(?!\1)`: a `$` closer may not touch another `$`; a `$$` closer may
+    // not be followed by another `$$`.
+    if (delimiterLength === 2) {
+      return !(joinsDollar(start, start + 2) && joinsDollar(start, start + 3))
+    }
+    if (joinsDollar(start, start + 1)) return false
+    if (isMarkdownWhitespace(source.charCodeAt(start - 1))) return false
+    const next = source.charCodeAt(start + 1)
+    return !(next >= 48 && next <= 57)
+  }
 
   return (
     delimiterLength: number,
@@ -2228,28 +2256,25 @@ function createNextMathRunStart(
     after: number,
     laneEnd: number
   ): number | undefined => {
+    if (delimiterLength > 2) return undefined
     if (matchingPolicy === undefined || scopedStarts === undefined) {
-      const start = firstRunStartAtLeast(
-        startsByLength.get(delimiterLength),
-        after
-      )
-      return start !== undefined && start < laneEnd ? start : undefined
+      const start = candidate(dollars, delimiterLength, after)
+      return start !== undefined && start < laneEnd && closes(delimiterLength, after, start)
+        ? start
+        : undefined
     }
     const openerScopeId = matchingPolicy.matchingScopeAt(openerStart)?.id ?? -1
-    const sameScope = firstRunStartAtLeast(
-      scopedStarts.get(delimiterLength)?.get(openerScopeId),
-      after
-    )
+    const sameScope = candidate(scopedStarts.get(0)?.get(openerScopeId), delimiterLength, after)
     const closer =
-      sameScope !== undefined && sameScope < laneEnd ? sameScope : undefined
-    const globalNext = firstRunStartAtLeast(
-      startsByLength.get(delimiterLength),
-      after
-    )
+      sameScope !== undefined && sameScope < laneEnd && closes(delimiterLength, after, sameScope)
+        ? sameScope
+        : undefined
+    const globalNext = candidate(dollars, delimiterLength, after)
     if (
       globalNext !== undefined &&
       globalNext < laneEnd &&
-      globalNext !== closer
+      globalNext !== closer &&
+      closes(delimiterLength, after, globalNext)
     ) {
       matchingPolicy.rejectCrossScopeMatch(openerStart, globalNext)
     }
@@ -3193,16 +3218,23 @@ export function createMarkdownLaneState(
               while (runEnd < runLimit && source.charCodeAt(runEnd) === 36) {
                 runEnd += 1
               }
-              const delimiterLength = runEnd - offset
-              const canOpen =
-              delimiterLength !== 1 ||
-              (runEnd < source.length &&
-                !isMarkdownWhitespace(source.charCodeAt(runEnd)))
-              const closeStart = canOpen
-                ? nextMathRunStart(delimiterLength, offset, runEnd, laneEnd)
-                : undefined
-              if (closeStart !== undefined) {
-                math = Object.freeze({ openStart: offset, delimiterLength, closeStart })
+              // Each `$` of the run may open: `$$` when exactly two follow,
+              // otherwise a lone `$` before a non-space.
+              for (let opener = offset; opener < runEnd; opener += 1) {
+                const delimiterLength =
+                  opener + 1 < runEnd
+                    ? opener + 2 < runEnd ? 0 : 2
+                    : opener + 1 < source.length &&
+                      !isMarkdownWhitespace(source.charCodeAt(opener + 1))
+                      ? 1
+                      : 0
+                const closeStart = delimiterLength === 0
+                  ? undefined
+                  : nextMathRunStart(delimiterLength, opener, opener + delimiterLength, laneEnd)
+                if (closeStart !== undefined) {
+                  math = Object.freeze({ openStart: opener, delimiterLength, closeStart })
+                  break
+                }
               }
               offset = runEnd
               continue
