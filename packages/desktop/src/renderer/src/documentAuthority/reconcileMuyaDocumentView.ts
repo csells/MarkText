@@ -94,7 +94,10 @@ function presentMarkerLines(muya: Muya, view: MuyaMarkupView, points: readonly n
     points.some(
       (point) =>
         line.start <= point &&
-        (point < line.content || (text === '' && point <= line.end && !/[ \t]$/u.test(line.text)))
+        (point < line.content ||
+          (text === '' &&
+            point <= line.end &&
+            !/[ \t]$/u.test(line.text.slice(0, line.content - line.start))))
     )
       ? [line]
       : []
