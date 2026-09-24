@@ -339,6 +339,23 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
         if (current === undefined || start !== end) throw new RangeError('Paragraph join requires a block-boundary caret')
         const boundary = forward && current.attributes.style === 'setext' ? Number(current.attributes.contentEnd) : forward ? contentEnd(current) : emptyContainer(current) ? contentEnd(current) : paragraphImageRange(current)?.start ?? current.range.start
         if (projected !== boundary && !(forward && current.kind === 'definition' && projected === current.range.end)) throw new RangeError('Paragraph join requires a block-boundary caret')
+        // Backspace at the start of a footnote definition removes the
+        // definition, not its text: its blocks take its place (#5343).
+        const footnote = ancestors.find(node => node.kind === 'footnote-definition' && node.children[0] === current)
+        if (!forward && footnote !== undefined) {
+          const edits: DocumentSourceEdit[] = [{ start: sourceAt(footnote.range.start), end: sourceAt(current.range.start), insert: '' }]
+          const lines = physicalLines()
+          for (let index = 0; index < lines.count; index++) {
+            const line = lines.at(index)
+            if (line.start <= footnote.range.start || line.start >= footnote.range.end || line.blank) continue
+            const outer = Math.max(line.start, ...line.listIndentations.map(part => part.end), ...line.blockquoteMarkers.map(part => part.end))
+            const text = core.sourceSlice(revision, { start: sourceAt(outer), end: sourceAt(Math.min(line.contentEnd, outer + 4)) })
+            const indentation = /^ {0,4}/u.exec(text)?.[0].length ?? 0
+            if (indentation > 0) edits.push({ start: sourceAt(outer), end: sourceAt(outer) + indentation, insert: '' })
+          }
+          const caret = positionAfter(edits, start, true)
+          return result(edits, { start: caret, end: caret })
+        }
         const containers = ancestors.filter(node => node.kind === 'blockquote' || node.kind === 'list-item')
         const container = containers.at(-1)
         if (!forward && container?.kind === 'blockquote' && (container.children[0] === current || container === current)) {
@@ -1060,8 +1077,8 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
   const blockContainers = ancestors.slice(0, Math.max(0, blockIndex))
   // A line inside quotes and list items continues them; a blank separator line
   // keeps only the quote markers, as upstream spells both.
-  const continuation = block !== undefined && blockContainers.some(node => node.kind === 'list-item' || node.kind === 'blockquote') &&
-    !blockContainers.some(node => node.kind === 'footnote-definition')
+  // A footnote definition keeps a new paragraph inside it too (#5340).
+  const continuation = block !== undefined && blockContainers.some(node => node.kind === 'list-item' || node.kind === 'blockquote' || node.kind === 'footnote-definition')
     ? containerContinuationPrefix(core, revision, projection, block, blockContainers)
     : ''
   const newParagraph = lineEnding + continuation.trimEnd() + lineEnding + continuation
