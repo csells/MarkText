@@ -107,7 +107,10 @@ describe('Core Markdown preference changes', () => {
       options: coreMarkdownOptionsFromPreferences({
         superSubScript: true,
         footnote: true,
-        isGitlabCompatibilityEnabled: true
+        texMathDollars: true,
+        texMathGfm: true,
+        texMathSingleBackslash: false,
+        texMathDoubleBackslash: false
       })
     })
     const lease = manager.lease('enabled.md')
@@ -141,7 +144,7 @@ describe('Core Markdown preference changes', () => {
 
     await lease.binding.submit({
       kind: 'configure',
-      options: { footnotes: true, subscriptAndSuperscript: true, gitLabMath: true },
+      options: { footnotes: true, subscriptAndSuperscript: true, texMathGfm: true },
       projections: []
     }).acknowledged
     const nodes = kinds((await lease.displayProjectionAtBarrier('revised')).ast.root)
@@ -161,7 +164,7 @@ describe('Core Markdown preference changes', () => {
     expect((await manager.saveBarrier(lease.documentId)).source).toBe(source)
     await lease.binding.submit({
       kind: 'configure',
-      options: { footnotes: false, subscriptAndSuperscript: false, gitLabMath: false },
+      options: { footnotes: false, subscriptAndSuperscript: false, texMathGfm: false },
       projections: []
     }).acknowledged
     expect(kinds((await lease.displayProjectionAtBarrier('revised')).ast.root)).not.toContain(

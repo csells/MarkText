@@ -4,7 +4,7 @@ import { createDocumentCore, projectModelTextSelection } from '../src/index.js'
 it('exposes the normalized fenced-math payload as intrinsic literal text', () => {
   const core = createDocumentCore()
   const source = '  ```math\n\tx\n  ```\n'
-  const revision = core.open(source, { gitLabMath: true })
+  const revision = core.open(source, { texMathGfm: true })
   const syntax = core.project(revision, 'markup').syntax
   const math = syntax.ast.root.children[0]
   expect(math?.kind).toBe('math-block')
@@ -27,7 +27,7 @@ it('retains an ordinary code block when GitLab math is disabled', () => {
 it('uses the intrinsic math value for copy, no-op and one accepted input', () => {
   const core = createDocumentCore()
   const source = '  ```math\n\tx\n  ```\n'
-  const revision = core.open(source, { gitLabMath: true })
+  const revision = core.open(source, { texMathGfm: true })
   const point = { text: { start: 10, end: 11 }, offset: 1 }
   const selection = { kind: 'model-text' as const, anchor: point, focus: point }
   const copied = projectModelTextSelection(core, revision, { ...selection, focus: { ...point, offset: 2 } })

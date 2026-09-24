@@ -1139,7 +1139,7 @@ describe('document-core facade', () => {
       {
         name: 'double-dollar math block',
         payload: '$$\ninside <<}\n$$\nlast\n',
-        options: { math: true },
+        options: { texMathDollars: true },
         expectedKind: 'math-block'
       }
     ] as const
@@ -1172,7 +1172,7 @@ describe('document-core facade', () => {
       },
       {
         source: '{>>a $x<<}$ after<<}',
-        options: { math: true },
+        options: { texMathDollars: true },
         payload: 'a $x',
         excludedKind: 'inline-math'
       }

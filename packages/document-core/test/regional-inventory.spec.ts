@@ -23,8 +23,10 @@ const markdownOptions = Object.freeze({
   gfmAutolinks: true,
   gfmTagFilter: true,
   frontMatter: true,
-  math: true,
-  gitLabMath: false,
+  texMathDollars: true,
+  texMathGfm: false,
+  texMathSingleBackslash: false,
+  texMathDoubleBackslash: false,
   footnotes: false,
   subscriptAndSuperscript: true
 })

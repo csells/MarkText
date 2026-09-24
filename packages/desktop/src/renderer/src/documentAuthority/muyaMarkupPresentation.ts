@@ -105,6 +105,21 @@ const syntaxSpans = (
   }
   const hide = (range: SourceRange): void =>
     add(range, '<span class="mu-hide mu-remove">', '</span>')
+  // Upstream draws a display formula (`$$`, `\[`, `\\[`) in display mode
+  // only in a paragraph holding nothing else (#4904, #5446).
+  const displayMarker = (node: MarkdownAstNode): boolean =>
+    node.kind === 'inline-math' &&
+    ['$$', '\\[', '\\\\['].includes(String(node.attributes.marker))
+  const displayParagraph =
+    binding.syntax.kind === 'paragraph' &&
+    binding.syntax.children.some(displayMarker) &&
+    binding.syntax.children.every((child) =>
+      displayMarker(child) ||
+      child.kind === 'soft-break' ||
+      child.kind === 'hard-break' ||
+      (child.kind === 'text' &&
+        binding.text.slice(nativeRange(child.range)?.start ?? 0, nativeRange(child.range)?.end ?? 0).trim() === '')
+    )
   const visit = (node: MarkdownAstNode): void => {
     if (node.kind === 'inline-math') {
       const range = nativeRange(node.range)
@@ -112,7 +127,9 @@ const syntaxSpans = (
         const widget = context?.renderMath?.({
           range,
           raw: binding.text.slice(range.start, range.end),
-          content: node.attributes.content
+          content: node.attributes.content,
+          marker: typeof node.attributes.marker === 'string' ? node.attributes.marker : '$',
+          displayMode: displayParagraph && displayMarker(node)
         })
         if (widget !== undefined) spans.push({ range, ...widget, atomic: true })
       }

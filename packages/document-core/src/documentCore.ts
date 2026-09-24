@@ -499,8 +499,14 @@ export interface MarkdownOptions {
   /** GFM's disallowed-raw-HTML extension, independently selectable. */
   readonly gfmTagFilter: boolean
   readonly frontMatter: boolean
-  readonly math: boolean
-  readonly gitLabMath: boolean
+  /** pandoc's tex_math_dollars: `$…$` and `$$…$$`. */
+  readonly texMathDollars: boolean
+  /** pandoc's tex_math_gfm: `` $`…`$ `` and the ```math fence. */
+  readonly texMathGfm: boolean
+  /** pandoc's tex_math_single_backslash: `\(…\)` and `\[…\]`. */
+  readonly texMathSingleBackslash: boolean
+  /** pandoc's tex_math_double_backslash: `\\(…\\)` and `\\[…\\]`. */
+  readonly texMathDoubleBackslash: boolean
   readonly footnotes: boolean
   readonly subscriptAndSuperscript: boolean
 }
@@ -642,8 +648,10 @@ const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = Object.freeze({
   gfmAutolinks: true,
   gfmTagFilter: true,
   frontMatter: true,
-  math: true,
-  gitLabMath: false,
+  texMathDollars: true,
+  texMathGfm: false,
+  texMathSingleBackslash: false,
+  texMathDoubleBackslash: false,
   footnotes: false,
   subscriptAndSuperscript: false
 })
@@ -667,8 +675,10 @@ function markdownOptions(
     gfmAutolinks: inherited.gfmAutolinks,
     gfmTagFilter: inherited.gfmTagFilter,
     frontMatter: inherited.frontMatter,
-    math: inherited.math,
-    gitLabMath: inherited.gitLabMath,
+    texMathDollars: inherited.texMathDollars,
+    texMathGfm: inherited.texMathGfm,
+    texMathSingleBackslash: inherited.texMathSingleBackslash,
+    texMathDoubleBackslash: inherited.texMathDoubleBackslash,
     footnotes: inherited.footnotes,
     subscriptAndSuperscript: inherited.subscriptAndSuperscript,
     ...options
@@ -1765,8 +1775,10 @@ function sameMarkdownOptions(
     left.gfmAutolinks === right.gfmAutolinks &&
     left.gfmTagFilter === right.gfmTagFilter &&
     left.frontMatter === right.frontMatter &&
-    left.math === right.math &&
-    left.gitLabMath === right.gitLabMath &&
+    left.texMathDollars === right.texMathDollars &&
+    left.texMathGfm === right.texMathGfm &&
+    left.texMathSingleBackslash === right.texMathSingleBackslash &&
+    left.texMathDoubleBackslash === right.texMathDoubleBackslash &&
     left.footnotes === right.footnotes &&
     left.subscriptAndSuperscript === right.subscriptAndSuperscript
 }
@@ -4351,7 +4363,7 @@ function createDocumentCoreWithExecutionBudget(
       if ('inputType' in action) preflightSourceEdits(state.source.length, stableSourceEdits([{ ...inputSourceRange(core, previous, action.range), insert: action.data ?? '' }]))
       preflightSourceEdits(state.source.length, stableSourceEdits([{ ...inputSourceRange(core, previous, action.selection), insert: '' }]))
       return planInput(core, previous, action, range => state.productStore.withProduct(products =>
-        paragraphEnterConversion(products.editing().source, range.start, range.end)),
+        paragraphEnterConversion(products.editing().source, range.start, range.end, state.markdownOptions.texMathDollars)),
       () => state.productStore.withProduct(products => products.editing().markdown.lines),
       range => regionalInputSyntax(state, range), options?.tracked === false, edits => tablePreview(previous, edits))
     },

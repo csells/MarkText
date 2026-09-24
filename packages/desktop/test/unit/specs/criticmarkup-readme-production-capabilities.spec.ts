@@ -59,8 +59,10 @@ const nextFrame = (): Promise<void> => new Promise(resolve => {
 
 const parse = (markdown: string): TState[] => new MarkdownToState({
   footnote: true,
-  math: true,
-  isGitlabCompatibilityEnabled: true,
+  texMathDollars: true,
+  texMathGfm: true,
+  texMathSingleBackslash: false,
+  texMathDoubleBackslash: false,
   trimUnnecessaryCodeBlockEmptyLines: false,
   frontMatter: true
 }).generate(markdown)
@@ -68,8 +70,8 @@ const parse = (markdown: string): TState[] => new MarkdownToState({
 const renderOptions = {
   footnote: true,
   frontMatter: true,
-  isGitlabCompatibilityEnabled: true,
-  math: true,
+  texMathGfm: true,
+  texMathDollars: true,
   superSubScript: true
 } as const
 

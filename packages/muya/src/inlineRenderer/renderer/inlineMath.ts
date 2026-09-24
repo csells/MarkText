@@ -56,7 +56,7 @@ export default function inlineMath(this: Renderer, {
     const { i18n } = this.muya;
     const { start, end } = token.range;
     const { marker } = token;
-    const displayMode = isDisplayMath(token, block);
+    const displayMode = token.displayMode ?? isDisplayMath(token, block);
     let mathSelector
         = className === CLASS_NAMES.MU_HIDE
             ? `span.${className}.${CLASS_NAMES.MU_MATH}`
