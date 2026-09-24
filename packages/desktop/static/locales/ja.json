@@ -897,6 +897,9 @@
     "ok": "OK"
   },
   "dialog": {
+    "discardAndClose": "破棄して閉じる",
+    "pendingReviewInput": "未送信のコメントまたは置換テキストを破棄しますか？",
+    "pendingReviewInputDetail": "コメントまたは置換テキストはまだドキュメントに追加されておらず、失われます。",
     "cancel": "キャンセル",
     "changesWillBeLost": "変更が失われます",
     "close": "閉じる",
@@ -1014,6 +1017,7 @@
       "saveComment": "コメントを保存",
       "commentTargetChanged": "文書が変更されました。コメントの下書きは保持されています。別の対象を選ぶ前にキャンセルしてください。",
       "commentSaveFailed": "コメントを保存できませんでした。下書きと元の対象は保持されています。",
+      "finishDraftBeforeClosing": "このドキュメントを閉じる前に、保留中のコメントまたは置換テキストを保存するかキャンセルしてください。",
       "commentPrompt": "コメント",
       "replacementPrompt": "置換テキスト"
     },

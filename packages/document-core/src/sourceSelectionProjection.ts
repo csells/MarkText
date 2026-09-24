@@ -19,7 +19,7 @@ export function projectSourceSelection(core: DocumentCore, revision: DocumentRev
   }
   if (selection.kind === 'table-cell') {
     const cell = resolveTableCell(core, revision, selection.cell)
-    const length = cell.end - cell.start
+    const length = cell.caretEnd - cell.start
     if (selection.anchor > length || selection.focus > length) throw new RangeError('Selection offset is outside its table cell')
     return Object.freeze({ ranges: Object.freeze([Object.freeze({ anchor: cell.start + selection.anchor, focus: cell.start + selection.focus })]), primary: 0 })
   }

@@ -62,7 +62,13 @@ for (const annotated of [false, true]) {
       if (!bounds) throw new Error('Missing image resize handle')
       await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
       await page.mouse.down()
-      await page.mouse.move(bounds.x + bounds.width / 2 + 40, bounds.y + bounds.height / 2, {
+      // The resize bar measures from the left bar's edge (plus its 5px handle
+      // radius) and truncates; aim inside the 200px band so fractional layout
+      // positions cannot round the result down.
+      const left = await page
+        .locator('.mu-transformer .bar.left')
+        .evaluate((bar) => bar.getBoundingClientRect().left)
+      await page.mouse.move(left + 5 + 200.5, bounds.y + bounds.height / 2, {
         steps: 4
       })
       await page.mouse.up()
@@ -142,7 +148,9 @@ for (const annotated of [false, true]) {
     try {
       await waitForEditor(reopened.page)
       await expectDefaultCoreAuthority(reopened.page)
-      if (process.env.MARKTEXT_PACKAGED_APP !== undefined) { await expectInstalledArtifactCommit(reopened.page) }
+      if (process.env.MARKTEXT_PACKAGED_APP !== undefined) {
+        await expectInstalledArtifactCommit(reopened.page)
+      }
       const image = reopened.page.locator('.editor-component .mu-inline-image img')
       await expect(image).toHaveAttribute('width', '200')
       await expect(image).toHaveAttribute(

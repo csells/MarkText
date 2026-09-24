@@ -96,7 +96,8 @@ it.each(
         })
       )
       const targetLabel = labels[target]!
-      const at = expected.lastIndexOf(targetLabel) + (annotated ? 3 : 0)
+      // The caret is at the item's visible start, before any addition opener.
+      const at = expected.lastIndexOf(targetLabel)
       const typed = expected.slice(0, at) + 'X' + expected.slice(at)
       expect.soft(binding.sourceAtBarrier()).toMatchObject({ source: typed })
       expect(muya.getSelection()).toMatchObject({ anchor: { offset: 1 }, focus: { offset: 1 } })
@@ -116,7 +117,7 @@ it.each(
       const projected = (original: boolean) => {
         const flags = original && tracked ? before : after
         const text = annotated && original ? ['', 'same', ''] : ['parent', 'same', 'same']
-        if (!annotated || !original) text[target] = 'X' + text[target]
+        text[target] = 'X' + text[target]
         return `- [${flags[0] ? 'x' : ' '}] ${text[0]}\n\n  - [${flags[1] ? 'x' : ' '}] ${text[1]}\n  - [${flags[2] ? 'x' : ' '}] ${text[2]}\n`
       }
       expect.soft(core.project(reopened, 'original').markdown).toBe(projected(true))
@@ -156,17 +157,15 @@ it.each([false, true])(
       ).toEqual(tracked ? [false, false, false, true, true] : [false, true, true])
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       app.track(false)
-      app.muya.editor.selection
-        .getSelection()!
-        .anchor.block.domNode.dispatchEvent(
-          new InputEvent('beforeinput', {
-            inputType: 'insertText',
-            data: 'X',
-            bubbles: true,
-            cancelable: true
-          })
-        )
-      const at = accepted.lastIndexOf('{++same++}') + 3
+      app.muya.editor.selection.getSelection()!.anchor.block.domNode.dispatchEvent(
+        new InputEvent('beforeinput', {
+          inputType: 'insertText',
+          data: 'X',
+          bubbles: true,
+          cancelable: true
+        })
+      )
+      const at = accepted.lastIndexOf('{++same++}')
       const typed = accepted.slice(0, at) + 'X' + accepted.slice(at)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
       app.muya.flush()
@@ -181,7 +180,8 @@ it.each([false, true])(
       const core = createDocumentCore()
       const reopened = core.open(typed)
       expect(core.project(reopened, 'original').markdown).toBe(
-        tracked ? '- [ ] \n- [ ] same\n- [x] final\n' : '- [ ] same\n- [x] \n- [x] final\n'
+        // Untracked X is typed before the addition, so the original has it too.
+        tracked ? '- [ ] \n- [ ] same\n- [x] final\n' : '- [ ] same\n- [x] X\n- [x] final\n'
       )
       expect(core.project(reopened, 'revised').markdown).toBe(
         '- [ ] same\n- [x] Xsame\n- [x] final\n'
@@ -204,16 +204,14 @@ it('does not move tasks across an intervening ordinary list item', () => {
       source: '- [x] first\n- ordinary\n- [x] last\n'
     })
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
-    app.muya.editor.selection
-      .getSelection()!
-      .anchor.block.domNode.dispatchEvent(
-        new InputEvent('beforeinput', {
-          inputType: 'insertText',
-          data: 'X',
-          bubbles: true,
-          cancelable: true
-        })
-      )
+    app.muya.editor.selection.getSelection()!.anchor.block.domNode.dispatchEvent(
+      new InputEvent('beforeinput', {
+        inputType: 'insertText',
+        data: 'X',
+        bubbles: true,
+        cancelable: true
+      })
+    )
     expect(app.binding.sourceAtBarrier()).toMatchObject({
       source: '- [x] first\n- ordinary\n- [x] Xlast\n'
     })
@@ -240,16 +238,14 @@ it.each([false, true])(
       ).toBe(true)
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       app.track(false)
-      app.muya.editor.selection
-        .getSelection()!
-        .anchor.block.domNode.dispatchEvent(
-          new InputEvent('beforeinput', {
-            inputType: 'insertText',
-            data: 'X',
-            bubbles: true,
-            cancelable: true
-          })
-        )
+      app.muya.editor.selection.getSelection()!.anchor.block.domNode.dispatchEvent(
+        new InputEvent('beforeinput', {
+          inputType: 'insertText',
+          data: 'X',
+          bubbles: true,
+          cancelable: true
+        })
+      )
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: expected.replace('\n', 'X\n') })
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 1 }, focus: { offset: 1 } })
       await app.adapter.history('undo', app.reconcile)
@@ -287,16 +283,14 @@ it.each([false, true])(
       ).toEqual(tracked ? [false, true, false, true, true] : [false, false, true])
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       app.track(false)
-      app.muya.editor.selection
-        .getSelection()!
-        .anchor.block.domNode.dispatchEvent(
-          new InputEvent('beforeinput', {
-            inputType: 'insertText',
-            data: 'X',
-            bubbles: true,
-            cancelable: true
-          })
-        )
+      app.muya.editor.selection.getSelection()!.anchor.block.domNode.dispatchEvent(
+        new InputEvent('beforeinput', {
+          inputType: 'insertText',
+          data: 'X',
+          bubbles: true,
+          cancelable: true
+        })
+      )
       const at = expected.indexOf('- [ ] same') + 6
       const typed = expected.slice(0, at) + 'X' + expected.slice(at)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })

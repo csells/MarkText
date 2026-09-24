@@ -133,7 +133,8 @@ it.each([
   },
   {
     source: '1. first\n   - second\n2. third\n',
-    expected: '1. first\n2. second\n2. third\n',
+    // Upstream MarkText renumbers the ordered items after the promoted item.
+    expected: '1. first\n2. second\n3. third\n',
     target: 'second',
     shift: true
   }

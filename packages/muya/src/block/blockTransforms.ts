@@ -3,7 +3,7 @@ import type { IFrontmatterMeta } from '../state/types';
 import type Parent from './base/parent';
 import { frontMatterPolicy } from '@marktext/input-policy';
 import emptyStates from '../config/emptyStates';
-import { dispatchDocumentCodeBlock, dispatchDocumentCodeReset, dispatchDocumentFrontMatter, dispatchDocumentMathBlock, dispatchDocumentThematicBreak } from '../editor/documentEditing';
+import { dispatchDocumentCodeBlock, dispatchDocumentCodeReset, dispatchDocumentFrontMatter, dispatchDocumentHtmlBlock, dispatchDocumentMathBlock, dispatchDocumentThematicBreak } from '../editor/documentEditing';
 import { getCursorReference } from '../selection';
 import { isParagraphState } from '../state/types';
 import { deepClone } from '../utils';
@@ -226,7 +226,10 @@ export function buildReplacementBlock(label: string, muya: Muya, text: string) {
     }
 }
 
-function createModelBlock(muya: Muya, block: Parent, replace: boolean, label: 'math-block' | 'code-block' | 'thematic-break' | 'reset-thematic-break' | 'reset-code-block'): void {
+type TModelBlockLabel = 'math-block' | 'html-block' | 'code-block' | 'thematic-break' | 'reset-thematic-break' | 'reset-code-block';
+const MODEL_BLOCK_LABELS: ReadonlySet<string> = new Set(['math-block', 'html-block', 'code-block', 'thematic-break']);
+
+function createModelBlock(muya: Muya, block: Parent, replace: boolean, label: TModelBlockLabel, selectionMode: 'content' | 'end' = 'content'): void {
     const content = block.firstContentInDescendant();
     if (!content?.domNode?.isConnected)
         throw new Error('Block insertion target is no longer in the document');
@@ -247,14 +250,21 @@ function createModelBlock(muya: Muya, block: Parent, replace: boolean, label: 'm
         dispatchDocumentThematicBreak(muya, replace ? 'replace' : 'insert', selection);
     else if (label === 'math-block')
         dispatchDocumentMathBlock(muya, replace, selection);
+    else if (label === 'html-block')
+        dispatchDocumentHtmlBlock(muya, replace, selectionMode, selection);
     else dispatchDocumentCodeBlock(muya, replace, selection);
 }
 
-export function replaceBlockByLabel({ block, muya, label, text = '' }: {
+/**
+ * `selectionMode: 'end'` leaves the caret after a replacing HTML template, as
+ * the Paragraph menu always has; other entry points edit its middle line.
+ */
+export function replaceBlockByLabel({ block, muya, label, text = '', selectionMode = 'content' }: {
     block: Parent;
     muya: Muya;
     label: string;
     text?: string;
+    selectionMode?: 'content' | 'end';
 }) {
     if (label === 'paragraph' && block.blockName === 'code-block' && muya.editor.documentEditing) {
         createModelBlock(muya, block, true, 'reset-code-block');
@@ -264,8 +274,8 @@ export function replaceBlockByLabel({ block, muya, label, text = '' }: {
         createModelBlock(muya, block, true, 'reset-thematic-break');
         return;
     }
-    if ((label === 'math-block' || label === 'code-block' || label === 'thematic-break') && muya.editor.documentEditing) {
-        createModelBlock(muya, block, true, label);
+    if (MODEL_BLOCK_LABELS.has(label) && muya.editor.documentEditing) {
+        createModelBlock(muya, block, true, label as TModelBlockLabel, selectionMode);
         return;
     }
     // Front matter is only valid as the document's first block, so the
@@ -352,8 +362,8 @@ export function insertBlockBelowByLabel({ block, muya, label }: {
     muya: Muya;
     label: string;
 }) {
-    if ((label === 'math-block' || label === 'code-block' || label === 'thematic-break') && muya.editor.documentEditing) {
-        createModelBlock(muya, block, false, label);
+    if (MODEL_BLOCK_LABELS.has(label) && muya.editor.documentEditing) {
+        createModelBlock(muya, block, false, label as TModelBlockLabel);
         return;
     }
     const newBlock = buildReplacementBlock(label, muya, '');

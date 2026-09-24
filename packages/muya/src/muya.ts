@@ -1386,8 +1386,8 @@ export class Muya {
                 dispatchDocumentBlockquote(this, 'reset', selection);
                 return;
             }
-            const existingList = this._selectionInSameBlock() && this._closestListAtCursor();
-            const listChange: ListChange | undefined = listKind && existingList
+            // The model owns list creation, conversion and removal for any selection.
+            const listChange: ListChange | undefined = listKind
                 ? { type: 'toggle', kind: listKind }
                 : outer && isAnyListState(outer.getState()) && type === 'loose-list-item'
                     ? { type: 'toggle-tight' }
@@ -1616,7 +1616,12 @@ export class Muya {
 
         const leadingText = this._blockLeadingText(immediate);
         if (canTurnInto(immediate, label)) {
-            this._withPreservedOffset(() => replaceBlockByLabel({ block: immediate, muya: this, label, text: leadingText }));
+            // A bound document's command already returns the model caret.
+            // An HTML template replacing its block leaves the caret after it.
+            if (this.editor.documentEditing)
+                replaceBlockByLabel({ block: immediate, muya: this, label, text: leadingText, selectionMode: 'end' });
+            else
+                this._withPreservedOffset(() => replaceBlockByLabel({ block: immediate, muya: this, label, text: leadingText }));
             return;
         }
 

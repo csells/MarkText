@@ -33,6 +33,7 @@ vi.mock('electron', () => ({
     showSaveDialog
   },
   ipcMain: {
+    handle: () => {},
     emit,
     removeListener(channel: string, listener: (...args: unknown[]) => unknown) {
       if (listeners.get(channel) === listener) listeners.delete(channel)

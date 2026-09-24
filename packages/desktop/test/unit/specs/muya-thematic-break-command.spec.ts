@@ -161,7 +161,8 @@ it('creates the following paragraph before existing content and owns the next ke
 })
 
 it.each([
-  { source: '', inserted: '---\n\n', typed: '---\n\nx', at: 0 },
+  // The new final paragraph ends its line, as upstream writes it.
+  { source: '', inserted: '---\n\n\n', typed: '---\n\nx\n', at: 0 },
   {
     source: 'before{>>keep<<}\n\nfollowing\n',
     inserted: 'before{>>keep<<}\n\n---\n\n\n\nfollowing\n',

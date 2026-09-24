@@ -5,6 +5,7 @@
     @click.stop="noop"
   >
     <div
+      v-if="replaceAvailable"
       class="left-arrow"
       @click="toggleSearchType"
     >
@@ -84,7 +85,7 @@
         </div>
       </section>
       <section
-        v-if="type === 'replace'"
+        v-if="replaceAvailable && type === 'replace'"
         class="replace"
       >
         <div class="input-wrapper replace-input">
@@ -148,6 +149,11 @@ import debounce from 'lodash/debounce'
 import { ArrowDown, ArrowUp, RefreshRight, Switch } from '@element-plus/icons-vue'
 
 const { t } = useI18n()
+
+// Read-only views keep Find but must not offer document replacement.
+const props = withDefaults(defineProps<{ replaceAvailable?: boolean }>(), {
+  replaceAvailable: true
+})
 
 const editorStore = useEditorStore()
 
@@ -260,7 +266,7 @@ const openSearch = (searchType: 'search' | 'replace') => {
 
 const listenFind = () => openSearch('search')
 
-const listenReplace = () => openSearch('replace')
+const listenReplace = () => openSearch(props.replaceAvailable ? 'replace' : 'search')
 
 const listenFindNext = () => {
   find('next')
@@ -293,7 +299,7 @@ const emptySearch = (selectHighlight = false) => {
 }
 
 const toggleSearchType = () => {
-  type.value = type.value === 'search' ? 'replace' : 'search'
+  type.value = type.value === 'search' && props.replaceAvailable ? 'replace' : 'search'
 }
 
 /** Find the previous or next search result. */
@@ -343,6 +349,7 @@ const searchFn = () => {
 const debouncedSearchFn = debounce(searchFn, 150)
 
 const replace = (isSingle = true) => {
+  if (!props.replaceAvailable) return
   bus.emit('replaceValue', {
     value: replaceValue.value,
     opt: {

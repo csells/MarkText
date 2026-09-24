@@ -8,6 +8,7 @@ import type {
 import escapeCharactersMap from '../config/escapeCharacter';
 import { isLengthEven, union } from '../utils';
 import { beginRules, inlineRules, linkValidateRules, validateRules } from './rules';
+import { isInlineHtmlTagAllowed } from './htmlPolicy';
 import {
     correctUrl,
     getAttributes,
@@ -17,9 +18,6 @@ import {
 } from './utils';
 
 // const CAN_NEST_RULES = ['strong', 'em', 'link', 'del', 'a_link', 'reference_link', 'html_tag']
-// disallowed html tags in https://github.github.com/gfm/#raw-html
-const disallowedHtmlTag
-    = /title|textarea|style|xmp|iframe|noembed|noframes|script|plaintext/i;
 
 // Mutable cursor + accumulator threaded through every inline-rule handler.
 // `src`/`pos` advance as input is consumed; `pending`/`pendingStartPos`
@@ -744,7 +742,7 @@ function tryHtmlTag(state: ILexState): boolean {
 
     if (
         htmlTo
-        && !disallowedHtmlTag.test(htmlTo[3])
+        && isInlineHtmlTagAllowed(htmlTo[3])
         // eslint-disable-next-line no-cond-assign
         && (attrs = getAttributes(htmlTo[0]))
     ) {

@@ -49,6 +49,8 @@ interface MarkdownMathState {
   readonly openStart: number
   readonly delimiterLength: number
   readonly closeStart: number
+  /** The opener is a line of its own `$$`: a math block, which spans blank lines. */
+  readonly block?: true
 }
 
 interface MarkdownFenceState {
@@ -68,6 +70,7 @@ interface MarkdownFrontMatterState {
 
 interface MarkdownIndentedCodeState {
   readonly openStart: number
+  readonly openLineStart: number
   readonly lastCodeEnd: number
   readonly container: MarkdownBlockContainer
 }
@@ -319,6 +322,7 @@ export function shiftMarkdownCheckpoint(
       : Object.freeze({
         ...checkpoint.indentedCode,
         openStart: checkpoint.indentedCode.openStart + delta,
+        openLineStart: checkpoint.indentedCode.openLineStart + delta,
         lastCodeEnd: checkpoint.indentedCode.lastCodeEnd + delta
       }),
     htmlBlock: checkpoint.htmlBlock === undefined
@@ -379,6 +383,29 @@ export interface MarkdownLaneState {
   readonly compatibleCloserStandsAgainstLiteral: (
     checkpoint: MarkdownCheckpoint
   ) => boolean
+  /**
+   * Profile rule L2c: an arm boundary token that begins its line, directly
+   * after the container prefix the open literal continues, stands against a
+   * block literal (or multi-line `$$` math) opened at or after `armStart`.
+   * The caller decides that the token is the innermost annotation's boundary.
+   */
+  readonly lineStartBoundaryStandsAgainstLiteral: (
+    checkpoint: MarkdownCheckpoint,
+    markerOffset: number,
+    armStart: number
+  ) => boolean
+  /**
+   * Profile rule L2b: an arm boundary stands against a reference definition
+   * opened at or after `armStart` whose destination or title would reach the
+   * boundary. Returns the checkpoint with that definition re-read as the
+   * arm-local fragment ending at the boundary (dropped when that fragment is
+   * no complete definition), or undefined when the rule does not apply.
+   */
+  readonly releaseDefinitionAtBoundary: (
+    checkpoint: MarkdownCheckpoint,
+    markerOffset: number,
+    armStart: number
+  ) => MarkdownCheckpoint | undefined
   readonly finishArm: (
     continuation: MarkdownCheckpoint,
     armEnd: MarkdownCheckpoint,
@@ -1164,6 +1191,31 @@ function isLazyParagraphContinuation(
 }
 
 /**
+ * Whether the checkpoint's pending line holds nothing but the container
+ * prefix (and trivia) of its active containers, so text appended there still
+ * begins a line inside those containers.
+ */
+export function markdownPendingLineIsContainerPrefix(
+  checkpoint: MarkdownCheckpoint
+): boolean {
+  const lineText = materializeMarkdownLine(checkpoint.linePath)
+  if (lineText.length === 0) {
+    return true
+  }
+  const lineState = analyzeContainerLine(
+    lineText,
+    { start: 0, contentEnd: lineText.length, end: lineText.length },
+    checkpoint.activeContainers,
+    false,
+    false,
+    true
+  )
+  return lineState.blank &&
+    lineState.indentation < 4 &&
+    lineState.continuedContainerDepth === checkpoint.activeContainers.length
+}
+
+/**
  * Non-destructively classifies the line retained by a parser checkpoint.
  * Canonical lane evidence uses this at fragment boundaries so projection does
  * not have to rediscover block structure from flattened text.
@@ -1895,6 +1947,18 @@ function definitionContinuationPhase(
     : undefined
 }
 
+/**
+ * An unescaped Addition, Deletion or Substitution closer begins at `offset`;
+ * these are the boundaries L2b lets stand against an in-arm definition.
+ */
+function isArmCloserAt(source: string, offset: number): boolean {
+  const first = source.charCodeAt(offset)
+  return (first === 43 || first === 45 || first === 126) &&
+    source.charCodeAt(offset + 1) === first &&
+    source.charCodeAt(offset + 2) === 125 &&
+    hasEvenBackslashRunBefore(source, offset)
+}
+
 function completedDefinitionLiteral(
   definition: MarkdownDefinitionState,
   end: number
@@ -2624,6 +2688,24 @@ export function createMarkdownLaneState(
         execution
       )
       const probeLine = visibleThroughRun + source.slice(sourceEnd, lookaheadEnd)
+      // Profile rule L2b: a definition line that an unescaped arm closer
+      // interrupts is read as the arm-local fragment ending at that closer.
+      const armFragmentLine =
+        sourceEnd <= boundaryEnd &&
+        boundaryEnd < lookaheadEnd &&
+        isArmCloserAt(source, boundaryEnd)
+          ? visibleThroughRun + source.slice(sourceEnd, boundaryEnd)
+          : undefined
+      const armFragmentState = armFragmentLine === undefined
+        ? undefined
+        : analyzeContainerLine(
+          armFragmentLine,
+          { start: 0, contentEnd: armFragmentLine.length, end: armFragmentLine.length },
+          activeContainers,
+          paragraphOpen,
+          lastLineLazy,
+          true
+        )
       const probeState = analyzeContainerLine(
         probeLine,
         { start: 0, contentEnd: probeLine.length, end: probeLine.length },
@@ -2696,11 +2778,34 @@ export function createMarkdownLaneState(
         })
       }
       if (definition !== undefined && definition.lineStart !== lineStart) {
-        const continuation = definitionContinuationPhase(
+        let continuation = definitionContinuationPhase(
           probeLine,
           probeState,
           definition
         )
+        if (
+          continuation !== undefined &&
+          continuation !== 'invalid' &&
+          !definitionPhaseComplete(continuation.phase)
+        ) {
+          // An incomplete continuation stays pending across the closer.
+        } else if (
+          (continuation === 'invalid' || continuation === undefined) &&
+          armFragmentLine !== undefined &&
+          armFragmentState !== undefined
+        ) {
+          const fragmentContinuation = definitionContinuationPhase(
+            armFragmentLine,
+            armFragmentState,
+            definition
+          )
+          if (
+            fragmentContinuation !== undefined &&
+            fragmentContinuation !== 'invalid'
+          ) {
+            continuation = fragmentContinuation
+          }
+        }
         if (continuation === 'invalid') {
           definition = undefined
         } else if (continuation === undefined) {
@@ -2777,6 +2882,7 @@ export function createMarkdownLaneState(
                 0
               )
             ),
+            openLineStart: lineStart,
             lastCodeEnd: sourceLineEnd(source, lookaheadEnd, laneEnd),
             container: blockContainerFrom(probeState)
           })
@@ -2819,6 +2925,16 @@ export function createMarkdownLaneState(
               paragraphOpen,
               true,
               footnotesEnabled
+            ) ?? (
+              armFragmentLine === undefined || armFragmentState === undefined
+                ? undefined
+                : definitionOpening(
+                  armFragmentLine,
+                  armFragmentState,
+                  paragraphOpen,
+                  true,
+                  footnotesEnabled
+                )
             )
             if (definitionKind !== undefined) {
               definition = Object.freeze({
@@ -3385,10 +3501,23 @@ export function createMarkdownLaneState(
       }
       const lineEnteredWithFence = fence !== undefined
       const lineEnteredWithFrontMatter = frontMatter !== undefined
+      // The line probe opened this HTML block or indented code block and
+      // bound it to the probe's container objects. Re-analyzing the completed
+      // line against those containers mints a fresh list item for a marker on
+      // this line, so adopting that result would orphan the block from its own
+      // container on the next line.
+      const lineOpenedHtmlBlock = htmlBlock?.openLineStart === lineStart
+      const lineOpenedIndentedCode = indentedCode?.openLineStart === lineStart
       const frontMatterStyle = frontMatterEligible ? frontMatterOpeningStyle(completedLine) : undefined
       let lineOwnedByIndentedCode = false
       if (indentedCode !== undefined) {
-        if (
+        if (lineOpenedIndentedCode) {
+          indentedCode = Object.freeze({
+            ...indentedCode,
+            lastCodeEnd: sourceEnd
+          })
+          lineOwnedByIndentedCode = true
+        } else if (
           !lineState.blank &&
           lineState.indentation >= 4 &&
           continuesBlockContainer(lineState, indentedCode.container)
@@ -3488,7 +3617,9 @@ export function createMarkdownLaneState(
         lineOwnedByHtmlBlock ||
         lineOwnedByDefinition
       ) {
-        activeContainers = lineState.activeContainers
+        if (!lineOpenedHtmlBlock && !lineOpenedIndentedCode) {
+          activeContainers = lineState.activeContainers
+        }
       } else if (frontMatter !== undefined) {
         if (
           lineStart !== frontMatter.openLineStart &&
@@ -3576,6 +3707,12 @@ export function createMarkdownLaneState(
         }
         activeContainers = lineState.activeContainers
       }
+      if (
+        math !== undefined && math.block !== true && math.openStart >= lineStart &&
+        completedLine.slice(lineState.contentOffset).trim() === '$$'
+      ) {
+        math = Object.freeze({ ...math, block: true })
+      }
       paragraphOpen =
         !lineBlockClosed &&
         !lineState.blank &&
@@ -3595,6 +3732,12 @@ export function createMarkdownLaneState(
           lineState.contentOffset,
           completedLine.length
         )
+      if (!paragraphOpen) {
+        // Code spans and inline math are paragraph content: once the line
+        // ends its paragraph or leaf block, a later run cannot close them.
+        inlineCode = undefined
+        if (math?.block !== true) math = undefined
+      }
       lastLineLazy = lineState.lazy
       frontMatterEligible = false
       lineStart = sourceEnd
@@ -3960,6 +4103,110 @@ export function createMarkdownLaneState(
     true
   )
 
+  const lineStartBoundaryStandsAgainstLiteral: MarkdownLaneState['lineStartBoundaryStandsAgainstLiteral'] = (
+    checkpoint,
+    markerOffset,
+    armStart
+  ) => {
+    if (
+      checkpoint.inlineCode !== undefined ||
+      checkpoint.fixedInline !== undefined ||
+      checkpoint.frontMatter !== undefined ||
+      checkpoint.definition !== undefined ||
+      checkpoint.math?.delimiterLength === 1
+    ) {
+      return false
+    }
+    const literal =
+      checkpoint.fence ??
+      checkpoint.indentedCode ??
+      checkpoint.htmlBlock ??
+      checkpoint.math
+    if (literal === undefined || literal.openStart < armStart) {
+      return false
+    }
+    const prefix = materializeMarkdownLine(checkpoint.linePath)
+    const lineText =
+      prefix +
+      source.slice(
+        markerOffset,
+        sourceLineContentEnd(source, markerOffset, source.length, execution)
+      )
+    const lineState = analyzeContainerLine(
+      lineText,
+      { start: 0, contentEnd: lineText.length, end: lineText.length },
+      checkpoint.activeContainers,
+      false,
+      false,
+      true
+    )
+    const container = 'container' in literal ? literal.container : undefined
+    return (
+      lineState.contentOffset === prefix.length &&
+      lineState.indentation === 0 &&
+      (
+        container === undefined
+          ? lineState.continuedContainerDepth === checkpoint.activeContainers.length
+          : continuesBlockContainer(lineState, container)
+      )
+    )
+  }
+
+  const releaseDefinitionAtBoundary: MarkdownLaneState['releaseDefinitionAtBoundary'] = (
+    checkpoint,
+    markerOffset,
+    armStart
+  ) => {
+    const definition = checkpoint.definition
+    if (
+      definition === undefined ||
+      definition.phase === 'reference-label' ||
+      definition.openStart < armStart ||
+      definition.lineStart !== checkpoint.lineStart
+    ) {
+      return undefined
+    }
+    let step: MarkdownDefinitionStep | undefined
+    if (definition.openStart >= checkpoint.lineStart) {
+      const lineText = materializeMarkdownLine(checkpoint.linePath)
+      step = definitionOpening(
+        lineText,
+        analyzeContainerLine(
+          lineText,
+          { start: 0, contentEnd: lineText.length, end: lineText.length },
+          checkpoint.activeContainers,
+          false,
+          false,
+          true
+        ),
+        false,
+        true,
+        footnotesEnabled
+      )
+    } else if (definition.phase === 'footnote') {
+      step = Object.freeze({ phase: 'footnote' as const })
+    } else if (
+      stagedMarkdownReferenceDefinitionAt(
+        source,
+        definition.openStart,
+        markerOffset
+      ) !== undefined
+    ) {
+      step = Object.freeze({ phase: 'reference' as const })
+    }
+    return Object.freeze({
+      ...checkpoint,
+      definition: step === undefined || !definitionPhaseComplete(step.phase)
+        ? undefined
+        : Object.freeze({
+          ...definition,
+          phase: step.phase,
+          titleCloseCodeUnit: step.titleCloseCodeUnit,
+          lastOwnedEnd: markerOffset
+        })
+    })
+  }
+
   const finishArm: MarkdownLaneState['finishArm'] = (
     continuation,
     armEnd,
@@ -4086,6 +4333,10 @@ export function createMarkdownLaneState(
         checkpoint.math?.delimiterLength === 1 ||
         checkpoint.fixedInline?.extendedAutolink === true
     ),
+    lineStartBoundaryStandsAgainstLiteral: Object.freeze(
+      lineStartBoundaryStandsAgainstLiteral
+    ),
+    releaseDefinitionAtBoundary: Object.freeze(releaseDefinitionAtBoundary),
     finishArm: Object.freeze(finishArm),
     enterArm: Object.freeze((
       checkpoint: MarkdownCheckpoint,

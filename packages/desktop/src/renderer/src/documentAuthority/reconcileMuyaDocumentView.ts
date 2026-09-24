@@ -1,16 +1,148 @@
 import type { Muya } from '@muyajs/core'
-import type { DocumentSelection } from '@marktext/document-core'
-import type { MuyaMarkupView } from './muyaMarkupView'
+import type { DocumentSelection, DocumentTableCellSelection } from '@marktext/document-core'
+import type { MuyaMarkupState, MuyaMarkupView } from './muyaMarkupView'
 import isEqual from 'lodash/isEqual'
 
 import type { CoreAppliedReply } from './coreProtocol'
 import type { MuyaPlainTextViewResult } from './muyaPlainTextView'
-import type { MuyaMarkupDecoration } from './muyaMarkupView'
 import { createMuyaModelSelection } from './muyaModelSelection'
-import type {
-  MuyaPlainTextAuthorSelection,
-  MuyaPlainTextSourceBinding
-} from './muyaPlainTextCoreAdapter'
+import type { MuyaPlainTextSourceBinding } from './muyaPlainTextCoreAdapter'
+
+/** Replaces the presented block state at `path`. */
+function replaceState(
+  state: MuyaMarkupState[],
+  path: readonly (string | number)[],
+  block: MuyaMarkupState
+): void {
+  let parent: unknown = state
+  for (const part of path.slice(0, -1)) parent = (parent as Record<string | number, unknown>)[part]
+  const key = path[path.length - 1]
+  if (key !== undefined) (parent as Record<string | number, unknown>)[key] = block
+}
+
+/**
+ * A soft break at a paragraph's end, or Enter on an earlier line of one,
+ * leaves the caret on a line that no block owns. Show that line as the
+ * paragraph's last or first line, as upstream does, without dispatching an
+ * editing operation; the next view replaces it.
+ */
+function presentUnownedLines(muya: Muya, view: MuyaMarkupView, points: readonly number[]): void {
+  const { modelPointToDOM, snapCaret } = createMuyaModelSelection(muya, view)
+  const missing = points.filter((point) => modelPointToDOM(point) === undefined)
+  const unowned = missing.map((point) => snapCaret(point) ?? point)
+  if (unowned.length === 0) return
+  const blank = view.bindings.filter(
+    (binding) =>
+      binding.blankLineText !== undefined &&
+      missing.some(
+        (point) =>
+          point > binding.sourceRange.end &&
+          point <= binding.sourceRange.end + (binding.blankLineText?.length ?? 0)
+      )
+  )
+  const trailing = view.bindings.filter(
+    (binding) =>
+      binding.trailingLinePosition !== undefined && unowned.includes(binding.trailingLinePosition)
+  )
+  // A blank line between two paragraphs ends the first before it begins the second.
+  const leading = view.bindings.filter(
+    (binding) =>
+      binding.leadingLinePosition !== undefined &&
+      unowned.includes(binding.leadingLinePosition) &&
+      !trailing.some((line) => line.trailingLinePosition === binding.leadingLinePosition)
+  )
+  if (trailing.length === 0 && leading.length === 0 && blank.length === 0) return
+  const state = structuredClone([...view.state]) as MuyaMarkupState[]
+  const present = (binding: MuyaMarkupView['bindings'][number], text: string) => {
+    let leaf: unknown = state
+    for (const part of binding.path.slice(0, -1)) {
+      leaf = (leaf as Record<string | number, unknown>)[part]
+    }
+    ;(leaf as MuyaMarkupState).text = text
+  }
+  for (const binding of blank) present(binding, binding.blankLineText ?? '')
+  for (const binding of trailing) present(binding, `${binding.text}\n`)
+  for (const binding of leading) {
+    if (binding.syntax.kind !== 'thematic-break') {
+      present(binding, `${binding.leadingLineText ?? ''}\n${binding.text}`)
+      continue
+    }
+    // The underline left by deleting a setext heading's text shows that
+    // empty heading, as upstream keeps it.
+    replaceState(state, binding.path.slice(0, -1), {
+      name: 'setext-heading',
+      meta: { level: 2, underline: '---' },
+      text: ''
+    })
+  }
+  muya.reconcileContent(state)
+  for (const binding of [...blank, ...trailing, ...leading]) {
+    const block = muya.editor.scrollPage?.queryBlock([...binding.path])
+    if (block?.isContent()) block.update()
+  }
+}
+
+/**
+ * Upstream keeps a lone list or quote marker that was typed or left by a
+ * deletion as paragraph text until more is typed, and places a caret before
+ * a marker only in such text. While the model selection is there, show the
+ * line as that paragraph. A caret at a container's content is inside it.
+ */
+function presentMarkerLines(muya: Muya, view: MuyaMarkupView, points: readonly number[]): void {
+  const lines = view.bindings.flatMap(({ markerLine: line, text }) =>
+    line !== undefined &&
+    points.some(
+      (point) =>
+        line.start <= point &&
+        (point < line.content || (text === '' && point <= line.end && !/[ \t]$/u.test(line.text)))
+    )
+      ? [line]
+      : []
+  )
+  if (lines.length === 0) return
+  const state = structuredClone([...view.state]) as MuyaMarkupState[]
+  for (const line of lines) {
+    replaceState(state, line.statePath, { name: 'paragraph', text: line.text })
+  }
+  muya.reconcileContent(state)
+  for (const line of lines) {
+    const block = muya.editor.scrollPage?.queryBlock([...line.statePath, 'text'])
+    if (block?.isContent()) block.update()
+  }
+}
+
+/**
+ * A space typed after a cell's text becomes the table's padding, and the
+ * caret follows it there. Show those spaces after the cell's text, as
+ * upstream keeps them in the cell, until the next view replaces them.
+ */
+function presentCellPadding(
+  muya: Muya,
+  view: MuyaMarkupView,
+  selection: DocumentTableCellSelection
+): void {
+  const binding = view.bindings.find(
+    (item) =>
+      item.tableCell !== undefined &&
+      item.tableCell.table.start === selection.cell.table.start &&
+      item.tableCell.table.end === selection.cell.table.end &&
+      item.tableCell.row === selection.cell.row &&
+      item.tableCell.column === selection.cell.column
+  )
+  const content = binding?.tableCellContent
+  if (binding?.tableCellPadding === undefined || content === undefined) return
+  const spaces = content.start + Math.max(selection.anchor, selection.focus) - content.end
+  if (spaces <= 0 || spaces > binding.tableCellPadding) return
+  const state = structuredClone([...view.state]) as MuyaMarkupState[]
+  let leaf: unknown = state
+  for (const part of binding.path.slice(0, -1)) {
+    leaf = (leaf as Record<string | number, unknown>)[part]
+  }
+  ;(leaf as MuyaMarkupState).text = binding.text + ' '.repeat(spaces)
+  muya.reconcileContent(state)
+  const block = muya.editor.scrollPage?.queryBlock([...binding.path])
+  if (block?.isContent()) block.update()
+}
 
 /** Restores the same model positions for edits, history and view handoff. */
 export function restoreMuyaDocumentSelection(
@@ -77,11 +209,20 @@ export function restoreMuyaDocumentSelection(
     if (!('state' in view)) throw new Error('Core input requires its model-owned native projection')
     const { modelPointToDOM, modelPointToText, modelCellPointToDOM, modelCellPointToText } =
       createMuyaModelSelection(muya, view)
+    const collapsed =
+      cellSelection !== undefined
+        ? cellSelection.anchor === cellSelection.focus
+        : isEqual(
+          modelTextSelection?.anchor ?? inputSelection!.start,
+          modelTextSelection?.focus ?? inputSelection!.end
+        )
     const domPoint = (edge: 'anchor' | 'focus') =>
       cellSelection !== undefined
-        ? modelCellPointToDOM(cellSelection, cellSelection[edge])
+        ? modelCellPointToDOM(cellSelection, cellSelection[edge], collapsed)
         : modelPointToDOM(
-          modelTextSelection?.[edge] ?? inputSelection![edge === 'anchor' ? 'start' : 'end']
+          modelTextSelection?.[edge] ?? inputSelection![edge === 'anchor' ? 'start' : 'end'],
+          undefined,
+          collapsed
         )
     const textPoint = (edge: 'anchor' | 'focus') =>
       cellSelection !== undefined
@@ -89,6 +230,11 @@ export function restoreMuyaDocumentSelection(
         : modelPointToText(
           modelTextSelection?.[edge] ?? inputSelection![edge === 'anchor' ? 'start' : 'end']
         )
+    if (inputSelection !== undefined) {
+      presentUnownedLines(muya, view, [inputSelection.start, inputSelection.end])
+      presentMarkerLines(muya, view, [inputSelection.start, inputSelection.end])
+    }
+    if (cellSelection !== undefined) presentCellPadding(muya, view, cellSelection)
     let anchor = domPoint('anchor')
     let focus = domPoint('focus')
     const insideImage = (point: typeof anchor) => {
@@ -136,14 +282,12 @@ export function reconcileMuyaDocumentView({
   muya,
   view,
   outcome,
-  sourcePosition,
   dirtyPaths,
   applyEditability
 }: {
   muya: Muya
   view: MuyaPlainTextViewResult
   outcome: CoreAppliedReply
-  sourcePosition?: (point: MuyaPlainTextAuthorSelection['focus']) => number | undefined
   dirtyPaths: Iterable<readonly (string | number)[]>
   applyEditability: (bindings: readonly MuyaPlainTextSourceBinding[]) => void
 }): void {
@@ -163,10 +307,6 @@ export function reconcileMuyaDocumentView({
     (primaryRange === undefined
       ? undefined
       : { start: primaryRange.anchor, end: primaryRange.focus }) ?? outcome.authorResult?.selection
-  const reconciledAnchor =
-    inputSelection?.start ?? (selection === null ? undefined : sourcePosition?.(selection.anchor))
-  const reconciledFocus =
-    inputSelection?.end ?? (selection === null ? undefined : sourcePosition?.(selection.focus))
   // A native structural command may differ only in container metadata (for
   // example a one-item list's loose flag). Replacing that presentation must
   // retain the native caret when both endpoint leaves still have the same text.
@@ -195,7 +335,9 @@ export function reconcileMuyaDocumentView({
     if (block?.isContent()) block.update()
   }
   if (documentSelection !== undefined || inputSelection !== undefined) {
-    if (!('state' in view)) { throw new Error('Core selection requires its model-owned native projection') }
+    if (!('state' in view)) {
+      throw new Error('Core selection requires its model-owned native projection')
+    }
     restoreMuyaDocumentSelection(
       muya,
       view,
@@ -216,63 +358,6 @@ export function reconcileMuyaDocumentView({
           { block: focusBlock, path: focusBlock.path, offset: selection.focus.offset }
         )
       }
-    }
-  } else if (
-    (inputSelection !== undefined || !unchanged) &&
-    reconciledAnchor !== undefined &&
-    reconciledFocus !== undefined
-  ) {
-    const endpoint = (source: number) => {
-      // Elided annotation delimiters and comment bodies still have model-owned
-      // boundary positions. Their existing render anchors map those boundaries
-      // even when no visible text segment remains.
-      if ('state' in view) {
-        const comment = view.comments.find(
-          (item) => item.annotationRange.start === source || item.annotationRange.end === source
-        )
-        const opening = view.decorations.find((item) => item.mark.annotationRange.start === source)
-        let closing: MuyaMarkupDecoration | undefined
-        for (const item of view.decorations) {
-          if (item.mark.annotationRange.end === source) closing = item
-        }
-        const marker = comment ?? opening ?? closing
-        const offset = comment?.offset ?? opening?.range.start ?? closing?.range.end
-        if (marker !== undefined && offset !== undefined) {
-          const block = muya.editor.scrollPage?.queryBlock([...marker.path])
-          if (block?.isContent()) return { block, path: block.path, offset }
-        }
-      }
-      for (const binding of view.bindings) {
-        const segments =
-          'segments' in binding
-            ? binding.segments
-            : [{ text: { start: 0, end: binding.text.length }, source: binding.sourceRange }]
-        const segment = segments.find(
-          (item) => item.source.start <= source && source <= item.source.end
-        )
-        // Empty model leaves have a caret boundary but no text segment.
-        const emptyCaret = binding.text.length === 0 && source === binding.sourceRange.end
-        if (segment === undefined && !emptyCaret) continue
-        const block = muya.editor.scrollPage?.queryBlock([...binding.path])
-        if (block?.isContent()) {
-          return {
-            block,
-            path: block.path,
-            offset:
-              segment === undefined
-                ? 0
-                : source === segment.source.end
-                  ? segment.text.end
-                  : segment.text.start + source - segment.source.start
-          }
-        }
-      }
-      return undefined
-    }
-    const anchor = endpoint(reconciledAnchor)
-    const focus = endpoint(reconciledFocus)
-    if (anchor !== undefined && focus !== undefined) {
-      muya.editor.selection.setSelection(anchor, focus)
     }
   } else if (!unchanged) {
     const appliedEdit = outcome.change.appliedEdits.at(-1)

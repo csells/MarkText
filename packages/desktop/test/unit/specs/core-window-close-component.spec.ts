@@ -27,6 +27,7 @@ import * as handoff from '@/documentAuthority/coreDocumentViewHandoff'
 import * as preferences from '@/documentAuthority/coreMarkdownPreferences'
 import * as eol from '@/documentAuthority/canonicalEolIndex'
 import * as cursor from '@/util/cursor'
+import * as composer from '@/components/editorWithTabs/coreReviewComposer'
 import type { CodeMirrorCoreAdapter } from '@/documentAuthority/codeMirrorCoreAdapter'
 import type {
   CoreDocumentSessionManager,
@@ -53,6 +54,8 @@ function loadComponent(path: string, deps: Record<string, unknown>): Vue.Compone
     if (name === 'vue') return Vue
     if (name === '@/documentAuthority/canonicalEolIndex') return eol
     if (name === '@/util/cursor') return cursor
+    if (name === './coreReviewComposer') return composer
+    if (name === '@/i18n') return { t: (key: string) => key }
     if (name in deps) return deps[name]
     throw new Error(`Unexpected owner dependency ${name}`)
   }, exports)
@@ -287,7 +290,6 @@ it.each([false, true, 'overlap'] as const)(
               muya: ownMuya!,
               view: current,
               outcome,
-              sourcePosition: ownAdapter.reconciledSourcePosition,
               dirtyPaths: presentation.changedPaths,
               applyEditability: () => {}
             })
@@ -295,9 +297,7 @@ it.each([false, true, 'overlap'] as const)(
           }
           const ownAdapter = authority.createMuyaPlainTextCoreAdapter(
             view().bindings,
-            ownLease.binding,
-            undefined,
-            ownReconcile
+            ownLease.binding
           )
           adapter = ownAdapter
           reconcile = ownReconcile

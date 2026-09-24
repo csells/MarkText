@@ -37,8 +37,6 @@ test('Core mode owns a document opened directly in WYSIWYG', async() => {
     })
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
-    await page.waitForTimeout(100)
-    expect(readFileSync(filePath, 'utf8')).toBe(source)
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('direct WYS\n')
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
@@ -68,14 +66,11 @@ test('Core WYSIWYG tracks one visible insertion through actor history', async() 
     await expect(track).toHaveAttribute('aria-pressed', 'false')
     await track.click()
     await expect(track).toHaveAttribute('aria-pressed', 'true')
-    await page.evaluate((text) => {
-      const bridge = window.__marktextDocumentCore
-      if (bridge?.inputPlainText === undefined) {
-        throw new Error('Core Muya test operation is unavailable')
-      }
-      bridge.inputPlainText(0, text, text.length)
-    }, visibleTrackedText)
     const paragraphs = page.locator('span.mu-paragraph-content')
+    // A native insertion at the end of "seed", not a whole-paragraph replacement.
+    await paragraphs.first().click()
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End')
+    await page.keyboard.insertText(visibleTrackedText.slice('seed'.length))
     const renderedParagraphText = (index: number) =>
       paragraphs.nth(index).evaluate((root) => {
         const walker = document.createTreeWalker(
@@ -1001,7 +996,7 @@ test('Core mode applies a native blockquote command through acknowledged history
   }
 })
 
-test('Core mode restarts a failed Worker from acknowledged WYSIWYG history', async() => {
+test('Core mode restarts a failed Core owner from acknowledged WYSIWYG history', async() => {
   const source = 'seed\n'
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
@@ -1028,6 +1023,7 @@ test('Core mode restarts a failed Worker from acknowledged WYSIWYG history', asy
       if (bridge?.crashWorker === undefined) {
         throw new Error('Core Worker failure operation is unavailable')
       }
+      // Input is acknowledged synchronously, so it belongs to restored history.
       bridge.inputPlainText?.(0, 'speculative', 11)
       bridge.crashWorker()
     })
@@ -1043,8 +1039,8 @@ test('Core mode restarts a failed Worker from acknowledged WYSIWYG history', asy
       .poll(() =>
         page.evaluate(() => document.querySelector('span.mu-paragraph-content')?.textContent)
       )
-      .toBe('accepted')
-    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('accepted\n')
+      .toBe('speculative')
+    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('speculative\n')
 
     await page.evaluate(() => {
       window.__marktextDocumentCore?.inputPlainText?.(0, 'recovered', 9)
@@ -1153,8 +1149,6 @@ test('Core mode saves a native plain-paragraph WYSIWYG edit', async() => {
       .toMatchObject({ result: 'accepted' })
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
-    await page.waitForTimeout(100)
-    expect(readFileSync(filePath, 'utf8')).toBe(source)
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('head\n\nmiddle WYS\n\ntail\n')
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
@@ -1255,8 +1249,6 @@ test('Core mode saves a native paragraph-to-heading conversion', async() => {
       .toMatchObject({ result: 'accepted' })
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
-    await page.waitForTimeout(100)
-    expect(readFileSync(filePath, 'utf8')).toBe(source)
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('# title\n')
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
@@ -1351,8 +1343,6 @@ test('Core mode saves one native cross-paragraph typing replacement', async() =>
       .toMatchObject({ result: 'accepted' })
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
-    await page.waitForTimeout(100)
-    expect(readFileSync(filePath, 'utf8')).toBe(source)
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('alXmma\n')
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
@@ -1506,8 +1496,6 @@ test('Core mode saves only the committed native IME composition', async() => {
     })
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
-    await page.waitForTimeout(100)
-    expect(readFileSync(filePath, 'utf8')).toBe(source)
     await expect
       .poll(() => page.evaluate(() => window.__marktextDocumentCore?.latest()))
       .toMatchObject({ result: 'accepted' })
@@ -1549,8 +1537,6 @@ test('Core mode renders and saves one native math-block conversion', async() => 
       .toBe(1)
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
-    await page.waitForTimeout(100)
-    expect(readFileSync(filePath, 'utf8')).toBe(source)
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('$$\nx^2\n$$\n')
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
@@ -1607,8 +1593,6 @@ for (const { label, table, canonical } of nativeTableFixtures) {
         .toBe(1)
       await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
 
-      await page.waitForTimeout(100)
-      expect(readFileSync(filePath, 'utf8')).toBe(source)
       await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(canonical + '\n')
       await expectEditorWindowHidden(app)
       expectEditorNotFrontmost(app)

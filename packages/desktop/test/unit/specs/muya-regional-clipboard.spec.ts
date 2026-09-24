@@ -49,7 +49,6 @@ async function openClipboardDocument(source: string) {
     view.bindings,
     lease.binding,
     undefined,
-    reconcile,
     revision,
     true
   )
@@ -240,7 +239,9 @@ for (const example of [
         expect(app.view().bindings.some((binding) => binding.text === example.text)).toBe(true)
         const nextSelection = app.outcome()?.clipboardResult?.selection
         expect(nextSelection).toEqual({ ranges: [{ anchor: caret, focus: caret }], primary: 0 })
-        if (!nextSelection || !('ranges' in nextSelection)) { throw new Error('Missing acknowledged clipboard caret') }
+        if (!nextSelection || !('ranges' in nextSelection)) {
+          throw new Error('Missing acknowledged clipboard caret')
+        }
         expect(await lease.sourceAtBarrier()).toBe(pasted)
         adapter.input(
           {

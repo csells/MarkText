@@ -10,8 +10,10 @@ it.each(
   'keeps $lane blockquote conversion editable inside an addition containing $text',
   async({ lane, text }) => {
     const source = `{++${text}++}\n`
-    const converted = lane === 'ordinary' ? `> {++${text}++}\n` : `{++> ${text}++}\n`
-    const typed = lane === 'ordinary' ? `> {++${text}!++}\n` : `{++> ${text}!++}\n`
+    // Upstream MarkText prefixes every quoted line.
+    const quoted = text.replaceAll('\n', '\n> ')
+    const converted = lane === 'ordinary' ? `> {++${quoted}++}\n` : `{++> ${quoted}++}\n`
+    const typed = lane === 'ordinary' ? `> {++${quoted}!++}\n` : `{++> ${quoted}!++}\n`
     const app = bootBoundMuya(source)
     app.track(lane === 'tracked')
     try {

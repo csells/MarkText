@@ -23,17 +23,13 @@ test('Core mode maps the caret across an edited Source-to-WYSIWYG handoff', asyn
   try {
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.inputPlainText !== undefined
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.inputPlainText !== undefined)
     await page.evaluate(() => {
       const paragraph = document.querySelector('span.mu-paragraph-content')
-      const text = paragraph === null
-        ? undefined
-        : document.createTreeWalker(
-          paragraph,
-          NodeFilter.SHOW_TEXT
-        ).nextNode()
+      const text =
+        paragraph === null
+          ? undefined
+          : document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT).nextNode()
       if (!(text instanceof Text)) throw new Error('Plain paragraph text is unavailable')
       const range = document.createRange()
       range.setStart(text, 6)
@@ -45,12 +41,14 @@ test('Core mode maps the caret across an edited Source-to-WYSIWYG handoff', asyn
     })
 
     await enterSourceMode(page, app)
-    expect(await page.evaluate(() => {
-      const host = document.querySelector('.source-code .CodeMirror') as
-        | (Element & { CodeMirror?: { getCursor(): { line: number; ch: number } } })
-        | null
-      return host?.CodeMirror?.getCursor()
-    })).toEqual({ line: 0, ch: 6 })
+    expect(
+      await page.evaluate(() => {
+        const host = document.querySelector('.source-code .CodeMirror') as
+          | (Element & { CodeMirror?: { getCursor(): { line: number; ch: number } } })
+          | null
+        return host?.CodeMirror?.getCursor()
+      })
+    ).toEqual({ line: 0, ch: 6 })
     await page.evaluate(() => {
       const host = document.querySelector('.source-code .CodeMirror') as
         | (Element & {
@@ -67,31 +65,35 @@ test('Core mode maps the caret across an edited Source-to-WYSIWYG handoff', asyn
         | null
       const cm = host?.CodeMirror
       if (cm === undefined) throw new Error('Core Source editor is unavailable')
-      cm.replaceRange(
-        'BETA',
-        { line: 0, ch: 6 },
-        { line: 0, ch: 10 },
-        '+input'
-      )
+      cm.replaceRange('BETA', { line: 0, ch: 6 }, { line: 0, ch: 10 }, '+input')
       cm.setCursor({ line: 0, ch: 10 })
     })
     await exitSourceMode(page, app)
 
-    await expect.poll(() => page.evaluate(() =>
-      document.querySelector('span.mu-paragraph-content')?.textContent
-    )).toBe('alpha BETA')
-    expect(await page.evaluate(() => {
-      const paragraph = document.querySelector('span.mu-paragraph-content')
-      const selection = window.getSelection()
-      if (
-        paragraph === null || selection === null || !selection.isCollapsed ||
-        selection.anchorNode === null || !paragraph.contains(selection.anchorNode)
-      ) return undefined
-      const range = document.createRange()
-      range.selectNodeContents(paragraph)
-      range.setEnd(selection.anchorNode, selection.anchorOffset)
-      return range.toString().length
-    })).toBe(10)
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.querySelector('span.mu-paragraph-content')?.textContent)
+      )
+      .toBe('alpha BETA')
+    expect(
+      await page.evaluate(() => {
+        const paragraph = document.querySelector('span.mu-paragraph-content')
+        const selection = window.getSelection()
+        if (
+          paragraph === null ||
+          selection === null ||
+          !selection.isCollapsed ||
+          selection.anchorNode === null ||
+          !paragraph.contains(selection.anchorNode)
+        ) {
+          return undefined
+        }
+        const range = document.createRange()
+        range.selectNodeContents(paragraph)
+        range.setEnd(selection.anchorNode, selection.anchorOffset)
+        return range.toString().length
+      })
+    ).toBe(10)
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('alpha BETA\n')
     await expectEditorWindowHidden(app)
@@ -102,7 +104,7 @@ test('Core mode maps the caret across an edited Source-to-WYSIWYG handoff', asyn
   }
 })
 
-test('Core mode rebases Source input authored during actor undo', async() => {
+test('Core mode applies Source input typed after actor undo to the restored text', async() => {
   const source = 'abc\n'
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
@@ -129,17 +131,13 @@ test('Core mode rebases Source input authored during actor undo', async() => {
           }
         })
         | null
-      host?.CodeMirror?.replaceRange(
-        'X',
-        { line: 0, ch: 1 },
-        { line: 0, ch: 2 },
-        '+input'
-      )
+      host?.CodeMirror?.replaceRange('X', { line: 0, ch: 1 }, { line: 0, ch: 2 }, '+input')
     })
     await page.evaluate(() => window.__marktextDocumentCore?.settled())
 
+    // Core applies undo synchronously, so the next input targets restored "abc".
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
-    await page.waitForTimeout(25)
+    await page.evaluate(() => window.__marktextDocumentCore?.settled())
     await page.evaluate(() => {
       const host = document.querySelector('.source-code .CodeMirror') as
         | (Element & {
@@ -161,13 +159,15 @@ test('Core mode rebases Source input authored during actor undo', async() => {
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await page.evaluate(() => window.__marktextDocumentCore?.settled())
 
-    expect(await page.evaluate(() => {
-      const host = document.querySelector('.source-code .CodeMirror') as
-        | (Element & { CodeMirror?: { getValue(): string } })
-        | null
-      return host?.CodeMirror?.getValue()
-    })).toBe('abPc\n')
-    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('abPc\n')
+    expect(
+      await page.evaluate(() => {
+        const host = document.querySelector('.source-code .CodeMirror') as
+          | (Element & { CodeMirror?: { getValue(): string } })
+          | null
+        return host?.CodeMirror?.getValue()
+      })
+    ).toBe('aPbc\n')
+    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('aPbc\n')
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await expectNoRendererErrors(app)
@@ -211,24 +211,28 @@ test('Core mode accepts one actor-owned Addition then undoes, redoes, and saves 
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await page.evaluate(() => window.__marktextDocumentCore?.settled())
-    expect(await page.evaluate(() => {
-      const host = document.querySelector('.source-code .CodeMirror') as
-        | (Element & { CodeMirror?: { getValue(): string } })
-        | null
-      return host?.CodeMirror?.getValue()
-    })).toBe(source)
+    expect(
+      await page.evaluate(() => {
+        const host = document.querySelector('.source-code .CodeMirror') as
+          | (Element & { CodeMirror?: { getValue(): string } })
+          | null
+        return host?.CodeMirror?.getValue()
+      })
+    ).toBe(source)
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(source)
 
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(acceptedSource)
-    expect(await page.evaluate(() => {
-      const host = document.querySelector('.source-code .CodeMirror') as
-        | (Element & { CodeMirror?: { getValue(): string } })
-        | null
-      return host?.CodeMirror?.getValue()
-    })).toBe(acceptedSource)
+    expect(
+      await page.evaluate(() => {
+        const host = document.querySelector('.source-code .CodeMirror') as
+          | (Element & { CodeMirror?: { getValue(): string } })
+          | null
+        return host?.CodeMirror?.getValue()
+      })
+    ).toBe(acceptedSource)
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await expectNoRendererErrors(app)
@@ -237,7 +241,7 @@ test('Core mode accepts one actor-owned Addition then undoes, redoes, and saves 
   }
 })
 
-test('Core mode saves a native Source edit from the dedicated Worker authority', async() => {
+test('Core mode saves a native Source edit from the Core authority', async() => {
   const source = 'head\n\nordinary text paragraph\n\ntail\n'
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
@@ -252,11 +256,9 @@ test('Core mode saves a native Source edit from the dedicated Worker authority',
     await enterSourceMode(page, app)
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await page.waitForFunction(
-      () => window.__marktextDocumentCore?.mode === 'core',
-      null,
-      { timeout: 10_000 }
-    )
+    await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core', null, {
+      timeout: 10_000
+    })
     await page.evaluate(() => {
       const cm = (
         document.querySelector('.source-code .CodeMirror') as Element & {
@@ -278,8 +280,6 @@ test('Core mode saves a native Source edit from the dedicated Worker authority',
       )
     })
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
-    await page.waitForTimeout(100)
-    expect(readFileSync(filePath, 'utf8')).toBe(source)
 
     const acknowledged = await page.evaluate(async() => {
       const bridge = window.__marktextDocumentCore
@@ -294,17 +294,17 @@ test('Core mode saves a native Source edit from the dedicated Worker authority',
       sourceLength: source.length,
       requestedSourceSnapshots: 0,
       change: {
-        appliedEdits: [{
-          start: source.indexOf('text'),
-          end: source.indexOf('text') + 4,
-          insert: 'TEXT'
-        }],
+        appliedEdits: [
+          {
+            start: source.indexOf('text'),
+            end: source.indexOf('text') + 4,
+            insert: 'TEXT'
+          }
+        ],
         projections: []
       }
     })
-    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(
-      source.replace('text', 'TEXT')
-    )
+    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(source.replace('text', 'TEXT'))
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
     await expectNoRendererErrors(app)

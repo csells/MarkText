@@ -897,6 +897,9 @@
     "ok": "Tamam"
   },
   "dialog": {
+    "discardAndClose": "At ve kapat",
+    "pendingReviewInput": "Gönderilmemiş yorum veya değiştirme metni atılsın mı?",
+    "pendingReviewInputDetail": "Yorum veya değiştirme metni henüz belgeye eklenmedi ve kaybolacak.",
     "cancel": "İptal",
     "changesWillBeLost": "Değişiklikler kaybolacak",
     "close": "Kapat",
@@ -1014,6 +1017,7 @@
       "saveComment": "Yorumu kaydet",
       "commentTargetChanged": "Belge değişti. Yorum taslağınız korunuyor; başka bir hedef seçmeden önce iptal edin.",
       "commentSaveFailed": "Yorum kaydedilemedi. Taslağınız ve özgün hedefi korunuyor.",
+      "finishDraftBeforeClosing": "Bu belgeyi kapatmadan önce bekleyen yorumu veya değiştirme metnini kaydedin ya da iptal edin.",
       "commentPrompt": "Yorum",
       "replacementPrompt": "Yerine konacak metin"
     },

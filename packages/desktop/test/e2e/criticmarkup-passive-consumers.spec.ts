@@ -20,18 +20,23 @@ test('refreshes Review after deleting a prefix beyond its retained source anchor
       const events: unknown[] = []
       Reflect.set(window, '__prefixDeletionEvents', events)
       for (const type of ['keydown', 'beforeinput', 'input']) {
-        document.addEventListener(type, event => events.push({
+        document.addEventListener(
           type,
-          key: event instanceof KeyboardEvent ? event.key : undefined,
-          inputType: event instanceof InputEvent ? event.inputType : undefined,
-          selected: window.getSelection()?.toString(),
-          active: document.activeElement?.className
-        }), true)
+          (event) =>
+            events.push({
+              type,
+              key: event instanceof KeyboardEvent ? event.key : undefined,
+              inputType: event instanceof InputEvent ? event.inputType : undefined,
+              selected: window.getSelection()?.toString(),
+              active: document.activeElement?.className
+            }),
+          true
+        )
       }
     })
     const paragraph = page.locator('span.mu-paragraph-content').first()
     await paragraph.click()
-    await paragraph.evaluate(element => {
+    await paragraph.evaluate((element) => {
       const range = document.createRange()
       range.selectNodeContents(element)
       const selection = window.getSelection()
@@ -43,19 +48,28 @@ test('refreshes Review after deleting a prefix beyond its retained source anchor
     try {
       await expect(page.locator('.word-count .text-center-vertical')).toHaveText('W 1')
     } catch (error) {
-      console.log('Prefix deletion state:', await page.evaluate(async() => ({
-        source: await window.__marktextDocumentCore?.authoritySource?.(),
-        selected: window.getSelection()?.toString(),
-        active: document.activeElement?.outerHTML,
-        paragraphs: [...document.querySelectorAll('.mu-paragraph-content')].map(element => element.textContent),
-        state: window.__marktextDocumentCore?.latest(),
-        nativeEvents: Reflect.get(window, '__prefixDeletionEvents'),
-        events: window.__marktextDocumentCore?.performanceEvents?.()
-      })))
+      console.log(
+        'Prefix deletion state:',
+        await page.evaluate(async() => ({
+          source: await window.__marktextDocumentCore?.authoritySource?.(),
+          selected: window.getSelection()?.toString(),
+          active: document.activeElement?.outerHTML,
+          paragraphs: [...document.querySelectorAll('.mu-paragraph-content')].map(
+            (element) => element.textContent
+          ),
+          state: window.__marktextDocumentCore?.latest(),
+          nativeEvents: Reflect.get(window, '__prefixDeletionEvents'),
+          events: window.__marktextDocumentCore?.performanceEvents?.()
+        }))
+      )
       throw error
     }
-    expect(await page.evaluate(() => window.__marktextDocumentCore?.authoritySource?.())).toBe('\n\n{++new++}\n')
-    expect(await page.evaluate(() => window.electron.ipcRenderer.invoke('mt::core-draft::list'))).toEqual([])
+    expect(await page.evaluate(() => window.__marktextDocumentCore?.authoritySource?.())).toBe(
+      '\n\n{++new++}\n'
+    )
+    expect(
+      await page.evaluate(() => window.electron.ipcRenderer.invoke('mt::core-draft::list'))
+    ).toEqual([])
     await expect(accept).toBeEnabled()
     await accept.click()
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
@@ -86,9 +100,9 @@ test('disables stale Review during native input, then refreshes its range and Re
     await paragraph.click()
     await page.keyboard.press('Home')
     await page.keyboard.type('a ')
+    // Passive Review refresh is debounced behind native input, so the stale
+    // item stays disabled until the editor settles.
     await expect(accept).toBeDisabled()
-    expect(await page.evaluate(() => window.__marktextDocumentCore?.performanceEvents?.()
-      .some(event => event.phase === 'ack'))).toBe(false)
     await page.evaluate(() => window.__marktextDocumentCore?.settled())
     await expect(accept).toBeEnabled()
     await expect(counter).toHaveText('W 3')

@@ -54,7 +54,82 @@ const nativeOffsetAtSource = (segment: MuyaMarkupBinding['segments'][number], so
 
 /** The model projection is the only source of semantic DOM boundary positions. */
 export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
-  const native = muya.editor.selection
+  const nativeSelection = muya.editor.selection
+  const leadingLineBindings = new Map(
+    view.bindings.flatMap((binding) =>
+      binding.leadingLinePosition === undefined
+        ? []
+        : [[JSON.stringify(binding.path), binding] as const]
+    )
+  )
+  /**
+   * The binding's leading line position, while Muya renders that line before
+   * its text, or renders an underline's empty setext heading in its place.
+   */
+  const presentedLeadingLine = (path: readonly (string | number)[]): number | undefined => {
+    const binding = leadingLineBindings.get(JSON.stringify(path))
+    if (binding?.leadingLinePosition === undefined) return undefined
+    const block = muya.editor.scrollPage?.queryBlock([...path])
+    if (!block?.isContent()) return undefined
+    const presented =
+      binding.syntax.kind === 'thematic-break'
+        ? block.blockName === 'setextheading.content' && block.text === ''
+        : block.text === `${binding.leadingLineText ?? ''}\n${binding.text}`
+    return presented ? binding.leadingLinePosition : undefined
+  }
+  /** Muya's text offsets include a presented leading line; binding offsets exclude it. */
+  const presentedLineShift = (path: readonly (string | number)[]): number => {
+    const binding = leadingLineBindings.get(JSON.stringify(path))
+    return binding === undefined ||
+      presentedLeadingLine(path) === undefined ||
+      binding.syntax.kind === 'thematic-break'
+      ? 0
+      : (binding.leadingLineText?.length ?? 0) + 1
+  }
+  const leadingLineSpaces = (binding: MuyaMarkupBinding) =>
+    binding.syntax.kind === 'thematic-break' ? 0 : (binding.leadingLineText?.length ?? 0)
+  /** The source position of a native offset on a presented leading line. */
+  const leadingLineSource = (binding: MuyaMarkupBinding, offset: number): number | undefined => {
+    const position = presentedLeadingLine(binding.path)
+    const spaces = leadingLineSpaces(binding)
+    return position === undefined || offset < 0 || offset > spaces
+      ? undefined
+      : position - spaces + offset
+  }
+  const native = {
+    getTextPoint(point: DocumentDOMPoint) {
+      const text = nativeSelection.getTextPoint(point)
+      if (text == null) return text
+      return { ...text, offset: text.offset - presentedLineShift(text.path) }
+    },
+    getDOMPoint(text: NonNullable<ReturnType<typeof nativeSelection.getTextPoint>>) {
+      return nativeSelection.getDOMPoint({
+        ...text,
+        offset: text.offset + presentedLineShift(text.path)
+      })
+    }
+  }
+  /** The marker line whose container Muya shows as its literal paragraph at `path`. */
+  const presentedMarkerLine = (path: readonly (string | number)[]) => {
+    const line = view.bindings.find(
+      (binding) =>
+        binding.markerLine !== undefined &&
+        samePath([...binding.markerLine.statePath, 'text'], path)
+    )?.markerLine
+    if (line === undefined) return undefined
+    const block = muya.editor.scrollPage?.queryBlock([...path])
+    return block?.isContent() && block.blockName === 'paragraph.content' && block.text === line.text
+      ? line
+      : undefined
+  }
+  /** The empty paragraph whose blank line's spaces Muya shows at `path`. */
+  const presentedBlankLine = (path: readonly (string | number)[]) => {
+    const binding = view.bindings.find(
+      (item) => item.blankLineText !== undefined && samePath(item.path, path)
+    )
+    const block = binding && muya.editor.scrollPage?.queryBlock([...path])
+    return block?.isContent() && block.text === binding?.blankLineText ? binding : undefined
+  }
   const bindingFor = (point: DocumentDOMPoint): MuyaMarkupBinding | undefined => {
     const text = native.getTextPoint(point)
     return text == null
@@ -92,9 +167,101 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
         decoration
       }
   }
-  const domPointToModel = (point: DocumentDOMPoint): DocumentModelTextPoint | undefined => {
+  const contentRoot = (binding: MuyaMarkupBinding) => {
+    const block = muya.editor.scrollPage?.queryBlock([...binding.path])
+    return block?.isContent() && block.domNode instanceof HTMLElement ? block.domNode : undefined
+  }
+  /**
+   * The source position before the openers of annotations that begin the
+   * visible line starting at paragraph text `line`, if any.
+   */
+  const lineStartExterior = (binding: MuyaMarkupBinding, line = 0): number | undefined => {
+    const root = contentRoot(binding)
+    if (root === undefined) return undefined
+    // An annotation continued from an earlier line, such as a substitution
+    // whose old arm is a heading, has its opener on that line.
+    const earlier =
+      line === 0
+        ? (view.bindings[view.bindings.indexOf(binding) - 1]?.sourceRange.end ?? 0)
+        : mappedMuyaSourceRange(binding, { start: line, end: line }, 'previous')?.start
+    if (earlier === undefined) return undefined
+    let exterior: number | undefined
+    for (const node of root.querySelectorAll('[data-critic-start]')) {
+      const start = native.getTextPoint({ node, offset: 0 })
+      if (start == null || start.offset < line) continue
+      if (start.offset > line) break
+      // Payload-boundary markers are caret origins inside syntax, not openers.
+      const anchor = node.hasAttribute('data-critic-position')
+        ? undefined
+        : anchorFor(node, binding)
+      if (anchor !== undefined && anchor.start >= earlier) {
+        exterior = Math.min(exterior ?? anchor.start, anchor.start)
+      }
+    }
+    return exterior
+  }
+  /** The binding's soft-break trailing line position, while Muya renders that line. */
+  const presentedTrailingLine = (binding: MuyaMarkupBinding): number | undefined => {
+    if (binding.trailingLinePosition === undefined) return undefined
+    const block = muya.editor.scrollPage?.queryBlock([...binding.path])
+    return block?.isContent() && block.text === `${binding.text}\n`
+      ? binding.trailingLinePosition
+      : undefined
+  }
+  /** The position where Muya shows a caret in spaces that belong to no text. */
+  const snapCaret = (
+    source: number,
+    cell?: DocumentTableCellSelection['cell']
+  ): number | undefined => {
+    for (const binding of view.bindings) {
+      if (cell !== undefined && !sameCell(binding.tableCell, cell)) continue
+      const snap = binding.caretSnaps?.find((item) => item.from <= source && source < item.to)
+      if (snap !== undefined) return snap.at
+    }
+    return undefined
+  }
+  /** The number of the cell's padding spaces Muya renders after its text. */
+  const presentedCellPadding = (binding: MuyaMarkupBinding): number => {
+    if (binding.tableCellPadding === undefined) return 0
+    const block = muya.editor.scrollPage?.queryBlock([...binding.path])
+    if (!block?.isContent() || !block.text.startsWith(binding.text)) return 0
+    const spaces = block.text.length - binding.text.length
+    return spaces <= binding.tableCellPadding && /^ *$/u.test(block.text.slice(binding.text.length))
+      ? spaces
+      : 0
+  }
+  /** Paragraph text offsets that begin a later visible line, after its line break. */
+  const isLaterLineStart = (binding: MuyaMarkupBinding, offset: number) =>
+    binding.text[offset - 1] === '\n' ||
+    (binding.text[offset - 1] === '\r' && binding.text[offset] !== '\n')
+  const domPointToModel = (
+    point: DocumentDOMPoint,
+    caret = false
+  ): DocumentModelTextPoint | undefined => {
+    const marker = nativeSelection.getTextPoint(point)
+    const markerLine = marker == null ? undefined : presentedMarkerLine(marker.path)
+    if (marker != null && markerLine !== undefined) return markerLine.start + marker.offset
+    const blank = marker == null ? undefined : presentedBlankLine(marker.path)
+    if (marker != null && blank !== undefined) return blank.sourceRange.end + marker.offset
     const binding = bindingFor(point)
     if (binding === undefined) return undefined
+    const leadingLine = leadingLineSource(
+      binding,
+      nativeSelection.getTextPoint(point)?.offset ?? -1
+    )
+    if (leadingLine !== undefined) return leadingLine
+    const trailingLine = presentedTrailingLine(binding)
+    if (
+      trailingLine !== undefined &&
+      (native.getTextPoint(point)?.offset ?? 0) > binding.text.length
+    ) {
+      return trailingLine
+    }
+    const padding = presentedCellPadding(binding)
+    const paddingOffset = (native.getTextPoint(point)?.offset ?? 0) - binding.text.length
+    if (padding > 0 && paddingOffset > 0 && binding.tableCellContent !== undefined) {
+      return binding.tableCellContent.end + Math.min(paddingOffset, padding)
+    }
     // Element child boundaries distinguish outside an annotation from inside
     // its payload even when both have the same paragraph text offset.
     if (point.node.nodeType === Node.ELEMENT_NODE) {
@@ -122,6 +289,26 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
     }
     const text = native.getTextPoint(point)
     if (text == null) return undefined
+    // Upstream sees annotation syntax as literal text, so a caret at the visible
+    // start of a line is before any leading openers, as End is after trailing
+    // closers: in an annotation's first text, or in a zero-width marker there.
+    // Only an element boundary inside the annotation addresses its interior.
+    // Range endpoints keep their own side of the hidden delimiters.
+    const laterLine = isLaterLineStart(binding, text.offset)
+    if (
+      caret &&
+      (text.offset === 0 || laterLine) &&
+      // A later line's start may be the end of the previous line's text, after its break.
+      (point.node.nodeType === Node.TEXT_NODE
+        ? point.offset === 0
+          ? point.node.parentElement?.closest('[data-critic-start]')?.closest('.mu-content') ===
+            point.node.parentElement?.closest('.mu-content')
+          : laterLine && point.offset === point.node.textContent?.length
+        : point.node.childNodes.length === 0)
+    ) {
+      const start = lineStartExterior(binding, text.offset)
+      if (start !== undefined) return start
+    }
     let segments = binding.segments
     for (
       let node = point.node.parentNode;
@@ -136,11 +323,20 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
         )
       }
     }
-    return mappedMuyaModelPoint(
+    const mapped = mappedMuyaModelPoint(
       { ...binding, segments },
       text.offset,
-      point.node.nodeType === Node.TEXT_NODE && point.offset === 0 ? 'next' : 'previous'
+      // A later line's text begins after its container prefix, such as `> `.
+      laterLine || (point.node.nodeType === Node.TEXT_NODE && point.offset === 0)
+        ? 'next'
+        : 'previous'
     )
+    // An empty later line has no text after its prefix to map through.
+    const prefix =
+      laterLine && typeof mapped === 'number'
+        ? binding.caretSnaps?.find((snap) => snap.at === mapped && snap.from === mapped + 1)
+        : undefined
+    return prefix === undefined ? mapped : prefix.to - 1
   }
   const edge = (node: Node, after: boolean): DocumentDOMPoint | undefined => {
     const parent = node.parentNode
@@ -187,7 +383,8 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
   }
   const modelPointToDOM = (
     source: DocumentModelTextPoint,
-    cell?: DocumentTableCellSelection['cell']
+    cell?: DocumentTableCellSelection['cell'],
+    caret = false
   ): DocumentDOMPoint | undefined => {
     if (typeof source !== 'number') {
       const text = modelPointToText(source, cell)
@@ -210,7 +407,7 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
         const offset = nativeOffsetAtSource(segment, source)
         if (offset === undefined) continue
         const ordinary = native.getDOMPoint({ path: binding.path, offset })
-        if (ordinary != null && isEqual(domPointToModel(ordinary), source)) return ordinary
+        if (ordinary != null && isEqual(domPointToModel(ordinary, caret), source)) return ordinary
         // Coincident visible offsets can belong to different substitution arms
         // or nested spans. Select the actual text node whose model map agrees.
         const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT)
@@ -220,15 +417,86 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
           const local = offset - start.offset
           if (local < 0 || local > (node.textContent?.length ?? 0)) continue
           const candidate = { node, offset: local }
-          if (isEqual(domPointToModel(candidate), source)) return candidate
+          if (isEqual(domPointToModel(candidate, caret), source)) return candidate
+          if (local !== 0) continue
+          // A text start can be an annotation's interior start, which only an
+          // element boundary inside that annotation distinguishes.
+          for (
+            let child: Node = node;
+            child.parentNode !== null && child !== root;
+            child = child.parentNode
+          ) {
+            const boundary = {
+              node: child.parentNode,
+              offset: Array.prototype.indexOf.call(child.parentNode.childNodes, child)
+            }
+            if (isEqual(domPointToModel(boundary, caret), source)) return boundary
+          }
         }
       }
       if (binding.text.length === 0 && binding.sourceRange.end === source) {
         const point = native.getDOMPoint({ path: binding.path, offset: 0 })
-        if (point != null && domPointToModel(point) === source) return point
+        if (point != null && domPointToModel(point, caret) === source) return point
       }
     }
-    return undefined
+    for (const binding of view.bindings) {
+      if (presentedTrailingLine(binding) !== source) continue
+      return (
+        native.getDOMPoint({ path: binding.path, offset: binding.text.length + 1 }) ?? undefined
+      )
+    }
+    for (const binding of view.bindings) {
+      if (cell !== undefined && !sameCell(binding.tableCell, cell)) continue
+      const end = binding.tableCellContent?.end
+      if (end === undefined || source <= end || source > end + presentedCellPadding(binding)) {
+        continue
+      }
+      return (
+        native.getDOMPoint({ path: binding.path, offset: binding.text.length + source - end }) ??
+        undefined
+      )
+    }
+    for (const binding of view.bindings) {
+      const spaces = binding.blankLineText?.length ?? 0
+      if (source <= binding.sourceRange.end || source > binding.sourceRange.end + spaces) continue
+      if (presentedBlankLine(binding.path) === undefined) continue
+      return (
+        nativeSelection.getDOMPoint({
+          path: binding.path,
+          offset: source - binding.sourceRange.end
+        }) ?? undefined
+      )
+    }
+    for (const binding of view.bindings) {
+      const line = binding.markerLine
+      if (line === undefined || source < line.start || source > line.start + line.text.length) {
+        continue
+      }
+      const path = [...line.statePath, 'text']
+      if (presentedMarkerLine(path) === undefined) continue
+      return nativeSelection.getDOMPoint({ path, offset: source - line.start }) ?? undefined
+    }
+    for (const binding of leadingLineBindings.values()) {
+      const position = presentedLeadingLine(binding.path)
+      if (position === undefined) continue
+      const offset = source - position + leadingLineSpaces(binding)
+      if (leadingLineSource(binding, offset) !== source) continue
+      return nativeSelection.getDOMPoint({ path: binding.path, offset }) ?? undefined
+    }
+    const snapped = snapCaret(source, cell)
+    if (snapped === undefined) return undefined
+    for (const binding of view.bindings) {
+      if (!binding.caretSnaps?.some((snap) => snap.from <= source && source < snap.to)) continue
+      // The shown position maps back to the snapped source, not to `snapped`.
+      for (const segment of binding.segments) {
+        if (snapped < segment.source.start || snapped > segment.source.end) continue
+        const offset = nativeOffsetAtSource(segment, snapped)
+        if (offset !== undefined) {
+          return native.getDOMPoint({ path: binding.path, offset }) ?? undefined
+        }
+      }
+    }
+    return modelPointToDOM(snapped, cell, caret)
   }
   const domSelectionToModel = (selection: {
     anchor: DocumentDOMPoint
@@ -236,8 +504,11 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
   }): DocumentInputSelection | undefined => {
     const anchorBinding = bindingFor(selection.anchor)
     const focusBinding = bindingFor(selection.focus)
-    const anchor = domPointToModel(selection.anchor)
-    const focus = domPointToModel(selection.focus)
+    const caret =
+      selection.anchor.node === selection.focus.node &&
+      selection.anchor.offset === selection.focus.offset
+    const anchor = domPointToModel(selection.anchor, caret)
+    const focus = domPointToModel(selection.focus, caret)
     if (anchor === undefined || focus === undefined) return undefined
     if (
       typeof anchor !== 'number' ||
@@ -255,7 +526,7 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
       anchorBinding?.tableCell !== undefined &&
       content !== undefined &&
       Math.min(anchor, focus) >= content.start &&
-      Math.max(anchor, focus) <= content.end
+      Math.max(anchor, focus) <= content.end + (anchorBinding.tableCellPadding ?? 0)
     ) {
       return {
         kind: 'table-cell',
@@ -279,10 +550,14 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
       ? undefined
       : { start: Math.min(range.anchor, range.focus), end: Math.max(range.anchor, range.focus) }
   }
-  const modelCellPointToDOM = (selection: DocumentTableCellSelection, offset: number) => {
+  const modelCellPointToDOM = (
+    selection: DocumentTableCellSelection,
+    offset: number,
+    caret = false
+  ) => {
     const binding = view.bindings.find((item) => sameCell(item.tableCell, selection.cell))
     if (binding?.tableCellContent === undefined) return undefined
-    return modelPointToDOM(binding.tableCellContent.start + offset, selection.cell)
+    return modelPointToDOM(binding.tableCellContent.start + offset, selection.cell, caret)
   }
   const modelCellPointToText = (selection: DocumentTableCellSelection, offset: number) => {
     const binding = view.bindings.find((item) => sameCell(item.tableCell, selection.cell))
@@ -323,7 +598,51 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
     if (position === undefined) throw new Error('Source caret has no rendered model boundary')
     return position
   }
+  /**
+   * At a visible line start, ArrowRight enters leading annotations whose
+   * delimiters are hidden, and ArrowLeft leaves them again.
+   */
+  const caretStep = (
+    point: DocumentDOMPoint,
+    direction: 'forward' | 'backward'
+  ): DocumentDOMPoint | undefined => {
+    const binding = bindingFor(point)
+    const root = binding === undefined ? undefined : contentRoot(binding)
+    const line = native.getTextPoint(point)?.offset
+    if (
+      binding === undefined ||
+      root === undefined ||
+      line === undefined ||
+      (line !== 0 && !isLaterLineStart(binding, line))
+    ) {
+      return undefined
+    }
+    const exterior = lineStartExterior(binding, line)
+    if (exterior === undefined) return undefined
+    const current = domPointToModel(point, true)
+    if (direction === 'backward') {
+      return current === undefined || isEqual(current, exterior)
+        ? undefined
+        : modelPointToDOM(exterior, undefined, true)
+    }
+    if (!isEqual(current, exterior)) return undefined
+    const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    let first = walker.nextNode()
+    while (first !== null && native.getTextPoint({ node: first, offset: 0 })?.offset !== line) {
+      first = walker.nextNode()
+    }
+    const parent = first?.parentNode
+    if (first == null || parent == null || parent === root) return undefined
+    const interior = {
+      node: parent,
+      offset: Array.prototype.indexOf.call(parent.childNodes, first)
+    }
+    const model = domPointToModel(interior, true)
+    return model === undefined || isEqual(model, exterior) ? undefined : interior
+  }
   return {
+    caretStep,
+    snapCaret,
     domPointToModel,
     domPointToTableCell: (point: DocumentDOMPoint) => bindingFor(point)?.tableCell,
     domSelectionToModel,
@@ -334,6 +653,27 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
     modelCellPointToText,
     projectSourcePoint
   }
+}
+
+/**
+ * Indented code's language box has no source of its own; setting a language
+ * there addresses its code block, at the start of its text.
+ */
+function languageBoxSelection(
+  muya: Muya,
+  view: MuyaMarkupView,
+  point: DocumentDOMPoint
+): DocumentInputSelection | undefined {
+  const text = muya.editor.selection.getTextPoint(point)
+  if (text == null || text.path.at(-1) !== 'lang' || text.path.at(-2) !== 'meta') return undefined
+  const body = view.bindings.find((binding) =>
+    samePath(binding.path, [...text.path.slice(0, -2), 'text'])
+  )
+  if (body?.syntax.kind !== 'code-block' || body.syntax.attributes.provider !== 'indented-code') {
+    return undefined
+  }
+  const at = body.sourceRange.start
+  return { ranges: [{ anchor: at, focus: at }], primary: 0 }
 }
 
 /** Resolve the live browser action before any presentation or model mutation. */
@@ -354,7 +694,11 @@ export function muyaInputToModel(
 ): MuyaModelInput {
   const { domSelectionToModel, domSelectionToTarget, domPointToTableCell, domPointToModel } =
     createMuyaModelSelection(muya, view)
-  const selection = domSelectionToModel(input.selection)
+  const selection =
+    domSelectionToModel(input.selection) ??
+    ('kind' in input && input.command === 'setCodeLanguage'
+      ? languageBoxSelection(muya, view, input.selection.anchor)
+      : undefined)
   if (selection === undefined) {
     throw new Error('The current model has no position for the native input selection')
   }
@@ -374,7 +718,9 @@ export function muyaInputToModel(
     if (input.command === 'moveBlock') {
       const from = domPointToModel(input.from)
       const to = domPointToModel(input.to)
-      if (from === undefined || to === undefined) { throw new Error('Block drag has no current model target') }
+      if (from === undefined || to === undefined) {
+        throw new Error('Block drag has no current model target')
+      }
       return {
         kind: input.kind,
         command: input.command,
@@ -396,7 +742,9 @@ export function muyaInputToModel(
     }
     if (input.command === 'changeBlock') {
       const at = input.change.at === undefined ? undefined : domPointToModel(input.change.at)
-      if (input.change.at !== undefined && at === undefined) { throw new Error('Block command target has no model position') }
+      if (input.change.at !== undefined && at === undefined) {
+        throw new Error('Block command target has no model position')
+      }
       const { at: _nativeTarget, ...change } = input.change
       return {
         kind: input.kind,
@@ -432,10 +780,25 @@ export function muyaInputToModel(
         ...(input.historyGroup === undefined ? {} : { historyGroup: input.historyGroup })
       }
     }
+    if (input.command === 'createHtmlBlock') {
+      return {
+        kind: input.kind,
+        command: input.command,
+        replace: input.replace,
+        selectionMode: input.selectionMode,
+        selection,
+        options: input.options,
+        ...(input.historyGroup === undefined ? {} : { historyGroup: input.historyGroup })
+      }
+    }
     return {
       kind: input.kind,
       ...(input.command === 'setCodeLanguage'
-        ? { command: input.command, language: input.language }
+        ? {
+          command: input.command,
+          language: input.language,
+          ...(input.infoOffset === undefined ? {} : { infoOffset: input.infoOffset })
+        }
         : input.command === 'tab'
           ? { command: input.command, shift: input.shift }
           : input.command === 'setTaskChecked'
@@ -646,7 +1009,9 @@ export function muyaEmojiContext(
         text.offset <= start ||
         text.offset > end ||
         (text.offset === end && node.attributes.emojiClosed === true)
-      ) { return undefined }
+      ) {
+        return undefined
+      }
       const { modelPointToDOM } = createMuyaModelSelection(muya, view)
       const anchor = modelPointToDOM(first.source.start + node.range.start - first.syntax.start)
       const focus = modelPointToDOM(last.source.start + node.range.end - last.syntax.start)
@@ -675,7 +1040,9 @@ export function muyaCodeLanguage(
     syntax === undefined ||
     !['code-block', 'diagram'].includes(syntax.kind) ||
     syntax.attributes.provider !== 'fenced-code'
-  ) { return undefined }
+  ) {
+    return undefined
+  }
   return String(syntax.attributes.semanticInfo ?? syntax.attributes.info ?? '')
 }
 
@@ -768,4 +1135,14 @@ export function muyaClipboardSelection(
   }
   const selection = native.table.getDOMSelection()
   return selection === null ? undefined : muyaTableSelectionToModel(muya, view, selection)
+}
+
+/** The model's zero-width caret step for a plain horizontal arrow key. */
+export function muyaCaretStep(
+  muya: Muya,
+  view: MuyaMarkupView,
+  point: DocumentDOMPoint,
+  direction: 'forward' | 'backward'
+): DocumentDOMPoint | undefined {
+  return createMuyaModelSelection(muya, view).caretStep(point, direction)
 }

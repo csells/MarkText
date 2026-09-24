@@ -26,8 +26,9 @@ it.each([
   }
   try {
     const definition = app.muya.editor.scrollPage!.lastContentInDescendant()!
-    expect(definition.text).toBe(`[${label}]: /old\n`)
-    const start = definition.text.length - 4
+    // As upstream, a definition's text excludes its line ending.
+    expect(definition.text).toBe(`[${label}]: /old`)
+    const start = definition.text.length - 3
     definition.setCursor(start, start + 3, true)
     definition.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {

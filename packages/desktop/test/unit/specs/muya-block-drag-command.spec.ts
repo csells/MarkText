@@ -21,7 +21,9 @@ it('dragging the actual annotated block moves its source, directed selection and
   try {
     const leaf = app.muya.editor.scrollPage?.queryBlock([1, 'text'])
     const destination = app.muya.editor.scrollPage?.queryBlock([2, 'text'])
-    if (!leaf?.isContent() || !destination?.isContent()) { throw new Error('Expected actual block targets') }
+    if (!leaf?.isContent() || !destination?.isContent()) {
+      throw new Error('Expected actual block targets')
+    }
     const last = leaf.domNode.childNodes[2]
     if (last?.textContent !== 'me') throw new Error('Expected exact source-owned final text')
     app.muya.editor.selection.setDOMSelection({ node: last, offset: 2 }, { node: last, offset: 0 })
@@ -93,7 +95,8 @@ it.each([
     name: 'table cell',
     source: 'top\n\n| abc |\n| --- |\n| def |\n\nbottom\n',
     moved: 'top\n\nbottom\n\n| abc |\n| --- |\n| def |\n',
-    typed: 'top\n\nbottom\n\n| aybc |\n| --- |\n| def |\n'
+    // Upstream writes the table afresh after the cell edit.
+    typed: 'top\n\nbottom\n\n| aybc |\n| ---- |\n| def  |\n'
   }
 ])('block move retains the intrinsic $name caret and next input', async(example) => {
   const app = bootBoundMuya(example.source, { gitLabMath: true })

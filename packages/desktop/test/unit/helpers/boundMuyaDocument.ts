@@ -9,6 +9,7 @@ import { createMuyaPlainTextCoreAdapter } from '@/documentAuthority/muyaPlainTex
 import { createMuyaMarkupPresentationIndex } from '@/documentAuthority/muyaMarkupPresentationIndex'
 import {
   muyaInputToModel,
+  muyaCaretStep,
   muyaCodeLanguage,
   muyaEmojiContext,
   muyaActiveFormats,
@@ -45,13 +46,12 @@ export const bootBoundMuya = (source: string, options?: EditorCoreOpenInput['opt
       muya,
       view: current,
       outcome,
-      sourcePosition: adapter.reconciledSourcePosition,
       dirtyPaths: presentation.changedPaths,
       applyEditability: () => {}
     })
     return current.bindings
   }
-  const adapter = createMuyaPlainTextCoreAdapter(view().bindings, binding, undefined, reconcile)
+  const adapter = createMuyaPlainTextCoreAdapter(view().bindings, binding)
   const legacyChanges: unknown[] = []
   let tracking = false
   muya.eventCenter.on('json-change', (change: unknown) => {
@@ -72,6 +72,7 @@ export const bootBoundMuya = (source: string, options?: EditorCoreOpenInput['opt
   muya.editor.bindDocumentEditing({
     emojiContext: (point) => muyaEmojiContext(muya, view(), point),
     codeLanguage: (point) => muyaCodeLanguage(muya, view(), point),
+    caretStep: (point, direction) => muyaCaretStep(muya, view(), point, direction),
     prepareImage: unexpected,
     async prepareClipboard(selection, payload, prepare, blockPlacement) {
       const operation =
@@ -79,7 +80,9 @@ export const bootBoundMuya = (source: string, options?: EditorCoreOpenInput['opt
           ? { kind: 'table' as const, operation: 'paste' as const, selection, markdown: '' }
           : { kind: 'paste' as const, selection, markdown: '' }
       const action = muyaClipboardToModel(muya, view(), operation, tracking)
-      if (action.kind !== 'paste' && !(action.kind === 'table' && action.operation === 'paste')) { throw new Error('Expected clipboard paste') }
+      if (action.kind !== 'paste' && !(action.kind === 'table' && action.operation === 'paste')) {
+        throw new Error('Expected clipboard paste')
+      }
       const pending = adapter.prepareClipboard(
         {
           ...action,
@@ -96,7 +99,9 @@ export const bootBoundMuya = (source: string, options?: EditorCoreOpenInput['opt
           ...imported,
           currentSelection: () => {
             const selection = muyaClipboardCurrentSelection(muya, view())
-            if (!selection && blockPlacement === undefined) { throw new Error('Expected current clipboard selection') }
+            if (!selection && blockPlacement === undefined) {
+              throw new Error('Expected current clipboard selection')
+            }
             return selection
           }
         })

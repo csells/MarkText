@@ -25,6 +25,17 @@ export interface IInlinePresentationContext {
     readonly highlights?: readonly Readonly<IHighlight>[];
     /** Native image wrapper around the caller's escaped raw editing text. */
     renderImage: (image: IInlinePresentationImage) => { open: string; close: string } | undefined;
+    /** Native formula preview around exact raw text owned by the document parser. */
+    renderMath?: (math: { readonly raw: string; readonly range: ITokenRange; readonly content: string }) => { open: string; close: string };
+    /** One parser-owned HTML tag, retaining native source visibility and attribute policy. */
+    renderHtmlTag?: (tag: {
+        readonly raw: string;
+        readonly range: ITokenRange;
+        readonly tag: string;
+        readonly closing: boolean;
+        readonly selfClosing: boolean;
+        readonly attributes: Readonly<Record<string, string>>;
+    }) => { open: string; close: string } | undefined;
 }
 
 export interface ISyntaxRenderOptions {

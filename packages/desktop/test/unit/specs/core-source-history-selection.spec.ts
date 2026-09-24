@@ -54,7 +54,7 @@ const requiredAdapter = (app: ReturnType<typeof boot>) => {
 }
 
 describe('native Source transaction selection history', () => {
-  it('rebases pending native selection through an earlier undo before publishing the next source transaction', async() => {
+  it('uses the model-restored selection for native input immediately following undo', async() => {
     const app = boot(true)
     try {
       app.editor.setCursor({ line: 0, ch: 0 })
@@ -67,12 +67,12 @@ describe('native Source transaction selection history', () => {
       })
       await requiredAdapter(app).history('undo')
       await requiredAdapter(app).settled()
-      expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'abc\ndefX' })
+      expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'Xabc\ndef' })
       await requiredAdapter(app).history('undo')
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'abc\ndef' })
-      expect(app.editor.getCursor()).toMatchObject({ line: 1, ch: 3 })
+      expect(app.editor.getCursor()).toMatchObject({ line: 0, ch: 0 })
       await requiredAdapter(app).history('redo')
-      expect(app.editor.getCursor()).toMatchObject({ line: 1, ch: 4 })
+      expect(app.editor.getCursor()).toMatchObject({ line: 0, ch: 1 })
     } finally {
       app.dispose()
     }
@@ -168,8 +168,11 @@ it('presents restored table-cell identity in Source and uses its actual raw care
       anchor: 0,
       focus: 0
     })
-    expect(editor.getValue()).toBe('| a |  | c |\n| --- | --- | --- |\n| x |\n')
-    expect(editor.getCursor()).toEqual({ line: 0, ch: 7 })
+    // Upstream (8d6c198c) writes the table afresh after an untracked cut.
+    expect(editor.getValue()).toBe(
+      '| a   |     | c   |\n| --- | --- | --- |\n| x   |     |     |\n'
+    )
+    expect(editor.getCursor()).toMatchObject({ line: 0, ch: 12 })
     await adapter.history('undo')
     editor.replaceSelection('Q', 'end', '+input')
     await adapter.settled()

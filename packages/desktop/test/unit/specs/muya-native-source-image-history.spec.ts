@@ -40,7 +40,6 @@ const bootMarkup = (binding: ReturnType<typeof createEditorCoreBinding>) => {
       muya,
       view: current,
       outcome,
-      sourcePosition: adapter.reconciledSourcePosition,
       dirtyPaths: presentation.changedPaths,
       applyEditability: (bindings) =>
         muya.setEditablePaths(
@@ -49,7 +48,7 @@ const bootMarkup = (binding: ReturnType<typeof createEditorCoreBinding>) => {
     })
     return current.bindings
   }
-  const adapter = createMuyaPlainTextCoreAdapter(view().bindings, binding, undefined, reconcile)
+  const adapter = createMuyaPlainTextCoreAdapter(view().bindings, binding)
   muya.setInlinePresentation(presentation.render)
   muya.init()
   muya.setContent(structuredClone([...view().state]))
@@ -105,11 +104,16 @@ afterEach(() => {
 })
 
 it.each([
-  { source: '![aaa](url)\n', labelStart: 2 },
-  { source: '| ![aaa](url) | b |\n| --- | --- |\n| x | y |\n', labelStart: 4 }
+  { source: '![aaa](url)\n', labelStart: 2, typed: '![X](url)\n' },
+  // Upstream writes the table afresh after the cell edit.
+  {
+    source: '| ![aaa](url) | b |\n| --- | --- |\n| x | y |\n',
+    labelStart: 4,
+    typed: '| ![X](url) | b   |\n| --------- | --- |\n| x         | y   |\n'
+  }
 ])(
   'restores an editable native selection after Source image-label replacement in $source',
-  async({ source, labelStart }) => {
+  async({ source, labelStart, typed }) => {
     const binding = createEditorCoreBinding(createLocalCoreOwner())
     binding.open({ documentId: 'source-native-image.md', source })
     const sourceHost = document.body.appendChild(document.createElement('div'))
@@ -155,7 +159,7 @@ it.each([
       })
       content.domNode.dispatchEvent(input)
       expect(input.defaultPrevented).toBe(true)
-      expect(binding.sourceAtBarrier()).toMatchObject({ source: source.replace('aaa', 'X') })
+      expect(binding.sourceAtBarrier()).toMatchObject({ source: typed })
       const next = native.muya.editor.selection.getDOMSelection()
       if (!next) throw new Error('Missing image-label caret after input')
       const nextElement =
