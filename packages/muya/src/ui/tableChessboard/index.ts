@@ -86,6 +86,10 @@ class TablePicker extends BaseFloat {
                             column: j.toString(),
                         },
                         on: {
+                            // The quick-insert menu keeps the editor focused,
+                            // so a pick must not pull focus either; an ignored
+                            // pick leaves focus exactly where it was (#5355).
+                            mousedown: (event: MouseEvent) => event.preventDefault(),
                             mouseenter: (event: MouseEvent) => {
                                 if (!isHTMLElement(event.target))
                                     return;
