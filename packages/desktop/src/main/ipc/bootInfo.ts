@@ -7,6 +7,8 @@ import type { BootInfo } from '@shared/types/ipc'
 
 const ENV_ALLOWLIST = [
   'NODE_ENV',
+  // Test harnesses set this to expose the renderer's test-only document bridges.
+  'PERF_TESTING',
   'APPIMAGE',
   'MARKTEXT_VERSION',
   'MARKTEXT_VERSION_STRING',

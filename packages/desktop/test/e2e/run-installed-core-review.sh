@@ -107,7 +107,7 @@ if [[ -n "${RUN_RECORD_PATH}" ]]; then
   MARKTEXT_PACKAGED_APP="${APP_BINARY}" \
   MARKTEXT_EXPECTED_COMMIT="${EXPECTED_COMMIT}" \
   PATH="/opt/homebrew/opt/node@22/bin:${PATH}" \
-    "${PNPM[@]}" exec playwright test --config test/e2e/playwright.config.ts \
+    "${PNPM[@]}" exec playwright test --config playwright.config.ts \
     --project=installed --workers=1 --reporter=line,json "$@"
 
   RECORDED_AT="$(PATH="/opt/homebrew/opt/node@22/bin:${PATH}" node -p \
@@ -124,6 +124,6 @@ else
   MARKTEXT_PACKAGED_APP="${APP_BINARY}" \
   MARKTEXT_EXPECTED_COMMIT="${EXPECTED_COMMIT}" \
   PATH="/opt/homebrew/opt/node@22/bin:${PATH}" \
-    "${PNPM[@]}" exec playwright test --config test/e2e/playwright.config.ts \
+    "${PNPM[@]}" exec playwright test --config playwright.config.ts \
     --project=installed --workers=1 --reporter=line "$@"
 fi
