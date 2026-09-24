@@ -286,7 +286,8 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     return result([{ start: revision.sourceLength, end: revision.sourceLength, insert }], { start: caret, end: caret })
   }
   const insertionTarget = () => {
-    const target = [...ancestors].reverse().find(node => ['paragraph', 'heading', 'code-block', 'math-block', 'diagram', 'html-block', 'front-matter'].includes(node.kind))
+    // A table cell inserts after its whole table, as upstream does (#4944).
+    const target = [...ancestors].reverse().find(node => ['paragraph', 'heading', 'code-block', 'math-block', 'diagram', 'html-block', 'front-matter', 'table'].includes(node.kind))
     if (target === undefined && projection.ast.root.children.length !== 0) {
       const lines = physicalLines()
       let emptyLine = false
@@ -891,6 +892,23 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
           else if (marker !== '') edits.unshift({ start: from, end: from, insert: marker })
           removeMarkers(contentEnd, block.range.end)
         } else edits.push({ start: from, end: payloadStart, insert: marker })
+        // An ATX heading is one line, so the text's other lines join it with a
+        // space rather than being left behind as a paragraph (#5366).
+        if (level > 0) {
+          const lines = physicalLines()
+          let previous: ReturnType<MarkdownLineIndex['at']> | undefined
+          for (let index = 0; index < lines.count; index++) {
+            const line = lines.at(index)
+            if (line.start >= contentEnd) break
+            if (line.end <= contentStart) continue
+            if (previous !== undefined && line.start > contentStart) {
+              const lineContent = Math.max(line.start, ...line.listIndentations.map(part => part.end), ...line.blockquoteMarkers.map(part => part.end))
+              edits.push({ start: sourceAt(previous.contentEnd), end: sourceAt(lineContent), insert: ' ' })
+            }
+            previous = line
+          }
+          edits.sort((left, right) => left.start - right.start)
+        }
         return result(edits, {
           start: positionAfter(edits, Math.max(start, payloadStart), true),
           end: positionAfter(edits, Math.max(end, payloadStart), true)
