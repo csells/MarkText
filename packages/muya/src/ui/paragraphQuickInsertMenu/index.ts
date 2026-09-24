@@ -265,11 +265,16 @@ export class ParagraphQuickInsertMenu extends BaseScrollFloat {
 
     private _insertBlock(label: string, block: ParagraphContent) {
         const { muya } = this;
+        const { documentEditing } = muya.editor;
+        // Upstream groups the replacement with the `/` query typed just before
+        // it, so one Undo removes both (#5442). A bound document records the
+        // command as its own step instead.
         muya.flush();
-        muya.editor.history.cutoff();
+        if (documentEditing)
+            muya.editor.history.cutoff();
         try {
             const level = ['atx-heading 1', 'atx-heading 2', 'atx-heading 3', 'atx-heading 4', 'atx-heading 5', 'atx-heading 6'].indexOf(label) + 1;
-            if (muya.editor.documentEditing && (level > 0 || label === 'block-quote')) {
+            if (documentEditing && (level > 0 || label === 'block-quote')) {
                 if (!block.domNode?.isConnected)
                     throw new Error('Quick-insert target is no longer in the document');
                 block.setCursor(block.text.length, block.text.length, true);
@@ -287,7 +292,8 @@ export class ParagraphQuickInsertMenu extends BaseScrollFloat {
             muya.flush();
         }
         finally {
-            muya.editor.history.cutoff();
+            if (documentEditing)
+                muya.editor.history.cutoff();
         }
     }
 

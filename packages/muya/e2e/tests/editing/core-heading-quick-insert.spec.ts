@@ -64,12 +64,12 @@ for (const { bound, tracked, comment } of [
           expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: heading })
         } else {
           expect(await page.evaluate(() => { window.muya!.flush(); return window.muya!.getMarkdown() })).toBe(typed)
+          // Upstream History groups the query, the heading and the next key
+          // typed within its one-second window into one step.
           await page.evaluate(() => window.muya!.undo())
-          expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(heading)
-          await page.evaluate(() => window.muya!.undo())
-          expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(querySource)
+          expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(source)
           await page.evaluate(() => window.muya!.redo())
-          expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(heading)
+          expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(typed)
         }
       } catch (error) {
         failed = true
