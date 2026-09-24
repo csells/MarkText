@@ -18,6 +18,7 @@ import {
   createMuyaPlainTextCoreAdapter,
   type MuyaPlainTextCoreAdapter
 } from '@/documentAuthority/muyaPlainTextCoreAdapter'
+import { asMuyaStates, contentText } from '../helpers/muyaTypes'
 
 beforeEach(() => {
   ;(window as Window & { MUYA_VERSION?: string }).MUYA_VERSION = 'test'
@@ -410,7 +411,7 @@ describe('native input preferences in the shared document', () => {
     try {
       muya.setInlinePresentation(presentation.render)
       muya.init()
-      muya.setContent(structuredClone([...initial.view.state]))
+      muya.setContent(asMuyaStates(structuredClone([...initial.view.state])))
       const sourceBeforeInput = await binding.sourceAtBarrier()
       const nativeHistoryBeforeInput = muya.getHistory()
       const results: string[] = []
@@ -503,7 +504,7 @@ describe('native input preferences in the shared document', () => {
       if (testCase.afterFirstInput !== undefined) {
         // No await: the next key consumes this exact accepted state.
         expect(binding.sourceAtBarrier()).toMatchObject({ source: testCase.afterFirstInput.source })
-        expect(muya.editor.scrollPage?.queryBlock([0, 'text'])?.text).toBe(
+        expect(contentText(muya.editor.scrollPage?.queryBlock([0, 'text']))).toBe(
           testCase.afterFirstInput.text
         )
         expect(muya.getSelection()).toMatchObject({
@@ -536,7 +537,7 @@ describe('native input preferences in the shared document', () => {
         focus: { offset: testCase.expectedSelection?.[1] ?? testCase.caret }
       })
       expect
-        .soft(muya.editor.scrollPage?.queryBlock([0, 'text'])?.text)
+        .soft(contentText(muya.editor.scrollPage?.queryBlock([0, 'text'])))
         .toBe(testCase.expectedViewText ?? testCase.expectedSource.replace(/\n$/u, ''))
       await adapter.settled()
 

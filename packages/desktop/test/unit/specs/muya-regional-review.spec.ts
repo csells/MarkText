@@ -10,6 +10,7 @@ import { muyaInputToModel } from '@/documentAuthority/muyaModelSelection'
 import { resolveMuyaViewAcknowledgement } from '@/documentAuthority/resolveMuyaViewAcknowledgement'
 import { reconcileMuyaDocumentView } from '@/documentAuthority/reconcileMuyaDocumentView'
 import type { CoreAppliedReply } from '@/documentAuthority/coreProtocol'
+import { asMuyaStates } from '../helpers/muyaTypes'
 
 async function mountOwnedDocument(source: string) {
   ;(window as Window & { MUYA_VERSION?: string }).MUYA_VERSION = 'test'
@@ -64,7 +65,7 @@ async function mountOwnedDocument(source: string) {
   }
   muya.setInlinePresentation(presentation.render)
   muya.init()
-  muya.setContent(structuredClone([...view.state]))
+  muya.setContent(asMuyaStates(structuredClone([...view.state])))
   muya.editor.bindDocumentEditing({
     emojiContext: () => undefined,
     codeLanguage: () => undefined,
@@ -111,7 +112,7 @@ it('uses eligible common-model regions for native input, undo and redo before th
     if (!paragraph?.isContent()) throw new Error('Missing target paragraph')
     const first = app.muya.domNode.querySelector('.mu-paragraph-content')
     paragraph.setCursor(4, 4, true)
-    paragraph.domNode.dispatchEvent(
+    paragraph.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'X',
@@ -132,7 +133,7 @@ it('uses eligible common-model regions for native input, undo and redo before th
     expect(await app.lease.sourceAtBarrier()).toBe('same\n\nbaseX\n\nsame\n')
     const caret = app.muya.editor.selection.getSelection()?.anchor.block
     if (!caret) throw new Error('Missing redo caret')
-    caret.domNode.dispatchEvent(
+    caret.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'Y',

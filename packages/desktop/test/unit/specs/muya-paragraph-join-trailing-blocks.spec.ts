@@ -16,7 +16,7 @@ it('retains native forward Delete promotion of the donor trailing paragraph', ()
     const paragraph = muya.editor.scrollPage?.firstContentInDescendant()
     if (!paragraph) throw new Error('Expected first paragraph')
     paragraph.setCursor(1, 1, true)
-    paragraph.domNode.dispatchEvent(
+    paragraph.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true })
     )
     muya.flush()
@@ -133,7 +133,7 @@ it.each(
     const paragraph = muya.editor.scrollPage?.firstContentInDescendant()
     if (!paragraph) throw new Error('Expected first paragraph')
     paragraph.setCursor(1, 1, true)
-    paragraph.domNode.dispatchEvent(
+    paragraph.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true })
     )
     muya.flush()
@@ -157,7 +157,7 @@ it.each(
     const paragraph = app.muya.editor.scrollPage?.firstContentInDescendant()
     if (!paragraph) throw new Error('Expected first paragraph')
     paragraph.setCursor(1, 1, true)
-    paragraph.domNode.dispatchEvent(
+    paragraph.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true })
     )
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: joined })
@@ -172,7 +172,7 @@ it.each(
     expect(app.muya.getState()).toHaveLength(example.shape.length)
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 1 }, focus: { offset: 1 } })
     const live = app.muya.editor.selection.getSelection()?.anchor.block
-    if (!live?.domNode.isConnected) throw new Error('Expected live join caret')
+    if (!live?.domNode?.isConnected) throw new Error('Expected live join caret')
     live.domNode.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
@@ -217,7 +217,7 @@ it.each(
     const paragraph = app.muya.editor.scrollPage?.firstContentInDescendant()
     if (!paragraph) throw new Error('Expected first paragraph')
     paragraph.setCursor(1, 1, true)
-    paragraph.domNode.dispatchEvent(
+    paragraph.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true })
     )
     const saved = app.binding.sourceAtBarrier()
@@ -250,7 +250,7 @@ it.each(
     const offset = ['bullet destination', 'quote destination'].includes(example.name) ? 1 : 0
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset }, focus: { offset } })
     const live = app.muya.editor.selection.getSelection()?.anchor.block
-    if (!live?.domNode.isConnected) throw new Error('Expected live join caret')
+    if (!live?.domNode?.isConnected) throw new Error('Expected live join caret')
     expect(live.text).toBe(
       ['bullet destination', 'quote destination'].includes(example.name)
         ? 'a'

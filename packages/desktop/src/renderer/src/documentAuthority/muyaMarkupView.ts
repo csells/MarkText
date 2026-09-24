@@ -5,6 +5,7 @@ import {
   setextUnderlineStart,
   tableCellContentRange
 } from '@marktext/document-core'
+import type { TState } from '@muyajs/core'
 import type {
   CriticMarkupAnnotation,
   DocumentModelTextPoint,
@@ -24,6 +25,13 @@ export interface MuyaMarkupSourceSegment {
 }
 
 export type MuyaMarkupPath = readonly (number | string)[]
+
+/**
+ * The projected Markup state is TState-shaped JSON; Muya's declarations only
+ * lack the desktop's structurally narrower projection type.
+ */
+export const asMuyaStates = (states: readonly MuyaMarkupState[]): TState[] =>
+  states as unknown as TState[]
 
 export interface MuyaMarkupState {
   readonly name: string

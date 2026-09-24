@@ -39,7 +39,7 @@ it.each([
       })
       const caret = app.muya.editor.selection.getSelection()?.anchor.block
       if (!caret) throw new Error('Missing resulting paste selection')
-      caret.domNode.dispatchEvent(
+      caret.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'X',
@@ -98,7 +98,7 @@ it.each(['input', 'completion'] as const)(
       expect(app.adapter.isSettled()).toBe(false)
 
       if (firstAction === 'input') {
-        last.domNode.dispatchEvent(
+        last.domNode!.dispatchEvent(
           new InputEvent('beforeinput', {
             inputType: 'insertText',
             data: 'X',
@@ -116,7 +116,7 @@ it.each(['input', 'completion'] as const)(
       expect(app.adapter.isSettled()).toBe(false)
       const caret = app.muya.editor.selection.getSelection()?.anchor.block
       if (!caret) throw new Error('Missing current selection while second paste is pending')
-      caret.domNode.dispatchEvent(
+      caret.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'Y',

@@ -27,6 +27,7 @@ import {
   muyaFormatToModel
 } from '@/documentAuthority/muyaModelSelection'
 import type { CoreAppliedReply } from '@/documentAuthority/coreProtocol'
+import { asMuyaStates } from '../helpers/muyaTypes'
 
 beforeEach(() => {
   ;(window as Window & { MUYA_VERSION?: string }).MUYA_VERSION = 'test'
@@ -108,7 +109,7 @@ describe('native pending input through desktop document lifecycle', () => {
       try {
         muya.setInlinePresentation(presentation.render)
         muya.init()
-        muya.setContent(structuredClone([...initial.view.state]))
+        muya.setContent(asMuyaStates(structuredClone([...initial.view.state])))
         const detach = muya.editor.bindDocumentEditing({
           prepareImage() {
             throw new Error('Unexpected image preparation')
@@ -313,7 +314,7 @@ describe('native draft recovery during desktop teardown', () => {
       try {
         muya.setInlinePresentation(presentation.render)
         muya.init()
-        muya.setContent(structuredClone([...initial.view.state]))
+        muya.setContent(asMuyaStates(structuredClone([...initial.view.state])))
         muya.editor.bindDocumentEditing({
           prepareImage() {
             throw new Error('Unexpected image preparation')
@@ -478,7 +479,7 @@ it('retains accepted paired deletion when presentation fails without replaying i
     muya.setInlinePresentation(presentation.render)
     // The real native installation destroys the selected block. A later failure
     // must not invoke the beforeinput echo closure over that former block.
-    muya.setContent(structuredClone([...acknowledgedView.state]))
+    muya.setContent(asMuyaStates(structuredClone([...acknowledgedView.state])))
     throw presentationFailure
   }
   const adapter = createMuyaPlainTextCoreAdapter(
@@ -505,7 +506,7 @@ it('retains accepted paired deletion when presentation fails without replaying i
   try {
     muya.setInlinePresentation(presentation.render)
     muya.init()
-    muya.setContent(structuredClone([...initial.view.state]))
+    muya.setContent(asMuyaStates(structuredClone([...initial.view.state])))
     muya.editor.bindDocumentEditing({
       prepareImage() {
         throw new Error('Unexpected image preparation')

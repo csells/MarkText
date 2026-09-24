@@ -240,7 +240,7 @@ it('projects restored normalized Markup history into Source without replacing it
     const block = markup.muya.editor.scrollPage?.queryBlock([0, 'text'])
     if (!block?.isContent()) throw new Error('Expected normalized code body')
     block.setCursor(1, 1, true)
-    block.domNode.dispatchEvent(
+    block.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',

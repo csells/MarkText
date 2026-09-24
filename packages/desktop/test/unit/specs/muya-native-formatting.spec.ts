@@ -15,6 +15,7 @@ import {
 } from '@/documentAuthority/muyaModelSelection'
 import { reconcileMuyaDocumentView } from '@/documentAuthority/reconcileMuyaDocumentView'
 import type { CoreAppliedReply } from '@/documentAuthority/coreProtocol'
+import { asMuyaStates } from '../helpers/muyaTypes'
 
 const { tokenize } = vi.hoisted(() => ({ tokenize: vi.fn() }))
 vi.mock('../../../../muya/src/inlineRenderer/lexer', async(importOriginal) => {
@@ -120,7 +121,7 @@ it.each(
     try {
       muya.setInlinePresentation(presentation.render)
       muya.init()
-      muya.setContent(structuredClone([...initial.state]))
+      muya.setContent(asMuyaStates(structuredClone([...initial.state])))
       muya.editor.bindDocumentEditing({
         prepareImage() {
           throw new Error('Unexpected image upload preparation in the formatting fixture')
@@ -156,7 +157,7 @@ it.each(
         }
       })
       const block = muya.editor.scrollPage?.firstContentInDescendant()
-      if (block === undefined) throw new Error('Missing native paragraph')
+      if (block == null) throw new Error('Missing native paragraph')
       if (annotated && !whole && innerDOM) {
         const span = block.domNode?.querySelector('[data-critic-kind="addition"]')
         if (span === null || span === undefined) throw new Error('Missing rendered addition')
@@ -178,7 +179,7 @@ it.each(
       muya.flush()
       expect(binding.sourceAtBarrier()).toMatchObject({ source: expected })
       const selection = muya.editor.selection.getDOMSelection()
-      if (selection === undefined) throw new Error('Formatting lost the native selection')
+      if (selection == null) throw new Error('Formatting lost the native selection')
       const currentSelection = muyaFormatToModel(
         muya,
         view(),
@@ -195,7 +196,7 @@ it.each(
         primary: 0
       })
       const target = muya.getSelection()?.focus.block.domNode
-      if (target === undefined) throw new Error('Formatting lost the typing target')
+      if (target == null) throw new Error('Formatting lost the typing target')
       const input = new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'X',
@@ -276,7 +277,7 @@ const bootFormatting = (source: string, tracked = false) => {
   })
   muya.setInlinePresentation(presentation.render)
   muya.init()
-  muya.setContent(structuredClone([...view().state]))
+  muya.setContent(asMuyaStates(structuredClone([...view().state])))
   muya.editor.bindDocumentEditing({
     prepareImage() {
       throw new Error('Unexpected image upload preparation in the formatting fixture')
@@ -359,18 +360,18 @@ it.each([
   const test = bootFormatting(fixture.source)
   try {
     const block = test.muya.editor.scrollPage?.firstContentInDescendant()
-    if (block === undefined) throw new Error('Missing native paragraph')
+    if (block == null) throw new Error('Missing native paragraph')
     block.setCursor(fixture.start, fixture.end, true)
     test.muya.format(fixture.format)
     expect(test.binding.sourceAtBarrier()).toMatchObject({ source: fixture.expected })
     const selection = test.muya.editor.selection.getDOMSelection()
-    if (selection === undefined) throw new Error('Missing formatted selection')
+    if (selection == null) throw new Error('Missing formatted selection')
     expect(
       muyaFormatToModel(test.muya, test.view(), { format: fixture.format, selection }, false)
         .selection
     ).toEqual({ ranges: [{ anchor: fixture.caret.start, focus: fixture.caret.end }], primary: 0 })
     const target = test.muya.getSelection()?.focus.block.domNode
-    if (target === undefined) throw new Error('Missing next typing target')
+    if (target == null) throw new Error('Missing next typing target')
     const input = new InputEvent('beforeinput', {
       inputType: 'insertText',
       data: 'X',
@@ -402,7 +403,7 @@ it('formats a real cross-block selection without formatting the heading prefix',
     test.muya.format('strong')
     expect(test.binding.sourceAtBarrier()).toMatchObject({ source: '# **one**\n\n**two**\n' })
     const selection = test.muya.editor.selection.getDOMSelection()
-    if (selection === undefined) throw new Error('Missing cross-block result selection')
+    if (selection == null) throw new Error('Missing cross-block result selection')
     expect(
       muyaFormatToModel(test.muya, test.view(), { format: 'strong', selection }, false).selection
     ).toEqual({ ranges: [{ anchor: 4, focus: 16 }], primary: 0 })
@@ -419,7 +420,7 @@ it('keeps literal block formatting as an accepted no-op with no undo entry', asy
   const test = bootFormatting(source)
   try {
     const block = test.muya.editor.scrollPage?.firstContentInDescendant()
-    if (block === undefined) throw new Error('Missing native code block')
+    if (block == null) throw new Error('Missing native code block')
     block.setCursor(0, 4, true)
     test.muya.format('strong')
     expect(test.formatResults).toEqual([{ accepted: true, changed: false }])
@@ -445,7 +446,7 @@ it.each(
     const test = bootFormatting(source, tracked)
     try {
       const block = test.muya.editor.scrollPage?.firstContentInDescendant()
-      if (block === undefined) throw new Error('Missing native paragraph')
+      if (block == null) throw new Error('Missing native paragraph')
       block.setCursor(0, 3, true)
       test.muya.format(format)
       const expected = tracked ? `{~~a{++a++}a~>${formatted}~~}\n` : formatted + '\n'
@@ -492,7 +493,7 @@ it.each([
     try {
       muya.setInlinePresentation(createMuyaMarkupPresentationIndex(view).render)
       muya.init()
-      muya.setContent(structuredClone([...view.state]))
+      muya.setContent(asMuyaStates(structuredClone([...view.state])))
       muya.editor.bindDocumentEditing({
         prepareImage() {
           throw new Error('Unexpected image upload preparation in the formatting fixture')

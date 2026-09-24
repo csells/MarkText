@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { BrowserWindow } from 'electron'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type Accessor from 'main_renderer/app/accessor'
 
 const mocks = vi.hoisted(() => ({
@@ -132,6 +132,13 @@ describe('incoming documents during window close', () => {
     mocks.emit.mockReset()
     mocks.load.mockReset()
     mocks.quit.mockReset()
+    // Vitest builds in development mode, where windows load the renderer from
+    // the dev server URL electron-vite provides (#5053).
+    vi.stubEnv('ELECTRON_RENDERER_URL', 'http://localhost:5173/')
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
 
   it('checks Save As ownership across every editor, including pending file reads', async() => {
@@ -481,7 +488,7 @@ describe('incoming documents during window close', () => {
     await Promise.resolve()
     expect(send).toHaveBeenCalledWith('mt::open-new-tab', doc, options, false)
     editor.openTab(doc.pathname)
-    expect(send).toHaveBeenCalledWith('mt::switch-tab-by-file_path', doc.pathname)
+    expect(send).toHaveBeenCalledWith('mt::switch-tab-by-file_path', doc.pathname, {})
     expect(mocks.load).toHaveBeenCalledTimes(1)
     expect(mocks.emit).not.toHaveBeenCalledWith('app-create-editor-window', expect.anything())
   })

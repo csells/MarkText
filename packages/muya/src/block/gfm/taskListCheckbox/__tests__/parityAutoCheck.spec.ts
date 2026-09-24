@@ -69,7 +69,7 @@ it('keeps ordinary items between native task groups when a later checkbox change
     const muya = bootMuya('- [x] first\n- ordinary\n- [ ] last\n', { autoMoveCheckedToEnd: true });
     checkboxOf(taskItems(muya)[1]).update(true, 'user');
     muya.flush();
-    await vi.waitFor(() => expect(muya.getMarkdown().trimEnd()).toBe('- [x] first\n\n- ordinary\n\n- [x] last'));
+    await vi.waitFor(() => expect(muya.getMarkdown().trimEnd()).toBe('- [x] first\n- ordinary\n- [x] last'));
 });
 
 // Collect every task-list-item block in document order [parent, child1, child2].

@@ -33,7 +33,7 @@ it.each([
     const prior = app.muya.editor.scrollPage?.lastContentInDescendant()
     if (!prior) throw new Error('Missing original caret')
     prior.setCursor(4, 1, true)
-    const event = dropFile(paragraph.domNode)
+    const event = dropFile(paragraph.domNode!)
     await app.adapter.settled()
     expect(event.defaultPrevented).toBe(true)
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: inserted })
@@ -41,7 +41,7 @@ it.each([
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
     const image = app.muya.editor.selection.getSelection()?.anchor.block
     if (!image) throw new Error('Missing inserted image selection')
-    image.domNode.dispatchEvent(
+    image.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',
@@ -84,7 +84,7 @@ it('pending native image drop holds settlement and retains newer input and its c
       })
     const paragraph = app.muya.editor.scrollPage?.firstContentInDescendant()
     if (!paragraph) throw new Error('Missing drop target')
-    dropFile(paragraph.domNode)
+    dropFile(paragraph.domNode!)
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
     expect(JSON.stringify(app.adapter.recoveryDraft())).toContain('/tmp/shot.png')
     let settled = false
@@ -94,7 +94,7 @@ it('pending native image drop holds settlement and retains newer input and its c
     const tail = paragraph.nextContentInContext()
     if (!tail) throw new Error('Missing later paragraph')
     tail.setCursor(0, 0, true)
-    tail.domNode.dispatchEvent(
+    tail.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',
@@ -128,7 +128,7 @@ it('native image drop retains its resource draft when newer input removes the ta
       })
     const paragraph = app.muya.editor.scrollPage?.firstContentInDescendant()
     if (!paragraph) throw new Error('Missing drop target')
-    dropFile(paragraph.domNode)
+    dropFile(paragraph.domNode!)
     app.adapter.input(
       {
         selection: { ranges: [{ anchor: 0, focus: 6 }], primary: 0 },
@@ -177,7 +177,7 @@ it('an ignored web-image payload leaves the original directed selection unchange
         }
       }
     })
-    target.domNode.dispatchEvent(event)
+    target.domNode!.dispatchEvent(event)
     await app.adapter.settled()
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'target\n\ntail\n' })
     expect(app.muya.getSelection()).toMatchObject({
@@ -197,7 +197,7 @@ it('a native image drop with no browser selection still owns its explicit target
     const target = app.muya.editor.scrollPage?.firstContentInDescendant()
     if (!target) throw new Error('Missing drop target')
     document.getSelection()?.removeAllRanges()
-    dropFile(target.domNode)
+    dropFile(target.domNode!)
     await app.adapter.settled()
     expect(app.binding.sourceAtBarrier()).toMatchObject({
       source: 'target\n\n![shot.png](/tmp/shot.png)\n\ntail\n'
@@ -224,7 +224,7 @@ it('a pending drop with no browser selection rebases its target through precedin
     const target = app.muya.editor.scrollPage?.firstContentInDescendant()?.nextContentInContext()
     if (!target) throw new Error('Missing drop target')
     document.getSelection()?.removeAllRanges()
-    dropFile(target.domNode)
+    dropFile(target.domNode!)
     app.adapter.input(
       {
         selection: { ranges: [{ anchor: 0, focus: 0 }], primary: 0 },

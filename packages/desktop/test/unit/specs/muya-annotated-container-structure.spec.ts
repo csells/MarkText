@@ -12,7 +12,7 @@ const nativeListTab = (app: ReturnType<typeof bootBoundMuya>, shift = false) => 
     : app.muya.editor.scrollPage?.firstContentInDescendant()?.nextContentInContext()
   if (!block) throw new Error('Expected target list paragraph')
   block.setCursor(2, 2, true)
-  block.domNode.dispatchEvent(
+  block.domNode!.dispatchEvent(
     new KeyboardEvent('keydown', { key: 'Tab', shiftKey: shift, bubbles: true, cancelable: true })
   )
   expect(app.legacyChanges).toEqual([])

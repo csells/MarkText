@@ -17,9 +17,10 @@ const fakeWindow = {
   webContents: { send }
 } as unknown as BrowserWindow
 const registeredCommandIds: string[] = []
-const submenu = paragraphMenu({
-  getAccelerator: () => undefined
-} as never).submenu as MenuItemConstructorOptions[]
+const submenu = paragraphMenu(
+  { getAccelerator: () => undefined } as never,
+  { getItem: () => undefined } as never
+).submenu as MenuItemConstructorOptions[]
 
 const clickParagraphMenu = (label: string): void => {
   const item = submenu.find(candidate => candidate.label === label)

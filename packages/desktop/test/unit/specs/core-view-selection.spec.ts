@@ -3,14 +3,15 @@ import { expect, it, vi } from 'vitest'
 import { muyaClipboardCurrentSelection } from '@/documentAuthority/muyaModelSelection'
 import { restoreMuyaDocumentSelection } from '@/documentAuthority/reconcileMuyaDocumentView'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { asMuyaStates } from '../helpers/muyaTypes'
 
 it('restores a directed annotation selection without native Markdown serialization or parsing', () => {
   const app = bootBoundMuya('a{++b++}c\n')
   try {
     const body = app.muya.editor.scrollPage!.firstContentInDescendant()!
-    const finalText = body.domNode.lastChild!
+    const finalText = body.domNode!.lastChild!
     window.getSelection()!.setBaseAndExtent(finalText, 1, finalText, 0)
-    body.domNode.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowLeft', bubbles: true }))
+    body.domNode!.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowLeft', bubbles: true }))
     const selection = muyaClipboardCurrentSelection(app.muya, app.view())
     expect(selection).toEqual({ ranges: [{ anchor: 9, focus: 8 }], primary: 0 })
     vi.spyOn(app.muya, 'getMarkdown').mockImplementation(() => {
@@ -39,7 +40,7 @@ it.each(['mouseup', 'mouseleave', 'shift-click'])(
       host.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
       window
         .getSelection()!
-        .setBaseAndExtent(last.domNode.lastChild!, 4, first.domNode.lastChild!, 0)
+        .setBaseAndExtent(last.domNode!.lastChild!, 4, first.domNode!.lastChild!, 0)
       if (event === 'shift-click') {
         host.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }))
       } else {
@@ -75,10 +76,10 @@ it.each(['\n', '\r\n', '\r'])(
         anchor: { offset: 1 },
         focus: { offset: 1 }
       })
-      app.muya.setContent(structuredClone([...app.view().state]))
+      app.muya.setContent(asMuyaStates(structuredClone([...app.view().state])))
       restoreMuyaDocumentSelection(app.muya, app.view(), selection!)
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 1 }, focus: { offset: 1 } })
-      app.muya.editor.selection.getSelection()!.anchor.block.domNode.dispatchEvent(
+      app.muya.editor.selection.getSelection()!.anchor.block.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'y',

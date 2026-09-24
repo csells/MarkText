@@ -225,12 +225,12 @@ describe('paragraphContent.tabHandler — jump past a closing inline marker', ()
     });
 
     it.each([
-        ['- first\n- [ ] second\n', '- first\n\n- [ ] se    cond\n'],
-        ['- [ ] first\n- second\n', '- [ ] first\n\n- se    cond\n'],
+        ['- first\n- [ ] second\n', '- first\n- [ ] se    cond\n'],
+        ['- [ ] first\n- second\n', '- [ ] first\n- se    cond\n'],
     ])('retains the first item boundary in a task/plain group: %s', async (source, expected) => {
         const muya = bootMuya(source);
-        // Native serialization separates different list widget groups even
-        // before Tab; the model-backed path retains the imported source bytes.
+        // Adjacent tight task and plain groups with one marker are one
+        // Markdown list, so native serialization keeps them tight.
         expect(muya.getMarkdown()).toBe(expected.replace('se    cond', 'second'));
         const content = contentByText(muya, 'second');
         tabAt(muya, content, 2);

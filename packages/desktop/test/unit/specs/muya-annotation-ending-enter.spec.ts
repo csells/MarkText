@@ -2,6 +2,7 @@
 import { createDocumentCore } from '@marktext/document-core'
 import { describe, expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { contentText } from '../helpers/muyaTypes'
 
 type BoundMuya = ReturnType<typeof bootBoundMuya>
 
@@ -89,7 +90,7 @@ describe('native Enter at a closed annotation ending', () => {
         await app.adapter.settled()
         expect(app.binding.sourceAtBarrier()).toMatchObject({ source: expected })
         expect(caret(app)).toEqual({ path: [1, 'text'], anchor: 0, focus: 0 })
-        expect(app.muya.editor.scrollPage?.queryBlock([1, 'text'])?.text).toBe(next)
+        expect(contentText(app.muya.editor.scrollPage?.queryBlock([1, 'text']))).toBe(next)
       } finally {
         app.dispose()
       }

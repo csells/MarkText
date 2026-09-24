@@ -83,11 +83,11 @@ it.each(
       expect.soft(muya.getState()).toEqual(app.view().state)
       expect(muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       const selected = muya.editor.selection.getSelection()?.anchor.block
-      expect(selected?.domNode.isConnected).toBe(true)
+      expect(selected?.domNode?.isConnected).toBe(true)
       expect(selected?.text).toBe(target === 0 ? 'parent' : 'same')
       // No delivery wait between the click and the next native key.
       app.track(false)
-      selected!.domNode.dispatchEvent(
+      selected!.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'X',
@@ -157,7 +157,7 @@ it.each([false, true])(
       ).toEqual(tracked ? [false, false, false, true, true] : [false, true, true])
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       app.track(false)
-      app.muya.editor.selection.getSelection()!.anchor.block.domNode.dispatchEvent(
+      app.muya.editor.selection.getSelection()!.anchor.block.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'X',
@@ -204,7 +204,7 @@ it('does not move tasks across an intervening ordinary list item', () => {
       source: '- [x] first\n- ordinary\n- [x] last\n'
     })
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
-    app.muya.editor.selection.getSelection()!.anchor.block.domNode.dispatchEvent(
+    app.muya.editor.selection.getSelection()!.anchor.block.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'X',
@@ -238,7 +238,7 @@ it.each([false, true])(
       ).toBe(true)
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       app.track(false)
-      app.muya.editor.selection.getSelection()!.anchor.block.domNode.dispatchEvent(
+      app.muya.editor.selection.getSelection()!.anchor.block.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'X',
@@ -283,7 +283,7 @@ it.each([false, true])(
       ).toEqual(tracked ? [false, true, false, true, true] : [false, false, true])
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       app.track(false)
-      app.muya.editor.selection.getSelection()!.anchor.block.domNode.dispatchEvent(
+      app.muya.editor.selection.getSelection()!.anchor.block.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'X',

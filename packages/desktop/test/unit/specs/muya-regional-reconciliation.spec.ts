@@ -30,7 +30,7 @@ it.each([
       for (const data of ['X', 'Y']) {
         const caret = app.muya.editor.selection.getSelection()?.anchor.block
         if (!caret) throw new Error('Missing current model caret')
-        caret.domNode.dispatchEvent(
+        caret.domNode!.dispatchEvent(
           new InputEvent('beforeinput', {
             inputType: 'insertText',
             data,
@@ -86,7 +86,7 @@ it('retains surrounding roots when native Enter changes root count and restores 
     const target = app.muya.editor.scrollPage?.queryBlock([1, 'text'])
     if (!first || !last || !target?.isContent()) throw new Error('Missing paragraphs')
     target.setCursor(4, 4, true)
-    target.domNode.dispatchEvent(
+    target.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertParagraph',
         bubbles: true,
@@ -102,7 +102,7 @@ it('retains surrounding roots when native Enter changes root count and restores 
     })
     const caret = app.muya.editor.selection.getSelection()?.anchor.block
     if (!caret) throw new Error('Missing shifted model caret')
-    caret.domNode.dispatchEvent(
+    caret.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'X',

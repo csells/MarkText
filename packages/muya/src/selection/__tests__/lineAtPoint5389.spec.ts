@@ -3,7 +3,7 @@
 import type Content from '../../block/base/content';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Muya } from '../../muya';
-import { lineAtPoint, resolveEndpoint } from '../dom';
+import { getNodeAndOffset, lineAtPoint, resolveEndpoint } from '../dom';
 
 const editors: Muya[] = [];
 const hosts: HTMLElement[] = [];
@@ -107,7 +107,10 @@ describe('lineAtPoint', () => {
     ])('covers only the $name line of a code block', ({ caret, start, end }) => {
         const muya = boot('```js\nline one\nline two\nline three\n```\n');
         const block = content(muya, 'line one\nline two\nline three');
-        caretLandsOn(block.domNode!, caret);
+        // A caret position names a text node and a character offset in it; an
+        // element offset counts child nodes, not characters.
+        const point = getNodeAndOffset(block.domNode!, caret);
+        caretLandsOn(point.node, point.offset);
 
         expect(lineAtPoint(document, 0, 0)).toEqual({ block, start, end });
     });

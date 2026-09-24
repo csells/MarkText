@@ -54,9 +54,18 @@ async function mountSource(source: string, selection: DocumentSelection) {
     LISTEN_FOR_CORE_CURSOR_CHANGE: vi.fn(),
     REFRESH_CORE_SAVED_STATE: vi.fn(),
     UPDATE_CORE_CONSUMER_TOC: vi.fn(),
-    UPDATE_CORE_CONSUMER_SEARCH: vi.fn()
+    UPDATE_CORE_CONSUMER_SEARCH: vi.fn(),
+    SET_SELECTION_WORD_COUNT: vi.fn()
   })
-  const preferences = Vue.reactive({ theme: 'light', sourceCode: true })
+  const preferences = Vue.reactive({
+    theme: 'light',
+    sourceCode: true,
+    sourceCodeLineNumbers: true,
+    texMathDollars: true,
+    texMathGfm: false,
+    texMathSingleBackslash: false,
+    texMathDoubleBackslash: false
+  })
   const dependencies: Record<string, unknown> = {
     vue: Vue,
     lodash,
@@ -67,9 +76,15 @@ async function mountSource(source: string, selection: DocumentSelection) {
     '@muyajs/core': {
       matchString,
       buildRegexValue,
-      wordCount: () => {
-        throw new Error('Core Source must not derive semantic counts from text')
-      }
+      // Only the status bar's count of the selected text (#4457) may count
+      // here; the document count is Core's, and the store has no
+      // LISTEN_FOR_CONTENT_CHANGE for a text-derived one to reach.
+      wordCount: (text: string) => ({
+        word: text.split(/\s+/).filter(Boolean).length,
+        paragraph: 0,
+        character: text.length,
+        all: text.length
+      })
     },
     '../../util': {
       adjustCursor: () => {

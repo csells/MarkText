@@ -23,7 +23,7 @@ it('keeps the adjacent preceding code block outside a selected wrap', async() =>
     if (!input) throw new Error('Expected newly wrapped code body')
     expect(input.text).toBe('# first\n\nsecond')
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
-    input.domNode.dispatchEvent(
+    input.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',
@@ -88,7 +88,7 @@ it.each(
       if (!input) throw new Error('Expected wrapped code body')
       expect(input.blockName).toBe('codeblock.content')
       expect(input.text).toBe('# T\n\na{++b++}c{>>note<<}')
-      input.domNode.dispatchEvent(
+      input.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'x',

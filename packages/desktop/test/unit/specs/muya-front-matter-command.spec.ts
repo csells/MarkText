@@ -39,7 +39,7 @@ it.each(cases)(
       expect(app.muya.getState()[0]?.name).toBe('frontmatter')
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       if (!input) throw new Error('Expected front matter caret')
-      input.domNode.dispatchEvent(
+      input.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'x',
@@ -114,7 +114,7 @@ it.each([
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       const input = app.muya.editor.selection.getSelection()?.anchor.block
       if (!input) throw new Error('Expected front matter body')
-      input.domNode.dispatchEvent(
+      input.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'x',
