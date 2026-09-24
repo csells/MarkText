@@ -130,6 +130,10 @@ interface ContentChangePayload {
 // WYSIWYG changes advance the same local sequence so late disk acknowledgements
 // from either authority cannot mark newer bytes clean.
 const coreIdentityByTab = new Map<string, DocumentSaveIdentity>()
+// A Core view publishes its document's TOC only after it mounts, so an anchor
+// that opens or switches documents waits for that document's TOC.
+let tocDocumentId: string | undefined
+let pendingAnchor: { id: string; anchor: string } | undefined
 const coreSavedSourceByTab = new WeakMap<IFileState, string>()
 
 const saveIdentitiesEqual = (left: DocumentSaveIdentity, right: DocumentSaveIdentity): boolean =>
@@ -1656,7 +1660,7 @@ export const useEditorStore = defineStore('editor', {
       const next = tabs[nextTabIndex]
       if (!next) return
       this.UPDATE_CURRENT_FILE(next)
-      if (options.anchor) this.SCROLL_TO_ANCHOR(options.anchor)
+      if (options.anchor) this.REVEAL_ANCHOR(next.id, options.anchor)
     },
 
     SWITCH_TAB_BY_INDEX(nextTabIndex: number): void {
@@ -1747,7 +1751,7 @@ export const useEditorStore = defineStore('editor', {
       )
       if (existingTab) {
         this.UPDATE_CURRENT_FILE(existingTab)
-        if (options.anchor) this.SCROLL_TO_ANCHOR(options.anchor)
+        if (options.anchor) this.REVEAL_ANCHOR(existingTab.id, options.anchor)
         return
       }
 
@@ -1779,7 +1783,7 @@ export const useEditorStore = defineStore('editor', {
         if (selected) {
           this.UPDATE_CURRENT_FILE(docState)
           bus.emit('file-loaded', { id, markdown, cursor })
-          if (options.anchor) this.SCROLL_TO_ANCHOR(options.anchor)
+          if (options.anchor) this.REVEAL_ANCHOR(id, options.anchor)
         } else {
           this.tabs.push(docState)
           this.updateTabIdToIndex()
@@ -1851,6 +1855,20 @@ export const useEditorStore = defineStore('editor', {
       this.toc = listToTree<TocItem>(toc ?? [])
       // Every caller replaces the whole document, so the old slug is gone.
       this.activeHeadingSlug = null
+      tocDocumentId = this.currentFile?.id
+      const pending = pendingAnchor
+      pendingAnchor = undefined
+      if (pending !== undefined && pending.id === tocDocumentId) this.SCROLL_TO_ANCHOR(pending.anchor)
+    },
+
+    /**
+     * Scrolls document `id` to `anchor`. A view that re-seeds the TOC while
+     * switching has already done so; otherwise the scroll is repeated once the
+     * document's own TOC arrives.
+     */
+    REVEAL_ANCHOR(id: string, anchor: string): void {
+      pendingAnchor = tocDocumentId === id ? undefined : { id, anchor }
+      this.SCROLL_TO_ANCHOR(anchor)
     },
 
     SET_ACTIVE_HEADING(slug: string | null): void {
@@ -1916,6 +1934,7 @@ export const useEditorStore = defineStore('editor', {
       if (id === this.currentFile?.id && toc && !equal(toc, this.listToc)) {
         this.listToc = toc
         this.toc = listToTree<TocItem>(toc)
+        tocDocumentId = id
       }
 
       const lastEditIndex = tab.history.lastEditIndex
