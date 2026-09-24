@@ -1,7 +1,7 @@
 import type CodeMirror from 'codemirror'
 import codeMirror from '@/codeMirror'
 import 'codemirror/addon/runmode/runmode'
-import type { DocumentSourceSyntaxSpan } from '@marktext/document-core'
+import type { DocumentSourceSyntaxSpan, SourceRange } from '@marktext/document-core'
 import type { CoreSourceSyntaxReply } from './coreProtocol'
 import type { CodeMirrorCoreAdapter } from './codeMirrorCoreAdapter'
 
@@ -20,7 +20,7 @@ const sourceClasses = (span: DocumentSourceSyntaxSpan): string => {
     case 'diagram':
       return 'cm-comment'
     case 'inline-math':
-      return 'cm-math cm-math-inline'
+      return span.displayMath === true ? 'cm-math cm-math-block' : 'cm-math cm-math-inline'
     case 'math-block':
       return 'cm-math cm-math-block'
     case 'link':
@@ -102,22 +102,29 @@ export function bindCodeMirrorSourceSyntax(input: {
         const highlightLiteral =
           mode !== undefined &&
           !['null', 'markdown', 'gfm', 'markdown-math'].includes(mode.name ?? 'null')
+        const math = span.kind === 'inline-math' || span.kind === 'math-block'
+        // Math delimiters are faded apart from the formula they enclose.
         const outerRanges =
-          highlightLiteral && span.kind === 'code-block' && span.literal !== undefined
+          span.literal !== undefined && (math || (highlightLiteral && span.kind === 'code-block'))
             ? [
               { start: span.range.start, end: span.literal.range.start },
               { start: span.literal.range.end, end: span.range.end }
             ]
             : [span.range]
-        for (const range of outerRanges) {
+        const outerClassName = math
+          ? `${className} cm-formatting cm-formatting-math cm-formatting-${className.includes('cm-math-block') ? 'math-block' : 'math-inline'}`
+          : className
+        const mark = (range: SourceRange, markClassName: string) => {
           if (range.end > range.start) {
             marks.push(
               doc.markText(adapter.sourcePosition(range.start), adapter.sourcePosition(range.end), {
-                className
+                className: markClassName
               })
             )
           }
         }
+        for (const range of outerRanges) mark(range, outerClassName)
+        if (math && span.literal !== undefined) mark(span.literal.range, className)
         if (span.literal !== undefined && highlightLiteral) {
           const { range, language } = span.literal
           const from = adapter.sourcePosition(range.start)
