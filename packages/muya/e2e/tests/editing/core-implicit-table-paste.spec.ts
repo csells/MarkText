@@ -74,7 +74,11 @@ for (const bound of [false, true]) {
                 expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: subsequentSource });
             }
             else {
-                expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(subsequentSource);
+                // The native branch publishes its queued edits at the flush boundary.
+                expect(await page.evaluate(() => {
+                    window.muya!.flush();
+                    return window.muya!.getMarkdown();
+                })).toBe(subsequentSource);
             }
         }
         finally {
