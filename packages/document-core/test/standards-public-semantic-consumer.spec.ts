@@ -298,8 +298,8 @@ describe('document-core public standards semantic consumer', () => {
         gfmTagFilter: semanticCase.standard === 'GFM' &&
           fixtureRow.section === 'Disallowed Raw HTML (extension)',
         frontMatter: false,
-        math: false,
-        gitLabMath: false,
+        texMathDollars: false,
+        texMathGfm: false,
         footnotes: false,
         subscriptAndSuperscript: false
       })
@@ -442,8 +442,8 @@ describe('document-core public standards semantic consumer', () => {
           gfm: false,
           gfmTagFilter: false,
           frontMatter: false,
-          math: false,
-          gitLabMath: false,
+          texMathDollars: false,
+          texMathGfm: false,
           footnotes: false,
           subscriptAndSuperscript: false
         })

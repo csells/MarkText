@@ -65,7 +65,7 @@ it.each(['\n', '\r\n', '\r'])(
   'retains a normalized literal position through remount and the next key (%j)',
   async(eol) => {
     const source = ['{++  ```math', '\tx', '  ```', '++}'].join(eol)
-    const app = bootBoundMuya(source, { gitLabMath: true })
+    const app = bootBoundMuya(source, { texMathGfm: true })
     try {
       const body = app.muya.editor.scrollPage!.queryBlock([0, 'text'])!
       if (!body.isContent()) throw new Error('Expected literal body')

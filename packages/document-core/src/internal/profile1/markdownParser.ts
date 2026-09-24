@@ -30,7 +30,8 @@ import {
 import type {
   MarkdownContainerDepthFailure,
   MarkdownInlineConstruct,
-  MarkdownLiteralRange
+  MarkdownLiteralRange,
+  MarkdownMathForm
 } from './markdownTypes.js'
 import { composeMarkdownLiteralRanges } from './markdownTypes.js'
 import type {
@@ -307,6 +308,7 @@ interface MappedMarkdownLiteral {
   readonly start: number
   readonly end: number
   readonly construct?: MarkdownInlineConstruct
+  readonly mathForm?: MarkdownMathForm
   readonly blockKind?: 'footnote-definition'
   readonly htmlTermination?: 'blank-line' | 'explicit'
 }
@@ -319,7 +321,9 @@ export interface MappedMarkdownLane {
   readonly gfmTagFilterEnabled?: boolean
   readonly frontMatterEnabled?: boolean
   readonly mathEnabled?: boolean
-  readonly gitLabMathEnabled?: boolean
+  readonly texMathGfmEnabled?: boolean
+  readonly texMathSingleBackslashEnabled?: boolean
+  readonly texMathDoubleBackslashEnabled?: boolean
   readonly footnotesEnabled?: boolean
   readonly subscriptAndSuperscriptEnabled?: boolean
   /** Parser-owned view selection for this intrinsic fork continuation. */
@@ -2325,22 +2329,32 @@ function inlineMathAttributes(
   literal: MappedMarkdownLiteral
 ): Readonly<Record<string, string | number>> {
   let delimiterLength = 0
-  while (
-    literal.start + delimiterLength < literal.end &&
-    source.charCodeAt(literal.start + delimiterLength) === 36
-  ) {
-    delimiterLength += 1
+  let closeLength = 0
+  if (literal.mathForm === undefined) {
+    while (
+      literal.start + delimiterLength < literal.end &&
+      source.charCodeAt(literal.start + delimiterLength) === 36
+    ) {
+      delimiterLength += 1
+    }
+    closeLength = delimiterLength
+  } else {
+    delimiterLength = literal.mathForm === 'double-backslash' ? 3 : 2
+    closeLength = delimiterLength
   }
   const contentEnd = Math.max(
     literal.start + delimiterLength,
-    literal.end - delimiterLength
+    literal.end - closeLength
   )
   const contentStart = literal.start + delimiterLength
+  const marker = source.slice(literal.start, contentStart)
   return Object.freeze({
     content: source.slice(contentStart, contentEnd),
     delimiterLength,
     contentStart,
-    contentEnd
+    contentEnd,
+    marker,
+    closeMarker: source.slice(contentEnd, literal.end)
   })
 }
 
@@ -4108,8 +4122,10 @@ function tableHeaderColumnCount(source: string, start: number, end: number): num
 export type ParagraphEnterConversion = { readonly kind: 'math' } | { readonly kind: 'table', readonly columns: number }
 
 /** An Enter operation queries the retained parser domain, not a native text projection. */
-export function paragraphEnterConversion(source: string, start: number, end: number): ParagraphEnterConversion | undefined {
-  if (isMathBlockMarker(source, start, end)) return { kind: 'math' }
+export function paragraphEnterConversion(source: string, start: number, end: number, texMathDollars = true): ParagraphEnterConversion | undefined {
+  // Exactly `$$` (trailing blanks aside) opens a math block, and only while the
+  // dollar syntax is read at all; `$$x` stays a paragraph (#5364, #5446).
+  if (texMathDollars && /^\$\$[ \t]*$/.test(source.slice(start, end))) return { kind: 'math' }
   const columns = tableHeaderColumnCount(source, start, end)
   return columns === undefined ? undefined : { kind: 'table', columns }
 }
@@ -6533,6 +6549,9 @@ function mappedLiteralsFromFacts(
       ...(literal.construct === undefined
         ? {}
         : { construct: literal.construct }),
+      ...(literal.mathForm === undefined
+        ? {}
+        : { mathForm: literal.mathForm }),
       ...(literal.blockKind === undefined
         ? {}
         : { blockKind: literal.blockKind }),
@@ -7296,7 +7315,9 @@ function sliceIntrinsicForkRegionLane(
       gfmAutolinksEnabled: lane.gfmAutolinksEnabled ?? true,
       gfmTagFilterEnabled: lane.gfmTagFilterEnabled ?? true,
       mathEnabled: lane.mathEnabled ?? true,
-      gitLabMathEnabled: lane.gitLabMathEnabled ?? true,
+      texMathGfmEnabled: lane.texMathGfmEnabled ?? true,
+      texMathSingleBackslashEnabled: lane.texMathSingleBackslashEnabled ?? false,
+      texMathDoubleBackslashEnabled: lane.texMathDoubleBackslashEnabled ?? false,
       footnotesEnabled: lane.footnotesEnabled ?? true,
       subscriptAndSuperscriptEnabled:
         lane.subscriptAndSuperscriptEnabled ?? false,
@@ -7784,7 +7805,9 @@ function parseIntrinsicForkRegionFacts(
       lane.gfmAutolinksEnabled ?? true,
       lane.gfmTagFilterEnabled ?? true,
       lane.mathEnabled ?? true,
-      lane.gitLabMathEnabled ?? true,
+      lane.texMathGfmEnabled ?? true,
+      lane.texMathSingleBackslashEnabled ?? false,
+      lane.texMathDoubleBackslashEnabled ?? false,
       lane.footnotesEnabled ?? true,
       localReferenceDefinitions.cacheKey
     ])
@@ -7811,7 +7834,9 @@ function parseIntrinsicForkRegionFacts(
       lane.gfmEnabled ?? true,
       lane.gfmAutolinksEnabled ?? true,
       lane.mathEnabled ?? true,
-      lane.gitLabMathEnabled ?? true,
+      lane.texMathGfmEnabled ?? true,
+      lane.texMathSingleBackslashEnabled ?? false,
+      lane.texMathDoubleBackslashEnabled ?? false,
       lane.footnotesEnabled ?? true,
       physicalRecorder
     )

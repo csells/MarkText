@@ -99,7 +99,7 @@ it.each([
     typed: 'top\n\nbottom\n\n| aybc |\n| ---- |\n| def  |\n'
   }
 ])('block move retains the intrinsic $name caret and next input', async(example) => {
-  const app = bootBoundMuya(example.source, { gitLabMath: true })
+  const app = bootBoundMuya(example.source, { texMathGfm: true })
   try {
     const block = app.muya.editor.scrollPage?.queryBlock([1])
     const destination = app.muya.editor.scrollPage?.queryBlock([2, 'text'])

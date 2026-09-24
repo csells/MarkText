@@ -21,8 +21,10 @@ const markdownOptions = (overrides: Partial<{
   gfmAutolinks: boolean
   gfmTagFilter: boolean
   frontMatter: boolean
-  math: boolean
-  gitLabMath: boolean
+  texMathDollars: boolean
+  texMathGfm: boolean
+  texMathSingleBackslash: boolean
+  texMathDoubleBackslash: boolean
   footnotes: boolean
   subscriptAndSuperscript: boolean
 }> = {}) => Object.freeze({
@@ -30,8 +32,10 @@ const markdownOptions = (overrides: Partial<{
   gfmAutolinks: true,
   gfmTagFilter: true,
   frontMatter: true,
-  math: true,
-  gitLabMath: false,
+  texMathDollars: true,
+  texMathGfm: false,
+  texMathSingleBackslash: false,
+  texMathDoubleBackslash: false,
   footnotes: false,
   subscriptAndSuperscript: false,
   ...overrides

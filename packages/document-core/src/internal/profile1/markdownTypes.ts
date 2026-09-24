@@ -14,9 +14,13 @@ export interface MarkdownLiteralRange {
     | 'math'
     | 'diagram'
   readonly construct?: MarkdownInlineConstruct
+  /** Delimiters of a math literal other than dollars (pandoc's optional forms). */
+  readonly mathForm?: MarkdownMathForm
   readonly blockKind?: 'footnote-definition'
   readonly htmlTermination?: 'blank-line' | 'explicit'
 }
+
+export type MarkdownMathForm = 'gfm' | 'single-backslash' | 'double-backslash'
 
 export interface MarkdownInlineConstruct {
   readonly kind: 'link' | 'image'

@@ -18,7 +18,7 @@ it('reinterprets a hidden native view with footnotes and GitLab math without adm
   await binding.open({
     documentId: 'preferences.md',
     source,
-    options: { footnotes: false, gitLabMath: false, subscriptAndSuperscript: false }
+    options: { footnotes: false, texMathGfm: false, subscriptAndSuperscript: false }
   })
   const view = () => {
     const result = binding.plainTextViewAtBarrier()
@@ -33,7 +33,7 @@ it('reinterprets a hidden native view with footnotes and GitLab math without adm
   const muya = new Muya(host, {
     footnote: false,
     superSubScript: false,
-    isGitlabCompatibilityEnabled: false
+    texMathGfm: false
   })
   muya.init()
   const install = (next: typeof initial) => {
@@ -61,12 +61,12 @@ it('reinterprets a hidden native view with footnotes and GitLab math without adm
   })
   try {
     await adapter.configure(
-      { footnotes: true, subscriptAndSuperscript: true, gitLabMath: true },
+      { footnotes: true, subscriptAndSuperscript: true, texMathGfm: true },
       () => {
         muya.setOptions({
           footnote: true,
           superSubScript: true,
-          isGitlabCompatibilityEnabled: true
+          texMathGfm: true
         })
         return reconcile()
       }

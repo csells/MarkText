@@ -452,7 +452,8 @@ import { createLatestViewRefresh } from '@/documentConsumers/latestViewRefresh'
 import type { CoreRecoveryDraftInput } from '@shared/types/coreRecoveryDraft'
 import {
   createProjectedSearchPresentation,
-  type ProjectedSearchPresentation
+  type ProjectedSearchPresentation,
+  type ProjectedSearchPresentationBlock
 } from '@/documentConsumers/projectedSearchPresentation'
 import { applyCursor, isIndexCursor } from '@/util/cursor'
 import EditorSearch from '../search/index.vue'
@@ -520,7 +521,7 @@ import {
   muyaInputToModel
 } from '@/documentAuthority/muyaModelSelection'
 import { resolveMuyaViewAcknowledgement } from '@/documentAuthority/resolveMuyaViewAcknowledgement'
-import type { MuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
+import { asMuyaStates, type MuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
 import {
   reconcileMuyaDocumentView,
   restoreMuyaDocumentSelection
@@ -805,9 +806,21 @@ const startDocumentCoreShadow = (): void => {
           currentFile.value?.markdown ?? null,
           footnote.value,
           superSubScript.value,
-          isGitlabCompatibilityEnabled.value
+          texMathDollars.value,
+          texMathGfm.value,
+          texMathSingleBackslash.value,
+          texMathDoubleBackslash.value
         ] as const,
-      ([documentId, source, footnotes, subscriptAndSuperscript, gitLabMath]) => {
+      ([
+        documentId,
+        source,
+        footnotes,
+        subscriptAndSuperscript,
+        dollars,
+        gfmMath,
+        singleBackslash,
+        doubleBackslash
+      ]) => {
         // This callback is deliberately synchronous and diagnostic-only. It
         // observes the Pinia snapshot already produced for normal editor/save
         // work, then returns before diffing, transport, or parsing begins.
@@ -822,8 +835,10 @@ const startDocumentCoreShadow = (): void => {
                   gfmAutolinks: true,
                   gfmTagFilter: true,
                   frontMatter: true,
-                  math: true,
-                  gitLabMath,
+                  texMathDollars: dollars,
+                  texMathGfm: gfmMath,
+                  texMathSingleBackslash: singleBackslash,
+                  texMathDoubleBackslash: doubleBackslash,
                   footnotes,
                   subscriptAndSuperscript
                 }
@@ -1758,10 +1773,13 @@ const configureCorePreferences = async (
   const outcome = await adapter.configure(options, (applied) => {
     // The actor has accepted the interpretation. Update presentation options
     // without asking Muya to reparse its flattened pending source.
-    editor.value.setOptions({
+    editor.value?.setOptions({
       superSubScript: options.subscriptAndSuperscript,
       footnote: options.footnotes,
-      isGitlabCompatibilityEnabled: options.gitLabMath
+      texMathDollars: options.texMathDollars,
+      texMathGfm: options.texMathGfm,
+      texMathSingleBackslash: options.texMathSingleBackslash,
+      texMathDoubleBackslash: options.texMathDoubleBackslash
     })
     return reconcileCoreHistoryView(applied)
   })
@@ -1918,7 +1936,7 @@ const revealCoreReviewItem = (scroll = true): void => {
   )
   const path = comment?.path ?? binding?.path
   const block: HTMLElement | undefined =
-    path && editor.value?.editor.scrollPage?.queryBlock([...path])?.domNode
+    (path && editor.value?.editor.scrollPage?.queryBlock([...path])?.domNode) ?? undefined
   const origin = binding?.sourceRange.start ?? 0
   const node =
     block?.querySelector<HTMLElement>(
@@ -1957,7 +1975,7 @@ const selectCoreDocumentAnnotation = (event: MouseEvent | KeyboardEvent): void =
   const view = coreAcknowledgedMarkupView
   if (!element || !view || coreCommentOpen.value || coreReviewResolving.value) return
   const binding = view.bindings.find((binding) =>
-    editor.value?.editor.scrollPage?.queryBlock([...binding.path])?.domNode.contains(element)
+    editor.value?.editor.scrollPage?.queryBlock([...binding.path])?.domNode?.contains(element)
   )
   if (!binding) return
   const start = binding.sourceRange.start + Number(element.dataset.criticStart)
@@ -2393,7 +2411,7 @@ const handleCoreContextRequest = (value: unknown): void => {
     const binding =
       element &&
       view?.bindings.find((binding) =>
-        editor.value?.editor.scrollPage?.queryBlock([...binding.path])?.domNode.contains(element)
+        editor.value?.editor.scrollPage?.queryBlock([...binding.path])?.domNode?.contains(element)
       )
     if (!binding || !element) return empty
     const start = binding.sourceRange.start + Number(element.dataset.criticStart)
@@ -3768,7 +3786,7 @@ onMounted(() => {
   editor.value = muya
   if (props.corePlainTextView !== undefined) {
     const view = props.corePlainTextView
-    muya.setContent('state' in view ? structuredClone([...view.state]) : view.markdown)
+    muya.setContent('state' in view ? asMuyaStates(structuredClone([...view.state])) : view.markdown)
   }
   // The first document's content is set via constructor options, so no
   // `file-loaded` / `setMarkdownToEditor` runs for it — seed its TOC here.
@@ -4147,7 +4165,7 @@ onMounted(() => {
         coreAcknowledgedMarkupView?.bindings ?? props.corePlainTextView?.bindings ?? [],
       blockAtPath: (path) => {
         const block = editor.value?.editor?.scrollPage?.queryBlock([...path])
-        return block?.isContent?.() ? block : undefined
+        return block?.isContent() ? (block as ProjectedSearchPresentationBlock) : undefined
       }
     })
     coreSelectionClipboardAuthority = createProjectedSelectionClipboardAuthority({
@@ -4326,14 +4344,14 @@ onMounted(() => {
           if (outcome !== undefined) await refreshCoreReviewItem('next', 0)
         },
         inputPlainText (blockIndex: number, text: string, cursor: number): void {
-          const block = editor.value?.editor?.scrollPage?.queryBlock([blockIndex, 'text'])
+          const block = muya.editor.scrollPage?.queryBlock([blockIndex, 'text'])
           if (block === undefined || block === null || !block.isContent?.()) {
             throw new Error('Core Muya paragraph content block is unavailable')
           }
-          if (block.domNode === null) {
+          if (block.domNode == null) {
             throw new Error('Core Muya paragraph is not mounted')
           }
-          editor.value.editor.activeContentBlock = block
+          muya.editor.activeContentBlock = block
           block.setCursor(0, block.text.length, true)
           block.domNode.dispatchEvent(
             new InputEvent('beforeinput', {
@@ -4343,24 +4361,24 @@ onMounted(() => {
               inputType: 'insertReplacementText'
             })
           )
-          const updated = editor.value.editor.scrollPage?.queryBlock([blockIndex, 'text'])
+          const updated = muya.editor.scrollPage?.queryBlock([blockIndex, 'text'])
           if (updated?.isContent()) updated.setCursor(cursor, cursor, true)
-          editor.value.flush()
+          muya.flush()
         },
         composePlainText (blockIndex: number, candidates: readonly string[]): void {
-          const block = editor.value?.editor?.scrollPage?.queryBlock([blockIndex, 'text'])
+          const block = muya.editor.scrollPage?.queryBlock([blockIndex, 'text'])
           if (
             block === undefined ||
             block === null ||
             !block.isContent?.() ||
-            block.domNode === null ||
+            block.domNode == null ||
             candidates.length === 0 ||
             candidates.some((candidate) => candidate.length === 0)
           ) {
             throw new Error('Core Muya composition block is unavailable')
           }
           const initialText = block.text
-          editor.value.editor.activeContentBlock = block
+          muya.editor.activeContentBlock = block
           block.setCursor(initialText.length, initialText.length)
           block.domNode.dispatchEvent(
             new CompositionEvent('compositionstart', {
@@ -4389,14 +4407,14 @@ onMounted(() => {
           )
         },
         inputMathBlock (blockIndex: number, formula: string): void {
-          const muyaEditor = editor.value?.editor
+          const muyaEditor = muya.editor
           const paragraph = muyaEditor?.scrollPage?.queryBlock([blockIndex, 'text'])
           if (
             muyaEditor === undefined ||
             paragraph === undefined ||
             paragraph === null ||
             !paragraph.isContent?.() ||
-            paragraph.domNode === null ||
+            paragraph.domNode == null ||
             formula.length === 0
           ) {
             throw new Error('Core Muya math paragraph is unavailable')
@@ -4418,9 +4436,9 @@ onMounted(() => {
               inputType: 'insertParagraph'
             })
           )
-          editor.value.flush()
+          muya.flush()
           const math = muyaEditor.scrollPage?.queryBlock([blockIndex, 'text'])
-          if (math === undefined || math === null || !math.isContent?.() || math.domNode === null) {
+          if (math === undefined || math === null || !math.isContent?.() || math.domNode == null) {
             throw new Error('Core Muya math content is unavailable')
           }
           muyaEditor.activeContentBlock = math
@@ -4433,10 +4451,10 @@ onMounted(() => {
               inputType: 'insertReplacementText'
             })
           )
-          editor.value.flush()
+          muya.flush()
         },
         async pasteMarkdownTable (blockIndex: number, markdown: string): Promise<void> {
-          const muyaEditor = editor.value?.editor
+          const muyaEditor = muya.editor
           const block = muyaEditor?.scrollPage?.queryBlock([blockIndex, 'text'])
           if (
             muyaEditor === undefined ||
@@ -4458,7 +4476,7 @@ onMounted(() => {
             }
           } as unknown as ClipboardEvent
           await muyaEditor.clipboard.pasteHandler(event, markdown, '')
-          editor.value.flush()
+          muya.flush()
         },
         replacePlainTextAcrossBlocks (
           startBlockIndex: number,
@@ -4467,7 +4485,7 @@ onMounted(() => {
           endOffset: number,
           text: string
         ): void {
-          const muyaEditor = editor.value?.editor
+          const muyaEditor = muya.editor
           const startBlock = muyaEditor?.scrollPage?.queryBlock([startBlockIndex, 'text'])
           const endBlock = muyaEditor?.scrollPage?.queryBlock([endBlockIndex, 'text'])
           if (
@@ -4500,7 +4518,7 @@ onMounted(() => {
               data: text
             })
           )
-          editor.value.flush()
+          muya.flush()
         }
       })
     }

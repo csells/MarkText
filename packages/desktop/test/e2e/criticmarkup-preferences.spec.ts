@@ -20,7 +20,7 @@ import {
 const languagePreferences = (enabled: boolean) => ({
   superSubScript: enabled,
   footnote: enabled,
-  isGitlabCompatibilityEnabled: enabled
+  texMathGfm: enabled
 })
 
 // Exercise the same main-process persistence/broadcast boundary as Preferences.
@@ -181,7 +181,7 @@ for (const mode of ['Markup', 'Source'] as const) {
         window.electron.ipcRenderer.on('mt::user-preference', (_event, preferences) => {
           if (typeof preferences === 'object' && preferences !== null) {
             // Main persists and broadcasts each preference separately.
-            for (const key of ['superSubScript', 'footnote', 'isGitlabCompatibilityEnabled']) {
+            for (const key of ['superSubScript', 'footnote', 'texMathGfm']) {
               if ((preferences as Record<string, unknown>)[key] === true) {
                 receivedPreferences.add(key)
               }

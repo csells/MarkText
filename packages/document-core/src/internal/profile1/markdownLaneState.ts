@@ -2,7 +2,8 @@ import { frontMatterPolicy, type FrontMatterPolicy } from '@marktext/input-polic
 import {
   composeMarkdownLiteralRanges,
   type MarkdownContainerDepthFailure,
-  type MarkdownLiteralRange
+  type MarkdownLiteralRange,
+  type MarkdownMathForm
 } from './markdownTypes.js'
 import {
   findAutolinkEnd,
@@ -51,6 +52,8 @@ interface MarkdownMathState {
   readonly closeStart: number
   /** The opener is a line of its own `$$`: a math block, which spans blank lines. */
   readonly block?: true
+  /** Non-dollar delimiters; they read as inline spans like a lone `$`. */
+  readonly form?: MarkdownMathForm
 }
 
 interface MarkdownFenceState {
@@ -2002,10 +2005,11 @@ function fencedLiteralProvider(
   lineText: string,
   openerEnd: number,
   mathEnabled: boolean = true,
-  gitLabMathEnabled: boolean = true
+  texMathGfmEnabled: boolean = true
 ): MarkdownFenceState['provider'] {
   const info = lineText.slice(openerEnd).trim().toLowerCase()
-  if (info === 'math' && mathEnabled && gitLabMathEnabled) {
+  // The fence rides tex_math_gfm alone, without the dollar extension (#5446).
+  if (info === 'math' && texMathGfmEnabled) {
     return 'math'
   }
   const language = info.split(/[\t ]/, 1)[0] ?? ''
@@ -2282,6 +2286,63 @@ function createNextMathRunStart(
   }
 }
 
+/**
+ * pandoc's optional math delimiters as upstream's editor reads them (#5446):
+ * `` $`…`$ `` (tex_math_gfm), `\(…\)`/`\[…\]` (tex_math_single_backslash,
+ * where `\\` inside stays a literal backslash) and `\\(…\\)`/`\\[…\\]`
+ * (tex_math_double_backslash, closed by the first literal closer). The
+ * opener is an unescaped character, so these run ahead of escapes.
+ */
+function findOptionalMathSpan(
+  source: string,
+  offset: number,
+  laneEnd: number,
+  gfm: boolean,
+  singleBackslash: boolean,
+  doubleBackslash: boolean
+): MarkdownMathState | undefined {
+  const first = source.charCodeAt(offset)
+  if (gfm && first === 36 && source.charCodeAt(offset + 1) === 96) {
+    for (let index = offset + 2; index < laneEnd; index += 1) {
+      const codeUnit = source.charCodeAt(index)
+      if (codeUnit === 92) {
+        index += 1
+        continue
+      }
+      if (codeUnit === 96) {
+        return index > offset + 2 && index + 1 < laneEnd && source.charCodeAt(index + 1) === 36
+          ? Object.freeze({ openStart: offset, delimiterLength: 2, closeStart: index, form: 'gfm' as const })
+          : undefined
+      }
+    }
+    return undefined
+  }
+  if (first !== 92) return undefined
+  const second = source.charCodeAt(offset + 1)
+  if (doubleBackslash && second === 92) {
+    const opener = source.charCodeAt(offset + 2)
+    if (opener === 40 || opener === 91) {
+      const closer = source.indexOf(opener === 40 ? '\\\\)' : '\\\\]', offset + 4)
+      if (closer >= 0 && closer + 3 <= laneEnd) {
+        return Object.freeze({ openStart: offset, delimiterLength: 3, closeStart: closer, form: 'double-backslash' as const })
+      }
+    }
+  }
+  if (singleBackslash && (second === 40 || second === 91)) {
+    const close = second === 40 ? 41 : 93
+    for (let index = offset + 2; index + 1 < laneEnd; index += 1) {
+      if (source.charCodeAt(index) !== 92) continue
+      if (source.charCodeAt(index + 1) === close) {
+        return index > offset + 2
+          ? Object.freeze({ openStart: offset, delimiterLength: 2, closeStart: index, form: 'single-backslash' as const })
+          : undefined
+      }
+      index += 1
+    }
+  }
+  return undefined
+}
+
 function materializeMarkdownLine(path: MarkdownLinePath | undefined): string {
   if (path === undefined) {
     return ''
@@ -2522,7 +2583,9 @@ export function createMarkdownLaneState(
   _gfmEnabled: boolean = true,
   gfmAutolinksEnabled: boolean = true,
   mathEnabled: boolean = true,
-  gitLabMathEnabled: boolean = true,
+  texMathGfmEnabled: boolean = true,
+  texMathSingleBackslashEnabled: boolean = false,
+  texMathDoubleBackslashEnabled: boolean = false,
   footnotesEnabled: boolean = true,
   execution?: ParseExecutionTracker,
   hasCriticMarkupCandidate?: boolean,
@@ -2882,7 +2945,7 @@ export function createMarkdownLaneState(
               probeLine,
               opening.startOffset + opening.openerLength,
               mathEnabled,
-              gitLabMathEnabled
+              texMathGfmEnabled
             ),
             container: blockContainerFrom(probeState)
           })
@@ -3034,7 +3097,8 @@ export function createMarkdownLaneState(
           completedLiterals.push(Object.freeze({
             kind: 'math',
             start: math.openStart,
-            end: closeEnd
+            end: closeEnd,
+            ...(math.form === undefined ? {} : { mathForm: math.form })
           }))
           offset = closeEnd
           math = undefined
@@ -3211,6 +3275,19 @@ export function createMarkdownLaneState(
                 })
                 continue
               }
+            }
+            const optionalMath = findOptionalMathSpan(
+              source,
+              offset,
+              laneEnd,
+              texMathGfmEnabled,
+              texMathSingleBackslashEnabled,
+              texMathDoubleBackslashEnabled
+            )
+            if (optionalMath !== undefined) {
+              math = optionalMath
+              offset = optionalMath.openStart + (optionalMath.form === 'double-backslash' ? 3 : 2)
+              continue
             }
             if (mathEnabled && source.charCodeAt(offset) === 36) {
               const runLimit = matchingScopePolicy?.delimiterRunLimit?.(offset, sourceEnd) ?? sourceEnd
@@ -3724,7 +3801,7 @@ export function createMarkdownLaneState(
               completedLine,
               opening.startOffset + opening.openerLength,
               mathEnabled,
-              gitLabMathEnabled
+              texMathGfmEnabled
             ),
             container: blockContainerFrom(lineState)
           })
@@ -4145,7 +4222,7 @@ export function createMarkdownLaneState(
       checkpoint.fixedInline !== undefined ||
       checkpoint.frontMatter !== undefined ||
       checkpoint.definition !== undefined ||
-      checkpoint.math?.delimiterLength === 1
+      (checkpoint.math?.delimiterLength === 1 || checkpoint.math?.form !== undefined)
     ) {
       return false
     }
@@ -4362,7 +4439,7 @@ export function createMarkdownLaneState(
     compatibleCloserStandsAgainstLiteral: Object.freeze(
       (checkpoint: MarkdownCheckpoint): boolean =>
         checkpoint.inlineCode !== undefined ||
-        checkpoint.math?.delimiterLength === 1 ||
+        (checkpoint.math?.delimiterLength === 1 || checkpoint.math?.form !== undefined) ||
         checkpoint.fixedInline?.extendedAutolink === true
     ),
     lineStartBoundaryStandsAgainstLiteral: Object.freeze(
@@ -4553,7 +4630,9 @@ function parsePlainMarkdownLanePass(
   gfmEnabled: boolean = true,
   gfmAutolinksEnabled: boolean = true,
   mathEnabled: boolean = true,
-  gitLabMathEnabled: boolean = true,
+  texMathGfmEnabled: boolean = true,
+  texMathSingleBackslashEnabled: boolean = false,
+  texMathDoubleBackslashEnabled: boolean = false,
   footnotesEnabled: boolean = true,
   physicalRecorder?: Profile1PhysicalTraversalRecorderV1
 ): PlainMarkdownLaneParse {
@@ -4566,7 +4645,9 @@ function parsePlainMarkdownLanePass(
     gfmEnabled,
     gfmAutolinksEnabled,
     mathEnabled,
-    gitLabMathEnabled,
+    texMathGfmEnabled,
+    texMathSingleBackslashEnabled,
+    texMathDoubleBackslashEnabled,
     footnotesEnabled,
     undefined,
     undefined,
@@ -4659,7 +4740,9 @@ export function parseIntrinsicForkMarkdownLaneFacts(
   gfmEnabled: boolean = true,
   gfmAutolinksEnabled: boolean = true,
   mathEnabled: boolean = true,
-  gitLabMathEnabled: boolean = true,
+  texMathGfmEnabled: boolean = true,
+  texMathSingleBackslashEnabled: boolean = false,
+  texMathDoubleBackslashEnabled: boolean = false,
   footnotesEnabled: boolean = true,
   physicalRecorder?: Profile1PhysicalTraversalRecorderV1
 ): PlainMarkdownLaneParse {
@@ -4672,7 +4755,9 @@ export function parseIntrinsicForkMarkdownLaneFacts(
     gfmEnabled,
     gfmAutolinksEnabled,
     mathEnabled,
-    gitLabMathEnabled,
+    texMathGfmEnabled,
+    texMathSingleBackslashEnabled,
+    texMathDoubleBackslashEnabled,
     footnotesEnabled,
     physicalRecorder
   )
