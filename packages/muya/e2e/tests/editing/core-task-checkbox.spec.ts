@@ -6,14 +6,14 @@ const cases = [
         source: '- [ ] {++parent++}{>>note<<}\n\n  - [ ] same\n  - [ ] same\n',
         expected: '- [x] {++parent++}{>>note<<}\n\n  - [x] same\n  - [x] same\n',
         tracked: '- [{~~ ~>x~~}] {++parent++}{>>note<<}\n\n  - [{~~ ~>x~~}] same\n  - [{~~ ~>x~~}] same\n',
-        flags: [true, true, true], trackedFlags: [true, true, true], needle: '{++parent++}', replacement: '{++Xparent++}',
+        flags: [true, true, true], trackedFlags: [true, true, true], needle: '{++parent++}', replacement: '{++Xparent++}', untrackedReplacement: 'X{++parent++}',
     },
     {
         name: 'checked task moves forward', target: 0, autoCheck: false, autoMove: true,
         source: '- [ ] {++same++}{>>first<<}\n- [ ] same{>>second<<}\n- [x] final\n',
         expected: '- [ ] same{>>second<<}\n- [x] {++same++}{>>first<<}\n- [x] final\n',
         tracked: '{~~- [ ] {++same++}{>>first<<}~>- [ ] same{>>second<<}~~}\n{~~- [ ] same{>>second<<}~>- [x] {++same++}{>>first<<}~~}\n- [x] final\n',
-        flags: [false, true, true], trackedFlags: [false, false, false, true, true], needle: '{++same++}', replacement: '{++Xsame++}',
+        flags: [false, true, true], trackedFlags: [false, false, false, true, true], needle: '{++same++}', replacement: '{++Xsame++}', untrackedReplacement: 'X{++same++}',
     },
     {
         name: 'nested task moves backward and derives parent', target: 2, autoCheck: true, autoMove: true,
@@ -40,7 +40,10 @@ for (const example of cases) {
                 expect(await page.locator('.mu-task-list-checkbox').evaluateAll(nodes => nodes.map(node => (node as HTMLInputElement).checked))).toEqual(tracked ? example.trackedFlags : example.flags);
                 await page.keyboard.type('X');
                 const at = expected.lastIndexOf(example.needle);
-                const next = expected.slice(0, at) + example.replacement + expected.slice(at + example.needle.length);
+                // Untracked typing at an addition's start stays before it; Track
+                // Changes extends the pending addition.
+                const replacement = !tracked && 'untrackedReplacement' in example ? example.untrackedReplacement : example.replacement;
+                const next = expected.slice(0, at) + replacement + expected.slice(at + example.needle.length);
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: next }, anchor: 1, caret: 1, legacyCalls: [] });
                 await page.evaluate(() => window.coreBoundary.history('undo'));
                 expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: expected });

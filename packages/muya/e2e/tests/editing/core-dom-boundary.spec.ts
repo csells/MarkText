@@ -2,7 +2,7 @@ import { expect, test } from '../fixtures/muya';
 
 for (const example of [
     { name: 'plain text', source: 'aa\n', afterX: 'xaa\n', afterY: 'xyaa\n', target: 0 },
-    { name: 'a leading addition', source: '{++a++}a\n', afterX: 'x{++a++}a\n', afterY: 'xy{++a++}a\n', target: 3 },
+    { name: 'a leading addition', source: '{++a++}a\n', afterX: 'x{++a++}a\n', afterY: 'xy{++a++}a\n', target: 0 },
 ]) {
     test(`Core native typing remains before ${example.name} across successive keys and history`, async ({ page }) => {
         await page.evaluate(async (source) => {
