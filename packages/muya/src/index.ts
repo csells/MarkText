@@ -4,11 +4,11 @@ export type { ILocale } from './i18n/types';
 export type { IInlinePresentationContext, IInlinePresentationImage, TInlinePresentation } from './inlineRenderer/types';
 
 export { de, en, es, fr, ja, ko, nl, pt, ru, tr, zhCN, zhTW } from './locales';
+export { Muya } from './muya';
 export type { IMatch, IReplaceOption, ISearchOption } from './search/types';
 export type { IIndexCursor } from './selection/offsetCursor';
-export type { IHistorySelection, IPublicCursorInput } from './selection/types';
 
-export { Muya } from './muya';
+export type { IHistorySelection, IPublicCursorInput } from './selection/types';
 export { applyNativeOperation, serializeNativeState, serializeNativeTable } from './state/applyNativeOperation';
 export type { ITocItem } from './state/getTOC';
 export { MarkdownToHtml } from './state/markdownToHtml';

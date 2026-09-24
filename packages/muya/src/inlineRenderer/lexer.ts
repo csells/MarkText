@@ -11,9 +11,9 @@ import escapeCharactersMap from '../config/escapeCharacter';
 import { escapeHTML, isLengthEven, union } from '../utils';
 import { validEmoji } from '../utils/emoji';
 import { scanEmphasisSpans } from './emphasis';
+import { isInlineHtmlTagAllowed } from './htmlPolicy';
 import { parseSrcAndTitle } from './linkDestination';
 import { BACKSLASH_MATH_RULES, beginRules, emojiValidateRules, inlineRules, linkValidateRules } from './rules';
-import { isInlineHtmlTagAllowed } from './htmlPolicy';
 import {
     getAttributes,
     lowerPriority,
