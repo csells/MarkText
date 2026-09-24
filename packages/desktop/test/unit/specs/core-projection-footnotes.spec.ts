@@ -27,12 +27,29 @@ describe('Core footnote presentation', () => {
       { text: '2', href: '#fn-2' },
       { text: '1', href: '#fn-1' }
     ])
-    expect(host.querySelector('#fn-1 p')?.textContent).toBe('Second body. ↩')
+    // Each reference has its own id and backref (#5492).
+    expect([...host.querySelectorAll('.footnote-ref a')].map((node) => node.id)).toEqual([
+      'fnref-1',
+      'fnref-2',
+      'fnref-1-2'
+    ])
+    expect(host.querySelector('#fn-1 p')?.textContent).toBe('Second body. ↩ ↩2')
+    expect(
+      [...host.querySelectorAll('#fn-1 .footnote-backref')].map((node) => node.getAttribute('href'))
+    ).toEqual(['#fnref-1', '#fnref-1-2'])
     expect(host.querySelector('#fn-2 strong')?.textContent).toBe('First body')
     expect(host.querySelector('#fn-2 .footnote-backref')?.getAttribute('href')).toBe('#fnref-2')
     expect(host.querySelector('code')?.textContent).toBe('[^first]')
     expect(host.querySelector('p')?.textContent).toContain('and [^first].')
     expect(host.querySelector('.footnote-definition')).toBeNull()
+  })
+
+  it('keeps a reference inside a note body literal, as upstream writes it', () => {
+    const core = createDocumentCore()
+    const revision = core.open('a[^a]\n\n[^a]: see [^a]\n', { footnotes: true })
+    const host = fragment(renderMarkdownProjectionToSafeHtml(core.project(revision, 'revised')))
+    expect(host.querySelectorAll('.footnote-ref')).toHaveLength(1)
+    expect(host.querySelector('#fn-1 p')?.textContent).toBe('see [^a] ↩')
   })
 
   it('keeps main and isolated Comment definitions separate and leaves orphan references literal', () => {
