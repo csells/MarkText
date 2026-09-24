@@ -72,7 +72,7 @@ it('keeps an immediate heading command at its paragraph boundary after an earlie
     const first = app.muya.editor.scrollPage?.queryBlock([0, 'text'])
     if (!first?.isContent()) throw new Error('Expected first paragraph')
     first.setCursor(1, 1, true)
-    first.domNode.dispatchEvent(
+    first.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         data: 'X',
         inputType: 'insertText',

@@ -84,7 +84,6 @@ const preferenceKeys = [
   'imagePreferRelativeDirectory',
   'imageRelativeDirectoryBase',
   'imageRelativeDirectoryName',
-  'isGitlabCompatibilityEnabled',
   'isHtmlEnabled',
   'language',
   'lastOpenedFolder',
@@ -106,6 +105,8 @@ const preferenceKeys = [
   'searchNoIgnore',
   'sequenceTheme',
   'sideBarVisibility',
+  'softNewlineAsSpace',
+  'sourceCodeLineNumbers',
   'sourceCodeModeEnabled',
   'spellcheckerEnabled',
   'spellcheckerLanguage',
@@ -114,6 +115,10 @@ const preferenceKeys = [
   'superSubScript',
   'tabBarVisibility',
   'tabSize',
+  'texMathDollars',
+  'texMathDoubleBackslash',
+  'texMathGfm',
+  'texMathSingleBackslash',
   'textDirection',
   'theme',
   'titleBarStyle',
@@ -158,10 +163,13 @@ describe('CriticMarkup Preference production surfaces', () => {
       ).toBe(true)
     }
 
+    // A first start leaves `language` unset until the system language is
+    // detected once the app is ready (#5131).
     const initialized = preferences.getAll() as Record<string, unknown>
-    expect(Object.keys(initialized).sort()).toEqual([...preferenceKeys].sort())
+    const firstStartKeys = preferenceKeys.filter(key => key !== 'language')
+    expect(Object.keys(initialized).sort()).toEqual([...firstStartKeys].sort())
 
-    for (const key of preferenceKeys) {
+    for (const key of firstStartKeys) {
       expect(initialized[key], `preference:${key}`).toEqual(defaults[key])
     }
   })

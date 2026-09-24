@@ -16,6 +16,7 @@ import {
 } from '@/documentAuthority/muyaModelSelection'
 import { reconcileMuyaDocumentView } from '@/documentAuthority/reconcileMuyaDocumentView'
 import { createMuyaPlainTextCoreAdapter } from '@/documentAuthority/muyaPlainTextCoreAdapter'
+import { asMuyaStates } from '../helpers/muyaTypes'
 
 beforeEach(() => {
   ;(window as Window & { MUYA_VERSION?: string }).MUYA_VERSION = 'test'
@@ -57,7 +58,7 @@ describe('native fence input on the common model', () => {
     try {
       muya.setInlinePresentation(presentation.render)
       muya.init()
-      muya.setContent(structuredClone([...initial.view.state]))
+      muya.setContent(asMuyaStates(structuredClone([...initial.view.state])))
       muya.editor.bindDocumentEditing({
         prepareImage() {
           throw new Error('Unexpected image preparation')

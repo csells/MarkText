@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import type { MaybeContent } from '../helpers/muyaTypes'
 
 type BoundMuya = ReturnType<typeof bootBoundMuya>
 
 const leaves = (app: BoundMuya) => {
   const found = []
   for (
-    let block = app.muya.editor.scrollPage?.firstContentInDescendant();
+    let block: MaybeContent = app.muya.editor.scrollPage?.firstContentInDescendant();
     block != null;
     block = block.nextContentInContext()
   ) {

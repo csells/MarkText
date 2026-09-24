@@ -16,6 +16,7 @@ import {
 } from '@/documentAuthority/muyaModelSelection'
 import { reconcileMuyaDocumentView } from '@/documentAuthority/reconcileMuyaDocumentView'
 import type { CoreAppliedReply } from '@/documentAuthority/coreProtocol'
+import { asMuyaStates } from '../helpers/muyaTypes'
 
 const unexpectedComposition = () => {
   throw new Error('Unexpected composition in the formatting fixture')
@@ -62,7 +63,7 @@ const bootAuthoring = (source: string, tracked = false) => {
   })
   muya.setInlinePresentation(presentation.render)
   muya.init()
-  muya.setContent(structuredClone([...view().state]))
+  muya.setContent(asMuyaStates(structuredClone([...view().state])))
   muya.editor.bindDocumentEditing({
     prepareImage() {
       throw new Error('Unexpected image preparation')

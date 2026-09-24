@@ -4,6 +4,7 @@ import { createDocumentCore } from '@marktext/document-core'
 import { muyaClipboardCurrentSelection } from '@/documentAuthority/muyaModelSelection'
 import { restoreMuyaDocumentSelection } from '@/documentAuthority/reconcileMuyaDocumentView'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { asMuyaStates } from '../helpers/muyaTypes'
 
 it.each([
   {
@@ -47,7 +48,9 @@ it.each([
   async({ source, changed, typed, offset }) => {
     const app = bootBoundMuya(source)
     try {
-      const lang = app.muya.editor.scrollPage!.queryBlock([0]).firstContentInDescendant()!
+      const code = app.muya.editor.scrollPage!.queryBlock([0])
+      if (!code?.isParent()) throw new Error('Expected code block')
+      const lang = code.firstContentInDescendant()!
       expect(lang.blockName).toBe('language-input')
       lang.setCursor(offset, offset, true)
       lang.domNode!.dispatchEvent(
@@ -109,7 +112,7 @@ it('retains an intrinsic info position through remount and the next key', async(
       anchor: { text: { start: 3, end: 10 }, offset: 1 },
       focus: { text: { start: 3, end: 10 }, offset: 1 }
     })
-    app.muya.setContent(structuredClone([...app.view().state]))
+    app.muya.setContent(asMuyaStates(structuredClone([...app.view().state])))
     restoreMuyaDocumentSelection(app.muya, app.view(), selection!)
     expect(app.muya.getSelection()).toMatchObject({
       anchor: { path: [0, 'meta', 'lang'], offset: 1 },
@@ -139,7 +142,9 @@ it('direct info edits keep the next key in the field when Track Changes is enabl
   const source = '```js\nbody\n```\n'
   const app = bootBoundMuya(source)
   try {
-    const lang = app.muya.editor.scrollPage!.queryBlock([0]).firstContentInDescendant()!
+    const code = app.muya.editor.scrollPage!.queryBlock([0])
+    if (!code?.isParent()) throw new Error('Expected code block')
+    const lang = code.firstContentInDescendant()!
     lang.setCursor(1, 1, true)
     app.track(true)
     lang.domNode!.dispatchEvent(

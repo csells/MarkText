@@ -1337,7 +1337,7 @@ describe('Muya plain-text Core command lane', () => {
           bubbles: true,
           cancelable: true
         })
-        first.domNode.dispatchEvent(event)
+        first.domNode!.dispatchEvent(event)
         expect(event.defaultPrevented).toBe(true)
         expect(app.adapter.state().status).toBe('ready')
         expect(app.binding.sourceAtBarrier()).toMatchObject({ source: expected })
@@ -1432,7 +1432,7 @@ describe('Muya plain-text Core command lane', () => {
         { block: first, path: first.path, offset: 2 },
         { block: removed, path: removed.path, offset: 2 }
       )
-      first.domNode.dispatchEvent(
+      first.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'LONG',
@@ -1441,7 +1441,7 @@ describe('Muya plain-text Core command lane', () => {
         })
       )
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'alLONGta\n\ngamma\n' })
-      expect(removed.domNode.isConnected).toBe(false)
+      expect(removed.domNode!.isConnected).toBe(false)
       // A stale DOM selection must not resolve to gamma merely because it now
       // occupies beta's former path. Native authoring consumes this same mapping.
       expect(() =>
@@ -1449,7 +1449,7 @@ describe('Muya plain-text Core command lane', () => {
       ).toThrow('The current model has no source position for the native formatting selection')
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 6 }, focus: { offset: 6 } })
       const live = app.muya.editor.selection.getSelection()?.anchor.block
-      if (!live?.domNode.isConnected) throw new Error('Expected reconciled native caret')
+      if (!live?.domNode?.isConnected) throw new Error('Expected reconciled native caret')
       live.domNode.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',

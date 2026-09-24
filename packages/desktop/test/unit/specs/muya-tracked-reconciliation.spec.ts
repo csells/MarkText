@@ -14,6 +14,7 @@ import {
 } from '@/documentAuthority/muyaModelSelection'
 import { reconcileMuyaDocumentView } from '@/documentAuthority/reconcileMuyaDocumentView'
 import type { CoreAppliedReply } from '@/documentAuthority/coreProtocol'
+import { asMuyaStates } from '../helpers/muyaTypes'
 
 it.each([
   { before: 'word', selection: [0, 4], first: '', source: '{--word--}{++Y++}\n' },
@@ -59,7 +60,7 @@ it.each([
     try {
       muya.setInlinePresentation(presentation.render)
       muya.init()
-      muya.setContent(structuredClone([...initial.state]))
+      muya.setContent(asMuyaStates(structuredClone([...initial.state])))
       muya.editor.bindDocumentEditing({
         prepareImage() {
           throw new Error('Unexpected image preparation')

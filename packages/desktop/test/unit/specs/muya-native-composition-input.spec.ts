@@ -24,6 +24,7 @@ import {
 } from '@/documentAuthority/muyaModelSelection'
 import { reconcileMuyaDocumentView } from '@/documentAuthority/reconcileMuyaDocumentView'
 import { createMuyaPlainTextCoreAdapter } from '@/documentAuthority/muyaPlainTextCoreAdapter'
+import { asMuyaStates } from '../helpers/muyaTypes'
 
 beforeEach(() => {
   ;(window as Window & { MUYA_VERSION?: string }).MUYA_VERSION = 'test'
@@ -103,7 +104,7 @@ describe('actual native composition on the shared model', () => {
       try {
         muya.setInlinePresentation(presentation.render)
         muya.init()
-        muya.setContent(structuredClone([...current.state]))
+        muya.setContent(asMuyaStates(structuredClone([...current.state])))
         muya.editor.bindDocumentEditing({
           prepareImage() {
             throw new Error('Unexpected image preparation')
@@ -300,7 +301,7 @@ describe('active native composition teardown', () => {
       try {
         muya.setInlinePresentation(createMuyaMarkupPresentationIndex(view).render)
         muya.init()
-        muya.setContent(structuredClone([...view.state]))
+        muya.setContent(asMuyaStates(structuredClone([...view.state])))
         muya.editor.bindDocumentEditing({
           prepareImage() {
             throw new Error('Unexpected image preparation')

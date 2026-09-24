@@ -151,7 +151,7 @@ describe('useEditorStore LISTEN_FOR_FILE_CHANGE — a file changed on disk', () 
 
   it.each([true, false])('ignores unchanged acknowledged disk bytes while Core owns a saved=%s document', saved => {
     const store = useEditorStore()
-    const tab = makeSavedTab(store)
+    const tab = makeTab(store)
     store.REGISTER_CORE_SAVE_IDENTITY(tab.id, { generation: 1, revision: 1 })
     unregister = coreDocumentReloadAuthority.register(tab.id, async() => () => {})
     tab.markdown = 'a different presentation snapshot'

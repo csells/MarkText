@@ -18,7 +18,7 @@ it.each(
       expect(body.getAnchor()?.blockName).toBe('math-block')
       expect(body.text).toBe('  x')
       body.setCursor(1, 1, true)
-      body.domNode.dispatchEvent(
+      body.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'y',
@@ -31,16 +31,14 @@ it.each(
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 2 }, focus: { offset: 2 } })
       expect(app.muya.editor.selection.getSelection()?.anchor.block.text).toBe(' y x')
       // No acknowledgement or artificial wait before the next key.
-      app.muya.editor.selection
-        .getSelection()
-        ?.anchor.block.domNode.dispatchEvent(
-          new InputEvent('beforeinput', {
-            inputType: 'insertText',
-            data: 'z',
-            bubbles: true,
-            cancelable: true
-          })
-        )
+      app.muya.editor.selection.getSelection()?.anchor.block.domNode!.dispatchEvent(
+        new InputEvent('beforeinput', {
+          inputType: 'insertText',
+          data: 'z',
+          bubbles: true,
+          cancelable: true
+        })
+      )
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: continued })
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 3 }, focus: { offset: 3 } })
       expect(app.muya.editor.selection.getSelection()?.anchor.block.text).toBe(' yz x')

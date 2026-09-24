@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import type { MaybeContent } from '../helpers/muyaTypes'
 
 // Expected bytes and carets were recorded from upstream MarkText (8d6c198c):
 // Enter in a lone known opening tag and Paragraph → HTML Block. Upstream's
@@ -28,12 +29,12 @@ const live = (app: App) => {
 }
 
 const input = (app: App, inputType: string, data: string | null = null) =>
-  live(app).domNode.dispatchEvent(
+  live(app).domNode!.dispatchEvent(
     new InputEvent('beforeinput', { inputType, data, bubbles: true, cancelable: true })
   )
 
 const lastContent = (app: App) => {
-  let block = app.muya.editor.scrollPage?.firstContentInDescendant()
+  let block: MaybeContent = app.muya.editor.scrollPage?.firstContentInDescendant()
   while (block?.nextContentInContext()) block = block.nextContentInContext()
   if (!block) throw new Error('Expected content')
   return block
@@ -100,7 +101,7 @@ it.each([
       const gap = live(app)
       expect(gap.blockName).toBe('paragraph.content')
       expect(gap.text).toBe('')
-      if (container) expect(gap.domNode.closest(container)).not.toBeNull()
+      if (container) expect(gap.domNode!.closest(container)).not.toBeNull()
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       input(app, 'insertText', 'x')
       expect(source(app)).toBe(typed)
@@ -147,7 +148,8 @@ it('reopening a template shows its editable middle line', () => {
   const app = bootBoundMuya('<div>\n\n</div>\n')
   try {
     expect(blockNames(app)).toEqual(['html-block', 'paragraph', 'html-block'])
-    const gap = app.muya.editor.scrollPage?.find(1)?.firstContentInDescendant()
+    const middle = app.muya.editor.scrollPage?.find(1)
+    const gap = middle?.isParent() ? middle.firstContentInDescendant() : undefined
     if (!gap) throw new Error('Expected the middle line')
     gap.setCursor(0, 0, true)
     input(app, 'insertText', 'x')
@@ -159,7 +161,7 @@ it('reopening a template shows its editable middle line', () => {
 })
 
 const keydown = (app: App, key: string) =>
-  live(app).domNode.dispatchEvent(
+  live(app).domNode!.dispatchEvent(
     new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
   )
 
@@ -188,7 +190,8 @@ it.each([
     const original = '<div>\n\n</div>\n'
     const app = bootBoundMuya(original)
     try {
-      const gap = app.muya.editor.scrollPage?.find(1)?.firstContentInDescendant()
+      const middle = app.muya.editor.scrollPage?.find(1)
+      const gap = middle?.isParent() ? middle.firstContentInDescendant() : undefined
       if (!gap) throw new Error('Expected the middle line')
       gap.setCursor(0, 0, true)
       act(app)

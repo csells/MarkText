@@ -13,12 +13,12 @@ it('joins beside a reference definition without removing the definition or earli
     if (!paragraph) throw new Error('Expected paragraph after reference definition')
     expect(paragraph.text).toBe('b')
     paragraph.setCursor(0, 0, true)
-    paragraph.domNode.dispatchEvent(
+    paragraph.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
     )
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'a\n\n[id]: /urlb\n' })
     const live = app.muya.editor.selection.getSelection()?.anchor.block
-    if (!live?.domNode.isConnected) throw new Error('Expected live definition selection')
+    if (!live?.domNode?.isConnected) throw new Error('Expected live definition selection')
     live.domNode.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
@@ -41,12 +41,12 @@ it('joins a reference definition at its own selected boundary', () => {
     const paragraph = app.muya.editor.scrollPage?.firstContentInDescendant()?.nextContentInContext()
     if (!paragraph) throw new Error('Expected reference definition')
     paragraph.setCursor(0, 0, true)
-    paragraph.domNode.dispatchEvent(
+    paragraph.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
     )
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'a[id]: /url\n' })
     const live = app.muya.editor.selection.getSelection()?.anchor.block
-    if (!live?.domNode.isConnected) throw new Error('Expected joined paragraph')
+    if (!live?.domNode?.isConnected) throw new Error('Expected joined paragraph')
     live.domNode.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
@@ -73,14 +73,14 @@ it('joins the selected repeated paragraph without touching the earlier identical
       ?.nextContentInContext()
     if (!paragraph) throw new Error('Expected third paragraph')
     paragraph.setCursor(0, 0, true)
-    paragraph.domNode.dispatchEvent(
+    paragraph.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
     )
     expect(app.binding.sourceAtBarrier()).toMatchObject({
       source: '- same{>>first<<}\n\n  same{>>second<<}same{>>third<<}\n'
     })
     const live = app.muya.editor.selection.getSelection()?.anchor.block
-    if (!live?.domNode.isConnected) throw new Error('Expected joined selection')
+    if (!live?.domNode?.isConnected) throw new Error('Expected joined selection')
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 4 }, focus: { offset: 4 } })
     live.domNode.dispatchEvent(
       new InputEvent('beforeinput', {
@@ -142,13 +142,13 @@ it.each(
       if (!paragraph) throw new Error('Expected second paragraph')
       expect(paragraph.text).toBe('b')
       paragraph.setCursor(0, 0, true)
-      paragraph.domNode.dispatchEvent(
+      paragraph.domNode!.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
       )
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: joined })
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 1 }, focus: { offset: 1 } })
       const live = app.muya.editor.selection.getSelection()?.anchor.block
-      if (!live?.domNode.isConnected) throw new Error('Expected live selection')
+      if (!live?.domNode?.isConnected) throw new Error('Expected live selection')
       live.domNode.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
@@ -208,13 +208,13 @@ it.each(
     if (!paragraph) throw new Error('Expected paragraph after heading')
     expect(paragraph.text).toBe('b')
     paragraph.setCursor(0, 0, true)
-    paragraph.domNode.dispatchEvent(
+    paragraph.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
     )
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: joined })
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset }, focus: { offset } })
     const live = app.muya.editor.selection.getSelection()?.anchor.block
-    if (!live?.domNode.isConnected) throw new Error('Expected live heading selection')
+    if (!live?.domNode?.isConnected) throw new Error('Expected live heading selection')
     live.domNode.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
@@ -255,7 +255,7 @@ it.each(['\n', '\r\n', '\r'])(
         ?.nextContentInContext()
       if (!paragraph) throw new Error('Expected second paragraph')
       paragraph.setCursor(0, 0, true)
-      paragraph.domNode.dispatchEvent(
+      paragraph.domNode!.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
       )
       expect(app.adapter.state().status, JSON.stringify(app.adapter.state())).toBe('ready')
@@ -267,7 +267,7 @@ it.each(['\n', '\r\n', '\r'])(
       )
       expect(core.project(core.open(joined.source), 'revised').markdown).toBe('- ab' + ending)
       const live = app.muya.editor.selection.getSelection()?.anchor.block
-      if (!live?.domNode.isConnected) throw new Error('Expected live selection')
+      if (!live?.domNode?.isConnected) throw new Error('Expected live selection')
       live.domNode.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
@@ -314,7 +314,7 @@ it.each([
     const paragraph = app.muya.editor.scrollPage?.firstContentInDescendant()?.nextContentInContext()
     if (!paragraph) throw new Error('Expected paragraph after heading')
     paragraph.setCursor(0, 0, true)
-    paragraph.domNode.dispatchEvent(
+    paragraph.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
     )
     expect(app.adapter.state().status, JSON.stringify(app.adapter.state())).toBe('ready')
@@ -323,7 +323,7 @@ it.each([
     expect(core.project(core.open(joined.source), 'revised').markdown).toBe(example.joined)
     expect(core.project(core.open(joined.source), 'original').markdown).toBe(example.original)
     const live = app.muya.editor.selection.getSelection()?.anchor.block
-    if (!live?.domNode.isConnected) throw new Error('Expected live heading caret')
+    if (!live?.domNode?.isConnected) throw new Error('Expected live heading caret')
     live.domNode.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',

@@ -28,7 +28,7 @@ it.each([false, true])(
       })
       const current = app.muya.editor.selection.getSelection()?.anchor.block
       if (!current) throw new Error('Expected resulting live paragraph')
-      current.domNode.dispatchEvent(
+      current.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'X',
@@ -85,7 +85,7 @@ it.each([
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 1, path } })
     const current = app.muya.editor.selection.getSelection()?.anchor.block
     if (!current) throw new Error('Expected live paragraph after quote reset')
-    current.domNode.dispatchEvent(
+    current.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'X',

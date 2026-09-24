@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import type { MaybeContent } from '../helpers/muyaTypes'
 
 it.each([
   {
@@ -25,12 +26,12 @@ it.each([
   const typed = example.typed + suffix
   const app = bootBoundMuya(source)
   try {
-    let paragraph = app.muya.editor.scrollPage?.firstContentInDescendant()
+    let paragraph: MaybeContent = app.muya.editor.scrollPage?.firstContentInDescendant()
     while (paragraph && paragraph.text !== 'bcd') paragraph = paragraph.nextContentInContext()
     if (!paragraph) throw new Error('Expected paragraph after table')
     expect(paragraph.text).toBe('bcd')
     paragraph.setCursor(0, 0, true)
-    paragraph.domNode.dispatchEvent(
+    paragraph.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
     )
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: joined })
@@ -39,7 +40,7 @@ it.each([
       focus: { offset: example.caret }
     })
     const live = app.muya.editor.selection.getSelection()?.anchor.block
-    if (!live?.domNode.isConnected) throw new Error('Expected table selection')
+    if (!live?.domNode?.isConnected) throw new Error('Expected table selection')
     live.domNode.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',

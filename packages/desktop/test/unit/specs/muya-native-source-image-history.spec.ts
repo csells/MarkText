@@ -15,6 +15,7 @@ import {
 } from '@/documentAuthority/muyaModelSelection'
 import { reconcileMuyaDocumentView } from '@/documentAuthority/reconcileMuyaDocumentView'
 import type { CoreAppliedReply } from '@/documentAuthority/coreProtocol'
+import { asMuyaStates } from '../helpers/muyaTypes'
 
 const unexpectedAction = () => {
   throw new Error('Unexpected action in the history fixture')
@@ -51,7 +52,7 @@ const bootMarkup = (binding: ReturnType<typeof createEditorCoreBinding>) => {
   const adapter = createMuyaPlainTextCoreAdapter(view().bindings, binding)
   muya.setInlinePresentation(presentation.render)
   muya.init()
-  muya.setContent(structuredClone([...view().state]))
+  muya.setContent(asMuyaStates(structuredClone([...view().state])))
   muya.editor.bindDocumentEditing({
     prepareImage: unexpectedAction,
     prepareClipboard: unexpectedAction,
@@ -148,7 +149,7 @@ it.each([
       ).toBeNull()
       const content = native.muya.getSelection()?.focus.block
       if (!content?.isContent()) throw new Error('Missing editable image label')
-      content.domNode.dispatchEvent(
+      content.domNode!.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'X', bubbles: true, cancelable: true })
       )
       const input = new InputEvent('beforeinput', {
@@ -157,7 +158,7 @@ it.each([
         bubbles: true,
         cancelable: true
       })
-      content.domNode.dispatchEvent(input)
+      content.domNode!.dispatchEvent(input)
       expect(input.defaultPrevented).toBe(true)
       expect(binding.sourceAtBarrier()).toMatchObject({ source: typed })
       const next = native.muya.editor.selection.getDOMSelection()

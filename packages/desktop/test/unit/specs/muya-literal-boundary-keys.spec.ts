@@ -24,15 +24,15 @@ it.each([
     try {
       const code = app.muya.editor.scrollPage!.lastContentInDescendant()!
       code.setCursor(0, 0, true)
-      code.domNode.dispatchEvent(
+      code.domNode!.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
       )
       const input = app.muya.editor.selection.getSelection()!.anchor.block
       expect(input.blockName).toBe('paragraph.content')
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: prefix + escaped + '\n' })
-      expect(displayedText(input.domNode)).toBe(body)
+      expect(displayedText(input.domNode!)).toBe(body)
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
-      input.domNode.dispatchEvent(
+      input.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'x',
@@ -42,7 +42,7 @@ it.each([
       )
       const typed = prefix + 'x' + escaped + '\n'
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
-      expect(displayedText(app.muya.editor.selection.getSelection()!.anchor.block.domNode)).toBe(
+      expect(displayedText(app.muya.editor.selection.getSelection()!.anchor.block.domNode!)).toBe(
         'x' + body
       )
       expect(app.legacyChanges).toEqual([])
@@ -55,7 +55,7 @@ it.each([
       try {
         expect(reopened.binding.sourceAtBarrier()).toMatchObject({ source: typed })
         expect(
-          displayedText(reopened.muya.editor.scrollPage!.lastContentInDescendant()!.domNode)
+          displayedText(reopened.muya.editor.scrollPage!.lastContentInDescendant()!.domNode!)
         ).toBe('x' + body)
       } finally {
         reopened.dispose()
@@ -117,13 +117,13 @@ it.each([
         bubbles: true,
         cancelable: true
       })
-      body.domNode.dispatchEvent(key)
+      body.domNode!.dispatchEvent(key)
       expect(key.defaultPrevented).toBe(true)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: changed })
       const input = app.muya.editor.selection.getSelection()!.anchor.block
       expect(input.blockName).toBe('paragraph.content')
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
-      input.domNode.dispatchEvent(
+      input.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'x',
@@ -172,11 +172,11 @@ it.each([
         bubbles: true,
         cancelable: true
       })
-      heading.domNode.dispatchEvent(key)
+      heading.domNode!.dispatchEvent(key)
       expect(key.defaultPrevented).toBe(true)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: changed })
       const input = app.muya.editor.selection.getSelection()!.anchor.block
-      input.domNode.dispatchEvent(
+      input.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'x',
@@ -202,7 +202,7 @@ it('tracks native code-start Backspace as one reset with its new paragraph caret
   try {
     const body = app.muya.editor.scrollPage!.lastContentInDescendant()!
     body.setCursor(0, 0, true)
-    body.domNode.dispatchEvent(
+    body.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
     )
     expect(app.binding.sourceAtBarrier()).toMatchObject({
@@ -210,7 +210,7 @@ it('tracks native code-start Backspace as one reset with its new paragraph caret
     })
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
     const input = app.muya.editor.selection.getSelection()!.anchor.block
-    input.domNode.dispatchEvent(
+    input.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',

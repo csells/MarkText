@@ -53,6 +53,10 @@ interface TocItem extends ListItem {
   content?: string
   contentHtml?: string
   lvl: number | null
+  /** Core-bound documents: the heading's source offset, for Source mode. */
+  sourceOffset?: number
+  /** Core-bound documents: the heading's Muya block path. */
+  nativePath?: (string | number)[]
 }
 
 type TocTreeNode = TreeNode<TocItem>
