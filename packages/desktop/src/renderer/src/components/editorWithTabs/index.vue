@@ -520,6 +520,15 @@ watch(
         coreRecoveryRegistrations.delete(documentId)
       }
     }
+    // A document switch re-renders the views before the queued transition
+    // below runs. The outgoing view's caret is read while that view still
+    // exists, and a return to the live lease's document remounts its view with
+    // that document's own caret rather than the one last installed.
+    const live = coreLease.value
+    if (live !== undefined && documentId !== previous[1]) {
+      if (live.documentId === previous[1]) captureCoreDocumentSelection(live)
+      else if (live.documentId === documentId) installCoreDocumentSelection(live)
+    }
     if (!sourceMode && target !== undefined && coreLease.value?.documentId !== target.id) {
       coreViewState.value = 'reconciling'
     }
