@@ -52,7 +52,7 @@ it.each([false, true])(
       if (app) {
         const input = muya.editor.selection.getSelection()?.anchor.block
         if (!input) throw new Error('Expected editable paragraph after the rule')
-        input.domNode.dispatchEvent(
+        input.domNode!.dispatchEvent(
           new InputEvent('beforeinput', {
             inputType: 'insertText',
             data: 'x',
@@ -126,7 +126,7 @@ it('creates the following paragraph before existing content and owns the next ke
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
     const input = app.muya.editor.selection.getSelection()?.anchor.block
     if (!input) throw new Error('Expected empty paragraph before existing content')
-    input.domNode.dispatchEvent(
+    input.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',
@@ -182,7 +182,7 @@ it.each([
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       const input = app.muya.editor.selection.getSelection()?.anchor.block
       if (!input) throw new Error('Expected new paragraph')
-      input.domNode.dispatchEvent(
+      input.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'x',
@@ -226,7 +226,7 @@ it.each(['toggle', 'paragraph'])(
       const input = app.muya.editor.selection.getSelection()?.anchor.block
       if (!input) throw new Error('Expected former rule insertion point')
       expect(input.text).toBe('')
-      input.domNode.dispatchEvent(
+      input.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'x',
@@ -329,7 +329,7 @@ it.each(creationCases)(
         const input = app.muya.editor.selection.getSelection()?.anchor.block
         if (!input) throw new Error('Expected following paragraph selection')
         expect(input.blockName).toBe('paragraph.content')
-        input.domNode.dispatchEvent(
+        input.domNode!.dispatchEvent(
           new InputEvent('beforeinput', {
             inputType: 'insertText',
             data,
@@ -381,7 +381,7 @@ it('resetting the first rule preserves its leading insertion point before existi
     ])
     const input = app.muya.editor.selection.getSelection()?.anchor.block
     if (!input) throw new Error('Expected former rule insertion point')
-    input.domNode.dispatchEvent(
+    input.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',
@@ -462,8 +462,8 @@ it.each(
       const input = app.muya.editor.selection.getSelection()?.anchor.block
       if (!input) throw new Error('Expected nested following paragraph')
       expect(input.blockName).toBe('paragraph.content')
-      expect(input.domNode.closest(example.kind === 'list' ? 'li' : 'blockquote')).not.toBeNull()
-      input.domNode.dispatchEvent(
+      expect(input.domNode!.closest(example.kind === 'list' ? 'li' : 'blockquote')).not.toBeNull()
+      input.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'x',
@@ -508,7 +508,7 @@ it('Reset to Paragraph keeps its existing container-unwrapping meaning when the 
     ])
     const input = app.muya.editor.selection.getSelection()?.anchor.block
     if (!input) throw new Error('Expected preserved rule selection')
-    input.domNode.dispatchEvent(
+    input.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',

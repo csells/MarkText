@@ -5,6 +5,7 @@ import { expect, it } from 'vitest'
 import { createCoreActor } from '@/documentAuthority/coreActor'
 import { createEditorCoreBinding } from '@/documentAuthority/editorCoreBinding'
 import { reconcileMuyaDocumentView } from '@/documentAuthority/reconcileMuyaDocumentView'
+import { asMuyaStates } from '../helpers/muyaTypes'
 
 interface SelectionCase {
   name: string
@@ -83,7 +84,7 @@ it.each(cases)('restores the model-selected $name', async(testCase) => {
     muya.init()
     const initial = binding.plainTextViewAtBarrier()
     if (initial.type !== 'plain-text-view' || !('state' in initial.view)) { throw new Error('Missing initial model view') }
-    muya.setContent(structuredClone([...initial.view.state]))
+    muya.setContent(asMuyaStates(structuredClone([...initial.view.state])))
     const block = muya.editor.scrollPage?.queryBlock([0, 'text'])
     if (!block?.isContent()) throw new Error('Missing native paragraph')
     block.setCursor(0, 0, true)

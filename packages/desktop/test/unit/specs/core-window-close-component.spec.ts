@@ -33,6 +33,7 @@ import type {
   CoreDocumentSessionManager,
   CoreDocumentViewLease
 } from '@/documentAuthority/coreDocumentSessionManager'
+import { asMuyaStates } from '../helpers/muyaTypes'
 
 // Compile and mount the real owner SFC. Only native widgets/stores are replaced;
 // its watchers, close registration, retirement and remount run unchanged. The
@@ -303,7 +304,7 @@ it.each([false, true, 'overlap'] as const)(
           reconcile = ownReconcile
           muya.setInlinePresentation(presentation.render)
           muya.init()
-          muya.setContent(structuredClone([...view().state]))
+          muya.setContent(asMuyaStates(structuredClone([...view().state])))
           const unexpected = (): never => {
             throw new Error('Unexpected native command')
           }
@@ -432,7 +433,7 @@ it.each([false, true, 'overlap'] as const)(
     const type = (text: string) => {
       const block = muya.editor.selection.getSelection()?.anchor.block
       if (!block) throw new Error('No native selection')
-      block.domNode.dispatchEvent(
+      block.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           data: text,
           inputType: 'insertText',
@@ -558,13 +559,13 @@ it.each([false, true, 'overlap'] as const)(
         }
       )
       const block = muya.editor.selection.getSelection()!.anchor.block
-      block.domNode.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
-      block.domNode.dispatchEvent(
+      block.domNode!.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))
+      block.domNode!.dispatchEvent(
         new CompositionEvent('compositionupdate', { bubbles: true, data: '候' })
       )
-      block.domNode.textContent = 'abcXY候'
+      block.domNode!.textContent = 'abcXY候'
       block.setCursor(6, 6)
-      block.domNode.dispatchEvent(
+      block.domNode!.dispatchEvent(
         new InputEvent('input', {
           bubbles: true,
           data: '候',
@@ -573,9 +574,9 @@ it.each([false, true, 'overlap'] as const)(
         })
       )
       expect(() => authority.coreDocumentSaveAuthority.prepareClose()).toThrow(/composition/)
-      expect(block.domNode.textContent).toBe('abcXY候')
+      expect(block.domNode!.textContent).toBe('abcXY候')
       expect(unmounts).toBe(1)
-      block.domNode.dispatchEvent(
+      block.domNode!.dispatchEvent(
         new CompositionEvent('compositionend', { bubbles: true, data: '候' })
       )
       expect((await manager.saveBarrier(file.id)).source).toBe('a{++b++}cXY候\n')

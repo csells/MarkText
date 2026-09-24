@@ -77,7 +77,7 @@ it.each(
       if (!paragraph) throw new Error('Expected paragraph after math')
       expect(paragraph.text).toBe(example.name === 'annotated paragraph into math' ? 'bcd' : 'b')
       paragraph.setCursor(0, 0, true)
-      paragraph.domNode.dispatchEvent(
+      paragraph.domNode!.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
       )
       expectSource(joined)
@@ -86,7 +86,7 @@ it.each(
         focus: { offset: example.offset }
       })
       const live = app.muya.editor.selection.getSelection()?.anchor.block
-      if (!live?.domNode.isConnected) throw new Error('Expected literal selection')
+      if (!live?.domNode?.isConnected) throw new Error('Expected literal selection')
       live.domNode.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',

@@ -12,6 +12,7 @@ import {
   muyaClipboardSelection,
   muyaInputToModel
 } from '@/documentAuthority/muyaModelSelection'
+import { asMuyaStates } from '../helpers/muyaTypes'
 
 it.each([
   ...['![aaa](url)\n', '![a{++a++}a](url)\n'].map((source) => ({
@@ -45,7 +46,7 @@ it.each([
     const presentation = createMuyaMarkupPresentationIndex(reply.view)
     muya.setInlinePresentation(presentation.render)
     muya.init()
-    muya.setContent(structuredClone([...reply.view.state]))
+    muya.setContent(asMuyaStates(structuredClone([...reply.view.state])))
     const bridge = createMuyaModelSelection(muya, reply.view)
     // Reverse and revisit positions to reject a remembered-selection shortcut.
     for (const sourcePosition of [...positions, ...positions.slice().reverse()]) {
@@ -96,7 +97,7 @@ it('round-trips each omitted cell through the live DOM without confusing shared 
     if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Missing model view') }
     muya.setInlinePresentation(createMuyaMarkupPresentationIndex(reply.view).render)
     muya.init()
-    muya.setContent(structuredClone([...reply.view.state]))
+    muya.setContent(asMuyaStates(structuredClone([...reply.view.state])))
     const bridge = createMuyaModelSelection(muya, reply.view)
     for (const column of [2, 1, 2]) {
       const selection = {

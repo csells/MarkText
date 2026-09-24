@@ -49,7 +49,7 @@ it.each(
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       const input = app.muya.editor.selection.getSelection()?.anchor.block
       expect(input?.blockName).toBe('codeblock.content')
-      input.domNode.dispatchEvent(
+      input!.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'x',
@@ -155,9 +155,9 @@ it.each(
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       const input = app.muya.editor.selection.getSelection()?.anchor.block
       if (!input) throw new Error('Expected live code body')
-      if (source.startsWith('- ')) expect(input.domNode.closest('li')).not.toBeNull()
-      if (source.startsWith('> ')) expect(input.domNode.closest('blockquote')).not.toBeNull()
-      input.domNode.dispatchEvent(
+      if (source.startsWith('- ')) expect(input.domNode!.closest('li')).not.toBeNull()
+      if (source.startsWith('> ')) expect(input.domNode!.closest('blockquote')).not.toBeNull()
+      input.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'x',
@@ -212,7 +212,7 @@ it.each([false, true])(
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       const input = app.muya.editor.selection.getSelection()?.anchor.block
       if (!input) throw new Error('Expected live code body')
-      input.domNode.dispatchEvent(
+      input.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'x',
@@ -282,7 +282,7 @@ it('front-menu Code still replaces its target when the caret is elsewhere', asyn
     const first = app.muya.editor.scrollPage?.firstContentInDescendant()
     if (!first) throw new Error('Expected initial paragraph')
     first.setCursor(5, 5, true)
-    first.domNode.dispatchEvent(
+    first.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertParagraph',
         data: null,
@@ -305,7 +305,7 @@ it('front-menu Code still replaces its target when the caret is elsewhere', asyn
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
     const input = app.muya.editor.selection.getSelection()?.anchor.block
     if (!input) throw new Error('Expected new code body')
-    input.domNode.dispatchEvent(
+    input.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',

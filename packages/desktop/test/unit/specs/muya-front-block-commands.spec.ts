@@ -16,7 +16,7 @@ it('generic reset owns the explicit heading target independently of the original
       source: 'first\n\ns{++a++}me{>>keep<<}\n'
     })
     const input = app.muya.editor.selection.getSelection()!.anchor.block
-    input.domNode.dispatchEvent(
+    input.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',
@@ -69,7 +69,7 @@ it.each([
       const page = app.muya.editor.scrollPage!
       page.firstContentInDescendant()!.setCursor(2, 2, true)
       const math = page.queryBlock([1])!
-      document.elementsFromPoint = () => [math.domNode]
+      document.elementsFromPoint = () => [math.domNode!]
       document.body.dispatchEvent(
         new MouseEvent('mousemove', { bubbles: true, clientX: 2, clientY: 2 })
       )
@@ -78,7 +78,7 @@ it.each([
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: changed })
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       const input = app.muya.editor.selection.getSelection()!.anchor.block
-      input.domNode.dispatchEvent(
+      input.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'x',
@@ -162,7 +162,7 @@ it.each([
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: changed })
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       const input = app.muya.editor.selection.getSelection()!.anchor.block
-      input.domNode.dispatchEvent(
+      input.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'x',
@@ -207,13 +207,13 @@ it.each(['text[^fresh]\n', 't{++ext++}[^fresh]{>>keep<<}\n', 'text[^fr{++esh++}]
     try {
       const block = app.muya.editor.scrollPage!.firstContentInDescendant()!
       block.setCursor(2, 2, true)
-      ;(block.domNode.querySelector('#noteref-fresh a') as HTMLElement).click()
+      ;(block.domNode!.querySelector('#noteref-fresh a') as HTMLElement).click()
       await new Promise((resolve) => setTimeout(resolve, 0))
       ;(tool.container!.querySelector('a.btn') as HTMLAnchorElement).click()
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: source + '\n[^fresh]: ' })
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       const input = app.muya.editor.selection.getSelection()!.anchor.block
-      input.domNode.dispatchEvent(
+      input.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'x',
@@ -274,7 +274,7 @@ it('duplicates the actual repeated annotated block before the next key', async()
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
     const input = app.muya.editor.selection.getSelection()?.anchor.block
     if (!input) throw new Error('Expected duplicate selection')
-    input.domNode.dispatchEvent(
+    input.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',
@@ -316,14 +316,14 @@ it('Backspace at an annotated heading start resets through the model', async() =
     if (!block) throw new Error('Expected heading')
     expect(block.blockName).toBe('atxheading.content')
     block.setCursor(0, 0, true)
-    block.domNode.dispatchEvent(
+    block.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
     )
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 's{++a++}me{>>keep<<}\n' })
     const input = app.muya.editor.selection.getSelection()?.anchor.block
     if (!input) throw new Error('Expected model paragraph')
     expect(input.blockName).toBe('paragraph.content')
-    input.domNode.dispatchEvent(
+    input.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',
@@ -352,7 +352,7 @@ it('reset of an existing paragraph retains native end-caret behavior without rew
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 4 }, focus: { offset: 4 } })
     const input = app.muya.editor.selection.getSelection()?.anchor.block
     if (!input) throw new Error('Expected paragraph insertion point')
-    input.domNode.dispatchEvent(
+    input.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',
@@ -406,7 +406,7 @@ it.each([
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: changed })
       const input = app.muya.editor.selection.getSelection()?.anchor.block
       if (!input) throw new Error('Expected model-owned insertion point')
-      input.domNode.dispatchEvent(
+      input.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'x',
@@ -461,7 +461,7 @@ it.each([
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: changed })
     const input = app.muya.editor.selection.getSelection()?.anchor.block
     if (!input) throw new Error('Expected reset paragraph')
-    input.domNode.dispatchEvent(
+    input.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',
@@ -517,7 +517,7 @@ it('duplicates the whole annotated list and selects its last item', async() => {
     const input = app.muya.editor.selection.getSelection()?.anchor.block
     if (!input) throw new Error('Expected duplicate final item')
     expect(input.text).toBe('same')
-    input.domNode.dispatchEvent(
+    input.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',
@@ -549,7 +549,7 @@ it('tracks a literal reset as one operation and edits its resulting paragraph', 
     const input = app.muya.editor.selection.getSelection()?.anchor.block
     if (!input) throw new Error('Expected reset paragraph')
     expect(input.blockName).toBe('paragraph.content')
-    input.domNode.dispatchEvent(
+    input.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',

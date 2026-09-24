@@ -43,7 +43,7 @@ it.each([
     const selected = muya.editor.selection.getSelection()?.anchor.block
     expect(selected?.blockName).toBe('paragraph.content')
     expect(selected?.text).toBe('')
-    expect(selected?.domNode.closest(example.container)).not.toBeNull()
+    expect(selected?.domNode?.closest(example.container)).not.toBeNull()
   } finally {
     menu.destroy()
     muya.destroy()

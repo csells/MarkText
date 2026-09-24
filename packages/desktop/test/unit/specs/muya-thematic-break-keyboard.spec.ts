@@ -77,7 +77,7 @@ it.each(cases)('retains native $name spelling and resulting selection', (example
       bubbles: true,
       cancelable: true
     })
-    rule.domNode.dispatchEvent(event)
+    rule.domNode!.dispatchEvent(event)
     muya.flush()
     expect(event.defaultPrevented).toBe(true)
     expect(muya.getMarkdown()).toBe('a' + example.inserted + 'b\n')
@@ -99,7 +99,7 @@ it('tracked rule reset selects its deletion exterior before the next input', () 
     const rule = app.muya.editor.scrollPage?.firstContentInDescendant()?.nextContentInContext()
     if (!rule) throw new Error('Expected selected rule')
     rule.setCursor(0, 0, true)
-    rule.domNode.dispatchEvent(
+    rule.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
     )
     const dom = app.muya.editor.selection.getDOMSelection()
@@ -112,7 +112,7 @@ it('tracked rule reset selects its deletion exterior before the next input', () 
     )
     const input = app.muya.editor.selection.getSelection()?.anchor.block
     if (!input) throw new Error('Expected live editable selection')
-    input.domNode.dispatchEvent(
+    input.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'x',
@@ -152,7 +152,7 @@ it.each([
       bubbles: true,
       cancelable: true
     })
-    rule.domNode.dispatchEvent(event)
+    rule.domNode!.dispatchEvent(event)
     expect(event.defaultPrevented).toBe(true)
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: inserted })
     expect(app.muya.getSelection()).toMatchObject({
@@ -160,7 +160,7 @@ it.each([
       focus: { offset: example.caret }
     })
     const input = app.muya.editor.selection.getSelection()?.anchor.block
-    if (!input?.domNode.isConnected) throw new Error('Expected live model-selected input')
+    if (!input?.domNode?.isConnected) throw new Error('Expected live model-selected input')
     expect(input.text).toBe(example.text)
     input.domNode.dispatchEvent(
       new InputEvent('beforeinput', {

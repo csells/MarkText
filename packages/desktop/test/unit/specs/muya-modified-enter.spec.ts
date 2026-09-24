@@ -27,7 +27,7 @@ it.each(['metaKey', 'ctrlKey', 'altKey'] as const)(
       app.muya.eventCenter.emit('content-change', { block: content })
       expect(menu.status).toBe(true)
       expect(menu.activeItem?.label).toBe('math-block')
-      content.domNode.dispatchEvent(
+      content.domNode!.dispatchEvent(
         new KeyboardEvent('keydown', {
           key: 'Enter',
           [modifier]: true,
@@ -78,7 +78,7 @@ it('keeps a passive inline toolbar from swallowing modified Enter', () => {
     const content = app.muya.editor.scrollPage?.firstContentInDescendant()
     if (content == null) throw new Error('Expected selected paragraph')
     content.setCursor(1, 3, true)
-    content.domNode.dispatchEvent(
+    content.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true })
     )
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'a\n\na\n' })
@@ -98,7 +98,7 @@ it.each([false, true])(
       const content = app.muya.editor.scrollPage?.firstContentInDescendant()
       if (content == null) throw new Error('Expected table cell')
       content.setCursor(1, 1, true)
-      content.domNode.dispatchEvent(
+      content.domNode!.dispatchEvent(
         new KeyboardEvent('keydown', {
           key: 'Enter',
           metaKey: true,
@@ -131,7 +131,7 @@ for (const modifier of ['metaKey', 'ctrlKey', 'altKey'] as const) {
         const content = muya.editor.scrollPage?.firstContentInDescendant()
         if (content == null) throw new Error('Expected content leaf')
         content.setCursor(content.text.length, content.text.length, true)
-        content.domNode.dispatchEvent(
+        content.domNode!.dispatchEvent(
           new KeyboardEvent('keydown', {
             key: 'Enter',
             [modifier]: true,
@@ -178,7 +178,7 @@ for (const modifier of ['metaKey', 'ctrlKey', 'altKey'] as const) {
           bubbles: true,
           cancelable: true
         })
-        content.domNode.dispatchEvent(event)
+        content.domNode!.dispatchEvent(event)
         const afterEnter =
           source === '$$\n' ? '$$\n\n$$\n' : `${source.slice(0, -1)}\n| --- | --- |\n| | |\n`
         // Upstream writes the table afresh after the cell edit.

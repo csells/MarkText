@@ -250,7 +250,7 @@ describe('WYSIWYG history against native Muya work', () => {
       const paragraph = app.muya.editor.scrollPage?.queryBlock([0, 'text'])
       if (!paragraph?.isContent()) throw new Error('Missing paragraph')
       paragraph.setCursor(3, 3, true)
-      paragraph.domNode.dispatchEvent(
+      paragraph.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
           data: 'X',

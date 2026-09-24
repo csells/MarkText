@@ -2,6 +2,7 @@
 import { expect, it } from 'vitest'
 import { createDocumentCore } from '@marktext/document-core'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { isFormat } from '../helpers/muyaTypes'
 
 it.each([false, true])(
   'completes the parser-owned emoji target before next input (annotated=%s)',
@@ -27,6 +28,7 @@ it.each([false, true])(
         })
       )
       const current = app.muya.editor.scrollPage!.firstContentInDescendant()!
+      if (!isFormat(current)) throw new Error('Expected formattable text')
       current.domNode!.dispatchEvent(new KeyboardEvent('keyup', { key: 'i', bubbles: true }))
       expect(suggestions).toContain('smi')
       current.setEmoji('smiley')
@@ -79,6 +81,7 @@ it('tracks completion of a complete alias without changing Original semantics or
   const app = bootBoundMuya(source)
   try {
     const body = app.muya.editor.scrollPage!.firstContentInDescendant()!
+    if (!isFormat(body)) throw new Error('Expected formattable text')
     body.setCursor(10, 10, true)
     app.track(true)
     body.setEmoji('smiley')

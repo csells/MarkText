@@ -19,6 +19,7 @@ import {
 } from '@/documentAuthority/muyaModelSelection'
 import { reconcileMuyaDocumentView } from '@/documentAuthority/reconcileMuyaDocumentView'
 import type { CoreAppliedReply } from '@/documentAuthority/coreProtocol'
+import { asMuyaStates } from './muyaTypes'
 
 export const bootBoundMuya = (source: string, options?: EditorCoreOpenInput['options']) => {
   ;(window as Window & { MUYA_VERSION?: string }).MUYA_VERSION = 'test'
@@ -65,7 +66,7 @@ export const bootBoundMuya = (source: string, options?: EditorCoreOpenInput['opt
   })
   muya.setInlinePresentation(presentation.render)
   muya.init()
-  muya.setContent(structuredClone([...view().state]))
+  muya.setContent(asMuyaStates(structuredClone([...view().state])))
   const unexpected = (): never => {
     throw new Error('Unexpected operation in bound editor test')
   }

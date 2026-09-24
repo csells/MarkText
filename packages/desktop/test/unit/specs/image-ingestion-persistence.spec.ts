@@ -3,10 +3,17 @@ import fs from 'fs-extra'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
 import { getHash, moveImageToFolder, normalizeImageInput } from '@/util/fileSystem'
+import { copyFileWithContentHash } from 'main_renderer/filesystem'
 
 type ImagePersistenceFileUtils = Pick<
   typeof window.fileUtils,
-  'ensureDir' | 'isImageFile' | 'copy' | 'readFile' | 'writeFile'
+  | 'ensureDir'
+  | 'isImageFile'
+  | 'copy'
+  | 'copyWithContentHash'
+  | 'isSamePathSync'
+  | 'readFile'
+  | 'writeFile'
 >
 
 let root: string
@@ -18,6 +25,11 @@ beforeEach(async() => {
     isImageFile: (target: string) => fs.pathExists(target),
     copy: (source: string, target: string, options?: fs.CopyOptions) =>
       fs.copy(source, target, options),
+    // The production bridge forwards both to the main process.
+    copyWithContentHash: (source: string, outputDir: string) =>
+      copyFileWithContentHash(source, outputDir),
+    isSamePathSync: (first: string, second: string) =>
+      path.resolve(first) === path.resolve(second),
     readFile: (target: string) => fs.readFile(target),
     writeFile: (target: string, bytes: string | Uint8Array, options?: { flag: 'wx' }) =>
       fs.writeFile(target, bytes, options)

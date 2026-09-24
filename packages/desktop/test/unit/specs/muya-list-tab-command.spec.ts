@@ -2,6 +2,7 @@
 import { createDocumentCore } from '@marktext/document-core'
 import { expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import type { MaybeContent } from '../helpers/muyaTypes'
 
 for (const ending of ['\n', '\r\n', '\r']) {
   for (const tracked of [false, true]) {
@@ -19,7 +20,7 @@ for (const ending of ['\n', '\r\n', '\r']) {
             ?.nextContentInContext()
           if (!block) throw new Error('Expected second item')
           block.setCursor(2, 2, true)
-          block.domNode.dispatchEvent(
+          block.domNode!.dispatchEvent(
             new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
           )
           expect(app.binding.sourceAtBarrier()).toMatchObject({ source: indented })
@@ -29,8 +30,8 @@ for (const ending of ['\n', '\r\n', '\r']) {
           })
           const input = app.muya.editor.selection.getSelection()?.anchor.block
           if (!input) throw new Error('Expected live nested item')
-          expect(input.domNode.closest('li')?.parentElement?.closest('li')).not.toBeNull()
-          input.domNode.dispatchEvent(
+          expect(input.domNode!.closest('li')?.parentElement?.closest('li')).not.toBeNull()
+          input.domNode!.dispatchEvent(
             new InputEvent('beforeinput', {
               inputType: 'insertText',
               data: 'x',
@@ -44,7 +45,7 @@ for (const ending of ['\n', '\r\n', '\r']) {
           expect(app.binding.sourceAtBarrier()).toMatchObject({ source: indented })
           const outdent = app.muya.editor.selection.getSelection()?.anchor.block
           if (!outdent) throw new Error('Expected nested item after undo')
-          outdent.domNode.dispatchEvent(
+          outdent.domNode!.dispatchEvent(
             new KeyboardEvent('keydown', {
               key: 'Tab',
               shiftKey: true,
@@ -102,7 +103,7 @@ it.each(
       const block = app.muya.editor.scrollPage?.firstContentInDescendant()?.nextContentInContext()
       if (!block) throw new Error('Expected second item')
       block.setCursor(before, before, true)
-      block.domNode.dispatchEvent(
+      block.domNode!.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
       )
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
@@ -143,11 +144,11 @@ it.each([
   async({ source, expected, target, shift }) => {
     const app = bootBoundMuya(source)
     try {
-      let block = app.muya.editor.scrollPage?.firstContentInDescendant()
+      let block: MaybeContent = app.muya.editor.scrollPage?.firstContentInDescendant()
       while (block && block.text !== target) block = block.nextContentInContext()
       if (!block) throw new Error('Expected target item')
       block.setCursor(1, 1, true)
-      block.domNode.dispatchEvent(
+      block.domNode!.dispatchEvent(
         new KeyboardEvent('keydown', {
           key: 'Tab',
           shiftKey: shift,
@@ -172,11 +173,11 @@ it.each([
 ])('Shift+Tab promotes the leading nested paragraph in $source', ({ source, expected, target }) => {
   const app = bootBoundMuya(source)
   try {
-    let block = app.muya.editor.scrollPage?.firstContentInDescendant()
+    let block: MaybeContent = app.muya.editor.scrollPage?.firstContentInDescendant()
     while (block && block.text !== target) block = block.nextContentInContext()
     if (!block) throw new Error('Expected target item')
     block.setCursor(1, 1, true)
-    block.domNode.dispatchEvent(
+    block.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true })
     )
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: expected })
@@ -209,11 +210,11 @@ it.each([
     const app = bootBoundMuya(source)
     app.track(true)
     try {
-      let block = app.muya.editor.scrollPage?.firstContentInDescendant()
+      let block: MaybeContent = app.muya.editor.scrollPage?.firstContentInDescendant()
       while (block && block.text !== target) block = block.nextContentInContext()
       if (!block) throw new Error('Expected target item')
       block.setCursor(1, 1, true)
-      block.domNode.dispatchEvent(
+      block.domNode!.dispatchEvent(
         new KeyboardEvent('keydown', {
           key: 'Tab',
           shiftKey: shift,
@@ -245,7 +246,7 @@ it('Tab skips an HTML closer nested inside strong before list indentation', () =
     const block = app.muya.editor.scrollPage?.firstContentInDescendant()?.nextContentInContext()
     if (!block) throw new Error('Expected second item')
     block.setCursor(9, 9, true)
-    block.domNode.dispatchEvent(
+    block.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
     )
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
@@ -267,7 +268,7 @@ it.each([
       const block = app.muya.editor.scrollPage?.firstContentInDescendant()?.nextContentInContext()
       if (!block) throw new Error('Expected second group')
       block.setCursor(2, 2, true)
-      block.domNode.dispatchEvent(
+      block.domNode!.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
       )
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: expected })

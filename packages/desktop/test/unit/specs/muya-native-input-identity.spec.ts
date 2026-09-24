@@ -19,6 +19,7 @@ import {
   createMuyaPlainTextCoreAdapter,
   type MuyaPlainTextCoreAdapter
 } from '@/documentAuthority/muyaPlainTextCoreAdapter'
+import { asMuyaStates } from '../helpers/muyaTypes'
 
 beforeEach(() => {
   ;(window as Window & { MUYA_VERSION?: string }).MUYA_VERSION = 'test'
@@ -320,7 +321,7 @@ describe('native input locations in the shared document', () => {
     try {
       muya.setInlinePresentation(presentation.render)
       muya.init()
-      muya.setContent(structuredClone([...initial.view.state]))
+      muya.setContent(asMuyaStates(structuredClone([...initial.view.state])))
       const results: string[] = []
       muya.editor.bindDocumentEditing({
         prepareImage() {

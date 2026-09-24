@@ -24,10 +24,10 @@ it('dragging the actual annotated block moves its source, directed selection and
     if (!leaf?.isContent() || !destination?.isContent()) {
       throw new Error('Expected actual block targets')
     }
-    const last = leaf.domNode.childNodes[2]
+    const last = leaf.domNode!.childNodes[2]
     if (last?.textContent !== 'me') throw new Error('Expected exact source-owned final text')
     app.muya.editor.selection.setDOMSelection({ node: last, offset: 2 }, { node: last, offset: 0 })
-    button.show(leaf.outMostBlock)
+    button.show(leaf.outMostBlock!)
     button.render()
     const drag = document.querySelector('.mu-front-button')
     if (!drag) throw new Error('Expected native drag button')
@@ -35,7 +35,7 @@ it('dragging the actual annotated block moves its source, directed selection and
     await new Promise((resolve) => setTimeout(resolve, 320))
     Object.defineProperty(document, 'elementsFromPoint', {
       configurable: true,
-      value: () => [destination.outMostBlock.domNode]
+      value: () => [destination.outMostBlock!.domNode]
     })
     document.dispatchEvent(
       new MouseEvent('mousemove', { clientX: 20, clientY: 20, bubbles: true, cancelable: true })
@@ -48,7 +48,7 @@ it('dragging the actual annotated block moves its source, directed selection and
     })
     const input = app.muya.editor.selection.getSelection()?.anchor.block
     if (!input) throw new Error('Expected moved selection')
-    input.domNode.dispatchEvent(
+    input.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'X',
@@ -127,7 +127,7 @@ it.each([
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 1 }, focus: { offset: 1 } })
     const input = app.muya.editor.selection.getSelection()?.anchor.block
     if (!input) throw new Error('Expected intrinsic selection')
-    input.domNode.dispatchEvent(
+    input.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',
         data: 'y',

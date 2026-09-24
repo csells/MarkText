@@ -27,7 +27,7 @@ export function frontmatterMeta(frontmatterType: string): IFrontmatterMeta {
  * quick-insert menu's `frontmatter` entry so both follow identical semantics.
  */
 export function insertFrontMatterAtStart(muya: Muya, trigger?: Parent): boolean {
-    if (muya.editor.documentEditing) {
+    if (muya.editor?.documentEditing) {
         if (trigger) {
             const content = trigger.firstContentInDescendant();
             if (!content?.domNode?.isConnected)
@@ -266,15 +266,15 @@ export function replaceBlockByLabel({ block, muya, label, text = '', selectionMo
     text?: string;
     selectionMode?: 'content' | 'end';
 }) {
-    if (label === 'paragraph' && block.blockName === 'code-block' && muya.editor.documentEditing) {
+    if (label === 'paragraph' && block.blockName === 'code-block' && muya.editor?.documentEditing) {
         createModelBlock(muya, block, true, 'reset-code-block');
         return;
     }
-    if (label === 'paragraph' && block.blockName === 'thematic-break' && muya.editor.documentEditing) {
+    if (label === 'paragraph' && block.blockName === 'thematic-break' && muya.editor?.documentEditing) {
         createModelBlock(muya, block, true, 'reset-thematic-break');
         return;
     }
-    if (MODEL_BLOCK_LABELS.has(label) && muya.editor.documentEditing) {
+    if (MODEL_BLOCK_LABELS.has(label) && muya.editor?.documentEditing) {
         createModelBlock(muya, block, true, label as TModelBlockLabel, selectionMode);
         return;
     }
@@ -285,7 +285,7 @@ export function replaceBlockByLabel({ block, muya, label, text = '', selectionMo
     // `block.replaceWith` below — sharing the idempotent doc-start logic with
     // `Muya.updateParagraph('front-matter')`.
     if (label === 'frontmatter') {
-        if (muya.editor.documentEditing) {
+        if (muya.editor?.documentEditing) {
             insertFrontMatterAtStart(muya, block);
             return;
         }
@@ -362,7 +362,7 @@ export function insertBlockBelowByLabel({ block, muya, label }: {
     muya: Muya;
     label: string;
 }) {
-    if (MODEL_BLOCK_LABELS.has(label) && muya.editor.documentEditing) {
+    if (MODEL_BLOCK_LABELS.has(label) && muya.editor?.documentEditing) {
         createModelBlock(muya, block, false, label as TModelBlockLabel);
         return;
     }

@@ -2,6 +2,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { createDocumentCore } from '@marktext/document-core'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import type { MaybeContent } from '../helpers/muyaTypes'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -64,12 +65,12 @@ it.each(
     const app = bootBoundMuya(source)
     app.track(example.tracked)
     try {
-      let block = app.muya.editor.scrollPage?.firstContentInDescendant()
+      let block: MaybeContent = app.muya.editor.scrollPage?.firstContentInDescendant()
       while (block && block.blockName !== 'codeblock.content') block = block.nextContentInContext()
       if (!block) throw new Error('Expected code body')
       expect(block.blockName).toBe('codeblock.content')
       block.setCursor(example.before, example.before, true)
-      block.domNode.dispatchEvent(
+      block.domNode!.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
       )
       expect(app.adapter.state().status, JSON.stringify(app.adapter.state())).toBe('ready')
@@ -79,7 +80,7 @@ it.each(
         focus: { offset: 'afterEnd' in example ? example.afterEnd : example.after }
       })
       const live = app.muya.editor.selection.getSelection()?.anchor.block
-      if (!live?.domNode.isConnected) throw new Error('Expected live code selection')
+      if (!live?.domNode?.isConnected) throw new Error('Expected live code selection')
       live.domNode.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
@@ -123,11 +124,11 @@ it.each([false, true])(
     const source = '```js\nab\n```\n'
     const app = bootBoundMuya(source)
     try {
-      let block = app.muya.editor.scrollPage?.firstContentInDescendant()
+      let block: MaybeContent = app.muya.editor.scrollPage?.firstContentInDescendant()
       while (block && block.blockName !== 'codeblock.content') block = block.nextContentInContext()
       if (!block) throw new Error('Expected code body')
       block.setCursor(0, selected ? 2 : 0, true)
-      block.domNode.dispatchEvent(
+      block.domNode!.dispatchEvent(
         new KeyboardEvent('keydown', {
           key: 'Tab',
           shiftKey: true,
@@ -183,11 +184,11 @@ it.each([
   )
   const app = bootBoundMuya(source)
   try {
-    let block = app.muya.editor.scrollPage?.firstContentInDescendant()
+    let block: MaybeContent = app.muya.editor.scrollPage?.firstContentInDescendant()
     while (block && block.blockName !== 'codeblock.content') block = block.nextContentInContext()
     if (!block) throw new Error('Expected code body')
     block.setCursor(before, before, true)
-    block.domNode.dispatchEvent(
+    block.domNode!.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
     )
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: expected })

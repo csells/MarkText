@@ -31,7 +31,7 @@ describe('ordinary native replacement across annotated paragraphs', () => {
         if (afterComment) {
           // The original source range starts after the comment marker. Its two
           // DOM sides share a text offset, so retain that actual boundary intent.
-          const marker = first.domNode.querySelector('[data-critic-kind="comment"]')
+          const marker = first.domNode!.querySelector('[data-critic-kind="comment"]')
           const focus = app.muya.editor.selection.getDOMPoint({ path: last.path, offset: 2 })
           if (!marker?.parentNode || !focus) throw new Error('Expected comment selection boundary')
           app.muya.editor.selection.setDOMSelection(
@@ -48,7 +48,7 @@ describe('ordinary native replacement across annotated paragraphs', () => {
           bubbles: true,
           cancelable: true
         })
-        first.domNode.dispatchEvent(input)
+        first.domNode!.dispatchEvent(input)
         expect(input.defaultPrevented).toBe(true)
         expect(app.adapter.state().status, JSON.stringify(app.adapter.state())).toBe('ready')
         expect(app.binding.sourceAtBarrier()).toMatchObject({ source: expected })

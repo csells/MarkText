@@ -42,7 +42,7 @@ for (const example of [
           const content = muya.editor.scrollPage?.queryBlock([...example.path])
           if (content == null || !content.isContent()) throw new Error('Expected content leaf')
           content.setCursor(content.text.length, content.text.length, true)
-          content.domNode.dispatchEvent(
+          content.domNode!.dispatchEvent(
             new InputEvent('beforeinput', {
               inputType: 'insertParagraph',
               data: null,
@@ -89,10 +89,10 @@ for (const example of [
       const content = muya.editor.scrollPage?.queryBlock([...example.path])
       if (content == null || !content.isContent()) throw new Error('Expected content leaf')
       content.setCursor(content.text.length, content.text.length, true)
-      content.domNode.dispatchEvent(
+      content.domNode!.dispatchEvent(
         new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
       )
-      content.domNode.dispatchEvent(
+      content.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertParagraph',
           data: null,
