@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 import { createDocumentCore, type DocumentInputAction } from '../src/index.js'
 
-it.each(['plain', 'plain\nsecond'].flatMap(text => [false, true].map(tracked => ({ text, tracked }))))('quotes a complete addition without rewriting its owned paragraph ($text tracked=$tracked)', ({ text, tracked }) => {
+it.each(['plain', 'plain\nsecond'].flatMap(text => [false, true].map(tracked => ({ text, tracked }))))('quotes every line of a complete addition as upstream MarkText does ($text tracked=$tracked)', ({ text, tracked }) => {
   const core = createDocumentCore()
   const previous = core.open(`{++${text}++}\n`)
   const caret = 3 + text.length
@@ -10,8 +10,10 @@ it.each(['plain', 'plain\nsecond'].flatMap(text => [false, true].map(tracked => 
   const edits = core.inputEdits(previous, action, plan, tracked)
   if (edits === undefined) throw new Error('Expected quote command')
   const commit = core.apply(previous, edits)
-  expect(commit.revision.source).toBe(tracked ? `{++> ${text}++}\n` : `> {++${text}++}\n`)
-  expect(core.reconcileInput(previous, plan, commit, action).selection).toEqual({ ranges: [{ anchor: caret + 2, focus: caret + 2 }], primary: 0 })
+  const quoted = text.replaceAll('\n', '\n> ')
+  expect(commit.revision.source).toBe(tracked ? `{++> ${quoted}++}\n` : `> {++${quoted}++}\n`)
+  const after = caret + 2 * text.split('\n').length
+  expect(core.reconcileInput(previous, plan, commit, action).selection).toEqual({ ranges: [{ anchor: after, focus: after }], primary: 0 })
   expect(core.project(commit.revision, 'markup').syntax.ast.root.children[0]?.kind).toBe('blockquote')
 })
 

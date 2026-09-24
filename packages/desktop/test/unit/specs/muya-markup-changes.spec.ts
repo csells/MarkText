@@ -13,7 +13,9 @@ const fixture = (source: string, edit: DocumentSourceEdit) => {
   const previous = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations)
   const commit = core.apply(revision, [edit], { projections: ['markup'] })
   const change = commit.change.projections[0]
-  if (change?.name !== 'markup' || change.scope !== 'regions') { throw new Error('Expected a real regional Core reply') }
+  if (change?.name !== 'markup' || change.scope !== 'regions') {
+    throw new Error('Expected a real regional Core reply')
+  }
   const actual = applyMuyaMarkupChanges(previous, structuredClone(change))
   const expected = createMuyaMarkupView(
     core.project(commit.revision, 'markup'),
@@ -97,7 +99,9 @@ describe('Applying Core Markup regions to an existing Muya view', () => {
         projections: ['markup']
       })
       const change = commit.change.projections[0]
-      if (change?.name !== 'markup' || change.scope !== 'regions') { throw new Error('Expected a real regional reply') }
+      if (change?.name !== 'markup' || change.scope !== 'regions') {
+        throw new Error('Expected a real regional reply')
+      }
       const next = applyMuyaMarkupChanges(view, structuredClone(change))
       expect(next).toEqual(
         createMuyaMarkupView(core.project(commit.revision, 'markup'), commit.revision.annotations)
@@ -267,5 +271,22 @@ describe('Applying Core Markup regions to an existing Muya view', () => {
         ]
       })
     ).toBeUndefined()
+  })
+})
+
+describe('Shifting soft-break line positions through a regional reply', () => {
+  it.each([
+    { tail: 'first\n\n\nlast\n', line: 6 },
+    { tail: 'first\n', line: 6 },
+    { tail: '> first\n> \n\nlast\n', line: 10 },
+    { tail: '- first\n  \n\nlast\n', line: 10 }
+  ])('keeps the new line position of $tail', ({ tail, line }) => {
+    // Only a large document receives a regional reply.
+    const filler = Array.from({ length: 1000 }, () => 'Filler paragraph text.\n\n').join('')
+    const { actual, expected } = fixture(filler + tail, { start: 6, end: 6, insert: 'More ' })
+    expect(actual).toEqual(expected)
+    expect(
+      actual?.bindings.some((binding) => binding.trailingLinePosition === filler.length + 5 + line)
+    ).toBe(true)
   })
 })

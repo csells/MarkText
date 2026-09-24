@@ -180,6 +180,7 @@ export { normalizeTableDimensions, toggleTableAlignment, tableDelimiter, tableDe
 export { default as stringWidth } from './stringWidth.js'
 
 export { codeEnter } from './codeEnter.js'
+export { INLINE_UPDATE_FRAGMENTS, INLINE_UPDATE_REG, INLINE_UPDATE_LIST_REG, INLINE_UPDATE_TASK_REG, INLINE_UPDATE_ATX_LINE_REG, INLINE_UPDATE_SETEXT_LINE_REG, INLINE_UPDATE_QUOTE_LINE_REG, INLINE_UPDATE_QUOTE_MARKER_REG, INLINE_UPDATE_THEMATIC_LINE_REG, matchInlineUpdate, inlineUpdateLayout, type InlineUpdateMatch, type InlineUpdateLayout, type InlineUpdateLine, type InlineUpdatePoint } from './inlineUpdate.js'
 export { fencedCodeMarkdown } from './codeBlock.js'
 export { FORMAT_MARKER_MAP, FORMAT_TAG_MAP, formatDelimiters, type HeadingChange } from './formatting.js'
 
@@ -191,6 +192,7 @@ export { listItemMarker, listTabAction, type ListKind, type ListChange, type Lis
 export { taskCheckedChanges, taskListOrder, type TaskTree } from './taskList.js'
 
 export { codeTabExpansion } from './codeTab.js'
+export { HTML_TAGS, VOID_HTML_TAGS, htmlBlockTemplate, htmlBlockTemplateTag } from './htmlBlock.js'
 export { frontMatterPolicy, type FrontMatterPolicy } from './frontMatter.js'
 
 export { default as emojis, type Emoji } from './emojis.js'

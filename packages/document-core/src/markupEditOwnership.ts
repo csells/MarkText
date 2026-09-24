@@ -23,11 +23,16 @@ export function markupEditOwnership(
   const visible = projection.events.flatMap(event => event.kind === 'text' ? [event.sourceRange] : [])
   const annotations = markupAnnotations(revision.annotations)
   const annotationBoundaries = new Set(annotations.flatMap(annotation => [annotation.range.start, annotation.range.end]))
+  // An emptied arm has no visible text; typing there writes that arm again.
+  const emptyArms = new Set(annotations.flatMap(annotation => annotation.kind === 'comment'
+    ? []
+    : annotation.arms.flatMap(arm => arm.range.start === arm.range.end ? [arm.range.start] : [])))
   const deleted: SourceRange[] = []
   for (const edit of edits) {
     const insertion = edit.start === edit.end
     const boundary = (offset: number): boolean => (insertion && offset === revision.sourceLength) ||
       ((insertion || scope === 'structure') && annotationBoundaries.has(offset)) ||
+      (insertion && emptyArms.has(offset)) ||
       visible.some(range => range.start <= offset && offset <= range.end)
     if (!boundary(edit.start) || !boundary(edit.end)) return undefined
     if (insertion) continue

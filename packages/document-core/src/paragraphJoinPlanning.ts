@@ -156,3 +156,46 @@ export function paragraphJoinTrailingEdits(core: DocumentCore, revision: Documen
   }
   return edits
 }
+
+/**
+ * Enter on an earlier line of a paragraph leaves the caret at the end of the
+ * blank or container-only line directly before the new paragraph's first line,
+ * where upstream shows that paragraph's empty first line. Returns that line
+ * and the paragraph when `position` is there.
+ */
+export function paragraphLeadingLine(core: DocumentCore, revision: DocumentRevision, syntax: MarkupSyntax, position: number): { paragraph: MarkdownAstNode, lineStart: number, line: string } | undefined {
+  const lineEnding = core.sourceSlice(revision, { start: position, end: Math.min(revision.sourceLength, position + 2) }).match(/^(?:\r\n|\r|\n)/u)?.[0]
+  if (lineEnding === undefined) return undefined
+  const next = position + lineEnding.length
+  const preceding = core.sourceSlice(revision, { start: 0, end: position })
+  const lineStart = Math.max(preceding.lastIndexOf('\n'), preceding.lastIndexOf('\r')) + 1
+  const projectedNext = syntax.coordinates.toProjected(next, 'next')
+  let paragraph: MarkdownAstNode | undefined
+  const visit = (node: MarkdownAstNode): void => {
+    if (paragraph !== undefined || node.range.end < projectedNext) return
+    if (node.kind === 'paragraph') {
+      const start = syntax.coordinates.toSource(node.range.start, 'previous')
+      if (start >= next && !/[\r\n]/u.test(core.sourceSlice(revision, { start: next, end: start }))) paragraph = node
+      return
+    }
+    for (const child of node.children) visit(child)
+  }
+  visit(syntax.ast.root)
+  return paragraph === undefined ? undefined : { paragraph, lineStart, line: preceding.slice(lineStart) }
+}
+
+/**
+ * Backspace on a paragraph's leading line joins that paragraph to the block
+ * before it as upstream joins its text there: the blank separator line and
+ * the leading line go, and the paragraph's first line continues the previous
+ * line. Returns the removed range, whose start is the resulting caret.
+ */
+export function paragraphLeadingLineJoin(core: DocumentCore, revision: DocumentRevision, syntax: MarkupSyntax, position: number): { start: number, end: number } | undefined {
+  const leading = paragraphLeadingLine(core, revision, syntax, position)
+  if (leading === undefined || !/^[ \t>]*$/u.test(leading.line) || leading.lineStart === 0) return undefined
+  const above = core.sourceSlice(revision, { start: 0, end: leading.lineStart }).replace(/(?:\r\n|\r|\n)$/u, '')
+  const aboveStart = Math.max(above.lastIndexOf('\n'), above.lastIndexOf('\r')) + 1
+  if (aboveStart === 0 || !/^[ \t>]*$/u.test(above.slice(aboveStart))) return undefined
+  const start = aboveStart - (above.slice(aboveStart - 2, aboveStart) === '\r\n' ? 2 : 1)
+  return { start, end: position }
+}

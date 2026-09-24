@@ -108,8 +108,9 @@ it.each([false, true])(
           cancelable: true
         })
       )
+      // Upstream (8d6c198c) writes the table afresh after inserting the row.
       expect(app.binding.sourceAtBarrier()).toMatchObject({
-        source: '| aa | bb |\n| --- | --- |\n|     |     |\n| cc | dd |\n'
+        source: '| aa  | bb  |\n| --- | --- |\n|     |     |\n| cc  | dd  |\n'
       })
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       expect(app.legacyChanges).toEqual([])
@@ -180,8 +181,13 @@ for (const modifier of ['metaKey', 'ctrlKey', 'altKey'] as const) {
         content.domNode.dispatchEvent(event)
         const afterEnter =
           source === '$$\n' ? '$$\n\n$$\n' : `${source.slice(0, -1)}\n| --- | --- |\n| | |\n`
+        // Upstream writes the table afresh after the cell edit.
         const afterTyping =
-          source === '$$\n' ? '$$\nx\n$$\n' : `${source.slice(0, -1)}\n| --- | --- |\n| x| |\n`
+          source === '$$\n'
+            ? '$$\nx\n$$\n'
+            : source === '| a | b |\n'
+              ? '| a   | b   |\n| --- | --- |\n| x   |     |\n'
+              : '| {++a++} | b   |\n| ------- | --- |\n| x       |     |\n'
         expect(event.defaultPrevented).toBe(true)
         expect(binding.sourceAtBarrier()).toMatchObject({ source: afterEnter })
         expect(muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })

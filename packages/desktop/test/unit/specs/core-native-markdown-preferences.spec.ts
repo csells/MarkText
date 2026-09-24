@@ -53,11 +53,11 @@ it('reinterprets a hidden native view with footnotes and GitLab math without adm
     install(next)
     return next.bindings
   }
-  const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding, undefined, reconcile)
+  const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding)
   const changes: unknown[] = []
+  // Configuration reinterprets the view only; no native mutation may occur.
   muya.on('json-change', (change: unknown) => {
     changes.push(change)
-    adapter.accept(change)
   })
   try {
     await adapter.configure(

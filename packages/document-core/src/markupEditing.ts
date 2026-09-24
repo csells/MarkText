@@ -21,7 +21,8 @@ export function createMarkupCompoundSourceEdits(
   edits: readonly DocumentSourceEdit[],
   preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision,
   canonicalImport = false,
-  scope: 'visible' | 'structure' = 'visible'
+  scope: 'visible' | 'structure' = 'visible',
+  recognitionChange: 'refuse' | 'admit-typed' = 'refuse'
 ): readonly DocumentSourceEdit[] | undefined {
   const ownership = markupEditOwnership(core, revision, edits, scope)
   if (ownership === undefined) return undefined
@@ -88,8 +89,11 @@ export function createMarkupCompoundSourceEdits(
         planned[index] = { ...item, insert }
       }
     }
-    if (!changed) return undefined
-    if (!validates(planned)) return undefined
+    // Typed Markdown that changes how existing annotations parse has the
+    // language's meaning for those bytes, exactly as in upstream MarkText;
+    // only typed CriticMarkup receives a protective spelling.
+    if (!changed && recognitionChange === 'refuse') return undefined
+    if (changed && !validates(planned)) return undefined
   }
   return Object.freeze(planned.map(item => Object.freeze(item)))
 }

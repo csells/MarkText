@@ -9,9 +9,14 @@ export type BlockChange = Extract<DocumentCommandInputAction, { command: 'change
 
 const blockKind = (node: MarkdownAstNode) => ['paragraph', 'heading', 'list', 'blockquote', 'table', 'thematic-break', 'definition', 'footnote-definition'].includes(node.kind) || isLiteralBlock(node.kind)
 
-export function blockCommandTarget(ancestors: readonly MarkdownAstNode[], scope: BlockChange['scope']): MarkdownAstNode {
+/** The block a command at these ancestors addresses, if any. */
+export function findBlockCommandTarget(ancestors: readonly MarkdownAstNode[], scope: BlockChange['scope']): MarkdownAstNode | undefined {
   const blocks = ancestors.filter(blockKind)
-  const block = scope === 'outer' ? blocks[0] : blocks.at(-1)
+  return scope === 'outer' ? blocks[0] : blocks.at(-1)
+}
+
+export function blockCommandTarget(ancestors: readonly MarkdownAstNode[], scope: BlockChange['scope']): MarkdownAstNode {
+  const block = findBlockCommandTarget(ancestors, scope)
   if (block === undefined) throw new RangeError('Block command has no owned target')
   return block
 }

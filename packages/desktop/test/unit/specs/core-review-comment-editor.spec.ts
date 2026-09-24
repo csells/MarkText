@@ -34,7 +34,7 @@ const loadComponent = (): Vue.Component => {
 const cleanup: Array<() => void> = []
 afterEach(() => cleanup.splice(0).forEach((dispose) => dispose()))
 
-const mountEditor = () => {
+const mountEditor = (retainedDraft?: Vue.Ref<string | undefined>) => {
   const props = Vue.reactive({
     modelValue: true,
     targetId: 'comment:one',
@@ -50,6 +50,10 @@ const mountEditor = () => {
     render: () =>
       Vue.h(component, {
         ...props,
+        draftText: retainedDraft?.value,
+        'onUpdate:draftText': (value: string) => {
+          if (retainedDraft) retainedDraft.value = value
+        },
         onSubmit: submit,
         onCancel: cancel,
         'onUpdate:modelValue': (value: boolean) => {
@@ -60,10 +64,14 @@ const mountEditor = () => {
   const host = document.createElement('div')
   document.body.append(host)
   app.mount(host)
-  cleanup.push(() => {
+  let mounted = true
+  const unmount = () => {
+    if (!mounted) return
+    mounted = false
     app.unmount()
     host.remove()
-  })
+  }
+  cleanup.push(unmount)
   const textarea = (): HTMLTextAreaElement => {
     const element = host.querySelector('textarea')
     if (element === null) throw new Error('Comment textarea is not rendered')
@@ -74,10 +82,21 @@ const mountEditor = () => {
     textarea().dispatchEvent(new Event('input', { bubbles: true }))
     await Vue.nextTick()
   }
-  return { props, host, submit, cancel, textarea, type }
+  return { props, host, submit, cancel, textarea, type, unmount }
 }
 
 describe('Core Review comment composer', () => {
+  it('restores an unsubmitted draft when the document view remounts', async() => {
+    const retained = Vue.ref<string>()
+    const first = mountEditor(retained)
+    await first.type('Keep this pending comment')
+    first.unmount()
+    const returned = mountEditor(retained)
+    await Vue.nextTick()
+    expect(returned.textarea().value).toBe('Keep this pending comment')
+    expect(returned.submit).not.toHaveBeenCalled()
+  })
+
   it('returns keyboard focus after cancellation and successful closure, while failures retain the draft', async() => {
     const opener = document.createElement('button')
     document.body.append(opener)
@@ -188,16 +207,14 @@ describe('Core Review comment composer', () => {
     editor.textarea().dispatchEvent(enter)
     expect(enter.defaultPrevented).toBe(false)
     expect(editor.submit).not.toHaveBeenCalled()
-    editor
-      .textarea()
-      .dispatchEvent(
-        new KeyboardEvent('keydown', {
-          key: 'Enter',
-          metaKey: true,
-          bubbles: true,
-          cancelable: true
-        })
-      )
+    editor.textarea().dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Enter',
+        metaKey: true,
+        bubbles: true,
+        cancelable: true
+      })
+    )
     expect(editor.submit).toHaveBeenCalledWith({ targetId: 'comment:one', text: 'Draft' })
     editor.props.submitting = true
     await Vue.nextTick()
@@ -209,16 +226,14 @@ describe('Core Review comment composer', () => {
     expect(editor.cancel).not.toHaveBeenCalled()
     editor.props.submitting = false
     await Vue.nextTick()
-    editor
-      .textarea()
-      .dispatchEvent(
-        new KeyboardEvent('keydown', {
-          key: 'Enter',
-          ctrlKey: true,
-          bubbles: true,
-          cancelable: true
-        })
-      )
+    editor.textarea().dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Enter',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true
+      })
+    )
     expect(editor.submit).toHaveBeenCalledTimes(2)
     editor
       .textarea()

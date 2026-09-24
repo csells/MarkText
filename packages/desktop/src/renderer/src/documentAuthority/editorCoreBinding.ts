@@ -31,6 +31,7 @@ import type {
   CoreDisplayProjectionReply,
   CoreConsumerSearchReplacement,
   CoreSelectionProjectionReply,
+  CoreAuthorFormsReply,
   CoreOpenedReply,
   CoreSourceSyntaxReply,
   CoreSourceSelectionReply,
@@ -74,6 +75,7 @@ export interface EditorCoreBinding {
   selectionProjectionAtBarrier(
     range: SourceRange | DocumentTableSelection | DocumentModelTextSelection
   ): CoreSelectionProjectionReply | CoreResourceReply | CoreRejectedReply
+  authorFormsAtBarrier(range: SourceRange): CoreAuthorFormsReply | CoreRejectedReply
   reviewItemAtBarrier(
     direction: 'next' | 'previous',
     from: number,
@@ -895,6 +897,28 @@ export function createEditorCoreBinding(port: CoreModelOwner): EditorCoreBinding
         reply.type !== 'rejected'
       ) {
         throw new Error('Core selection projection barrier reply is invalid')
+      }
+      return reply
+    },
+    authorFormsAtBarrier(range: SourceRange): CoreAuthorFormsReply | CoreRejectedReply {
+      if (disposed) throw new Error('Editor Core binding is disposed')
+      if (!opened) throw new Error('Editor Core document is not open')
+      if (reconciliationRequired) {
+        throw new Error('Editor Core reconciliation is required')
+      }
+      if (inFlight) throw new Error('Core edit transaction is already in flight')
+      sequence += 1
+      const reply = port.request(
+        Object.freeze({
+          type: 'author-forms-at-barrier',
+          session,
+          sequence,
+          baseRevision: revision,
+          range: Object.freeze({ start: range.start, end: range.end })
+        })
+      )
+      if (reply.type !== 'author-forms' && reply.type !== 'rejected') {
+        throw new Error('Core author forms barrier reply is invalid')
       }
       return reply
     },

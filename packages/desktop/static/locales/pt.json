@@ -897,6 +897,9 @@
     "ok": "OK"
   },
   "dialog": {
+    "discardAndClose": "Descartar e fechar",
+    "pendingReviewInput": "Descartar o comentário ou o texto de substituição não enviado?",
+    "pendingReviewInputDetail": "O comentário ou o texto de substituição ainda não foi adicionado ao documento e será perdido.",
     "cancel": "Cancelar",
     "changesWillBeLost": "As alterações serão perdidas",
     "close": "Fechar",
@@ -1014,6 +1017,7 @@
       "saveComment": "Salvar comentário",
       "commentTargetChanged": "O documento foi alterado. Seu rascunho de comentário foi preservado; cancele antes de escolher outro destino.",
       "commentSaveFailed": "Não foi possível salvar o comentário. Seu rascunho e o destino original foram preservados.",
+      "finishDraftBeforeClosing": "Salve ou cancele o comentário ou o texto de substituição pendente antes de fechar este documento.",
       "commentPrompt": "Comentário",
       "replacementPrompt": "Texto de substituição"
     },

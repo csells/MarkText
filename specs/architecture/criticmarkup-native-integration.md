@@ -123,8 +123,9 @@ Native table spelling and its output-size preflight also share one Muya owner. D
 Native typing policies and delimiter tables share the framework-free
 `@marktext/input-policy` package, used by Muya and document-core. Core owns syntax
 context and source-coordinate planning; the policy package does not parse Markdown
-documents or own document state. Its code-Tab abbreviation policy reuses Muya's
-existing `html-tags@5.1.0` tag data; that explicit data dependency does not admit
+documents or own document state. Its HTML element table, shared by code-Tab
+abbreviation and the HTML block Enter template, reuses Muya's existing
+`html-tags@5.1.0` tag data; that explicit data dependency does not admit
 DOM, framework or application runtime dependencies. Its separate package boundary preserves Muya's published
 dependency contract without introducing a dependency on a private application
 package. Input capture distinguishes the user's selection from the browser's

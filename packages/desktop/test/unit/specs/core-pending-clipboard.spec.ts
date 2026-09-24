@@ -58,14 +58,15 @@ describe('pending clipboard preparation belongs to its captured document', () =>
         changed: true
       })
       await app.adapter.settled()
+      // Upstream (8d6c198c) writes the table afresh after an untracked paste into a cell.
       expect(app.binding.sourceAtBarrier()).toMatchObject({
-        source: 'before\n\n| a | b | c |\n| --- | --- | --- |\n| x |     |     y|\n'
+        source: 'before\n\n| a   | b   | c   |\n| --- | --- | --- |\n| x   |     | y   |\n'
       })
       await app.adapter.history('undo', app.reconcile)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: `before\n\n${source}` })
       await app.adapter.history('redo', app.reconcile)
       expect(app.binding.sourceAtBarrier()).toMatchObject({
-        source: 'before\n\n| a | b | c |\n| --- | --- | --- |\n| x |     |     y|\n'
+        source: 'before\n\n| a   | b   | c   |\n| --- | --- | --- |\n| x   |     | y   |\n'
       })
     } finally {
       app.dispose()

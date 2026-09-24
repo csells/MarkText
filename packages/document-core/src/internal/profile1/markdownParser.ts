@@ -1023,6 +1023,39 @@ function matchingScopeAt(
   return run !== undefined && run.start <= offset ? run : undefined
 }
 
+/**
+ * Profile rule C3: in the view that keeps an arm as its text (Revised for an
+ * Addition or new arm, Original for a Deletion or old arm), a definition
+ * written in that arm is global, exactly as it would be once the change is
+ * accepted or rejected. Highlight payloads and the Markup view keep
+ * arm-local definitions.
+ */
+function definitionIsViewGlobalInScope(
+  scope: MappedMarkdownMatchingScope,
+  view: MappedMarkdownLane['forkView']
+): boolean {
+  const owner = scope.owner
+  if (owner?.kind !== 'critic-arm') return false
+  if (view === 'revised') {
+    return owner.node.kind === 'addition' ||
+      (owner.node.kind === 'substitution' && owner.arm === 'new')
+  }
+  if (view === 'original') {
+    return owner.node.kind === 'deletion' ||
+      (owner.node.kind === 'substitution' && owner.arm === 'old')
+  }
+  return false
+}
+
+/** The lane's arm scopes that still confine definitions in its view. */
+function definitionScopesForView(
+  scopes: readonly MappedMarkdownMatchingScope[] | undefined,
+  view: MappedMarkdownLane['forkView']
+): readonly MappedMarkdownMatchingScope[] {
+  return (scopes ?? []).filter(scope =>
+    !definitionIsViewGlobalInScope(scope, view))
+}
+
 function definitionCanResolveWithinMatchingScopes(
   scopes: readonly MappedMarkdownMatchingScope[],
   definitionStart: number,
@@ -2811,7 +2844,15 @@ function blockLiteralNode(
   if (literal.provider === 'fenced-code' || literal.provider === 'indented-code') {
     if (lines === undefined || fromLineIndex === undefined) throw new Error('Code block payload requires its owned physical lines')
     const layout = codeBlockLayout(source, literal, lines, fromLineIndex)
-    return createNode('code-block', start, literal.end, literalBlockPayloadNodes(source, layout), layout.attributes)
+    const payload = literalBlockPayloadNodes(source, layout)
+    // Indentation beyond indented code's four columns is payload text, so the
+    // payload starts before the first line's first non-space character.
+    const payloadStart = payload[0]?.range.start
+    const attributes = literal.provider === 'indented-code' && payloadStart !== undefined &&
+      payloadStart < Number(layout.attributes['contentStart'])
+      ? Object.freeze({ ...layout.attributes, contentStart: payloadStart })
+      : layout.attributes
+    return createNode('code-block', start, literal.end, payload, attributes)
   }
   if (literal.provider === 'html-block') {
     if (lines === undefined || fromLineIndex === undefined) throw new Error('HTML block requires its owned physical lines')
@@ -3584,7 +3625,8 @@ function parseOrderedContainerSequence(
                 quote.children.push(node)
                 quote.end = Math.max(quote.end, node.range.end)
               }
-              quote.end = Math.max(quote.end, window.endOffset)
+              // Like the emission it replays, the quote extends only to
+              // content; a trailing blank `>` line stays outside its range.
               nextLineIndex = window.endLineIndex
               continue
             }
@@ -3602,6 +3644,13 @@ function parseOrderedContainerSequence(
       }
     }
 
+    // A segment owns every child its first line opens inside the quote, such
+    // as the list of `>- a`; the loop below pushes them before the segment
+    // is recorded.
+    const quoteSegmentChildStart =
+      armedQuoteSegment === null || reusedDepth === 0
+        ? 0
+        : stack[0]?.content.children.length ?? 0
     for (let depth = reusedDepth; depth < line.containers.length; depth += 1) {
       const descriptor = line.containers[depth]
       if (descriptor === undefined) {
@@ -3672,7 +3721,7 @@ function parseOrderedContainerSequence(
         pendingQuoteSegment = Object.freeze({
           ...armed,
           quote: context.content,
-          childStart: context.content.children.length
+          childStart: quoteSegmentChildStart
         })
       }
     }
@@ -3849,14 +3898,18 @@ function parseOrderedContainerSequence(
       }
     }
 
-    const heading = parseAtxHeading(
-      source,
-      contentLine.contentOffset,
-      contentLine.contentEnd,
-      constructs,
-      referenceDefinitions,
-      boundaryPolicy
-    )
+    // GFM's task marker begins the item's first paragraph, so the text after
+    // it is paragraph text rather than a heading or thematic break.
+    const heading = taskMarker !== undefined
+      ? undefined
+      : parseAtxHeading(
+        source,
+        contentLine.contentOffset,
+        contentLine.contentEnd,
+        constructs,
+        referenceDefinitions,
+        boundaryPolicy
+      )
     if (heading !== undefined) {
       parent.children.push(heading)
       extendOpenContainers(heading.range.end)
@@ -3866,6 +3919,7 @@ function parseOrderedContainerSequence(
     }
 
     if (
+      taskMarker === undefined &&
       isThematicBreakRun(
         source,
         contentLine.contentOffset,
@@ -6602,7 +6656,9 @@ function editingParagraphNodes(
   sourceBlankLines: ReadonlySet<MarkdownPhysicalLine>,
   documentEnd: number,
   paragraphContainer: 'root' | 'container' | false = 'root',
-  containerDepth = 0
+  containerDepth = 0,
+  /** A task item's projected offset after its `[ ]` marker. */
+  taskMarkerEnd?: number
 ): readonly MarkdownNode[] {
   const firstLineAtOrAfter = (position: number): number => {
     let first = 0
@@ -6630,28 +6686,75 @@ function editingParagraphNodes(
         else if (node.kind === 'blockquote') break
       }
     }
-    const next = editingParagraphNodes(nested, node.range.start, node.kind === 'list' ? limit : ownedEnd, physicalLines, sourceBlankLines, documentEnd, node.kind === 'list' ? false : 'container', containerDepth + (node.kind === 'list' ? 0 : 1))
+    const next = editingParagraphNodes(nested, node.range.start, node.kind === 'list' ? limit : ownedEnd, physicalLines, sourceBlankLines, documentEnd, node.kind === 'list' ? false : 'container', containerDepth + (node.kind === 'list' ? 0 : 1),
+      node.kind === 'list-item' && typeof node.attributes['taskMarkerEnd'] === 'number' ? node.attributes['taskMarkerEnd'] : undefined)
     return next.length === nested.length && next.every((child, index) => child === nested[index])
       ? node
       : createNode(node.kind, node.range.start, Math.max(node.kind === 'list' ? node.range.end : ownedEnd, next.at(-1)?.range.end ?? ownedEnd), next, node.attributes)
   })
   if (!paragraphContainer) return Object.freeze(expanded)
   if (expanded.length === 0) {
+    if (paragraphContainer === 'root') {
+      // Upstream writes each empty paragraph of an otherwise empty document
+      // as an empty line, separated by blank lines, as it separates blocks.
+      const blank: MarkdownPhysicalLine[] = []
+      for (let ordinal = firstLineAtOrAfter(start); ordinal < physicalLines.length; ordinal += 1) {
+        const line = physicalLines[ordinal]
+        if (line === undefined || line.end > end) break
+        if (sourceBlankLines.has(line)) blank.push(line)
+      }
+      if (blank.length > 2) {
+        return Object.freeze(blank.flatMap((line, ordinal) => ordinal % 2 === 0 ? [createNode('paragraph', line.contentOffset, line.contentOffset)] : []))
+      }
+    }
     const next = firstLineAtOrAfter(end)
     const at = physicalLines[next]
     const line = at?.start === end ? at : physicalLines[next - 1]
-    const position = paragraphContainer === 'root' ? start : Math.max(start, end, line?.contentOffset ?? end)
+    // A container owning blank continuation lines holds its empty paragraph
+    // on the last of them, where deleting the container's text leaves the caret.
+    const position = paragraphContainer === 'root'
+      ? start
+      : line !== undefined && line.start > start && line.end <= end
+        ? Math.max(start, line.contentEnd)
+        : Math.max(start, end, line?.contentOffset ?? end)
     return Object.freeze([createNode('paragraph', position, position)])
   }
   const result: MarkdownNode[] = []
   const firstChild = expanded[0]
+  // A list item whose marker line holds no text, followed by a nested block,
+  // begins with the empty paragraph upstream keeps on that line. So does a
+  // task item whose text begins after a blank line.
+  if (paragraphContainer === 'container' && firstChild !== undefined) {
+    const lineIndex = firstLineAtOrAfter(start + 1) - 1
+    const line = physicalLines[lineIndex]
+    const marker = line?.listMarkers.find(item => item.start === start)
+    const textStart = taskMarkerEnd === undefined ? marker?.contentOffset : taskMarkerEnd + 1
+    // Only source blank lines separate them, not lines that arms generate.
+    const blankBefore = (): boolean => {
+      let blank = false
+      for (let ordinal = lineIndex + 1; ordinal < physicalLines.length; ordinal += 1) {
+        const next = physicalLines[ordinal]
+        if (next === undefined || next.end > firstChild.range.start) return blank
+        if (!sourceBlankLines.has(next)) return false
+        blank = true
+      }
+      return blank
+    }
+    if (line !== undefined && marker !== undefined && textStart !== undefined && line.contentEnd <= textStart &&
+        (firstChild.kind !== 'paragraph' || taskMarkerEnd !== undefined && blankBefore()) && firstChild.range.start >= line.end) {
+      const position = Math.max(marker.end, line.contentEnd)
+      result.push(createNode('paragraph', position, position))
+    }
+  }
   const leading: MarkdownPhysicalLine[] = []
   for (let ordinal = firstLineAtOrAfter(start); ordinal < physicalLines.length; ordinal += 1) {
     const line = physicalLines[ordinal]
     if (line === undefined || line.end > (firstChild?.range.start ?? start)) break
     if (sourceBlankLines.has(line)) leading.push(line)
   }
-  for (let ordinal = 0; ordinal + 1 < leading.length; ordinal += 2) {
+  // After the marker line's empty paragraph, blank lines separate blocks.
+  const separated = result.length > 0 ? 1 : 0
+  for (let ordinal = separated; ordinal + 1 < leading.length; ordinal += 2) {
     const line = leading[ordinal]
     if (line !== undefined) result.push(createNode('paragraph', line.contentOffset, line.contentOffset))
   }
@@ -6665,14 +6768,16 @@ function editingParagraphNodes(
       if (line === undefined || line.end > limit) break
       if (sourceBlankLines.has(line)) blank.push(line)
     }
+    // Blank lines splitting consecutive HTML blocks are the middle lines of an
+    // element template such as `<div>`, `</div>`; each stays editable.
+    const template = node.kind === 'html-block' && next?.kind === 'html-block'
+    // As upstream MarkText shows it, a document's single final blank line is
+    // no block; a second one is the empty paragraph that Enter at the end
+    // writes.
     const tail = next === undefined && limit === documentEnd
-    for (let ordinal = 1; ordinal < blank.length - (tail || (next === undefined && paragraphContainer === 'container') ? 0 : 1); ordinal += 2) {
+    for (let ordinal = template ? 0 : 1; ordinal < blank.length - (template || tail || (next === undefined && paragraphContainer === 'container') ? 0 : 1); ordinal += template ? 1 : 2) {
       const line = blank[ordinal]
       if (line !== undefined) result.push(createNode('paragraph', line.contentOffset, line.contentOffset))
-    }
-    if (tail && blank.length % 2 === 1) {
-      const position = blank.at(-1)?.end
-      if (position !== undefined) result.push(createNode('paragraph', position, position))
     }
   }
   return Object.freeze(result)
@@ -6702,7 +6807,7 @@ function intrinsicForkDocumentFromNodes(
       execution,
       (definitionStart, referenceStart) =>
         definitionCanResolveWithinMatchingScopes(
-          lane.matchingScopes ?? Object.freeze([]),
+          definitionScopesForView(lane.matchingScopes, lane.forkView),
           definitionStart,
           referenceStart
         )
@@ -6827,13 +6932,18 @@ function canonicalOffsetForProjectedOffset(
 function projectedReferenceDefinitionsFromCanonicalFacts(
   canonical: Profile1CanonicalReferenceDefinitionLookup,
   identityRuns: readonly MappedMarkdownCanonicalIdentityRun[],
-  matchingScopes: readonly MappedMarkdownMatchingScope[],
+  laneMatchingScopes: readonly MappedMarkdownMatchingScope[],
+  view: MappedMarkdownLane['forkView'],
+  projectedSource: string,
   scopeRejectedReferenceStarts?: Set<number>,
   literals?: readonly MarkdownLiteralRange[]
 ): MarkdownReferenceDefinitionLookup {
   const factByStart = new Map(
     canonical.definitionFacts().map((fact) => [fact.sourceStart, fact] as const)
   )
+  const matchingScopes = definitionScopesForView(laneMatchingScopes, view)
+  const globalSubstitutionArm =
+    view === 'revised' ? 'new' : view === 'original' ? 'old' : undefined
   const selectedStarts = new Set<number>()
   if (literals === undefined) {
     for (const fact of factByStart.values()) {
@@ -6909,7 +7019,8 @@ function projectedReferenceDefinitionsFromCanonicalFacts(
           )
         rejectedSelectedCandidate ||= !accepted
         return accepted
-      }
+      },
+      globalSubstitutionArm
     )
     if (
       canonicalDefinitionStart === undefined &&
@@ -6917,13 +7028,22 @@ function projectedReferenceDefinitionsFromCanonicalFacts(
     ) {
       scopeRejectedReferenceStarts?.add(projectedReferenceStart)
     }
-    return canonicalDefinitionStart === undefined
+    const projectedDefinitionStart = canonicalDefinitionStart === undefined
       ? undefined
       : projectedOffsetForCanonicalOffset(
         identityRuns,
         canonicalDefinitionStart,
         'next'
       )
+    // A projected definition literal starts at its line start, container
+    // prefix included. An arm-opened definition's canonical start follows
+    // the opener instead, so identify it by its projected line start.
+    return projectedDefinitionStart === undefined
+      ? undefined
+      : Math.max(
+        projectedSource.lastIndexOf('\n', projectedDefinitionStart - 1),
+        projectedSource.lastIndexOf('\r', projectedDefinitionStart - 1)
+      ) + 1
   }
   return Object.freeze({
     cacheKey: JSON.stringify(
@@ -7319,6 +7439,10 @@ function forkRegionBoundaryFacts(
   const boundaryPolicy = scopes.length === 0 && delimiterBoundaries.length === 0
     ? undefined
     : createInlineBoundaryPolicy(scopes, identityRuns, false, imageSizeOmissions, lane.matchingScopes)
+  const definitionScopes = definitionScopesForView(
+    lane.matchingScopes,
+    lane.forkView
+  )
   const matchingScopePolicy: MarkdownMatchingScopePolicy | undefined =
     boundaryPolicy === undefined
       ? undefined
@@ -7389,7 +7513,7 @@ function forkRegionBoundaryFacts(
           definitionStart: number,
           referenceStart: number
         ): boolean => definitionCanResolveWithinMatchingScopes(
-          lane.matchingScopes ?? Object.freeze([]),
+          definitionScopes,
           definitionStart,
           referenceStart
         ))
@@ -8003,7 +8127,9 @@ export function createProfile1MarkdownForkParser(
             lane.source.length,
             lane.canonicalIdentityRuns
           ),
-          lane.matchingScopes ?? Object.freeze([])
+          lane.matchingScopes ?? Object.freeze([]),
+          lane.forkView,
+          lane.source
         )
       const literals: MarkdownLiteralRange[] = []
       for (const region of intrinsicForkRegionLanes(forkLane, lane)) {
@@ -8079,7 +8205,9 @@ export function createProfile1MarkdownForkParser(
               request.lane.source.length,
               request.lane.canonicalIdentityRuns
             ),
-            request.lane.matchingScopes ?? Object.freeze([])
+            request.lane.matchingScopes ?? Object.freeze([]),
+            request.lane.forkView,
+            request.lane.source
           )
         const regionLanes = reused === undefined
           ? [...intrinsicForkRegionLanes(
@@ -8242,6 +8370,8 @@ export function createProfile1MarkdownForkParser(
             planningLane.canonicalIdentityRuns
           ),
           planningLane.matchingScopes ?? Object.freeze([]),
+          planningLane.forkView,
+          planningLane.source,
           scopeRejectedReferenceStarts
         )
       for (const region of intrinsicForkRegionLanes(forkLane, planningLane)) {
@@ -8356,13 +8486,17 @@ export function createProfile1MarkdownForkParser(
           starts.push(definition.start)
         }
       }
+      const footnoteScopes = definitionScopesForView(
+        planningLane.matchingScopes,
+        planningLane.forkView
+      )
       for (const reference of projectedFootnoteReferences) {
         const definitions = footnoteDefinitionsByLabel.get(reference.label)
         if (
           definitions !== undefined &&
           !definitions.some((definitionStart) =>
             definitionCanResolveWithinMatchingScopes(
-              planningLane.matchingScopes ?? Object.freeze([]),
+              footnoteScopes,
               definitionStart,
               reference.start
             ))

@@ -43,7 +43,6 @@ async function mountOwnedDocument(source: string) {
       muya,
       view,
       outcome,
-      sourcePosition: adapter.reconciledSourcePosition,
       dirtyPaths: presentation.changedPaths,
       applyEditability: (bindings) =>
         muya.setEditablePaths(
@@ -57,7 +56,6 @@ async function mountOwnedDocument(source: string) {
     view.bindings,
     lease.binding,
     undefined,
-    reconcile,
     revision,
     true
   )

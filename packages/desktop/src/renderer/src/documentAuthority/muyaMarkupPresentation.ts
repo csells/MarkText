@@ -106,6 +106,18 @@ const syntaxSpans = (
   const hide = (range: SourceRange): void =>
     add(range, '<span class="mu-hide mu-remove">', '</span>')
   const visit = (node: MarkdownAstNode): void => {
+    if (node.kind === 'inline-math') {
+      const range = nativeRange(node.range)
+      if (range !== undefined && typeof node.attributes.content === 'string') {
+        const widget = context?.renderMath?.({
+          range,
+          raw: binding.text.slice(range.start, range.end),
+          content: node.attributes.content
+        })
+        if (widget !== undefined) spans.push({ range, ...widget, atomic: true })
+      }
+      return
+    }
     if (node.kind === 'footnote-reference') {
       const range = nativeRange(node.range)
       if (range !== undefined) {
@@ -149,6 +161,27 @@ const syntaxSpans = (
         if (widget !== undefined) {
           spans.push({ range, open: widget.open, close: widget.close, atomic: true })
         }
+      }
+      return
+    }
+    if (node.kind === 'inline-html' && typeof node.attributes.tagName === 'string') {
+      const range = nativeRange(node.range)
+      if (range !== undefined) {
+        const attributes: Record<string, string> = {}
+        for (const [name, value] of Object.entries(node.attributes)) {
+          if (name.startsWith('htmlAttribute:') && typeof value === 'string') {
+            attributes[name.slice('htmlAttribute:'.length)] = value
+          }
+        }
+        const widget = context?.renderHtmlTag?.({
+          range,
+          raw: binding.text.slice(range.start, range.end),
+          tag: node.attributes.tagName,
+          closing: node.attributes.closingTag === true,
+          selfClosing: node.attributes.selfClosing === true,
+          attributes
+        })
+        if (widget !== undefined) spans.push({ range, ...widget })
       }
       return
     }
@@ -303,7 +336,8 @@ const renderSpans = (
     }
     output.push(...(markersAt.get(start) ?? []))
     for (let open = common; open < next.length; open += 1) output.push(next[open].open)
-    output.push(escapeHtml(text.slice(start, end)))
+    // HTML parsing, including the sanitizer's, folds CRLF into LF.
+    output.push(escapeHtml(text.slice(start, end)).replaceAll('\r', '&#13;'))
     active = next
   }
   for (let close = active.length - 1; close >= 0; close -= 1) output.push(active[close].close)
@@ -398,10 +432,43 @@ export function renderMuyaMarkupBinding(
       close: '</span>'
     })
   }
-  if (currentText === binding.text && !pendingEdits?.length) {
+  const trailingLine =
+    binding.trailingLinePosition !== undefined && currentText === `${binding.text}\n`
+      ? { start: binding.text.length, end: currentText.length }
+      : undefined
+  // Enter on an earlier line of a paragraph shows the new paragraph's empty
+  // first line before its text, as upstream does.
+  const leadingLine =
+    binding.leadingLinePosition !== undefined && currentText === `\n${binding.text}`
+  // Upstream keeps a space typed after a cell's text in the cell.
+  const cellPadding =
+    binding.tableCellPadding !== undefined &&
+    currentText.length > binding.text.length &&
+    currentText.length - binding.text.length <= binding.tableCellPadding &&
+    currentText.startsWith(binding.text) &&
+    /^ +$/u.test(currentText.slice(binding.text.length))
+  if (
+    (currentText === binding.text || trailingLine !== undefined || cellPadding) &&
+    !pendingEdits?.length
+  ) {
     spans.push(...syntaxSpans(binding, context))
+  } else if (leadingLine && !pendingEdits?.length) {
+    spans.push(
+      ...syntaxSpans(binding, context).map((span) => ({
+        ...span,
+        range: { start: span.range.start + 1, end: span.range.end + 1 }
+      }))
+    )
   }
-  return sanitize(renderSpans(currentText, spans, markers), {
+  // Upstream's line-end soft break is a block, so the empty last line holds the caret.
+  if (trailingLine !== undefined) {
+    spans.push({
+      range: trailingLine,
+      open: '<span class="mu-soft-line-break mu-line-end">',
+      close: '</span>'
+    })
+  }
+  const html = sanitize(renderSpans(currentText, spans, markers), {
     ...PREVIEW_DOMPURIFY_CONFIG,
     // Styles and contenteditable are generated only by the trusted native
     // widget renderer. All authored text and scalar values are escaped.
@@ -423,4 +490,7 @@ export function renderMuyaMarkupBinding(
       'data-title'
     ]
   })
+  // HTML parsing folds CRLF into LF. A character reference keeps each CR in
+  // the DOM, so native offsets stay those of the Core text.
+  return html.replaceAll('\r', '&#13;')
 }

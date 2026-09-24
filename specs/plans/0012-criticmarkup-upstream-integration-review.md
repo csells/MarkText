@@ -1,6 +1,6 @@
 # Finish CriticMarkup through native MarkText reuse
 
-- **Status:** Identified implementation and local US-English/Apple-Silicon macOS verification gaps B1–B5 are repaired and verified on `5a71228e`. All 73 distinct affected installed cases and 3,355 desktop unit tests pass; real macOS Open/Save As and empty-window close are verified. The exact bundle is running from `/Applications/marktext.app` with the existing session reopened. Full release readiness still depends on E1/E2; D1 remains deferred. Earlier broad and sustained results remain attributed to their original artifacts, with failures and fixture corrections retained below.
+- **Status:** Reopened on 22 September 2026 after a fresh review of clean `6cbc5cbf` and installed `5a71228e`. G1–G6 were repaired red/green on the same day and are locally verified on the uncommitted candidate recorded below (ASAR `5f9d87d0…`); that candidate is not yet committed, installed in Applications or observed in hosted CI. Earlier B1–B5, U2 and sustained verification remain attributed to their original artifacts. E1/E2 and deferred D1 remain explicit.
 - **Started:** 2026-09-07 at the owner's request following the branch review.
 - **Supersedes:** [0011](archive/0011-criticmarkup-editable-review.md), archived incomplete. Its full product scope and unfinished requirements carry forward; archival is not completion.
 - **Authority:** [vision](../vision/criticmarkup-vision.md), [domain language](../../CONTEXT.md), [Profile 1](../language/marktext-markdown-profile-1.md), [Markdown image-layout extension](../language/marktext-markdown-profile-2.md), semantic ADRs, [document authority](../adr/0001-core-document-authority.md), and [native integration architecture](../architecture/criticmarkup-native-integration.md).
@@ -29,19 +29,249 @@ macOS remains the implementation and verification priority. Windows/Linux requir
 
 R1–R8 were verified on the historical `5e5c6178` candidate. Later convention repairs are recorded below. The 20 September architecture review demonstrated U1 violations against the installed package and source; their migrations and fresh verification are recorded below. The full retained scope and release blockers remain open. Changed runtime inputs must not inherit earlier candidate verification.
 
-| ID / violated requirement                                              | Current evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Responsible boundary and closure                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| U1 — one parser-to-UI stack and faithful editing, locally verified     | Native producers use common-model operations; production `json-change` decoding is retired. Image layout preserves independent label suggestions. On `eed5f5d9`, Core 1,346, Desktop 3,322 and Chromium 850 pass; Muya 1,580 is reused for 863 byte-identical inputs. All 82 installed functional cases and the full sustained workloads pass, including native clipboard and retained preferences/media/security/accessibility checks. Canonical regional clipboard planning and view acknowledgement replace demonstrated redundant full work. | Identified implementation and local verification are complete. No known unmigrated production caller remains from this reassessment. Keep the contract active for future changes; E1/E2/D1 remain explicit.                                                                                                                                                                                                                                                              |
-| U2 — window ownership and pending-input preservation, locally verified | The user-reported zero-tab close failure was reproduced on the installed `eed5f5d9` bundle in six scenarios. Candidate `02003385` passes all 16 installed lifecycle cases (six formerly failing close/Quit paths, two empty-state New File/reopen/history/save cases, eight existing pending-input/cancel/incoming-open cases), plus 294 affected unit tests. A held-retirement regression also proves newer document reload/recovery registrations survive cleanup.                                                                             | The common owner now lives across the window’s empty state; native input surfaces require a live document. Only retired actors relinquish handlers. The later `5a71228e` bundle reruns all 16 close cases, is installed in Applications and reopens the existing session. Missing-owner, composition and recovery refusal guards remain. Native screenshot-picker/CJK interaction remains E1.                                                                            |
-| V1 — sustained candidate verification, locally verified                | Historical `eed5f5d9` passes all six 1,200-input workloads, 15 cold opens, 82 installed functional cases and the full 200-cycle real-Paste editorial workload. All 20 saved-source checkpoints and the final fixture hash match. The final runner exits successfully in 151.703 seconds; the test deadline remains 180 seconds and pacing 20 ms.                                                                                                                                                                                                 | The sustained gate passed on `eed5f5d9`; the affected installed lifecycle gate for `02003385` is recorded below. Broad and sustained counts are not reattributed to the new artifact. Clipboard restored; owned apps closed. Prior timeout and clipboard interruptions remain separate retained evidence. The final pass uses the same runtime, original workload and guard after other clipboard activity was paused; no runtime change or weaker limit was introduced. |
-| B1 — Save As destination ownership, locally verified                   | Final `5a71228e` passes all five installed Save As cases: same-window/cross-window/symlink collisions, ordinary closed-file overwrite and simultaneous missing case-alias destinations. Exact source, next edit, history and save are checked. The final concurrent fixture remains red on `1f7297b8`.                                                                                                                                                                                                                                           | Shared save/rename destination ownership is checked before writes and held through registration; physical aliases and filesystem case policy are respected. Post-write tab eviction is retired. Affected caller units pass 43/43.                                                                                                                                                                                                                                        |
-| B2 — focused-control history, locally verified                         | Final artifact passes all ten focused Find/palette/Review-comment cases through native Cmd+Z/Cmd+Shift+Z and Edit-menu routes, including Source, exhausted control history and exact document saves.                                                                                                                                                                                                                                                                                                                                             | Ordinary controls retain native history; Muya and CodeMirror retain common document history. Subsequent document input and Undo/Redo remain verified.                                                                                                                                                                                                                                                                                                                    |
-| B3 — everyday desktop workflow verification, locally verified          | Final artifact passes mixed Close All/Close Others cancellation, full folder creation, two-window dirty/untitled restoration, Preferences persistence, real disk reload in both modes and palette execution. Real macOS Open/Save As selection/cancellation and next input/save preserve independent exact source.                                                                                                                                                                                                                               | Durable installed regressions and actual OS sheet execution close these listed gaps. Native screenshot picker, CJK and Intel execution remain separately recorded in E1.                                                                                                                                                                                                                                                                                                 |
-| B4 — multiple-file startup owner, locally verified                     | Final four-file startup test preserves immediate typing, common-model history and exact save. All 16 installed close cases pass alongside it. A held-save/background-tab/switch component regression covers the demonstrated overlap.                                                                                                                                                                                                                                                                                                            | Active Markup ownership survives tab-collection-only changes; retirement follows actual closed actors and the owned projection, preserving live histories and Source handoff.                                                                                                                                                                                                                                                                                            |
-| B5 — Source Find/Replace, locally verified                             | Final native Find/navigation/next-key and Replace regex/single/all/CRLF/history/save cases pass, plus both Source Find focused-history routes. Edit → Replace now actually focuses the shared query control.                                                                                                                                                                                                                                                                                                                                     | Source reuses existing Search UI/query policy and canonical source positions; replacements enter existing pre-change common-model operations. Misrouted hidden Markup search handlers are retired in Source.                                                                                                                                                                                                                                                             |
-| E1 — native Mac/Intel execution, external                              | Local input sources expose U.S. keyboard only. Mini XCUITest previously failed before launch while enabling automation. Native CJK IME, the actual screenshot picker and Intel Mac execution remain unverified.                                                                                                                                                                                                                                                                                                                                  | Obtain non-disruptive native execution/CJK input and Intel hardware; verify candidate selection/commit, history/save and the picker. Chromium composition and completed-capture IPC do not substitute.                                                                                                                                                                                                                                                                   |
-| E2 — distribution trust, external                                      | Developer ID/notarization credentials are unavailable. Current ad-hoc signing verifies local integrity only.                                                                                                                                                                                                                                                                                                                                                                                                                                     | Verify signed/notarized distribution and Gatekeeper trust when credentials are available.                                                                                                                                                                                                                                                                                                                                                                                |
-| D1 — Windows/Linux, deferred                                           | Windows run `34068611204` once left the first saved file unchanged; ten repetitions passed without explaining it. Native Windows IME and final platform checks remain unfinished.                                                                                                                                                                                                                                                                                                                                                                | Preserve ARM64 installation fixes. Resume the unexplained save failure only with a new hypothesis or recurrence, then run the retained installed platform checks when platform work resumes.                                                                                                                                                                                                                                                                             |
+| ID / violated requirement                                              | Current evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Responsible boundary and closure                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| U1 — one parser-to-UI stack and faithful editing, reopened             | Earlier `eed5f5d9` verification remains valid for its recorded cases: Core 1,346, Desktop 3,322, Chromium 850, Muya 1,580 over unchanged inputs, 82 installed cases and retained sustained workloads. Native Muya producers use common-model operations and production `json-change` decoding is retired. The fresh `6cbc5cbf` / installed `5a71228e` review nevertheless demonstrates Source presentation before model admission (G3), inconsistent semantic presentation (G4/G5), draft loss (G1) and a read-only command-policy hole (G2). | G1–G5 are locally verified through actual callers and the packaged candidate recorded under the 22 September repair (ASAR `5f9d87d0…`). U1 stays open until that candidate is committed and its hosted verification observed. Preserve the completed migrations and all retained requirements; a passing subset or one durable save authority does not establish completion.                                                                                             |
+| U2 — window ownership and pending-input preservation, locally verified | The user-reported zero-tab close failure was reproduced on the installed `eed5f5d9` bundle in six scenarios. Candidate `02003385` passes all 16 installed lifecycle cases (six formerly failing close/Quit paths, two empty-state New File/reopen/history/save cases, eight existing pending-input/cancel/incoming-open cases), plus 294 affected unit tests. A held-retirement regression also proves newer document reload/recovery registrations survive cleanup.                                                                          | The common owner now lives across the window’s empty state; native input surfaces require a live document. Only retired actors relinquish handlers. The later `5a71228e` bundle reruns all 16 close cases, is installed in Applications and reopens the existing session. Missing-owner, composition and recovery refusal guards remain. Native screenshot-picker/CJK interaction remains E1.                                                                            |
+| V1 — sustained candidate verification, locally verified                | Historical `eed5f5d9` passes all six 1,200-input workloads, 15 cold opens, 82 installed functional cases and the full 200-cycle real-Paste editorial workload. All 20 saved-source checkpoints and the final fixture hash match. The final runner exits successfully in 151.703 seconds; the test deadline remains 180 seconds and pacing 20 ms.                                                                                                                                                                                              | The sustained gate passed on `eed5f5d9`; the affected installed lifecycle gate for `02003385` is recorded below. Broad and sustained counts are not reattributed to the new artifact. Clipboard restored; owned apps closed. Prior timeout and clipboard interruptions remain separate retained evidence. The final pass uses the same runtime, original workload and guard after other clipboard activity was paused; no runtime change or weaker limit was introduced. |
+| B1 — Save As destination ownership, locally verified                   | Final `5a71228e` passes all five installed Save As cases: same-window/cross-window/symlink collisions, ordinary closed-file overwrite and simultaneous missing case-alias destinations. Exact source, next edit, history and save are checked. The final concurrent fixture remains red on `1f7297b8`.                                                                                                                                                                                                                                        | Shared save/rename destination ownership is checked before writes and held through registration; physical aliases and filesystem case policy are respected. Post-write tab eviction is retired. Affected caller units pass 43/43.                                                                                                                                                                                                                                        |
+| B2 — focused-control history, locally verified                         | Final artifact passes all ten focused Find/palette/Review-comment cases through native Cmd+Z/Cmd+Shift+Z and Edit-menu routes, including Source, exhausted control history and exact document saves.                                                                                                                                                                                                                                                                                                                                          | Ordinary controls retain native history; Muya and CodeMirror retain common document history. Subsequent document input and Undo/Redo remain verified.                                                                                                                                                                                                                                                                                                                    |
+| B3 — everyday desktop workflow verification, locally verified          | Final artifact passes mixed Close All/Close Others cancellation, full folder creation, two-window dirty/untitled restoration, Preferences persistence, real disk reload in both modes and palette execution. Real macOS Open/Save As selection/cancellation and next input/save preserve independent exact source.                                                                                                                                                                                                                            | Durable installed regressions and actual OS sheet execution close these listed gaps. Native screenshot picker, CJK and Intel execution remain separately recorded in E1.                                                                                                                                                                                                                                                                                                 |
+| B4 — multiple-file startup owner, locally verified                     | Final four-file startup test preserves immediate typing, common-model history and exact save. All 16 installed close cases pass alongside it. A held-save/background-tab/switch component regression covers the demonstrated overlap.                                                                                                                                                                                                                                                                                                         | Active Markup ownership survives tab-collection-only changes; retirement follows actual closed actors and the owned projection, preserving live histories and Source handoff.                                                                                                                                                                                                                                                                                            |
+| B5 — Source Find/Replace, locally verified                             | Final native Find/navigation/next-key and Replace regex/single/all/CRLF/history/save cases pass, plus both Source Find focused-history routes. Edit → Replace now actually focuses the shared query control.                                                                                                                                                                                                                                                                                                                                  | Source reuses existing Search UI/query policy and canonical source positions; replacements enter existing pre-change common-model operations. Misrouted hidden Markup search handlers are retired in Source.                                                                                                                                                                                                                                                             |
+| G1 — retain unfinished comment input, locally verified                 | Red on installed `5a71228e`: an edited comment draft disappeared on tab switch or Source handoff. Candidate: all three `installed-core-review-lifecycle` cases pass (tab switch, Source handoff with stale-target refusal, tab/window close confirmation).                                                                                                                                                                                                                                                                                    | Composer state (`coreReviewComposer.ts`) belongs to each document in `editorWithTabs/index.vue`, not the mounted editor. Tab close, window close and Quit with an open composer ask Discard and Close/Cancel (`mt::confirm-discard-review-input`); Cancel keeps the draft.                                                                                                                                                                                               |
+| G2 — Original/Revised read-only command policy, locally verified       | Red on installed `5a71228e`: Replace, Format → Bold, Duplicate and Delete Paragraph stayed enabled in both reader modes; the Find bar's toggle exposed Replace, which changed saved bytes, and Bold changed saved bytes in Revised. Candidate: both `installed-reader-mode-policy` cases pass.                                                                                                                                                                                                                                                | One `markupEditingAvailable` predicate in `editor.vue` gates every mutating Markup command handler (format, paragraph, replace, image/screenshot, spelling, paste-as-plain-text, document undo/redo). Format/Paragraph menus and the Edit mutators are disabled natively; the Find bar keeps search but hides replacement. Markup replacement, undo and save still pass.                                                                                                 |
+| G3 — Source admission before presentation, locally verified            | Red on installed `5a71228e` and in five unit regressions against HEAD's adapter (including input immediately after Undo). Candidate: both `installed-source-admission` cases observe every visible `Xseed` DOM write with canonical revision 2 already admitted.                                                                                                                                                                                                                                                                              | `codeMirrorCoreAdapter.ts` enqueues the complete native operation from the Doc `change` drain, before CodeMirror paints; the editor-level `changes` submission is retired. History presentation applies synchronously when no native operation is pending.                                                                                                                                                                                                               |
+| G4 — native inline presentation, locally verified                      | Red on installed `5a71228e` (literal math and tags). Repair then exposed that any selection inside inline math or a code span was rejected by Core's selection projection, misreported as a stale barrier and treated as a fault that remounted the editor. Candidate: all `installed-inline-presentation` cases and the full installed matrix pass.                                                                                                                                                                                          | Core `inline-math`/`inline-html` nodes are presented through Muya's native math and HTML-tag renderers (`renderMath`/`renderHtmlTag`), with decoded attributes from document-core. A partially selected literal leaf projects its selected source characters. Authoring controls now require forms confirmed by Core's `planAuthor` (`authorFormsAtBarrier`); the literal-context row previously passed only through the remount.                                        |
+| G5 — emoji semantics across consumers, locally verified                | Red on installed `5a71228e` and in a unit regression against HEAD's renderer. Candidate: reader modes, sidebar comment and the actual Export as HTML command render parser-owned emoji; code, escapes and unknown aliases stay literal; source is unchanged.                                                                                                                                                                                                                                                                                  | `markdownProjectionHtml.ts` presents a closed text node's parser-owned `emojiValue`; readers, comments and exports share that renderer.                                                                                                                                                                                                                                                                                                                                  |
+| G6 — durable CI regression selection, wiring verified locally          | All build/reverify workflow jobs run the shared `installed-functional` project, which discovers every `installed-*.spec.ts` (including this repair's four new specs) plus the image-size and window-close checks. `e2e-project-discovery` passes.                                                                                                                                                                                                                                                                                             | Hosted CI has not yet run this selection; that remains open until an observed pass. Performance workloads keep their separate project and limits.                                                                                                                                                                                                                                                                                                                        |
+| E1 — native Mac input execution, external                              | Local input sources expose U.S. keyboard only. Mini XCUITest previously failed before launch while enabling automation. Native CJK IME and the actual screenshot picker remain unverified. Current-head CI run `35676640048` passes its selected installed tests on Intel and Apple Silicon Mac runners; this adds Intel subset evidence, not native IME/picker or full final-candidate coverage.                                                                                                                                             | Obtain non-disruptive native CJK input and picker execution; verify candidate selection/commit, history/save and capture. Chromium composition and completed-capture IPC do not substitute. Retain full platform verification scope.                                                                                                                                                                                                                                     |
+| E2 — distribution trust, external                                      | Developer ID/notarization credentials are unavailable. Current ad-hoc signing verifies local integrity only.                                                                                                                                                                                                                                                                                                                                                                                                                                  | Verify signed/notarized distribution and Gatekeeper trust when credentials are available.                                                                                                                                                                                                                                                                                                                                                                                |
+| D1 — Windows/Linux, deferred                                           | Historical Windows run `34068611204` once left the first saved file unchanged; ten repetitions passed without explaining it. Fresh current-head run `35676640048` fails Windows x64/ARM64 export image-URL assertions (`%7E` versus `~`) and a Linux annotated-list operation leaves an unexpected recovery draft. Later cases did not run after the first failure. Native Windows IME and final platform checks remain unfinished.                                                                                                           | Keep these failed verifications separate from local macOS repairs and from external signing/input dependencies. Preserve ARM64 installation fixes and investigate concrete failures when platform work resumes; no claim of platform completion follows from the Mac subset.                                                                                                                                                                                             |
+
+### 22 September vision gap review and red/green repair — locally verified
+
+The owner requested that this existing plan record the fresh findings and that all
+six be addressed through red/green TDD. Review baseline: clean
+`6cbc5cbf172fd00e4a0faafe1bf07c3f7ecf5a7d`; installed artifact:
+`5a71228e10f6e541e916b9a91adf2a06aef2707b`, ASAR
+`d6e837de682142ec505af8f8ecb419c756d18997c0389c40361f0d471e09c7e9`.
+The former differs from the installed snapshot only by previously verified
+formatting changes. The common parser/model direction is retained. These gaps
+reopen implementation completion under the
+[one-parser-to-UI contract](../architecture/criticmarkup-native-integration.md#one-parser-to-ui-stack);
+they are not external release exceptions or authorization for another architecture.
+
+Retained pre-fix evidence:
+
+- G1/G2: four private installed probes, JSON and screenshots under
+  `/tmp/marktext-ui-review-8yvxaV/artifacts/`, with the caller fixtures in
+  `/tmp/marktext-ui-review-8yvxaV/probe.spec.ts`. Draft loss concerns unsubmitted
+  authored input, not corruption of an already-applied annotation. Replace changes
+  actual saved bytes in Original and Revised.
+- G3: `/tmp/marktext-native-audit-MRdaGl/source-timing-2.log` and
+  `source-timing.spec.ts`. The native key and synchronous acknowledged-model read
+  demonstrate the ordering violation; final source is correct.
+- G4/G5: `/tmp/marktext-parser-gap-u8q7zmu6/installed-result.json`,
+  `installed-markup.png`, `installed-revised.png` and bound-Muya probe output.
+  The caret is outside the affected content, source bytes are unchanged and the
+  actual sidebar comment participates. Export impact still needs caller proof.
+- G6 and platform status: [current-head CI run 35676640048](https://github.com/csells/MarkText/actions/runs/35676640048).
+  Mac x64/ARM64 selected suites pass; Windows URL-spelling assertions and a Linux
+  unexpected recovery draft fail. Logs are retained under
+  `/var/folders/6k/xzgngnms6jg4_z2l40y0_9vh0000gn/T/marktext-vision-gap-p7eqfpwj/`.
+
+Each repair proceeds in vertical slices: a failing regression at the affected
+production caller, the minimal common-stack repair, then the relevant existing
+checks. Record exact commands/results, production ownership, retired paths and
+candidate identity here before marking a gap closed. Keep failed attempts and
+incomplete checks explicit. Tests use private profiles and scratch documents;
+user sessions, data and clipboard are preserved. The existing sustained workloads
+and limits remain unchanged; earlier passes are not reattributed to new code.
+
+**G6 selection repair.** The pre-fix CI command's actual Playwright `--list`
+output omits all five required desktop suites; the independent membership check
+exits 1. The shared `installed-functional` project now discovers `installed-*.spec.ts`
+and retains installed image-size/window-close checks, excluding only the existing
+separately calibrated performance spec. All five build/reverify workflow commands
+use that project; the focused Windows save diagnostic remains unchanged. The same
+membership check exits 0 with eleven discovered files. Evidence:
+`/var/folders/6k/xzgngnms6jg4_z2l40y0_9vh0000gn/T/marktext-vision-repair-iifhkvrw/ci-selection-red.json` and `ci-selection-green.json`.
+This closes the selection defect, pending final local functional execution; it is
+not a hosted CI pass. No workload, timeout, retry policy or performance limit changed.
+New installed regressions inherit discovery through the same project.
+
+**Repair record and candidate.** Codex's session ended at its usage limit with G1,
+G3, G4 and G5 drafted and G2 not started; the work was completed and verified in a
+follow-up session on 22 September. The candidate is the uncommitted working tree
+over `6cbc5cbf172fd00e4a0faafe1bf07c3f7ecf5a7d` (the packaged `buildCommit` is that
+HEAD), `dist/mac-arm64` ASAR
+`5f9d87d0f1bad64d6a61c64b7dc32e380c6f52dbb96f6f959eabce9c37cae113`. It has not
+replaced the Applications copy (still `5a71228e`).
+
+Red evidence, each against the unchanged pre-fix artifact `5a71228e` or HEAD sources:
+
+- Installed: the three G1 lifecycle cases, both G2 reader-mode cases, both G3
+  admission cases and the three G4/G5 inline-presentation cases fail on their
+  behavioral assertions.
+- Unit: five G3 Source-ordering cases and the G5 emoji case fail with HEAD's
+  `codeMirrorCoreAdapter.ts` and `markdownProjectionHtml.ts` restored; the
+  formula-selection projection (ordinary and suggested math) returns `rejected`;
+  the lease has no author-forms query.
+
+Green on the candidate:
+
+- Desktop unit 3,372/3,372 (304 files); typecheck clean; lint 0 errors.
+- Muya 1,580/1,580 and CommonMark/GFM spec 1,347/1,347; document-core 1,347/1,347
+  (both packages unchanged after these runs).
+- Installed `installed-functional` 90/90 on ASAR `5f9d87d0…`, including every new
+  G1–G5 case, the full installed interaction matrix, Save As, lifecycle,
+  focused-history, basics and Source search.
+
+Harness corrections, not product changes: the G1 specs targeted a missing
+`-error` test ID and an `.el-notification` class the notice service never renders;
+the G4 HTML case now clicks into the element before double-clicking the word,
+as a user would once the revealed tag syntax settles. A native-Muya Chromium
+probe confirmed that clicking a formula preview selects its content, so the G4
+formula case is a genuine regression check rather than a harness artifact.
+
+Retired or replaced paths: CodeMirror `changes`-event submission (G3); the
+reader-mode gap in Source-only command guards (G2); projection text that ignored
+`emojiValue` (G5); rejection of partially selected literal leaves and its
+misreport as a stale barrier (G4); authoring availability inferred from any
+non-empty selection (G4).
+
+Still open or unperformed: hosted CI for this candidate; the sustained
+`installed-core-performance` workloads were not rerun on it; Undo/Redo menu items
+remain enabled in reader views because focused controls still use them (document
+history is refused by the Markup command gate); E1, E2 and D1 are unchanged.
+
+### 23–24 September unpacked E2E remediation — locally verified
+
+The owner required every failing case fixed, including failures already present
+on clean `6cbc5cbf`, and that MarkText's standard Markdown behavior stay exactly
+as upstream has it: CriticMarkup is added to the unified stack as if built in
+from day one. Upstream behavior was checked against pre-integration `8d6c198c`
+(its Muya run directly in a jsdom probe) and against upstream's own `marked` parse.
+
+Baseline: the hidden unpacked suite (`MARKTEXT_E2E_HIDDEN_WINDOW=1`, 460 cases)
+failed 59 cases on clean HEAD; the G1–G6 candidate added 4 (open comment
+composer blocking window close; recovery-panel retry race; inline-math gesture).
+After the repairs below, run 2 failed 11 and targeted reruns of 9 of those pass;
+the two remaining failures await the HTML-template decision.
+
+Product repairs (each red/green through its production entry point):
+
+- Window close/quit and tab close with an open Review composer show the native
+  Discard-and-Close/Cancel confirmation (owner decision).
+- Draft recovery: later faults no longer retry a pending backup implicitly; the
+  visible Retry control owns it (fixed a 6-in-8 flake on clean HEAD).
+- Paragraph→bullet/ordered/task list is a Core operation (`planListCreation`);
+  Muya's native list path is retired for bound documents. Bytes match upstream,
+  including continuation indentation and `preferLooseListItem=false` tight lists.
+  Blockquote conversion quotes every line as upstream does. Tracked relocation of
+  pure insertions now reconciles its selection.
+- Unlisting keeps an end-of-line caret before the inserted separator; ordered
+  Tab restarts nested numbering and renumbers following items as upstream does.
+- Empty fenced/math/front-matter payloads keep their line ending on first input;
+  Enter inside a multi-line HTML block inserts a literal line.
+- Table alignment works without a live DOM selection; input at an unmapped DOM
+  point fails closed instead of mutating the DOM outside the model.
+- Parser: HTML blocks and indented code opened on a list item's marker line stay
+  one block (CommonMark 0.31.2 all 652 examples still pass).
+- Selection clipboard projects partially selected literal leaves; authoring
+  controls require Core `planAuthor` availability (from the G4 repair).
+- Unpacked `electron <app>` launches no longer open the application path as a
+  folder (`userArguments`, including Electron switches before the app path).
+- Hidden E2E windows disable background throttling so animation timing matches
+  a visible window. The desktop's duplicate deferred image-tool open is retired;
+  Muya owns it.
+
+Test corrections (obsolete expectations, each justified against the contract,
+Core unit tests or upstream): synchronous Core acknowledgement replaced the
+retired Worker's 250 ms reply delay, so "queued/pending acknowledgement" axes
+became consecutive-input variants and deferred-save assertions were removed;
+tracked structural edits are separate per-line suggestions; tracked checkboxes
+render intrinsically; Source-mode Find is owned by the Source search bar;
+the input-latency probe prevents at window capture; image resize targets the
+bar's truncating geometry; TOC and IME tests no longer race animations or leave
+compositions open; real gestures replace synthetic ranges.
+
+Decisions after run 2 (owner = O; delegated architecture/language decisions
+= D, per the owner's instruction to decide those from existing MarkText behavior
+and CriticMarkup practice and to ask only about user-visible behavior):
+
+- O: window close/quit and tab close with an open Review composer both ask
+  Discard-and-Close/Cancel.
+- O: `<div>`+Enter and Paragraph→HTML Block write upstream's exact bytes
+  (`<div>\n\n</div>`) and caret; the blank line between consecutive HTML blocks
+  is an editable gap line, and typing there gives upstream's one-block result.
+- O: End after a trailing annotation places the caret outside it (upstream's
+  End-after-`**x**` analog); a visible line start is likewise outside a leading
+  annotation.
+- O: with Track Changes on, any edit possible untracked must be trackable
+  (Accept = untracked result, Reject = original); typing inside deleted text
+  splits the deletion at the caret.
+- O: upstream's intentional behaviors are kept (for example per-keystroke
+  paragraph re-evaluation that converts `2. ` lines); CriticMarkup is orthogonal.
+- D: Profile rule L2c (new `marktext-criticmarkup-profile-2`, ADR-0016): a
+  line-start boundary token stands against a block literal opened in its arm;
+  C3/L2b amended so definitions in added/new arms resolve in Revised.
+- D: tracked compiler "extent widening" with a projection-equivalence oracle;
+  each created annotation must resolve independently. No rule change for a
+  closer inside an arm-opened fence's info string: the compiler never produces it.
+- D: keep CRLF for new breaks in CRLF documents; annotation delimiters are not
+  text for block recognition; keep upstream's nested-list display for
+  `- a\n  2. b` (a recorded CommonMark deviation shared with upstream); correct
+  upstream's later-line `>` caret slip while keeping its bytes.
+
+Retired production paths: `coreWorkerPort` and its Worker entry,
+`optimisticHistoryTransform`, the Muya adapter's `accept`/`acceptTracked`
+JSON-diff reconstruction and six modules only it reached
+(`muyaPlainTextSourceEdit`, `muyaContainerSourceEdit`, `muyaStructuralEnter`,
+`muyaStructuralSourceEdit`, `muyaNativeReconciliation`, `muyaTableSourceCodec`),
+and the desktop's duplicate deferred image-tool open. The remaining legacy
+submission kinds (`track`, `track-edits`, `markup-edits`) stay only for
+recovery-journal replay of older drafts.
+
+Additional defects fixed red/green in this pass: Enter after a closed annotation
+split inside it; typing refusals before annotations; auto-pairing parity; later-
+line block conversions and container line-start carets; Shift+Enter at paragraph
+end (and a CRLF off-by-one); list-item HTML blocks and list-marker indented code;
+four incremental-reparse and two fresh-parse bugs (2,993-case equivalence table
+plus ~28,000 fuzzed documents).
+
+The upstream-parity batch then closed: EOF blank-line paragraph, headings in
+containers, setext Shift+Enter, upstream's per-input inline update (moved to
+`@marktext/input-policy` `inlineUpdate`), the later-line quote caret, and table
+re-padding through one spelling owner (`tableRespelling`; one command is one
+history entry; tracked edits never re-pad). A 165-case real-gesture crash sweep
+(`muya-edit-crash-sweep`) ends with no known gaps; its last four items were
+Enter splitting ` - b` off a paragraph, Cut of a whole paragraph before a list,
+a table cell holding only a comment (the caret stays where deleted text was,
+before the marker, as in paragraphs) and delimiter-row width after deleting
+inside `{++a++}` in a cell.
+
+Final local verification (24 September, uncommitted tree on `6cbc5cbf`):
+
+- Unit: desktop 4,232; document-core 5,408; Muya 1,586 plus 1,347 spec;
+  input-policy 37; typecheck clean; lint 0 errors.
+- Hidden unpacked E2E: 435 passed, 0 failed, 24 skipped (all opt-in: 20
+  performance cases run below, 4 Linux-only IME cases).
+- Packaged `build:mac:arm64` `installed-functional`: 90/90. The one first-run
+  failure was the new close-confirmation case's harness: MarkText quits when its
+  last window closes (upstream `windowManager`), so the case now observes that
+  exit instead of polling a gone process.
+- Packaged opt-in performance (19/19): cold open plain-80 ≈14 ms open / 32 ms
+  editable, dense-80 ≈52 / 87 ms, plain-1000 ≈45 / 216 ms (limits 500 / 1,500);
+  warm 40-key p95 echo 6.3 / 6.8 / 7.0 ms and reconcile 5.5 / 6.1 / 6.4 ms
+  (plain / dense ordinary / dense tracked); 40-cycle editorial workload keeps
+  exact source at every checkpoint.
+
+Still open: `run-installed-core-performance.sh` requires a clean committed
+checkout, so its authenticated 1,200-input workloads were not rerun on this
+uncommitted candidate; nothing is committed; hosted CI has not run; the
+Applications install was not replaced. E1, E2 and D1 are unchanged.
 
 ### 21 September basic desktop audit and repair — locally verified
 

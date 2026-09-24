@@ -309,9 +309,16 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
             composition.cancelled = true;
     };
     const applyInput = (event: InputEvent | KeyboardEvent, inputType: string, data: string | null) => {
-        const input = inputSelection(muya, event);
-        if (!input || muya.editor.selection.table.hasSelection)
+        if (muya.editor.selection.table.hasSelection)
             return;
+        const input = inputSelection(muya, event);
+        if (!input) {
+            // A caret without a model position must not let the browser edit
+            // rendered DOM that the document model does not own.
+            if (!(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement))
+                event.preventDefault();
+            return;
+        }
         const { range, domSelection, domRange } = input;
         const structural = inputType === 'insertParagraph' || inputType === 'insertLineBreak';
         const text = structural ? '\n' : data ?? '';
@@ -321,6 +328,33 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
         if (replacement === undefined)
             return;
         const { start, end, first, last } = replacement;
+        if (first === last && first.blockName === 'language-input' && model.codeLanguage(domRange.anchor) === undefined) {
+            // Indented code has no info string of its own. Its language box
+            // gives the block one, as a command rather than text input.
+            event.preventDefault();
+            if (structural) {
+                first.parent?.lastContentInDescendant()?.setCursor(0, 0, true);
+                return;
+            }
+            const inserted = inputType.startsWith('insert') ? data ?? '' : '';
+            const language = first.text.slice(0, start.offset) + inserted + first.text.slice(end.offset);
+            if (language === first.text || /[\r\n`]/u.test(language))
+                return;
+            muya.flush();
+            model.input({
+                kind: 'command',
+                command: 'setCodeLanguage',
+                language,
+                infoOffset: start.offset + inserted.length,
+                selection: domSelection,
+                options: {
+                    autoPairBracket: muya.options.autoPairBracket,
+                    autoPairQuote: muya.options.autoPairQuote,
+                    autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
+                },
+            }, () => {});
+            return;
+        }
         let nativeStart: DocumentDOMPoint = domRange.anchor;
         let nativeEnd: DocumentDOMPoint = domRange.focus;
         if (range.isCollapsed && inputType === 'deleteContentBackward') {
@@ -400,6 +434,24 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
             applyInput(event, event.shiftKey ? 'insertLineBreak' : 'insertParagraph', null);
         }
     };
+    const caretKey = (event: KeyboardEvent) => {
+        if (composition || event.isComposing || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey
+            || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') || !model.caretStep) {
+            return;
+        }
+        const selection = muya.editor.selection.getDOMSelection();
+        if (!selection || selection.anchor.node !== selection.focus.node || selection.anchor.offset !== selection.focus.offset)
+            return;
+        const element = selection.focus.node instanceof Element ? selection.focus.node : selection.focus.node.parentElement;
+        const rtl = element?.closest('[dir]')?.getAttribute('dir') === 'rtl';
+        const forward = (event.key === 'ArrowRight') !== rtl;
+        const next = model.caretStep(selection.focus, forward ? 'forward' : 'backward');
+        if (!next)
+            return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        muya.editor.selection.setDOMSelection(next, next);
+    };
     const beforeInput = (event: Event) => {
         if (composition && event instanceof InputEvent && event.inputType === 'insertCompositionText') {
             if (event.data !== null) {
@@ -454,6 +506,7 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
     muya.domNode.addEventListener('compositionend', compositionEnd, true);
     muya.domNode.addEventListener('keydown', compositionKey, true);
     muya.domNode.addEventListener('keydown', commandKey, true);
+    muya.domNode.addEventListener('keydown', caretKey, true);
     muya.domNode.addEventListener('dragstart', dragStart, true);
     muya.domNode.addEventListener('dragend', dragEnd, true);
 
@@ -466,6 +519,7 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
         muya.domNode.removeEventListener('compositionend', compositionEnd, true);
         muya.domNode.removeEventListener('keydown', compositionKey, true);
         muya.domNode.removeEventListener('keydown', commandKey, true);
+        muya.domNode.removeEventListener('keydown', caretKey, true);
         muya.domNode.removeEventListener('dragstart', dragStart, true);
         muya.domNode.removeEventListener('dragend', dragEnd, true);
     };
@@ -672,6 +726,25 @@ export function dispatchDocumentMathBlock(muya: Muya, replace: boolean, selectio
     }, () => {});
 }
 
+/** HTML insertion writes the element template and its caret in one model action. */
+export function dispatchDocumentHtmlBlock(muya: Muya, replace: boolean, selectionMode: 'content' | 'end', selection: IDocumentCommandInput['selection']): void {
+    const model = muya.editor.documentEditing;
+    if (!model)
+        throw new Error('HTML block insertion requires a bound document');
+    model.input({
+        kind: 'command',
+        command: 'createHtmlBlock',
+        replace,
+        selectionMode,
+        selection,
+        options: {
+            autoPairBracket: muya.options.autoPairBracket,
+            autoPairQuote: muya.options.autoPairQuote,
+            autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
+        },
+    }, () => {});
+}
+
 /** Paragraph joining submits the caret before native tree mutation. */
 export function dispatchDocumentParagraphJoin(muya: Muya, direction: 'backward' | 'forward', selection: IDocumentCommandInput['selection']): void {
     const model = muya.editor.documentEditing;
@@ -726,7 +799,11 @@ export function dispatchDocumentList(muya: Muya, change: ListChange, selection: 
         command: 'changeList',
         change,
         selection,
-        listOptions: { bulletListMarker: muya.options.bulletListMarker, orderListDelimiter: muya.options.orderListDelimiter },
+        listOptions: {
+            bulletListMarker: muya.options.bulletListMarker,
+            orderListDelimiter: muya.options.orderListDelimiter,
+            preferLooseListItem: muya.options.preferLooseListItem,
+        },
         options: {
             autoPairBracket: muya.options.autoPairBracket,
             autoPairQuote: muya.options.autoPairQuote,

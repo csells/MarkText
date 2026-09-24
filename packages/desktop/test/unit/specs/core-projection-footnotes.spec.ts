@@ -75,14 +75,23 @@ describe('Core footnote presentation', () => {
     expect(host.querySelectorAll('#comment-2-fn-1')).toHaveLength(1)
   })
 
-  it('does not bind a projected reference to a definition from a different Comment Addition arm', () => {
+  it('binds a Comment Display reference to a definition from another Addition arm (C3)', () => {
     const core = createDocumentCore()
     const revision = core.open('{>>{++note[^r]++}\n\n{++[^r]: body\n++}<<}', { footnotes: true })
     const host = fragment(
       renderMarkdownProjectionToSafeHtml(core.projectComment(revision, revision.annotations[0]))
     )
+    expect(host.querySelector('.footnote-ref a')?.getAttribute('href')).toBe('#fn-1')
+    expect(host.querySelector('#fn-1 p')?.textContent).toContain('body')
+  })
+
+  it('does not bind a projected reference to a definition from a Highlight', () => {
+    const core = createDocumentCore()
+    const revision = core.open('{>>note[^r]\n\n{==[^r]: body\n==}<<}', { footnotes: true })
+    const host = fragment(
+      renderMarkdownProjectionToSafeHtml(core.projectComment(revision, revision.annotations[0]))
+    )
     expect(host.querySelector('.footnote-ref')).toBeNull()
-    expect(host.querySelector('.footnotes')).toBeNull()
     expect(host.textContent).toContain('note[^r]')
   })
 })

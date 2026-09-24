@@ -105,9 +105,12 @@ export class InlineFormatToolbar extends BaseFloat {
             if (reference) {
                 this._block = block;
                 this._formats = block.getActiveFormats();
+                // Render first so the float is positioned at its real size;
+                // an empty box placed above the selection grows over the
+                // selected text until the next position update.
                 requestAnimationFrame(() => {
-                    this.show(reference);
                     this._render();
+                    this.show(reference);
                 });
             }
             else {

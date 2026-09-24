@@ -21,7 +21,7 @@ const unexpectedComposition = () => {
   throw new Error('Unexpected composition in the formatting fixture')
 }
 
-const bootAuthoring = (source: string, tracked = false, legacyFallback = false) => {
+const bootAuthoring = (source: string, tracked = false) => {
   ;(window as Window & { MUYA_VERSION?: string }).MUYA_VERSION = 'test'
   const binding = createEditorCoreBinding(createLocalCoreOwner())
   binding.open({ documentId: 'author-controls.md', source })
@@ -43,13 +43,12 @@ const bootAuthoring = (source: string, tracked = false, legacyFallback = false) 
       muya,
       view: current,
       outcome,
-      sourcePosition: adapter.reconciledSourcePosition,
       dirtyPaths: presentation.changedPaths,
       applyEditability: () => {}
     })
     return current.bindings
   }
-  const adapter = createMuyaPlainTextCoreAdapter(view().bindings, binding, undefined, reconcile)
+  const adapter = createMuyaPlainTextCoreAdapter(view().bindings, binding)
   const formatResults: ReturnType<typeof adapter.format>[] = []
   const legacyChanges: unknown[] = []
   muya.eventCenter.on('json-change', (change: unknown) => {
@@ -59,7 +58,6 @@ const bootAuthoring = (source: string, tracked = false, legacyFallback = false) 
       (change as { source?: unknown }).source === 'user'
     ) {
       legacyChanges.push(change)
-      if (legacyFallback) adapter.accept(change)
     }
   })
   muya.setInlinePresentation(presentation.render)

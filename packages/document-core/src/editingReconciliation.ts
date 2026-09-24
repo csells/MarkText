@@ -1,4 +1,5 @@
 import type { CriticMarkupAnnotation, DocumentCore, DocumentCommit, DocumentRevision, DocumentSourceEdit } from './documentCore.js'
+import { isAnnotationDelimiter } from './annotationDelimiter.js'
 import { createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupEditOwnership, markupReplacementRange } from './markupEditOwnership.js'
 import { nativeCriticSpelling, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
@@ -209,9 +210,132 @@ function compiledReplacementReconciliation(
       }
     }
   }
-  if (input.start < applied.start || input.end > applied.end) return undefined
+  if (input.start < applied.start || input.end > applied.end) {
+    // A suggestion moved to the next line start retains the line break the
+    // operation typed before it; relate both over their common interval.
+    if (input.start === input.end || applied.start === applied.end) {
+      const start = Math.min(input.start, applied.start)
+      const end = Math.max(input.end, applied.end)
+      if (end - start > input.insert.length + applied.insert.length + 2) return undefined
+      applied = {
+        start,
+        end,
+        insert: core.sourceSlice(previous, { start, end: applied.start }) + applied.insert +
+          core.sourceSlice(previous, { start: applied.end, end })
+      }
+    } else return undefined
+  }
   const native = core.sourceSlice(previous, { start: applied.start, end: input.start }) + input.insert +
     core.sourceSlice(previous, { start: input.end, end: applied.end })
+  // A compiler-owned escape completion replaced by typed text is removed.
+  if (applied.insert.length > 0 && applied.insert.length < native.length && native.endsWith(applied.insert) &&
+      /^\\+$/u.test(native.slice(0, native.length - applied.insert.length))) {
+    return Object.freeze([Object.freeze({ start: applied.start, end: applied.start + native.length - applied.insert.length, insert: '' })])
+  }
+  return ownedReplacementReconciliation(applied, committed, compiledOffset, native) ??
+    visibleReplacementReconciliation(previous, input, applied, committed, compiledOffset, native) ??
+    splitHistoryReconciliation(input, applied, committed, compiledOffset)
+}
+
+/** Whether a committed source offset is visible text rather than delimiter or history. */
+function visibleAt(annotations: readonly CriticMarkupAnnotation[], offset: number): boolean {
+  const pending = [...annotations]
+  while (pending.length > 0) {
+    const annotation = pending.pop()!
+    if (offset < annotation.range.start || offset >= annotation.range.end) continue
+    const arm = annotation.arms.find(arm => arm.range.start <= offset && offset < arm.range.end)
+    if (arm === undefined || annotation.kind === 'deletion' || annotation.kind === 'comment' || arm.name === 'old') return false
+    pending.push(...arm.annotations)
+  }
+  return true
+}
+
+/**
+ * A widened suggestion retains the operation's text as its visible arms. Its
+ * delimiters, retained history and delimiter-line padding are compiler-owned
+ * insertions around that exact text; delimiters and history the operation's
+ * span previously contained move into the suggestion's hidden arms.
+ */
+function visibleReplacementReconciliation(
+  previous: DocumentRevision, input: DocumentSourceEdit,
+  applied: DocumentSourceEdit, committed: DocumentRevision, compiledOffset: number, native: string
+): readonly DocumentSourceEdit[] | undefined {
+  const start = applied.start + compiledOffset
+  const prefix = input.start - applied.start
+  const nativeHidden = (index: number): boolean => {
+    if (index >= prefix && index < prefix + input.insert.length) return false
+    const offset = index < prefix ? applied.start + index : input.end + index - prefix - input.insert.length
+    return !visibleAt(previous.annotations, offset)
+  }
+  const edits: DocumentSourceEdit[] = []
+  const push = (edit: DocumentSourceEdit): void => {
+    const last = edits.at(-1)
+    if (last !== undefined && last.end === edit.start && (edit.start === edit.end ? last.start === last.end : last.insert.length === 0)) {
+      edits[edits.length - 1] = { start: last.start, end: edit.end, insert: last.insert + edit.insert }
+    } else edits.push(edit)
+  }
+  let consumed = 0
+  for (let index = 0; index < applied.insert.length || consumed < native.length;) {
+    if (consumed < native.length && nativeHidden(consumed)) {
+      push({ start: applied.start + consumed, end: applied.start + consumed + 1, insert: '' })
+      consumed += 1
+      continue
+    }
+    if (index >= applied.insert.length) return undefined
+    const character = applied.insert[index]!
+    const visible = visibleAt(committed.annotations, start + index)
+    index += 1
+    if (visible && native[consumed] === character) {
+      consumed += 1
+      continue
+    }
+    if (visible && character === '\\' && consumed > 0) {
+      // An escape completion belongs to the escaped text it follows, so a
+      // caret after that text also follows its completion.
+      const offset = applied.start + consumed
+      const last = edits.at(-1)
+      if (last !== undefined && last.end === offset && last.start < last.end) {
+        edits[edits.length - 1] = { ...last, insert: last.insert + character }
+      } else edits.push({ start: offset - 1, end: offset, insert: native[consumed - 1]! + character })
+      continue
+    }
+    if (visible && !/[\n\r]/u.test(character)) return undefined
+    push({ start: applied.start + consumed, end: applied.start + consumed, insert: character })
+  }
+  return Object.freeze(edits.map(edit => Object.freeze(edit)))
+}
+
+/** Text typed into history is the complete Addition that splits it. */
+function splitHistoryReconciliation(
+  input: DocumentSourceEdit, applied: DocumentSourceEdit, committed: DocumentRevision, compiledOffset: number
+): readonly DocumentSourceEdit[] | undefined {
+  if (input.start !== input.end || input.insert.length === 0) return undefined
+  const start = applied.start + compiledOffset
+  const pending = [...committed.annotations]
+  while (pending.length > 0) {
+    const annotation = pending.pop()!
+    for (const arm of annotation.arms) pending.push(...arm.annotations)
+    if (annotation.kind !== 'addition' || annotation.range.start < start || annotation.range.end > start + applied.insert.length) continue
+    const arm = annotation.arms[0]
+    const text = arm === undefined ? '' : committed.source.slice(arm.range.start, arm.range.end)
+    // The Addition holds the typed text, completed by an escape the closer needs.
+    if (arm === undefined || !text.startsWith(input.insert) || !/^\\*$/u.test(text.slice(input.insert.length))) continue
+    const before = applied.insert.slice(0, arm.range.start - start)
+    const after = applied.insert.slice(arm.range.end - start)
+    const inserted = input.start + input.insert.length
+    const completion = text.slice(input.insert.length)
+    return Object.freeze([
+      Object.freeze({ start: applied.start, end: input.start, insert: before }),
+      ...(completion.length === 0 ? [] : [Object.freeze({ start: inserted - 1, end: inserted, insert: input.insert.at(-1)! + completion })]),
+      Object.freeze({ start: inserted, end: inserted + applied.end - input.end, insert: after })
+    ].filter(edit => edit.start < edit.end || edit.insert.length > 0))
+  }
+  return undefined
+}
+
+function ownedReplacementReconciliation(
+  applied: DocumentSourceEdit, committed: DocumentRevision, compiledOffset: number, native: string
+): readonly DocumentSourceEdit[] | undefined {
   const spelling = nativeCriticSpelling(native)
   const inserts = new Map<number, string>()
   const append = (offset: number, value: string): void => {
@@ -305,6 +429,29 @@ export function sparseEditingReconciliation(
     return compiledReplacementReconciliation(core, previous, { start: first.start, end: last.end, insert }, applied[0]!, commit.revision, 0)
   }
   if (inputs.length < 2 || inputs.length !== applied.length) return undefined
+  if (
+    inputs.every((input, index) => input.start === input.end && applied[index]!.start === applied[index]!.end &&
+      input.insert === applied[index]!.insert) &&
+    inputs.some((input, index) => input.start !== applied[index]!.start)
+  ) {
+    // Tracking can move a pure insertion across adjacent annotation delimiters
+    // (a list marker placed inside the addition that owns its paragraph).
+    // Equal ordered insertions keep equal lengths, so each moved span maps in
+    // place and every position outside it is unchanged.
+    const moved: DocumentSourceEdit[] = []
+    let offset = 0
+    for (const [index, input] of inputs.entries()) {
+      const planned = input.start + offset
+      const compiled = applied[index]!.start + offset
+      if (planned !== compiled) {
+        const start = Math.min(planned, compiled)
+        const end = Math.max(planned, compiled) + input.insert.length
+        moved.push(Object.freeze({ start, end, insert: commit.revision.source.slice(start, end) }))
+      }
+      offset += input.insert.length
+    }
+    return Object.freeze(moved)
+  }
   const result: DocumentSourceEdit[] = []
   let inputOffset = 0
   let compiledOffset = 0
@@ -331,8 +478,12 @@ export function retainedSourceEndpoint(core: DocumentCore, previous: DocumentRev
   const incidentText = (node: typeof syntax.ast.root): boolean => {
     if (projected < node.range.start || projected > node.range.end) return false
     if (node.kind === 'text') {
-      const start = syntax.coordinates.toSource(node.range.start, 'next')
-      const end = syntax.coordinates.toSource(node.range.end, 'previous')
+      // Hidden annotation delimiters between a caret and its text keep that
+      // caret beside the same retained text, as at a line start before an opener.
+      let start = syntax.coordinates.toSource(node.range.start, 'next')
+      let end = syntax.coordinates.toSource(node.range.end, 'previous')
+      while (start > original && isAnnotationDelimiter(previous.annotations, start - 1)) start -= 1
+      while (end < original && isAnnotationDelimiter(previous.annotations, end)) end += 1
       return original >= start && original <= end &&
         (retained(Math.max(start, original - 1), original) || retained(original, Math.min(end, original + 1)))
     }

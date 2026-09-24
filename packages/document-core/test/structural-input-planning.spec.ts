@@ -20,7 +20,8 @@ it.each([
 
 it.each([
   { source: '- aaa\n', at: 3, insert: '\n- ', expected: '- a\n- aa\n' },
-  { source: '> aaa\n', at: 3, insert: '\n> \n> ', expected: '> a\n> \n> aa\n' },
+  // Upstream spells the blank separator line with the quote marker alone.
+  { source: '> aaa\n', at: 3, insert: '\n>\n> ', expected: '> a\n>\n> aa\n' },
   { source: '# aaa\n', at: 3, insert: '\n\n', expected: '# a\n\naa\n' },
   { source: '- [x] aaa\n', at: 7, insert: '\n- [ ] ', expected: '- [x] a\n- [ ] aa\n' }
 ])('uses the existing $source container syntax for Enter', ({ source, at, insert, expected }) => {
@@ -71,7 +72,7 @@ it('continues a later quote paragraph using its container marker without copying
   const selection = { start: 13, end: 13 }
   const inputAction: DocumentInputAction = { selection: { ranges: [{ anchor: selection.start, focus: selection.end }], primary: 0 }, range: selection, inputType: 'insertParagraph', data: '\n', options }
   const plan = core.planInput(previous, inputAction)
-  expect(core.apply(previous, core.inputEdits(previous, inputAction, plan, false) ?? []).revision.source).toBe('> first\n>\n> a\n> \n> aa\n')
+  expect(core.apply(previous, core.inputEdits(previous, inputAction, plan, false) ?? []).revision.source).toBe('> first\n>\n> a\n>\n> aa\n')
 })
 
 it.each([
@@ -153,7 +154,8 @@ it('keeps the literal fenced payload source range aligned with retained indentat
 })
 
 it.each([
-  { source: '```js\naaa\n```\n', at: 7, expected: '```js\naaa\n```\n\n', caret: 15 },
+  // The new paragraph is spelled as Enter at a final paragraph's end spells it.
+  { source: '```js\naaa\n```\n', at: 7, expected: '```js\naaa\n```\n\n\n', caret: 15 },
   { source: '```js\naaa\n```\n\nafter\n', at: 7, expected: '```js\naaa\n```\n\nafter\n', caret: 15 }
 ])('moves out of a code block with Shift Enter in $source', ({ source, at, expected, caret }) => {
   const core = createDocumentCore()
@@ -328,4 +330,34 @@ it.each([
   const input: DocumentInputAction = { selection: { ranges: [{ anchor: at, focus: at }], primary: 0 }, range: { start: at, end: at }, inputType: 'insertParagraph', data: '\n', options }
   const plan = core.planInput(previous, input)
   expect(core.apply(previous, core.inputEdits(previous, input, plan, false) ?? []).revision.source).toBe(expected)
+})
+
+// Upstream (8d6c198c) bytes and caret for Shift+Enter, before typing on the new line.
+it.each([
+  { source: 'first\n', at: 5, expected: 'first\n\n', caret: 6 },
+  { source: 'first', at: 5, expected: 'first\n', caret: 6 },
+  { source: 'first\r\n', at: 5, expected: 'first\r\n\r\n', caret: 7 },
+  { source: '> first\n', at: 7, expected: '> first\n> \n', caret: 10 },
+  { source: '- first\n', at: 7, expected: '- first\n  \n', caret: 10 },
+  { source: '> - first\n', at: 9, expected: '> - first\n>   \n', caret: 14 },
+  { source: 'first {++a++}\n', at: 13, expected: 'first {++a++}\n\n', caret: 14 },
+  // An ATX heading's soft break is its Enter.
+  { source: '# first\n', at: 7, expected: '# first\n\n\n', caret: 9 },
+  { source: '# first\n', at: 4, expected: '# fi\n\nrst\n', caret: 6 },
+  { source: '# first\n', at: 2, expected: '\n\n# first\n', caret: 4 },
+  // A setext heading's soft break continues its text.
+  { source: 'first\n===\n', at: 2, expected: 'fi\nrst\n===\n', caret: 3 }
+])('plans Shift+Enter at $at in $source as upstream', ({ source, at, expected, caret }) => {
+  const core = createDocumentCore()
+  const previous = core.open(source)
+  const selection = { start: at, end: at }
+  const inputAction: DocumentInputAction = { selection: { ranges: [{ anchor: at, focus: at }], primary: 0 }, range: selection, inputType: 'insertLineBreak', data: '\n', options }
+  const plan = core.planInput(previous, inputAction)
+  const next = core.apply(previous, core.inputEdits(previous, inputAction, plan, false) ?? []).revision
+  expect(next.source).toBe(expected)
+  expect(plan.selection).toEqual({ ranges: [{ anchor: caret, focus: caret }], primary: 0 })
+  const typed = { selection: { ranges: [{ anchor: caret, focus: caret }], primary: 0 }, range: { start: caret, end: caret }, inputType: 'insertText', data: 'x', options } satisfies DocumentInputAction
+  const typedPlan = core.planInput(next, typed)
+  expect(core.apply(next, core.inputEdits(next, typed, typedPlan, false) ?? []).revision.source)
+    .toBe(expected.slice(0, caret) + 'x' + expected.slice(caret))
 })

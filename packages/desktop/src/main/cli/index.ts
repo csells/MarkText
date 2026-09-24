@@ -4,12 +4,13 @@ import os from 'os'
 import { isDirectory } from 'common/filesystem'
 import parseArgs, { type ParsedArgs } from './parser'
 import { getPath } from '../utils'
+import { userArguments } from './userArguments'
 
 const write = (s: string): boolean => process.stdout.write(s)
 const writeLine = (s: string): boolean => write(s + '\n')
 
 const cli = (): ParsedArgs => {
-  let argv = process.argv.slice(1)
+  let argv = userArguments(process.argv, process.defaultApp === true)
   if (import.meta.env.DEV) {
     // Don't pass electron development arguments to MarkText and change user data path.
     argv = ['--user-data-dir', path.join(getPath('appData'), 'marktext-dev')]

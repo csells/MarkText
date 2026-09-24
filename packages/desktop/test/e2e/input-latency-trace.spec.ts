@@ -17,9 +17,7 @@ test.describe('upstream editor input-to-render-opportunity trace', () => {
   let filePath: string
 
   test.beforeEach(async() => {
-    const launched = await launchWithMarkdown(
-      'latency probe\n\nunrelated block'
-    )
+    const launched = await launchWithMarkdown('latency probe\n\nunrelated block')
     app = launched.app
     page = launched.page
     filePath = launched.filePath
@@ -43,12 +41,8 @@ test.describe('upstream editor input-to-render-opportunity trace', () => {
     expect(sample?.echoDomCheckpoint).toBeDefined()
     expect(sample?.tEvent).toBeLessThanOrEqual(sample?.tEcho ?? -1)
     expect(sample?.tEcho).toBeLessThanOrEqual(sample?.tFrame ?? -1)
-    expect(sample?.echoDomCheckpoint).toEqual(
-      sample?.expectedDomCheckpoint
-    )
-    expect(sample?.frameDomCheckpoint).toEqual(
-      sample?.expectedDomCheckpoint
-    )
+    expect(sample?.echoDomCheckpoint).toEqual(sample?.expectedDomCheckpoint)
+    expect(sample?.frameDomCheckpoint).toEqual(sample?.expectedDomCheckpoint)
   })
 
   test('preserves a zero-delay unique-token burst through the next frame', async() => {
@@ -58,13 +52,15 @@ test.describe('upstream editor input-to-render-opportunity trace', () => {
     await waitForInputLatencyTrace(page, token.length)
 
     const samples = await readInputLatencyTrace(page)
-    expect(samples.map(sample => sample.data).join('')).toBe(token)
-    expect(samples.map(sample => sample.sequence)).toEqual(
+    expect(samples.map((sample) => sample.data).join('')).toBe(token)
+    expect(samples.map((sample) => sample.sequence)).toEqual(
       token.split('').map((_, index) => index + 1)
     )
     expect(samples).toHaveLength(token.length)
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
-    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(`latency probe${token}\n\nunrelated block`)
+    await expect
+      .poll(() => readFileSync(filePath, 'utf8'))
+      .toBe(`latency probe${token}\n\nunrelated block`)
     await expect(page.getByTestId('core-recovery-draft')).toHaveCount(0)
     for (const sample of samples) {
       expect(sample.expectedDomCheckpoint).toBeDefined()
@@ -74,12 +70,8 @@ test.describe('upstream editor input-to-render-opportunity trace', () => {
       }
       expect(sample.tEvent).toBeLessThanOrEqual(sample.tEcho)
       expect(sample.tEcho).toBeLessThanOrEqual(sample.tFrame)
-      expect(sample.echoDomCheckpoint).toEqual(
-        sample.expectedDomCheckpoint
-      )
-      expect(sample.frameDomCheckpoint).toEqual(
-        sample.expectedDomCheckpoint
-      )
+      expect(sample.echoDomCheckpoint).toEqual(sample.expectedDomCheckpoint)
+      expect(sample.frameDomCheckpoint).toEqual(sample.expectedDomCheckpoint)
     }
   })
 
@@ -100,31 +92,38 @@ test.describe('upstream editor input-to-render-opportunity trace', () => {
     await startInputLatencyTrace(page)
 
     await page.evaluate(() => {
-      const target = document.querySelector(
-        '.editor-component .mu-paragraph-content'
-      )
+      const target = document.querySelector('.editor-component .mu-paragraph-content')
       if (!target) throw new Error('Active paragraph is unavailable')
-      target.addEventListener('beforeinput', event => event.preventDefault(), {
-        capture: true,
-        once: true
-      })
-      const accepted = target.dispatchEvent(new InputEvent('beforeinput', {
-        bubbles: true,
-        cancelable: true,
-        data: 'x',
-        inputType: 'insertText'
-      }))
+      // After the tracer's window listener records the input, prevent it before
+      // the editor's own capture listener can apply it through the model.
+      window.addEventListener(
+        'beforeinput',
+        (event) => {
+          event.preventDefault()
+          event.stopImmediatePropagation()
+        },
+        {
+          capture: true,
+          once: true
+        }
+      )
+      const accepted = target.dispatchEvent(
+        new InputEvent('beforeinput', {
+          bubbles: true,
+          cancelable: true,
+          data: 'x',
+          inputType: 'insertText'
+        })
+      )
       if (accepted) throw new Error('Synthetic input was not prevented')
     })
 
     await page.evaluate(async() => {
-      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
-      const target = document.querySelector(
-        '.editor-component .mu-paragraph-content'
-      )
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      const target = document.querySelector('.editor-component .mu-paragraph-content')
       if (!target) throw new Error('Active paragraph is unavailable')
       target.append(document.createElement('span'))
-      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     })
 
     const [pendingSample] = await readInputLatencyTrace(page)
@@ -135,28 +134,19 @@ test.describe('upstream editor input-to-render-opportunity trace', () => {
     expect(pendingSample?.echoDomCheckpoint).toBeUndefined()
 
     await page.evaluate(() => {
-      const target = document.querySelector(
-        '.editor-component .mu-paragraph-content'
-      )
+      const target = document.querySelector('.editor-component .mu-paragraph-content')
       if (!target) throw new Error('Active paragraph is unavailable')
       target.append('x')
     })
     await waitForInputLatencyTrace(page, 1)
 
     const [completedSample] = await readInputLatencyTrace(page)
-    if (
-      completedSample?.tEcho === undefined ||
-      completedSample.tFrame === undefined
-    ) {
+    if (completedSample?.tEcho === undefined || completedSample.tFrame === undefined) {
       throw new Error('Expected a completed late input latency sample')
     }
     expect(completedSample.tEcho).toBeLessThanOrEqual(completedSample.tFrame)
-    expect(completedSample.echoDomCheckpoint).toEqual(
-      completedSample.expectedDomCheckpoint
-    )
-    expect(completedSample.frameDomCheckpoint).toEqual(
-      completedSample.expectedDomCheckpoint
-    )
+    expect(completedSample.echoDomCheckpoint).toEqual(completedSample.expectedDomCheckpoint)
+    expect(completedSample.frameDomCheckpoint).toEqual(completedSample.expectedDomCheckpoint)
     await stopInputLatencyTrace(page)
   })
 
@@ -168,7 +158,7 @@ test.describe('upstream editor input-to-render-opportunity trace', () => {
     await page.keyboard.type('z', { delay: 0 })
 
     const samples = await readInputLatencyTrace(page)
-    expect(samples.map(sample => sample.data)).toEqual(['x', 'y'])
+    expect(samples.map((sample) => sample.data)).toEqual(['x', 'y'])
     expect(samples).toHaveLength(2)
     expect(await readInputLatencyTraceStatus(page)).toEqual({
       accepting: false,

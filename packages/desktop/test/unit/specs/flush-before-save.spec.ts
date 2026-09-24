@@ -34,6 +34,7 @@ vi.mock('@/services/notification', () => ({
 import { useEditorStore } from '@/store/editor'
 import { usePreferencesStore } from '@/store/preferences'
 import bus from '@/bus'
+import notice from '@/services/notification'
 import { coreDocumentSaveAuthority } from '@/documentAuthority/coreDocumentSaveAuthority'
 import { sendBufferedState } from '@/store/bufferedState'
 import { createLocalCoreOwner } from '@/documentAuthority/localCoreOwner'
@@ -821,6 +822,74 @@ describe('editor store — flush pending edits before saving (#3803)', () => {
     expect(call?.[1]).toEqual([
       expect.objectContaining({ id: 'tab-1', markdown: 'actor source for close' })
     ])
+  })
+
+  it('preserves a pending document form on tab and bulk close without blocking other documents', async() => {
+    const store = useEditorStore()
+    seedCurrentFile(store, { isSaved: true })
+    const pending = store.currentFile!
+    const other = { ...pending, id: 'tab-2', pathname: '/tmp/other.md' }
+    store.tabs = [pending, other]
+    store.updateTabIdToIndex()
+    const unregister = coreDocumentSaveAuthority.registerClose(
+      () => ({ ready: Promise.resolve(), resume: async() => {} }),
+      (ids?: readonly string[]) => {
+        if (ids === undefined || ids.includes(pending.id)) throw new Error('Pending comment')
+      }
+    )
+    try {
+      vi.mocked(notice.notify).mockClear()
+      await store.CLOSE_TAB(pending)
+      await store.CLOSE_TABS_THROUGH_AUTHORITY([pending, other])
+      expect(store.tabs.map((tab) => tab.id)).toEqual(['tab-1', 'tab-2'])
+      expect(vi.mocked(notice.notify).mock.calls).toEqual([
+        [{ title: 'Pending comment', type: 'warning', time: 5000 }],
+        [{ title: 'Pending comment', type: 'warning', time: 5000 }]
+      ])
+      await store.CLOSE_TAB(other)
+      expect(store.tabs.map((tab) => tab.id)).toEqual(['tab-1'])
+      expect(() => coreDocumentSaveAuthority.prepareClose()).toThrow('Pending comment')
+    } finally {
+      unregister()
+    }
+  })
+
+  it('asks before a tab close discards an open Review composer', async() => {
+    const store = useEditorStore()
+    seedCurrentFile(store, { isSaved: true })
+    const pending = store.currentFile!
+    const other = { ...pending, id: 'tab-2', pathname: '/tmp/other.md' }
+    store.tabs = [pending, other]
+    store.updateTabIdToIndex()
+    const open = new Set([pending.id])
+    const unregister = coreDocumentSaveAuthority.registerClose(
+      () => ({ ready: Promise.resolve(), resume: async() => {} }),
+      undefined,
+      undefined,
+      {
+        pending: (ids) => ids.some((id) => open.has(id)),
+        discard: (ids) => ids.forEach((id) => open.delete(id))
+      }
+    )
+    const invoke = vi.spyOn(window.electron.ipcRenderer, 'invoke')
+    try {
+      invoke.mockResolvedValueOnce(false)
+      await store.CLOSE_TAB(pending)
+      expect(store.tabs.map((tab) => tab.id)).toEqual(['tab-1', 'tab-2'])
+      expect(open.has(pending.id)).toBe(true)
+
+      invoke.mockResolvedValueOnce(true)
+      await store.CLOSE_TAB(pending)
+      expect(store.tabs.map((tab) => tab.id)).toEqual(['tab-2'])
+      expect(open.has(pending.id)).toBe(false)
+      expect(invoke.mock.calls).toEqual([
+        ['mt::confirm-discard-review-input'],
+        ['mt::confirm-discard-review-input']
+      ])
+    } finally {
+      invoke.mockRestore()
+      unregister()
+    }
   })
 
   it('drains Core before classifying a just-edited tab for close', async() => {

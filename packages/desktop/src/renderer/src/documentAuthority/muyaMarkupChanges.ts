@@ -127,7 +127,9 @@ const markdownOffsets = (
   return (syntax) => {
     let previous: MuyaMarkdownSegment | undefined
     for (const next of view.markdownSegments) {
-      if (syntax < next.syntax.start) { return previous?.text.end === next.text.start ? next.text.start : undefined }
+      if (syntax < next.syntax.start) {
+        return previous?.text.end === next.text.start ? next.text.start : undefined
+      }
       if (syntax <= next.syntax.end) return next.text.start + syntax - next.syntax.start
       previous = next
     }
@@ -279,6 +281,35 @@ export function applyMuyaMarkupChanges(
                 ? {}
                 : {
                   paragraphPrefixPosition: binding.paragraphPrefixPosition + sourceDelta
+                }),
+              ...(binding.trailingLinePosition === undefined
+                ? {}
+                : { trailingLinePosition: binding.trailingLinePosition + sourceDelta }),
+              ...(binding.leadingLinePosition === undefined
+                ? {}
+                : { leadingLinePosition: binding.leadingLinePosition + sourceDelta }),
+              ...(binding.markerLine === undefined
+                ? {}
+                : {
+                  markerLine: {
+                    ...binding.markerLine,
+                    start: binding.markerLine.start + sourceDelta,
+                    end: binding.markerLine.end + sourceDelta,
+                    content: binding.markerLine.content + sourceDelta,
+                    statePath: [
+                      previousIndex + pathDelta,
+                      ...binding.markerLine.statePath.slice(1)
+                    ]
+                  }
+                }),
+              ...(binding.caretSnaps === undefined
+                ? {}
+                : {
+                  caretSnaps: binding.caretSnaps.map((snap) => ({
+                    from: snap.from + sourceDelta,
+                    to: snap.to + sourceDelta,
+                    at: snap.at + sourceDelta
+                  }))
                 }),
               ...(binding.outerBlock === undefined
                 ? {}
@@ -460,12 +491,39 @@ export function applyMuyaMarkupChanges(
     ) {
       return undefined
     }
+    // The line before the region is unchanged. A region cannot see it, so its
+    // first paragraph keeps the leading line its predecessor had there.
+    const outsideLeading = byRoot.get(start)?.[0]?.leadingLinePosition
     bindings.push(
-      ...local.bindings.slice(0, localLength).map((binding) => {
-        const { documentEnd, ...rest } = binding
+      ...local.bindings.slice(0, localLength).map((binding, index) => {
+        const { documentEnd, trailingLinePosition, ...rest } = binding
+        const atDocumentEnd = end === previous.state.length
         return {
           ...rest,
-          ...(end === previous.state.length && documentEnd !== undefined ? { documentEnd } : {}),
+          ...(index === 0 &&
+          binding.leadingLinePosition === undefined &&
+          binding.text !== '' &&
+          outsideLeading !== undefined &&
+          outsideLeading < replacement.next.source.start
+            ? { leadingLinePosition: outsideLeading }
+            : {}),
+          ...(atDocumentEnd && documentEnd !== undefined ? { documentEnd } : {}),
+          ...(binding.markerLine === undefined
+            ? {}
+            : {
+              markerLine: {
+                ...binding.markerLine,
+                statePath: [
+                  Number(binding.markerLine.statePath[0]) + base,
+                  ...binding.markerLine.statePath.slice(1)
+                ]
+              }
+            }),
+          // The region's end is a line only the document end can leave empty.
+          ...(trailingLinePosition === undefined ||
+          (!atDocumentEnd && trailingLinePosition === replacement.next.source.end)
+            ? {}
+            : { trailingLinePosition }),
           path: [Number(binding.path[0]) + base, 'text']
         }
       })

@@ -148,7 +148,8 @@ describe('browser-normalized collapsed insertion targets', () => {
     { source: '{++a++}a\n', caret: 3, target: 0, data: 'x', expected: '{++xa++}a\n', selected: 4 },
     { source: '{++a++}a\n', caret: 7, target: 4, data: 'x', expected: '{++a++}xa\n', selected: 8 },
     { source: '{++a++}a\n', caret: 4, target: 7, data: 'x', expected: '{++ax++}a\n', selected: 5 },
-    { source: '{++ ++}a\n', caret: 0, target: 3, data: '(', expected: '(){++ ++}a\n', selected: 1 },
+    // The opener after the live caret touches the bracket, as it does upstream.
+    { source: '{++ ++}a\n', caret: 0, target: 3, data: '(', expected: '({++ ++}a\n', selected: 1 },
     { source: '{++{==a==}++}\n', caret: 3, target: 6, data: 'x', expected: '{++x{==a==}++}\n', selected: 4 },
     { source: '| aa | bb |\n| --- | --- |{++\n|     |     |++}\n| cc | dd |\n', caret: 35, target: 41, data: 'x', expected: '| aa | bb |\n| --- | --- |{++\n|     x|     |++}\n| cc | dd |\n', selected: 36 }
   ])('uses live caret $caret rather than normalized target $target for $data', ({ source, caret, target, data, expected, selected }) => {

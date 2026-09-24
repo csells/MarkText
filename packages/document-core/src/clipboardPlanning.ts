@@ -5,11 +5,15 @@ import { inputSourceRange, type DocumentInputSelection } from './inputPlanning.j
 import { resolveTableCell, resolveTableSelection, resolveTableSelectionInSyntax, tableCellSelectionAfter } from './tableSelection.js'
 import { materializeTableCellEdit } from './tableCellEditing.js'
 import { planTableClipboard } from './tableClipboardPlanning.js'
+import { respellTableInput } from './tableRespelling.js'
+import { planTableSpanCut } from './tableSpanCut.js'
 import { positionAfter } from './sourcePosition.js'
 import { prepareBlockClipboardMarkdown, prepareClipboardMarkdown } from './clipboardMarkdown.js'
 import { createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { createTrackedSourceEdit, prepareTrackedBlockEdit } from './trackedAuthoring.js'
 import type { MarkdownLineIndex } from './revision.js'
+import { planEmptiedParagraph } from './emptiedParagraphPlanning.js'
+import { syntaxPathAt } from './syntaxPath.js'
 
 export type DocumentClipboardSelection = SourceRange | DocumentSelection
 
@@ -141,6 +145,16 @@ export function planClipboard(
     }
   }
   if (typeof insert !== 'string') throw new TypeError('Clipboard Markdown must be text')
+  // Upstream writes a pipe pasted into a cell escaped, keeping it that cell's text.
+  if (selectedCell !== undefined) {
+    const pasted = insert
+    const before = core.sourceSlice(previous, { start: Math.max(0, start - 1), end: start })
+    insert = pasted.replace(/\|/gu, (pipe, at: number) => (at === 0 ? before : pasted.charAt(at - 1)) === '\\' ? pipe : '\\|')
+  }
+  if (!action.tracked && 'ranges' in action.selection && blockPlacement === undefined && start < end) {
+    const span = planTableSpanCut(core, previous, regional?.syntax({ start, end }) ?? core.project(previous, 'markup').syntax, { start, end }, insert)
+    if (span !== undefined) return retainClipboardSelection(core, previous, action, { edits: Object.freeze(span.edits), selection: { ranges: [{ anchor: span.caret, focus: span.caret }], primary: 0 } }, previewSyntax)
+  }
   if (start === end && insert === '') return { edits: [], selection: copyClipboardSelection(action.kind === 'paste' && action.currentSelection !== undefined ? action.currentSelection : action.selection) }
   const prepared = blockPlacement === undefined
     ? prepareClipboardMarkdown(core, previous, { start, end, insert }, action.selection, importSyntax, action.kind === 'paste' && action.pasteAsPlainText === true, ownedSyntax)
@@ -149,8 +163,12 @@ export function planClipboard(
   const inputs = [input, ...(prepared.after ?? [])]
   const trackedInputs = action.tracked
     ? inputs.map(edit => {
+      // Widening reproduces the untracked paste exactly; terminating an
+      // enclosed block literal with blank lines is the fallback spelling.
+      const widened = createTrackedSourceEdit(core, previous, edit, preview, true)
+      if (widened !== undefined) return widened
       const enclosed = prepareTrackedBlockEdit(core, previous, edit, previewSyntax([edit]))
-      return createTrackedSourceEdit(core, previous, enclosed, preview, true)
+      return enclosed === edit ? undefined : createTrackedSourceEdit(core, previous, enclosed, preview, true)
     })
     : undefined
   const tracked = trackedInputs?.[0]
@@ -174,6 +192,28 @@ export function planClipboard(
       break
     }
     shift += edit.insert.length - (edit.end - edit.start)
+  }
+  // A cut of a paragraph's whole text leaves the empty paragraph on its own
+  // line, as a deletion of that text does.
+  if (action.kind === 'cut' && !action.tracked && selectedCell === undefined && 'ranges' in action.selection && edits.length === 1) {
+    const syntax = core.project(previous, 'markup').syntax
+    const paragraph = syntaxPathAt(syntax.ast.root, syntax.coordinates.toProjected(start, 'next')).filter(node => node.kind === 'paragraph').at(-1)
+    const separators = paragraph === undefined ? undefined : planEmptiedParagraph(core, previous, syntax, paragraph, edits)
+    if (separators !== undefined) {
+      caret += separators.filter(edit => edit.end <= insertionStart).reduce((sum, edit) => sum + edit.insert.length, 0)
+      edits = [...edits, ...separators].sort((a, b) => a.start - b.start)
+    }
+  }
+  // Upstream writes the table afresh after an edit of a cell's text. The
+  // cell's text is written into the table as it stood, so the edit cannot
+  // change its structure even where its own spelling alone would.
+  if (!action.tracked && selectedCell?.slotStart !== undefined && selectedCell.slotEnd !== undefined && blockPlacement === undefined) {
+    const { slotStart, slotEnd } = selectedCell
+    if (edits.every(edit => slotStart <= edit.start && edit.end <= slotEnd)) {
+      const respelled = respellTableInput(core, previous, selectedCell.syntax, selectedCell.table, { edits, selection: { start: caret, end: caret }, reconciliation: [] })
+      edits = [...respelled.edits]
+      caret = respelled.selection.start
+    }
   }
   if (action.tracked && tracked !== undefined && insert.length > 0) {
     const candidate = preview(edits)

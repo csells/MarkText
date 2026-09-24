@@ -402,9 +402,11 @@ it('journals explicit table commands through the same document input owner', asy
     }).acknowledged
     expect(submitted).toMatchObject({
       type: 'applied',
-      inputResult: { selection: { ranges: [{ anchor: 38, focus: 38 }], primary: 0 } }
+      inputResult: { selection: { ranges: [{ anchor: 49, focus: 49 }], primary: 0 } }
     })
-    const expected = '| a{++a++} | bb |\n| --- | --- |\n|     |     |\n| cc | dd |\n'
+    // Upstream (8d6c198c) writes the table afresh after an untracked table command.
+    const expected =
+      '| a{++a++} | bb  |\n| -------- | --- |\n|          |     |\n| cc       | dd  |\n'
     expect(await manager.saveBarrier(documentId)).toMatchObject({ source: expected })
     lease.faultView(new Error('Controlled presentation failure after table command'))
     lease = await manager.recover(lease)
@@ -467,10 +469,12 @@ it('preserves existing annotations when a popup inserts a header above the curre
     }).acknowledged
     expect(reply).toMatchObject({
       type: 'applied',
-      inputResult: { selection: { ranges: [{ anchor: 12, focus: 12 }], primary: 0 } }
+      inputResult: { selection: { ranges: [{ anchor: 17, focus: 17 }], primary: 0 } }
     })
+    // Upstream (8d6c198c) writes the table afresh after an untracked table command.
     expect(binding.sourceAtBarrier()).toMatchObject({
-      source: 'away\n\n|     |     |\n| :--- | ---: |\n| a{++a++} | aa |\n| aa | aa |\n'
+      source:
+        'away\n\n|          |     |\n|:-------- | ---:|\n| a{++a++} | aa  |\n| aa       | aa  |\n'
     })
     binding.submit({ kind: 'undo', projections: [] })
     expect(binding.sourceAtBarrier()).toMatchObject({ source })
@@ -537,9 +541,10 @@ it.each([false, true])(
         type: 'applied',
         inputResult: { selection: { ranges: [{ anchor: 8, focus: 8 }], primary: 0 } }
       })
+      // Upstream (8d6c198c) writes the table afresh after an untracked table command.
       const expected = tracked
         ? 'away\n\n| a{++a++} | aa |\n| :--- | ---: |{--\n| aa | aa |--}\n'
-        : 'away\n\n| a{++a++} | aa |\n| :--- | ---: |\n'
+        : 'away\n\n| a{++a++} | aa  |\n|:-------- | ---:|\n'
       expect(binding.sourceAtBarrier()).toMatchObject({ source: expected })
       binding.submit({ kind: 'undo', projections: [] })
       expect(binding.sourceAtBarrier()).toMatchObject({ source })

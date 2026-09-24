@@ -89,8 +89,7 @@ const clickByEval = async(page: Page, selector: string): Promise<void> => {
 const undo = (app: ElectronApplication): Promise<void> =>
   sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
 
-const counterText = (page: Page): Promise<string> =>
-  page.locator(RESULT_COUNTER).innerText()
+const counterText = (page: Page): Promise<string> => page.locator(RESULT_COUNTER).innerText()
 
 // Read the live WYSIWYG editor text (what the engine has rendered into the
 // contenteditable). Verifying replace results this way avoids the source-mode
@@ -480,7 +479,7 @@ test.describe('Find bar — Escape clears highlights and restores the cursor (it
   })
 })
 
-test.describe('Find bar — suppressed in source-code mode (item 194)', () => {
+test.describe('Find bar — source-code mode ownership (item 194)', () => {
   let app: ElectronApplication
   let page: Page
 
@@ -498,14 +497,14 @@ test.describe('Find bar — suppressed in source-code mode (item 194)', () => {
     if (app) await app.close()
   })
 
-  test('the WYSIWYG search bar is not mounted while in source-code mode', async() => {
+  test('source-code mode uses its own search bar, never the hidden WYSIWYG one', async() => {
     await enterSourceMode(page, app)
 
-    // The find action is forwarded but the WYSIWYG `.search-bar` is `v-if`-gated
-    // off in source mode, so it must not be present in the DOM.
+    // The WYSIWYG search bar is `v-if`-gated off in source mode; Find opens the
+    // Source view's shared search bar instead.
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'find')
-    await page.waitForTimeout(300)
-    await expect(page.locator(SEARCH_BAR)).toHaveCount(0)
+    await expect(page.locator(SEARCH_BAR)).toHaveCount(1)
+    await expect(page.locator(`.source-view ${SEARCH_BAR}`)).toBeVisible()
 
     await expectNoRendererErrors(app)
     await exitSourceMode(page, app)

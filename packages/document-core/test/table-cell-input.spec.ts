@@ -99,7 +99,7 @@ it('navigates Enter out of an implicit final-row cell without materializing it',
   const edits = core.inputEdits(revision, action, plan, false)
   if (edits === undefined) throw new Error('Table exit refused')
   const commit = core.apply(revision, edits)
-  expect(commit.revision.source).toBe(source + '\n')
+  expect(commit.revision.source).toBe(source + '\n\n')
   expect(core.reconcileInput(revision, plan, commit, action).selection).toEqual({ ranges: [{ anchor: 41, focus: 41 }], primary: 0 })
 })
 

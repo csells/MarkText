@@ -508,6 +508,25 @@ ipcMain.on(
 
 const closingWindows = new WeakSet<BrowserWindow>()
 
+/** Native confirmation shared by tab close and window close/quit. */
+const confirmDiscardReviewInput = async(win: BrowserWindow): Promise<boolean> => {
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'warning',
+    buttons: [t('dialog.discardAndClose'), t('dialog.cancel')],
+    defaultId: 1,
+    cancelId: 1,
+    message: t('dialog.pendingReviewInput'),
+    detail: t('dialog.pendingReviewInputDetail'),
+    noLink: true
+  })
+  return response === 0
+}
+
+ipcMain.handle('mt::confirm-discard-review-input', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  return win === null ? false : confirmDiscardReviewInput(win)
+})
+
 const handleWindowClose = async(e: IpcMainEvent, unsavedFiles?: UnsavedFile[]): Promise<void> => {
   const win = BrowserWindow.fromWebContents(e.sender)
   if (!win || closingWindows.has(win)) return
@@ -520,6 +539,7 @@ const handleWindowClose = async(e: IpcMainEvent, unsavedFiles?: UnsavedFile[]): 
     if (choice === null) return
     preparation = prepareWindowClose(win)
     const prepared = await preparation.ready
+    if (prepared.pendingReviewInput && !(await confirmDiscardReviewInput(win))) return
     const initialIds = new Set(unsavedFiles?.map((file) => file.id))
     const membershipChanged =
       unsavedFiles !== undefined &&
