@@ -99,7 +99,7 @@ const typed = new Set(['insertText', 'insertReplacementText', 'insertComposition
  */
 export function planSetextTrailingLine(
   core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction<SourceRange>, syntax: MarkupSyntax
-): DocumentSourceInputPlan | { readonly moveTo: SourceRange } | undefined {
+): DocumentSourceInputPlan | { readonly moveTo: SourceRange, readonly paragraph?: true } | undefined {
   if ('kind' in action || action.selection.start !== action.selection.end) return undefined
   const { inputType } = action
   if (inputType !== 'insertLineBreak' && inputType !== 'insertParagraph' && inputType !== 'deleteContentBackward' && !typed.has(inputType)) return undefined
@@ -118,7 +118,9 @@ export function planSetextTrailingLine(
   if (caret === contentEnd) return inputType === 'insertLineBreak' ? plan([], underline) : undefined
   if (caret !== underline) return undefined
   switch (inputType) {
-    case 'insertLineBreak': return plan([], underline)
+    // A second soft break would leave the empty line; it ends the heading as
+    // Enter does instead (#5300).
+    case 'insertLineBreak': return { moveTo: { start: contentEnd, end: contentEnd }, paragraph: true }
     case 'deleteContentBackward': return plan([], contentEnd)
     case 'insertParagraph': return { moveTo: { start: contentEnd, end: contentEnd } }
   }
