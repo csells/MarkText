@@ -117,6 +117,8 @@ export function renderMarkdownProjectionToSafeHtml(
 ): string {
   const footnoteDefinitions = new Map<number, MarkdownAstNode>()
   const footnoteNumbers = new Map<number, number>()
+  const footnoteReferences = new Map<number, number>()
+  let renderingDefinitions = false
   const collectFootnotes = (node: MarkdownAstNode): void => {
     if (node.kind === 'footnote-definition') {
       footnoteDefinitions.set(node.range.start, node)
@@ -283,7 +285,9 @@ export function renderMarkdownProjectionToSafeHtml(
         return ''
       case 'footnote-reference': {
         const definitionStart = node.attributes['resolvedDefinitionStart']
-        if (node.attributes['resolved'] !== true || typeof definitionStart !== 'number') {
+        // A note body is no place a reference resolves; it stays literal, as
+        // upstream writes it (#5492).
+        if (node.attributes['resolved'] !== true || typeof definitionStart !== 'number' || renderingDefinitions) {
           return `[^${escapeHtml(stringAttribute(node, 'rawLabel'))}]`
         }
         if (!footnoteDefinitions.has(definitionStart)) {
@@ -291,7 +295,10 @@ export function renderMarkdownProjectionToSafeHtml(
         }
         const number = footnoteNumbers.get(definitionStart) ?? footnoteNumbers.size + 1
         footnoteNumbers.set(definitionStart, number)
-        return renderFootnoteReference(number, options.footnotePrefix)
+        // Every reference gets its own id and backref (#5492).
+        const occurrence = (footnoteReferences.get(definitionStart) ?? 0) + 1
+        footnoteReferences.set(definitionStart, occurrence)
+        return renderFootnoteReference(number, options.footnotePrefix, occurrence)
       }
     }
   }
@@ -301,13 +308,15 @@ export function renderMarkdownProjectionToSafeHtml(
     allocateHeadingId: createHeadingIdAllocator()
   }
   const body = render(projection.ast.root, context)
-  const definitions: Array<{ number: number; html: string }> = []
+  const definitions: Array<{ number: number; html: string; references: number }> = []
+  renderingDefinitions = true
   for (const [definitionStart, number] of footnoteNumbers) {
     const definition = footnoteDefinitions.get(definitionStart)
     if (definition === undefined) throw new Error('Projected footnote definition is unavailable')
     definitions.push({
       number,
-      html: definition.children.map((child) => render(child, context)).join('')
+      html: definition.children.map((child) => render(child, context)).join(''),
+      references: footnoteReferences.get(definitionStart) ?? 1
     })
   }
   const html = appendFootnoteSection(body, definitions, options.footnotePrefix)
