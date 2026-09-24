@@ -52,6 +52,29 @@ describe('canonical source syntax presentation', () => {
     ])
   })
 
+  it('marks inline math spelled with a display opener and keeps each form\'s formula boundaries', () => {
+    const core = createDocumentCore()
+    const source = 'a $x_1$ b $$y_2$$ c \\(p_3\\) d \\[q_4\\] e \\\\(r_5\\\\) f \\\\[s_6\\\\] g $`t_7`$\n'
+    const spans = core.sourceSyntax(core.open(source, {
+      texMathGfm: true,
+      texMathSingleBackslash: true,
+      texMathDoubleBackslash: true
+    })).filter(span => span.kind === 'inline-math')
+    expect(spans.map(span => ({
+      text: source.slice(span.range.start, span.range.end),
+      formula: span.literal === undefined ? undefined : source.slice(span.literal.range.start, span.literal.range.end),
+      display: span.displayMath === true
+    }))).toEqual([
+      { text: '$x_1$', formula: 'x_1', display: false },
+      { text: '$$y_2$$', formula: 'y_2', display: true },
+      { text: '\\(p_3\\)', formula: 'p_3', display: false },
+      { text: '\\[q_4\\]', formula: 'q_4', display: true },
+      { text: '\\\\(r_5\\\\)', formula: 'r_5', display: false },
+      { text: '\\\\[s_6\\\\]', formula: 's_6', display: true },
+      { text: '$`t_7`$', formula: 't_7', display: false }
+    ])
+  })
+
   it('binds spans to the requested revision and rejects foreign revisions', () => {
     const core = createDocumentCore()
     const before = core.open('**old**')

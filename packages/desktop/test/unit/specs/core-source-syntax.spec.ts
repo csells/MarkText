@@ -164,6 +164,26 @@ describe('Source syntax through the existing CodeMirror presentation', () => {
     }
   })
 
+  it('fades math delimiters apart from the formula and styles display openers as block math', async() => {
+    const app = fixture('gfm $`e=mc^2`$ and \\[q_4\\] and $x_y$\r\n')
+    try {
+      await app.adapter.configure({ texMathGfm: true, texMathSingleBackslash: true })
+      await vi.waitFor(() =>
+        expect(app.painted('.cm-math-inline:not(.cm-formatting-math)')).toBe('e=mc^2x_y')
+      )
+      expect(app.painted('.cm-formatting-math-inline')).toBe('$``$$$')
+      expect(app.painted('.cm-math-block:not(.cm-formatting-math)')).toBe('q_4')
+      expect(app.painted('.cm-formatting-math-block')).toBe('\\[\\]')
+      await app.adapter.configure({ texMathGfm: false })
+      await vi.waitFor(() =>
+        expect(app.painted('.cm-math-inline:not(.cm-formatting-math)')).toBe('`e=mc^2`x_y')
+      )
+      expect(app.errors).toEqual([])
+    } finally {
+      app.dispose()
+    }
+  })
+
   it('refreshes exact CRLF source positions through typing, one undo/redo and preference changes', async() => {
     const source = '# Heading\r\n\r\n{x}\r\n'
     const app = fixture(source)
