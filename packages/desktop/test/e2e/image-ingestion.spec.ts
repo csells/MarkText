@@ -57,6 +57,16 @@ for (const ingestion of ['local file drop', 'web image drop', 'native bitmap pas
       await expect(page.getByRole('region', { name: 'Recovered drafts' })).toHaveCount(0)
       await expectNoRendererErrors(app)
     }
+    // The copy is written under a dot-prefixed temporary name and renamed to
+    // its content hash, so only a lone non-temporary entry is the final asset.
+    const settledAsset = async(): Promise<string> => {
+      const settled = (): string | undefined => {
+        const entries = readdirSync(assetDirectory)
+        return entries.length === 1 && !entries[0].startsWith('.') ? entries[0] : undefined
+      }
+      await expect.poll(settled).toBeDefined()
+      return settled() as string
+    }
     const expectLoadedImage = async(page: Page): Promise<void> => {
       await expect.poll(() => page.locator('.editor-component .mu-inline-image.mu-image-success').count()).toBe(1)
       await expect(page.locator('.editor-component')).not.toContainText('loading-')
@@ -118,8 +128,7 @@ for (const ingestion of ['local file drop', 'web image drop', 'native bitmap pas
         if (ingestion === 'web image drop') {
           expected = `seed\n\n![](${imageUrl})\n`
         } else {
-          await expect.poll(() => readdirSync(assetDirectory).length).toBe(1)
-          const asset = readdirSync(assetDirectory)[0]
+          const asset = await settledAsset()
           expect(readFileSync(join(assetDirectory, asset))).toEqual(png)
           expected = `seed\n\n![${basename(imagePath)}](assets/${asset})\n`
         }
@@ -141,8 +150,7 @@ for (const ingestion of ['local file drop', 'web image drop', 'native bitmap pas
           if (!window) throw new Error('Editor window is unavailable')
           window.webContents.paste()
         })
-        await expect.poll(() => readdirSync(assetDirectory).length).toBe(1)
-        const asset = readdirSync(assetDirectory)[0]
+        const asset = await settledAsset()
         const copied = readFileSync(join(assetDirectory, asset))
         expect(await app.evaluate(({ nativeImage }, input) => {
           const original = nativeImage.createFromBuffer(Buffer.from(input.original, 'base64'))
@@ -154,8 +162,7 @@ for (const ingestion of ['local file drop', 'web image drop', 'native bitmap pas
         // This covers the completed-capture delivery, not the interactive OS picker.
         if (!app) throw new Error('Editor application is unavailable')
         await sendIpcToRenderer(app, 'mt::screenshot-captured', imagePath)
-        await expect.poll(() => readdirSync(assetDirectory).length).toBe(1)
-        const asset = readdirSync(assetDirectory)[0]
+        const asset = await settledAsset()
         expect(readFileSync(join(assetDirectory, asset))).toEqual(png)
         expected = `seed![](assets/${asset})\n`
       }
