@@ -229,7 +229,9 @@ function planSourceInput(core: DocumentCore, revision: DocumentRevision, action:
   if (inputType === 'insertParagraph' || inputType === 'insertLineBreak') {
     const trailingLine = selectedCell === undefined ? planSetextTrailingLine(core, revision, action, core.project(revision, 'markup').syntax) : undefined
     if (trailingLine !== undefined && !('moveTo' in trailingLine)) return trailingLine
-    const broken = trailingLine === undefined ? action : { ...action, selection: trailingLine.moveTo, range: trailingLine.moveTo }
+    const broken = trailingLine === undefined
+      ? action
+      : { ...action, ...(trailingLine.paragraph === true ? { inputType: 'insertParagraph' } : {}), selection: trailingLine.moveTo, range: trailingLine.moveTo }
     return planStructuralInput(core, revision, broken, enterConversion, physicalLines, selectedCell)
   }
   const syntax = selectedCell === undefined && selection.start === selection.end
