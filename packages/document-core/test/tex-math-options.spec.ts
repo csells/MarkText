@@ -45,4 +45,16 @@ describe('pandoc math extensions', () => {
     expect(spans('a $x$ b $$y$$', { texMathDollars: false })).toEqual([])
     expect(spans('a $x$ b $$y$$')).toEqual(['$x$', '$$y$$'])
   })
+
+  it('re-reads the formula when a preference change turns $`…`$ between its two forms', () => {
+    const core = createDocumentCore()
+    const source = 'gfm $`e=mc^2`$ here\n'
+    const formula = (revision: ReturnType<typeof core.open>) => core.sourceSyntax(revision)
+      .flatMap(span => span.literal === undefined ? [] : [source.slice(span.literal.range.start, span.literal.range.end)])
+    const dollars = core.open(source)
+    expect(formula(dollars)).toEqual(['`e=mc^2`'])
+    const gfm = core.apply(dollars, [], { markdown: { texMathGfm: true } }).revision
+    expect(formula(gfm)).toEqual(['e=mc^2'])
+    expect(formula(core.apply(gfm, [], { markdown: { texMathGfm: false } }).revision)).toEqual(['`e=mc^2`'])
+  })
 })
