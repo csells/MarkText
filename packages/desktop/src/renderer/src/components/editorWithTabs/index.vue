@@ -38,6 +38,7 @@
         :core-performance-trace="corePerformanceTrace"
         :core-test-crash-worker="coreTestCrashWorker"
         :core-test-stale-next-transaction="coreTestStaleNextTransaction"
+        :claim-fresh-document="claimFreshCoreDocument"
         @core-fault="handleCoreViewFault"
       />
       <source-code
@@ -219,6 +220,10 @@ onMounted(async () => {
 onBeforeUnmount(() => window.removeEventListener('beforeunload', preventUnbackedDraftClose))
 const coreLease = shallowRef<CoreDocumentViewLease>()
 const coreInitialDocumentSelection = shallowRef<DocumentSelection>()
+// Newly opened documents whose first WYSIWYG view has not yet taken focus.
+const freshCoreDocuments = new Set<string>()
+const claimFreshCoreDocument = (documentId: string): boolean =>
+  freshCoreDocuments.delete(documentId)
 // View positions belong to one acknowledged revision; replacement/recovery
 // generations cannot reuse them against another document interpretation.
 const coreViewSelections = new Map<
@@ -571,6 +576,7 @@ watch(
         const incoming = await leaseCorePlainTextView(coreManager, target.id)
         editorStore.REGISTER_CORE_SAVE_IDENTITY(target.id, incoming.lease.identity)
         installCoreDocumentSelection(incoming.lease, newlyOpened ? target : undefined)
+        if (newlyOpened) freshCoreDocuments.add(target.id)
         coreLease.value = incoming.lease
         corePlainTextView.value = incoming.view
         coreProjectionMarkdown.value = incoming.view.markdown
@@ -601,6 +607,7 @@ watch(
         const incoming = await leaseCorePlainTextView(coreManager, target.id)
         editorStore.REGISTER_CORE_SAVE_IDENTITY(target.id, incoming.lease.identity)
         installCoreDocumentSelection(incoming.lease, newlyOpened ? target : undefined)
+        if (newlyOpened) freshCoreDocuments.add(target.id)
         coreLease.value = incoming.lease
         corePlainTextView.value = incoming.view
         coreProjectionMarkdown.value = incoming.view.markdown
