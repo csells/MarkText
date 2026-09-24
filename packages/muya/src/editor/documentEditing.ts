@@ -5,6 +5,7 @@ import type { Muya } from '../muya';
 import type { ISelection } from '../selection/types';
 import type { TState } from '../state/types';
 import type { DocumentCompositionResult, DocumentDOMPoint, DocumentEditing, DocumentFormatInput, DocumentTextInput, DocumentTextPoint, IDocumentCommandInput } from './documentEditingTypes';
+import { crossBlockReplacement } from '../clipboard/crossBlockReplacement';
 import { BLOCK_DOM_PROPERTY, isOsx } from '../config';
 import { findContentDOM, getOffsetOfParagraph } from '../selection/dom';
 
@@ -467,8 +468,18 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
             drag.moving = true;
             return;
         }
-        if (!(event instanceof InputEvent) || event.isComposing || !inputTypes.has(event.inputType))
+        if (!(event instanceof InputEvent) || event.isComposing)
             return;
+        if (!inputTypes.has(event.inputType)) {
+            // Any other editing input over a cross-block selection replaces
+            // the selection (#5415): left to the browser, it would delete the
+            // block elements between the endpoints behind the model's back.
+            const replacement = crossBlockReplacement(event.inputType, event.data);
+            const selection = muya.editor.selection.getSelection();
+            if (replacement != null && selection && !selection.isCollapsed && !selection.isSelectionInSameBlock)
+                applyInput(event, replacement === '' ? 'deleteContentBackward' : 'insertText', replacement === '' ? null : replacement);
+            return;
+        }
         const data = event.inputType === 'insertFromDrop'
             ? event.data ?? event.dataTransfer?.getData('text/plain') ?? null
             : event.data;
