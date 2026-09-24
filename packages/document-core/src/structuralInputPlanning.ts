@@ -164,6 +164,9 @@ function softBreakBeforeBlankLine(core: DocumentCore, revision: DocumentRevision
   }
   if (index < 1) return undefined
   const line = lines.at(index)
+  // Annotation delimiters around the break keep the ordinary soft break.
+  const around = { start: sourceAt(lines.at(index - 1).start), end: projection.coordinates.toSource(line.end, 'previous') }
+  if (revision.annotations.some(annotation => annotation.range.start <= around.end && around.start <= annotation.range.end)) return undefined
   const contentStart = contentStartOf(line)
   if (contentStart > projected || !/^[ \t]*$/u.test(core.sourceSlice(revision, { start: sourceAt(contentStart), end: caret }))) return undefined
   const previous = lines.at(index - 1)
@@ -175,6 +178,9 @@ function softBreakBeforeBlankLine(core: DocumentCore, revision: DocumentRevision
   if (block === undefined) return undefined
   const blockEnd = block.kind === 'heading' ? Number(block.attributes.contentEnd) : block.range.end
   if (blockEnd < previous.contentEnd) return undefined
+  // The caret's line continues that block, or is the blank line its trailing
+  // soft break presents.
+  if (!line.blank && (block.range.start > projected || blockEnd < projected)) return undefined
   let start = sourceAt(previous.contentEnd)
   const previousText = core.sourceSlice(revision, { start: sourceAt(contentStartOf(previous)), end: start })
   const spaces = /[ \t]+$/u.exec(previousText)?.[0].length ?? 0
