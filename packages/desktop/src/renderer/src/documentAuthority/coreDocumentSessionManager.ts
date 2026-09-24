@@ -1227,7 +1227,13 @@ export function createCoreDocumentSessionManager(
       if (session.sourceBarrier !== undefined) return session.sourceBarrier
       const journalVersion = session.journalVersion
       const barrier = (async(): Promise<CoreDocumentSaveResult> => {
-        await session.settleView?.()
+        try {
+          await session.settleView?.()
+        } catch (error) {
+          // A disk reload retires this view mid-wait; its replacement owns the document.
+          if (sessions.get(documentId) === session) throw error
+        }
+        if (sessions.get(documentId) !== session) return manager.saveBarrier(documentId)
 
         if (session.barrierFailure !== undefined) throw session.barrierFailure
         const result = session.binding.sourceAtBarrier()
