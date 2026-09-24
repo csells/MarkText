@@ -4,8 +4,10 @@ for (const text of ['plain', 'plain\nsecond']) {
     for (const tracked of [false, true]) {
         test(`quote and unquote a complete addition with its lazy continuation (Track=${tracked}, text=${JSON.stringify(text)})`, async ({ page }) => {
             const source = `{++${text}++}\n`;
-            const quoted = tracked ? `{++> ${text}++}\n` : `> {++${text}++}\n`;
-            const typed = tracked ? `{++> ${text}!++}\n` : `> {++${text}!++}\n`;
+            // Like upstream, every line of the quoted paragraph gets its marker.
+            const lines = text.replaceAll('\n', '\n> ');
+            const quoted = tracked ? `{++> ${lines}++}\n` : `> {++${lines}++}\n`;
+            const typed = tracked ? `{++> ${lines}!++}\n` : `> {++${lines}!++}\n`;
             await page.evaluate(async ({ source, tracked }) => {
                 const muya = window.muya!;
                 const modulePath = '/coreBoundaryControl.ts';
