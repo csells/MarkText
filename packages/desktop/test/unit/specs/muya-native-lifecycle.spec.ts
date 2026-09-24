@@ -87,7 +87,6 @@ describe('native pending input through desktop document lifecycle', () => {
             muya,
             view: acknowledged.view,
             outcome,
-            sourcePosition: adapter.reconciledSourcePosition,
             dirtyPaths: presentation.changedPaths,
             applyEditability: (bindings) =>
               muya.setEditablePaths(
@@ -103,7 +102,6 @@ describe('native pending input through desktop document lifecycle', () => {
         initial.view.bindings,
         lease.binding,
         undefined,
-        reconcile,
         lease.identity.revision,
         true
       )
@@ -302,7 +300,6 @@ describe('native draft recovery during desktop teardown', () => {
         initial.view.bindings,
         lease.binding,
         undefined,
-        reconcile,
         lease.identity.revision,
         true
       )
@@ -488,7 +485,6 @@ it('retains accepted paired deletion when presentation fails without replaying i
     initial.view.bindings,
     lease.binding,
     undefined,
-    reconcile,
     lease.identity.revision,
     true
   )

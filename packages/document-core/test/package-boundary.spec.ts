@@ -103,7 +103,7 @@ describe('document-core package boundary', () => {
     const files = await sourceFiles(fileURLToPath(new URL('src', root)))
     for (const file of files) {
       const imports = importedPackages(await readFile(file, 'utf8'), file)
-      expect(imports).toEqual(file === fileURLToPath(new URL('src/codeTab.ts', root)) ? ['html-tags'] : [])
+      expect(imports).toEqual(file === fileURLToPath(new URL('src/htmlBlock.ts', root)) ? ['html-tags'] : [])
     }
   })
 })

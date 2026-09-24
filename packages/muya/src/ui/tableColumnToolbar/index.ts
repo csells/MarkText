@@ -193,9 +193,10 @@ export class TableColumnToolbar extends BaseFloat {
             const target = content?.domNode?.isConnected
                 ? this.muya.editor.selection.getDOMPoint({ path: content.path, offset: 0 })
                 : null;
-            const selection = this.muya.editor.selection.getDOMSelection();
-            if (!target || !selection)
+            if (!target)
                 return this.hide();
+            // Without a live editor selection the toolbar's column owns the caret.
+            const selection = this.muya.editor.selection.getDOMSelection() ?? { anchor: target, focus: target };
             const path = [...block.path];
             dispatchDocumentTableCommand(this.muya, { command: 'alignTableColumn', target, alignment: item.type, selection });
             // Alignment retains the caret and popup. Rebind its presentation

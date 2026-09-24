@@ -6,6 +6,8 @@ import type Renderer from './index';
 import { BLOCK_TYPE6, CLASS_NAMES } from '../../config';
 import { snakeToCamel } from '../../utils';
 import sanitize, { isValidAttribute } from '../../utils/dompurify';
+import { toHTML } from '../../utils/snabbdom';
+import { isInlineHtmlTagAllowed } from '../htmlPolicy';
 
 function renderHtmlTagChildren(
     renderer: Renderer,
@@ -34,14 +36,11 @@ function renderHtmlTagChildren(
         : '';
 }
 
-function buildRawHtmlTag(
+function rawHtmlElement(
     token: HTMLTagToken,
-    tagClassName: string,
-    openContent: (string | VNode)[],
-    closeContent: (string | VNode)[] | '',
     anchor: VNode[] | '',
     h: H,
-): VNode[] {
+): VNode {
     const { tag, attrs } = token;
     const { start, end } = token.range;
 
@@ -84,6 +83,17 @@ function buildRawHtmlTag(
         }
     }
 
+    return h(`${selector}`, data, anchor);
+}
+
+function buildRawHtmlTag(
+    token: HTMLTagToken,
+    tagClassName: string,
+    openContent: (string | VNode)[],
+    closeContent: (string | VNode)[] | '',
+    anchor: VNode[] | '',
+    h: H,
+): VNode[] {
     return [
         h(
             `span.${tagClassName}.${CLASS_NAMES.MU_OUTPUT_REMOVE}`,
@@ -94,7 +104,7 @@ function buildRawHtmlTag(
             },
             openContent,
         ),
-        h(`${selector}`, data, anchor),
+        rawHtmlElement(token, anchor, h),
         h(
             `span.${tagClassName}.${CLASS_NAMES.MU_OUTPUT_REMOVE}`,
             {
@@ -105,6 +115,29 @@ function buildRawHtmlTag(
             closeContent,
         ),
     ];
+}
+
+/** Keeps exact tag spelling editable while presenting its already-owned HTML meaning. */
+export function htmlTagPresentation(
+    renderer: Renderer,
+    h: H,
+    block: Format,
+    cursor: IRenderCursor,
+    token: HTMLTagToken,
+    closing: boolean,
+    selfClosing: boolean,
+): { open: string; close: string } | undefined {
+    if (!isInlineHtmlTagAllowed(token.tag))
+        return undefined;
+    const className = renderer.getClassName(undefined, block, token, cursor);
+    const element = rawHtmlElement(token, '', h);
+    const html = toHTML(element);
+    const openTag = html.slice(0, html.indexOf('>') + 1);
+    const closeTag = html.slice(openTag.length);
+    const markerOpen = `<span class="${className === CLASS_NAMES.MU_HIDE ? className : CLASS_NAMES.MU_HTML_TAG} ${CLASS_NAMES.MU_OUTPUT_REMOVE}">`;
+    return closing
+        ? { open: `${closeTag}${markerOpen}`, close: '</span>' }
+        : { open: markerOpen, close: `</span>${openTag}${selfClosing ? closeTag : ''}` };
 }
 
 export default function htmlTag(

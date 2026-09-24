@@ -147,7 +147,12 @@ class EditorWindow extends BaseWindow {
 
     winOptions.backgroundColor = this._getPreferredBackgroundColor(theme)
     const hiddenE2eWindow = isHiddenE2eWindow()
-    if (hiddenE2eWindow) winOptions.show = false
+    if (hiddenE2eWindow) {
+      winOptions.show = false
+      // A never-shown window would otherwise throttle animation frames and
+      // timers; hidden test runs must keep a visible window's timing.
+      winOptions.webPreferences = { ...winOptions.webPreferences, backgroundThrottling: false }
+    }
     if (env.disableSpellcheck) {
       // winOptions.webPreferences is set by editorWinOptions spread above
       ;(winOptions.webPreferences as { spellcheck: boolean }).spellcheck = false

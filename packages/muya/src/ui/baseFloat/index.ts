@@ -166,6 +166,16 @@ abstract class BaseFloat {
         // `unknown[]` so internal call sites can forward arbitrary args.
         this.cb = cb as (...args: unknown[]) => void;
 
+        // The resize observer sizes the box a frame later. Placing an unsized
+        // box would put its content over the reference until then.
+        if (this.container) {
+            const { offsetWidth, offsetHeight } = this.container;
+            Object.assign(floatBox.style, {
+                width: `${offsetWidth}px`,
+                height: `${offsetHeight}px`,
+            });
+        }
+
         const cleanup = autoUpdate(reference, floatBox, () => {
             computePosition(reference, floatBox, {
                 placement,

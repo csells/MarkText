@@ -118,10 +118,21 @@ it.each(
           cancelable: true
         })
       )
-      const at = saved.source.lastIndexOf(source.includes('{++sa++}') ? 'sa++}' : 'target')
-      const inserted = typingTracked && !source.includes('{++sa++}') ? '{++X++}' : 'X'
-      const typed = saved.source.slice(0, at) + inserted + saved.source.slice(at)
-      expect(binding.sourceAtBarrier()).toMatchObject({ source: typed })
+      // The caret stays at the visible line start, before the addition's opener.
+      // Tracked typing there authors an addition or extends the adjacent one.
+      const annotated = source.includes('{++sa++}')
+      const at = saved.source.lastIndexOf(annotated ? '{++sa++}' : 'target')
+      const insertAt = (inserted: string, from = at, to = at) =>
+        saved.source.slice(0, from) + inserted + saved.source.slice(to)
+      const candidates = !typingTracked
+        ? [insertAt('X')]
+        : annotated
+          ? [insertAt('{++X++}'), insertAt('{++X', at, at + 3)]
+          : [insertAt('{++X++}')]
+      const current = binding.sourceAtBarrier()
+      if (current.type !== 'source') throw new Error('Expected authoritative source')
+      expect(candidates).toContain(current.source)
+      const typed = current.source
       expect(muya.getSelection()).toMatchObject({ anchor: { offset: 1 }, focus: { offset: 1 } })
       expect(legacyChanges).toEqual([])
       await adapter.history('undo', reconcile)

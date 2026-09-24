@@ -11,7 +11,7 @@ vi.mock('electron', () => ({
     showOpenDialog: vi.fn(),
     showSaveDialog: vi.fn()
   },
-  ipcMain: { emit: vi.fn(), on: vi.fn() },
+  ipcMain: { handle: () => {}, emit: vi.fn(), on: vi.fn() },
   shell: { openExternal: vi.fn(), openPath: vi.fn() }
 }))
 
@@ -60,7 +60,7 @@ describe('File save production surfaces', () => {
   })
 
   afterAll(() => {
-    registeredCommandIds.forEach(id => {
+    registeredCommandIds.forEach((id) => {
       if (!CommandManager.remove(id)) {
         throw new Error(`Registered command disappeared before cleanup: ${id}`)
       }
@@ -74,7 +74,7 @@ describe('File save production surfaces', () => {
       expect(send, `command ${commandId}`).toHaveBeenCalledExactlyOnceWith(rendererChannel)
 
       send.mockClear()
-      const item = submenu.find(candidate => candidate.label === menuLabel)
+      const item = submenu.find((candidate) => candidate.label === menuLabel)
       expect(item, `menu ${menuLabel}`).toBeDefined()
       item?.click?.({} as MenuItem, fakeWindow, {} as KeyboardEvent)
       expect(send, `menu ${menuLabel}`).toHaveBeenCalledExactlyOnceWith(rendererChannel)

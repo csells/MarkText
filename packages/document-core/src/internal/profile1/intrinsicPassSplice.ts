@@ -86,6 +86,8 @@ export interface SpliceSourceEdit {
 
 /** The mini-parse products of the bracket window, in window coordinates. */
 export interface BracketPassFacts {
+  /** The window source the mini-parse read. */
+  readonly text: string
   readonly hasCriticMarkupCandidate: boolean
   readonly rootCount: number
   readonly markerDecisionCount: number
@@ -732,6 +734,38 @@ export function spliceIntrinsicFacts(
   if (miniLast === undefined) {
     return undefined
   }
+  // An interior window replaces its finish-lane with the retained suffix, so
+  // it must end with every block closed. A block still open there (indented
+  // code, a list item, a fence) may continue into the suffix, and the window
+  // emits its literal only when the lane finishes.
+  if (
+    bracket.endPrevious < retained.sourceLength &&
+    (!checkpointIsClean(miniLast.exitCheckpoint) ||
+      miniLast.emittedFacts.block.activeProvider !== undefined ||
+      miniLast.emittedFacts.block.paragraphOpen ||
+      (miniFinish !== undefined &&
+        (miniFinish.emittedFacts.literals.length !== 0 ||
+          miniFinish.emittedFacts.lines.length !== 0)))
+  ) {
+    return undefined
+  }
+  // A `$$` math-block marker pairs with the next marker line wherever it is,
+  // so a marker the window leaves unowned may pair across the bracket edge.
+  const windowLiterals = [
+    ...mini.markdownLiterals,
+    ...miniRoot.transitions.flatMap((transition) => transition.emittedFacts.literals)
+  ]
+  for (const transition of miniRoot.transitions) {
+    for (const line of transition.emittedFacts.lines) {
+      if (
+        mini.text.slice(line.contentOffset, line.contentEnd).trim() === '$$' &&
+        !windowLiterals.some((literal) =>
+          literal.start < line.contentEnd && line.contentOffset < literal.end)
+      ) {
+        return undefined
+      }
+    }
+  }
 
   // Tape runs are ordered with ids as indices. A text run may span a
   // bracket boundary — runs break at markers, not lines — and splits there;
@@ -881,11 +915,16 @@ export function spliceIntrinsicFacts(
     }
     const prefixTransitions: IntrinsicProfile1LaneTransition[] = []
     const suffixSideTransitions: IntrinsicProfile1LaneTransition[] = []
+    const retainsSuffix = bracket.endPrevious < retained.sourceLength
     for (const transition of retainedRoot.transitions) {
       const extent = transitionExtent(transition)
       if (extent.end <= bracket.start) {
         prefixTransitions.push(shiftTransition(transition, 0, remapPrefix))
       } else if (extent.start >= bracket.endPrevious) {
+        // A bracket reaching the end of the document has no suffix: the
+        // previous finish-lane and the literals it closed belong to the
+        // replaced window, whose own finish takes their place.
+        if (!retainsSuffix) continue
         suffixSideTransitions.push(
           shiftTransition(transition, bracket.delta, remapSuffix)
         )

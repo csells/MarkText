@@ -294,7 +294,6 @@ describe('native input locations in the shared document', () => {
           muya,
           view: next.view,
           outcome,
-          sourcePosition: adapter.reconciledSourcePosition,
           dirtyPaths: presentation.changedPaths,
           applyEditability: (bindings) =>
             muya.setEditablePaths(
@@ -306,9 +305,7 @@ describe('native input locations in the shared document', () => {
     }
     const adapter: MuyaPlainTextCoreAdapter = createMuyaPlainTextCoreAdapter(
       initial.view.bindings,
-      binding,
-      undefined,
-      reconcile
+      binding
     )
     lease.settleView(async() => {
       if (testCase.holdSaveBarrier && !held) {
@@ -392,7 +389,7 @@ describe('native input locations in the shared document', () => {
         focus: { path: [testCase.lastBlock ?? 0, 'text'], offset: testCase.selection[1] }
       })
       muya.on('json-change', (change: { source: string }) => {
-        if (change.source === 'user') results.push(adapter.accept(change))
+        if (change.source === 'user') results.push('native-bypass')
       })
 
       block.domNode.dispatchEvent(

@@ -4,7 +4,9 @@
   image-label suggestions after resizing (option 1). Implementation and
   verification are tracked in [plan 0012](../plans/0012-criticmarkup-upstream-integration-review.md).
 - **Identifiers:** `markdownProfile: 'markdown-profile-2'` ·
-  `criticMarkupProfile: 'marktext-profile-1'`.
+  `criticMarkupProfile: 'marktext-profile-1'`; superseded for CriticMarkup by
+  [CriticMarkup Profile 2](marktext-criticmarkup-profile-2.md)
+  (`marktext-profile-2`).
 - **Base:** [Profile 1](marktext-markdown-profile-1.md), including all its
   CriticMarkup, containment, projection, literal-precedence, losslessness and
   error-recovery rules. This document changes only Markdown image layout.

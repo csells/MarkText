@@ -62,13 +62,16 @@ describe('tracked text authoring', () => {
     expect(core.project(edited, 'revised').markdown).toBe(revised)
   })
 
-  it('preserves the revision when an EOF-terminated HTML literal would consume the suggestion boundary', () => {
+  it('tracks an edit inside an EOF-terminated HTML block because line-start arm boundaries end it (L2c)', () => {
     const core = createDocumentCore()
     const source = '<div>word</div>\n'
     const revision = core.open(source)
-    expect(core.trackedEdit(revision, { start: 7, end: 7, insert: 'X' })).toBeUndefined()
-    expect(core.project(revision, 'original').markdown).toBe(source)
-    expect(core.project(revision, 'revised').markdown).toBe(source)
+    const edit = core.trackedEdit(revision, { start: 7, end: 7, insert: 'X' })
+    expect(edit).toBeDefined()
+    const edited = core.apply(revision, edit === undefined ? [] : [edit]).revision
+    expect(edited.annotations.map(annotation => annotation.kind)).toEqual(['substitution'])
+    expect(core.project(edited, 'original').markdown).toBe(source)
+    expect(core.project(edited, 'revised').markdown).toBe('<div>woXrd</div>\n')
   })
 
   it('tracks an edit inside inline code by replacing its complete literal syntax', () => {
@@ -231,10 +234,11 @@ describe('tracked text authoring', () => {
     expect(restored.revision.annotations).toHaveLength(0)
   })
 
-  it('rejects editing the old arm without publishing or consuming the acknowledged revision', () => {
+  it('splits the old arm at the caret without publishing or consuming the acknowledged revision', () => {
     const core = createDocumentCore()
     const revision = core.open('{~~old~>new~~}')
-    expect(core.trackedEdit(revision, { start: 4, end: 4, insert: 'X' })).toBeUndefined()
+    expect(core.trackedEdit(revision, { start: 4, end: 4, insert: 'X' }))
+      .toEqual({ start: 0, end: 4, insert: '{--o--}{++X++}{~~' })
     expect(revision.source).toBe('{~~old~>new~~}')
     const next = core.track(revision, { start: 11, end: 11, insert: '!' })
     expect(next.revision.source).toBe('{~~old~>new!~~}')

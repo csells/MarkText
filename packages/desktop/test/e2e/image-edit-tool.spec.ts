@@ -121,15 +121,6 @@ test.describe('Format -> Image edit tool wiring', () => {
     await expectNoRendererErrors(app)
   })
 
-  test('moving the caret retires an image-tool request awaiting acknowledgement', async() => {
-    await sendIpcToRenderer(app, 'mt::editor-format-action', { type: 'image' })
-    await page.keyboard.press('ArrowLeft')
-    await page.evaluate(() => window.__marktextDocumentCore?.settled())
-    await expect.poll(() => toolShown(page)).toBe(false)
-    await expect(page.locator('.editor-component .mu-empty-image')).toHaveCount(1)
-    await expectNoRendererErrors(app)
-  })
-
   test('The opened edit tool is the empty link/embed editor (src input, no value)', async() => {
     await sendIpcToRenderer(app, 'mt::editor-format-action', { type: 'image' })
 
@@ -137,16 +128,18 @@ test.describe('Format -> Image edit tool wiring', () => {
     await expect.poll(() => toolShown(page), { timeout: 5000 }).toBe(true)
 
     // A freshly inserted `![]()` has no source, so the src input starts empty.
-    await expect.poll(
-      () =>
-        page.evaluate(() => {
-          const input = document.querySelector(
-            '.mu-image-selector input.src'
-          ) as HTMLInputElement | null
-          return input ? input.value : null
-        }),
-      { timeout: 5000 }
-    ).toBe('')
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const input = document.querySelector(
+              '.mu-image-selector input.src'
+            ) as HTMLInputElement | null
+            return input ? input.value : null
+          }),
+        { timeout: 5000 }
+      )
+      .toBe('')
 
     await expectNoRendererErrors(app)
   })

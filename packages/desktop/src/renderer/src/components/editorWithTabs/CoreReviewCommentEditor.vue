@@ -31,6 +31,7 @@
     <p
       v-if="error"
       class="core-comment-error"
+      :data-testid="`${testIdPrefix}-error`"
       role="alert"
     >
       {{ error }}
@@ -65,6 +66,7 @@ const props = withDefaults(
     modelValue: boolean
     targetId: string
     defaultText?: string
+    draftText?: string
     submitting?: boolean
     error?: string
     label?: string
@@ -95,12 +97,14 @@ const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   submit: [draft: { targetId: string; text: string }]
   cancel: [draft: { targetId: string; text: string }]
+  'update:draftText': [value: string | undefined]
 }>()
 const input = ref<HTMLTextAreaElement>()
 const draft = ref('')
 const target = ref(props.targetId)
 const targetChanged = ref(false)
 let opener: HTMLElement | undefined
+watch(draft, (value) => emit('update:draftText', value), { flush: 'sync' })
 
 watch(
   () => props.modelValue,
@@ -114,7 +118,7 @@ watch(
     }
     opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined
     target.value = props.targetId
-    draft.value = props.defaultText
+    draft.value = props.draftText ?? props.defaultText
     targetChanged.value = false
     await nextTick()
     input.value?.focus()
@@ -147,6 +151,7 @@ const submit = (): void => {
 const cancel = (): void => {
   if (props.submitting) return
   emit('cancel', { targetId: target.value, text: draft.value })
+  emit('update:draftText', undefined)
   emit('update:modelValue', false)
 }
 const onKeydown = (event: KeyboardEvent): void => {

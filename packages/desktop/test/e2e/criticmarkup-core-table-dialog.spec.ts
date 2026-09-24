@@ -20,7 +20,8 @@ for (const middle of ['aaa', 'a{++a++}a{>>keep<<}']) {
   test(`mounted table dialog retains target, next input and history (${middle === 'aaa' ? 'plain' : 'CM'})`, async() => {
     const source = `aaa\n\n${middle}\n\nlast\n`
     const created = `aaa\n\n${middle}\n\n|     |     |\n| --- | --- |\n|     |     |\n\nlast\n`
-    const typed = `aaa\n\n${middle}\n\n|     X|     |\n| --- | --- |\n|     |     |\n\nlast\n`
+    // Upstream MarkText writes an edited table afresh with padded cells.
+    const typed = `aaa\n\n${middle}\n\n| X   |     |\n| --- | --- |\n|     |     |\n\nlast\n`
     const options = {
       suppressErrorDialog: true,
       env: {
@@ -98,7 +99,9 @@ for (const middle of ['aaa', 'a{++a++}a{>>keep<<}']) {
     try {
       await waitForEditor(reopened.page)
       await expectDefaultCoreAuthority(reopened.page)
-      if (process.env.MARKTEXT_PACKAGED_APP !== undefined) { await expectInstalledArtifactCommit(reopened.page) }
+      if (process.env.MARKTEXT_PACKAGED_APP !== undefined) {
+        await expectInstalledArtifactCommit(reopened.page)
+      }
       await expect(reopened.page.locator('.editor-component table td')).toHaveCount(4)
       await expect(reopened.page.locator('.editor-component table td').first()).toHaveText('X')
       await sendIpcToRenderer(reopened.app, 'mt::editor-ask-file-save')
@@ -129,9 +132,10 @@ for (const { middle, cancel } of [
     const source = `aaa\n\n${middle}\n\nlast\n`
     const imported = `aaaimported\n\n${middle}\n\nlast\n`
     const created = `aaaimported\n\n${middle}\n\n|     |     |\n| --- | --- |\n|     |     |\n\nlast\n`
+    // Upstream MarkText writes an edited table afresh with padded cells.
     const typed = cancel
       ? 'aaaimported\n\naaaX\n\nlast\n'
-      : `aaaimported\n\n${middle}\n\n|     X|     |\n| --- | --- |\n|     |     |\n\nlast\n`
+      : `aaaimported\n\n${middle}\n\n| X   |     |\n| --- | --- |\n|     |     |\n\nlast\n`
     const options = {
       suppressErrorDialog: true,
       env: {
@@ -291,7 +295,9 @@ for (const { middle, cancel } of [
     try {
       await waitForEditor(reopened.page)
       await expectDefaultCoreAuthority(reopened.page)
-      if (process.env.MARKTEXT_PACKAGED_APP !== undefined) { await expectInstalledArtifactCommit(reopened.page) }
+      if (process.env.MARKTEXT_PACKAGED_APP !== undefined) {
+        await expectInstalledArtifactCommit(reopened.page)
+      }
       if (cancel) {
         await expect(
           reopened.page.locator('.editor-component .mu-paragraph-content').nth(1)

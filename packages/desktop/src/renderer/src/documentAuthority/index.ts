@@ -52,12 +52,6 @@ export {
   type EditorCoreOpenInput
 } from './editorCoreBinding'
 export {
-  createWorkerCorePort,
-  type CoreWorkerLike,
-  type CoreWorkerPortOptions,
-  type CoreWorkerTestControl
-} from './coreWorkerPort'
-export {
   resolveCoreDocumentLaunchPolicy,
   type CoreDocumentLaunchPolicy
 } from './coreDocumentLaunchPolicy'
@@ -76,9 +70,9 @@ export {
   type ShadowTicket
 } from './shadowDocumentAuthority'
 export type {
-  CoreActorPort,
   CoreModelOwner,
   CoreAppliedReply,
+  CoreAuthorForm,
   CoreConsumerProjection,
   CoreConsumerProjectionReply,
   CoreConsumerSearchMatch,
@@ -93,9 +87,7 @@ export type {
   CoreSourceReply,
   CoreSourceSyntaxReply,
   CoreReply,
-  CoreRequest,
-  CoreWorkerRequestEnvelope,
-  CoreWorkerResponseEnvelope
+  CoreRequest
 } from './coreProtocol'
 export type {
   ShadowActorPort,

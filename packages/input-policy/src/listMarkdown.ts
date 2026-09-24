@@ -9,6 +9,8 @@ export type ListChange =
 export interface ListMarkerOptions {
   readonly bulletListMarker: string
   readonly orderListDelimiter: string
+  /** False creates new sibling items without blank lines (defaults to loose). */
+  readonly preferLooseListItem?: boolean
 }
 
 /** The existing native list serializer's marker and continuation width. */

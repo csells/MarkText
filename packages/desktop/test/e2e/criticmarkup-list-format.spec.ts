@@ -1,13 +1,17 @@
 import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import {
-  enterSourceMode, exitSourceMode, expectEditorNotFrontmost, expectEditorWindowHidden,
-  expectNoRendererErrors, launchWithReviewMarkdown as launchWithMarkdown, sendIpcToRenderer
+  enterSourceMode,
+  exitSourceMode,
+  expectEditorNotFrontmost,
+  expectEditorWindowHidden,
+  expectNoRendererErrors,
+  launchWithReviewMarkdown as launchWithMarkdown,
+  sendIpcToRenderer
 } from './helpers'
 
 const simple = '- {++first++}{>>keep<<}\n- second\n'
 const multiline = '- {++first++}{>>keep<<}\n\n  ```js\n  let x = 1\n  ```\n- second\n'
-const ordered = '1. {++first++}{>>keep<<}\n\n   ```js\n   let x = 1\n   ```\n2. second\n'
 
 for (const example of [
   {
@@ -36,7 +40,10 @@ for (const example of [
     source: multiline,
     command: 'ol-order',
     tracked: true,
-    expected: `{~~${multiline.slice(0, multiline.indexOf('- second') + 2)}~>${ordered.slice(0, ordered.indexOf('2. second') + 3)}~~}second\n`
+    // Each changed marker or continuation indent is its own suggestion.
+    expected:
+      '{~~- ~>1. ~~}{++first++}{>>keep<<}\n\n{~~  ~>   ~~}```js\n{~~  ~>   ~~}let x = 1\n' +
+      '{~~  ~>   ~~}```\n{~~- ~>2. ~~}second\n'
   }
 ]) {
   test(`converts ${example.name} and retains native typing, save, handoff and undo`, async() => {
@@ -63,8 +70,13 @@ for (const example of [
       await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End')
       await page.waitForTimeout(1100)
       await page.keyboard.type('!')
-      const position = example.expected.lastIndexOf('{++first++}')
-      const edited = example.expected.slice(0, position) + example.expected.slice(position).replace('{++first++}', '{++first!++}')
+      // End places the caret after the comment's marker, as it does after any
+      // closed inline construct, so the new text follows the annotation.
+      const annotated = '{++first++}{>>keep<<}'
+      const edited = example.expected.replace(
+        annotated,
+        annotated + (example.tracked ? '{++!++}' : '!')
+      )
       await save(edited)
       await enterSourceMode(page, app)
       await exitSourceMode(page, app)

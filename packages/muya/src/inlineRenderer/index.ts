@@ -9,6 +9,8 @@ import logger from '../utils/logger';
 import { tokenizer } from './lexer';
 import { createPresentationImageToken } from './presentationImage';
 import Renderer from './renderer';
+import { htmlTagPresentation } from './renderer/htmlTag';
+import { h } from '../utils/snabbdom';
 import { beginRules } from './rules';
 
 const debug = logger('inlineRenderer:');
@@ -77,6 +79,34 @@ class InlineRenderer {
         this._pendingPresentation.delete(block);
         const presentation = this.presentation?.(block.path, block.text, {
             highlights,
+            renderHtmlTag: tag => htmlTagPresentation(this.renderer, h, block, cursor ?? {}, {
+                type: 'html_tag', raw: tag.raw, range: { ...tag.range }, parent: [],
+                tag: tag.tag, attrs: { ...tag.attributes },
+                openTag: tag.closing ? '' : tag.raw,
+                closeTag: tag.closing ? tag.raw : '',
+                children: [],
+            }, tag.closing, tag.selfClosing),
+            renderMath: (math) => {
+                const html = this.renderer.output([{
+                    type: 'inline_math',
+                    raw: math.raw,
+                    range: { ...math.range },
+                    content: math.content,
+                    marker: '$',
+                    backlash: '',
+                    parent: [],
+                }], block, cursor ?? {});
+                const host = document.createElement('div');
+                host.innerHTML = html;
+                const wrapper = host.querySelector('.mu-math');
+                const preview = host.querySelector('.mu-math-render');
+                if (!wrapper || !preview)
+                    throw new Error('Native inline math presentation is unavailable');
+                return {
+                    open: `<span class="${wrapper.className}"><span class="mu-inline-rule mu-math-text" spellcheck="false">`,
+                    close: `</span>${preview.outerHTML}</span>`,
+                };
+            },
             renderImage: (image) => {
                 const anchor = cursor?.start?.offset ?? cursor?.anchor?.offset;
                 const focus = cursor?.end?.offset ?? cursor?.focus?.offset;

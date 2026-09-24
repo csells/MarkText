@@ -22,6 +22,7 @@ import type {
 } from './editorCoreBinding'
 import type { CoreHistorySnapshot } from './coreProtocol'
 import type {
+  CoreAuthorForm,
   CoreConsumerSearchReplacement,
   CoreConsumerProjection,
   CoreDisplayProjection,
@@ -56,6 +57,8 @@ export interface CoreDocumentViewLease {
   selectionProjectionAtBarrier(
     range: SourceRange | DocumentTableSelection | DocumentModelTextSelection
   ): Promise<CoreConsumerProjection>
+  /** Forms Core can author over the range; undefined when the document moved on. */
+  authorFormsAtBarrier(range: SourceRange): Promise<readonly CoreAuthorForm[] | undefined>
   replaceConsumerSearchAtBarrier(
     identity: DocumentSaveIdentity,
     replacements: readonly CoreConsumerSearchReplacement[]
@@ -564,7 +567,7 @@ export function createCoreDocumentSessionManager(
         submit(input: EditorCoreSubmitInput) {
           if (released) throw new Error('Core document view lease is released')
           if (session.recovery !== undefined || session.terminalFault !== undefined) {
-            throw new Error('Core document Worker recovery is required')
+            throw new Error('Core document owner recovery is required')
           }
           if (session.journal.length >= maximumRecoveryJournalEntries) {
             throw new Error('Core document recovery journal requires a checkpoint')
@@ -661,6 +664,9 @@ export function createCoreDocumentSessionManager(
         selectionProjectionAtBarrier: () => {
           throw new Error('Core view cannot bypass the session selection projection barrier')
         },
+        authorFormsAtBarrier: () => {
+          throw new Error('Core view cannot bypass the session author forms barrier')
+        },
         reviewItemAtBarrier: (
           direction: 'next' | 'previous',
           from: number,
@@ -716,7 +722,7 @@ export function createCoreDocumentSessionManager(
         ): Promise<CoreDisplayProjection> {
           if (released) throw new Error('Core document view lease is released')
           if (session.recovery !== undefined || session.terminalFault !== undefined) {
-            throw new Error('Core document Worker recovery is required')
+            throw new Error('Core document owner recovery is required')
           }
           await session.settleView?.()
 
@@ -747,7 +753,7 @@ export function createCoreDocumentSessionManager(
         async consumerProjectionAtBarrier(): Promise<CoreConsumerProjection> {
           if (released) throw new Error('Core document view lease is released')
           if (session.recovery !== undefined || session.terminalFault !== undefined) {
-            throw new Error('Core document Worker recovery is required')
+            throw new Error('Core document owner recovery is required')
           }
           await session.settleView?.()
 
@@ -778,7 +784,7 @@ export function createCoreDocumentSessionManager(
         ): Promise<CoreConsumerProjection> {
           if (released) throw new Error('Core document view lease is released')
           if (session.recovery !== undefined || session.terminalFault !== undefined) {
-            throw new Error('Core document Worker recovery is required')
+            throw new Error('Core document owner recovery is required')
           }
           await session.settleView?.()
 
@@ -788,8 +794,10 @@ export function createCoreDocumentSessionManager(
           if (session.barrierFailure !== undefined) throw session.barrierFailure
           const identity = session.currentIdentity
           const result = session.binding.selectionProjectionAtBarrier(range)
+          if (result.type !== 'selection-projection') {
+            throw new Error(`Core document selection projection was ${result.type}`)
+          }
           if (
-            result.type !== 'selection-projection' ||
             result.session !== identity.generation ||
             result.revision !== identity.revision ||
             released ||
@@ -801,13 +809,34 @@ export function createCoreDocumentSessionManager(
           }
           return result.projection
         },
+        async authorFormsAtBarrier(
+          range: SourceRange
+        ): Promise<readonly CoreAuthorForm[] | undefined> {
+          if (released) throw new Error('Core document view lease is released')
+          if (session.recovery !== undefined || session.terminalFault !== undefined) {
+            throw new Error('Core document owner recovery is required')
+          }
+          await session.settleView?.()
+          if (released || sessions.get(documentId) !== session) return undefined
+          if (session.barrierFailure !== undefined) throw session.barrierFailure
+          const identity = session.currentIdentity
+          const result = session.binding.authorFormsAtBarrier(range)
+          if (
+            result.type !== 'author-forms' ||
+            result.session !== identity.generation ||
+            result.revision !== identity.revision
+          ) {
+            return undefined
+          }
+          return result.forms
+        },
         async replaceConsumerSearchAtBarrier(
           identity: DocumentSaveIdentity,
           replacements: readonly CoreConsumerSearchReplacement[]
         ): Promise<EditorCoreApplyOutcome> {
           if (released) throw new Error('Core document view lease is released')
           if (session.recovery !== undefined || session.terminalFault !== undefined) {
-            throw new Error('Core document Worker recovery is required')
+            throw new Error('Core document owner recovery is required')
           }
           if (
             identity.generation !== session.currentIdentity.generation ||
@@ -834,7 +863,7 @@ export function createCoreDocumentSessionManager(
             throw new Error('Core document projection revision is invalid')
           }
           if (session.recovery !== undefined || session.terminalFault !== undefined) {
-            throw new Error('Core document Worker recovery is required')
+            throw new Error('Core document owner recovery is required')
           }
 
           if (
@@ -863,7 +892,7 @@ export function createCoreDocumentSessionManager(
             throw new Error('Core document projection revision is invalid')
           }
           if (session.recovery !== undefined || session.terminalFault !== undefined) {
-            throw new Error('Core document Worker recovery is required')
+            throw new Error('Core document owner recovery is required')
           }
 
           if (

@@ -750,7 +750,9 @@ it('copies a parser-normalized text selection without materializing or changing 
     })
     expect(before.type).toBe('source')
     expect(after).toMatchObject({ type: 'source', revision: 1, source })
-    if (before.type !== 'source' || after.type !== 'source') { throw new Error('Expected acknowledged source') }
+    if (before.type !== 'source' || after.type !== 'source') {
+      throw new Error('Expected acknowledged source')
+    }
     expect(after.recoveryHistory).toEqual(before.recoveryHistory)
   } finally {
     actor.dispose()
@@ -783,5 +785,32 @@ it('transports normalized text addresses through the lease and binding without r
   } finally {
     await manager.handoff(lease)
     await manager.close('normalized-selection.md')
+  }
+})
+
+it('reports review authoring forms only where Core can author the selected source', async() => {
+  const source = 'Plain old text and `{~~old~>new~~}` code.\n'
+  const manager = createCoreDocumentSessionManager({
+    createBinding: () => createEditorCoreBinding(inMemoryPort())
+  })
+  await manager.open({ documentId: 'author-forms.md', source, lineEnding: '\n' })
+  const lease = manager.lease('author-forms.md')
+  try {
+    const plain = source.indexOf('old')
+    const literal = source.indexOf('old', plain + 1)
+    await expect(lease.authorFormsAtBarrier({ start: plain, end: plain + 3 })).resolves.toEqual([
+      'addition',
+      'comment',
+      'highlight',
+      'substitution'
+    ])
+    await expect(lease.authorFormsAtBarrier({ start: literal, end: literal + 3 })).resolves.toEqual(
+      []
+    )
+    expect(await lease.sourceAtBarrier()).toBe(source)
+    expect(lease.identity.revision).toBe(1)
+  } finally {
+    await manager.handoff(lease)
+    await manager.close('author-forms.md')
   }
 })

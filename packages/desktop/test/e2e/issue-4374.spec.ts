@@ -22,7 +22,7 @@ import {
   clearRendererErrors,
   expectNoRendererErrors,
   launchWithMarkdown,
-  placeCaretInEditor,
+  openParagraphAfterHeading,
   setSourceMarkdown
 } from './helpers'
 
@@ -56,7 +56,7 @@ test.describe('Issue #4374: enterHandler chopBlockByCursor nextSibling crash', (
     const launched = await launchWithMarkdown('# Repro\n\n', { suppressErrorDialog: true })
     app = launched.app
     page = launched.page
-    await placeCaretInEditor(page)
+    await openParagraphAfterHeading(page)
     await clearRendererErrors(app)
   })
 

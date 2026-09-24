@@ -182,6 +182,10 @@ const projectedRangeForConsumerMatch = (
   return resolved
 }
 
+const AUTHOR_FORMS = ['addition', 'comment', 'highlight', 'substitution'] as const
+// Stand-in for the user's not-yet-entered comment or replacement text.
+const AUTHOR_PROBE_TEXT = 'x'
+
 const selectionAstOf = (
   projection: MarkdownProjection,
   start: number,
@@ -236,26 +240,32 @@ const selectionAstOf = (
       }
     }
 
+    let kind = task.node.kind
     if (!fullySelected && task.node.children.length === 0) {
-      if (task.node.kind !== 'text') {
-        supported = false
-        break
-      }
       const raw = projection.markdown.slice(task.node.range.start, task.node.range.end)
-      if (attributes.semanticText !== raw) {
-        supported = false
-        break
-      }
-      attributes.semanticText = raw.slice(
+      const selectedRaw = raw.slice(
         rangeStart - task.node.range.start,
         rangeEnd - task.node.range.start
       )
+      if (task.node.kind === 'text') {
+        if (attributes.semanticText !== raw) {
+          supported = false
+          break
+        }
+        attributes.semanticText = selectedRaw
+      } else {
+        // Part of a literal leaf (formula, code span, tag) is its selected
+        // source characters; its whole-node meaning no longer applies.
+        kind = 'text'
+        for (const name of Object.keys(attributes)) delete attributes[name]
+        attributes.semanticText = selectedRaw
+      }
     }
 
     selected.set(
       task.node,
       Object.freeze({
-        kind: task.node.kind,
+        kind,
         range: Object.freeze({
           start: rangeStart - start,
           end: rangeEnd - start
@@ -456,7 +466,9 @@ export function createCoreActor(
       if (!Array.isArray(entry.undo) || !Array.isArray(entry.redo)) return false
       if (entry.undo.length === 0 || entry.redo.length === 0) return false
       if (entry.beforeSelection !== undefined || entry.afterSelection !== undefined) {
-        if (!validSelection(entry.beforeSelection) || !validSelection(entry.afterSelection)) { return false }
+        if (!validSelection(entry.beforeSelection) || !validSelection(entry.afterSelection)) {
+          return false
+        }
       }
       return [...entry.undo, ...entry.redo].every(
         (edit) =>
@@ -1155,7 +1167,9 @@ export function createCoreActor(
           status: target.status
         })
       if (request.type === 'retain-selection') {
-        if (retainedSelections.size >= DOCUMENT_RESOURCE_POLICY_V1.maximumJournalOutcomes) { return rejectPrepared('prepared-selection-limit') }
+        if (retainedSelections.size >= DOCUMENT_RESOURCE_POLICY_V1.maximumJournalOutcomes) {
+          return rejectPrepared('prepared-selection-limit')
+        }
         let selection: DocumentClipboardSelection
         try {
           if ('start' in request.selection) {
@@ -1166,7 +1180,9 @@ export function createCoreActor(
             selection = copyDocumentSelection(request.selection, revision.sourceLength)
           }
         } catch (error) {
-          if (error instanceof RangeError || error instanceof DocumentSourceEditError) { return rejectPrepared('author-invalid') }
+          if (error instanceof RangeError || error instanceof DocumentSourceEditError) {
+            return rejectPrepared('author-invalid')
+          }
           throw error
         }
         const order = ++nextRetainedSelection
@@ -1188,7 +1204,9 @@ export function createCoreActor(
           : retainedReply(target)
       }
       if (request.type === 'release-selection') {
-        if (typeof request.id !== 'string' || !request.id.startsWith(`${session}:`)) { return rejectPrepared('prepared-selection-unavailable') }
+        if (typeof request.id !== 'string' || !request.id.startsWith(`${session}:`)) {
+          return rejectPrepared('prepared-selection-unavailable')
+        }
         retainedSelections.delete(request.id)
         return Object.freeze({
           type: 'selection-released',
@@ -1204,12 +1222,16 @@ export function createCoreActor(
       if (request.type === 'apply-prepared') {
         preparedTarget = retainedSelections.get(request.target)
         if (preparedTarget === undefined) return rejectPrepared('prepared-selection-unavailable')
-        if (preparedTarget.status === 'conflict') { return rejectPrepared('prepared-selection-conflict') }
+        if (preparedTarget.status === 'conflict') {
+          return rejectPrepared('prepared-selection-conflict')
+        }
         const { operation, projections, baseRevision } = request
         if (operation.kind === 'clipboard') {
           const target = preparedTarget.selection
           if (operation.action.kind === 'table') {
-            if (!('kind' in target) || target.kind !== 'table') { return rejectPrepared('author-invalid') }
+            if (!('kind' in target) || target.kind !== 'table') {
+              return rejectPrepared('author-invalid')
+            }
             request = Object.freeze({
               type: 'clipboard',
               session,
@@ -1219,7 +1241,9 @@ export function createCoreActor(
               action: Object.freeze({ ...operation.action, selection: target })
             })
           } else {
-            if ('start' in target || target.kind === 'table') { return rejectPrepared('author-invalid') }
+            if ('start' in target || target.kind === 'table') {
+              return rejectPrepared('author-invalid')
+            }
             request = Object.freeze({
               type: 'clipboard',
               session,
@@ -1334,6 +1358,46 @@ export function createCoreActor(
             ast: projection.ast,
             sourceSegments: projection.coordinates.sourceSegments ?? Object.freeze([])
           })
+        })
+      }
+      if (request.type === 'author-forms-at-barrier') {
+        const range = request.range
+        const valid =
+          range !== null &&
+          typeof range === 'object' &&
+          Number.isSafeInteger(range.start) &&
+          Number.isSafeInteger(range.end) &&
+          range.start >= 0 &&
+          range.end > range.start &&
+          range.end <= revision.sourceLength
+        const activeCore = core
+        const activeRevision = revision
+        // Planning previews the authored syntax; a form is available only when
+        // that preview yields the intended annotation over this exact range.
+        const forms = valid
+          ? AUTHOR_FORMS.filter((form) => {
+            try {
+              return (
+                activeCore.planAuthor(activeRevision, {
+                  form,
+                  range: { start: range.start, end: range.end },
+                  text: form === 'comment' || form === 'substitution' ? AUTHOR_PROBE_TEXT : ''
+                }) !== undefined
+              )
+            } catch (error) {
+              if (error instanceof DocumentCoreError) return false
+              throw error
+            }
+          })
+          : []
+        return Object.freeze({
+          type: 'author-forms',
+          session,
+          sequence,
+          revision: revisionNumber,
+          accepted: true,
+          sourceLength: revision.sourceLength,
+          forms: Object.freeze(forms)
         })
       }
       if (request.type === 'selection-projection-at-barrier') {
@@ -1919,7 +1983,9 @@ export function createCoreActor(
                 })()
                 : request.type === 'input'
                   ? (() => {
-                    inputPlan = core.planInput(revision, request.action)
+                    inputPlan = core.planInput(revision, request.action, {
+                      tracked: request.tracked === true
+                    })
                     return core.inputEdits(
                       revision,
                       request.action,

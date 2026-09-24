@@ -16,7 +16,11 @@ import { launchWithMarkdown, setSourceMarkdown, waitForMenuReady } from './helpe
 // live application-menu `checked` state after placing the caret in each block
 // type and assert that exactly the matching menu item(s) are checked.
 
-interface MenuItemState { id: string; checked: boolean; enabled: boolean }
+interface MenuItemState {
+  id: string
+  checked: boolean
+  enabled: boolean
+}
 
 // Read the id/checked/enabled state of every identifiable Paragraph submenu item.
 const paragraphItemStates = async(app: ElectronApplication): Promise<MenuItemState[]> => {
@@ -57,11 +61,15 @@ const placeCaretIn = async(page: Page, selector: string): Promise<void> => {
   await page.waitForTimeout(120)
 }
 
-// Poll the Paragraph submenu until its checked set matches `expected` (the
-// selection-change → menu-state IPC round-trip is async), or time out.
+// Poll the Paragraph submenu until its checked set and enabled state match
+// (the selection-change → menu-state IPC round-trip is async), or time out.
+// Leaving source mode first reports the restored caret, which for a code fence
+// is on its fence line (language box): the same item is checked there but the
+// submenu is disabled until the click's own selection-change arrives.
 const waitForMenuState = async(
   app: ElectronApplication,
   expected: string[],
+  enabled?: boolean,
   timeout = 3000
 ): Promise<MenuItemState[]> => {
   const want = [...expected].sort()
@@ -70,7 +78,14 @@ const waitForMenuState = async(
   do {
     last = await paragraphItemStates(app)
     const got = checkedIds(last).sort()
-    if (got.length === want.length && got.every((id, i) => id === want[i])) return last
+    if (
+      got.length === want.length &&
+      got.every((id, i) => id === want[i]) &&
+      (enabled === undefined ||
+        want.every((id) => last.find((s) => s.id === id)?.enabled === enabled))
+    ) {
+      return last
+    }
     await new Promise((resolve) => setTimeout(resolve, 100))
   } while (Date.now() < deadline)
   return last
@@ -91,19 +106,88 @@ interface MenuCase {
 // `expected` lists every item that should be checked — and, by exclusion,
 // asserts no residual checks leak from a previously visited block.
 const cases: MenuCase[] = [
-  { name: 'h1 heading', markdown: '# A heading\n', selector: 'h1 .mu-atxheading-content', expected: ['heading1MenuItem'] },
-  { name: 'paragraph', markdown: 'hello world\n', selector: '.mu-paragraph-content', expected: ['paragraphMenuItem'] },
-  { name: 'bullet list', markdown: '- item\n', selector: '.mu-bullet-list .mu-paragraph-content', expected: ['bulletListMenuItem'] },
-  { name: 'ordered list', markdown: '1. item\n', selector: '.mu-order-list .mu-paragraph-content', expected: ['orderListMenuItem'] },
-  { name: 'task list', markdown: '- [ ] task\n', selector: '.mu-task-list .mu-paragraph-content', expected: ['taskListMenuItem'] },
-  { name: 'loose list', markdown: '- one\n\n- two\n', selector: '.mu-bullet-list .mu-paragraph-content', expected: ['bulletListMenuItem', 'looseListItemMenuItem'] },
-  { name: 'quote block', markdown: '> quote\n', selector: '.mu-block-quote .mu-paragraph-content', expected: ['quoteBlockMenuItem'] },
-  { name: 'code block', markdown: '```js\nconst a = 1\n```\n', selector: '.mu-code-block .mu-codeblock-content', expected: ['codeFencesMenuItem'] },
-  { name: 'math block', markdown: '$$\na = b\n$$\n', selector: '.mu-math-block .mu-codeblock-content', expected: ['mathBlockMenuItem'], disabled: true },
-  { name: 'html block', markdown: '<div>hi</div>\n', selector: '.mu-html-block .mu-codeblock-content', expected: ['htmlBlockMenuItem'], disabled: true },
-  { name: 'table cell', markdown: '| a | b |\n| - | - |\n| 1 | 2 |\n', selector: '.mu-table-cell-content', expected: ['tableMenuItem'], disabled: true },
-  { name: 'horizontal rule', markdown: 'before\n\n---\n\nafter\n', selector: '.mu-thematic-break-content', expected: ['horizontalLineMenuItem'] },
-  { name: 'front matter', markdown: '---\ntitle: x\n---\n\nbody\n', selector: '.mu-frontmatter .mu-codeblock-content', expected: ['frontMatterMenuItem'], disabled: true }
+  {
+    name: 'h1 heading',
+    markdown: '# A heading\n',
+    selector: 'h1 .mu-atxheading-content',
+    expected: ['heading1MenuItem']
+  },
+  {
+    name: 'paragraph',
+    markdown: 'hello world\n',
+    selector: '.mu-paragraph-content',
+    expected: ['paragraphMenuItem']
+  },
+  {
+    name: 'bullet list',
+    markdown: '- item\n',
+    selector: '.mu-bullet-list .mu-paragraph-content',
+    expected: ['bulletListMenuItem']
+  },
+  {
+    name: 'ordered list',
+    markdown: '1. item\n',
+    selector: '.mu-order-list .mu-paragraph-content',
+    expected: ['orderListMenuItem']
+  },
+  {
+    name: 'task list',
+    markdown: '- [ ] task\n',
+    selector: '.mu-task-list .mu-paragraph-content',
+    expected: ['taskListMenuItem']
+  },
+  {
+    name: 'loose list',
+    markdown: '- one\n\n- two\n',
+    selector: '.mu-bullet-list .mu-paragraph-content',
+    expected: ['bulletListMenuItem', 'looseListItemMenuItem']
+  },
+  {
+    name: 'quote block',
+    markdown: '> quote\n',
+    selector: '.mu-block-quote .mu-paragraph-content',
+    expected: ['quoteBlockMenuItem']
+  },
+  {
+    name: 'code block',
+    markdown: '```js\nconst a = 1\n```\n',
+    selector: '.mu-code-block .mu-codeblock-content',
+    expected: ['codeFencesMenuItem']
+  },
+  {
+    name: 'math block',
+    markdown: '$$\na = b\n$$\n',
+    selector: '.mu-math-block .mu-codeblock-content',
+    expected: ['mathBlockMenuItem'],
+    disabled: true
+  },
+  {
+    name: 'html block',
+    markdown: '<div>hi</div>\n',
+    selector: '.mu-html-block .mu-codeblock-content',
+    expected: ['htmlBlockMenuItem'],
+    disabled: true
+  },
+  {
+    name: 'table cell',
+    markdown: '| a | b |\n| - | - |\n| 1 | 2 |\n',
+    selector: '.mu-table-cell-content',
+    expected: ['tableMenuItem'],
+    disabled: true
+  },
+  {
+    name: 'horizontal rule',
+    markdown: 'before\n\n---\n\nafter\n',
+    selector: '.mu-thematic-break-content',
+    expected: ['horizontalLineMenuItem']
+  },
+  {
+    name: 'front matter',
+    markdown: '---\ntitle: x\n---\n\nbody\n',
+    selector: '.mu-frontmatter .mu-codeblock-content',
+    expected: ['frontMatterMenuItem'],
+    disabled: true
+  }
 ]
 
 test.describe('Parity PG1 — Paragraph menu reflects the current block', () => {
@@ -127,7 +211,7 @@ test.describe('Parity PG1 — Paragraph menu reflects the current block', () => 
       await expect(page.locator(block.selector).first()).toBeAttached()
       await placeCaretIn(page, block.selector)
 
-      const states = await waitForMenuState(app, block.expected)
+      const states = await waitForMenuState(app, block.expected, !block.disabled)
       // Exactly the matching item(s) are checked — no residual checks.
       expect(checkedIds(states).sort()).toEqual([...block.expected].sort())
       // 0.19.1 parity for the enabled state: code-fence-like blocks and tables
@@ -170,12 +254,32 @@ test.describe('Parity PG1 — Paragraph menu updates when switching blocks', () 
   })
 
   const sequence: Array<{ name: string; selector: string; expected: string }> = [
-    { name: 'paragraph', selector: '.mu-paragraph .mu-paragraph-content', expected: 'paragraphMenuItem' },
-    { name: 'code', selector: '.mu-code-block .mu-codeblock-content', expected: 'codeFencesMenuItem' },
-    { name: 'math', selector: '.mu-math-block .mu-codeblock-content', expected: 'mathBlockMenuItem' },
-    { name: 'html', selector: '.mu-html-block .mu-codeblock-content', expected: 'htmlBlockMenuItem' },
+    {
+      name: 'paragraph',
+      selector: '.mu-paragraph .mu-paragraph-content',
+      expected: 'paragraphMenuItem'
+    },
+    {
+      name: 'code',
+      selector: '.mu-code-block .mu-codeblock-content',
+      expected: 'codeFencesMenuItem'
+    },
+    {
+      name: 'math',
+      selector: '.mu-math-block .mu-codeblock-content',
+      expected: 'mathBlockMenuItem'
+    },
+    {
+      name: 'html',
+      selector: '.mu-html-block .mu-codeblock-content',
+      expected: 'htmlBlockMenuItem'
+    },
     { name: 'heading', selector: 'h1 .mu-atxheading-content', expected: 'heading1MenuItem' },
-    { name: 'code (again)', selector: '.mu-code-block .mu-codeblock-content', expected: 'codeFencesMenuItem' }
+    {
+      name: 'code (again)',
+      selector: '.mu-code-block .mu-codeblock-content',
+      expected: 'codeFencesMenuItem'
+    }
   ]
 
   test('PG1: clicking from block to block re-derives the checked item', async() => {

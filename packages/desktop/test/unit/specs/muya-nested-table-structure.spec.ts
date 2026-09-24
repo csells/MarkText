@@ -6,18 +6,19 @@ import { createMuyaPlainTextCoreAdapter } from '@/documentAuthority/muyaPlainTex
 
 describe.each(['\n', '\r\n', '\r'])('nested table commands with %j line endings', (ending) => {
   const eol = (text: string): string => text.replaceAll('\n', ending)
+  // Upstream (8d6c198c) writes the table afresh after an untracked table command.
   it.each([
-    { command: 'remove column', expected: '  | col |\n  | :--- |\n  | cell |\n' },
+    { command: 'remove column', expected: '  | col  |\n  |:---- |\n  | cell |\n' },
     {
       command: 'align column',
-      expected: '  | col | other |\n  | ---: | --- |\n  | cell | value |\n'
+      expected: '  | col  | other |\n  | ----:| ----- |\n  | cell | value |\n'
     },
     {
       command: 'insert column',
-      expected: '  | col | other |     |\n  | :--- | --- | --- |\n  | cell | value |     |\n'
+      expected: '  | col  | other |     |\n  |:---- | ----- | --- |\n  | cell | value |     |\n'
     }
   ])(
-    'runs $command within an annotated list without rewriting its source',
+    'runs $command within an annotated list, keeping its list and annotations',
     async({ command, expected }) => {
       const prefix = eol('- {++first++}{>>note<<}\n- second\n\n')
       const source = prefix + eol('  | col | other |\n  | :--- | --- |\n  | cell | value |\n')
@@ -29,17 +30,14 @@ describe.each(['\n', '\r\n', '\r'])('nested table commands with %j line endings'
       await binding.open({ documentId: 'nested-table-columns.md', source })
       const view = () => {
         const reply = binding.plainTextViewAtBarrier()
-        if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Expected native view') }
+        if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+          throw new Error('Expected native view')
+        }
         return reply.view
       }
       const initial = view()
       const reconcile = () => view().bindings
-      const adapter = createMuyaPlainTextCoreAdapter(
-        initial.bindings,
-        binding,
-        undefined,
-        reconcile
-      )
+      const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding)
       type Table = {
         children: Array<{
           children: Array<{ name: string; text: string; meta: { align: string } }>
@@ -51,7 +49,9 @@ describe.each(['\n', '\r\n', '\r'])('nested table commands with %j line endings'
       for (const row of after[0].children[1].children[1].children) {
         if (command === 'remove column') row.children.pop()
         if (command === 'align column') row.children[0].meta.align = 'right'
-        if (command === 'insert column') { row.children.push({ name: 'table.cell', text: '', meta: { align: 'none' } }) }
+        if (command === 'insert column') {
+          row.children.push({ name: 'table.cell', text: '', meta: { align: 'none' } })
+        }
       }
       try {
         expect(
@@ -90,12 +90,14 @@ describe.each(['\n', '\r\n', '\r'])('nested table commands with %j line endings'
     await binding.open({ documentId: 'nested-table.md', source })
     const view = () => {
       const reply = binding.plainTextViewAtBarrier()
-      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Expected native view') }
+      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+        throw new Error('Expected native view')
+      }
       return reply.view
     }
     const initial = view()
     const reconcile = () => view().bindings
-    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding, undefined, reconcile)
+    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding)
     const after = structuredClone(initial.state) as unknown as Array<{
       children: Array<{ children: Array<{ children: unknown[] }> }>
     }>
@@ -115,7 +117,12 @@ describe.each(['\n', '\r\n', '\r'])('nested table commands with %j line endings'
         )
       ).toEqual({ accepted: true, changed: true })
       await adapter.settled()
-      expect(await binding.sourceAtBarrier()).toMatchObject({ source: source + eol('  |     |\n') })
+      // Upstream (8d6c198c) writes the table afresh after an untracked table command.
+      expect(await binding.sourceAtBarrier()).toMatchObject({
+        source: eol(
+          '- {++first++}{>>note<<}\n- second\n\n  | col  |\n  | ---- |\n  | cell |\n  |      |\n'
+        )
+      })
       expect(view().state).toEqual(after)
       await adapter.history('undo', reconcile)
       expect(await binding.sourceAtBarrier()).toMatchObject({ source })
@@ -135,12 +142,14 @@ describe.each(['\n', '\r\n', '\r'])('nested table commands with %j line endings'
     await binding.open({ documentId: 'nested-table.md', source })
     const view = () => {
       const reply = binding.plainTextViewAtBarrier()
-      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Expected native view') }
+      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+        throw new Error('Expected native view')
+      }
       return reply.view
     }
     const initial = view()
     const reconcile = () => view().bindings
-    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding, undefined, reconcile)
+    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding)
     const after = structuredClone(initial.state) as unknown as Array<{
       children: Array<{ children: Array<{ children: unknown[] }> }>
     }>
@@ -172,12 +181,14 @@ describe.each(['\n', '\r\n', '\r'])('nested table commands with %j line endings'
     await binding.open({ documentId: 'nested-table.md', source })
     const view = () => {
       const reply = binding.plainTextViewAtBarrier()
-      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Expected native view') }
+      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+        throw new Error('Expected native view')
+      }
       return reply.view
     }
     const initial = view()
     const reconcile = () => view().bindings
-    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding, undefined, reconcile)
+    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding)
     const after = structuredClone(initial.state) as unknown as Array<{
       children: Array<{ children: Array<{ children: unknown[] }> }>
     }>
@@ -188,7 +199,8 @@ describe.each(['\n', '\r\n', '\r'])('nested table commands with %j line endings'
       ).toEqual({ accepted: true, changed: true })
       await adapter.settled()
       expect(await binding.sourceAtBarrier()).toMatchObject({
-        source: eol('- {++first++}{>>note<<}\n- second\n\n  | cell |\n  | --- |\n')
+        // Upstream (8d6c198c) writes the table afresh after an untracked table command.
+        source: eol('- {++first++}{>>note<<}\n- second\n\n  | cell |\n  | ---- |\n')
       })
       expect(view().state).toEqual(after)
       await adapter.history('undo', reconcile)

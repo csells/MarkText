@@ -55,7 +55,7 @@ it.each([
       })
       return current.bindings
     }
-    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding, undefined, reconcile)
+    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding)
     try {
       muya.setInlinePresentation(presentation.render)
       muya.init()

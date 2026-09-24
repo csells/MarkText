@@ -6,6 +6,7 @@ import { isChildOfDirectory } from 'common/filesystem/paths'
 import type { IUserPreferences } from '@shared/types/preferences'
 import { isLinux, isOsx, isWindows } from '../config'
 import parseArgs from '../cli/parser'
+import { userArguments } from '../cli/userArguments'
 import { normalizeAndResolvePath } from '../filesystem'
 import { normalizeMarkdownPath } from '../filesystem/markdown'
 import { confirmAndTrashItem } from '../filesystem/trash'
@@ -79,7 +80,7 @@ class App {
       // A second instance of a version that doesn't send it falls back to `argv`.
       const sent = additionalData as { argv?: unknown } | null | undefined
       const secondArgv = Array.isArray(sent?.argv) ? (sent.argv as string[]) : argv
-      const args = parseArgs(secondArgv.slice(1)) as CliArgs
+      const args = parseArgs(userArguments(secondArgv, process.defaultApp === true)) as CliArgs
 
       const buf: PathInfo[] = []
       for (const pathname of args._) {
