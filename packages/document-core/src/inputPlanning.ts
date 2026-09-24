@@ -6,6 +6,7 @@ import { planTableMove, movedTableIndex } from './tableMovePlanning.js'
 import { materializeTableCellEdit } from './tableCellEditing.js'
 import { respellCellTextInput, respellEditedTable, respellTableInput, respellTableResult, tableAt, type TablePreview } from './tableRespelling.js'
 import { planSetextTrailingLine } from './setextTrailingLine.js'
+import { planCrossBlockCut } from './crossBlockCut.js'
 import { planTableSpanCut } from './tableSpanCut.js'
 import { copyDocumentSelection, type DocumentTextSelection, type DocumentModelTextSelection, type DocumentTableCellSelection, type DocumentTableCellAddress } from './sourceInputPlanning.js'
 import { previousTableCell, resolveTableCell, tableCellSelectionAfter, tableCellSelectionAtSource } from './tableSelection.js'
@@ -162,6 +163,18 @@ function planUnspelledInput(core: DocumentCore, revision: DocumentRevision, acti
   if ('kind' in action && action.command === 'moveBlock') return planBlockMove(core, revision, action, physicalLines())
   action = constrainLiteralDeletion(core, revision, action, regionalSyntax)
   action = emptyFencedPayloadInput(core, revision, action, regionalSyntax)
+  // Typing or deleting over a selection that crosses into or out of a code
+  // block or table keeps upstream's block structure, as a cut does.
+  if (untracked && !('kind' in action) && (action.inputType === 'insertText' || action.inputType.startsWith('delete')) &&
+      !('kind' in action.selection && action.selection.kind === 'table-cell')) {
+    const bounds = inputSourceRange(core, revision, action.selection)
+    const crossBlock = bounds.start < bounds.end
+      ? planCrossBlockCut(core, revision, core.project(revision, 'markup').syntax, physicalLines(), bounds, action.inputType === 'insertText' ? action.data ?? '' : '')
+      : undefined
+    if (crossBlock !== undefined) {
+      return Object.freeze({ edits: Object.freeze([...crossBlock.edits]), reconciliation: Object.freeze([]), selection: Object.freeze({ ranges: Object.freeze([Object.freeze({ anchor: crossBlock.caret, focus: crossBlock.caret })]), primary: 0 }) })
+    }
+  }
   if (action.selection.kind === 'model-text' || 'range' in action && 'kind' in action.range && action.range.kind === 'model-text') {
     const plan = planModelTextInput(core, revision, action, physicalLines(), normalized => planStructuralInput(core, revision, normalized, enterConversion, physicalLines))
     // A cell's text addressed by its model value is still that cell's text.

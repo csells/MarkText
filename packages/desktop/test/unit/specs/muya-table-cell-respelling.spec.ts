@@ -847,12 +847,13 @@ describe('a selection reaching across table cells', () => {
       cell: { row: 1, column: 1 }
     },
     {
+      // The cell keeps the text after the selection, as upstream does (#5405).
       name: 'cuts from a paragraph into the following table',
       initial: before,
       from: [0, 2],
       to: [1, 0],
-      expected: 'paa\n\n|     | bb  |\n| --- |:---:|\n| ccc | d   |\n',
-      caret: 'pa|a',
+      expected: 'pa\n\n| a   | bb  |\n| --- |:---:|\n| ccc | d   |\n',
+      caret: 'pa|',
       cell: null
     },
     {

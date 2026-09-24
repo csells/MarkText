@@ -6,6 +6,7 @@ import { resolveTableCell, resolveTableSelection, resolveTableSelectionInSyntax,
 import { materializeTableCellEdit } from './tableCellEditing.js'
 import { planTableClipboard } from './tableClipboardPlanning.js'
 import { respellTableInput } from './tableRespelling.js'
+import { planCrossBlockCut } from './crossBlockCut.js'
 import { planTableSpanCut } from './tableSpanCut.js'
 import { positionAfter } from './sourcePosition.js'
 import { prepareBlockClipboardMarkdown, prepareClipboardMarkdown } from './clipboardMarkdown.js'
@@ -108,6 +109,10 @@ export function planClipboard(
     }, preview, importSyntax, previewSyntax, compileStructuralDeletion, physicalLines, regional)
   }
   const blockPlacement = action.kind === 'paste' ? action.blockPlacement : undefined
+  if (action.kind === 'cut' && !action.tracked && action.selection.kind === 'model-text') {
+    const crossBlock = planCrossBlockCut(core, previous, core.project(previous, 'markup').syntax, physicalLines(), inputSourceRange(core, previous, action.selection))
+    if (crossBlock !== undefined) return retainClipboardSelection(core, previous, action, { edits: Object.freeze([...crossBlock.edits]), selection: { ranges: [{ anchor: crossBlock.caret, focus: crossBlock.caret }], primary: 0 } }, previewSyntax)
+  }
   if (action.selection.kind === 'model-text' && blockPlacement === undefined) return retainClipboardSelection(core, previous, action, planModelTextClipboard(core, previous, action, preview), previewSyntax)
   const { start, end } = inputSourceRange(core, previous, action.selection)
   const selectedCell = 'ranges' in action.selection || action.selection.kind === 'model-text' || blockPlacement !== undefined ? undefined : resolveTableCell(core, previous, action.selection.cell)
@@ -152,6 +157,8 @@ export function planClipboard(
     insert = pasted.replace(/\|/gu, (pipe, at: number) => (at === 0 ? before : pasted.charAt(at - 1)) === '\\' ? pipe : '\\|')
   }
   if (!action.tracked && 'ranges' in action.selection && blockPlacement === undefined && start < end) {
+    const crossBlock = planCrossBlockCut(core, previous, core.project(previous, 'markup').syntax, physicalLines(), { start, end }, insert)
+    if (crossBlock !== undefined) return retainClipboardSelection(core, previous, action, { edits: Object.freeze([...crossBlock.edits]), selection: { ranges: [{ anchor: crossBlock.caret, focus: crossBlock.caret }], primary: 0 } }, previewSyntax)
     const span = planTableSpanCut(core, previous, regional?.syntax({ start, end }) ?? core.project(previous, 'markup').syntax, { start, end }, insert)
     if (span !== undefined) return retainClipboardSelection(core, previous, action, { edits: Object.freeze(span.edits), selection: { ranges: [{ anchor: span.caret, focus: span.caret }], primary: 0 } }, previewSyntax)
   }

@@ -252,7 +252,8 @@ describe('an untracked replacement of a selection reaching into a table', () => 
     { name: 'between cells of a row', source: withParagraph, from: '| a', fromOffset: 2, to: 'bb', toOffset: 1, expected: '| b   |     |\n| --- |:---:|\n| ccc | d   |\n\npara\n', at: 2 },
     { name: 'between rows', source: withParagraph, from: 'bb', fromOffset: 1, to: 'ccc', toOffset: 1, expected: '| a   | bcc |\n| --- |:---:|\n|     | d   |\n\npara\n', at: 9 },
     { name: 'from a cell into the following paragraph', source: withParagraph, from: '| d', fromOffset: 2, to: 'para', toOffset: 2, expected: '| a   | bb  |\n| --- |:---:|\n| ccc | ra  |\n', at: 36 },
-    { name: 'from a paragraph into the following table', source: before, from: 'para', fromOffset: 2, to: '| a', toOffset: 2, expected: 'paa\n\n|     | bb  |\n| --- |:---:|\n| ccc | d   |\n', at: 2 }
+    // The cell keeps the text after the selection, as upstream does (#5405).
+    { name: 'from a paragraph into the following table', source: before, from: 'para', fromOffset: 2, to: '| a', toOffset: 2, expected: 'pa\n\n| a   | bb  |\n| --- |:---:|\n| ccc | d   |\n', at: 2 }
   ])('cuts $name', ({ source, from, fromOffset, to, toOffset, expected, at }) => {
     const result = replace(source, from, fromOffset, to, toOffset)
     expect(result.source).toBe(expected)
