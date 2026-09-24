@@ -9,9 +9,9 @@ import type {
 import escapeCharactersMap from '../config/escapeCharacter';
 import { isLengthEven, union } from '../utils';
 import { scanEmphasisSpans } from './emphasis';
+import { isInlineHtmlTagAllowed } from './htmlPolicy';
 import { parseSrcAndTitle } from './linkDestination';
 import { BACKSLASH_MATH_RULES, beginRules, emojiValidateRules, inlineRules, linkValidateRules } from './rules';
-import { isInlineHtmlTagAllowed } from './htmlPolicy';
 import {
     getAttributes,
     lowerPriority,
