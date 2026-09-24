@@ -1010,16 +1010,18 @@ export class Muya {
      *   context-menu "Insert Paragraph Before/After" behaviour.
      */
     insertParagraph(location: 'before' | 'after' = 'after', text = '', outMost = false) {
+        const block = outMost
+            ? this._outmostBlockAtCursor()
+            : this._immediateBlockAtCursor();
+        if (location === 'before' && block?.blockName === 'frontmatter')
+            return;
         if (this.editor.documentEditing) {
             const selection = this.editor.selection.getDOMSelection();
             if (selection)
                 dispatchDocumentBlock(this, { type: 'new', placement: location, text, scope: outMost ? 'outer' : 'leaf', selectionMode: 'start' }, selection);
             return;
         }
-        const block = outMost
-            ? this._outmostBlockAtCursor()
-            : this._immediateBlockAtCursor();
-        if (!block || (location === 'before' && block.blockName === 'frontmatter'))
+        if (!block)
             return;
 
         const state = deepClone(emptyStates.paragraph);
@@ -1356,8 +1358,19 @@ export class Muya {
                 dispatchDocumentCodeWrap(this, selection);
                 return;
             }
+            // A caret in a table or code-like block keeps that block's type, as
+            // the native path does (#4944): only toggling off an enclosing
+            // list, quote or code block and the whole-block resets still act.
+            if (model && this._selectionInSameBlock() && WHOLE_BLOCK_NAMES.has(this._immediateBlockAtCursor()?.blockName ?? '')) {
+                const toggleable = type === 'blockquote' ? 'block-quote' : type === 'pre' ? 'code-block' : undefined;
+                const listType = ['ul-bullet', 'ol-order', 'ol-bullet', 'ul-task'].includes(type);
+                const keeps = type === 'reset-to-paragraph' || type === 'loose-list-item' || type === 'front-matter'
+                    || (toggleable !== undefined && content?.closestBlock(toggleable))
+                    || (listType && this._closestListAtCursor());
+                if (!keeps)
+                    return;
+            }
             const resetsCode = (type === 'pre' && this._selectionInSameBlock() && content?.closestBlock('code-block'))
-                || (type === 'paragraph' && this._immediateBlockAtCursor()?.blockName === 'code-block')
                 || (type === 'reset-to-paragraph' && this._outmostBlockAtCursor()?.blockName === 'code-block');
             if (model && resetsCode) {
                 const selection = this.editor.selection.getDOMSelection();
