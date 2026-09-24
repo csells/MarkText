@@ -47,7 +47,9 @@ for (const example of [
 test('tracked multiline list conversion uses its resulting selection for the next input in the same task', async ({ page }) => {
     const source = '- {++first++}{>>keep<<}\n\n  ```js\n  let x = 1\n  ```\n- second\n';
     const converted = '{~~- ~>1. ~~}{++first++}{>>keep<<}\n\n{~~  ~>   ~~}```js\n{~~  ~>   ~~}let x = 1\n{~~  ~>   ~~}```\n{~~- ~>2. ~~}second\n';
-    const typed = '{~~- ~>1. ~~}{++Xfirst++}{>>keep<<}\n\n{~~  ~>   ~~}```js\n{~~  ~>   ~~}let x = 1\n{~~  ~>   ~~}```\n{~~- ~>2. ~~}second\n';
+    // The key typed at the addition's start, right after the marker's
+    // substitution, is its own addition.
+    const typed = '{~~- ~>1. ~~}{++X++}{++first++}{>>keep<<}\n\n{~~  ~>   ~~}```js\n{~~  ~>   ~~}let x = 1\n{~~  ~>   ~~}```\n{~~- ~>2. ~~}second\n';
     const immediate = await page.evaluate(async (source) => {
         const modulePath = '/coreBoundaryControl.ts';
         const control = await import(/* @vite-ignore */ modulePath);
@@ -68,7 +70,7 @@ test('tracked multiline list conversion uses its resulting selection for the nex
         expect(immediate.afterCommand).toMatchObject({ source: { source: converted }, anchor: 0, caret: 0, legacyCalls: [] });
         expect(immediate.afterInput).toMatchObject({ source: { source: typed }, anchor: 1, caret: 1, legacyCalls: [] });
         await page.keyboard.type('Y');
-        const following = typed.replace('{++Xfirst++}', '{++XYfirst++}');
+        const following = typed.replace('{++X++}', '{++XY++}');
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: following }, anchor: 2, caret: 2, legacyCalls: [], browserEvents: expect.arrayContaining([expect.objectContaining({ type: 'beforeinput', trusted: true, data: 'Y' })]) });
         await page.evaluate(() => window.coreBoundary.history('undo'));
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: converted }, anchor: 0, caret: 0 });
@@ -98,7 +100,8 @@ test('unlisting a fenced item installs the model paragraphs before the next key'
         expect(afterCommand).toMatchObject({ source: { source: converted }, anchor: 0, caret: 0, legacyCalls: [] });
         expect(await page.evaluate(() => window.muya!.domNode.querySelectorAll('ul li, ol li').length)).toBe(0);
         await page.keyboard.type('X');
-        const typed = converted.replace('{++first++}', '{++Xfirst++}');
+        // Untracked typing at an addition's start stays before it.
+        const typed = converted.replace('{++first++}', 'X{++first++}');
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, anchor: 1, caret: 1, legacyCalls: [] });
         await page.evaluate(() => window.coreBoundary.history('undo'));
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: converted }, anchor: 0, caret: 0 });

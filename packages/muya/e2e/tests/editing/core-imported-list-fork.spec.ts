@@ -3,7 +3,9 @@ import { expect, test } from '../fixtures/muya';
 for (const tracked of [false, true]) {
     test(`Core imported list arms retain their containers through native typing (tracked=${tracked})`, async ({ page }) => {
         const source = '8) same\n{~~9) {++sa++}me{>>keep<<}\n10) ~>\n   {++sa++}me{>>keep<<}\n9) ~~}final\n';
-        const typed = '8) same\n{~~9) {++sa++}me{>>keep<<}\n10) ~>\n   {++XYsa++}me{>>keep<<}\n9) ~~}final\n';
+        // Untracked typing at an addition's start stays before it; Track
+        // Changes extends the pending addition.
+        const typed = `8) same\n{~~9) {++sa++}me{>>keep<<}\n10) ~>\n   ${tracked ? '{++XYsa++}' : 'XY{++sa++}'}me{>>keep<<}\n9) ~~}final\n`;
         await page.evaluate(async ({ source, tracked }) => {
             const modulePath = '/coreBoundaryControl.ts';
             const control = await import(/* @vite-ignore */ modulePath);
