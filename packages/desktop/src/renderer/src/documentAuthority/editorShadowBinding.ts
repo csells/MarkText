@@ -23,8 +23,10 @@ export interface EditorShadowBinding {
 const optionSignature = (options: Readonly<MarkdownOptions>): string => [
   options.gfm,
   options.frontMatter,
-  options.math,
-  options.gitLabMath,
+  options.texMathDollars,
+  options.texMathGfm,
+  options.texMathSingleBackslash,
+  options.texMathDoubleBackslash,
   options.footnotes,
   options.subscriptAndSuperscript
 ].map(value => value ? '1' : '0').join('')

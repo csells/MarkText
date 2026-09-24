@@ -182,7 +182,7 @@ describe('Source syntax through the existing CodeMirror presentation', () => {
       app.editor.replaceRange('$x_y$', { line: 2, ch: 0 }, { line: 2, ch: 13 }, '+input')
       await app.adapter.settled()
       await vi.waitFor(() => expect(app.painted('.cm-math-inline')).toBe('$x_y$'))
-      await app.adapter.configure({ math: false })
+      await app.adapter.configure({ texMathDollars: false })
       await vi.waitFor(() => expect(app.painted('.cm-math-inline')).toBe(''))
       expect(app.errors).toEqual([])
     } finally {

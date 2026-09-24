@@ -437,8 +437,10 @@ export interface MarkdownOptionsV1 {
   readonly gfmAutolinks: boolean
   readonly gfmTagFilter: boolean
   readonly frontMatter: boolean
-  readonly math: boolean
-  readonly gitLabMath: boolean
+  readonly texMathDollars: boolean
+  readonly texMathGfm: boolean
+  readonly texMathSingleBackslash: boolean
+  readonly texMathDoubleBackslash: boolean
   readonly footnotes: boolean
   readonly subscriptAndSuperscript: boolean
 }

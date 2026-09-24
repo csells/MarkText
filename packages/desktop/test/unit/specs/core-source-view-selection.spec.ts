@@ -117,7 +117,7 @@ async function mountSource(source: string, selection: DocumentSelection) {
   const manager = authority.createCoreDocumentSessionManager({
     createBinding: () => authority.createEditorCoreBinding(authority.createLocalCoreOwner())
   })
-  manager.open({ documentId: file.id, source, lineEnding: '\r\n', options: { gitLabMath: true } })
+  manager.open({ documentId: file.id, source, lineEnding: '\r\n', options: { texMathGfm: true } })
   await manager.activate(file.id)
   const lease = manager.lease(file.id)
   const exposed = Vue.ref<{ captureDocumentSelection(): DocumentSelection }>()
@@ -238,7 +238,7 @@ it('Source search refresh does not move the native caret after typing while the 
 
 it('Source preserves the intrinsic caret while unchanged and captures an explicit new source caret', async() => {
   const source = '  ```math\n\tx\n  ```\n'
-  const native = bootBoundMuya(source, { gitLabMath: true })
+  const native = bootBoundMuya(source, { texMathGfm: true })
   let selection: DocumentSelection
   try {
     native.muya.editor.scrollPage!.firstContentInDescendant()!.setCursor(1, 1, true)

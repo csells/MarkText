@@ -3,7 +3,10 @@ import type { MarkdownOptions } from '@marktext/document-core'
 export interface CoreMarkdownPreferences {
   readonly superSubScript: boolean
   readonly footnote: boolean
-  readonly isGitlabCompatibilityEnabled: boolean
+  readonly texMathDollars: boolean
+  readonly texMathGfm: boolean
+  readonly texMathSingleBackslash: boolean
+  readonly texMathDoubleBackslash: boolean
 }
 
 /** Map existing desktop language switches once for every document session. */
@@ -13,5 +16,8 @@ export const coreMarkdownOptionsFromPreferences = (
   Object.freeze({
     subscriptAndSuperscript: preferences.superSubScript,
     footnotes: preferences.footnote,
-    gitLabMath: preferences.isGitlabCompatibilityEnabled
+    texMathDollars: preferences.texMathDollars,
+    texMathGfm: preferences.texMathGfm,
+    texMathSingleBackslash: preferences.texMathSingleBackslash,
+    texMathDoubleBackslash: preferences.texMathDoubleBackslash
   })
