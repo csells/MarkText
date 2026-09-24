@@ -689,6 +689,13 @@ class ParagraphContent extends Format {
     // Backspace at the start of a footnote definition removes the definition,
     // not its text: every block it held takes its place.
     private _handleBackspaceInFootnote() {
+        if (this.muya.editor.documentEditing) {
+            const selection = this.muya.editor.selection.getDOMSelection();
+            if (!selection)
+                throw new Error('Footnote boundary Backspace has no document selection');
+            dispatchDocumentParagraphJoin(this.muya, 'backward', selection);
+            return;
+        }
         const parent = this.parent!;
         const footnote = parent.parent!;
 
