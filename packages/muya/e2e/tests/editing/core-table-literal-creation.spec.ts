@@ -44,13 +44,16 @@ for (const bound of [false, true]) {
                     return { offset: selection?.focus.offset, column: selection?.focus.block.domNode?.closest('td')?.cellIndex };
                 })).toEqual({ offset: 0, column: 0 });
                 await page.keyboard.type('X');
-                expect(await read()).toBe(`${prefix}${bound ? '|     X|' : '| X   |'}     |\n| --- | --- |\n|     |     |\n`);
-                for (const expected of [created, fixture.source]) {
+                const edited = `${prefix}${bound ? '|     X|' : '| X   |'}     |\n| --- | --- |\n|     |     |\n`;
+                expect(await read()).toBe(edited);
+                // Upstream History groups the table with the key typed within
+                // its one-second window; a bound document keeps them apart.
+                for (const expected of bound ? [created, fixture.source] : [fixture.source]) {
                     await page.evaluate(async (bound) => { if (bound) await window.coreBoundary.history('undo'); else window.muya!.undo(); }, bound);
                     expect(await read()).toBe(expected);
                 }
                 await page.evaluate(async (bound) => { if (bound) await window.coreBoundary.history('redo'); else window.muya!.redo(); }, bound);
-                expect(await read()).toBe(created);
+                expect(await read()).toBe(bound ? created : edited);
                 if (bound)
                     expect(await page.evaluate(() => window.coreBoundary.read().legacyCalls)).toEqual([]);
             }

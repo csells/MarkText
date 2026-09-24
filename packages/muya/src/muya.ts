@@ -1098,8 +1098,8 @@ export class Muya {
             dispatchDocumentTableCommand(this, { command: 'createTable', rows, columns, replace, selection });
             return;
         }
-        this.flush();
-        this.editor.history.cutoff();
+        // Upstream records the table in the same undo step as the typing just
+        // before it, such as the `/table` query that opened the picker (#5442).
         this.editor.history.recordCommand(() => {
             if (!block.outMostBlock)
                 return;
@@ -1132,7 +1132,6 @@ export class Muya {
 
             newTable.firstContentInDescendant()?.setCursor(0, 0, true);
         });
-        this.editor.history.cutoff();
     }
 
     /**
