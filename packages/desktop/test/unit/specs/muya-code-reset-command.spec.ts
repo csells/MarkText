@@ -5,7 +5,6 @@ import { bootBoundMuya } from '../helpers/boundMuyaDocument'
 
 it.each([
   { command: 'pre', caret: 2 },
-  { command: 'paragraph', caret: 2 },
   { command: 'reset-to-paragraph', caret: 9 },
   { command: 'direct', caret: 9 }
 ])('$command supplies the paragraph and caret before the next key', async({ command, caret }) => {
@@ -72,7 +71,6 @@ it.each([
 
 it.each([
   { command: 'pre', caret: 2 },
-  { command: 'paragraph', caret: 2 },
   { command: 'reset-to-paragraph', caret: 9 },
   { command: 'direct', caret: 9 }
 ])('retains the native $command caret convention', ({ command, caret }) => {
@@ -97,6 +95,61 @@ it.each([
       focus: { offset: caret }
     })
   } finally {
+    muya.destroy()
+    host.remove()
+    document.getSelection()?.removeAllRanges()
+  }
+})
+
+// #4944: paragraph commands act on the whole code block, which never turns
+// into another block type; the native and model-backed paths agree.
+it.each(['paragraph', 'heading 1', 'blockquote', 'hr'])(
+  'keeps the code block for the %s command',
+  (command) => {
+    ;(window as Window & { MUYA_VERSION?: string }).MUYA_VERSION = 'test'
+    const source = '```\ncode here\n```\n'
+    const host = document.body.appendChild(document.createElement('div'))
+    const muya = new Muya(host, { markdown: source })
+    muya.init()
+    const app = bootBoundMuya(source)
+    try {
+      for (const editor of [muya, app.muya]) {
+        const block = editor.editor.scrollPage?.queryBlock([0, 'text'])
+        if (!block?.isContent()) throw new Error('Expected native code body')
+        block.setCursor(2, 2, true)
+        editor.updateParagraph(command)
+        editor.flush()
+      }
+      expect(muya.getMarkdown()).toBe(source)
+      expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
+    } finally {
+      app.dispose()
+      muya.destroy()
+      host.remove()
+      document.getSelection()?.removeAllRanges()
+    }
+  }
+)
+
+it.each(['heading 1', 'paragraph', 'blockquote'])('keeps a table for the %s command', (command) => {
+  ;(window as Window & { MUYA_VERSION?: string }).MUYA_VERSION = 'test'
+  const source = '| a | b |\n| --- | --- |\n| c | d |\n'
+  const host = document.body.appendChild(document.createElement('div'))
+  const muya = new Muya(host, { markdown: source })
+  muya.init()
+  const app = bootBoundMuya(source)
+  try {
+    for (const editor of [muya, app.muya]) {
+      const cell = editor.editor.scrollPage?.firstContentInDescendant()
+      if (!cell) throw new Error('Expected table cell')
+      cell.setCursor(1, 1, true)
+      editor.updateParagraph(command)
+      editor.flush()
+    }
+    expect(muya.getState().map((state) => state.name)).toEqual(['table'])
+    expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
+  } finally {
+    app.dispose()
     muya.destroy()
     host.remove()
     document.getSelection()?.removeAllRanges()
