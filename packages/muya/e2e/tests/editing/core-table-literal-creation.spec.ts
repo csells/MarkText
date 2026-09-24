@@ -44,7 +44,7 @@ for (const bound of [false, true]) {
                     return { offset: selection?.focus.offset, column: selection?.focus.block.domNode?.closest('td')?.cellIndex };
                 })).toEqual({ offset: 0, column: 0 });
                 await page.keyboard.type('X');
-                const edited = `${prefix}${bound ? '|     X|' : '| X   |'}     |\n| --- | --- |\n|     |     |\n`;
+                const edited = `${prefix}| X   |     |\n| --- | --- |\n|     |     |\n`;
                 expect(await read()).toBe(edited);
                 // Upstream History groups the table with the key typed within
                 // its one-second window; a bound document keeps them apart.

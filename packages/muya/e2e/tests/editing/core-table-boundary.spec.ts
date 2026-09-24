@@ -22,11 +22,13 @@ for (const bound of [false, true]) {
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, legacyCalls: [] });
             await page.keyboard.type('X');
             if (bound) {
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: source.replace('sa{++', 'Xsa{++') }, anchor: 1, caret: 1, legacyCalls: [] });
+                // Typing writes the table afresh like upstream's, padded to its widest cell.
+                const typed = '| Xsa{++me++}{>>note<<} | same |\n| --------------------- | ---- |\n| same                  | same |\n';
+                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, anchor: 1, caret: 1, legacyCalls: [] });
                 await page.evaluate(() => window.coreBoundary.history('undo'));
                 expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
                 await page.evaluate(() => window.coreBoundary.history('redo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: source.replace('sa{++', 'Xsa{++') });
+                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
             }
             else {
                 expect(await page.evaluate(() => {
@@ -45,7 +47,7 @@ for (const bound of [false, true]) {
 for (const example of [
     { name: 'empty table Backspace', source: '| | |\n| --- | --- |\n| | |\n', cell: 0, key: 'Backspace', expected: '\n', next: 'X\n' },
     { name: 'tracked empty table Backspace', source: '| | |\n| --- | --- |\n| | |\n', cell: 0, key: 'Backspace', expected: '{--| | |\n| --- | --- |\n| | |--}\n', next: '{--| | |\n| --- | --- |\n| | |--}{++X++}\n', tracked: true },
-    { name: 'last-row ArrowDown', source: '| a{++a++} | bb |\n| --- | --- |\n| cc | dd |\n', cell: 2, key: 'ArrowDown', expected: '| a{++a++} | bb |\n| --- | --- |\n| cc | dd |\n\n', next: '| a{++a++} | bb |\n| --- | --- |\n| cc | dd |\n\nX' },
+    { name: 'last-row ArrowDown', source: '| a{++a++} | bb |\n| --- | --- |\n| cc | dd |\n', cell: 2, key: 'ArrowDown', expected: '| a{++a++} | bb |\n| --- | --- |\n| cc | dd |\n\n\n', next: '| a{++a++} | bb |\n| --- | --- |\n| cc | dd |\n\nX\n' },
 ]) {
     test(`Core ${example.name} uses the model before the next key`, async ({ page }, testInfo) => {
         await page.evaluate(async (example) => {
@@ -96,7 +98,7 @@ test('Core Backspace between tables preserves both and selects the previous impl
         })).toEqual({ row: 1, column: 2, table: true });
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, legacyCalls: [] });
         await page.keyboard.type('X');
-        const next = '| a | b | c |\n| --- | --- | --- |\n| x |     |     X|\n\n| |\n| --- |\n';
+        const next = '| a   | b   | c   |\n| --- | --- | --- |\n| x   |     | X   |\n\n| |\n| --- |\n';
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: next }, anchor: 1, caret: 1, legacyCalls: [] });
         await page.evaluate(() => window.coreBoundary.history('undo'));
         expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
@@ -107,8 +109,8 @@ test('Core Backspace between tables preserves both and selects the previous impl
 });
 
 for (const example of [
-    { name: 'hidden comment', source: '| {>>keep<<} | |\n| --- | --- |\n| | |\n', cell: 0, target: 0, next: '| {>>keep<<} X| |\n| --- | --- |\n| | |\n' },
-    { name: 'previous implicit cell', source: '| a | b | c |\n| --- | --- | --- |\n| x |\n', cell: 5, target: 4, next: '| a | b | c |\n| --- | --- | --- |\n| x |     X|\n' },
+    { name: 'hidden comment', source: '| {>>keep<<} | |\n| --- | --- |\n| | |\n', cell: 0, target: 0, next: '| X{>>keep<<} |     |\n| ----------- | --- |\n|             |     |\n' },
+    { name: 'previous implicit cell', source: '| a | b | c |\n| --- | --- | --- |\n| x |\n', cell: 5, target: 4, next: '| a   | b   | c   |\n| --- | --- | --- |\n| x   | X   |     |\n' },
 ]) {
     test(`Core boundary Backspace preserves the ${example.name}`, async ({ page }) => {
         await page.evaluate(async (example) => {
