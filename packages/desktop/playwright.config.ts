@@ -17,7 +17,7 @@ export default defineConfig({
   forbidOnly: true,
   retries: 0,
   maxFailures: 1,
-  globalSetup: './globalSetup.ts',
+  globalSetup: './test/e2e/globalSetup.ts',
   workers: 1,
   testMatch: '**/*.spec.ts',
   projects: [
