@@ -5497,6 +5497,39 @@ describe('Core document session manager', () => {
     await manager.close('reload-failure.md')
   })
 
+  it('moves a save barrier waiting on a replaced view to the replacement generation', async() => {
+    const manager = createCoreDocumentSessionManager({
+      createBinding() {
+        return createEditorCoreBinding(new ActorBackedCoreOwner().modelOwner)
+      }
+    })
+    await manager.open({ documentId: 'reload-save.md', source: 'before\n', lineEnding: '\n' })
+    const oldLease = manager.lease('reload-save.md')
+    // The outgoing view's pending settlements fail when its adapter is disposed.
+    const pending: Array<(error: Error) => void> = []
+    let hold = true
+    oldLease.settleView(() =>
+      hold ? new Promise((_resolve, reject) => pending.push(reject)) : Promise.resolve()
+    )
+    oldLease.onHandoff(() => {
+      for (const reject of pending.splice(0)) {
+        reject(new Error('CodeMirror Core adapter is disposed'))
+      }
+    })
+
+    const save = manager.saveBarrier('reload-save.md')
+    hold = false
+    const replacement = await manager.replace(oldLease, {
+      documentId: 'reload-save.md',
+      source: 'after\n',
+      lineEnding: '\n'
+    })
+
+    await expect(save).resolves.toMatchObject({ source: 'after\n' })
+    await manager.handoff(replacement)
+    await manager.close('reload-save.md')
+  })
+
   it('publishes the old generation before replacement and fences its later actions', async() => {
     const workers: ActorBackedCoreOwner[] = []
     const manager = createCoreDocumentSessionManager({
