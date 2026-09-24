@@ -162,5 +162,14 @@ export function containerContinuationPrefix(core: DocumentCore, previous: Docume
     // to the checkbox rather than repeat it.
     continuation = continuation.slice(0, markerStart) + ' '.repeat(markerEnd - markerStart) + (task ? '' : continuation.slice(markerEnd))
   }
+  // A footnote definition's later blocks are indented four columns, whatever
+  // the length of its label, as upstream writes them.
+  for (const definition of containers.filter(node => node.kind === 'footnote-definition')) {
+    const labelStart = current.coordinates.toSource(definition.range.start, 'next') - firstLineStart
+    const firstChild = definition.children[0]
+    if (labelStart < 0 || labelStart >= continuation.length || firstChild === undefined) continue
+    const labelEnd = current.coordinates.toSource(firstChild.range.start, 'previous') - firstLineStart
+    continuation = continuation.slice(0, labelStart) + '    ' + continuation.slice(labelEnd)
+  }
   return continuation
 }

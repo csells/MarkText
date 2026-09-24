@@ -94,9 +94,13 @@ export function planParagraphTab(core: DocumentCore, revision: DocumentRevision,
     const width = previousMarker.contentOffset - previousMarker.start
     const previousLast = previous.children.at(-1)
     const nested = previousLast?.kind === 'list' ? previousLast : undefined
+    // A sublist holds one item kind, plain or task: an item of the other kind
+    // starts its own list after it instead of joining it (#5349).
     const nestedGroup = listItemGroups(nested).at(-1)
+    const joinsNested = nestedGroup !== undefined &&
+      (nestedGroup[0]?.attributes.task === true) === (item.attributes.task === true)
     // A new nested ordered list takes the numbering start of the list it leaves.
-    const spelling = nested !== undefined && nestedGroup !== undefined
+    const spelling = nested !== undefined && nestedGroup !== undefined && joinsNested
       ? markerFor(nested, nestedGroup, nestedGroup.length)
       : list.attributes.ordered === true
         ? listItemMarker({ ordinal: startOf(list), delimiter: String.fromCharCode(marker.delimiterCodeUnit), checked: item.attributes.task === true ? item.attributes.checked === true : undefined })
@@ -112,6 +116,19 @@ export function planParagraphTab(core: DocumentCore, revision: DocumentRevision,
       edits.push({ start: at, end: at, insert: ' '.repeat(additional) })
     }
     renumber(list, itemIndex + 1, -1)
+    // Joining a tight sublist, or following one with the same marker, makes
+    // the item part of that Markdown list, which stays tight (#5349): the
+    // blank lines the loose outer list kept before the item go.
+    const nestedMarker = markers.find(candidate => candidate.start === nestedGroup?.[0]?.range.start)
+    const sameList = joinsNested ||
+      (nestedMarker !== undefined && nestedMarker.delimiterCodeUnit === marker.delimiterCodeUnit)
+    if (nested !== undefined && nested.attributes.tight === true && sameList) {
+      records.forEach((line, index) => {
+        const next = records[index + 1]
+        if (!line.blank || next === undefined || line.start < nested.range.end || line.start >= item.range.start) return
+        edits.push({ start: sourceAt(line.start), end: sourceAt(next.start), insert: '' })
+      })
+    }
   } else if (action === 'outdent') {
     const outerMarker = markers.find(marker => marker.start === outerItem?.range.start)
     if (outerMarker === undefined) throw new RangeError('List outdent has no outer marker')
@@ -119,9 +136,16 @@ export function planParagraphTab(core: DocumentCore, revision: DocumentRevision,
     if (outerList?.kind !== 'list' || outerItem === undefined) throw new RangeError('List outdent has no outer list')
     const outerGroup = listItemGroups(outerList).find(group => group.includes(outerItem))
     if (outerGroup === undefined) throw new RangeError('List outdent has no outer native group')
-    const spelling = markerFor(outerList, outerGroup, outerGroup.indexOf(outerItem) + 1)
-    replaceMarker('', spelling)
-    renumber(outerList, outerList.children.indexOf(outerItem) + 1, 1)
+    // An item of the other kind than the item it leaves keeps its own marker
+    // and splits the outer list rather than joining it (#5341).
+    const joinsOuter = (outerItem.attributes.task === true) === (item.attributes.task === true)
+    const spelling = joinsOuter
+      ? markerFor(outerList, outerGroup, outerGroup.indexOf(outerItem) + 1)
+      : { text: core.sourceSlice(revision, { start: sourceAt(marker.start), end: sourceEnd(contentStart) }), indentation: oldWidth }
+    if (joinsOuter) {
+      replaceMarker('', spelling)
+      renumber(outerList, outerList.children.indexOf(outerItem) + 1, 1)
+    }
     for (const line of records) {
       if (line.end <= item.range.start || line.start >= item.range.end || line.blank) continue
       const indentation = line.listIndentations.find(indent => indent.depth === outerMarker.depth)
