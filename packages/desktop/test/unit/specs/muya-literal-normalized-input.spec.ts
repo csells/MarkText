@@ -11,7 +11,7 @@ it.each(
     const source = wrap(['  ```math', '\tx', '  ```', ''].join(eol))
     const typed = wrap(['  ```math', '   y x', '  ```', ''].join(eol))
     const continued = wrap(['  ```math', '   yz x', '  ```', ''].join(eol))
-    const app = bootBoundMuya(source, { gitLabMath: true })
+    const app = bootBoundMuya(source, { texMathGfm: true })
     try {
       const body = app.muya.editor.scrollPage?.queryBlock([0, 'text'])
       if (!body?.isContent()) throw new Error('Expected math body')
@@ -51,7 +51,7 @@ it.each(
       const saved = app.binding.sourceAtBarrier()
       if (saved.type !== 'source') throw new Error('Expected acknowledged source')
       expect(saved.source).toBe(continued)
-      const reopened = bootBoundMuya(saved.source, { gitLabMath: true })
+      const reopened = bootBoundMuya(saved.source, { texMathGfm: true })
       try {
         expect(reopened.muya.getState()).toMatchObject([{ name: 'math-block', text: ' yz x' }])
       } finally {

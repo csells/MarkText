@@ -3716,7 +3716,7 @@ describe('Core actor protocol', () => {
       session: 763,
       sequence: 1,
       source: '$x$\n',
-      options: { math: false }
+      options: { texMathDollars: false }
     })
     const authored = actor.handle({
       type: 'author',

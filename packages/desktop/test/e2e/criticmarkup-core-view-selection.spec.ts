@@ -73,7 +73,7 @@ test('Core retains a caret inside normalized literal text through an unchanged S
   try {
     await page.evaluate(() =>
       window.electron.ipcRenderer.send('mt::set-user-preference', {
-        isGitlabCompatibilityEnabled: true
+        texMathGfm: true
       })
     )
     await page.locator('.mu-math-preview').first().click()

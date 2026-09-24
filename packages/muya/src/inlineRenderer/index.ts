@@ -96,9 +96,10 @@ class InlineRenderer {
                     raw: math.raw,
                     range: { ...math.range },
                     content: math.content,
-                    marker: '$',
+                    marker: math.marker ?? '$',
                     backlash: '',
                     parent: [],
+                    displayMode: math.displayMode,
                 }], block, cursor ?? {});
                 const host = document.createElement('div');
                 host.innerHTML = html;

@@ -26,7 +26,15 @@ export interface IInlinePresentationContext {
     /** Native image wrapper around the caller's escaped raw editing text. */
     renderImage: (image: IInlinePresentationImage) => { open: string; close: string } | undefined;
     /** Native formula preview around exact raw text owned by the document parser. */
-    renderMath?: (math: { readonly raw: string; readonly range: ITokenRange; readonly content: string }) => { open: string; close: string };
+    renderMath?: (math: {
+        readonly raw: string;
+        readonly range: ITokenRange;
+        readonly content: string;
+        /** Opening delimiter; `$` when omitted. */
+        readonly marker?: string;
+        /** Display mode decided by the document parser for this paragraph. */
+        readonly displayMode?: boolean;
+    }) => { open: string; close: string };
     /** One parser-owned HTML tag, retaining native source visibility and attribute policy. */
     renderHtmlTag?: (tag: {
         readonly raw: string;
@@ -157,6 +165,8 @@ export type CodeEmojiMathToken = IBaseToken & {
     marker: string;
     content: string;
     backlash: string;
+    /** Set when the document owner has already decided display mode. */
+    displayMode?: boolean;
 };
 
 export type DelToken = IBaseToken & {
