@@ -18,6 +18,8 @@ export interface DocumentSourceSyntaxSpan {
   readonly headingLevel?: number
   /** Exact owned literal payload; embedded-language coloring never recognizes Markdown. */
   readonly literal?: Readonly<{ readonly language: string; readonly range: SourceRange }>
+  /** Inline math spelled with a display opener (`$$`, `\[`, `\\[`), which Source styles as block math. */
+  readonly displayMath?: true
 }
 
 /** Translate only retained source runs, coalescing adjacent pieces of one syntax node. */
@@ -51,8 +53,8 @@ export function sourceSyntaxSpans(
   commentProjection: (comment: CriticMarkupAnnotation) => CommentProjection
 ): readonly DocumentSourceSyntaxSpan[] {
   const spans: DocumentSourceSyntaxSpan[] = []
-  const append = (kind: DocumentSourceSyntaxSpan['kind'], range: SourceRange, headingLevel?: number, literal?: DocumentSourceSyntaxSpan['literal']) => {
-    if (range.end > range.start) spans.push(Object.freeze({ kind, range: Object.freeze(range), ...(headingLevel === undefined ? {} : { headingLevel }), ...(literal === undefined ? {} : { literal }) }))
+  const append = (kind: DocumentSourceSyntaxSpan['kind'], range: SourceRange, headingLevel?: number, literal?: DocumentSourceSyntaxSpan['literal'], displayMath = false) => {
+    if (range.end > range.start) spans.push(Object.freeze({ kind, range: Object.freeze(range), ...(headingLevel === undefined ? {} : { headingLevel }), ...(literal === undefined ? {} : { literal }), ...(displayMath ? { displayMath: true as const } : {}) }))
   }
   const syntax = (root: MarkdownAstNode, coordinates: ProjectionCoordinateMap) => {
     const segments = coordinates.sourceSegments
@@ -67,13 +69,15 @@ export function sourceSyntaxSpans(
         const math = node.kind === 'inline-math' || node.kind === 'math-block'
         const info = node.attributes.semanticInfo ?? node.attributes.info
         const language = math ? 'stex' : node.kind === 'code-block' && typeof info === 'string' ? info.trim().split(/\s+/u)[0] : undefined
+        const marker = node.attributes.marker
+        const displayMath = node.kind === 'inline-math' && typeof marker === 'string' && (marker === '$$' || marker.endsWith('['))
         const bodies = language && typeof contentStart === 'number' && typeof contentEnd === 'number'
           ? mappedRanges({ start: contentStart, end: contentEnd }, segments)
           : []
         for (const range of mappedRanges(node.range, segments)) {
           const body = bodies.find(body => body.start >= range.start && body.end <= range.end)
           const literal = language && body ? Object.freeze({ language, range: body }) : undefined
-          append(node.kind, range, typeof node.attributes.level === 'number' ? node.attributes.level : undefined, literal)
+          append(node.kind, range, typeof node.attributes.level === 'number' ? node.attributes.level : undefined, literal, displayMath)
         }
       }
       for (const child of [...node.children].reverse()) pending.push(child)
