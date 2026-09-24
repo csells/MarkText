@@ -7,8 +7,10 @@ it('keeps tracked list padding separate from unchanged fenced content through in
   const source = '- {++first++}{>>keep<<}\n\n  ```js\n  let x = 1\n  ```\n- second\n'
   const converted =
     '{~~- ~>1. ~~}{++first++}{>>keep<<}\n\n{~~  ~>   ~~}```js\n{~~  ~>   ~~}let x = 1\n{~~  ~>   ~~}```\n{~~- ~>2. ~~}second\n'
+  // The visible line start is before the addition's opener, where tracked
+  // typing authors its own addition.
   const typed =
-    '{~~- ~>1. ~~}{++Xfirst++}{>>keep<<}\n\n{~~  ~>   ~~}```js\n{~~  ~>   ~~}let x = 1\n{~~  ~>   ~~}```\n{~~- ~>2. ~~}second\n'
+    '{~~- ~>1. ~~}{++X++}{++first++}{>>keep<<}\n\n{~~  ~>   ~~}```js\n{~~  ~>   ~~}let x = 1\n{~~  ~>   ~~}```\n{~~- ~>2. ~~}second\n'
   const app = bootBoundMuya(source)
   const { muya, binding, adapter, reconcile, legacyChanges } = app
   app.track(true)

@@ -6,6 +6,7 @@ import { isChildOfDirectory } from 'common/filesystem/paths'
 import type { IUserPreferences } from '@shared/types/preferences'
 import { isLinux, isOsx, isWindows } from '../config'
 import parseArgs from '../cli/parser'
+import { userArguments } from '../cli/userArguments'
 import { normalizeAndResolvePath } from '../filesystem'
 import { normalizeMarkdownPath } from '../filesystem/markdown'
 import { registerKeyboardListeners } from '../keyboard'
@@ -73,7 +74,7 @@ class App {
 
     app.on('second-instance', (_event, argv, workingDirectory) => {
       const { _openFilesCache, _windowManager } = this
-      const args = parseArgs(argv.slice(1)) as CliArgs
+      const args = parseArgs(userArguments(argv, process.defaultApp === true)) as CliArgs
 
       const buf: PathInfo[] = []
       for (const pathname of args._) {

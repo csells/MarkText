@@ -121,7 +121,8 @@ const editableBlocks = [
     source: '| col |\n| --- |\n| cell |\n',
     selector: '.mu-table-cell-content',
     initialText: 'cell',
-    editedSource: '| col |\n| --- |\n| cell! |\n'
+    // Upstream MarkText writes an edited table afresh, padding each column.
+    editedSource: '| col   |\n| ----- |\n| cell! |\n'
   },
   {
     name: 'fenced code block',
@@ -253,10 +254,12 @@ test.describe('Core structural and editorial compatibility', () => {
 
 for (const tracked of [false, true]) {
   for (const container of [
-    { command: 'ul-bullet', prefix: '- ', selector: 'ul li' },
-    { command: 'ol-order', prefix: '1. ', selector: 'ol li' },
-    { command: 'ul-task', prefix: '- [ ] ', selector: 'ul li' },
-    { command: 'blockquote', prefix: '> ', selector: 'blockquote' }
+    // Continuation spellings are upstream MarkText's: list markers indent the
+    // next line by their width; a quote prefixes every line.
+    { command: 'ul-bullet', prefix: '- ', continuation: '  ', selector: 'ul li' },
+    { command: 'ol-order', prefix: '1. ', continuation: '   ', selector: 'ol li' },
+    { command: 'ul-task', prefix: '- [ ] ', continuation: '  ', selector: 'ul li' },
+    { command: 'blockquote', prefix: '> ', continuation: '> ', selector: 'blockquote' }
   ]) {
     test(`formats and edits a multiline addition as ${container.command}, tracked=${tracked}`, async() => {
       const source = '{++first\nsecond++}\n'
@@ -281,8 +284,8 @@ for (const tracked of [false, true]) {
         })
         await sendIpcToRenderer(app, 'mt::editor-paragraph-action', { type: container.command })
         const formatted = tracked
-          ? `{++${container.prefix}first\nsecond++}\n`
-          : `${container.prefix}${source}`
+          ? `{++${container.prefix}first\n${container.continuation}second++}\n`
+          : `${container.prefix}{++first\n${container.continuation}second++}\n`
         await saveExact(app, filePath, formatted)
         await expect(
           page.locator('.editor-component').locator(container.selector).first()

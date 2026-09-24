@@ -101,13 +101,12 @@ it.each(
         muya,
         view: current,
         outcome,
-        sourcePosition: adapter.reconciledSourcePosition,
         dirtyPaths: presentation.changedPaths,
         applyEditability: () => {}
       })
       return current.bindings
     }
-    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding, undefined, reconcile)
+    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding)
     const results: string[] = []
     muya.eventCenter.on('json-change', (change: unknown) => {
       if (
@@ -115,7 +114,7 @@ it.each(
         typeof change === 'object' &&
         (change as { source?: unknown }).source === 'user'
       ) {
-        results.push(adapter.accept(change))
+        results.push('native-bypass')
       }
     })
     try {
@@ -236,7 +235,7 @@ it.each(
   }
 )
 
-const bootFormatting = (source: string, tracked = false, legacyFallback = false) => {
+const bootFormatting = (source: string, tracked = false) => {
   ;(window as Window & { MUYA_VERSION?: string }).MUYA_VERSION = 'test'
   const binding = createEditorCoreBinding(createLocalCoreOwner())
   binding.open({ documentId: 'format-controls.md', source })
@@ -258,13 +257,12 @@ const bootFormatting = (source: string, tracked = false, legacyFallback = false)
       muya,
       view: current,
       outcome,
-      sourcePosition: adapter.reconciledSourcePosition,
       dirtyPaths: presentation.changedPaths,
       applyEditability: () => {}
     })
     return current.bindings
   }
-  const adapter = createMuyaPlainTextCoreAdapter(view().bindings, binding, undefined, reconcile)
+  const adapter = createMuyaPlainTextCoreAdapter(view().bindings, binding)
   const formatResults: ReturnType<typeof adapter.format>[] = []
   const legacyChanges: unknown[] = []
   muya.eventCenter.on('json-change', (change: unknown) => {
@@ -274,7 +272,6 @@ const bootFormatting = (source: string, tracked = false, legacyFallback = false)
       (change as { source?: unknown }).source === 'user'
     ) {
       legacyChanges.push(change)
-      if (legacyFallback) adapter.accept(change)
     }
   })
   muya.setInlinePresentation(presentation.render)
@@ -541,7 +538,7 @@ it.each([
 ])(
   'clears formatting through the native command without replacing annotation payload in $source',
   async({ source, expected }) => {
-    const setup = bootFormatting(source, false, true)
+    const setup = bootFormatting(source)
     try {
       const block = setup.muya.editor.scrollPage?.firstContentInDescendant()
       if (!block) throw new Error('Missing native format block')
@@ -596,7 +593,7 @@ it.each([
   'formats $format through the common owner with native selection and retained suggestions',
   async({ format, open, close }) => {
     const source = 'a{++a++}a\n'
-    const setup = bootFormatting(source, false, true)
+    const setup = bootFormatting(source)
     try {
       const block = setup.muya.editor.scrollPage?.firstContentInDescendant()
       if (!block) throw new Error('Missing native block')
@@ -652,7 +649,7 @@ it.each([
 
 it('creates a link without replacing the selected suggestion, then edits its destination', async() => {
   const source = 'a{++a++}a\n'
-  const setup = bootFormatting(source, false, true)
+  const setup = bootFormatting(source)
   try {
     const block = setup.muya.editor.scrollPage?.firstContentInDescendant()
     if (!block) throw new Error('Missing native link creation block')
@@ -684,7 +681,7 @@ it('creates a link without replacing the selected suggestion, then edits its des
 
 it('unlinks the actual hovered link through the model without consuming its suggestion', async() => {
   const source = '[a{++a++}a](url)\n'
-  const setup = bootFormatting(source, false, true)
+  const setup = bootFormatting(source)
   type LinkTool = {
     reference: HTMLElement
     linkInfo: { range: { start: number; end: number }; text: string }
@@ -731,7 +728,7 @@ it('unlinks the actual hovered link through the model without consuming its sugg
 
 it('creates an image without replacing the selected suggestion, then preserves the next document input', async() => {
   const source = 'a{++a++}a\n'
-  const setup = bootFormatting(source, false, true)
+  const setup = bootFormatting(source)
   const picker: unknown[] = []
   setup.muya.on('muya-image-selector', (event: unknown) => picker.push(event))
   try {
@@ -834,7 +831,7 @@ it.each([
   async(example) => {
     const { source, cursor, expected } = example
     const alt = 'alt' in example && typeof example.alt === 'string' ? example.alt : 'aaa'
-    const setup = bootFormatting(source, false, true)
+    const setup = bootFormatting(source)
     let picker:
       | {
         imageInfo: unknown
@@ -934,7 +931,7 @@ it.each([
 ])(
   'authors the actual selected native image layout through Core: $source',
   async({ source, attr, value, expected }) => {
-    const setup = bootFormatting(source, false, true)
+    const setup = bootFormatting(source)
     let picker:
       | {
         imageInfo: unknown

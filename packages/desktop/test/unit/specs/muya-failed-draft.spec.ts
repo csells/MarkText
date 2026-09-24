@@ -3,12 +3,18 @@ import { createCoreActor } from '@/documentAuthority/coreActor'
 import { createEditorCoreBinding } from '@/documentAuthority/editorCoreBinding'
 import { createMuyaPlainTextCoreAdapter } from '@/documentAuthority/muyaPlainTextCoreAdapter'
 
-const nativeInsertion = (before: string, insert: string) => ({
-  source: 'user',
-  prevDoc: [{ name: 'paragraph', text: before }],
-  doc: [{ name: 'paragraph', text: before + insert }],
-  op: [0, 'text', { es: [before.length, insert] }]
+const insertion = (before: string, insert: string) => ({
+  range: { start: before.length, end: before.length },
+  selection: { ranges: [{ anchor: before.length, focus: before.length }], primary: 0 },
+  inputType: 'insertText',
+  data: insert,
+  options: { autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true }
 })
+const bindings = (binding: ReturnType<typeof createEditorCoreBinding>) => () => {
+  const view = binding.plainTextViewAtBarrier()
+  if (view.type !== 'plain-text-view') throw new Error('Missing view')
+  return view.view.bindings
+}
 
 it('admits 129 consecutive native edits without retaining an asynchronous model queue', async() => {
   const actor = createCoreActor()
@@ -23,7 +29,10 @@ it('admits 129 consecutive native edits without retaining an asynchronous model 
   try {
     for (let index = 0; index < 129; index += 1) {
       const before = 'seed' + 'x'.repeat(index)
-      expect(adapter.accept(nativeInsertion(before, 'x'))).toBe('accepted')
+      expect(adapter.input(insertion(before, 'x'), bindings(binding))).toEqual({
+        accepted: true,
+        changed: true
+      })
       expect(binding.sourceAtBarrier()).toMatchObject({ source: before + 'x\n' })
       expect(adapter.hasPendingEdits()).toBe(false)
     }
@@ -46,10 +55,16 @@ it('retains the complete rejected native draft when the inserted-unit policy ref
   if (view.type !== 'plain-text-view') throw new Error('Missing view')
   const adapter = createMuyaPlainTextCoreAdapter(view.view.bindings, binding)
   try {
-    expect(adapter.accept(nativeInsertion('seed', 'x'))).toBe('accepted')
+    expect(adapter.input(insertion('seed', 'x'), bindings(binding))).toEqual({
+      accepted: true,
+      changed: true
+    })
     const insert = 'x'.repeat(4 * 1024 * 1024 + 1)
-    const rejected = nativeInsertion('seedx', insert)
-    expect(adapter.accept(rejected)).toBe('unsupported')
+    const rejected = insertion('seedx', insert)
+    expect(adapter.input(rejected, bindings(binding))).toEqual({
+      accepted: false,
+      changed: false
+    })
     const retained = adapter.recoveryDraft()
     expect(retained).toMatchObject({ revision: 2, nativeChange: rejected })
     expect(structuredClone(retained)).toEqual(retained)

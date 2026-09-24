@@ -2013,7 +2013,9 @@ describe('document-core semantic changes', () => {
     },
     {
       name: 'generated unresolved-reference guards',
-      payload: '{++[r]: /inner\n++}\n\nedit word [x][r]\n',
+      // Highlight definitions stay arm-local in Revised (C3), so the
+      // outside reference still needs a generated guard.
+      payload: '{==[r]: /inner\n==}\n\nedit word [x][r]\n',
       needle: 'word',
       insert: 'WORDS',
       options: {},
@@ -3904,7 +3906,7 @@ describe('document-core semantic changes', () => {
   it('projects a wide Markdown root without variadic child expansion', () => {
     const paragraphCount = 130_000
     const core = createUnboundedDocumentCoreForInspection()
-    const opened = core.open('x\n\n'.repeat(paragraphCount))
+    const opened = core.open('x\n\n'.repeat(paragraphCount) + '\n')
 
     const projection = core.project(opened, 'markup')
 

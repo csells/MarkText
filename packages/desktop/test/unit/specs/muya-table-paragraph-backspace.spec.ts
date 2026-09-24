@@ -6,8 +6,9 @@ it.each([
   {
     name: 'table',
     source: '| h |\n|---|\n| a |\n\nb{++c++}d\n',
-    joined: '| h |\n|---|\n| ab{++c++}d |\n',
-    typed: '| h |\n|---|\n| axb{++c++}d |\n',
+    // Upstream writes the table afresh after the join and after the cell edit.
+    joined: '| h          |\n| ---------- |\n| ab{++c++}d |\n',
+    typed: '| h           |\n| ----------- |\n| axb{++c++}d |\n',
     caret: 1
   },
   {

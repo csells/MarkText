@@ -94,18 +94,12 @@ describe('actual native composition on the shared model', () => {
           muya,
           view: current,
           outcome,
-          sourcePosition: adapter.reconciledSourcePosition,
           dirtyPaths: presentation.changedPaths,
           applyEditability: () => {}
         })
         return current.bindings
       }
-      const adapter = createMuyaPlainTextCoreAdapter(
-        initial.view.bindings,
-        binding,
-        undefined,
-        reconcile
-      )
+      const adapter = createMuyaPlainTextCoreAdapter(initial.view.bindings, binding)
       try {
         muya.setInlinePresentation(presentation.render)
         muya.init()
@@ -139,8 +133,10 @@ describe('actual native composition on the shared model', () => {
             return result.changed
           }
         })
+        // Every user action must enter the model; a native mutation is a bypass.
+        const bypasses: unknown[] = []
         muya.on('json-change', (change: { source: string }) => {
-          if (change.source === 'user') adapter.accept(change)
+          if (change.source === 'user') bypasses.push(change)
         })
         const block = muya.editor.scrollPage?.firstContentInDescendant()
         if (!block?.domNode) throw new Error('Missing native content')
@@ -204,6 +200,7 @@ describe('actual native composition on the shared model', () => {
         block.domNode.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data }))
         // The model result and caret must be installed before the next key.
         expect(binding.sourceAtBarrier()).toMatchObject({ source: expected })
+        expect(bypasses).toEqual([])
         if (followup) {
           const next = muya.editor.scrollPage?.firstContentInDescendant()
           next?.domNode?.dispatchEvent(
@@ -217,6 +214,7 @@ describe('actual native composition on the shared model', () => {
           expect(binding.sourceAtBarrier()).toMatchObject({ source: 'axa\n' })
         }
         await barrier
+        expect(bypasses).toEqual([])
         if (unavailable) {
           expect(barrierError).toBeInstanceOf(Error)
           expect(adapter.state().status).toBe('faulted')

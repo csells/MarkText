@@ -102,7 +102,8 @@ it.each([
   { name: 'heading soft lines', source: '# before after\n', at: 9, markdown: 'first\nsecond', expected: '# before first\n\nsecondafter\n' },
   { name: 'quote paragraphs', source: '> before after\n', at: 9, markdown: 'first\n\nsecond', expected: '> before first\n>\n> secondafter\n' },
   { name: 'list paragraphs', source: '- before after\n', at: 9, markdown: 'first\n\nsecond', expected: '- before first\n\n  secondafter\n' },
-  { name: 'table multiline', source: '| before after |\n| --- |\n| b |\n', at: 9, markdown: 'first\nsecond', expected: '| before first<br/>secondafter |\n| --- |\n| b |\n' }
+  // Upstream (8d6c198c) writes a table afresh after an untracked paste into a cell.
+  { name: 'table multiline', source: '| before after |\n| --- |\n| b |\n', at: 9, markdown: 'first\nsecond', expected: '| before first<br/>secondafter |\n| ---------------------------- |\n| b                            |\n' }
 ])('preserves the existing $name paste meaning and untouched source', ({ source, at, markdown, expected }) => {
   const core = createDocumentCore()
   const revision = core.open(source)
@@ -157,21 +158,20 @@ it('tracks a complete plain HTML block with its required separator and retains t
   const markdown = '<ul>\n<li>a</li>\n</ul>'
   const plan = core.planClipboard(revision, { kind: 'paste', selection: { ranges: [{ anchor: 3, focus: 3 }], primary: 0 }, markdown, plainText: markdown, pasteAsPlainText: true, tracked: true })
   const next = core.apply(revision, plan.edits).revision
-  const expected = 'foo{++<ul>++}TAIL{>>note<<}{~~\n~>\n\n<li>a</li>\n</ul>\n\n~~}'
+  const expected = 'foo{++<ul>++}TAIL{>>note<<}{++\n\n<li>a</li>\n</ul>\n++}\n'
   expect(next.source).toBe(expected)
   expect(next.diagnostics).toEqual([])
   expect(core.project(next, 'original').markdown).toBe('fooTAIL\n')
-  // The blank line belongs to the authored block, outside its literal body.
+  // The closer starts its own line after the HTML block, which renders as the
+  // untracked paste; Original keeps its exact bytes.
   expect(core.project(next, 'revised').markdown).toBe('foo<ul>TAIL\n\n<li>a</li>\n</ul>\n\n')
   expect(plan.selection).toEqual({ ranges: [{ anchor: 10, focus: 10 }], primary: 0 })
   const typed = core.track(next, { start: 10, end: 10, insert: 'x' }).revision
-  expect(typed.source).toBe('foo{++<ul>x++}TAIL{>>note<<}{~~\n~>\n\n<li>a</li>\n</ul>\n\n~~}')
+  expect(typed.source).toBe('foo{++<ul>x++}TAIL{>>note<<}{++\n\n<li>a</li>\n</ul>\n++}\n')
   expect(createDocumentCore().open(typed.source).diagnostics).toEqual([])
   let rejected = typed
-  for (const kind of ['substitution', 'addition']) {
-    const annotation = rejected.annotations.find(item => item.kind === kind)
-    expect(annotation).toBeDefined()
-    if (annotation === undefined) throw new Error(`Missing ${kind} suggestion`)
+  while (rejected.annotations.some(item => item.kind === 'addition')) {
+    const annotation = rejected.annotations.find(item => item.kind === 'addition')!
     rejected = core.resolve(rejected, annotation, 'reject').revision
   }
   expect(rejected.source).toBe(source)
@@ -206,10 +206,10 @@ it('retains the original CRLF when enclosing a tracked HTML remainder', () => {
   const markdown = '<ul>\n<li>a</li>\n</ul>'
   const plan = core.planClipboard(revision, { kind: 'paste', selection: { ranges: [{ anchor: 3, focus: 3 }], primary: 0 }, markdown, pasteAsPlainText: true, tracked: true })
   const next = core.apply(revision, plan.edits).revision
-  expect(next.source).toBe('foo{++<ul>++}TAIL{>>note<<}{~~\r\n~>\n\n<li>a</li>\n</ul>\r\n\r\n~~}')
+  expect(next.source).toBe('foo{++<ul>++}TAIL{>>note<<}{++\n\n<li>a</li>\n</ul>\n++}\r\n')
   expect(next.diagnostics).toEqual([])
   expect(core.project(next, 'original').markdown).toBe('fooTAIL\r\n')
-  expect(core.project(next, 'revised').markdown).toBe('foo<ul>TAIL\n\n<li>a</li>\n</ul>\r\n\r\n')
+  expect(core.project(next, 'revised').markdown).toBe('foo<ul>TAIL\n\n<li>a</li>\n</ul>\n\r\n')
   expect(plan.selection).toEqual({ ranges: [{ anchor: 10, focus: 10 }], primary: 0 })
 })
 
@@ -223,11 +223,20 @@ it('does not add a blank terminator to an explicitly terminated HTML block', () 
   expect(core.project(next, 'original').markdown).toBe('foo\n')
 })
 
-it('refuses an unclosed explicit HTML literal rather than inventing its closing tag', () => {
+it('tracks an unclosed explicit HTML literal without inventing its closing tag', () => {
   const core = createDocumentCore()
   const revision = core.open('foo\n')
-  expect(() => core.planClipboard(revision, { kind: 'paste', selection: { ranges: [{ anchor: 3, focus: 3 }], primary: 0 }, markdown: '<script>\nmissing', tracked: true })).toThrow('Clipboard action has no safe source edit')
-  expect(revision.source).toBe('foo\n')
+  const paste = { kind: 'paste', selection: { ranges: [{ anchor: 3, focus: 3 }], primary: 0 }, markdown: '<script>\nmissing' } as const
+  const plan = core.planClipboard(revision, { ...paste, tracked: true })
+  const next = core.apply(revision, plan.edits).revision
+  expect(next.source).toBe('foo\n{++\n<script>\nmissing\n++}')
+  expect(next.source).not.toContain('</script>')
+  const untrackedCore = createDocumentCore()
+  const untrackedRevision = untrackedCore.open('foo\n')
+  const untracked = untrackedCore.apply(untrackedRevision,
+    untrackedCore.planClipboard(untrackedRevision, { ...paste, tracked: false }).edits).revision
+  expect(core.project(next, 'revised').markdown).toBe(untrackedCore.project(untracked, 'revised').markdown)
+  expect(core.project(next, 'original').markdown).toBe('foo\n')
 })
 
 it('preserves selected old blocks when extending a tracked replacement through their final EOL', () => {
@@ -236,10 +245,10 @@ it('preserves selected old blocks when extending a tracked replacement through t
   const revision = core.open(source)
   const plan = core.planClipboard(revision, { kind: 'paste', selection: { ranges: [{ anchor: 3, focus: 10 }], primary: 0 }, markdown: '\n\n<ul>\n<li>a</li>\n</ul>', tracked: true })
   const next = core.apply(revision, plan.edits).revision
-  expect(next.source).toBe('foo{~~\n\n# old\n~>\n\n<ul>\n<li>a</li>\n</ul>\n\n~~}')
+  expect(next.source).toBe('foo\n\n{~~# old\n~><ul>\n<li>a</li>\n</ul>\n~~}')
   expect(next.diagnostics).toEqual([])
   expect(core.project(next, 'original').markdown).toBe(source)
-  expect(core.project(next, 'revised').markdown).toBe('foo\n\n<ul>\n<li>a</li>\n</ul>\n\n')
+  expect(core.project(next, 'revised').markdown).toBe('foo\n\n<ul>\n<li>a</li>\n</ul>\n')
 })
 
 it('tracks representable plain-HTML insertions as one action while retaining the unselected tail', () => {
@@ -274,4 +283,18 @@ it.each([false, true])('preserves the actual later backward selection during pre
   })
   expect(core.apply(previous, plan.edits).revision.source).toBe('a{++P++}XY{>>keep<<}b\n')
   expect(plan.selection).toEqual({ ranges: [{ anchor: 10, focus: 8 }], primary: 0 })
+})
+
+// Upstream (8d6c198c) keeps a paragraph whose whole text is cut as an empty
+// paragraph on its own line, as deleting that text does.
+it.each([
+  { source: 'a\n- b\n', start: 0, end: 1, expected: '\n\n- b\n', caret: 0 },
+  { source: 'x\n\na\n- b\n', start: 3, end: 4, expected: 'x\n\n\n\n- b\n', caret: 3 },
+  { source: 'a\nb\n', start: 0, end: 1, expected: '\nb\n', caret: 0 }
+])('cuts the whole text of the paragraph in $source apart from the next block', ({ source, start, end, expected, caret }) => {
+  const core = createDocumentCore()
+  const revision = core.open(source)
+  const plan = core.planClipboard(revision, { kind: 'cut', selection: { ranges: [{ anchor: start, focus: end }], primary: 0 }, tracked: false })
+  expect(core.apply(revision, plan.edits).revision.source).toBe(expected)
+  expect(plan.selection).toEqual({ ranges: [{ anchor: caret, focus: caret }], primary: 0 })
 })

@@ -79,10 +79,15 @@ describe('Unpublished regional authoring validation', () => {
     const before = inspectDocumentCore(core)
     const hidden = denseSource.indexOf('note') + 1
     expect(core.markupEdit(revision, { start: hidden, end: hidden, insert: 'X' })).toBeUndefined()
-    for (const target of ['deleted', 'old']) {
-      const start = denseSource.indexOf(target) + 1
-      expect(core.trackedEdit(revision, { start, end: start, insert: 'X' })).toBeUndefined()
-    }
+    // Typing inside tracked history splits it at the caret; the retained
+    // deleted/old text keeps its exact bytes on both sides.
+    const deleted = denseSource.indexOf('deleted') + 1
+    expect(core.trackedEdit(revision, { start: deleted, end: deleted, insert: 'X' }))
+      .toEqual({ start: deleted, end: deleted, insert: '--}{++X++}{--' })
+    const old = denseSource.indexOf('old') + 1
+    const substitution = denseSource.indexOf('{~~')
+    expect(core.trackedEdit(revision, { start: old, end: old, insert: 'X' }))
+      .toEqual({ start: substitution, end: old, insert: '{--o--}{++X++}{~~' })
     const after = inspectDocumentCore(core)
     expect(after.sourceRopeRootsCommitted).toBe(before.sourceRopeRootsCommitted)
     expect(after.regionalInventoryRootsCommitted).toBe(before.regionalInventoryRootsCommitted)

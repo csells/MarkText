@@ -1,11 +1,22 @@
 // @vitest-environment jsdom
-import { Muya } from '@muyajs/core'
 import { createDocumentCore } from '@marktext/document-core'
 import { describe, expect, it } from 'vitest'
-import { createMuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
-import { sourceEditForMuyaStructuralEnter } from '@/documentAuthority/muyaStructuralEnter'
-import { createMuyaPlainTextSourceEditAdapter } from '@/documentAuthority/muyaPlainTextSourceEdit'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+
+const typeText = (muya: ReturnType<typeof bootBoundMuya>['muya'], text: string): void => {
+  for (const character of text) {
+    const target = muya.editor.selection.getSelection()?.anchor.block.domNode
+    if (!target?.isConnected) throw new Error('Expected live selection')
+    target.dispatchEvent(
+      new InputEvent('beforeinput', {
+        data: character,
+        inputType: 'insertText',
+        bubbles: true,
+        cancelable: true
+      })
+    )
+  }
+}
 
 for (const example of [
   { source: '# Heading\n', path: [0, 'text'], expected: '# Heading\n\n\n' },
@@ -24,67 +35,38 @@ for (const example of [
 ]) {
   for (const typed of ['', 'n']) {
     describe('native structural Enter', () => {
-      it(`preserves the exact source for ${JSON.stringify(example.source)} with batched ${JSON.stringify(typed)}`, () => {
-        const core = createDocumentCore()
-        const revision = core.open(example.source)
-        const view = createMuyaMarkupView(core.project(revision, 'markup'))
-        const host = document.createElement('div')
-        document.body.append(host)
-        const muya = new Muya(host)
-        muya.init()
-        muya.setContent(structuredClone([...view.state]) as Parameters<Muya['setContent']>[0])
+      it(`preserves the exact source for ${JSON.stringify(example.source)} with typed ${JSON.stringify(typed)}`, async() => {
+        const app = bootBoundMuya(example.source)
+        const { muya, binding, adapter, legacyChanges } = app
         try {
-          const block = muya.editor.scrollPage?.queryBlock([...example.path])
-          if (block == null || !block.isContent()) throw new Error('Expected content leaf')
-          muya.editor.activeContentBlock = block
-          block.setCursor(block.text.length, block.text.length)
-          let edit: ReturnType<typeof sourceEditForMuyaStructuralEnter>
-          muya.eventCenter.on('json-change', (change: unknown) => {
-            edit = sourceEditForMuyaStructuralEnter(view.bindings, change)
-          })
-          block.enterHandler(
-            new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+          const content = muya.editor.scrollPage?.queryBlock([...example.path])
+          if (content == null || !content.isContent()) throw new Error('Expected content leaf')
+          content.setCursor(content.text.length, content.text.length, true)
+          content.domNode.dispatchEvent(
+            new InputEvent('beforeinput', {
+              inputType: 'insertParagraph',
+              data: null,
+              bubbles: true,
+              cancelable: true
+            })
           )
-          if (typed.length > 0) {
-            const inserted = muya.editor.activeContentBlock
-            if (inserted === undefined || inserted === null) { throw new Error('Expected new content leaf') }
-            inserted.domNode.textContent = typed
-            inserted.setCursor(typed.length, typed.length)
-            inserted.inputHandler(
-              new InputEvent('input', { data: typed, inputType: 'insertText', bubbles: true })
-            )
-          }
-          muya.flush()
-          expect(edit).toBeDefined()
-          const next = core.apply(revision, [edit!.edit]).revision
           const ending = example.source.endsWith('\r\n') ? '\r\n' : '\n'
-          expect(next.source).toBe(example.expected.slice(0, -ending.length) + typed + ending)
-          const nextView = createMuyaMarkupView(core.project(next, 'markup'))
-          const newBinding = nextView.bindings.at(-1)!
-          expect(newBinding.sourceRange).toEqual(edit!.bindings.at(-1)!.sourceRange)
-          const native = createMuyaPlainTextSourceEditAdapter(edit!.bindings.at(-1)!)
-          let following: ReturnType<typeof native.accept> | undefined
-          muya.eventCenter.on('json-change', (change: unknown) => {
-            following = native.accept(change)
+          const expected = (following: string) =>
+            example.expected.slice(0, -ending.length) + following + ending
+          expect(binding.sourceAtBarrier()).toMatchObject({ source: expected('') })
+          typeText(muya, typed)
+          expect(binding.sourceAtBarrier()).toMatchObject({ source: expected(typed) })
+          // The next key uses the model's resulting selection at the new leaf's end.
+          typeText(muya, 'x')
+          await adapter.settled()
+          expect(binding.sourceAtBarrier()).toMatchObject({ source: expected(typed + 'x') })
+          expect(muya.getSelection()).toMatchObject({
+            anchor: { offset: typed.length + 1 },
+            focus: { offset: typed.length + 1 }
           })
-          const inserted = muya.editor.activeContentBlock!
-          inserted.domNode.textContent = typed + 'x'
-          inserted.setCursor(typed.length + 1, typed.length + 1)
-          inserted.inputHandler(
-            new InputEvent('input', { data: 'x', inputType: 'insertText', bubbles: true })
-          )
-          muya.flush()
-          expect(following).toEqual({
-            kind: 'edit',
-            edit: {
-              start: newBinding.sourceRange.end,
-              end: newBinding.sourceRange.end,
-              insert: 'x'
-            }
-          })
+          expect(legacyChanges).toEqual([])
         } finally {
-          muya.destroy()
-          muya.domNode.remove()
+          app.dispose()
         }
       })
     })

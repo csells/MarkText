@@ -11,7 +11,6 @@ import type {
 import type { CoreAppliedReply, CoreReviewItemReply } from './coreProtocol'
 import type { EditorCoreBinding } from './editorCoreBinding'
 import type { CoreAuthorityPerformanceEvent } from './coreAuthorityPerformanceTrace'
-import { transformOptimisticHistory } from './optimisticHistoryTransform'
 import {
   createCanonicalEolIndex,
   type CanonicalEolIndexInspection,
@@ -238,6 +237,9 @@ function createAdapterWithIndex(
   // its declaration says `null`; normalize both before choosing the event seam.
   const editor = doc.getEditor() ?? undefined
   const nativeOperationEdits: DocumentSourceEdit[] = []
+  const hasPendingNativeChanges = (): boolean =>
+    captures.some((capture) => !capture.canceled && !isNoopCapture(capture)) ||
+    nativeOperationEdits.length > 0
   let nativeOperationBeforeSelection: DocumentTextSelection | undefined
   let compositionBeforeSelection: DocumentTextSelection | undefined
   const sourceSelection = (
@@ -366,68 +368,28 @@ function createAdapterWithIndex(
     }
     rejectSettlements(error)
   }
-  const applyHistoryToOptimisticView = async(
+  const hasUnsubmittedNativeChanges = (): boolean =>
+    captures.some(
+      (capture) => !capture.canceled && !capture.suppressed && !isNoopCapture(capture)
+    ) ||
+    nativeOperationEdits.length > 0 ||
+    queue.some((command) => command.kind === 'source')
+  const applyHistoryToView = (
     appliedEdits: readonly DocumentSourceEdit[],
-    nextSourceLength: number,
     selection?: CoreAppliedReply['historyResult']
-  ): Promise<void> => {
-    // A native edit mutates the Doc synchronously but CodeMirror publishes its
-    // matching `change` notification later. Drain that turn before rebasing so
-    // every draft already visible in the view is represented in the queue.
-    await nextMacrotask()
-    while (
-      captures.some((capture) => !capture.canceled && !isNoopCapture(capture)) ||
-      nativeOperationEdits.length > 0
-    ) {
-      if (disposed || terminalError !== undefined) break
-      await nextMacrotask()
-    }
+  ): void | Promise<void> => {
     if (terminalError !== undefined) throw terminalError
     if (disposed) return
-    const sourceCommands = queue.filter(
-      (command): command is QueuedSourceChange => command.kind === 'source'
-    )
-    const historyDelta = appliedEdits.reduce(
-      (sum, edit) => sum + edit.insert.length - (edit.end - edit.start),
-      0
-    )
-    const transformed = transformOptimisticHistory({
-      baseSourceLength: nextSourceLength - historyDelta,
-      appliedEdits,
-      queuedTransactions: sourceCommands.map((command) => command.edits),
-      queuedSelections: sourceCommands.map((command) => ({
-        before: command.beforeSelection,
-        after: command.afterSelection
-      }))
-    })
-    if (transformed.kind === 'conflict') {
+    // History commands enter the model only after native work has drained, so
+    // any edit still captured here was authored against the replaced view.
+    if (hasUnsubmittedNativeChanges()) {
       throw new Error('Core history overlaps pending editor input')
     }
-    let transactionIndex = 0
-    for (let index = 0; index < queue.length; index += 1) {
-      const command = queue[index]
-      if (command === undefined || command.kind !== 'source') continue
-      const rebasedSource = transformed.rebasedTransactions[transactionIndex]
-      if (rebasedSource === undefined) {
-        throw new Error('Core history transform lost a pending transaction')
-      }
-      const selected = transformed.rebasedSelections?.[transactionIndex]
-      if (selected === undefined) throw new Error('Core history transform lost a pending selection')
-      transactionIndex += 1
-      queue[index] = Object.freeze({
-        ...command,
-        kind: 'source',
-        generation: command.generation,
-        edits: rebasedSource,
-        beforeSelection: selected.before,
-        afterSelection: selected.after
-      })
-    }
+    // Model edits share the pre-history coordinate domain; apply them last first.
+    const ordered = [...appliedEdits].sort((left, right) => right.start - left.start)
     suppressingAuthoritativeChange = true
     try {
-      for (let index = transformed.reconciliationEdits.length - 1; index >= 0; index -= 1) {
-        const edit = transformed.reconciliationEdits[index]
-        if (edit === undefined) continue
+      for (const edit of ordered) {
         doc.replaceRange(
           edit.insert,
           eolIndex.position(edit.start),
@@ -438,15 +400,10 @@ function createAdapterWithIndex(
     } finally {
       suppressingAuthoritativeChange = false
     }
-    await nextMacrotask()
-    // Wait for CodeMirror's own change notification to update the canonical
-    // index. A later native edit owns its selection in the optimistic view.
-    if (
-      sourceCommands.length === 0 &&
-      !queue.some((command) => command.kind === 'source') &&
-      nativeOperationEdits.length === 0 &&
-      selection !== undefined
-    ) {
+    const restoreSelection = (): void => {
+      if (disposed) return
+      if (terminalError !== undefined) throw terminalError
+      if (hasUnsubmittedNativeChanges() || selection === undefined) return
       let sourceSelection = selection.selection
       if (!('ranges' in sourceSelection)) {
         const projected = binding.sourceSelectionAtBarrier(sourceSelection)
@@ -463,6 +420,9 @@ function createAdapterWithIndex(
         sourceSelection.primary
       )
     }
+    // An unattached Doc reports its own history changes after a macrotask.
+    if (hasPendingNativeChanges()) return nextMacrotask().then(restoreSelection)
+    restoreSelection()
   }
   const pump = (): void => {
     if (active || disposed || terminalError !== undefined) return
@@ -608,22 +568,24 @@ function createAdapterWithIndex(
     // may wait for CodeMirror's already-started operation notifications.
     lastAcceptedRevision = reply.revision
     if (queued.kind !== 'source') {
-      applyHistoryToOptimisticView(
-        reply.change.appliedEdits,
-        reply.sourceLength,
-        reply.historyResult
-      ).then(
-        () => {
-          if (!disposed) finish()
-        },
-        (error) => {
-          if (disposed) return
-          active = false
-          activeCommand = undefined
-          queued.reject(error)
-          failCommandLane(error)
+      const failPresentation = (error: unknown): void => {
+        if (disposed) return
+        active = false
+        activeCommand = undefined
+        queued.reject(error)
+        failCommandLane(error)
+      }
+      try {
+        const presentation = applyHistoryToView(reply.change.appliedEdits, reply.historyResult)
+        if (presentation === undefined) finish()
+        else {
+          presentation.then(() => {
+            if (!disposed) finish()
+          }, failPresentation)
         }
-      )
+      } catch (error) {
+        failPresentation(error)
+      }
     } else {
       finish()
     }
@@ -865,6 +827,15 @@ function createAdapterWithIndex(
       } else {
         nativeOperationBeforeSelection ??= capture.beforeSelection
         nativeOperationEdits.push(edit)
+        // Doc changes drain before CodeMirror paints the operation. The final
+        // live capture owns the complete native edits, selection and history
+        // group; editor "changes" fires only after that presentation changed.
+        if (captures.every((pending) => pending.canceled || isNoopCapture(pending))) {
+          const edits = nativeOperationEdits.splice(0)
+          const beforeSelection = nativeOperationBeforeSelection
+          nativeOperationBeforeSelection = undefined
+          enqueue(edits, beforeSelection, sourceSelection())
+        }
       }
       return
     }
@@ -894,17 +865,6 @@ function createAdapterWithIndex(
         compositionEdit.insert.slice(relativeEnd)
     })
   }
-  const onChanges = (): void => {
-    if (nativeOperationEdits.length === 0) return
-    const edits = nativeOperationEdits.splice(0)
-    if (disposed || terminalError !== undefined) return
-    const beforeSelection = nativeOperationBeforeSelection
-    nativeOperationBeforeSelection = undefined
-    if (beforeSelection === undefined) {
-      throw new Error('Source operation lost its original selection')
-    }
-    enqueue(edits, beforeSelection, sourceSelection())
-  }
   const onBeforeSelectionChange = (
     _changed: CodeMirror.Doc,
     selection: { ranges: readonly CodeMirror.Range[] }
@@ -920,7 +880,6 @@ function createAdapterWithIndex(
   doc.on('beforeSelectionChange', onBeforeSelectionChange)
   doc.on('beforeChange', onBeforeChange)
   doc.on('change', onChange)
-  editor?.on('changes', onChanges)
 
   const adapter: CodeMirrorCoreAdapter = Object.freeze({
     sourcePosition: (offset: number) => eolIndex.position(offset),
@@ -1011,9 +970,14 @@ function createAdapterWithIndex(
       return enqueueHistory('configure', Object.freeze({ ...options }))
     },
     async history(command: 'undo' | 'redo'): Promise<CoreAppliedReply | undefined> {
-      // Cross CodeMirror's deferred change delivery so a native edit observed
-      // immediately before this command occupies the earlier queue position.
-      await nextMacrotask()
+      // Native edits enter the model before history does. An operation still in
+      // progress, or an unattached Doc, delivers its changes on a later turn.
+      if (editor === undefined || hasPendingNativeChanges()) {
+        for (;;) {
+          await nextMacrotask()
+          if (disposed || terminalError !== undefined || !hasUnsubmittedNativeChanges()) break
+        }
+      }
       if (composing && compositionFinished !== undefined) {
         await compositionFinished
       }
@@ -1068,7 +1032,6 @@ function createAdapterWithIndex(
       doc.off('beforeSelectionChange', onBeforeSelectionChange)
       doc.off('beforeChange', onBeforeChange)
       doc.off('change', onChange)
-      editor?.off('changes', onChanges)
       captures.splice(0)
       nativeOperationEdits.splice(0)
       const error = new Error('CodeMirror Core adapter is disposed')

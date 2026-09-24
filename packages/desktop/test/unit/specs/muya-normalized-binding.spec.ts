@@ -2,12 +2,9 @@ import { performance } from 'node:perf_hooks'
 import { createDocumentCore } from '@marktext/document-core'
 import { expect, it } from 'vitest'
 import { createMuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
-import {
-  assertMuyaDocumentSourceBinding,
-  assertMuyaPlainTextSourceBinding
-} from '@/documentAuthority/muyaPlainTextSourceEdit'
+import { assertMuyaDocumentSourceBinding } from '@/documentAuthority/muyaSourceBinding'
 
-it('requires owned syntax for normalized presentation and keeps native diff decoding strict', () => {
+it('requires owned syntax for normalized presentation', () => {
   const source = '  ```\n\tbody\n  ```\n'
   const core = createDocumentCore()
   const revision = core.open(source)
@@ -17,9 +14,6 @@ it('requires owned syntax for normalized presentation and keeps native diff deco
     source
   ).bindings[0]
   expect(() => assertMuyaDocumentSourceBinding(binding)).not.toThrow()
-  expect(() => assertMuyaPlainTextSourceBinding(binding)).toThrow(
-    'Muya source segments are invalid'
-  )
   const { syntax: _syntax, ...unowned } = binding
   expect(() => assertMuyaDocumentSourceBinding(unowned)).toThrow('Muya source segments are invalid')
   expect(() => assertMuyaDocumentSourceBinding({ ...binding, text: 'xxbody' })).toThrow(

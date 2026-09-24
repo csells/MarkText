@@ -206,8 +206,9 @@
             {{ t('editor.coreReview.empty') }}
           </p>
           <CoreReviewCommentEditor
-            v-if="coreCommentTarget !== undefined"
+            v-if="!sourceCode && coreCommentTarget !== undefined"
             v-model="coreCommentOpen"
+            v-model:draft-text="coreCommentDraft"
             :target-id="coreCommentTarget.id"
             :text-direction="textDirection"
             :restore-focus="restoreCoreCommentFocus"
@@ -243,7 +244,8 @@
               coreLease !== undefined &&
                 !sourceCode &&
                 coreDisplayMode === 'markup' &&
-                coreAuthorSelection !== undefined
+                coreAuthorSelection !== undefined &&
+                coreAuthorForms.length > 0
             "
             class="core-review-hint"
           >
@@ -254,7 +256,8 @@
               coreLease !== undefined &&
                 !sourceCode &&
                 coreDisplayMode === 'markup' &&
-                coreAuthorSelection !== undefined
+                coreAuthorSelection !== undefined &&
+                coreAuthorForms.length > 0
             "
             class="core-review-author-bar"
             :aria-label="t('editor.coreReview.authorTitle')"
@@ -368,7 +371,10 @@
         </div>
       </template>
     </el-dialog>
-    <editor-search v-if="!sourceCode" />
+    <editor-search
+      v-if="!sourceCode"
+      :replace-available="markupEditingAvailable"
+    />
   </div>
 </template>
 
@@ -379,6 +385,7 @@ import {
   provide,
   computed,
   ref,
+  toRef,
   reactive,
   watch,
   onMounted,
@@ -396,6 +403,7 @@ import {
   type ReviewContextAction
 } from 'common/commands/review'
 import CoreReviewList from './CoreReviewList.vue'
+import { createCoreReviewComposer, type CoreReviewComposerState } from './coreReviewComposer'
 import {
   createReviewContextSession,
   reviewContextSelection
@@ -485,6 +493,7 @@ import {
   createShadowDocumentAuthority,
   createWorkerShadowPort,
   type CoreAppliedReply,
+  type CoreAuthorForm,
   type CoreAuthorityPerformanceTrace,
   type CoreDocumentViewLease,
   type CoreReviewDecision,
@@ -504,6 +513,7 @@ import {
   muyaClipboardCurrentSelection,
   muyaClipboardToModel,
   muyaActiveFormats,
+  muyaCaretStep,
   muyaCodeLanguage,
   muyaEmojiContext,
   muyaFormatToModel,
@@ -588,6 +598,7 @@ const props = defineProps<{
   corePerformanceTrace?: CoreAuthorityPerformanceTrace
   coreTestCrashWorker?: () => void
   coreTestStaleNextTransaction?: () => void
+  commentComposerState?: CoreReviewComposerState
 }>()
 const emit = defineEmits<{
   (event: 'core-fault', error: unknown): void
@@ -679,6 +690,9 @@ let latestCorePlainTextChange: unknown
 let coreAuthorityPerformanceTrace: CoreAuthorityPerformanceTrace | undefined
 const coreAuthorSelection = ref<MuyaPlainTextAuthorSelection>()
 const coreAuthorInvocationSelection = ref<MuyaPlainTextAuthorSelection>()
+// Review forms Core can author over the selection. Code and other literal
+// contexts have none, so authoring controls stay unavailable there.
+const coreAuthorForms = shallowRef<readonly CoreAuthorForm[]>([])
 const reviewLayoutStore = useLayoutStore()
 const coreReviewOverview = shallowRef<NonNullable<CoreReviewItemReply['overview']>>([])
 const coreReviewPosition = computed(
@@ -695,18 +709,16 @@ const coreReviewCommentText = ref<string>()
 const coreDisplayMode = ref<'markup' | 'original' | 'revised'>('markup')
 const coreDisplayProjection = shallowRef<CoreReviewItemReply['commentProjection']>()
 const coreDisplayLoading = ref(false)
-const coreCommentOpen = ref(false)
-const coreCommentError = ref('')
-const coreCommentTarget = ref<
-  Readonly<{
-    id: string
-    revision: number
-    text: string
-    form?: 'comment' | 'substitution'
-    selection?: MuyaPlainTextAuthorSelection
-    item?: NonNullable<CoreReviewItemReply['item']>
-  }>
->()
+// Original and Revised are read-only projections. Commands addressed to the
+// hidden Markup editor must not change the document behind them.
+const markupEditingAvailable = computed(
+  () => !sourceCode.value && coreDisplayMode.value === 'markup'
+)
+const coreCommentComposer = props.commentComposerState ?? reactive(createCoreReviewComposer())
+const coreCommentOpen = toRef(coreCommentComposer, 'open')
+const coreCommentDraft = toRef(coreCommentComposer, 'draft')
+const coreCommentError = toRef(coreCommentComposer, 'error')
+const coreCommentTarget = toRef(coreCommentComposer, 'target')
 const coreReviewResolving = ref(false)
 const coreReviewRefreshPending = ref(false)
 const coreReviewBusy = computed(() => coreReviewResolving.value || coreReviewRefreshPending.value)
@@ -1107,13 +1119,14 @@ watch(focus, (value) => {
   }
 })
 
-// In source-code mode the Paragraph and Format menus operate on the hidden
-// WYSIWYG engine, so grey them out. On return to WYSIWYG, re-apply the menu
+// In source-code mode and the read-only reader views the Paragraph and Format
+// menus would operate on the hidden WYSIWYG engine, so grey them out. On return
+// to the Markup editor, re-apply the menu
 // state for the CURRENT cursor context (a code block/table still disables some
 // items) rather than blanket-enabling everything (#3531).
-watch(sourceCode, (isSource) => {
+watch(markupEditingAvailable, (available) => {
   const windowId = window.marktext?.env?.windowId ?? -1
-  if (isSource) {
+  if (!available) {
     window.electron.ipcRenderer.send('mt::set-editor-format-menus-enabled', windowId, false)
     return
   }
@@ -1623,7 +1636,7 @@ const openSpellcheckerLanguageCommand = () => {
 
 const replaceMisspelling = (payload: unknown) => {
   const { word, replacement } = payload as { word: string; replacement: string }
-  if (editor.value) {
+  if (markupEditingAvailable.value && editor.value) {
     editor.value.replaceCurrentWordInlineUnsafe(word, replacement)
   }
 }
@@ -1770,7 +1783,6 @@ const reconcileCoreHistoryView = (
     muya,
     view,
     outcome,
-    sourcePosition: corePlainTextAdapter?.reconciledSourcePosition,
     dirtyPaths: coreMarkupDirtyPaths.values(),
     applyEditability: applyCorePlainTextEditability
   })
@@ -2027,6 +2039,7 @@ const submitCoreComment = async (draft: { targetId: string; text: string }): Pro
       return
     }
     coreCommentOpen.value = false
+    coreCommentDraft.value = undefined
     coreAuthorSelection.value = undefined
     coreAuthorInvocationSelection.value = undefined
     await refreshCoreReviewItem('next', target.item?.range.start ?? 0)
@@ -2204,7 +2217,7 @@ const beginCoreAuthorReview = (
 const coreReviewCommandState = computed<ReviewCommandState>(() => ({
   available: props.coreLease !== undefined && !sourceCode.value,
   editable: coreDisplayMode.value === 'markup',
-  canAuthor: coreAuthorSelection.value !== undefined,
+  canAuthor: coreAuthorSelection.value !== undefined && coreAuthorForms.value.length > 0,
   canTrack: canToggleCoreTrackChanges({
     enabled: coreTrackChangesEnabled.value,
     editableBindingCount: coreEditableBindingCount.value,
@@ -2217,6 +2230,25 @@ const coreReviewCommandState = computed<ReviewCommandState>(() => ({
   busy: coreReviewBusy.value || coreCommentOpen.value || coreDisplayLoading.value,
   mode: coreDisplayMode.value
 }))
+watch(coreAuthorSelection, (selection, previous) => {
+  // Selection observers re-report an unchanged range; keep its known forms.
+  if (selection !== undefined && previous !== undefined && isEqual(selection, previous)) return
+  coreAuthorForms.value = []
+  const lease = props.coreLease
+  const adapter = corePlainTextAdapter
+  if (selection === undefined || lease === undefined || adapter === undefined) return
+  adapter
+    .settled()
+    .then(async () => {
+      if (coreAuthorSelection.value !== selection) return
+      const range = adapter.selectionSourceRange(selection)
+      const forms = range === undefined ? [] : await lease.authorFormsAtBarrier(range)
+      if (coreAuthorSelection.value === selection) coreAuthorForms.value = forms ?? []
+    })
+    .catch((error) => {
+      if (coreAuthorSelection.value === selection) emit('core-fault', error)
+    })
+})
 const handleCoreReviewCommand = (value: unknown): void => {
   const command = reviewCommands.find((command) => command.id === value)?.id
   if (
@@ -2446,7 +2478,7 @@ const handleCoreHistory = (command: 'undo' | 'redo'): boolean => {
 }
 
 const handleUndo = () => {
-  if (sourceCode.value) {
+  if (!markupEditingAvailable.value) {
     return
   }
 
@@ -2458,7 +2490,7 @@ const handleUndo = () => {
 }
 
 const handleRedo = () => {
-  if (sourceCode.value) {
+  if (!markupEditingAvailable.value) {
     return
   }
 
@@ -2572,6 +2604,7 @@ const handleCopyPaste = async (type: unknown): Promise<void> => {
   if (editor.value) {
     const method = COPY_PASTE_METHOD_MAP[type as string]
     if (method === undefined) return
+    if (method === 'pasteAsPlainText' && !markupEditingAvailable.value) return
     if (props.coreLease !== undefined && method !== 'pasteAsPlainText') {
       if (await prepareCoreSelectionClipboard(method === 'copyAsHtml' ? 'html' : 'rich')) {
         document.execCommand('copy')
@@ -2583,7 +2616,7 @@ const handleCopyPaste = async (type: unknown): Promise<void> => {
 }
 
 const insertImage = (src: unknown) => {
-  if (!sourceCode.value) {
+  if (markupEditingAvailable.value) {
     editor.value && editor.value.insertImage({ src })
   }
 }
@@ -2726,7 +2759,7 @@ const replaceCoreSearch = async (payload: unknown): Promise<void> => {
 }
 
 const handReplace = (payload: unknown) => {
-  if (sourceCode.value) return
+  if (!markupEditingAvailable.value) return
   if (props.coreLease !== undefined) {
     replaceCoreSearch(payload).catch((error) => emit('core-fault', error))
     return
@@ -3003,6 +3036,8 @@ const handlePrintServiceClearup = () => {
 // action (e.g. "Paragraph" inside a list/quote) fires no selection-change, so the
 // clicked checkbox menu item's auto-toggled OS checkmark would otherwise linger.
 const pushSelectionMenuState = (changes: MuyaChange) => {
+  // Selection state would re-enable Format/Paragraph menus disabled above.
+  if (!markupEditingAvailable.value) return
   editorStore.SELECTION_CHANGE({
     ...adaptSelectionChange(changes),
     // Read the live block tree (O(1)) rather than getState(), which deep-clones
@@ -3114,7 +3149,7 @@ const handleEditParagraph = (type: unknown) => {
   // These commands act on the hidden WYSIWYG engine, so block them in
   // source-code mode (mirrors handleUndo/handleSelectAll) — otherwise e.g. the
   // Insert Table wizard opens and writes to the invisible editor (#3531).
-  if (sourceCode.value) {
+  if (!markupEditingAvailable.value) {
     return
   }
   if (type === 'table') {
@@ -3187,7 +3222,7 @@ const handleEditParagraph = (type: unknown) => {
 
 // handle `duplicate`, `delete`, `create paragraph below`
 const handleParagraph = (type: unknown) => {
-  if (sourceCode.value) {
+  if (!markupEditingAvailable.value) {
     return
   }
   if (editor.value) {
@@ -3208,51 +3243,13 @@ const handleParagraph = (type: unknown) => {
 }
 
 const handleInlineFormat = (type: unknown) => {
-  if (sourceCode.value) {
+  if (!markupEditingAvailable.value) {
     return
   }
   const muya = editor.value
   if (muya === null) return
+  // Bound Muya opens the image tool itself once the format is applied.
   muya.format(type)
-  const adapter = corePlainTextAdapter
-  if (type === 'image' && adapter !== undefined) {
-    muya.flush()
-    const lease = props.coreLease
-    const selection = muya.getSelection()
-    const nativeChange = latestCorePlainTextChange
-    const interaction = new AbortController()
-    let superseded = false
-    const supersede = () => {
-      superseded = true
-    }
-    document.addEventListener('pointerdown', supersede, {
-      capture: true,
-      signal: interaction.signal
-    })
-    document.addEventListener('keydown', supersede, { capture: true, signal: interaction.signal })
-    adapter
-      .settled()
-      .then(() => {
-        const current = muya.getSelection()
-        if (
-          superseded ||
-          editor.value !== muya ||
-          props.coreLease !== lease ||
-          nativeChange !== latestCorePlainTextChange ||
-          selection === null ||
-          current === null ||
-          !isEqual(selection.anchor.path, current.anchor.path) ||
-          !isEqual(selection.focus.path, current.focus.path)
-        ) {
-          return
-        }
-        // Publishing a noneditable image moves an internal source caret to its
-        // visible edge. User interaction, rather than that projection, retires the request.
-        muya.showImageSelectorAtSelection()
-      })
-      .catch((error) => emit('core-fault', error))
-      .finally(() => interaction.abort())
-  }
 }
 
 const handleDialogTableConfirm = async () => {
@@ -3460,6 +3457,7 @@ const handleFileChange = (payload: unknown) => {
 }
 
 const handleInsertParagraph = (location: unknown) => {
+  if (!markupEditingAvailable.value) return
   editor.value && editor.value.insertParagraph(location)
 }
 
@@ -3509,7 +3507,7 @@ const handleModalOpening = () => {
 // Electron 42 Chromium, so insert the saved image at the cursor through the
 // engine (routing via `imageAction` → upload/folder/path).
 const handleScreenShot = (filePath?: unknown) => {
-  if (editor.value && typeof filePath === 'string' && filePath) {
+  if (markupEditingAvailable.value && editor.value && typeof filePath === 'string' && filePath) {
     editor.value.pasteImage(filePath)
   }
 }
@@ -3763,7 +3761,6 @@ onMounted(() => {
             documentId: props.coreLease.documentId,
             record: (event) => coreAuthorityPerformanceTrace?.capture(event)
           },
-      reconcileCoreHistoryView,
       props.coreLease.identity.revision,
       true
     )
@@ -3789,6 +3786,10 @@ onMounted(() => {
         coreAcknowledgedMarkupView === undefined
           ? []
           : muyaActiveFormats(muya, coreAcknowledgedMarkupView, selection),
+      caretStep: (point, direction) =>
+        coreAcknowledgedMarkupView === undefined
+          ? undefined
+          : muyaCaretStep(muya, coreAcknowledgedMarkupView, point, direction),
       prepareImage: async (operation, payload, prepare): Promise<boolean> => {
         const adapter = corePlainTextAdapter
         const lease = props.coreLease

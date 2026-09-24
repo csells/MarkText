@@ -6,16 +6,18 @@ import { planTaskChecked } from './taskInputPlanning.js'
 import { containerContinuationPrefix } from './clipboardMarkdown.js'
 import { DOCUMENT_RESOURCE_POLICY_V1 } from './resourcePolicy.js'
 import type { MarkdownLineIndex } from './revision.js'
-import { normalizeTableDimensions, tableToMarkdownWithPositions, codeEnter, fencedCodeMarkdown, emptyTableColumn, emptyTableRow, toggleTableAlignment, tableDelimiterMarkers } from '@marktext/input-policy'
+import { normalizeTableDimensions, tableToMarkdownWithPositions, codeEnter, fencedCodeMarkdown, htmlBlockTemplate, htmlBlockTemplateTag, emptyTableColumn, emptyTableRow, toggleTableAlignment, tableDelimiterMarkers } from '@marktext/input-policy'
 import type { ParagraphEnterConversion } from './internal/profile1/markdownParser.js'
-import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
+import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
 import type { DocumentInputAction, DocumentSourceInputPlan } from './inputPlanning.js'
 import { resolveTableCell } from './tableSelection.js'
 import { positionAfter } from './sourcePosition.js'
 import { materializeTableCellEdit, tableRowCompletion } from './tableCellEditing.js'
 import { paragraphPrefixPosition, paragraphImageRange } from './paragraphBoundary.js'
-import { literalJoinParagraphText, tableJoinParagraphText, emptyParagraphJoinContainer, paragraphJoinBlock, paragraphJoinAdjacent, paragraphJoinTrailingEdits } from './paragraphJoinPlanning.js'
+import { literalJoinParagraphText, tableJoinParagraphText, emptyParagraphJoinContainer, paragraphJoinBlock, paragraphJoinAdjacent, paragraphJoinTrailingEdits, paragraphLeadingLineJoin } from './paragraphJoinPlanning.js'
 import { syntaxPathAt } from './syntaxPath.js'
+import { planEmptiedSetextReset } from './setextTrailingLine.js'
+import { mergeAdjacentEdits, planEmptiedParagraph } from './emptiedParagraphPlanning.js'
 import { blockCommandTarget, planBlockCommand } from './blockCommandPlanning.js'
 import { isLiteralBlock, literalParagraphSpelling } from './literalBlock.js'
 
@@ -117,13 +119,53 @@ export function planTableRemoval(
 }
 
 /** Structural input uses the same source action and compiler as ordinary typing. */
+/**
+ * A collapsed caret beside hidden CriticMarkup delimiters has one visible
+ * position. A break there belongs outside the annotation edge, as beside
+ * visible `**` markers: past closers ending at the caret and any comment that
+ * follows them, or else before openers starting there. Splitting inside would
+ * leave an annotation with an empty payload on one side of the break.
+ */
+function annotationExteriorBreak(annotations: readonly CriticMarkupAnnotation[], syntax: MarkupSyntax, caret: number): number {
+  const all: CriticMarkupAnnotation[] = []
+  const collect = (items: readonly CriticMarkupAnnotation[]): void => {
+    for (const item of items) {
+      all.push(item)
+      for (const arm of item.arms) collect(arm.annotations)
+    }
+  }
+  collect(annotations)
+  let after = caret
+  for (;;) {
+    const exited = all.find(item => item.range.end > after &&
+      (item.arms.at(-1)?.range.end === after || item.kind === 'comment' && item.range.start === after))
+    if (exited === undefined) break
+    after = exited.range.end
+  }
+  let before = caret
+  for (;;) {
+    const entered = all.find(item => item.kind !== 'comment' && item.range.start < before && item.arms[0]?.range.start === before)
+    if (entered === undefined || after !== caret) break
+    before = entered.range.start
+  }
+  const target = after === caret ? before : after
+  return syntax.coordinates.toProjected(target, 'next') === syntax.coordinates.toProjected(caret, 'next') ? target : caret
+}
+
 export function planStructuralInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction<SourceRange>, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, selectedCell?: ReturnType<typeof resolveTableCell>): DocumentSourceInputPlan {
-  const { start, end } = action.selection
   const inputType = 'inputType' in action ? action.inputType : undefined
+  const projection = core.project(revision, 'markup').syntax
+  const breakAt = action.selection.start === action.selection.end && (inputType === 'insertParagraph' || inputType === 'insertLineBreak')
+    ? annotationExteriorBreak(revision.annotations, projection, action.selection.start)
+    : undefined
+  const { start, end } = breakAt === undefined ? action.selection : { start: breakAt, end: breakAt }
   const rawRange = 'range' in action ? action.range : { start, end: start }
   const preceding = core.sourceSlice(revision, { start: 0, end: start })
   const lineEnding = preceding.match(/\r\n|\r|\n/u)?.[0] ?? core.sourceSlice(revision, { start, end: revision.sourceLength }).match(/\r\n|\r|\n/u)?.[0] ?? '\n'
-  const projection = core.project(revision, 'markup').syntax
+  if (start === end && ('kind' in action ? action.command === 'changeBlock' && action.change.type === 'reset' && action.change.at === undefined : inputType === 'insertParagraph')) {
+    const reset = planEmptiedSetextReset(core, revision, projection, start)
+    if (reset !== undefined) return reset
+  }
   const targetPosition = 'kind' in action && action.command === 'changeBlock' ? action.change.at ?? start : start
   const projected = projection.coordinates.toProjected(targetPosition, 'next')
   const ancestors: MarkdownAstNode[] = []
@@ -146,6 +188,14 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     ancestors.push(row, selectedCell.cell)
   }
   const block = [...ancestors].reverse().find(node => node.kind === 'paragraph' || node.kind === 'heading')
+  // Upstream's soft break in an ATX heading starts a paragraph, as Enter does.
+  // Upstream's soft break after a thematic break, or at the end of an HTML
+  // block, starts a paragraph as Enter does.
+  const htmlBlock = ancestors.find(node => node.kind === 'html-block')
+  const paragraphBreak = inputType === 'insertParagraph' ||
+    (inputType === 'insertLineBreak' && block?.kind === 'heading' && block.attributes.style !== 'setext') ||
+    (inputType === 'insertLineBreak' && start === end && (ancestors.some(node => node.kind === 'thematic-break') ||
+      (htmlBlock !== undefined && start === projection.coordinates.toSource(htmlBlock.children.at(-1)?.range.end ?? htmlBlock.range.end, 'previous'))))
   const item = [...ancestors].reverse().find(node => node.kind === 'list-item')
   const quote = ancestors.find(node => node.kind === 'blockquote')
   const result = (edits: DocumentSourceEdit[], selection: SourceRange): DocumentSourceInputPlan => {
@@ -163,6 +213,9 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     }
   }
   const sourceAt = (offset: number) => projection.coordinates.toSource(offset, 'next')
+  // An empty paragraph written at the document's end ends its line, as
+  // upstream writes it; a document's single final blank line is no block.
+  const finalLine = (at: number, continuation: string) => continuation === '' && at === revision.sourceLength ? lineEnding : ''
   const moveAfter = (boundary: MarkdownAstNode): DocumentSourceInputPlan => {
     let following: MarkdownAstNode | undefined
     const findFollowing = (node: MarkdownAstNode): void => {
@@ -179,10 +232,12 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
       const caret = sourceAt(contentStart)
       return result([], { start: caret, end: caret })
     }
+    // The new empty paragraph is spelled as Enter at a final paragraph's end
+    // spells it: the final line after a blank separator line.
     const ending = core.sourceSlice(revision, { start: Math.max(0, revision.sourceLength - lineEnding.length * 2), end: revision.sourceLength })
-    const insert = ending.endsWith(lineEnding + lineEnding) ? '' : ending.endsWith(lineEnding) ? lineEnding : lineEnding + lineEnding
-    const caret = revision.sourceLength + insert.length
-    return result(insert === '' ? [] : [{ start: revision.sourceLength, end: revision.sourceLength, insert }], { start: caret, end: caret })
+    const insert = ending.endsWith(lineEnding + lineEnding) ? lineEnding : ending.endsWith(lineEnding) ? lineEnding + lineEnding : lineEnding.repeat(3)
+    const caret = revision.sourceLength + insert.length - lineEnding.length
+    return result([{ start: revision.sourceLength, end: revision.sourceLength, insert }], { start: caret, end: caret })
   }
   const insertionTarget = () => {
     const target = [...ancestors].reverse().find(node => ['paragraph', 'heading', 'code-block', 'math-block', 'diagram', 'html-block', 'front-matter'].includes(node.kind))
@@ -226,7 +281,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
         return result([{ start: revision.sourceLength, end: revision.sourceLength, insert }], { start: caret, end: caret })
       }
       case 'setCodeLanguage': {
-        const planned = planCodeLanguage(core, revision, action.selection, action.language)
+        const planned = planCodeLanguage(core, revision, action.selection, action.language, action.infoOffset)
         return result(planned.edits, planned.selection)
       }
       case 'changeBlock': {
@@ -262,7 +317,10 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
         const forward = action.command === 'joinParagraphForward'
         const emptyContainer = emptyParagraphJoinContainer
         const paragraphLike = paragraphJoinBlock
-        const current = [...ancestors].reverse().find(node => paragraphLike(node) || node.kind === 'heading')
+        // Delete at the end of a table's last cell joins the next paragraph
+        // into that cell, as Backspace at the paragraph's start does.
+        const cell = forward && selectedCell !== undefined && selectedCell.slotStart !== undefined ? selectedCell.cell : undefined
+        const current = cell ?? [...ancestors].reverse().find(node => paragraphLike(node) || node.kind === 'heading')
         const contentEnd = (node: MarkdownAstNode): number => {
           const image = paragraphImageRange(node)
           if (image !== undefined) return image.end
@@ -276,6 +334,8 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
           }
           return node.range.end
         }
+        const leadingJoin = forward || start !== end ? undefined : paragraphLeadingLineJoin(core, revision, projection, start)
+        if (leadingJoin !== undefined) return result([{ ...leadingJoin, insert: '' }], { start: leadingJoin.start, end: leadingJoin.start })
         if (current === undefined || start !== end) throw new RangeError('Paragraph join requires a block-boundary caret')
         const boundary = forward && current.attributes.style === 'setext' ? Number(current.attributes.contentEnd) : forward ? contentEnd(current) : emptyContainer(current) ? contentEnd(current) : paragraphImageRange(current)?.start ?? current.range.start
         if (projected !== boundary && !(forward && current.kind === 'definition' && projected === current.range.end)) throw new RangeError('Paragraph join requires a block-boundary caret')
@@ -304,10 +364,16 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
           return result(edits, { start: caret, end: caret })
         }
         const adjacent = paragraphJoinAdjacent(projection, current, forward)
-        if (adjacent === undefined) return result([], { start, end })
+        if (adjacent === undefined || cell !== undefined && !paragraphLike(adjacent)) return result([], { start, end })
+        // Delete on a template's middle line joins it to the following HTML
+        // line, as in the HTML widget; its container prefix goes with it.
+        if (forward && adjacent.kind === 'html-block' && current.kind === 'paragraph' && current.range.start === current.range.end &&
+            paragraphJoinAdjacent(projection, current, false)?.kind === 'html-block') {
+          return result([{ start, end: sourceAt(adjacent.range.start), insert: '' }], { start, end: start })
+        }
         const previous = forward ? current : adjacent
         const paragraph = forward ? adjacent : current
-        if (!forward && previous.kind === 'table-cell' && paragraphLike(paragraph)) {
+        if (previous.kind === 'table-cell' && paragraphLike(paragraph)) {
           const path = syntaxPathAt(projection.ast.root, previous.range.start)
           const table = path.find(node => node.kind === 'table')
           const row = path.find(node => node.kind === 'table-row')
@@ -546,13 +612,18 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
           // Native Enter at the start leaves the caret on the original rule;
           // other rule selections move into the new following paragraph.
           const caret = at + insert.length
-          return result([{ start: at, end: at, insert }], { start: caret, end: caret })
+          return result([{ start: at, end: at, insert: insert + finalLine(at, continuation) }], { start: caret, end: caret })
         }
         if (action.change.type === 'reset' || action.change.type === 'toggle' && rule !== undefined) {
           if (rule === undefined) throw new RangeError('Horizontal rule reset requires the selected rule')
           const from = projection.coordinates.toSource(rule.range.start, 'previous')
           const to = projection.coordinates.toSource(rule.range.end, 'next')
-          return result([{ start: from, end: to, insert: '' }], { start: from, end: from })
+          // The rule's line becomes the empty paragraph upstream leaves there.
+          const removal = { start: from, end: to, insert: '' }
+          const separators = planEmptiedParagraph(core, revision, projection, rule, [removal]) ?? []
+          const before = separators.filter(edit => edit.end <= from)
+          const caret = from + before.reduce((length, edit) => length + edit.insert.length, 0)
+          return result(mergeAdjacentEdits([...before, removal, ...separators.filter(edit => edit.start >= to)]), { start: caret, end: caret })
         }
         const { target, continuation, from, to } = insertionTarget()
         const empty = target?.kind === 'paragraph' && target.range.start === target.range.end &&
@@ -565,7 +636,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
         const insert = prefix + marker + lineEnding + continuation.trimEnd() + lineEnding + continuation
         const at = replace ? from : to
         const caret = at + insert.length
-        return result([{ start: at, end: replace ? to : at, insert }], { start: caret, end: caret })
+        return result([{ start: at, end: replace ? to : at, insert: insert + finalLine(to, continuation) }], { start: caret, end: caret })
       }
       case 'createMathBlock': {
         if (typeof action.replace !== 'boolean') throw new RangeError('Math insertion requires its replacement intent')
@@ -576,6 +647,16 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
         const at = replace ? from : to
         const caret = at + prefix.length + 2 + lineEnding.length + continuation.length
         return result([{ start: at, end: replace ? to : at, insert }], { start: caret, end: caret })
+      }
+      case 'createHtmlBlock': {
+        if (typeof action.replace !== 'boolean' || !['content', 'end'].includes(action.selectionMode)) throw new RangeError('HTML block insertion requires its replacement and selection intent')
+        const { target, continuation, from, to } = insertionTarget()
+        const replace = action.replace || target === undefined
+        const prefix = replace ? '' : lineEnding + continuation.trimEnd() + lineEnding + continuation
+        const template = htmlBlockTemplate('div', lineEnding, continuation)
+        const at = replace ? from : to
+        const caret = at + prefix.length + (action.selectionMode === 'end' ? template.markdown.length : template.caret)
+        return result([{ start: at, end: replace ? to : at, insert: prefix + template.markdown }], { start: caret, end: caret })
       }
       case 'createTable': {
         const dimensions = normalizeTableDimensions(action.rows, action.columns)
@@ -662,12 +743,6 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
               const to = projection.coordinates.toSource(node.range.end, 'previous')
               return [node.range.start, paragraphPrefixPosition(revision.annotations, { start: from, end: to }) ?? from]
             }))
-          const exterior = first === last && first.kind === 'paragraph' ? paragraphStarts.get(first.range.start) : undefined
-          if (exterior !== undefined && exterior < sourceAt(first.range.start)) {
-            // This entire annotated paragraph already owns its continuation.
-            // Quote its exterior without rewriting newlines inside that owner.
-            return finish([{ start: exterior, end: exterior, insert: '> ' }], { start, end })
-          }
           for (let index = 0; index < lines.count; index++) {
             const line = lines.at(index)
             if (line.start < first.range.start || line.start >= last.range.end) continue
@@ -687,7 +762,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
         const positions = new Set([from])
         // Quote the actual lines contributed by this owned paragraph. Hidden
         // comment bytes are not paragraph text and must remain untouched.
-        for (const event of from < paragraphStart ? [] : core.project(revision, 'markup').events) {
+        for (const event of core.project(revision, 'markup').events) {
           if (event.kind !== 'text') continue
           for (const match of event.text.matchAll(/\r\n|\r|\n/gu)) {
             const at = event.sourceRange.start + match.index + match[0].length
@@ -864,9 +939,19 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
   if (empty !== undefined && inputType === 'insertParagraph' && start === end) {
     const from = sourceAt(empty.range.start)
     const trailingSpace = core.sourceSlice(revision, { start, end: revision.sourceLength }).match(/^[ \t]*/u)?.[0].length ?? 0
+    // A root container emptied at the end of a document with earlier content
+    // leaves a final empty paragraph, written as upstream writes it: a blank
+    // separator line, then the paragraph's own line.
+    const rest = core.sourceSlice(revision, { start: start + trailingSpace, end: revision.sourceLength })
+    const before = core.sourceSlice(revision, { start: Math.max(0, from - 256), end: from })
+    const blank = /(?:\r\n|\r|\n)(?:[ \t]*(?:\r\n|\r|\n))*$/u.exec(before)
+    const contentEnd = blank === null ? 0 : from - blank[0].length
+    if (from > 0 && blank !== null && contentEnd > 0 && /^(?:\r\n|\r|\n)?$/u.test(rest)) {
+      return result([{ start: contentEnd, end: revision.sourceLength, insert: lineEnding.repeat(3) }], { start: contentEnd + lineEnding.length * 2, end: contentEnd + lineEnding.length * 2 })
+    }
     return result([{ start: from, end: start + trailingSpace, insert: '' }], { start: from, end: from })
   }
-  const fence = ancestors.find(node => node.kind === 'code-block' || node.kind === 'diagram')
+  const fence = ancestors.find(node => node.kind === 'code-block' || node.kind === 'diagram' || node.kind === 'math-block' || node.kind === 'front-matter')
   if (fence !== undefined && inputType === 'insertLineBreak') return moveAfter(fence)
   if (fence !== undefined && inputType === 'insertParagraph' && fence.attributes.content === '' &&
       typeof fence.attributes.contentStart === 'number' && fence.range.end <= fence.attributes.contentStart &&
@@ -879,9 +964,66 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     const from = sourceAt(fence.attributes.contentStart)
     const to = projection.coordinates.toSource(Number(fence.attributes.contentEnd), 'previous')
     const body = core.sourceSlice(revision, { start: from, end: to })
-    const policy = codeEnter(body, start - from, action.options.tabSize ?? 4, lineEnding)
-    const caret = start + policy.caret
-    return result([{ start, end, insert: policy.insert }], { start: caret, end: caret })
+    if (fence.attributes.provider === 'indented-code') {
+      // Each line of indented code repeats its line's indentation and containers.
+      const line = core.sourceSlice(revision, { start: 0, end: start })
+      const prefix = /^[ \t>]*/u.exec(line.slice(Math.max(line.lastIndexOf('\n'), line.lastIndexOf('\r')) + 1))?.[0] ?? ''
+      const insert = lineEnding + prefix
+      return result([{ start, end, insert }], { start: start + insert.length, end: start + insert.length })
+    }
+    // Each new body line continues the fence's quotes and list indentation.
+    const prefix = containerContinuationPrefix(core, revision, projection, fence, ancestors.slice(0, ancestors.indexOf(fence)))
+    if (body === '' && start === end) {
+      // An empty body has no line; its text's first line break needs two.
+      const line = prefix + lineEnding
+      return result([{ start, end, insert: line + line }], { start: start + line.length + prefix.length, end: start + line.length + prefix.length })
+    }
+    // The policy reads the code's own line, after its container prefix.
+    const offset = start - from
+    const lineStart = Math.max(body.lastIndexOf('\n', offset - 1), body.lastIndexOf('\r', offset - 1)) + 1
+    const lineEnd = body.slice(lineStart).search(/\r|\n/u)
+    const sourceLine = body.slice(lineStart, lineEnd === -1 ? body.length : lineStart + lineEnd)
+    const strip = prefix !== '' && sourceLine.startsWith(prefix) && offset - lineStart >= prefix.length ? prefix.length : 0
+    const policy = codeEnter(sourceLine.slice(strip), offset - lineStart - strip, action.options.tabSize ?? 4, lineEnding)
+    const continued = (text: string) => text.replaceAll(lineEnding, lineEnding + prefix)
+    const insert = continued(policy.insert)
+    const caret = start + continued(policy.insert.slice(0, policy.caret)).length
+    return result([{ start, end, insert }], { start: caret, end: caret })
+  }
+  // A multi-line HTML block is MarkText's HTML code widget: Enter adds one line
+  // within its containers, indented like the block's first line and opened
+  // between a tag or bracket pair. A single-line block keeps paragraph Enter.
+  const html = ancestors.find(node => node.kind === 'html-block')
+  // A lone known opening tag becomes an empty element whose middle line holds
+  // the caret, wherever the caret sits in the opener.
+  if (html !== undefined && inputType === 'insertParagraph' && !html.children.some(child => child.kind === 'soft-break')) {
+    const from = sourceAt(html.children[0]?.range.start ?? html.range.start)
+    const to = projection.coordinates.toSource(html.children.at(-1)?.range.end ?? html.range.start, 'previous')
+    const tagName = htmlBlockTemplateTag(core.sourceSlice(revision, { start: from, end: to }))
+    if (tagName !== undefined && from <= start && end <= to) {
+      const continuation = containerContinuationPrefix(core, revision, projection, html, ancestors.slice(0, ancestors.indexOf(html)))
+      const template = htmlBlockTemplate(tagName, lineEnding, continuation)
+      return result([{ start: from, end: to, insert: template.markdown }], { start: from + template.caret, end: from + template.caret })
+    }
+  }
+  if (html !== undefined && inputType === 'insertParagraph' && html.children.some(child => child.kind === 'soft-break')) {
+    const continuation = lineEnding + containerContinuationPrefix(core, revision, projection, html, ancestors.slice(0, ancestors.indexOf(html)))
+    const indent = /^[ \t]*/u.exec(core.sourceSlice(revision, { start: sourceAt(html.range.start), end: sourceAt(html.range.end) }))?.[0] ?? ''
+    const pair = start === end && /^(?:\{\}|\[\]|\(\)|><)$/u.test(core.sourceSlice(revision, { start: Math.max(0, start - 1), end: Math.min(revision.sourceLength, start + 1) }))
+    const opened = pair ? indent + ' '.repeat(action.options.tabSize ?? 4) : ''
+    const insert = continuation + (pair ? opened + continuation : '') + indent
+    const caret = start + continuation.length + (pair ? opened.length : indent.length)
+    return result([{ start, end, insert }], { start: caret, end: caret })
+  }
+  // Enter on a template's middle line adds a line there, as in the HTML widget.
+  if (block?.kind === 'paragraph' && block.range.start === block.range.end && inputType === 'insertParagraph' && start === end) {
+    const index = ancestors.indexOf(block)
+    const siblings = (index > 0 ? ancestors[index - 1] : projection.ast.root)?.children ?? []
+    const position = siblings.indexOf(block)
+    if (siblings[position - 1]?.kind === 'html-block' && siblings[position + 1]?.kind === 'html-block') {
+      const insert = lineEnding + containerContinuationPrefix(core, revision, projection, block, ancestors.slice(0, index))
+      return result([{ start, end, insert }], { start: start + insert.length, end: start + insert.length })
+    }
   }
   const cell = ancestors.find(node => node.kind === 'table-cell')
   const table = ancestors.find(node => node.kind === 'table')
@@ -914,11 +1056,38 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     const caret = headerEnd + lineEnding.length + delimiter.length + lineEnding.length + 2
     return result([{ start: headerEnd, end: headerEnd, insert }], { start: caret, end: caret })
   }
-  if (block?.kind === 'heading' && inputType === 'insertParagraph') {
+  const blockIndex = block === undefined ? -1 : ancestors.indexOf(block)
+  const blockContainers = ancestors.slice(0, Math.max(0, blockIndex))
+  // A line inside quotes and list items continues them; a blank separator line
+  // keeps only the quote markers, as upstream spells both.
+  const continuation = block !== undefined && blockContainers.some(node => node.kind === 'list-item' || node.kind === 'blockquote') &&
+    !blockContainers.some(node => node.kind === 'footnote-definition')
+    ? containerContinuationPrefix(core, revision, projection, block, blockContainers)
+    : ''
+  const newParagraph = lineEnding + continuation.trimEnd() + lineEnding + continuation
+  const finalParagraph = (at: number) => newParagraph + finalLine(at, continuation)
+  // Upstream separates every block by a blank line. A block written directly
+  // after the broken one stays apart from the new paragraph, which is then
+  // editable between blank lines.
+  const siblings = blockContainers.at(-1)?.children ?? projection.ast.root.children
+  const following = block === undefined ? undefined : siblings[siblings.indexOf(block) + 1]
+  const blockEnd = block === undefined ? start : sourceAt(block.range.end)
+  const adjacent = following !== undefined &&
+    !/(?:\r\n|\r|\n)[ \t>]*(?:\r\n|\r|\n)/u.test(core.sourceSlice(revision, { start: blockEnd, end: sourceAt(following.range.start) }))
+  const separated = (edits: DocumentSourceEdit[], caret: number): DocumentSourceInputPlan => {
+    if (!adjacent) return result(edits, { start: caret, end: caret })
+    const separator = lineEnding + continuation.trimEnd()
+    const last = edits.at(-1)
+    const all = last !== undefined && last.start === blockEnd && last.end === blockEnd
+      ? [...edits.slice(0, -1), { ...last, insert: last.insert + separator }]
+      : [...edits, { start: blockEnd, end: blockEnd, insert: separator }]
+    return result(all, { start: caret, end: caret })
+  }
+  if (block?.kind === 'heading' && paragraphBreak) {
     const contentStart = block.children[0]?.range.start ?? block.range.start
     if (projected <= contentStart && start === end) {
       const from = sourceAt(block.range.start)
-      return result([{ start: from, end: from, insert: lineEnding + lineEnding }], { start: start + lineEnding.length * 2, end: start + lineEnding.length * 2 })
+      return separated([{ start: from, end: from, insert: newParagraph }], start + newParagraph.length)
     }
     if (block.attributes.style === 'setext') {
       const contentEnd = block.children.at(-1)?.range.end
@@ -926,31 +1095,85 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
       const markerStart = sourceAt(contentEnd)
       const markerEnd = sourceAt(block.range.end)
       const marker = core.sourceSlice(revision, { start: markerStart, end: markerEnd })
-      const insert = marker + lineEnding + lineEnding
-      return result([{ start, end, insert }, { start: markerStart, end: markerEnd, insert: '' }], { start: start + insert.length, end: start + insert.length })
+      const insert = marker + (end === markerStart ? finalParagraph(markerEnd) : newParagraph)
+      return separated([{ start, end, insert }, { start: markerStart, end: markerEnd, insert: '' }], start + marker.length + newParagraph.length)
+    }
+    return separated([{ start, end, insert: finalParagraph(end) }], start + newParagraph.length)
+  }
+  // A soft break continues the block's containers on its new line, as upstream spells it.
+  let insert = inputType === 'insertLineBreak' && !paragraphBreak
+    ? lineEnding + (block?.kind === 'paragraph' || block?.kind === 'heading' ? containerContinuationPrefix(core, revision, projection, block, blockContainers) : '')
+    : newParagraph
+  const list = [...ancestors].reverse().find(node => node.kind === 'list')
+  const lineStartOf = (position: number): number => {
+    for (let span = 256; ; span *= 4) {
+      const from = Math.max(0, position - span)
+      const text = core.sourceSlice(revision, { start: from, end: position })
+      const found = Math.max(text.lastIndexOf('\n'), text.lastIndexOf('\r'))
+      if (found >= 0) return from + found + 1
+      if (from === 0) return 0
     }
   }
-  let insert = inputType === 'insertLineBreak' ? lineEnding : lineEnding + lineEnding
-  if (block !== undefined && inputType === 'insertParagraph') {
-    if (item !== undefined && item.children.length === 1) {
-      const itemStart = projection.coordinates.toSource(item.range.start, 'next')
-      const beforeItem = core.sourceSlice(revision, { start: 0, end: itemStart })
-      const prefixStart = Math.max(beforeItem.lastIndexOf('\n'), beforeItem.lastIndexOf('\r')) + 1
-      const contentStart = projection.coordinates.toSource(block.range.start, 'next')
-      let prefix = core.sourceSlice(revision, { start: prefixStart, end: contentStart })
-      if (item.attributes.task === true) prefix = prefix.slice(0, sourceAt(Number(item.attributes.taskMarkerStart)) - prefixStart) + '[ ] '
-      const list = [...ancestors].reverse().find(node => node.kind === 'list')
-      if (list?.attributes.ordered === true) prefix = prefix.replace(/\d+/u, number => String(Number(number) + 1))
-      insert = lineEnding + prefix
-    } else if (quote !== undefined) {
-      const quoteStart = projection.coordinates.toSource(quote.range.start, 'next')
-      let first = quote.children[0]
-      while (first !== undefined && first.kind !== 'paragraph' && first.kind !== 'heading' && first.children.length > 0) first = first.children[0]
-      const contentStart = projection.coordinates.toSource(first?.range.start ?? block.range.start, 'next')
-      const prefix = core.sourceSlice(revision, { start: quoteStart, end: contentStart })
-      insert = lineEnding + prefix + lineEnding + prefix
+  const lineEndOf = (position: number): number => {
+    for (let span = 256; ; span *= 4) {
+      const to = Math.min(revision.sourceLength, position + span)
+      const found = core.sourceSlice(revision, { start: position, end: to }).search(/[\r\n]/u)
+      if (found >= 0) return position + found
+      if (to === revision.sourceLength) return to
     }
+  }
+  // The marker line of an item split after `item`, continuing its containers.
+  // Upstream continues only bullet task items, unchecked; an ordered item's
+  // task marker is not part of its native editing model.
+  const siblingMarker = (item: MarkdownAstNode): string => {
+    const itemStart = sourceAt(item.range.start)
+    const markerLineEnd = lineEndOf(itemStart)
+    const firstStart = item.children[0] === undefined ? markerLineEnd : sourceAt(item.children[0].range.start)
+    const task = item.attributes.task === true
+    let marker = core.sourceSlice(revision, { start: itemStart, end: task ? sourceAt(Number(item.attributes.taskMarkerStart)) : Math.min(firstStart, markerLineEnd) })
+    // A marker whose content begins on a later line is written as upstream
+    // writes an empty item's: followed by one space.
+    if (!task && firstStart > markerLineEnd) marker = marker.trimEnd() + ' '
+    if (task && list?.attributes.ordered !== true) marker += '[ ] '
+    if (list?.attributes.ordered === true) marker = marker.replace(/\d+/u, number => String(Number(number) + 1))
+    return containerContinuationPrefix(core, revision, projection, item, ancestors.slice(0, ancestors.indexOf(item))) + marker
+  }
+  if (block?.kind === 'paragraph' && block.range.start === block.range.end && inputType === 'insertParagraph' && start === end &&
+    item !== undefined && blockContainers.at(-1) === item && item.children.length > 1) {
+    // Upstream splits the item: the empty paragraph and what follows move to
+    // a new item, except that an empty first paragraph stays as the item.
+    const index = item.children.indexOf(block)
+    const moved = item.children[index === 0 ? 1 : index]
+    if (moved === undefined) throw new RangeError('List item split has no moved block')
+    const marker = siblingMarker(item)
+    const movedStart = sourceAt(moved.range.start)
+    const lineStart = lineStartOf(movedStart)
+    let leaf = moved
+    while (!['paragraph', 'heading'].includes(leaf.kind) && !isLiteralBlock(leaf.kind) && leaf.children[0] !== undefined) leaf = leaf.children[0]
+    const leafFrom = sourceAt(typeof leaf.attributes.contentStart === 'number' ? leaf.attributes.contentStart : leaf.range.start)
+    // A task paragraph's text begins after its checkbox's separating space.
+    const leafStart = leafFrom + (leaf.kind === 'paragraph' ? core.sourceSlice(revision, { start: leafFrom, end: Math.min(lineEndOf(leafFrom), leafFrom + 8) }).search(/[^ \t]|$/u) : 0)
+    // A task checkbox begins a paragraph, so another block moved into a new
+    // task item keeps its own line beneath the new marker line.
+    if (moved.kind !== 'paragraph' && marker.endsWith('[ ] ')) {
+      const insert = marker + lineEnding
+      return result([{ start: lineStart, end: lineStart, insert }], { start: leafStart + insert.length, end: leafStart + insert.length })
+    }
+    const caret = leafStart + marker.length - (movedStart - lineStart)
+    return result([{ start: lineStart, end: movedStart, insert: marker }], { start: caret, end: caret })
+  }
+  if (block !== undefined && paragraphBreak && item !== undefined && blockContainers.at(-1) === item && item.children.length === 1) {
+    const marker = siblingMarker(item)
+    const contentStart = sourceAt(block.range.start)
+    const lineStart = lineStartOf(contentStart)
+    // Content written on the line after its marker is split at its start as
+    // upstream writes both items: the new marker replaces that line's indent.
+    if (start === end && start === contentStart && lineStart > sourceAt(item.range.start)) {
+      return result([{ start: lineStart, end: contentStart, insert: marker }], { start: lineStart + marker.length, end: lineStart + marker.length })
+    }
+    insert = lineEnding + marker
   }
   const caret = start + insert.length
+  if (insert === newParagraph) return separated([{ start, end, insert: finalParagraph(end) }], caret)
   return result([{ start, end, insert }], { start: caret, end: caret })
 }

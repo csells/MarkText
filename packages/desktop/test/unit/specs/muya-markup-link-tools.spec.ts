@@ -1,12 +1,10 @@
-// @vitest-environment happy-dom
+// @vitest-environment jsdom
 import { Muya } from '@muyajs/core'
 import { createDocumentCore } from '@marktext/document-core'
 import { expect, it, vi } from 'vitest'
-import { createCoreActor } from '@/documentAuthority/coreActor'
-import { createEditorCoreBinding } from '@/documentAuthority/editorCoreBinding'
-import { createMuyaPlainTextCoreAdapter } from '@/documentAuthority/muyaPlainTextCoreAdapter'
 import { createMuyaMarkupPresentationIndex } from '@/documentAuthority/muyaMarkupPresentationIndex'
 import { createMuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
+import { bootBoundMuya } from '../helpers/boundMuyaDocument'
 
 it.each([
   { raw: '[name](https://example.com)', end: 34, suffix: '' },
@@ -15,43 +13,21 @@ it.each([
   'offers native tools for $raw inside an addition and preserves its annotation through unlink/undo',
   async({ raw, end, suffix }) => {
     const source = `prefix {++${raw}++} tail\n${suffix}`
-    const actor = createCoreActor()
-    const binding = createEditorCoreBinding({
-      request: (request) => actor.handle(request),
-      dispose: () => {}
-    })
-    await binding.open({ documentId: 'native-link.md', source })
-    const initial = binding.plainTextViewAtBarrier()
-    if (initial.type !== 'plain-text-view' || !('state' in initial.view)) { throw new Error('Expected typed view') }
-    const host = document.createElement('div')
-    document.body.append(host)
-    const muya = new Muya(host)
-    muya.init()
-    const install = (view: typeof initial.view) => {
-      muya.setInlinePresentation(createMuyaMarkupPresentationIndex(view).render)
-      muya.setContent(structuredClone([...view.state]) as Parameters<Muya['setContent']>[0])
-    }
-    install(initial.view)
-    const reconcile = () => {
-      const next = binding.plainTextViewAtBarrier()
-      if (next.type !== 'plain-text-view' || !('state' in next.view)) { throw new Error('Expected typed view') }
-      if (!adapter.hasPendingEdits()) install(next.view)
-      return next.view.bindings
-    }
-    const adapter = createMuyaPlainTextCoreAdapter(
-      initial.view.bindings,
-      binding,
-      undefined,
-      reconcile
-    )
-    muya.eventCenter.on('json-change', (change: unknown) => adapter.accept(change))
+    const app = bootBoundMuya(source)
+    const { muya, binding, adapter, reconcile } = app
     type LinkInfo = {
       range: { start: number; end: number }
       raw: string
       text: string
       href: string
     }
-    let tools: { linkInfo: LinkInfo; block: { unlink: (info: LinkInfo) => void } } | undefined
+    let tools:
+      | {
+        reference: HTMLElement
+        linkInfo: LinkInfo
+        block: { unlink: (info: LinkInfo, reference?: HTMLElement) => void }
+      }
+      | undefined
     muya.eventCenter.on('muya-link-tools', (value: typeof tools) => {
       tools = value
     })
@@ -66,18 +42,17 @@ it.each([
         href: 'https://example.com'
       })
       expect(tools?.block).toBeTruthy()
-      tools?.block.unlink(tools.linkInfo)
+      tools?.block.unlink(tools.linkInfo, tools.reference)
       muya.flush()
       await adapter.settled()
-      expect(await binding.sourceAtBarrier()).toMatchObject({
+      expect(binding.sourceAtBarrier()).toMatchObject({
         source: `prefix {++name++} tail\n${suffix}`
       })
+      expect(app.legacyChanges).toEqual([])
       await adapter.history('undo', reconcile)
-      expect(await binding.sourceAtBarrier()).toMatchObject({ source })
+      expect(binding.sourceAtBarrier()).toMatchObject({ source })
     } finally {
-      adapter.dispose()
-      muya.destroy()
-      muya.domNode.remove()
+      app.dispose()
     }
   }
 )
@@ -107,7 +82,9 @@ it('follows Core angle and bare autolinks with modifier click and offers no unli
     }
     expect(hover).not.toHaveBeenCalled()
     expect(follow).not.toHaveBeenCalled()
-    for (const anchor of anchors) { anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true })) }
+    for (const anchor of anchors) {
+      anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true }))
+    }
     expect(follow.mock.calls.map(([event]) => event.data.href)).toEqual([
       'https://example.com',
       'https://example.org'

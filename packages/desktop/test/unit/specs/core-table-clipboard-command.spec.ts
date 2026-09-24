@@ -4,7 +4,9 @@ import { createLocalCoreOwner } from '@/documentAuthority/localCoreOwner'
 import { createCoreDocumentSessionManager } from '@/documentAuthority/coreDocumentSessionManager'
 
 const source = '| a | b | c |\n| --- | --- | --- |\n| {++a++} | b{>>note<<} | d |\n| e | f | g |\n'
-const cleared = '|  |  | c |\n| --- | --- | --- |\n|  |  | d |\n| e | f | g |\n'
+// Upstream (8d6c198c) writes the table afresh after an untracked cell clear.
+const cleared =
+  '|     |     | c   |\n| --- | --- | --- |\n|     |     | d   |\n| e   | f   | g   |\n'
 const selection = () => ({
   kind: 'table' as const,
   table: { start: 0, end: source.length - 1 },
@@ -69,7 +71,9 @@ it('projects distinct owned addresses for physical and omitted cells without cha
   try {
     binding.open({ documentId: 'table-cell-projection.md', source })
     const view = binding.plainTextViewAtBarrier()
-    if (view.type !== 'plain-text-view' || !('state' in view.view)) { throw new Error('Missing model table view') }
+    if (view.type !== 'plain-text-view' || !('state' in view.view)) {
+      throw new Error('Missing model table view')
+    }
     expect(
       view.view.bindings
         .filter((item) => item.syntax.kind === 'table-cell')
@@ -113,7 +117,9 @@ it('returns a typed clipboard resource refusal while keeping source and save ava
   try {
     binding.open({ documentId: 'table-clipboard-budget.md', source })
     const view = binding.plainTextViewAtBarrier()
-    if (view.type !== 'plain-text-view' || !('state' in view.view)) { throw new Error('Missing table view') }
+    if (view.type !== 'plain-text-view' || !('state' in view.view)) {
+      throw new Error('Missing table view')
+    }
     expect(
       binding.selectionProjectionAtBarrier({
         kind: 'table',

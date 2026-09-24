@@ -21,6 +21,14 @@ export function htmlTagAttributes(
       tagEnd: tag.end,
       tagCloseStart: tag.closeStart
     }
+    for (const attribute of tag.attributes) {
+      const key = `htmlAttribute:${attribute.name}`
+      if (!Object.hasOwn(result, key)) {
+        result[key] = attribute.valueStart === undefined || attribute.valueEnd === undefined
+          ? ''
+          : decodeHTMLAttribute(source.slice(attribute.valueStart, attribute.valueEnd))
+      }
+    }
     if (tag.name !== 'img' || tag.closing) return
     const semanticKeys = { src: 'semanticDestination', alt: 'semanticAlt', title: 'semanticTitle', width: 'semanticWidth', height: 'semanticHeight', 'data-align': 'semanticAlign' } as const
     for (const key of Object.values(semanticKeys)) result[key] = ''

@@ -68,6 +68,19 @@ declare module '@muyajs/core' {
       active: boolean | undefined
     }>[]
     renderImage: (image: IInlinePresentationImage) => { open: string; close: string } | undefined
+    renderMath?: (math: {
+      readonly raw: string
+      readonly range: { start: number; end: number }
+      readonly content: string
+    }) => { open: string; close: string }
+    renderHtmlTag?: (tag: {
+      readonly raw: string
+      readonly range: { start: number; end: number }
+      readonly tag: string
+      readonly closing: boolean
+      readonly selfClosing: boolean
+      readonly attributes: Readonly<Record<string, string>>
+    }) => { open: string; close: string } | undefined
   }
   export function validEmoji(text: string): { emoji: string } | undefined
   export interface ILocale {

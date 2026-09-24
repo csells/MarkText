@@ -11,6 +11,7 @@ import { test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 import {
   launchWithMarkdown,
+  openParagraphAfterHeading,
   placeCaretInEditor,
   typeIntoEditor,
   clearRendererErrors,
@@ -25,7 +26,7 @@ test.describe('Issue #2800: typing <pre>...</pre> does not crash', () => {
     const launched = await launchWithMarkdown('# R\n\n', { suppressErrorDialog: true })
     app = launched.app
     page = launched.page
-    await placeCaretInEditor(page)
+    await openParagraphAfterHeading(page)
     await clearRendererErrors(app)
   })
 
@@ -63,7 +64,9 @@ test.describe('Issue #2800: typing <pre>...</pre> does not crash', () => {
     // re-run the recipe.
     const { clickMenuById, waitForMenuReady } = await import('./helpers')
     await waitForMenuReady(app)
-    await clickMenuById(app, 'typewriterModeMenuItem').catch(() => { /* ok if id differs */ })
+    await clickMenuById(app, 'typewriterModeMenuItem').catch(() => {
+      /* ok if id differs */
+    })
     await page.waitForTimeout(100)
     await placeCaretInEditor(page)
     await clearRendererErrors(app)

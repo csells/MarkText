@@ -109,27 +109,10 @@ test.describe('TOC panel content + live update', () => {
   })
 
   test('renaming a heading updates its tree label live', async() => {
-    // Place the caret at the end of the "B1" heading and append " Renamed".
-    await page.evaluate(() => {
-      const headings = Array.from(
-        document.querySelectorAll('.mu-container h1, .mu-container h2, .mu-container h3')
-      ) as HTMLElement[]
-      const normalize = (s: string) => s.replace(/^[#\s]+/, '').trim()
-      const target = headings.find((h) => normalize(h.textContent || '') === 'B1')
-      if (!target) throw new Error('B1 heading not found in editor')
-      const range = document.createRange()
-      range.selectNodeContents(target)
-      range.collapse(false)
-      const sel = window.getSelection()
-      if (!sel) throw new Error('no selection')
-      sel.removeAllRanges()
-      sel.addRange(range)
-      ;(target as HTMLElement).focus?.()
-      const root = document.querySelector('.editor-component') as HTMLElement | null
-      root?.dispatchEvent(
-        new KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true, cancelable: true })
-      )
-    })
+    // Place the caret at the end of the "B1" heading's editable content with a
+    // real click, then append " Renamed".
+    await page.locator('.mu-container h3 .mu-atxheading-content').filter({ hasText: 'B1' }).click()
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End')
     await page.keyboard.type(' Renamed', { delay: 0 })
 
     // json-change -> UPDATE_TOC -> el-tree re-render. Poll until reflected.
@@ -160,7 +143,7 @@ test.describe('TOC panel content + live update', () => {
       .filter({ hasText: 'C' })
       .last()
     await cContent.click()
-    await page.keyboard.press('End')
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End')
     await page.keyboard.press('Enter')
     await page.keyboard.type('## D ', { delay: 20 })
 
