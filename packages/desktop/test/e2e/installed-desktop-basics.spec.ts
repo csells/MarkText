@@ -84,7 +84,15 @@ function fixture(source: string) {
 }
 
 async function source(page: Page): Promise<string | undefined> {
-  return page.evaluate(() => window.__marktextDocumentCore?.authoritySource?.())
+  return page.evaluate(async() => {
+    try {
+      return await window.__marktextDocumentCore?.authoritySource?.()
+    } catch (error) {
+      // A reload retires the view that installed this hook; poll its replacement.
+      if (/generation changed|lease is released/.test(String(error))) return undefined
+      throw error
+    }
+  })
 }
 
 test('Preferences theme controls persist through closing the window and restarting', async() => {
