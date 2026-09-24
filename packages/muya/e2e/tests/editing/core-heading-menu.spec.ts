@@ -219,7 +219,8 @@ for (const tail of ['', ' tail']) {
             const heading = `# {~~old~>new~~}${tail}\n`;
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: heading }, anchor: 2, caret: 2, legacyCalls: [] });
             await page.keyboard.type('X');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: `# {~~Xold~>new~~}${tail}\n` }, anchor: 3, caret: 3, legacyCalls: [] });
+            // Typing at the substitution's start stays before it.
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: `# X{~~old~>new~~}${tail}\n` }, anchor: 3, caret: 3, legacyCalls: [] });
             await page.evaluate(() => window.coreBoundary.history('undo'));
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: heading }, anchor: 2, caret: 2 });
             await page.evaluate(() => window.coreBoundary.history('undo'));
