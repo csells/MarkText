@@ -112,7 +112,7 @@
     {
       "id": "representative-documents",
       "path": "specs/baselines/criticmarkup-representative-documents.json",
-      "sha256": "c02fc2c361c2a6f04dd8852da0dcdcc17c38254940746e0c9e34e121c4d9a5d1"
+      "sha256": "4a06eb130a64ef8843966b621c4a595fb0aac056f447ad87f94214a3603d412a"
     },
     {
       "id": "performance-targets",
@@ -160,14 +160,34 @@
       "status": "pending-owner-decision",
       "question": "Approve or amend the proposed group dispositions for all 829 upstream parity items, including these three explicit subdecisions: whether readme-feature:ada27f4ce6a3 retains its subjective clean/simple/distraction-free outcome, whether readme-feature:0b8caa1ea286 retains its subjective writing-efficiency outcome, and whether muya-readme-feature:57b5c6a23c6a puts unshipped collaborative transport in scope; then authorize the corresponding item-level disposition overlay and named parity rows?",
       "proposal": "Retain 392 byte-identical upstream test files and four manual definitions subject to current execution evidence. Of 367 items mechanically classified as needing new or equivalent production-path evidence, 364 have named evidence and the three audited README outcomes now carry three item-level README compatibility-decision proposals tied to this still-pending parity-manifest decision: readme-feature:ada27f4ce6a3 asks the owner to judge the subjective clean/simple/distraction-free outcome after objective WYSIWYG behavior was proved; readme-feature:0b8caa1ea286 asks the owner to judge the subjective writing-efficiency outcome after all 87 declared shortcuts were proved; and muya-readme-feature:57b5c6a23c6a asks the owner whether unshipped collaborative transport belongs in scope. This yields 69 compatibility decisions if ratified. No item is proposed unaffected, no retained file is claimed green, and no compatibility decision is approved by this proposal.",
-      "evidenceRefs": ["upstream-parity-baseline", "parity-proposal", "parity-oracle-proposal", "parity-decisions", "parity-rows"]
+      "evidenceRefs": [
+        "upstream-parity-baseline",
+        "parity-proposal",
+        "parity-oracle-proposal",
+        "parity-decisions",
+        "parity-rows"
+      ]
     },
     {
       "id": "language-profile-and-adrs",
       "status": "pending-owner-decision",
       "question": "Ratify, amend, or supersede Profile 1 and the listed CriticMarkup/parser ADRs after reviewing their semantic versus implementation boundaries?",
       "proposal": "Treat the current profile and conformance map as a structural draft only; preserve the already recorded owner-ratified rules while deciding the remaining rule and ADR set explicitly.",
-      "evidenceRefs": ["language-profile", "profile-conformance", "adr-0001", "adr-0002", "adr-0003", "adr-0005", "adr-0007", "adr-0008", "adr-0009", "adr-0010", "adr-0013", "adr-0014", "adr-0015"]
+      "evidenceRefs": [
+        "language-profile",
+        "profile-conformance",
+        "adr-0001",
+        "adr-0002",
+        "adr-0003",
+        "adr-0005",
+        "adr-0007",
+        "adr-0008",
+        "adr-0009",
+        "adr-0010",
+        "adr-0013",
+        "adr-0014",
+        "adr-0015"
+      ]
     },
     {
       "id": "interaction-matrix",
