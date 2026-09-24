@@ -36,6 +36,7 @@ import {
 import {
   createMarkdownLaneState,
   inspectMarkdownPendingLineBlock,
+  markdownPendingLineIsContainerPrefix,
   type MarkdownArmMode,
   type MarkdownCheckpoint,
   type MarkdownLaneState,
@@ -1409,7 +1410,57 @@ function parseIntrinsicProfile1Pass(
     // "authenticated root literal" oracle used to be consulted here; it was fed
     // by a `retainedMarkdownLiterals` parameter that every call site passed as
     // undefined, so it was dead and is gone.)
+    // Profile rules L2b and L2c: the innermost annotation's own boundary
+    // stands against a definition, or a block literal at a line start, that
+    // its arm opened.
+    let boundaryStandsAgainstArmLiteral = false
+    if (
+      currentFrame !== undefined &&
+      markdownLane.markerIsLiteralOwned(checkpoint) &&
+      (
+        compatibleActiveFrameCloser ||
+        (
+          markerRole === 'separator' &&
+          currentFrame.definition.kind === 'substitution' &&
+          currentFrame.separator === undefined
+        )
+      )
+    ) {
+      const armStart =
+        currentFrame.separator?.range.end ?? currentFrame.open.range.end
+      const released = compatibleActiveFrameCloser &&
+        currentFrame.definition.kind !== 'comment' &&
+        currentFrame.definition.kind !== 'highlight'
+        ? markdownLane.releaseDefinitionAtBoundary(
+          checkpoint,
+          run.range.start,
+          armStart
+        )
+        : undefined
+      if (released !== undefined) {
+        forkRecorder.recordTransition(
+          currentForkLane(),
+          'release-at-boundary',
+          checkpoint,
+          released,
+          run.range.start,
+          run.range.start,
+          Object.freeze([])
+        )
+        replaceCurrentMarkdownCheckpoint(released)
+        checkpoint = released
+        boundaryStandsAgainstArmLiteral = true
+      } else {
+        boundaryStandsAgainstArmLiteral =
+          markdownLane.lineStartBoundaryStandsAgainstLiteral(
+            checkpoint,
+            run.range.start,
+            armStart
+          )
+      }
+    }
     const insideLiteral =
+      !boundaryStandsAgainstArmLiteral &&
       markdownLane.markerIsLiteralOwned(checkpoint) &&
       (
         !compatibleActiveFrameCloser ||
@@ -1433,17 +1484,24 @@ function parseIntrinsicProfile1Pass(
       // an enclosing frame and turn that frame's valid closer into a
       // non-top closer. This is the live-edit recovery promised by R2: the
       // unfinished opener remains exact Markdown text and later constructs
-      // retain their ordinary meaning.
-      const failure = recordDiagnostic(createDiagnostic(
-        'CM_UNTERMINATED_OPENER',
-        run.range,
-        kind === 'substitution' ? { separatorSeen: 'false' } : undefined
-      ))
+      // retain their ordinary meaning. It consumes only its `{`: the rest of
+      // the run may begin the enclosing frame's closer, as in `{++{++}`,
+      // where the `{` is payload text rather than an unclosed opener.
+      const enclosing = frames.at(-1)?.definition.kind
+      const closesEnclosing = enclosing !== undefined &&
+        nextCloserStart(enclosing, run.range.start + 1) < run.range.end
+      const failure = closesEnclosing
+        ? undefined
+        : recordDiagnostic(createDiagnostic(
+          'CM_UNTERMINATED_OPENER',
+          run.range,
+          kind === 'substitution' ? { separatorSeen: 'false' } : undefined
+        ))
       if (failure !== undefined) {
         return Object.freeze({ kind: 'resource-failure', fatalDiagnostic: failure })
       }
-      appendRunAsMarkdownText(run)
-      sourceProgression.consume(run.range.end)
+      appendMarkdownRange(run.range.start, run.range.start + 1)
+      sourceProgression.consume(run.range.start + 1)
       continue
     }
 
@@ -2798,6 +2856,46 @@ function forestContainsKind(
   return false
 }
 
+/**
+ * Whether a reference definition sits in an Addition, Deletion or Substitution
+ * arm. Such a definition is global in the reader view that keeps its arm but
+ * arm-local in Markup (C3), so Markup cannot share that reader's parse.
+ */
+function forestArmOwnsDefinition(
+  nodes: readonly CriticMarkupNode[],
+  definitionStarts: readonly number[]
+): boolean {
+  if (definitionStarts.length === 0) {
+    return false
+  }
+  const pending = [...nodes]
+  while (pending.length > 0) {
+    const node = pending.pop()
+    if (node === undefined) {
+      continue
+    }
+    for (const arm of node.arms) {
+      if (VIEW_DIVERGENT_KINDS.has(node.kind)) {
+        let low = 0
+        let high = definitionStarts.length
+        while (low < high) {
+          const middle = low + Math.floor((high - low) / 2)
+          if ((definitionStarts[middle] ?? Number.POSITIVE_INFINITY) < arm.range.start) {
+            low = middle + 1
+          } else {
+            high = middle
+          }
+        }
+        if ((definitionStarts[low] ?? Number.POSITIVE_INFINITY) < arm.range.end) {
+          return true
+        }
+      }
+      pending.push(...arm.children)
+    }
+  }
+  return false
+}
+
 /** The forms Original and Revised resolve differently; the rest render alike. */
 const VIEW_DIVERGENT_KINDS: ReadonlySet<CriticMarkupNode['kind']> =
   new Set(['addition', 'deletion', 'substitution'])
@@ -3337,7 +3435,8 @@ function terminalArmFenceEdit(
         fence.openStart,
         lane.range.end
       ),
-      needsLeadingLineEnding: transition.entryCheckpoint.linePath !== undefined
+      needsLeadingLineEnding:
+        !markdownPendingLineIsContainerPrefix(transition.entryCheckpoint)
     })
   }
   return undefined
@@ -3791,16 +3890,18 @@ function prepareProjection(
           throw new Error('Projected CriticMarkup arm exited before entry')
         }
         openMatchingScopes.delete(task.laneId)
-        if (task.planArmTermination) {
-          const terminalFence = terminalArmFenceEdit(
-            task.lane,
-            projectedLength,
-            task.sourcePosition,
-            source
-          )
-          if (terminalFence !== undefined) {
-            armTerminationEdits.push(terminalFence)
-          } else if (
+        // Profile rule L2c lets any arm boundary end a fenced block the arm
+        // opened, so every selected arm materializes that fragment's closer.
+        const terminalFence = terminalArmFenceEdit(
+          task.lane,
+          projectedLength,
+          task.sourcePosition,
+          source
+        )
+        if (terminalFence !== undefined) {
+          armTerminationEdits.push(terminalFence)
+        } else if (task.planArmTermination) {
+          if (
             task.lane.exitCheckpoint.linePath !== undefined &&
             task.lane.exitCheckpoint.frontMatter === undefined &&
             task.lane.exitCheckpoint.indentedCode === undefined &&
@@ -4512,6 +4613,7 @@ function tryIncrementalIntrinsicParse(
     previousPass.retained,
     bracket,
     Object.freeze({
+      text: window,
       hasCriticMarkupCandidate: mini.hasCriticMarkupCandidate,
       rootCount: mini.roots.length,
       markerDecisionCount: mini.markerDecisions.length,
@@ -5000,11 +5102,15 @@ function parseProfile1DocumentWithExecution(
       forkParser
     )
     : originalPrepared
-  const editingUsesRevised = !forestContainsKind(
+  const armDefinitionsAreViewGlobal = forestArmOwnsDefinition(
+    criticMarkup.roots,
+    parsed.referenceDefinitions.definitionFacts().map(fact => fact.sourceStart)
+  )
+  const editingUsesRevised = !armDefinitionsAreViewGlobal && !forestContainsKind(
     criticMarkup.roots,
     EDITING_DIFFERS_FROM_REVISED
   )
-  const editingUsesOriginal = !editingUsesRevised && !forestContainsKind(
+  const editingUsesOriginal = !armDefinitionsAreViewGlobal && !editingUsesRevised && !forestContainsKind(
     criticMarkup.roots,
     EDITING_DIFFERS_FROM_ORIGINAL
   )

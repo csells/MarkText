@@ -52,7 +52,7 @@ it('ArrowDown creates the same trailing paragraph as table Enter', () => {
   const edits = core.inputEdits(previous, action, plan, false)
   expect(edits).toBeDefined()
   const commit = core.apply(previous, edits ?? [])
-  expect(commit.revision.source).toBe(source + '\n')
+  expect(commit.revision.source).toBe(source + '\n\n')
   expect(core.reconcileInput(previous, plan, commit, action).selection).toEqual({ ranges: [{ anchor: source.length + 1, focus: source.length + 1 }], primary: 0 })
 })
 

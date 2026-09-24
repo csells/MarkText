@@ -15,8 +15,7 @@ import type Content from '../../base/content';
 import type Parent from '../../base/parent';
 import type BulletList from '../../commonMark/bulletList';
 import type Paragraph from '../../commonMark/paragraph';
-import { listTabAction } from '@marktext/input-policy';
-import { HTML_TAGS, VOID_HTML_TAGS } from '../../../config';
+import { htmlBlockTemplate, htmlBlockTemplateTag, listTabAction } from '@marktext/input-policy';
 import { dispatchDocumentList, dispatchDocumentParagraphJoin, dispatchDocumentTab } from '../../../editor/documentEditing';
 import { tokenizer } from '../../../inlineRenderer/lexer';
 import { isBlockQuoteState, isListItemState, isTaskListItemState } from '../../../state/types';
@@ -75,7 +74,6 @@ function holdsItemKind(list: Parent, listItem: Parent) {
 
 const debug = logger('paragraph:content');
 
-const HTML_BLOCK_REG = /^<([a-z\d-]+)(?=\s|>)[^<>]*>$/i;
 const MATH_BLOCK_REG = /^\$\$[ \t]*$/;
 const MULTILINE_BLOCKQUOTE_REG = /^>>>[ \t]*$/;
 // eslint-disable-next-line regexp/no-super-linear-backtracking
@@ -114,9 +112,8 @@ function matchBlockConversion(
     if (tableMatch && isLengthEven(tableMatch[1]) && isLengthEven(tableMatch[2]))
         return { kind: 'table' };
 
-    const htmlMatch = HTML_BLOCK_REG.exec(text);
-    const tagName = htmlMatch && htmlMatch[1] && HTML_TAGS.find(t => t === htmlMatch[1]);
-    if (tagName && VOID_HTML_TAGS.every(tag => tag !== tagName))
+    const tagName = htmlBlockTemplateTag(text);
+    if (tagName)
         return { kind: 'html', tagName };
 
     return null;
@@ -399,18 +396,17 @@ class ParagraphContent extends Format {
             }
 
             case 'html': {
-                const { tagName } = match;
+                const { markdown, caret } = htmlBlockTemplate(match.tagName, '\n', '');
                 const state = {
                     name: 'html-block',
-                    text: `<${tagName}>\n\n</${tagName}>`,
+                    text: markdown,
                 };
                 const htmlBlock = ScrollPage.loadBlock('html-block').create(
                     this.muya,
                     state,
                 );
                 this.parent!.replaceWith(htmlBlock);
-                const offset = tagName.length + 3;
-                htmlBlock.firstContentInDescendant().setCursor(offset, offset);
+                htmlBlock.firstContentInDescendant().setCursor(caret, caret);
                 break;
             }
 

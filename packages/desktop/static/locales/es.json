@@ -917,6 +917,9 @@
   },
   "dialog": {
     "moveToTrash": "¿Seguro que quieres mover \"{name}\" a la papelera?",
+    "discardAndClose": "Descartar y cerrar",
+    "pendingReviewInput": "¿Descartar el comentario o el texto de reemplazo sin enviar?",
+    "pendingReviewInputDetail": "El comentario o el texto de reemplazo aún no se ha añadido al documento y se perderá.",
     "cancel": "Cancelar",
     "changesWillBeLost": "Los cambios se perderán",
     "close": "Cerrar",
@@ -1034,6 +1037,7 @@
       "saveComment": "Guardar comentario",
       "commentTargetChanged": "El documento ha cambiado. Su borrador de comentario se conserva; cancele antes de elegir otro destino.",
       "commentSaveFailed": "No se pudo guardar el comentario. Su borrador y su destino original se conservan.",
+      "finishDraftBeforeClosing": "Guarde o cancele el comentario o el texto de reemplazo pendiente antes de cerrar este documento.",
       "commentPrompt": "Comentario",
       "replacementPrompt": "Texto de sustitución"
     },

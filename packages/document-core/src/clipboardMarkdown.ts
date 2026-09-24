@@ -137,18 +137,30 @@ export function prepareClipboardMarkdown(
 
 export function containerContinuationPrefix(core: DocumentCore, previous: DocumentRevision, current: MarkupSyntax, anchor: MarkdownAstNode, containers: readonly MarkdownAstNode[]): string {
   const prefixEnd = current.coordinates.toSource(anchor.range.start, 'previous')
-  const preceding = core.sourceSlice(previous, { start: 0, end: prefixEnd })
-  const firstLineStart = Math.max(preceding.lastIndexOf('\n'), preceding.lastIndexOf('\r')) + 1
+  // Widen the search backward only as far as the line's start requires.
+  let firstLineStart = 0
+  for (let span = 256; ; span *= 4) {
+    const start = Math.max(0, prefixEnd - span)
+    const preceding = core.sourceSlice(previous, { start, end: prefixEnd })
+    const found = Math.max(preceding.lastIndexOf('\n'), preceding.lastIndexOf('\r'))
+    if (found >= 0 || start === 0) {
+      firstLineStart = found >= 0 ? start + found + 1 : 0
+      break
+    }
+  }
   let continuation = core.sourceSlice(previous, { start: firstLineStart, end: prefixEnd })
   for (const item of containers.filter(node => node.kind === 'list-item')) {
     const markerStart = current.coordinates.toSource(item.range.start, 'next') - firstLineStart
     if (markerStart < 0 || markerStart >= continuation.length) continue
     const firstChild = item.children[0]
     if (firstChild === undefined) continue
-    const markerEnd = current.coordinates.toSource(item.attributes.task === true && typeof item.attributes.taskMarkerStart === 'number'
-      ? item.attributes.taskMarkerStart
+    const task = item.attributes.task === true && typeof item.attributes.taskMarkerStart === 'number'
+    const markerEnd = current.coordinates.toSource(task
+      ? Number(item.attributes.taskMarkerStart)
       : firstChild.range.start, 'previous') - firstLineStart
-    continuation = continuation.slice(0, markerStart) + ' '.repeat(markerEnd - markerStart) + continuation.slice(markerEnd)
+    // A task item's checkbox begins its content, so continuation lines indent
+    // to the checkbox rather than repeat it.
+    continuation = continuation.slice(0, markerStart) + ' '.repeat(markerEnd - markerStart) + (task ? '' : continuation.slice(markerEnd))
   }
   return continuation
 }

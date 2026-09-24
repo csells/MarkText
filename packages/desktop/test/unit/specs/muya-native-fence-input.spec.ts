@@ -47,18 +47,12 @@ describe('native fence input on the common model', () => {
         muya,
         view: next.view,
         outcome,
-        sourcePosition: adapter.reconciledSourcePosition,
         dirtyPaths: presentation.changedPaths,
         applyEditability: () => {}
       })
       return next.view.bindings
     }
-    const adapter = createMuyaPlainTextCoreAdapter(
-      initial.view.bindings,
-      binding,
-      undefined,
-      reconcile
-    )
+    const adapter = createMuyaPlainTextCoreAdapter(initial.view.bindings, binding)
     const results: string[] = []
     try {
       muya.setInlinePresentation(presentation.render)
@@ -98,7 +92,7 @@ describe('native fence input on the common model', () => {
         }
       })
       muya.on('json-change', (change: { source: string }) => {
-        if (change.source === 'user') results.push(adapter.accept(change))
+        if (change.source === 'user') results.push('native-bypass')
       })
       const initialBlock = muya.editor.scrollPage?.firstContentInDescendant()
       if (!initialBlock?.domNode) throw new Error('Missing native paragraph')

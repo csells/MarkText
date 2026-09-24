@@ -123,7 +123,8 @@ class Clipboard {
             if (key === 'Enter') {
                 event.preventDefault();
                 this.cutHandler();
-                const block = this.muya.editor.activeContentBlock;
+                // The cut can write the block holding the caret afresh.
+                const block = this.muya.editor.selection.getSelection()?.anchor.block ?? this.muya.editor.activeContentBlock;
                 if (!event.shiftKey && block instanceof Format)
                     block.enterHandler(event);
                 return;

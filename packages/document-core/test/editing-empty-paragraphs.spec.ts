@@ -55,7 +55,7 @@ for (const ending of ['\n', '\r\n', '\r']) {
     { source: '---\n\n\n\noutside{>>keep<<}\n', before: '---\n\n' },
     { source: '> ---\n>\n> \n>\n> outside\n', before: '> ---\n>\n> ' },
     { source: '- item\n\n  ---\n\n  \n\n  outside\n', before: '- item\n\n  ---\n\n  ' },
-    { source: '```js\naaa\n```\n\n', before: '```js\naaa\n```\n\n' }
+    { source: '```js\naaa\n```\n\n\n', before: '```js\naaa\n```\n\n' }
   ]) {
     it(`owns an editing paragraph at ${JSON.stringify(example.before)} in ${JSON.stringify(example.source)} (${JSON.stringify(ending)})`, () => {
       const source = eol(example.source)

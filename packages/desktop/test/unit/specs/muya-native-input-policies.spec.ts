@@ -394,7 +394,6 @@ describe('native input preferences in the shared document', () => {
           muya,
           view: next.view,
           outcome,
-          sourcePosition: adapter.reconciledSourcePosition,
           dirtyPaths: presentation.changedPaths,
           applyEditability: (bindings) =>
             muya.setEditablePaths(
@@ -406,9 +405,7 @@ describe('native input preferences in the shared document', () => {
     }
     const adapter: MuyaPlainTextCoreAdapter = createMuyaPlainTextCoreAdapter(
       initial.view.bindings,
-      binding,
-      undefined,
-      reconcile
+      binding
     )
     try {
       muya.setInlinePresentation(presentation.render)
@@ -466,7 +463,7 @@ describe('native input preferences in the shared document', () => {
         )
       }
       muya.on('json-change', (change: { source: string }) => {
-        if (change.source === 'user') results.push(adapter.accept(change))
+        if (change.source === 'user') results.push('native-bypass')
       })
 
       block.domNode.dispatchEvent(

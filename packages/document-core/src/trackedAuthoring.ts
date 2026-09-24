@@ -2,7 +2,9 @@ import type {
   CriticMarkupAnnotation, DocumentCore, DocumentRevision,
   DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange
 } from './documentCore.js'
+import { createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations as annotationTree, markupReplacementRange } from './markupEditOwnership.js'
+import { createTrackedOracle, draftTrackedSourceEdit, equivalenceDeferred, memoizedPreview, rejoinedTrackedHistoryEdit, splitTrackedHistoryEdit, trackedPreviewFacts, widenedTrackedSourceEdit } from './trackedExtent.js'
 
 /** Protective spelling retains exactly where the language compiler inserts escapes. */
 export const nativeCriticSpelling = (value: string): Readonly<{ text: string, escapes: readonly number[] }> => {
@@ -145,16 +147,15 @@ function pendingArmOwnsInlineEdge(core: DocumentCore, revision: DocumentRevision
   return visit(syntax.ast.root)
 }
 
-// Author tracked changes from the revision-owned syntax. Candidate validation
-// preserves the exact arms before the caller admits the resulting source edit.
-export const createTrackedSourceEdit = (
+type TrackedRequest = { range: SourceRange, text: string }
+
+/** The operation in source coordinates after tracked edge ownership moves it. */
+function trackedRequest(
   activeCore: DocumentCore,
   activeRevision: DocumentRevision,
   edit: DocumentSourceEdit,
-  preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision,
-  preserveCanonicalMarkup = false,
-  scope: 'visible' | 'structure' = 'visible'
-): DocumentSourceEdit | undefined => {
+  scope: 'visible' | 'structure'
+): TrackedRequest | undefined {
   const request = { range: { start: edit.start, end: edit.end }, text: edit.insert }
   if (
     request.range === null || typeof request.range !== 'object' ||
@@ -200,6 +201,122 @@ export const createTrackedSourceEdit = (
       }
     }
   }
+  return request
+}
+
+/**
+ * Author tracked changes from the revision-owned syntax. A suggestion is
+ * admitted when accepting it reproduces the untracked result and rejecting it
+ * reproduces the previous Original; an inline suggestion that changes meaning
+ * widens over the retained syntax whose parse it changes.
+ */
+export const createTrackedSourceEdit = (
+  activeCore: DocumentCore,
+  activeRevision: DocumentRevision,
+  edit: DocumentSourceEdit,
+  preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision,
+  preserveCanonicalMarkup = false,
+  scope: 'visible' | 'structure' = 'visible'
+): DocumentSourceEdit | undefined => {
+  const request = trackedRequest(activeCore, activeRevision, edit, scope)
+  if (request === undefined) return undefined
+  preview = memoizedPreview(preview)
+  retrimDraftEscape(activeCore, activeRevision, request)
+  const { start, end } = request.range
+  if (start === end && request.text.length > 0) {
+    let deepest: CriticMarkupAnnotation | undefined
+    for (const annotation of annotationTree(activeRevision.annotations)) {
+      if (annotation.range.start < start && start < annotation.range.end &&
+          (deepest === undefined || annotation.range.end - annotation.range.start < deepest.range.end - deepest.range.start)) deepest = annotation
+    }
+    const history = deepest?.arms.find(arm => arm.name === (deepest.kind === 'deletion' ? 'content' : deepest.kind === 'substitution' ? 'old' : ''))
+    if (history !== undefined && history.range.start < start && start < history.range.end) {
+      return splitTrackedHistoryEdit(activeCore, activeRevision, start,
+        preserveCanonicalMarkup ? request.text : protectNativeCriticText(request.text), preview)
+    }
+  }
+  const direct = inlineTrackedSourceEdit(activeCore, activeRevision, request, preview, preserveCanonicalMarkup)
+  const raw = { start, end, insert: request.text }
+  // The untracked compilation of the same operation defines its Revised result;
+  // an operation the untracked compiler refuses has no tracked meaning either.
+  const compileUntracked = (): readonly DocumentSourceEdit[] | undefined => createMarkupCompoundSourceEdits(
+    activeCore, activeRevision, [raw], preview, preserveCanonicalMarkup, preserveCanonicalMarkup ? scope : 'visible',
+    raw.insert.length > 0 ? 'admit-typed' : 'refuse')
+  if (direct === undefined) {
+    if (compileUntracked() === undefined) return undefined
+    const draft = draftTrackedSourceEdit(activeCore, activeRevision,
+      preserveCanonicalMarkup ? raw : { ...raw, insert: protectNativeCriticText(raw.insert) }, preview)
+    if (draft !== undefined) return draft
+  }
+  if (equivalenceDeferred(activeCore)) return direct
+  // Plain words cannot open block syntax or pair with surrounding delimiters.
+  if (direct !== undefined && /^[\p{L}\p{N}][\p{L}\p{N} ]*$/u.test(raw.insert) &&
+      splicesRevised(activeCore, activeRevision, direct, raw, preview)) return direct
+  // Extending one's own draft is the draft's untracked edit, so its oracle is
+  // the draft accepted with the same edit: delimiters typed there can pair
+  // differently once the arm boundary is gone.
+  if (direct !== undefined && direct.start === raw.start && direct.end === raw.end && direct.insert === raw.insert) {
+    return draftTrackedSourceEdit(activeCore, activeRevision, direct, preview) ?? direct
+  }
+  const untracked = compileUntracked()
+  if (untracked === undefined) return direct
+  const oracle = createTrackedOracle(activeCore, activeRevision, untracked, preview)
+  if (oracle === undefined) return direct
+  if (direct !== undefined && oracle.accepts([direct], 'exact')) return direct
+  const literal = createTrackedLiteralSourceEdit(activeCore, activeRevision, raw, preview)
+  if (literal !== undefined) return literal
+  return widenedTrackedSourceEdit(activeCore, activeRevision, oracle) ??
+    (direct !== undefined && oracle.accepts([direct], 'rendering') ? direct : undefined)
+}
+
+/**
+ * A draft ending in a completed escape (`\\` before its closer) renders one
+ * backslash. Text typed after it that a backslash cannot escape replaces that
+ * completion, so the draft keeps the author's single backslash.
+ */
+function retrimDraftEscape(core: DocumentCore, revision: DocumentRevision, request: TrackedRequest): void {
+  const { start, end } = request.range
+  if (start !== end || request.text.length === 0 || /^[!-/:-@[-`{-~]/u.test(request.text)) return
+  const owner = annotationTree(revision.annotations).find(annotation => annotation.kind === 'addition' &&
+    annotation.arms.some(arm => arm.range.end === start))
+  const arm = owner?.arms.find(arm => arm.name === 'content')
+  if (arm === undefined || arm.range.end - arm.range.start < 2) return
+  const content = core.sourceSlice(revision, arm.range)
+  let escapes = 0
+  while (escapes < content.length && content[content.length - 1 - escapes] === '\\') escapes += 1
+  if (escapes >= 2 && escapes % 2 === 0) request.range = { start: start - 1, end }
+}
+
+/**
+ * The untracked result's Revised text is the previous Revised text with the
+ * operation spliced in unless the operation changes surrounding meaning. A
+ * candidate reproducing that splice exactly needs no separate untracked parse.
+ */
+function splicesRevised(
+  core: DocumentCore,
+  revision: DocumentRevision,
+  candidate: DocumentSourceEdit,
+  raw: DocumentSourceEdit,
+  preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision
+): boolean {
+  const facts = trackedPreviewFacts.get(preview([candidate]))
+  if (facts === undefined || facts.original !== core.project(revision, 'original').markdown) return false
+  const revised = core.project(revision, 'revised')
+  return (['previous', 'next'] as const).some(affinity => {
+    const start = revised.coordinates.toProjected(raw.start, affinity)
+    const end = raw.start === raw.end ? start : revised.coordinates.toProjected(raw.end, affinity)
+    return end >= start && facts.revised === revised.markdown.slice(0, start) + raw.insert + revised.markdown.slice(end)
+  })
+}
+
+function inlineTrackedSourceEdit(
+  activeCore: DocumentCore,
+  activeRevision: DocumentRevision,
+  request: TrackedRequest,
+  preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision,
+  preserveCanonicalMarkup: boolean
+): DocumentSourceEdit | undefined {
+  const insertion = request.range.start === request.range.end && request.text.length > 0
   const deletion = request.range.end > request.range.start && request.text.length === 0
   const substitution = request.range.end > request.range.start &&
     request.text.length > 0
@@ -403,8 +520,7 @@ export const createTrackedSourceEdit = (
       // Cancelling proposed text uses the same owned deletion whether the
       // native selection encloses its complete wrapper or only its payload.
       const removal = Object.freeze({ ...cancelled.range, insert: '' })
-      preview([removal])
-      return removal
+      return rejoinedTrackedHistoryEdit(activeCore, activeRevision, cancelled, preview) ?? removal
     }
     const pending = [...activeRevision.annotations]
     while (pending.length > 0) {
@@ -468,6 +584,10 @@ export const createTrackedSourceEdit = (
           insert: ''
         }])
         if (remainingContent.length === 0) {
+          const rejoined = annotation.kind === 'addition'
+            ? rejoinedTrackedHistoryEdit(activeCore, activeRevision, annotation, preview)
+            : undefined
+          if (rejoined !== undefined) return rejoined
           return candidate.annotations.every(item =>
             item.range.start < annotation.range.start ||
             item.range.end > annotation.range.end

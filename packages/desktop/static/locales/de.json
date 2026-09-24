@@ -917,6 +917,9 @@
   },
   "dialog": {
     "moveToTrash": "Möchtest du \"{name}\" wirklich in den Papierkorb verschieben?",
+    "discardAndClose": "Verwerfen und schließen",
+    "pendingReviewInput": "Nicht übernommenen Kommentar oder Ersatztext verwerfen?",
+    "pendingReviewInputDetail": "Der Kommentar oder Ersatztext wurde noch nicht in das Dokument übernommen und geht verloren.",
     "cancel": "Abbrechen",
     "changesWillBeLost": "Änderungen gehen verloren",
     "close": "Schließen",
@@ -1034,6 +1037,7 @@
       "saveComment": "Kommentar speichern",
       "commentTargetChanged": "Das Dokument wurde geändert. Ihr Kommentarentwurf bleibt erhalten; brechen Sie ab, bevor Sie ein anderes Ziel wählen.",
       "commentSaveFailed": "Der Kommentar konnte nicht gespeichert werden. Ihr Entwurf und das ursprüngliche Ziel bleiben erhalten.",
+      "finishDraftBeforeClosing": "Speichern oder verwerfen Sie den ausstehenden Kommentar oder Ersatztext, bevor Sie dieses Dokument schließen.",
       "commentPrompt": "Kommentar",
       "replacementPrompt": "Ersetzungstext"
     },

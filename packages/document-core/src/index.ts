@@ -74,13 +74,14 @@ export { imageAltText } from './imagePropertyPlanning.js'
 
 export { projectTableSelection, type DocumentTableSelectionProjection } from './tableSelectionProjection.js'
 
-export { resolveTableCell } from './tableSelection.js'
+export { resolveTableCell, tableCellContentRange } from './tableSelection.js'
 
 export { projectSourceSelection } from './sourceSelectionProjection.js'
 
 export { rebaseDocumentInputSelection, type DocumentSelectionMutation, type DocumentSelectionRebaseResult } from './selectionRebasing.js'
 
 export { paragraphPrefixPosition, paragraphImageRange } from './paragraphBoundary.js'
+export { setextUnderlineStart, setextUnderlineLeadingLine } from './setextTrailingLine.js'
 
 export type { DocumentModelTextPoint, DocumentModelTextSelection } from './sourceInputPlanning.js'
 export { projectModelTextSelection } from './modelTextSelectionProjection.js'

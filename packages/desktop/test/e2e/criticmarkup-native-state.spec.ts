@@ -1,6 +1,11 @@
 import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
-import { expectNoRendererErrors, launchWithMarkdown, sendIpcToRenderer } from './helpers'
+import {
+  discardReviewInputOnClose,
+  expectNoRendererErrors,
+  launchWithMarkdown,
+  sendIpcToRenderer
+} from './helpers'
 
 const source = 'An {++addition++} and a {--deletion--}.\n'
 
@@ -14,10 +19,17 @@ test('reader projections retain review decisions consistently and navigation rev
     for (const mode of ['original', 'revised']) {
       await page.getByTestId(`critic-review-${mode}`).click()
       await expect(page.getByTestId('critic-review-accept')).toBeEnabled()
-      await expect.poll(() => app.evaluate(({ Menu }, selected) => {
-        const menu = Menu.getApplicationMenu()
-        return { selected: menu?.getMenuItemById(`critic-${selected}`)?.checked, accept: menu?.getMenuItemById('critic-accept')?.enabled }
-      }, mode)).toEqual({ selected: true, accept: true })
+      await expect
+        .poll(() =>
+          app.evaluate(({ Menu }, selected) => {
+            const menu = Menu.getApplicationMenu()
+            return {
+              selected: menu?.getMenuItemById(`critic-${selected}`)?.checked,
+              accept: menu?.getMenuItemById('critic-accept')?.enabled
+            }
+          }, mode)
+        )
+        .toEqual({ selected: true, accept: true })
       await expect(page.getByTestId('critic-review-reject')).toBeEnabled()
       await expect(page.getByTestId('critic-review-accept-all')).toBeEnabled()
       await page.getByTestId('critic-review-next').click()
@@ -28,7 +40,9 @@ test('reader projections retain review decisions consistently and navigation rev
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(source)
     await expectNoRendererErrors(app)
-  } finally { await app.close() }
+  } finally {
+    await app.close()
+  }
 })
 
 test('clicking a document annotation selects its sidebar entry without moving the caret', async() => {
@@ -38,7 +52,12 @@ test('clicking a document annotation selects its sidebar entry without moving th
   })
   try {
     await page.locator('[data-critic-kind="deletion"]').click()
-    await expect(page.getByTestId('critic-review-entry').filter({ hasText: 'deletion' }).locator(':scope > button')).toHaveAttribute('aria-pressed', 'true')
+    await expect(
+      page
+        .getByTestId('critic-review-entry')
+        .filter({ hasText: 'deletion' })
+        .locator(':scope > button')
+    ).toHaveAttribute('aria-pressed', 'true')
     await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'deletion')
     const caret = await page.evaluate(() => {
       const selection = window.getSelection()
@@ -48,7 +67,9 @@ test('clicking a document annotation selects its sidebar entry without moving th
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(source)
     await expectNoRendererErrors(app)
-  } finally { await app.close() }
+  } finally {
+    await app.close()
+  }
 })
 
 test('standalone comment marker opens its entry and preserves editing and save', async() => {
@@ -64,21 +85,30 @@ test('standalone comment marker opens its entry and preserves editing and save',
     const marker = paragraph.getByRole('button', { name: 'Comment', exact: true })
     await expect(marker).toBeVisible()
     await marker.click()
-    await expect(page.getByTestId('critic-review-entry').filter({ hasText: 'A hidden note.' })).toHaveClass(/active/)
+    await expect(
+      page.getByTestId('critic-review-entry').filter({ hasText: 'A hidden note.' })
+    ).toHaveClass(/active/)
     await expect(paragraph).toHaveText('Keep this.')
     await page.keyboard.type('Safe ')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
-    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('Safe Keep this.{>>A hidden note.<<}\n')
+    await expect
+      .poll(() => readFileSync(filePath, 'utf8'))
+      .toBe('Safe Keep this.{>>A hidden note.<<}\n')
     await expect(page.getByTestId('core-recovery-draft')).toHaveCount(0)
     await expectNoRendererErrors(app)
-  } finally { await app.close() }
+  } finally {
+    await app.close()
+  }
 })
 
 test('sidebar presents each comment once with actions beside the selected entry', async() => {
-  const { app, page } = await launchWithMarkdown('Text.{>>One readable note.<<}\n\n{++Suggested wording++}\n', {
-    suppressErrorDialog: true,
-    env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1', MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined }
-  })
+  const { app, page } = await launchWithMarkdown(
+    'Text.{>>One readable note.<<}\n\n{++Suggested wording++}\n',
+    {
+      suppressErrorDialog: true,
+      env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1', MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined }
+    }
+  )
   try {
     await page.getByRole('button', { name: 'Review', exact: true }).click()
     const panel = page.locator('#core-review-panel')
@@ -86,11 +116,18 @@ test('sidebar presents each comment once with actions beside the selected entry'
     const entry = page.getByTestId('critic-review-entry').filter({ hasText: 'One readable note.' })
     await expect(entry.getByTestId('critic-review-edit-comment')).toBeVisible()
     await page.getByTestId('critic-review-next').click()
-    await expect(page.getByTestId('critic-review-entry').filter({ hasText: 'Suggested wording' }).getByTestId('critic-review-accept')).toBeVisible()
-    expect(await panel.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+    await expect(
+      page
+        .getByTestId('critic-review-entry')
+        .filter({ hasText: 'Suggested wording' })
+        .getByTestId('critic-review-accept')
+    ).toBeVisible()
+    expect(await panel.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true)
     await page.screenshot({ path: test.info().outputPath('native-sidebar.png') })
     await expectNoRendererErrors(app)
-  } finally { await app.close() }
+  } finally {
+    await app.close()
+  }
 })
 
 test('comment marker supports keyboard activation without inserting a paragraph', async() => {
@@ -105,12 +142,16 @@ test('comment marker supports keyboard activation without inserting a paragraph'
     await page.keyboard.press('Home')
     await marker.focus()
     await page.keyboard.press('Enter')
-    await expect(page.getByTestId('critic-review-entry').filter({ hasText: 'Keyboard note.' })).toHaveClass(/active/)
+    await expect(
+      page.getByTestId('critic-review-entry').filter({ hasText: 'Keyboard note.' })
+    ).toHaveClass(/active/)
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(original)
     await expect(page.getByTestId('core-recovery-draft')).toHaveCount(0)
     await expectNoRendererErrors(app)
-  } finally { await app.close() }
+  } finally {
+    await app.close()
+  }
 })
 
 test('view controls preserve an open comment draft and match native command availability', async() => {
@@ -126,7 +167,10 @@ test('view controls preserve an open comment draft and match native command avai
     await expect(page.getByTestId('critic-review-revised')).toBeDisabled()
     await expect(page.getByTestId('critic-review-comment-input')).toHaveValue('Unsubmitted draft.')
     await expectNoRendererErrors(app)
-  } finally { await app.close() }
+  } finally {
+    await discardReviewInputOnClose(app)
+    await app.close()
+  }
 })
 
 test('keyboard caret navigation updates the review target before accepting a suggestion', async() => {
@@ -144,5 +188,7 @@ test('keyboard caret navigation updates the review target before accepting a sug
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('An {++addition++} and a .\n')
     await expectNoRendererErrors(app)
-  } finally { await app.close() }
+  } finally {
+    await app.close()
+  }
 })

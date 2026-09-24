@@ -917,6 +917,9 @@
   },
   "dialog": {
     "moveToTrash": "Weet je zeker dat je \"{name}\" naar de prullenbak wilt verplaatsen?",
+    "discardAndClose": "Verwijderen en sluiten",
+    "pendingReviewInput": "Niet-ingediende opmerking of vervangende tekst verwijderen?",
+    "pendingReviewInputDetail": "De opmerking of vervangende tekst is nog niet aan het document toegevoegd en gaat verloren.",
     "cancel": "Annuleren",
     "changesWillBeLost": "Wijzigingen gaan verloren",
     "close": "Sluiten",
@@ -1034,6 +1037,7 @@
       "saveComment": "Opmerking opslaan",
       "commentTargetChanged": "Het document is gewijzigd. Uw conceptopmerking blijft bewaard; annuleer voordat u een ander doel kiest.",
       "commentSaveFailed": "De opmerking kon niet worden opgeslagen. Uw concept en het oorspronkelijke doel blijven bewaard.",
+      "finishDraftBeforeClosing": "Sla de openstaande opmerking of vervangende tekst op of annuleer deze voordat u dit document sluit.",
       "commentPrompt": "Opmerking",
       "replacementPrompt": "Vervangende tekst"
     },

@@ -245,6 +245,13 @@ export type CoreRequest =
     readonly range: SourceRange | DocumentTableSelection | DocumentModelTextSelection
   }>
   | Readonly<{
+    readonly type: 'author-forms-at-barrier'
+    readonly session: number
+    readonly sequence: number
+    readonly baseRevision: number
+    readonly range: SourceRange
+  }>
+  | Readonly<{
     readonly type: 'replace-consumer-search'
     readonly session: number
     readonly sequence: number
@@ -448,6 +455,16 @@ export type CoreConsumerProjectionReply = Readonly<{
   readonly sourceLength: number
   readonly projection: CoreConsumerProjection
 }>
+/** Review forms Core would author over a source range, without changing it. */
+export type CoreAuthorFormsReply = Readonly<{
+  readonly type: 'author-forms'
+  readonly session: number
+  readonly sequence: number
+  readonly revision: number
+  readonly accepted: true
+  readonly sourceLength: number
+  readonly forms: readonly CoreAuthorForm[]
+}>
 export type CoreSelectionProjectionReply = Readonly<{
   readonly type: 'selection-projection'
   readonly session: number
@@ -490,6 +507,7 @@ export type CoreReply =
   | CoreDisplayProjectionReply
   | CoreConsumerProjectionReply
   | CoreSelectionProjectionReply
+  | CoreAuthorFormsReply
   | CoreReviewItemReply
 
 /** The one live document model, synchronously consulted before native presentation. */
@@ -497,26 +515,3 @@ export interface CoreModelOwner {
   request(request: CoreRequest): CoreReply
   dispose(): void
 }
-
-/** Asynchronous transport used by retained worker transport tests, never the editor binding. */
-export interface CoreActorPort {
-  request(request: CoreRequest): Promise<CoreReply>
-  dispose(): void
-}
-
-export interface CoreWorkerRequestEnvelope {
-  readonly type: 'core-request'
-  readonly request: CoreRequest
-}
-
-export type CoreWorkerResponseEnvelope =
-  | Readonly<{
-    readonly type: 'core-result'
-    readonly reply: CoreReply
-  }>
-  | Readonly<{
-    readonly type: 'core-failure'
-    readonly session: number
-    readonly sequence: number
-    readonly message: string
-  }>

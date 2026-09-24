@@ -680,7 +680,7 @@ describe('document-core facade', () => {
       .toHaveLength(1)
   })
 
-  it('does not resolve definitions across distinct Comment Addition arms', () => {
+  it('resolves Addition definitions across distinct arms in a Comment Display (C3)', () => {
     const linkCore = createDocumentCore()
     const linkRevision = linkCore.open(
       '{>>{++[x][r]++}\n\n{++[r]: /u\n++}<<}'
@@ -695,7 +695,7 @@ describe('document-core facade', () => {
       readonly children: readonly unknown[]
     }>
 
-    expect(linkNodes.some(node => node.kind === 'link')).toBe(false)
+    expect(linkNodes.some(node => node.kind === 'link')).toBe(true)
     expect(linkNodes.some(node => node.kind === 'definition')).toBe(true)
 
     const footnoteCore = createDocumentCore()
@@ -716,12 +716,12 @@ describe('document-core facade', () => {
     }>
 
     expect(footnoteNodes.find(node => node.kind === 'footnote-reference')?.attributes)
-      .toMatchObject({ resolved: false })
+      .toMatchObject({ resolved: true })
     expect(footnoteNodes.some(node => node.kind === 'footnote-definition'))
       .toBe(true)
   })
 
-  it('selects the first same-scope definition for projected references', () => {
+  it('selects the first Revised definition and guards arm-local Highlight definitions', () => {
     const duplicateSource = [
       '{++[r]: /arm1\n++}',
       '',
@@ -746,10 +746,32 @@ describe('document-core facade', () => {
         readonly attributes: Readonly<Record<string, string | number | boolean>>
       }> | undefined
 
-      expect(link?.attributes).toMatchObject({ rawDestination: '/arm2' })
+      // C3: Addition definitions are global in Revised, so CommonMark's
+      // first-definition rule applies across both Additions.
+      expect(link?.attributes).toMatchObject({ rawDestination: '/arm1' })
     }
 
-    const negativeSource = '{++[r]: /inner\n++}\n\n[x][r]'
+    const globalSource = '{++[r]: /inner\n++}\n\n[x][r]'
+    for (const source of [globalSource, `{>>${globalSource}<<}`]) {
+      const globalCore = createDocumentCore()
+      const revision = globalCore.open(source)
+      const projection = source.startsWith('{>>')
+        ? (() => {
+          const comment = revision.annotations[0]
+          if (comment === undefined) throw new Error('Expected one Comment')
+          return globalCore.projectComment(revision, comment)
+        })()
+        : globalCore.project(revision, 'revised')
+      const link = markdownNodes(projection.ast.root).find(node =>
+        (node as Readonly<{ kind: string }>).kind === 'link'
+      ) as Readonly<{
+        readonly attributes: Readonly<Record<string, string | number | boolean>>
+      }> | undefined
+      expect(link?.attributes).toMatchObject({ rawDestination: '/inner' })
+      expect(projection.markdown).toBe('[r]: /inner\n\n\n[x][r]')
+    }
+
+    const negativeSource = '{==[r]: /inner\n==}\n\n[x][r]'
     for (const source of [negativeSource, `{>>${negativeSource}<<}`]) {
       const negativeCore = createDocumentCore()
       const negative = negativeCore.open(source)
@@ -798,7 +820,7 @@ describe('document-core facade', () => {
     expect(positiveLink?.attributes).toMatchObject({ rawDestination: '/same' })
   })
 
-  it('selects the first same-scope footnote definition', () => {
+  it('selects the first Revised footnote definition and guards arm-local Highlight footnotes', () => {
     const source = [
       '{++[^r]: first\n++}',
       '',
@@ -820,7 +842,27 @@ describe('document-core facade', () => {
     expect(definitions).toHaveLength(2)
     expect(reference?.attributes).toMatchObject({ resolved: true })
 
-    const negativeSource = '{++[^r]: one\n++}\n\nnote[^r]'
+    const globalSource = '{++[^r]: one\n++}\n\nnote[^r]'
+    for (const candidate of [globalSource, `{>>${globalSource}<<}`]) {
+      const globalCore = createDocumentCore()
+      const revision = globalCore.open(candidate, { footnotes: true })
+      const projection = candidate.startsWith('{>>')
+        ? (() => {
+          const comment = revision.annotations[0]
+          if (comment === undefined) throw new Error('Expected one Comment')
+          return globalCore.projectComment(revision, comment)
+        })()
+        : globalCore.project(revision, 'revised')
+      const reference = markdownNodes(projection.ast.root).find(node =>
+        (node as Readonly<{ kind: string }>).kind === 'footnote-reference'
+      ) as Readonly<{
+        readonly attributes: Readonly<Record<string, string | number | boolean>>
+      }> | undefined
+      expect(reference?.attributes).toMatchObject({ label: 'r', resolved: true })
+      expect(projection.markdown).toBe('[^r]: one\n\n\nnote[^r]')
+    }
+
+    const negativeSource = '{==[^r]: one\n==}\n\nnote[^r]'
     for (const candidate of [negativeSource, `{>>${negativeSource}<<}`]) {
       const negativeCore = createDocumentCore()
       const negative = negativeCore.open(candidate, { footnotes: true })
@@ -1065,7 +1107,8 @@ describe('document-core facade', () => {
     const cases = [
       {
         name: 'fenced code',
-        payload: '```md\n<<}\n```\nlast\n',
+        // A line-start `<<}` would end the in-arm fence under L2c.
+        payload: '```md\nx <<}\n```\nlast\n',
         options: {},
         expectedKind: 'code-block'
       },

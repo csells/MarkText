@@ -16,7 +16,7 @@ import type OrderList from '../commonMark/orderList';
 import type SetextHeading from '../commonMark/setextHeading';
 import type Parent from './parent';
 import type TreeNode from './treeNode';
-import { formatDelimiters } from '@marktext/input-policy';
+import { formatDelimiters, INLINE_UPDATE_ATX_LINE_REG, INLINE_UPDATE_LIST_REG, INLINE_UPDATE_QUOTE_LINE_REG, INLINE_UPDATE_QUOTE_MARKER_REG, INLINE_UPDATE_SETEXT_LINE_REG, INLINE_UPDATE_TASK_REG, INLINE_UPDATE_THEMATIC_LINE_REG, matchInlineUpdate } from '@marktext/input-policy';
 import Content from '../../block/base/content';
 import { ScrollPage } from '../../block/scrollPage';
 import {
@@ -50,20 +50,6 @@ const debug = logger('block.format:');
 function isEmojiToken(token: Token): token is CodeEmojiMathToken {
     return token.type === 'emoji';
 }
-
-const INLINE_UPDATE_FRAGMENTS = [
-    '(?:^|\n) {0,3}([*+-] {1,4})', // Bullet list
-    '^(\\[[x ]\\] {1,4})', // Task list **match from beginning**
-    '(?:^|\n) {0,3}(\\d{1,9}(?:\\.|\\)) {1,4})', // Order list
-    '(?:^|\n) {0,3}(#{1,6})(?=\\s+|$)', // ATX headings
-    '^[\\s\\S]+?\\n {0,3}(={3,}|-{3,})(?= +|$)', // Setext headings **match from beginning**
-    '(?:^|\n) {0,3}(>).+', // Block quote
-    '^( {4,})', // Indent code **match from beginning**
-    // '^(\\[\\^[^\\^\\[\\]\\s]+?(?<!\\\\)\\]: )', // Footnote **match from beginning**
-    '(?:^|\n) {0,3}((?:\\* *\\* *\\*|- *- *-|_ *_ *_)[ *_-]*)(?=\n|$)', // Thematic break
-];
-
-const INLINE_UPDATE_REG = new RegExp(INLINE_UPDATE_FRAGMENTS.join('|'), 'i');
 
 function stripHardBreakMarker(line: string): string {
     const trimmed = line.replace(/[ \t]+$/, '');
@@ -860,53 +846,41 @@ class Format extends Content {
         const pendingFence
             = this.muya.options.multilineBlockquote && /^ {0,3}>+$/.test(text);
 
-        const [
-            match,
-            bulletList,
-            taskList,
-            orderList,
-            atxHeading,
-            setextHeading,
-            blockquote,
-            indentedCodeBlock,
-            thematicBreak,
-        ] = text.match(INLINE_UPDATE_REG) || [];
+        const match = matchInlineUpdate(text);
 
-        switch (true) {
-            case !!thematicBreak
-                && new Set(thematicBreak.split('').filter(i => /\S/.test(i))).size === 1:
+        switch (match.kind) {
+            case 'thematic-break':
                 this._convertToThematicBreak();
                 break;
 
-            case !!bulletList:
+            case 'list':
                 this._convertToList();
                 break;
 
-            case !!orderList:
-                this._convertToList();
-                break;
-
-            case !!taskList:
+            case 'task-list':
                 this._convertToTaskList();
                 break;
 
-            case !!atxHeading:
-                this._convertToAtxHeading(atxHeading);
+            case 'atx-heading':
+                this._convertToAtxHeading(match.marker);
                 break;
 
-            case !!setextHeading:
-                this._convertToSetextHeading(setextHeading);
+            case 'setext-heading':
+                this._convertToSetextHeading(match.underline);
                 break;
 
-            case !!blockquote && !pendingFence:
+            case 'blockquote':
+                if (pendingFence) {
+                    this.convertToParagraph();
+                    break;
+                }
                 this._convertToBlockQuote();
                 break;
 
-            case !!indentedCodeBlock:
+            case 'indented-code':
                 this._convertToIndentedCodeBlock();
                 break;
 
-            case !match:
             default:
                 this.convertToParagraph();
                 break;
@@ -929,10 +903,7 @@ class Format extends Content {
         let thematicLineHasPushed = false;
 
         for (const l of lines) {
-            const THEMATIC_BREAK_REG
-
-                = / {0,3}(?:\* *\* *\*|- *- *-|_ *_ *_)[ *\-_]*$/;
-            if (THEMATIC_BREAK_REG.test(l) && !thematicLineHasPushed) {
+            if (INLINE_UPDATE_THEMATIC_LINE_REG.test(l) && !thematicLineHasPushed) {
                 thematicLine = l;
                 thematicLineHasPushed = true;
             }
@@ -995,9 +966,7 @@ class Format extends Content {
         // (and including) the newline before the marker, so a `*` inside e.g.
         // `**bold**` on an earlier soft-line is never mistaken for the bullet
         // marker (#2429).
-        const matches = text.match(
-            /^([\s\S]*\n)? {0,3}([*+-]|\d{1,9}(?:\.|\))) {1,4}([\s\S]*)$/,
-        );
+        const matches = text.match(INLINE_UPDATE_LIST_REG);
         const isOrdered = /\d/.test(matches![2]);
 
         if (matches![1]) {
@@ -1052,8 +1021,7 @@ class Format extends Content {
             firstContent.setCursor(0, 0, true);
 
         // convert `[*-+] \[[xX ]\] ` to task list.
-        const TASK_LIST_REG = /^\[[x ]\] {1,4}/i;
-        if (TASK_LIST_REG.test(firstContent.text))
+        if (INLINE_UPDATE_TASK_REG.test(firstContent.text))
             firstContent._convertToTaskList();
     }
 
@@ -1063,7 +1031,7 @@ class Format extends Content {
         const { preferLooseListItem } = muya.options;
         const listItem = parent!.parent!;
         const list = listItem?.parent as BulletList | OrderList;
-        const matches = text.match(/^\[([x ])\] {1,4}([\s\S]*)$/i);
+        const matches = text.match(INLINE_UPDATE_TASK_REG);
 
         if (
             !list
@@ -1217,7 +1185,7 @@ class Format extends Content {
         let atxLineHasPushed = false;
 
         for (const l of lines) {
-            if (/^ {0,3}#{1,6}(?=\s+|$)/.test(l) && !atxLineHasPushed) {
+            if (INLINE_UPDATE_ATX_LINE_REG.test(l) && !atxLineHasPushed) {
                 atxLine = l;
                 atxLineHasPushed = true;
             }
@@ -1296,7 +1264,7 @@ class Format extends Content {
         let setextLineHasPushed = false;
 
         for (const l of lines) {
-            if (/^ {0,3}(?:={3,}|-{3,})(?= +|$)/.test(l) && !setextLineHasPushed)
+            if (INLINE_UPDATE_SETEXT_LINE_REG.test(l) && !setextLineHasPushed)
                 setextLineHasPushed = true;
             else if (!setextLineHasPushed)
                 setextLines.push(l);
@@ -1352,9 +1320,9 @@ class Format extends Content {
         let delta = 0;
 
         for (const l of lines) {
-            if (/^ {0,3}>/.test(l) && !quoteLinesHasPushed) {
+            if (INLINE_UPDATE_QUOTE_LINE_REG.test(l) && !quoteLinesHasPushed) {
                 quoteLinesHasPushed = true;
-                const tokens = /( *> *)(.*)/.exec(l);
+                const tokens = INLINE_UPDATE_QUOTE_MARKER_REG.exec(l);
                 delta = tokens![1].length;
                 quoteLines.push(tokens![2]);
             }
@@ -1685,6 +1653,15 @@ class Format extends Content {
         this.update();
     }
 
+    /**
+     * An empty line between HTML blocks is a template's middle line, which the
+     * model joins to the following HTML line.
+     */
+    private _isBoundHtmlTemplateLine(nextBlock: Nullable<Content>): boolean {
+        return !!this.muya.editor.documentEditing && this.blockName === 'paragraph.content' && this.text === ''
+            && !!nextBlock?.closestBlock('html-block') && !!this.previousContentInContext()?.closestBlock('html-block');
+    }
+
     override deleteHandler(event: KeyboardEvent): void {
         const { start, end } = this.getCursor()!;
         const { text } = this;
@@ -1698,12 +1675,18 @@ class Format extends Content {
         if (!nextBlock || nextBlock.blockName !== 'paragraph.content') {
             // If the next block is code content or table cell, nothing need to do.
             event.preventDefault();
+            if (this._isBoundHtmlTemplateLine(nextBlock)) {
+                const selection = this.muya.editor.selection.getDOMSelection();
+                if (!selection)
+                    throw new Error('Forward paragraph Delete has no document selection');
+                dispatchDocumentParagraphJoin(this.muya, 'forward', selection);
+            }
             return;
         }
 
         event.preventDefault();
 
-        if (this.muya.editor.documentEditing && ['paragraph.content', 'atxheading.content', 'setextheading.content'].includes(this.blockName)) {
+        if (this.muya.editor.documentEditing && ['paragraph.content', 'atxheading.content', 'setextheading.content', 'table.cell.content'].includes(this.blockName)) {
             const selection = this.muya.editor.selection.getDOMSelection();
             if (!selection)
                 throw new Error('Forward paragraph Delete has no document selection');

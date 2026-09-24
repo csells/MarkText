@@ -55,7 +55,13 @@ export type PlantumlFetchResult =
   | { ok: false; error: string }
 
 export type WindowClosePreparedReply =
-  | { requestId: number; files: UnsavedFile[]; requiresConfirmation: boolean }
+  | {
+    requestId: number
+    files: UnsavedFile[]
+    requiresConfirmation: boolean
+      /** An unsubmitted Review comment or replacement that closing would discard. */
+    pendingReviewInput?: boolean
+  }
   | { requestId: number; error: string }
 
 // =================================================================
@@ -63,6 +69,8 @@ export type WindowClosePreparedReply =
 // =================================================================
 
 export interface IpcInvokeChannels {
+  /** Native confirmation before closing discards unsubmitted Review input. */
+  'mt::confirm-discard-review-input': { args: []; ret: boolean }
   'mt::core-draft::list': { args: []; ret: CoreRecoveryDraftRecord[] }
   'mt::core-draft::archive': { args: [id: string]; ret: void }
   'mt::ask-for-image-path': { args: []; ret: string[] }

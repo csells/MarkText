@@ -84,13 +84,15 @@ describe('Core native input planning', () => {
     })
   })
 
-  it('skips an existing closer across a hidden comment with an explicit source selection', () => {
+  // Upstream MarkText sees the comment's `{` after the caret, not the closer,
+  // so the key is typed there rather than stepping over the hidden comment.
+  it('types a closer before a hidden comment as upstream does', () => {
     const core = createDocumentCore()
     const revision = core.open('({>>note<<})')
     expect(core.planInput(revision, insertion(1, ')'))).toEqual({
-      edits: [],
-      selection: { ranges: [{ anchor: 12, focus: 12 }], primary: 0 },
-      reconciliation: [{ start: 1, end: 2, insert: '' }]
+      edits: [{ start: 1, end: 1, insert: ')' }],
+      selection: { ranges: [{ anchor: 2, focus: 2 }], primary: 0 },
+      reconciliation: []
     })
   })
 })

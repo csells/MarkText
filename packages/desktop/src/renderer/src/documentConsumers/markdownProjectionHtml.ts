@@ -163,7 +163,11 @@ export function renderMarkdownProjectionToSafeHtml(
       case 'thematic-break':
         return '<hr />\n'
       case 'text':
-        return escapeHtml(stringAttribute(node, 'semanticText'))
+        return escapeHtml(
+          node.attributes.emojiClosed === true && typeof node.attributes.emojiValue === 'string'
+            ? node.attributes.emojiValue
+            : stringAttribute(node, 'semanticText')
+        )
       case 'soft-break':
         return '\n'
       case 'hard-break':

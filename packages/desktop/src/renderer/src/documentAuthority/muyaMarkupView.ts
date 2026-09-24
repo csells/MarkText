@@ -1,4 +1,10 @@
-import { paragraphPrefixPosition, paragraphImageRange } from '@marktext/document-core'
+import {
+  paragraphPrefixPosition,
+  paragraphImageRange,
+  setextUnderlineLeadingLine,
+  setextUnderlineStart,
+  tableCellContentRange
+} from '@marktext/document-core'
 import type {
   CriticMarkupAnnotation,
   DocumentModelTextPoint,
@@ -52,6 +58,13 @@ export interface MuyaMarkupBinding {
   readonly syntax: MarkdownAstNode
   readonly tableCell?: DocumentTableCellAddress
   readonly tableCellContent?: SourceRange
+  /**
+   * Spaces between a cell's text and its closing pipe. A space typed after the
+   * text stays there, as upstream keeps it in the cell until the table is
+   * written again, so the view shows that many of them after the text while
+   * the model caret follows them.
+   */
+  readonly tableCellPadding?: number
   readonly listContinuation?: Readonly<{ prefix: string; lineEnding: string }>
   readonly annotationContext?: true
   readonly outerBlock?: Readonly<{ range: SourceRange; source: string; followingSource?: string }>
@@ -61,6 +74,63 @@ export interface MuyaMarkupBinding {
   readonly containerPrefix?: Readonly<{ range: SourceRange; source: string }>
   readonly editable?: false
   readonly emptyLiteralLineEnding?: string
+  /**
+   * The caret position on the blank line that a soft break at this paragraph's
+   * end creates, after the containers' continuation prefix, or on the empty
+   * last line of a setext heading's text before its underline. That line
+   * belongs to no block text, so the view shows it as the block's last line
+   * only while the model selection is there. Muya holds that line's break as
+   * `\n`, as the DOM does, whatever the source line ending.
+   */
+  readonly trailingLinePosition?: number
+  /**
+   * The caret position at the end of the blank line, or of the container-only
+   * line such as a new list item's `- `, directly before this paragraph's first
+   * line within its containers. Enter on an earlier line of a paragraph leaves
+   * the caret there, where upstream shows the paragraph's empty first line.
+   * The view presents that line only while the model selection is there.
+   */
+  readonly leadingLinePosition?: number
+  /**
+   * The spaces on a root paragraph's blank leading line, before its position.
+   * Upstream keeps them as the paragraph's text, so the presented line shows
+   * them and the caret can stand before them.
+   */
+  readonly leadingLineText?: string
+  /**
+   * The spaces after a root empty paragraph on its whitespace-only line, such
+   * as the indentation left by deleting indented code's text. Upstream keeps
+   * the caret after them, so the view shows them while the caret is there.
+   */
+  readonly blankLineText?: string
+  /**
+   * A single-line list or quote holding one paragraph. Upstream keeps a lone
+   * marker it was typed as, or text that a thematic break's edit left, as
+   * paragraph text. While the model selection is on the marker, or on a lone
+   * marker's end, the view shows the container at `statePath` as that
+   * paragraph of the line's source text.
+   */
+  readonly markerLine?: Readonly<{
+    start: number
+    end: number
+    text: string
+    content: number
+    statePath: MuyaMarkupPath
+  }>
+  /**
+   * Source spans that belong to no block text and have no DOM position of
+   * their own: spaces before this block's first text or its trailing or
+   * leading line position, which upstream keeps as text, and the container
+   * prefix after a line break. The view shows a caret there at `at`.
+   */
+  readonly caretSnaps?: readonly MuyaCaretSnap[]
+}
+
+/** Source positions in `[from, to)` are shown at `at`. */
+export interface MuyaCaretSnap {
+  readonly from: number
+  readonly to: number
+  readonly at: number
 }
 
 export interface MuyaMarkupDecoration {
@@ -265,7 +335,9 @@ export function createMuyaMarkupView(
     while (
       runIndex < sourceRuns.length &&
       sourceRuns[runIndex].source.end <= event.sourceRange.start
-    ) { runIndex += 1 }
+    ) {
+      runIndex += 1
+    }
     for (let index = runIndex; index < sourceRuns.length; index += 1) {
       const run = sourceRuns[index]
       if (run.source.start >= event.sourceRange.end) break
@@ -311,6 +383,34 @@ export function createMuyaMarkupView(
       .map((line) => line.source)
   }
   const continuations = new Map<string, Readonly<{ prefix: string; lineEnding: string }>>()
+  const markerLines = new Map<string, NonNullable<MuyaMarkupBinding['markerLine']>>()
+  /** Records a single-line container holding one paragraph, with its marker. */
+  const markerLine = (
+    container: MarkdownAstNode,
+    paragraph: MarkdownAstNode | undefined,
+    statePath: MuyaMarkupPath,
+    leafPath: MuyaMarkupPath,
+    pattern: RegExp
+  ) => {
+    if (paragraph?.kind !== 'paragraph') return
+    const marker = projection.syntax.coordinates.toSource(container.range.start, 'next')
+    // Upstream keeps the marker's indentation in the paragraph text that Enter
+    // splits off, so a line-start caret before that indentation is in the line.
+    let start = marker
+    while (start > 0 && [' ', '\t'].includes(sourceCharacter(start - 1))) start -= 1
+    if (!['', '\r', '\n'].includes(sourceCharacter(start - 1))) start = marker
+    let end = start
+    while (!['', '\r', '\n'].includes(sourceCharacter(end))) end += 1
+    const text = sourceText(start, end)
+    const content = projection.syntax.coordinates.toSource(paragraph.range.start, 'next')
+    if (
+      projection.syntax.coordinates.toSource(paragraph.range.end, 'previous') > end ||
+      !pattern.test(text.slice(marker - start))
+    ) {
+      return
+    }
+    markerLines.set(JSON.stringify(leafPath), { start, end, text, content, statePath })
+  }
   const taskContentStarts = new Map<string, number>()
   const blocks = projection.syntax.ast.root.children
   const builders: Array<{
@@ -326,9 +426,12 @@ export function createMuyaMarkupView(
     }>
     marks: Map<MarkupMark, { start: number; end: number }>
     emptyLiteralLineEnding?: string
+    container?: MarkdownAstNode
   }> = []
+  const containers: MarkdownAstNode[] = []
   // Equal empty AST nodes may be shared; each occurrence still owns a distinct cell.
   const tableCells = new Map<string, DocumentTableCellAddress>()
+  const orderedItems = new WeakSet<MarkdownAstNode>()
   const sourceNodes: MuyaSourceStructure['nodes'][number][] = []
   const typedState = (syntax: MarkdownAstNode, path: MuyaMarkupPath): MuyaMarkupState => {
     const attrs = syntax.attributes
@@ -369,7 +472,19 @@ export function createMuyaMarkupView(
         const start = projection.syntax.coordinates.toSource(syntax.range.start, 'next')
         const contentStart = childNodes[0].children[0]?.range.start ?? childNodes[0].range.start
         let end = projection.syntax.coordinates.toSource(contentStart, 'next')
+        const first = childNodes[0]
         if (
+          syntax.attributes.task === true &&
+          orderedItems.has(syntax) &&
+          first.range.start === first.range.end
+        ) {
+          // Upstream reads an ordered item's task marker without text as
+          // the item's paragraph text.
+          taskContentStarts.set(
+            JSON.stringify([...path, 'children', 0]),
+            Number(syntax.attributes.taskMarkerStart)
+          )
+        } else if (
           syntax.attributes.task === true &&
           (sourceCharacter(end) === ' ' || sourceCharacter(end) === '\t')
         ) {
@@ -413,7 +528,13 @@ export function createMuyaMarkupView(
           lineEnding
         })
       }
-      return childNodes.map((child, index) => typedState(child, [...path, 'children', index]))
+      const container = ['list-item', 'blockquote', 'footnote-definition'].includes(syntax.kind)
+      if (container) containers.push(syntax)
+      try {
+        return childNodes.map((child, index) => typedState(child, [...path, 'children', index]))
+      } finally {
+        if (container) containers.pop()
+      }
     }
     const leaf = (
       name: string,
@@ -430,7 +551,8 @@ export function createMuyaMarkupView(
         state,
         text: '',
         segments: [],
-        marks: new Map()
+        marks: new Map(),
+        ...(containers.length === 0 ? {} : { container: containers.at(-1) })
       })
       return state
     }
@@ -441,8 +563,17 @@ export function createMuyaMarkupView(
     switch (syntax.kind) {
       case 'paragraph':
         return leaf('paragraph')
-      case 'definition':
-        return leaf('paragraph')
+      case 'definition': {
+        // A definition's range includes its line ending, which is no text.
+        const end = projection.syntax.coordinates.toSource(syntax.range.end, 'previous')
+        const ending = sourceText(Math.max(0, end - 2), end).match(/(?:\r\n|\r|\n)$/u)?.[0]
+        return ending === undefined
+          ? leaf('paragraph')
+          : leaf('paragraph', undefined, {
+            start: syntax.range.start,
+            end: projection.syntax.coordinates.toProjected(end - ending.length, 'previous')
+          })
+      }
       case 'thematic-break':
         return leaf('thematic-break')
       case 'html-block': {
@@ -480,21 +611,42 @@ export function createMuyaMarkupView(
           )
           : leaf('atx-heading', { level: Number(attrs.level) })
       case 'blockquote':
+        if (syntax.children.length === 1) {
+          markerLine(syntax, syntax.children[0], path, [...path, 'children', 0, 'text'], /^>/u)
+        }
         return { name: 'block-quote', children: children() }
       case 'list':
+        if (
+          syntax.children.length === 1 &&
+          syntax.children[0].children.length === 1 &&
+          syntax.children[0].attributes.task !== true
+        ) {
+          markerLine(
+            syntax.children[0],
+            syntax.children[0].children[0],
+            path,
+            [...path, 'children', 0, 'children', 0, 'text'],
+            /^(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/u
+          )
+        }
+        // Upstream renders only bullet task items with checkboxes; an ordered
+        // item's task marker stays source syntax before its paragraph text.
+        if (attrs.ordered) for (const item of syntax.children) orderedItems.add(item)
         return {
-          name: attrs.taskList ? 'task-list' : attrs.ordered ? 'order-list' : 'bullet-list',
+          name: attrs.ordered ? 'order-list' : attrs.taskList ? 'task-list' : 'bullet-list',
           meta: attrs.ordered
             ? { start: Number(attrs.start ?? 1), loose: !attrs.tight, delimiter: '.' }
             : { marker: '-', loose: !attrs.tight },
           children: children()
         }
-      case 'list-item':
+      case 'list-item': {
+        const task = attrs.task === true && !orderedItems.has(syntax)
         return {
-          name: attrs.task ? 'task-list-item' : 'list-item',
-          ...(attrs.task ? { meta: { checked: Boolean(attrs.checked) } } : {}),
+          name: task ? 'task-list-item' : 'list-item',
+          ...(task ? { meta: { checked: Boolean(attrs.checked) } } : {}),
           children: children()
         }
+      }
       case 'table': {
         const table = {
           start: projection.syntax.coordinates.toSource(syntax.range.start, 'previous'),
@@ -564,8 +716,11 @@ export function createMuyaMarkupView(
       }
       const builder = builders[blockIndex]
       if (builder === undefined || syntax < builder.range.start) continue
+      // Container prefixes between a paragraph's or setext heading's lines
+      // are not its text.
       if (
-        builder.syntax.kind === 'paragraph' &&
+        (builder.syntax.kind === 'paragraph' ||
+          (builder.syntax.kind === 'heading' && builder.syntax.attributes.style === 'setext')) &&
         builder.syntax.children.length > 0 &&
         !builder.syntax.children.some(
           (child) => child.range.start <= syntax && syntax < child.range.end
@@ -724,8 +879,160 @@ export function createMuyaMarkupView(
       builder.range = { start: position, end: position }
     }
   }
-  const bindings = builders.map(
-    (builder): MuyaMarkupBinding => ({
+  const documentEndOffset = projection.syntax.coordinates.toSource(
+    projection.syntax.ast.root.range.end,
+    'next'
+  )
+  const trailingLinePosition = (builder: (typeof builders)[number]): number | undefined => {
+    if (builder.state.name === 'setext-heading') {
+      return setextUnderlineStart(projection.syntax, builder.syntax, sourceText)
+    }
+    // Enter at the end of an HTML block or indented code adds its empty last
+    // line, which ends the block in source until text is typed there.
+    const literal =
+      builder.state.name === 'html-block' ||
+      (builder.state.name === 'code-block' &&
+        builder.syntax.attributes.provider === 'indented-code')
+    if (
+      !literal &&
+      (builder.state.name !== 'paragraph' ||
+        !['paragraph', 'definition'].includes(builder.syntax.kind))
+    ) {
+      return undefined
+    }
+    let end = projection.syntax.coordinates.toSource(
+      literal || builder.syntax.kind === 'definition'
+        ? builder.range.end
+        : builder.syntax.range.end,
+      'next'
+    )
+    // A literal body's range includes its last line's ending.
+    if (literal && sourceCharacter(end - 1) === '\n') {
+      end -= sourceCharacter(end - 2) === '\r' ? 2 : 1
+    } else if (literal && sourceCharacter(end - 1) === '\r') end -= 1
+    const lineEnding = sourceText(end, end + 2).match(/^(?:\r\n|\r|\n)/u)?.[0]
+    if (lineEnding === undefined) return undefined
+    let position = end + lineEnding.length
+    while (/^[ \t>]$/u.test(sourceCharacter(position))) position += 1
+    const following = sourceText(position, position + 1)
+    // A regional projection ends at its region; its owner decides whether
+    // that is the document end.
+    const blank =
+      /^[\r\n]$/u.test(following) ||
+      (following === '' &&
+        position === documentEndOffset &&
+        (canonicalSource === undefined || position === canonicalSource.length))
+    return blank ? position : undefined
+  }
+  const trailingLines = builders.map(trailingLinePosition)
+  const lineStartOf = (offset: number): number | undefined => {
+    let start = offset
+    for (;;) {
+      if (start === 0) return 0
+      const previous = sourceCharacter(start - 1)
+      // A regional projection cannot see lines before its region.
+      if (previous === '') return undefined
+      if (previous === '\n' || previous === '\r') return start
+      start -= 1
+    }
+  }
+  const leadingLinePosition = (builder: (typeof builders)[number]): number | undefined => {
+    if (builder.state.name === 'thematic-break') {
+      return setextUnderlineLeadingLine(projection.syntax, builder.syntax, sourceText)
+    }
+    if (
+      builder.state.name !== 'setext-heading' &&
+      (builder.state.name !== 'paragraph' || builder.syntax.kind !== 'paragraph')
+    ) {
+      return undefined
+    }
+    // An empty paragraph's added line is its trailing line.
+    if (builder.text === '' || builder.container?.kind === 'footnote-definition') return undefined
+    const lineStart = lineStartOf(
+      projection.syntax.coordinates.toSource(builder.syntax.range.start, 'previous')
+    )
+    if (lineStart === undefined || lineStart === 0) return undefined
+    const end = lineStart - (sourceText(lineStart - 2, lineStart) === '\r\n' ? 2 : 1)
+    const previousStart = lineStartOf(end)
+    if (previousStart === undefined) return undefined
+    const line = sourceText(previousStart, end)
+    if (builder.container === undefined) return /^[ \t]*$/u.test(line) ? end : undefined
+    // The line belongs to the paragraph's own innermost container: its quote
+    // markers, or the marker line of the list item that holds the paragraph.
+    const containerLine = lineStartOf(
+      projection.syntax.coordinates.toSource(builder.container.range.start, 'next')
+    )
+    const containerOnly = /^[ \t>]*(?:(?:[-+*]|\d{1,9}[.)])(?:[ \t]+\[[ xX]\])?)?[ \t]*$/u
+    if (containerLine === undefined || containerLine > previousStart || !containerOnly.test(line)) {
+      return undefined
+    }
+    // An item's first paragraph after blank lines begins on the item's empty
+    // marker line, where deleting the item's text leaves the caret.
+    if (
+      builder.container.kind === 'list-item' &&
+      builder.container.children[0] === builder.syntax
+    ) {
+      let lineEnd = end
+      let lineStart = previousStart
+      while (lineStart > containerLine && /^[ \t>]*$/u.test(sourceText(lineStart, lineEnd))) {
+        lineEnd = lineStart - (sourceText(lineStart - 2, lineStart) === '\r\n' ? 2 : 1)
+        const start = lineStartOf(lineEnd)
+        if (start === undefined) return undefined
+        lineStart = start
+      }
+      if (lineStart === containerLine && containerOnly.test(sourceText(lineStart, lineEnd))) {
+        return lineEnd
+      }
+    }
+    return end
+  }
+  const leadingLines = builders.map(leadingLinePosition)
+  const blankLineText = (builder: (typeof builders)[number]): { blankLineText?: string } => {
+    if (
+      builder.text !== '' ||
+      builder.container !== undefined ||
+      builder.syntax.kind !== 'paragraph'
+    ) {
+      return {}
+    }
+    const start = projection.syntax.coordinates.toSource(builder.syntax.range.start, 'next')
+    let end = start
+    while (sourceCharacter(end) === ' ' || sourceCharacter(end) === '\t') end += 1
+    return end > start && ['', '\r', '\n'].includes(sourceCharacter(end))
+      ? { blankLineText: sourceText(start, end) }
+      : {}
+  }
+  const leadingLineText = (
+    builder: (typeof builders)[number],
+    position: number
+  ): { leadingLineText?: string } => {
+    if (
+      builder.syntax.kind !== 'paragraph' ||
+      (builder.container !== undefined && builder.container.kind !== 'blockquote')
+    ) {
+      return {}
+    }
+    const start = lineStartOf(position)
+    const first = projection.syntax.coordinates.toSource(builder.syntax.range.start, 'previous')
+    const firstLine = lineStartOf(first)
+    if (start === undefined || firstLine === undefined) return {}
+    // The quote markers that begin the paragraph's first line also begin this one.
+    const prefix = sourceText(firstLine, first)
+    const line = sourceText(start, position)
+    const text = line.startsWith(prefix) ? line.slice(prefix.length) : ''
+    return /^[ \t]+$/u.test(text) ? { leadingLineText: text } : {}
+  }
+  const cellPadding = (cell: MarkdownAstNode): { tableCellPadding?: number } => {
+    const { start, end } = tableCellContentRange(projection.syntax, cell)
+    if (start === end || typeof cell.attributes.cellEnd !== 'number') return {}
+    const padding = sourceText(
+      end,
+      projection.syntax.coordinates.toSource(cell.attributes.cellEnd, 'next')
+    )
+    return /^ +$/u.test(padding) ? { tableCellPadding: padding.length } : {}
+  }
+  const unsnappedBindings = builders.map(
+    (builder, index): MuyaMarkupBinding => ({
       path: builder.path,
       text: builder.text,
       segments: builder.segments,
@@ -733,10 +1040,8 @@ export function createMuyaMarkupView(
       ...(tableCells.has(JSON.stringify(builder.path))
         ? {
           tableCell: tableCells.get(JSON.stringify(builder.path)),
-          tableCellContent: {
-            start: projection.syntax.coordinates.toSource(builder.syntax.range.start, 'previous'),
-            end: projection.syntax.coordinates.toSource(builder.syntax.range.end, 'next')
-          }
+          tableCellContent: tableCellContentRange(projection.syntax, builder.syntax),
+          ...cellPadding(builder.syntax)
         }
         : {}),
       ...(builder.emptyLiteralLineEnding === undefined
@@ -745,6 +1050,17 @@ export function createMuyaMarkupView(
       ...(continuations.has(JSON.stringify(builder.path))
         ? { listContinuation: continuations.get(JSON.stringify(builder.path)) }
         : {}),
+      ...blankLineText(builder),
+      ...(markerLines.has(JSON.stringify(builder.path))
+        ? { markerLine: markerLines.get(JSON.stringify(builder.path)) }
+        : {}),
+      ...(trailingLines[index] === undefined ? {} : { trailingLinePosition: trailingLines[index] }),
+      ...(leadingLines[index] === undefined
+        ? {}
+        : {
+          leadingLinePosition: leadingLines[index],
+          ...leadingLineText(builder, leadingLines[index])
+        }),
       sourceRange: {
         start:
           builder.segments[0]?.source.start ??
@@ -755,6 +1071,57 @@ export function createMuyaMarkupView(
       }
     })
   )
+  const whitespaceBefore = (position: number): MuyaCaretSnap | undefined => {
+    let from = position
+    while (from > 0 && (sourceCharacter(from - 1) === ' ' || sourceCharacter(from - 1) === '\t')) {
+      from -= 1
+    }
+    return from < position ? { from, to: position, at: position } : undefined
+  }
+  /** A later line's container prefix, shown at that line's start. */
+  const prefixAfter = (lineStart: number): MuyaCaretSnap | undefined => {
+    let end = lineStart
+    while (/^[ \t>]$/u.test(sourceCharacter(end))) end += 1
+    return end > lineStart ? { from: lineStart + 1, to: end + 1, at: lineStart } : undefined
+  }
+  const bindings = unsnappedBindings.map((binding): MuyaMarkupBinding => {
+    // Each later line's text starts after its container continuation.
+    const lineStarts = [...binding.text.matchAll(/\r\n|\r|\n/gu)].flatMap((match) => {
+      const offset = match.index + match[0].length
+      const segment = binding.segments.find(
+        (item) => item.text.start <= offset && offset < item.text.end
+      )
+      return segment === undefined ? [] : [segment.source.start + offset - segment.text.start]
+    })
+    // The source just after each line break, before that line's prefix.
+    const lineBreakEnds = [...binding.text.matchAll(/\r\n|\r|\n/gu)].flatMap((match) => {
+      const offset = match.index + match[0].length
+      const segment = binding.segments.find(
+        (item) => item.text.start < offset && offset <= item.text.end
+      )
+      return segment === undefined ||
+        segment.source.end - segment.source.start !== segment.text.end - segment.text.start
+        ? []
+        : [segment.source.start + offset - segment.text.start]
+    })
+    const snaps = [
+      ...[
+        binding.sourceRange.start,
+        ...lineStarts,
+        binding.trailingLinePosition,
+        binding.leadingLinePosition
+      ].flatMap((position) => (position === undefined ? [] : [whitespaceBefore(position)])),
+      ...lineBreakEnds
+        .filter(
+          (position) =>
+            !binding.segments.some(
+              (segment) => segment.source.start <= position && position < segment.source.end
+            )
+        )
+        .map(prefixAfter)
+    ].filter((snap): snap is MuyaCaretSnap => snap !== undefined)
+    return snaps.length === 0 ? binding : { ...binding, caretSnaps: snaps }
+  })
   // Each editable widget field is a typed binding to its parser-owned value.
   // Retain the existing body bindings and add the fence's distinct info field.
   const infoBindings = new Map<MuyaMarkupPath, MuyaMarkupBinding>()
@@ -766,7 +1133,9 @@ export function createMuyaMarkupView(
       typeof infoStart !== 'number' ||
       typeof infoEnd !== 'number' ||
       typeof infoInputValue !== 'string'
-    ) { continue }
+    ) {
+      continue
+    }
     const segments: MuyaMarkupSourceSegment[] = []
     let syntaxOffset = infoStart
     let textOffset = 0
@@ -929,10 +1298,7 @@ export function createMuyaMarkupView(
       })
     }
   }
-  const endOffset = projection.syntax.coordinates.toSource(
-    projection.syntax.ast.root.range.end,
-    'next'
-  )
+  const endOffset = documentEndOffset
   let suffixStart = endOffset
   while (suffixStart > 0 && /[\r\n]/u.test(sourceCharacter(suffixStart - 1))) suffixStart -= 1
   const trailingLineEndings = sourceText(suffixStart, endOffset)

@@ -372,7 +372,7 @@ describe('Muya Markup editing view', () => {
     expect(
       createMuyaMarkupView(core.project(ordinary, 'markup'), ordinary.annotations).state
     ).toHaveLength(1)
-    const entered = core.open('```js\naaa\n```\n\n')
+    const entered = core.open('```js\naaa\n```\n\n\n')
     const view = createMuyaMarkupView(core.project(entered, 'markup'), entered.annotations)
     expect(view.state.at(-1)).toEqual({ name: 'paragraph', text: '' })
     expect(view.state).toHaveLength(2)
@@ -397,12 +397,17 @@ describe('Muya Markup editing view', () => {
 
   it('retains end Enter when the original file has no final newline', () => {
     const core = createDocumentCore()
-    const revision = core.open('# Heading\n\n')
+    // Enter writes the final empty paragraph's line ending, as upstream does;
+    // a single final blank line is no block.
+    expect(
+      createMuyaMarkupView(core.project(core.open('# Heading\n\n'), 'markup')).state
+    ).toHaveLength(1)
+    const revision = core.open('# Heading\n\n\n')
     const view = createMuyaMarkupView(core.project(revision, 'markup'))
     expect(view.state.at(-1)).toEqual({ name: 'paragraph', text: '' })
     expect(mappedMuyaSourceRange(view.bindings.at(-1)!, { start: 0, end: 0 })).toEqual({
-      start: revision.sourceLength,
-      end: revision.sourceLength
+      start: revision.sourceLength - 1,
+      end: revision.sourceLength - 1
     })
   })
 

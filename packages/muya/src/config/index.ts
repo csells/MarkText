@@ -1,8 +1,6 @@
-import htmlTags, { voidHtmlTags } from 'html-tags';
 import { en } from '../locales/en';
 
-export const VOID_HTML_TAGS = voidHtmlTags;
-export const HTML_TAGS = htmlTags;
+export { HTML_TAGS, VOID_HTML_TAGS } from '@marktext/input-policy';
 export const BLOCK_DOM_PROPERTY = '__MUYA_BLOCK__';
 
 /**

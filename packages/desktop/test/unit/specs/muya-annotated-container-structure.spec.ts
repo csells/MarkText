@@ -19,7 +19,7 @@ const nativeListTab = (app: ReturnType<typeof bootBoundMuya>, shift = false) => 
 }
 
 it.each(['\n', '\r\n', '\r'])(
-  'inserts a table row without rewriting existing annotations or lines (%j)',
+  'inserts a table row keeping existing annotations and line endings (%j)',
   async(eol) => {
     const source = `| col |${eol}| --- |${eol}| {++cell++}{>>keep note<<} |${eol}`
     const actor = createCoreActor()
@@ -30,12 +30,14 @@ it.each(['\n', '\r\n', '\r'])(
     await binding.open({ documentId: 'annotated-table.md', source })
     const view = () => {
       const reply = binding.plainTextViewAtBarrier()
-      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Expected native view') }
+      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+        throw new Error('Expected native view')
+      }
       return reply.view
     }
     const initial = view()
     const reconcile = () => view().bindings
-    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding, undefined, reconcile)
+    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding)
     try {
       expect(
         tableModelCommand(
@@ -50,8 +52,9 @@ it.each(['\n', '\r\n', '\r'])(
       ).toEqual({ accepted: true, changed: true })
       await adapter.settled()
       const inserted = await binding.sourceAtBarrier()
+      // Upstream (8d6c198c) writes the table afresh after an untracked table command.
       expect(inserted).toMatchObject({
-        source: source.slice(0, -eol.length) + `${eol}|     |${eol}`
+        source: `| col                       |${eol}| ------------------------- |${eol}| {++cell++}{>>keep note<<} |${eol}|                           |${eol}`
       })
       await adapter.history('undo', reconcile)
       expect(await binding.sourceAtBarrier()).toMatchObject({ source })
@@ -74,16 +77,20 @@ it.each([false, true])(
     await binding.open({ documentId: 'queued-column.md', source })
     const view = () => {
       const reply = binding.plainTextViewAtBarrier()
-      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Expected native view') }
+      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+        throw new Error('Expected native view')
+      }
       return reply.view
     }
     const initial = view()
     const reconcile = () => view().bindings
-    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding, undefined, reconcile)
+    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding)
     const after = structuredClone(initial.state) as unknown as Array<{
       children: Array<{ children: Array<{ name: string; text: string; meta: { align: string } }> }>
     }>
-    for (const row of after[0].children) { row.children.push({ name: 'table.cell', text: '', meta: { align: 'none' } }) }
+    for (const row of after[0].children) {
+      row.children.push({ name: 'table.cell', text: '', meta: { align: 'none' } })
+    }
     const typed = structuredClone(after)
     typed[0].children[1].children[1].text = 'X'
     try {
@@ -154,9 +161,10 @@ it.each(
 )
 
 // New columns use the shared native serializer's padding and parser-owned slots.
-// Existing cells, independent annotations and line endings retain exact bytes.
+// Annotations and line endings retain exact bytes; an untracked command pads
+// the existing cells as upstream does, while a suggestion never carries padding.
 it.each([0, 1].flatMap((column) => [false, true].map((tracked) => ({ column, tracked }))))(
-  'inserts table column $column with tracked=$tracked without rewriting annotated cells',
+  'inserts table column $column with tracked=$tracked keeping annotated cells intact',
   async({ column, tracked }) => {
     const source = '| col |\r\n| :--- |\r\n| {++cell++}{>>keep note<<} |\r\n'
     const actor = createCoreActor()
@@ -167,12 +175,14 @@ it.each([0, 1].flatMap((column) => [false, true].map((tracked) => ({ column, tra
     await binding.open({ documentId: 'annotated-column.md', source })
     const view = () => {
       const reply = binding.plainTextViewAtBarrier()
-      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Expected native view') }
+      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+        throw new Error('Expected native view')
+      }
       return reply.view
     }
     const initial = view()
     const reconcile = () => view().bindings
-    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding, undefined, reconcile)
+    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding)
     try {
       expect(
         tableModelCommand(
@@ -196,11 +206,12 @@ it.each([0, 1].flatMap((column) => [false, true].map((tracked) => ({ column, tra
             : '| col {++|     ++}|\r\n| :--- {++| --- ++}|\r\n| {++cell++}{>>keep note<<} {++|     ++}|\r\n'
         )
       } else {
+        // Upstream (8d6c198c) writes the table afresh after an untracked table command.
         expect(await binding.sourceAtBarrier()).toMatchObject({
           source:
             column === 0
-              ? '|     | col |\r\n| --- | :--- |\r\n|     | {++cell++}{>>keep note<<} |\r\n'
-              : '| col |     |\r\n| :--- | --- |\r\n| {++cell++}{>>keep note<<} |     |\r\n'
+              ? '|     | col                       |\r\n| --- |:------------------------- |\r\n|     | {++cell++}{>>keep note<<} |\r\n'
+              : '| col                       |     |\r\n|:------------------------- | --- |\r\n| {++cell++}{>>keep note<<} |     |\r\n'
         })
       }
       await adapter.history('undo', reconcile)
@@ -226,12 +237,14 @@ it.each([false, true])(
       .acknowledged
     const view = () => {
       const reply = binding.plainTextViewAtBarrier()
-      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Expected native view') }
+      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+        throw new Error('Expected native view')
+      }
       return reply.view
     }
     const initial = view()
     const reconcile = () => view().bindings
-    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding, undefined, reconcile)
+    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding)
     const history = adapter.history('undo', reconcile)
     // Undo has already published the new model and view. The next native action
     // uses that domain in the same task, without awaiting the history promise.
@@ -251,9 +264,10 @@ it.each([false, true])(
       await history
       await adapter.settled()
       expect(await binding.sourceAtBarrier()).toMatchObject({
+        // Upstream (8d6c198c) writes the table afresh after an untracked table command.
         source: tracked
           ? '| col {++|     ++}|\n| --- {++| --- ++}|\n| {++cell++}{>>note<<} {++|     ++}|\n'
-          : '| col |     |\n| --- | --- |\n| {++cell++}{>>note<<} |     |\n'
+          : '| col                  |     |\n| -------------------- | --- |\n| {++cell++}{>>note<<} |     |\n'
       })
       await adapter.history('undo', reconcile)
       expect(await binding.sourceAtBarrier()).toMatchObject({ source })
@@ -266,7 +280,7 @@ it.each([false, true])(
 )
 
 it.each([false, true])(
-  'changes annotated table alignment without rewriting its cells with tracked=%s',
+  'changes annotated table alignment keeping its annotated cells with tracked=%s',
   async(tracked) => {
     const source = '| col |\n| ---- |\n| {++cell++}{>>note<<} |\n'
     const actor = createCoreActor()
@@ -277,12 +291,14 @@ it.each([false, true])(
     await binding.open({ documentId: 'align-table.md', source })
     const view = () => {
       const reply = binding.plainTextViewAtBarrier()
-      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Expected native view') }
+      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+        throw new Error('Expected native view')
+      }
       return reply.view
     }
     const initial = view()
     const reconcile = () => view().bindings
-    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding, undefined, reconcile)
+    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding)
     const after = structuredClone(initial.state) as unknown as Array<{
       children: Array<{ children: Array<{ meta: { align: string } }> }>
     }>
@@ -301,9 +317,10 @@ it.each([false, true])(
       ).toEqual({ accepted: true, changed: true })
       await adapter.settled()
       expect(await binding.sourceAtBarrier()).toMatchObject({
+        // Upstream (8d6c198c) writes the table afresh after an untracked table command.
         source: tracked
           ? '| col |\n| {++:++}----{++:++} |\n| {++cell++}{>>note<<} |\n'
-          : '| col |\n| :----: |\n| {++cell++}{>>note<<} |\n'
+          : '| col                  |\n|:--------------------:|\n| {++cell++}{>>note<<} |\n'
       })
       expect(view().state).toEqual(after)
       await adapter.history('undo', reconcile)
@@ -327,12 +344,14 @@ it.each(['\n', '\r\n', '\r'])(
     await binding.open({ documentId: 'remove-row.md', source })
     const view = () => {
       const reply = binding.plainTextViewAtBarrier()
-      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Expected native view') }
+      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+        throw new Error('Expected native view')
+      }
       return reply.view
     }
     const initial = view()
     const reconcile = () => view().bindings
-    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding, undefined, reconcile)
+    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding)
     const after = structuredClone(initial.state) as unknown as Array<{ children: unknown[] }>
     after[0].children.pop()
     try {
@@ -340,8 +359,9 @@ it.each(['\n', '\r\n', '\r'])(
         tableModelCommand(adapter, initial, 2, 0, { command: 'removeTableRow' }, reconcile, false)
       ).toEqual({ accepted: true, changed: true })
       await adapter.settled()
+      // Upstream (8d6c198c) writes the table afresh after an untracked table command.
       expect(await binding.sourceAtBarrier()).toMatchObject({
-        source: `| col |${eol}| --- |${eol}| {++cell++}{>>note<<} |${eol}`
+        source: `| col                  |${eol}| -------------------- |${eol}| {++cell++}{>>note<<} |${eol}`
       })
       expect(view().state).toEqual(after)
       await adapter.history('undo', reconcile)
@@ -354,7 +374,7 @@ it.each(['\n', '\r\n', '\r'])(
 )
 
 it.each([0, 1])(
-  'removes annotated table column %s without rewriting surviving cells',
+  'removes annotated table column %s keeping surviving annotated cells',
   async(column) => {
     const source = '| first | second |\r\n| :--- | ---: |\r\n| {++cell++}{>>note<<} | remove |\r\n'
     const actor = createCoreActor()
@@ -365,12 +385,14 @@ it.each([0, 1])(
     await binding.open({ documentId: 'remove-column.md', source })
     const view = () => {
       const reply = binding.plainTextViewAtBarrier()
-      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Expected native view') }
+      if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+        throw new Error('Expected native view')
+      }
       return reply.view
     }
     const initial = view()
     const reconcile = () => view().bindings
-    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding, undefined, reconcile)
+    const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding)
     const after = structuredClone(initial.state) as unknown as Array<{
       children: Array<{ children: unknown[] }>
     }>
@@ -390,9 +412,10 @@ it.each([0, 1])(
       await adapter.settled()
       expect(await binding.sourceAtBarrier()).toMatchObject({
         source:
+          // Upstream (8d6c198c) writes the table afresh after an untracked table command.
           column === 0
-            ? '| second |\r\n| ---: |\r\n| remove |\r\n'
-            : '| first |\r\n| :--- |\r\n| {++cell++}{>>note<<} |\r\n'
+            ? '| second |\r\n| ------:|\r\n| remove |\r\n'
+            : '| first                |\r\n|:-------------------- |\r\n| {++cell++}{>>note<<} |\r\n'
       })
       expect(view().state).toEqual(after)
       await adapter.history('undo', reconcile)
@@ -414,12 +437,14 @@ it('removes a header row while retaining the new annotated header and delimiter 
   await binding.open({ documentId: 'remove-header.md', source })
   const view = () => {
     const reply = binding.plainTextViewAtBarrier()
-    if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Expected native view') }
+    if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+      throw new Error('Expected native view')
+    }
     return reply.view
   }
   const initial = view()
   const reconcile = () => view().bindings
-  const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding, undefined, reconcile)
+  const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding)
   const after = structuredClone(initial.state) as unknown as Array<{ children: unknown[] }>
   after[0].children.shift()
   try {
@@ -427,8 +452,9 @@ it('removes a header row while retaining the new annotated header and delimiter 
       tableModelCommand(adapter, initial, 0, 0, { command: 'removeTableRow' }, reconcile, false)
     ).toEqual({ accepted: true, changed: true })
     await adapter.settled()
+    // Upstream (8d6c198c) writes the table afresh after an untracked table command.
     expect(await binding.sourceAtBarrier()).toMatchObject({
-      source: '| {++cell++}{>>note<<} |\n| :---- |\n| body |\n'
+      source: '| {++cell++}{>>note<<} |\n|:-------------------- |\n| body                 |\n'
     })
     expect(view().state).toEqual(after)
     await adapter.history('undo', reconcile)
@@ -466,12 +492,14 @@ it('tracks column removal and keeps the surviving annotated cell editable', asyn
   await binding.open({ documentId: 'track-remove-column.md', source })
   const view = () => {
     const reply = binding.plainTextViewAtBarrier()
-    if (reply.type !== 'plain-text-view' || !('state' in reply.view)) { throw new Error('Expected native view') }
+    if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+      throw new Error('Expected native view')
+    }
     return reply.view
   }
   const initial = view()
   const reconcile = () => view().bindings
-  const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding, undefined, reconcile)
+  const adapter = createMuyaPlainTextCoreAdapter(initial.bindings, binding)
   try {
     expect(
       tableModelCommand(adapter, initial, 0, 1, { command: 'removeTableColumn' }, reconcile, true)

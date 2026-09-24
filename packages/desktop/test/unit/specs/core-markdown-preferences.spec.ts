@@ -222,12 +222,7 @@ describe('Core Markdown preference changes', () => {
       if (view.type !== 'plain-text-view') throw new Error('Expected configured view')
       return view.view.bindings
     }
-    const adapter = createMuyaPlainTextCoreAdapter(
-      initial.view.bindings,
-      binding,
-      undefined,
-      reconcile
-    )
+    const adapter = createMuyaPlainTextCoreAdapter(initial.view.bindings, binding)
     adapter.compositionStart({
       range: { start: 0, end: 0 },
       selection: { ranges: [{ anchor: 0, focus: 0 }], primary: 0 },

@@ -3,28 +3,43 @@ import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNod
 import type { MarkdownLineIndex } from './revision.js'
 import { containerContinuationPrefix } from './clipboardMarkdown.js'
 import { positionAfter } from './sourcePosition.js'
+import { paragraphPrefixPosition } from './paragraphBoundary.js'
+import { paragraphLeadingLine } from './paragraphJoinPlanning.js'
 
 const kindOf = (list: MarkdownAstNode): ListKind => list.attributes.taskList === true ? 'task' : list.attributes.ordered === true ? 'ordered' : 'bullet'
 
 /** List commands edit parser-owned markers and continuation trivia, never a reconstructed native tree. */
 export function planListChange(core: DocumentCore, revision: DocumentRevision, syntax: MarkupSyntax, ancestors: readonly MarkdownAstNode[], lines: MarkdownLineIndex, selection: SourceRange, change: ListChange, options: ListMarkerOptions): { edits: DocumentSourceEdit[], selection: SourceRange } {
-  if (!['-', '*', '+'].includes(options.bulletListMarker) || !['.', ')'].includes(options.orderListDelimiter)) throw new RangeError('Invalid list marker options')
+  if (!['-', '*', '+'].includes(options.bulletListMarker) || !['.', ')'].includes(options.orderListDelimiter) ||
+      (options.preferLooseListItem !== undefined && typeof options.preferLooseListItem !== 'boolean')) throw new RangeError('Invalid list marker options')
   const lists = ancestors.filter(node => node.kind === 'list')
   const outermost = ancestors[1]?.kind === 'list' ? ancestors[1] : undefined
   let targets: readonly MarkdownAstNode[]
   let unwrap = false
   let boundaryItem: MarkdownAstNode | undefined
+  let taskText = false
   if (change.type === 'backspace') {
     const list = lists.at(-1)
     const item = [...ancestors].reverse().find(node => node.kind === 'list-item')
     const paragraph = item?.children[0]
-    const boundary = typeof item?.attributes.taskMarkerEnd === 'number' ? item.attributes.taskMarkerEnd + 1 : paragraph?.range.start
+    // An ordered item's task marker without text is that item's text.
+    const markerText = list?.attributes.ordered === true && paragraph?.range.start === paragraph?.range.end &&
+      typeof item?.attributes.taskMarkerStart === 'number'
+    const boundary = markerText
+      ? Number(item.attributes.taskMarkerStart)
+      : typeof item?.attributes.taskMarkerEnd === 'number' ? item.attributes.taskMarkerEnd + 1 : paragraph?.range.start
+    // The marker line before an item's paragraph is that paragraph's leading line.
+    const leading = paragraph === undefined || selection.start !== selection.end ? undefined : paragraphLeadingLine(core, revision, syntax, selection.start)
+    const atLeadingLine = leading !== undefined && item !== undefined && leading.paragraph === paragraph &&
+      leading.lineStart <= syntax.coordinates.toSource(item.range.start, 'next')
     if (list === undefined || item === undefined || !list.children.includes(item) || paragraph?.kind !== 'paragraph' ||
-        selection.start !== selection.end || syntax.coordinates.toProjected(selection.start, 'next') !== boundary) {
+        selection.start !== selection.end || (syntax.coordinates.toProjected(selection.start, 'next') !== boundary &&
+          syntax.coordinates.toProjected(selection.start, 'next') !== paragraph.range.start && !atLeadingLine)) {
       throw new RangeError('List boundary Backspace requires the start of its item')
     }
     targets = [list]
     boundaryItem = item
+    taskText = markerText
     unwrap = true
   } else if (change.type === 'reset' || change.type === 'toggle-tight' || change.type === 'front') {
     targets = outermost === undefined ? [] : [outermost]
@@ -34,8 +49,14 @@ export function planListChange(core: DocumentCore, revision: DocumentRevision, s
     unwrap = targets.length !== 0
     if (!unwrap) targets = lists.length === 0 ? [] : [lists.at(-1)!]
   }
-  if (targets.length === 0) throw new RangeError('List command requires an existing list')
+  if (targets.length === 0) {
+    if (change.type !== 'toggle' && change.type !== 'front') throw new RangeError('List command requires an existing list')
+    return planListCreation(revision, syntax, ancestors, lines, selection, change.kind, options)
+  }
   const edits: DocumentSourceEdit[] = []
+  // A separator added after an item's content keeps an end-of-line caret on
+  // that content; the blank line it creates has no rendered position.
+  const trailingSeparators = new Set<DocumentSourceEdit>()
   const sourceAt = (offset: number) => syntax.coordinates.toSource(offset, 'next')
   const sourceEnd = (offset: number) => syntax.coordinates.toSource(offset, 'previous')
   const records = Array.from({ length: lines.count }, (_, index) => lines.at(index))
@@ -52,7 +73,8 @@ export function planListChange(core: DocumentCore, revision: DocumentRevision, s
   }
   const linesBetween = (start: number, end: number) => records.slice(firstLineAt(start), firstLineAt(end))
   const ensureSeparator = (previous: MarkdownAstNode, next: MarkdownAstNode, containers: readonly MarkdownAstNode[]): void => {
-    if (linesBetween(previous.range.end, next.range.start).some(line => line.blank)) return
+    // A quoted marker line holding no content yet is the next block's own line.
+    if (linesBetween(previous.range.end, next.range.start).some(line => line.blank && line.end <= next.range.start)) return
     const lineIndex = Math.max(0, firstLineAt(next.range.start + 1) - 1)
     const line = records[lineIndex]
     if (line === undefined) throw new RangeError('List boundary has no physical line')
@@ -70,6 +92,12 @@ export function planListChange(core: DocumentCore, revision: DocumentRevision, s
       if (previous?.kind === 'paragraph') ensureSeparator(previous, list, ancestors.slice(0, ancestors.indexOf(list)))
       const next = list.children[1]
       if (parent?.kind !== 'list-item' && next !== undefined && boundaryItem !== undefined) ensureSeparator(boundaryItem, next, ancestors.slice(0, ancestors.indexOf(list)))
+      // An unwrapped empty paragraph stays a block of its own, as upstream
+      // keeps it, apart from the item's next block.
+      const [first, second] = boundaryItem?.children ?? []
+      if (first?.kind === 'paragraph' && first.range.start === first.range.end && second !== undefined && boundaryItem !== undefined) {
+        ensureSeparator(first, second, ancestors.slice(0, ancestors.indexOf(boundaryItem) + 1))
+      }
     } else if (boundaryIndex > 0 && boundaryItem !== undefined) {
       ensureSeparator(list.children[boundaryIndex - 1]!, boundaryItem, ancestors.slice(0, ancestors.indexOf(boundaryItem)))
     }
@@ -84,7 +112,7 @@ export function planListChange(core: DocumentCore, revision: DocumentRevision, s
         const bullet = change.type === 'front' && !marker.ordered ? String.fromCharCode(marker.delimiterCodeUnit) : options.bulletListMarker
         const spelling = listItemMarker({ bullet: desired === 'ordered' ? undefined : bullet, ordinal: desired === 'ordered' ? index + 1 : undefined, delimiter: options.orderListDelimiter, checked: desired === 'task' ? false : undefined })
         const taskEnd = item.attributes.taskMarkerEnd
-        const contentStart = typeof taskEnd === 'number' ? taskEnd + 1 : marker.contentOffset
+        const contentStart = typeof taskEnd === 'number' && !taskText ? taskEnd + 1 : marker.contentOffset
         const previousMarker = boundaryIndex > 0 ? markers.get(list.children[boundaryIndex - 1]!.range.start) : undefined
         const mergedWidth = previousMarker === undefined ? 0 : previousMarker.contentOffset - previousMarker.start
         edits.push({ start: sourceAt(marker.start), end: sourceEnd(contentStart), insert: unwrap ? ' '.repeat(mergedWidth) : spelling.text })
@@ -106,7 +134,9 @@ export function planListChange(core: DocumentCore, revision: DocumentRevision, s
         if (endingLine === undefined) throw new RangeError('List item has no line ending')
         const ending = core.sourceSlice(revision, { start: sourceAt(endingLine.contentEnd), end: sourceEnd(endingLine.end) })
         const at = sourceAt(item.range.end)
-        edits.push({ start: at, end: at, insert: ending })
+        const separator = { start: at, end: at, insert: ending }
+        trailingSeparators.add(separator)
+        edits.push(separator)
       } else if (!loose) {
         for (const line of blankLines) edits.push({ start: sourceAt(line.start), end: sourceEnd(line.end), insert: '' })
       }
@@ -132,5 +162,72 @@ export function planListChange(core: DocumentCore, revision: DocumentRevision, s
     }
   }
   edits.sort((left, right) => left.start - right.start || left.end - right.end)
-  return { edits, selection: { start: positionAfter(edits, selection.start, true), end: positionAfter(edits, selection.end, true) } }
+  const afterInsertion = (edit: DocumentSourceEdit) => !trailingSeparators.has(edit)
+  return { edits, selection: { start: positionAfter(edits, selection.start, afterInsertion), end: positionAfter(edits, selection.end, afterInsertion) } }
+}
+
+/**
+ * Wrap the selected sibling blocks of the caret's container as list items.
+ * Each block receives a parser-owned marker, placed before any annotation
+ * that owns the paragraph's exterior; continuation lines are indented past
+ * the marker, as upstream MarkText writes them.
+ */
+function planListCreation(revision: DocumentRevision, syntax: MarkupSyntax, ancestors: readonly MarkdownAstNode[], lines: MarkdownLineIndex, selection: SourceRange, kind: ListKind, options: ListMarkerOptions): { edits: DocumentSourceEdit[], selection: SourceRange } {
+  const sourceAt = (offset: number) => syntax.coordinates.toSource(offset, 'next')
+  const sourceEnd = (offset: number) => syntax.coordinates.toSource(offset, 'previous')
+  const spellingAt = (index: number) => listItemMarker({
+    bullet: kind === 'ordered' ? undefined : options.bulletListMarker,
+    ordinal: kind === 'ordered' ? index + 1 : undefined,
+    delimiter: options.orderListDelimiter,
+    checked: kind === 'task' ? false : undefined
+  })
+  const finish = (edits: DocumentSourceEdit[]) => {
+    edits.sort((left, right) => left.start - right.start || left.end - right.end)
+    return { edits, selection: { start: positionAfter(edits, selection.start, true), end: positionAfter(edits, selection.end, true) } }
+  }
+  const parent = [...ancestors].reverse().find(node => node === ancestors[0] || node.kind === 'blockquote')
+  if (parent === undefined) throw new RangeError('List creation has no container')
+  const from = syntax.coordinates.toProjected(selection.start, 'next')
+  const to = syntax.coordinates.toProjected(selection.end, 'previous')
+  const firstIndex = parent.children.findIndex(node => node.range.end >= from)
+  let lastIndex = firstIndex
+  if (firstIndex >= 0) {
+    while (parent.children[lastIndex + 1] !== undefined && parent.children[lastIndex + 1]!.range.start <= to) lastIndex++
+  }
+  if (firstIndex < 0) {
+    if (parent !== ancestors[0] || parent.children.length !== 0 || selection.start !== selection.end) throw new RangeError('List creation has no selected block')
+    return finish([{ start: selection.start, end: selection.start, insert: spellingAt(0).text }])
+  }
+  const outerDepth = ancestors.slice(0, ancestors.indexOf(parent) + 1).filter(node => node.kind === 'blockquote' || node.kind === 'list-item').length
+  const outer = <T extends { depth: number }>(markers: readonly T[]) => markers.filter(marker => marker.depth < outerDepth)
+  const records = Array.from({ length: lines.count }, (_, index) => lines.at(index))
+  const edits: DocumentSourceEdit[] = []
+  const blocks = parent.children.slice(firstIndex, lastIndex + 1)
+  if (options.preferLooseListItem === false) {
+    for (const [index, block] of blocks.entries()) {
+      const next = blocks[index + 1]
+      if (next === undefined) continue
+      for (const line of records) {
+        if (line.blank && line.start >= block.range.end && line.end <= next.range.start) {
+          edits.push({ start: sourceAt(line.start), end: sourceEnd(line.end), insert: '' })
+        }
+      }
+    }
+  }
+  for (const [index, block] of blocks.entries()) {
+    const spelling = spellingAt(index)
+    const blockStart = sourceAt(block.range.start)
+    const exterior = block.kind === 'paragraph' ? paragraphPrefixPosition(revision.annotations, { start: blockStart, end: sourceEnd(block.range.end) }) ?? blockStart : blockStart
+    edits.push({ start: exterior, end: exterior, insert: spelling.text })
+    for (const line of records) {
+      if (line.start <= block.range.start || line.start >= block.range.end || line.blank) continue
+      const prefixEnd = Math.max(line.start,
+        ...outer(line.blockquoteMarkers).map(marker => marker.end),
+        ...outer(line.listIndentations).map(marker => marker.end),
+        ...outer(line.listMarkers).map(marker => marker.contentOffset))
+      const at = sourceAt(prefixEnd)
+      edits.push({ start: at, end: at, insert: ' '.repeat(spelling.indentation) })
+    }
+  }
+  return finish(edits)
 }

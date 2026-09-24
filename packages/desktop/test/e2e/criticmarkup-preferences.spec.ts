@@ -7,6 +7,7 @@ import {
   expectInstalledArtifactCommit
 } from './installedArtifactProvenance'
 import {
+  discardReviewInputOnClose,
   enterSourceMode,
   exitSourceMode,
   expectEditorNotFrontmost,
@@ -181,7 +182,9 @@ for (const mode of ['Markup', 'Source'] as const) {
           if (typeof preferences === 'object' && preferences !== null) {
             // Main persists and broadcasts each preference separately.
             for (const key of ['superSubScript', 'footnote', 'isGitlabCompatibilityEnabled']) {
-              if ((preferences as Record<string, unknown>)[key] === true) { receivedPreferences.add(key) }
+              if ((preferences as Record<string, unknown>)[key] === true) {
+                receivedPreferences.add(key)
+              }
             }
             probe.preferenceReceived = receivedPreferences.size === 3
           }
@@ -343,6 +346,7 @@ test('live Markdown preferences retain the mounted comment composer and its unsu
     await attachPreferenceDiagnostics(page, filePath)
     throw error
   } finally {
+    await discardReviewInputOnClose(app)
     await app.close()
   }
 })

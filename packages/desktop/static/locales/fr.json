@@ -917,6 +917,9 @@
   },
   "dialog": {
     "moveToTrash": "Voulez-vous vraiment déplacer « {name} » vers la corbeille ?",
+    "discardAndClose": "Ignorer et fermer",
+    "pendingReviewInput": "Ignorer le commentaire ou le texte de remplacement non validé ?",
+    "pendingReviewInputDetail": "Le commentaire ou le texte de remplacement n’a pas encore été ajouté au document et sera perdu.",
     "cancel": "Annuler",
     "changesWillBeLost": "Les modifications seront perdues",
     "close": "Fermer",
@@ -1034,6 +1037,7 @@
       "saveComment": "Enregistrer le commentaire",
       "commentTargetChanged": "Le document a changé. Votre brouillon de commentaire est conservé ; annulez avant de choisir une autre cible.",
       "commentSaveFailed": "Impossible d’enregistrer le commentaire. Votre brouillon et sa cible d’origine sont conservés.",
+      "finishDraftBeforeClosing": "Enregistrez ou annulez le commentaire ou le texte de remplacement en attente avant de fermer ce document.",
       "commentPrompt": "Commentaire",
       "replacementPrompt": "Texte de remplacement"
     },

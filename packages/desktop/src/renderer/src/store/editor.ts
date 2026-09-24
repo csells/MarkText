@@ -184,6 +184,34 @@ const withAuthoritativeFileSources = <
   consume(resolved)
 }
 
+// Pending authored input (an open comment composer, active composition) keeps
+// its document open. The refusal is expected, so it is shown, not thrown.
+const closeRefused = (documentIds: readonly string[]): boolean => {
+  try {
+    coreDocumentSaveAuthority.assertCloseAllowed(documentIds)
+    return false
+  } catch (error) {
+    notice.notify({
+      title: error instanceof Error ? error.message : String(error),
+      type: 'warning',
+      time: 5000
+    })
+    return true
+  }
+}
+
+// An open Review composer is unsubmitted work: like unsaved changes, closing
+// its document asks before discarding it. Undefined when nothing is pending.
+const confirmReviewInputDiscard = (
+  documentIds: readonly string[]
+): Promise<boolean> | undefined => {
+  if (!coreDocumentSaveAuthority.pendingReviewInput(documentIds)) return undefined
+  return window.electron.ipcRenderer.invoke('mt::confirm-discard-review-input').then((discard) => {
+    if (discard) coreDocumentSaveAuthority.discardReviewInput(documentIds)
+    return discard
+  })
+}
+
 const reportSaveBarrierFailure = (error: unknown): void => {
   console.error('Core document save barrier failed', error)
 }
@@ -902,7 +930,8 @@ export const useEditorStore = defineStore('editor', {
                     requestId,
                     files,
                     requiresConfirmation:
-                      files.length > 0 && preferencesStore.startUpAction !== 'restoreAll'
+                      files.length > 0 && preferencesStore.startUpAction !== 'restoreAll',
+                    pendingReviewInput: preparation.pendingReviewInput === true
                   })
                 )
               })
@@ -1244,6 +1273,12 @@ export const useEditorStore = defineStore('editor', {
       const target = file ?? this.currentFile
       if (target === null) return
 
+      const confirming = confirmReviewInputDiscard([target.id])
+      if (confirming !== undefined) {
+        return confirming.then((discard) => (discard ? this.CLOSE_TAB(target) : undefined))
+      }
+      if (closeRefused([target.id])) return
+
       const sources = coreDocumentSaveAuthority.resolve([
         { documentId: target.id, fallbackSource: target.markdown }
       ])
@@ -1254,6 +1289,7 @@ export const useEditorStore = defineStore('editor', {
       }
 
       return sources.then(([source]) => {
+        if (closeRefused([target.id])) return
         const currentTarget = this.tabs.find((tab) => tab.id === target.id)
         if (currentTarget === undefined) return
         if (currentTarget.isSaved) {
@@ -1361,9 +1397,15 @@ export const useEditorStore = defineStore('editor', {
     },
 
     CLOSE_UNSAVED_TAB(file: IFileState): void | Promise<void> {
+      const confirming = confirmReviewInputDiscard([file.id])
+      if (confirming !== undefined) {
+        return confirming.then((discard) => (discard ? this.CLOSE_UNSAVED_TAB(file) : undefined))
+      }
+      if (closeRefused([file.id])) return
       const { id, pathname, filename, markdown } = file
       const options = getOptionsFromState(file)
       return withAuthoritativeSaveSource(id, markdown, (source, identity) => {
+        if (closeRefused([id])) return
         window.electron.ipcRenderer.send('mt::save-and-close-tabs', [
           {
             id,
@@ -1381,6 +1423,13 @@ export const useEditorStore = defineStore('editor', {
       files: readonly IFileState[],
       closeUnsaved = true
     ): void | Promise<void> {
+      const confirming = confirmReviewInputDiscard(files.map((file) => file.id))
+      if (confirming !== undefined) {
+        return confirming.then((discard) =>
+          discard ? this.CLOSE_TABS_THROUGH_AUTHORITY(files, closeUnsaved) : undefined
+        )
+      }
+      if (closeRefused(files.map((file) => file.id))) return
       const sources = coreDocumentSaveAuthority.resolve(
         files.map((file) => ({
           documentId: file.id,
@@ -1393,6 +1442,7 @@ export const useEditorStore = defineStore('editor', {
       }
 
       return sources.then((authoritativeSources) => {
+        if (closeRefused(files.map((file) => file.id))) return
         if (authoritativeSources.length !== files.length) {
           throw new Error('Document close authority returned an incomplete batch')
         }

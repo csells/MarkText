@@ -351,7 +351,9 @@ export const typeIntoEditor = async(page: Page, text: string): Promise<void> => 
       root.contains(selection.focusNode)
     )
   })
-  if (!hasEditorSelection) { await page.locator('.editor-component [contenteditable="true"]').first().click() }
+  if (!hasEditorSelection) {
+    await page.locator('.editor-component [contenteditable="true"]').first().click()
+  }
   await page.keyboard.type(text, { delay: 0 })
 }
 
@@ -404,6 +406,23 @@ export const placeCaretInEditor = async(page: Page): Promise<void> => {
     .click()
   // macOS End scrolls the document; Cmd+Right moves the insertion point.
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End')
+}
+
+/**
+ * Opens an empty paragraph after the document's first ATX heading with a real
+ * End + Enter. A document's final blank line has no block of its own, so
+ * `# Title\n\n` shows only the heading, as upstream MarkText does.
+ */
+export const openParagraphAfterHeading = async(page: Page): Promise<void> => {
+  await page
+    .locator('.editor-component .mu-atxheading-content[contenteditable="true"]')
+    .first()
+    .click()
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End')
+  await page.keyboard.press('Enter')
+  await expect(
+    page.locator('.editor-component span.mu-paragraph-content[contenteditable="true"]').first()
+  ).toBeVisible()
 }
 
 export const setSourceMarkdown = async(
@@ -501,4 +520,17 @@ export const sendIpcToRenderer = async(
     },
     { channel, args }
   )
+}
+
+/**
+ * Answers the native "discard unsubmitted Review input?" close confirmation in
+ * main, so closing a test app with an open composer never shows a real dialog.
+ */
+export async function discardReviewInputOnClose(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ dialog }) => {
+    dialog.showMessageBox = (async() => ({
+      response: 0,
+      checkboxChecked: false
+    })) as typeof dialog.showMessageBox
+  })
 }

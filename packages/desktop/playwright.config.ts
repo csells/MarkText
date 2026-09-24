@@ -1,16 +1,10 @@
 import { defineConfig } from '@playwright/test'
 
-const installedArtifactSpecs = [
-  '**/installed-core-review.spec.ts',
-  '**/installed-core-clipboard.spec.ts',
-  '**/installed-core-search.spec.ts',
-  '**/installed-core-export-consumers.spec.ts',
-  '**/installed-core-performance.spec.ts',
-  '**/installed-desktop-basics.spec.ts',
-  '**/installed-basic-file-lifecycle.spec.ts',
-  '**/installed-focused-history.spec.ts',
-  '**/installed-save-as-ownership.spec.ts',
-  '**/installed-source-search.spec.ts'
+const installedArtifactSpecs = ['**/installed-*.spec.ts']
+const installedSpecs = [
+  ...installedArtifactSpecs,
+  '**/criticmarkup-image-size.spec.ts',
+  '**/criticmarkup-window-close.spec.ts'
 ]
 
 // Must stay at the package root: Playwright only auto-loads a config from the
@@ -33,11 +27,13 @@ export default defineConfig({
     },
     {
       name: 'installed',
-      testMatch: [
-        ...installedArtifactSpecs,
-        '**/criticmarkup-image-size.spec.ts',
-        '**/criticmarkup-window-close.spec.ts'
-      ]
+      testMatch: installedSpecs
+    },
+    {
+      name: 'installed-functional',
+      testMatch: installedSpecs,
+      // Sustained measurements retain their dedicated workload and environment.
+      testIgnore: '**/installed-core-performance.spec.ts'
     }
   ],
   use: {

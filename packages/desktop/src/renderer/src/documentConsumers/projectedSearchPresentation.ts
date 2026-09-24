@@ -1,8 +1,5 @@
-import type {
-  ProjectedSearchMatch,
-  ProjectedSearchResult
-} from './documentProjectionConsumers'
-import type { MuyaPlainTextSourceBinding } from '../documentAuthority/muyaPlainTextSourceEdit'
+import type { ProjectedSearchMatch, ProjectedSearchResult } from './documentProjectionConsumers'
+import type { MuyaPlainTextSourceBinding } from '../documentAuthority/muyaSourceBinding'
 import type { MuyaPlainTextAuthorSelection } from '../documentAuthority/muyaPlainTextCoreAdapter'
 
 export interface ProjectedSearchPresentationBlock {
@@ -22,9 +19,7 @@ export interface ProjectedSearchPresentationBlock {
 export interface ProjectedSearchPresentationHost {
   /** A Core Markup host must map canonical match pieces through current leaves. */
   bindings?(): readonly MuyaPlainTextSourceBinding[]
-  blockAtPath(
-    path: readonly (number | string)[]
-  ): ProjectedSearchPresentationBlock | undefined
+  blockAtPath(path: readonly (number | string)[]): ProjectedSearchPresentationBlock | undefined
 }
 
 export interface ProjectedSearchPresentation {
@@ -41,11 +36,12 @@ type ResolvedMatch = Readonly<{
   readonly presentation: NonNullable<ProjectedSearchMatch['presentation']>
 }>
 
-const emptyResult = (): ProjectedSearchResult => Object.freeze({
-  index: -1,
-  matches: Object.freeze([]),
-  value: ''
-})
+const emptyResult = (): ProjectedSearchResult =>
+  Object.freeze({
+    index: -1,
+    matches: Object.freeze([]),
+    value: ''
+  })
 
 /**
  * Paints canonical match pieces through current Markup source bindings. Hosts
@@ -79,7 +75,9 @@ export function createProjectedSearchPresentation(
         for (const range of match.sourceRanges) {
           let cursor = range.start
           for (const binding of bindings) {
-            for (const segment of binding.segments ?? [{ source: binding.sourceRange, text: { start: 0, end: binding.text.length } }]) {
+            for (const segment of binding.segments ?? [
+              { source: binding.sourceRange, text: { start: 0, end: binding.text.length } }
+            ]) {
               if (segment.source.end <= cursor || segment.source.start >= range.end) continue
               if (segment.source.start > cursor) return failClosed()
               const end = Math.min(range.end, segment.source.end)
@@ -91,8 +89,15 @@ export function createProjectedSearchPresentation(
                 end: segment.text.start + end - segment.source.start
               }
               const previous = resolved.at(-1)
-              if (previous?.matchIndex === matchIndex && previous.block === block && previous.presentation.end === presentation.start) {
-                resolved[resolved.length - 1] = { ...previous, presentation: { ...previous.presentation, end: presentation.end } }
+              if (
+                previous?.matchIndex === matchIndex &&
+                previous.block === block &&
+                previous.presentation.end === presentation.start
+              ) {
+                resolved[resolved.length - 1] = {
+                  ...previous,
+                  presentation: { ...previous.presentation, end: presentation.end }
+                }
               } else resolved.push({ matchIndex, match, block, presentation })
               cursor = end
               if (cursor === range.end) break
@@ -106,15 +111,21 @@ export function createProjectedSearchPresentation(
       const blockIndex = match.path[0]
       const presentation = match.presentation
       if (
-        match.path.length !== 1 || typeof blockIndex !== 'number' ||
-        !Number.isSafeInteger(blockIndex) || blockIndex < 0 ||
-        presentation === undefined || presentation.path.length !== 2 ||
+        match.path.length !== 1 ||
+        typeof blockIndex !== 'number' ||
+        !Number.isSafeInteger(blockIndex) ||
+        blockIndex < 0 ||
+        presentation === undefined ||
+        presentation.path.length !== 2 ||
         presentation.path[0] !== blockIndex ||
         presentation.path[1] !== 'text' ||
         !Number.isSafeInteger(presentation.start) ||
         !Number.isSafeInteger(presentation.end) ||
-        presentation.start < 0 || presentation.end <= presentation.start
-      ) return failClosed()
+        presentation.start < 0 ||
+        presentation.end <= presentation.start
+      ) {
+        return failClosed()
+      }
       const block = host.blockAtPath(presentation.path)
       if (block === undefined) return failClosed()
       resolved.push(Object.freeze({ matchIndex, match, block, presentation }))
@@ -122,31 +133,34 @@ export function createProjectedSearchPresentation(
 
     clearPaint()
     current = result
-    const active = resolved.filter(item => item.matchIndex === result.index)
+    const active = resolved.filter((item) => item.matchIndex === result.index)
     const first = active[0]?.presentation
     const last = active.at(-1)?.presentation
-    activeSelection = first === undefined || last === undefined
-      ? undefined
-      : {
-        anchor: { path: first.path, offset: first.start },
-        focus: { path: last.path, offset: last.end }
-      }
+    activeSelection =
+      first === undefined || last === undefined
+        ? undefined
+        : {
+          anchor: { path: first.path, offset: first.start },
+          focus: { path: last.path, offset: last.end }
+        }
     const highlights = new Map<
       ProjectedSearchPresentationBlock,
       Array<Readonly<{ start: number; end: number; active: boolean }>>
     >()
     for (const item of resolved) {
       const list = highlights.get(item.block) ?? []
-      list.push(Object.freeze({
-        start: item.presentation.start,
-        end: item.presentation.end,
-        active: item.matchIndex === result.index
-      }))
+      list.push(
+        Object.freeze({
+          start: item.presentation.start,
+          end: item.presentation.end,
+          active: item.matchIndex === result.index
+        })
+      )
       highlights.set(item.block, list)
     }
     for (const [block, blockHighlights] of highlights) {
       block.update(undefined, Object.freeze(blockHighlights))
-      if (blockHighlights.some(highlight => highlight.active)) {
+      if (blockHighlights.some((highlight) => highlight.active)) {
         block.focusHandler()
       } else if (block.parent?.active === true) {
         block.blurHandler()

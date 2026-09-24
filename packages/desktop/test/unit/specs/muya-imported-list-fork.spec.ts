@@ -16,11 +16,13 @@ it.each(
       '9) ~~}final',
       ''
     ].join(ending)
+    // The visible line start is before the leading addition's opener; tracked
+    // typing there continues that adjacent addition.
     const typed = [
       '8) same',
       '{~~9) {++sa++}me{>>keep<<}',
       '10) ~>',
-      '   {++XYsa++}me{>>keep<<}',
+      tracked ? '   {++XYsa++}me{>>keep<<}' : '   XY{++sa++}me{>>keep<<}',
       '9) ~~}final',
       ''
     ].join(ending)

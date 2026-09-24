@@ -11,12 +11,7 @@ import {
   createCoreActor,
   createCodeMirrorCoreAdapter,
   createEditorCoreBinding,
-  createWorkerCorePort,
   createCoreDocumentSessionManager,
-  type CoreWorkerRequestEnvelope,
-  type CoreWorkerResponseEnvelope,
-  type CoreWorkerLike,
-  type CoreWorkerTestControl,
   type CoreModelOwner,
   type CoreRequest,
   type CoreActor,
@@ -32,6 +27,7 @@ import { sourceCodeCoreAdapterOptions } from '@/documentAuthority/sourceCodeCore
 import { teardownCoreDocumentSessions } from '@/documentAuthority/coreDocumentSessionTeardown'
 import { retireClosedCoreDocumentSessions } from '@/documentAuthority/coreDocumentSessionRetirement'
 import { handoffCoreDocumentView } from '@/documentAuthority/coreDocumentViewHandoff'
+import { createLocalCoreOwner, type CoreModelTestControl } from '@/documentAuthority/localCoreOwner'
 
 const submitMarkup = (binding: EditorCoreBinding, edits: readonly DocumentSourceEdit[]) =>
   binding.submit({ edits, projections: ['markup'] }).acknowledged
@@ -73,26 +69,23 @@ const testBinding = (
     sourceAtBarrier: () => unexpectedBindingCall('source barrier'),
     plainTextViewAtBarrier: () => unexpectedBindingCall('plain-text view barrier'),
     selectionProjectionAtBarrier: () => unexpectedBindingCall('selection projection barrier'),
+    authorFormsAtBarrier: () => unexpectedBindingCall('author forms barrier'),
     reviewItemAtBarrier: () => unexpectedBindingCall('Review item barrier'),
     observe: () => () => {},
     dispose: vi.fn()
   })
 
-class ActorBackedCoreWorker implements CoreWorkerLike {
+interface RecordedCoreRequest {
+  readonly type: 'core-request'
+  readonly request: CoreRequest
+}
+
+/** Local model owner that records admitted requests and can inject model faults. */
+class ActorBackedCoreOwner {
   readonly actor: CoreActor
-  readonly requests: CoreWorkerRequestEnvelope[] = []
-  private readonly listeners = new Set<(event: MessageEvent<CoreWorkerResponseEnvelope>) => void>()
-
-  private readonly errorListeners = new Set<(event: ErrorEvent) => void>()
-  private readonly messageErrorListeners = new Set<(event: MessageEvent) => void>()
-  private readonly heldResponses: CoreWorkerResponseEnvelope[] = []
-
+  readonly requests: RecordedCoreRequest[] = []
   modelFailure: Error | undefined
   failNextModelSource: Error | undefined
-  holdApplyReplies = false
-  holdHistoryReplies = false
-  holdSourceReplies = false
-  disposeViewAfterHistoryRequest: (() => void) | undefined
   terminations = 0
 
   constructor(actor: CoreActor = createCoreActor()) {
@@ -114,95 +107,6 @@ class ActorBackedCoreWorker implements CoreWorkerLike {
     }
   }
 
-  postMessage(message: CoreWorkerRequestEnvelope): void {
-    this.requests.push(structuredClone(message))
-    const response: CoreWorkerResponseEnvelope = Object.freeze({
-      type: 'core-result',
-      reply: this.actor.handle(message.request)
-    })
-    const cloned = structuredClone(response)
-    if (this.holdApplyReplies && message.request.type === 'apply') {
-      this.heldResponses.push(cloned)
-      return
-    }
-    if (
-      this.holdHistoryReplies &&
-      (message.request.type === 'undo' || message.request.type === 'redo')
-    ) {
-      this.heldResponses.push(cloned)
-      return
-    }
-    if (this.holdSourceReplies && message.request.type === 'source-at-barrier') {
-      this.heldResponses.push(cloned)
-      return
-    }
-    this.deliver(cloned)
-    if (
-      this.disposeViewAfterHistoryRequest !== undefined &&
-      (message.request.type === 'undo' || message.request.type === 'redo')
-    ) {
-      setTimeout(this.disposeViewAfterHistoryRequest, 0)
-    }
-  }
-
-  releaseNextApply(): void {
-    const response = this.heldResponses.shift()
-    if (response === undefined) throw new Error('No held Core apply reply')
-    this.deliver(response)
-  }
-
-  releaseNextHistory(): void {
-    const response = this.heldResponses.shift()
-    if (response === undefined) throw new Error('No held Core history reply')
-    this.deliver(response)
-  }
-
-  releaseNextSource(): void {
-    const response = this.heldResponses.shift()
-    if (response === undefined) throw new Error('No held Core source reply')
-    this.deliver(response)
-  }
-
-  private deliver(response: CoreWorkerResponseEnvelope): void {
-    queueMicrotask(() => {
-      for (const listener of this.listeners) {
-        listener({ data: response } as MessageEvent<CoreWorkerResponseEnvelope>)
-      }
-    })
-  }
-
-  addEventListener(
-    type: 'message' | 'error' | 'messageerror',
-    listener:
-      | ((event: MessageEvent<CoreWorkerResponseEnvelope>) => void)
-      | ((event: ErrorEvent) => void)
-      | ((event: MessageEvent) => void)
-  ): void {
-    if (type === 'message') {
-      this.listeners.add(listener as (event: MessageEvent<CoreWorkerResponseEnvelope>) => void)
-    } else if (type === 'error') {
-      this.errorListeners.add(listener as (event: ErrorEvent) => void)
-    } else {
-      this.messageErrorListeners.add(listener as (event: MessageEvent) => void)
-    }
-  }
-
-  removeEventListener(
-    type: 'message' | 'error' | 'messageerror',
-    listener:
-      | ((event: MessageEvent<CoreWorkerResponseEnvelope>) => void)
-      | ((event: ErrorEvent) => void)
-      | ((event: MessageEvent) => void)
-  ): void {
-    if (type === 'message') {
-      this.listeners.delete(listener as (event: MessageEvent<CoreWorkerResponseEnvelope>) => void)
-    } else if (type === 'error') {
-      this.errorListeners.delete(listener as (event: ErrorEvent) => void)
-    } else {
-      this.messageErrorListeners.delete(listener as (event: MessageEvent) => void)
-    }
-  }
-
   terminate(): void {
     this.terminations += 1
     this.actor.dispose()
@@ -210,143 +114,13 @@ class ActorBackedCoreWorker implements CoreWorkerLike {
 
   fail(message: string): void {
     this.modelFailure = new Error(message)
-    for (const listener of this.errorListeners) {
-      listener({ message } as ErrorEvent)
-    }
-  }
-}
-
-class FailingCoreWorker implements CoreWorkerLike {
-  private readonly errorListeners = new Set<(event: ErrorEvent) => void>()
-  private readonly messageErrorListeners = new Set<(event: MessageEvent) => void>()
-
-  postMessage(): void {}
-
-  addEventListener(
-    type: 'message' | 'error' | 'messageerror',
-    listener:
-      | ((event: MessageEvent<CoreWorkerResponseEnvelope>) => void)
-      | ((event: ErrorEvent) => void)
-      | ((event: MessageEvent) => void)
-  ): void {
-    if (type === 'error') {
-      this.errorListeners.add(listener as (event: ErrorEvent) => void)
-    } else if (type === 'messageerror') {
-      this.messageErrorListeners.add(listener as (event: MessageEvent) => void)
-    }
-  }
-
-  removeEventListener(
-    type: 'message' | 'error' | 'messageerror',
-    listener:
-      | ((event: MessageEvent<CoreWorkerResponseEnvelope>) => void)
-      | ((event: ErrorEvent) => void)
-      | ((event: MessageEvent) => void)
-  ): void {
-    if (type === 'error') {
-      this.errorListeners.delete(listener as (event: ErrorEvent) => void)
-    } else if (type === 'messageerror') {
-      this.messageErrorListeners.delete(listener as (event: MessageEvent) => void)
-    }
-  }
-
-  terminate(): void {}
-
-  fail(message: string): void {
-    for (const listener of this.errorListeners) {
-      listener({ message } as ErrorEvent)
-    }
-  }
-}
-
-class CoreFailureReportingWorker implements CoreWorkerLike {
-  private readonly messageListeners = new Set<
-    (event: MessageEvent<CoreWorkerResponseEnvelope>) => void
-  >()
-
-  posts = 0
-
-  terminations = 0
-
-  postMessage(message: CoreWorkerRequestEnvelope): void {
-    this.posts += 1
-    queueMicrotask(() => {
-      const response: CoreWorkerResponseEnvelope = Object.freeze({
-        type: 'core-failure',
-        session: message.request.session,
-        sequence: message.request.sequence,
-        message: 'actor terminated unexpectedly'
-      })
-      for (const listener of this.messageListeners) {
-        listener({ data: response } as MessageEvent<CoreWorkerResponseEnvelope>)
-      }
-    })
-  }
-
-  addEventListener(
-    type: 'message' | 'error' | 'messageerror',
-    listener:
-      | ((event: MessageEvent<CoreWorkerResponseEnvelope>) => void)
-      | ((event: ErrorEvent) => void)
-      | ((event: MessageEvent) => void)
-  ): void {
-    if (type === 'message') {
-      this.messageListeners.add(
-        listener as (event: MessageEvent<CoreWorkerResponseEnvelope>) => void
-      )
-    }
-  }
-
-  removeEventListener(
-    type: 'message' | 'error' | 'messageerror',
-    listener:
-      | ((event: MessageEvent<CoreWorkerResponseEnvelope>) => void)
-      | ((event: ErrorEvent) => void)
-      | ((event: MessageEvent) => void)
-  ): void {
-    if (type === 'message') {
-      this.messageListeners.delete(
-        listener as (event: MessageEvent<CoreWorkerResponseEnvelope>) => void
-      )
-    }
-  }
-
-  terminate(): void {
-    this.terminations += 1
   }
 }
 
 describe('Core actor protocol', () => {
-  it('can delay actual Worker acknowledgements for the pending-save tracer', async() => {
-    vi.useFakeTimers()
-    const worker = new ActorBackedCoreWorker()
-    const port = createWorkerCorePort(worker, { responseDelayMs: 25 })
-    const opening = port.request({
-      type: 'open',
-      session: 1,
-      sequence: 1,
-      source: 'alpha'
-    })
-    let settled = false
-    opening
-      .then(() => {
-        settled = true
-      })
-      .catch(() => {})
-
-    await Promise.resolve()
-    expect(settled).toBe(false)
-    await vi.advanceTimersByTimeAsync(24)
-    expect(settled).toBe(false)
-    await vi.advanceTimersByTimeAsync(1)
-    await expect(opening).resolves.toMatchObject({ type: 'opened' })
-    port.dispose()
-    vi.useRealTimers()
-  })
-
-  it('opens once then applies an exact UTF-16 edit through Worker transport', async() => {
+  it('opens once then applies an exact UTF-16 edit through the model owner', async() => {
     const core = createDocumentCore()
-    const worker = new ActorBackedCoreWorker(createCoreActor(() => core))
+    const worker = new ActorBackedCoreOwner(createCoreActor(() => core))
     const binding = createEditorCoreBinding(worker.modelOwner)
     const source = 'head 😀\n\nordinary text paragraph\n\ntail\n'
 
@@ -422,7 +196,7 @@ describe('Core actor protocol', () => {
   })
 
   it('transports a full-fallback source resynchronization with its acknowledgement', async() => {
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     const source = 'head\n\nordinary text paragraph\n\ntail\n'
     const start = source.indexOf('text')
@@ -458,8 +232,8 @@ describe('Core actor protocol', () => {
 
   it('owns exact undo and redo history inside the document actor', async() => {
     const core = createDocumentCore()
-    const worker = new ActorBackedCoreWorker(createCoreActor(() => core))
-    const port = createWorkerCorePort(worker)
+    const worker = new ActorBackedCoreOwner(createCoreActor(() => core))
+    const port = worker.modelOwner
     const source = 'head\n\nordinary text paragraph\n\ntail\n'
     const start = source.indexOf('text')
     const opened = await port.request({
@@ -519,7 +293,7 @@ describe('Core actor protocol', () => {
   })
 
   it('accepts one current CriticMarkup annotation through actor-owned history', async() => {
-    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const port = createLocalCoreOwner()
     const opened = await port.request({
       type: 'open',
       session: 72,
@@ -572,7 +346,7 @@ describe('Core actor protocol', () => {
   })
 
   it('rejects an unknown CriticMarkup locator without changing actor source', async() => {
-    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const port = createLocalCoreOwner()
     const opened = await port.request({
       type: 'open',
       session: 73,
@@ -609,7 +383,7 @@ describe('Core actor protocol', () => {
   })
 
   it('rejects a Review decision that is invalid for the located annotation', async() => {
-    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const port = createLocalCoreOwner()
     const source = 'a {++add++} b\n'
     const opened = await port.request({
       type: 'open',
@@ -647,7 +421,7 @@ describe('Core actor protocol', () => {
   })
 
   it('returns one bounded next Review item from the acknowledged revision', async() => {
-    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const port = createLocalCoreOwner()
     const opened = await port.request({
       type: 'open',
       session: 74,
@@ -676,7 +450,7 @@ describe('Core actor protocol', () => {
   })
 
   it('navigates from a retained Review anchor after the document shrinks', async() => {
-    const binding = createEditorCoreBinding(new ActorBackedCoreWorker().modelOwner)
+    const binding = createEditorCoreBinding(new ActorBackedCoreOwner().modelOwner)
     await binding.open({
       documentId: 'shrinking-review.md',
       source: 'word '.repeat(40) + '\n\n{++new++}\n'
@@ -699,14 +473,14 @@ describe('Core actor protocol', () => {
   })
 
   it('rejects malformed Review navigation coordinates nonterminally', async() => {
-    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const port = createLocalCoreOwner()
     const opened = await port.request({
       type: 'open',
       session: 805,
       sequence: 1,
       source: '{++x++}\n'
     })
-    await expect(
+    expect(
       port.request({
         type: 'review-item-at-barrier',
         session: 805,
@@ -715,13 +489,13 @@ describe('Core actor protocol', () => {
         direction: 'next',
         from: Number.NaN
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'rejected',
       reason: 'invalid-edit',
       revision: 1,
       sourceLength: 8
     })
-    await expect(
+    expect(
       port.request({
         type: 'review-item-at-barrier',
         session: 805,
@@ -730,7 +504,7 @@ describe('Core actor protocol', () => {
         direction: 'next',
         from: 0
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'review-item',
       revision: 1,
       item: { kind: 'addition', range: { start: 0, end: 7 } }
@@ -739,7 +513,7 @@ describe('Core actor protocol', () => {
   })
 
   it('does not alias a Review item across a same-range revision', async() => {
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     const source = '{--old--}\n'
     await binding.open({ documentId: 'stale-review-identity.md', source })
@@ -781,7 +555,7 @@ describe('Core actor protocol', () => {
   })
 
   it('derives and removes one gapless Commented span without promoting nested items', async() => {
-    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const port = createLocalCoreOwner()
     const source = 'before {==text==}{>>outer {++nested++}<<} after\n'
     const opened = await port.request({
       type: 'open',
@@ -811,7 +585,7 @@ describe('Core actor protocol', () => {
     if (item.type !== 'review-item' || item.item === null) {
       throw new Error('Expected one Commented span Review item')
     }
-    await expect(
+    expect(
       port.request({
         type: 'review-item-at-barrier',
         session: 75,
@@ -820,8 +594,8 @@ describe('Core actor protocol', () => {
         direction: 'next',
         from: item.item.range.end
       })
-    ).resolves.toMatchObject({ item: null })
-    await expect(
+    ).toMatchObject({ item: null })
+    expect(
       port.request({
         type: 'resolve',
         session: 75,
@@ -831,25 +605,25 @@ describe('Core actor protocol', () => {
         decision: 'remove',
         projections: []
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'applied',
       change: {
         appliedEdits: [{ start: 7, end: 41, insert: 'text' }]
       }
     })
-    await expect(
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 75,
         sequence: 5,
         baseRevision: 2
       })
-    ).resolves.toMatchObject({ source: 'before text after\n' })
+    ).toMatchObject({ source: 'before text after\n' })
     port.dispose()
   })
 
   it('authors a Commented span and tracked Substitution inside actor history', async() => {
-    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const port = createLocalCoreOwner()
     const opened = await port.request({
       type: 'open',
       session: 76,
@@ -902,17 +676,17 @@ describe('Core actor protocol', () => {
         ]
       }
     })
-    await expect(
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 76,
         sequence: 4,
         baseRevision: 3
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       source: 'alpha {==selected==}{>>note<<} {~~omega~>replacement~~}\n'
     })
-    await expect(
+    expect(
       port.request({
         type: 'undo',
         session: 76,
@@ -920,12 +694,12 @@ describe('Core actor protocol', () => {
         baseRevision: 3,
         projections: []
       })
-    ).resolves.toMatchObject({ type: 'applied', revision: 4 })
+    ).toMatchObject({ type: 'applied', revision: 4 })
     port.dispose()
   })
 
   it('edits an anchored Comment as one actor-owned history entry', async() => {
-    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const port = createLocalCoreOwner()
     const original = 'before {==text==}{>>old note<<} after\n'
     const edited = 'before {==text==}{>>new note<<} after\n'
     const opened = await port.request({
@@ -935,7 +709,7 @@ describe('Core actor protocol', () => {
       source: original
     })
 
-    await expect(
+    expect(
       port.request({
         type: 'edit-comment',
         session: 813,
@@ -950,22 +724,22 @@ describe('Core actor protocol', () => {
         text: 'new note',
         projections: []
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'applied',
       revision: 2,
       change: {
         appliedEdits: [{ start: 17, end: 31, insert: '{>>new note<<}' }]
       }
     })
-    await expect(
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 813,
         sequence: 3,
         baseRevision: 2
       })
-    ).resolves.toMatchObject({ type: 'source', source: edited })
-    await expect(
+    ).toMatchObject({ type: 'source', source: edited })
+    expect(
       port.request({
         type: 'undo',
         session: 813,
@@ -973,16 +747,16 @@ describe('Core actor protocol', () => {
         baseRevision: 2,
         projections: []
       })
-    ).resolves.toMatchObject({ type: 'applied', revision: 3 })
-    await expect(
+    ).toMatchObject({ type: 'applied', revision: 3 })
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 813,
         sequence: 5,
         baseRevision: 3
       })
-    ).resolves.toMatchObject({ type: 'source', source: original })
-    await expect(
+    ).toMatchObject({ type: 'source', source: original })
+    expect(
       port.request({
         type: 'redo',
         session: 813,
@@ -990,20 +764,20 @@ describe('Core actor protocol', () => {
         baseRevision: 3,
         projections: []
       })
-    ).resolves.toMatchObject({ type: 'applied', revision: 4 })
-    await expect(
+    ).toMatchObject({ type: 'applied', revision: 4 })
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 813,
         sequence: 7,
         baseRevision: 4
       })
-    ).resolves.toMatchObject({ type: 'source', source: edited })
+    ).toMatchObject({ type: 'source', source: edited })
     port.dispose()
   })
 
   it('preserves nested Comment ownership while protecting a hostile edited closer', async() => {
-    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const port = createLocalCoreOwner()
     const original = 'before {==text==}{>>old<<} after\n'
     const payload = 'outer {>>inner<<} plus <<} literal'
     const protectedPayload = 'outer {>>inner<<} plus \\<<} literal'
@@ -1013,7 +787,7 @@ describe('Core actor protocol', () => {
       sequence: 1,
       source: original
     })
-    await expect(
+    expect(
       port.request({
         type: 'edit-comment',
         session: 816,
@@ -1028,7 +802,7 @@ describe('Core actor protocol', () => {
         text: payload,
         projections: []
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'applied',
       revision: 2,
       change: {
@@ -1041,7 +815,7 @@ describe('Core actor protocol', () => {
         ]
       }
     })
-    await expect(
+    expect(
       port.request({
         type: 'review-item-at-barrier',
         session: 816,
@@ -1050,11 +824,11 @@ describe('Core actor protocol', () => {
         direction: 'next',
         from: 0
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'review-item',
       commentText: protectedPayload
     })
-    await expect(
+    expect(
       port.request({
         type: 'undo',
         session: 816,
@@ -1062,20 +836,20 @@ describe('Core actor protocol', () => {
         baseRevision: 2,
         projections: []
       })
-    ).resolves.toMatchObject({ type: 'applied', revision: 3 })
-    await expect(
+    ).toMatchObject({ type: 'applied', revision: 3 })
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 816,
         sequence: 5,
         baseRevision: 3
       })
-    ).resolves.toMatchObject({ type: 'source', source: original })
+    ).toMatchObject({ type: 'source', source: original })
     port.dispose()
   })
 
   it('edits a Comment payload to empty without deleting the Comment', async() => {
-    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const port = createLocalCoreOwner()
     const original = 'before {==text==}{>>note<<} after\n'
     const emptied = 'before {==text==}{>><<} after\n'
     const opened = await port.request({
@@ -1084,7 +858,7 @@ describe('Core actor protocol', () => {
       sequence: 1,
       source: original
     })
-    await expect(
+    expect(
       port.request({
         type: 'edit-comment',
         session: 821,
@@ -1099,22 +873,22 @@ describe('Core actor protocol', () => {
         text: '',
         projections: []
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'applied',
       revision: 2,
       change: {
         appliedEdits: [{ start: 17, end: 27, insert: '{>><<}' }]
       }
     })
-    await expect(
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 821,
         sequence: 3,
         baseRevision: 2
       })
-    ).resolves.toMatchObject({ type: 'source', source: emptied })
-    await expect(
+    ).toMatchObject({ type: 'source', source: emptied })
+    expect(
       port.request({
         type: 'undo',
         session: 821,
@@ -1122,20 +896,20 @@ describe('Core actor protocol', () => {
         baseRevision: 2,
         projections: []
       })
-    ).resolves.toMatchObject({ type: 'applied', revision: 3 })
-    await expect(
+    ).toMatchObject({ type: 'applied', revision: 3 })
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 821,
         sequence: 5,
         baseRevision: 3
       })
-    ).resolves.toMatchObject({ type: 'source', source: original })
+    ).toMatchObject({ type: 'source', source: original })
     port.dispose()
   })
 
   it('edits an imported standalone Comment without synthesizing an Anchor', async() => {
-    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const port = createLocalCoreOwner()
     const original = 'before {>>old<<} after\n'
     const edited = 'before {>>new<<} after\n'
     const opened = await port.request({
@@ -1160,7 +934,7 @@ describe('Core actor protocol', () => {
     if (reviewed.type !== 'review-item' || reviewed.item === null) {
       throw new Error('Expected standalone Comment')
     }
-    await expect(
+    expect(
       port.request({
         type: 'edit-comment',
         session: 823,
@@ -1170,26 +944,26 @@ describe('Core actor protocol', () => {
         text: 'new',
         projections: []
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'applied',
       revision: 2,
       change: {
         appliedEdits: [{ start: 7, end: 16, insert: '{>>new<<}' }]
       }
     })
-    await expect(
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 823,
         sequence: 4,
         baseRevision: 2
       })
-    ).resolves.toMatchObject({ type: 'source', source: edited })
+    ).toMatchObject({ type: 'source', source: edited })
     port.dispose()
   })
 
   it('authors a standalone Highlight as one actor-owned history entry', async() => {
-    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const port = createLocalCoreOwner()
     const original = 'before selected after\n'
     const highlighted = 'before {==selected==} after\n'
     const opened = await port.request({
@@ -1198,7 +972,7 @@ describe('Core actor protocol', () => {
       sequence: 1,
       source: original
     })
-    await expect(
+    expect(
       port.request({
         type: 'author',
         session: 814,
@@ -1209,22 +983,22 @@ describe('Core actor protocol', () => {
         text: '',
         projections: []
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'applied',
       revision: 2,
       change: {
         appliedEdits: [{ start: 7, end: 15, insert: '{==selected==}' }]
       }
     })
-    await expect(
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 814,
         sequence: 3,
         baseRevision: 2
       })
-    ).resolves.toMatchObject({ type: 'source', source: highlighted })
-    await expect(
+    ).toMatchObject({ type: 'source', source: highlighted })
+    expect(
       port.request({
         type: 'undo',
         session: 814,
@@ -1232,20 +1006,20 @@ describe('Core actor protocol', () => {
         baseRevision: 2,
         projections: []
       })
-    ).resolves.toMatchObject({ type: 'applied', revision: 3 })
-    await expect(
+    ).toMatchObject({ type: 'applied', revision: 3 })
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 814,
         sequence: 5,
         baseRevision: 3
       })
-    ).resolves.toMatchObject({ type: 'source', source: original })
+    ).toMatchObject({ type: 'source', source: original })
     port.dispose()
   })
 
   it('authors an anchored Comment whose payload is empty', async() => {
-    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const port = createLocalCoreOwner()
     const original = 'before selected after\n'
     const commented = 'before {==selected==}{>><<} after\n'
     const opened = await port.request({
@@ -1254,7 +1028,7 @@ describe('Core actor protocol', () => {
       sequence: 1,
       source: original
     })
-    await expect(
+    expect(
       port.request({
         type: 'author',
         session: 818,
@@ -1265,7 +1039,7 @@ describe('Core actor protocol', () => {
         text: '',
         projections: []
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'applied',
       revision: 2,
       change: {
@@ -1278,15 +1052,15 @@ describe('Core actor protocol', () => {
         ]
       }
     })
-    await expect(
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 818,
         sequence: 3,
         baseRevision: 2
       })
-    ).resolves.toMatchObject({ type: 'source', source: commented })
-    await expect(
+    ).toMatchObject({ type: 'source', source: commented })
+    expect(
       port.request({
         type: 'undo',
         session: 818,
@@ -1294,20 +1068,20 @@ describe('Core actor protocol', () => {
         baseRevision: 2,
         projections: []
       })
-    ).resolves.toMatchObject({ type: 'applied', revision: 3 })
-    await expect(
+    ).toMatchObject({ type: 'applied', revision: 3 })
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 818,
         sequence: 5,
         baseRevision: 3
       })
-    ).resolves.toMatchObject({ type: 'source', source: original })
+    ).toMatchObject({ type: 'source', source: original })
     port.dispose()
   })
 
   it('accepts or rejects every Review suggestion atomically', async() => {
-    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const port = createLocalCoreOwner()
     const original = 'A {++new++} B {--old--} C {~~left~>right~~}\n'
     const accepted = 'A new B  C right\n'
     const opened = await port.request({
@@ -1316,7 +1090,7 @@ describe('Core actor protocol', () => {
       sequence: 1,
       source: original
     })
-    await expect(
+    expect(
       port.request({
         type: 'resolve-all',
         session: 815,
@@ -1325,7 +1099,7 @@ describe('Core actor protocol', () => {
         decision: 'accept',
         projections: []
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'applied',
       revision: 2,
       change: {
@@ -1336,15 +1110,15 @@ describe('Core actor protocol', () => {
         ]
       }
     })
-    await expect(
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 815,
         sequence: 3,
         baseRevision: 2
       })
-    ).resolves.toMatchObject({ type: 'source', source: accepted })
-    await expect(
+    ).toMatchObject({ type: 'source', source: accepted })
+    expect(
       port.request({
         type: 'undo',
         session: 815,
@@ -1352,16 +1126,16 @@ describe('Core actor protocol', () => {
         baseRevision: 2,
         projections: []
       })
-    ).resolves.toMatchObject({ type: 'applied', revision: 3 })
-    await expect(
+    ).toMatchObject({ type: 'applied', revision: 3 })
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 815,
         sequence: 5,
         baseRevision: 3
       })
-    ).resolves.toMatchObject({ type: 'source', source: original })
-    await expect(
+    ).toMatchObject({ type: 'source', source: original })
+    expect(
       port.request({
         type: 'resolve-all',
         session: 815,
@@ -1370,20 +1144,20 @@ describe('Core actor protocol', () => {
         decision: 'reject',
         projections: []
       })
-    ).resolves.toMatchObject({ type: 'applied', revision: 4 })
-    await expect(
+    ).toMatchObject({ type: 'applied', revision: 4 })
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 815,
         sequence: 7,
         baseRevision: 4
       })
-    ).resolves.toMatchObject({ type: 'source', source: 'A  B old C left\n' })
+    ).toMatchObject({ type: 'source', source: 'A  B old C left\n' })
     port.dispose()
   })
 
   it('bulk-resolves a nested visible suggestion without removing its Highlight', async() => {
-    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const port = createLocalCoreOwner()
     const original = 'A {==outer {++inner++}==} Z\n'
     const accepted = 'A {==outer inner==} Z\n'
     const opened = await port.request({
@@ -1392,7 +1166,7 @@ describe('Core actor protocol', () => {
       sequence: 1,
       source: original
     })
-    await expect(
+    expect(
       port.request({
         type: 'resolve-all',
         session: 817,
@@ -1401,22 +1175,22 @@ describe('Core actor protocol', () => {
         decision: 'accept',
         projections: []
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'applied',
       revision: 2,
       change: {
         appliedEdits: [{ start: 11, end: 22, insert: 'inner' }]
       }
     })
-    await expect(
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 817,
         sequence: 3,
         baseRevision: 2
       })
-    ).resolves.toMatchObject({ type: 'source', source: accepted })
-    await expect(
+    ).toMatchObject({ type: 'source', source: accepted })
+    expect(
       port.request({
         type: 'undo',
         session: 817,
@@ -1424,15 +1198,15 @@ describe('Core actor protocol', () => {
         baseRevision: 2,
         projections: []
       })
-    ).resolves.toMatchObject({ type: 'applied', revision: 3 })
-    await expect(
+    ).toMatchObject({ type: 'applied', revision: 3 })
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 817,
         sequence: 5,
         baseRevision: 3
       })
-    ).resolves.toMatchObject({ type: 'source', source: original })
+    ).toMatchObject({ type: 'source', source: original })
     port.dispose()
   })
 
@@ -1482,7 +1256,7 @@ describe('Core actor protocol', () => {
   })
 
   it('navigates the deepest visible nested Review item before its parent', async() => {
-    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const port = createLocalCoreOwner()
     const opened = await port.request({
       type: 'open',
       session: 819,
@@ -1504,7 +1278,7 @@ describe('Core actor protocol', () => {
     if (nested.type !== 'review-item' || nested.item === null) {
       throw new Error('Expected nested Review item')
     }
-    await expect(
+    expect(
       port.request({
         type: 'review-item-at-barrier',
         session: 819,
@@ -1513,11 +1287,11 @@ describe('Core actor protocol', () => {
         direction: 'next',
         from: nested.item.range.end
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'review-item',
       item: { kind: 'highlight', range: { start: 2, end: 25 } }
     })
-    await expect(
+    expect(
       port.request({
         type: 'review-item-at-barrier',
         session: 819,
@@ -1526,7 +1300,7 @@ describe('Core actor protocol', () => {
         direction: 'previous',
         from: nested.item.range.start
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'review-item',
       item: { kind: 'highlight', range: { start: 2, end: 25 } }
     })
@@ -1534,7 +1308,7 @@ describe('Core actor protocol', () => {
   })
 
   it('derives a nested visible Highlight and Comment as one Commented span', async() => {
-    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const port = createLocalCoreOwner()
     const opened = await port.request({
       type: 'open',
       session: 820,
@@ -1562,7 +1336,7 @@ describe('Core actor protocol', () => {
     if (reviewed.type !== 'review-item' || reviewed.item === null) {
       throw new Error('Expected nested Commented span')
     }
-    await expect(
+    expect(
       port.request({
         type: 'resolve',
         session: 820,
@@ -1572,21 +1346,21 @@ describe('Core actor protocol', () => {
         decision: 'remove',
         projections: []
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'applied',
       revision: 2,
       change: {
         appliedEdits: [{ start: 11, end: 31, insert: 'text' }]
       }
     })
-    await expect(
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 820,
         sequence: 4,
         baseRevision: 2
       })
-    ).resolves.toMatchObject({ source: 'A {==outer text==} Z\n' })
+    ).toMatchObject({ source: 'A {==outer text==} Z\n' })
     port.dispose()
   })
 
@@ -2338,7 +2112,7 @@ describe('Core actor protocol', () => {
   })
 
   it('protects a literal substitution divider inside actor-authored old text', async() => {
-    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const port = createLocalCoreOwner()
     const source = 'before old~>literal after\n'
     const opened = await port.request({
       type: 'open',
@@ -4580,7 +4354,7 @@ describe('Core actor protocol', () => {
   })
 
   it('submits undo through the one production transaction interface', async() => {
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'history.md', source: 'alpha' })
     await binding.submit({
@@ -4601,8 +4375,8 @@ describe('Core actor protocol', () => {
   })
 
   it('rejects a stale edit without changing the authoritative revision', async() => {
-    const worker = new ActorBackedCoreWorker()
-    const port = createWorkerCorePort(worker)
+    const worker = new ActorBackedCoreOwner()
+    const port = worker.modelOwner
     const opened = await port.request({
       type: 'open',
       session: 9,
@@ -4610,7 +4384,7 @@ describe('Core actor protocol', () => {
       source: 'alpha'
     })
 
-    await expect(
+    expect(
       port.request({
         type: 'apply',
         session: 9,
@@ -4619,14 +4393,14 @@ describe('Core actor protocol', () => {
         edits: [{ start: 0, end: 5, insert: 'wrong' }],
         projections: ['markup']
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'rejected',
       accepted: false,
       reason: 'stale-base',
       revision: 1,
       sourceLength: 5
     })
-    await expect(
+    expect(
       port.request({
         type: 'apply',
         session: 9,
@@ -4635,7 +4409,7 @@ describe('Core actor protocol', () => {
         edits: [{ start: 0, end: 5, insert: 'right' }],
         projections: ['markup']
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'applied',
       accepted: true,
       revision: 2,
@@ -4763,18 +4537,18 @@ describe('Core actor protocol', () => {
   })
 
   it('rejects a stale source barrier without materializing source', async() => {
-    const worker = new ActorBackedCoreWorker()
-    const port = createWorkerCorePort(worker)
+    const worker = new ActorBackedCoreOwner()
+    const port = worker.modelOwner
     await port.request({ type: 'open', session: 19, sequence: 1, source: 'alpha' })
 
-    await expect(
+    expect(
       port.request({
         type: 'source-at-barrier',
         session: 19,
         sequence: 2,
         baseRevision: 0
       })
-    ).resolves.toEqual({
+    ).toEqual({
       type: 'rejected',
       session: 19,
       sequence: 2,
@@ -4788,8 +4562,8 @@ describe('Core actor protocol', () => {
   })
 
   it('rejects an invalid exact edit without changing the authoritative revision', async() => {
-    const worker = new ActorBackedCoreWorker()
-    const port = createWorkerCorePort(worker)
+    const worker = new ActorBackedCoreOwner()
+    const port = worker.modelOwner
     const opened = await port.request({
       type: 'open',
       session: 10,
@@ -4797,7 +4571,7 @@ describe('Core actor protocol', () => {
       source: 'alpha'
     })
 
-    await expect(
+    expect(
       port.request({
         type: 'apply',
         session: 10,
@@ -4806,14 +4580,14 @@ describe('Core actor protocol', () => {
         edits: [{ start: 0, end: 6, insert: 'wrong' }],
         projections: ['markup']
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'rejected',
       accepted: false,
       reason: 'invalid-edit',
       revision: 1,
       sourceLength: 5
     })
-    await expect(
+    expect(
       port.request({
         type: 'apply',
         session: 10,
@@ -4822,7 +4596,7 @@ describe('Core actor protocol', () => {
         edits: [{ start: 0, end: 5, insert: 'right' }],
         projections: ['markup']
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'applied',
       revision: 2,
       sourceLength: 5
@@ -4832,8 +4606,8 @@ describe('Core actor protocol', () => {
   })
 
   it('reports a resource rejection without changing the authoritative revision', async() => {
-    const worker = new ActorBackedCoreWorker()
-    const port = createWorkerCorePort(worker)
+    const worker = new ActorBackedCoreOwner()
+    const port = worker.modelOwner
     const opened = await port.request({
       type: 'open',
       session: 11,
@@ -4841,7 +4615,7 @@ describe('Core actor protocol', () => {
       source: 'alpha'
     })
 
-    await expect(
+    expect(
       port.request({
         type: 'apply',
         session: 11,
@@ -4850,7 +4624,7 @@ describe('Core actor protocol', () => {
         edits: [{ start: 0, end: 0, insert: '++}'.repeat(1_025) }],
         projections: ['markup']
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'resource',
       accepted: false,
       revision: 1,
@@ -4861,7 +4635,7 @@ describe('Core actor protocol', () => {
         metadata: { limit: '1024', observed: '1025' }
       }
     })
-    await expect(
+    expect(
       port.request({
         type: 'apply',
         session: 11,
@@ -4870,7 +4644,7 @@ describe('Core actor protocol', () => {
         edits: [{ start: 0, end: 5, insert: 'right' }],
         projections: ['markup']
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'applied',
       revision: 2,
       sourceLength: 5
@@ -4880,7 +4654,7 @@ describe('Core actor protocol', () => {
   })
 
   it('admits consecutive model edits before yielding to another task', () => {
-    const binding = createEditorCoreBinding(new ActorBackedCoreWorker().modelOwner)
+    const binding = createEditorCoreBinding(new ActorBackedCoreOwner().modelOwner)
     binding.open({ documentId: 'one.md', source: 'alpha' })
     const first = submitMarkup(binding, [{ start: 5, end: 5, insert: '!' }])
     const second = submitMarkup(binding, [{ start: 6, end: 6, insert: '?' }])
@@ -4891,30 +4665,30 @@ describe('Core actor protocol', () => {
   })
 
   it('allows a valid open after a resource-rejected open', async() => {
-    const port = createWorkerCorePort(new ActorBackedCoreWorker())
+    const port = createLocalCoreOwner()
 
-    await expect(
+    expect(
       port.request({
         type: 'open',
         session: 12,
         sequence: 1,
         source: '++}'.repeat(1_025)
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'resource',
       accepted: false,
       revision: 0,
       sourceLength: 0,
       resource: { code: 'CM_RESOURCE_LOGICAL_NODES_EXCEEDED' }
     })
-    await expect(
+    expect(
       port.request({
         type: 'open',
         session: 12,
         sequence: 2,
         source: 'fresh'
       })
-    ).resolves.toMatchObject({
+    ).toMatchObject({
       type: 'opened',
       accepted: true,
       revision: 1,
@@ -4925,7 +4699,7 @@ describe('Core actor protocol', () => {
   })
 
   it('returns a typed rejected-open outcome and retries on the same binding', async() => {
-    const binding = createEditorCoreBinding(new ActorBackedCoreWorker().modelOwner)
+    const binding = createEditorCoreBinding(new ActorBackedCoreOwner().modelOwner)
 
     await expect(
       binding.open({
@@ -4954,7 +4728,7 @@ describe('Core actor protocol', () => {
   })
 
   it('rejects malformed recovery history through the binding and retries', async() => {
-    const binding = createEditorCoreBinding(new ActorBackedCoreWorker().modelOwner)
+    const binding = createEditorCoreBinding(new ActorBackedCoreOwner().modelOwner)
 
     await expect(
       binding.open({
@@ -4984,7 +4758,7 @@ describe('Core actor protocol', () => {
   })
 
   it('submits caller projections with stable identity and observes typed outcomes', async() => {
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     const source = 'head\n\nbefore {>>note<<} after\n\ntail\n'
     const opened = await binding.open({ documentId: 'identity.md', source })
@@ -5031,7 +4805,7 @@ describe('Core actor protocol', () => {
   })
 
   it('bounds diagnostic transport while retaining the exact diagnostic count', async() => {
-    const binding = createEditorCoreBinding(new ActorBackedCoreWorker().modelOwner)
+    const binding = createEditorCoreBinding(new ActorBackedCoreOwner().modelOwner)
     const source = '{++'.repeat(20)
 
     const opened = await binding.open({ documentId: 'diagnostics.md', source })
@@ -5045,114 +4819,54 @@ describe('Core actor protocol', () => {
     binding.dispose()
   })
 
-  it('rejects pending and future requests after a Worker failure', async() => {
-    const worker = new FailingCoreWorker()
-    const port = createWorkerCorePort(worker)
-    const pending = port.request({
-      type: 'open',
-      session: 13,
-      sequence: 1,
-      source: 'alpha'
-    })
-    worker.fail('Core Worker crashed')
-
-    const outcome = await Promise.race([
-      pending.then(
-        () => 'resolved',
-        () => 'rejected'
-      ),
-      new Promise<'pending'>((resolve) => setTimeout(() => resolve('pending'), 20))
-    ])
-    expect(outcome).toBe('rejected')
-    await expect(
-      port.request({
-        type: 'open',
-        session: 13,
-        sequence: 2,
-        source: 'later'
-      })
-    ).rejects.toThrow('Core Worker crashed')
-
-    port.dispose()
-  })
-
-  it('notifies the owner once when an idle Worker fails, without requiring another request', async() => {
-    const worker = new ActorBackedCoreWorker()
+  it('latches the first model fault and notifies its owner once', () => {
     const onFailure = vi.fn()
-    const port = createWorkerCorePort(worker, { onFailure })
-    await port.request({ type: 'open', session: 91, sequence: 1, source: 'unsaved' })
-
-    worker.fail('idle Worker died')
-    expect(onFailure).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ message: 'idle Worker died' })
-    )
-    worker.fail('duplicate failure')
-    await expect(
-      port.request({ type: 'source-at-barrier', session: 91, sequence: 2, baseRevision: 1 })
-    ).rejects.toThrow('idle Worker died')
-    expect(onFailure).toHaveBeenCalledTimes(1)
-    expect(worker.terminations).toBe(1)
-    port.dispose()
-  })
-
-  it('does not report normal Worker disposal as a recovery fault', () => {
-    const worker = new ActorBackedCoreWorker()
-    const onFailure = vi.fn()
-    const port = createWorkerCorePort(worker, { onFailure })
-    port.dispose()
-    worker.fail('late failure')
-    expect(onFailure).not.toHaveBeenCalled()
-  })
-
-  it('terminates the actual port Worker through the opt-in test control', async() => {
-    const worker = new ActorBackedCoreWorker()
-    let control: CoreWorkerTestControl | undefined
-    const port = createWorkerCorePort(worker, {
+    let control: CoreModelTestControl | undefined
+    const owner = createLocalCoreOwner({
+      onFailure,
       registerTestControl: (value) => {
         control = value
       }
     })
-    const opened = await port.request({
-      type: 'open',
-      session: 14,
-      sequence: 1,
-      source: 'alpha'
-    })
-    worker.holdApplyReplies = true
-    const pending = port.request({
-      type: 'apply',
-      session: 14,
-      sequence: 2,
-      baseRevision: opened.revision,
-      edits: [{ start: 5, end: 5, insert: '!' }],
-      projections: []
-    })
+    owner.request({ type: 'open', session: 91, sequence: 1, source: 'unsaved' })
 
-    expect(control).toBeDefined()
     control?.crash()
-
-    await expect(pending).rejects.toThrow('Core Worker was terminated by the test harness')
-    await expect(
-      port.request({
-        type: 'source-at-barrier',
-        session: 14,
-        sequence: 3,
-        baseRevision: 1
-      })
-    ).rejects.toThrow('Core Worker was terminated by the test harness')
-    expect(worker.terminations).toBe(1)
-    port.dispose()
+    control?.crash()
+    expect(onFailure).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ message: 'Core model was terminated by the test harness' })
+    )
+    expect(() =>
+      owner.request({ type: 'source-at-barrier', session: 91, sequence: 2, baseRevision: 1 })
+    ).toThrow('Core model was terminated by the test harness')
+    expect(onFailure).toHaveBeenCalledTimes(1)
+    owner.dispose()
   })
 
-  it('obtains a typed stale reply from the actor through the opt-in test control', async() => {
-    const worker = new ActorBackedCoreWorker()
-    let control: CoreWorkerTestControl | undefined
-    const port = createWorkerCorePort(worker, {
+  it('does not report normal model disposal as a recovery fault', () => {
+    const onFailure = vi.fn()
+    let control: CoreModelTestControl | undefined
+    const owner = createLocalCoreOwner({
+      onFailure,
       registerTestControl: (value) => {
         control = value
       }
     })
-    const opened = await port.request({
+    owner.dispose()
+    control?.crash()
+    expect(onFailure).not.toHaveBeenCalled()
+    expect(() => owner.request({ type: 'open', session: 92, sequence: 1, source: 'x' })).toThrow(
+      'Core model owner is disposed'
+    )
+  })
+
+  it('obtains a typed stale reply from the actor through the opt-in test control', () => {
+    let control: CoreModelTestControl | undefined
+    const owner = createLocalCoreOwner({
+      registerTestControl: (value) => {
+        control = value
+      }
+    })
+    const opened = owner.request({
       type: 'open',
       session: 15,
       sequence: 1,
@@ -5161,7 +4875,7 @@ describe('Core actor protocol', () => {
 
     expect(control).toBeDefined()
     control?.staleNextTransaction()
-    const outcome = await port.request({
+    const outcome = owner.request({
       type: 'apply',
       session: 15,
       sequence: 2,
@@ -5169,7 +4883,7 @@ describe('Core actor protocol', () => {
       edits: [{ start: 5, end: 5, insert: '!' }],
       projections: []
     })
-    const source = await port.request({
+    const source = owner.request({
       type: 'source-at-barrier',
       session: 15,
       sequence: 3,
@@ -5181,35 +4895,25 @@ describe('Core actor protocol', () => {
       reason: 'stale-base',
       revision: 1
     })
-    expect(worker.requests[1]).toMatchObject({
-      request: { type: 'apply', baseRevision: 0 }
-    })
     expect(source).toMatchObject({ type: 'source', source: 'alpha' })
-    port.dispose()
+    owner.dispose()
   })
 
-  it('latches an actor failure envelope as a terminal Worker fault', async() => {
-    const worker = new CoreFailureReportingWorker()
+  it('latches a thrown actor failure as a terminal model fault', () => {
     const onFailure = vi.fn()
-    const port = createWorkerCorePort(worker, { onFailure })
-    const request = {
-      type: 'open' as const,
-      session: 301,
-      sequence: 1,
-      source: 'alpha'
-    }
+    const owner = createLocalCoreOwner({ onFailure })
 
-    await expect(port.request(request)).rejects.toThrow('actor terminated unexpectedly')
-    await expect(port.request({ ...request, sequence: 2 })).rejects.toThrow(
-      'actor terminated unexpectedly'
-    )
-    expect(worker.posts).toBe(1)
-    expect(worker.terminations).toBe(1)
+    expect(() =>
+      owner.request({ type: 'source-at-barrier', session: 301, sequence: 1, baseRevision: 1 })
+    ).toThrow('Core document is not open')
+    expect(() =>
+      owner.request({ type: 'open', session: 301, sequence: 2, source: 'alpha' })
+    ).toThrow('Core document is not open')
     expect(onFailure).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ message: 'actor terminated unexpectedly' })
+      expect.objectContaining({ message: 'Core document is not open' })
     )
 
-    port.dispose()
+    owner.dispose()
   })
 })
 
@@ -5292,10 +4996,10 @@ describe('Core document session manager', () => {
   })
 
   it('preserves final handoff failure before abort and drains other sessions', async() => {
-    const workers = new Map<string, ActorBackedCoreWorker>()
+    const workers = new Map<string, ActorBackedCoreOwner>()
     const manager = createCoreDocumentSessionManager({
       createBinding(documentId) {
-        const worker = new ActorBackedCoreWorker()
+        const worker = new ActorBackedCoreOwner()
         workers.set(documentId, worker)
         return createEditorCoreBinding(worker.modelOwner)
       }
@@ -5330,7 +5034,7 @@ describe('Core document session manager', () => {
   })
 
   it('releases the lease and disposes the binding when abort cleanup throws', async() => {
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const manager = createCoreDocumentSessionManager({
       createBinding: () => createEditorCoreBinding(worker.modelOwner)
     })
@@ -5348,7 +5052,7 @@ describe('Core document session manager', () => {
 
   it('releases a handed-off lease even when terminal view cleanup throws', async() => {
     const manager = createCoreDocumentSessionManager({
-      createBinding: () => createEditorCoreBinding(new ActorBackedCoreWorker().modelOwner)
+      createBinding: () => createEditorCoreBinding(new ActorBackedCoreOwner().modelOwner)
     })
     await manager.open({ documentId: 'cleanup.md', source: 'alpha', lineEnding: '\n' })
     const first = manager.lease('cleanup.md')
@@ -5366,7 +5070,7 @@ describe('Core document session manager', () => {
   })
 
   it('does not expose source after rejection and can explicitly abort the session', async() => {
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const manager = createCoreDocumentSessionManager({
       createBinding: () => createEditorCoreBinding(worker.modelOwner)
     })
@@ -5391,7 +5095,7 @@ describe('Core document session manager', () => {
   })
 
   it('keeps a managed session saveable after an atomic history-resource refusal', async() => {
-    const worker = new ActorBackedCoreWorker(
+    const worker = new ActorBackedCoreOwner(
       createCoreActor(createDocumentCore, {
         maximumHistoryInsertUnits: 5
       })
@@ -5441,7 +5145,7 @@ describe('Core document session manager', () => {
   })
 
   it('returns exact acknowledged bytes only after the save barrier drains', async() => {
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     let releaseView!: () => void
     const delivered = new Promise<void>((resolve) => {
       releaseView = resolve
@@ -5517,7 +5221,7 @@ describe('Core document session manager', () => {
   })
 
   it('coalesces concurrent source barriers inside one document session', async() => {
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const manager = createCoreDocumentSessionManager({
       createBinding: () => createEditorCoreBinding(worker.modelOwner)
     })
@@ -5537,7 +5241,7 @@ describe('Core document session manager', () => {
   })
 
   it('does not reuse a source snapshot after a newer edit is submitted', async() => {
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const manager = createCoreDocumentSessionManager({
       createBinding: () => createEditorCoreBinding(worker.modelOwner)
     })
@@ -5562,7 +5266,7 @@ describe('Core document session manager', () => {
   })
 
   it('invalidates a returned source snapshot before its Promise is consumed when a newer edit is submitted', async() => {
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const manager = createCoreDocumentSessionManager({
       createBinding: () => createEditorCoreBinding(worker.modelOwner)
     })
@@ -5589,10 +5293,10 @@ describe('Core document session manager', () => {
   })
 
   it('reopens exact disk bytes in a new generation before accepting later edits', async() => {
-    const workers: ActorBackedCoreWorker[] = []
+    const workers: ActorBackedCoreOwner[] = []
     const manager = createCoreDocumentSessionManager({
       createBinding() {
-        const worker = new ActorBackedCoreWorker()
+        const worker = new ActorBackedCoreOwner()
         workers.push(worker)
         return createEditorCoreBinding(worker.modelOwner)
       }
@@ -5667,7 +5371,7 @@ describe('Core document session manager', () => {
 
   it('records external reload as one actor-owned undo and redo boundary', async() => {
     const manager = createCoreDocumentSessionManager({
-      createBinding: () => createEditorCoreBinding(new ActorBackedCoreWorker().modelOwner)
+      createBinding: () => createEditorCoreBinding(new ActorBackedCoreOwner().modelOwner)
     })
     const before = 'before {++local++}\n'
     const after = 'after {--disk--}\n\nnext\n'
@@ -5704,10 +5408,10 @@ describe('Core document session manager', () => {
   })
 
   it('replaces a generation for byte-identical disk content without fake history', async() => {
-    const workers: ActorBackedCoreWorker[] = []
+    const workers: ActorBackedCoreOwner[] = []
     const manager = createCoreDocumentSessionManager({
       createBinding() {
-        const worker = new ActorBackedCoreWorker()
+        const worker = new ActorBackedCoreOwner()
         workers.push(worker)
         return createEditorCoreBinding(worker.modelOwner)
       }
@@ -5746,7 +5450,7 @@ describe('Core document session manager', () => {
   })
 
   it('keeps the acknowledged session usable when a replacement generation cannot open', async() => {
-    const oldWorker = new ActorBackedCoreWorker()
+    const oldWorker = new ActorBackedCoreOwner()
     let bindingIndex = 0
     const manager = createCoreDocumentSessionManager({
       createBinding() {
@@ -5794,10 +5498,10 @@ describe('Core document session manager', () => {
   })
 
   it('publishes the old generation before replacement and fences its later actions', async() => {
-    const workers: ActorBackedCoreWorker[] = []
+    const workers: ActorBackedCoreOwner[] = []
     const manager = createCoreDocumentSessionManager({
       createBinding() {
-        const worker = new ActorBackedCoreWorker()
+        const worker = new ActorBackedCoreOwner()
         workers.push(worker)
         return createEditorCoreBinding(worker.modelOwner)
       }
@@ -5846,7 +5550,7 @@ describe('Core document session manager', () => {
     const leaseRef: { current?: CoreDocumentViewLease } = {}
     const manager = createCoreDocumentSessionManager({
       createBinding() {
-        const owner = new ActorBackedCoreWorker().modelOwner
+        const owner = new ActorBackedCoreOwner().modelOwner
         return createEditorCoreBinding({
           request: (request) => {
             if (request.type === 'open' && leaseRef.current !== undefined) {
@@ -5881,10 +5585,10 @@ describe('Core document session manager', () => {
   })
 
   it('recovers a faulted model from its checkpoint and acknowledged command journal', async() => {
-    const workers: ActorBackedCoreWorker[] = []
+    const workers: ActorBackedCoreOwner[] = []
     const manager = createCoreDocumentSessionManager({
       createBinding() {
-        const worker = new ActorBackedCoreWorker()
+        const worker = new ActorBackedCoreOwner()
         workers.push(worker)
         return createEditorCoreBinding(worker.modelOwner)
       }
@@ -5910,13 +5614,13 @@ describe('Core document session manager', () => {
     oldLease.binding.observe((event) => {
       observedAfterFault.push(event.outcome.type)
     })
-    oldWorker.fail('Core Worker crashed')
+    oldWorker.fail('Core model crashed')
     expect(() =>
       oldLease.binding.submit({
         edits: [{ start: 4, end: 5, insert: 'Z' }],
         projections: []
       })
-    ).toThrow('Core Worker crashed')
+    ).toThrow('Core model crashed')
 
     const recovering = manager.recover(oldLease)
     const saving = manager.saveBarrier('recover.md')
@@ -5969,10 +5673,10 @@ describe('Core document session manager', () => {
   })
 
   it('recovers a faulted speculative view from acknowledged actor history', async() => {
-    const workers: ActorBackedCoreWorker[] = []
+    const workers: ActorBackedCoreOwner[] = []
     const manager = createCoreDocumentSessionManager({
       createBinding() {
-        const worker = new ActorBackedCoreWorker()
+        const worker = new ActorBackedCoreOwner()
         workers.push(worker)
         return createEditorCoreBinding(worker.modelOwner)
       }
@@ -6009,10 +5713,10 @@ describe('Core document session manager', () => {
   })
 
   it('replays actor-authored Track Changes without renderer marker bytes', async() => {
-    const workers: ActorBackedCoreWorker[] = []
+    const workers: ActorBackedCoreOwner[] = []
     const manager = createCoreDocumentSessionManager({
       createBinding() {
-        const worker = new ActorBackedCoreWorker()
+        const worker = new ActorBackedCoreOwner()
         workers.push(worker)
         return createEditorCoreBinding(worker.modelOwner)
       }
@@ -6075,9 +5779,9 @@ describe('Core document session manager', () => {
     await manager.close('recover-track.md')
   })
 
-  it('restores checkpointed Track Changes history after Worker recovery', async() => {
+  it('restores checkpointed Track Changes history after model recovery', async() => {
     const manager = createCoreDocumentSessionManager({
-      createBinding: () => createEditorCoreBinding(new ActorBackedCoreWorker().modelOwner)
+      createBinding: () => createEditorCoreBinding(new ActorBackedCoreOwner().modelOwner)
     })
     const source = 'seed\n'
     const tracked = 'seed{++!++}\n'
@@ -6127,7 +5831,7 @@ describe('Core document session manager', () => {
 
   it('replays an acknowledged Review resolution with its undo history on recovery', async() => {
     const manager = createCoreDocumentSessionManager({
-      createBinding: () => createEditorCoreBinding(new ActorBackedCoreWorker().modelOwner)
+      createBinding: () => createEditorCoreBinding(new ActorBackedCoreOwner().modelOwner)
     })
     const source = 'before {++new++} after\n'
     await manager.open({
@@ -6181,7 +5885,7 @@ describe('Core document session manager', () => {
 
   it('rebases a post-checkpoint Review resolution onto its recovery generation', async() => {
     const manager = createCoreDocumentSessionManager({
-      createBinding: () => createEditorCoreBinding(new ActorBackedCoreWorker().modelOwner)
+      createBinding: () => createEditorCoreBinding(new ActorBackedCoreOwner().modelOwner)
     })
     const source = 'before {++new++} after\n'
     const checkpointed = `${source}!`
@@ -6243,7 +5947,7 @@ describe('Core document session manager', () => {
 
   it('replays acknowledged authoring with its undo and redo history on recovery', async() => {
     const manager = createCoreDocumentSessionManager({
-      createBinding: () => createEditorCoreBinding(new ActorBackedCoreWorker().modelOwner)
+      createBinding: () => createEditorCoreBinding(new ActorBackedCoreOwner().modelOwner)
     })
     const source = 'alpha selected omega\n'
     const authoredSource = 'alpha {==selected==}{>>note<<} omega\n'
@@ -6296,7 +6000,7 @@ describe('Core document session manager', () => {
 
   it('replays acknowledged Comment editing with its undo history on recovery', async() => {
     const manager = createCoreDocumentSessionManager({
-      createBinding: () => createEditorCoreBinding(new ActorBackedCoreWorker().modelOwner)
+      createBinding: () => createEditorCoreBinding(new ActorBackedCoreOwner().modelOwner)
     })
     const source = 'before {==text==}{>>old note<<} after\n'
     const edited = 'before {==text==}{>>new note<<} after\n'
@@ -6344,7 +6048,7 @@ describe('Core document session manager', () => {
 
   it('replays atomic bulk Review resolution with its undo history on recovery', async() => {
     const manager = createCoreDocumentSessionManager({
-      createBinding: () => createEditorCoreBinding(new ActorBackedCoreWorker().modelOwner)
+      createBinding: () => createEditorCoreBinding(new ActorBackedCoreOwner().modelOwner)
     })
     const source = 'A {++new++} B {--old--} C {~~left~>right~~}\n'
     const accepted = 'A new B  C right\n'
@@ -6384,10 +6088,10 @@ describe('Core document session manager', () => {
   })
 
   it('keeps a faulted session retryable when recovery handoff cleanup fails', async() => {
-    const workers: ActorBackedCoreWorker[] = []
+    const workers: ActorBackedCoreOwner[] = []
     const manager = createCoreDocumentSessionManager({
       createBinding() {
-        const worker = new ActorBackedCoreWorker()
+        const worker = new ActorBackedCoreOwner()
         workers.push(worker)
         return createEditorCoreBinding(worker.modelOwner)
       }
@@ -6407,13 +6111,13 @@ describe('Core document session manager', () => {
 
     const oldWorker = workers[0]
     if (oldWorker === undefined) throw new Error('old recovery Worker was not created')
-    oldWorker.fail('Core Worker crashed')
+    oldWorker.fail('Core model crashed')
     expect(() =>
       oldLease.binding.submit({
         edits: [{ start: 4, end: 5, insert: 'Z' }],
         projections: []
       })
-    ).toThrow('Core Worker crashed')
+    ).toThrow('Core model crashed')
     oldLease.onHandoff(() => {
       throw new Error('recovery cleanup failed')
     })
@@ -6431,11 +6135,11 @@ describe('Core document session manager', () => {
     await manager.close('recover-cleanup.md')
   })
 
-  it('preserves actor undo history across a checkpointed Worker recovery', async() => {
-    const workers: ActorBackedCoreWorker[] = []
+  it('preserves actor undo history across a checkpointed model recovery', async() => {
+    const workers: ActorBackedCoreOwner[] = []
     const manager = createCoreDocumentSessionManager({
       createBinding() {
-        const worker = new ActorBackedCoreWorker()
+        const worker = new ActorBackedCoreOwner()
         workers.push(worker)
         return createEditorCoreBinding(worker.modelOwner)
       }
@@ -6454,7 +6158,7 @@ describe('Core document session manager', () => {
 
     const oldWorker = workers[0]
     if (oldWorker === undefined) throw new Error('old recovery Worker was not created')
-    oldWorker.fail('Core Worker crashed after checkpoint')
+    oldWorker.fail('Core model crashed after checkpoint')
     expect(() =>
       oldLease.binding.submit({
         edits: [{ start: 0, end: 0, insert: '!' }],
@@ -6481,10 +6185,10 @@ describe('Core document session manager', () => {
   })
 
   it('checkpoints the accepted recovery journal internally before it exceeds policy', async() => {
-    const workers: ActorBackedCoreWorker[] = []
+    const workers: ActorBackedCoreOwner[] = []
     const manager = createCoreDocumentSessionManager({
       createBinding() {
-        const worker = new ActorBackedCoreWorker()
+        const worker = new ActorBackedCoreOwner()
         workers.push(worker)
         return createEditorCoreBinding(worker.modelOwner)
       }
@@ -6511,7 +6215,7 @@ describe('Core document session manager', () => {
     expect(
       oldWorker.requests.filter((envelope) => envelope.request.type === 'source-at-barrier')
     ).toHaveLength(1)
-    oldWorker.fail('Core Worker crashed after internal checkpoint')
+    oldWorker.fail('Core model crashed after internal checkpoint')
     expect(() =>
       oldLease.binding.submit({
         edits: [
@@ -6579,10 +6283,10 @@ describe('Core document session manager', () => {
   })
 
   it('fails maintenance closed without clearing its checkpoint or journal', async() => {
-    const workers: ActorBackedCoreWorker[] = []
+    const workers: ActorBackedCoreOwner[] = []
     const manager = createCoreDocumentSessionManager({
       createBinding() {
-        const worker = new ActorBackedCoreWorker()
+        const worker = new ActorBackedCoreOwner()
         workers.push(worker)
         return createEditorCoreBinding(worker.modelOwner)
       }
@@ -6631,7 +6335,7 @@ describe('Core document session manager', () => {
         ],
         projections: []
       })
-    ).toThrow('Worker recovery is required')
+    ).toThrow('owner recovery is required')
 
     const replacement = await manager.recover(oldLease)
     const recoveryWorker = workers[1]
@@ -6669,7 +6373,7 @@ describe('Core document session manager', () => {
 
   it('requires the current generation one live view lease for replacement', async() => {
     const manager = createCoreDocumentSessionManager({
-      createBinding: () => createEditorCoreBinding(new ActorBackedCoreWorker().modelOwner)
+      createBinding: () => createEditorCoreBinding(new ActorBackedCoreOwner().modelOwner)
     })
     await manager.open({ documentId: 'lease.md', source: 'original', lineEnding: '\n' })
     const releasedLease = manager.lease('lease.md')
@@ -6690,7 +6394,7 @@ describe('Core document session manager', () => {
   })
 
   it('reserves each document and permits only one live view lease', async() => {
-    const binding = createEditorCoreBinding(new ActorBackedCoreWorker().modelOwner)
+    const binding = createEditorCoreBinding(new ActorBackedCoreOwner().modelOwner)
     const manager = createCoreDocumentSessionManager({ createBinding: () => binding })
     const firstOpen = manager.open({
       documentId: 'one.md',
@@ -6715,11 +6419,11 @@ describe('Core document session manager', () => {
   })
 
   it('keeps held document sessions isolated across view activation and handoff', async() => {
-    const workers = new Map<string, ActorBackedCoreWorker>()
+    const workers = new Map<string, ActorBackedCoreOwner>()
     const bindings = new Map<string, EditorCoreBinding>()
     const manager = createCoreDocumentSessionManager({
       createBinding(documentId) {
-        const worker = new ActorBackedCoreWorker()
+        const worker = new ActorBackedCoreOwner()
         workers.set(documentId, worker)
         const binding = createEditorCoreBinding(worker.modelOwner)
         bindings.set(documentId, binding)
@@ -6781,7 +6485,7 @@ describe('Core document session manager', () => {
 
   it('refuses handoff and close after a typed submission rejection', async() => {
     const manager = createCoreDocumentSessionManager({
-      createBinding: () => createEditorCoreBinding(new ActorBackedCoreWorker().modelOwner)
+      createBinding: () => createEditorCoreBinding(new ActorBackedCoreOwner().modelOwner)
     })
     await manager.open({
       documentId: 'rejected.md',
@@ -6801,7 +6505,7 @@ describe('Core document session manager', () => {
   })
 
   it('crosses the view delivery barrier before handing off a lease', async() => {
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const manager = createCoreDocumentSessionManager({
       createBinding: () => createEditorCoreBinding(worker.modelOwner)
     })
@@ -6886,7 +6590,7 @@ const createAttachedCodeMirror = (
 describe('CodeMirror Core adapter', () => {
   it('records one Source dispatch, acknowledgement, and reconciliation', async() => {
     const source = 'abc'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'source-performance.md', source })
     const editor = new codeMirror.Doc(source)
@@ -7010,7 +6714,7 @@ describe('CodeMirror Core adapter', () => {
   it('sends a native change as one exact edit without reading a source snapshot', async() => {
     const source = 'head 😀\n\nordinary text paragraph\n\ntail\n'
     const core = createDocumentCore()
-    const worker = new ActorBackedCoreWorker(createCoreActor(() => core))
+    const worker = new ActorBackedCoreOwner(createCoreActor(() => core))
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'source.md', source })
     const beforeApply = inspectDocumentCore(core)
@@ -7061,7 +6765,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('keeps Source ready after a native identity replacement', async() => {
     const source = 'abc'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'source-no-change.md', source })
     const editor = new codeMirror.Doc(source)
@@ -7096,7 +6800,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('applies actor-owned CriticMarkup resolution through the authoritative lane', async() => {
     const source = 'a {++add++} b\n'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'review.md', source })
     const editor = new codeMirror.Doc(source)
@@ -7135,7 +6839,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('keeps Source authority saveable after a stale Review locator is rejected', async() => {
     const source = 'a {++add++} b\n'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'stale-review.md', source })
     const editor = new codeMirror.Doc(source)
@@ -7163,7 +6867,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('keeps Source authority saveable after an atomic Review history refusal', async() => {
     const source = '{++abcdef++}\n'
-    const worker = new ActorBackedCoreWorker(
+    const worker = new ActorBackedCoreOwner(
       createCoreActor(createDocumentCore, { maximumHistoryInsertUnits: 5 })
     )
     const binding = createEditorCoreBinding(worker.modelOwner)
@@ -7205,7 +6909,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('snapshots a Review locator before its asynchronous command boundary', async() => {
     const source = 'a {++add++} b\n'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'snapshot-review.md', source })
     const editor = new codeMirror.Doc(source)
@@ -7237,7 +6941,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('keeps a Review locator on the same annotation across earlier queued input', async() => {
     const source = 'x {++a++}\n'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'rebased-review.md', source })
     const editor = new codeMirror.Doc(source)
@@ -7268,7 +6972,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('keeps a Review locator through a multi-selection edit on both sides of it', async() => {
     const source = 'x {++a++} y\n'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'multi-review.md', source })
     const fixture = createAttachedCodeMirror(source)
@@ -7306,7 +7010,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('refuses a Review locator changed by a later edit in the same multi-selection transaction', async() => {
     const source = 'x {++a++} y\n'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'multi-review-overlap.md', source })
     const fixture = createAttachedCodeMirror(source)
@@ -7344,7 +7048,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('reads the next Review item after earlier native input is acknowledged', async() => {
     const source = 'x\n\n{++add++}\n'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'review-navigation.md', source })
     const editor = new codeMirror.Doc(source)
@@ -7372,7 +7076,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('routes immediate undo and redo to actor-owned history without CodeMirror history', async() => {
     const source = 'head\n\nordinary text paragraph\n\ntail\n'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'history-source.md', source })
     const editor = new codeMirror.Doc(source)
@@ -7418,7 +7122,7 @@ describe('CodeMirror Core adapter', () => {
   it('maps native history across canonical CRLF and Unicode coordinates', async() => {
     const source = 'head 😀\r\n\r\nordinary text\r\n'
     const normalized = source.replaceAll('\r\n', '\n')
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'history-crlf.md', source })
     const editor = new codeMirror.Doc(source)
@@ -7451,7 +7155,7 @@ describe('CodeMirror Core adapter', () => {
   })
 
   it('treats empty actor history as a no-op and keeps later typing admissible', async() => {
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'empty-history.md', source: 'abc' })
     const editor = new codeMirror.Doc('abc')
@@ -7477,7 +7181,7 @@ describe('CodeMirror Core adapter', () => {
   })
 
   it('keeps a managed session saveable after an empty history command', async() => {
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const manager = createCoreDocumentSessionManager({
       createBinding: () => createEditorCoreBinding(worker.modelOwner)
     })
@@ -7514,7 +7218,7 @@ describe('CodeMirror Core adapter', () => {
   })
 
   it('serializes rapid actor history commands and includes them in settlement', async() => {
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'rapid-history.md', source: 'abc' })
     const editor = new codeMirror.Doc('abc')
@@ -7528,20 +7232,11 @@ describe('CodeMirror Core adapter', () => {
 
     const first = adapter.history('undo')
     const second = adapter.history('undo')
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(worker.requests.filter((item) => item.request.type === 'undo')).toHaveLength(1)
-    let settled = false
-    const barrier = adapter.settled().then(() => {
-      settled = true
-    })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(settled).toBe(false)
+    const barrier = adapter.settled()
 
     await expect(first).resolves.toMatchObject({ type: 'applied', revision: 3 })
-    await vi.waitFor(() => {
-      expect(worker.requests.filter((item) => item.request.type === 'undo')).toHaveLength(2)
-    })
     await expect(second).resolves.toBeUndefined()
+    expect(worker.requests.filter((item) => item.request.type === 'undo')).toHaveLength(2)
     await barrier
     expect(adapter.state()).toEqual({ status: 'ready', lastAcceptedRevision: 3 })
     expect(editor.getValue()).toBe('abc')
@@ -7550,10 +7245,10 @@ describe('CodeMirror Core adapter', () => {
     binding.dispose()
   })
 
-  it('rebases native input authored while native history painting is pending', async() => {
-    const worker = new ActorBackedCoreWorker()
+  it('admits native input delivered after the history request before the history', async() => {
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
-    await binding.open({ documentId: 'history-input.md', source: 'abc' })
+    binding.open({ documentId: 'history-late-input.md', source: 'abc' })
     const editor = new codeMirror.Doc('abc')
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: 'abc',
@@ -7564,222 +7259,29 @@ describe('CodeMirror Core adapter', () => {
     await adapter.settled()
 
     const undoing = adapter.history('undo')
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(worker.requests.filter((item) => item.request.type === 'undo')).toHaveLength(1)
+    // This unattached Doc reports the change only after the history request's
+    // first turn; the model must still receive it before the undo.
     editor.replaceRange('E', { line: 0, ch: 4 }, undefined, '+input')
-    const barrier = adapter.settled()
 
-    await expect(undoing).resolves.toMatchObject({ type: 'applied', revision: 3 })
-    await vi.waitFor(() => {
-      expect(worker.requests.filter((item) => item.request.type === 'source-input')).toHaveLength(2)
-    })
-    expect(worker.requests.at(-1)?.request).toMatchObject({
-      type: 'source-input',
-      baseRevision: 3,
-      action: { edits: [{ start: 3, end: 3, insert: 'E' }] }
-    })
-    await expect(barrier).resolves.toMatchObject({ type: 'applied', revision: 4 })
-    expect(editor.getValue()).toBe('abcE')
-    await expect(binding.sourceAtBarrier()).toMatchObject({
-      type: 'source',
-      revision: 4,
-      source: 'abcE'
-    })
+    await expect(undoing).resolves.toMatchObject({ type: 'applied', revision: 4 })
     expect(worker.requests.map((item) => item.request.type)).toEqual([
       'open',
       'source-input',
-      'undo',
       'source-input',
-      'source-at-barrier'
+      'undo'
     ])
+    expect(editor.getValue()).toBe('abcd')
+    expect(binding.sourceAtBarrier()).toMatchObject({ source: 'abcd' })
+    expect(adapter.state()).toEqual({ status: 'ready', lastAcceptedRevision: 4 })
 
     adapter.dispose()
     binding.dispose()
   })
 
-  it('orders same-point pending input after an earlier actor history insertion', async() => {
-    const worker = new ActorBackedCoreWorker()
+  it('fences a history command when the adapter is disposed before model admission', async() => {
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
-    await binding.open({ documentId: 'history-tie.md', source: 'abc' })
-    const editor = new codeMirror.Doc('abc')
-    const adapter = createCodeMirrorCoreAdapter(editor, binding, {
-      canonicalSource: 'abc',
-      canonicalRevision: 1,
-      insertedLineEnding: '\n'
-    })
-    editor.replaceRange('X', { line: 0, ch: 1 }, undefined, '+input')
-    await adapter.settled()
-    await adapter.history('undo')
-
-    const redoing = adapter.history('redo')
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(worker.requests.filter((item) => item.request.type === 'redo')).toHaveLength(1)
-    editor.replaceRange('Y', { line: 0, ch: 1 }, undefined, '+input')
-    const barrier = adapter.settled()
-
-    await expect(redoing).resolves.toMatchObject({ type: 'applied', revision: 4 })
-    await expect(barrier).resolves.toMatchObject({ type: 'applied', revision: 5 })
-    expect(editor.getValue()).toBe('aXYbc')
-    await expect(binding.sourceAtBarrier()).toMatchObject({
-      type: 'source',
-      revision: 5,
-      source: 'aXYbc'
-    })
-    expect(adapter.state()).toEqual({ status: 'ready', lastAcceptedRevision: 5 })
-
-    adapter.dispose()
-    binding.dispose()
-  })
-
-  it('keeps crossed pending insertion provenance aligned after actor history', async() => {
-    const worker = new ActorBackedCoreWorker()
-    const binding = createEditorCoreBinding(worker.modelOwner)
-    await binding.open({ documentId: 'history-crossed-provenance.md', source: 'ab' })
-    await binding.submit({
-      edits: [
-        { start: 0, end: 0, insert: 'JK' },
-        { start: 1, end: 2, insert: 'JK' }
-      ],
-      projections: []
-    }).acknowledged
-    await binding.submit({ kind: 'undo', projections: [] }).acknowledged
-    const editor = new codeMirror.Doc('ab')
-    const adapter = createCodeMirrorCoreAdapter(editor, binding, {
-      canonicalSource: 'ab',
-      canonicalRevision: 1,
-      insertedLineEnding: '\n'
-    })
-
-    const redoing = adapter.history('redo')
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(worker.requests.filter((item) => item.request.type === 'redo')).toHaveLength(1)
-    editor.replaceRange('YZ', { line: 0, ch: 2 }, undefined, '+input')
-    editor.replaceRange('P', { line: 0, ch: 1 }, undefined, '+input')
-    const barrier = adapter.settled()
-
-    await expect(redoing).resolves.toMatchObject({ type: 'applied', revision: 4 })
-    await expect(barrier).resolves.toMatchObject({ type: 'applied', revision: 6 })
-    expect(editor.getValue()).toBe('JKaJKYZP')
-    await expect(binding.sourceAtBarrier()).toMatchObject({
-      type: 'source',
-      revision: 6,
-      source: 'JKaJKYZP'
-    })
-    expect(adapter.state()).toEqual({ status: 'ready', lastAcceptedRevision: 6 })
-
-    adapter.dispose()
-    binding.dispose()
-  })
-
-  it('orders sequential pending input after an earlier history replacement at its start', async() => {
-    const worker = new ActorBackedCoreWorker()
-    const binding = createEditorCoreBinding(worker.modelOwner)
-    await binding.open({ documentId: 'history-replacement-tie.md', source: 'abcd' })
-    const editor = new codeMirror.Doc('abcd')
-    const adapter = createCodeMirrorCoreAdapter(editor, binding, {
-      canonicalSource: 'abcd',
-      canonicalRevision: 1,
-      insertedLineEnding: '\n'
-    })
-    editor.replaceRange('X', { line: 0, ch: 1 }, { line: 0, ch: 2 }, '+input')
-    await adapter.settled()
-    editor.replaceRange('YYY', { line: 0, ch: 1 }, { line: 0, ch: 2 }, '+input')
-    await adapter.settled()
-
-    const undoing = adapter.history('undo')
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(worker.requests.filter((item) => item.request.type === 'undo')).toHaveLength(1)
-    editor.replaceRange('P', { line: 0, ch: 1 }, undefined, '+input')
-    editor.replaceRange('Q', { line: 0, ch: 2 }, undefined, '+input')
-    const barrier = adapter.settled()
-
-    await expect(undoing).resolves.toMatchObject({ type: 'applied', revision: 4 })
-    await expect(barrier).resolves.toMatchObject({ type: 'applied', revision: 6 })
-    expect(editor.getValue()).toBe('aXPQcd')
-    await expect(binding.sourceAtBarrier()).toMatchObject({
-      type: 'source',
-      revision: 6,
-      source: 'aXPQcd'
-    })
-
-    adapter.dispose()
-    binding.dispose()
-  })
-
-  it('preserves deletion of pending text across an earlier history replacement', async() => {
-    const worker = new ActorBackedCoreWorker()
-    const binding = createEditorCoreBinding(worker.modelOwner)
-    await binding.open({ documentId: 'history-pending-delete.md', source: 'abcd' })
-    const editor = new codeMirror.Doc('abcd')
-    const adapter = createCodeMirrorCoreAdapter(editor, binding, {
-      canonicalSource: 'abcd',
-      canonicalRevision: 1,
-      insertedLineEnding: '\n'
-    })
-    editor.replaceRange('X', { line: 0, ch: 1 }, { line: 0, ch: 2 }, '+input')
-    await adapter.settled()
-    editor.replaceRange('YYY', { line: 0, ch: 1 }, { line: 0, ch: 2 }, '+input')
-    await adapter.settled()
-
-    const undoing = adapter.history('undo')
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(worker.requests.filter((item) => item.request.type === 'undo')).toHaveLength(1)
-    editor.replaceRange('P', { line: 0, ch: 1 }, undefined, '+input')
-    editor.replaceRange('', { line: 0, ch: 1 }, { line: 0, ch: 2 }, '+delete')
-    const barrier = adapter.settled()
-
-    await expect(undoing).resolves.toMatchObject({ type: 'applied', revision: 4 })
-    await expect(barrier).resolves.toMatchObject({ type: 'applied', revision: 6 })
-    expect(editor.getValue()).toBe('aXcd')
-    await expect(binding.sourceAtBarrier()).toMatchObject({
-      type: 'source',
-      revision: 6,
-      source: 'aXcd'
-    })
-    expect(adapter.state()).toEqual({ status: 'ready', lastAcceptedRevision: 6 })
-
-    adapter.dispose()
-    binding.dispose()
-  })
-
-  it('maps later optimistic EOF input after a queued deletion during history', async() => {
-    const worker = new ActorBackedCoreWorker()
-    const binding = createEditorCoreBinding(worker.modelOwner)
-    await binding.open({ documentId: 'history-delete-eof.md', source: 'abcde' })
-    const editor = new codeMirror.Doc('abcde')
-    const adapter = createCodeMirrorCoreAdapter(editor, binding, {
-      canonicalSource: 'abcde',
-      canonicalRevision: 1,
-      insertedLineEnding: '\n'
-    })
-    editor.replaceRange('H', { line: 0, ch: 0 }, undefined, '+input')
-    await adapter.settled()
-    await adapter.history('undo')
-
-    const redoing = adapter.history('redo')
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(worker.requests.filter((item) => item.request.type === 'redo')).toHaveLength(1)
-    editor.replaceRange('', { line: 0, ch: 1 }, { line: 0, ch: 2 }, '+delete')
-    editor.replaceRange('X', { line: 0, ch: 4 }, undefined, '+input')
-    const barrier = adapter.settled()
-
-    await expect(redoing).resolves.toMatchObject({ type: 'applied', revision: 4 })
-    await expect(barrier).resolves.toMatchObject({ type: 'applied', revision: 6 })
-    expect(editor.getValue()).toBe('HacdeX')
-    await expect(binding.sourceAtBarrier()).toMatchObject({
-      type: 'source',
-      revision: 6,
-      source: 'HacdeX'
-    })
-
-    adapter.dispose()
-    binding.dispose()
-  })
-
-  it('fences deferred native history painting after adapter disposal', async() => {
-    const worker = new ActorBackedCoreWorker()
-    const binding = createEditorCoreBinding(worker.modelOwner)
-    await binding.open({ documentId: 'history-dispose.md', source: 'abc' })
+    binding.open({ documentId: 'history-dispose.md', source: 'abc' })
     const editor = new codeMirror.Doc('abc')
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
       canonicalSource: 'abc',
@@ -7788,46 +7290,22 @@ describe('CodeMirror Core adapter', () => {
     })
     editor.replaceRange('d', { line: 0, ch: 3 }, undefined, '+input')
     await adapter.settled()
+    // An unattached Doc delivers change notifications a macrotask later, so
+    // history waits for that turn before entering the model.
     const undoing = adapter.history('undo')
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(worker.requests.filter((item) => item.request.type === 'undo')).toHaveLength(1)
-
     adapter.dispose()
+
     await expect(undoing).rejects.toThrow('adapter is disposed')
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(worker.requests.filter((item) => item.request.type === 'undo')).toHaveLength(0)
     expect(editor.getValue()).toBe('abcd')
-
-    binding.dispose()
-  })
-
-  it('fences history publication when disposal races its deferred view update', async() => {
-    const worker = new ActorBackedCoreWorker()
-    const binding = createEditorCoreBinding(worker.modelOwner)
-    await binding.open({ documentId: 'history-dispose-race.md', source: 'abc' })
-    const editor = new codeMirror.Doc('abc')
-    const adapter = createCodeMirrorCoreAdapter(editor, binding, {
-      canonicalSource: 'abc',
-      canonicalRevision: 1,
-      insertedLineEnding: '\n'
-    })
-    editor.replaceRange('d', { line: 0, ch: 3 }, undefined, '+input')
-    await adapter.settled()
-    const undoing = adapter.history('undo')
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    adapter.dispose()
-    await expect(undoing).rejects.toThrow('adapter is disposed')
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    expect(editor.getValue()).toBe('abcd')
-    expect(adapter.state()).toEqual({ status: 'ready', lastAcceptedRevision: 3 })
+    expect(binding.sourceAtBarrier()).toMatchObject({ source: 'abcd' })
 
     binding.dispose()
   })
 
   it('holds composition updates locally and commits one actor transaction at composition end', async() => {
     const source = 'head\n\nordinary text paragraph\n\ntail\n'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'ime.md', source })
     const editor = new codeMirror.Doc(source)
@@ -7863,7 +7341,7 @@ describe('CodeMirror Core adapter', () => {
   })
 
   it('keeps save behind composition and persists only its final text', async() => {
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const manager = createCoreDocumentSessionManager({
       createBinding: () => createEditorCoreBinding(worker.modelOwner)
     })
@@ -7915,7 +7393,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('keeps distinct ordinary editor operations in distinct undo entries', async() => {
     const source = 'head 😀\n\nordinary text paragraph\n\ntail\n'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'burst.md', source })
     const fixture = createAttachedCodeMirror(source)
@@ -8004,7 +7482,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('commits one multi-selection operation as one actor undo entry', async() => {
     const source = 'aa\r\nbb\r\ncc'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'multi.md', source })
     const fixture = createAttachedCodeMirror(source)
@@ -8070,7 +7548,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('maps a native LF view edit onto the exact canonical CRLF range', async() => {
     const source = 'a\r\nb\r\nc\n'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'crlf.md', source })
     const editor = new codeMirror.Doc(source)
@@ -8103,7 +7581,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('preserves canonical CRLF bytes across multiline removal and insertion', async() => {
     const source = 'a\r\nb\r\nc\n'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'crlf-lines.md', source })
     const editor = new codeMirror.Doc(source)
@@ -8136,7 +7614,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('maps mixed endings with an explicit insertion policy across later edits', async() => {
     const source = 'a\r\nb\nc\rd'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'mixed.md', source })
     const editor = new codeMirror.Doc(source)
@@ -8186,7 +7664,7 @@ describe('CodeMirror Core adapter', () => {
       edit: { start: 1, end: 2, insert: '\n\n' }
     }
   ])('prevents line-ending fusion at the $name boundary', async(fixture) => {
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'fusion.md', source: fixture.source })
     const editor = new codeMirror.Doc(fixture.source)
@@ -8208,7 +7686,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('prevents retained CR and LF fusion across an empty deletion', async() => {
     const source = 'a\rb\n'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'empty-fusion.md', source })
     const editor = new codeMirror.Doc(source)
@@ -8388,7 +7866,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('does not advance Core for a later-listener canceled change', async() => {
     const source = 'abc'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'cancel.md', source })
     const editor = new codeMirror.Doc(source)
@@ -8411,7 +7889,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('uses a later-listener update as the one final exact transaction', async() => {
     const source = 'abc'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'update.md', source })
     const editor = new codeMirror.Doc(source)
@@ -8442,7 +7920,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('requires reconciliation after a typed Core resource outcome', async() => {
     const source = 'alpha'
-    const binding = createEditorCoreBinding(new ActorBackedCoreWorker().modelOwner)
+    const binding = createEditorCoreBinding(new ActorBackedCoreOwner().modelOwner)
     await binding.open({ documentId: 'resource-adapter.md', source })
     const editor = new codeMirror.Doc(source)
     const adapter = createCodeMirrorCoreAdapter(editor, binding, {
@@ -8465,7 +7943,7 @@ describe('CodeMirror Core adapter', () => {
 
   it('requires reconciliation before unbounded pending inserted bytes accumulate', async() => {
     const source = 'alpha'
-    const worker = new ActorBackedCoreWorker()
+    const worker = new ActorBackedCoreOwner()
     const binding = createEditorCoreBinding(worker.modelOwner)
     await binding.open({ documentId: 'bounded-adapter.md', source })
     const editor = new codeMirror.Doc(source)

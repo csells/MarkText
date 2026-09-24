@@ -102,15 +102,12 @@ describe('Source native input through detached view teardown', () => {
           typeSource(editor, 'q')
           historyPainting = adapter.history('undo')
           historyPainting.catch(() => {})
-          // Native history is already admitted; its CodeMirror paint is deferred.
-          await new Promise((resolve) => setTimeout(resolve, 0))
+          await historyPainting
           editor.setCursor({ line: 0, ch: 0 })
           rejectInput = true
         }
         typeSource(editor, 'xyz')
-        expect(editor.getValue()).toBe(
-          outcome === 'accepted' ? 'xyzseed{++a++}\n' : 'xyzqseed{++a++}\n'
-        )
+        expect(editor.getValue()).toBe('xyzseed{++a++}\n')
         const save = outcome === 'accepted' ? manager.saveBarrier('source.md') : undefined
         const teardown = teardownCoreDocumentSessions({
           manager,
@@ -153,12 +150,8 @@ describe('Source native input through detached view teardown', () => {
               selections: [{ anchor: { line: 0, ch: 3 }, head: { line: 0, ch: 3 } }]
             },
             nativeIntent: {
-              text: 'xyzseed{++a++}\n',
-              commands: [
-                { edits: [{ start: 0, end: 0, insert: 'x' }] },
-                { edits: [{ start: 1, end: 1, insert: 'y' }] },
-                { edits: [{ start: 2, end: 2, insert: 'z' }] }
-              ]
+              text: 'xseed{++a++}\n',
+              commands: [{ edits: [{ start: 0, end: 0, insert: 'x' }] }]
             }
           })
         }
@@ -345,5 +338,158 @@ it('publishes every native Source edit and its lease revision before the input e
     editor.getInputField().blur()
     adapter.dispose()
     host.remove()
+  }
+})
+
+const sourcePresentation = (source: string) => {
+  const actor = createCoreActor()
+  const binding = createEditorCoreBinding({
+    request: (request) => actor.handle(request),
+    dispose: () => actor.dispose()
+  })
+  binding.open({ documentId: 'source-presentation.md', source })
+  const host = document.body.appendChild(document.createElement('div'))
+  const editor = codeMirror(host, {
+    value: source,
+    inputStyle: 'textarea',
+    viewportMargin: Infinity
+  })
+  Object.defineProperty(editor.getScrollerElement(), 'clientHeight', {
+    configurable: true,
+    value: 500
+  })
+  Object.defineProperties(editor.getWrapperElement(), {
+    clientWidth: { configurable: true, value: 800 },
+    offsetWidth: { configurable: true, value: 800 }
+  })
+  const adapter = createCodeMirrorCoreAdapter(editor.getDoc(), binding, {
+    canonicalSource: source,
+    canonicalRevision: 1,
+    insertedLineEnding: '\r\n',
+    nativeHistoryScope: 'source-presentation'
+  })
+  editor.setSize(800, 500)
+  editor.refresh()
+  const rendered: Array<{ line: number; text: string; source: string; revision: number }> = []
+  editor.on('renderLine', (_editor, line) => {
+    const canonical = binding.sourceAtBarrier()
+    if (canonical.type !== 'source') throw new Error('Expected canonical Source input')
+    const lineNumber = editor.getLineNumber(line)
+    if (lineNumber === null) throw new Error('Expected an attached rendered line')
+    rendered.push({
+      line: lineNumber,
+      text: line.text,
+      source: canonical.source,
+      revision: canonical.revision
+    })
+  })
+  return {
+    editor,
+    adapter,
+    binding,
+    rendered,
+    dispose() {
+      editor.getInputField().blur()
+      adapter.dispose()
+      binding.dispose()
+      host.remove()
+    }
+  }
+}
+
+it.each(['seed **word**\r\n', 'seed {++word++}\r\n'])(
+  'admits native Source typing before rendering its text and retains selection through history: %s',
+  async(source) => {
+    const app = sourcePresentation(source)
+    try {
+      app.editor.setCursor({ line: 0, ch: 0 })
+      typeSource(app.editor, 'X')
+      expect(app.rendered).toContainEqual({
+        line: 0,
+        text: `X${source.trimEnd()}`,
+        source: `X${source}`,
+        revision: 2
+      })
+      expect(app.editor.getCursor()).toMatchObject({ line: 0, ch: 1 })
+      await app.adapter.history('undo')
+      expect(app.editor.getCursor()).toMatchObject({ line: 0, ch: 0 })
+      expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
+      await app.adapter.history('redo')
+      expect(app.editor.getCursor()).toMatchObject({ line: 0, ch: 1 })
+      typeSource(app.editor, 'Y')
+      await app.adapter.settled()
+      expect(app.binding.sourceAtBarrier()).toMatchObject({ source: `XY${source}` })
+      expect(
+        app.rendered.every((entry) => entry.text === entry.source.split('\r\n')[entry.line])
+      ).toBe(true)
+    } finally {
+      app.dispose()
+    }
+  }
+)
+
+it('admits the complete multi-selection operation before rendering, including later cancellation and update', async() => {
+  const source = 'same\r\nsame\r\nsame {++word++}\r\n'
+  const app = sourcePresentation(source)
+  const selections = [0, 1, 2].map((line) => ({
+    anchor: { line, ch: 4 },
+    head: { line, ch: 0 }
+  }))
+  const beforeChange = (_editor: codeMirror.Editor, change: codeMirror.EditorChangeCancellable) => {
+    if (change.from.line === 0) change.cancel()
+    if (change.from.line === 2) change.update?.(undefined, undefined, ['Y'])
+  }
+  try {
+    app.editor.setSelections(selections, 1)
+    app.editor.on('beforeChange', beforeChange)
+    typeSource(app.editor, 'X')
+    app.editor.off('beforeChange', beforeChange)
+    expect(app.binding.sourceAtBarrier()).toMatchObject({
+      source: 'same\r\nX\r\nY {++word++}\r\n',
+      revision: 2
+    })
+    expect(app.rendered.length).toBeGreaterThan(0)
+    expect(app.rendered.every((entry) => entry.source === 'same\r\nX\r\nY {++word++}\r\n')).toBe(
+      true
+    )
+    const afterSelection = app.editor.listSelections()
+    await app.adapter.history('undo')
+    expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
+    expect(app.editor.listSelections()).toMatchObject(selections)
+    expect(app.editor.getCursor()).toMatchObject({ line: 1, ch: 0 })
+    await app.adapter.history('redo')
+    expect(app.editor.listSelections()).toEqual(afterSelection)
+    typeSource(app.editor, 'Z')
+    await app.adapter.settled()
+    expect(app.binding.sourceAtBarrier()).toMatchObject({
+      source: 'Z\r\nXZ\r\nYZ {++word++}\r\n'
+    })
+  } finally {
+    app.editor.off('beforeChange', beforeChange)
+    app.dispose()
+  }
+})
+
+it('uses the admitted history result before rendering the next native Source input', async() => {
+  const app = sourcePresentation('seed {++word++}\r\n')
+  try {
+    app.editor.setCursor({ line: 0, ch: 0 })
+    typeSource(app.editor, 'X')
+    const stop = app.binding.observe(() => {
+      stop()
+      queueMicrotask(() => typeSource(app.editor, 'Y'))
+    })
+    await app.adapter.history('undo')
+    await app.adapter.settled()
+    expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'Yseed {++word++}\r\n' })
+    expect(
+      app.rendered.every((entry) => entry.text === entry.source.split('\r\n')[entry.line])
+    ).toBe(true)
+    await app.adapter.history('undo')
+    expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'seed {++word++}\r\n' })
+    await app.adapter.history('redo')
+    expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'Yseed {++word++}\r\n' })
+  } finally {
+    app.dispose()
   }
 })

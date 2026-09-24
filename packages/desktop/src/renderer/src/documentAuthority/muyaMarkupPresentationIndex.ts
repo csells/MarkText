@@ -31,7 +31,7 @@ interface Entry {
   readonly binding: MuyaMarkupBinding
   readonly decorations: readonly MuyaMarkupDecoration[]
   readonly comments: readonly MuyaMarkupComment[]
-  readonly hasImage: boolean
+  readonly hasNativeWidget: boolean
   pendingEdits?: DocumentSourceEdit[]
   rendered?: { readonly text: string; readonly html: string; readonly highlights: Highlights }
 }
@@ -44,8 +44,11 @@ const stores = new WeakMap<
   }
 >()
 const pathKey = (path: MuyaMarkupPath): string => JSON.stringify(path)
-const hasImage = (node: MarkdownAstNode): boolean =>
-  isMuyaImageSyntax(node) || node.children.some(hasImage)
+const hasNativeWidget = (node: MarkdownAstNode): boolean =>
+  isMuyaImageSyntax(node) ||
+  node.kind === 'inline-math' ||
+  node.kind === 'inline-html' ||
+  node.children.some(hasNativeWidget)
 const inputContext = (
   binding: MuyaMarkupBinding,
   offset: number
@@ -221,7 +224,7 @@ export function createMuyaMarkupPresentationIndex(
       binding,
       decorations: decorations.get(key) ?? [],
       comments: comments.get(key) ?? [],
-      hasImage: hasImage(binding.syntax)
+      hasNativeWidget: hasNativeWidget(binding.syntax)
     }
     const retained = before?.get(key)
     if (
@@ -274,12 +277,12 @@ export function createMuyaMarkupPresentationIndex(
       // before its model path exists. Keep it literal: returning undefined
       // would delegate to Muya's independent inline parser.
       if (entry === undefined) return escapeHtml(text)
-      // Native images have mutable loading/cache/selection state. Consult the
+      // Native widgets have mutable loading/cache/selection state. Consult the
       // widget renderer on every requested patch while other leaves stay cached.
       const highlights = context?.highlights ?? []
       const cached = entry.rendered
       if (
-        !entry.hasImage &&
+        !entry.hasNativeWidget &&
         cached?.text === text &&
         cached.highlights.length === highlights.length &&
         cached.highlights.every(

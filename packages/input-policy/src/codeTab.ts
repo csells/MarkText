@@ -1,4 +1,4 @@
-import HTML_TAGS, { voidHtmlTags as VOID_HTML_TAGS } from 'html-tags'
+import { HTML_TAGS, VOID_HTML_TAGS } from './htmlBlock.js'
 
 function parseSelector(str = '') {
   const REG_EXP = /(#|\.)([^#.]+)/
@@ -12,7 +12,7 @@ function parseSelector(str = '') {
     const next = str[tagName.length]
     if (str.startsWith(tagName) && (next === undefined || /#|\./.test(next))) {
       tag = tagName
-      if ((VOID_HTML_TAGS as readonly string[]).includes(tagName)) isVoid = true
+      if (VOID_HTML_TAGS.includes(tagName)) isVoid = true
 
       str = str.substring(tagName.length)
     }

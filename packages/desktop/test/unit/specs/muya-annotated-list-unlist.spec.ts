@@ -76,7 +76,9 @@ it.each(
       // an acknowledgement wait after the list command.
       app.track(false)
       const liveTarget = muya.editor.selection.getSelection()?.anchor.block.domNode
-      if (!liveTarget?.isConnected) { throw new Error('Expected the resulting live paragraph selection') }
+      if (!liveTarget?.isConnected) {
+        throw new Error('Expected the resulting live paragraph selection')
+      }
       liveTarget.dispatchEvent(
         new InputEvent('beforeinput', {
           data: 'X',
@@ -85,9 +87,18 @@ it.each(
           cancelable: true
         })
       )
-      const at = saved.source.lastIndexOf('first')
-      const typed = saved.source.slice(0, at) + 'X' + saved.source.slice(at)
-      expect(binding.sourceAtBarrier()).toMatchObject({ source: typed })
+      // The caret stays at the visible line start, before the addition's opener.
+      // A tracked removal leaves the deleted marker there, and that line start
+      // is on either side of the hidden deletion.
+      const insertAt = (at: number) => saved.source.slice(0, at) + 'X' + saved.source.slice(at)
+      const opener = saved.source.lastIndexOf('{++first')
+      const lineStart = saved.source.slice(0, opener).search(/[^\r\n]*$/u)
+      const current = binding.sourceAtBarrier()
+      if (current.type !== 'source') throw new Error('Expected canonical source')
+      expect([...new Set([insertAt(opener), insertAt(tracked ? lineStart : opener)])]).toContain(
+        current.source
+      )
+      const typed = current.source
       expect(muya.getSelection()).toMatchObject({ anchor: { offset: 1 }, focus: { offset: 1 } })
       expect(legacyChanges).toEqual([])
       await adapter.history('undo', reconcile)

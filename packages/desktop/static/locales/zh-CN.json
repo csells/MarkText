@@ -917,6 +917,9 @@
   },
   "dialog": {
     "moveToTrash": "确定要将“{name}”移到回收站吗？",
+    "discardAndClose": "放弃并关闭",
+    "pendingReviewInput": "放弃未提交的批注或替换文本？",
+    "pendingReviewInputDetail": "批注或替换文本尚未添加到文档中，将会丢失。",
     "cancel": "取消",
     "changesWillBeLost": "更改将丢失",
     "close": "关闭",
@@ -1034,6 +1037,7 @@
       "saveComment": "保存批注",
       "commentTargetChanged": "文档已更改。批注草稿已保留；选择其他目标之前请先取消。",
       "commentSaveFailed": "无法保存批注。草稿和原始目标已保留。",
+      "finishDraftBeforeClosing": "关闭此文档前，请保存或取消待处理的批注或替换文本。",
       "commentPrompt": "批注",
       "replacementPrompt": "替换文本"
     },

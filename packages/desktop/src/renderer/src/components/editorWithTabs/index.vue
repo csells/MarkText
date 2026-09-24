@@ -31,6 +31,7 @@
         :text-direction="textDirection"
         :platform="platform"
         :core-required="coreMode"
+        :comment-composer-state="commentComposerFor(currentFile.id)"
         :core-lease="wysiwygCoreLease"
         :initial-document-selection="coreInitialDocumentSelection"
         :core-plain-text-view="corePlainTextView"
@@ -64,6 +65,7 @@
 
 <script setup lang="ts">
 import { coreMarkdownOptionsFromPreferences } from '@/documentAuthority/coreMarkdownPreferences'
+import { t } from '@/i18n'
 import { useLayoutStore } from '@/store/layout'
 import { useEditorStore } from '@/store/editor'
 import { usePreferencesStore } from '@/store/preferences'
@@ -95,7 +97,17 @@ import {
   type CoreDocumentViewState
 } from '@/documentAuthority/coreDocumentViewHandoff'
 import { storeToRefs } from 'pinia'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  shallowRef,
+  watch
+} from 'vue'
+import { createCoreReviewComposer, type CoreReviewComposerState } from './coreReviewComposer'
 import type {
   CoreRecoveryDraftInput,
   CoreRecoveryDraftRecord
@@ -131,6 +143,15 @@ const editorStore = useEditorStore()
 const preferencesStore = usePreferencesStore()
 const coreMarkdownOptions = computed(() => coreMarkdownOptionsFromPreferences(preferencesStore))
 const { currentFile } = storeToRefs(editorStore)
+const commentComposers = new Map<string, CoreReviewComposerState>()
+const commentComposerFor = (documentId: string): CoreReviewComposerState => {
+  let composer = commentComposers.get(documentId)
+  if (composer === undefined) {
+    composer = reactive(createCoreReviewComposer())
+    commentComposers.set(documentId, composer)
+  }
+  return composer
+}
 const coreLaunchPolicy = resolveCoreDocumentLaunchPolicy(window.electron.process.env)
 const coreMode = coreLaunchPolicy.coreEnabled
 interface CoreModelOwnerRegistration {
@@ -301,7 +322,11 @@ const preserveCoreRecoveryDraft = (
   coreRecoveryDrafts.value = [...coreRecoveryDrafts.value, result.record]
 }
 
-const handleCoreViewFault = (error: unknown): void => {
+const handleCoreViewFault = (error: unknown, retry = false): void => {
+  // A draft awaiting backup was captured whole by its first fault. Later
+  // faults from the same failed view must not retry behind the user's back;
+  // the visible Retry control owns that decision.
+  if (!retry && coreUnbackedDraft.value !== undefined && coreDraftBackupError.value !== '') return
   const lease = coreDraftFaultLease ?? coreLease.value
   if (lease === undefined) {
     console.error('Core WYSIWYG recovery has no active view lease', error)
@@ -371,7 +396,7 @@ const handleCoreModelFailure = (
   })
 }
 
-const retryCoreDraftBackup = (): void => handleCoreViewFault(coreDraftFault)
+const retryCoreDraftBackup = (): void => handleCoreViewFault(coreDraftFault, true)
 
 const prepareCoreReplacementView = async (
   lease: CoreDocumentViewLease,
@@ -773,7 +798,14 @@ watch(
 
 // Close retires input surfaces, not document actors. The same actors/history
 // remain available if native confirmation or Save As is cancelled.
-const assertCoreCloseAllowed = (): void => {
+// Tab close refuses an open Review composer. Window close instead reports it
+// so the native close confirmation can offer to discard it.
+const assertCoreCloseAllowed = (documentIds?: readonly string[]): void => {
+  for (const [documentId, composer] of commentComposers) {
+    if (composer.open && documentIds?.includes(documentId)) {
+      throw new Error(t('editor.coreReview.finishDraftBeforeClosing'))
+    }
+  }
   coreEditor.value?.assertCloseAllowed()
   coreSourceEditor.value?.assertCloseAllowed()
 }
@@ -830,6 +862,7 @@ const unregisterCoreClose = coreDocumentSaveAuthority.registerClose(
     let held = true
     return {
       ready: work,
+      pendingReviewInput: [...commentComposers.values()].some((composer) => composer.open),
       async resume (): Promise<void> {
         if (!held) return
         await coreTransition
@@ -839,7 +872,21 @@ const unregisterCoreClose = coreDocumentSaveAuthority.registerClose(
     }
   },
   assertCoreCloseAllowed,
-  () => coreClosePending.value
+  () => coreClosePending.value,
+  {
+    pending: (documentIds) =>
+      documentIds.some((documentId) => commentComposers.get(documentId)?.open === true),
+    discard: (documentIds) => {
+      for (const documentId of documentIds) {
+        const composer = commentComposers.get(documentId)
+        if (composer === undefined) continue
+        composer.open = false
+        composer.draft = undefined
+        composer.error = ''
+        composer.target = undefined
+      }
+    }
+  }
 )
 onBeforeUnmount(unregisterCoreClose)
 

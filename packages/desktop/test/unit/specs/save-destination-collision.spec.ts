@@ -20,6 +20,7 @@ vi.mock('electron', () => ({
   BrowserWindow: { fromWebContents },
   dialog: { showMessageBox: vi.fn(), showOpenDialog: vi.fn(), showSaveDialog },
   ipcMain: {
+    handle: () => {},
     emit,
     on(channel: string, listener: (...args: unknown[]) => unknown) {
       listeners.set(channel, listener)

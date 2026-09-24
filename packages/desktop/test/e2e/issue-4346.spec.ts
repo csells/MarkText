@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs'
 import type { ElectronApplication, Page } from 'playwright'
 import {
   launchWithMarkdown,
+  openParagraphAfterHeading,
   placeCaretInEditor,
   setSourceMarkdown,
   clearRendererErrors,
@@ -27,7 +28,7 @@ test.describe('Issue #4346: list-block null guards', () => {
     app = launched.app
     page = launched.page
     filePath = launched.filePath
-    await placeCaretInEditor(page)
+    await openParagraphAfterHeading(page)
     await clearRendererErrors(app)
   })
 
@@ -107,7 +108,9 @@ test.describe('Issue #4346: list-block null guards', () => {
   test('paste HTML with empty list does not crash', async() => {
     const html = '<p>Before</p><ul></ul><ul><li></li></ul><ol></ol><p>After</p>'
     await page.evaluate((h) => {
-      const target = document.querySelector('.editor-component span.mu-paragraph-content') as HTMLElement | null
+      const target = document.querySelector(
+        '.editor-component span.mu-paragraph-content'
+      ) as HTMLElement | null
       if (!target) return
       const range = document.createRange()
       range.selectNodeContents(target)

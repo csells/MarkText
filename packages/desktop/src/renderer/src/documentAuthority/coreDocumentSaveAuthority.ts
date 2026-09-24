@@ -22,17 +22,28 @@ export interface CoreDocumentResolvedSource {
 
 export interface CoreWindowClosePreparation {
   readonly ready: Promise<void>
+  /** An open Review composer; closing the window discards it only if confirmed. */
+  readonly pendingReviewInput?: boolean
   resume(): Promise<void>
+}
+
+/** Unsubmitted Review composer input that closing a document would discard. */
+export interface CoreReviewInputOwner {
+  pending(documentIds: readonly string[]): boolean
+  discard(documentIds: readonly string[]): void
 }
 
 export interface CoreDocumentSaveAuthority {
   registerClose(
     prepare: () => CoreWindowClosePreparation,
-    assertAllowed?: () => void,
-    isClosing?: () => boolean
+    assertAllowed?: (documentIds?: readonly string[]) => void,
+    isClosing?: () => boolean,
+    reviewInput?: CoreReviewInputOwner
   ): () => void
   isClosing(): boolean
-  assertCloseAllowed(): void
+  assertCloseAllowed(documentIds?: readonly string[]): void
+  pendingReviewInput(documentIds: readonly string[]): boolean
+  discardReviewInput(documentIds: readonly string[]): void
   prepareClose(): CoreWindowClosePreparation
   register(
     documentId: string,
@@ -49,7 +60,8 @@ export interface CoreDocumentSaveAuthority {
 const createCoreDocumentSaveAuthority = (): CoreDocumentSaveAuthority => {
   let closePreparation: (() => CoreWindowClosePreparation) | undefined
   let closeIsPending: (() => boolean) | undefined
-  let assertCloseAllowed: (() => void) | undefined
+  let assertCloseAllowed: ((documentIds?: readonly string[]) => void) | undefined
+  let reviewInputOwner: CoreReviewInputOwner | undefined
   const barriers = new Map<string, CoreDocumentSaveBarrier>()
   const currentChecks = new Map<string, (identity: DocumentSaveIdentity) => boolean>()
 
@@ -88,25 +100,36 @@ const createCoreDocumentSaveAuthority = (): CoreDocumentSaveAuthority => {
   return Object.freeze({
     registerClose(
       prepare: () => CoreWindowClosePreparation,
-      assertAllowed?: () => void,
-      isClosing?: () => boolean
+      assertAllowed?: (documentIds?: readonly string[]) => void,
+      isClosing?: () => boolean,
+      reviewInput?: CoreReviewInputOwner
     ): () => void {
-      if (closePreparation !== undefined) { throw new Error('Window close owner is already registered') }
+      if (closePreparation !== undefined) {
+        throw new Error('Window close owner is already registered')
+      }
       closePreparation = prepare
       assertCloseAllowed = assertAllowed
       closeIsPending = isClosing
+      reviewInputOwner = reviewInput
       return () => {
         if (closePreparation !== prepare) return
         closePreparation = undefined
         assertCloseAllowed = undefined
         closeIsPending = undefined
+        reviewInputOwner = undefined
       }
+    },
+    pendingReviewInput(documentIds: readonly string[]): boolean {
+      return reviewInputOwner?.pending(documentIds) ?? false
+    },
+    discardReviewInput(documentIds: readonly string[]): void {
+      reviewInputOwner?.discard(documentIds)
     },
     isClosing(): boolean {
       return closeIsPending?.() ?? false
     },
-    assertCloseAllowed(): void {
-      assertCloseAllowed?.()
+    assertCloseAllowed(documentIds?: readonly string[]): void {
+      assertCloseAllowed?.(documentIds)
     },
     prepareClose(): CoreWindowClosePreparation {
       if (closePreparation === undefined) throw new Error('Window close owner is unavailable')
@@ -137,7 +160,9 @@ const createCoreDocumentSaveAuthority = (): CoreDocumentSaveAuthority => {
       return sources.every((source) => {
         if (source.authority === 'fallback') return !barriers.has(source.documentId)
         const check = currentChecks.get(source.documentId)
-        if (check === undefined) { throw new Error('Core close requires a live document identity check') }
+        if (check === undefined) {
+          throw new Error('Core close requires a live document identity check')
+        }
         return source.identity !== null && check(source.identity)
       })
     },

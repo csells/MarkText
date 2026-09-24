@@ -66,6 +66,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         }
       },
       {
+        id: 'pasteAsPlainTextMenuItem',
         label: t('menu.edit.pasteAsPlainText'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_PASTE_AS_PLAINTEXT) ?? undefined,
         click(_menuItem, browserWindow) {
@@ -86,6 +87,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         type: 'separator'
       },
       {
+        id: 'duplicateMenuItem',
         label: t('menu.edit.duplicate'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_DUPLICATE) ?? undefined,
         click(_menuItem, browserWindow) {
@@ -93,6 +95,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         }
       },
       {
+        id: 'createParagraphMenuItem',
         label: t('menu.edit.createParagraph'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_CREATE_PARAGRAPH) ?? undefined,
         click(_menuItem, browserWindow) {
@@ -100,6 +103,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         }
       },
       {
+        id: 'deleteParagraphMenuItem',
         label: t('menu.edit.deleteParagraph'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_DELETE_PARAGRAPH) ?? undefined,
         click(_menuItem, browserWindow) {
@@ -131,6 +135,7 @@ export default function(keybindings: Keybindings): MenuItemConstructorOptions {
         }
       },
       {
+        id: 'replaceMenuItem',
         label: t('menu.edit.replace'),
         accelerator: keybindings.getAccelerator(COMMANDS.EDIT_REPLACE) ?? undefined,
         click(_menuItem, browserWindow) {

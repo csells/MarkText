@@ -9,6 +9,8 @@ import { advanceMarkdownColumn } from './internal/profile1/markdownLaneState.js'
 import { applyInputPairing } from './inputPolicy.js'
 import type { DocumentInputAction, DocumentInputPlan, DocumentSourceInputPlan } from './inputPlanning.js'
 import { isLiteralBlock } from './literalBlock.js'
+import { containerContinuationPrefix } from './clipboardMarkdown.js'
+import { syntaxPathAt } from './syntaxPath.js'
 
 /** Resolve values only from the current parser; an address contains no cached semantics. */
 export function resolveModelTextPoint(core: DocumentCore, revision: DocumentRevision, point: DocumentModelTextPoint) {
@@ -165,17 +167,43 @@ function infoTextContext(core: DocumentCore, revision: DocumentRevision, node: M
 
 const spellInfoValue = (value: string): string => value.replace(/\r\n|[\\&`\r\n]/gu, character => character === '`' ? '&#96;' : character === '\r\n' || character === '\r' || character === '\n' ? ' ' : `\\${character}`)
 
+/**
+ * The parser places an empty fenced payload at the start of the closing fence's
+ * line, so a first value needs that line's container prefix and its own line ending.
+ */
+function emptyFencedPayload(core: DocumentCore, revision: DocumentRevision, first: ReturnType<typeof resolveModelTextPoint>, last = first) {
+  const literal = first.literal
+  if (literal === undefined || literal !== last.literal || first.node !== last.node || literal.attributes.content !== '' || literal.kind === 'html-block') return undefined
+  const { coordinates } = first.syntax
+  if (first.range.start >= coordinates.toSource(literal.range.end, 'previous')) return undefined
+  const lineEnding = core.sourceSlice(revision, { start: coordinates.toSource(literal.range.start, 'next'), end: first.range.start }).match(/\r\n|\r|\n/u)?.[0]
+  return lineEnding === undefined ? undefined : { literal, lineEnding }
+}
+
+/** Whether a source caret sits in an empty fenced payload that owns its closer's line. */
+export function isEmptyFencedPayloadPoint(core: DocumentCore, revision: DocumentRevision, point: number, syntax: MarkupSyntax): boolean {
+  return emptyFencedPayload(core, revision, resolveModelTextPointInSyntax(core, revision, point, syntax)) !== undefined
+}
+
+function emptyFencedPayloadLine(core: DocumentCore, revision: DocumentRevision, first: ReturnType<typeof resolveModelTextPoint>, last: ReturnType<typeof resolveModelTextPoint>) {
+  const payload = emptyFencedPayload(core, revision, first, last)
+  if (payload === undefined) return undefined
+  const ancestors = syntaxPathAt(first.syntax.ast.root, payload.literal.range.start)
+  return { lineEnding: payload.lineEnding, continuation: containerContinuationPrefix(core, revision, first.syntax, payload.literal, ancestors.slice(0, ancestors.indexOf(payload.literal))) }
+}
+
 /** One declared value replacement, including only its touched authored spellings. */
 export function materializeModelTextEdit(core: DocumentCore, revision: DocumentRevision, selection: DocumentModelTextSelection, insert: string, lines: MarkdownLineIndex) {
   const resolved = resolveModelTextSelection(core, revision, selection)
   const { first, last } = resolved
   const info = first.info !== undefined && first.info === last.info
-  const prefixValue = materializationPrefix(core, revision, first, lines) + first.text.slice(0, first.offset)
+  const opening = insert === '' ? undefined : emptyFencedPayloadLine(core, revision, first, last)
+  const prefixValue = (opening?.continuation ?? '') + materializationPrefix(core, revision, first, lines) + first.text.slice(0, first.offset)
   const prefix = info ? spellInfoValue(prefixValue) : prefixValue
-  const suffixValue = last.text.slice(last.offset)
+  const suffixValue = last.text.slice(last.offset) + (opening?.lineEnding ?? '')
   const suffix = info ? spellInfoValue(suffixValue) : suffixValue
-  let continuation = ''
-  if (first.node !== undefined && first.literal !== undefined && /[\r\n]/u.test(insert)) {
+  let continuation = opening?.continuation ?? ''
+  if (opening === undefined && first.node !== undefined && first.literal !== undefined && /[\r\n]/u.test(insert)) {
     const line = physicalLineAt(lines, first.node.range.start)
     const firstPayload = first.literal.children.find(node => node.kind === 'text' && line.start <= node.range.start && node.range.start <= line.contentEnd)
     if (firstPayload !== undefined) {

@@ -15,19 +15,44 @@ function resolveTable(syntax: MarkupSyntax, range: SourceRange) {
   return { syntax, table: tables[0]! }
 }
 
+/**
+ * A cell's content in source. The editing syntax omits comments, so a cell
+ * holding only comments has no text there and sits at its closing pipe; its
+ * content is then the source those comments occupy between its padding, as a
+ * cell's content includes the comments beside its text.
+ */
+export function tableCellContentRange(syntax: MarkupSyntax, cell: MarkdownAstNode): SourceRange {
+  const start = syntax.coordinates.toSource(cell.range.start, 'previous')
+  const end = syntax.coordinates.toSource(cell.range.end, 'next')
+  const { cellStart, cellEnd } = cell.attributes
+  if (start !== end || typeof cellStart !== 'number' || typeof cellEnd !== 'number') return { start, end }
+  let hidden: SourceRange | undefined
+  for (let at = cellStart; at <= cellEnd; at++) {
+    const before = syntax.coordinates.toSource(at, 'previous')
+    const after = syntax.coordinates.toSource(at, 'next')
+    if (before < after) hidden = { start: hidden?.start ?? before, end: after }
+  }
+  return hidden ?? { start, end }
+}
+
 function cellOf(syntax: MarkupSyntax, table: MarkdownAstNode, row: number, column: number) {
   const cell = table.children[row]?.children[column]
   if (cell?.kind !== 'table-cell') throw new RangeError('Cell address is outside the current table')
+  const { start, end } = tableCellContentRange(syntax, cell)
+  const slot = typeof cell.attributes.cellStart === 'number' && typeof cell.attributes.cellEnd === 'number'
+    ? { slotStart: syntax.coordinates.toSource(cell.attributes.cellStart, 'previous'), slotEnd: syntax.coordinates.toSource(cell.attributes.cellEnd, 'next') }
+    : undefined
   return {
     table,
     cell,
     row,
     column,
-    start: syntax.coordinates.toSource(cell.range.start, 'previous'),
-    end: syntax.coordinates.toSource(cell.range.end, 'next'),
-    ...(typeof cell.attributes.cellStart === 'number' && typeof cell.attributes.cellEnd === 'number'
-      ? { slotStart: syntax.coordinates.toSource(cell.attributes.cellStart, 'previous'), slotEnd: syntax.coordinates.toSource(cell.attributes.cellEnd, 'next') }
-      : {})
+    start,
+    end,
+    // Upstream keeps a space typed after a cell's text in the cell until the
+    // table is written again, so a caret may follow the text into its padding.
+    caretEnd: slot === undefined || start === end ? end : slot.slotEnd,
+    ...slot
   }
 }
 
@@ -98,8 +123,13 @@ export function tableCellSelectionAfter(
   const table = { start: positionAfter(edits, original.cell.table.start, false), end: positionAfter(edits, original.cell.table.end, true) }
   const cell = { ...original.cell, table }
   const accepted = resolveTableCellInSyntax(syntax, cell)
-  const anchor = sourceAnchor === undefined ? original.anchor : sourceAnchor - accepted.start
-  const focus = sourceFocus === undefined ? original.focus : sourceFocus - accepted.start
+  // A caret left in a cell's padding, as when its whole text is removed, is
+  // at the nearer edge of the cell's text.
+  const offset = (position: number) => accepted.slotStart !== undefined && accepted.slotEnd !== undefined && accepted.slotStart <= position && position <= accepted.slotEnd
+    ? Math.min(Math.max(position, accepted.start), accepted.end) - accepted.start
+    : position - accepted.start
+  const anchor = sourceAnchor === undefined ? original.anchor : offset(sourceAnchor)
+  const focus = sourceFocus === undefined ? original.focus : offset(sourceFocus)
   if (anchor < 0 || focus < 0 || anchor > accepted.end - accepted.start || focus > accepted.end - accepted.start) throw new RangeError('Result selection is outside its cell')
   return copyDocumentSelection({ kind: 'table-cell', cell, anchor, focus }, sourceLength)
 }

@@ -172,7 +172,7 @@ export function rebaseDocumentInputSelection(
   const rebased = shifted(range)
   if (next.start === next.end && next.slotStart !== undefined && next.slotEnd !== undefined &&
     next.slotStart <= rebased.start && rebased.end <= next.slotEnd) return mapped({ kind: 'table-cell', cell: address, anchor: 0, focus: 0 })
-  if (rebased.start < next.start || rebased.end > next.end) return conflict
+  if (rebased.start < next.start || rebased.end > next.caretEnd) return conflict
   const forward = selection.anchor <= selection.focus
   return mapped({ kind: 'table-cell', cell: address, anchor: (forward ? rebased.start : rebased.end) - next.start, focus: (forward ? rebased.end : rebased.start) - next.start })
 }

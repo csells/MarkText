@@ -47,13 +47,35 @@ export function planParagraphTab(core: DocumentCore, revision: DocumentRevision,
   if (marker === undefined) throw new RangeError('List Tab item has no opening marker')
   const edits: DocumentSourceEdit[] = []
   const contentStart = typeof item.attributes.taskMarkerEnd === 'number' ? item.attributes.taskMarkerEnd + 1 : marker.contentOffset
+  const startOf = (target: MarkdownAstNode) => typeof target.attributes.start === 'number' ? target.attributes.start : 1
+  // Items after a moved item keep the consecutive numbering MarkText writes.
+  const renumber = (target: MarkdownAstNode, from: number, shift: number) => {
+    if (target.attributes.ordered !== true) return
+    for (let index = from; index < target.children.length; index++) {
+      const sibling = target.children[index]!
+      const siblingMarker = markers.find(candidate => candidate.start === sibling.range.start)
+      if (siblingMarker === undefined) throw new RangeError('Ordered list item has no owned marker')
+      const spelling = listItemMarker({ ordinal: startOf(target) + index + shift, delimiter: String.fromCharCode(siblingMarker.delimiterCodeUnit) })
+      const range = { start: sourceAt(siblingMarker.start), end: sourceEnd(siblingMarker.contentOffset) }
+      if (core.sourceSlice(revision, range) === spelling.text) continue
+      edits.push({ ...range, insert: spelling.text })
+      const difference = spelling.indentation - (siblingMarker.contentOffset - siblingMarker.start)
+      if (difference === 0) continue
+      for (const line of records) {
+        if (line.start <= sibling.range.start || line.start >= sibling.range.end) continue
+        for (const indentation of line.listIndentations) {
+          if (indentation.depth === siblingMarker.depth) edits.push({ start: sourceAt(indentation.start), end: sourceEnd(indentation.end), insert: ' '.repeat(Math.max(0, indentation.columns + difference)) })
+        }
+      }
+    }
+  }
   const markerFor = (target: MarkdownAstNode, group: readonly MarkdownAstNode[], index: number) => {
     const firstItem = group[0]
     const first = markers.find(candidate => candidate.start === firstItem?.range.start)
     if (first === undefined || firstItem === undefined) throw new RangeError('Target list has no opening marker')
     return listItemMarker({
       bullet: target.attributes.ordered === true ? undefined : String.fromCharCode(first.delimiterCodeUnit),
-      ordinal: target.attributes.ordered === true ? Number(target.attributes.startNumber ?? 1) + target.children.indexOf(firstItem) + index : undefined,
+      ordinal: target.attributes.ordered === true ? startOf(target) + target.children.indexOf(firstItem) + index : undefined,
       delimiter: String.fromCharCode(first.delimiterCodeUnit),
       checked: firstItem.attributes.task === true ? item.attributes.checked === true : undefined
     })
@@ -73,7 +95,12 @@ export function planParagraphTab(core: DocumentCore, revision: DocumentRevision,
     const previousLast = previous.children.at(-1)
     const nested = previousLast?.kind === 'list' ? previousLast : undefined
     const nestedGroup = listItemGroups(nested).at(-1)
-    const spelling = nested === undefined || nestedGroup === undefined ? undefined : markerFor(nested, nestedGroup, nestedGroup.length)
+    // A new nested ordered list takes the numbering start of the list it leaves.
+    const spelling = nested !== undefined && nestedGroup !== undefined
+      ? markerFor(nested, nestedGroup, nestedGroup.length)
+      : list.attributes.ordered === true
+        ? listItemMarker({ ordinal: startOf(list), delimiter: String.fromCharCode(marker.delimiterCodeUnit), checked: item.attributes.task === true ? item.attributes.checked === true : undefined })
+        : undefined
     if (spelling !== undefined) replaceMarker(' '.repeat(width), spelling)
     for (const line of records) {
       if (line.end <= item.range.start || line.start >= item.range.end || line.blank) continue
@@ -84,6 +111,7 @@ export function planParagraphTab(core: DocumentCore, revision: DocumentRevision,
       const additional = width + (first || spelling === undefined ? 0 : spelling.indentation - oldWidth)
       edits.push({ start: at, end: at, insert: ' '.repeat(additional) })
     }
+    renumber(list, itemIndex + 1, -1)
   } else if (action === 'outdent') {
     const outerMarker = markers.find(marker => marker.start === outerItem?.range.start)
     if (outerMarker === undefined) throw new RangeError('List outdent has no outer marker')
@@ -93,6 +121,7 @@ export function planParagraphTab(core: DocumentCore, revision: DocumentRevision,
     if (outerGroup === undefined) throw new RangeError('List outdent has no outer native group')
     const spelling = markerFor(outerList, outerGroup, outerGroup.indexOf(outerItem) + 1)
     replaceMarker('', spelling)
+    renumber(outerList, outerList.children.indexOf(outerItem) + 1, 1)
     for (const line of records) {
       if (line.end <= item.range.start || line.start >= item.range.end || line.blank) continue
       const indentation = line.listIndentations.find(indent => indent.depth === outerMarker.depth)

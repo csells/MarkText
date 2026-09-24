@@ -5,7 +5,7 @@ import {
   type MarkdownReferenceDefinitionLookup
 } from './markdownLaneState.js'
 
-type SubstitutionArmName = 'old' | 'new'
+export type SubstitutionArmName = 'old' | 'new'
 
 interface SubstitutionConstraint {
   readonly substitutionStart: number
@@ -35,10 +35,16 @@ export interface Profile1CanonicalReferenceDefinitionLookup
    * the other facts, and hands them back as preset regions.
    */
   readonly scopeRegions: () => readonly Profile1ReferenceScopeRegion[]
+  /**
+   * `globalSubstitutionArm` names the Substitution arm whose definitions are
+   * document-global in the requesting view (C3): `new` for Revised and `old`
+   * for Original.
+   */
   readonly definitionStartMatching: (
     normalizedLabel: string,
     sourceOffset: number,
-    accepts: (definitionStart: number) => boolean
+    accepts: (definitionStart: number) => boolean,
+    globalSubstitutionArm?: SubstitutionArmName
   ) => number | undefined
 }
 
@@ -69,7 +75,8 @@ export interface Profile1ReferenceDefinitionIndex {
   readonly definitionStartMatching: (
     normalizedLabel: string,
     sourceOffset: number,
-    accepts: (definitionStart: number) => boolean
+    accepts: (definitionStart: number) => boolean,
+    globalSubstitutionArm?: SubstitutionArmName
   ) => number | undefined
   readonly has: (normalizedLabel: string, sourceOffset: number) => boolean
   readonly hasAny: (normalizedLabel: string) => boolean
@@ -358,12 +365,14 @@ export function createStagedProfile1ReferenceDefinitionLookup(
     definitionStartMatching: Object.freeze((
       normalizedLabel: string,
       sourceOffset: number,
-      accepts: (definitionStart: number) => boolean
+      accepts: (definitionStart: number) => boolean,
+      globalSubstitutionArm?: SubstitutionArmName
     ): number | undefined =>
       currentIndex().definitionStartMatching(
         normalizedLabel,
         sourceOffset,
-        accepts
+        accepts,
+        globalSubstitutionArm
       )),
     hasAny: Object.freeze((normalizedLabel: string): boolean =>
       currentIndex().hasAny(normalizedLabel)),
@@ -418,7 +427,8 @@ function referenceScopeAt(
 
 function scopesAreCompatible(
   definition: ReferenceDocumentScope,
-  occurrence: ReferenceDocumentScope
+  occurrence: ReferenceDocumentScope,
+  globalSubstitutionArm: SubstitutionArmName | undefined
 ): boolean {
   if (definition.commentStart !== occurrence.commentStart) {
     return false
@@ -430,6 +440,9 @@ function scopesAreCompatible(
     ] as const)
   )
   for (const constraint of definition.substitutions) {
+    if (constraint.arm === globalSubstitutionArm) {
+      continue
+    }
     const occurrenceArm = occurrenceArms.get(constraint.substitutionStart)
     if (occurrenceArm !== constraint.arm) {
       return false
@@ -492,7 +505,8 @@ export function createProfile1ReferenceDefinitionIndex(
   const definitionStartMatching = (
     normalizedLabel: string,
     sourceOffset: number,
-    accepts: (definitionStart: number) => boolean
+    accepts: (definitionStart: number) => boolean,
+    globalSubstitutionArm?: SubstitutionArmName
   ): number | undefined => {
     const occurrenceScope = referenceScopeAt(
       regions,
@@ -507,7 +521,8 @@ export function createProfile1ReferenceDefinitionIndex(
           definition.sourceStart,
           rejectedScopeOwners
         ),
-        occurrenceScope
+        occurrenceScope,
+        globalSubstitutionArm
       )
     )?.sourceStart
   }

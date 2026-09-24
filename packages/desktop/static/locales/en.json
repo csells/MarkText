@@ -917,6 +917,9 @@
   },
   "dialog": {
     "moveToTrash": "Are you sure you want to move \"{name}\" to trash?",
+    "discardAndClose": "Discard and Close",
+    "pendingReviewInput": "Discard the unsubmitted comment or replacement?",
+    "pendingReviewInputDetail": "Your comment or replacement text has not been added to the document and will be lost.",
     "cancel": "Cancel",
     "changesWillBeLost": "Changes will be lost",
     "close": "Close",
@@ -1034,6 +1037,7 @@
       "saveComment": "Save comment",
       "commentTargetChanged": "The document changed. Your comment draft is preserved; cancel before choosing a new target.",
       "commentSaveFailed": "The comment could not be saved. Your draft and original target are preserved.",
+      "finishDraftBeforeClosing": "Save or cancel the pending comment or replacement before closing this document.",
       "commentPrompt": "Comment",
       "replacementPrompt": "Replacement text"
     },
