@@ -410,7 +410,12 @@ export function createMuyaMarkupView(
     let end = start
     while (!['', '\r', '\n'].includes(sourceCharacter(end))) end += 1
     const text = sourceText(start, end)
-    const content = projection.syntax.coordinates.toSource(paragraph.range.start, 'next')
+    // An empty paragraph's start maps past the delimiter that closes an
+    // annotation around its marker; its content begins before that delimiter.
+    const content = Math.min(
+      projection.syntax.coordinates.toSource(paragraph.range.start, 'next'),
+      projection.syntax.coordinates.toSource(paragraph.range.end, 'previous')
+    )
     if (
       projection.syntax.coordinates.toSource(paragraph.range.end, 'previous') > end ||
       !pattern.test(text.slice(marker - start))
