@@ -579,6 +579,8 @@ const props = defineProps<{
   coreTestCrashWorker?: () => void
   coreTestStaleNextTransaction?: () => void
   commentComposerState?: CoreReviewComposerState
+  /** True once, for the first view of a newly opened document. */
+  claimFreshDocument?: (documentId: string) => boolean
 }>()
 const emit = defineEmits<{
   (event: 'core-fault', error: unknown): void
@@ -4739,6 +4741,8 @@ onMounted(() => {
     pushSelectionMenuState(changes)
   })
 
+  const freshDocument =
+    props.coreLease !== undefined && props.claimFreshDocument?.(props.coreLease.documentId) === true
   // Restore the incoming Core caret only after selection observers are live;
   // its native event also restores block-specific menu and toolbar state.
   if (props.coreLease !== undefined && props.initialDocumentSelection !== undefined) {
@@ -4748,10 +4752,12 @@ onMounted(() => {
     restoreMuyaDocumentSelection(muya, coreAcknowledgedMarkupView, props.initialDocumentSelection, {
       projectSource: true
     })
-  } else if (props.coreLease !== undefined) {
-    // Core documents bypass `setMarkdownToEditor`; a view with no caret to
-    // restore is ready to type into at its start, as a freshly loaded one is.
-    focusFreshEditor()
+  } else if (freshDocument) {
+    // Core documents bypass `setMarkdownToEditor`, whose fresh-editor focus
+    // leaves a newly opened document ready to type into at its start. This view
+    // is never hidden, so it takes that focus now rather than a frame later.
+    muya.domNode.focus()
+    muya.focus()
   }
 
   // Core replaces the mounted view on handoff, bypassing legacy file-changed
