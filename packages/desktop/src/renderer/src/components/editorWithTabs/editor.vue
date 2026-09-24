@@ -4755,9 +4755,15 @@ onMounted(() => {
   } else if (freshDocument) {
     // Core documents bypass `setMarkdownToEditor`, whose fresh-editor focus
     // leaves a newly opened document ready to type into at its start. This view
-    // is never hidden, so it takes that focus now rather than a frame later.
-    muya.domNode.focus()
-    muya.focus()
+    // is never hidden, so it takes that focus now rather than a frame later,
+    // through the native boundary its model selection is read from.
+    const first = muya.editor.scrollPage?.firstContentInDescendant()
+    const start =
+      first === undefined || first === null
+        ? null
+        : muya.editor.selection.getDOMPoint({ path: [...first.path], offset: 0 })
+    muya.domNode.focus({ preventScroll: true })
+    if (start !== null) muya.editor.selection.setDOMSelection(start, start)
   }
 
   // Core replaces the mounted view on handoff, bypassing legacy file-changed
