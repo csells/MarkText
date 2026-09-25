@@ -2,6 +2,9 @@
 import { createDocumentCore } from '@marktext/document-core'
 import { expect, it, vi } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { separateUndoSteps } from '../helpers/separateUndoSteps'
+
+separateUndoSteps()
 
 const fixtures = [
   {

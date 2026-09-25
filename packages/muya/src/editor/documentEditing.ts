@@ -342,8 +342,9 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
             if (language === first.text || /[\r\n`]/u.test(language))
                 return;
             muya.flush();
-            model.input({
+            muya.editor.history.recordModelCommand(historyGroup => model.input({
                 kind: 'command',
+                historyGroup,
                 command: 'setCodeLanguage',
                 language,
                 infoOffset: start.offset + inserted.length,
@@ -353,7 +354,7 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
                     autoPairQuote: muya.options.autoPairQuote,
                     autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
                 },
-            }, () => {});
+            }, () => {}));
             return;
         }
         let nativeStart: DocumentDOMPoint = domRange.anchor;
@@ -382,11 +383,14 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
                 tabSize: muya.options.tabSize,
             },
         };
+        // Upstream's Enter handlers mark a word boundary only on some paths;
+        // on the others Enter joins the typing around it like any change.
+        const enterJoinsStep = structural && !input.selection.anchor.block.enterMarksInputBoundary(inputType === 'insertLineBreak');
         event.preventDefault();
         muya.flush();
         if (inputType === 'insertFromDrop')
             muya.editor.history.cutoff();
-        muya.editor.history.recordModelInput(inputType, operation.data, historyGroup => model.input({ ...operation, historyGroup }, () => {
+        const submit = (historyGroup: number) => model.input({ ...operation, historyGroup }, () => {
             if (first === last) {
                 const prefixUnits = Array.from(first.text.slice(0, start.offset)).length;
                 const deleted = first.text.slice(start.offset, end.offset);
@@ -408,8 +412,12 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
                 if (leaf?.isContent())
                     leaf.setCursor(start.offset + text.length, start.offset + text.length, true);
             }
-        }));
-        if (structural || inputType === 'insertFromDrop')
+        });
+        if (enterJoinsStep)
+            muya.editor.history.recordModelCommand(submit);
+        else
+            muya.editor.history.recordModelInput(inputType, operation.data, submit);
+        if (inputType === 'insertFromDrop')
             muya.editor.history.cutoff();
     };
     const commandKey = (event: KeyboardEvent) => {
@@ -536,12 +544,7 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
     };
 }
 
-function commandHistoryGroup(muya: Muya): { historyGroup?: number } {
-    const historyGroup = muya.editor.history.commandGroup();
-    return historyGroup === undefined ? {} : { historyGroup };
-}
-
-/** Keyboard and row-popup commands share one model operation and history boundary. */
+/** Keyboard and row-popup table commands share one model operation. */
 export function dispatchDocumentTableCommand(muya: Muya, operation: Pick<IDocumentCommandInput, 'selection'> & (
     { command: 'createTable'; rows: number; columns: number; replace: boolean } | { command: 'moveTableRow'; target: DocumentDOMPoint; row: number } | { command: 'moveTableColumn'; target: DocumentDOMPoint; column: number } | { command: 'insertTableRow' | 'insertTableColumn'; placement: 'before' | 'after' } | { command: 'removeTableRow' | 'removeTableColumn' | 'tableBoundaryBackspace' | 'exitTable' } | { command: 'alignTableColumn'; target: DocumentDOMPoint; alignment: 'left' | 'center' | 'right' }
 )): boolean {
@@ -549,10 +552,9 @@ export function dispatchDocumentTableCommand(muya: Muya, operation: Pick<IDocume
     if (!model)
         return false;
     muya.flush();
-    muya.editor.history.cutoff();
-    model.input({
+    muya.editor.history.recordModelCommand(historyGroup => model.input({
         kind: 'command',
-        ...commandHistoryGroup(muya),
+        historyGroup,
         ...operation,
         options: {
             autoPairBracket: muya.options.autoPairBracket,
@@ -560,8 +562,7 @@ export function dispatchDocumentTableCommand(muya: Muya, operation: Pick<IDocume
             autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
             tabSize: muya.options.tabSize,
         },
-    }, () => {});
-    muya.editor.history.cutoff();
+    }, () => {}));
     return true;
 }
 
@@ -571,10 +572,9 @@ export function dispatchDocumentTask(muya: Muya, checked: boolean, selection: ID
     if (!model)
         throw new Error('Task checkbox requires a bound document');
     muya.flush();
-    muya.editor.history.cutoff();
-    model.input({
+    muya.editor.history.recordModelCommand(historyGroup => model.input({
         kind: 'command',
-        ...commandHistoryGroup(muya),
+        historyGroup,
         command: 'setTaskChecked',
         checked,
         selection,
@@ -585,8 +585,7 @@ export function dispatchDocumentTask(muya: Muya, checked: boolean, selection: ID
             autoPairQuote: muya.options.autoPairQuote,
             autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
         },
-    }, () => {});
-    muya.editor.history.cutoff();
+    }, () => {}));
 }
 
 /** Code insertion retains native menus while the model owns its block and caret. */
@@ -594,9 +593,9 @@ export function dispatchDocumentCodeBlock(muya: Muya, replace: boolean, selectio
     const model = muya.editor.documentEditing;
     if (!model)
         throw new Error('Code block insertion requires a bound document');
-    model.input({
+    muya.editor.history.recordModelCommand(historyGroup => model.input({
         kind: 'command',
-        ...commandHistoryGroup(muya),
+        historyGroup,
         command: 'createCodeBlock',
         replace,
         selection,
@@ -605,7 +604,7 @@ export function dispatchDocumentCodeBlock(muya: Muya, replace: boolean, selectio
             autoPairQuote: muya.options.autoPairQuote,
             autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
         },
-    }, () => {});
+    }, () => {}));
 }
 
 /** Dispatch paragraph menu actions before the native tree is mutated. */
@@ -615,10 +614,9 @@ export function dispatchDocumentBlockMove(muya: Muya, from: DocumentDOMPoint, to
         throw new Error('Block drag requires a bound document');
     const selection = muya.editor.selection.getDOMSelection() ?? { anchor: from, focus: from };
     muya.flush();
-    muya.editor.history.cutoff();
-    model.input({
+    muya.editor.history.recordModelCommand(historyGroup => model.input({
         kind: 'command',
-        ...commandHistoryGroup(muya),
+        historyGroup,
         command: 'moveBlock',
         from,
         to,
@@ -629,8 +627,7 @@ export function dispatchDocumentBlockMove(muya: Muya, from: DocumentDOMPoint, to
             autoPairQuote: muya.options.autoPairQuote,
             autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
         },
-    }, () => {});
-    muya.editor.history.cutoff();
+    }, () => {}));
 }
 
 /** Dispatch paragraph menu actions before the native tree is mutated. */
@@ -638,9 +635,9 @@ export function dispatchDocumentBlock(muya: Muya, change: Extract<IDocumentComma
     const model = muya.editor.documentEditing;
     if (!model)
         throw new Error('Block command requires a bound document');
-    model.input({
+    muya.editor.history.recordModelCommand(historyGroup => model.input({
         kind: 'command',
-        ...commandHistoryGroup(muya),
+        historyGroup,
         command: 'changeBlock',
         change,
         selection,
@@ -649,7 +646,7 @@ export function dispatchDocumentBlock(muya: Muya, change: Extract<IDocumentComma
             autoPairQuote: muya.options.autoPairQuote,
             autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
         },
-    }, () => {});
+    }, () => {}));
 }
 
 /** Wrap the selected document blocks without serializing their native view. */
@@ -657,9 +654,9 @@ export function dispatchDocumentCodeWrap(muya: Muya, selection: IDocumentCommand
     const model = muya.editor.documentEditing;
     if (!model)
         throw new Error('Code block wrapping requires a bound document');
-    model.input({
+    muya.editor.history.recordModelCommand(historyGroup => model.input({
         kind: 'command',
-        ...commandHistoryGroup(muya),
+        historyGroup,
         command: 'wrapCodeBlocks',
         selection,
         options: {
@@ -667,7 +664,7 @@ export function dispatchDocumentCodeWrap(muya: Muya, selection: IDocumentCommand
             autoPairQuote: muya.options.autoPairQuote,
             autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
         },
-    }, () => {});
+    }, () => {}));
 }
 
 /** Reset a code leaf through its source owner before the next user action. */
@@ -675,9 +672,9 @@ export function dispatchDocumentCodeReset(muya: Muya, selectionMode: 'preserve' 
     const model = muya.editor.documentEditing;
     if (!model)
         throw new Error('Code block reset requires a bound document');
-    model.input({
+    muya.editor.history.recordModelCommand(historyGroup => model.input({
         kind: 'command',
-        ...commandHistoryGroup(muya),
+        historyGroup,
         command: 'resetCodeBlock',
         selectionMode,
         selection,
@@ -686,7 +683,7 @@ export function dispatchDocumentCodeReset(muya: Muya, selectionMode: 'preserve' 
             autoPairQuote: muya.options.autoPairQuote,
             autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
         },
-    }, () => {});
+    }, () => {}));
 }
 
 /** Front matter creation shares the live document owner with its next input. */
@@ -695,23 +692,19 @@ export function dispatchDocumentFrontMatter(muya: Muya, replace: boolean, select
     if (!model)
         throw new Error('Front matter insertion requires a bound document');
     muya.flush();
-    muya.editor.history.cutoff();
-    try {
-        return model.input({
-            kind: 'command',
-            ...commandHistoryGroup(muya),
-            command: 'createFrontMatter',
-            replace,
-            style: muya.options.frontmatterType,
-            selection,
-            options: {
-                autoPairBracket: muya.options.autoPairBracket,
-                autoPairQuote: muya.options.autoPairQuote,
-                autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
-            },
-        }, () => {});
-    }
-    finally { muya.editor.history.cutoff(); }
+    return muya.editor.history.recordModelCommand(historyGroup => model.input({
+        kind: 'command',
+        historyGroup,
+        command: 'createFrontMatter',
+        replace,
+        style: muya.options.frontmatterType,
+        selection,
+        options: {
+            autoPairBracket: muya.options.autoPairBracket,
+            autoPairQuote: muya.options.autoPairQuote,
+            autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
+        },
+    }, () => {}));
 }
 
 /** Horizontal rules and their following insertion point belong to the model. */
@@ -719,9 +712,9 @@ export function dispatchDocumentThematicBreak(muya: Muya, change: 'insert' | 're
     const model = muya.editor.documentEditing;
     if (!model)
         throw new Error('Horizontal rule insertion requires a bound document');
-    model.input({
+    muya.editor.history.recordModelCommand(historyGroup => model.input({
         kind: 'command',
-        ...commandHistoryGroup(muya),
+        historyGroup,
         command: 'changeThematicBreak',
         change: { type: change },
         selection,
@@ -730,7 +723,7 @@ export function dispatchDocumentThematicBreak(muya: Muya, change: 'insert' | 're
             autoPairQuote: muya.options.autoPairQuote,
             autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
         },
-    }, () => {});
+    }, () => {}));
 }
 
 /** Math insertion retains native menus while the model owns its block and caret. */
@@ -738,9 +731,9 @@ export function dispatchDocumentMathBlock(muya: Muya, replace: boolean, selectio
     const model = muya.editor.documentEditing;
     if (!model)
         throw new Error('Math block insertion requires a bound document');
-    model.input({
+    muya.editor.history.recordModelCommand(historyGroup => model.input({
         kind: 'command',
-        ...commandHistoryGroup(muya),
+        historyGroup,
         command: 'createMathBlock',
         replace,
         selection,
@@ -749,7 +742,7 @@ export function dispatchDocumentMathBlock(muya: Muya, replace: boolean, selectio
             autoPairQuote: muya.options.autoPairQuote,
             autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
         },
-    }, () => {});
+    }, () => {}));
 }
 
 /** HTML insertion writes the element template and its caret in one model action. */
@@ -757,9 +750,9 @@ export function dispatchDocumentHtmlBlock(muya: Muya, replace: boolean, selectio
     const model = muya.editor.documentEditing;
     if (!model)
         throw new Error('HTML block insertion requires a bound document');
-    model.input({
+    muya.editor.history.recordModelCommand(historyGroup => model.input({
         kind: 'command',
-        ...commandHistoryGroup(muya),
+        historyGroup,
         command: 'createHtmlBlock',
         replace,
         selectionMode,
@@ -769,7 +762,7 @@ export function dispatchDocumentHtmlBlock(muya: Muya, replace: boolean, selectio
             autoPairQuote: muya.options.autoPairQuote,
             autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
         },
-    }, () => {});
+    }, () => {}));
 }
 
 /** Paragraph joining submits the caret before native tree mutation. */
@@ -778,21 +771,17 @@ export function dispatchDocumentParagraphJoin(muya: Muya, direction: 'backward' 
     if (!model)
         throw new Error('Paragraph join requires a bound document');
     muya.flush();
-    muya.editor.history.cutoff();
-    try {
-        model.input({
-            kind: 'command',
-            ...commandHistoryGroup(muya),
-            command: direction === 'backward' ? 'joinParagraphBackward' : 'joinParagraphForward',
-            selection,
-            options: {
-                autoPairBracket: muya.options.autoPairBracket,
-                autoPairQuote: muya.options.autoPairQuote,
-                autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
-            },
-        }, () => {});
-    }
-    finally { muya.editor.history.cutoff(); }
+    muya.editor.history.recordModelCommand(historyGroup => model.input({
+        kind: 'command',
+        historyGroup,
+        command: direction === 'backward' ? 'joinParagraphBackward' : 'joinParagraphForward',
+        selection,
+        options: {
+            autoPairBracket: muya.options.autoPairBracket,
+            autoPairQuote: muya.options.autoPairQuote,
+            autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
+        },
+    }, () => {}));
 }
 
 /** Tab submits the actual selection before native syntax or tree mutation. */
@@ -801,10 +790,9 @@ export function dispatchDocumentTab(muya: Muya, shift: boolean, selection: IDocu
     if (!model)
         throw new Error('Tab requires a bound document');
     muya.flush();
-    muya.editor.history.cutoff();
-    model.input({
+    muya.editor.history.recordModelCommand(historyGroup => model.input({
         kind: 'command',
-        ...commandHistoryGroup(muya),
+        historyGroup,
         command: 'tab',
         shift,
         selection,
@@ -814,8 +802,7 @@ export function dispatchDocumentTab(muya: Muya, shift: boolean, selection: IDocu
             autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
             tabSize: muya.options.tabSize,
         },
-    }, () => {});
-    muya.editor.history.cutoff();
+    }, () => {}));
 }
 
 /** Existing-list commands reach the live model before native tree mutation. */
@@ -823,9 +810,9 @@ export function dispatchDocumentList(muya: Muya, change: ListChange, selection: 
     const model = muya.editor.documentEditing;
     if (!model)
         throw new Error('List model command requires a bound document');
-    model.input({
+    muya.editor.history.recordModelCommand(historyGroup => model.input({
         kind: 'command',
-        ...commandHistoryGroup(muya),
+        historyGroup,
         command: 'changeList',
         change,
         selection,
@@ -839,7 +826,7 @@ export function dispatchDocumentList(muya: Muya, change: ListChange, selection: 
             autoPairQuote: muya.options.autoPairQuote,
             autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
         },
-    }, () => {});
+    }, () => {}));
 }
 
 /** Menu-bar and paragraph-menu headings use the same explicit model command. */
@@ -847,9 +834,9 @@ export function dispatchDocumentHeading(muya: Muya, change: HeadingChange, selec
     const model = muya.editor.documentEditing;
     if (!model)
         throw new Error('Heading model command requires a bound document');
-    model.input({
+    muya.editor.history.recordModelCommand(historyGroup => model.input({
         kind: 'command',
-        ...commandHistoryGroup(muya),
+        historyGroup,
         command: 'changeHeading',
         change,
         selection,
@@ -858,7 +845,7 @@ export function dispatchDocumentHeading(muya: Muya, change: HeadingChange, selec
             autoPairQuote: muya.options.autoPairQuote,
             autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
         },
-    }, () => {});
+    }, () => {}));
 }
 
 /** Paragraph and quick-insert menus retain their distinct quote operations. */
@@ -866,9 +853,9 @@ export function dispatchDocumentBlockquote(muya: Muya, type: 'set' | 'quick-inse
     const model = muya.editor.documentEditing;
     if (!model)
         throw new Error('Blockquote model command requires a bound document');
-    model.input({
+    muya.editor.history.recordModelCommand(historyGroup => model.input({
         kind: 'command',
-        ...commandHistoryGroup(muya),
+        historyGroup,
         command: 'changeBlockquote',
         change: { type },
         selection,
@@ -877,7 +864,7 @@ export function dispatchDocumentBlockquote(muya: Muya, type: 'set' | 'quick-inse
             autoPairQuote: muya.options.autoPairQuote,
             autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
         },
-    }, () => {});
+    }, () => {}));
 }
 
 /** All bound format entry points dispatch before native syntax recognition. */

@@ -5,6 +5,9 @@ import { expect, it } from 'vitest'
 import { createCoreActor } from '@/documentAuthority/coreActor'
 import { createEditorCoreBinding } from '@/documentAuthority/editorCoreBinding'
 import { createMuyaPlainTextCoreAdapter } from '@/documentAuthority/muyaPlainTextCoreAdapter'
+import { separateUndoSteps } from '../helpers/separateUndoSteps'
+
+separateUndoSteps()
 
 const nativeListTab = (app: ReturnType<typeof bootBoundMuya>, shift = false) => {
   const block = shift

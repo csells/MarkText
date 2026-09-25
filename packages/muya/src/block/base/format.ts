@@ -1622,12 +1622,12 @@ class Format extends Content {
     // empty line in the block. When the caret's line is blank up to the caret,
     // removes that line break and returns true: handle the key as Enter.
     protected dropSoftBreakBeforeCursor(): boolean {
+        if (!this.caretLineIsBlank())
+            return false;
         const { text } = this;
         const { start, end } = this.getCursor()!;
         const head = text.substring(0, start.offset);
         const lineStart = head.lastIndexOf('\n');
-        if (lineStart === -1 || /[^ \t]/.test(head.substring(lineStart + 1)))
-            return false;
 
         this.muya.editor.history.markInputBoundary('insertParagraph', '\n');
         const before = stripHardBreakMarker(head.substring(0, lineStart));
@@ -1635,6 +1635,20 @@ class Format extends Content {
         this.text = before + after;
         this.setCursor(before.length, before.length, true);
 
+        return true;
+    }
+
+    /** A soft-broken line holding only blanks before the caret. */
+    protected caretLineIsBlank(): boolean {
+        const cursor = this.getCursor();
+        if (!cursor)
+            return false;
+        const head = this.text.substring(0, cursor.start.offset);
+        const lineStart = head.lastIndexOf('\n');
+        return lineStart !== -1 && !/[^ \t]/.test(head.substring(lineStart + 1));
+    }
+
+    override enterMarksInputBoundary(_shift: boolean): boolean {
         return true;
     }
 

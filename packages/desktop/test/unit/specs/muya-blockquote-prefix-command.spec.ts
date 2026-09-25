@@ -99,16 +99,11 @@ for (const [content, typedContent] of [
           focus: { offset: visibleLength + 1 }
         })
         expect(app.legacyChanges).toEqual([])
-        // Upstream History groups the front menu's conversion with the key
-        // typed within its one-second window.
-        if (!menu) {
-          await app.adapter.history('undo', app.reconcile)
-          expect(app.binding.sourceAtBarrier()).toMatchObject({ source: '> ' + source })
-        }
+        // Upstream History groups the conversion, from the menu bar or the
+        // front menu, with the key typed within its one-second window.
         await app.adapter.history('undo', app.reconcile)
         expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
         await app.adapter.history('redo', app.reconcile)
-        if (!menu) await app.adapter.history('redo', app.reconcile)
         expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
         expect(core.open(typed).source).toBe(typed)
       } finally {

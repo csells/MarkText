@@ -2,6 +2,9 @@
 import { describe, expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
 import type { MaybeContent } from '../helpers/muyaTypes'
+import { separateUndoSteps } from '../helpers/separateUndoSteps'
+
+separateUndoSteps()
 
 type BoundMuya = ReturnType<typeof bootBoundMuya>
 

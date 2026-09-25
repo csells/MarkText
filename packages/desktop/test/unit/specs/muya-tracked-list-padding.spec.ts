@@ -2,6 +2,9 @@
 import { createDocumentCore } from '@marktext/document-core'
 import { expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { separateUndoSteps } from '../helpers/separateUndoSteps'
+
+separateUndoSteps()
 
 it('keeps tracked list padding separate from unchanged fenced content through input and history', async() => {
   const source = '- {++first++}{>>keep<<}\n\n  ```js\n  let x = 1\n  ```\n- second\n'

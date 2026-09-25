@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { separateUndoSteps } from '../helpers/separateUndoSteps'
+
+separateUndoSteps()
 
 it('keeps the adjacent preceding code block outside a selected wrap', async() => {
   const preceding = '```\npreceding\n```\n'

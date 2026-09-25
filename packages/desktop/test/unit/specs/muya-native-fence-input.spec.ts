@@ -146,8 +146,10 @@ describe('native fence input on the common model', () => {
         anchor: { offset: enter ? 0 : 5 },
         focus: { offset: enter ? 0 : 5 }
       })
+      // Upstream's Enter on a fence line converts without an input boundary,
+      // so it undoes with the fence typed within its one-second window.
       await adapter.history('undo', reconcile)
-      expect(binding.sourceAtBarrier()).toMatchObject({ source: enter ? '```js\n' : '\n' })
+      expect(binding.sourceAtBarrier()).toMatchObject({ source: '\n' })
       await adapter.history('redo', reconcile)
       expect(binding.sourceAtBarrier()).toMatchObject({ source: expected })
       const reopened = createEditorCoreBinding(createLocalCoreOwner())

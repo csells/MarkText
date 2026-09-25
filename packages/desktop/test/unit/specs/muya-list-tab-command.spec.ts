@@ -3,6 +3,9 @@ import { createDocumentCore } from '@marktext/document-core'
 import { expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
 import type { MaybeContent } from '../helpers/muyaTypes'
+import { separateUndoSteps } from '../helpers/separateUndoSteps'
+
+separateUndoSteps()
 
 for (const ending of ['\n', '\r\n', '\r']) {
   for (const tracked of [false, true]) {

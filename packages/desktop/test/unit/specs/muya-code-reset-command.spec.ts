@@ -2,6 +2,9 @@
 import { Muya } from '@muyajs/core'
 import { expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { separateUndoSteps } from '../helpers/separateUndoSteps'
+
+separateUndoSteps()
 
 it.each([
   { command: 'pre', caret: 2 },

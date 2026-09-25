@@ -121,6 +121,10 @@ class TableCellContent extends Format {
         cursorBlock.setCursor(0, 0, true);
     }
 
+    override enterMarksInputBoundary(_shift: boolean): boolean {
+        return false;
+    }
+
     override enterHandler(event: Event) {
         if (!isKeyboardEvent(event))
             return;
