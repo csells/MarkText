@@ -206,7 +206,8 @@ test(`trusted intrinsic ${copy ? 'copy' : 'move'} retains ${annotated ? 'annotat
 for (const copy of [false, true]) {
 test(`trusted table-target ${copy ? 'copy' : 'move'} escapes the selected payload and keeps one cell`, async ({ page }) => {
     const source = 'a|b\n\n| target |\n| --- |\n';
-    const changed = `${copy ? 'a|b' : ''}\n\n| a\\|btarget |\n| --- |\n`;
+    // Upstream writes the table afresh as part of the drop, padded to its widest cell.
+    const changed = `${copy ? 'a|b' : ''}\n\n| a\\|btarget |\n| ---------- |\n`;
     const points = await page.evaluate(async source => {
         const modulePath = '/coreBoundaryControl.ts';
         const control = await import(/* @vite-ignore */ modulePath);
@@ -239,10 +240,10 @@ test(`trusted table-target ${copy ? 'copy' : 'move'} escapes the selected payloa
         await expect(page.locator('.mu-table-cell-content')).toHaveCount(1);
         expect(await page.evaluate(() => window.muya!.getSelection()?.focus.block.blockName)).toBe('table.cell.content');
         await page.keyboard.type('X');
-        // Typing writes the table afresh like upstream's, padded to its widest cell.
-        const typed = changed.replace('btarget', 'bXtarget').replace('| --- |', '| ----------- |');
+        const typed = changed.replace('btarget', 'bXtarget').replace('| ---------- |', '| ----------- |');
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, legacyCalls: [] });
         await page.evaluate(() => window.coreBoundary.history('undo'));
+        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: changed } });
         await page.evaluate(() => window.coreBoundary.history('undo'));
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, anchor: 3, caret: 0 });
         await page.evaluate(() => window.coreBoundary.history('redo'));
