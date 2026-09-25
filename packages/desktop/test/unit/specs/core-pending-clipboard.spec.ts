@@ -365,6 +365,50 @@ it('uses the same captured resource owner for image properties while later input
   }
 })
 
+// Upstream records an image edit like typing, so the Muya undo step it was
+// issued in (its history group) joins the keys typed in that step.
+it.each([undefined, 7])('joins a prepared image property update to history group %s', async(group) => {
+  const source = '![a](/a.png)\n\nafter\n'
+  const app = setup(source)
+  try {
+    const at = source.length - 1
+    app.adapter.input(
+      {
+        selection: { ranges: [{ anchor: at, focus: at }], primary: 0 },
+        range: { start: at, end: at },
+        inputType: 'insertText',
+        data: 'X',
+        historyGroup: 7,
+        options: { autoPairBracket: true, autoPairQuote: true, autoPairMarkdownSyntax: true }
+      },
+      app.reconcile
+    )
+    const preparation = app.adapter.prepareImage(
+      {
+        format: 'image-properties',
+        selection: { start: 0, end: source.indexOf('\n') },
+        tracked: false,
+        properties: { alt: 'a', src: '/b.png', title: '' }
+      },
+      { imageSource: '/b.png' },
+      app.reconcile,
+      group
+    )
+    expect(await preparation.complete({ alt: 'a', src: '/b.png', title: '' })).toEqual({
+      accepted: true,
+      changed: true
+    })
+    await app.adapter.settled()
+    expect(app.binding.sourceAtBarrier()).toMatchObject({ source: '![a](/b.png)\n\nafterX\n' })
+    await app.adapter.history('undo', app.reconcile)
+    expect(app.binding.sourceAtBarrier()).toMatchObject({
+      source: group === undefined ? '![a](/a.png)\n\nafterX\n' : source
+    })
+  } finally {
+    app.dispose()
+  }
+})
+
 it('drains a prepared image property update on its captured lease before handoff', async() => {
   const { createCoreDocumentSessionManager } =
     await import('@/documentAuthority/coreDocumentSessionManager')

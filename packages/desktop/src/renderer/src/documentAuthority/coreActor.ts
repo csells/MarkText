@@ -1225,7 +1225,8 @@ export function createCoreActor(
         if (preparedTarget.status === 'conflict') {
           return rejectPrepared('prepared-selection-conflict')
         }
-        const { operation, projections, baseRevision } = request
+        const { operation, projections, baseRevision, nativeHistoryGroup: group } = request
+        const preparedGroup = group === undefined ? {} : { nativeHistoryGroup: group }
         if (operation.kind === 'clipboard') {
           const target = preparedTarget.selection
           if (operation.action.kind === 'table') {
@@ -1238,6 +1239,7 @@ export function createCoreActor(
               sequence,
               baseRevision,
               projections,
+              ...preparedGroup,
               action: Object.freeze({ ...operation.action, selection: target })
             })
           } else {
@@ -1250,6 +1252,7 @@ export function createCoreActor(
               sequence,
               baseRevision,
               projections,
+              ...preparedGroup,
               action: Object.freeze({ ...operation.action, selection: target })
             })
           }
@@ -1261,6 +1264,7 @@ export function createCoreActor(
             sequence,
             baseRevision,
             projections,
+            ...preparedGroup,
             action: Object.freeze({ ...operation.action, selection: preparedTarget.selection })
           })
         }
@@ -2258,6 +2262,7 @@ export function createCoreActor(
         request.type === 'source-input' ||
         request.type === 'input' ||
         request.type === 'format' ||
+        request.type === 'clipboard' ||
         request.type === 'apply' ||
         request.type === 'track'
           ? request.nativeHistoryGroup

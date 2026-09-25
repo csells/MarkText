@@ -145,7 +145,7 @@ function prepareModelImageDrop(
         throw new Error('Image drop has no document point');
     void model.prepareClipboard({ anchor: point, focus: point }, payload, async capturePayload => ({
         markdown: await prepare(capturePayload),
-    }), target.position === 'up' ? 'before' : 'after').catch(error => debug.warn(`Image drop preparation failed: ${String(error)}`));
+    }), target.position === 'up' ? 'before' : 'after', muya.editor.history.preparedModelCommandGroup()).catch(error => debug.warn(`Image drop preparation failed: ${String(error)}`));
     return true;
 }
 

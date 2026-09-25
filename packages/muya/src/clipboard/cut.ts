@@ -405,7 +405,7 @@ export function cutSelection(clipboard: Clipboard): void {
         if (!selection)
             throw new Error('Table cut has no current cell selection');
         clipboard.muya.flush();
-        model.clipboard({ kind: 'table', operation: 'cut', selection }, () => {});
+        clipboard.muya.editor.history.recordModelCommand(historyGroup => model.clipboard({ kind: 'table', operation: 'cut', selection, historyGroup }, () => {}));
         return;
     }
     if (model) {
@@ -415,7 +415,7 @@ export function cutSelection(clipboard: Clipboard): void {
         if (selection) {
             const draft = createDocumentTextDraft(clipboard.muya, selection, '');
             clipboard.muya.flush();
-            model.clipboard({ kind: 'cut', selection }, draft);
+            clipboard.muya.editor.history.recordModelCommand(historyGroup => model.clipboard({ kind: 'cut', selection, historyGroup }, draft));
         }
         return;
     }
@@ -604,7 +604,7 @@ export function deleteTableSelection(clipboard: Clipboard): void {
         if (!selection)
             throw new Error('Table delete has no current cell selection');
         clipboard.muya.flush();
-        model.clipboard({ kind: 'table', operation: 'delete', selection }, () => {});
+        clipboard.muya.editor.history.recordModelCommand(historyGroup => model.clipboard({ kind: 'table', operation: 'delete', selection, historyGroup }, () => {}));
         return;
     }
     if (clipboard.selection.table.emptySelectedCells())

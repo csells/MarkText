@@ -205,7 +205,7 @@ class Clipboard {
                 const text = (await this._readClipboardText()).replace(/\r\n?/g, '\n');
                 capturePayload({ text });
                 return { markdown: text, plainText: text, pasteAsPlainText: true };
-            });
+            }, undefined, this.muya.editor.history.preparedModelCommandGroup());
             return;
         }
         const text = await this._readClipboardText();

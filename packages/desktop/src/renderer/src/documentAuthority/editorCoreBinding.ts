@@ -90,6 +90,7 @@ export type EditorCoreSubmitInput =
     kind: 'apply-prepared'
     target: string
     operation: CorePreparedOperation
+    nativeHistoryGroup?: string
     projections: readonly DocumentProjectionRequest[]
   }>
   | Readonly<{
@@ -101,6 +102,7 @@ export type EditorCoreSubmitInput =
   | Readonly<{
     readonly kind: 'clipboard'
     readonly action: DocumentClipboardAction
+    readonly nativeHistoryGroup?: string
     readonly projections: readonly DocumentProjectionRequest[]
   }>
   | Readonly<{
@@ -443,6 +445,9 @@ export function createEditorCoreBinding(port: CoreModelOwner): EditorCoreBinding
               baseRevision: revision,
               target: input.target,
               operation: copyPreparedOperation(input.operation),
+              ...(input.nativeHistoryGroup === undefined
+                ? {}
+                : { nativeHistoryGroup: input.nativeHistoryGroup }),
               projections
             })
             : input.kind === 'source-input'
@@ -476,6 +481,9 @@ export function createEditorCoreBinding(port: CoreModelOwner): EditorCoreBinding
                   sequence: transactionId,
                   baseRevision: revision,
                   action: copyClipboardAction(input.action),
+                  ...(input.nativeHistoryGroup === undefined
+                    ? {}
+                    : { nativeHistoryGroup: input.nativeHistoryGroup }),
                   projections
                 })
                 : input.kind === 'format'

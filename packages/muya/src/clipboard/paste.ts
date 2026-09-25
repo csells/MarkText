@@ -597,7 +597,8 @@ function applyPreparedDocumentPaste(clipboard: Clipboard, data: IPasteData): boo
             const markdown = data.text.replace(/\r\n?/g, '\n');
             const draft = createDocumentTextDraft(muya, selection, markdown);
             muya.flush();
-            model.clipboard({ kind: 'paste', selection, markdown, pasteAsPlainText: data.pasteType === PasteType.PASTE_AS_PLAIN_TEXT }, draft);
+            const pasteAsPlainText = data.pasteType === PasteType.PASTE_AS_PLAIN_TEXT;
+            muya.editor.history.recordModelCommand(historyGroup => model.clipboard({ kind: 'paste', selection, markdown, pasteAsPlainText, historyGroup }, draft));
         }
         return true;
     }
@@ -636,7 +637,7 @@ async function applyPreparedDocumentImport(clipboard: Clipboard, data: IPasteDat
     if (!model || !selection)
         throw new Error('Clipboard import has no document selection');
     const text = data.text.replace(/\r\n?/g, '\n');
-    await model.prepareClipboard(selection, { text, html: data.html, imageFile: data.imageFile }, capturePayload => importClipboardData(clipboard, data, capturePayload));
+    await model.prepareClipboard(selection, { text, html: data.html, imageFile: data.imageFile }, capturePayload => importClipboardData(clipboard, data, capturePayload), undefined, muya.editor.history.preparedModelCommandGroup());
 }
 
 // The paste pipeline, decoupled from the DOM `paste` event so it can be driven
@@ -656,7 +657,8 @@ async function applyPaste(clipboard: Clipboard, data: IPasteData): Promise<void>
         if (!clipboard.selection.table.isSingleCellSelected()) {
             if (muya.editor.documentEditing) {
                 muya.flush();
-                muya.editor.documentEditing.clipboard({ kind: 'table', operation: 'paste', selection: rectangle, markdown: data.text }, () => {});
+                const model = muya.editor.documentEditing;
+                muya.editor.history.recordModelCommand(historyGroup => model.clipboard({ kind: 'table', operation: 'paste', selection: rectangle, markdown: data.text, historyGroup }, () => {}));
             }
             return;
         }
