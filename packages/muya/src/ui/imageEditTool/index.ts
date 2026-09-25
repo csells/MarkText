@@ -445,7 +445,7 @@ export class ImageEditTool extends BaseFloat {
             throw new Error('Image preparation has no current document image');
         const upload = this.options.imageAction;
         this.hide();
-        await model.prepareImage({ format: 'image-properties', selection, properties: { alt, src, title } }, choose ? { alt, src, title } : { imageSource: src, alt, title }, async (capturePayload) => {
+        await model.prepareImage({ format: 'image-properties', selection, properties: { alt, src, title }, historyGroup: this.muya.editor.history.preparedModelCommandGroup() }, choose ? { alt, src, title } : { imageSource: src, alt, title }, async (capturePayload) => {
             const selectedSrc = choose ? await choose() : src;
             if (!selectedSrc)
                 return undefined;

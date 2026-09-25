@@ -75,7 +75,7 @@ export const bootBoundMuya = (source: string, options?: EditorCoreOpenInput['opt
     codeLanguage: (point) => muyaCodeLanguage(muya, view(), point),
     caretStep: (point, direction) => muyaCaretStep(muya, view(), point, direction),
     prepareImage: unexpected,
-    async prepareClipboard(selection, payload, prepare, blockPlacement) {
+    async prepareClipboard(selection, payload, prepare, blockPlacement, historyGroup) {
       const operation =
         'kind' in selection
           ? { kind: 'table' as const, operation: 'paste' as const, selection, markdown: '' }
@@ -92,7 +92,8 @@ export const bootBoundMuya = (source: string, options?: EditorCoreOpenInput['opt
             : { blockPlacement, currentSelection: muyaClipboardCurrentSelection(muya, view()) })
         },
         payload,
-        reconcile
+        reconcile,
+        historyGroup
       )
       try {
         const imported = await prepare((payload) => pending.capturePayload(payload))
@@ -116,7 +117,8 @@ export const bootBoundMuya = (source: string, options?: EditorCoreOpenInput['opt
     clipboard(operation, present) {
       const result = adapter.clipboard(
         muyaClipboardToModel(muya, view(), operation, tracking),
-        reconcile
+        reconcile,
+        operation.historyGroup
       )
       if (!result.accepted) present()
       return result.changed
