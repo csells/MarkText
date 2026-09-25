@@ -39,7 +39,8 @@ describe('native input history identity', () => {
     });
 });
 
-it('keeps an explicit paragraph command separate from typing on either side', () => {
+// Upstream History records the command's change by time like the typing.
+it('joins a paragraph command to the typing on either side within the window', () => {
     const host = document.createElement('div');
     document.body.append(host);
     const muya = new Muya(host, { markdown: 'seed\n' } as ConstructorParameters<typeof Muya>[1]);
@@ -61,11 +62,11 @@ it('keeps an explicit paragraph command separate from typing on either side', ()
         muya.updateParagraph('ul-bullet');
         muya.flush();
         const formatting = muya.getInputHistoryGroup();
-        expect(formatting).not.toBe(typing);
+        expect(formatting).toBe(typing);
         type('!');
-        expect(muya.getInputHistoryGroup()).not.toBe(formatting);
+        expect(muya.getInputHistoryGroup()).toBe(formatting);
         muya.undo();
-        expect(muya.getMarkdown()).toBe('- seedA\n');
+        expect(muya.getMarkdown()).toBe('seed\n');
     }
     finally {
         muya.destroy();

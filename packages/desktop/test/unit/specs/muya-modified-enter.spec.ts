@@ -3,6 +3,9 @@ import { createDocumentCore } from '@marktext/document-core'
 import { InlineFormatToolbar, Muya, ParagraphQuickInsertMenu } from '@muyajs/core'
 import { afterEach, expect, it, vi } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { separateUndoSteps } from '../helpers/separateUndoSteps'
+
+separateUndoSteps()
 
 afterEach(() => vi.unstubAllGlobals())
 

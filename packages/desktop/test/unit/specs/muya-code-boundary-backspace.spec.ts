@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
 import { expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { separateUndoSteps } from '../helpers/separateUndoSteps'
+
+const steps = separateUndoSteps()
 
 it('uses paragraph syntax for wrapping immediately after a code boundary', async() => {
+  // The wrap and the key typed right after it are one upstream undo step.
+  steps.hold()
   const app = bootBoundMuya('```\na\n```\nb\n')
   try {
     const paragraph = app.muya.editor.scrollPage?.queryBlock([1, 'text'])

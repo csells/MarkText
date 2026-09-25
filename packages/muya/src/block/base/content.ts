@@ -383,6 +383,15 @@ class Content extends TreeNode {
     // Do nothing.
     }
 
+    /**
+     * Whether this block's Enter handler marks an input boundary, starting a
+     * new undo step as upstream does. A bound document submits Enter to its
+     * model instead of running the handler, so it asks the block here.
+     */
+    enterMarksInputBoundary(_shift: boolean): boolean {
+        return false;
+    }
+
     deleteHandler(event: Event): void {
         const { start, end } = this.getCursor()!;
         const { text } = this;

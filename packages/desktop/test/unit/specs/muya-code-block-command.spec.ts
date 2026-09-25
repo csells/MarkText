@@ -313,10 +313,10 @@ it('front-menu Code still replaces its target when the caret is elsewhere', asyn
       })
     )
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'other\n\n```\nx\n```\n' })
-    // Upstream History groups the conversion with the key typed within its
-    // one-second window.
+    // Upstream History groups Enter, the conversion and the key typed within
+    // one second of Enter into one undo step.
     await app.adapter.history('undo', app.reconcile)
-    expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'other\n\n\n' })
+    expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'other\n' })
     expect(app.legacyChanges).toEqual([])
   } finally {
     menu.destroy()

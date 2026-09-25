@@ -2,6 +2,9 @@
 import { createDocumentCore } from '@marktext/document-core'
 import { expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { separateUndoSteps } from '../helpers/separateUndoSteps'
+
+separateUndoSteps()
 
 it.each([false, true])(
   'reset-to-paragraph unwraps the quote before the next key (Track=%s)',

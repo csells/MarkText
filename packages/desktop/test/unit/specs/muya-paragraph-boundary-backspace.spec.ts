@@ -2,6 +2,9 @@
 import { expect, it } from 'vitest'
 import { createDocumentCore } from '@marktext/document-core'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { separateUndoSteps } from '../helpers/separateUndoSteps'
+
+separateUndoSteps()
 
 it('joins beside a reference definition without removing the definition or earlier paragraph', () => {
   const app = bootBoundMuya('a\n\n[id]: /url\n\nb\n')

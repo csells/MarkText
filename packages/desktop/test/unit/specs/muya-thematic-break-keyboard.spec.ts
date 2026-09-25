@@ -3,6 +3,9 @@ import { Muya } from '@muyajs/core'
 import { expect, it } from 'vitest'
 import { createMuyaModelSelection } from '@/documentAuthority/muyaModelSelection'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { separateUndoSteps } from '../helpers/separateUndoSteps'
+
+separateUndoSteps()
 
 const cases = [
   {

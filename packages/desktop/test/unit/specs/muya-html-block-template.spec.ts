@@ -2,6 +2,9 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
 import type { MaybeContent } from '../helpers/muyaTypes'
+import { separateUndoSteps } from '../helpers/separateUndoSteps'
+
+separateUndoSteps()
 
 // Expected bytes and carets were recorded from upstream MarkText (8d6c198c):
 // Enter in a lone known opening tag and Paragraph → HTML Block. Upstream's

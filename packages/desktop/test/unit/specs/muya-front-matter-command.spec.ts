@@ -51,12 +51,11 @@ it.each(cases)(
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 1 }, focus: { offset: 1 } })
       app.muya.flush()
       expect(app.legacyChanges).toEqual([])
-      await app.adapter.history('undo', app.reconcile)
-      expect(app.binding.sourceAtBarrier()).toMatchObject({ source: inserted })
+      // Upstream History groups the command with the key typed within its
+      // one-second window.
       await app.adapter.history('undo', app.reconcile)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 1 }, focus: { offset: 3 } })
-      await app.adapter.history('redo', app.reconcile)
       await app.adapter.history('redo', app.reconcile)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
       const reopened = bootBoundMuya(typed)

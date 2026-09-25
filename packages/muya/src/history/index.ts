@@ -332,8 +332,8 @@ class History {
      * Upstream History has no command boundaries: a menu command joins the undo
      * step of the typing within its one-second window, and so does the key
      * typed right after it. A bound document's model commands issued by `run`
-     * carry that step's group (`commandGroup`), and their own cutoffs are
-     * ignored. The legacy path already records its json changes by time.
+     * carry that step's group, and their own cutoffs are ignored. The legacy
+     * path already records its json changes by time.
      */
     groupCommands(run: () => void): void {
         if (!this._muya.editor.documentEditing || this._commandGroup !== undefined) {
@@ -351,6 +351,23 @@ class History {
 
     commandGroup(): number | undefined {
         return this._commandGroup;
+    }
+
+    /**
+     * Upstream records a command's json change like any other, so a bound model
+     * command joins the undo step open within the one-second window (or its
+     * `groupCommands` step) and leaves the input kind alone. A rejected command
+     * leaves the window as it was.
+     */
+    recordModelCommand(apply: (group: number) => boolean): boolean {
+        if (this._commandGroup !== undefined)
+            return apply(this._commandGroup);
+        let committed = false;
+        this._withInputGrouping(() => {
+            committed = apply(this._currentInputGroup());
+            return committed;
+        });
+        return committed;
     }
 
     private _currentInputGroup(): number {
