@@ -53,7 +53,22 @@ const run = async(
   const { app, page, filePath } = await launchWithReviewMarkdown(source, options)
   try {
     if (tracked) await page.getByTestId('critic-review-track-changes').click()
-    await gesture(page)
+    // History groups by elapsed time; a frozen clock keeps a slow picker or
+    // menu click inside the one-second window the gesture represents.
+    await page.evaluate(() => {
+      const now = Date.now()
+      const frozen = window as unknown as { __realDateNow?: () => number }
+      frozen.__realDateNow = Date.now
+      Date.now = () => now
+    })
+    try {
+      await gesture(page)
+    } finally {
+      await page.evaluate(() => {
+        const frozen = window as unknown as { __realDateNow?: () => number }
+        if (frozen.__realDateNow) Date.now = frozen.__realDateNow
+      })
+    }
     return { app, filePath }
   } catch (error) {
     await app.close()
