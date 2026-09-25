@@ -2004,7 +2004,6 @@ const DIAGRAM_FENCE_LANGUAGES: ReadonlySet<string> = new Set([
 function fencedLiteralProvider(
   lineText: string,
   openerEnd: number,
-  mathEnabled: boolean = true,
   texMathGfmEnabled: boolean = true
 ): MarkdownFenceState['provider'] {
   const info = lineText.slice(openerEnd).trim().toLowerCase()
@@ -2944,7 +2943,6 @@ export function createMarkdownLaneState(
             provider: fencedLiteralProvider(
               probeLine,
               opening.startOffset + opening.openerLength,
-              mathEnabled,
               texMathGfmEnabled
             ),
             container: blockContainerFrom(probeState)
@@ -3800,7 +3798,6 @@ export function createMarkdownLaneState(
             provider: fencedLiteralProvider(
               completedLine,
               opening.startOffset + opening.openerLength,
-              mathEnabled,
               texMathGfmEnabled
             ),
             container: blockContainerFrom(lineState)

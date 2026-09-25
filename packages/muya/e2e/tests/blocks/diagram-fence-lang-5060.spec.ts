@@ -26,7 +26,10 @@ function nextFrame(page: Page): Promise<void> {
 // caret the way the engine does (see ui/code-block-language-selector.spec.ts).
 async function focusLanguageInput(page: Page): Promise<void> {
     await page.evaluate(() => {
-        window.muya!.editor.scrollPage.firstChild.firstContentInDescendant().setCursor(0, 0, true);
+        const fence = window.muya!.editor.scrollPage?.firstChild;
+        const content = fence?.isParent() ? fence.firstContentInDescendant() : null;
+        if (!content) throw new Error('Expected diagram fence language input');
+        content.setCursor(0, 0, true);
     });
     await expect
         .poll(() => page.evaluate(() => window.muya!.editor.activeContentBlock?.blockName))
