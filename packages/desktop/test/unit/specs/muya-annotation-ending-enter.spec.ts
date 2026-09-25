@@ -3,6 +3,9 @@ import { createDocumentCore } from '@marktext/document-core'
 import { describe, expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
 import { contentText } from '../helpers/muyaTypes'
+import { undoWindowClock } from '../helpers/separateUndoSteps'
+
+const clock = undoWindowClock()
 
 type BoundMuya = ReturnType<typeof bootBoundMuya>
 
@@ -58,6 +61,8 @@ describe('native Enter at a closed annotation ending', () => {
         const split = `word ${ending}\n\n\n`
         expect(app.binding.sourceAtBarrier()).toMatchObject({ source: split })
         expect(caret(app)).toEqual({ path: [1, 'text'], anchor: 0, focus: 0 })
+        // Typed over a second after Enter, the keys are their own undo step.
+        clock.pause()
         for (const data of '```') dispatchInput(app, 'insertText', data)
         await app.adapter.settled()
         const typed = `word ${ending}\n\n\`\`\`\n`

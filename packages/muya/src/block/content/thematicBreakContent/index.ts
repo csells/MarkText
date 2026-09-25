@@ -5,20 +5,16 @@ import { isKeyboardEvent } from '../../../utils';
 import Format from '../../base/format';
 import { ScrollPage } from '../../scrollPage';
 
-function changeDocumentRule(muya: Muya, event: Event, change: 'enter' | 'reset'): void {
+function changeDocumentRule(muya: Muya, event: Event, change: 'enter' | 'reset', marksBoundary: boolean): void {
     const selection = muya.editor.selection.getDOMSelection();
     if (!selection)
         throw new Error('Horizontal rule key has no document selection');
     event.preventDefault();
     event.stopPropagation();
     muya.flush();
-    muya.editor.history.cutoff();
-    try {
-        dispatchDocumentThematicBreak(muya, change, selection);
-    }
-    finally {
-        muya.editor.history.cutoff();
-    }
+    if (marksBoundary)
+        muya.editor.history.markInputBoundary('insertParagraph', '\n');
+    dispatchDocumentThematicBreak(muya, change, selection);
 }
 
 class ThematicBreakContent extends Format {
@@ -48,10 +44,19 @@ class ThematicBreakContent extends Format {
      * Create an empty paragraph bellow.
      * @param {*} event
      */
+    /** Mirrors `enterHandler`: only Enter after the rule's start reaches `Format`. */
+    override enterMarksInputBoundary(_shift: boolean): boolean {
+        const cursor = this.getCursor();
+        if (!cursor)
+            return true;
+        const { start, end } = cursor;
+        return start.offset !== end.offset || start.offset !== 0;
+    }
+
     override enterHandler(event: Event) {
         const { text, muya } = this;
         if (muya.editor?.documentEditing) {
-            changeDocumentRule(muya, event, 'enter');
+            changeDocumentRule(muya, event, 'enter', this.enterMarksInputBoundary(false));
             return;
         }
         const { start, end } = this.getCursor()!;
@@ -80,7 +85,7 @@ class ThematicBreakContent extends Format {
         const { start, end } = this.getCursor()!;
         if (start.offset === 0 && end.offset === 0) {
             if (this.muya.editor?.documentEditing) {
-                changeDocumentRule(this.muya, event, 'reset');
+                changeDocumentRule(this.muya, event, 'reset', false);
                 return;
             }
             event.preventDefault();

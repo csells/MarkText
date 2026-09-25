@@ -3,6 +3,9 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { createDocumentCore } from '@marktext/document-core'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
 import type { MaybeContent } from '../helpers/muyaTypes'
+import { separateUndoSteps } from '../helpers/separateUndoSteps'
+
+separateUndoSteps()
 
 afterEach(() => vi.unstubAllGlobals())
 

@@ -31,6 +31,15 @@ class AtxHeadingContent extends Format {
         return this.inlineRenderer.patch(this, cursor, highlights);
     }
 
+    /** Mirrors `enterHandler`: a caret within the marker inserts a paragraph above. */
+    override enterMarksInputBoundary(_shift: boolean): boolean {
+        const cursor = this.getCursor();
+        if (!cursor)
+            return true;
+        const { start, end } = cursor;
+        return start.offset !== end.offset || start.offset > this.parent!.meta.level + 1;
+    }
+
     override enterHandler(event: Event) {
         const { start, end } = this.getCursor()!;
         const { level } = this.parent!.meta;

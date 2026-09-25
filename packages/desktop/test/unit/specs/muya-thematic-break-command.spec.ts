@@ -190,15 +190,14 @@ it.each([
       )
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
       expect(app.legacyChanges).toEqual([])
-      await app.adapter.history('undo', app.reconcile)
-      expect(app.binding.sourceAtBarrier()).toMatchObject({ source: inserted })
+      // Upstream History groups the command with the key typed within its
+      // one-second window.
       await app.adapter.history('undo', app.reconcile)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
       expect(app.muya.getSelection()).toMatchObject({
         anchor: { offset: at },
         focus: { offset: at }
       })
-      await app.adapter.history('redo', app.reconcile)
       await app.adapter.history('redo', app.reconcile)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
     } finally {
@@ -340,12 +339,8 @@ it.each(creationCases)(
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 2 }, focus: { offset: 2 } })
       app.muya.flush()
       expect(app.legacyChanges).toEqual([])
-      // Upstream History groups a quick-insert conversion with the keys typed
-      // within its one-second window.
-      if (!example.quick) {
-        await app.adapter.history('undo', app.reconcile)
-        expect(app.binding.sourceAtBarrier()).toMatchObject({ source: inserted })
-      }
+      // Upstream History groups a conversion, quick-insert or menu, with the
+      // keys typed within its one-second window.
       await app.adapter.history('undo', app.reconcile)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
       expect(app.muya.getSelection()).toMatchObject({
@@ -353,7 +348,6 @@ it.each(creationCases)(
         focus: { offset: example.focus }
       })
       await app.adapter.history('redo', app.reconcile)
-      if (!example.quick) await app.adapter.history('redo', app.reconcile)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
       const reopened = bootBoundMuya(typed)
       try {

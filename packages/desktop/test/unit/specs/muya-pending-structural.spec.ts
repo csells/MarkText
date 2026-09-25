@@ -5,6 +5,9 @@ import type { CoreAppliedReply } from '@/documentAuthority/coreProtocol'
 import { createMuyaPlainTextCoreAdapter } from '@/documentAuthority/muyaPlainTextCoreAdapter'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
 import { modelInputOptions as options, openModelInputSession } from '../helpers/modelInputSession'
+import { undoWindowClock } from '../helpers/separateUndoSteps'
+
+const clock = undoWindowClock()
 
 type BoundMuya = ReturnType<typeof bootBoundMuya>
 
@@ -83,7 +86,9 @@ it.each([
       if (paragraph == null) throw new Error('Expected paragraph')
       paragraph.setCursor(seed.length, seed.length, true)
       muya.updateParagraph(label)
-      // Typing runs in the same task, against the command's resulting model selection.
+      // Typing runs in the same task, against the command's resulting model
+      // selection. Typed over a second later, it is its own undo step.
+      clock.pause()
       typeText(app, '!x')
       await adapter.settled()
       const prefix = label === 'heading 1' ? '# ' : '- '

@@ -2,6 +2,9 @@
 import { createDocumentCore } from '@marktext/document-core'
 import { describe, expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { undoWindowClock } from '../helpers/separateUndoSteps'
+
+const clock = undoWindowClock()
 
 const typeText = (muya: ReturnType<typeof bootBoundMuya>['muya'], text: string): void => {
   for (const character of text) {
@@ -103,6 +106,8 @@ for (const example of [
       const afterEnter = example.expected.replace('next', '')
       expect(binding.sourceAtBarrier()).toMatchObject({ source: afterEnter })
       expect(muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
+      // Typed over a second after Enter, the word is its own undo step.
+      clock.pause()
       for (const character of 'next') {
         const target = muya.editor.selection.getSelection()?.anchor.block.domNode
         if (!target?.isConnected) throw new Error('Expected live selection after Enter')

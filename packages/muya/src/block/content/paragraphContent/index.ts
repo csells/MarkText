@@ -573,6 +573,23 @@ class ParagraphContent extends Format {
         }
     }
 
+    /** Mirrors `enterHandler`: only its paths into `Format.enterHandler` mark. */
+    override enterMarksInputBoundary(shift: boolean): boolean {
+        if (shift)
+            return this.caretLineIsBlank();
+        if (matchBlockConversion(this.text, this.muya.options.texMathDollars))
+            return false;
+        switch (this._paragraphParentType()) {
+            case 'block-quote':
+                return this.text.length !== 0;
+            case 'list-item':
+            case 'task-list-item':
+                return this.text.length !== 0 && !this.parent!.isOnlyChild();
+            default:
+                return true;
+        }
+    }
+
     override enterHandler(event: Event) {
         if (!isKeyboardEvent(event))
             return;
@@ -710,14 +727,10 @@ class ParagraphContent extends Format {
 
         if (this.muya.editor.documentEditing) {
             this.muya.flush();
-            this.muya.editor.history.cutoff();
-            try {
-                const selection = this.muya.editor.selection.getDOMSelection();
-                if (!selection)
-                    throw new Error('List boundary Backspace has no document selection');
-                dispatchDocumentList(this.muya, { type: 'backspace' }, selection);
-            }
-            finally { this.muya.editor.history.cutoff(); }
+            const selection = this.muya.editor.selection.getDOMSelection();
+            if (!selection)
+                throw new Error('List boundary Backspace has no document selection');
+            dispatchDocumentList(this.muya, { type: 'backspace' }, selection);
             return;
         }
 

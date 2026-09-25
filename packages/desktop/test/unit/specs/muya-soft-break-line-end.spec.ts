@@ -2,6 +2,9 @@
 import { describe, expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
 import type { MaybeContent } from '../helpers/muyaTypes'
+import { undoWindowClock } from '../helpers/separateUndoSteps'
+
+const clock = undoWindowClock()
 
 type BoundMuya = ReturnType<typeof bootBoundMuya>
 
@@ -81,6 +84,8 @@ describe('Shift+Enter at the end of a line', () => {
         endOf(app)
         await input(app, 'insertLineBreak')
         expect(source(app)).toBe(broken)
+        // Typed over a second after the break, the keys are their own undo step.
+        clock.pause()
         await input(app, 'insertText', 'x')
         expect(source(app)).toBe(typed)
         await input(app, 'insertText', 'y')

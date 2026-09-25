@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { separateUndoSteps } from '../helpers/separateUndoSteps'
+
+separateUndoSteps()
 
 it('unwraps only the first quote paragraph before the next native key', async() => {
   const source = '> a{++b++}c\n>\n> tail{>>keep<<}\n'
