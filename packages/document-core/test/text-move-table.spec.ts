@@ -114,3 +114,29 @@ it('keeps table spelling when copying within the same normalized pipe value', ()
   expect(core.project(commit.revision, 'revised').ast.root.children[0]!.kind).toBe('table')
   expect(core.reconcileInput(revision, plan, commit, action).selection).toEqual({ ranges: [{ anchor: 6, focus: 6 }], primary: 0 })
 })
+
+it.each([false, true])('writes the table an untracked drop enters afresh, as upstream does (copy=%s)', copy => {
+  const core = createDocumentCore()
+  const source = 'a|b\n\n| target |\n| --- |\n'
+  const revision = core.open(source)
+  const table = core.project(revision, 'markup').syntax.ast.root.children[1]!
+  const action: DocumentInputAction = { kind: 'command', command: 'moveText', copy, options, selection: { ranges: [{ anchor: 0, focus: 3 }], primary: 0 }, target: { kind: 'table-cell', cell: { table: table.range, row: 0, column: 0 }, anchor: 0, focus: 0 } }
+  const plan = core.planInput(revision, action, { tracked: false })
+  const commit = core.apply(revision, core.inputEdits(revision, action, plan, false)!)
+  const expected = (copy ? 'a|b' : '') + '\n\n| a\\|btarget |\n| ---------- |\n'
+  expect(commit.revision.source).toBe(expected)
+  const caret = expected.indexOf('target')
+  expect(core.reconcileInput(revision, plan, commit, action).selection).toEqual({ ranges: [{ anchor: caret, focus: caret }], primary: 0 })
+})
+
+it('writes the table an untracked drop leaves afresh, as upstream does', () => {
+  const core = createDocumentCore()
+  const revision = core.open('| abcdefgh |\n| -------- |\n\nZ\n')
+  const action: DocumentInputAction = { kind: 'command', command: 'moveText', copy: false, options, selection: { ranges: [{ anchor: 5, focus: 10 }], primary: 0 }, target: { start: 28, end: 28 } }
+  const plan = core.planInput(revision, action, { tracked: false })
+  const commit = core.apply(revision, core.inputEdits(revision, action, plan, false)!)
+  const expected = '| abc |\n| --- |\n\nZdefgh\n'
+  expect(commit.revision.source).toBe(expected)
+  const caret = expected.indexOf('Zdefgh') + 6
+  expect(core.reconcileInput(revision, plan, commit, action).selection).toEqual({ ranges: [{ anchor: caret, focus: caret }], primary: 0 })
+})
