@@ -65,12 +65,12 @@ for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: tru
                     window.muya!.flush();
                     return window.muya!.getMarkdown();
                 })).toBe(typed);
-                await page.evaluate(() => window.muya!.undo());
-                expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(heading);
+                // Upstream History groups the conversion and the next key typed
+                // within its one-second window into one step.
                 await page.evaluate(() => window.muya!.undo());
                 expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(source);
                 await page.evaluate(() => window.muya!.redo());
-                expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(heading);
+                expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(typed);
             }
         }
         finally {
@@ -184,12 +184,12 @@ for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: tru
                     window.muya!.flush();
                     return window.muya!.getMarkdown();
                 })).toBe(typed);
-                await page.evaluate(() => window.muya!.undo());
-                expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(paragraph);
+                // Upstream History groups the conversion and the next key typed
+                // within its one-second window into one step.
                 await page.evaluate(() => window.muya!.undo());
                 expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(source);
                 await page.evaluate(() => window.muya!.redo());
-                expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(paragraph);
+                expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(typed);
             }
         }
         finally {
