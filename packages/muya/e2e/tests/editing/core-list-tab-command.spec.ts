@@ -1,4 +1,7 @@
 import { expect, test } from '../fixtures/muya';
+import { separateUndoSteps } from '../helpers/undoWindow';
+
+test.beforeEach(async ({ page }) => separateUndoSteps(page));
 
 for (const tracked of [false, true]) {
     test(`native list Tab owns the next key, outdent and history (Track=${tracked})`, async ({ page }) => {

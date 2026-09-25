@@ -1,6 +1,9 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures/muya';
 import { editor, floats } from '../helpers/selectors';
+import { separateUndoSteps } from '../helpers/undoWindow';
+
+test.beforeEach(async ({ page }) => separateUndoSteps(page));
 
 /**
  * TableRowColumMenu (the `.mu-table-bar-tools` row/column operations popup)

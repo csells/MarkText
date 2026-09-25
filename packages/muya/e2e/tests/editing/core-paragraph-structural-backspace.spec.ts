@@ -1,4 +1,7 @@
 import { expect, test } from '../fixtures/muya';
+import { separateUndoSteps } from '../helpers/undoWindow';
+
+test.beforeEach(async ({ page }) => separateUndoSteps(page));
 
 for (const example of [
     { name: 'math', source: '$$\na\n$$\n\nb{++c++}d\n', joined: '$$\nab{++c++}d\n$$\n', typed: '$$\naxb{++c++}d\n$$\n', caret: 1 },

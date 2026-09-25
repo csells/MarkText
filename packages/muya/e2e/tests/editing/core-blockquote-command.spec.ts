@@ -1,4 +1,7 @@
 import { expect, test } from '../fixtures/muya';
+import { holdUndoSteps, separateUndoSteps } from '../helpers/undoWindow';
+
+test.beforeEach(async ({ page }) => separateUndoSteps(page));
 
 for (const text of ['plain', 'plain\nsecond']) {
     for (const tracked of [false, true]) {
@@ -209,6 +212,8 @@ for (const bound of [false, true]) {
                 }, bound);
                 expect(current.source).toEqual(bound ? expect.objectContaining({ source: expected }) : expected);
                 expect(current).toMatchObject({ anchor: operation === 'unwrap' ? 1 : 0, caret: operation === 'unwrap' ? 1 : 3, path: operation === 'unwrap' ? [1, 'text'] : [0, 'children', 1, 'text'], legacy: [] });
+                // The key replacing the selection is one change, however many ops.
+                await holdUndoSteps(page);
                 await page.keyboard.type('X');
                 const read = () => page.evaluate((bound) => {
                     const muya = window.muya!;

@@ -1,4 +1,7 @@
 import { expect, test } from '../fixtures/muya';
+import { separateUndoSteps } from '../helpers/undoWindow';
+
+test.beforeEach(async ({ page }) => separateUndoSteps(page));
 
 for (const example of [
     { name: 'ordinary first sibling', source: '- alpha\n- second\n', expected: 'alpha\n\n- second\n', typed: 'Xalpha\n\n- second\n', leaf: 0 },
