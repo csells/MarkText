@@ -77,22 +77,12 @@ for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: tru
                         window.muya!.flush();
                         return window.muya!.getMarkdown();
                     })).toBe(typed);
-                    if (menu === 'quick') {
-                        // Upstream History groups the query, the quote and the
-                        // next key typed within its one-second window.
-                        await page.evaluate(() => window.muya!.undo());
-                        expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(source);
-                        await page.evaluate(() => window.muya!.redo());
-                        expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(typed);
-                    }
-                    else {
-                        await page.evaluate(() => window.muya!.undo());
-                        expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(quote);
-                        await page.evaluate(() => window.muya!.undo());
-                        expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(source);
-                        await page.evaluate(() => window.muya!.redo());
-                        expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(quote);
-                    }
+                    // Upstream History groups the query or menu choice, the
+                    // quote and the next key typed within its one-second window.
+                    await page.evaluate(() => window.muya!.undo());
+                    expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(source);
+                    await page.evaluate(() => window.muya!.redo());
+                    expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe(typed);
                 }
             }
             catch (error) {
