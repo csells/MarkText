@@ -273,6 +273,61 @@ checkout, so its authenticated 1,200-input workloads were not rerun on this
 uncommitted candidate; nothing is committed; hosted CI has not run; the
 Applications install was not replaced. E1, E2 and D1 are unchanged.
 
+### 24–25 September rebase onto upstream develop — locally verified
+
+Scope (owner): US English macOS, verified locally on the owner's Mac; hosted CI,
+Windows, Linux and non-English input are out of scope for this pass.
+
+The branch was rebased onto upstream `develop` (`0c33241b`, then `16e986fb`;
+backups `backup/criticmarkup-core-integration-pre-rebase` and `-2`). Upstream
+fixes that touched paths this branch retired were carried into the shared model
+rather than merged textually: cross-block cut from `beforeinput`, Pandoc
+`tex_math_dollars` rules and upstream's math options (backslash delimiters,
+display markers), paragraph commands that must not convert tables or code, quote
+joins on forward Delete, list-item kinds and footnote containers, Enter joining
+a multi-line block into one heading line, tables inserted after a table, unique
+exported footnote ids, the Source math tokenizer, anchor links into other
+documents, the unsaved dot and hand cursor, a clean tab reloading silently on
+disk change (#3652), and Muya's table-grid focus (#5355).
+
+Decision (owner rule O, applied): undo grouping matches upstream Muya's History,
+which is purely time-based (`delay: 1000` from a step's first change, split only
+by `markInputBoundary`). The bound document now carries Muya's time-window group
+through every model command — typing, Enter and structural keys (per each
+block's upstream `enterHandler`), Paragraph/Format menus, quick-insert and
+front-menu conversions, table and task commands, cut, paste, drops and image
+edits — and Core merges entries sharing a group. CriticMarkup-only actions
+(accept/reject/resolve, comment edits) have no upstream equivalent and remain
+their own entries. Tests that assert separate steps now wait out the window or
+freeze the clock (`separateUndoSteps`, `undoWindow`), and cases that typed inside
+the window expect upstream's grouped step.
+
+Other parity closed in this pass: a table made by Enter and text dropped into a
+cell are written by upstream's serializer (padded) within the same history step;
+Muya e2e typecheck is clean (a stale `underscore` shim was removed).
+
+Remaining approximation: a text drag-move is one atomic model command, so it
+cannot join an earlier deletion's undo step as upstream in principle could.
+
+Verification on `b95e9f9f` (packaged; unit/E2E also on that tree):
+
+- Unit: desktop 4,680; document-core 5,435; Muya 2,165 plus 1,347 spec;
+  input-policy 37; typecheck clean; lint 0 errors.
+- Hidden unpacked E2E: 518 passed, 0 failed, 24 opt-in skips.
+- Muya e2e (Chromium): 1,026/1,026.
+- Packaged `installed-functional`: 90/90. The build is installed as
+  `/Applications/marktext.app`; older copies were removed at the owner's request.
+- Installed ratification benchmark (`run-installed-core-performance.sh`): the
+  host moved from macOS 26.5.1 to 26.6.2, so the targets' recorded environment
+  was updated (`bebec87b`; absolute p95 targets unchanged). The run then stopped
+  at sample 101/1,100 on the WindowServer presentation invariant: macOS moved the
+  hidden measurement window (x 264 → 1289) while the Mac was in use. No evidence
+  file was written; it needs an undisturbed hour.
+
+Still open for a US-English macOS release: the benchmark rerun on an idle Mac;
+the native screenshot picker (`screencapture -i`) exercised by the owner; E2
+(Developer ID signing and notarization).
+
 ### 21 September basic desktop audit and repair — locally verified
 
 The owner narrowed the readiness question to US English on macOS and authorized
