@@ -4117,7 +4117,7 @@ onMounted(() => {
             throw new Error('Core native formatting has no current model view')
           }
           const action = muyaFormatToModel(muya, coreAcknowledgedMarkupView, operation, tracked)
-          const result = adapter.format(action, reconcileCoreHistoryView)
+          const result = adapter.format(action, reconcileCoreHistoryView, operation.historyGroup)
           observeCoreInput(adapter, result.accepted ? 'accepted' : 'unsupported', tracked, action)
           return result.changed
         } catch (error) {

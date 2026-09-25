@@ -190,6 +190,9 @@ const copySubmitInput = (input: EditorCoreSubmitInput): EditorCoreSubmitInput =>
     return Object.freeze({
       kind: input.kind,
       action: copyFormatAction(input.action),
+      ...(input.nativeHistoryGroup === undefined
+        ? {}
+        : { nativeHistoryGroup: input.nativeHistoryGroup }),
       projections
     })
   }
