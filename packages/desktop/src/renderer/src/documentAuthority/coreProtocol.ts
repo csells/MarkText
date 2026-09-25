@@ -132,6 +132,7 @@ export type CoreRequest =
     type: 'apply-prepared'
     target: string
     operation: CorePreparedOperation
+    nativeHistoryGroup?: string
     session: number
     sequence: number
     baseRevision: number
@@ -140,6 +141,7 @@ export type CoreRequest =
   | Readonly<{
     readonly type: 'clipboard'
     readonly action: DocumentClipboardAction
+    readonly nativeHistoryGroup?: string
     readonly session: number
     readonly sequence: number
     readonly baseRevision: number

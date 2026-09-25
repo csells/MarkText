@@ -3927,12 +3927,17 @@ onMounted(() => {
         if (action.format !== 'image-properties') {
           throw new Error('Image preparation requires image properties')
         }
-        const preparation = adapter.prepareImage(action, payload, (outcome) => {
-          if (props.coreLease !== lease) {
-            throw new Error('Image view lease changed during preparation')
-          }
-          return reconcileCoreHistoryView(outcome)
-        })
+        const preparation = adapter.prepareImage(
+          action,
+          payload,
+          (outcome) => {
+            if (props.coreLease !== lease) {
+              throw new Error('Image view lease changed during preparation')
+            }
+            return reconcileCoreHistoryView(outcome)
+          },
+          operation.historyGroup
+        )
         const presentImage = presentPendingClipboardImage(
           muya,
           preparation,
@@ -3971,7 +3976,13 @@ onMounted(() => {
           throw error
         }
       },
-      prepareClipboard: async (selection, payload, prepare, blockPlacement): Promise<boolean> => {
+      prepareClipboard: async (
+        selection,
+        payload,
+        prepare,
+        blockPlacement,
+        historyGroup
+      ): Promise<boolean> => {
         const adapter = corePlainTextAdapter
         const lease = props.coreLease
         if (adapter === undefined || coreAcknowledgedMarkupView === undefined || coreDraftFrozen) {
@@ -4004,7 +4015,8 @@ onMounted(() => {
               throw new Error('Clipboard view lease changed during preparation')
             }
             return reconcileCoreHistoryView(outcome)
-          }
+          },
+          historyGroup
         )
         const presentImage = presentPendingClipboardImage(
           muya,
@@ -4061,7 +4073,7 @@ onMounted(() => {
             throw new Error('Core clipboard has no current model view')
           }
           const action = muyaClipboardToModel(muya, coreAcknowledgedMarkupView, operation, tracked)
-          result = adapter.clipboard(action, reconcileCoreHistoryView)
+          result = adapter.clipboard(action, reconcileCoreHistoryView, operation.historyGroup)
           if (!result.accepted) presentDraft()
           observeCoreInput(adapter, result.accepted ? 'accepted' : 'unsupported', tracked, action)
           return result.changed

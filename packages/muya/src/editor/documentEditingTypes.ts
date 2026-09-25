@@ -63,12 +63,12 @@ export type IDocumentFormatInput = {
     readonly properties: ImagePropertyPatch;
 });
 
-export type DocumentClipboardInput = Readonly<{
+export type DocumentClipboardInput = (Readonly<{
     selection: { readonly anchor: DocumentDOMPoint; readonly focus: DocumentDOMPoint };
 } & ({ kind: 'cut' } | { kind: 'paste'; markdown: string; pasteAsPlainText?: boolean })> | Readonly<{
     kind: 'table';
     selection: { readonly kind: 'table'; readonly ranges: readonly IDOMSelection[]; readonly primary: number };
-} & ({ operation: 'delete' | 'cut' } | { operation: 'paste'; markdown: string; pasteAsPlainText?: boolean })>;
+} & ({ operation: 'delete' | 'cut' } | { operation: 'paste'; markdown: string; pasteAsPlainText?: boolean })>) & { readonly historyGroup?: number };
 
 export interface IDocumentPreparedClipboard {
     readonly markdown: string;
@@ -96,7 +96,7 @@ export interface IDocumentEditing {
     activeFormats: (selection: { readonly anchor: DocumentDOMPoint; readonly focus: DocumentDOMPoint }) => readonly IDocumentActiveFormat[];
     clipboard: (operation: DocumentClipboardInput, present: () => void) => boolean;
     prepareImage: (operation: Extract<DocumentFormatInput, { format: 'image-properties' }>, payload: unknown, prepare: (capturePayload: (payload: unknown) => void) => Promise<{ alt: string; src: string; title: string } | undefined>) => Promise<boolean>;
-    prepareClipboard: (selection: DocumentClipboardInput['selection'], payload: unknown, prepare: (capturePayload: (payload: unknown) => void) => Promise<DocumentPreparedClipboard>, blockPlacement?: 'before' | 'after') => Promise<boolean>;
+    prepareClipboard: (selection: DocumentClipboardInput['selection'], payload: unknown, prepare: (capturePayload: (payload: unknown) => void) => Promise<DocumentPreparedClipboard>, blockPlacement?: 'before' | 'after', historyGroup?: number) => Promise<boolean>;
     compositionStart: (operation: DocumentTextInput) => void;
     compositionUpdate: (data: string) => void;
     compositionEnd: (result: DocumentCompositionResult, present: () => void) => boolean;

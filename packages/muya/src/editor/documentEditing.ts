@@ -237,12 +237,12 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
         const focused = muya.domNode.ownerDocument.activeElement;
         const draft = createDocumentTextDraft(muya, dropped.selection, '');
         muya.flush();
-        muya.editor.history.cutoff();
+        // Upstream records the browser's deleteByDrag as delete input.
+        muya.editor.history.markInputBoundary('deleteByDrag', null);
         try {
-            model.clipboard({ kind: 'cut', selection: dropped.selection }, draft);
+            muya.editor.history.recordModelCommand(historyGroup => model.clipboard({ kind: 'cut', selection: dropped.selection, historyGroup }, draft));
         }
         finally {
-            muya.editor.history.cutoff();
             if (external?.anchor.node.isConnected && external.focus.node.isConnected) {
                 if (focused instanceof HTMLElement)
                     focused.focus({ preventScroll: true });
@@ -388,8 +388,6 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
         const enterJoinsStep = structural && !input.selection.anchor.block.enterMarksInputBoundary(inputType === 'insertLineBreak');
         event.preventDefault();
         muya.flush();
-        if (inputType === 'insertFromDrop')
-            muya.editor.history.cutoff();
         const submit = (historyGroup: number) => model.input({ ...operation, historyGroup }, () => {
             if (first === last) {
                 const prefixUnits = Array.from(first.text.slice(0, start.offset)).length;
@@ -417,8 +415,6 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
             muya.editor.history.recordModelCommand(submit);
         else
             muya.editor.history.recordModelInput(inputType, operation.data, submit);
-        if (inputType === 'insertFromDrop')
-            muya.editor.history.cutoff();
     };
     const commandKey = (event: KeyboardEvent) => {
         if (composition || event.isComposing || event.key !== 'Enter'
@@ -500,9 +496,13 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
                 throw new Error('Text drop has no document target');
             const draft = createDocumentTextDraft(muya, input.domRange, data ?? '');
             muya.flush();
-            muya.editor.history.cutoff();
-            model.input({
+            // Upstream records a move as the browser's deleteByDrag and
+            // insertFromDrop input, one change that starts a new undo step.
+            if (dropped.moving)
+                muya.editor.history.markInputBoundary('deleteByDrag', null);
+            muya.editor.history.recordModelInput('insertFromDrop', data, historyGroup => model.input({
                 kind: 'command',
+                historyGroup,
                 command: 'moveText',
                 selection: dropped.selection,
                 target: input.domRange,
@@ -513,8 +513,7 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
                     autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
                     tabSize: muya.options.tabSize,
                 },
-            }, draft);
-            muya.editor.history.cutoff();
+            }, draft));
             return;
         }
         applyInput(event, event.inputType, data);

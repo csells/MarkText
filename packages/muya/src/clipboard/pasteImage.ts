@@ -150,7 +150,7 @@ export async function pasteImageSrc(
         await model.prepareClipboard(selection, { imageSource: src }, async () => {
             const resolved = await clipboard.muya.options.imageAction?.({ src, alt: '', title: '' });
             return { markdown: `![](${encodeImageSrc(resolved || src)})` };
-        });
+        }, undefined, clipboard.muya.editor.history.preparedModelCommandGroup());
         return;
     }
 

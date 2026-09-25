@@ -370,6 +370,11 @@ class History {
         return committed;
     }
 
+    /** The step of a prepared model command, whose acceptance comes later. */
+    preparedModelCommandGroup(): number {
+        return this._commandGroup ?? this._currentInputGroup();
+    }
+
     private _currentInputGroup(): number {
         const timestamp = Date.now();
         if (!this._sharesInputGroup(timestamp))

@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { undoWindowClock } from '../helpers/separateUndoSteps'
+
+const clock = undoWindowClock()
 
 function richPaste(app: ReturnType<typeof bootBoundMuya>, text: string, html: string) {
   const payload: Record<string, string> = { 'text/plain': text, 'text/html': html }
@@ -39,6 +42,8 @@ it.each([
       })
       const caret = app.muya.editor.selection.getSelection()?.anchor.block
       if (!caret) throw new Error('Missing resulting paste selection')
+      // Typed over a second after the paste, the key is its own undo step.
+      clock.pause()
       caret.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
