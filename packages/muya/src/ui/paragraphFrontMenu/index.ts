@@ -200,10 +200,16 @@ export class ParagraphFrontMenu extends BaseFloat {
         if (!block?.parent)
             return;
 
+        const { documentEditing } = this.muya.editor;
+        // Upstream History groups the menu's change with the typing around it
+        // within its one-second window, so one Undo removes the conversion and
+        // the next key together. A bound document records the command as its
+        // own step instead.
         this.muya.flush();
-        this.muya.editor.history.cutoff();
+        if (documentEditing)
+            this.muya.editor.history.cutoff();
         try {
-            if (this.muya.editor.documentEditing && (label === 'duplicate' || label === 'new' || label === 'delete')) {
+            if (documentEditing && (label === 'duplicate' || label === 'new' || label === 'delete')) {
                 const content = block.firstContentInDescendant();
                 if (!content)
                     throw new Error('Block menu target has no content');
@@ -226,7 +232,8 @@ export class ParagraphFrontMenu extends BaseFloat {
         }
         finally {
             this.muya.flush();
-            this.muya.editor.history.cutoff();
+            if (documentEditing)
+                this.muya.editor.history.cutoff();
             // Delay hide to avoid dispatch enter handler
             setTimeout(this.hide.bind(this));
         }
