@@ -65,12 +65,12 @@ for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: tru
                 await page.keyboard.type('X');
                 if (bound) {
                     expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, legacyCalls: [] });
+                    // Upstream History groups the query or menu choice, the
+                    // quote and the next key typed within its one-second window.
                     await page.evaluate(() => window.coreBoundary.history('undo'));
-                    expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: quote } });
-                    await page.evaluate(() => window.coreBoundary.history('undo'));
-                    expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: menu === 'front' ? source : query } });
+                    expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source } });
                     await page.evaluate(() => window.coreBoundary.history('redo'));
-                    expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: quote });
+                    expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
                 }
                 else {
                     expect(await page.evaluate(() => {

@@ -1078,6 +1078,9 @@ export class Muya {
     ) {
         if (!block?.outMostBlock)
             return;
+        // Upstream records the table in the same undo step as the typing just
+        // before it, such as the `/table` query that opened the picker, and the
+        // key typed right after it (#5442).
         if (this.editor.documentEditing) {
             const retained = this.editor.selection;
             if (!retained.getDOMSelection()) {
@@ -1092,11 +1095,11 @@ export class Muya {
             const selection = retained.getDOMSelection();
             if (!selection)
                 throw new Error('Table creation has no document selection');
-            dispatchDocumentTableCommand(this, { command: 'createTable', rows, columns, replace, selection });
+            this.editor.history.groupCommands(() => {
+                dispatchDocumentTableCommand(this, { command: 'createTable', rows, columns, replace, selection });
+            });
             return;
         }
-        // Upstream records the table in the same undo step as the typing just
-        // before it, such as the `/table` query that opened the picker (#5442).
         this.editor.history.recordCommand(() => {
             if (!block.outMostBlock)
                 return;

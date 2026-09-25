@@ -61,13 +61,18 @@ for (const tracked of [false, true]) {
                 // The command's selected empty paragraph must govern the next trusted keys.
                 await page.keyboard.type('xy');
                 expect(await page.evaluate(() => ({ ...window.coreBoundary.read(), selectedText: window.muya!.getSelection()?.anchor.block.text }))).toMatchObject({ source: { source: example.typed }, anchor: 2, caret: 2, selectedText: 'xy', legacyCalls: [] });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.inserted }, anchor: 0, caret: 0 });
+                // Upstream History groups a quick-insert conversion with the keys
+                // typed within its one-second window.
+                if (!example.quick) {
+                    await page.evaluate(() => window.coreBoundary.history('undo'));
+                    expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.inserted }, anchor: 0, caret: 0 });
+                }
                 await page.evaluate(() => window.coreBoundary.history('undo'));
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.source }, anchor: example.anchor, caret: example.focus });
                 expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.source });
                 await page.evaluate(() => window.coreBoundary.history('redo'));
-                await page.evaluate(() => window.coreBoundary.history('redo'));
+                if (!example.quick)
+                    await page.evaluate(() => window.coreBoundary.history('redo'));
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.typed }, anchor: 2, caret: 2, legacyCalls: [] });
                 expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.typed });
             } finally { await page.evaluate(() => window.coreBoundary.dispose()); }

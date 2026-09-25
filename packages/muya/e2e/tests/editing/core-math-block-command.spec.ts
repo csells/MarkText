@@ -22,11 +22,10 @@ for (const trigger of ['/math', '/m{++a++}th', '/m{>>inside<<}ath']) {
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: converted }, anchor: 0, caret: 0, legacyCalls: [] });
                 await page.keyboard.type('x');
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, anchor: 1, caret: 1, legacyCalls: [] });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: converted } });
+                // Upstream History groups the conversion with the key typed
+                // within its one-second window.
                 await page.evaluate(() => window.coreBoundary.history('undo'));
                 expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
-                await page.evaluate(() => window.coreBoundary.history('redo'));
                 await page.evaluate(() => window.coreBoundary.history('redo'));
                 expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
             } finally { await page.evaluate(() => window.coreBoundary.dispose()); }

@@ -76,12 +76,11 @@ for (const example of [
                 await page.keyboard.type('xy');
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, anchor: 2, caret: 2, legacyCalls: [] });
                 await expect(page.locator(editor.frontmatter)).toHaveCount(1);
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: inserted }, anchor: 0, caret: 0 });
+                // Upstream History groups the conversion with the keys typed
+                // within its one-second window.
                 await page.evaluate(() => window.coreBoundary.history('undo'));
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, anchor: 6, caret: 6 });
                 expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
-                await page.evaluate(() => window.coreBoundary.history('redo'));
                 await page.evaluate(() => window.coreBoundary.history('redo'));
                 expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
             } finally { await page.evaluate(() => window.coreBoundary.dispose()); }
