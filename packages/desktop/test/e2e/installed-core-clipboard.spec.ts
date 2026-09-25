@@ -352,6 +352,9 @@ test.describe('installed Core projected clipboard authority', () => {
       await expect
         .poll(() => page.locator('span.mu-paragraph-content').allTextContents())
         .toEqual(['alpha copied', 'gonenew', 'beta', 'Zcopied', 'new', 'be'])
+      // Upstream History groups edits within one second; the key waits out
+      // the paste's window so each undoes on its own below.
+      await page.waitForTimeout(1100)
       await page.keyboard.type('X')
       expect(await page.locator('span.mu-paragraph-content').last().textContent()).toBe('beX')
       await saveAndExpect(app, filePath, typedPastedSource)
