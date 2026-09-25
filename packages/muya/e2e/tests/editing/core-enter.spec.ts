@@ -1,6 +1,10 @@
 import { devices } from '@playwright/test';
 import { expect, test } from '../fixtures/muya';
 import { floats } from '../helpers/selectors';
+import { pauseUndoWindow } from '../helpers/undoWindow';
+
+// Upstream History groups a structural key with keys typed within a second
+// of it; specs that check the key's own undo entry type after a pause.
 
 for (const key of ['Meta+Enter', 'Control+Enter', 'Alt+Enter']) {
     test(`Core ${key} defers to the visible Quick Insert menu`, async ({ page }) => {
@@ -50,6 +54,7 @@ for (const example of [
             await page.keyboard.press('Enter');
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.expected }, anchor: 0, caret: 0 });
             const typed = example.typed ?? 'x';
+            await pauseUndoWindow(page);
             await page.keyboard.type(typed);
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.next }, anchor: typed.length, caret: typed.length });
             await page.evaluate(() => window.coreBoundary.history('undo'));
@@ -90,6 +95,7 @@ for (const example of [
         try {
             await page.keyboard.press('key' in example ? example.key : 'Enter');
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.expected }, anchor: example.caret, caret: example.caret });
+            await pauseUndoWindow(page);
             await page.keyboard.type('x');
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.next }, anchor: example.caret + 1, caret: example.caret + 1 });
             expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.next });
@@ -126,6 +132,7 @@ for (const source of ['| a | b |\n', '| {++a++} | b |\n']) {
                 const expected = source.includes('{++') ? '| {++a++} | b   |\n| ------- | --- |\n|         |     |\n' : '| a   | b   |\n| --- | --- |\n|     |     |\n';
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected }, anchor: 0, caret: 0, legacyCalls: [] });
                 await expect(page.locator('table')).toHaveCount(1);
+                await pauseUndoWindow(page);
                 await page.keyboard.type('x');
                 // Typing writes the table afresh like upstream's, padded to its widest cell.
                 const next = source.includes('{++') ? '| {++a++} | b   |\n| ------- | --- |\n| x       |     |\n' : '| a   | b   |\n| --- | --- |\n| x   |     |\n';
@@ -168,6 +175,7 @@ for (const example of [
         try {
             await page.keyboard.press('Enter');
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.expected }, anchor: example.caret, caret: example.caret, legacyCalls: [] });
+            await pauseUndoWindow(page);
             await page.keyboard.type('x');
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.next }, anchor: example.caret + 1, caret: example.caret + 1, legacyCalls: [] });
             await page.evaluate(() => window.coreBoundary.history('undo'));
@@ -233,6 +241,7 @@ for (const example of [
             await page.keyboard.press(example.key);
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.expected }, anchor: example.caret, caret: example.caret, legacyCalls: [] });
             expect(await page.evaluate(() => window.coreBoundary.read().actions)).toHaveLength(1);
+            await pauseUndoWindow(page);
             await page.keyboard.type('x');
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.next }, anchor: example.caret + 1, caret: example.caret + 1, legacyCalls: [] });
             await page.evaluate(() => window.coreBoundary.history('undo'));
@@ -275,6 +284,7 @@ test.describe('macOS table command', () => {
                         inserted = inserted.nextContentInContext()!.nextContentInContext()!;
                     return window.muya!.getSelection()?.anchor.block === inserted;
                 }, 'body' in example)).toBe(true);
+                await pauseUndoWindow(page);
                 await page.keyboard.type('x');
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: next }, anchor: 1, caret: 1, legacyCalls: [] });
                 await page.evaluate(() => window.coreBoundary.history('undo'));

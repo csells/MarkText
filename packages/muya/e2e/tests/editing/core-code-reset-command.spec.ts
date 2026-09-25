@@ -1,4 +1,7 @@
 import { expect, test } from '../fixtures/muya';
+import { separateUndoSteps } from '../helpers/undoWindow';
+
+test.beforeEach(async ({ page }) => separateUndoSteps(page));
 
 const examples = [
     { label: 'fenced', source: '```\ncode here\n```\n', reset: 'code here\n', typed: 'coxde here\n' },

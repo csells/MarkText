@@ -1,5 +1,8 @@
 import process from 'node:process';
 import { expect, test } from '../fixtures/muya';
+import { separateUndoSteps } from '../helpers/undoWindow';
+
+test.beforeEach(async ({ page }) => separateUndoSteps(page));
 
 for (const payload of ['external same', 'https://example.test/same%20same#view']) {
 test(`trusted external drop ${payload} submits its browser target before native mutation`, async ({ page }) => {

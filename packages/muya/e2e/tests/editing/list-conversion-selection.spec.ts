@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { pauseUndoWindow } from '../helpers/undoWindow';
 
 for (const middle of ['alpha', 'bravo']) {
     test(`native list conversion retains selected child identity (${middle})`, async ({ page }) => {
@@ -21,6 +22,8 @@ for (const middle of ['alpha', 'bravo']) {
             const selection = window.muya!.getSelection()!;
             return { anchor: selection.anchor.offset, focus: selection.focus.offset, anchorPath: selection.anchor.path, focusPath: selection.focus.path };
         })).toEqual({ anchor: 1, focus: 2, anchorPath: [0, 'children', 1, 'children', 0, 'text'], focusPath: [0, 'children', 2, 'children', 0, 'text'] });
+        // Typed over a second after the conversion, the key is its own undo step.
+        await pauseUndoWindow(page);
         await page.keyboard.type('X');
         expect(await read()).toBe(`1. alpha\n2. ${middle[0]}Xpha\n`);
         for (const expected of [converted, source]) {

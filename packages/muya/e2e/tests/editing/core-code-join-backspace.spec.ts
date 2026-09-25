@@ -1,4 +1,7 @@
 import { expect, test } from '../fixtures/muya';
+import { holdUndoSteps, separateUndoSteps } from '../helpers/undoWindow';
+
+test.beforeEach(async ({ page }) => separateUndoSteps(page));
 
 const examples = [
     { name: 'plain', body: 'a', donor: 'b' },
@@ -65,6 +68,8 @@ for (const { name, body, donor, ending, tracked } of examples) {
 }
 
 test('typing after a code boundary uses the selected paragraph syntax and resulting selection', async ({ page }) => {
+    // The wrap and the key typed right after it are one upstream undo step.
+    await holdUndoSteps(page);
     const source = '```\na\n```\nb\n';
     const wrapped = '```\na\n```\n*b*\n';
     const typed = '```\na\n```\n*x*\n';
