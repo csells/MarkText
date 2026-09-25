@@ -131,9 +131,10 @@ export function planInput(core: DocumentCore, revision: DocumentRevision, action
   const plan = planUnspelledInput(core, revision, action, enterConversion, physicalLines, regionalSyntax, untracked)
   if (!untracked || preview === undefined) return plan
   if (!('kind' in action)) {
+    if (action.selection.kind !== 'table-cell') return respellEnteredTable(core, revision, action, plan, preview)
     // Enter in a table's last row and text written into a cell a short row
     // lacks edit that table too; their plans have no cell text to overlay.
-    if (action.selection.kind !== 'table-cell' || plan.edits.length === 0) return plan
+    if (plan.edits.length === 0) return plan
     const cell = resolveTableCell(core, revision, action.selection.cell)
     if (cell.slotStart !== undefined && action.inputType !== 'insertParagraph') return plan
     return Object.freeze(respellTableResult(plan, cell.syntax.coordinates.toSource(cell.table.range.start, 'previous'), preview, true))
@@ -153,6 +154,17 @@ export function planInput(core: DocumentCore, revision: DocumentRevision, action
     return Object.freeze(respellTableResult(plan, target.syntax.coordinates.toSource(target.table.range.start, 'previous'), preview))
   }
   return Object.freeze(respellEditedTable(core, revision, plan, inputSourceRange(core, revision, action.selection), preview))
+}
+
+/**
+ * Upstream writes the table that Enter makes of a header paragraph through its
+ * serializer, so the new table arrives padded to its widest cell.
+ */
+function respellEnteredTable(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, preview: TablePreview): DocumentInputPlan {
+  const first = plan.edits[0]
+  if ('kind' in action || action.inputType !== 'insertParagraph' || first === undefined ||
+    tableAt(core.project(revision, 'markup').syntax, first.start) !== undefined) return plan
+  return Object.freeze(respellTableResult(plan, first.start, preview))
 }
 
 const tableBoundaryCommands = new Set(['joinParagraphBackward', 'joinParagraphForward', 'exitTable'])

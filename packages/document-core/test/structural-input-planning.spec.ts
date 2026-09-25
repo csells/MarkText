@@ -88,16 +88,29 @@ it.each([
   expect(core.apply(previous, core.inputEdits(previous, inputAction, plan, false) ?? []).revision.source).toBe(expected)
 })
 
-it('turns an owned table header paragraph into a table on Enter without rewriting its cells', () => {
+it.each([
+  { source: '| a | b |\n', expected: '| a   | b   |\n| --- | --- |\n|     |     |\n', caret: 34 },
+  { source: '| {++a++} | b |\n', expected: '| {++a++} | b   |\n| ------- | --- |\n|         |     |\n', caret: 46 }
+])('writes the table an owned header paragraph $source becomes on Enter as upstream serializes it', ({ source, expected, caret }) => {
+  const core = createDocumentCore()
+  const previous = core.open(source)
+  const selection = { start: source.length - 1, end: source.length - 1 }
+  const inputAction: DocumentInputAction = { selection: { ranges: [{ anchor: selection.start, focus: selection.end }], primary: 0 }, range: selection, inputType: 'insertParagraph', data: '\n', options }
+  const plan = core.planInput(previous, inputAction, { tracked: false })
+  const current = core.apply(previous, core.inputEdits(previous, inputAction, plan, false) ?? []).revision
+  expect(current.source).toBe(expected)
+  // The caret closes the first body cell's empty text, as a new row's does.
+  expect(plan.selection).toEqual({ ranges: [{ anchor: caret, focus: caret }], primary: 0 })
+  expect(core.project(current, 'markup').syntax.ast.root.children[0]?.kind).toBe('table')
+})
+
+it('suggests only the rows a tracked Enter adds to an owned header paragraph', () => {
   const core = createDocumentCore()
   const previous = core.open('| a | b |\n')
   const selection = { start: 9, end: 9 }
   const inputAction: DocumentInputAction = { selection: { ranges: [{ anchor: selection.start, focus: selection.end }], primary: 0 }, range: selection, inputType: 'insertParagraph', data: '\n', options }
-  const plan = core.planInput(previous, inputAction)
-  const current = core.apply(previous, core.inputEdits(previous, inputAction, plan, false) ?? []).revision
-  expect(current.source).toBe('| a | b |\n| --- | --- |\n| | |\n')
-  expect(plan.selection).toEqual({ ranges: [{ anchor: 26, focus: 26 }], primary: 0 })
-  expect(core.project(current, 'markup').syntax.ast.root.children[0]?.kind).toBe('table')
+  const plan = core.planInput(previous, inputAction, { tracked: true })
+  expect(plan.edits).toEqual([{ start: 9, end: 9, insert: '\n| --- | --- |\n| | |' }])
 })
 
 it.each(['```js\n', '~~~js\n'])('completes the owned empty fence opener %s before entering its body', source => {
