@@ -25,7 +25,7 @@ test.describe('ImageResizeBar after the image is deleted (#5216)', () => {
         const errors = collectErrors(page);
         const innerImg = await loadImage(page);
 
-        await innerImg.evaluate((img) => {
+        await innerImg.evaluate((img: HTMLElement) => {
             img.click();
             document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
         });

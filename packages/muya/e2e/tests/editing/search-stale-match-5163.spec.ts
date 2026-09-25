@@ -23,7 +23,7 @@ test('#5163 closing search after the matched heading was turned into a paragraph
     await page.evaluate(() => window.muya!.setContent('# foo\n\nbar\n'));
     await page.evaluate(() => window.muya!.search('foo'));
     await page.evaluate(() => {
-        window.muya!.editor.scrollPage.firstContentInDescendant().setCursor(0, 0, true);
+        window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(0, 0, true);
     });
     await page.waitForTimeout(150);
     await page.keyboard.press('Backspace');
