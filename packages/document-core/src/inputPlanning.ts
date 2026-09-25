@@ -139,6 +139,11 @@ export function planInput(core: DocumentCore, revision: DocumentRevision, action
     if (cell.slotStart !== undefined && action.inputType !== 'insertParagraph') return plan
     return Object.freeze(respellTableResult(plan, cell.syntax.coordinates.toSource(cell.table.range.start, 'previous'), preview, true))
   }
+  // Upstream writes a table afresh when dropped text enters or leaves its cells.
+  if (action.command === 'moveText') {
+    const entered = respellEditedTable(core, revision, plan, inputSourceRange(core, revision, action.target), preview)
+    return Object.freeze(respellEditedTable(core, revision, entered, inputSourceRange(core, revision, action.selection), preview))
+  }
   // A command that moves text into or out of a table's cells edits that table.
   if (tableBoundaryCommands.has(action.command)) {
     const first = plan.edits[0]
