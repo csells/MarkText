@@ -54,6 +54,7 @@ export type IDocumentFormatInput = {
         readonly anchor: DocumentDOMPoint;
         readonly focus: DocumentDOMPoint;
     };
+    readonly historyGroup?: number;
 } & ({
     readonly format: 'strong' | 'em' | 'del' | 'inline_code' | 'inline_math' | 'u' | 'mark' | 'sub' | 'sup' | 'link' | 'image' | 'unlink' | 'clear';
     readonly image?: Readonly<{ src: string; alt: string }>;
