@@ -2257,6 +2257,7 @@ export function createCoreActor(
       const requestedGroup =
         request.type === 'source-input' ||
         request.type === 'input' ||
+        request.type === 'format' ||
         request.type === 'apply' ||
         request.type === 'track'
           ? request.nativeHistoryGroup
