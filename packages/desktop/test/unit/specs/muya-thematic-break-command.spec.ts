@@ -64,11 +64,10 @@ it.each([false, true])(
         expect(muya.getSelection()).toMatchObject({ anchor: { offset: 1 }, focus: { offset: 1 } })
         muya.flush()
         expect(app.legacyChanges).toEqual([])
-        await app.adapter.history('undo', app.reconcile)
-        expect(app.binding.sourceAtBarrier()).toMatchObject({ source: '---\n\n\n' })
+        // Upstream History groups the conversion with the key typed within its
+        // one-second window.
         await app.adapter.history('undo', app.reconcile)
         expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
-        await app.adapter.history('redo', app.reconcile)
         await app.adapter.history('redo', app.reconcile)
         expect(app.binding.sourceAtBarrier()).toMatchObject({ source: '---\n\nx\n' })
         const reopened = bootBoundMuya('---\n\nx\n')
@@ -137,11 +136,10 @@ it('creates the following paragraph before existing content and owns the next ke
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
     expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 1 }, focus: { offset: 1 } })
     expect(app.legacyChanges).toEqual([])
-    await app.adapter.history('undo', app.reconcile)
-    expect(app.binding.sourceAtBarrier()).toMatchObject({ source: inserted })
+    // Upstream History groups the conversion with the key typed within its
+    // one-second window.
     await app.adapter.history('undo', app.reconcile)
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
-    await app.adapter.history('redo', app.reconcile)
     await app.adapter.history('redo', app.reconcile)
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
     const reopened = bootBoundMuya(typed)
@@ -342,8 +340,12 @@ it.each(creationCases)(
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 2 }, focus: { offset: 2 } })
       app.muya.flush()
       expect(app.legacyChanges).toEqual([])
-      await app.adapter.history('undo', app.reconcile)
-      expect(app.binding.sourceAtBarrier()).toMatchObject({ source: inserted })
+      // Upstream History groups a quick-insert conversion with the keys typed
+      // within its one-second window.
+      if (!example.quick) {
+        await app.adapter.history('undo', app.reconcile)
+        expect(app.binding.sourceAtBarrier()).toMatchObject({ source: inserted })
+      }
       await app.adapter.history('undo', app.reconcile)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
       expect(app.muya.getSelection()).toMatchObject({
@@ -351,7 +353,7 @@ it.each(creationCases)(
         focus: { offset: example.focus }
       })
       await app.adapter.history('redo', app.reconcile)
-      await app.adapter.history('redo', app.reconcile)
+      if (!example.quick) await app.adapter.history('redo', app.reconcile)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
       const reopened = bootBoundMuya(typed)
       try {
@@ -473,11 +475,10 @@ it.each(
       )
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
       expect(app.legacyChanges).toEqual([])
-      await app.adapter.history('undo', app.reconcile)
-      expect(app.binding.sourceAtBarrier()).toMatchObject({ source: inserted })
+      // Upstream History groups the conversion with the key typed within its
+      // one-second window.
       await app.adapter.history('undo', app.reconcile)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: example.source })
-      await app.adapter.history('redo', app.reconcile)
       await app.adapter.history('redo', app.reconcile)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
       const reopened = bootBoundMuya(typed)

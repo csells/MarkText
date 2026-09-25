@@ -19,7 +19,6 @@ import { preserveSystemClipboard } from './helpers/systemClipboardFixture'
 for (const middle of ['aaa', 'a{++a++}a{>>keep<<}']) {
   test(`mounted table dialog retains target, next input and history (${middle === 'aaa' ? 'plain' : 'CM'})`, async() => {
     const source = `aaa\n\n${middle}\n\nlast\n`
-    const created = `aaa\n\n${middle}\n\n|     |     |\n| --- | --- |\n|     |     |\n\nlast\n`
     // Upstream MarkText writes an edited table afresh with padded cells.
     const typed = `aaa\n\n${middle}\n\n| X   |     |\n| --- | --- |\n|     |     |\n\nlast\n`
     const options = {
@@ -74,16 +73,14 @@ for (const middle of ['aaa', 'a{++a++}a{>>keep<<}']) {
       await page.keyboard.type('X')
       await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
       await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(typed)
-      for (const expected of [created, source]) {
-        await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
-        await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
-        await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(expected)
-      }
-      for (const expected of [created, typed]) {
-        await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
-        await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
-        await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(expected)
-      }
+      // Upstream History groups the table with the key typed within its
+      // one-second window.
+      await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+      await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+      await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(source)
+      await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
+      await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+      await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(typed)
       await expectEditorWindowHidden(app)
       expectEditorNotFrontmost(app)
       await expectNoRendererErrors(app)
@@ -131,7 +128,6 @@ for (const { middle, cancel } of [
     )
     const source = `aaa\n\n${middle}\n\nlast\n`
     const imported = `aaaimported\n\n${middle}\n\nlast\n`
-    const created = `aaaimported\n\n${middle}\n\n|     |     |\n| --- | --- |\n|     |     |\n\nlast\n`
     // Upstream MarkText writes an edited table afresh with padded cells.
     const typed = cancel
       ? 'aaaimported\n\naaaX\n\nlast\n'
@@ -258,12 +254,14 @@ for (const { middle, cancel } of [
       }
       await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
       await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(typed)
-      for (const expected of cancel ? [imported, source] : [created, imported, source]) {
+      // Upstream History groups the table with the key typed within its
+      // one-second window.
+      for (const expected of [imported, source]) {
         await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
         await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
         await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(expected)
       }
-      for (const expected of cancel ? [imported, typed] : [imported, created, typed]) {
+      for (const expected of [imported, typed]) {
         await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')
         await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
         await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(expected)

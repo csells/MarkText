@@ -33,12 +33,17 @@ for (const example of [
             await page.keyboard.type('X');
             const typed = example.expected.replace('alpha\n', 'aXlpha\n');
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.expected } });
+            // Upstream History groups the front menu's conversion with the key
+            // typed within its one-second window.
+            const grouped = example.command === 'front';
+            if (!grouped) {
+                await page.evaluate(() => window.coreBoundary.history('undo'));
+                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.expected } });
+            }
             await page.evaluate(() => window.coreBoundary.history('undo'));
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.source } });
             await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: example.expected });
+            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: grouped ? typed : example.expected });
         }
         finally { await page.evaluate(() => window.coreBoundary.dispose()); }
     });

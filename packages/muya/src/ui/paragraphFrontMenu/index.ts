@@ -203,37 +203,34 @@ export class ParagraphFrontMenu extends BaseFloat {
         const { documentEditing } = this.muya.editor;
         // Upstream History groups the menu's change with the typing around it
         // within its one-second window, so one Undo removes the conversion and
-        // the next key together. A bound document records the command as its
-        // own step instead.
+        // the next key together.
         this.muya.flush();
-        if (documentEditing)
-            this.muya.editor.history.cutoff();
         try {
-            if (documentEditing && (label === 'duplicate' || label === 'new' || label === 'delete')) {
-                const content = block.firstContentInDescendant();
-                if (!content)
-                    throw new Error('Block menu target has no content');
-                const at = this.muya.editor.selection.getDOMPoint({ path: content.path, offset: 0 });
-                if (!at)
-                    throw new Error('Block menu target has no document position');
-                const selection = this.muya.editor.selection.getDOMSelection() ?? { anchor: at, focus: at };
-                dispatchDocumentBlock(this.muya, { type: label, at, scope: 'outer', selectionMode: 'start' }, selection);
-                return;
-            }
-            const oldState = block.getState();
-            const cursorBlock = /duplicate|new|delete/.test(label)
-                ? this._applyMetaAction(label, block, oldState)
-                : this._turnIntoBlock(label, block, oldState);
+            this.muya.editor.history.groupCommands(() => {
+                if (documentEditing && (label === 'duplicate' || label === 'new' || label === 'delete')) {
+                    const content = block.firstContentInDescendant();
+                    if (!content)
+                        throw new Error('Block menu target has no content');
+                    const at = this.muya.editor.selection.getDOMPoint({ path: content.path, offset: 0 });
+                    if (!at)
+                        throw new Error('Block menu target has no document position');
+                    const selection = this.muya.editor.selection.getDOMSelection() ?? { anchor: at, focus: at };
+                    dispatchDocumentBlock(this.muya, { type: label, at, scope: 'outer', selectionMode: 'start' }, selection);
+                    return;
+                }
+                const oldState = block.getState();
+                const cursorBlock = /duplicate|new|delete/.test(label)
+                    ? this._applyMetaAction(label, block, oldState)
+                    : this._turnIntoBlock(label, block, oldState);
 
-            if (cursorBlock) {
-                // mock cursorBlock focus
-                cursorBlock.setCursor(0, 0, true);
-            }
+                if (cursorBlock) {
+                    // mock cursorBlock focus
+                    cursorBlock.setCursor(0, 0, true);
+                }
+            });
         }
         finally {
             this.muya.flush();
-            if (documentEditing)
-                this.muya.editor.history.cutoff();
             // Delay hide to avoid dispatch enter handler
             setTimeout(this.hide.bind(this));
         }

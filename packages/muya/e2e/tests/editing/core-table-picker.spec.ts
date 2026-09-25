@@ -39,17 +39,12 @@ for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: tru
             await expect(page.locator(editor.table).last().locator('tr')).toHaveCount(2);
             await page.keyboard.type('X');
             expect(await read()).toBe(edited);
-            // A bound document records the command as its own step; upstream
-            // History groups the query, the table and the next key typed within
-            // its one-second window into one.
-            for (const expected of bound ? [created, query + tail] : [source]) {
-                await page.evaluate(async (bound) => { if (bound) await window.coreBoundary.history('undo'); else window.muya!.undo(); }, bound);
-                expect(await read()).toBe(expected);
-            }
-            for (const expected of bound ? [created, edited] : [edited]) {
-                await page.evaluate(async (bound) => { if (bound) await window.coreBoundary.history('redo'); else window.muya!.redo(); }, bound);
-                expect(await read()).toBe(expected);
-            }
+            // Upstream History groups the query, the table and the next key
+            // typed within its one-second window into one step.
+            await page.evaluate(async (bound) => { if (bound) await window.coreBoundary.history('undo'); else window.muya!.undo(); }, bound);
+            expect(await read()).toBe(source);
+            await page.evaluate(async (bound) => { if (bound) await window.coreBoundary.history('redo'); else window.muya!.redo(); }, bound);
+            expect(await read()).toBe(edited);
             if (bound)
                 expect(await page.evaluate(() => window.coreBoundary.read().legacyCalls)).toEqual([]);
         }
@@ -96,15 +91,11 @@ for (const bound of [false, true]) {
                 await page.keyboard.type('X');
                 expect(await read()).toBe(edited);
                 // Upstream History groups the table with the key typed within
-                // its one-second window; a bound document keeps them apart.
-                for (const expected of bound ? [created, source] : [source]) {
-                    await page.evaluate(async (bound) => { if (bound) await window.coreBoundary.history('undo'); else window.muya!.undo(); }, bound);
-                    expect(await read()).toBe(expected);
-                }
-                for (const expected of bound ? [created, edited] : [edited]) {
-                    await page.evaluate(async (bound) => { if (bound) await window.coreBoundary.history('redo'); else window.muya!.redo(); }, bound);
-                    expect(await read()).toBe(expected);
-                }
+                // its one-second window.
+                await page.evaluate(async (bound) => { if (bound) await window.coreBoundary.history('undo'); else window.muya!.undo(); }, bound);
+                expect(await read()).toBe(source);
+                await page.evaluate(async (bound) => { if (bound) await window.coreBoundary.history('redo'); else window.muya!.redo(); }, bound);
+                expect(await read()).toBe(edited);
                 if (bound)
                     expect(await page.evaluate(() => window.coreBoundary.read().legacyCalls)).toEqual([]);
             }

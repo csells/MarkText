@@ -18,11 +18,10 @@ for (const key of ['Meta+Enter', 'Control+Enter', 'Alt+Enter']) {
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: '$$\n\n$$\n' }, anchor: 0, caret: 0, legacyCalls: [] });
             await page.keyboard.type('x');
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: '$$\nx\n$$\n' }, anchor: 1, caret: 1, legacyCalls: [] });
-            await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: '$$\n\n$$\n' } });
+            // Upstream History groups the conversion with the key typed within
+            // its one-second window.
             await page.evaluate(() => window.coreBoundary.history('undo'));
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: '/math\n' } });
-            await page.evaluate(() => window.coreBoundary.history('redo'));
             await page.evaluate(() => window.coreBoundary.history('redo'));
             expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: '$$\nx\n$$\n' });
         } finally { await page.evaluate(() => window.coreBoundary.dispose()); }

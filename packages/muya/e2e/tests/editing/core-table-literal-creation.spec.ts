@@ -47,13 +47,11 @@ for (const bound of [false, true]) {
                 const edited = `${prefix}| X   |     |\n| --- | --- |\n|     |     |\n`;
                 expect(await read()).toBe(edited);
                 // Upstream History groups the table with the key typed within
-                // its one-second window; a bound document keeps them apart.
-                for (const expected of bound ? [created, fixture.source] : [fixture.source]) {
-                    await page.evaluate(async (bound) => { if (bound) await window.coreBoundary.history('undo'); else window.muya!.undo(); }, bound);
-                    expect(await read()).toBe(expected);
-                }
+                // its one-second window.
+                await page.evaluate(async (bound) => { if (bound) await window.coreBoundary.history('undo'); else window.muya!.undo(); }, bound);
+                expect(await read()).toBe(fixture.source);
                 await page.evaluate(async (bound) => { if (bound) await window.coreBoundary.history('redo'); else window.muya!.redo(); }, bound);
-                expect(await read()).toBe(bound ? created : edited);
+                expect(await read()).toBe(edited);
                 if (bound)
                     expect(await page.evaluate(() => window.coreBoundary.read().legacyCalls)).toEqual([]);
             }
