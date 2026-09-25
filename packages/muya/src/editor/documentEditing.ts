@@ -874,8 +874,10 @@ export function dispatchDocumentFormat(muya: Muya, type: string): boolean {
         return false;
     muya.flush();
     const selection = muya.editor.selection.getDOMSelection();
-    if (selection)
-        model.format({ format: type as Exclude<DocumentFormatInput['format'], 'image-properties'>, selection });
+    if (selection) {
+        const format = type as Exclude<DocumentFormatInput['format'], 'image-properties'>;
+        muya.editor.history.recordModelCommand(historyGroup => model.format({ format, selection, historyGroup }));
+    }
     if (type === 'image')
         muya.showImageSelectorAtSelection();
     return true;

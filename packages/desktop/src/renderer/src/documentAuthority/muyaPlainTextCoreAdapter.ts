@@ -151,9 +151,11 @@ export interface MuyaPlainTextCoreAdapter {
     action: DocumentClipboardAction,
     reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
   ): Readonly<{ accepted: boolean; changed: boolean }>
+  /** `historyGroup` is Muya's undo step for this command, as for `input`. */
   format(
     action: DocumentFormatAction,
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+    historyGroup?: number
   ): Readonly<{ accepted: boolean; changed: boolean }>
   selectionSourceRange(
     selection: MuyaPlainTextAuthorSelection
@@ -228,6 +230,7 @@ type PendingCommand =
   | Readonly<{
     readonly kind: 'format'
     readonly action: DocumentFormatAction
+    readonly nativeHistoryGroup?: string
     readonly reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
     readonly resolve: (outcome: CoreAppliedReply | undefined) => void
     readonly reject: (error: Error) => void
@@ -593,6 +596,9 @@ export function createMuyaPlainTextCoreAdapter(
               ? Object.freeze({
                 kind: 'format' as const,
                 action: command.action,
+                ...(command.nativeHistoryGroup === undefined
+                  ? {}
+                  : { nativeHistoryGroup: command.nativeHistoryGroup }),
                 projections: Object.freeze([])
               })
               : command.kind === 'track'
@@ -1176,7 +1182,8 @@ export function createMuyaPlainTextCoreAdapter(
     },
     format(
       action: DocumentFormatAction,
-      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+      historyGroup?: number
     ): Readonly<{ accepted: boolean; changed: boolean }> {
       latestNativeChange = action
       if (disposed || terminalError !== undefined || composing) {
@@ -1193,6 +1200,9 @@ export function createMuyaPlainTextCoreAdapter(
         Object.freeze({
           kind: 'format',
           action: structuredClone(action),
+          ...(historyGroup === undefined
+            ? {}
+            : { nativeHistoryGroup: `${directHistoryScope}:${historyGroup}` }),
           reconcile,
           resolve: (outcome) => {
             accepted = outcome !== undefined

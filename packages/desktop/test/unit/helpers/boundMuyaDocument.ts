@@ -130,7 +130,11 @@ export const bootBoundMuya = (source: string, options?: EditorCoreOpenInput['opt
       return result.changed
     },
     format(operation) {
-      const result = adapter.format(muyaFormatToModel(muya, view(), operation, tracking), reconcile)
+      const result = adapter.format(
+        muyaFormatToModel(muya, view(), operation, tracking),
+        reconcile,
+        operation.historyGroup
+      )
       return result.changed
     },
     input(operation, present) {

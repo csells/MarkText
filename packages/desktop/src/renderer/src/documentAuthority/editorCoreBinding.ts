@@ -106,6 +106,7 @@ export type EditorCoreSubmitInput =
   | Readonly<{
     readonly kind: 'format'
     readonly action: DocumentFormatAction
+    readonly nativeHistoryGroup?: string
     readonly projections: readonly DocumentProjectionRequest[]
   }>
   | Readonly<{
@@ -484,6 +485,9 @@ export function createEditorCoreBinding(port: CoreModelOwner): EditorCoreBinding
                     sequence: transactionId,
                     baseRevision: revision,
                     action: copyFormatAction(input.action),
+                    ...(input.nativeHistoryGroup === undefined
+                      ? {}
+                      : { nativeHistoryGroup: input.nativeHistoryGroup }),
                     projections
                   })
                   : input.kind === 'input'

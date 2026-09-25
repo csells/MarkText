@@ -148,6 +148,7 @@ export type CoreRequest =
   | Readonly<{
     readonly type: 'format'
     readonly action: DocumentFormatAction
+    readonly nativeHistoryGroup?: string
     readonly session: number
     readonly sequence: number
     readonly baseRevision: number
