@@ -13,7 +13,7 @@ test('#5055 Backspace after the selected image\'s paragraph was removed does not
     await image.locator('img').first().click();
 
     await page.evaluate(() => {
-        window.muya!.editor.scrollPage.lastChild.remove();
+        window.muya!.editor.scrollPage!.lastChild!.remove();
     });
     await page.keyboard.press('Backspace');
     await page.waitForTimeout(300);

@@ -11,7 +11,7 @@ function collectErrors(page: Page): string[] {
 async function openMenuInNewParagraph(page: Page): Promise<void> {
     await page.evaluate(() => window.muya!.setContent('first\n'));
     await page.evaluate(() => {
-        window.muya!.editor.scrollPage.firstContentInDescendant().setCursor(5, 5, true);
+        window.muya!.editor.scrollPage!.firstContentInDescendant()!.setCursor(5, 5, true);
     });
     await page.waitForTimeout(150);
     await page.keyboard.press('Enter');
@@ -25,7 +25,7 @@ test.describe('quick-insert menu whose paragraph left the document (#5213)', () 
         await openMenuInNewParagraph(page);
 
         await page.evaluate(() => {
-            window.muya!.editor.activeContentBlock.parent.remove();
+            window.muya!.editor.activeContentBlock!.parent!.remove();
         });
         await page.locator(quickInsertItem('bullet-list')).click({ force: true });
         await page.waitForTimeout(300);
