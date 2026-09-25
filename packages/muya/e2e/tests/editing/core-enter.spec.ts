@@ -123,7 +123,8 @@ for (const source of ['| a | b |\n', '| {++a++} | b |\n']) {
             }, source);
             try {
                 await page.keyboard.press(key);
-                const expected = `${source.slice(0, -1)}\n| --- | --- |\n| | |\n`;
+                // Upstream writes the new table through its serializer, padded to its widest cell.
+                const expected = source.includes('{++') ? '| {++a++} | b   |\n| ------- | --- |\n|         |     |\n' : '| a   | b   |\n| --- | --- |\n|     |     |\n';
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected }, anchor: 0, caret: 0, legacyCalls: [] });
                 await expect(page.locator('table')).toHaveCount(1);
                 await page.keyboard.type('x');

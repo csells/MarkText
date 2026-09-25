@@ -179,9 +179,14 @@ for (const modifier of ['metaKey', 'ctrlKey', 'altKey'] as const) {
           cancelable: true
         })
         content.domNode!.dispatchEvent(event)
+        // Upstream writes the new table through its serializer, padded to its
+        // widest cell, and writes it afresh again after the cell edit.
         const afterEnter =
-          source === '$$\n' ? '$$\n\n$$\n' : `${source.slice(0, -1)}\n| --- | --- |\n| | |\n`
-        // Upstream writes the table afresh after the cell edit.
+          source === '$$\n'
+            ? '$$\n\n$$\n'
+            : source === '| a | b |\n'
+              ? '| a   | b   |\n| --- | --- |\n|     |     |\n'
+              : '| {++a++} | b   |\n| ------- | --- |\n|         |     |\n'
         const afterTyping =
           source === '$$\n'
             ? '$$\nx\n$$\n'
