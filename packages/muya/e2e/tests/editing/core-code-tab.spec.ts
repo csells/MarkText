@@ -1,4 +1,7 @@
 import { expect, test } from '../fixtures/muya';
+import { separateUndoSteps } from '../helpers/undoWindow';
+
+test.beforeEach(async ({ page }) => separateUndoSteps(page));
 
 for (const example of [
     { language: 'js', body: 'ab', before: 1, after: 5, focus: 5, tabbed: 'a    b', typed: 'a    xb' },

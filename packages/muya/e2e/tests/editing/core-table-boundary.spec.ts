@@ -1,4 +1,7 @@
 import { expect, test } from '../fixtures/muya';
+import { holdUndoSteps, separateUndoSteps } from '../helpers/undoWindow';
+
+test.beforeEach(async ({ page }) => separateUndoSteps(page));
 
 for (const bound of [false, true]) {
     test(`${bound ? 'Core annotated' : 'upstream'} first-cell Backspace preserves a nonempty table`, async ({ page }) => {
@@ -61,6 +64,7 @@ for (const example of [
         try {
             await page.keyboard.press(example.key);
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.expected }, anchor: 0, caret: 0, legacyCalls: [] });
+            await holdUndoSteps(page);
             await page.keyboard.type('X');
             await testInfo.attach('input-observation', { body: JSON.stringify(await page.evaluate(() => ({ ...window.coreBoundary.read(), recovery: window.coreBoundary.recovery(), state: window.muya!.getState() }))), contentType: 'application/json' });
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.next }, anchor: 1, caret: 1, legacyCalls: [] });

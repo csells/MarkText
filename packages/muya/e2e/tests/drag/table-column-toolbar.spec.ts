@@ -2,6 +2,9 @@ import type { Page } from '@playwright/test';
 import { expect, test } from '../fixtures/muya';
 import { getMarkdown } from '../helpers/api';
 import { editor, floats } from '../helpers/selectors';
+import { separateUndoSteps } from '../helpers/undoWindow';
+
+test.beforeEach(async ({ page }) => separateUndoSteps(page));
 
 /**
  * TableColumnToolbar (the `.mu-table-column-tools` per-column alignment +

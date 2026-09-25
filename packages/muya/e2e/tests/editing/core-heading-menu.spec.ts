@@ -1,4 +1,7 @@
 import { expect, test } from '../fixtures/muya';
+import { separateUndoSteps } from '../helpers/undoWindow';
+
+test.beforeEach(async ({ page }) => separateUndoSteps(page));
 
 for (const level of [1, 2, 3, 4, 5, 6]) {
 test(`Heading ${level} menu uses the common model selection before the next key`, async ({ page }) => {

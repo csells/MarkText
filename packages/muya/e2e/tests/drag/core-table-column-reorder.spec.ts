@@ -2,6 +2,9 @@ import { writeFile } from 'node:fs/promises';
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from '../fixtures/muya';
 import { editor, floats } from '../helpers/selectors';
+import { separateUndoSteps } from '../helpers/undoWindow';
+
+test.beforeEach(async ({ page }) => separateUndoSteps(page));
 
 async function moveDimension(page: Page, table: Locator, from: number, to: number, axis: 'row' | 'column' = 'column') {
     const cell = (index: number) => axis === 'column' ? table.locator('tr').last().locator('td').nth(index) : table.locator('tr').nth(index).locator('td').last();

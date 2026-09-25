@@ -1,5 +1,6 @@
 import { expect, test } from '../fixtures/muya';
 import { floats } from '../helpers/selectors';
+import { pauseUndoWindow } from '../helpers/undoWindow';
 
 for (const example of [
     { name: 'menu conversion', command: 'ol-order', source: '- a{++l++}pha{>>keep<<}\n- alpha\n', expected: '1. a{++l++}pha{>>keep<<}\n2. alpha\n' },
@@ -33,17 +34,12 @@ for (const example of [
             await page.keyboard.type('X');
             const typed = example.expected.replace('alpha\n', 'aXlpha\n');
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, legacyCalls: [] });
-            // Upstream History groups the front menu's conversion with the key
-            // typed within its one-second window.
-            const grouped = example.command === 'front';
-            if (!grouped) {
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.expected } });
-            }
+            // Upstream History groups the conversion, from the menu bar or the
+            // front menu, with the key typed within its one-second window.
             await page.evaluate(() => window.coreBoundary.history('undo'));
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: example.source } });
             await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: grouped ? typed : example.expected });
+            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
         }
         finally { await page.evaluate(() => window.coreBoundary.dispose()); }
     });
@@ -77,12 +73,10 @@ test('tracked multiline list conversion uses its resulting selection for the nex
         await page.keyboard.type('Y');
         const following = typed.replace('{++X++}', '{++XY++}');
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: following }, anchor: 2, caret: 2, legacyCalls: [], browserEvents: expect.arrayContaining([expect.objectContaining({ type: 'beforeinput', trusted: true, data: 'Y' })]) });
-        await page.evaluate(() => window.coreBoundary.history('undo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: converted }, anchor: 0, caret: 0 });
+        // Upstream History groups the conversion with the keys typed within
+        // its one-second window.
         await page.evaluate(() => window.coreBoundary.history('undo'));
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, anchor: 0, caret: 0 });
-        await page.evaluate(() => window.coreBoundary.history('redo'));
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: converted }, anchor: 0, caret: 0 });
         await page.evaluate(() => window.coreBoundary.history('redo'));
         expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: following });
     }
@@ -104,6 +98,8 @@ test('unlisting a fenced item installs the model paragraphs before the next key'
     try {
         expect(afterCommand).toMatchObject({ source: { source: converted }, anchor: 0, caret: 0, legacyCalls: [] });
         expect(await page.evaluate(() => window.muya!.domNode.querySelectorAll('ul li, ol li').length)).toBe(0);
+        // Typed over a second after the command, the key is its own undo step.
+        await pauseUndoWindow(page);
         await page.keyboard.type('X');
         // Untracked typing at an addition's start stays before it.
         const typed = converted.replace('{++first++}', 'X{++first++}');

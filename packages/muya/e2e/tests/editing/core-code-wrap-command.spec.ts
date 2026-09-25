@@ -1,4 +1,7 @@
 import { expect, test } from '../fixtures/muya';
+import { separateUndoSteps } from '../helpers/undoWindow';
+
+test.beforeEach(async ({ page }) => separateUndoSteps(page));
 
 const examples = [
     ...['\n', '\r\n', '\r'].flatMap(ending => [false, true].map(tracked => ({

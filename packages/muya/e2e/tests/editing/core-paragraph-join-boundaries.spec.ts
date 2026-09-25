@@ -1,4 +1,7 @@
 import { expect, test } from '../fixtures/muya';
+import { separateUndoSteps } from '../helpers/undoWindow';
+
+test.beforeEach(async ({ page }) => separateUndoSteps(page));
 
 for (const example of [
     { style: 'empty list predecessor', key: 'Backspace', source: 'a\n\n- \n\nb\n', joined: 'a\n\n- b\n', typed: 'a\n\n- xb\n', offset: 0, target: 2 },
