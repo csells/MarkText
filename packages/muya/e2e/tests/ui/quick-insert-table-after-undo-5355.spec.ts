@@ -268,7 +268,12 @@ test.describe('table grid whose line no longer holds only its query (#5355)', ()
     test('Undo restored real text into the line: the pick keeps that text', async ({ page }) => {
         const errors = collectPageErrors(page);
         await loadState(page, ['Hello', 'abc', 'World']);
-        await page.evaluate(() => window.muya!.editor.scrollPage!.find(1)!.firstContentInDescendant()!.setCursor(0, 3, true));
+        await page.evaluate(() => {
+            const line = window.muya!.editor.scrollPage!.find(1);
+            const content = line?.isParent() ? line.firstContentInDescendant() : null;
+            if (!content) throw new Error('Expected the second paragraph');
+            content.setCursor(0, 3, true);
+        });
         await slowType(page, '/table');
         await expect(page.locator(floats.quickInsert)).toBeVisible();
         await page.keyboard.press('Enter');
