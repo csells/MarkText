@@ -27,6 +27,17 @@ class SetextHeadingContent extends Format {
         return this.inlineRenderer.patch(this, cursor, highlights);
     }
 
+    /** Mirrors `enterHandler`: only its path into `Format.enterHandler` marks. */
+    override enterMarksInputBoundary(shift: boolean): boolean {
+        if (shift)
+            return this.caretLineIsBlank();
+        const cursor = this.getCursor();
+        if (!cursor)
+            return true;
+        const { start, end } = cursor;
+        return this.text.length !== 0 && (start.offset !== 0 || end.offset !== 0);
+    }
+
     override enterHandler(event: Event) {
         if (!isKeyboardEvent(event))
             return;

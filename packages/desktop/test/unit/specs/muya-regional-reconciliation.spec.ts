@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { undoWindowClock } from '../helpers/separateUndoSteps'
+
+const clock = undoWindowClock()
 
 it.each([
   {
@@ -102,6 +105,8 @@ it('retains surrounding roots when native Enter changes root count and restores 
     })
     const caret = app.muya.editor.selection.getSelection()?.anchor.block
     if (!caret) throw new Error('Missing shifted model caret')
+    // Typed over a second after Enter, the key is its own undo step.
+    clock.pause()
     caret.domNode!.dispatchEvent(
       new InputEvent('beforeinput', {
         inputType: 'insertText',

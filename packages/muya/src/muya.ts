@@ -1346,10 +1346,10 @@ export class Muya {
      * `loose-list-item`, `reset-to-paragraph`, and the diagram types.
      */
     updateParagraph(type: string) {
-        // A menu command is one native history unit. Drain earlier typing and
-        // publish this command before a subsequent keystroke can join its batch.
+        // Upstream records the command like typing, by time, so it joins the
+        // undo step of the keys typed within a second around it. Drain earlier
+        // typing first so the command applies to the current document.
         this.flush();
-        this.editor.history.cutoff();
         try {
             const model = this.editor.documentEditing;
             const content = this.editor.activeContentBlock ?? this.editor.selection.anchorBlock;
@@ -1446,7 +1446,6 @@ export class Muya {
         }
         finally {
             this.flush();
-            this.editor.history.cutoff();
         }
     }
 
