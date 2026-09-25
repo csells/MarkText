@@ -150,10 +150,9 @@ for (const mode of ['Markup', 'Source']) {
       // File watching registers asynchronously after the initial document opens.
       await page.waitForTimeout(1500)
       fs.writeFileSync(file, after)
-      const notification = page.locator('.editor-notifications')
-      await expect(notification).toContainText('has been changed on disk')
-      await notification.getByText('OK', { exact: true }).click()
+      // Upstream (#3652) reloads a tab without local edits without asking.
       await expect.poll(() => source(page)).toBe(after)
+      await expect(page.getByText('has been changed on disk')).toHaveCount(0)
       await expect(page.locator('.tabs-container li.active')).not.toHaveClass(/unsaved/)
       await menu(app, 'Edit', 'Undo')
       await expect.poll(() => source(page)).toBe(before)
