@@ -108,6 +108,7 @@ class History {
     private _lastRecorded: number = 0;
     private _nextInputGroup: number = 0;
     private _inputGroup: number | undefined;
+    private _commandGroup: number | undefined;
     private _lastInputKind: Nullable<TInputKind> = null;
     private _ignoreChange: boolean = false;
     private _selectionStack: (Nullable<IHistorySelection>)[] = [];
@@ -317,12 +318,42 @@ class History {
     }
 
     cutoff() {
-        this._lastRecorded = 0;
+        if (this._commandGroup === undefined)
+            this._lastRecorded = 0;
     }
 
     /** Allocate native input grouping without recording a second undo history. */
     inputGroupFor(inputType: string, data: Nullable<string>): number {
         this.markInputBoundary(inputType, data);
+        return this._currentInputGroup();
+    }
+
+    /**
+     * Upstream History has no command boundaries: a menu command joins the undo
+     * step of the typing within its one-second window, and so does the key
+     * typed right after it. A bound document's model commands issued by `run`
+     * carry that step's group (`commandGroup`), and their own cutoffs are
+     * ignored. The legacy path already records its json changes by time.
+     */
+    groupCommands(run: () => void): void {
+        if (!this._muya.editor.documentEditing || this._commandGroup !== undefined) {
+            run();
+            return;
+        }
+        this._commandGroup = this._currentInputGroup();
+        try {
+            run();
+        }
+        finally {
+            this._commandGroup = undefined;
+        }
+    }
+
+    commandGroup(): number | undefined {
+        return this._commandGroup;
+    }
+
+    private _currentInputGroup(): number {
         const timestamp = Date.now();
         if (!this._sharesInputGroup(timestamp))
             this._startInputGroup(timestamp);

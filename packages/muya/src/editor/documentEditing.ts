@@ -536,6 +536,11 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
     };
 }
 
+function commandHistoryGroup(muya: Muya): { historyGroup?: number } {
+    const historyGroup = muya.editor.history.commandGroup();
+    return historyGroup === undefined ? {} : { historyGroup };
+}
+
 /** Keyboard and row-popup commands share one model operation and history boundary. */
 export function dispatchDocumentTableCommand(muya: Muya, operation: Pick<IDocumentCommandInput, 'selection'> & (
     { command: 'createTable'; rows: number; columns: number; replace: boolean } | { command: 'moveTableRow'; target: DocumentDOMPoint; row: number } | { command: 'moveTableColumn'; target: DocumentDOMPoint; column: number } | { command: 'insertTableRow' | 'insertTableColumn'; placement: 'before' | 'after' } | { command: 'removeTableRow' | 'removeTableColumn' | 'tableBoundaryBackspace' | 'exitTable' } | { command: 'alignTableColumn'; target: DocumentDOMPoint; alignment: 'left' | 'center' | 'right' }
@@ -547,6 +552,7 @@ export function dispatchDocumentTableCommand(muya: Muya, operation: Pick<IDocume
     muya.editor.history.cutoff();
     model.input({
         kind: 'command',
+        ...commandHistoryGroup(muya),
         ...operation,
         options: {
             autoPairBracket: muya.options.autoPairBracket,
@@ -568,6 +574,7 @@ export function dispatchDocumentTask(muya: Muya, checked: boolean, selection: ID
     muya.editor.history.cutoff();
     model.input({
         kind: 'command',
+        ...commandHistoryGroup(muya),
         command: 'setTaskChecked',
         checked,
         selection,
@@ -589,6 +596,7 @@ export function dispatchDocumentCodeBlock(muya: Muya, replace: boolean, selectio
         throw new Error('Code block insertion requires a bound document');
     model.input({
         kind: 'command',
+        ...commandHistoryGroup(muya),
         command: 'createCodeBlock',
         replace,
         selection,
@@ -610,6 +618,7 @@ export function dispatchDocumentBlockMove(muya: Muya, from: DocumentDOMPoint, to
     muya.editor.history.cutoff();
     model.input({
         kind: 'command',
+        ...commandHistoryGroup(muya),
         command: 'moveBlock',
         from,
         to,
@@ -631,6 +640,7 @@ export function dispatchDocumentBlock(muya: Muya, change: Extract<IDocumentComma
         throw new Error('Block command requires a bound document');
     model.input({
         kind: 'command',
+        ...commandHistoryGroup(muya),
         command: 'changeBlock',
         change,
         selection,
@@ -649,6 +659,7 @@ export function dispatchDocumentCodeWrap(muya: Muya, selection: IDocumentCommand
         throw new Error('Code block wrapping requires a bound document');
     model.input({
         kind: 'command',
+        ...commandHistoryGroup(muya),
         command: 'wrapCodeBlocks',
         selection,
         options: {
@@ -666,6 +677,7 @@ export function dispatchDocumentCodeReset(muya: Muya, selectionMode: 'preserve' 
         throw new Error('Code block reset requires a bound document');
     model.input({
         kind: 'command',
+        ...commandHistoryGroup(muya),
         command: 'resetCodeBlock',
         selectionMode,
         selection,
@@ -687,6 +699,7 @@ export function dispatchDocumentFrontMatter(muya: Muya, replace: boolean, select
     try {
         return model.input({
             kind: 'command',
+            ...commandHistoryGroup(muya),
             command: 'createFrontMatter',
             replace,
             style: muya.options.frontmatterType,
@@ -708,6 +721,7 @@ export function dispatchDocumentThematicBreak(muya: Muya, change: 'insert' | 're
         throw new Error('Horizontal rule insertion requires a bound document');
     model.input({
         kind: 'command',
+        ...commandHistoryGroup(muya),
         command: 'changeThematicBreak',
         change: { type: change },
         selection,
@@ -726,6 +740,7 @@ export function dispatchDocumentMathBlock(muya: Muya, replace: boolean, selectio
         throw new Error('Math block insertion requires a bound document');
     model.input({
         kind: 'command',
+        ...commandHistoryGroup(muya),
         command: 'createMathBlock',
         replace,
         selection,
@@ -744,6 +759,7 @@ export function dispatchDocumentHtmlBlock(muya: Muya, replace: boolean, selectio
         throw new Error('HTML block insertion requires a bound document');
     model.input({
         kind: 'command',
+        ...commandHistoryGroup(muya),
         command: 'createHtmlBlock',
         replace,
         selectionMode,
@@ -766,6 +782,7 @@ export function dispatchDocumentParagraphJoin(muya: Muya, direction: 'backward' 
     try {
         model.input({
             kind: 'command',
+            ...commandHistoryGroup(muya),
             command: direction === 'backward' ? 'joinParagraphBackward' : 'joinParagraphForward',
             selection,
             options: {
@@ -787,6 +804,7 @@ export function dispatchDocumentTab(muya: Muya, shift: boolean, selection: IDocu
     muya.editor.history.cutoff();
     model.input({
         kind: 'command',
+        ...commandHistoryGroup(muya),
         command: 'tab',
         shift,
         selection,
@@ -807,6 +825,7 @@ export function dispatchDocumentList(muya: Muya, change: ListChange, selection: 
         throw new Error('List model command requires a bound document');
     model.input({
         kind: 'command',
+        ...commandHistoryGroup(muya),
         command: 'changeList',
         change,
         selection,
@@ -830,6 +849,7 @@ export function dispatchDocumentHeading(muya: Muya, change: HeadingChange, selec
         throw new Error('Heading model command requires a bound document');
     model.input({
         kind: 'command',
+        ...commandHistoryGroup(muya),
         command: 'changeHeading',
         change,
         selection,
@@ -848,6 +868,7 @@ export function dispatchDocumentBlockquote(muya: Muya, type: 'set' | 'quick-inse
         throw new Error('Blockquote model command requires a bound document');
     model.input({
         kind: 'command',
+        ...commandHistoryGroup(muya),
         command: 'changeBlockquote',
         change: { type },
         selection,

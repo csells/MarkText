@@ -56,12 +56,12 @@ for (const { bound, tracked, comment } of [
         await page.keyboard.type('X')
         if (bound) {
           expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, legacyCalls: [] })
+          // Upstream History groups the query, the heading and the next key
+          // typed within its one-second window into one step.
           await page.evaluate(() => window.coreBoundary.history('undo'))
-          expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: heading } })
-          await page.evaluate(() => window.coreBoundary.history('undo'))
-          expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: querySource } })
+          expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source } })
           await page.evaluate(() => window.coreBoundary.history('redo'))
-          expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: heading })
+          expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed })
         } else {
           expect(await page.evaluate(() => { window.muya!.flush(); return window.muya!.getMarkdown() })).toBe(typed)
           // Upstream History groups the query, the heading and the next key

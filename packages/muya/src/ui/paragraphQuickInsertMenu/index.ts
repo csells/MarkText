@@ -267,12 +267,10 @@ export class ParagraphQuickInsertMenu extends BaseScrollFloat {
         const { muya } = this;
         const { documentEditing } = muya.editor;
         // Upstream groups the replacement with the `/` query typed just before
-        // it, so one Undo removes both (#5442). A bound document records the
-        // command as its own step instead.
+        // it and the key typed right after it, so one Undo removes all three
+        // (#5442).
         muya.flush();
-        if (documentEditing)
-            muya.editor.history.cutoff();
-        try {
+        muya.editor.history.groupCommands(() => {
             const level = ['atx-heading 1', 'atx-heading 2', 'atx-heading 3', 'atx-heading 4', 'atx-heading 5', 'atx-heading 6'].indexOf(label) + 1;
             if (documentEditing && (level > 0 || label === 'block-quote')) {
                 if (!block.domNode?.isConnected)
@@ -290,11 +288,7 @@ export class ParagraphQuickInsertMenu extends BaseScrollFloat {
                 replaceBlockByLabel({ label, block: block.parent!, muya });
             }
             muya.flush();
-        }
-        finally {
-            if (documentEditing)
-                muya.editor.history.cutoff();
-        }
+        });
     }
 
     getItemElement(item: IQuickInsertMenuItem['children'][number]) {

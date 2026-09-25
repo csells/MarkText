@@ -53,12 +53,12 @@ for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: tru
             const typed = tracked ? '{++## ++}a{++a++}a{++X++}\n\nelsewhere\n' : bound ? '## a{++a++}aX\n\nelsewhere\n' : '## aaaX\n\nelsewhere\n';
             if (bound) {
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, legacyCalls: [] });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: heading } });
+                // Upstream History groups the conversion and the next key typed
+                // within its one-second window into one step.
                 await page.evaluate(() => window.coreBoundary.history('undo'));
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source } });
                 await page.evaluate(() => window.coreBoundary.history('redo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: heading });
+                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
             }
             else {
                 expect(await page.evaluate(() => {
@@ -172,12 +172,12 @@ for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: tru
             const typed = tracked ? '{--## --}a{++a++}a{++X++}\n\nelsewhere\n' : bound ? 'a{++a++}aX\n\nelsewhere\n' : 'aaaX\n\nelsewhere\n';
             if (bound) {
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, legacyCalls: [] });
-                await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: paragraph } });
+                // Upstream History groups the conversion and the next key typed
+                // within its one-second window into one step.
                 await page.evaluate(() => window.coreBoundary.history('undo'));
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source } });
                 await page.evaluate(() => window.coreBoundary.history('redo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: paragraph });
+                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: typed });
             }
             else {
                 expect(await page.evaluate(() => {
