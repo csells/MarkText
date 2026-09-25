@@ -290,6 +290,9 @@ for (const tracked of [false, true]) {
         await expect(
           page.locator('.editor-component').locator(container.selector).first()
         ).toBeVisible()
+        // Upstream History groups edits within one second, so the key waits
+        // out the conversion's window to be undone on its own.
+        await page.waitForTimeout(1100)
         await page.keyboard.type('!')
         await saveExact(app, filePath, formatted.replace('second', 'second!'))
         await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
