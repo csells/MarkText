@@ -285,14 +285,14 @@ it('duplicates the actual repeated annotated block before the next key', async()
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
     app.muya.flush()
     expect(app.legacyChanges).toEqual([])
-    await app.adapter.history('undo', app.reconcile)
+    // Upstream History groups the front menu's action with the key typed
+    // within its one-second window.
     await app.adapter.history('undo', app.reconcile)
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
     expect(app.muya.getSelection()).toMatchObject({
       anchor: { offset: 2, path: [0, 'text'] },
       focus: { offset: 2, path: [0, 'text'] }
     })
-    await app.adapter.history('redo', app.reconcile)
     await app.adapter.history('redo', app.reconcile)
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
     const reopened = bootBoundMuya(typed)
@@ -417,10 +417,10 @@ it.each([
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
       app.muya.flush()
       expect(app.legacyChanges).toEqual([])
-      await app.adapter.history('undo', app.reconcile)
+      // Upstream History groups the front menu's action with the key typed
+      // within its one-second window.
       await app.adapter.history('undo', app.reconcile)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
-      await app.adapter.history('redo', app.reconcile)
       await app.adapter.history('redo', app.reconcile)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
       const reopened = bootBoundMuya(typed)
@@ -527,7 +527,8 @@ it('duplicates the whole annotated list and selects its last item', async() => {
     )
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
     expect(app.legacyChanges).toEqual([])
-    await app.adapter.history('undo', app.reconcile)
+    // Upstream History groups the front menu's action with the key typed
+    // within its one-second window.
     await app.adapter.history('undo', app.reconcile)
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
   } finally {

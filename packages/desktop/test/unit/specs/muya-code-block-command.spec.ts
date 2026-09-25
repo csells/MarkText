@@ -61,11 +61,10 @@ it.each(
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 1 }, focus: { offset: 1 } })
       app.muya.flush()
       expect(app.legacyChanges).toEqual([])
-      await app.adapter.history('undo', app.reconcile)
-      expect(app.binding.sourceAtBarrier()).toMatchObject({ source: converted })
+      // Upstream History groups the conversion with the key typed within its
+      // one-second window.
       await app.adapter.history('undo', app.reconcile)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source })
-      await app.adapter.history('redo', app.reconcile)
       await app.adapter.history('redo', app.reconcile)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
       const core = createDocumentCore()
@@ -314,7 +313,8 @@ it('front-menu Code still replaces its target when the caret is elsewhere', asyn
       })
     )
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'other\n\n```\nx\n```\n' })
-    await app.adapter.history('undo', app.reconcile)
+    // Upstream History groups the conversion with the key typed within its
+    // one-second window.
     await app.adapter.history('undo', app.reconcile)
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'other\n\n\n' })
     expect(app.legacyChanges).toEqual([])
