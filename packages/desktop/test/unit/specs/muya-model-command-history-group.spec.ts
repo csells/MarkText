@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { TableRowColumMenu } from '@muyajs/core'
-import type { Muya } from '@muyajs/core'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import type { Content } from '../helpers/muyaTypes'
 
 // Upstream History records a command's json change like any other change: it
 // joins the undo step opened within the last second, and so does the key typed
@@ -31,7 +31,6 @@ afterEach(() => {
 })
 
 type App = ReturnType<typeof bootBoundMuya>
-type Content = NonNullable<ReturnType<NonNullable<Muya['editor']['scrollPage']>['firstContentInDescendant']>>
 
 const source = (app: App): string => {
   const barrier = app.binding.sourceAtBarrier()

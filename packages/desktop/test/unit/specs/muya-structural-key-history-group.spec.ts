@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { Muya } from '@muyajs/core'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import type { Content } from '../helpers/muyaTypes'
 
 // Upstream History groups changes by time alone. Only the key handlers that
 // call `markInputBoundary` start a new step: Enter through `Format.enterHandler`
@@ -23,7 +23,6 @@ afterEach(() => {
 })
 
 type App = ReturnType<typeof bootBoundMuya>
-type Content = NonNullable<ReturnType<NonNullable<Muya['editor']['scrollPage']>['firstContentInDescendant']>>
 
 const source = (app: App): string => {
   const barrier = app.binding.sourceAtBarrier()
