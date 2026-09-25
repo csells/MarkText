@@ -231,6 +231,9 @@ for (const { middle, cancel } of [
         ).__marktextHeldClipboardPath.release()
       )
       await expect(paragraphs.nth(0)).toHaveText('aaaimported')
+      // Upstream History groups edits within one second; waiting out the
+      // paste's window keeps it a separate undo step from what follows.
+      await page.waitForTimeout(1100)
       if (cancel) {
         expect(await dialog.isVisible()).toBe(false)
         await page.keyboard.type('X')
