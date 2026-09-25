@@ -48,7 +48,9 @@ const invokeDefaultPath = (
 })
 
 describe('upstream baseline performance shell runner', () => {
-  it('holds display sleep prevention for both authenticated launchers', () => {
+  // These cases start real bash launchers, which can exceed the default 5 s
+  // timeout on a loaded host.
+  it('holds display sleep prevention for both authenticated launchers', { timeout: 30_000 }, () => {
     const root = mkdtempSync(resolve(tmpdir(), 'marktext-display-sleep-policy-'))
     try {
       const fake = resolve(root, 'caffeinate')
@@ -67,7 +69,8 @@ describe('upstream baseline performance shell runner', () => {
         'start_performance_display_sleep_prevention',
         'pid="$PERFORMANCE_CAFFEINATE_PID"',
         'kill -0 "$pid"',
-        'for _ in {1..100}; do [[ -e "$3" ]] && break; sleep 0.01; done',
+        // The stub may start slowly on a loaded host; wait up to 10 s for it.
+        'for _ in {1..1000}; do [[ -e "$3" ]] && break; sleep 0.01; done',
         'printf "%s\\n" "$MARKTEXT_PERFORMANCE_DISPLAY_SLEEP_POLICY"',
         'stop_performance_display_sleep_prevention',
         'if kill -0 "$pid" 2>/dev/null; then exit 41; fi'
@@ -100,7 +103,7 @@ describe('upstream baseline performance shell runner', () => {
     )
   })
 
-  it('propagates a zero-argument Playwright launch failure without claiming output', () => {
+  it('propagates a zero-argument Playwright launch failure without claiming output', { timeout: 30_000 }, () => {
     const root = mkdtempSync(resolve(tmpdir(), 'marktext-upstream-runner-'))
     try {
       const fake = resolve(root, 'pnpm')
