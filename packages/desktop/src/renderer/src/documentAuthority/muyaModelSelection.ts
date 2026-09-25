@@ -963,7 +963,8 @@ export function muyaClipboardToModel(
   tracked: boolean
 ): DocumentClipboardAction {
   if (input.kind === 'table') {
-    return { ...input, tracked, selection: muyaTableSelectionToModel(muya, view, input.selection) }
+    const { historyGroup: _historyGroup, ...table } = input
+    return { ...table, tracked, selection: muyaTableSelectionToModel(muya, view, input.selection) }
   }
   const selection = createMuyaModelSelection(muya, view).domSelectionToModel(input.selection)
   if (selection === undefined) {

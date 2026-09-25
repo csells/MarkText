@@ -137,19 +137,25 @@ export interface MuyaPlainTextCoreAdapter {
     reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
     tracked?: boolean
   ): Readonly<{ accepted: boolean; changed: boolean }>
+  /** `historyGroup` is Muya's undo step for this command, as for `input`. */
   prepareImage(
     action: ImagePropertiesAction,
     payload: unknown,
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+    historyGroup?: number
   ): MuyaImagePreparation
+  /** `historyGroup` is Muya's undo step for this command, as for `input`. */
   prepareClipboard(
     action: MuyaClipboardCapture,
     payload: unknown,
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+    historyGroup?: number
   ): MuyaClipboardPreparation
+  /** `historyGroup` is Muya's undo step for this command, as for `input`. */
   clipboard(
     action: DocumentClipboardAction,
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+    historyGroup?: number
   ): Readonly<{ accepted: boolean; changed: boolean }>
   /** `historyGroup` is Muya's undo step for this command, as for `input`. */
   format(
@@ -216,6 +222,7 @@ type PendingCommand =
     readonly kind: 'apply-prepared'
     readonly target: string
     readonly operation: CorePreparedOperation
+    readonly nativeHistoryGroup?: string
     readonly reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
     readonly resolve: (outcome: CoreAppliedReply | undefined) => void
     readonly reject: (error: Error) => void
@@ -223,6 +230,7 @@ type PendingCommand =
   | Readonly<{
     readonly kind: 'clipboard'
     readonly action: DocumentClipboardAction
+    readonly nativeHistoryGroup?: string
     readonly reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
     readonly resolve: (outcome: CoreAppliedReply | undefined) => void
     readonly reject: (error: Error) => void
@@ -584,12 +592,18 @@ export function createMuyaPlainTextCoreAdapter(
             kind: 'apply-prepared' as const,
             target: command.target,
             operation: command.operation,
+            ...(command.nativeHistoryGroup === undefined
+              ? {}
+              : { nativeHistoryGroup: command.nativeHistoryGroup }),
             projections: regionalMarkup ? Object.freeze(['markup'] as const) : Object.freeze([])
           })
           : command.kind === 'clipboard'
             ? Object.freeze({
               kind: 'clipboard' as const,
               action: command.action,
+              ...(command.nativeHistoryGroup === undefined
+                ? {}
+                : { nativeHistoryGroup: command.nativeHistoryGroup }),
               projections: regionalMarkup ? Object.freeze(['markup'] as const) : Object.freeze([])
             })
             : command.kind === 'format'
@@ -852,10 +866,16 @@ export function createMuyaPlainTextCoreAdapter(
     })
   }
 
+  const nativeGroup = (historyGroup: number | undefined) =>
+    historyGroup === undefined
+      ? {}
+      : { nativeHistoryGroup: `${directHistoryScope}:${historyGroup}` }
+
   const applyPrepared = (
     target: string,
     operation: CorePreparedOperation,
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+    historyGroup?: number
   ): Readonly<{ accepted: boolean; changed: boolean }> => {
     latestNativeChange = { target, operation }
     if (disposed || terminalError !== undefined || composing) {
@@ -877,6 +897,7 @@ export function createMuyaPlainTextCoreAdapter(
         kind: 'apply-prepared',
         target,
         operation: structuredClone(operation),
+        ...nativeGroup(historyGroup),
         reconcile,
         resolve: (outcome) => {
           accepted = outcome !== undefined
@@ -1060,7 +1081,8 @@ export function createMuyaPlainTextCoreAdapter(
     prepareClipboard(
       action: MuyaClipboardCapture,
       payload: unknown,
-      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+      historyGroup?: number
     ): MuyaClipboardPreparation {
       const captured = structuredClone(action)
       const prepared = prepareResource(
@@ -1089,7 +1111,8 @@ export function createMuyaPlainTextCoreAdapter(
                 ...(currentSelection === undefined ? {} : { currentSelection })
               }
             },
-            reconcile
+            reconcile,
+            historyGroup
           ),
         captured.blockPlacement === undefined ? undefined : captured.currentSelection
       )
@@ -1112,7 +1135,8 @@ export function createMuyaPlainTextCoreAdapter(
     prepareImage(
       action: ImagePropertiesAction,
       payload: unknown,
-      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+      historyGroup?: number
     ): MuyaImagePreparation {
       const { selection, ...captured } = structuredClone(action)
       const prepared = prepareResource(
@@ -1133,7 +1157,8 @@ export function createMuyaPlainTextCoreAdapter(
                 ...(currentSelection === undefined ? {} : { currentSelection })
               }
             },
-            reconcile
+            reconcile,
+            historyGroup
           )
       )
       return Object.freeze({
@@ -1147,7 +1172,8 @@ export function createMuyaPlainTextCoreAdapter(
 
     clipboard(
       action: DocumentClipboardAction,
-      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+      historyGroup?: number
     ): Readonly<{ accepted: boolean; changed: boolean }> {
       latestNativeChange = action
       if (disposed || terminalError !== undefined || composing) {
@@ -1168,6 +1194,7 @@ export function createMuyaPlainTextCoreAdapter(
         Object.freeze({
           kind: 'clipboard',
           action: structuredClone(action),
+          ...nativeGroup(historyGroup),
           reconcile,
           resolve: (outcome) => {
             accepted = outcome !== undefined
@@ -1200,9 +1227,7 @@ export function createMuyaPlainTextCoreAdapter(
         Object.freeze({
           kind: 'format',
           action: structuredClone(action),
-          ...(historyGroup === undefined
-            ? {}
-            : { nativeHistoryGroup: `${directHistoryScope}:${historyGroup}` }),
+          ...nativeGroup(historyGroup),
           reconcile,
           resolve: (outcome) => {
             accepted = outcome !== undefined

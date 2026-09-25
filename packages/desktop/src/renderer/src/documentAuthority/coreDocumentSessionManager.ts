@@ -159,6 +159,9 @@ const copySubmitInput = (input: EditorCoreSubmitInput): EditorCoreSubmitInput =>
       kind: input.kind,
       target: input.target,
       operation: copyPreparedOperation(input.operation),
+      ...(input.nativeHistoryGroup === undefined
+        ? {}
+        : { nativeHistoryGroup: input.nativeHistoryGroup }),
       projections
     })
   }
@@ -183,6 +186,9 @@ const copySubmitInput = (input: EditorCoreSubmitInput): EditorCoreSubmitInput =>
     return Object.freeze({
       kind: input.kind,
       action: copyClipboardAction(input.action),
+      ...(input.nativeHistoryGroup === undefined
+        ? {}
+        : { nativeHistoryGroup: input.nativeHistoryGroup }),
       projections
     })
   }
@@ -381,6 +387,9 @@ const resolvedPreparedInput = (
       return copySubmitInput({
         kind: 'clipboard',
         action: { ...input.operation.action, selection },
+        ...(input.nativeHistoryGroup === undefined
+          ? {}
+          : { nativeHistoryGroup: input.nativeHistoryGroup }),
         projections: input.projections
       })
     }
@@ -390,6 +399,9 @@ const resolvedPreparedInput = (
     return copySubmitInput({
       kind: 'clipboard',
       action: { ...input.operation.action, selection },
+      ...(input.nativeHistoryGroup === undefined
+        ? {}
+        : { nativeHistoryGroup: input.nativeHistoryGroup }),
       projections: input.projections
     })
   }
@@ -397,6 +409,9 @@ const resolvedPreparedInput = (
   return copySubmitInput({
     kind: 'format',
     action: { ...input.operation.action, selection },
+    ...(input.nativeHistoryGroup === undefined
+      ? {}
+      : { nativeHistoryGroup: input.nativeHistoryGroup }),
     projections: input.projections
   })
 }
