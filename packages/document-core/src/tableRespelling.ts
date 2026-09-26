@@ -26,8 +26,9 @@ interface Respelling extends DocumentSourceEdit {
 
 /**
  * Upstream MarkText writes a table afresh from its cells after a cell edit:
- * each column is padded to its widest cell, rows gain outer pipes and missing
- * cells, and extra cells are dropped. The spelling is input-policy's native
+ * each column is padded to its widest cell and rows gain outer pipes and
+ * missing cells. Upstream also drops cells beyond the header's columns; here
+ * they stay verbatim after the row's last column. The spelling is input-policy's native
  * table serializer; these edits change only the table's pipes, padding and
  * delimiter row around `edits`, which stay separate operations. Whitespace
  * that `edits` add at a cell's edge stands in for that cell's padding.
@@ -87,7 +88,7 @@ export function tableRespellingEdits(
   const replace = (start: number, end: number, insert: string, leading?: true) => {
     if (source(start, end) !== insert) respelled.push({ start, end, insert, ...(leading === undefined ? {} : { leading }) })
   }
-  for (const [rowIndex, row] of table.children.entries()) {
+  for (const rowIndex of table.children.keys()) {
     const written = spelled.rows[rowIndex]
     const cells = rows[rowIndex]
     if (written === undefined || cells === undefined) return undefined
@@ -115,11 +116,10 @@ export function tableRespellingEdits(
       rowEnd = slotEnd + (closes ? 1 : 0)
     }
     if (rowEnd === undefined) return undefined
-    const extra = source(rowEnd, sourceEnd(row.range.end))
-    // Cells beyond the header's columns are not the table's; an annotation
-    // closing there keeps them.
-    if (extra.trim() !== '' && !/[{}]/u.test(extra)) replace(rowEnd, rowEnd + extra.length, missing)
-    else if (missing !== '') replace(rowEnd, rowEnd, missing)
+    // Text after the header's last column stays as written: upstream drops
+    // those cells, but the owner ruled that padding never removes text (plan
+    // 0012 G24). The parser reads them as no cell, so they are not respelled.
+    if (missing !== '') replace(rowEnd, rowEnd, missing)
     if (rowIndex === 0) {
       for (const [column, cell] of header.children.entries()) {
         const delimiter = spelled.delimiterCells[column]
