@@ -46,8 +46,6 @@ for (const failure of [
           (entry): entry is [string, string] => entry[1] !== undefined
         )
       )
-      delete environment.MARKTEXT_DOCUMENT_CORE_SHADOW
-      delete environment.MARKTEXT_DOCUMENT_CORE_MODE
       app = await electron.launch({
         executablePath: binary ?? getElectronPath(),
         args: [

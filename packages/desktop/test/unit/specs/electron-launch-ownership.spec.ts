@@ -73,8 +73,6 @@ it.each([
   'launches with test controls=$expected for packaged=$packaged, explicit=$explicitControls',
   async({ packaged, explicitControls, expected }) => {
     vi.stubEnv('MARKTEXT_PACKAGED_APP', packaged ? '/fixture/marktext' : undefined)
-    vi.stubEnv('MARKTEXT_DOCUMENT_CORE_MODE', '0')
-    vi.stubEnv('MARKTEXT_DOCUMENT_CORE_SHADOW', '1')
     vi.stubEnv('MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS', '1')
     const page = { waitForLoadState: vi.fn().mockResolvedValue(undefined) }
     fixture.launch.mockResolvedValue({
@@ -82,11 +80,7 @@ it.each([
       firstWindow: vi.fn().mockResolvedValue(page)
     })
     const env = explicitControls
-      ? {
-        MARKTEXT_DOCUMENT_CORE_MODE: '1',
-        MARKTEXT_DOCUMENT_CORE_SHADOW: '0',
-        MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: '1'
-      }
+      ? { MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: '1' }
       : undefined
     const operation = launchElectron([], { env })
     await vi.runAllTimersAsync()
@@ -94,11 +88,5 @@ it.each([
     expect(fixture.launch).toHaveBeenCalledOnce()
     const launched = fixture.launch.mock.calls[0]?.[0].env
     expect(launched.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS).toBe(expected)
-    expect(launched.MARKTEXT_DOCUMENT_CORE_MODE).toBe(
-      explicitControls ? '1' : packaged ? undefined : '0'
-    )
-    expect(launched.MARKTEXT_DOCUMENT_CORE_SHADOW).toBe(
-      explicitControls ? '0' : packaged ? undefined : '1'
-    )
   }
 )

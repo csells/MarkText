@@ -11,7 +11,7 @@ import {
 test('refreshes Review after deleting a prefix beyond its retained source anchor', async() => {
   const { app, page, filePath } = await launchWithMarkdown(`${'word '.repeat(40)}\n\n{++new++}\n`, {
     suppressErrorDialog: true,
-    env: { MARKTEXT_DOCUMENT_CORE_MODE: '1', MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
+    env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
   })
   try {
     const accept = page.getByTestId('critic-review-accept')
@@ -86,7 +86,6 @@ test('disables stale Review during native input, then refreshes its range and Re
   const { app, page, filePath } = await launchWithMarkdown('seed {++new++} {--old--}\n', {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }

@@ -26,8 +26,7 @@ import type {
   MarkdownOptions,
   MarkdownProjectionName
 } from '@marktext/document-core'
-
-import type { MuyaPlainTextViewResult } from './muyaPlainTextView'
+import type { MuyaMarkupView } from './muyaMarkupView'
 
 export type CoreHistoryEntry = Readonly<{
   readonly undo: readonly DocumentSourceEdit[]
@@ -427,7 +426,7 @@ export type CorePlainTextViewReply = Readonly<{
   readonly accepted: true
   readonly sourceLength: number
   readonly source: string
-  readonly view: MuyaPlainTextViewResult
+  readonly view: MuyaMarkupView
 }>
 export type CoreConsumerProjection = Readonly<{
   readonly kind: 'markdown-consumer-projection'

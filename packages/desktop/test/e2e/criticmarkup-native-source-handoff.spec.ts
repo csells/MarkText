@@ -15,7 +15,7 @@ import { enterSourceMode, exitSourceMode } from './helpers'
 test('preserves one native Source typing group through save, undo, redo and WYSIWYG handoff', async() => {
   const { app, page, filePath } = await launchWithMarkdown('seed\n', {
     suppressErrorDialog: true,
-    env: { MARKTEXT_DOCUMENT_CORE_MODE: '1', MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
+    env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
   })
   try {
     await enterSourceMode(page, app)
@@ -48,7 +48,7 @@ test('preserves one native Source typing group through save, undo, redo and WYSI
 test('native input commits before the next animation frame and retains one typing history group', async() => {
   const { app, page } = await launchWithMarkdown('seed\n', {
     suppressErrorDialog: true,
-    env: { MARKTEXT_DOCUMENT_CORE_MODE: '1', MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
+    env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
   })
   try {
     await expect
@@ -138,7 +138,7 @@ test('native input commits before the next animation frame and retains one typin
 test('native fence language selection survives pending typing and Source handoff', async() => {
   const { app, page } = await launchWithMarkdown('seed\n', {
     suppressErrorDialog: true,
-    env: { MARKTEXT_DOCUMENT_CORE_MODE: '1', MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
+    env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
   })
   try {
     const errors: string[] = []
@@ -180,7 +180,7 @@ test('Source handoff preserves the latest synchronously accepted typing and its 
   const source = 'seed\n'
   const { app, page } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
-    env: { MARKTEXT_DOCUMENT_CORE_MODE: '1', MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
+    env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
   })
   try {
     await expectEditorWindowHidden(app)
@@ -227,7 +227,7 @@ for (const mode of ['direct', 'source-roundtrip'] as const) {
     const source = '- one\n- two\n'
     const { app, page } = await launchWithMarkdown(mode === 'direct' ? source : 'seed\n', {
       suppressErrorDialog: true,
-      env: { MARKTEXT_DOCUMENT_CORE_MODE: '1', MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
+      env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
     })
     try {
       const errors: string[] = []

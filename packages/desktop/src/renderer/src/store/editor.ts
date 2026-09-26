@@ -147,10 +147,10 @@ const saveIdentityOf = (
 
 const withAuthoritativeSaveSource = (
   documentId: string,
-  fallbackSource: string,
+  loadedSource: string,
   persist: (source: string, identity: DocumentSaveIdentity | null) => void
 ): void | Promise<void> => {
-  const sources = coreDocumentSaveAuthority.resolve([{ documentId, fallbackSource }])
+  const sources = coreDocumentSaveAuthority.resolve([{ documentId, loadedSource }])
   if (sources instanceof Promise) {
     return sources.then(([result]) =>
       persist(result!.source, saveIdentityOf(documentId, result!.identity))
@@ -170,7 +170,7 @@ const withAuthoritativeFileSources = <
   persist: (files: T[]) => void
 ): void | Promise<void> => {
   const resolved = coreDocumentSaveAuthority.resolve(
-    files.map((file) => ({ documentId: file.id, fallbackSource: file.markdown }))
+    files.map((file) => ({ documentId: file.id, loadedSource: file.markdown }))
   )
   const consume = (
     sources: readonly { source: string; identity: DocumentSaveIdentity | null }[]
@@ -1288,7 +1288,7 @@ export const useEditorStore = defineStore('editor', {
       if (closeRefused([target.id])) return
 
       const sources = coreDocumentSaveAuthority.resolve([
-        { documentId: target.id, fallbackSource: target.markdown }
+        { documentId: target.id, loadedSource: target.markdown }
       ])
       if (!(sources instanceof Promise)) {
         if (target.isSaved) this.FORCE_CLOSE_TAB(target)
@@ -1441,7 +1441,7 @@ export const useEditorStore = defineStore('editor', {
       const sources = coreDocumentSaveAuthority.resolve(
         files.map((file) => ({
           documentId: file.id,
-          fallbackSource: file.markdown
+          loadedSource: file.markdown
         }))
       )
       if (!(sources instanceof Promise)) {
@@ -1847,7 +1847,7 @@ export const useEditorStore = defineStore('editor', {
         const barrier = coreDocumentSaveAuthority.resolve([
           {
             documentId: outgoing.id,
-            fallbackSource: outgoing.markdown
+            loadedSource: outgoing.markdown
           }
         ])
         if (barrier instanceof Promise) return barrier.then(openDocument)

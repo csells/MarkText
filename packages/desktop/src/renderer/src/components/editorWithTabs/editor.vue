@@ -491,18 +491,13 @@ import {
   createCoreAuthorityPerformanceTestBridge,
   createCoreTrackChangesMode,
   createMuyaPlainTextCoreAdapter,
-  createEditorShadowBinding,
-  createShadowDocumentAuthority,
-  createWorkerShadowPort,
   type CoreAppliedReply,
   type CoreAuthorForm,
   type CoreAuthorityPerformanceTrace,
   type CoreDocumentViewLease,
   type CoreReviewDecision,
   type CoreReviewItemReply,
-  type EditorShadowBinding
 } from '@/documentAuthority'
-import type { MuyaPlainTextViewResult } from '@/documentAuthority/muyaPlainTextView'
 import {
   createMuyaMarkupPresentationIndex,
   type MuyaMarkupPresentationIndex
@@ -576,7 +571,7 @@ const props = defineProps<{
   /** The current document's lease in any view; exports read it while Source view is up. */
   coreDocumentLease?: CoreDocumentViewLease
   initialDocumentSelection?: DocumentSelection
-  corePlainTextView?: Extract<MuyaPlainTextViewResult, { kind: 'view' }>
+  corePlainTextView?: MuyaMarkupView
   corePerformanceTrace?: CoreAuthorityPerformanceTrace
   coreTestCrashWorker?: () => void
   coreTestStaleNextTransaction?: () => void
@@ -796,84 +791,6 @@ let spellchecker: SpellChecker | null = null
 let switchLanguageCommand: SpellcheckerLanguageCommand | null = null
 // The engine has no `scroll` event; we listen on the scroll container directly.
 let scrollHandler: ((e: Event) => void) | null = null
-let documentCoreShadow: EditorShadowBinding | null = null
-let stopDocumentCoreShadowWatch: (() => void) | null = null
-let documentCoreShadowStartFrame: number | null = null
-let documentCoreShadowSecondFrame: number | null = null
-
-const startDocumentCoreShadow = (): void => {
-  if (window.electron.process.env.MARKTEXT_DOCUMENT_CORE_SHADOW !== '1') return
-
-  try {
-    documentCoreShadow = createEditorShadowBinding(
-      createShadowDocumentAuthority({ port: createWorkerShadowPort() })
-    )
-    const shadow = documentCoreShadow
-    stopDocumentCoreShadowWatch = watch(
-      () =>
-        [
-          currentFile.value?.id ?? null,
-          currentFile.value?.markdown ?? null,
-          footnote.value,
-          superSubScript.value,
-          texMathDollars.value,
-          texMathGfm.value,
-          texMathSingleBackslash.value,
-          texMathDoubleBackslash.value
-        ] as const,
-      ([
-        documentId,
-        source,
-        footnotes,
-        subscriptAndSuperscript,
-        dollars,
-        gfmMath,
-        singleBackslash,
-        doubleBackslash
-      ]) => {
-        // This callback is deliberately synchronous and diagnostic-only. It
-        // observes the Pinia snapshot already produced for normal editor/save
-        // work, then returns before diffing, transport, or parsing begins.
-        shadow.update(
-          documentId === null || source === null
-            ? null
-            : {
-                documentId,
-                source,
-                options: {
-                  gfm: true,
-                  gfmAutolinks: true,
-                  gfmTagFilter: true,
-                  frontMatter: true,
-                  texMathDollars: dollars,
-                  texMathGfm: gfmMath,
-                  texMathSingleBackslash: singleBackslash,
-                  texMathDoubleBackslash: doubleBackslash,
-                  footnotes,
-                  subscriptAndSuperscript
-                }
-              }
-        )
-      },
-      { flush: 'sync', immediate: true }
-    )
-
-    // Read-only diagnostics for the opt-in Electron smoke test. The bridge has
-    // no mutation, source, projection, UI, or save authority.
-    if (window.electron.process.env.PERF_TESTING === 'true') {
-      window.__marktextDocumentCoreShadow = Object.freeze({
-        diagnosticOnly: true,
-        settled: () => shadow.settled(),
-        reports: () => shadow.reports()
-      })
-    }
-  } catch (error) {
-    documentCoreShadow?.dispose()
-    documentCoreShadow = null
-    log.warn('Unable to start document-core Shadow diagnostics', error)
-  }
-}
-
 // The engine's undo/redo history (`getHistory()`) has a different shape than
 // the desktop store's `tab.history` (which drives the save/dirty tracking and
 // is migrated separately). We therefore keep the real engine history in a
@@ -1728,15 +1645,7 @@ defineExpose({
   assertCloseAllowed,
   captureDocumentSelection
 })
-const installCoreMarkupPresentation = (muya: Muya, view: MuyaPlainTextViewResult): void => {
-  if (!('state' in view)) {
-    coreMarkupPresentation = undefined
-    coreAcknowledgedMarkupView = undefined
-    coreMarkupBindingsByPath.clear()
-    coreMarkupDirtyPaths.clear()
-    muya.setInlinePresentation(undefined)
-    return
-  }
+const installCoreMarkupPresentation = (muya: Muya, view: MuyaMarkupView): void => {
   coreAcknowledgedMarkupView = view
   coreMarkupBindingsByPath = new Map(
     view.bindings.map((binding) => [JSON.stringify(binding.path), binding])
@@ -1769,7 +1678,7 @@ const reconcileCoreHistoryView = (
   if (coreDraftFrozen) return view.bindings
   coreAcknowledgedViewRevision = outcome.revision
   if (muya === null) {
-    coreAcknowledgedMarkupView = 'state' in view ? view : undefined
+    coreAcknowledgedMarkupView = view
     return view.bindings
   }
   installCoreMarkupPresentation(muya, view)
@@ -3729,7 +3638,7 @@ onMounted(() => {
   editor.value = muya
   if (props.corePlainTextView !== undefined) {
     const view = props.corePlainTextView
-    muya.setContent('state' in view ? asMuyaStates(structuredClone([...view.state])) : view.markdown)
+    muya.setContent(asMuyaStates(structuredClone([...view.state])))
   }
   // The first document's content is set via constructor options, so no
   // `file-loaded` / `setMarkdownToEditor` runs for it — seed its TOC here.
@@ -4744,21 +4653,6 @@ onMounted(() => {
   document.addEventListener('keyup', keyup)
 
   setEditorWidth(editorLineWidth.value)
-
-  // Shadow starts only after Muya has initialized, the initial save baseline
-  // is seeded, and production listeners are installed. It is never awaited by
-  // editor startup or input handling.
-  // Wait through one complete browser frame before even constructing the
-  // diagnostic Worker. The upstream editor gets the first paint unopposed.
-  if (props.coreLease === undefined) {
-    documentCoreShadowStartFrame = requestAnimationFrame(() => {
-      documentCoreShadowStartFrame = null
-      documentCoreShadowSecondFrame = requestAnimationFrame(() => {
-        documentCoreShadowSecondFrame = null
-        startDocumentCoreShadow()
-      })
-    })
-  }
 })
 
 onBeforeUnmount(() => {
@@ -4777,19 +4671,6 @@ onBeforeUnmount(() => {
   coreSearchPresentation = undefined
   coreSearchProjectionEpoch = -1
   coreSearchSnapshot = undefined
-  if (documentCoreShadowStartFrame !== null) {
-    cancelAnimationFrame(documentCoreShadowStartFrame)
-    documentCoreShadowStartFrame = null
-  }
-  if (documentCoreShadowSecondFrame !== null) {
-    cancelAnimationFrame(documentCoreShadowSecondFrame)
-    documentCoreShadowSecondFrame = null
-  }
-  stopDocumentCoreShadowWatch?.()
-  stopDocumentCoreShadowWatch = null
-  documentCoreShadow?.dispose()
-  documentCoreShadow = null
-  delete window.__marktextDocumentCoreShadow
 
   bus.off('file-loaded', setMarkdownToEditor)
   bus.off('invalidate-image-cache', handleInvalidateImageCache)

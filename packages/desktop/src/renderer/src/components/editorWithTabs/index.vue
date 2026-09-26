@@ -30,7 +30,7 @@
         :muya-index-cursor="muyaIndexCursor"
         :text-direction="textDirection"
         :platform="platform"
-        :core-required="coreMode"
+        :core-required="true"
         :comment-composer-state="commentComposerFor(currentFile.id)"
         :core-lease="wysiwygCoreLease"
         :core-document-lease="currentCoreLease"
@@ -43,7 +43,7 @@
         @core-fault="handleCoreViewFault"
       />
       <source-code
-        v-if="!coreCloseInputsRetired && coreSourceVisible && (!coreMode || activeCoreLease)"
+        v-if="!coreCloseInputsRetired && coreSourceVisible && activeCoreLease"
         ref="coreSourceEditor"
         :key="coreSourceGeneration"
         :markdown="coreProjectionMarkdown ?? markdown"
@@ -56,7 +56,7 @@
         @core-fault="handleCoreViewFault"
       />
       <div
-        v-if="coreMode && coreViewState === 'reconciling'"
+        v-if="coreViewState === 'reconciling'"
         class="core-view-handoff"
         aria-busy="true"
       />
@@ -114,8 +114,8 @@ import type {
   CoreRecoveryDraftInput,
   CoreRecoveryDraftRecord
 } from '@shared/types/coreRecoveryDraft'
-import type { MuyaPlainTextViewResult } from '@/documentAuthority/muyaPlainTextView'
 import type { CodeMirrorViewState } from '@/documentAuthority/codeMirrorViewState'
+import type { MuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
 import type { DocumentSelection } from '@marktext/document-core'
 import type { DocumentSaveIdentity } from '@shared/types/files'
 import { createCanonicalEolIndex } from '@/documentAuthority/canonicalEolIndex'
@@ -155,31 +155,28 @@ const commentComposerFor = (documentId: string): CoreReviewComposerState => {
   return composer
 }
 const coreLaunchPolicy = resolveCoreDocumentLaunchPolicy(window.electron.process.env)
-const coreMode = coreLaunchPolicy.coreEnabled
 interface CoreModelOwnerRegistration {
   control?: CoreModelTestControl
 }
 const coreModelOwners = new Map<string, CoreModelOwnerRegistration>()
-const coreManager = coreMode
-  ? createCoreDocumentSessionManager({
-    createBinding: (documentId) => {
-      const owner: CoreModelOwnerRegistration = {}
-      coreModelOwners.set(documentId, owner)
-      return createEditorCoreBinding(
-        createLocalCoreOwner({
-          onFailure: (error) => handleCoreModelFailure(documentId, owner, error),
-          ...(coreLaunchPolicy.testControlsEnabled
-            ? {
-                registerTestControl: (control: CoreModelTestControl) => {
-                  owner.control = control
-                }
+const coreManager = createCoreDocumentSessionManager({
+  createBinding: (documentId) => {
+    const owner: CoreModelOwnerRegistration = {}
+    coreModelOwners.set(documentId, owner)
+    return createEditorCoreBinding(
+      createLocalCoreOwner({
+        onFailure: (error) => handleCoreModelFailure(documentId, owner, error),
+        ...(coreLaunchPolicy.testControlsEnabled
+          ? {
+              registerTestControl: (control: CoreModelTestControl) => {
+                owner.control = control
               }
-            : {})
-        })
-      )
-    }
-  })
-  : undefined
+            }
+          : {})
+      })
+    )
+  }
+})
 const openedCoreDocuments = new Set<string>()
 const coreSaveRegistrations = new Map<string, () => void>()
 const coreReloadRegistrations = new Map<string, () => void>()
@@ -272,9 +269,9 @@ const installCoreDocumentSelection = (
 const coreSourceGeneration = ref(0)
 const coreEditorGeneration = ref(0)
 const coreProjectionMarkdown = ref<string>()
-const corePlainTextView = shallowRef<Extract<MuyaPlainTextViewResult, { kind: 'view' }>>()
+const corePlainTextView = shallowRef<MuyaMarkupView>()
 const corePerformanceTrace: CoreAuthorityPerformanceTrace | undefined =
-  coreMode && window.electron.process.env.PERF_TESTING === 'true'
+  window.electron.process.env.PERF_TESTING === 'true'
     ? createCoreAuthorityPerformanceTrace()
     : undefined
 const coreViewState = ref<CoreDocumentViewState>(props.sourceCode ? 'source' : 'wysiwyg')
@@ -297,7 +294,7 @@ const wysiwygCoreLease = computed(() =>
     : undefined
 )
 const coreSourceVisible = computed(
-  () => props.sourceCode || (coreMode && coreViewState.value !== 'wysiwyg')
+  () => props.sourceCode || coreViewState.value !== 'wysiwyg'
 )
 const coreTestCrashWorker = computed<(() => void) | undefined>(() => {
   const documentId = coreLease.value?.documentId
@@ -391,7 +388,6 @@ const handleCoreModelFailure = (
       handleCoreViewFault(error)
       return
     }
-    if (coreManager === undefined) return
     const lease = coreManager.lease(documentId)
     lease.faultView(error)
     const replacement = await coreManager.recover(lease)
@@ -486,7 +482,7 @@ watch(
     () => coreClosePending.value
   ],
   ([sourceMode, documentId, tabIds], previous) => {
-    if (!coreMode || coreManager === undefined || coreClosePending.value) return
+    if (coreClosePending.value) return
     // A refused close retained its original live view. Do not acquire a
     // second lease just because close admission reopened.
     if (
@@ -847,7 +843,6 @@ const unregisterCoreClose = coreDocumentSaveAuthority.registerClose(
       const target = currentFile.value?.id
       const view = props.sourceCode ? coreSourceEditor.value : coreEditor.value
       if (
-        coreManager !== undefined &&
         target !== undefined &&
         (coreLease.value?.documentId !== target || view === undefined)
       ) {
@@ -863,7 +858,7 @@ const unregisterCoreClose = coreDocumentSaveAuthority.registerClose(
         const prior = coreLease.value
         // Composition and already prepared input complete while their native
         // listeners and recovery capture still own the active view.
-        if (prior !== undefined) await coreManager?.saveBarrier(prior.documentId)
+        if (prior !== undefined) await coreManager.saveBarrier(prior.documentId)
         if (prior !== undefined) captureCoreDocumentSelection(prior)
         if (coreViewState.value === 'source') {
           coreSourceViewState.value = coreSourceEditor.value?.captureViewState()
@@ -872,11 +867,10 @@ const unregisterCoreClose = coreDocumentSaveAuthority.registerClose(
         await nextTick()
         // Native destruction flushes before listeners detach. The second barrier
         // drains those deliveries before relinquishing this view's live lease.
-        if (prior !== undefined) await coreManager?.handoff(prior)
+        if (prior !== undefined) await coreManager.handoff(prior)
         coreLease.value = undefined
       }
-      if (coreManager === undefined) await retire()
-      else releaseOwners = await coreManager.prepareClose(retire)
+      releaseOwners = await coreManager.prepareClose(retire)
     })
     coreTransition = work.catch(() => {})
     let held = true
@@ -913,39 +907,37 @@ onBeforeUnmount(unregisterCoreClose)
 onBeforeUnmount(() => {
   coreOwnerDisposed = true
   let retainedForRecovery = false
-  if (coreManager !== undefined) {
-    teardownCoreDocumentSessions({
-      manager: coreManager,
-      transition: coreTransition,
-      finalLease: () => coreLease.value,
-      clearFinalLease: () => {
-        coreLease.value = undefined
-      },
-      documentIds: openedCoreDocuments,
-      preserveFailure: createCoreTeardownDraftPreserver({
-        preserve: (draft, lease) => {
-          preserveCoreRecoveryDraft(draft, lease)
-          coreUnbackedDraft.value = undefined
-          coreDraftFaultLease = undefined
-        }
-      })
+  teardownCoreDocumentSessions({
+    manager: coreManager,
+    transition: coreTransition,
+    finalLease: () => coreLease.value,
+    clearFinalLease: () => {
+      coreLease.value = undefined
+    },
+    documentIds: openedCoreDocuments,
+    preserveFailure: createCoreTeardownDraftPreserver({
+      preserve: (draft, lease) => {
+        preserveCoreRecoveryDraft(draft, lease)
+        coreUnbackedDraft.value = undefined
+        coreDraftFaultLease = undefined
+      }
     })
-      .catch((error) => {
-        retainedForRecovery = true
-        console.error('Core document teardown failed', error)
-      })
-      .finally(() => {
-        if (retainedForRecovery) return
-        for (const unregister of coreSaveRegistrations.values()) unregister()
-        coreSaveRegistrations.clear()
-        for (const unregister of coreReloadRegistrations.values()) unregister()
-        coreReloadRegistrations.clear()
-        for (const unregister of coreRecoveryRegistrations.values()) unregister()
-        coreRecoveryRegistrations.clear()
-        coreModelOwners.clear()
-        openedCoreDocuments.clear()
-      })
-  }
+  })
+    .catch((error) => {
+      retainedForRecovery = true
+      console.error('Core document teardown failed', error)
+    })
+    .finally(() => {
+      if (retainedForRecovery) return
+      for (const unregister of coreSaveRegistrations.values()) unregister()
+      coreSaveRegistrations.clear()
+      for (const unregister of coreReloadRegistrations.values()) unregister()
+      coreReloadRegistrations.clear()
+      for (const unregister of coreRecoveryRegistrations.values()) unregister()
+      coreRecoveryRegistrations.clear()
+      coreModelOwners.clear()
+      openedCoreDocuments.clear()
+    })
 })
 </script>
 

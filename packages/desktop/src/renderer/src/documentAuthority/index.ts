@@ -3,7 +3,6 @@ export {
   type CoreModelTestControl,
   type LocalCoreOwnerOptions
 } from './localCoreOwner'
-export { createInMemoryShadowPort } from './inMemoryShadowPort'
 export { createCodeMirrorCoreAdapter, type CodeMirrorCoreAdapter } from './codeMirrorCoreAdapter'
 export { createMuyaPlainTextCoreAdapter } from './muyaPlainTextCoreAdapter'
 export {
@@ -55,20 +54,6 @@ export {
   resolveCoreDocumentLaunchPolicy,
   type CoreDocumentLaunchPolicy
 } from './coreDocumentLaunchPolicy'
-export {
-  createEditorShadowBinding,
-  type EditorShadowBinding,
-  type EditorShadowSnapshot
-} from './editorShadowBinding'
-export { createWorkerShadowPort, type ShadowWorkerLike } from './workerShadowPort'
-export {
-  createShadowDocumentAuthority,
-  type ShadowDocumentAuthority,
-  type ShadowDocumentAuthorityOptions,
-  type ShadowOpenInput,
-  type ShadowReport,
-  type ShadowTicket
-} from './shadowDocumentAuthority'
 export type {
   CoreModelOwner,
   CoreAppliedReply,
@@ -89,16 +74,3 @@ export type {
   CoreReply,
   CoreRequest
 } from './coreProtocol'
-export type {
-  ShadowActorPort,
-  ShadowMetrics,
-  ShadowQueueContext,
-  ShadowReply,
-  ShadowRequest,
-  ShadowRejectionReason,
-  ShadowRecognitionSummary,
-  ShadowResourceFailure,
-  ShadowStatus,
-  ShadowWorkerRequestEnvelope,
-  ShadowWorkerResponseEnvelope
-} from './protocol'

@@ -2,9 +2,10 @@ import type {
   CoreDocumentSessionManager,
   CoreDocumentViewLease
 } from './coreDocumentSessionManager'
-import type { MuyaPlainTextViewResult } from './muyaPlainTextView'
 
-type PlainTextView = Extract<MuyaPlainTextViewResult, { kind: 'view' }>
+import type { MuyaMarkupView } from './muyaMarkupView'
+
+type PlainTextView = MuyaMarkupView
 
 export type CorePlainTextViewHandoffResult = Readonly<{
   readonly lease: CoreDocumentViewLease
