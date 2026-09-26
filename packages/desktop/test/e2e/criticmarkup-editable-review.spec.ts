@@ -13,7 +13,6 @@ test('keeps the same paragraph editable while writing a tracked sentence', async
   const { app, page, filePath } = await launchWithMarkdown('seed\n', {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -52,7 +51,7 @@ test('keeps the same paragraph editable while writing a tracked sentence', async
 test('continues native editing after splitting a paragraph', async() => {
   const { app, page, filePath } = await launchWithMarkdown('seed\n', {
     suppressErrorDialog: true,
-    env: { MARKTEXT_DOCUMENT_CORE_MODE: '1', MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
+    env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
   })
   try {
     await page.locator('span.mu-paragraph-content').first().click()
@@ -73,7 +72,7 @@ test('continues native editing after splitting a paragraph', async() => {
 test('authors and edits a multiline comment without a blocking prompt', async() => {
   const { app, page, filePath } = await launchWithMarkdown('seed\n', {
     suppressErrorDialog: true,
-    env: { MARKTEXT_DOCUMENT_CORE_MODE: '1', MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
+    env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
   })
   try {
     const paragraph = page.locator('span.mu-paragraph-content').first()
@@ -114,7 +113,7 @@ test('switches between read-only Original and Revised without changing saved sou
   const source = 'A {++new++} {--old--} {~~before~>after~~}\n'
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
-    env: { MARKTEXT_DOCUMENT_CORE_MODE: '1', MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
+    env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
   })
   try {
     await page.getByTestId('critic-review-original').click()
@@ -135,7 +134,7 @@ test('switches between read-only Original and Revised without changing saved sou
 test('deletes across an addition boundary and keeps editing its surviving text', async() => {
   const { app, page, filePath } = await launchWithMarkdown('a{++bc++}d\n', {
     suppressErrorDialog: true,
-    env: { MARKTEXT_DOCUMENT_CORE_MODE: '1', MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
+    env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
   })
   try {
     const paragraph = page.locator('span.mu-paragraph-content').first()
@@ -163,7 +162,7 @@ test('deletes across an addition boundary and keeps editing its surviving text',
 test('refreshes a read-only projection after accepting a suggestion', async() => {
   const { app, page } = await launchWithMarkdown('A {++new++}\n', {
     suppressErrorDialog: true,
-    env: { MARKTEXT_DOCUMENT_CORE_MODE: '1', MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
+    env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
   })
   try {
     await page.getByTestId('critic-review-original').click()
@@ -179,7 +178,7 @@ test('refreshes a read-only projection after accepting a suggestion', async() =>
 test('formats an existing addition without accepting it', async() => {
   const { app, page, filePath } = await launchWithMarkdown('{++added++}\n', {
     suppressErrorDialog: true,
-    env: { MARKTEXT_DOCUMENT_CORE_MODE: '1', MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
+    env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
   })
   try {
     const paragraph = page.locator('span.mu-paragraph-content').first()

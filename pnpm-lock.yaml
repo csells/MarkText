@@ -155,15 +155,9 @@ importers:
       github-markdown-css:
         specifier: ^5.9.0
         version: 5.9.0
-      html-tags:
-        specifier: ^5.1.0
-        version: 5.1.0
       iso-639-1:
         specifier: ^3.1.5
         version: 3.1.5
-      joplin-turndown-plugin-gfm:
-        specifier: ^1.0.12
-        version: 1.0.12
       katex:
         specifier: ^0.17.0
         version: 0.17.0
@@ -209,12 +203,6 @@ importers:
       snapsvg-cjs:
         specifier: ^0.0.6
         version: 0.0.6(eve@0.5.4)
-      turndown:
-        specifier: ^7.2.4
-        version: 7.2.4
-      underscore:
-        specifier: ^1.13.8
-        version: 1.13.8
       vega-embed:
         specifier: ^7.1.0
         version: 7.1.0(vega-lite@6.4.3(vega@6.2.0))(vega@6.2.0)
@@ -264,9 +252,6 @@ importers:
       '@types/node':
         specifier: ^22.20.0
         version: 22.20.0
-      '@types/turndown':
-        specifier: ^5.0.6
-        version: 5.0.6
       '@types/webfontloader':
         specifier: ^1.6.38
         version: 1.6.38

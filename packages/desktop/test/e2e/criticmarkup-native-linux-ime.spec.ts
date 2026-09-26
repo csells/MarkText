@@ -33,8 +33,6 @@ for (const tracked of [false, true]) {
         suppressErrorDialog: true,
         env: {
           MARKTEXT_E2E_HIDDEN_WINDOW: undefined,
-          MARKTEXT_DOCUMENT_CORE_MODE: undefined,
-          MARKTEXT_DOCUMENT_CORE_SHADOW: undefined,
           MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined,
           IBUS_ADDRESS: execFileSync('ibus', ['address'], { encoding: 'utf8' }).trim()
         }

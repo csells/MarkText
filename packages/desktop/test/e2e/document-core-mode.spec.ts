@@ -16,7 +16,6 @@ test('Core mode maps the caret across an edited Source-to-WYSIWYG handoff', asyn
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -109,7 +108,6 @@ test('Core mode applies Source input typed after actor undo to the restored text
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -182,7 +180,6 @@ test('Core mode accepts one actor-owned Addition then undoes, redoes, and saves 
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -246,7 +243,6 @@ test('Core mode saves a native Source edit from the Core authority', async() => 
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })

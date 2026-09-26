@@ -93,8 +93,6 @@ test.describe('warm native-keyboard performance', () => {
       const { app, page, filePath } = await launchWithMarkdown(source, {
         suppressErrorDialog: true,
         env: {
-          MARKTEXT_DOCUMENT_CORE_MODE: undefined,
-          MARKTEXT_DOCUMENT_CORE_SHADOW: undefined,
           MARKTEXT_E2E_HIDDEN_WINDOW: '1',
           MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined
         }

@@ -14,8 +14,6 @@ test('tracks continued typing inside a highlight and preserves its comment throu
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: undefined,
-      MARKTEXT_DOCUMENT_CORE_SHADOW: undefined,
       MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined,
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
@@ -52,8 +50,6 @@ for (const timing of ['settled', 'consecutive']) {
       const { app, page, filePath } = await launchWithMarkdown('{==word==}{>>note<<}\n', {
         suppressErrorDialog: true,
         env: {
-          MARKTEXT_DOCUMENT_CORE_MODE: undefined,
-          MARKTEXT_DOCUMENT_CORE_SHADOW: undefined,
           MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined,
           MARKTEXT_E2E_HIDDEN_WINDOW: '1'
         }
