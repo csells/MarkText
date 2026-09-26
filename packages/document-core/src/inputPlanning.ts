@@ -4,7 +4,7 @@ import { planTextMove } from './textMovePlanning.js'
 import { planBlockMove } from './blockMovePlanning.js'
 import { planTableMove, movedTableIndex } from './tableMovePlanning.js'
 import { materializeTableCellEdit } from './tableCellEditing.js'
-import { respellCellTextInput, respellEditedTable, respellTableInput, respellTableResult, tableAt, type TablePreview } from './tableRespelling.js'
+import { escapeCellTextInput, escapeTableInput, respellEditedTable, respellTableResult, tableAt, type TablePreview } from './tableRespelling.js'
 import { planSetextTrailingLine } from './setextTrailingLine.js'
 import { planCrossBlockCut } from './crossBlockCut.js'
 import { planTableSpanCut } from './tableSpanCut.js'
@@ -130,29 +130,12 @@ function emptyFencedPayloadInput(core: DocumentCore, revision: DocumentRevision,
 export function planInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, regionalSyntax?: (range: SourceRange) => MarkupSyntax | undefined, untracked = false, preview?: TablePreview): DocumentInputPlan {
   const plan = planUnspelledInput(core, revision, action, enterConversion, physicalLines, regionalSyntax, untracked)
   if (!untracked || preview === undefined) return plan
-  if (!('kind' in action)) {
-    if (action.selection.kind !== 'table-cell') return respellEnteredTable(core, revision, action, plan, preview)
-    // Enter in a table's last row and text written into a cell a short row
-    // lacks edit that table too; their plans have no cell text to overlay.
-    if (plan.edits.length === 0) return plan
-    const cell = resolveTableCell(core, revision, action.selection.cell)
-    if (cell.slotStart !== undefined && action.inputType !== 'insertParagraph') return plan
-    return Object.freeze(respellTableResult(plan, cell.syntax.coordinates.toSource(cell.table.range.start, 'previous'), preview, true))
-  }
-  // Upstream writes a table afresh when dropped text enters or leaves its cells.
-  if (action.command === 'moveText') {
-    const entered = respellEditedTable(core, revision, plan, inputSourceRange(core, revision, action.target), preview)
-    return Object.freeze(respellEditedTable(core, revision, entered, inputSourceRange(core, revision, action.selection), preview))
-  }
-  // A command that moves text into or out of a table's cells edits that table.
-  if (tableBoundaryCommands.has(action.command)) {
-    const first = plan.edits[0]
-    const syntax = first === undefined ? undefined : core.project(revision, 'markup').syntax
-    const table = first === undefined || syntax === undefined ? undefined : tableAt(syntax, first.start)
-    return table === undefined || syntax === undefined ? plan : Object.freeze(respellTableResult(plan, syntax.coordinates.toSource(table.range.start, 'previous'), preview))
-  }
+  // Typing, Enter, deletion and drops inside a table change only their own
+  // bytes (ADR 0007; owner decision 25 Sep, plan 0012 G24). The line a
+  // paragraph's Enter turns into a table is the typed line's conversion.
+  if (!('kind' in action)) return action.selection.kind === 'table-cell' ? plan : respellEnteredTable(core, revision, action, plan, preview)
   if (!tableCommands.has(action.command)) return plan
-  // Upstream writes the table afresh after a table command as well; the
+  // An explicit table command writes the table afresh, as upstream does; the
   // padding is spelling, so a tracked command never suggests it.
   if ('target' in action && typeof action.target === 'object' && 'row' in action.target) {
     const target = resolveTableCell(core, revision, action.target)
@@ -172,7 +155,6 @@ function respellEnteredTable(core: DocumentCore, revision: DocumentRevision, act
   return Object.freeze(respellTableResult(plan, first.start, preview))
 }
 
-const tableBoundaryCommands = new Set(['joinParagraphBackward', 'joinParagraphForward', 'exitTable'])
 const tableCommands = new Set(['insertTableRow', 'insertTableColumn', 'removeTableRow', 'removeTableColumn', 'alignTableColumn', 'moveTableRow', 'moveTableColumn'])
 
 function planUnspelledInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, regionalSyntax: ((range: SourceRange) => MarkupSyntax | undefined) | undefined, untracked: boolean): DocumentInputPlan {
@@ -195,7 +177,7 @@ function planUnspelledInput(core: DocumentCore, revision: DocumentRevision, acti
   if (action.selection.kind === 'model-text' || 'range' in action && 'kind' in action.range && action.range.kind === 'model-text') {
     const plan = planModelTextInput(core, revision, action, physicalLines(), normalized => planStructuralInput(core, revision, normalized, enterConversion, physicalLines))
     // A cell's text addressed by its model value is still that cell's text.
-    return untracked && !('kind' in action) && action.inputType !== 'insertParagraph' ? Object.freeze(respellCellTextInput(core, revision, plan)) : plan
+    return untracked && !('kind' in action) && action.inputType !== 'insertParagraph' ? Object.freeze(escapeCellTextInput(core, revision, plan)) : plan
   }
   if ('kind' in action && (action.command === 'moveTableColumn' || action.command === 'moveTableRow')) return planTableMove(core, revision, action)
   const actual = copyDocumentSelection(action.selection, revision.sourceLength)
@@ -226,11 +208,11 @@ function planUnspelledInput(core: DocumentCore, revision: DocumentRevision, acti
   if ('kind' in action && action.command === 'tableBoundaryBackspace' && plan.edits.length === 0 && plan.selection.start === selection.start && plan.selection.end === selection.end) return Object.freeze({ ...plan, selection: actual })
   if (selectedCell === undefined || selectedCell.slotStart !== undefined || 'kind' in action || action.inputType === 'insertParagraph' ||
     plan.edits.length === 0 || plan.edits.every(edit => edit.start === edit.end && edit.insert.length === 0)) {
-    // Upstream writes the table afresh after each edit of a cell's text. Its
-    // padding is spelling rather than a suggestion, so tracking leaves it.
+    // A cell edit keeps its pipes in the cell's text; tracking leaves that
+    // spelling to the suggestion.
     const cellEdit = untracked && selectedCell?.slotStart !== undefined && !('kind' in action) && action.inputType !== 'insertParagraph' &&
       plan.edits.length > 0 && plan.edits.every(edit => selectedCell.start <= edit.start && edit.end <= selectedCell.caretEnd)
-    return finish(cellEdit ? respellTableInput(core, revision, selectedCell.syntax, selectedCell.table, plan) : plan)
+    return finish(cellEdit ? escapeTableInput(core, revision, selectedCell.syntax, selectedCell.table, plan) : plan)
   }
   const edit = plan.edits[0]
   if (plan.edits.length !== 1 || edit === undefined || edit.start !== selectedCell.start || edit.end !== selectedCell.end) throw new RangeError('Implicit cell input requires an insertion into its empty content')
@@ -603,7 +585,9 @@ export function reconcileInput(
       if (previousCell.table.children[original.row + 1] !== undefined) {
         const address = { table, row: original.row + 1, column: 0 }
         const cell = resolveTableCell(core, next, address)
-        return Object.freeze({ policy, compilerReconciliation, selection: Object.freeze({ kind: 'table-cell', cell: address, anchor: anchor - cell.start, focus: focus - cell.start }) })
+        // A caret in the new row's padding is at its first cell's text.
+        const offset = (position: number) => Math.min(Math.max(position, cell.start), cell.end) - cell.start
+        return Object.freeze({ policy, compilerReconciliation, selection: Object.freeze({ kind: 'table-cell', cell: address, anchor: offset(anchor), focus: offset(focus) }) })
       }
       return Object.freeze({ policy, compilerReconciliation, selection: directed })
     }

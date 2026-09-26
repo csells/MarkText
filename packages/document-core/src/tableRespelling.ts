@@ -136,11 +136,15 @@ export function tableRespellingEdits(
 }
 
 /**
- * Adds the table respelling to a cell input plan: the plan's own edits keep
- * their locations, the native echo is reconciled to the respelled row, and
- * the selection keeps its place in the cell's text.
+ * Keeps a cell edit's pipes in the cell's text. A pipe the plan writes is
+ * escaped within its edit, and a pipe the edit leaves bare after it gains a
+ * backslash, as upstream spells a cell's text. The table itself is not
+ * written again: an edit inside a cell changes only the bytes it types
+ * (ADR 0007; owner decision 25 Sep, plan 0012 G24), and only explicit table
+ * commands re-pad the table. The native echo and the selection follow the
+ * added backslashes.
  */
-export function respellTableInput<Plan extends { readonly edits: readonly DocumentSourceEdit[], readonly selection: { readonly start: number, readonly end: number }, readonly reconciliation: readonly DocumentSourceEdit[] }>(
+export function escapeTableInput<Plan extends { readonly edits: readonly DocumentSourceEdit[], readonly selection: { readonly start: number, readonly end: number }, readonly reconciliation: readonly DocumentSourceEdit[] }>(
   core: DocumentCore,
   revision: DocumentRevision,
   syntax: MarkupSyntax,
@@ -149,17 +153,10 @@ export function respellTableInput<Plan extends { readonly edits: readonly Docume
 ): Plan {
   const tableStart = syntax.coordinates.toSource(table.range.start, 'previous')
   const tableEnd = syntax.coordinates.toSource(table.range.end, 'next')
-  plan = writtenDeletion(core, revision, plan, tableStart, tableEnd)
   const escaped = escapeCellPipes(core, revision, syntax, table, plan, tableStart, tableEnd)
   const unescaped = plan
   plan = escaped.plan
-  // An edit across an annotation's edge is spelled by the markup compiler,
-  // whose result this cannot foresee, so only its pipes are escaped.
-  const acrossAnnotation = plan.edits.some(edit => revision.annotations.some(({ range }) =>
-    edit.start < range.end && range.start < edit.end && !(edit.start <= range.start && range.end <= edit.end) && !(range.start <= edit.start && edit.end <= range.end)))
-  const padding = acrossAnnotation ? [] : tableRespellingEdits(revisionSource(core, revision), syntax, table, plan.edits)
-  if (padding === undefined) return unescaped
-  const respelled = [...padding, ...escaped.escapes]
+  const respelled: readonly Respelling[] = [...escaped.escapes, ...keepEmptiedEdgeCells(core, revision, syntax, table, plan.edits)]
   if (respelled.length === 0) return plan
   const order = (edit: DocumentSourceEdit) => 'leading' in edit ? 0 : plan.edits.includes(edit) ? 1 : 2
   const edits = [...plan.edits, ...respelled].sort((a, b) => a.start - b.start || order(a) - order(b))
@@ -185,46 +182,31 @@ export function respellTableInput<Plan extends { readonly edits: readonly Docume
 }
 
 /**
- * A deletion the markup compiler writes differently, such as one that empties
- * an insertion and so removes its delimiters too, is planned as written. The
- * table's padding then fits the cell's resulting text, as it fits the bytes of
- * delimiters that remain. The selection and native echo follow the removal.
+ * An edge cell emptied in a row without that outer pipe would merge into the
+ * row's boundary: its row loses a column, the cells after a first cell shift
+ * left, and a header no longer matches its delimiter row. The emptied cell
+ * keeps the one pipe it needs (ADR 0015 protective spelling). A trailing body
+ * cell needs none: a short row shows its missing cells empty.
  */
-function writtenDeletion<Plan extends { readonly edits: readonly DocumentSourceEdit[], readonly selection: { readonly start: number, readonly end: number }, readonly reconciliation: readonly DocumentSourceEdit[] }>(
-  core: DocumentCore, revision: DocumentRevision, plan: Plan, tableStart: number, tableEnd: number
-): Plan {
-  if (plan.edits.length === 0 || plan.edits.some(edit => edit.insert !== '')) return plan
-  const written = core.markupEdits(revision, plan.edits)
-  if (written === undefined || written.some(edit => edit.insert !== '' || edit.start < tableStart || edit.end > tableEnd) ||
-    (written.length === plan.edits.length && written.every((edit, index) => edit.start === plan.edits[index]?.start && edit.end === plan.edits[index]?.end))) return plan
-  // Each written removal holds the planned ones it widens and whole annotations.
-  if (plan.edits.some(edit => !written.some(removal => removal.start <= edit.start && edit.end <= removal.end)) ||
-    written.some(removal => revision.annotations.some(({ range }) =>
-      removal.start < range.end && range.start < removal.end && !(removal.start <= range.start && range.end <= removal.end)))) return plan
-  // The written removals must stand as edits of their own.
-  const rewritten = core.markupEdits(revision, written)
-  if (rewritten === undefined || rewritten.length !== written.length ||
-    rewritten.some((edit, index) => edit.start !== written[index]?.start || edit.end !== written[index]?.end || edit.insert !== '')) return plan
-  const previousPosition = (position: number) => {
-    let removed = 0
-    for (const edit of plan.edits) {
-      if (edit.start - removed >= position) break
-      removed += edit.end - edit.start
+function keepEmptiedEdgeCells(core: DocumentCore, revision: DocumentRevision, syntax: MarkupSyntax, table: MarkdownAstNode, edits: readonly DocumentSourceEdit[]): Respelling[] {
+  const character = (position: number) => position < 0 || position >= revision.sourceLength ? '' : core.sourceSlice(revision, { start: position, end: position + 1 })
+  const protections: Respelling[] = []
+  for (const [rowIndex, row] of table.children.entries()) {
+    const physical = row.children.filter(cell => typeof cell.attributes.cellStart === 'number' && typeof cell.attributes.cellEnd === 'number')
+    for (const [column, cell] of physical.entries()) {
+      const slotStart = syntax.coordinates.toSource(cell.attributes.cellStart as number, 'previous')
+      const slotEnd = syntax.coordinates.toSource(cell.attributes.cellEnd as number, 'next')
+      const inside = edits.filter(edit => slotStart <= edit.start && edit.end <= slotEnd)
+      if (inside.length === 0) continue
+      let slot = core.sourceSlice(revision, { start: slotStart, end: slotEnd })
+      if (slot.trim() === '') continue
+      for (const edit of [...inside].reverse()) slot = slot.slice(0, edit.start - slotStart) + edit.insert + slot.slice(edit.end - slotStart)
+      if (slot.trim() !== '') continue
+      if (column === 0 && character(slotStart - 1) !== '|') protections.push({ start: slotStart, end: slotStart, insert: '| ', leading: true })
+      if (rowIndex === 0 && column === physical.length - 1 && character(slotEnd) !== '|') protections.push({ start: slotEnd, end: slotEnd, insert: ' |' })
     }
-    return position + removed
   }
-  const point = (position: number) => positionAfter(written, previousPosition(position), false)
-  const widened = written.map(removal => ({
-    start: positionAfter(plan.edits, removal.start, false),
-    end: positionAfter(plan.edits, removal.end, true),
-    insert: ''
-  })).filter(edit => edit.start < edit.end)
-  return {
-    ...plan,
-    edits: Object.freeze(written.map(edit => Object.freeze({ ...edit }))),
-    selection: Object.freeze({ start: point(plan.selection.start), end: point(plan.selection.end) }),
-    reconciliation: Object.freeze(composeSourceEdits(plan.reconciliation, widened, planResult(core, revision, plan.edits, tableStart, tableEnd)).map(edit => Object.freeze(edit)))
-  }
+  return protections
 }
 
 /** Reads a plan's result within the table region `start`..`end` of the source it edits. */
@@ -292,11 +274,11 @@ function escapeCellPipes<Plan extends { readonly edits: readonly DocumentSourceE
 }
 
 /**
- * Respells the table whose one cell's text holds every edit of an untracked
- * plan, as `respellTableInput` does, for a plan whose selection is one source
+ * Escapes the pipes of an untracked plan whose edits all lie in one cell's
+ * text, as `escapeTableInput` does, for a plan whose selection is one source
  * range. Other plans are unchanged.
  */
-export function respellCellTextInput<Plan extends { readonly edits: readonly DocumentSourceEdit[], readonly selection: DocumentInputSelection, readonly reconciliation: readonly DocumentSourceEdit[] }>(core: DocumentCore, revision: DocumentRevision, plan: Plan): Plan {
+export function escapeCellTextInput<Plan extends { readonly edits: readonly DocumentSourceEdit[], readonly selection: DocumentInputSelection, readonly reconciliation: readonly DocumentSourceEdit[] }>(core: DocumentCore, revision: DocumentRevision, plan: Plan): Plan {
   const first = plan.edits[0]
   const last = plan.edits.at(-1)
   const range = 'ranges' in plan.selection && plan.selection.ranges.length === 1 ? plan.selection.ranges[plan.selection.primary] : undefined
@@ -307,7 +289,7 @@ export function respellCellTextInput<Plan extends { readonly edits: readonly Doc
     syntax.coordinates.toSource(cell.range.start, 'previous') <= first.start && last.end <= syntax.coordinates.toSource(cell.range.end, 'next')))
   if (table === undefined || inOneCell !== true) return plan
   const backward = range.anchor > range.focus
-  const respelled = respellTableInput(core, revision, syntax, table, { edits: plan.edits, reconciliation: plan.reconciliation, selection: { start: Math.min(range.anchor, range.focus), end: Math.max(range.anchor, range.focus) } })
+  const respelled = escapeTableInput(core, revision, syntax, table, { edits: plan.edits, reconciliation: plan.reconciliation, selection: { start: Math.min(range.anchor, range.focus), end: Math.max(range.anchor, range.focus) } })
   if (respelled.edits === plan.edits) return plan
   const { start, end } = respelled.selection
   return { ...plan, edits: respelled.edits, reconciliation: respelled.reconciliation, selection: Object.freeze({ ranges: Object.freeze([Object.freeze({ anchor: backward ? end : start, focus: backward ? start : end })]), primary: 0 }) }

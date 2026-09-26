@@ -34,7 +34,7 @@ it.each([
   { name: 'multiple soft lines', source: '| h |\n|---|\n| a |\n\nb\nc\n', expected: '| h |\n|---|\n| ab<br/>c |\n', caret: 15 },
   { name: 'a hard break', source: '| h |\n|---|\n| a |\n\nb\\\nc\n', expected: '| h |\n|---|\n| ab<br/>c |\n', caret: 15 },
   { name: 'a multiline hidden comment', source: '| h |\n|---|\n| a |\n\nb{>>multi\nline<<}c\nz\n', expected: '| h |\n|---|\n| ab{>>multi\nline<<}c<br/>z |\n', caret: 15 },
-  { name: 'implicit final cell', source: '| a | b |\n|---|---|\n| c |\n\nd\n', expected: '| a | b |\n|---|---|\n| c |     d|\n', caret: 30 }
+  { name: 'implicit final cell', source: '| a | b |\n|---|---|\n| c |\n\nd\n', expected: '| a | b |\n|---|---|\n| c | d |\n', caret: 26 }
 ])('joins a paragraph with $name', example => {
   const core = createDocumentCore()
   const revision = core.open(example.source)

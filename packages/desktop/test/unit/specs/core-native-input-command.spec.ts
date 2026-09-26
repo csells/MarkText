@@ -402,7 +402,7 @@ it('journals explicit table commands through the same document input owner', asy
     }).acknowledged
     expect(submitted).toMatchObject({
       type: 'applied',
-      inputResult: { selection: { ranges: [{ anchor: 49, focus: 49 }], primary: 0 } }
+      inputResult: { selection: { ranges: [{ anchor: 40, focus: 40 }], primary: 0 } }
     })
     // Upstream (8d6c198c) writes the table afresh after an untracked table command.
     const expected =
@@ -439,7 +439,7 @@ it('tracks table row commands through the existing structural edit compiler', as
     }).acknowledged
     expect(reply).toMatchObject({
       type: 'applied',
-      inputResult: { selection: { ranges: [{ anchor: 35, focus: 35 }], primary: 0 } }
+      inputResult: { selection: { ranges: [{ anchor: 31, focus: 31 }], primary: 0 } }
     })
     expect(binding.sourceAtBarrier()).toMatchObject({
       source: '| aa | bb |\n| --- | --- |{++\n|     |     |++}\n| cc | dd |\n'
@@ -469,7 +469,7 @@ it('preserves existing annotations when a popup inserts a header above the curre
     }).acknowledged
     expect(reply).toMatchObject({
       type: 'applied',
-      inputResult: { selection: { ranges: [{ anchor: 17, focus: 17 }], primary: 0 } }
+      inputResult: { selection: { ranges: [{ anchor: 8, focus: 8 }], primary: 0 } }
     })
     // Upstream (8d6c198c) writes the table afresh after an untracked table command.
     expect(binding.sourceAtBarrier()).toMatchObject({

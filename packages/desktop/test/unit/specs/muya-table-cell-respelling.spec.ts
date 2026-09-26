@@ -52,67 +52,68 @@ const endOf = (app: BoundMuya, index: number) => {
 
 const table = '| a | b |\n| --- | --- |\n| c | d |\n'
 
-// Upstream (8d6c198c) writes the whole table afresh after each cell edit.
+// Upstream (8d6c198c) writes the whole table afresh after each cell edit; an
+// edit here changes only the bytes it types (ADR 0007; plan 0012 G24).
 describe('editing a table cell', () => {
   it.each([
     {
       initial: table,
       cell: 0,
-      typed: '| ax  | b   |\n| --- | --- |\n| c   | d   |\n',
+      typed: '| ax | b |\n| --- | --- |\n| c | d |\n',
       caret: 'ax|'
     },
     {
       initial: table,
       cell: 2,
-      typed: '| a   | b   |\n| --- | --- |\n| cx  | d   |\n',
+      typed: '| a | b |\n| --- | --- |\n| cx | d |\n',
       caret: 'cx|'
     },
     {
       initial: '|a|b|\n|-|-|\n|c|d|\n',
       cell: 0,
-      typed: '| ax  | b   |\n| --- | --- |\n| c   | d   |\n',
+      typed: '|ax|b|\n|-|-|\n|c|d|\n',
       caret: 'ax|'
     },
     {
       initial: '| a | b |\n|:-|-:|\n| c | d |\n',
       cell: 0,
-      typed: '| ax  | b   |\n|:--- | ---:|\n| c   | d   |\n',
+      typed: '| ax | b |\n|:-|-:|\n| c | d |\n',
       caret: 'ax|'
     },
     {
       initial: '| abcdefg | b |\n| --- | --- |\n| c | d |\n',
       cell: 0,
-      typed: '| abcdefgx | b   |\n| -------- | --- |\n| c        | d   |\n',
+      typed: '| abcdefgx | b |\n| --- | --- |\n| c | d |\n',
       caret: 'abcdefgx|'
     },
     {
       initial: '| abcdefg | b |\n| --- | --- |\n| c | d |\n',
       cell: 2,
-      typed: '| abcdefg | b   |\n| ------- | --- |\n| cx      | d   |\n',
+      typed: '| abcdefg | b |\n| --- | --- |\n| cx | d |\n',
       caret: 'cx|'
     },
     {
       initial: '> | a | b |\n> | --- | --- |\n> | c | d |\n',
       cell: 0,
-      typed: '> | ax  | b   |\n> | --- | --- |\n> | c   | d   |\n',
+      typed: '> | ax | b |\n> | --- | --- |\n> | c | d |\n',
       caret: 'ax|'
     },
     {
       initial: '- | a | b |\n  | --- | --- |\n  | c | d |\n',
       cell: 0,
-      typed: '- | ax  | b   |\n  | --- | --- |\n  | c   | d   |\n',
+      typed: '- | ax | b |\n  | --- | --- |\n  | c | d |\n',
       caret: 'ax|'
     },
     {
       initial: 'a | b\n--- | ---\nc | d\n',
       cell: 0,
-      typed: '| ax  | b   |\n| --- | --- |\n| c   | d   |\n',
+      typed: 'ax | b\n--- | ---\nc | d\n',
       caret: 'ax|'
     },
     {
       initial: '| a | b |\n| --- | --- |\n| c |\n',
       cell: 0,
-      typed: '| ax  | b   |\n| --- | --- |\n| c   |     |\n',
+      typed: '| ax | b |\n| --- | --- |\n| c |\n',
       caret: 'ax|'
     },
     // Owner decision (plan 0012 G24): padding keeps a row's text beyond the
@@ -120,44 +121,44 @@ describe('editing a table cell', () => {
     {
       initial: '| a | b |\n| --- | --- |\n| c | d | e |\n',
       cell: 0,
-      typed: '| ax  | b   |\n| --- | --- |\n| c   | d   | e |\n',
+      typed: '| ax | b |\n| --- | --- |\n| c | d | e |\n',
       caret: 'ax|'
     },
     {
       initial: '| 中文 | b |\n| --- | --- |\n| c | d |\n',
       cell: 1,
-      typed: '| 中文 | bx  |\n| ---- | --- |\n| c    | d   |\n',
+      typed: '| 中文 | bx |\n| --- | --- |\n| c | d |\n',
       caret: 'bx|'
     },
     {
       initial: '| a\\|z | b |\n| --- | --- |\n| c | d |\n',
       cell: 1,
-      typed: '| a\\|z | bx  |\n| ---- | --- |\n| c    | d   |\n',
+      typed: '| a\\|z | bx |\n| --- | --- |\n| c | d |\n',
       caret: 'bx|'
     },
     {
       initial: '| **a** | b |\n| --- | --- |\n| c | d |\n',
       cell: 1,
-      typed: '| **a** | bx  |\n| ----- | --- |\n| c     | d   |\n',
+      typed: '| **a** | bx |\n| --- | --- |\n| c | d |\n',
       caret: 'bx|'
     },
     {
       initial: '|a|b|\n|-|-|\n|c|d|extra|\n|e|\n',
       cell: 0,
-      typed: '| ax  | b   |\n| --- | --- |\n| c   | d   |extra|\n| e   |     |\n',
+      typed: '|ax|b|\n|-|-|\n|c|d|extra|\n|e|\n',
       caret: 'ax|'
     },
     {
       initial: '|a|b|\n|-|-|\n|{++c++}|d|x \\| {>>y<<}|\n',
       cell: 0,
-      typed: '| ax      | b   |\n| ------- | --- |\n| {++c++} | d   |x \\| {>>y<<}|\n',
+      typed: '|ax|b|\n|-|-|\n|{++c++}|d|x \\| {>>y<<}|\n',
       caret: 'ax|'
     },
     // CRLF documents keep CRLF.
     {
       initial: table.replaceAll('\n', '\r\n'),
       cell: 0,
-      typed: '| ax  | b   |\r\n| --- | --- |\r\n| c   | d   |\r\n',
+      typed: '| ax | b |\r\n| --- | --- |\r\n| c | d |\r\n',
       caret: 'ax|'
     }
   ])('types in cell $cell of $initial', async({ initial, cell, typed, caret }) => {
@@ -192,55 +193,55 @@ describe('editing a table cell', () => {
     }
   })
 
-  it('pads a cell emptied with Backspace and types into it', async() => {
+  it('empties a cell with Backspace and types into it', async() => {
     const app = bootBoundMuya(table)
     try {
       endOf(app, 0)
       await input(app, 'deleteContentBackward')
-      expect(source(app)).toBe('|     | b   |\n| --- | --- |\n| c   | d   |\n')
+      expect(source(app)).toBe('|  | b |\n| --- | --- |\n| c | d |\n')
       expect(caretText(app)).toBe('|')
       await input(app, 'insertText', 'x')
-      expect(source(app)).toBe('| x   | b   |\n| --- | --- |\n| c   | d   |\n')
+      expect(source(app)).toBe('| x | b |\n| --- | --- |\n| c | d |\n')
       expect(caretText(app)).toBe('x|')
     } finally {
       app.dispose()
     }
   })
 
-  // Upstream keeps a space typed after a cell's text in the cell, with the
-  // caret after it, while the written table's padding absorbs it.
+  // A space typed after a cell's text stays in the cell, with the caret after
+  // it, as upstream keeps it.
   it.each([
     {
       initial: table,
       cell: 0,
       steps: [
-        [' ', '| a   | b   |\n| --- | --- |\n| c   | d   |\n', 'a |'],
-        [' ', '| a   | b   |\n| --- | --- |\n| c   | d   |\n', 'a  |'],
-        ['x', '| a  x | b   |\n| ---- | --- |\n| c    | d   |\n', 'a  x|']
+        [' ', '| a  | b |\n| --- | --- |\n| c | d |\n', 'a |'],
+        [' ', '| a   | b |\n| --- | --- |\n| c | d |\n', 'a  |'],
+        ['x', '| a  x | b |\n| --- | --- |\n| c | d |\n', 'a  x|']
       ]
     },
     {
       initial: '| abc | b |\n| --- | --- |\n| c | d |\n',
       cell: 0,
       steps: [
-        [' ', '| abc | b   |\n| --- | --- |\n| c   | d   |\n', 'abc |'],
-        ['x', '| abc x | b   |\n| ----- | --- |\n| c     | d   |\n', 'abc x|']
+        [' ', '| abc  | b |\n| --- | --- |\n| c | d |\n', 'abc |'],
+        ['x', '| abc x | b |\n| --- | --- |\n| c | d |\n', 'abc x|']
       ]
     },
     {
       initial: table,
       cell: 3,
       steps: [
-        [' ', '| a   | b   |\n| --- | --- |\n| c   | d   |\n', 'd |'],
-        ['x', '| a   | b   |\n| --- | --- |\n| c   | d x |\n', 'd x|']
+        [' ', '| a | b |\n| --- | --- |\n| c | d  |\n', 'd |'],
+        ['x', '| a | b |\n| --- | --- |\n| c | d x |\n', 'd x|']
       ]
     },
     {
       initial: '| **a** | b |\n| --- | --- |\n| c | d |\n',
       cell: 0,
       steps: [
-        [' ', '| **a** | b   |\n| ----- | --- |\n| c     | d   |\n', '**a** |'],
-        ['x', '| **a** x | b   |\n| ------- | --- |\n| c       | d   |\n', '**a** x|']
+        [' ', '| **a**  | b |\n| --- | --- |\n| c | d |\n', '**a** |'],
+        ['x', '| **a** x | b |\n| --- | --- |\n| c | d |\n', '**a** x|']
       ]
     }
   ])('types a trailing space in cell $cell of $initial', async({ initial, cell, steps }) => {
@@ -265,10 +266,10 @@ describe('editing a table cell', () => {
       endOf(app, 0)
       await input(app, 'insertText', ' ')
       await input(app, 'deleteContentBackward')
-      expect(source(app)).toBe('| a   | b   |\n| --- | --- |\n| c   | d   |\n')
+      expect(source(app)).toBe('| a | b |\n| --- | --- |\n| c | d |\n')
       expect(caretText(app)).toBe('a|')
       await input(app, 'insertText', 'x')
-      expect(source(app)).toBe('| ax  | b   |\n| --- | --- |\n| c   | d   |\n')
+      expect(source(app)).toBe('| ax | b |\n| --- | --- |\n| c | d |\n')
     } finally {
       app.dispose()
     }
@@ -288,7 +289,7 @@ describe('editing a table cell', () => {
       end: 1,
       inputType: 'deleteContentBackward'
     }
-  ])('pads a cell whose insertion $name empties', async({ leaf, start, end, inputType }) => {
+  ])('empties a cell whose only insertion $name removes', async({ leaf, start, end, inputType }) => {
     const initial = '| {++a++} | b |\n| - | - |\n| c | d |\n'
     const app = bootBoundMuya(initial)
     try {
@@ -296,10 +297,10 @@ describe('editing a table cell', () => {
       if (block === undefined || !block.isContent()) throw new Error('Expected cell')
       block.setCursor(start, end, true)
       await input(app, inputType)
-      expect(source(app)).toBe('|     | b   |\n| --- | --- |\n| c   | d   |\n')
+      expect(source(app)).toBe('|  | b |\n| - | - |\n| c | d |\n')
       expect(caretText(app)).toBe('|')
       await input(app, 'insertText', 'x')
-      expect(source(app)).toBe('| x   | b   |\n| --- | --- |\n| c   | d   |\n')
+      expect(source(app)).toBe('| x | b |\n| - | - |\n| c | d |\n')
       expect(caretText(app)).toBe('x|')
       await app.adapter.history('undo', app.reconcile)
       await app.adapter.history('undo', app.reconcile)
@@ -328,7 +329,7 @@ describe('editing a table cell', () => {
       start: 1,
       end: 1,
       inputType: 'deleteContentBackward',
-      changed: '| {>>c<<} | d   |\n| ------- | --- |\n| e       | f   |\n'
+      changed: '| {>>c<<} | d |\n| - | - |\n| e | f |\n'
     }
   ])('keeps a live caret after $name', async({ initial, start, end, inputType, changed }) => {
     const app = bootBoundMuya(initial)
@@ -341,7 +342,7 @@ describe('editing a table cell', () => {
       expect(source(app)).toBe(changed)
       expect(caretText(app)).toBe('|')
       await input(app, 'insertText', 'z')
-      expect(source(app)).toBe('| z{>>c<<} | d   |\n| -------- | --- |\n| e        | f   |\n')
+      expect(source(app)).toBe('| z{>>c<<} | d |\n| - | - |\n| e | f |\n')
       expect(caretText(app)).toBe('z|')
       await app.adapter.history('undo', app.reconcile)
       await app.adapter.history('undo', app.reconcile)
@@ -356,7 +357,7 @@ describe('editing a table cell', () => {
     try {
       leaves(app)[0]?.setCursor(0, 0, true)
       await input(app, 'insertText', '|')
-      expect(source(app)).toBe('| \\|{>>c<<} | d   |\n| --------- | --- |\n| e         | f   |\n')
+      expect(source(app)).toBe('| \\|{>>c<<} | d |\n| - | - |\n| e | f |\n')
       expect(caretText(app)).toBe('\\||')
     } finally {
       app.dispose()
@@ -411,7 +412,7 @@ describe('a table command', () => {
       expect(source(app)).toBe('| a   | bb  |\n| --- |:---:|\n| ccc | d   |\n|     |     |\n')
       expect(caretCell(app)).toEqual({ row: 2, column: 0, offset: 0 })
       await input(app, 'insertText', 'x')
-      expect(source(app)).toBe('| a   | bb  |\n| --- |:---:|\n| ccc | d   |\n| x   |     |\n')
+      expect(source(app)).toBe('| a   | bb  |\n| --- |:---:|\n| ccc | d   |\n| x    |     |\n')
       await app.adapter.history('undo', app.reconcile)
       await undoOnce(app, unpadded)
       expect(app.legacyChanges).toEqual([])
@@ -547,7 +548,7 @@ describe('a table command', () => {
     }
   })
 
-  it('pastes into a cell and writes the table afresh', async() => {
+  it('pastes into a cell and writes only the pasted text', async() => {
     const app = bootBoundMuya(unpadded)
     try {
       endOf(app, 2)
@@ -561,7 +562,7 @@ describe('a table command', () => {
         }
       } as unknown as ClipboardEvent)
       await app.adapter.settled()
-      expect(source(app)).toBe('| a      | bb  |\n| ------ |:---:|\n| cccxyz | d   |\n')
+      expect(source(app)).toBe('| a | bb |\n|---|:-:|\n| cccxyz | d |\n')
       expect(caretText(app)).toBe('cccxyz|')
       await undoOnce(app, unpadded)
     } finally {
@@ -569,7 +570,7 @@ describe('a table command', () => {
     }
   })
 
-  it("formats a cell's text and writes the table afresh", async() => {
+  it("formats a cell's text and keeps the table's spelling", async() => {
     const app = bootBoundMuya(unpadded)
     try {
       const cell = leaves(app)[2]
@@ -577,7 +578,7 @@ describe('a table command', () => {
       cell.setCursor(0, 3, true)
       app.muya.format('strong')
       await app.adapter.settled()
-      expect(source(app)).toBe('| a       | bb  |\n| ------- |:---:|\n| **ccc** | d   |\n')
+      expect(source(app)).toBe('| a | bb |\n|---|:-:|\n| **ccc** | d |\n')
       await undoOnce(app, unpadded)
     } finally {
       app.dispose()
@@ -662,7 +663,8 @@ const expectRespelled = async(
   expect(source(app)).toBe(initial)
 }
 
-// Upstream (8d6c198c) writes the whole table afresh after a text cut in a cell.
+// Upstream (8d6c198c) writes the whole table afresh after a text cut in a cell;
+// a cut here removes only the cut bytes (ADR 0007).
 describe("cutting a cell's text", () => {
   it.each([
     {
@@ -671,7 +673,7 @@ describe("cutting a cell's text", () => {
       leaf: 2,
       start: 0,
       end: 3,
-      expected: '| a   | bb  |\n| --- |:---:|\n|     | d   |\n',
+      expected: '| a | bb |\n|---|:-:|\n|  | d |\n',
       caret: '|',
       cell: { row: 1, column: 0 }
     },
@@ -681,7 +683,7 @@ describe("cutting a cell's text", () => {
       leaf: 2,
       start: 1,
       end: 3,
-      expected: '| a   | bb  |\n| --- |:---:|\n| c   | d   |\n',
+      expected: '| a | bb |\n|---|:-:|\n| c | d |\n',
       caret: 'c|',
       cell: { row: 1, column: 0 }
     },
@@ -691,7 +693,7 @@ describe("cutting a cell's text", () => {
       leaf: 0,
       start: 0,
       end: 1,
-      expected: '|     | bb  |\n| --- |:---:|\n| ccc | d   |\n',
+      expected: '|  | bb |\n|---|:-:|\n| ccc | d |\n',
       caret: '|',
       cell: { row: 0, column: 0 }
     },
@@ -701,7 +703,7 @@ describe("cutting a cell's text", () => {
       leaf: 0,
       start: 0,
       end: 1,
-      expected: '|     | b   |\n| --- | --- |\n| c   | d   |\n',
+      expected: '| |b\n-|-\nc|d\n',
       caret: '|',
       cell: { row: 0, column: 0 }
     },
@@ -711,7 +713,7 @@ describe("cutting a cell's text", () => {
       leaf: 2,
       start: 0,
       end: 1,
-      expected: '| a   | b   |\n| --- | --- |\n|     | d   |\n',
+      expected: 'a|b\n-|-\n| |d\n',
       caret: '|',
       cell: { row: 1, column: 0 }
     },
@@ -721,7 +723,7 @@ describe("cutting a cell's text", () => {
       leaf: 3,
       start: 0,
       end: 1,
-      expected: '> | a   | b   |\n> | --- | --- |\n> | c   |     |\n',
+      expected: '> | a | b |\n> | --- | --- |\n> | c |  |\n',
       caret: '|',
       cell: { row: 1, column: 1 }
     }
@@ -741,10 +743,10 @@ describe("cutting a cell's text", () => {
   )
 })
 
-// Upstream (8d6c198c) moves a paragraph's text into the last cell before it and
-// writes the table afresh.
+// Upstream (8d6c198c) moves a paragraph's text into the last cell before it;
+// the rest of the table keeps its spelling (ADR 0007).
 describe('joining a paragraph into a table cell', () => {
-  const joined = '| a   | bb    |\n| --- |:-----:|\n| ccc | dpara |\n'
+  const joined = '| a | bb |\n|---|:-:|\n| ccc | dpara |\n'
   const initial = `${unpadded}\npara\n`
 
   it('Backspace at the paragraph start', async() => {
@@ -779,7 +781,7 @@ describe('editing escaped text in a cell', () => {
     try {
       select(app, 0, 2, 2)
       await input(app, 'insertText', 'x')
-      expect(source(app)).toBe('| a\\x\\|z | b   |\n| ------ | --- |\n| c      | d   |\n')
+      expect(source(app)).toBe('| a\\x\\|z | b |\n| --- | --- |\n| c | d |\n')
       expect(app.muya.editor.selection.getSelection()?.anchor.offset).toBe(3)
       await app.adapter.history('undo', app.reconcile)
       expect(source(app)).toBe(initial)
@@ -793,7 +795,7 @@ describe('editing escaped text in a cell', () => {
     try {
       select(app, 0, 2, 2)
       await key(app, 'Backspace')
-      expect(source(app)).toBe('| a\\|z | b   |\n| ---- | --- |\n| c    | d   |\n')
+      expect(source(app)).toBe('| a\\|z | b |\n| --- | --- |\n| c | d |\n')
       expect(app.muya.editor.selection.getSelection()?.anchor.offset).toBe(1)
     } finally {
       app.dispose()
@@ -842,7 +844,8 @@ const paste = async(app: BoundMuya, text: string) => {
 
 // Upstream (8d6c198c) keeps a table's grid when a selection reaches into it:
 // the start keeps its text before the selection and then the end's text after
-// it, the cells after the start are emptied, and the table is written afresh.
+// it, and the cells after the start are emptied. The rest of the table keeps
+// its spelling (ADR 0007).
 describe('a selection reaching across table cells', () => {
   const withParagraph = `${unpadded}\npara\n`
   const before = `para\n\n${unpadded}`
@@ -853,7 +856,7 @@ describe('a selection reaching across table cells', () => {
       initial: withParagraph,
       from: [0, 0],
       to: [1, 1],
-      expected: '| b   |     |\n| --- |:---:|\n| ccc | d   |\n\npara\n',
+      expected: '| b |  |\n|---|:-:|\n| ccc | d |\n\npara\n',
       caret: '|b',
       cell: { row: 0, column: 0 }
     },
@@ -862,7 +865,7 @@ describe('a selection reaching across table cells', () => {
       initial: withParagraph,
       from: [1, 1],
       to: [2, 1],
-      expected: '| a   | bcc |\n| --- |:---:|\n|     | d   |\n\npara\n',
+      expected: '| a | bcc |\n|---|:-:|\n|  | d |\n\npara\n',
       caret: 'b|cc',
       cell: { row: 0, column: 1 }
     },
@@ -871,7 +874,7 @@ describe('a selection reaching across table cells', () => {
       initial: withParagraph,
       from: [3, 0],
       to: [4, 2],
-      expected: '| a   | bb  |\n| --- |:---:|\n| ccc | ra  |\n',
+      expected: '| a | bb |\n|---|:-:|\n| ccc | ra |\n',
       caret: '|ra',
       cell: { row: 1, column: 1 }
     },
@@ -881,7 +884,7 @@ describe('a selection reaching across table cells', () => {
       initial: before,
       from: [0, 2],
       to: [1, 0],
-      expected: 'pa\n\n| a   | bb  |\n| --- |:---:|\n| ccc | d   |\n',
+      expected: 'pa\n\n| a | bb |\n|---|:-:|\n| ccc | d |\n',
       caret: 'pa|',
       cell: null
     },
@@ -890,7 +893,7 @@ describe('a selection reaching across table cells', () => {
       initial: '| a | b |\n| --- | --- |\n| c |\n',
       from: [2, 0],
       to: [3, 0],
-      expected: '| a   | b   |\n| --- | --- |\n|     |     |\n',
+      expected: '| a | b |\n| --- | --- |\n|  |\n',
       caret: '|',
       cell: { row: 1, column: 0 }
     }
@@ -914,7 +917,7 @@ describe('a selection reaching across table cells', () => {
       await expectRespelled(
         app,
         withParagraph,
-        '| a   | bxcc |\n| --- |:----:|\n|     | d    |\n\npara\n',
+        '| a | bxcc |\n|---|:-:|\n|  | d |\n\npara\n',
         'bx|cc',
         { row: 0, column: 1 }
       )
@@ -931,7 +934,7 @@ describe('a selection reaching across table cells', () => {
       await expectRespelled(
         app,
         withParagraph,
-        '| p\\|qb |     |\n| ----- |:---:|\n| ccc   | d   |\n\npara\n',
+        '| p\\|qb |  |\n|---|:-:|\n| ccc | d |\n\npara\n',
         'p\\|q|b',
         { row: 0, column: 0 }
       )
@@ -962,7 +965,8 @@ describe('a selection reaching across table cells', () => {
   })
 })
 
-// Upstream (8d6c198c) writes the whole table afresh when a short row gains a cell.
+// A short row gains the cell typed into; the rest of the table keeps its
+// spelling (ADR 0007).
 describe('writing into the cell a short row lacks', () => {
   const initial = '| a | b |\n| --- | --- |\n| c |\n'
 
@@ -971,7 +975,7 @@ describe('writing into the cell a short row lacks', () => {
     try {
       select(app, 3, 0, 0)
       await input(app, 'insertText', 'x')
-      await expectRespelled(app, initial, '| a   | b   |\n| --- | --- |\n| c   | x   |\n', 'x|', {
+      await expectRespelled(app, initial, '| a | b |\n| --- | --- |\n| c | x |\n', 'x|', {
         row: 1,
         column: 1
       })
@@ -988,7 +992,7 @@ describe('writing into the cell a short row lacks', () => {
       await expectRespelled(
         app,
         initial,
-        '| a   | b    |\n| --- | ---- |\n| c   | p\\|q |\n',
+        '| a | b |\n| --- | --- |\n| c | p\\|q |\n',
         'p\\|q|',
         { row: 1, column: 1 }
       )
@@ -998,9 +1002,9 @@ describe('writing into the cell a short row lacks', () => {
   })
 })
 
-// Upstream (8d6c198c) writes the table afresh when Enter in its last row starts
-// a paragraph after it.
-it("Enter in a table's last row starts a paragraph and writes the table afresh", async() => {
+// Enter in a table's last row starts a paragraph after it; the table keeps its
+// spelling (ADR 0007).
+it("Enter in a table's last row starts a paragraph and keeps the table's spelling", async() => {
   const app = bootBoundMuya(unpadded)
   try {
     select(app, 2, 1, 1)
@@ -1021,7 +1025,7 @@ it("Enter in a table's last row starts a paragraph and writes the table afresh",
     await expectRespelled(
       app,
       unpadded,
-      '| a   | bb  |\n| --- |:---:|\n| ccc | d   |\n\n\n',
+      '| a | bb |\n|---|:-:|\n| ccc | d |\n\n\n',
       '|',
       null
     )

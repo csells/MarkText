@@ -140,9 +140,13 @@ export function tableCellSelectionAtSource(syntax: MarkupSyntax, selection: Sour
   const visit = (node: MarkdownAstNode): void => {
     if (node.kind === 'table') {
       node.children.forEach((row, rowIndex) => row.children.forEach((cell, column) => {
+        const { cellStart, cellEnd } = cell.attributes
+        if (typeof cellStart !== 'number' || typeof cellEnd !== 'number') return
         const from = syntax.coordinates.toSource(cell.range.start, 'previous')
         const to = syntax.coordinates.toSource(cell.range.end, 'next')
-        if (typeof cell.attributes.cellStart === 'number' && from <= selection.start && selection.end <= to) addresses.push({ kind: 'table-cell', cell: { table: { start: syntax.coordinates.toSource(node.range.start, 'previous'), end: syntax.coordinates.toSource(node.range.end, 'next') }, row: rowIndex, column }, anchor: selection.start - from, focus: selection.end - from })
+        // A caret anywhere in an empty cell's padding is at its text.
+        const empty = from === to && syntax.coordinates.toSource(cellStart, 'previous') <= selection.start && selection.end <= syntax.coordinates.toSource(cellEnd, 'next')
+        if (empty || from <= selection.start && selection.end <= to) addresses.push({ kind: 'table-cell', cell: { table: { start: syntax.coordinates.toSource(node.range.start, 'previous'), end: syntax.coordinates.toSource(node.range.end, 'next') }, row: rowIndex, column }, anchor: empty ? 0 : selection.start - from, focus: empty ? 0 : selection.end - from })
       }))
     } else for (const child of node.children) visit(child)
   }

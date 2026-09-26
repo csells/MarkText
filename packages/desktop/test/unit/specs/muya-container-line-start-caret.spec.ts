@@ -125,11 +125,11 @@ describe('caret at a later line start inside a container', () => {
   )
 
   it.each([
-    { source: '> first\n> second\n', expected: '> first\n>\n> > second\n' },
-    { source: '- first\n  second\n', expected: '- first\n\n  > second\n' },
-    { source: '> first\r\n> second\r\n', expected: '> first\r\n>\r\n> > second\r\n' }
+    { source: '> first\n> second\n', expected: '> first\n> > second\n' },
+    { source: '- first\n  second\n', expected: '- first\n  > second\n' },
+    { source: '> first\r\n> second\r\n', expected: '> first\r\n> > second\r\n' }
   ])(
-    'converts the line with > typed at the start of line two of $source as upstream',
+    'converts the line with > typed at the start of line two of $source as upstream, keeping the lines around it',
     async({ source: initial, expected }) => {
       const app = bootBoundMuya(initial)
       try {

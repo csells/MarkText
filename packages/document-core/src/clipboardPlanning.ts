@@ -5,7 +5,7 @@ import { inputSourceRange, type DocumentInputSelection } from './inputPlanning.j
 import { resolveTableCell, resolveTableSelection, resolveTableSelectionInSyntax, tableCellSelectionAfter } from './tableSelection.js'
 import { materializeTableCellEdit } from './tableCellEditing.js'
 import { planTableClipboard } from './tableClipboardPlanning.js'
-import { respellTableInput } from './tableRespelling.js'
+import { escapeTableInput } from './tableRespelling.js'
 import { planCrossBlockCut } from './crossBlockCut.js'
 import { planTableSpanCut } from './tableSpanCut.js'
 import { positionAfter } from './sourcePosition.js'
@@ -211,13 +211,12 @@ export function planClipboard(
       edits = [...edits, ...separators].sort((a, b) => a.start - b.start)
     }
   }
-  // Upstream writes the table afresh after an edit of a cell's text. The
-  // cell's text is written into the table as it stood, so the edit cannot
-  // change its structure even where its own spelling alone would.
+  // Pasted text stays the cell's text: its pipes are escaped so the edit
+  // cannot change the table's structure. The table is not re-padded.
   if (!action.tracked && selectedCell?.slotStart !== undefined && selectedCell.slotEnd !== undefined && blockPlacement === undefined) {
     const { slotStart, slotEnd } = selectedCell
     if (edits.every(edit => slotStart <= edit.start && edit.end <= slotEnd)) {
-      const respelled = respellTableInput(core, previous, selectedCell.syntax, selectedCell.table, { edits, selection: { start: caret, end: caret }, reconciliation: [] })
+      const respelled = escapeTableInput(core, previous, selectedCell.syntax, selectedCell.table, { edits, selection: { start: caret, end: caret }, reconciliation: [] })
       edits = [...respelled.edits]
       caret = respelled.selection.start
     }

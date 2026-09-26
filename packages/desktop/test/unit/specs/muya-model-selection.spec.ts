@@ -28,7 +28,7 @@ it.each([
   { source: '{>>note<<}\n', positions: [0, 10] },
   { source: '{--| aa | aa |\n| :--- | ---: |--}\n', positions: [0, 33], exterior: true },
   { source: '{--|  |  |\n| --- | --- |\n|  |  |--}\n', positions: [0, 35], exterior: true },
-  { source: '| aa | bb |\n| --- | --- |{++\n|     |     |++}\n| cc | dd |\n', positions: [35, 41] }
+  { source: '| aa | bb |\n| --- | --- |{++\n|     |     |++}\n| cc | dd |\n', positions: [31, 37] }
 ])('preserves exact model boundaries through live DOM selection in $source', (example) => {
   const { source, positions } = example
   ;(window as Window & { MUYA_VERSION?: string }).MUYA_VERSION = 'test'

@@ -183,7 +183,7 @@ for (const modifier of ['metaKey', 'ctrlKey', 'altKey'] as const) {
         })
         content.domNode!.dispatchEvent(event)
         // Upstream writes the new table through its serializer, padded to its
-        // widest cell, and writes it afresh again after the cell edit.
+        // widest cell; the cell edit then changes only its own bytes (ADR 0007).
         const afterEnter =
           source === '$$\n'
             ? '$$\n\n$$\n'
@@ -194,8 +194,8 @@ for (const modifier of ['metaKey', 'ctrlKey', 'altKey'] as const) {
           source === '$$\n'
             ? '$$\nx\n$$\n'
             : source === '| a | b |\n'
-              ? '| a   | b   |\n| --- | --- |\n| x   |     |\n'
-              : '| {++a++} | b   |\n| ------- | --- |\n| x       |     |\n'
+              ? '| a   | b   |\n| --- | --- |\n| x    |     |\n'
+              : '| {++a++} | b   |\n| ------- | --- |\n| x        |     |\n'
         expect(event.defaultPrevented).toBe(true)
         expect(binding.sourceAtBarrier()).toMatchObject({ source: afterEnter })
         expect(muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })

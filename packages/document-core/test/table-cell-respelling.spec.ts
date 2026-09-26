@@ -15,12 +15,13 @@ const typeInCell = (source: string, row: number, column: number, anchor: number,
   return { plan, source: commit.revision.source, selection: core.reconcileInput(revision, plan, commit, action).selection }
 }
 
-// Upstream (8d6c198c) writes the whole table afresh after a cell edit.
-it('respells the table around an untracked cell edit, which stays its own operation', () => {
+// ADR 0007 (owner decision 25 Sep, plan 0012 G24): typing in a cell changes
+// only the typed bytes; only explicit table commands write the table afresh.
+it('changes only the typed bytes for an untracked cell edit', () => {
   const typed = typeInCell('|a|b|\n|:-|-:|\n|c|d|\n', 1, 0, 1, 'x', false)
-  expect(typed.source).toBe('| a   | b   |\n|:--- | ---:|\n| cx  | d   |\n')
-  expect(typed.plan.edits).toContainEqual({ start: 16, end: 16, insert: 'x' })
-  expect(typed.selection).toEqual({ kind: 'table-cell', cell: { table: { start: 0, end: 41 }, row: 1, column: 0 }, anchor: 2, focus: 2 })
+  expect(typed.source).toBe('|a|b|\n|:-|-:|\n|cx|d|\n')
+  expect(typed.plan.edits).toEqual([{ start: 16, end: 16, insert: 'x' }])
+  expect(typed.selection).toEqual({ kind: 'table-cell', cell: { table: { start: 0, end: 20 }, row: 1, column: 0 }, anchor: 2, focus: 2 })
 })
 
 it('keeps the table spelling for a tracked cell edit and for an input of unknown tracking', () => {
@@ -41,12 +42,11 @@ it('resolves a cell holding only a comment to the comment', () => {
   const cell = resolveTableCell(core, revision, { table: { start: 0, end: source.length - 1 }, row: 0, column: 0 })
   expect({ start: cell.start, end: cell.end }).toEqual({ start: 2, end: 9 })
   const typed = typeInCell(source, 0, 0, 0, 'z', false)
-  expect(typed.source).toBe('| z{>>c<<} | d   |\n| -------- | --- |\n')
+  expect(typed.source).toBe('| z{>>c<<} | d |\n| - | - |\n')
 })
 
-// Padding fits the written text: deleting an insertion's only text removes
-// the insertion, so the column is as wide as for an empty cell.
-it('pads a cell whose insertion a deletion empties', () => {
+// Deleting an insertion's only text removes the insertion and nothing else.
+it('removes an insertion a deletion empties without touching the rest of the table', () => {
   const source = '| {++a++} | b |\n| - | - |\n| c | d |\n'
   const core = createDocumentCore()
   const revision = core.open(source)
@@ -56,12 +56,12 @@ it('pads a cell whose insertion a deletion empties', () => {
   const edits = core.inputEdits(revision, action, plan, false)
   if (edits === undefined) throw new Error('Cell deletion refused')
   const commit = core.apply(revision, edits)
-  expect(commit.revision.source).toBe('|     | b   |\n| --- | --- |\n| c   | d   |\n')
-  expect(core.reconcileInput(revision, plan, commit, action).selection).toEqual({ kind: 'table-cell', cell: { table: { start: 0, end: 41 }, row: 0, column: 0 }, anchor: 0, focus: 0 })
+  expect(commit.revision.source).toBe('|  | b |\n| - | - |\n| c | d |\n')
+  expect(core.reconcileInput(revision, plan, commit, action).selection).toEqual({ kind: 'table-cell', cell: { table: { start: 0, end: 28 }, row: 0, column: 0 }, anchor: 0, focus: 0 })
 })
 
-// Owner decision (plan 0012 G24): the table is padded as upstream pads it, but
-// a row's text beyond the header's columns stays where upstream drops it.
+// Text beyond the header's columns (which upstream drops when it writes a
+// table) is never touched by typing elsewhere in the table.
 describe('text beyond the header columns', () => {
   const undoOf = (source: string, row: number, column: number, anchor: number, data: string, tracked: boolean) => {
     const core = createDocumentCore()
@@ -82,19 +82,19 @@ describe('text beyond the header columns', () => {
   }
 
   it.each([
-    { name: 'an extra cell', source: '|a|b|\n|-|-|\n|c|d|extra|\n', typed: '| ax  | b   |\n| --- | --- |\n| c   | d   |extra|\n' },
-    { name: 'several extra cells without a closing pipe', source: '|a|b|\n|-|-|\n|c|d|e|f\n', typed: '| ax  | b   |\n| --- | --- |\n| c   | d   |e|f\n' },
-    { name: 'short and long rows together', source: '|a|b|\n|-|-|\n|c|\n|d|e|f|g|\n', typed: '| ax  | b   |\n| --- | --- |\n| c   |     |\n| d   | e   |f|g|\n' },
-    { name: 'an escaped pipe in an extra cell', source: '|a|b|\n|-|-|\n|c|d|x \\| y|\n', typed: '| ax  | b   |\n| --- | --- |\n| c   | d   |x \\| y|\n' },
-    { name: 'CriticMarkup in an extra cell', source: '|a|b|\n|-|-|\n|c|d|{++new++} {>>note<<}|\n', typed: '| ax  | b   |\n| --- | --- |\n| c   | d   |{++new++} {>>note<<}|\n' },
-    { name: 'CriticMarkup in a cell beside an extra cell', source: '|a|b|\n|-|-|\n|{--c--}|d|extra|\n', typed: '| ax      | b   |\n| ------- | --- |\n| {--c--} | d   |extra|\n' }
-  ])('keeps $name when a header cell edit pads the table', ({ source, typed }) => {
+    { name: 'an extra cell', source: '|a|b|\n|-|-|\n|c|d|extra|\n', typed: '|ax|b|\n|-|-|\n|c|d|extra|\n' },
+    { name: 'several extra cells without a closing pipe', source: '|a|b|\n|-|-|\n|c|d|e|f\n', typed: '|ax|b|\n|-|-|\n|c|d|e|f\n' },
+    { name: 'short and long rows together', source: '|a|b|\n|-|-|\n|c|\n|d|e|f|g|\n', typed: '|ax|b|\n|-|-|\n|c|\n|d|e|f|g|\n' },
+    { name: 'an escaped pipe in an extra cell', source: '|a|b|\n|-|-|\n|c|d|x \\| y|\n', typed: '|ax|b|\n|-|-|\n|c|d|x \\| y|\n' },
+    { name: 'CriticMarkup in an extra cell', source: '|a|b|\n|-|-|\n|c|d|{++new++} {>>note<<}|\n', typed: '|ax|b|\n|-|-|\n|c|d|{++new++} {>>note<<}|\n' },
+    { name: 'CriticMarkup in a cell beside an extra cell', source: '|a|b|\n|-|-|\n|{--c--}|d|extra|\n', typed: '|ax|b|\n|-|-|\n|{--c--}|d|extra|\n' }
+  ])('keeps $name when a header cell is typed in', ({ source, typed }) => {
     expect(typeInCell(source, 0, 0, 1, 'x', false).source).toBe(typed)
     expect(undoOf(source, 0, 0, 1, 'x', false)).toBe(source)
   })
 
   it('keeps an extra cell when a cell of its own row is edited', () => {
-    expect(typeInCell('|a|b|\n|-|-|\n|c|d|extra|\n', 1, 1, 1, 'x', false).source).toBe('| a   | b   |\n| --- | --- |\n| c   | dx  |extra|\n')
+    expect(typeInCell('|a|b|\n|-|-|\n|c|d|extra|\n', 1, 1, 1, 'x', false).source).toBe('|a|b|\n|-|-|\n|c|dx|extra|\n')
   })
 
   it('leaves a tracked edit unpadded and every cell in place', () => {
@@ -102,4 +102,14 @@ describe('text beyond the header columns', () => {
     expect(typeInCell(source, 0, 0, 1, 'x', true).source).toBe('|a{++x++}|b|\n|-|-|\n|c|d|extra|\n')
     expect(undoOf(source, 0, 0, 1, 'x', true)).toBe(source)
   })
+})
+
+// Text typed into an empty cell goes after the space that follows its pipe,
+// where a cell's text starts, and leaves the rest of the padding in place.
+it.each([
+  { source: '| a |  |\n| - | - |\n', typed: '| a | x |\n| - | - |\n' },
+  { source: '| a   |     |\n| --- | --- |\n', typed: '| a   | x    |\n| --- | --- |\n' },
+  { source: '| a ||\n| - | - |\n', typed: '| a |x|\n| - | - |\n' }
+])('types into the empty cell of $source after its first space', ({ source, typed }) => {
+  expect(typeInCell(source, 0, 1, 0, 'x', false).source).toBe(typed)
 })

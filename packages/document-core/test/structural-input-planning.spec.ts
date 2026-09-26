@@ -89,8 +89,8 @@ it.each([
 })
 
 it.each([
-  { source: '| a | b |\n', expected: '| a   | b   |\n| --- | --- |\n|     |     |\n', caret: 34 },
-  { source: '| {++a++} | b |\n', expected: '| {++a++} | b   |\n| ------- | --- |\n|         |     |\n', caret: 46 }
+  { source: '| a | b |\n', expected: '| a   | b   |\n| --- | --- |\n|     |     |\n', caret: 30 },
+  { source: '| {++a++} | b |\n', expected: '| {++a++} | b   |\n| ------- | --- |\n|         |     |\n', caret: 38 }
 ])('writes the table an owned header paragraph $source becomes on Enter as upstream serializes it', ({ source, expected, caret }) => {
   const core = createDocumentCore()
   const previous = core.open(source)
@@ -217,7 +217,7 @@ it('inserts a native table row command without rewriting existing cells or their
   const inputAction: DocumentInputAction = { kind: 'command', command: 'insertTableRow', placement: 'after', selection: { ranges: [{ anchor: 3, focus: 3 }], primary: 0 }, options }
   const plan = core.planInput(revision, inputAction)
   expect(core.apply(revision, core.inputEdits(revision, inputAction, plan, false) ?? []).revision.source).toBe('| a{++a++} | bb |\n| --- | --- |\n|     |     |\n| cc | dd |\n')
-  expect(plan.selection).toEqual({ ranges: [{ anchor: 38, focus: 38 }], primary: 0 })
+  expect(plan.selection).toEqual({ ranges: [{ anchor: 34, focus: 34 }], primary: 0 })
 })
 
 it('inserts a row after the current body row while preserving its final newline', () => {
@@ -226,7 +226,7 @@ it('inserts a row after the current body row while preserving its final newline'
   const inputAction: DocumentInputAction = { kind: 'command', command: 'insertTableRow', placement: 'after', selection: { ranges: [{ anchor: 29, focus: 29 }], primary: 0 }, options }
   const plan = core.planInput(revision, inputAction)
   expect(core.apply(revision, core.inputEdits(revision, inputAction, plan, false) ?? []).revision.source).toBe('| aa | bb |\n| --- | --- |\n| cc | dd |\n|     |     |\n')
-  expect(plan.selection).toEqual({ ranges: [{ anchor: 44, focus: 44 }], primary: 0 })
+  expect(plan.selection).toEqual({ ranges: [{ anchor: 40, focus: 40 }], primary: 0 })
 })
 
 it('inserts an empty header above the current header and retains its alignment and annotated cells as a body row', () => {
@@ -235,7 +235,7 @@ it('inserts an empty header above the current header and retains its alignment a
   const inputAction: DocumentInputAction = { kind: 'command', command: 'insertTableRow', placement: 'before', selection: { ranges: [{ anchor: 8, focus: 8 }], primary: 0 }, options }
   const plan = core.planInput(revision, inputAction)
   expect(core.apply(revision, core.inputEdits(revision, inputAction, plan, false) ?? []).revision.source).toBe('away\n\n|     |     |\n| :--- | ---: |\n| a{++a++} | aa |\n| aa | aa |\n')
-  expect(plan.selection).toEqual({ ranges: [{ anchor: 12, focus: 12 }], primary: 0 })
+  expect(plan.selection).toEqual({ ranges: [{ anchor: 8, focus: 8 }], primary: 0 })
 })
 
 it('maps a sparse tracked header insertion through the accepted annotation arms', () => {
@@ -247,7 +247,7 @@ it('maps a sparse tracked header insertion through the accepted annotation arms'
   if (edits === undefined) throw new Error('Tracked header insertion was rejected')
   const committed = core.apply(previous, edits)
   const result = core.reconcileInput(previous, plan, committed, inputAction)
-  expect(result.selection).toEqual({ ranges: [{ anchor: 15, focus: 15 }], primary: 0 })
+  expect(result.selection).toEqual({ ranges: [{ anchor: 11, focus: 11 }], primary: 0 })
   if (result.compilerReconciliation === undefined) throw new Error('Missing accepted coordinate mapping')
   const requested = 'away\n\n|     |     |\n| :--- | ---: |\n| a{++a++} | aa |\n| aa | aa |\n'
   const mapped = [...result.compilerReconciliation].reverse().reduce((text, edit) => text.slice(0, edit.start) + edit.insert + text.slice(edit.end), requested)

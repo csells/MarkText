@@ -111,7 +111,8 @@ function serializeTable(state: ITableMarkdownState, indent: string, maximumUnits
 
                   const spelling = ` ${cell}${' '.repeat(Math.max(fill, 0))}`
                   if (positions) {
-                    const contentStart = cellOffset + (cell === '' ? spelling.length : 1)
+                    // An empty cell's text starts after the space that follows its pipe.
+                    const contentStart = cellOffset + 1
                     cells.push({ start: contentStart, end: contentStart + cell.length, slotStart: cellOffset, slotEnd: cellOffset + spelling.length, offsets: data.offsets.map(offset => contentStart + offset) })
                   }
                   cellOffset += spelling.length + 1
@@ -148,11 +149,12 @@ function serializeTable(state: ITableMarkdownState, indent: string, maximumUnits
   return { markdown: result.join('\n'), rows, delimiterCells }
 }
 
-/** Empty native row spelling and the first cell's content extent in that spelling. */
-export function emptyTableRow(columns: number): { markdown: string; firstCellEnd: number } {
+/** Empty native row spelling and where its first cell's text starts. */
+export function emptyTableRow(columns: number): { markdown: string; firstCellText: number } {
   const serialized = tableToMarkdown({ children: [{ children: Array.from({ length: columns }, () => ({ text: '', meta: { align: 'none' } })) }] })
   const markdown = serialized.slice(0, serialized.indexOf('\n'))
-  return { markdown, firstCellEnd: markdown.indexOf('|', 1) }
+  // The empty first cell's text starts after the space that follows its pipe.
+  return { markdown, firstCellText: Math.min(2, markdown.indexOf('|', 1)) }
 }
 
 /** Empty native column cells and their alignment delimiter, without outer pipes. */
