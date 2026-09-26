@@ -395,7 +395,6 @@
         "codeFontFamily": "Familia de fuente utilizada en bloque de código",
         "codeBlockLineNumbers": "Si mostrar los números de línea",
         "sourceCodeLineNumbers": "Mostrar números de línea en el modo código fuente",
-        "trimUnnecessaryCodeBlockEmptyLines": "Recortar las líneas vacías del principio y final en bloque de código",
         "autoPairBracket": "Paréntesis automáticos al editar",
         "autoPairMarkdownSyntax": "Autocompletar sintaxis de markdown",
         "autoPairQuote": "Finalización automática de comillas",
@@ -547,8 +546,7 @@
         "title": "Bloque de Código",
         "fontSize": "Tamaño de fuente",
         "fontFamily": "Familia de fuente",
-        "showLineNumbers": "Mostrar números de línea",
-        "removeEmptyLines": "Eliminar líneas vacías"
+        "showLineNumbers": "Mostrar números de línea"
       },
       "writingBehavior": {
         "title": "Comportamiento de Escritura",

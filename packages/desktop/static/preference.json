@@ -23,7 +23,6 @@
   "codeFontFamily": "DejaVu Sans Mono",
   "codeBlockLineNumbers": false,
   "sourceCodeLineNumbers": true,
-  "trimUnnecessaryCodeBlockEmptyLines": true,
   "wrapCodeBlocks": false,
   "editorLineWidth": "",
 

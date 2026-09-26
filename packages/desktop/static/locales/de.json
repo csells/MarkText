@@ -395,7 +395,6 @@
         "codeFontFamily": "Schriftfamilie im Codeblock",
         "codeBlockLineNumbers": "Ob Zeilennummern angezeigt werden sollen",
         "sourceCodeLineNumbers": "Zeilennummern im Quellcode-Modus anzeigen",
-        "trimUnnecessaryCodeBlockEmptyLines": "Leere Zeilen am Anfang und Ende des Codeblocks entfernen",
         "autoPairBracket": "Automatische Klammern beim Bearbeiten",
         "autoPairMarkdownSyntax": "Markdown-Syntax automatisch vervollständigen",
         "autoPairQuote": "Automatische Vervollständigung von Anführungszeichen",
@@ -547,8 +546,7 @@
         "title": "Code-Block",
         "fontSize": "Schriftgröße",
         "fontFamily": "Schriftfamilie",
-        "showLineNumbers": "Zeilennummern anzeigen",
-        "removeEmptyLines": "Leere Zeilen entfernen"
+        "showLineNumbers": "Zeilennummern anzeigen"
       },
       "writingBehavior": {
         "title": "Schreibverhalten",

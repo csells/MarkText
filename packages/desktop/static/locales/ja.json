@@ -395,7 +395,6 @@
         "codeFontFamily": "コードブロックで使用されるフォントファミリー",
         "codeBlockLineNumbers": "行番号を表示するかどうか",
         "sourceCodeLineNumbers": "ソースコードモードで行番号を表示",
-        "trimUnnecessaryCodeBlockEmptyLines": "コードブロックの最初と最後の空行をトリミング",
         "autoPairBracket": "編集時に括弧を自動で閉じる",
         "autoPairMarkdownSyntax": "Markdown 構文の自動補完",
         "autoPairQuote": "引用符の自動補完",
@@ -547,8 +546,7 @@
         "title": "コードブロック",
         "fontSize": "フォントサイズ",
         "fontFamily": "フォントファミリー",
-        "showLineNumbers": "行番号を表示",
-        "removeEmptyLines": "空行を削除"
+        "showLineNumbers": "行番号を表示"
       },
       "writingBehavior": {
         "title": "書き込み動作",

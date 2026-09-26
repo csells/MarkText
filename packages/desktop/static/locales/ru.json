@@ -394,7 +394,6 @@
         "codeFontFamily": "Семейство шрифтов в блоке кода",
         "codeBlockLineNumbers": "Показывать номера строк",
         "sourceCodeLineNumbers": "Показывать номера строк в режиме исходного кода",
-        "trimUnnecessaryCodeBlockEmptyLines": "Обрезать пустые строки в начале и конце блока кода",
         "autoPairBracket": "Автоматически закрывать скобки при редактировании",
         "autoPairMarkdownSyntax": "Автодополнение синтаксиса markdown",
         "autoPairQuote": "Автоматическое закрытие кавычек",
@@ -547,8 +546,7 @@
         "title": "Блок кода",
         "fontSize": "Размер шрифта",
         "fontFamily": "Семейство шрифтов",
-        "showLineNumbers": "Показывать номера строк",
-        "removeEmptyLines": "Удалять пустые строки"
+        "showLineNumbers": "Показывать номера строк"
       },
       "writingBehavior": {
         "title": "Поведение при вводе",

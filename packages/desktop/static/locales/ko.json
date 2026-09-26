@@ -395,7 +395,6 @@
         "codeFontFamily": "코드 블록에서 사용되는 글꼴 패밀리",
         "codeBlockLineNumbers": "줄 번호를 표시할지 여부",
         "sourceCodeLineNumbers": "소스 코드 모드에서 줄 번호 표시",
-        "trimUnnecessaryCodeBlockEmptyLines": "코드 블록의 시작과 끝에 있는 빈 줄 제거",
         "autoPairBracket": "편집 시 자동으로 괄호 쌍 만들기",
         "autoPairMarkdownSyntax": "마크다운 구문 자동 완성",
         "autoPairQuote": "따옴표 자동 완성",
@@ -547,8 +546,7 @@
         "title": "코드 블록",
         "fontSize": "글꼴 크기",
         "fontFamily": "글꼴 패밀리",
-        "showLineNumbers": "줄 번호 보기",
-        "removeEmptyLines": "빈 줄 제거"
+        "showLineNumbers": "줄 번호 보기"
       },
       "writingBehavior": {
         "title": "작성 동작",

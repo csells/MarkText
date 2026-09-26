@@ -394,7 +394,6 @@
         "codeFontFamily": "Lettertype voor codeblokken",
         "codeBlockLineNumbers": "Regelnummers tonen",
         "sourceCodeLineNumbers": "Regelnummers tonen in broncodeweergave",
-        "trimUnnecessaryCodeBlockEmptyLines": "Lege regels aan begin en einde van codeblokken verwijderen",
         "autoPairBracket": "Automatisch haakjes aanvullen bij bewerken",
         "autoPairMarkdownSyntax": "Markdown-syntax automatisch aanvullen",
         "autoPairQuote": "Automatisch aanhalingstekens aanvullen",
@@ -547,8 +546,7 @@
         "title": "Codeblok",
         "fontSize": "Lettergrootte",
         "fontFamily": "Lettertypefamilie",
-        "showLineNumbers": "Regelnummers tonen",
-        "removeEmptyLines": "Lege regels verwijderen"
+        "showLineNumbers": "Regelnummers tonen"
       },
       "writingBehavior": {
         "title": "Schrijfgedrag",
