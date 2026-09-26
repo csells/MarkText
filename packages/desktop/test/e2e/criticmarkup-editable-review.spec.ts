@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 
 import {
+  clickMenuById,
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
   expectNoRendererErrors,
@@ -167,7 +168,12 @@ test('refreshes a read-only projection after accepting a suggestion', async() =>
   try {
     await page.getByTestId('critic-review-original').click()
     await expect(page.locator('[data-projection="original"]')).toHaveText('A')
-    await page.getByTestId('critic-review-accept').click()
+    // Resolution acts in Markup (owner decision 25 Sep); the reader view then
+    // shows the accepted text.
+    await page.getByTestId('critic-review-markup').click()
+    await page.locator('[data-critic-kind="addition"]').click()
+    await clickMenuById(app, 'critic-accept')
+    await page.getByTestId('critic-review-original').click()
     await expect(page.locator('[data-projection="original"]')).toHaveText('A new')
     await expectNoRendererErrors(app)
   } finally {

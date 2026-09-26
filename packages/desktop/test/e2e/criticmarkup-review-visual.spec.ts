@@ -57,10 +57,18 @@ test('review cards follow every built-in theme', async() => {
   const { app, page } = await launchWithMarkdown('{++First++} and {--second--}.\n', options)
   try {
     await showReviewSidebar(app)
-    const themes = await app.evaluate(({ Menu }) =>
-      (Menu.getApplicationMenu()?.getMenuItemById('themeMenu')?.submenu?.items ?? [])
-        .filter(item => item.type === 'radio' && item.id)
-        .map(item => item.id))
+    // The Theme menu groups its radio items in light and dark submenus.
+    const themes = await app.evaluate(({ Menu }) => {
+      const ids: string[] = []
+      const visit = (items: Electron.MenuItem[]): void => {
+        for (const item of items) {
+          if (item.type === 'radio' && item.id) ids.push(item.id)
+          if (item.submenu) visit(item.submenu.items)
+        }
+      }
+      visit(Menu.getApplicationMenu()?.getMenuItemById('themeMenu')?.submenu?.items ?? [])
+      return ids
+    })
     expect(themes.length).toBeGreaterThan(1)
     for (const theme of themes) {
       await clickMenuById(app, theme)

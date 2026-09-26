@@ -11,9 +11,9 @@ import {
 // Owner decision (plan 0012 G24): typing in a cell pads the table as upstream
 // does, but a row's text beyond the header's columns stays where upstream
 // drops it.
-test('typing in a header cell pads the table without dropping extra cells, and undo restores the bytes', async() => {
+test('typing in a header cell changes only the typed bytes, keeping extra cells, and undo restores them', async() => {
   const source = '|a|b|\n|-|-|\n|c|d|extra|\n|{++e++}|f|x \\| {>>y<<}|\n'
-  const typed = '| aZ      | b   |\n| ------- | --- |\n| c       | d   |extra|\n| {++e++} | f   |x \\| {>>y<<}|\n'
+  const typed = '|aZ|b|\n|-|-|\n|c|d|extra|\n|{++e++}|f|x \\| {>>y<<}|\n'
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }

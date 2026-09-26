@@ -117,8 +117,8 @@ const editableBlocks = [
     source: '| col |\n| --- |\n| cell |\n',
     selector: '.mu-table-cell-content',
     initialText: 'cell',
-    // Upstream MarkText writes an edited table afresh, padding each column.
-    editedSource: '| col   |\n| ----- |\n| cell! |\n'
+    // A cell edit changes only the typed bytes (ADR 0007).
+    editedSource: '| col |\n| --- |\n| cell! |\n'
   },
   {
     name: 'fenced code block',
