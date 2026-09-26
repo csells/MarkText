@@ -1,5 +1,5 @@
 import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
-import { respellTableInput } from './tableRespelling.js'
+import { escapeTableInput } from './tableRespelling.js'
 
 interface CellText {
   readonly table: MarkdownAstNode
@@ -132,6 +132,6 @@ export function planTableSpanCut(core: DocumentCore, revision: DocumentRevision,
     return undefined
   }
   edits = edits.filter(edit => edit.end > edit.start || edit.insert !== '')
-  const respelled = respellTableInput(core, revision, syntax, table, { edits, selection: { start: caret, end: caret }, reconciliation: [] })
+  const respelled = escapeTableInput(core, revision, syntax, table, { edits, selection: { start: caret, end: caret }, reconciliation: [] })
   return { edits: respelled.edits, caret: respelled.selection.start }
 }

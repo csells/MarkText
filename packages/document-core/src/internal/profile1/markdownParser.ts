@@ -4101,7 +4101,9 @@ function splitTableCells(
     const isLeadingEmpty = index === 0 && start === end
     const isTrailingEmpty = index + 2 === boundaries.length && start === end
     if (!isLeadingEmpty && !isTrailingEmpty) {
-      cells.push(Object.freeze({ start, end, cellStart, cellEnd }))
+      // An empty cell's text starts after the space that follows its pipe.
+      const empty = start === end && cellEnd > cellStart ? cellStart + 1 : undefined
+      cells.push(Object.freeze({ start: empty ?? start, end: empty ?? end, cellStart, cellEnd }))
     }
   }
   return cells.length === 0 ? undefined : Object.freeze(cells)

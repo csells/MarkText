@@ -60,7 +60,7 @@ it.each(['before', 'after'] as const)('keeps %s affinity when another action mat
   if (compiled === undefined) throw new Error('Materialization refused')
   const commit = core.apply(previous, compiled)
   expect(rebaseDocumentInputSelection(core, previous, commit, selection, { affinity, operation: { kind: 'input', action, tracked: false } }))
-    .toEqual({ kind: 'mapped', selection: { kind: 'table-cell', cell: { table: { start: 0, end: 46 }, row: 1, column: 1 }, anchor: affinity === 'before' ? 0 : 1, focus: affinity === 'before' ? 0 : 1 } })
+    .toEqual({ kind: 'mapped', selection: { kind: 'table-cell', cell: { table: { start: 0, end: 43 }, row: 1, column: 1 }, anchor: affinity === 'before' ? 0 : 1, focus: affinity === 'before' ? 0 : 1 } })
 })
 
 it('rejects overlapping source replacement instead of moving a retained selection to a neighbor', () => {

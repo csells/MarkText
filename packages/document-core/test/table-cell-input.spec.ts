@@ -21,9 +21,9 @@ it('materializes the first missing cell only when typing after an unchanged cut'
   const edits = core.inputEdits(revision, action, plan, false)
   if (edits === undefined) throw new Error('Implicit cell input refused')
   const commit = core.apply(revision, edits)
-  expect(commit.revision.source).toBe('| a | b | c |\n| --- | --- | --- |\n| x |     y|\n')
+  expect(commit.revision.source).toBe('| a | b | c |\n| --- | --- | --- |\n| x | y |\n')
   expect(core.reconcileInput(revision, plan, commit, action).selection).toEqual({
-    kind: 'table-cell', cell: { table: { start: 0, end: 46 }, row: 1, column: 1 }, anchor: 1, focus: 1
+    kind: 'table-cell', cell: { table: { start: 0, end: 43 }, row: 1, column: 1 }, anchor: 1, focus: 1
   })
 })
 
@@ -36,9 +36,9 @@ it('uses the ordinary pair policy while materializing a later missing cell', () 
   const edits = core.inputEdits(revision, action, plan, false)
   if (edits === undefined) throw new Error('Implicit cell pairing refused')
   const commit = core.apply(revision, edits)
-  expect(commit.revision.source).toBe('| a | b | c |\n| --- | --- | --- |\n| x |     |     ()|\n')
+  expect(commit.revision.source).toBe('| a | b | c |\n| --- | --- | --- |\n| x | | () |\n')
   expect(core.reconcileInput(revision, plan, commit, action).selection).toEqual({
-    kind: 'table-cell', cell: { table: { start: 0, end: 53 }, row: 1, column: 2 }, anchor: 1, focus: 1
+    kind: 'table-cell', cell: { table: { start: 0, end: 46 }, row: 1, column: 2 }, anchor: 1, focus: 1
   })
 })
 
@@ -62,7 +62,7 @@ it('materializes a missing cell in a body row without a trailing pipe', () => {
   const edits = core.inputEdits(revision, action, plan, false)
   if (edits === undefined) throw new Error('Missing cell input refused')
   const commit = core.apply(revision, edits)
-  expect(commit.revision.source).toBe('| a | b | c |\n| --- | --- | --- |\n| x|     y|\n')
+  expect(commit.revision.source).toBe('| a | b | c |\n| --- | --- | --- |\n| x| y |\n')
   expect(core.reconcileInput(revision, plan, commit, action).selection).toMatchObject({ kind: 'table-cell', cell: { row: 1, column: 1 }, anchor: 1, focus: 1 })
 })
 
@@ -143,7 +143,7 @@ it('tracks omitted-cell materialization using the existing shared compiler', () 
   if (edits === undefined) throw new Error('Tracked cell input refused')
   const commit = core.apply(revision, edits)
   expect(core.project(commit.revision, 'original').markdown).toBe(source)
-  expect(core.project(commit.revision, 'revised').markdown).toBe('| a | b | c |\n| --- | --- | --- |\n| x |     y|\n')
+  expect(core.project(commit.revision, 'revised').markdown).toBe('| a | b | c |\n| --- | --- | --- |\n| x | y |\n')
   expect(core.reconcileInput(revision, plan, commit, action).selection).toMatchObject({ kind: 'table-cell', cell: { row: 1, column: 1 }, anchor: 1, focus: 1 })
 })
 

@@ -254,15 +254,15 @@ it('rebases a retained rectangle through preceding edits and restores rectangle 
       clipboardResult: {
         selection: {
           kind: 'table-cell',
-          // Upstream (8d6c198c) writes the table afresh after an untracked paste into a cell.
-          cell: { table: { start: 9, end: 50 }, row: 1, column: 0 },
+          // A paste into a cell writes only its text (ADR 0007; plan 0012 G24).
+          cell: { table: { start: 9, end: 42 }, row: 1, column: 0 },
           anchor: 1,
           focus: 1
         }
       }
     })
     expect(binding.sourceAtBarrier()).toMatchObject({
-      source: 'Xbefore\n\n| a   | b   |\n| --- | --- |\n| y   | d   |\n'
+      source: 'Xbefore\n\n| a | b |\n| --- | --- |\n| y | d |\n'
     })
     expect(binding.submit({ kind: 'undo', projections: [] }).acknowledged).toMatchObject({
       type: 'applied',
@@ -271,7 +271,7 @@ it('rebases a retained rectangle through preceding edits and restores rectangle 
     expect(binding.sourceAtBarrier()).toMatchObject({ source: `X${source}` })
     expect(binding.submit({ kind: 'redo', projections: [] }).acknowledged.type).toBe('applied')
     expect(binding.sourceAtBarrier()).toMatchObject({
-      source: 'Xbefore\n\n| a   | b   |\n| --- | --- |\n| y   | d   |\n'
+      source: 'Xbefore\n\n| a | b |\n| --- | --- |\n| y | d |\n'
     })
   } finally {
     binding.dispose()
@@ -314,8 +314,8 @@ it('rejects prepared rectangle paste after its selected cell was replaced', () =
 
 it('replays completed rectangle preparation as its resolved clipboard action after owner recovery', async() => {
   const source = '| a | b |\n| --- | --- |\n| c | d |\n'
-  // Upstream (8d6c198c) writes the table afresh after an untracked paste into a cell.
-  const completed = '| a   | b   |\n| --- | --- |\n| y   | d   |\n'
+  // A paste into a cell writes only its text (ADR 0007; plan 0012 G24).
+  const completed = '| a | b |\n| --- | --- |\n| y | d |\n'
   const manager = createCoreDocumentSessionManager({
     createBinding: () => createEditorCoreBinding(createLocalCoreOwner())
   })

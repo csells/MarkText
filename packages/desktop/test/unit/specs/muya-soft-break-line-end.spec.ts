@@ -270,8 +270,8 @@ describe('Shift+Enter at the end of a line', () => {
       endOf(app)
       await input(app, 'insertLineBreak')
       await input(app, 'insertText', 'x')
-      // Upstream writes the table afresh, padding each column to its widest cell.
-      expect(source(app)).toBe('| a<br/>x |\n| ------- |\n| b       |\n')
+      // The break is written into the cell alone (ADR 0007).
+      expect(source(app)).toBe('| a<br/>x |\n| - |\n| b |\n')
     } finally {
       app.dispose()
     }

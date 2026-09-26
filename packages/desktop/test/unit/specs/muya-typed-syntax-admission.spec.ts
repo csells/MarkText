@@ -339,8 +339,9 @@ const typeOnLine = async(source: string, offset: number, typed: string, tracked 
 }
 
 describe('native typing of a block marker on a later paragraph line', () => {
-  // Upstream (8d6c198c) bytes and caret for the same keys; `offset` is within
-  // the multi-line paragraph's text. A converted quote's caret stays before
+  // The blocks upstream (8d6c198c) makes of the same keys, with the other
+  // lines' bytes kept where upstream re-spells them (ADR 0007; plan 0012 G24);
+  // `offset` is within the multi-line paragraph's text. A converted quote's caret stays before
   // the quoted text, as on a first line; upstream's measure from the
   // paragraph's start slips it into a later line's text.
   it.each([
@@ -348,7 +349,7 @@ describe('native typing of a block marker on a later paragraph line', () => {
       source: 'first\nsecond\n',
       offset: 6,
       typed: '>x',
-      expected: 'first\n\n> xsecond\n',
+      expected: 'first\n> xsecond\n',
       text: 'xsecond',
       caret: 1
     },
@@ -356,7 +357,7 @@ describe('native typing of a block marker on a later paragraph line', () => {
       source: 'first\nsecond\nthird\n',
       offset: 6,
       typed: '>',
-      expected: 'first\n\n> second\n> third\n',
+      expected: 'first\n> second\nthird\n',
       text: 'second\nthird',
       caret: 0
     },
@@ -364,7 +365,7 @@ describe('native typing of a block marker on a later paragraph line', () => {
       source: 'first\nsecond\nthird\n',
       offset: 6,
       typed: '# x',
-      expected: 'first\n\n# xsecond\n\nthird\n',
+      expected: 'first\n# xsecond\nthird\n',
       text: '# xsecond',
       caret: 3
     },
@@ -372,7 +373,7 @@ describe('native typing of a block marker on a later paragraph line', () => {
       source: 'first\nsecond\nthird\n',
       offset: 6,
       typed: '- x',
-      expected: 'first\n\n- xsecond\n  third\n',
+      expected: 'first\n- xsecond\nthird\n',
       text: 'xsecond\nthird',
       caret: 1
     },
@@ -380,7 +381,7 @@ describe('native typing of a block marker on a later paragraph line', () => {
       source: 'first\nsecond\nthird\n',
       offset: 6,
       typed: '1. x',
-      expected: 'first\n\n1. xsecond\n   third\n',
+      expected: 'first\n1. xsecond\nthird\n',
       text: 'xsecond\nthird',
       caret: 1
     },
@@ -396,7 +397,7 @@ describe('native typing of a block marker on a later paragraph line', () => {
       source: 'first\nsecond\nthird\n',
       offset: 0,
       typed: '>x',
-      expected: '> xfirst\n> second\n> third\n',
+      expected: '> xfirst\nsecond\nthird\n',
       text: 'xfirst\nsecond\nthird',
       caret: 1
     },
@@ -404,7 +405,7 @@ describe('native typing of a block marker on a later paragraph line', () => {
       source: 'first\nsecond\n',
       offset: 0,
       typed: '# x',
-      expected: '# xfirst\n\nsecond\n',
+      expected: '# xfirst\nsecond\n',
       text: '# xfirst',
       caret: 3
     },
@@ -412,7 +413,7 @@ describe('native typing of a block marker on a later paragraph line', () => {
       source: 'first\nsecond\n',
       offset: 0,
       typed: '- x',
-      expected: '- xfirst\n  second\n',
+      expected: '- xfirst\nsecond\n',
       text: 'xfirst\nsecond',
       caret: 1
     }
@@ -466,13 +467,13 @@ describe('native typing of a block marker on a later paragraph line', () => {
       source: 'first\n{++second++}\n',
       offset: 6,
       typed: '>',
-      expected: 'first\n\n> {++second++}\n'
+      expected: 'first\n> {++second++}\n'
     },
     {
       source: '{++first\nsecond++}\nthird\n',
       offset: 6,
       typed: '# ',
-      expected: '{++first\n\n# second++}\n\nthird\n'
+      expected: '{++first\n# second++}\nthird\n'
     }
   ])(
     'types $typed on an annotated line of $source',
@@ -526,8 +527,9 @@ const editAt = async(
 }
 
 describe('native input re-evaluates a paragraph as upstream', () => {
-  // Upstream (8d6c198c) bytes and caret for the same input anywhere in the
-  // paragraph; `\b` is Backspace. `offset` is within the edited block's text.
+  // The blocks upstream (8d6c198c) makes of the same input anywhere in the
+  // paragraph, with the other lines' bytes kept where upstream re-spells them
+  // (ADR 0007); `\b` is Backspace. `offset` is within the edited block's text.
   it.each([
     { source: 'a\n2. b\n', offset: 1, keys: 'x', expected: 'ax\n\n2. b\n', text: 'b', caret: 0 },
     { source: 'a\n2. b\n', offset: 6, keys: 'x', expected: 'a\n\n2. bx\n', text: 'bx', caret: 0 },
@@ -544,16 +546,16 @@ describe('native input re-evaluates a paragraph as upstream', () => {
       source: 'a\n2. b\n3. c\nd\n',
       offset: 1,
       keys: 'x',
-      expected: 'ax\n2. b\n\n3. c\n   d\n',
+      expected: 'ax\n2. b\n\n3. c\nd\n',
       text: 'c\nd',
       caret: 0
     },
-    { source: 'a\n**\n', offset: 4, keys: '*', expected: 'a\n\n****\n', text: '****', caret: 3 },
+    { source: 'a\n**\n', offset: 4, keys: '*', expected: 'a\n****\n', text: '****', caret: 3 },
     {
       source: 'a\n=== x\nb\n',
       offset: 1,
       keys: 'y',
-      expected: 'ay\n===\n\nb\n',
+      expected: 'ay\n===\nb\n',
       text: 'ay',
       caret: 2
     },
@@ -562,7 +564,7 @@ describe('native input re-evaluates a paragraph as upstream', () => {
       source: 'aaaa\nb\nccccccc\n',
       offset: 5,
       keys: '>',
-      expected: 'aaaa\n\n> b\n> ccccccc\n',
+      expected: 'aaaa\n> b\nccccccc\n',
       text: 'b\nccccccc',
       caret: 0
     },

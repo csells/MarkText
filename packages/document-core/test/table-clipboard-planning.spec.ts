@@ -16,8 +16,8 @@ it('clears a selected cell rectangle atomically and returns the same intrinsic t
     selection: rectangle(source, 1, 1)
   })
   const next = core.apply(revision, plan.edits).revision
-  // Upstream (8d6c198c) writes a table afresh after an untracked cell clear.
-  expect(next.source).toBe('|     |     | c   |\n| --- | --- | --- |\n|     |     | d   |\n| e   | f   | g   |\n')
+  // Clearing cells changes only their text (ADR 0007).
+  expect(next.source).toBe('|  |  | c |\n| --- | --- | --- |\n|  |  | d |\n| e | f | g |\n')
   expect(plan.selection).toEqual(rectangle(next.source, 1, 1))
 })
 
@@ -46,20 +46,20 @@ it('refuses a rectangle outside the current table before source mutation', () =>
   expect(core.sourceSlice(revision, { start: 0, end: revision.sourceLength })).toBe('| a | b |\n| --- | --- |\n| c | d |\n')
 })
 
-// Upstream (8d6c198c) writes the remaining table afresh after an untracked removal.
+// Removing empty columns or rows deletes only their bytes (ADR 0007).
 it.each([
   {
     name: 'contiguous empty columns',
     source: '|  |  | c |\n| --- | --- | --- |\n|  |  | d |\n|  |  | g |\n',
     lastRow: 2,
-    expected: '| c   |\n| --- |\n| d   |\n| g   |\n',
+    expected: '| c |\n| --- |\n| d |\n| g |\n',
     caret: 2
   },
   {
     name: 'contiguous empty header and body rows',
     source: '|  |  |\n| --- | --- |\n|  |  |\n| e | f |\n',
     lastRow: 1,
-    expected: '| e   | f   |\n| --- | --- |\n',
+    expected: '| e | f |\n| --- | --- |\n',
     caret: 2
   }
 ])('removes $name as one source transaction', ({ source, lastRow, expected, caret }) => {
@@ -101,8 +101,8 @@ it('places partial cut input at the accepted empty cell content boundary', () =>
     selection: rectangle(revision.source, 1, 1)
   })
   const next = core.apply(revision, plan.edits).revision
-  // Upstream (8d6c198c) writes a table afresh after an untracked cell clear.
-  expect(next.source).toBe('|     |     | c   |\n| --- | --- | --- |\n|     |     | d   |\n| e   | f   | g   |\n')
+  // Clearing cells changes only their text (ADR 0007).
+  expect(next.source).toBe('|  |  | c |\n| --- | --- | --- |\n|  |  | d |\n| e | f | g |\n')
   expect(plan.selection).toEqual({ kind: 'table-cell', cell: { table: { start: 0, end: next.sourceLength - 1 }, row: 0, column: 0 }, anchor: 0, focus: 0 })
 })
 

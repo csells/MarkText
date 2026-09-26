@@ -29,8 +29,8 @@ it.each(['none', 'left', 'center', 'right'] as const)('exposes exact serialized 
   expect(slot).toBe(({ none: ' ----------- ', left: ':----------- ', center: ':-----------:', right: ' -----------:' })[align])
 })
 
-it('places an empty cell boundary after its padding, where the Markdown parser owns empty content', () => {
+it('places an empty cell\'s text after the space that follows its pipe, where the Markdown parser reads it', () => {
   const output = tableToMarkdownWithPositions({ children: [{ children: [{ text: '   ', meta: { align: 'none' } }] }] })
   expect(output.markdown).toBe('|     |\n| --- |')
-  expect(output.rows[0]?.cells[0]).toEqual({ start: 6, end: 6, slotStart: 1, slotEnd: 6, offsets: [6, 6, 6, 6] })
+  expect(output.rows[0]?.cells[0]).toEqual({ start: 2, end: 2, slotStart: 1, slotEnd: 6, offsets: [2, 2, 2, 2] })
 })

@@ -168,11 +168,11 @@ it('presents restored table-cell identity in Source and uses its actual raw care
       anchor: 0,
       focus: 0
     })
-    // Upstream (8d6c198c) writes the table afresh after an untracked cut.
+    // A cut writes only the cell's text (ADR 0007; plan 0012 G24).
     expect(editor.getValue()).toBe(
-      '| a   |     | c   |\n| --- | --- | --- |\n| x   |     |     |\n'
+      '| a |  | c |\n| --- | --- | --- |\n| x |\n'
     )
-    expect(editor.getCursor()).toMatchObject({ line: 0, ch: 12 })
+    expect(editor.getCursor()).toMatchObject({ line: 0, ch: 6 })
     await adapter.history('undo')
     editor.replaceSelection('Q', 'end', '+input')
     await adapter.settled()

@@ -1,7 +1,7 @@
 import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
 import type { MarkdownLineIndex, MarkdownPhysicalLine } from './revision.js'
 import { syntaxPathAt } from './syntaxPath.js'
-import { respellTableInput } from './tableRespelling.js'
+import { escapeTableInput } from './tableRespelling.js'
 
 const LITERALS = new Set(['code-block', 'math-block', 'html-block', 'diagram'])
 
@@ -81,7 +81,7 @@ export function planCrossBlockCut(core: DocumentCore, revision: DocumentRevision
   const finish = (caret: number, table?: MarkdownAstNode) => {
     const sorted = edits.filter(edit => edit.end > edit.start || edit.insert !== '').sort((left, right) => left.start - right.start)
     if (table === undefined) return { edits: sorted, caret }
-    const respelled = respellTableInput(core, revision, syntax, table, { edits: sorted, selection: { start: caret, end: caret }, reconciliation: [] })
+    const respelled = escapeTableInput(core, revision, syntax, table, { edits: sorted, selection: { start: caret, end: caret }, reconciliation: [] })
     return { edits: respelled.edits, caret: respelled.selection.start }
   }
 

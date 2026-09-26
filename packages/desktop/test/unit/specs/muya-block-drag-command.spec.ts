@@ -95,8 +95,8 @@ it.each([
     name: 'table cell',
     source: 'top\n\n| abc |\n| --- |\n| def |\n\nbottom\n',
     moved: 'top\n\nbottom\n\n| abc |\n| --- |\n| def |\n',
-    // Upstream writes the table afresh after the cell edit.
-    typed: 'top\n\nbottom\n\n| aybc |\n| ---- |\n| def  |\n'
+    // The cell edit changes only its own bytes (ADR 0007).
+    typed: 'top\n\nbottom\n\n| aybc |\n| --- |\n| def |\n'
   }
 ])('block move retains the intrinsic $name caret and next input', async(example) => {
   const app = bootBoundMuya(example.source, { texMathGfm: true })

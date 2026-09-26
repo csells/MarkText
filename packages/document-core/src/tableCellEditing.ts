@@ -22,11 +22,12 @@ export function materializeTableCellEdit(
   const row = cell.table.children[cell.row]
   if (row === undefined) throw new RangeError('Input cell has no row')
   const physical = row.children.filter(cell => typeof cell.attributes.cellStart === 'number').length
-  const padding = emptyTableColumn().cell
   const finalPhysical = row.children[physical - 1]
   const rowEnd = cell.syntax.coordinates.toSource(row.range.end, 'previous')
   const finalSlotEnd = finalPhysical?.attributes.cellEnd
   const needsSeparator = typeof finalSlotEnd === 'number' && cell.syntax.coordinates.toSource(finalSlotEnd, 'previous') === rowEnd
-  const prefix = (needsSeparator ? '|' : '') + (padding + '|').repeat(cell.column - physical) + padding
-  return { edit: { ...edit, insert: prefix + edit.insert + '|' }, prefixLength: prefix.length }
+  // Only the bytes the new cell needs: typing is not a table command, so the
+  // row is not padded to its column widths (ADR 0007, plan 0012 G24).
+  const prefix = (needsSeparator ? '|' : '') + ' |'.repeat(cell.column - physical) + ' '
+  return { edit: { ...edit, insert: prefix + edit.insert + ' |' }, prefixLength: prefix.length }
 }

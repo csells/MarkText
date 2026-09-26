@@ -422,7 +422,7 @@ describe('Muya Markup editing view', () => {
   })
 })
 
-it('anchors the native empty table cell after its serialized padding', () => {
+it('anchors the native empty table cell after the space that follows its pipe', () => {
   const core = createDocumentCore()
   const original = core.open('| aa | bb |\n| --- | --- |\n| cc | dd |\n')
   const plan = core.planInput(original, {
@@ -432,10 +432,10 @@ it('anchors the native empty table cell after its serialized padding', () => {
     selection: { ranges: [{ anchor: 3, focus: 3 }], primary: 0 },
     options: { autoPairBracket: true, autoPairQuote: true, autoPairMarkdownSyntax: true }
   })
-  expect(plan.selection).toEqual({ ranges: [{ anchor: 32, focus: 32 }], primary: 0 })
+  expect(plan.selection).toEqual({ ranges: [{ anchor: 28, focus: 28 }], primary: 0 })
   const revision = core.apply(original, plan.edits).revision
   const view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations)
   const empty = view.bindings.find((binding) => binding.text === '')
   if (empty === undefined) throw new Error('Missing inserted empty cell')
-  expect(mappedMuyaSourceRange(empty, { start: 0, end: 0 })).toEqual({ start: 32, end: 32 })
+  expect(mappedMuyaSourceRange(empty, { start: 0, end: 0 })).toEqual({ start: 28, end: 28 })
 })

@@ -105,8 +105,8 @@ it.each([
   { name: 'heading soft lines', source: '# before after\n', at: 9, markdown: 'first\nsecond', expected: '# before first\n\nsecondafter\n' },
   { name: 'quote paragraphs', source: '> before after\n', at: 9, markdown: 'first\n\nsecond', expected: '> before first\n>\n> secondafter\n' },
   { name: 'list paragraphs', source: '- before after\n', at: 9, markdown: 'first\n\nsecond', expected: '- before first\n\n  secondafter\n' },
-  // Upstream (8d6c198c) writes a table afresh after an untracked paste into a cell.
-  { name: 'table multiline', source: '| before after |\n| --- |\n| b |\n', at: 9, markdown: 'first\nsecond', expected: '| before first<br/>secondafter |\n| ---------------------------- |\n| b                            |\n' }
+  // A paste into a cell changes only its own bytes (ADR 0007).
+  { name: 'table multiline', source: '| before after |\n| --- |\n| b |\n', at: 9, markdown: 'first\nsecond', expected: '| before first<br/>secondafter |\n| --- |\n| b |\n' }
 ])('preserves the existing $name paste meaning and untouched source', ({ source, at, markdown, expected }) => {
   const core = createDocumentCore()
   const revision = core.open(source)
