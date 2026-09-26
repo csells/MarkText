@@ -1,6 +1,6 @@
 import { expect, test, type Locator } from '@playwright/test'
 import { readFileSync } from 'node:fs'
-import { clickMenuById, expectNoRendererErrors, launchWithMarkdown, sendIpcToRenderer } from './helpers'
+import { clickMenuById, expectNoRendererErrors, launchWithMarkdown, sendIpcToRenderer, showReviewSidebar } from './helpers'
 
 async function visibleBounds(locator: Locator) {
   const bounds = await locator.boundingBox()
@@ -18,7 +18,7 @@ test('Original and Revised retain the full editor scroll surface with a centered
     env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1', MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined }
   })
   try {
-    await page.getByRole('button', { name: 'Review', exact: true }).click()
+    await showReviewSidebar(app)
     for (const theme of ['light', 'dracula']) {
       await clickMenuById(app, theme)
       for (const width of [1000, 1400]) {
@@ -57,7 +57,7 @@ test('Comments and Suggestions follows native sidebar title, scrolling, divider 
     env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1', MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined }
   })
   try {
-    await page.getByRole('button', { name: 'Review', exact: true }).click()
+    await showReviewSidebar(app)
     const sidebar = page.locator('.side-bar')
     for (const theme of ['light', 'dracula']) {
       await clickMenuById(app, theme)

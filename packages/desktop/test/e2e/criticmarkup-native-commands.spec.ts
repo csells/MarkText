@@ -67,7 +67,7 @@ for (const action of [
       await page.locator('.mu-paragraph-content').first().click()
       await page.keyboard.press('Home')
       await page.keyboard.press('Shift+End')
-      const button = page.locator(`.mu-format-picker button[data-action="${action.id}"]`)
+      const button = page.locator(`.mu-format-picker [data-action="${action.id}"]`)
       await expect(button).toBeVisible()
       await button.click()
       if (action.composer) {

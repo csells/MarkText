@@ -102,6 +102,8 @@ export interface IInlineToolbarAction {
     label: string;
     enabled: boolean;
     run: () => void;
+    /** Silhouette image drawn like the format icons; without one the action is a text button. */
+    icon?: string;
 }
 
 /**

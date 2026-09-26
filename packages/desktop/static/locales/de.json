@@ -909,6 +909,25 @@
     },
     "spellchecker": {
       "switchLanguage": "Sprache wechseln"
+    },
+    "review": {
+      "show": "Überprüfen: Kommentare und Vorschläge",
+      "add-comment": "Überprüfen: Kommentar hinzufügen",
+      "mark-highlight": "Überprüfen: Hervorheben",
+      "mark-addition": "Überprüfen: Als Einfügung markieren",
+      "suggest-replacement": "Überprüfen: Ersetzung vorschlagen",
+      "track-changes": "Überprüfen: Änderungen nachverfolgen",
+      "previous": "Überprüfen: Zurück",
+      "next": "Überprüfen: Weiter",
+      "edit-comment": "Überprüfen: Kommentar bearbeiten",
+      "accept": "Überprüfen: Annehmen",
+      "reject": "Überprüfen: Ablehnen",
+      "remove": "Überprüfen: Kommentar oder Hervorhebung entfernen",
+      "accept-all": "Überprüfen: Alle annehmen",
+      "reject-all": "Überprüfen: Alle ablehnen",
+      "markup": "Überprüfen: Markierungen",
+      "original": "Überprüfen: Original",
+      "revised": "Überprüfen: Überarbeitet"
     }
   },
   "common": {
@@ -1039,7 +1058,11 @@
       "commentSaveFailed": "Der Kommentar konnte nicht gespeichert werden. Ihr Entwurf und das ursprüngliche Ziel bleiben erhalten.",
       "finishDraftBeforeClosing": "Speichern oder verwerfen Sie den ausstehenden Kommentar oder Ersatztext, bevor Sie dieses Dokument schließen.",
       "commentPrompt": "Kommentar",
-      "replacementPrompt": "Ersetzungstext"
+      "replacementPrompt": "Ersetzungstext",
+      "trackingIndicator": "Änderungen nachverfolgen",
+      "originalBanner": "Originaldokument",
+      "revisedBanner": "Überarbeitetes Dokument",
+      "backToMarkup": "Markierungen"
     },
     "export": {
       "error": "Export-Fehler",

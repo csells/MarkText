@@ -909,6 +909,25 @@
     },
     "spellchecker": {
       "switchLanguage": "言語の切り替え"
+    },
+    "review": {
+      "show": "校閲: コメントと提案",
+      "add-comment": "校閲: コメントを追加",
+      "mark-highlight": "校閲: ハイライト",
+      "mark-addition": "校閲: 追加としてマーク",
+      "suggest-replacement": "校閲: 置換を提案",
+      "track-changes": "校閲: 変更履歴の記録",
+      "previous": "校閲: 前へ",
+      "next": "校閲: 次へ",
+      "edit-comment": "校閲: コメントを編集",
+      "accept": "校閲: 承諾",
+      "reject": "校閲: 却下",
+      "remove": "校閲: コメントまたはハイライトを削除",
+      "accept-all": "校閲: すべて承諾",
+      "reject-all": "校閲: すべて却下",
+      "markup": "校閲: マークアップ",
+      "original": "校閲: 元の文書",
+      "revised": "校閲: 変更後の文書"
     }
   },
   "common": {
@@ -1039,7 +1058,11 @@
       "commentSaveFailed": "コメントを保存できませんでした。下書きと元の対象は保持されています。",
       "finishDraftBeforeClosing": "このドキュメントを閉じる前に、保留中のコメントまたは置換テキストを保存するかキャンセルしてください。",
       "commentPrompt": "コメント",
-      "replacementPrompt": "置換テキスト"
+      "replacementPrompt": "置換テキスト",
+      "trackingIndicator": "変更履歴の記録",
+      "originalBanner": "元の文書",
+      "revisedBanner": "変更後の文書",
+      "backToMarkup": "マークアップ"
     },
     "export": {
       "error": "エクスポートエラー",

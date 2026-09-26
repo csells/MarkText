@@ -2,7 +2,7 @@ import { reviewCommands } from 'common/commands/review'
 import { t } from '../i18n'
 
 const COMMAND_KEY_MAP: Record<string, string> = {
-  ...Object.fromEntries(reviewCommands.map(command => [`review.${command.id}`, `editor.coreReview.${command.label}`])),
+  ...Object.fromEntries(reviewCommands.map(command => [`review.${command.id}`, `commands.review.${command.id}`])),
   // ============================================
   // # Application Level Commands
   // ============================================

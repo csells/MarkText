@@ -909,6 +909,25 @@
     },
     "spellchecker": {
       "switchLanguage": "언어 전환"
+    },
+    "review": {
+      "show": "검토: 댓글 및 제안",
+      "add-comment": "검토: 댓글 추가",
+      "mark-highlight": "검토: 강조 표시",
+      "mark-addition": "검토: 추가로 표시",
+      "suggest-replacement": "검토: 대체 제안",
+      "track-changes": "검토: 변경 내용 추적",
+      "previous": "검토: 이전",
+      "next": "검토: 다음",
+      "edit-comment": "검토: 댓글 편집",
+      "accept": "검토: 수락",
+      "reject": "검토: 거부",
+      "remove": "검토: 댓글 또는 강조 제거",
+      "accept-all": "검토: 모두 수락",
+      "reject-all": "검토: 모두 거부",
+      "markup": "검토: 마크업",
+      "original": "검토: 원본",
+      "revised": "검토: 수정본"
     }
   },
   "common": {
@@ -1039,7 +1058,11 @@
       "commentSaveFailed": "댓글을 저장할 수 없습니다. 초안과 원래 대상은 보존되어 있습니다.",
       "finishDraftBeforeClosing": "이 문서를 닫기 전에 보류 중인 댓글 또는 대체 텍스트를 저장하거나 취소하세요.",
       "commentPrompt": "댓글",
-      "replacementPrompt": "대체 텍스트"
+      "replacementPrompt": "대체 텍스트",
+      "trackingIndicator": "변경 내용 추적",
+      "originalBanner": "원본 문서",
+      "revisedBanner": "수정본 문서",
+      "backToMarkup": "마크업"
     },
     "export": {
       "error": "내보내기 오류",

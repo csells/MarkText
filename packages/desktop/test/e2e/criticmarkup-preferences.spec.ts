@@ -14,7 +14,8 @@ import {
   expectEditorWindowHidden,
   expectNoRendererErrors,
   launchWithMarkdown,
-  sendIpcToRenderer
+  sendIpcToRenderer,
+  showReviewSidebar
 } from './helpers'
 
 const languagePreferences = (enabled: boolean) => ({
@@ -69,7 +70,7 @@ test('supported Markdown preferences apply live and when another document opens'
     // the control explicitly as well so this fixture does not depend on Core's
     // standalone defaults or future changes to application defaults.
     await setLanguagePreferences(page, false)
-    await page.getByRole('button', { name: 'Review', exact: true }).click()
+    await showReviewSidebar(app)
     await page.getByTestId('critic-review-revised').click()
     const projection = page.locator('[data-projection="revised"]')
     await expect(projection.locator('sub')).toHaveCount(0)
@@ -286,7 +287,7 @@ for (const mode of ['Markup', 'Source'] as const) {
         .poll(() => readFileSync(filePath, 'utf8'))
         .toBe('seedXY\n\nH~2~O\n\nText.{>>Note.<<}\n')
       if (mode === 'Source') await exitSourceMode(page, app)
-      await page.getByRole('button', { name: 'Review', exact: true }).click()
+      await showReviewSidebar(app)
       await page.getByTestId('critic-review-revised').click()
       await expect(page.locator('[data-projection="revised"] sub')).toHaveText('2')
       await expect(page.getByTestId('core-recovery-draft')).toHaveCount(0)

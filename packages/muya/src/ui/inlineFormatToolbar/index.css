@@ -7,8 +7,50 @@
 .mu-format-picker {
     position: relative;
 
-    width: 265px;
+    width: max-content;
+    min-width: 0;
     max-width: calc(100vw - 16px);
+}
+
+.mu-format-row {
+    display: flex;
+    align-items: center;
+}
+
+.mu-format-picker ul.mu-format-host-icons {
+    position: relative;
+
+    padding-left: 10px;
+}
+
+.mu-format-row > ul + ul.mu-format-host-icons::before {
+    position: absolute;
+    top: 6px;
+    left: 3px;
+
+    width: 1px;
+    height: 18px;
+
+    background: var(--editor-color-10);
+
+    content: '';
+}
+
+.mu-format-picker li.item.mu-format-host-icon:last-of-type {
+    margin-left: 0;
+}
+
+.mu-format-picker li.item.mu-format-host-icon:last-of-type::before {
+    content: none;
+}
+
+.mu-format-picker li.item.mu-format-host-icon.disabled {
+    cursor: default;
+    opacity: 0.4;
+}
+
+.mu-format-picker li.item.mu-format-host-icon.disabled:hover {
+    background: transparent;
 }
 
 .mu-format-host-actions {

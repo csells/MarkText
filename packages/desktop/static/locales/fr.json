@@ -909,6 +909,25 @@
     },
     "spellchecker": {
       "switchLanguage": "Changer de langue"
+    },
+    "review": {
+      "show": "Révision: Commentaires et suggestions",
+      "add-comment": "Révision: Ajouter un commentaire",
+      "mark-highlight": "Révision: Surligner",
+      "mark-addition": "Révision: Marquer comme ajout",
+      "suggest-replacement": "Révision: Suggérer un remplacement",
+      "track-changes": "Révision: Suivi des modifications",
+      "previous": "Révision: Précédent",
+      "next": "Révision: Suivant",
+      "edit-comment": "Révision: Modifier le commentaire",
+      "accept": "Révision: Accepter",
+      "reject": "Révision: Refuser",
+      "remove": "Révision: Supprimer le commentaire ou le surlignage",
+      "accept-all": "Révision: Tout accepter",
+      "reject-all": "Révision: Tout refuser",
+      "markup": "Révision: Annotations",
+      "original": "Révision: Original",
+      "revised": "Révision: Révisé"
     }
   },
   "common": {
@@ -1039,7 +1058,11 @@
       "commentSaveFailed": "Impossible d’enregistrer le commentaire. Votre brouillon et sa cible d’origine sont conservés.",
       "finishDraftBeforeClosing": "Enregistrez ou annulez le commentaire ou le texte de remplacement en attente avant de fermer ce document.",
       "commentPrompt": "Commentaire",
-      "replacementPrompt": "Texte de remplacement"
+      "replacementPrompt": "Texte de remplacement",
+      "trackingIndicator": "Suivi des modifications",
+      "originalBanner": "Document original",
+      "revisedBanner": "Document révisé",
+      "backToMarkup": "Annotations"
     },
     "export": {
       "error": "Erreur d'exportation",

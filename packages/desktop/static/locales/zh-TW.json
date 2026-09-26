@@ -909,6 +909,25 @@
     },
     "spellchecker": {
       "switchLanguage": "切換語言"
+    },
+    "review": {
+      "show": "校閱: 註解與建議",
+      "add-comment": "校閱: 新增註解",
+      "mark-highlight": "校閱: 醒目提示",
+      "mark-addition": "校閱: 標記插入",
+      "suggest-replacement": "校閱: 建議取代",
+      "track-changes": "校閱: 追蹤修訂",
+      "previous": "校閱: 上一項",
+      "next": "校閱: 下一項",
+      "edit-comment": "校閱: 編輯註解",
+      "accept": "校閱: 接受",
+      "reject": "校閱: 拒絕",
+      "remove": "校閱: 移除註解或醒目提示",
+      "accept-all": "校閱: 全部接受",
+      "reject-all": "校閱: 全部拒絕",
+      "markup": "校閱: 標記",
+      "original": "校閱: 原始",
+      "revised": "校閱: 修訂"
     }
   },
   "common": {
@@ -1039,7 +1058,11 @@
       "commentSaveFailed": "無法儲存註解。草稿與原始目標已保留。",
       "finishDraftBeforeClosing": "關閉此文件前，請儲存或取消待處理的註解或取代文字。",
       "commentPrompt": "註解",
-      "replacementPrompt": "取代文字"
+      "replacementPrompt": "取代文字",
+      "trackingIndicator": "追蹤修訂",
+      "originalBanner": "原始文件",
+      "revisedBanner": "修訂文件",
+      "backToMarkup": "標記"
     },
     "export": {
       "error": "匯出錯誤",

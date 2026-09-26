@@ -909,6 +909,25 @@
     },
     "spellchecker": {
       "switchLanguage": "Taal wisselen"
+    },
+    "review": {
+      "show": "Revisie: Opmerkingen en suggesties",
+      "add-comment": "Revisie: Opmerking toevoegen",
+      "mark-highlight": "Revisie: Markeren",
+      "mark-addition": "Revisie: Als toevoeging markeren",
+      "suggest-replacement": "Revisie: Vervanging voorstellen",
+      "track-changes": "Revisie: Wijzigingen bijhouden",
+      "previous": "Revisie: Vorige",
+      "next": "Revisie: Volgende",
+      "edit-comment": "Revisie: Opmerking bewerken",
+      "accept": "Revisie: Accepteren",
+      "reject": "Revisie: Weigeren",
+      "remove": "Revisie: Opmerking of markering verwijderen",
+      "accept-all": "Revisie: Alles accepteren",
+      "reject-all": "Revisie: Alles weigeren",
+      "markup": "Revisie: Markeringen",
+      "original": "Revisie: Origineel",
+      "revised": "Revisie: Herzien"
     }
   },
   "common": {
@@ -1039,7 +1058,11 @@
       "commentSaveFailed": "De opmerking kon niet worden opgeslagen. Uw concept en het oorspronkelijke doel blijven bewaard.",
       "finishDraftBeforeClosing": "Sla de openstaande opmerking of vervangende tekst op of annuleer deze voordat u dit document sluit.",
       "commentPrompt": "Opmerking",
-      "replacementPrompt": "Vervangende tekst"
+      "replacementPrompt": "Vervangende tekst",
+      "trackingIndicator": "Wijzigingen bijhouden",
+      "originalBanner": "Origineel document",
+      "revisedBanner": "Herzien document",
+      "backToMarkup": "Markeringen"
     },
     "export": {
       "error": "Exportfout",

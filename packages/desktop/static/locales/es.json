@@ -909,6 +909,25 @@
     },
     "spellchecker": {
       "switchLanguage": "Cambiar Idioma"
+    },
+    "review": {
+      "show": "Revisión: Comentarios y sugerencias",
+      "add-comment": "Revisión: Añadir comentario",
+      "mark-highlight": "Revisión: Resaltar",
+      "mark-addition": "Revisión: Marcar adición",
+      "suggest-replacement": "Revisión: Sugerir sustitución",
+      "track-changes": "Revisión: Control de cambios",
+      "previous": "Revisión: Anterior",
+      "next": "Revisión: Siguiente",
+      "edit-comment": "Revisión: Editar comentario",
+      "accept": "Revisión: Aceptar",
+      "reject": "Revisión: Rechazar",
+      "remove": "Revisión: Eliminar comentario o resaltado",
+      "accept-all": "Revisión: Aceptar todo",
+      "reject-all": "Revisión: Rechazar todo",
+      "markup": "Revisión: Marcas",
+      "original": "Revisión: Original",
+      "revised": "Revisión: Revisado"
     }
   },
   "common": {
@@ -1039,7 +1058,11 @@
       "commentSaveFailed": "No se pudo guardar el comentario. Su borrador y su destino original se conservan.",
       "finishDraftBeforeClosing": "Guarde o cancele el comentario o el texto de reemplazo pendiente antes de cerrar este documento.",
       "commentPrompt": "Comentario",
-      "replacementPrompt": "Texto de sustitución"
+      "replacementPrompt": "Texto de sustitución",
+      "trackingIndicator": "Control de cambios",
+      "originalBanner": "Documento original",
+      "revisedBanner": "Documento revisado",
+      "backToMarkup": "Marcas"
     },
     "export": {
       "error": "Error de exportación",

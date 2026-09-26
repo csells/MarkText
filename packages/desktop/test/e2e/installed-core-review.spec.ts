@@ -5,12 +5,14 @@ import { _electron as electron, expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 
 import {
+  clickMenuById,
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
   getMarkdownContent,
   sendIpcToRenderer,
   waitForEditor,
-  waitForMenuReady
+  waitForMenuReady,
+  showReviewSidebar
 } from './helpers'
 import { defaultCoreLaunchEnvironment, expectDefaultCoreAuthority, expectInstalledArtifactCommit } from './installedArtifactProvenance'
 import {
@@ -265,7 +267,7 @@ const launchInstalled = async(
     await waitForMenuReady(app, 60_000)
     await expectInstalledArtifactCommit(page)
     await expectDefaultCoreAuthority(page)
-    await page.getByRole('button', { name: 'Review', exact: true }).click()
+    await showReviewSidebar(app)
     return { app, page }
   } catch (error) {
     await app.close().catch(() => {})
@@ -555,21 +557,23 @@ test.describe('installed Core Review authority', () => {
         }
         const usesCommentComposer = testCase.mode !== 'selection-control' ||
           testCase.actionTestId === 'critic-review-add-comment'
-        const control = page.getByTestId(testCase.mode === 'selection-control'
-          ? testCase.actionTestId
-          : 'critic-review-edit-comment')
+        // Authoring runs from the Review menu; comment editing from its card.
+        const menuId = testCase.mode === 'selection-control'
+          ? testCase.actionTestId.replace('critic-review-', 'critic-').replace('critic-track-replacement', 'critic-suggest-replacement')
+          : 'critic-edit-comment'
+        const menuEnabled = () => app.evaluate(({ Menu }, id) =>
+          Menu.getApplicationMenu()?.getMenuItemById(id)?.enabled, menuId)
         if (actionOutcome === 'unavailable') {
-          // Selection-only sidebar actions are absent without an authorable
-          // range. The native command must remain explicitly unavailable.
-          const menuId = testCase.mode === 'selection-control'
-            ? testCase.actionTestId.replace('critic-review-', 'critic-').replace('critic-track-replacement', 'critic-suggest-replacement')
-            : 'critic-edit-comment'
-          await expect(control).toHaveCount(0)
-          await expect.poll(() => app.evaluate(({ Menu }, id) =>
-            Menu.getApplicationMenu()?.getMenuItemById(id)?.enabled, menuId)).toBe(false)
+          await expect.poll(menuEnabled).toBe(false)
+        } else if (testCase.mode === 'selection-control') {
+          await expect.poll(menuEnabled).toBe(true)
+          await clickMenuById(app, menuId)
         } else {
+          const control = page.getByTestId('critic-review-edit-comment')
           await expect(control).toBeEnabled()
           await control.click()
+        }
+        if (actionOutcome !== 'unavailable') {
           if (testCase.promptText !== null) {
             const composer = usesCommentComposer ? 'comment' : 'replacement'
             await page.getByTestId(`critic-review-${composer}-input`).fill(testCase.promptText)

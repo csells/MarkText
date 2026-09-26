@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
-import { clickMenuById, expectNoRendererErrors, launchWithMarkdown, sendIpcToRenderer } from './helpers'
+import { clickMenuById, expectNoRendererErrors, launchWithMarkdown, sendIpcToRenderer, showReviewSidebar } from './helpers'
 
 const source = '# Review\n\nAn {++addition++}, a {--deletion--}, and {~~before~>after~~}.\n\n{==Highlighted text.==}{>>A margin comment.<<}\n\nA standalone comment.{>>Another margin comment.<<}\n\n{==Uncommented highlight==}\n'
 
@@ -44,7 +44,7 @@ test('Original and Revised replace the visible editor and preserve the editable 
     env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1', MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined }
   })
   try {
-    await page.getByRole('button', { name: 'Review', exact: true }).click()
+    await showReviewSidebar(app)
     for (const mode of ['original', 'revised'] as const) {
       await page.getByTestId(`critic-review-${mode}`).click()
       const projection = page.locator(`[data-projection="${mode}"]`)
@@ -69,13 +69,13 @@ test('Suggest Replacement uses a real composer without freezing the document int
     env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1', MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined }
   })
   try {
-    await page.getByRole('button', { name: 'Review', exact: true }).click()
+    await showReviewSidebar(app)
     const paragraph = page.locator('.mu-paragraph-content').first()
     await paragraph.click()
     await page.keyboard.press('Home')
     await page.keyboard.press('Shift+End')
     // Use the actual installed platform behavior; never replace window.prompt.
-    await page.getByTestId('critic-review-track-replacement').click()
+    await page.locator('.mu-format-picker [data-action="suggest-replacement"]').click()
     const input = page.getByTestId('critic-review-replacement-input')
     await expect(input).toBeVisible()
     await input.fill('Better wording.')
@@ -92,7 +92,7 @@ test('sidebar comments open their own editor and Review navigation reveals the c
     suppressErrorDialog: true, env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1', MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined }
   })
   try {
-    await page.getByRole('button', { name: 'Review', exact: true }).click()
+    await showReviewSidebar(app)
     const card = page.getByTestId('critic-review-entry').filter({ hasText: 'Another margin comment.' })
     await card.locator(':scope > button').click()
     await page.getByTestId('critic-review-edit-comment').click()

@@ -909,6 +909,25 @@
     },
     "spellchecker": {
       "switchLanguage": "Alterar Idioma"
+    },
+    "review": {
+      "show": "Revisão: Comentários e sugestões",
+      "add-comment": "Revisão: Adicionar comentário",
+      "mark-highlight": "Revisão: Destacar",
+      "mark-addition": "Revisão: Marcar adição",
+      "suggest-replacement": "Revisão: Sugerir substituição",
+      "track-changes": "Revisão: Controlar alterações",
+      "previous": "Revisão: Anterior",
+      "next": "Revisão: Próximo",
+      "edit-comment": "Revisão: Editar comentário",
+      "accept": "Revisão: Aceitar",
+      "reject": "Revisão: Rejeitar",
+      "remove": "Revisão: Remover comentário ou destaque",
+      "accept-all": "Revisão: Aceitar tudo",
+      "reject-all": "Revisão: Rejeitar tudo",
+      "markup": "Revisão: Marcações",
+      "original": "Revisão: Original",
+      "revised": "Revisão: Revisado"
     }
   },
   "common": {
@@ -1039,7 +1058,11 @@
       "commentSaveFailed": "Não foi possível salvar o comentário. Seu rascunho e o destino original foram preservados.",
       "finishDraftBeforeClosing": "Salve ou cancele o comentário ou o texto de substituição pendente antes de fechar este documento.",
       "commentPrompt": "Comentário",
-      "replacementPrompt": "Texto de substituição"
+      "replacementPrompt": "Texto de substituição",
+      "trackingIndicator": "Controlar alterações",
+      "originalBanner": "Documento original",
+      "revisedBanner": "Documento revisado",
+      "backToMarkup": "Marcações"
     },
     "export": {
       "error": "Erro de exportação",

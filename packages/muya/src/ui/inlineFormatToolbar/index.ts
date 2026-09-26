@@ -277,13 +277,58 @@ export class InlineFormatToolbar extends BaseFloat {
                 : this._createIconItem(icon, formats, i18n),
         );
         const actions = this.muya.options.inlineToolbarActions?.() ?? [];
+        const iconActions = actions.filter(action => action.icon);
+        const textActions = actions.filter(action => !action.icon);
         const vnode = h('div.mu-format-tools', [
-            ...(children.length ? [h('ul', children)] : []),
-            ...(actions.length ? [h('div.mu-format-host-actions', actions.map(action => this._createHostAction(action)))] : []),
+            h('div.mu-format-row', [
+                ...(children.length ? [h('ul', children)] : []),
+                ...(iconActions.length ? [h('ul.mu-format-host-icons', iconActions.map(action => this._createHostIcon(action)))] : []),
+            ]),
+            ...(textActions.length ? [h('div.mu-format-host-actions', textActions.map(action => this._createHostAction(action)))] : []),
         ]);
 
         patch(oldVNode || formatContainer, vnode);
         this._oldVNode = vnode;
+    }
+
+    private _runHostAction(event: Event, id: string) {
+        event.preventDefault();
+        event.stopPropagation();
+        const currentAction = this.muya.options.inlineToolbarActions?.().find(current => current.id === id);
+        if (!currentAction?.enabled) {
+            this._render();
+            return;
+        }
+        const { selection } = this.muya.editor;
+        const { anchor, focus, anchorBlock, anchorPath, focusBlock, focusPath } = selection;
+        if (!anchor || !focus || !anchorBlock || !focusBlock)
+            return;
+        selection.setSelection(
+            { offset: anchor.offset, block: anchorBlock, path: anchorPath },
+            { offset: focus.offset, block: focusBlock, path: focusPath },
+        );
+        this.hide();
+        currentAction.run();
+    }
+
+    private _createHostIcon(action: IInlineToolbarAction) {
+        const iconElement = h('i.icon', h('i.icon-inner', {
+            style: { 'background': `url(${action.icon}) no-repeat`, 'background-size': '100%' },
+        }, ''));
+        return h(`li.item.mu-format-host-icon${action.enabled ? '' : '.disabled'}`, {
+            key: action.id,
+            attrs: {
+                'role': 'button',
+                'data-action': action.id,
+                'title': action.label,
+                'aria-label': action.label,
+                'aria-disabled': String(!action.enabled),
+            },
+            on: {
+                mousedown: event => event.preventDefault(),
+                click: event => this._runHostAction(event, action.id),
+            },
+        }, [h('div.icon-wrapper', iconElement)]);
     }
 
     private _createHostAction(action: IInlineToolbarAction) {
@@ -292,25 +337,7 @@ export class InlineFormatToolbar extends BaseFloat {
             attrs: { 'type': 'button', 'data-action': action.id, 'disabled': !action.enabled },
             on: {
                 mousedown: event => event.preventDefault(),
-                click: (event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    const currentAction = this.muya.options.inlineToolbarActions?.().find(current => current.id === action.id);
-                    if (!currentAction?.enabled) {
-                        this._render();
-                        return;
-                    }
-                    const { selection } = this.muya.editor;
-                    const { anchor, focus, anchorBlock, anchorPath, focusBlock, focusPath } = selection;
-                    if (!anchor || !focus || !anchorBlock || !focusBlock)
-                        return;
-                    selection.setSelection(
-                        { offset: anchor.offset, block: anchorBlock, path: anchorPath },
-                        { offset: focus.offset, block: focusBlock, path: focusPath },
-                    );
-                    this.hide();
-                    currentAction.run();
-                },
+                click: event => this._runHostAction(event, action.id),
             },
         }, action.label);
     }

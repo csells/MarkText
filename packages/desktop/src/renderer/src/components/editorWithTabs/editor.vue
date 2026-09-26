@@ -25,6 +25,28 @@
         class="editor-component"
       />
     </div>
+    <div
+      v-if="coreDisplayMode !== 'markup' && coreDisplayProjection !== undefined"
+      class="core-reader-banner"
+      role="status"
+      data-testid="core-reader-banner"
+    >
+      <span>{{
+        t(
+          coreDisplayMode === 'original'
+            ? 'editor.coreReview.originalBanner'
+            : 'editor.coreReview.revisedBanner'
+        )
+      }}</span>
+      <button
+        type="button"
+        class="button small"
+        data-testid="core-reader-banner-markup"
+        @click="handleCoreReviewCommand('markup')"
+      >
+        {{ t('editor.coreReview.backToMarkup') }}
+      </button>
+    </div>
     <CoreDocumentProjection
       v-if="coreDisplayMode !== 'markup' && coreDisplayProjection !== undefined"
       :projection="coreDisplayProjection"
@@ -240,70 +262,6 @@
             :target-changed-label="t('editor.coreReview.commentTargetChanged')"
             @submit="submitCoreComment"
           />
-          <p
-            v-if="
-              coreLease !== undefined &&
-                !sourceCode &&
-                coreDisplayMode === 'markup' &&
-                coreAuthorSelection !== undefined &&
-                coreAuthorForms.length > 0
-            "
-            class="core-review-hint"
-          >
-            {{ t('editor.coreReview.selectionHint') }}
-          </p>
-          <div
-            v-if="
-              coreLease !== undefined &&
-                !sourceCode &&
-                coreDisplayMode === 'markup' &&
-                coreAuthorSelection !== undefined &&
-                coreAuthorForms.length > 0
-            "
-            class="core-review-author-bar"
-            :aria-label="t('editor.coreReview.authorTitle')"
-          >
-            <button
-              type="button"
-              class="button small"
-              data-testid="critic-review-mark-addition"
-              :disabled="!reviewCommandEnabled('mark-addition', coreReviewCommandState)"
-              @mousedown.prevent="captureCoreAuthorSelection"
-              @click="handleCoreReviewCommand('mark-addition')"
-            >
-              {{ t('editor.coreReview.markAddition') }}
-            </button>
-            <button
-              type="button"
-              class="button small"
-              data-testid="critic-review-add-comment"
-              :disabled="!reviewCommandEnabled('add-comment', coreReviewCommandState)"
-              @mousedown.prevent="captureCoreAuthorSelection"
-              @click="handleCoreReviewCommand('add-comment')"
-            >
-              {{ t('editor.coreReview.addComment') }}
-            </button>
-            <button
-              type="button"
-              class="button small"
-              data-testid="critic-review-track-replacement"
-              :disabled="!reviewCommandEnabled('suggest-replacement', coreReviewCommandState)"
-              @mousedown.prevent="captureCoreAuthorSelection"
-              @click="handleCoreReviewCommand('suggest-replacement')"
-            >
-              {{ t('editor.coreReview.suggestReplacement') }}
-            </button>
-            <button
-              type="button"
-              class="button small"
-              data-testid="critic-review-mark-highlight"
-              :disabled="!reviewCommandEnabled('mark-highlight', coreReviewCommandState)"
-              @mousedown.prevent="captureCoreAuthorSelection"
-              @click="handleCoreReviewCommand('mark-highlight')"
-            >
-              {{ t('editor.coreReview.markHighlight') }}
-            </button>
-          </div>
         </div>
       </section>
     </Teleport>
@@ -372,6 +330,11 @@
 </template>
 
 <script setup lang="ts">
+import reviewCommentIcon from '@/assets/icons/review/comment.svg?url'
+import reviewHighlightIcon from '@/assets/icons/review/highlight.svg?url'
+import reviewAdditionIcon from '@/assets/icons/review/addition.svg?url'
+import reviewReplacementIcon from '@/assets/icons/review/replacement.svg?url'
+import { reviewStatus } from './reviewStatus'
 import type { MarkdownOptions } from '@marktext/document-core'
 import {
   provide,
@@ -711,6 +674,12 @@ const coreCommentError = toRef(coreCommentComposer, 'error')
 const coreCommentTarget = toRef(coreCommentComposer, 'target')
 const coreReviewResolving = ref(false)
 const coreReviewTargeted = ref(false)
+const reviewToolbarIcons: Record<string, string> = {
+  'add-comment': reviewCommentIcon,
+  'mark-highlight': reviewHighlightIcon,
+  'mark-addition': reviewAdditionIcon,
+  'suggest-replacement': reviewReplacementIcon
+}
 const coreReviewRefreshPending = ref(false)
 const coreReviewBusy = computed(() => coreReviewResolving.value || coreReviewRefreshPending.value)
 const coreReviewRefresh = createLatestViewRefresh<CoreReviewItemReply>({
@@ -1841,11 +1810,8 @@ const refreshCoreReviewItem = async (
 watch(
   () => [reviewLayoutStore.showSideBar, reviewLayoutStore.rightColumn],
   () => {
-    if (
-      reviewLayoutStore.showSideBar &&
-      reviewLayoutStore.rightColumn === 'review' &&
-      coreReviewTargeted.value
-    ) {
+    // Opening Review is deliberate: it reveals, and so targets, the current item.
+    if (reviewLayoutStore.showSideBar && reviewLayoutStore.rightColumn === 'review') {
       nextTick(() => revealCoreReviewItem())
     }
   }
@@ -2452,10 +2418,6 @@ const handleCoreContextAction = (value: unknown): void => {
     // Core's queue. Resolution owns revision validation and subsequent refresh.
     resolveCoreReviewItem(action.command).catch((error) => emit('core-fault', error))
   }
-}
-
-const captureCoreAuthorSelection = (): void => {
-  coreAuthorInvocationSelection.value = coreAuthorSelection.value
 }
 
 const handleCoreHistory = (command: 'undo' | 'redo'): boolean => {
@@ -3618,7 +3580,9 @@ const ownsCurrentDocument = () =>
 watch(
   coreReviewCommandState,
   (state) => {
-    if (ownsCurrentDocument()) window.electron.ipcRenderer.send('mt::review-command-state', state)
+    if (!ownsCurrentDocument()) return
+    window.electron.ipcRenderer.send('mt::review-command-state', state)
+    reviewStatus.tracking = state.available && state.tracking
   },
   { immediate: true }
 )
@@ -3652,6 +3616,7 @@ onMounted(() => {
           .map((command) => ({
             id: command.id,
             label: t(`editor.coreReview.${command.label}`),
+            icon: reviewToolbarIcons[command.id],
             enabled: reviewCommandEnabled(command.id, coreReviewCommandState.value),
             run: () => handleCoreReviewCommand(command.id)
           })),
@@ -4977,13 +4942,16 @@ onBeforeUnmount(() => {
   font-size: 11px;
   border: 0;
 }
-.core-review-author-bar {
-  display: grid;
-  gap: 4px;
-  margin: 8px 0;
-}
-.core-review-author-bar button {
-  text-align: left;
+.core-reader-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--editorColor);
+  background: var(--itemBgColor);
+  border-bottom: 1px solid var(--floatBorderColor);
 }
 .core-review-bulk {
   grid-column: 1 / -1;

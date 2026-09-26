@@ -909,6 +909,25 @@
     },
     "spellchecker": {
       "switchLanguage": "切换拼写检查语言"
+    },
+    "review": {
+      "show": "审阅: 批注和建议",
+      "add-comment": "审阅: 添加批注",
+      "mark-highlight": "审阅: 突出显示",
+      "mark-addition": "审阅: 标记插入",
+      "suggest-replacement": "审阅: 建议替换",
+      "track-changes": "审阅: 修订追踪",
+      "previous": "审阅: 上一项",
+      "next": "审阅: 下一项",
+      "edit-comment": "审阅: 编辑批注",
+      "accept": "审阅: 接受",
+      "reject": "审阅: 拒绝",
+      "remove": "审阅: 移除批注或突出显示",
+      "accept-all": "审阅: 全部接受",
+      "reject-all": "审阅: 全部拒绝",
+      "markup": "审阅: 标记",
+      "original": "审阅: 原始",
+      "revised": "审阅: 修订"
     }
   },
   "common": {
@@ -1039,7 +1058,11 @@
       "commentSaveFailed": "无法保存批注。草稿和原始目标已保留。",
       "finishDraftBeforeClosing": "关闭此文档前，请保存或取消待处理的批注或替换文本。",
       "commentPrompt": "批注",
-      "replacementPrompt": "替换文本"
+      "replacementPrompt": "替换文本",
+      "trackingIndicator": "修订追踪",
+      "originalBanner": "原始文档",
+      "revisedBanner": "修订文档",
+      "backToMarkup": "标记"
     },
     "insertTable": {
       "title": "插入表格",

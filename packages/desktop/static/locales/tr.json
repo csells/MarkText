@@ -909,6 +909,25 @@
     },
     "spellchecker": {
       "switchLanguage": "Dili Değiştir"
+    },
+    "review": {
+      "show": "Gözden geçir: Yorumlar ve öneriler",
+      "add-comment": "Gözden geçir: Yorum ekle",
+      "mark-highlight": "Gözden geçir: Vurgula",
+      "mark-addition": "Gözden geçir: Ekleme olarak işaretle",
+      "suggest-replacement": "Gözden geçir: Değiştirme öner",
+      "track-changes": "Gözden geçir: Değişiklikleri izle",
+      "previous": "Gözden geçir: Önceki",
+      "next": "Gözden geçir: Sonraki",
+      "edit-comment": "Gözden geçir: Yorumu düzenle",
+      "accept": "Gözden geçir: Kabul et",
+      "reject": "Gözden geçir: Reddet",
+      "remove": "Gözden geçir: Yorumu veya vurguyu kaldır",
+      "accept-all": "Gözden geçir: Tümünü kabul et",
+      "reject-all": "Gözden geçir: Tümünü reddet",
+      "markup": "Gözden geçir: İşaretleme",
+      "original": "Gözden geçir: Özgün",
+      "revised": "Gözden geçir: Düzeltilmiş"
     }
   },
   "common": {
@@ -1039,7 +1058,11 @@
       "commentSaveFailed": "Yorum kaydedilemedi. Taslağınız ve özgün hedefi korunuyor.",
       "finishDraftBeforeClosing": "Bu belgeyi kapatmadan önce bekleyen yorumu veya değiştirme metnini kaydedin ya da iptal edin.",
       "commentPrompt": "Yorum",
-      "replacementPrompt": "Yerine konacak metin"
+      "replacementPrompt": "Yerine konacak metin",
+      "trackingIndicator": "Değişiklikleri izle",
+      "originalBanner": "Özgün belge",
+      "revisedBanner": "Düzeltilmiş belge",
+      "backToMarkup": "İşaretleme"
     },
     "export": {
       "error": "Dışa aktarma hatası",

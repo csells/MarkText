@@ -5,6 +5,16 @@ import { sanitize, PREVIEW_DOMPURIFY_CONFIG, EXPORT_DOMPURIFY_CONFIG } from '../
 import type { MuyaMarkupBinding, MuyaMarkupComment, MuyaMarkupDecoration } from './muyaMarkupView'
 
 /** Parser-owned nodes rendered by the existing native image widget. */
+// Assistive technology announces suggested text by its review meaning instead
+// of reading a deletion as live text.
+const criticRole = (mark: MuyaMarkupDecoration['mark']): 'insertion' | 'deletion' | 'mark' | undefined => {
+  if (mark.kind === 'addition') return 'insertion'
+  if (mark.kind === 'deletion') return 'deletion'
+  if (mark.kind === 'highlight') return 'mark'
+  if (mark.kind === 'substitution') return mark.arm === 'new' ? 'insertion' : 'deletion'
+  return undefined
+}
+
 export const isMuyaImageSyntax = (node: MarkdownAstNode): boolean =>
   node.kind === 'image' ||
   ((node.kind === 'inline-html' || node.kind === 'html-block') &&
@@ -450,9 +460,10 @@ export function renderMuyaMarkupBinding(
     // Leaf-relative locations survive cached sibling rendering when an earlier
     // edit uniformly shifts the Core source coordinates.
     const arm = mark.kind === 'substitution' ? ` data-critic-arm="${escapeHtml(mark.arm)}"` : ''
+    const role = criticRole(mark)
     spans.push({
       range,
-      open: `<span data-critic-kind="${escapeHtml(mark.kind)}" data-critic-start="${mark.annotationRange.start - binding.sourceRange.start}" data-critic-end="${mark.annotationRange.end - binding.sourceRange.start}"${arm}>`,
+      open: `<span data-critic-kind="${escapeHtml(mark.kind)}" data-critic-start="${mark.annotationRange.start - binding.sourceRange.start}" data-critic-end="${mark.annotationRange.end - binding.sourceRange.start}"${arm}${role === undefined ? '' : ` role="${role}"`}>`,
       close: '</span>'
     })
   }

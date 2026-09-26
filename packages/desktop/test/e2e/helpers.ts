@@ -483,7 +483,7 @@ export const launchWithReviewMarkdown = async(
 ): Promise<LaunchWithMarkdownResult> => {
   const launched = await launchWithMarkdown(markdown, options)
   try {
-    await launched.page.getByRole('button', { name: 'Review', exact: true }).click()
+    await showReviewSidebar(launched.app)
     return launched
   } catch (error) {
     await launched.app.close().catch(() => {})
@@ -533,4 +533,14 @@ export async function discardReviewInputOnClose(app: ElectronApplication): Promi
       checkboxChecked: false
     })) as typeof dialog.showMessageBox
   })
+}
+
+/** Opens the Comments and Suggestions sidebar tab through the Review menu. */
+export async function showReviewSidebar(app: ElectronApplication): Promise<void> {
+  await clickMenuById(app, 'critic-show')
+}
+
+/** Whether an application menu item is currently enabled. */
+export async function menuItemEnabled(app: ElectronApplication, id: string): Promise<boolean | undefined> {
+  return app.evaluate(({ Menu }, itemId) => Menu.getApplicationMenu()?.getMenuItemById(itemId)?.enabled, id)
 }
