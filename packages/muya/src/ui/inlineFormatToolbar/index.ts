@@ -6,6 +6,7 @@ import type { IBaseOptions } from '../types';
 
 import type { FormatToolIcon } from './config';
 import Format from '../../block/base/format';
+import { getCursorReference } from '../../selection';
 import { isKeyboardEvent } from '../../utils';
 import { h, patch } from '../../utils/snabbdom';
 import BaseFloat from '../baseFloat';
@@ -70,6 +71,12 @@ export class InlineFormatToolbar extends BaseFloat {
     /** Currently applied formats in the selection */
     private _formats: readonly IDocumentActiveFormat[] = [];
 
+    /**
+     * A selection spanning blocks has no formatting tools; it shows only the
+     * host's actions, which may operate across blocks.
+     */
+    private _hostActionsOnly = false;
+
     /** Toolbar configuration options */
     public override options: IBaseOptions;
 
@@ -103,6 +110,7 @@ export class InlineFormatToolbar extends BaseFloat {
 
         eventCenter.subscribe('muya-format-picker', ({ reference, block }) => {
             if (reference) {
+                this._hostActionsOnly = false;
                 this._block = block;
                 this._formats = block.getActiveFormats();
                 // Render first so the float is positioned at its real size;
@@ -123,6 +131,14 @@ export class InlineFormatToolbar extends BaseFloat {
         // command / shortcut) light up their buttons. Single-block tool, so
         // ignore collapsed / cross-block selections.
         eventCenter.subscribe('selection-change', ({ formats, isCollapsed, isSelectionInSameBlock }) => {
+            if (!isCollapsed && !isSelectionInSameBlock) {
+                this._showHostActionsOnly();
+                return;
+            }
+            if (isCollapsed && this._hostActionsOnly) {
+                this.hide();
+                return;
+            }
             if (!this.status || isCollapsed || !isSelectionInSameBlock)
                 return;
 
@@ -132,6 +148,25 @@ export class InlineFormatToolbar extends BaseFloat {
 
         eventCenter.attachDOMEvent(domNode, 'keydown', (event) => {
             this._handleKeydown(event, editor);
+        });
+    }
+
+    private _showHostActionsOnly() {
+        if (!(this.muya.options.inlineToolbarActions?.().length))
+            return;
+        this._hostActionsOnly = true;
+        this._block = null;
+        this._formats = [];
+        requestAnimationFrame(() => {
+            if (!this._hostActionsOnly)
+                return;
+            // A selection without drawable rects anchors to its focus paragraph.
+            const focusNode = this.muya.editor.selection.focusBlock?.domNode;
+            const reference = getCursorReference() ?? focusNode;
+            if (!reference)
+                return;
+            this._render();
+            this.show(reference);
         });
     }
 
@@ -152,8 +187,11 @@ export class InlineFormatToolbar extends BaseFloat {
         const { anchor, isSelectionInSameBlock } = selection;
         const anchorBlock = anchor.block;
 
-        if (!isSelectionInSameBlock)
+        if (!isSelectionInSameBlock) {
+            if (this._hostActionsOnly)
+                this._hideOnEditingKey(key, metaKey, ctrlKey);
             return;
+        }
 
         // Hide toolbar on editing operations
         if (!(anchorBlock instanceof Format) || (!metaKey && !ctrlKey)) {
@@ -210,10 +248,10 @@ export class InlineFormatToolbar extends BaseFloat {
         const { _icons: icons, _oldVNode: oldVNode, _formatContainer: formatContainer, _formats: formats } = this;
         const { i18n } = this.muya;
 
-        const children = icons.map(icon => this._createIconItem(icon, formats, i18n));
+        const children = this._hostActionsOnly ? [] : icons.map(icon => this._createIconItem(icon, formats, i18n));
         const actions = this.muya.options.inlineToolbarActions?.() ?? [];
         const vnode = h('div.mu-format-tools', [
-            h('ul', children),
+            ...(children.length ? [h('ul', children)] : []),
             ...(actions.length ? [h('div.mu-format-host-actions', actions.map(action => this._createHostAction(action)))] : []),
         ]);
 

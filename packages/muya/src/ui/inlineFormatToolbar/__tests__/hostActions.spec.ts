@@ -57,3 +57,51 @@ it('does not run an action whose host availability changed after the selection t
     expect(run).not.toHaveBeenCalled();
     expect(toolbar.container!.querySelector<HTMLButtonElement>('button[data-action="mark-highlight"]')!.disabled).toBe(true);
 });
+
+function createTwoParagraphs(actions: () => Array<{ id: string; label: string; enabled: boolean; run: () => void }>) {
+    window.MUYA_VERSION = 'test';
+    const host = document.createElement('div');
+    document.body.append(host);
+    const muya = new Muya(host, { markdown: 'first words\n\nsecond words\n', inlineToolbarActions: actions });
+    muya.init();
+    const toolbar = new InlineFormatToolbar(muya);
+    cleanup.push(() => {
+        toolbar.destroy();
+        muya.destroy();
+        muya.domNode.remove();
+    });
+    const first = muya.editor.scrollPage!.firstContentInDescendant()!;
+    const last = muya.editor.scrollPage!.lastContentInDescendant()!;
+    return { muya, toolbar, first, last };
+}
+
+const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => resolve(undefined)));
+
+it('a selection spanning paragraphs shows only the host actions and runs them with that selection', async () => {
+    const run = vi.fn();
+    const { muya, toolbar, first, last } = createTwoParagraphs(() => [{ id: 'add-comment', label: 'Add Comment', enabled: true, run }]);
+    muya.editor.selection.setSelection({ block: first, path: first.path, offset: 2 }, { block: last, path: last.path, offset: 6 });
+    await nextFrame();
+    expect(toolbar.status, 'the toolbar opens for a multi-paragraph selection').toBe(true);
+    expect(toolbar.container!.querySelector('li.item'), 'formatting tools stay single-block').toBeNull();
+    const button = toolbar.container!.querySelector<HTMLButtonElement>('button[data-action="add-comment"]')!;
+    button.click();
+    expect(run).toHaveBeenCalledOnce();
+    expect(muya.editor.selection.anchorBlock).toBe(first);
+    expect(muya.editor.selection.focusBlock).toBe(last);
+    expect(muya.getMarkdown()).toBe('first words\n\nsecond words\n');
+});
+
+it('collapsing a multi-paragraph selection closes the host-actions toolbar, and no host actions means no toolbar', async () => {
+    const { muya, toolbar, first, last } = createTwoParagraphs(() => [{ id: 'add-comment', label: 'Add Comment', enabled: true, run: vi.fn() }]);
+    muya.editor.selection.setSelection({ block: first, path: first.path, offset: 2 }, { block: last, path: last.path, offset: 6 });
+    await nextFrame();
+    expect(toolbar.status).toBe(true);
+    muya.editor.selection.setSelection({ block: last, path: last.path, offset: 6 }, { block: last, path: last.path, offset: 6 });
+    expect(toolbar.status).toBe(false);
+
+    const bare = createTwoParagraphs(() => []);
+    bare.muya.editor.selection.setSelection({ block: bare.first, path: bare.first.path, offset: 2 }, { block: bare.last, path: bare.last.path, offset: 6 });
+    await nextFrame();
+    expect(bare.toolbar.status).toBe(false);
+});
