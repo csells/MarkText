@@ -33,6 +33,7 @@
         :core-required="coreMode"
         :comment-composer-state="commentComposerFor(currentFile.id)"
         :core-lease="wysiwygCoreLease"
+        :core-document-lease="currentCoreLease"
         :initial-document-selection="coreInitialDocumentSelection"
         :core-plain-text-view="corePlainTextView"
         :core-performance-trace="corePerformanceTrace"
@@ -284,6 +285,9 @@ const activeCoreLease = computed(() =>
   coreViewState.value === 'source' && coreLease.value?.documentId === currentFile.value?.id
     ? coreLease.value
     : undefined
+)
+const currentCoreLease = computed(() =>
+  coreLease.value?.documentId === currentFile.value?.id ? coreLease.value : undefined
 )
 const wysiwygCoreLease = computed(() =>
   coreViewState.value === 'wysiwyg' &&

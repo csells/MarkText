@@ -2213,20 +2213,26 @@ export const useEditorStore = defineStore('editor', {
 
     // Reads `currentFile.markdown` after a flush, the way `FILE_SAVE` does: in source-code
     // mode CodeMirror writes straight to it, so `engine.getMarkdown()` would be stale (#5379).
-    EXPORT_PANDOC(target: string): void {
+    EXPORT_PANDOC(target: string): void | Promise<void> {
       if (this.currentFile === null) return
 
       this.flushActiveEditor()
-      const { pathname, markdown } = this.currentFile
+      const { id, pathname, markdown } = this.currentFile
       const preferencesStore = usePreferencesStore()
-      window.electron.ipcRenderer.send('mt::response-pandoc-export', {
-        target,
-        markdown,
-        superSubScript: preferencesStore.superSubScript === true,
-        footnote: preferencesStore.footnote === true,
-        title: this.documentTitle,
-        pathname
+      const title = this.documentTitle
+      // Pandoc converts the document the save barrier would write, including
+      // edits the store's copy has not seen.
+      const pending = withAuthoritativeSaveSource(id, markdown, (source) => {
+        window.electron.ipcRenderer.send('mt::response-pandoc-export', {
+          target,
+          markdown: source,
+          superSubScript: preferencesStore.superSubScript === true,
+          footnote: preferencesStore.footnote === true,
+          title,
+          pathname
+        })
       })
+      if (pending instanceof Promise) return pending.catch(reportSaveBarrierFailure)
     },
 
     LISTEN_FOR_EXPORT_SUCCESS(): void {
