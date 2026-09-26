@@ -3,6 +3,7 @@ import type CodeMirror from 'codemirror'
 import {
   createDocumentCore,
   DOCUMENT_RESOURCE_POLICY_V1,
+  type DocumentCore,
   type DocumentSourceEdit
 } from '@marktext/document-core'
 import { inspectDocumentCore } from '../../../../document-core/src/internal/documentCoreInspection'
@@ -845,6 +846,72 @@ describe('Core actor protocol', () => {
         baseRevision: 3
       })
     ).toMatchObject({ type: 'source', source: original })
+    port.dispose()
+  })
+
+  it('spells an edited Comment payload through the document core and replays that edit', () => {
+    let live: DocumentCore | undefined
+    const planCommentEdit = vi.fn<DocumentCore['planCommentEdit']>()
+    const actor = createCoreActor(() => {
+      const core = createDocumentCore()
+      planCommentEdit.mockImplementation((previous, action) => core.planCommentEdit(previous, action))
+      live = Object.freeze({ ...core, planCommentEdit })
+      return live
+    })
+    const original = 'before {==text==}{>>old<<} after\n'
+    const edited = 'before {==text==}{>>C:\\\\<<} after\n'
+    const opened = actor.handle({ type: 'open', session: 817, sequence: 1, source: original })
+    expect(opened).toMatchObject({ type: 'opened' })
+    const annotation = {
+      kind: 'commented-span' as const,
+      range: { start: 7, end: 26 },
+      highlightRange: { start: 7, end: 17 },
+      commentRange: { start: 17, end: 26 }
+    }
+    // A trailing backslash would escape the closer; the core doubles it.
+    expect(
+      actor.handle({ type: 'edit-comment', session: 817, sequence: 2, baseRevision: 1, annotation, text: 'C:\\', projections: [] })
+    ).toMatchObject({
+      type: 'applied',
+      revision: 2,
+      change: { appliedEdits: [{ start: 17, end: 26, insert: '{>>C:\\\\<<}' }] }
+    })
+    expect(planCommentEdit).toHaveBeenCalledTimes(1)
+    expect(planCommentEdit.mock.calls[0]?.[1]).toEqual({ range: { start: 17, end: 26 }, text: 'C:\\' })
+    expect(actor.handle({ type: 'source-at-barrier', session: 817, sequence: 3, baseRevision: 2 }))
+      .toMatchObject({ type: 'source', source: edited })
+    expect(actor.handle({ type: 'undo', session: 817, sequence: 4, baseRevision: 2, projections: [] }))
+      .toMatchObject({ type: 'applied', revision: 3 })
+    expect(actor.handle({ type: 'source-at-barrier', session: 817, sequence: 5, baseRevision: 3 }))
+      .toMatchObject({ type: 'source', source: original })
+    expect(actor.handle({ type: 'redo', session: 817, sequence: 6, baseRevision: 3, projections: [] }))
+      .toMatchObject({ type: 'applied', revision: 4 })
+    expect(actor.handle({ type: 'source-at-barrier', session: 817, sequence: 7, baseRevision: 4 }))
+      .toMatchObject({ type: 'source', source: edited })
+    // History replays the admitted edit rather than spelling the payload again.
+    expect(planCommentEdit).toHaveBeenCalledTimes(1)
+    expect(live).toBeDefined()
+    actor.dispose()
+  })
+
+  it('authors a Comment whose text ends in a backslash', async() => {
+    const port = createLocalCoreOwner()
+    const opened = await port.request({ type: 'open', session: 818, sequence: 1, source: 'aaa\n' })
+    expect(
+      port.request({
+        type: 'author',
+        session: 818,
+        sequence: 2,
+        baseRevision: opened.revision,
+        form: 'comment',
+        range: { start: 0, end: 3 },
+        text: 'C:\\',
+        projections: []
+      })
+    ).toMatchObject({
+      type: 'applied',
+      change: { appliedEdits: [{ start: 0, end: 3, insert: '{==aaa==}{>>C:\\\\<<}' }] }
+    })
     port.dispose()
   })
 

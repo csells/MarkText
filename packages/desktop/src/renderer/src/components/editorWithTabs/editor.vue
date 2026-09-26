@@ -215,6 +215,7 @@
             :default-text="coreCommentTarget.text"
             :submitting="coreReviewResolving"
             :error="coreCommentError"
+            :notice="coreCommentEscapeNotice"
             :test-id-prefix="
               coreCommentTarget.form === 'substitution'
                 ? 'critic-review-replacement'
@@ -403,7 +404,12 @@ import {
   type ReviewContextAction
 } from 'common/commands/review'
 import CoreReviewList from './CoreReviewList.vue'
-import { createCoreReviewComposer, type CoreReviewComposerState } from './coreReviewComposer'
+import {
+  coreReviewComposerEscapes,
+  createCoreReviewComposer,
+  type CoreReviewComposerState
+} from './coreReviewComposer'
+import { coreMarkdownOptionsFromPreferences } from '@/documentAuthority/coreMarkdownPreferences'
 import {
   createReviewContextSession,
   reviewContextSelection
@@ -712,6 +718,11 @@ const coreCommentOpen = toRef(coreCommentComposer, 'open')
 const coreCommentDraft = toRef(coreCommentComposer, 'draft')
 const coreCommentError = toRef(coreCommentComposer, 'error')
 const coreCommentTarget = toRef(coreCommentComposer, 'target')
+const coreCommentEscapeNotice = computed(() =>
+  coreReviewComposerEscapes(coreCommentComposer, coreMarkdownOptionsFromPreferences(preferencesStore))
+    ? t('editor.coreReview.commentEscapeNotice')
+    : ''
+)
 const coreReviewResolving = ref(false)
 const coreReviewRefreshPending = ref(false)
 const coreReviewBusy = computed(() => coreReviewResolving.value || coreReviewRefreshPending.value)
