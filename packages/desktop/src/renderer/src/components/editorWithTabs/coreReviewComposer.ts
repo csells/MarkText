@@ -1,3 +1,4 @@
+import { spellCommentPayload, type MarkdownOptions } from '@marktext/document-core'
 import type { MuyaPlainTextAuthorSelection } from '@/documentAuthority/muyaPlainTextCoreAdapter'
 import type { CoreReviewItemReply } from '@/documentAuthority/coreProtocol'
 
@@ -24,3 +25,18 @@ export const createCoreReviewComposer = (): CoreReviewComposerState => ({
   error: '',
   target: undefined
 })
+
+/**
+ * Whether saving the draft would add MarkText-only backslash escapes, which
+ * the composer discloses (ADR 0015). A new Comment's text stays literal; an
+ * edited Comment's text is its payload source.
+ */
+export const coreReviewComposerEscapes = (
+  state: CoreReviewComposerState,
+  options?: Readonly<Partial<MarkdownOptions>>
+): boolean => {
+  const target = state.target
+  if (target === undefined || target.form === 'substitution') return false
+  const draft = state.draft ?? target.text
+  return spellCommentPayload(draft, options, target.item === undefined)?.escaped === true
+}
