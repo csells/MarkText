@@ -132,6 +132,29 @@ describe('CriticMarkup editor context-menu production surfaces', () => {
     }]])
   })
 
+  it('offers review authoring for a selection beside the clipboard actions', () => {
+    show('selected')
+    const ids = electron.appended.map(item => item.id)
+    const authoring = ['critic-add-comment', 'critic-mark-highlight', 'critic-mark-addition', 'critic-suggest-replacement']
+    for (const id of authoring) expect(ids, id).toContain(id)
+    expect(ids.indexOf('critic-suggest-replacement')).toBeLessThan(ids.indexOf('cutMenuItem'))
+    expect(electron.appended.some(item => Array.isArray(item.submenu) &&
+      (item.submenu as MenuItemConstructorOptions[]).some(child => authoring.includes(child.id ?? ''))),
+    'authoring is not nested in a submenu').toBe(false)
+
+    electron.appended.length = 0
+    show('')
+    expect(electron.appended.map(item => item.id).filter(id => id?.startsWith('critic-'))).toEqual([])
+  })
+
+  it('keeps the actions for the annotation under the pointer at the top level', () => {
+    showEditorContextMenu(fakeWindow, {}, params(''), true, { requestId: 7, commands: ['accept', 'edit-comment'] })
+    const accept = required(electron.appended.find(item => item.id === 'critic-accept'), 'critic-accept')
+    required(electron.appended.find(item => item.id === 'critic-edit-comment'), 'critic-edit-comment')
+    click(accept)
+    expect(send.mock.calls).toEqual([['mt::editor-review-context-action', { requestId: 7, command: 'accept' }]])
+  })
+
   it('routes spelling root, language, and dictionary surfaces to exact boundaries', () => {
     show('typo', 'typo', [])
     const spelling = electron.appended.find(item => item.label === 'contextMenu.spelling')
