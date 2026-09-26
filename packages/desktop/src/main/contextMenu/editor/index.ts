@@ -114,20 +114,26 @@ export const showEditorContextMenu = (
       menu.append(new MenuItem(SEPARATOR))
     }
 
-    const authorItems = reviewMenuItems(undefined, win).filter(item =>
-      ['critic-show', 'critic-add-comment', 'critic-mark-highlight', 'critic-mark-addition', 'critic-suggest-replacement'].includes(item.id ?? '')
-    )
+    // Review actions sit beside the clipboard actions, as in other editors:
+    // authoring for a selection, then actions on the annotation under the pointer.
+    const reviewItems = hasText
+      ? reviewMenuItems(undefined, win).filter(item =>
+        ['critic-add-comment', 'critic-mark-highlight', 'critic-mark-addition', 'critic-suggest-replacement'].includes(item.id ?? '')
+      )
+      : []
     for (const command of reviewContext?.commands ?? []) {
       const descriptor = reviewCommands.find(item => item.id === command)!
-      authorItems.push({
+      reviewItems.push({
         id: `critic-${command}`,
         label: t(`editor.coreReview.${descriptor.label}`),
         enabled: true,
         click: () => win.webContents.send('mt::editor-review-context-action', { requestId: reviewContext!.requestId, command })
       })
     }
-    menu.append(new MenuItem({ label: t('editor.coreReview.panelTitle'), submenu: authorItems }))
-    menu.append(new MenuItem(SEPARATOR))
+    if (reviewItems.length > 0) {
+      reviewItems.forEach(item => menu.append(new MenuItem(item)))
+      menu.append(new MenuItem(SEPARATOR))
+    }
     const contextItems = isInsideEditor(params) ? getContextItems() : []
     const copyItemIds = new Set([
       'cutMenuItem',
