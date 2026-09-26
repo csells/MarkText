@@ -19,7 +19,7 @@ test('keeps untrusted markup inert in editable text, Comments and reader project
     '\n'
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
-    env: { MARKTEXT_DOCUMENT_CORE_MODE: '1', MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
+    env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
   })
   try {
     const inert = async(surface: Locator) => {
@@ -87,8 +87,6 @@ for (const [name, source, diagram] of [
     const { app, page, filePath } = await launchWithMarkdown(source, {
       suppressErrorDialog: true,
       env: {
-        MARKTEXT_DOCUMENT_CORE_MODE: undefined,
-        MARKTEXT_DOCUMENT_CORE_SHADOW: undefined,
         MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined,
         MARKTEXT_E2E_HIDDEN_WINDOW: '1'
       }

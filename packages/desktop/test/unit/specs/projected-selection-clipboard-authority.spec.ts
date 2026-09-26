@@ -6,7 +6,6 @@ import {
   createMuyaPlainTextCoreAdapter,
   type MuyaPlainTextAuthorSelection
 } from '@/documentAuthority/muyaPlainTextCoreAdapter'
-import { createMuyaPlainTextView } from '@/documentAuthority/muyaPlainTextView'
 import { createProjectedSelectionClipboardAuthority } from '@/documentConsumers/projectedSelectionClipboardAuthority'
 
 const projectionOf = (source: string) => {
@@ -64,8 +63,19 @@ describe('projected selection clipboard authority', () => {
 
   it('prepares one contextual Revised rich payload across bound blocks in either direction', async() => {
     const source = 'alpha # copied\n\n{--gone--}{++new++}\n\nbeta\n'
-    const core = createDocumentCore()
-    const view = createMuyaPlainTextView(core.project(core.open(source), 'revised'))
+    const actor = createCoreActor()
+    const session = 51
+    let sequence = 1
+    actor.handle({ type: 'open', session, sequence, source })
+    sequence += 1
+    const published = actor.handle({
+      type: 'plain-text-view-at-barrier',
+      session,
+      sequence,
+      baseRevision: 1
+    })
+    if (published.type !== 'plain-text-view') throw new Error('Core view was rejected')
+    const view = published.view
     const adapter = createMuyaPlainTextCoreAdapter(view.bindings, {
       submit: () => {
         throw new Error('Unexpected submission')
@@ -80,10 +90,6 @@ describe('projected selection clipboard authority', () => {
         throw new Error('Unexpected resource preparation')
       }
     })
-    const actor = createCoreActor()
-    const session = 51
-    let sequence = 1
-    actor.handle({ type: 'open', session, sequence, source })
     let live: MuyaPlainTextAuthorSelection
     const authority = createProjectedSelectionClipboardAuthority({
       settle: () => adapter.settled(),

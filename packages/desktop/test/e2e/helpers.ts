@@ -5,7 +5,6 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 import { frontmostApplicationProcessId } from './frontmostApplication'
-import { resolveCoreDocumentLaunchPolicy } from '../../src/renderer/src/documentAuthority/coreDocumentLaunchPolicy'
 
 const projectRoot = path.resolve(__dirname, '../..')
 
@@ -111,8 +110,6 @@ export const launchElectron = async(
   env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS = '1'
   if (options.suppressErrorDialog) env.MARKTEXT_ERROR_INTERACTION = '1'
   if (packagedBinary) {
-    delete env.MARKTEXT_DOCUMENT_CORE_MODE
-    delete env.MARKTEXT_DOCUMENT_CORE_SHADOW
     delete env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
   }
   for (const [key, value] of Object.entries(options.env ?? {})) {
@@ -260,14 +257,9 @@ export const waitForEditor = async(page: Page, timeout = 15000): Promise<void> =
   )
   // Core first mounts its authority-backed view after the placeholder editor.
   // Synthetic caret setup must not target that outgoing placeholder subtree.
-  const coreExpected = resolveCoreDocumentLaunchPolicy(
-    await page.evaluate(() => window.electron.process.env)
-  ).coreEnabled
-  await page.waitForFunction(
-    (coreExpected) => !coreExpected || window.__marktextDocumentCore?.mode === 'core',
-    coreExpected,
-    { timeout }
-  )
+  await page.waitForFunction(() => window.__marktextDocumentCore?.mode === 'core', null, {
+    timeout
+  })
   await expect(page.locator('.core-view-handoff')).toHaveCount(0)
 }
 

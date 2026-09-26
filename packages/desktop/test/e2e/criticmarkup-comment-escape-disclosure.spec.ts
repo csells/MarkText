@@ -12,7 +12,7 @@ import {
 test('discloses MarkText-only escaping while a comment draft needs it', async() => {
   const { app, page, filePath } = await launchWithMarkdown('seed\n', {
     suppressErrorDialog: true,
-    env: { MARKTEXT_DOCUMENT_CORE_MODE: '1', MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
+    env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
   })
   try {
     const paragraph = page.locator('span.mu-paragraph-content').first()

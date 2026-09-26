@@ -28,7 +28,11 @@ describe('Core plain-text WYSIWYG handoff', () => {
           view: {
             kind: 'view',
             markdown: 'direct\n',
-            bindings: []
+            markdownSegments: [],
+            state: [],
+            bindings: [],
+            decorations: [],
+            comments: []
           }
         }
       },
@@ -48,7 +52,7 @@ describe('Core plain-text WYSIWYG handoff', () => {
 
     await expect(leaseCorePlainTextView(manager, 'direct.md')).resolves.toEqual({
       lease,
-      view: { kind: 'view', markdown: 'direct\n', bindings: [] }
+      view: { kind: 'view', markdown: 'direct\n', markdownSegments: [], state: [], bindings: [], decorations: [], comments: [] }
     })
     expect(order).toEqual(['project', 'activate', 'lease'])
   })
@@ -71,7 +75,11 @@ describe('Core plain-text WYSIWYG handoff', () => {
           view: {
             kind: 'view',
             markdown: 'plain\n',
-            bindings: []
+            markdownSegments: [],
+            state: [],
+            bindings: [],
+            decorations: [],
+            comments: []
           }
         }
       },
@@ -95,7 +103,7 @@ describe('Core plain-text WYSIWYG handoff', () => {
 
     await expect(handoffCorePlainTextView(manager, sourceLease)).resolves.toEqual({
       lease: wysiwygLease,
-      view: { kind: 'view', markdown: 'plain\n', bindings: [] }
+      view: { kind: 'view', markdown: 'plain\n', markdownSegments: [], state: [], bindings: [], decorations: [], comments: [] }
     })
     expect(order).toEqual(['project', 'handoff', 'activate', 'lease'])
   })
