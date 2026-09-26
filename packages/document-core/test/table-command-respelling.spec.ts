@@ -85,12 +85,27 @@ it('leaves a following table alone when a command removes the whole table', () =
   expect(result.undone).toBe(source)
 })
 
-it('completes short rows and drops cells beyond the header', () => {
+// Owner decision (plan 0012 G24): unlike upstream, text beyond the header's
+// columns is kept after the row's last column rather than dropped.
+it('completes short rows and keeps cells beyond the header', () => {
   const source = '| a | b |\n|---|---|\n| c |\n| d | e | f |\n'
   const result = run(source, 1, 0, 1, { command: 'insertTableRow', placement: 'after' }, false)
-  expect(result.source).toBe('| a   | b   |\n| --- | --- |\n| c   |     |\n|     |     |\n| d   | e   |\n')
+  expect(result.source).toBe('| a   | b   |\n| --- | --- |\n| c   |     |\n|     |     |\n| d   | e   | f |\n')
   expect(result.selection).toEqual(at(result.source, 2, 0, 0))
   expect(result.undone).toBe(source)
+})
+
+describe('a column command beside cells beyond the header', () => {
+  const ragged = '|a|b|\n|-|-|\n|c|d|extra|\n'
+  it.each([
+    { name: 'insert column right of the last', column: 1, command: { command: 'insertTableColumn', placement: 'after' }, expected: '| a   | b   |     |\n| --- | --- | --- |\n| c   | d   |     |extra|\n' },
+    { name: 'remove the last column', column: 1, command: { command: 'removeTableColumn' }, expected: '| a   |\n| --- |\n| c   |extra|\n' },
+    { name: 'move the last column left', column: 1, command: { command: 'moveTableColumn', column: 0 }, expected: '| b   | a   |\n| --- | --- |\n| d   | c   |extra|\n' }
+  ] as const)('$name keeps the extra text', ({ column, command, expected }) => {
+    const result = run(ragged, 0, column, 0, command as Command, false)
+    expect(result.source).toBe(expected)
+    expect(result.undone).toBe(ragged)
+  })
 })
 
 describe('a tracked table command', () => {
