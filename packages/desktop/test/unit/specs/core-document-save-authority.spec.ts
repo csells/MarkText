@@ -23,9 +23,9 @@ describe('Core document save authority', () => {
     }))
 
     const first = coreDocumentSaveAuthority.resolve([
-      { documentId: 'plain.md', fallbackSource: 'Pinia bytes' },
-      { documentId: 'core.md', fallbackSource: 'poisoned snapshot' },
-      { documentId: 'core.md', fallbackSource: 'different poison' }
+      { documentId: 'plain.md', loadedSource: 'Pinia bytes' },
+      { documentId: 'core.md', loadedSource: 'poisoned snapshot' },
+      { documentId: 'core.md', loadedSource: 'different poison' }
     ])
 
     expect(first).toBeInstanceOf(Promise)
@@ -36,7 +36,7 @@ describe('Core document save authority', () => {
         documentId: 'plain.md',
         identity: null,
         source: 'Pinia bytes',
-        authority: 'fallback'
+        authority: 'unopened'
       },
       {
         documentId: 'core.md',
@@ -65,7 +65,7 @@ describe('Core document save authority', () => {
       }
     })
     const oldRequest = coreDocumentSaveAuthority.resolve([
-      { documentId: 'same.md', fallbackSource: 'old fallback' }
+      { documentId: 'same.md', loadedSource: 'old fallback' }
     ]) as Promise<readonly unknown[]>
 
     unregisterOld()
@@ -75,7 +75,7 @@ describe('Core document save authority', () => {
       source: 'new session bytes'
     })))
     const newRequest = coreDocumentSaveAuthority.resolve([
-      { documentId: 'same.md', fallbackSource: 'new fallback' }
+      { documentId: 'same.md', loadedSource: 'new fallback' }
     ])
 
     await expect(newRequest).resolves.toEqual([
@@ -105,7 +105,7 @@ describe('Core document save authority', () => {
     })))
 
     const result = await coreDocumentSaveAuthority.resolve([
-      { documentId: 'identity.md', fallbackSource: 'poisoned fallback' }
+      { documentId: 'identity.md', loadedSource: 'poisoned fallback' }
     ])
     expect(result).toEqual([
       {
@@ -126,7 +126,7 @@ describe('Core document save authority', () => {
     })))
 
     await expect(coreDocumentSaveAuthority.resolve([
-      { documentId: 'core.md', fallbackSource: 'must not persist' }
+      { documentId: 'core.md', loadedSource: 'must not persist' }
     ])).rejects.toThrow(/identity/)
   })
 })

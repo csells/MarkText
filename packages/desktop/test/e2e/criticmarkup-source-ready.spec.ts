@@ -10,8 +10,6 @@ test('Source accepts immediate native input before deferred autofocus initializa
   const { app, page, filePath } = await launchWithMarkdown('seed\n', {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: undefined,
-      MARKTEXT_DOCUMENT_CORE_SHADOW: undefined,
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })

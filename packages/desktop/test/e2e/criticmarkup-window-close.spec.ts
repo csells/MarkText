@@ -190,12 +190,8 @@ async function assertLaunch(
   if (hasDocument) await expectDefaultCoreAuthority(page)
   else {
     expect(
-      await page.evaluate(() => [
-        window.electron.process.env.MARKTEXT_DOCUMENT_CORE_MODE,
-        window.electron.process.env.MARKTEXT_DOCUMENT_CORE_SHADOW,
-        window.electron.process.env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
-      ])
-    ).toEqual([undefined, undefined, undefined])
+      await page.evaluate(() => window.electron.process.env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS)
+    ).toBeUndefined()
   }
   if (process.env.MARKTEXT_PACKAGED_APP) await expectInstalledArtifactCommit(page)
   await test.info().attach('candidate.json', {
@@ -215,8 +211,6 @@ const launchOptions = {
   suppressErrorDialog: true,
   env: {
     MARKTEXT_E2E_HIDDEN_WINDOW: '1',
-    MARKTEXT_DOCUMENT_CORE_MODE: undefined,
-    MARKTEXT_DOCUMENT_CORE_SHADOW: undefined,
     MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined
   }
 } as const

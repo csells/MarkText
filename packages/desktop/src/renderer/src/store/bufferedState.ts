@@ -30,7 +30,7 @@ const authoritativeBufferedState = async(): Promise<{
     const snapshot = createBufferedState()
     if (snapshot === null) return { snapshot, sources: [] }
     const sources = await coreDocumentSaveAuthority.resolve(
-      snapshot.tabs.map((tab) => ({ documentId: tab.id, fallbackSource: tab.markdown }))
+      snapshot.tabs.map((tab) => ({ documentId: tab.id, loadedSource: tab.markdown }))
     )
     const live = createBufferedState()
     // A tab may be opened, closed or changed while another tab is settling.
@@ -43,7 +43,7 @@ const authoritativeBufferedState = async(): Promise<{
       ) ||
       sources.some(
         (source, index) =>
-          source.authority === 'fallback' && source.source !== live.tabs[index]!.markdown
+          source.authority === 'unopened' && source.source !== live.tabs[index]!.markdown
       )
     ) { continue }
     return {

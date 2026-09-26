@@ -238,6 +238,7 @@
             :default-text="coreCommentTarget.text"
             :submitting="coreReviewResolving"
             :error="coreCommentError"
+            :notice="coreCommentEscapeNotice"
             :test-id-prefix="
               coreCommentTarget.form === 'substitution'
                 ? 'critic-review-replacement'
@@ -359,7 +360,12 @@ import {
   type ReviewContextAction
 } from 'common/commands/review'
 import CoreReviewList from './CoreReviewList.vue'
-import { createCoreReviewComposer, type CoreReviewComposerState } from './coreReviewComposer'
+import {
+  coreReviewComposerEscapes,
+  createCoreReviewComposer,
+  type CoreReviewComposerState
+} from './coreReviewComposer'
+import { coreMarkdownOptionsFromPreferences } from '@/documentAuthority/coreMarkdownPreferences'
 import {
   createReviewContextSession,
   reviewContextSelection
@@ -448,18 +454,13 @@ import {
   createCoreAuthorityPerformanceTestBridge,
   createCoreTrackChangesMode,
   createMuyaPlainTextCoreAdapter,
-  createEditorShadowBinding,
-  createShadowDocumentAuthority,
-  createWorkerShadowPort,
   type CoreAppliedReply,
   type CoreAuthorForm,
   type CoreAuthorityPerformanceTrace,
   type CoreDocumentViewLease,
   type CoreReviewDecision,
   type CoreReviewItemReply,
-  type EditorShadowBinding
 } from '@/documentAuthority'
-import type { MuyaPlainTextViewResult } from '@/documentAuthority/muyaPlainTextView'
 import {
   createMuyaMarkupPresentationIndex,
   type MuyaMarkupPresentationIndex
@@ -530,8 +531,10 @@ const props = defineProps<{
   platform?: string
   coreRequired?: boolean
   coreLease?: CoreDocumentViewLease
+  /** The current document's lease in any view; exports read it while Source view is up. */
+  coreDocumentLease?: CoreDocumentViewLease
   initialDocumentSelection?: DocumentSelection
-  corePlainTextView?: Extract<MuyaPlainTextViewResult, { kind: 'view' }>
+  corePlainTextView?: MuyaMarkupView
   corePerformanceTrace?: CoreAuthorityPerformanceTrace
   coreTestCrashWorker?: () => void
   coreTestStaleNextTransaction?: () => void
@@ -576,7 +579,6 @@ const {
   codeFontSize,
   codeFontFamily,
   codeBlockLineNumbers,
-  trimUnnecessaryCodeBlockEmptyLines,
   editorFontFamily,
   hideQuickInsertHint,
   hideLinkPopup,
@@ -669,6 +671,11 @@ const coreCommentOpen = toRef(coreCommentComposer, 'open')
 const coreCommentDraft = toRef(coreCommentComposer, 'draft')
 const coreCommentError = toRef(coreCommentComposer, 'error')
 const coreCommentTarget = toRef(coreCommentComposer, 'target')
+const coreCommentEscapeNotice = computed(() =>
+  coreReviewComposerEscapes(coreCommentComposer, coreMarkdownOptionsFromPreferences(preferencesStore))
+    ? t('editor.coreReview.commentEscapeNotice')
+    : ''
+)
 const coreReviewResolving = ref(false)
 const coreReviewTargeted = ref(false)
 const reviewToolbarIcons: Record<string, string> = {
@@ -751,84 +758,6 @@ let spellchecker: SpellChecker | null = null
 let switchLanguageCommand: SpellcheckerLanguageCommand | null = null
 // The engine has no `scroll` event; we listen on the scroll container directly.
 let scrollHandler: ((e: Event) => void) | null = null
-let documentCoreShadow: EditorShadowBinding | null = null
-let stopDocumentCoreShadowWatch: (() => void) | null = null
-let documentCoreShadowStartFrame: number | null = null
-let documentCoreShadowSecondFrame: number | null = null
-
-const startDocumentCoreShadow = (): void => {
-  if (window.electron.process.env.MARKTEXT_DOCUMENT_CORE_SHADOW !== '1') return
-
-  try {
-    documentCoreShadow = createEditorShadowBinding(
-      createShadowDocumentAuthority({ port: createWorkerShadowPort() })
-    )
-    const shadow = documentCoreShadow
-    stopDocumentCoreShadowWatch = watch(
-      () =>
-        [
-          currentFile.value?.id ?? null,
-          currentFile.value?.markdown ?? null,
-          footnote.value,
-          superSubScript.value,
-          texMathDollars.value,
-          texMathGfm.value,
-          texMathSingleBackslash.value,
-          texMathDoubleBackslash.value
-        ] as const,
-      ([
-        documentId,
-        source,
-        footnotes,
-        subscriptAndSuperscript,
-        dollars,
-        gfmMath,
-        singleBackslash,
-        doubleBackslash
-      ]) => {
-        // This callback is deliberately synchronous and diagnostic-only. It
-        // observes the Pinia snapshot already produced for normal editor/save
-        // work, then returns before diffing, transport, or parsing begins.
-        shadow.update(
-          documentId === null || source === null
-            ? null
-            : {
-                documentId,
-                source,
-                options: {
-                  gfm: true,
-                  gfmAutolinks: true,
-                  gfmTagFilter: true,
-                  frontMatter: true,
-                  texMathDollars: dollars,
-                  texMathGfm: gfmMath,
-                  texMathSingleBackslash: singleBackslash,
-                  texMathDoubleBackslash: doubleBackslash,
-                  footnotes,
-                  subscriptAndSuperscript
-                }
-              }
-        )
-      },
-      { flush: 'sync', immediate: true }
-    )
-
-    // Read-only diagnostics for the opt-in Electron smoke test. The bridge has
-    // no mutation, source, projection, UI, or save authority.
-    if (window.electron.process.env.PERF_TESTING === 'true') {
-      window.__marktextDocumentCoreShadow = Object.freeze({
-        diagnosticOnly: true,
-        settled: () => shadow.settled(),
-        reports: () => shadow.reports()
-      })
-    }
-  } catch (error) {
-    documentCoreShadow?.dispose()
-    documentCoreShadow = null
-    log.warn('Unable to start document-core Shadow diagnostics', error)
-  }
-}
-
 // The engine's undo/redo history (`getHistory()`) has a different shape than
 // the desktop store's `tab.history` (which drives the save/dirty tracking and
 // is migrated separately). We therefore keep the real engine history in a
@@ -1209,12 +1138,6 @@ watch(autoPairMarkdownSyntax, (value, oldValue) => {
 watch(autoPairQuote, (value, oldValue) => {
   if (value !== oldValue && editor.value) {
     editor.value.setOptions({ autoPairQuote: value })
-  }
-})
-
-watch(trimUnnecessaryCodeBlockEmptyLines, (value, oldValue) => {
-  if (value !== oldValue && editor.value) {
-    editor.value.setOptions({ trimUnnecessaryCodeBlockEmptyLines: value })
   }
 })
 
@@ -1680,15 +1603,7 @@ defineExpose({
   assertCloseAllowed,
   captureDocumentSelection
 })
-const installCoreMarkupPresentation = (muya: Muya, view: MuyaPlainTextViewResult): void => {
-  if (!('state' in view)) {
-    coreMarkupPresentation = undefined
-    coreAcknowledgedMarkupView = undefined
-    coreMarkupBindingsByPath.clear()
-    coreMarkupDirtyPaths.clear()
-    muya.setInlinePresentation(undefined)
-    return
-  }
+const installCoreMarkupPresentation = (muya: Muya, view: MuyaMarkupView): void => {
   coreAcknowledgedMarkupView = view
   coreMarkupBindingsByPath = new Map(
     view.bindings.map((binding) => [JSON.stringify(binding.path), binding])
@@ -1721,7 +1636,7 @@ const reconcileCoreHistoryView = (
   if (coreDraftFrozen) return view.bindings
   coreAcknowledgedViewRevision = outcome.revision
   if (muya === null) {
-    coreAcknowledgedMarkupView = 'state' in view ? view : undefined
+    coreAcknowledgedMarkupView = view
     return view.bindings
   }
   installCoreMarkupPresentation(muya, view)
@@ -2934,13 +2849,18 @@ const handleExport = async (options: unknown) => {
   const renderExportHtml = async (
     exportOptions: Omit<ExportStyledHtmlOptions, 'toc'>
   ): Promise<string> => {
-    if (props.coreLease !== undefined) {
-      const { projection } = await coreProjectionAtBarrier()
+    const documentLease = props.coreLease ?? props.coreDocumentLease
+    if (documentLease !== undefined) {
+      const projection =
+        documentLease === props.coreLease
+          ? (await coreProjectionAtBarrier()).projection
+          : await documentLease.consumerProjectionAtBarrier()
       return exportStyledHTMLFromProjection(muya, projection, {
         ...exportOptions,
         toc: getHtmlToc([...tocProjectedDocument(projection)], opts as unknown as HtmlTocOptions)
       })
     }
+    if (props.coreRequired) throw new Error('Core consumer projection is unavailable')
     return exportStyledHTML(muya, muya.getMarkdown(), {
       ...exportOptions,
       toc: getHtmlToc(muya.getTOC(), opts as unknown as HtmlTocOptions)
@@ -3604,12 +3524,12 @@ onMounted(() => {
             run: () => handleCoreReviewCommand(command.id)
           })),
     focusMode: focus.value,
-    markdown: props.corePlainTextView === undefined ? props.markdown : '',
+    // Core parses the document; Muya renders only the Core view's state.
+    markdown: props.coreRequired ? '' : props.markdown,
     locale: getMuyaLocale(language.value),
     preferLooseListItem: preferLooseListItem.value,
     autoPairBracket: autoPairBracket.value,
     autoPairMarkdownSyntax: autoPairMarkdownSyntax.value,
-    trimUnnecessaryCodeBlockEmptyLines: trimUnnecessaryCodeBlockEmptyLines.value,
     autoPairQuote: autoPairQuote.value,
     bulletListMarker: bulletListMarker.value,
     orderListDelimiter: orderListDelimiter.value,
@@ -3679,7 +3599,7 @@ onMounted(() => {
   editor.value = muya
   if (props.corePlainTextView !== undefined) {
     const view = props.corePlainTextView
-    muya.setContent('state' in view ? asMuyaStates(structuredClone([...view.state])) : view.markdown)
+    muya.setContent(asMuyaStates(structuredClone([...view.state])))
   }
   // The first document's content is set via constructor options, so no
   // `file-loaded` / `setMarkdownToEditor` runs for it — seed its TOC here.
@@ -3689,7 +3609,7 @@ onMounted(() => {
   // this the allocator is created lazily on the first `json-change` — i.e.
   // after the first edit — so the pristine content never maps to id 0 and
   // undoing back to the on-disk content can never read as clean again (PG15).
-  if (props.coreLease === undefined && currentFile.value?.id) {
+  if (!props.coreRequired && currentFile.value?.id) {
     getSyntheticHistory(currentFile.value.id, muya.getMarkdown())
   }
 
@@ -4689,21 +4609,6 @@ onMounted(() => {
   document.addEventListener('keyup', keyup)
 
   setEditorWidth(editorLineWidth.value)
-
-  // Shadow starts only after Muya has initialized, the initial save baseline
-  // is seeded, and production listeners are installed. It is never awaited by
-  // editor startup or input handling.
-  // Wait through one complete browser frame before even constructing the
-  // diagnostic Worker. The upstream editor gets the first paint unopposed.
-  if (props.coreLease === undefined) {
-    documentCoreShadowStartFrame = requestAnimationFrame(() => {
-      documentCoreShadowStartFrame = null
-      documentCoreShadowSecondFrame = requestAnimationFrame(() => {
-        documentCoreShadowSecondFrame = null
-        startDocumentCoreShadow()
-      })
-    })
-  }
 })
 
 onBeforeUnmount(() => {
@@ -4722,19 +4627,6 @@ onBeforeUnmount(() => {
   coreSearchPresentation = undefined
   coreSearchProjectionEpoch = -1
   coreSearchSnapshot = undefined
-  if (documentCoreShadowStartFrame !== null) {
-    cancelAnimationFrame(documentCoreShadowStartFrame)
-    documentCoreShadowStartFrame = null
-  }
-  if (documentCoreShadowSecondFrame !== null) {
-    cancelAnimationFrame(documentCoreShadowSecondFrame)
-    documentCoreShadowSecondFrame = null
-  }
-  stopDocumentCoreShadowWatch?.()
-  stopDocumentCoreShadowWatch = null
-  documentCoreShadow?.dispose()
-  documentCoreShadow = null
-  delete window.__marktextDocumentCoreShadow
 
   bus.off('file-loaded', setMarkdownToEditor)
   bus.off('invalidate-image-cache', handleInvalidateImageCache)

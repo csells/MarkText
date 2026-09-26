@@ -10,14 +10,19 @@ export type CoreDocumentSaveBarrier = () => Promise<CoreDocumentSaveSnapshot>
 
 export interface CoreDocumentSourceRequest {
   readonly documentId: string
-  readonly fallbackSource: string
+  /**
+   * The text the tab was loaded or last reconciled with. It is the document's
+   * source only while no Core owner holds the document (a background tab never
+   * shown); an open document always answers from its Core save barrier.
+   */
+  readonly loadedSource: string
 }
 
 export interface CoreDocumentResolvedSource {
   readonly documentId: string
   readonly identity: DocumentSaveIdentity | null
   readonly source: string
-  readonly authority: 'core' | 'fallback'
+  readonly authority: 'core' | 'unopened'
 }
 
 export interface CoreWindowClosePreparation {
@@ -158,7 +163,7 @@ const createCoreDocumentSaveAuthority = (): CoreDocumentSaveAuthority => {
     },
     isCurrent(sources: readonly CoreDocumentResolvedSource[]): boolean {
       return sources.every((source) => {
-        if (source.authority === 'fallback') return !barriers.has(source.documentId)
+        if (source.authority === 'unopened') return !barriers.has(source.documentId)
         const check = currentChecks.get(source.documentId)
         if (check === undefined) {
           throw new Error('Core close requires a live document identity check')
@@ -185,8 +190,8 @@ const createCoreDocumentSaveAuthority = (): CoreDocumentSaveAuthority => {
           return Object.freeze({
             documentId: item.documentId,
             identity: null,
-            source: item.fallbackSource,
-            authority: 'fallback' as const
+            source: item.loadedSource,
+            authority: 'unopened' as const
           })
         }
         asynchronous = true
