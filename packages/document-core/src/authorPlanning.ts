@@ -1,3 +1,4 @@
+import { commentPayloadCandidates } from './commentSpelling.js'
 import { protectNativeCriticText } from './trackedAuthoring.js'
 import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, SourceRange } from './documentCore.js'
 
@@ -10,6 +11,8 @@ export interface DocumentAuthorAction {
 export interface DocumentAuthorPlan {
   readonly edit: DocumentSourceEdit
   readonly selection: SourceRange
+  /** Whether the spelling adds MarkText-only backslash escapes the author did not type (ADR 0015). */
+  readonly escaped: boolean
 }
 
 /** Authors review syntax and its resulting selection in the common document stack. */
@@ -17,7 +20,8 @@ export const planAuthor = (
   activeCore: DocumentCore,
   activeRevision: DocumentRevision,
   request: DocumentAuthorAction,
-  preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision
+  preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision,
+  diagnosticsOf: (payload: string) => readonly { readonly range: SourceRange }[]
 ): DocumentAuthorPlan | undefined => {
   if (
     (request.form !== 'addition' &&
@@ -106,7 +110,7 @@ export const planAuthor = (
   const candidateFor = (
     selected: string,
     authoredText: string
-  ): DocumentAuthorPlan | undefined => {
+  ): Omit<DocumentAuthorPlan, 'escaped'> | undefined => {
     const insert =
         request.form === 'addition'
           ? `{++${selected}++}`
@@ -188,18 +192,28 @@ export const planAuthor = (
       ? Object.freeze({ edit, selection: selectedContent(highlightContent.range) })
       : undefined
   }
-  const rawCandidate = candidateFor(rawSelected, request.text)
+  const planned = (plan: Omit<DocumentAuthorPlan, 'escaped'> | undefined, selected: string, authoredText: string): DocumentAuthorPlan | undefined =>
+    plan === undefined ? undefined : Object.freeze({ ...plan, escaped: selected !== rawSelected || authoredText !== request.text })
+  const rawCandidate = planned(candidateFor(rawSelected, request.text), rawSelected, request.text)
   if (rawCandidate !== undefined) return rawCandidate
   const protectedSelected = protectCriticPayload(rawSelected)
   if (protectedSelected !== rawSelected) {
-    const selectedCandidate = candidateFor(protectedSelected, request.text)
+    const selectedCandidate = planned(candidateFor(protectedSelected, request.text), protectedSelected, request.text)
     if (selectedCandidate !== undefined) return selectedCandidate
   }
   if (request.form === 'addition' || request.form === 'highlight') return undefined
+  if (request.form === 'comment') {
+    for (const { payload } of commentPayloadCandidates(request.text, diagnosticsOf)) {
+      if (payload === request.text) continue
+      const commentCandidate = planned(candidateFor(protectedSelected, payload), protectedSelected, payload)
+      if (commentCandidate !== undefined) return commentCandidate
+    }
+    return undefined
+  }
   const protectedText = request.text.replace(
     /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<</g,
     (token) => `\\${token}`
   )
   if (protectedText === request.text) return undefined
-  return candidateFor(protectedSelected, protectedText)
+  return planned(candidateFor(protectedSelected, protectedText), protectedSelected, protectedText)
 }

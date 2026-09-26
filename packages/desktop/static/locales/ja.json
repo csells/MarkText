@@ -1034,6 +1034,7 @@
       "revisedDocument": "変更後の文書",
       "saveComment": "コメントを保存",
       "commentTargetChanged": "文書が変更されました。コメントの下書きは保持されています。別の対象を選ぶ前にキャンセルしてください。",
+      "commentEscapeNotice": "CriticMarkup に似たテキストが含まれています。MarkText はバックスラッシュでエスケープしましたが、他の CriticMarkup ツールではそのまま表示される場合があります。",
       "commentSaveFailed": "コメントを保存できませんでした。下書きと元の対象は保持されています。",
       "finishDraftBeforeClosing": "このドキュメントを閉じる前に、保留中のコメントまたは置換テキストを保存するかキャンセルしてください。",
       "commentPrompt": "コメント",

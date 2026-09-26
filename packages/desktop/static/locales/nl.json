@@ -1034,6 +1034,7 @@
       "revisedDocument": "Herzien document",
       "saveComment": "Opmerking opslaan",
       "commentTargetChanged": "Het document is gewijzigd. Uw conceptopmerking blijft bewaard; annuleer voordat u een ander doel kiest.",
+      "commentEscapeNotice": "Bevat op CriticMarkup lijkende tekst; MarkText heeft die met backslashes geëscapet, die andere CriticMarkup-tools mogelijk letterlijk tonen.",
       "commentSaveFailed": "De opmerking kon niet worden opgeslagen. Uw concept en het oorspronkelijke doel blijven bewaard.",
       "finishDraftBeforeClosing": "Sla de openstaande opmerking of vervangende tekst op of annuleer deze voordat u dit document sluit.",
       "commentPrompt": "Opmerking",

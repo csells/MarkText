@@ -5,6 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as Vue from 'vue'
 import { compileScript, parse } from 'vue/compiler-sfc'
 import ts from 'typescript'
+import {
+  coreReviewComposerEscapes,
+  createCoreReviewComposer
+} from '@/components/editorWithTabs/coreReviewComposer'
 
 // Compile the real SFC with its template, then mount using the real Vue runtime.
 // The existing desktop unit runner does not install a Vue SFC transform plugin.
@@ -34,7 +38,10 @@ const loadComponent = (): Vue.Component => {
 const cleanup: Array<() => void> = []
 afterEach(() => cleanup.splice(0).forEach((dispose) => dispose()))
 
-const mountEditor = (retainedDraft?: Vue.Ref<string | undefined>) => {
+const mountEditor = (
+  retainedDraft?: Vue.Ref<string | undefined>,
+  notice?: () => string
+) => {
   const props = Vue.reactive({
     modelValue: true,
     targetId: 'comment:one',
@@ -51,6 +58,7 @@ const mountEditor = (retainedDraft?: Vue.Ref<string | undefined>) => {
       Vue.h(component, {
         ...props,
         draftText: retainedDraft?.value,
+        ...(notice === undefined ? {} : { notice: notice() }),
         'onUpdate:draftText': (value: string) => {
           if (retainedDraft) retainedDraft.value = value
         },
@@ -241,5 +249,36 @@ describe('Core Review comment composer', () => {
         new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
       )
     expect(editor.cancel).toHaveBeenCalledWith({ targetId: 'comment:one', text: 'Draft' })
+  })
+
+  it('discloses MarkText-only escaping only while the draft needs it', async() => {
+    const state = Vue.reactive(createCoreReviewComposer())
+    state.target = { id: 'comment:one', revision: 1, text: '', item: { kind: 'comment', range: { start: 0, end: 9 } } }
+    const retained = Vue.ref<string>()
+    Vue.watch(retained, (value) => { state.draft = value }, { flush: 'sync' })
+    const editor = mountEditor(retained, () => coreReviewComposerEscapes(state) ? 'Escaped with backslashes' : '')
+    const notice = () => editor.host.querySelector('[data-testid="critic-review-comment-escape-notice"]')
+    await editor.type('plain note')
+    await Vue.nextTick()
+    expect(notice()).toBeNull()
+    await editor.type('a stray <<} closer')
+    await Vue.nextTick()
+    expect(notice()?.textContent?.trim()).toBe('Escaped with backslashes')
+    await editor.type('C:\\')
+    await Vue.nextTick()
+    expect(notice()).not.toBeNull()
+    // An edited payload is Comment source, where nested CriticMarkup is kept.
+    await editor.type('see {>>inner<<}')
+    await Vue.nextTick()
+    expect(notice()).toBeNull()
+    // A new Comment keeps Critic-looking text literal, so it is escaped.
+    state.target = { id: 'comment:one', revision: 1, text: '', form: 'comment' }
+    await Vue.nextTick()
+    await Vue.nextTick()
+    expect(notice()).not.toBeNull()
+    state.target = { id: 'comment:one', revision: 1, text: '', form: 'substitution' }
+    await Vue.nextTick()
+    await Vue.nextTick()
+    expect(notice()).toBeNull()
   })
 })

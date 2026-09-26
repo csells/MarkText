@@ -1034,6 +1034,7 @@
       "revisedDocument": "Documento revisado",
       "saveComment": "Guardar comentario",
       "commentTargetChanged": "El documento ha cambiado. Su borrador de comentario se conserva; cancele antes de elegir otro destino.",
+      "commentEscapeNotice": "Contiene texto similar a CriticMarkup; MarkText lo escapó con barras invertidas, que otras herramientas de CriticMarkup pueden mostrar literalmente.",
       "commentSaveFailed": "No se pudo guardar el comentario. Su borrador y su destino original se conservan.",
       "finishDraftBeforeClosing": "Guarde o cancele el comentario o el texto de reemplazo pendiente antes de cerrar este documento.",
       "commentPrompt": "Comentario",

@@ -1034,6 +1034,7 @@
       "revisedDocument": "Düzeltilmiş belge",
       "saveComment": "Yorumu kaydet",
       "commentTargetChanged": "Belge değişti. Yorum taslağınız korunuyor; başka bir hedef seçmeden önce iptal edin.",
+      "commentEscapeNotice": "CriticMarkup'a benzeyen metin içeriyor; MarkText bunu ters eğik çizgilerle kaçışladı, diğer CriticMarkup araçları bunları olduğu gibi gösterebilir.",
       "commentSaveFailed": "Yorum kaydedilemedi. Taslağınız ve özgün hedefi korunuyor.",
       "finishDraftBeforeClosing": "Bu belgeyi kapatmadan önce bekleyen yorumu veya değiştirme metnini kaydedin ya da iptal edin.",
       "commentPrompt": "Yorum",

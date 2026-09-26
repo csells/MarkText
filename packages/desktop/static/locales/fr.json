@@ -1034,6 +1034,7 @@
       "revisedDocument": "Document révisé",
       "saveComment": "Enregistrer le commentaire",
       "commentTargetChanged": "Le document a changé. Votre brouillon de commentaire est conservé ; annulez avant de choisir une autre cible.",
+      "commentEscapeNotice": "Contient du texte ressemblant à CriticMarkup ; MarkText l’a échappé avec des barres obliques inverses, que d’autres outils CriticMarkup peuvent afficher telles quelles.",
       "commentSaveFailed": "Impossible d’enregistrer le commentaire. Votre brouillon et sa cible d’origine sont conservés.",
       "finishDraftBeforeClosing": "Enregistrez ou annulez le commentaire ou le texte de remplacement en attente avant de fermer ce document.",
       "commentPrompt": "Commentaire",
