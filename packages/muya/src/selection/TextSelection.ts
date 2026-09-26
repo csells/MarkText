@@ -386,6 +386,27 @@ class TextSelection {
                 commitNativeSelection(endpointAnchor, endpointFocus);
         };
 
+        // Keyboard selections that span blocks (Shift+arrows, select-all) are
+        // never committed by a block's own keyup handler, which only tracks its
+        // own text; commit them here so selection state follows the keyboard too.
+        const handleKeyup = () => {
+            const selection = this.getSelection();
+            if (!selection || selection.isCollapsed || selection.isSelectionInSameBlock)
+                return;
+            const { anchor, focus } = selection;
+            if (!anchor.block.outMostBlock || !focus.block.outMostBlock)
+                return;
+            if (this.anchorBlock === anchor.block && this.focusBlock === focus.block
+                && this.anchor?.offset === anchor.offset && this.focus?.offset === focus.offset) {
+                return;
+            }
+            commitNativeSelection(
+                { offset: anchor.offset, block: anchor.block, path: anchor.block.path },
+                { offset: focus.offset, block: focus.block, path: focus.block.path },
+            );
+        };
+
+        eventCenter.attachDOMEvent(domNode, 'keyup', handleKeyup);
         eventCenter.attachDOMEvent(domNode, 'mousedown', handleMousedown);
         eventCenter.attachDOMEvent(domNode, 'mousemove', handleMousemoveOrClick);
         eventCenter.attachDOMEvent(domNode, 'mouseup', handleMouseupOrLeave);
