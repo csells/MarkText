@@ -3469,10 +3469,21 @@ const handleResetPaddingBottom = () => {
   }
 }
 
+// Re-rendering an unchanged document replaces a focused comment marker; the
+// marker in the same place in the document keeps the focus.
+const keepMarkerFocus = (render: () => void): void => {
+  const focused = document.activeElement?.closest<HTMLElement>('.mu-critic-comment-marker')
+  const root = focused?.closest<HTMLElement>('.editor-component')
+  const index = root ? [...root.querySelectorAll('.mu-critic-comment-marker')].indexOf(focused!) : -1
+  render()
+  if (!focused || !root || focused.isConnected || index < 0) return
+  root.querySelectorAll<HTMLElement>('.mu-critic-comment-marker')[index]?.focus()
+}
 const handleLanguageChanged = (newLocale?: unknown) => {
-  if (editor.value) {
+  const muya = editor.value
+  if (muya) {
     const locale = typeof newLocale === 'string' ? newLocale : language.value
-    editor.value.locale(getMuyaLocale(locale))
+    keepMarkerFocus(() => muya.locale(getMuyaLocale(locale)))
   }
 }
 // Translation loading is asynchronous; observe the translated value after it lands.
@@ -3482,11 +3493,14 @@ watch(
     const muya = editor.value
     const view = coreAcknowledgedMarkupView
     if (!muya || !view) return
-    installCoreMarkupPresentation(muya, view)
-    for (const path of coreMarkupPresentation?.changedPaths ?? []) {
-      const block = muya.editor.scrollPage?.queryBlock([...path])
-      if (block?.isContent()) block.update()
-    }
+    keepMarkerFocus(() => {
+      installCoreMarkupPresentation(muya, view)
+      for (const path of coreMarkupPresentation?.changedPaths ?? []) {
+        const block = muya.editor.scrollPage?.queryBlock([...path])
+        if (block?.isContent()) block.update()
+      }
+    })
+    if (coreReviewLocatedNode !== undefined) revealCoreReviewItem(false)
   }
 )
 const resizeObserverForEditor = new ResizeObserver(handleResetPaddingBottom)
@@ -4537,6 +4551,13 @@ onMounted(() => {
       }
     }
 
+    const caretOf = (change: unknown) => {
+      const { anchorPath, anchor, focusPath, focus } = (change ?? {}) as MuyaChange
+      return [anchorPath, anchor?.offset, focusPath, focus?.offset]
+    }
+    // A re-render, as a language change causes, reports the same selection
+    // again; only a moved selection leaves the review target.
+    const selectionMoved = !isEqual(caretOf(selectionChange.value), caretOf(changes))
     selectionChange.value = changes
     if (!sourceCode.value && editor.value) {
       setSelectionWordCountFromText(editor.value.getSelectedText())
@@ -4555,7 +4576,7 @@ onMounted(() => {
           binding.sourceRange.start + Number(element.dataset.criticStart),
           false
         )
-      } else {
+      } else if (selectionMoved) {
         clearCoreReviewTarget()
       }
     }

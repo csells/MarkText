@@ -875,6 +875,12 @@ class Content extends TreeNode {
         if (!isKeyboardEvent(event))
             return;
 
+        // A focusable control inside the text, such as a comment marker, owns
+        // the keys pressed on it; they are not document input.
+        const target = event.target;
+        if (target instanceof HTMLElement && target !== this.domNode && target.tabIndex >= 0 && target.closest('[contenteditable="false"]'))
+            return;
+
         if (this.muya.ui.handleContentKeydown(event))
             return;
 
