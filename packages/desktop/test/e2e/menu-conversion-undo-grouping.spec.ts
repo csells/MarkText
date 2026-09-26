@@ -105,9 +105,9 @@ for (const tracked of [false, true]) {
 
   test(`quick-insert table undoes with its query and next key (Track=${tracked})`, async() => {
     const source = 'intro\n\n/tabl\n'
-    const table = '| X   |     |\n| --- | --- |\n|     |     |'
+    const table = '| X    |     |\n| --- | --- |\n|     |     |'
     const typed = tracked
-      ? 'intro\n\n{~~/tabl{++e++}~>|     X|     |\n| --- | --- |\n|     |     |~~}\n'
+      ? 'intro\n\n{~~/tabl{++e++}~>| X    |     |\n| --- | --- |\n|     |     |~~}\n'
       : `intro\n\n${table}\n`
     const { app, filePath } = await run(source, tracked, async(page) => {
       await page.locator('.editor-component .mu-paragraph-content').nth(1).click()

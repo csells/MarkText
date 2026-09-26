@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import {
+  clickMenuById,
   discardReviewInputOnClose,
   expectNoRendererErrors,
   launchWithMarkdown,
@@ -186,7 +187,8 @@ test('keyboard caret navigation updates the review target before accepting a sug
     await page.keyboard.press('Home')
     for (let index = 0; index < 20; index++) await page.keyboard.press('ArrowRight')
     await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'deletion')
-    await page.getByTestId('critic-review-accept').click()
+    // A caret move does not open the hidden sidebar; Review > Accept acts on the target.
+    await clickMenuById(app, 'critic-accept')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('An {++addition++} and a .\n')
     await expectNoRendererErrors(app)

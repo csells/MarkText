@@ -20,7 +20,7 @@ for (const middle of ['aaa', 'a{++a++}a{>>keep<<}']) {
   test(`mounted table dialog retains target, next input and history (${middle === 'aaa' ? 'plain' : 'CM'})`, async() => {
     const source = `aaa\n\n${middle}\n\nlast\n`
     // Upstream MarkText writes an edited table afresh with padded cells.
-    const typed = `aaa\n\n${middle}\n\n| X   |     |\n| --- | --- |\n|     |     |\n\nlast\n`
+    const typed = `aaa\n\n${middle}\n\n| X    |     |\n| --- | --- |\n|     |     |\n\nlast\n`
     const options = {
       suppressErrorDialog: true,
       env: {
@@ -129,7 +129,7 @@ for (const { middle, cancel } of [
     // Upstream MarkText writes an edited table afresh with padded cells.
     const typed = cancel
       ? 'aaaimported\n\naaaX\n\nlast\n'
-      : `aaaimported\n\n${middle}\n\n| X   |     |\n| --- | --- |\n|     |     |\n\nlast\n`
+      : `aaaimported\n\n${middle}\n\n| X    |     |\n| --- | --- |\n|     |     |\n\nlast\n`
     const options = {
       suppressErrorDialog: true,
       env: {

@@ -319,6 +319,7 @@ test('live Markdown preferences retain the mounted comment composer and its unsu
   })
   try {
     await page.locator('.mu-critic-comment-marker').click()
+    await showReviewSidebar(app)
     await page.getByTestId('critic-review-edit-comment').click()
     const input = page.getByTestId('critic-review-comment-input')
     await input.fill('Unsubmitted 日本 draft.')

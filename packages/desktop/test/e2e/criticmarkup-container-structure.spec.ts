@@ -189,9 +189,9 @@ test('inserts a row in an annotated table and preserves it through history and r
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toContain('newrow')
     const edited = readFileSync(filePath, 'utf8')
-    // Upstream MarkText writes an edited table afresh, padding every column
-    // to its widest cell; typing in the new row respells the whole table.
-    expect(edited).toBe('| col        |\n| ---------- |\n| {++cell++} |\n| newrow     |\n')
+    // Inserting the row writes the table afresh, as upstream does; typing in
+    // the new row then changes only the typed bytes (ADR 0007).
+    expect(edited).toBe('| col        |\n| ---------- |\n| {++cell++} |\n| newrow           |\n')
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
@@ -388,10 +388,10 @@ test('inserts a row in an annotated table inside a list and preserves it through
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toContain('newrow')
     const edited = readFileSync(filePath, 'utf8')
-    // Upstream MarkText writes an edited table afresh, padding every column
-    // to its widest cell; typing in the new row respells the whole table.
+    // Inserting the row writes the table afresh, as upstream does; typing in
+    // the new row then changes only the typed bytes (ADR 0007).
     expect(edited).toBe(
-      '- item\n\n  | col        |\n  | ---------- |\n  | {++cell++} |\n  | newrow     |\n'
+      '- item\n\n  | col        |\n  | ---------- |\n  | {++cell++} |\n  | newrow           |\n'
     )
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')

@@ -70,6 +70,8 @@ test('refreshes Review after deleting a prefix beyond its retained source anchor
     expect(
       await page.evaluate(() => window.electron.ipcRenderer.invoke('mt::core-draft::list'))
     ).toEqual([])
+    // Editing the first paragraph left the addition; choosing its entry targets it.
+    await page.getByTestId('critic-review-entry').first().locator(':scope > button').click()
     await expect(accept).toBeEnabled()
     await accept.click()
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
@@ -99,12 +101,13 @@ test('disables stale Review during native input, then refreshes its range and Re
     await paragraph.click()
     await page.keyboard.press('Home')
     await page.keyboard.type('a ')
-    // Passive Review refresh is debounced behind native input, so the stale
-    // item stays disabled until the editor settles.
-    await expect(accept).toBeDisabled()
+    // The caret left the suggestions, so no stale item stays actionable while
+    // the debounced Review refresh waits behind native input.
+    await expect(accept).toHaveCount(0)
     await page.evaluate(() => window.__marktextDocumentCore?.settled())
-    await expect(accept).toBeEnabled()
     await expect(counter).toHaveText('W 3')
+    await page.getByTestId('critic-review-entry').first().locator(':scope > button').click()
+    await expect(accept).toBeEnabled()
     await accept.click()
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('a seed new {--old--}\n')

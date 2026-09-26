@@ -446,7 +446,7 @@ test('Core WYSIWYG Review removes one derived Commented span atomically', async(
     await expect(page.getByTestId('critic-review-accept')).toHaveCount(0)
     await expect(page.getByTestId('critic-review-reject')).toHaveCount(0)
     const remove = page.getByTestId('critic-review-remove')
-    await expect(remove).toHaveText('Remove comment')
+    await expect(remove).toHaveText('Remove Comment')
 
     await remove.click()
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')

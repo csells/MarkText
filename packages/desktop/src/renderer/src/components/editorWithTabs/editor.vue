@@ -480,7 +480,7 @@ import {
   muyaInputToModel
 } from '@/documentAuthority/muyaModelSelection'
 import { resolveMuyaViewAcknowledgement } from '@/documentAuthority/resolveMuyaViewAcknowledgement'
-import { asMuyaStates, type MuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
+import { asMuyaStates, mappedMuyaSourceRange, type MuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
 import {
   reconcileMuyaDocumentView,
   restoreMuyaDocumentSelection
@@ -681,6 +681,8 @@ const coreCommentEscapeNotice = computed(() =>
 )
 const coreReviewResolving = ref(false)
 const coreReviewTargeted = ref(false)
+// A caret the review list could not yet place, rechecked on its next publish.
+let pendingCoreCaret: { readonly path: string, readonly offset: number } | undefined
 const reviewToolbarIcons: Record<string, string> = {
   'add-comment': reviewCommentIcon,
   'mark-highlight': reviewHighlightIcon,
@@ -699,7 +701,11 @@ const coreReviewRefresh = createLatestViewRefresh<CoreReviewItemReply>({
     coreReviewRevision.value = reply.revision
     coreReviewCommentText.value = reply.commentText
     nextTick(() => {
-      if (coreReviewLocatedNode !== undefined) revealCoreReviewItem(false)
+      const caret = pendingCoreCaret
+      pendingCoreCaret = undefined
+      const start = caret && coreItemAtCaret(caret.path, caret.offset)
+      if (start !== undefined) selectCoreAnnotationAt(start, false)
+      else if (coreReviewLocatedNode !== undefined) revealCoreReviewItem(false)
     })
   },
   fault: (error) => emit('core-fault', error)
@@ -1733,6 +1739,7 @@ watch(
 )
 let coreReviewLocatedNode: HTMLElement | undefined
 const clearCoreReviewTarget = (): void => {
+  pendingCoreCaret = undefined
   coreReviewTargeted.value = false
   coreReviewLocatedNode?.classList.remove('core-review-current-block')
   coreReviewLocatedNode = undefined
@@ -1764,6 +1771,7 @@ const revealCoreReviewItem = (scroll = true): void => {
 }
 const navigateCoreReview = async (direction: 'next' | 'previous'): Promise<void> => {
   if (!coreReviewItem.value) return
+  pendingCoreCaret = undefined
   if (coreDisplayMode.value !== 'markup') await showCoreProjection('markup')
   await refreshCoreReviewItem(
     direction,
@@ -1775,6 +1783,7 @@ const selectCoreReviewEntry = async (start: number): Promise<void> => {
   // A visible entry remains navigable during a view read. Its new request must
   // supersede pending caret-follow reads, rather than silently dropping the click.
   if (coreCommentOpen.value || coreReviewResolving.value) return
+  pendingCoreCaret = undefined
   reviewLayoutStore.SET_LAYOUT({ showSideBar: true, rightColumn: 'review' })
   if (coreDisplayMode.value !== 'markup') await showCoreProjection('markup')
   await refreshCoreReviewItem('next', start)
@@ -1797,6 +1806,18 @@ const selectCoreDocumentAnnotation = (event: MouseEvent | KeyboardEvent): void =
   // ADR 0004: a pointer hit only selects the entry; keyboard activation of the
   // comment marker is a deliberate request to open Review.
   selectCoreAnnotationAt(start, event instanceof KeyboardEvent)
+}
+/** The review item whose source range holds the caret, bounds included. */
+const coreItemAtCaret = (path: string, offset: number): number | undefined => {
+  const binding = coreMarkupBindingsByPath.get(path)
+  if (!binding) return undefined
+  // Muya places a caret past its block's text at the text's end.
+  const at = Math.min(offset, binding.text.length)
+  const position = mappedMuyaSourceRange(binding, { start: at, end: at })?.start
+  if (position === undefined) return undefined
+  return coreReviewOverview.value.find(
+    (entry) => entry.item.range.start <= position && position <= entry.item.range.end
+  )?.item.range.start
 }
 const selectCoreAnnotationAt = (start: number, open: boolean): void => {
   if (coreCommentOpen.value || coreReviewResolving.value) return
@@ -2149,6 +2170,7 @@ const handleCoreReviewCommand = (value: unknown): void => {
   ) {
     return
   }
+  pendingCoreCaret = undefined
   reviewLayoutStore.SET_LAYOUT({ showSideBar: true, rightColumn: 'review' })
   const run = async (): Promise<void> => {
     switch (command) {
@@ -4570,15 +4592,20 @@ onMounted(() => {
       const element = (node instanceof Element ? node : node?.parentElement)?.closest<HTMLElement>(
         '[data-critic-start]'
       )
-      const binding = coreMarkupBindingsByPath.get(JSON.stringify(changes.anchorPath))
-      if (element && binding) {
-        selectCoreAnnotationAt(
-          binding.sourceRange.start + Number(element.dataset.criticStart),
-          false
-        )
+      const path = JSON.stringify(changes.anchorPath)
+      const binding = coreMarkupBindingsByPath.get(path)
+      const offset = changes.anchor?.offset
+      // A suggestion just made, with the caret at its edge, is the current item
+      // even before the review list publishes it.
+      const start = element && binding
+        ? binding.sourceRange.start + Number(element.dataset.criticStart)
+        : selectionMoved && typeof offset === 'number' ? coreItemAtCaret(path, offset) : undefined
+      if (start !== undefined) {
+        selectCoreAnnotationAt(start, false)
       } else if (selectionMoved) {
         clearCoreReviewTarget()
       }
+      if (selectionMoved && typeof offset === 'number') pendingCoreCaret = { path, offset }
     }
     if (corePlainTextAdapter !== undefined) {
       coreSelectionClipboardAuthority?.reset()
