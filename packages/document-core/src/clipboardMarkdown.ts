@@ -127,7 +127,18 @@ export function prepareClipboardMarkdown(
       meta: { align: typeof cell.attributes.alignment === 'string' ? cell.attributes.alignment : 'none' }
     }))
   }))
-  const markdown = tableToMarkdown({ children: rows })
+  // Owner decision (plan 0012 G24): text after a row's last header column,
+  // which upstream drops, follows the respelled row as it was written.
+  const lines = tableToMarkdown({ children: rows }).split('\n')
+  for (const [rowIndex, row] of first.children.entries()) {
+    const last = row.children.at(-1)
+    if (typeof last?.attributes.cellEnd !== 'number') continue
+    const cellEnd = syntax.coordinates.toSource(last.attributes.cellEnd, 'next')
+    const extra = input.insert.slice(cellEnd + (input.insert[cellEnd] === '|' ? 1 : 0), syntax.coordinates.toSource(row.range.end, 'next')).trimEnd()
+    const line = rowIndex === 0 ? 0 : rowIndex + 1
+    if (extra.trim() !== '') lines[line] += extra
+  }
+  const markdown = lines.join('\n')
   const spelledSyntax = importSyntax(markdown)
   const resultCell = spelledSyntax.ast.root.children[0]?.children.at(-1)?.children.at(-1)
   if (resultCell?.kind !== 'table-cell') throw new RangeError('Imported table has no exact final cell')
