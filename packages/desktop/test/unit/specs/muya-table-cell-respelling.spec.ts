@@ -115,10 +115,12 @@ describe('editing a table cell', () => {
       typed: '| ax  | b   |\n| --- | --- |\n| c   |     |\n',
       caret: 'ax|'
     },
+    // Owner decision (plan 0012 G24): padding keeps a row's text beyond the
+    // header's columns, which upstream drops.
     {
       initial: '| a | b |\n| --- | --- |\n| c | d | e |\n',
       cell: 0,
-      typed: '| ax  | b   |\n| --- | --- |\n| c   | d   |\n',
+      typed: '| ax  | b   |\n| --- | --- |\n| c   | d   | e |\n',
       caret: 'ax|'
     },
     {
@@ -139,6 +141,18 @@ describe('editing a table cell', () => {
       typed: '| **a** | bx  |\n| ----- | --- |\n| c     | d   |\n',
       caret: 'bx|'
     },
+    {
+      initial: '|a|b|\n|-|-|\n|c|d|extra|\n|e|\n',
+      cell: 0,
+      typed: '| ax  | b   |\n| --- | --- |\n| c   | d   |extra|\n| e   |     |\n',
+      caret: 'ax|'
+    },
+    {
+      initial: '|a|b|\n|-|-|\n|{++c++}|d|x \\| {>>y<<}|\n',
+      cell: 0,
+      typed: '| ax      | b   |\n| ------- | --- |\n| {++c++} | d   |x \\| {>>y<<}|\n',
+      caret: 'ax|'
+    },
     // CRLF documents keep CRLF.
     {
       initial: table.replaceAll('\n', '\r\n'),
@@ -156,6 +170,21 @@ describe('editing a table cell', () => {
       await input(app, 'insertText', 'y')
       expect(caretText(app)).toBe(caret.replace('|', 'y|'))
       await app.adapter.history('undo', app.reconcile)
+      await app.adapter.history('undo', app.reconcile)
+      expect(source(app)).toBe(initial)
+    } finally {
+      app.dispose()
+    }
+  })
+
+  it('leaves a tracked edit unpadded and keeps text beyond the header', async() => {
+    const initial = '|a|b|\n|-|-|\n|c|d|extra|\n'
+    const app = bootBoundMuya(initial)
+    try {
+      app.track(true)
+      endOf(app, 0)
+      await input(app, 'insertText', 'x')
+      expect(source(app)).toBe('|a{++x++}|b|\n|-|-|\n|c|d|extra|\n')
       await app.adapter.history('undo', app.reconcile)
       expect(source(app)).toBe(initial)
     } finally {
