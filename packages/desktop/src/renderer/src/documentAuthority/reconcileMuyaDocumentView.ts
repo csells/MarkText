@@ -4,7 +4,6 @@ import { asMuyaStates, type MuyaMarkupState, type MuyaMarkupView } from './muyaM
 import isEqual from 'lodash/isEqual'
 
 import type { CoreAppliedReply } from './coreProtocol'
-import type { MuyaPlainTextViewResult } from './muyaPlainTextView'
 import { createMuyaModelSelection } from './muyaModelSelection'
 import type { MuyaPlainTextSourceBinding } from './muyaPlainTextCoreAdapter'
 
@@ -171,9 +170,6 @@ export function restoreMuyaDocumentSelection(
   const cellSelection = documentSelection.kind === 'table-cell' ? documentSelection : undefined
   const modelTextSelection = documentSelection.kind === 'model-text' ? documentSelection : undefined
   if (documentSelection?.kind === 'table') {
-    if (!('state' in view)) {
-      throw new Error('Core table selection requires its model-owned native projection')
-    }
     const minRow = Math.min(documentSelection.anchor.row, documentSelection.focus.row)
     const maxRow = Math.max(documentSelection.anchor.row, documentSelection.focus.row)
     const minColumn = Math.min(documentSelection.anchor.column, documentSelection.focus.column)
@@ -209,7 +205,6 @@ export function restoreMuyaDocumentSelection(
     cellSelection !== undefined ||
     modelTextSelection !== undefined
   ) {
-    if (!('state' in view)) throw new Error('Core input requires its model-owned native projection')
     const { modelPointToDOM, modelPointToText, modelCellPointToDOM, modelCellPointToText } =
       createMuyaModelSelection(muya, view)
     const collapsed =
@@ -289,7 +284,7 @@ export function reconcileMuyaDocumentView({
   applyEditability
 }: {
   muya: Muya
-  view: MuyaPlainTextViewResult
+  view: MuyaMarkupView
   outcome: CoreAppliedReply
   dirtyPaths: Iterable<readonly (string | number)[]>
   applyEditability: (bindings: readonly MuyaPlainTextSourceBinding[]) => void
@@ -323,8 +318,7 @@ export function reconcileMuyaDocumentView({
           endpoint.offset <= binding.text.length
       )
     )
-  const unchanged = 'state' in view && !muya.reconcileContent(asMuyaStates(view.state))
-  if (!('state' in view)) muya.setContent(view.markdown, false, { preserveInputGrouping: true })
+  const unchanged = !muya.reconcileContent(asMuyaStates(view.state))
   applyEditability(view.bindings)
   // A retained root can have changed inline meaning without changed native
   // state, such as a reference resolved by an edited definition elsewhere.
@@ -338,9 +332,6 @@ export function reconcileMuyaDocumentView({
     if (block?.isContent()) block.update()
   }
   if (documentSelection !== undefined || inputSelection !== undefined) {
-    if (!('state' in view)) {
-      throw new Error('Core selection requires its model-owned native projection')
-    }
     restoreMuyaDocumentSelection(
       muya,
       view,

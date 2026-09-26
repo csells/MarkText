@@ -22,7 +22,6 @@ test('Core mode owns a document opened directly in WYSIWYG', async() => {
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -56,7 +55,6 @@ test('Core WYSIWYG tracks one visible insertion through actor history', async() 
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -166,7 +164,6 @@ test('Core WYSIWYG cancels added text with one tracked backspace', async() => {
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -218,7 +215,6 @@ test('Core WYSIWYG removes an Addition when its final character is deleted', asy
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -269,7 +265,6 @@ test('Core WYSIWYG tracks one DOM composition as one actor transaction', async()
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -321,7 +316,6 @@ test('Core mode renders all five CriticMarkup forms and preserves their source',
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -361,7 +355,6 @@ test('Core WYSIWYG Review rejects one Deletion then undoes, redoes, and saves it
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -409,7 +402,6 @@ test('Core WYSIWYG Review navigation wraps without hiding its visible controls',
   const { app, page } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -441,7 +433,6 @@ test('Core WYSIWYG Review removes one derived Commented span atomically', async(
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -481,7 +472,6 @@ test('Core WYSIWYG transports actor-owned Comment and Substitution author comman
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -564,7 +554,6 @@ test('Core WYSIWYG authors a Comment through the visible selection control', asy
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -618,7 +607,6 @@ test('Core WYSIWYG protects a conflicting Comment closer from the visible author
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -672,7 +660,6 @@ test('Core completes one CriticMarkup Review lifecycle and reopens exact bytes',
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -839,7 +826,6 @@ test('Core completes one CriticMarkup Review lifecycle and reopens exact bytes',
   const reopened = await launchElectron([filePath], {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -875,7 +861,6 @@ test('Core mode parks independent WYSIWYG authority and history per tab', async(
   const { app, page } = await launchWithMarkdown('alpha\n', {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -947,7 +932,6 @@ test('Core mode applies a native blockquote command through acknowledged history
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -1000,7 +984,6 @@ test('Core mode restarts a failed Core owner from acknowledged WYSIWYG history',
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -1059,7 +1042,6 @@ test('Core mode recovers a typed stale-base WYSIWYG transaction', async() => {
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -1117,7 +1099,6 @@ test('Core mode saves a native plain-paragraph WYSIWYG edit', async() => {
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -1162,7 +1143,6 @@ test('Core mode orders immediate WYSIWYG undo and redo through actor history', a
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -1224,7 +1204,6 @@ test('Core mode saves a native paragraph-to-heading conversion', async() => {
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -1263,7 +1242,6 @@ test('Core WYSIWYG tracks one paragraph-to-heading format through history', asyn
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -1316,7 +1294,6 @@ test('Core mode saves one native cross-paragraph typing replacement', async() =>
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -1357,7 +1334,6 @@ test('Core WYSIWYG tracks one cross-paragraph replacement and exact history', as
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -1419,7 +1395,6 @@ test('Core WYSIWYG tracks one cross-paragraph cut and exact history', async() =>
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -1474,7 +1449,6 @@ test('Core mode saves only the committed native IME composition', async() => {
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -1512,7 +1486,6 @@ test('Core mode renders and saves one native math-block conversion', async() => 
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: '1',
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
@@ -1564,7 +1537,6 @@ for (const { label, table, canonical } of nativeTableFixtures) {
     const { app, page, filePath } = await launchWithMarkdown(source, {
       suppressErrorDialog: true,
       env: {
-        MARKTEXT_DOCUMENT_CORE_MODE: '1',
         MARKTEXT_E2E_HIDDEN_WINDOW: '1'
       }
     })
@@ -1607,7 +1579,6 @@ for (const { label, table, canonical } of nativeTableFixtures) {
     const { app, page, filePath } = await launchWithMarkdown(source, {
       suppressErrorDialog: true,
       env: {
-        MARKTEXT_DOCUMENT_CORE_MODE: '1',
         MARKTEXT_E2E_HIDDEN_WINDOW: '1'
       }
     })

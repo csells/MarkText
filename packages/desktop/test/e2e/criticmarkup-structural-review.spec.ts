@@ -27,17 +27,12 @@ const openFixture = async(filePath: string): Promise<OpenedEditor> => {
   const binary = process.env.MARKTEXT_PACKAGED_APP
   const env: Record<string, string> = {
     PERF_TESTING: 'true',
-    MARKTEXT_DOCUMENT_CORE_MODE: '1',
     MARKTEXT_E2E_HIDDEN_WINDOW: '1'
   }
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined && !(key in env)) env[key] = value
   }
   delete env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
-  if (binary !== undefined) {
-    delete env.MARKTEXT_DOCUMENT_CORE_MODE
-    delete env.MARKTEXT_DOCUMENT_CORE_SHADOW
-  }
   let app: ElectronApplication
   let page: Page
   if (binary === undefined) {

@@ -1,4 +1,5 @@
 import { planAuthor, type DocumentAuthorAction, type DocumentAuthorPlan } from './authorPlanning.js'
+import { planCommentEdit, type DocumentCommentAction, type DocumentCommentPlan } from './commentSpelling.js'
 import { planSourceInput, type DocumentSourceInputAction } from './sourceInputPlanning.js'
 import { sourceSyntaxSpans, type DocumentSourceSyntaxSpan } from './sourceSyntax.js'
 import { paragraphEnterConversion } from './internal/profile1/markdownParser.js'
@@ -552,6 +553,12 @@ export interface DocumentCore {
   sourceSyntax(revision: DocumentRevision): readonly DocumentSourceSyntaxSpan[]
   /** Plans an imported clipboard action against the exact current source selection. */
   planAuthor(previous: DocumentRevision, action: DocumentAuthorAction): DocumentAuthorPlan | undefined
+  /**
+   * Replaces an existing Comment's payload with the author's text, adding the
+   * Profile's minimal backslash escapes only where the text would otherwise
+   * close or break the Comment. `escaped` reports that MarkText-only spelling.
+   */
+  planCommentEdit(previous: DocumentRevision, action: DocumentCommentAction): DocumentCommentPlan | undefined
   planClipboard(previous: DocumentRevision, action: DocumentClipboardAction): DocumentClipboardPlan
   /** Plans a native inline-format action using owned syntax and exact source positions. */
   planSourceInput(previous: DocumentRevision, action: DocumentSourceInputAction): DocumentSourceInputAction
@@ -4232,10 +4239,18 @@ function createDocumentCoreWithExecutionBudget(
     withSourceEditPreview(previous, edits, (products, source) =>
       ({ syntax: markupProjectionOf(products, annotationsOf(products).rangeByNodeId, source.length).syntax, source }))
 
+  // A Comment payload is its own subdocument under the document's options (R5).
+  const payloadDiagnostics = (previous: DocumentRevision) => {
+    const { schema: _schema, ...options } = currentStateOf(previous).markdownOptions
+    return (payload: string) => createDocumentCore().open(payload, options).diagnostics
+  }
+
   const core: DocumentCore = Object.freeze({
     planAuthor(previous: DocumentRevision, action: DocumentAuthorAction) {
-      currentStateOf(previous)
-      return planAuthor(core, previous, action, edits => previewSourceEdits(previous, edits))
+      return planAuthor(core, previous, action, edits => previewSourceEdits(previous, edits), payloadDiagnostics(previous))
+    },
+    planCommentEdit(previous: DocumentRevision, action: DocumentCommentAction) {
+      return planCommentEdit(previous, action, payloadDiagnostics(previous), edits => previewSourceEdits(previous, edits))
     },
     planClipboard(previous: DocumentRevision, action: DocumentClipboardAction) {
       const plan = planUnspelledClipboard(previous, action)

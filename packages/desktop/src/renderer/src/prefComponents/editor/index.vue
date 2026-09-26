@@ -70,11 +70,6 @@
           :on-change="(value) => onSelectChange('codeBlockLineNumbers', value)"
         />
         <bool
-          :description="t('preferences.editor.codeBlock.removeEmptyLines')"
-          :bool="trimUnnecessaryCodeBlockEmptyLines"
-          :on-change="(value) => onSelectChange('trimUnnecessaryCodeBlockEmptyLines', value)"
-        />
-        <bool
           :description="t('preferences.editor.misc.wrapCodeBlocks')"
           :bool="wrapCodeBlocks"
           :on-change="(value) => onSelectChange('wrapCodeBlocks', value)"
@@ -226,7 +221,6 @@ const {
   codeFontSize,
   codeFontFamily,
   codeBlockLineNumbers,
-  trimUnnecessaryCodeBlockEmptyLines,
   hideQuickInsertHint,
   hideLinkPopup,
   autoCheck,

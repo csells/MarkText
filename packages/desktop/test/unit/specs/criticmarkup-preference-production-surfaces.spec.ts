@@ -124,7 +124,6 @@ const preferenceKeys = [
   'titleBarStyle',
   'treePathExcludePatterns',
   'trimTrailingNewline',
-  'trimUnnecessaryCodeBlockEmptyLines',
   'watcherUsePolling',
   'wordWrapInToc',
   'wrapCodeBlocks',

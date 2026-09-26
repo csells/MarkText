@@ -11,18 +11,21 @@ import { pasteImageSrc } from './pasteImage';
 import { CopyType, PasteType } from './types';
 
 // After the table/same-block guards, decide whether a keydown over a
-// cross-block selection should cut (replace) the selected text. Non-editing
-// keys and any modifier combo must NOT cut — in particular Ctrl+<key> (e.g.
-// Ctrl+C copy on Windows/Linux), which was previously not excluded and
-// silently deleted the selection (#3491). Mirrors the macOS metaKey guard.
-export function shouldCrossBlockCut(key: string, metaKey: boolean, ctrlKey: boolean): boolean {
-    if (/Alt|Option|Meta|Shift|CapsLock|ArrowUp|ArrowDown|ArrowLeft|ArrowRight/.test(key))
-        return false;
+// cross-block selection replaces (cuts) the selected text. Only keys that
+// replace a selection in a macOS editor qualify: a typed character, the
+// start of a dead-key or IME composition, Enter, Backspace and Delete. Cut
+// and paste arrive as clipboard events. Any Cmd/Ctrl combo (Ctrl+C copy on
+// Windows/Linux, #3491) and every other named key — navigation, Escape, Tab,
+// function, lock and media keys — leave the selection in place. Upstream cut
+// on any key but an arrow or modifier, so Home, End, PageDown or Escape
+// deleted several paragraphs; keeping them is a documented deviation (G26).
+const SELECTION_REPLACING_KEYS = new Set(['Enter', 'Backspace', 'Delete', 'Dead', 'Process']);
 
+export function shouldCrossBlockCut(key: string, metaKey: boolean, ctrlKey: boolean): boolean {
     if (metaKey || ctrlKey)
         return false;
 
-    return true;
+    return Array.from(key).length === 1 || SELECTION_REPLACING_KEYS.has(key);
 }
 
 export { crossBlockReplacement };
@@ -90,8 +93,13 @@ class Clipboard {
             if (isSelectionInSameBlock)
                 return;
 
-            if (!shouldCrossBlockCut(key, metaKey, event.ctrlKey))
+            if (!shouldCrossBlockCut(key, metaKey, event.ctrlKey)) {
+                // No block owns Tab over a cross-block selection; upstream's
+                // block Tab handlers keep focus in the editor, and so does this.
+                if (key === 'Tab')
+                    event.preventDefault();
                 return;
+            }
 
             // Enter over a cross-block selection: suppress the corrupting native
             // Enter and mirror the same-block path — delete then split (#2443).

@@ -11,7 +11,7 @@ import {
 test('keeps a fresh Core view noneditable until its first authoritative lease is mounted', async() => {
   const { app, page, filePath } = await launchWithMarkdown('seed\n', {
     suppressErrorDialog: true,
-    env: { MARKTEXT_DOCUMENT_CORE_MODE: '1', MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
+    env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
   })
   const targetPath = join(dirname(filePath), 'initial-authority-target.md')
   writeFileSync(targetPath, 'seed\n', { flag: 'wx' })

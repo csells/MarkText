@@ -50,8 +50,6 @@ for (const example of [
     const { app, page, filePath } = await launchWithMarkdown(example.source, {
       suppressErrorDialog: true,
       env: {
-        MARKTEXT_DOCUMENT_CORE_MODE: undefined,
-        MARKTEXT_DOCUMENT_CORE_SHADOW: undefined,
         MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined,
         MARKTEXT_E2E_HIDDEN_WINDOW: '1'
       }
