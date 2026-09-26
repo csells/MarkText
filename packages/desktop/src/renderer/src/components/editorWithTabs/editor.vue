@@ -124,7 +124,7 @@
             v-if="coreLease !== undefined && !sourceCode"
             :entries="coreReviewOverview"
             :text-direction="textDirection"
-            :active-start="coreReviewItem?.range.start"
+            :active-start="coreReviewTargeted ? coreReviewItem?.range.start : undefined"
             :busy="coreReviewResolving || coreCommentOpen"
             @select="selectCoreReviewEntry"
           >
@@ -710,6 +710,7 @@ const coreCommentDraft = toRef(coreCommentComposer, 'draft')
 const coreCommentError = toRef(coreCommentComposer, 'error')
 const coreCommentTarget = toRef(coreCommentComposer, 'target')
 const coreReviewResolving = ref(false)
+const coreReviewTargeted = ref(false)
 const coreReviewRefreshPending = ref(false)
 const coreReviewBusy = computed(() => coreReviewResolving.value || coreReviewRefreshPending.value)
 const coreReviewRefresh = createLatestViewRefresh<CoreReviewItemReply>({
@@ -1791,6 +1792,7 @@ const showCoreProjection = async (mode: 'markup' | 'original' | 'revised'): Prom
     return
   }
   coreDisplayLoading.value = true
+  clearCoreReviewTarget()
   try {
     await corePlainTextAdapter?.settled()
     coreDisplayProjection.value = await props.coreLease.displayProjectionAtBarrier(mode)
@@ -1839,12 +1841,21 @@ const refreshCoreReviewItem = async (
 watch(
   () => [reviewLayoutStore.showSideBar, reviewLayoutStore.rightColumn],
   () => {
-    if (reviewLayoutStore.showSideBar && reviewLayoutStore.rightColumn === 'review') {
+    if (
+      reviewLayoutStore.showSideBar &&
+      reviewLayoutStore.rightColumn === 'review' &&
+      coreReviewTargeted.value
+    ) {
       nextTick(() => revealCoreReviewItem())
     }
   }
 )
 let coreReviewLocatedNode: HTMLElement | undefined
+const clearCoreReviewTarget = (): void => {
+  coreReviewTargeted.value = false
+  coreReviewLocatedNode?.classList.remove('core-review-current-block')
+  coreReviewLocatedNode = undefined
+}
 const revealCoreReviewItem = (scroll = true): void => {
   coreReviewLocatedNode?.classList.remove('core-review-current-block')
   coreReviewLocatedNode = undefined
@@ -1866,6 +1877,7 @@ const revealCoreReviewItem = (scroll = true): void => {
     ) ?? block
   if (!node) return
   coreReviewLocatedNode = node
+  coreReviewTargeted.value = true
   node.classList.add('core-review-current-block')
   if (scroll) node.scrollIntoView({ block: 'center', behavior: 'instant' })
 }
@@ -1913,6 +1925,7 @@ const selectCoreAnnotationAt = (start: number, open: boolean): void => {
     current?.range.start === start ||
     (current?.kind === 'commented-span' && current.commentRange.start === start)
   ) {
+    revealCoreReviewItem(false)
     return
   }
   const entry = coreReviewOverview.value.find(
@@ -2221,6 +2234,7 @@ const coreReviewCommandState = computed<ReviewCommandState>(() => ({
   }),
   tracking: coreTrackChangesEnabled.value,
   hasItem: coreReviewItem.value !== null,
+  targeted: coreReviewTargeted.value && coreReviewItem.value !== null,
   hasComment: coreReviewHasComment.value,
   removable: coreReviewUsesRemove.value,
   busy: coreReviewBusy.value || coreCommentOpen.value || coreDisplayLoading.value,
@@ -2361,6 +2375,7 @@ const handleCoreContextRequest = (value: unknown): void => {
     const state = {
       ...coreReviewCommandState.value,
       hasItem: true,
+      targeted: true,
       busy: coreReviewResolving.value || coreCommentOpen.value || coreDisplayLoading.value,
       removable: ['comment', 'commented-span', 'highlight'].includes(target.deepest.item.kind),
       hasComment: target.comment !== undefined
@@ -2414,6 +2429,7 @@ const handleCoreContextAction = (value: unknown): void => {
     ...coreReviewCommandState.value,
     busy: coreReviewResolving.value || coreCommentOpen.value || coreDisplayLoading.value,
     hasItem: true,
+    targeted: true,
     removable: ['comment', 'commented-span', 'highlight'].includes(target.deepest.item.kind),
     hasComment: target.comment !== undefined
   }
@@ -4654,6 +4670,8 @@ onMounted(() => {
           binding.sourceRange.start + Number(element.dataset.criticStart),
           false
         )
+      } else {
+        clearCoreReviewTarget()
       }
     }
     if (corePlainTextAdapter !== undefined) {

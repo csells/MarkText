@@ -26,6 +26,8 @@ export interface ReviewCommandState {
   canTrack: boolean
   tracking: boolean
   hasItem: boolean
+  /** The current item is under the caret or selection, or was chosen and revealed. */
+  targeted: boolean
   hasComment: boolean
   removable: boolean
   busy: boolean
@@ -38,9 +40,12 @@ export const reviewCommandEnabled = (id: ReviewCommand, state?: ReviewCommandSta
   if (id === 'previous' || id === 'next') return state.hasItem
   if (id === 'add-comment' || id === 'mark-highlight' || id === 'mark-addition' || id === 'suggest-replacement') return state.editable && state.canAuthor
   if (id === 'track-changes') return state.editable && state.canTrack
-  if (id === 'edit-comment') return state.hasComment
-  if (id === 'remove') return state.removable
-  if (id === 'accept' || id === 'reject') return state.hasItem && !state.removable
+  // Resolution changes source, so it needs the editable Markup view; per-item
+  // resolution also needs a visible target.
+  if (!state.editable) return false
+  if (id === 'edit-comment') return state.hasComment && state.targeted
+  if (id === 'remove') return state.removable && state.targeted
+  if (id === 'accept' || id === 'reject') return state.hasItem && state.targeted && !state.removable
   return state.hasItem
 }
 
