@@ -3645,7 +3645,8 @@ onMounted(() => {
             run: () => handleCoreReviewCommand(command.id)
           })),
     focusMode: focus.value,
-    markdown: props.corePlainTextView === undefined ? props.markdown : '',
+    // Core parses the document; Muya renders only the Core view's state.
+    markdown: props.coreRequired ? '' : props.markdown,
     locale: getMuyaLocale(language.value),
     preferLooseListItem: preferLooseListItem.value,
     autoPairBracket: autoPairBracket.value,
@@ -3735,7 +3736,7 @@ onMounted(() => {
   // this the allocator is created lazily on the first `json-change` — i.e.
   // after the first edit — so the pristine content never maps to id 0 and
   // undoing back to the on-disk content can never read as clean again (PG15).
-  if (props.coreLease === undefined && currentFile.value?.id) {
+  if (!props.coreRequired && currentFile.value?.id) {
     getSyntheticHistory(currentFile.value.id, muya.getMarkdown())
   }
 
