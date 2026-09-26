@@ -22,6 +22,14 @@
       />
     </label>
     <p
+      v-if="notice"
+      class="core-comment-notice"
+      :data-testid="`${testIdPrefix}-escape-notice`"
+      role="status"
+    >
+      {{ notice }}
+    </p>
+    <p
       v-if="targetChanged"
       class="core-comment-error"
       role="alert"
@@ -69,6 +77,8 @@ const props = withDefaults(
     draftText?: string
     submitting?: boolean
     error?: string
+    /** Disclosure shown while the draft needs MarkText-only spelling. */
+    notice?: string
     label?: string
     submitLabel?: string
     cancelLabel?: string
@@ -83,6 +93,7 @@ const props = withDefaults(
     defaultText: '',
     submitting: false,
     error: '',
+    notice: '',
     label: 'Comment',
     submitLabel: 'Save comment',
     cancelLabel: 'Cancel',
@@ -211,7 +222,8 @@ textarea:focus-visible {
   outline-offset: -2px;
 }
 
-.core-comment-error {
+.core-comment-error,
+.core-comment-notice {
   margin: 0;
   font-size: 0.9em;
 }
