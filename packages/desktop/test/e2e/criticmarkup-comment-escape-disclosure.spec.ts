@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 
 import {
+  clickMenuById,
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
   expectNoRendererErrors,
@@ -19,7 +20,7 @@ test('discloses MarkText-only escaping while a comment draft needs it', async() 
     await paragraph.click()
     await page.keyboard.press('Home')
     await page.keyboard.press('Shift+End')
-    await page.getByTestId('critic-review-add-comment').click()
+    await clickMenuById(app, 'critic-add-comment')
     const input = page.getByTestId('critic-review-comment-input')
     const notice = page.getByTestId('critic-review-comment-escape-notice')
     await expect(input).toBeFocused()
