@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createDocumentCore, resolveTableCell, type DocumentTableCellSelection } from '../src/index.js'
 
 const options = { autoPairBracket: false, autoPairMarkdownSyntax: false, autoPairQuote: false }
@@ -58,4 +58,48 @@ it('pads a cell whose insertion a deletion empties', () => {
   const commit = core.apply(revision, edits)
   expect(commit.revision.source).toBe('|     | b   |\n| --- | --- |\n| c   | d   |\n')
   expect(core.reconcileInput(revision, plan, commit, action).selection).toEqual({ kind: 'table-cell', cell: { table: { start: 0, end: 41 }, row: 0, column: 0 }, anchor: 0, focus: 0 })
+})
+
+// Owner decision (plan 0012 G24): the table is padded as upstream pads it, but
+// a row's text beyond the header's columns stays where upstream drops it.
+describe('text beyond the header columns', () => {
+  const undoOf = (source: string, row: number, column: number, anchor: number, data: string, tracked: boolean) => {
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const selection: DocumentTableCellSelection = { kind: 'table-cell', cell: { table: { start: 0, end: source.length - 1 }, row, column }, anchor, focus: anchor }
+    const action = { selection, range: selection, inputType: 'insertText', data, options }
+    const plan = core.planInput(revision, action, { tracked })
+    const edits = core.inputEdits(revision, action, plan, tracked)
+    if (edits === undefined) throw new Error('Cell input refused')
+    const commit = core.apply(revision, edits)
+    let shift = 0
+    const inverse = commit.change.appliedEdits.map((edit) => {
+      const start = edit.start + shift
+      shift += edit.insert.length - (edit.end - edit.start)
+      return { start, end: start + edit.insert.length, insert: source.slice(edit.start, edit.end) }
+    })
+    return core.apply(commit.revision, inverse).revision.source
+  }
+
+  it.each([
+    { name: 'an extra cell', source: '|a|b|\n|-|-|\n|c|d|extra|\n', typed: '| ax  | b   |\n| --- | --- |\n| c   | d   |extra|\n' },
+    { name: 'several extra cells without a closing pipe', source: '|a|b|\n|-|-|\n|c|d|e|f\n', typed: '| ax  | b   |\n| --- | --- |\n| c   | d   |e|f\n' },
+    { name: 'short and long rows together', source: '|a|b|\n|-|-|\n|c|\n|d|e|f|g|\n', typed: '| ax  | b   |\n| --- | --- |\n| c   |     |\n| d   | e   |f|g|\n' },
+    { name: 'an escaped pipe in an extra cell', source: '|a|b|\n|-|-|\n|c|d|x \\| y|\n', typed: '| ax  | b   |\n| --- | --- |\n| c   | d   |x \\| y|\n' },
+    { name: 'CriticMarkup in an extra cell', source: '|a|b|\n|-|-|\n|c|d|{++new++} {>>note<<}|\n', typed: '| ax  | b   |\n| --- | --- |\n| c   | d   |{++new++} {>>note<<}|\n' },
+    { name: 'CriticMarkup in a cell beside an extra cell', source: '|a|b|\n|-|-|\n|{--c--}|d|extra|\n', typed: '| ax      | b   |\n| ------- | --- |\n| {--c--} | d   |extra|\n' }
+  ])('keeps $name when a header cell edit pads the table', ({ source, typed }) => {
+    expect(typeInCell(source, 0, 0, 1, 'x', false).source).toBe(typed)
+    expect(undoOf(source, 0, 0, 1, 'x', false)).toBe(source)
+  })
+
+  it('keeps an extra cell when a cell of its own row is edited', () => {
+    expect(typeInCell('|a|b|\n|-|-|\n|c|d|extra|\n', 1, 1, 1, 'x', false).source).toBe('| a   | b   |\n| --- | --- |\n| c   | dx  |extra|\n')
+  })
+
+  it('leaves a tracked edit unpadded and every cell in place', () => {
+    const source = '|a|b|\n|-|-|\n|c|d|extra|\n'
+    expect(typeInCell(source, 0, 0, 1, 'x', true).source).toBe('|a{++x++}|b|\n|-|-|\n|c|d|extra|\n')
+    expect(undoOf(source, 0, 0, 1, 'x', true)).toBe(source)
+  })
 })

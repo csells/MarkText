@@ -10,8 +10,6 @@ for (const surface of ['wysiwyg', 'source', 'inactive tab'] as const) {
     const { app, page, filePath } = await launchWithMarkdown('seed\n', {
       suppressErrorDialog: true,
       env: {
-        MARKTEXT_DOCUMENT_CORE_MODE: undefined,
-        MARKTEXT_DOCUMENT_CORE_SHADOW: undefined,
         MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: '1',
         MARKTEXT_E2E_HIDDEN_WINDOW: '1'
       }

@@ -147,10 +147,10 @@ const saveIdentityOf = (
 
 const withAuthoritativeSaveSource = (
   documentId: string,
-  fallbackSource: string,
+  loadedSource: string,
   persist: (source: string, identity: DocumentSaveIdentity | null) => void
 ): void | Promise<void> => {
-  const sources = coreDocumentSaveAuthority.resolve([{ documentId, fallbackSource }])
+  const sources = coreDocumentSaveAuthority.resolve([{ documentId, loadedSource }])
   if (sources instanceof Promise) {
     return sources.then(([result]) =>
       persist(result!.source, saveIdentityOf(documentId, result!.identity))
@@ -170,7 +170,7 @@ const withAuthoritativeFileSources = <
   persist: (files: T[]) => void
 ): void | Promise<void> => {
   const resolved = coreDocumentSaveAuthority.resolve(
-    files.map((file) => ({ documentId: file.id, fallbackSource: file.markdown }))
+    files.map((file) => ({ documentId: file.id, loadedSource: file.markdown }))
   )
   const consume = (
     sources: readonly { source: string; identity: DocumentSaveIdentity | null }[]
@@ -1288,7 +1288,7 @@ export const useEditorStore = defineStore('editor', {
       if (closeRefused([target.id])) return
 
       const sources = coreDocumentSaveAuthority.resolve([
-        { documentId: target.id, fallbackSource: target.markdown }
+        { documentId: target.id, loadedSource: target.markdown }
       ])
       if (!(sources instanceof Promise)) {
         if (target.isSaved) this.FORCE_CLOSE_TAB(target)
@@ -1441,7 +1441,7 @@ export const useEditorStore = defineStore('editor', {
       const sources = coreDocumentSaveAuthority.resolve(
         files.map((file) => ({
           documentId: file.id,
-          fallbackSource: file.markdown
+          loadedSource: file.markdown
         }))
       )
       if (!(sources instanceof Promise)) {
@@ -1847,7 +1847,7 @@ export const useEditorStore = defineStore('editor', {
         const barrier = coreDocumentSaveAuthority.resolve([
           {
             documentId: outgoing.id,
-            fallbackSource: outgoing.markdown
+            loadedSource: outgoing.markdown
           }
         ])
         if (barrier instanceof Promise) return barrier.then(openDocument)
@@ -2270,24 +2270,30 @@ export const useEditorStore = defineStore('editor', {
 
     // Reads `currentFile.markdown` after a flush, the way `FILE_SAVE` does: in source-code
     // mode CodeMirror writes straight to it, so `engine.getMarkdown()` would be stale (#5379).
-    EXPORT_PANDOC(target: string): void {
+    EXPORT_PANDOC(target: string): void | Promise<void> {
       if (this.currentFile === null) return
 
       this.flushActiveEditor()
-      const { pathname, markdown } = this.currentFile
+      const { id, pathname, markdown } = this.currentFile
       const preferencesStore = usePreferencesStore()
-      window.electron.ipcRenderer.send('mt::response-pandoc-export', {
-        target,
-        markdown,
-        superSubScript: preferencesStore.superSubScript === true,
-        footnote: preferencesStore.footnote === true,
-        texMathDollars: preferencesStore.texMathDollars === true,
-        texMathGfm: preferencesStore.texMathGfm === true,
-        texMathSingleBackslash: preferencesStore.texMathSingleBackslash === true,
-        texMathDoubleBackslash: preferencesStore.texMathDoubleBackslash === true,
-        title: this.documentTitle,
-        pathname
+      const title = this.documentTitle
+      // Pandoc converts the document the save barrier would write, including
+      // edits the store's copy has not seen.
+      const pending = withAuthoritativeSaveSource(id, markdown, (source) => {
+        window.electron.ipcRenderer.send('mt::response-pandoc-export', {
+          target,
+          markdown: source,
+          superSubScript: preferencesStore.superSubScript === true,
+          footnote: preferencesStore.footnote === true,
+          texMathDollars: preferencesStore.texMathDollars === true,
+          texMathGfm: preferencesStore.texMathGfm === true,
+          texMathSingleBackslash: preferencesStore.texMathSingleBackslash === true,
+          texMathDoubleBackslash: preferencesStore.texMathDoubleBackslash === true,
+          title,
+          pathname
+        })
       })
+      if (pending instanceof Promise) return pending.catch(reportSaveBarrierFailure)
     },
 
     LISTEN_FOR_EXPORT_SUCCESS(): void {

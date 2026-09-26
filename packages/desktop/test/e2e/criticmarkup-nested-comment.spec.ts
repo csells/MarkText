@@ -9,8 +9,6 @@ import {
 const options = {
   suppressErrorDialog: true,
   env: {
-    MARKTEXT_DOCUMENT_CORE_MODE: undefined,
-    MARKTEXT_DOCUMENT_CORE_SHADOW: undefined,
     MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined,
     MARKTEXT_E2E_HIDDEN_WINDOW: '1'
   }

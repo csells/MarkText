@@ -10,17 +10,14 @@ test('normal launch enables editable Review and exact history without feature or
   const { app, page, filePath } = await launchWithMarkdown('seed\n', {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: undefined,
-      MARKTEXT_DOCUMENT_CORE_SHADOW: undefined,
       MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined,
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }
   })
   try {
-    expect(await page.evaluate(() => ({
-      core: window.electron.process.env.MARKTEXT_DOCUMENT_CORE_MODE,
-      controls: window.electron.process.env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
-    }))).toEqual({ core: undefined, controls: undefined })
+    expect(
+      await page.evaluate(() => window.electron.process.env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS)
+    ).toBeUndefined()
     const tracking = page.getByTestId('critic-review-track-changes')
     await expect(tracking).toBeVisible()
     await tracking.click()
@@ -47,8 +44,6 @@ test('normal launch keeps quick-insert editable through heading creation and sav
   const { app, page, filePath } = await launchWithMarkdown('', {
     suppressErrorDialog: true,
     env: {
-      MARKTEXT_DOCUMENT_CORE_MODE: undefined,
-      MARKTEXT_DOCUMENT_CORE_SHADOW: undefined,
       MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined,
       MARKTEXT_E2E_HIDDEN_WINDOW: '1'
     }

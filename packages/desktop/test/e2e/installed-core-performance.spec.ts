@@ -607,7 +607,6 @@ test.describe('installed Core authority raw performance producer', () => {
                 env: {
                   ...launchEnvironment,
                   PERF_TESTING: 'true',
-                  MARKTEXT_DOCUMENT_CORE_MODE: '1',
                   MARKTEXT_E2E_HIDDEN_WINDOW: '1',
                   MARKTEXT_ERROR_INTERACTION: '1'
                 },

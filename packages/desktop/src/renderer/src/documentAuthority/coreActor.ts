@@ -930,68 +930,6 @@ export function createCoreActor(
     })
   }
 
-  const editedCommentFor = (
-    activeCore: DocumentCore,
-    activeRevision: DocumentRevision,
-    annotation: CriticMarkupAnnotation,
-    text: string
-  ): DocumentSourceEdit | undefined => {
-    if (annotation.kind !== 'comment' || typeof text !== 'string') return undefined
-    const prefix = activeCore.sourceSlice(activeRevision, {
-      start: 0,
-      end: annotation.range.start
-    })
-    const suffix = activeCore.sourceSlice(activeRevision, {
-      start: annotation.range.end,
-      end: activeRevision.sourceLength
-    })
-    const candidateFor = (payload: string): DocumentSourceEdit | undefined => {
-      const insert = `{>>${payload}<<}`
-      const candidateCore = createDocumentCore()
-      const candidate = candidateCore.open(prefix + insert + suffix, markdownOptions)
-      const end = annotation.range.start + insert.length
-      if (
-        candidate.diagnostics.some(
-          (diagnostic) =>
-            diagnostic.range.start < end && diagnostic.range.end > annotation.range.start
-        )
-      ) {
-        return undefined
-      }
-      const edited = annotationFor(candidate, {
-        kind: 'comment',
-        range: { start: annotation.range.start, end }
-      })
-      const arm = edited?.arms.find((item) => item.name === 'comment')
-      return arm !== undefined && candidateCore.sourceSlice(candidate, arm.range) === payload
-        ? Object.freeze({ ...annotation.range, insert })
-        : undefined
-    }
-    const raw = candidateFor(text)
-    if (raw !== undefined) return raw
-    const payloadCore = createDocumentCore()
-    const payload = payloadCore.open(text, markdownOptions)
-    const selectivelyProtectedText = text.replace(
-      /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<</g,
-      (token: string, offset: number) =>
-        payload.diagnostics.some(
-          (diagnostic) =>
-            diagnostic.range.start < offset + token.length && diagnostic.range.end > offset
-        )
-          ? `\\${token}`
-          : token
-    )
-    if (selectivelyProtectedText !== text) {
-      const selective = candidateFor(selectivelyProtectedText)
-      if (selective !== undefined) return selective
-    }
-    const protectedText = text.replace(
-      /\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<</g,
-      (token) => `\\${token}`
-    )
-    return protectedText === text ? undefined : candidateFor(protectedText)
-  }
-
   const resolutionEditFor = (
     activeCore: DocumentCore,
     activeRevision: DocumentRevision,
@@ -1771,7 +1709,7 @@ export function createCoreActor(
           })
         }
         try {
-          editedComment = editedCommentFor(core, revision, comment, request.text)
+          editedComment = core.planCommentEdit(revision, { range: comment.range, text: request.text })?.edit
         } catch (error) {
           if (error instanceof DocumentCoreError) {
             return Object.freeze({

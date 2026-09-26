@@ -28,8 +28,6 @@ const launchOptions = {
   suppressErrorDialog: true,
   env: {
     MARKTEXT_E2E_HIDDEN_WINDOW: '1',
-    MARKTEXT_DOCUMENT_CORE_MODE: undefined,
-    MARKTEXT_DOCUMENT_CORE_SHADOW: undefined,
     MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined
   }
 } as const

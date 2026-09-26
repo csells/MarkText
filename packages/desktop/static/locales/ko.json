@@ -395,7 +395,6 @@
         "codeFontFamily": "코드 블록에서 사용되는 글꼴 패밀리",
         "codeBlockLineNumbers": "줄 번호를 표시할지 여부",
         "sourceCodeLineNumbers": "소스 코드 모드에서 줄 번호 표시",
-        "trimUnnecessaryCodeBlockEmptyLines": "코드 블록의 시작과 끝에 있는 빈 줄 제거",
         "autoPairBracket": "편집 시 자동으로 괄호 쌍 만들기",
         "autoPairMarkdownSyntax": "마크다운 구문 자동 완성",
         "autoPairQuote": "따옴표 자동 완성",
@@ -547,8 +546,7 @@
         "title": "코드 블록",
         "fontSize": "글꼴 크기",
         "fontFamily": "글꼴 패밀리",
-        "showLineNumbers": "줄 번호 보기",
-        "removeEmptyLines": "빈 줄 제거"
+        "showLineNumbers": "줄 번호 보기"
       },
       "writingBehavior": {
         "title": "작성 동작",
@@ -1055,6 +1053,7 @@
       "revisedDocument": "수정본 문서",
       "saveComment": "댓글 저장",
       "commentTargetChanged": "문서가 변경되었습니다. 댓글 초안은 보존되어 있습니다. 다른 대상을 선택하기 전에 취소하세요.",
+      "commentEscapeNotice": "CriticMarkup과 비슷한 텍스트가 있습니다. MarkText가 백슬래시로 이스케이프했으며, 다른 CriticMarkup 도구에서는 백슬래시가 그대로 표시될 수 있습니다.",
       "commentSaveFailed": "댓글을 저장할 수 없습니다. 초안과 원래 대상은 보존되어 있습니다.",
       "finishDraftBeforeClosing": "이 문서를 닫기 전에 보류 중인 댓글 또는 대체 텍스트를 저장하거나 취소하세요.",
       "commentPrompt": "댓글",

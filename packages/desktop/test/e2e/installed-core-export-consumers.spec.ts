@@ -88,15 +88,13 @@ const installedBinary = (): string => {
 const launchInstalled = async(
   binary: string,
   userDataDir: string,
-  filePath: string,
-  nativeMuya = false
+  filePath: string
 ): Promise<{ app: ElectronApplication; page: Page }> => {
   const environment = defaultCoreLaunchEnvironment({
     PERF_TESTING: 'true',
     MARKTEXT_E2E_HIDDEN_WINDOW: '1',
     MARKTEXT_ERROR_INTERACTION: '1'
   })
-  if (nativeMuya) environment.MARKTEXT_DOCUMENT_CORE_MODE = '0'
   const app = await electron.launch({
     executablePath: binary,
     args: ['--user-data-dir', userDataDir, filePath],
@@ -109,15 +107,8 @@ const launchInstalled = async(
     await waitForEditor(page, 60_000)
     await waitForMenuReady(app, 60_000)
     await expectInstalledArtifactCommit(page)
-    if (nativeMuya) {
-      expect(
-        await page.evaluate(() => window.electron.process.env.MARKTEXT_DOCUMENT_CORE_MODE)
-      ).toBe('0')
-      expect(await page.evaluate(() => window.__marktextDocumentCore?.mode)).not.toBe('core')
-    } else {
-      await expectDefaultCoreAuthority(page)
-      await page.waitForFunction(() => window.__marktextDocumentCore?.authoritySource !== undefined)
-    }
+    await expectDefaultCoreAuthority(page)
+    await page.waitForFunction(() => window.__marktextDocumentCore?.authoritySource !== undefined)
     return { app, page }
   } catch (error) {
     await app.close().catch(() => {})
@@ -325,38 +316,6 @@ const authoritySource = async(page: Page): Promise<string> => {
 
 test.describe('installed Core Revised export consumers', () => {
   test.describe.configure({ timeout: 180_000 })
-
-  test('native Muya control prints the same formula with visible PDF glyphs', async() => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-installed-native-math-'))
-    const filePath = path.join(root, 'native-math.md')
-    const pdfPath = path.join(root, 'native-math.pdf')
-    writeFixtureImage(path.join(root, 'image.png'))
-    fs.writeFileSync(filePath, source, 'utf8')
-    let app: ElectronApplication | undefined
-    try {
-      const launched = await launchInstalled(
-        installedBinary(),
-        path.join(root, 'profile'),
-        filePath,
-        true
-      )
-      app = launched.app
-      await expectEditorWindowHidden(app)
-      expectEditorNotFrontmost(app)
-      await installNativeConsumerProbe(app, path.join(root, 'native-math.html'), pdfPath)
-      await invokeExportCommand(app, launched.page, 'file.export-file-html')
-      await invokeExportCommand(app, launched.page, 'file.export-file-pdf')
-      await expect.poll(() => fs.existsSync(pdfPath)).toBe(true)
-      await test
-        .info()
-        .attach('native-muya-math.pdf', { path: pdfPath, contentType: 'application/pdf' })
-      const text = execFileSync('pdftotext', [pdfPath, '-'], { encoding: 'utf8' })
-      expect(text).toMatch(/Math:\s*x\s*2\s*\./)
-    } finally {
-      if (app !== undefined) await app.close()
-      fs.rmSync(root, { recursive: true, force: true })
-    }
-  })
 
   test('styled HTML, PDF, and Print commands consume the same Revised projection', async() => {
     const binary = installedBinary()

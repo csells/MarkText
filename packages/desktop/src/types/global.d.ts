@@ -14,7 +14,6 @@ import type {
 } from '@shared/types/ipc'
 import type { MenuTemplate, MenuPopupPosition } from '@shared/types/menu'
 import type { SerializedStat } from '@shared/types/files'
-import type { ShadowReport } from '@/documentAuthority'
 import type { CoreAuthorityPerformanceEvent } from '@/documentAuthority/coreAuthorityPerformanceTrace'
 import type {
   CriticMarkupKind,
@@ -214,12 +213,6 @@ declare global {
     rgPath: string
     // Set by the legacy editor store at runtime; consumed by muya internals.
     DIRNAME: string
-    /** Read-only, opt-in test diagnostics for the document-core Shadow. */
-    __marktextDocumentCoreShadow?: {
-      readonly diagnosticOnly: true
-      settled(): Promise<void>
-      reports(): readonly ShadowReport[]
-    }
     __marktextDocumentCore?: {
       readonly mode: 'core'
       readonly documentId?: string

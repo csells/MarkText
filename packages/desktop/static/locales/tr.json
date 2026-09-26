@@ -394,7 +394,6 @@
         "codeFontFamily": "Kod bloğunda kullanılan yazı tipi ailesi",
         "codeBlockLineNumbers": "Satır numaralarının gösterilip gösterilmeyeceği",
         "sourceCodeLineNumbers": "Kaynak kod modunda satır numaralarını göster",
-        "trimUnnecessaryCodeBlockEmptyLines": "Kod bloğundaki baştaki ve sondaki boş satırları kırp",
         "autoPairBracket": "Düzenlerken parantezleri otomatik tamamla",
         "autoPairMarkdownSyntax": "Markdown söz dizimini otomatik tamamla",
         "autoPairQuote": "Tırnak işaretlerini otomatik tamamla",
@@ -547,8 +546,7 @@
         "title": "Kod Bloğu",
         "fontSize": "Yazı tipi boyutu",
         "fontFamily": "Yazı tipi ailesi",
-        "showLineNumbers": "Satır numaralarını göster",
-        "removeEmptyLines": "Boş satırları kaldır"
+        "showLineNumbers": "Satır numaralarını göster"
       },
       "writingBehavior": {
         "title": "Yazma Davranışı",
@@ -1055,6 +1053,7 @@
       "revisedDocument": "Düzeltilmiş belge",
       "saveComment": "Yorumu kaydet",
       "commentTargetChanged": "Belge değişti. Yorum taslağınız korunuyor; başka bir hedef seçmeden önce iptal edin.",
+      "commentEscapeNotice": "CriticMarkup'a benzeyen metin içeriyor; MarkText bunu ters eğik çizgilerle kaçışladı, diğer CriticMarkup araçları bunları olduğu gibi gösterebilir.",
       "commentSaveFailed": "Yorum kaydedilemedi. Taslağınız ve özgün hedefi korunuyor.",
       "finishDraftBeforeClosing": "Bu belgeyi kapatmadan önce bekleyen yorumu veya değiştirme metnini kaydedin ya da iptal edin.",
       "commentPrompt": "Yorum",

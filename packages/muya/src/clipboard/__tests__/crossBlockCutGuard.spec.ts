@@ -47,4 +47,16 @@ describe('shouldCrossBlockCut (#3491)', () => {
         expect(shouldCrossBlockCut('ArrowDown', false, false)).toBe(false);
         expect(shouldCrossBlockCut('Shift', false, false)).toBe(false);
     });
+
+    // G26: upstream cut on every other named key, so Home/End/PageDown/Escape
+    // deleted a multi-paragraph selection.
+    it('does NOT cut on other non-editing keys', () => {
+        for (const key of ['Home', 'End', 'PageUp', 'PageDown', 'Escape', 'Tab', 'F2', 'F12', 'Insert', 'ContextMenu', 'CapsLock', 'NumLock', 'ScrollLock', 'Pause', 'AudioVolumeMute', 'MediaPlayPause', 'Unidentified'])
+            expect(shouldCrossBlockCut(key, false, false), key).toBe(false);
+    });
+
+    it('cuts on Enter, Space and the start of a composition', () => {
+        for (const key of ['Enter', ' ', 'Dead', 'Process', 'é', '😀'])
+            expect(shouldCrossBlockCut(key, false, false), key).toBe(true);
+    });
 });

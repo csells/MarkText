@@ -395,7 +395,6 @@
         "codeFontFamily": "Schriftfamilie im Codeblock",
         "codeBlockLineNumbers": "Ob Zeilennummern angezeigt werden sollen",
         "sourceCodeLineNumbers": "Zeilennummern im Quellcode-Modus anzeigen",
-        "trimUnnecessaryCodeBlockEmptyLines": "Leere Zeilen am Anfang und Ende des Codeblocks entfernen",
         "autoPairBracket": "Automatische Klammern beim Bearbeiten",
         "autoPairMarkdownSyntax": "Markdown-Syntax automatisch vervollständigen",
         "autoPairQuote": "Automatische Vervollständigung von Anführungszeichen",
@@ -547,8 +546,7 @@
         "title": "Code-Block",
         "fontSize": "Schriftgröße",
         "fontFamily": "Schriftfamilie",
-        "showLineNumbers": "Zeilennummern anzeigen",
-        "removeEmptyLines": "Leere Zeilen entfernen"
+        "showLineNumbers": "Zeilennummern anzeigen"
       },
       "writingBehavior": {
         "title": "Schreibverhalten",
@@ -1055,6 +1053,7 @@
       "revisedDocument": "Überarbeitetes Dokument",
       "saveComment": "Kommentar speichern",
       "commentTargetChanged": "Das Dokument wurde geändert. Ihr Kommentarentwurf bleibt erhalten; brechen Sie ab, bevor Sie ein anderes Ziel wählen.",
+      "commentEscapeNotice": "Enthält CriticMarkup-ähnlichen Text; MarkText hat ihn mit Backslashes maskiert, die andere CriticMarkup-Werkzeuge möglicherweise wörtlich anzeigen.",
       "commentSaveFailed": "Der Kommentar konnte nicht gespeichert werden. Ihr Entwurf und das ursprüngliche Ziel bleiben erhalten.",
       "finishDraftBeforeClosing": "Speichern oder verwerfen Sie den ausstehenden Kommentar oder Ersatztext, bevor Sie dieses Dokument schließen.",
       "commentPrompt": "Kommentar",

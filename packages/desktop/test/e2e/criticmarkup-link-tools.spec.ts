@@ -9,7 +9,7 @@ test('unlinks an annotated link through its native popover and restores it with 
   const source = 'prefix {++[name](https://example.com)++} tail\n'
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
-    env: { MARKTEXT_DOCUMENT_CORE_MODE: '1', MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
+    env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
   })
   try {
     await expectEditorWindowHidden(app)

@@ -394,7 +394,6 @@
         "codeFontFamily": "Font family used in code block",
         "codeBlockLineNumbers": "Whether to show the line numbers",
         "sourceCodeLineNumbers": "Show line numbers in source code mode",
-        "trimUnnecessaryCodeBlockEmptyLines": "Trim the beginning and ending empty lines in code block",
         "autoPairBracket": "Automatically brackets when editing",
         "autoPairMarkdownSyntax": "Autocomplete markdown syntax",
         "autoPairQuote": "Automatic completion of quotes",
@@ -547,8 +546,7 @@
         "title": "Code Block",
         "fontSize": "Font size",
         "fontFamily": "Font family",
-        "showLineNumbers": "Show line numbers",
-        "removeEmptyLines": "Remove empty lines"
+        "showLineNumbers": "Show line numbers"
       },
       "writingBehavior": {
         "title": "Writing Behavior",
@@ -1055,6 +1053,7 @@
       "revisedDocument": "Revised document",
       "saveComment": "Save Comment",
       "commentTargetChanged": "The document changed. Your comment draft is preserved; cancel before choosing a new target.",
+      "commentEscapeNotice": "Contains CriticMarkup-like text; MarkText escaped it with backslashes, which other CriticMarkup tools may show literally.",
       "commentSaveFailed": "The comment could not be saved. Your draft and original target are preserved.",
       "finishDraftBeforeClosing": "Save or cancel the pending comment or replacement before closing this document.",
       "commentPrompt": "Comment",

@@ -26,30 +26,29 @@ Preferences can be controlled and modified in the settings window or via the `pr
 
 #### Editor
 
-| Key                                | Type    | Default            | Description                                                                                         |
-| ---------------------------------- | ------- | ------------------ | --------------------------------------------------------------------------------------------------- |
-| editorFontFamily                   | String  | `Open Sans`        | Editor font family.                                                                                 |
-| fontSize                           | Number  | `16`               | Font size in pixels. Range `12`–`32`.                                                               |
-| lineHeight                         | Number  | `1.6`              | Line height. Range `1.2`–`2.0`.                                                                     |
-| wrapCodeBlocks                     | Boolean | `true`             | Wrap text inside code blocks.                                                                       |
-| editorLineWidth                    | String  | `""`               | Maximum editor area width. Empty or a value with a `ch`, `px` or `%` suffix.                        |
-| codeFontSize                       | Number  | `14`               | Font size inside code blocks. Range `12`–`28`.                                                      |
-| codeFontFamily                     | String  | `DejaVu Sans Mono` | Code-block font family.                                                                             |
-| codeBlockLineNumbers               | Boolean | `true`             | Show line numbers inside code blocks.                                                               |
-| sourceCodeLineNumbers              | Boolean | `true`             | Show line numbers in source code mode.                                                              |
-| trimUnnecessaryCodeBlockEmptyLines | Boolean | `true`             | Trim the beginning and ending empty lines in code blocks.                                           |
-| autoPairBracket                    | Boolean | `true`             | Auto-close brackets when editing.                                                                   |
-| autoPairMarkdownSyntax             | Boolean | `true`             | Autocomplete markdown syntax.                                                                       |
-| autoPairQuote                      | Boolean | `true`             | Auto-close quotes.                                                                                  |
-| endOfLine                          | String  | `default`          | Newline character at the end of each line: `default` (OS default), `lf`, or `crlf`.                 |
-| defaultEncoding                    | String  | `utf8`             | The default file encoding. See `src/main/preferences/schema.json` for the full enum (35 encodings). |
-| autoGuessEncoding                  | Boolean | `true`             | Try to automatically guess the file encoding when opening files.                                    |
-| trimTrailingNewline                | Number  | `2`                | Trailing-newline handling: `0` trim all, `1` ensure single newline, `2` auto-detect, `3` disabled.  |
-| textDirection                      | String  | `ltr`              | Writing direction: `ltr` or `rtl`.                                                                  |
-| hideQuickInsertHint                | Boolean | `false`            | Hide the hint for the quick-insert overlay.                                                         |
-| hideLinkPopup                      | Boolean | `false`            | Hide the link popup when the cursor hovers over a link.                                             |
-| autoCheck                          | Boolean | `false`            | Whether to automatically check related task items when one is toggled.                              |
-| autoNormalizeLineEndings           | Boolean | `false`            | Automatically normalize line endings when opening files. When disabled, files are opened as-is.     |
+| Key                      | Type    | Default            | Description                                                                                         |
+| ------------------------ | ------- | ------------------ | --------------------------------------------------------------------------------------------------- |
+| editorFontFamily         | String  | `Open Sans`        | Editor font family.                                                                                 |
+| fontSize                 | Number  | `16`               | Font size in pixels. Range `12`–`32`.                                                               |
+| lineHeight               | Number  | `1.6`              | Line height. Range `1.2`–`2.0`.                                                                     |
+| wrapCodeBlocks           | Boolean | `true`             | Wrap text inside code blocks.                                                                       |
+| editorLineWidth          | String  | `""`               | Maximum editor area width. Empty or a value with a `ch`, `px` or `%` suffix.                        |
+| codeFontSize             | Number  | `14`               | Font size inside code blocks. Range `12`–`28`.                                                      |
+| codeFontFamily           | String  | `DejaVu Sans Mono` | Code-block font family.                                                                             |
+| codeBlockLineNumbers     | Boolean | `true`             | Show line numbers inside code blocks.                                                               |
+| sourceCodeLineNumbers    | Boolean | `true`             | Show line numbers in source code mode.                                                              |
+| autoPairBracket          | Boolean | `true`             | Auto-close brackets when editing.                                                                   |
+| autoPairMarkdownSyntax   | Boolean | `true`             | Autocomplete markdown syntax.                                                                       |
+| autoPairQuote            | Boolean | `true`             | Auto-close quotes.                                                                                  |
+| endOfLine                | String  | `default`          | Newline character at the end of each line: `default` (OS default), `lf`, or `crlf`.                 |
+| defaultEncoding          | String  | `utf8`             | The default file encoding. See `src/main/preferences/schema.json` for the full enum (35 encodings). |
+| autoGuessEncoding        | Boolean | `true`             | Try to automatically guess the file encoding when opening files.                                    |
+| trimTrailingNewline      | Number  | `2`                | Trailing-newline handling: `0` trim all, `1` ensure single newline, `2` auto-detect, `3` disabled.  |
+| textDirection            | String  | `ltr`              | Writing direction: `ltr` or `rtl`.                                                                  |
+| hideQuickInsertHint      | Boolean | `false`            | Hide the hint for the quick-insert overlay.                                                         |
+| hideLinkPopup            | Boolean | `false`            | Hide the link popup when the cursor hovers over a link.                                             |
+| autoCheck                | Boolean | `false`            | Whether to automatically check related task items when one is toggled.                              |
+| autoNormalizeLineEndings | Boolean | `false`            | Automatically normalize line endings when opening files. When disabled, files are opened as-is.     |
 
 #### Markdown
 

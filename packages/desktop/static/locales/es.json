@@ -395,7 +395,6 @@
         "codeFontFamily": "Familia de fuente utilizada en bloque de código",
         "codeBlockLineNumbers": "Si mostrar los números de línea",
         "sourceCodeLineNumbers": "Mostrar números de línea en el modo código fuente",
-        "trimUnnecessaryCodeBlockEmptyLines": "Recortar las líneas vacías del principio y final en bloque de código",
         "autoPairBracket": "Paréntesis automáticos al editar",
         "autoPairMarkdownSyntax": "Autocompletar sintaxis de markdown",
         "autoPairQuote": "Finalización automática de comillas",
@@ -547,8 +546,7 @@
         "title": "Bloque de Código",
         "fontSize": "Tamaño de fuente",
         "fontFamily": "Familia de fuente",
-        "showLineNumbers": "Mostrar números de línea",
-        "removeEmptyLines": "Eliminar líneas vacías"
+        "showLineNumbers": "Mostrar números de línea"
       },
       "writingBehavior": {
         "title": "Comportamiento de Escritura",
@@ -1055,6 +1053,7 @@
       "revisedDocument": "Documento revisado",
       "saveComment": "Guardar comentario",
       "commentTargetChanged": "El documento ha cambiado. Su borrador de comentario se conserva; cancele antes de elegir otro destino.",
+      "commentEscapeNotice": "Contiene texto similar a CriticMarkup; MarkText lo escapó con barras invertidas, que otras herramientas de CriticMarkup pueden mostrar literalmente.",
       "commentSaveFailed": "No se pudo guardar el comentario. Su borrador y su destino original se conservan.",
       "finishDraftBeforeClosing": "Guarde o cancele el comentario o el texto de reemplazo pendiente antes de cerrar este documento.",
       "commentPrompt": "Comentario",

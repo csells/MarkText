@@ -394,7 +394,6 @@
         "codeFontFamily": "Lettertype voor codeblokken",
         "codeBlockLineNumbers": "Regelnummers tonen",
         "sourceCodeLineNumbers": "Regelnummers tonen in broncodeweergave",
-        "trimUnnecessaryCodeBlockEmptyLines": "Lege regels aan begin en einde van codeblokken verwijderen",
         "autoPairBracket": "Automatisch haakjes aanvullen bij bewerken",
         "autoPairMarkdownSyntax": "Markdown-syntax automatisch aanvullen",
         "autoPairQuote": "Automatisch aanhalingstekens aanvullen",
@@ -547,8 +546,7 @@
         "title": "Codeblok",
         "fontSize": "Lettergrootte",
         "fontFamily": "Lettertypefamilie",
-        "showLineNumbers": "Regelnummers tonen",
-        "removeEmptyLines": "Lege regels verwijderen"
+        "showLineNumbers": "Regelnummers tonen"
       },
       "writingBehavior": {
         "title": "Schrijfgedrag",
@@ -1055,6 +1053,7 @@
       "revisedDocument": "Herzien document",
       "saveComment": "Opmerking opslaan",
       "commentTargetChanged": "Het document is gewijzigd. Uw conceptopmerking blijft bewaard; annuleer voordat u een ander doel kiest.",
+      "commentEscapeNotice": "Bevat op CriticMarkup lijkende tekst; MarkText heeft die met backslashes geëscapet, die andere CriticMarkup-tools mogelijk letterlijk tonen.",
       "commentSaveFailed": "De opmerking kon niet worden opgeslagen. Uw concept en het oorspronkelijke doel blijven bewaard.",
       "finishDraftBeforeClosing": "Sla de openstaande opmerking of vervangende tekst op of annuleer deze voordat u dit document sluit.",
       "commentPrompt": "Opmerking",
