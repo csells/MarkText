@@ -567,6 +567,8 @@ const props = defineProps<{
   platform?: string
   coreRequired?: boolean
   coreLease?: CoreDocumentViewLease
+  /** The current document's lease in any view; exports read it while Source view is up. */
+  coreDocumentLease?: CoreDocumentViewLease
   initialDocumentSelection?: DocumentSelection
   corePlainTextView?: Extract<MuyaPlainTextViewResult, { kind: 'view' }>
   corePerformanceTrace?: CoreAuthorityPerformanceTrace
@@ -2966,13 +2968,18 @@ const handleExport = async (options: unknown) => {
   const renderExportHtml = async (
     exportOptions: Omit<ExportStyledHtmlOptions, 'toc'>
   ): Promise<string> => {
-    if (props.coreLease !== undefined) {
-      const { projection } = await coreProjectionAtBarrier()
+    const documentLease = props.coreLease ?? props.coreDocumentLease
+    if (documentLease !== undefined) {
+      const projection =
+        documentLease === props.coreLease
+          ? (await coreProjectionAtBarrier()).projection
+          : await documentLease.consumerProjectionAtBarrier()
       return exportStyledHTMLFromProjection(muya, projection, {
         ...exportOptions,
         toc: getHtmlToc([...tocProjectedDocument(projection)], opts as unknown as HtmlTocOptions)
       })
     }
+    if (props.coreRequired) throw new Error('Core consumer projection is unavailable')
     return exportStyledHTML(muya, muya.getMarkdown(), {
       ...exportOptions,
       toc: getHtmlToc(muya.getTOC(), opts as unknown as HtmlTocOptions)
