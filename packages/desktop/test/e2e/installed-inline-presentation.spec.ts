@@ -6,7 +6,8 @@ import {
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
   waitForEditor,
-  waitForMenuReady
+  waitForMenuReady,
+  showReviewSidebar
 } from './helpers'
 import {
   defaultCoreLaunchEnvironment,
@@ -132,7 +133,7 @@ test('installed emoji matches Markup in reader modes, comments and the HTML expo
   const { app, page, file, root, errors } = await launch(source)
   try {
     await expect(page.locator('.editor-component [data-emoji="😄"]')).toHaveCount(2)
-    await page.getByRole('button', { name: 'Review', exact: true }).click()
+    await showReviewSidebar(app)
     await expect(page.locator('[data-projection="comment"]')).toContainText('Note 😄 and')
     await page.getByTestId('critic-review-original').click()
     await expect(page.locator('[data-projection="original"]')).toHaveText('Plain 😄  :smile:.\n')

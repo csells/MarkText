@@ -11,7 +11,8 @@ import {
   launchElectron,
   sendIpcToRenderer,
   waitForEditor,
-  waitForMenuReady
+  waitForMenuReady,
+  showReviewSidebar
 } from './helpers'
 import {
   expectDefaultCoreAuthority,
@@ -107,7 +108,7 @@ for (const annotated of [false, true]) {
       await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
       await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(typed)
       if (annotated) {
-        await page.getByRole('button', { name: 'Review', exact: true }).click()
+        await showReviewSidebar(app)
         await page
           .getByTestId('critic-review-entry')
           .filter({ hasText: 'sunny' })

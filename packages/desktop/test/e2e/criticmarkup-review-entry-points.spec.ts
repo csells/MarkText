@@ -105,10 +105,10 @@ const toolbarState = (page: Page) =>
     const float = picker?.parentElement
     return {
       visible: float ? getComputedStyle(float).opacity === '1' : false,
-      review: Array.from(picker?.querySelectorAll<HTMLButtonElement>('button[data-action]') ?? [])
-        .filter(button => button.offsetParent !== null)
-        .map(button => `${button.dataset.action}:${button.disabled ? 'off' : 'on'}`),
-      formatting: Array.from(picker?.querySelectorAll<HTMLElement>('li.item') ?? []).filter(item => item.offsetParent !== null).length
+      review: Array.from(picker?.querySelectorAll<HTMLElement>('[data-action]') ?? [])
+        .filter(item => item.offsetParent !== null)
+        .map(item => `${item.dataset.action}:${item.getAttribute('aria-disabled') === 'true' ? 'off' : 'on'}`),
+      formatting: Array.from(picker?.querySelectorAll<HTMLElement>('li.item:not([data-action])') ?? []).filter(item => item.offsetParent !== null).length
     }
   })
 
@@ -149,7 +149,7 @@ const entryPoints: Array<{ name: string; invoke(app: ElectronApplication, page: 
   {
     name: 'selection toolbar',
     async invoke(_app, page) {
-      await page.locator('.mu-format-picker button[data-action="add-comment"]').click()
+      await page.locator('.mu-format-picker [data-action="add-comment"]').click()
     }
   },
   {

@@ -14,6 +14,7 @@
       <button
         type="button"
         :aria-pressed="entry.item.range.start === activeStart"
+        :aria-label="entryName(entry)"
         :disabled="busy"
         @click="$emit('select', entry.item.range.start)"
       >
@@ -65,6 +66,14 @@ defineProps<{
   textDirection: string
 }>()
 defineEmits<{ select: [start: number] }>()
+
+// The visible kind and excerpt are separate elements; join them into one
+// readable accessible name.
+const entryName = (entry: CoreReviewOverviewEntry): string => {
+  const kind = t(`editor.coreReview.kinds.${entry.item.kind}`)
+  const text = [entry.text, entry.replacementText].filter((part) => part).join(' → ')
+  return text ? `${kind}: ${text}` : kind
+}
 </script>
 
 <style scoped>
@@ -89,6 +98,13 @@ defineEmits<{ select: [start: number] }>()
   text-align: left;
   border: 0;
   padding: 4px;
+  color: var(--sideBarColor);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.core-review-entry > button:hover {
+  background: var(--sideBarItemHoverBgColor);
 }
 .core-review-entry > button:focus-visible {
   background: var(--sideBarItemHoverBgColor);
@@ -113,6 +129,7 @@ defineEmits<{ select: [start: number] }>()
   text-decoration: line-through;
 }
 .core-review-entry > .core-review-comment {
+  color: var(--sideBarTextColor);
   font-size: 12px;
   padding: 0 4px;
   overflow-wrap: anywhere;

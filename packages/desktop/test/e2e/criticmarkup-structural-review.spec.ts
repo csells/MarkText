@@ -13,7 +13,8 @@ import {
   launchElectron,
   sendIpcToRenderer,
   waitForEditor,
-  waitForMenuReady
+  waitForMenuReady,
+  showReviewSidebar
 } from './helpers'
 
 type OpenedEditor = {
@@ -70,7 +71,7 @@ const openFixture = async(filePath: string): Promise<OpenedEditor> => {
     if (binary !== undefined) await expectDefaultCoreAuthority(page)
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
-    await page.getByRole('button', { name: 'Review', exact: true }).click()
+    await showReviewSidebar(app)
     return { app, page, pageErrors }
   } catch (error) {
     await app.close().catch(() => {})

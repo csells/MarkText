@@ -8,7 +8,8 @@ import {
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
   launchWithDoc,
-  sendIpcToRenderer
+  sendIpcToRenderer,
+  showReviewSidebar
 } from './helpers'
 
 test('reader and comment projections preserve native media rendering and exact source', async() => {
@@ -40,7 +41,7 @@ test('reader and comment projections preserve native media rendering and exact s
   })
   try {
     await expect(page.locator('.editor-component .mu-diagram-preview svg')).toBeVisible()
-    await page.getByRole('button', { name: 'Review', exact: true }).click()
+    await showReviewSidebar(app)
     const comment = page.locator('[data-projection="comment"]')
     await expect(comment.locator('.katex')).toBeVisible()
     await expect

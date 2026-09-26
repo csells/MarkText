@@ -6,7 +6,8 @@ import {
   expectEditorNotFrontmost,
   expectEditorWindowHidden,
   waitForEditor,
-  waitForMenuReady
+  waitForMenuReady,
+  showReviewSidebar
 } from './helpers'
 import {
   defaultCoreLaunchEnvironment,
@@ -102,7 +103,7 @@ for (const mode of ['original', 'revised'] as const) {
   test(`${mode} view refuses document mutations while Find keeps working`, async() => {
     const { app, page, file } = await launch()
     try {
-      await page.getByRole('button', { name: 'Review', exact: true }).click()
+      await showReviewSidebar(app)
       // A retained Markup selection gives Format and paragraph commands a target.
       // A DOM click switches views without moving that selection.
       await selectFirstWord(page)

@@ -11,7 +11,10 @@ import {
   launchWithReviewMarkdown as launchWithMarkdown,
   sendIpcToRenderer,
   waitForEditor,
-  waitForMenuReady
+  waitForMenuReady,
+  showReviewSidebar,
+  clickMenuById,
+  menuItemEnabled
 } from './helpers'
 
 test('Core mode owns a document opened directly in WYSIWYG', async() => {
@@ -522,8 +525,7 @@ test('Core WYSIWYG transports actor-owned Comment and Substitution author comman
       if (!select) throw new Error('Core test selection bridge is unavailable')
       select(0, 6, 14)
     })
-    const addComment = page.getByTestId('critic-review-add-comment')
-    await expect(addComment).toBeVisible()
+    await expect.poll(() => menuItemEnabled(app, 'critic-add-comment')).toBe(true)
     await authorText('comment', 'selected', 'note')
     const authorResult = (await page.evaluate(() => window.__marktextDocumentCore?.latest())) as {
       result?: string
@@ -543,8 +545,7 @@ test('Core WYSIWYG transports actor-owned Comment and Substitution author comman
       if (!select) throw new Error('Core test selection bridge is unavailable')
       select(1, 0, 5)
     })
-    const trackReplacement = page.getByTestId('critic-review-track-replacement')
-    await expect(trackReplacement).toBeVisible()
+    await expect.poll(() => menuItemEnabled(app, 'critic-suggest-replacement')).toBe(true)
     await authorText('substitution', 'omega', 'replacement')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(expected)
@@ -579,9 +580,8 @@ test('Core WYSIWYG authors a Comment through the visible selection control', asy
       bridge.selectPlainText(0, 6, 14)
     })
 
-    const addComment = page.getByTestId('critic-review-add-comment')
-    await expect(addComment).toBeEnabled()
-    await addComment.click()
+    await expect.poll(() => menuItemEnabled(app, 'critic-add-comment')).toBe(true)
+    await clickMenuById(app, 'critic-add-comment')
     await page.getByTestId('critic-review-comment-input').fill('note')
     await page.getByTestId('critic-review-comment-submit').click()
     await expect
@@ -634,9 +634,8 @@ test('Core WYSIWYG protects a conflicting Comment closer from the visible author
       bridge.selectPlainText(0, 6, 14)
     })
 
-    const addComment = page.getByTestId('critic-review-add-comment')
-    await expect(addComment).toBeEnabled()
-    await addComment.click()
+    await expect.poll(() => menuItemEnabled(app, 'critic-add-comment')).toBe(true)
+    await clickMenuById(app, 'critic-add-comment')
     await page.getByTestId('critic-review-comment-input').fill(comment)
     await page.getByTestId('critic-review-comment-submit').click()
     await expect
@@ -733,7 +732,7 @@ test('Core completes one CriticMarkup Review lifecycle and reopens exact bytes',
       if (bridge?.selectPlainText === undefined) throw new Error('Selection unavailable')
       bridge.selectPlainText(1, 0, 7)
     })
-    await page.getByTestId('critic-review-add-comment').click()
+    await clickMenuById(app, 'critic-add-comment')
     await page.getByTestId('critic-review-comment-input').fill('review note')
     await page.getByTestId('critic-review-comment-submit').click()
     await expect
@@ -754,7 +753,7 @@ test('Core completes one CriticMarkup Review lifecycle and reopens exact bytes',
       if (bridge?.selectPlainText === undefined) throw new Error('Selection unavailable')
       bridge.selectPlainText(2, 0, 7)
     })
-    await page.getByTestId('critic-review-track-replacement').click()
+    await clickMenuById(app, 'critic-suggest-replacement')
     await page.getByTestId('critic-review-replacement-input').fill('replaced')
     await page.getByTestId('critic-review-replacement-submit').click()
     await expect
@@ -847,7 +846,7 @@ test('Core completes one CriticMarkup Review lifecycle and reopens exact bytes',
   try {
     await waitForEditor(reopened.page)
     await waitForMenuReady(reopened.app)
-    await reopened.page.getByRole('button', { name: 'Review', exact: true }).click()
+    await showReviewSidebar(reopened.app)
     await expectEditorWindowHidden(reopened.app)
     expectEditorNotFrontmost(reopened.app)
     await reopened.page.waitForFunction(

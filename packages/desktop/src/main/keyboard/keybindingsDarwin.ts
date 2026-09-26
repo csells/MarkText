@@ -87,6 +87,11 @@ const keybindings: Map<string, string> = new Map([
   // Review uses the same command registry as menus and the command palette.
   ...reviewCommands.map(command => [`review.${command.id}`, ''] as [string, string]),
   ['review.add-comment', 'Command+Alt+Shift+M'],
+  ['review.track-changes', 'Command+Shift+E'],
+  ['review.next', 'Command+Alt+]'],
+  ['review.previous', 'Command+Alt+['],
+  ['review.accept', 'Command+Alt+A'],
+  ['review.reject', 'Command+Alt+R'],
 
   // Window menu
   ['window.minimize', 'Command+M'],

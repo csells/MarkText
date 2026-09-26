@@ -17,7 +17,7 @@ test('native selection tools remain readable and reachable in a narrow light and
       await expect(toolbar.locator('..')).toHaveCSS('opacity', '1')
       await expect(toolbar).toBeInViewport({ ratio: 1 })
       for (const id of ['add-comment', 'mark-highlight', 'mark-addition', 'suggest-replacement']) {
-        const action = toolbar.locator(`button[data-action="${id}"]`)
+        const action = toolbar.locator(`[data-action="${id}"]`)
         await expect(action).toBeVisible()
         await expect(action).toBeEnabled()
         await expect(action).toBeInViewport({ ratio: 1 })
