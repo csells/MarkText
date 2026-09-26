@@ -59,12 +59,15 @@
           <span class="text-center-vertical">&#9776;</span>
         </div>
         <button
+          v-if="reviewStatus.tracking"
           type="button"
           class="review-toggle title-no-drag"
-          :aria-pressed="layoutStore.showSideBar && layoutStore.rightColumn === 'review'"
-          @click.stop="layoutStore.SET_LAYOUT({ showSideBar: true, rightColumn: 'review' })"
+          data-testid="title-bar-tracking"
+          aria-pressed="true"
+          :title="t('editor.coreReview.trackChangesDescription')"
+          @click.stop="bus.emit('review-command', 'track-changes')"
         >
-          {{ t('editor.coreReview.panelTitle') }}
+          {{ t('editor.coreReview.trackingIndicator') }}
         </button>
         <el-tooltip
           v-if="wordCount"
@@ -165,6 +168,8 @@ import { isOsx as isOsxPlatform } from '@/util'
 import { shouldShowInAppTitleBar } from './visibility'
 import { useEditorStore } from '@/store/editor'
 import { useI18n } from 'vue-i18n'
+import bus from '@/bus'
+import { reviewStatus } from '../editorWithTabs/reviewStatus'
 import { ArrowRight } from '@element-plus/icons-vue'
 import type { FileWordCount } from '@shared/types/files'
 

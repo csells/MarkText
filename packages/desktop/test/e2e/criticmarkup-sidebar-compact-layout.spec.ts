@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { readFileSync } from 'node:fs'
-import { expectNoRendererErrors, launchWithMarkdown, sendIpcToRenderer } from './helpers'
+import { expectNoRendererErrors, launchWithMarkdown, sendIpcToRenderer, showReviewSidebar } from './helpers'
 
 const source = Array.from({ length: 12 }, (_, index) =>
   `{==Passage ${index + 1}==}{>>Comment ${index + 1}.<<}\n`
@@ -13,7 +13,7 @@ test('review and comment editing remain reachable at minimum window height with 
   })
   try {
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(700, 350))
-    await page.getByRole('button', { name: 'Review', exact: true }).click()
+    await showReviewSidebar(app)
     const sidebar = page.locator('.side-bar')
     const divider = sidebar.locator('.drag-bar')
     const bounds = await sidebar.boundingBox()

@@ -4,34 +4,36 @@ import {
   discardReviewInputOnClose,
   expectNoRendererErrors,
   launchWithMarkdown,
-  sendIpcToRenderer
+  sendIpcToRenderer,
+  showReviewSidebar
 } from './helpers'
 
 const source = 'An {++addition++} and a {--deletion--}.\n'
 
-test('reader projections retain review decisions consistently and navigation reveals the next editable target', async() => {
+test('reader projections disable review decisions and navigation reveals the next editable target', async() => {
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1', MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined }
   })
   try {
-    await page.getByRole('button', { name: 'Review', exact: true }).click()
+    await showReviewSidebar(app)
     for (const mode of ['original', 'revised']) {
       await page.getByTestId(`critic-review-${mode}`).click()
-      await expect(page.getByTestId('critic-review-accept')).toBeEnabled()
+      // Owner decision: Original and Revised are for reading; resolution is Markup-only.
       await expect
         .poll(() =>
           app.evaluate(({ Menu }, selected) => {
             const menu = Menu.getApplicationMenu()
             return {
               selected: menu?.getMenuItemById(`critic-${selected}`)?.checked,
-              accept: menu?.getMenuItemById('critic-accept')?.enabled
+              accept: menu?.getMenuItemById('critic-accept')?.enabled,
+              acceptAll: menu?.getMenuItemById('critic-accept-all')?.enabled
             }
           }, mode)
         )
-        .toEqual({ selected: true, accept: true })
-      await expect(page.getByTestId('critic-review-reject')).toBeEnabled()
-      await expect(page.getByTestId('critic-review-accept-all')).toBeEnabled()
+        .toEqual({ selected: true, accept: false, acceptAll: false })
+      await expect(page.getByTestId('critic-review-accept')).toHaveCount(0)
+      await expect(page.getByTestId('critic-review-accept-all')).toBeDisabled()
       await page.getByTestId('critic-review-next').click()
       await expect(page.getByTestId('critic-review-markup')).toHaveAttribute('aria-pressed', 'true')
       await expect(page.locator('.core-review-current-block')).toBeVisible()
@@ -110,7 +112,7 @@ test('sidebar presents each comment once with actions beside the selected entry'
     }
   )
   try {
-    await page.getByRole('button', { name: 'Review', exact: true }).click()
+    await showReviewSidebar(app)
     const panel = page.locator('#core-review-panel')
     await expect(panel.getByText('One readable note.', { exact: true })).toHaveCount(1)
     const entry = page.getByTestId('critic-review-entry').filter({ hasText: 'One readable note.' })
@@ -160,7 +162,7 @@ test('view controls preserve an open comment draft and match native command avai
     env: { MARKTEXT_E2E_HIDDEN_WINDOW: '1', MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined }
   })
   try {
-    await page.getByRole('button', { name: 'Review', exact: true }).click()
+    await showReviewSidebar(app)
     await page.getByTestId('critic-review-edit-comment').click()
     await page.getByTestId('critic-review-comment-input').fill('Unsubmitted draft.')
     await expect(page.getByTestId('critic-review-original')).toBeDisabled()

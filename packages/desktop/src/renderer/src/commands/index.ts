@@ -62,7 +62,7 @@ const focusEditorAndExecute = (fn: () => void): void => {
 const commands: CommandDescriptor[] = [
   ...reviewCommands.map(command => ({
     id: `review.${command.id}`,
-    description: t(`editor.coreReview.${command.label}`),
+    description: t(`commands.review.${command.id}`),
     execute: async() => { bus.emit('review-command', command.id) }
   })),
   // --------------------------------------------------------------------------

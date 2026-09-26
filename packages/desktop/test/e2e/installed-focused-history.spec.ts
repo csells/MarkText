@@ -9,7 +9,8 @@ import {
   launchWithMarkdown,
   placeCaretInEditor,
   waitForEditor,
-  waitForMenuReady
+  waitForMenuReady,
+  showReviewSidebar
 } from './helpers'
 import {
   expectDefaultCoreAuthority,
@@ -95,7 +96,7 @@ async function saveAndExpect(
 
 async function openField(app: ElectronApplication, page: Page, field: Field): Promise<Locator> {
   if (field === 'Review comment') {
-    await page.getByRole('button', { name: 'Review', exact: true }).click()
+    await showReviewSidebar(app)
     await page.getByTestId('critic-review-edit-comment').click()
     return page.getByTestId('critic-review-comment-input')
   }
