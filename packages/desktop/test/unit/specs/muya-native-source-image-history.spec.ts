@@ -106,11 +106,11 @@ afterEach(() => {
 
 it.each([
   { source: '![aaa](url)\n', labelStart: 2, typed: '![X](url)\n' },
-  // Upstream writes the table afresh after the cell edit.
+  // The cell edit changes only its own bytes (ADR 0007).
   {
     source: '| ![aaa](url) | b |\n| --- | --- |\n| x | y |\n',
     labelStart: 4,
-    typed: '| ![X](url) | b   |\n| --------- | --- |\n| x         | y   |\n'
+    typed: '| ![X](url) | b |\n| --- | --- |\n| x | y |\n'
   }
 ])(
   'restores an editable native selection after Source image-label replacement in $source',

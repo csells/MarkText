@@ -992,7 +992,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
           const at = projection.coordinates.toSource(row.range.start, 'previous')
           if (row !== header) {
             return result([{ start: at, end: at, insert: newRow.markdown + lineEnding + continuation }], {
-              start: at + newRow.firstCellEnd, end: at + newRow.firstCellEnd
+              start: at + newRow.firstCellText, end: at + newRow.firstCellText
             })
           }
           // The first Markdown row is the header. Moving it into the body also
@@ -1006,13 +1006,13 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
             { start: at, end: at, insert: newRow.markdown + lineEnding + continuation + delimiterSource + separator },
             { start: headerEnd, end: delimiterEnd, insert: '' }
           ], {
-            start: at + newRow.firstCellEnd, end: at + newRow.firstCellEnd
+            start: at + newRow.firstCellText, end: at + newRow.firstCellText
           })
         }
         if (action.placement !== 'after') throw new RangeError('Invalid table row placement')
         const projectedEnd = row === header ? Number(table.attributes.delimiterEnd) : row.range.end
         const at = projection.coordinates.toSource(projectedEnd, 'previous')
-        const caret = at + lineEnding.length + continuation.length + newRow.firstCellEnd
+        const caret = at + lineEnding.length + continuation.length + newRow.firstCellText
         return result([{ start: at, end: at, insert: lineEnding + continuation + newRow.markdown }], { start: caret, end: caret })
       }
       default: {

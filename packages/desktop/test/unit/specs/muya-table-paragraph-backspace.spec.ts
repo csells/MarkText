@@ -10,9 +10,9 @@ it.each([
   {
     name: 'table',
     source: '| h |\n|---|\n| a |\n\nb{++c++}d\n',
-    // Upstream writes the table afresh after the join and after the cell edit.
-    joined: '| h          |\n| ---------- |\n| ab{++c++}d |\n',
-    typed: '| h           |\n| ----------- |\n| axb{++c++}d |\n',
+    // The join and the cell edit write only the moved and typed text (ADR 0007).
+    joined: '| h |\n|---|\n| ab{++c++}d |\n',
+    typed: '| h |\n|---|\n| axb{++c++}d |\n',
     caret: 1
   },
   {

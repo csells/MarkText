@@ -285,11 +285,23 @@ export function planInlineUpdate(
     const tight = [...containers].reverse().find(node => node.kind === 'list')?.attributes.tight === true
     if (tight) rows = rows.map((row, index) => index === layout.line ? { ...row, blankBefore: false } : row)
   }
+  // ADR 0007 (owner decision 25 Sep, plan 0012 G24): typing converts the line
+  // it converts, and other lines keep their bytes unless their meaning needs
+  // a change. Upstream's continuation leads, trimming and blank separations are
+  // spelling: lazy continuation keeps those lines where they were. A lazy line
+  // straight after a new heading or thematic break would leave its container,
+  // so it takes the container's prefix.
+  const dropped = rows.map((row, index) => index === layout.line ? 0 : row.lead.length)
+  rows = rows.map((row, index) => index === layout.line
+    ? { ...row, blankBefore: row.blankBefore && separationRequired(layout.kind, texts[index]!) }
+    : { cut: 0, lead: '', blankBefore: false })
+  const endsParagraph = layout.kind === 'atx-heading' || layout.kind === 'setext-heading' || layout.kind === 'thematic-break'
   const conversion: DocumentSourceEdit[] = []
   let written = 0
   const placed = rows.map((row, index) => {
     const line = lines[index]!
-    const changed = row.cut > 0 || row.lead !== '' || row.keep !== undefined || row.blankBefore
+    const changed = row.cut > 0 || row.lead !== '' || row.keep !== undefined || row.blankBefore ||
+      endsParagraph && index === layout.line + 1
     const prefixEnd = line.start + prefixes[index]!
     const prefix = text.slice(line.start, prefixEnd)
     // A lazy or partial prefix is respelled when the line changes.
@@ -354,7 +366,8 @@ export function planInlineUpdate(
     const unit = line.units[Math.min(point.offset - line.leadLength, line.units.length) - 1]
     return line.origin + (unit === undefined ? line.lead + line.leadLength : unit + 1)
   }
-  let caret = { start: position(layout.selection.start), end: position(layout.selection.end) }
+  const kept = (point: { readonly line: number, readonly offset: number }) => ({ line: point.line, offset: Math.max(0, point.offset - dropped[point.line]!) })
+  let caret = { start: position(kept(layout.selection.start)), end: position(kept(layout.selection.end)) }
   if (layout.kind === 'task-list' && item !== undefined && list !== undefined) {
     // Upstream moves the item into a task list of its own; its siblings and
     // later children are written apart as loose blocks.
@@ -395,6 +408,18 @@ export function planInlineUpdate(
       return before + inside + following
     }
   }
+}
+
+/**
+ * Whether a converted line needs a blank line to stand apart from the
+ * paragraph text before it (CommonMark): a list item interrupts a paragraph
+ * only when it has text and, if ordered, starts at 1.
+ */
+function separationRequired(kind: string, text: string): boolean {
+  if (kind !== 'list' && kind !== 'task-list') return false
+  const marker = /^ {0,3}(?:[-+*]|(\d{1,9})[.)])(?:[ \t]+|$)/u.exec(text)
+  if (marker === null) return false
+  return marker[1] !== undefined && Number(marker[1]) !== 1 || text.slice(marker[0].length).trim() === ''
 }
 
 function taskListSeparation(

@@ -4,9 +4,9 @@ import { createLocalCoreOwner } from '@/documentAuthority/localCoreOwner'
 import { createCoreDocumentSessionManager } from '@/documentAuthority/coreDocumentSessionManager'
 
 const source = '| a | b | c |\n| --- | --- | --- |\n| {++a++} | b{>>note<<} | d |\n| e | f | g |\n'
-// Upstream (8d6c198c) writes the table afresh after an untracked cell clear.
+// Clearing cells empties them and keeps the table's spelling (ADR 0007).
 const cleared =
-  '|     |     | c   |\n| --- | --- | --- |\n|     |     | d   |\n| e   | f   | g   |\n'
+  '|  |  | c |\n| --- | --- | --- |\n|  |  | d |\n| e | f | g |\n'
 const selection = () => ({
   kind: 'table' as const,
   table: { start: 0, end: source.length - 1 },

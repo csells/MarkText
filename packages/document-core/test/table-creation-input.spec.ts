@@ -4,16 +4,16 @@ import { createDocumentCore, type DocumentInputAction } from '../src/index.js'
 const table = '|     |     |\n| --- | --- |\n|     |     |'
 
 it.each([
-  { source: '/ta{++b++}le\n\noutside{>>keep<<}\n', at: 12, replace: true, expected: table + '\n\noutside{>>keep<<}\n', first: 6 },
-  { source: '', at: 0, replace: false, expected: table, first: 6 },
-  { source: '# \n', at: 2, replace: false, expected: table + '\n', first: 6 },
-  { source: '# {>>keep<<}\n', at: 2, replace: false, expected: '# {>>keep<<}\n\n' + table + '\n', first: 20 },
+  { source: '/ta{++b++}le\n\noutside{>>keep<<}\n', at: 12, replace: true, expected: table + '\n\noutside{>>keep<<}\n', first: 2 },
+  { source: '', at: 0, replace: false, expected: table, first: 2 },
+  { source: '# \n', at: 2, replace: false, expected: table + '\n', first: 2 },
+  { source: '# {>>keep<<}\n', at: 2, replace: false, expected: '# {>>keep<<}\n\n' + table + '\n', first: 16 },
   ...['\n', '\r\n', '\r'].flatMap(eol => [
     ['```md', 'a{++a++}a', '```'].join(eol) + eol,
     '<div>a{++a++}a</div>' + eol
-  ].map(source => ({ source, at: source.indexOf('a{'), replace: false, expected: source + eol + table.replace(/\n/gu, eol) + eol, first: source.length + eol.length + 6 }))),
-  { source: 'hello{>>keep<<}\n', at: 2, replace: false, expected: 'hello{>>keep<<}\n\n' + table + '\n', first: 23 },
-  { source: '- item text\n', at: 5, replace: false, expected: '- item text\n\n  |     |     |\n  | --- | --- |\n  |     |     |\n', first: 21 }
+  ].map(source => ({ source, at: source.indexOf('a{'), replace: false, expected: source + eol + table.replace(/\n/gu, eol) + eol, first: source.length + eol.length + 2 }))),
+  { source: 'hello{>>keep<<}\n', at: 2, replace: false, expected: 'hello{>>keep<<}\n\n' + table + '\n', first: 19 },
+  { source: '- item text\n', at: 5, replace: false, expected: '- item text\n\n  |     |     |\n  | --- | --- |\n  |     |     |\n', first: 17 }
 ])('creates the owned table at the native insertion boundary: $source', ({ source, at, replace, expected, first }) => {
   const core = createDocumentCore()
   const previous = core.open(source)

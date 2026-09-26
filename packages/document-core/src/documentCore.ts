@@ -6,7 +6,6 @@ import { paragraphEnterConversion } from './internal/profile1/markdownParser.js'
 import { planClipboard, type DocumentClipboardAction, type DocumentClipboardPlan } from './clipboardPlanning.js'
 import { planFormat, type DocumentFormatAction, type DocumentFormatPlan } from './formatPlanning.js'
 import { planInput, reconcileInput, inputSourceRange, type DocumentInputAction, type DocumentInputPlan, type DocumentInputResult } from './inputPlanning.js'
-import { respellEditedTable, tableAt } from './tableRespelling.js'
 import { editingReconciliation } from './editingReconciliation.js'
 import { paragraphBackwardStructuralTarget } from './paragraphJoinPlanning.js'
 import { isLiteralBlock } from './literalBlock.js'
@@ -4253,16 +4252,9 @@ function createDocumentCoreWithExecutionBudget(
       return planCommentEdit(previous, action, payloadDiagnostics(previous), edits => previewSourceEdits(previous, edits))
     },
     planClipboard(previous: DocumentRevision, action: DocumentClipboardAction) {
-      const plan = planUnspelledClipboard(previous, action)
-      // A block placed beside a table leaves the table's own source alone.
-      if (action.tracked || plan.edits.length === 0 || action.kind === 'paste' && action.blockPlacement !== undefined) return plan
-      const range = action.kind === 'table' ? action.selection.table : inputSourceRange(core, previous, action.selection)
-      if (action.kind !== 'table' && action.selection.kind !== 'table-cell') {
-        // Text pasted outside any table keeps its regional planning cost.
-        const regional = regionalInputSyntax(currentStateOf(previous), range)
-        if (regional !== undefined && tableAt(regional, range.start) === undefined) return plan
-      }
-      return Object.freeze(respellEditedTable(core, previous, plan, range, edits => tablePreview(previous, edits)))
+      // Cut and paste change only their own bytes, in a table too (ADR 0007;
+      // owner decision 25 Sep, plan 0012 G24).
+      return planUnspelledClipboard(previous, action)
     },
     planSourceInput(previous: DocumentRevision, action: DocumentSourceInputAction) {
       currentStateOf(previous)
@@ -4270,11 +4262,10 @@ function createDocumentCoreWithExecutionBudget(
     },
     planFormat(previous: DocumentRevision, action: DocumentFormatAction) {
       currentStateOf(previous)
-      const plan = planFormat(core, previous, action, edits => previewSourceEdits(previous, edits),
+      // Formatting in a table cell changes only its own bytes (ADR 0007).
+      return planFormat(core, previous, action, edits => previewSourceEdits(previous, edits),
         edits => withSourceEditPreview(previous, edits, (products, source) =>
           markupProjectionOf(products, annotationsOf(products).rangeByNodeId, source.length).syntax))
-      if (action.tracked) return plan
-      return Object.freeze(respellEditedTable(core, previous, plan, inputSourceRange(core, previous, action.selection), edits => tablePreview(previous, edits)))
     },
     inputEdits(previous: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, tracked: boolean) {
       currentStateOf(previous)

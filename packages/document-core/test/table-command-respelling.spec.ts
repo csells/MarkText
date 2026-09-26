@@ -120,12 +120,12 @@ describe('an untracked edit of a cell\'s text through another command', () => {
   const cellCaret = (source: string, row: number, column: number, anchor: number, focus = anchor): DocumentTableCellSelection =>
     ({ kind: 'table-cell', cell: { table: tableRange(source), row, column }, anchor, focus })
 
-  it('pastes into a cell and writes the table afresh', () => {
+  it('pastes into a cell, changing only the pasted bytes', () => {
     const core = createDocumentCore()
     const revision = core.open(table)
     const plan = core.planClipboard(revision, { kind: 'paste', selection: cellCaret(table, 1, 0, 3), markdown: 'xyz', tracked: false })
     const result = core.apply(revision, plan.edits).revision.source
-    expect(result).toBe('| a      | bb  |\n| ------ |:---:|\n| cccxyz | d   |\n')
+    expect(result).toBe('| a | bb |\n|---|:-:|\n| cccxyz | d |\n')
     expect(plan.selection).toEqual(cellCaret(result, 1, 0, 6))
   })
 
@@ -136,24 +136,24 @@ describe('an untracked edit of a cell\'s text through another command', () => {
     expect(core.apply(revision, plan.edits).revision.source).toBe('| a | bb |\n|---|:-:|\n| ccc{++xyz++} | d |\n')
   })
 
-  it('formats a cell\'s text and writes the table afresh', () => {
+  it('formats a cell\'s text, changing only the formatted bytes', () => {
     const core = createDocumentCore()
     const revision = core.open(table)
     const start = table.indexOf('ccc')
     const plan = core.planFormat(revision, { format: 'strong', selection: { ranges: [{ anchor: start, focus: start + 3 }], primary: 0 }, tracked: false })
     const result = core.apply(revision, plan.edits).revision.source
-    expect(result).toBe('| a       | bb  |\n| ------- |:---:|\n| **ccc** | d   |\n')
+    expect(result).toBe('| a | bb |\n|---|:-:|\n| **ccc** | d |\n')
     const formatted = result.indexOf('**ccc**')
     expect(plan.selection).toEqual({ ranges: [{ anchor: formatted + 2, focus: formatted + 5 }], primary: 0 })
   })
 
-  it('cuts selected cells\' text and writes the table afresh', () => {
+  it('cuts selected cells\' text, changing only the cut bytes', () => {
     const core = createDocumentCore()
     const revision = core.open(table)
     const selection = { kind: 'table' as const, table: tableRange(table), anchor: { row: 1, column: 0 }, focus: { row: 1, column: 0 } }
     const plan = core.planClipboard(revision, { kind: 'table', operation: 'cut', selection, tracked: false })
     const result = core.apply(revision, plan.edits).revision.source
-    expect(result).toBe('| a   | bb  |\n| --- |:---:|\n|     | d   |\n')
+    expect(result).toBe('| a | bb |\n|---|:-:|\n|  | d |\n')
     expect(plan.selection).toEqual(cellCaret(result, 1, 0, 0))
   })
 })
@@ -168,20 +168,23 @@ describe('an untracked cut of a cell\'s text', () => {
   }
 
   it.each([
-    { name: 'the whole text of a body cell', source: table, row: 1, column: 0, anchor: 0, focus: 3, expected: '| a   | bb  |\n| --- |:---:|\n|     | d   |\n' },
-    { name: 'the whole text of a header cell', source: table, row: 0, column: 0, anchor: 0, focus: 1, expected: '|     | bb  |\n| --- |:---:|\n| ccc | d   |\n' },
-    { name: 'a header cell without outer pipes', source: 'a|b\n-|-\nc|d\n', row: 0, column: 0, anchor: 0, focus: 1, expected: '|     | b   |\n| --- | --- |\n| c   | d   |\n' },
-    { name: 'a body cell without outer pipes', source: 'a|b\n-|-\nc|d\n', row: 1, column: 1, anchor: 0, focus: 1, expected: '| a   | b   |\n| --- | --- |\n| c   |     |\n' }
-  ])('empties $name and writes the table afresh', ({ source, row, column, anchor, focus, expected }) => {
+    { name: 'the whole text of a body cell', source: table, row: 1, column: 0, anchor: 0, focus: 3, expected: '| a | bb |\n|---|:-:|\n|  | d |\n' },
+    { name: 'the whole text of a header cell', source: table, row: 0, column: 0, anchor: 0, focus: 1, expected: '|  | bb |\n|---|:-:|\n| ccc | d |\n' },
+    // The emptied edge cell keeps the pipe it needs (table-edge-cell-emptying).
+    { name: 'a header cell without outer pipes', source: 'a|b\n-|-\nc|d\n', row: 0, column: 0, anchor: 0, focus: 1, expected: '| |b\n-|-\nc|d\n' },
+    { name: 'a body cell without outer pipes', source: 'a|b\n-|-\nc|d\n', row: 1, column: 1, anchor: 0, focus: 1, expected: 'a|b\n-|-\nc|\n' }
+  ])('empties $name, changing only the cut bytes', ({ source, row, column, anchor, focus, expected }) => {
     const result = cellCut(source, row, column, anchor, focus)
     expect(result.source).toBe(expected)
-    expect(result.selection).toEqual(at(expected, row, column, 0))
+    // A table without a leading pipe starts at its first cell's text.
+    const table = expected.startsWith('|') ? tableRange(expected) : { start: 0, end: expected.trimEnd().length }
+    expect(result.selection).toEqual({ kind: 'table-cell', cell: { table, row, column }, anchor: 0, focus: 0 })
   })
 })
 
 describe('an untracked paragraph join into a table cell', () => {
   const initial = `${table}\npara\n`
-  const joined = '| a   | bb    |\n| --- |:-----:|\n| ccc | dpara |\n'
+  const joined = '| a | bb |\n|---|:-:|\n| ccc | dpara |\n'
   const join = (command: 'joinParagraphBackward' | 'joinParagraphForward', selection: DocumentInputAction['selection']) => {
     const core = createDocumentCore()
     const revision = core.open(initial)
@@ -235,15 +238,15 @@ describe('an untracked edit addressed by a cell\'s model text', () => {
     return { source: commit.revision.source, selection: core.reconcileInput(revision, plan, commit, action).selection }
   }
 
-  it('types text and writes the table afresh, keeping the pipe escaped', () => {
+  it('types text, keeping the pipe escaped and the table as it was', () => {
     const result = edit('insertText', 'x')
-    expect(result.source).toBe('| ax\\|z | b   |\n| ----- | --- |\n| c     | d   |\n')
+    expect(result.source).toBe('| ax\\|z | b |\n| --- | --- |\n| c | d |\n')
     expect(result.selection).toEqual({ ranges: [{ anchor: 4, focus: 4 }], primary: 0 })
   })
 
-  it('deletes text and writes the table afresh, keeping the pipe escaped', () => {
+  it('deletes text, keeping the pipe escaped and the table as it was', () => {
     const result = edit('deleteContentBackward', null)
-    expect(result.source).toBe('| \\|z | b   |\n| --- | --- |\n| c   | d   |\n')
+    expect(result.source).toBe('| \\|z | b |\n| --- | --- |\n| c | d |\n')
     expect(result.selection).toEqual({ ranges: [{ anchor: 2, focus: 2 }], primary: 0 })
   })
 })
@@ -264,11 +267,11 @@ describe('an untracked replacement of a selection reaching into a table', () => 
   const caret = (source: string, at: number) => ({ ranges: [{ anchor: at, focus: at }], primary: 0 })
 
   it.each([
-    { name: 'between cells of a row', source: withParagraph, from: '| a', fromOffset: 2, to: 'bb', toOffset: 1, expected: '| b   |     |\n| --- |:---:|\n| ccc | d   |\n\npara\n', at: 2 },
-    { name: 'between rows', source: withParagraph, from: 'bb', fromOffset: 1, to: 'ccc', toOffset: 1, expected: '| a   | bcc |\n| --- |:---:|\n|     | d   |\n\npara\n', at: 9 },
-    { name: 'from a cell into the following paragraph', source: withParagraph, from: '| d', fromOffset: 2, to: 'para', toOffset: 2, expected: '| a   | bb  |\n| --- |:---:|\n| ccc | ra  |\n', at: 36 },
+    { name: 'between cells of a row', source: withParagraph, from: '| a', fromOffset: 2, to: 'bb', toOffset: 1, expected: '| b |  |\n|---|:-:|\n| ccc | d |\n\npara\n', at: 2 },
+    { name: 'between rows', source: withParagraph, from: 'bb', fromOffset: 1, to: 'ccc', toOffset: 1, expected: '| a | bcc |\n|---|:-:|\n|  | d |\n\npara\n', at: 7 },
+    { name: 'from a cell into the following paragraph', source: withParagraph, from: '| d', fromOffset: 2, to: 'para', toOffset: 2, expected: '| a | bb |\n|---|:-:|\n| ccc | ra |\n', at: 29 },
     // The cell keeps the text after the selection, as upstream does (#5405).
-    { name: 'from a paragraph into the following table', source: before, from: 'para', fromOffset: 2, to: '| a', toOffset: 2, expected: 'pa\n\n| a   | bb  |\n| --- |:---:|\n| ccc | d   |\n', at: 2 }
+    { name: 'from a paragraph into the following table', source: before, from: 'para', fromOffset: 2, to: '| a', toOffset: 2, expected: 'pa\n\n| a | bb |\n|---|:-:|\n| ccc | d |\n', at: 2 }
   ])('cuts $name', ({ source, from, fromOffset, to, toOffset, expected, at }) => {
     const result = replace(source, from, fromOffset, to, toOffset)
     expect(result.source).toBe(expected)
@@ -277,7 +280,7 @@ describe('an untracked replacement of a selection reaching into a table', () => 
 
   it('pastes over it with the pasted pipe escaped', () => {
     const result = replace(withParagraph, '| a', 2, 'bb', 1, 'p|q')
-    expect(result.source).toBe('| p\\|qb |     |\n| ----- |:---:|\n| ccc   | d   |\n\npara\n')
+    expect(result.source).toBe('| p\\|qb |  |\n|---|:-:|\n| ccc | d |\n\npara\n')
     expect(result.selection).toEqual(caret(result.source, 6))
   })
 
@@ -292,7 +295,7 @@ describe('an untracked replacement of a selection reaching into a table', () => 
     const edits = core.inputEdits(revision, action, plan, false)
     if (edits === undefined) throw new Error('Input refused')
     const commit = core.apply(revision, edits)
-    expect(commit.revision.source).toBe('| a   | bxcc |\n| --- |:----:|\n|     | d    |\n\npara\n')
+    expect(commit.revision.source).toBe('| a | bxcc |\n|---|:-:|\n|  | d |\n\npara\n')
     expect(core.reconcileInput(revision, plan, commit, action).selection).toEqual(caret(commit.revision.source, commit.revision.source.indexOf('bx') + 2))
   })
 
@@ -310,16 +313,16 @@ describe('an untracked edit of the cell a short row lacks', () => {
   const short = '| a | b |\n| --- | --- |\n| c |\n'
   const cell = { table: { start: 0, end: short.length - 1 }, row: 1, column: 1 }
 
-  it('pastes a pipe escaped and writes the table afresh', () => {
+  it('pastes a pipe escaped into a minimally written cell', () => {
     const core = createDocumentCore()
     const revision = core.open(short)
     const plan = core.planClipboard(revision, { kind: 'paste', selection: { kind: 'table-cell', cell, anchor: 0, focus: 0 }, markdown: 'p|q', tracked: false })
     const result = core.apply(revision, plan.edits).revision.source
-    expect(result).toBe('| a   | b    |\n| --- | ---- |\n| c   | p\\|q |\n')
+    expect(result).toBe('| a | b |\n| --- | --- |\n| c | p\\|q |\n')
     expect(plan.selection).toEqual(at(result, 1, 1, 4))
   })
 
-  it('types into it and writes the table afresh', () => {
+  it('types into a minimally written cell', () => {
     const core = createDocumentCore()
     const revision = core.open(short)
     const selection: DocumentTableCellSelection = { kind: 'table-cell', cell, anchor: 0, focus: 0 }
@@ -328,12 +331,12 @@ describe('an untracked edit of the cell a short row lacks', () => {
     const edits = core.inputEdits(revision, action, plan, false)
     if (edits === undefined) throw new Error('Input refused')
     const commit = core.apply(revision, edits)
-    expect(commit.revision.source).toBe('| a   | b   |\n| --- | --- |\n| c   | x   |\n')
+    expect(commit.revision.source).toBe('| a | b |\n| --- | --- |\n| c | x |\n')
     expect(core.reconcileInput(revision, plan, commit, action).selection).toEqual(at(commit.revision.source, 1, 1, 1))
   })
 })
 
-it('writes the table afresh when Enter in its last row starts a paragraph', () => {
+it('leaves the table as it was when Enter in its last row starts a paragraph', () => {
   const core = createDocumentCore()
   const revision = core.open(table)
   const selection: DocumentTableCellSelection = { kind: 'table-cell', cell: { table: tableRange(table), row: 1, column: 1 }, anchor: 1, focus: 1 }
@@ -342,7 +345,7 @@ it('writes the table afresh when Enter in its last row starts a paragraph', () =
   const edits = core.inputEdits(revision, action, plan, false)
   if (edits === undefined) throw new Error('Input refused')
   const commit = core.apply(revision, edits)
-  expect(commit.revision.source).toBe('| a   | bb  |\n| --- |:---:|\n| ccc | d   |\n\n\n')
+  expect(commit.revision.source).toBe('| a | bb |\n|---|:-:|\n| ccc | d |\n\n\n')
   // The caret starts the new paragraph after the blank line.
-  expect(core.reconcileInput(revision, plan, commit, action).selection).toEqual({ ranges: [{ anchor: 43, focus: 43 }], primary: 0 })
+  expect(core.reconcileInput(revision, plan, commit, action).selection).toEqual({ ranges: [{ anchor: 34, focus: 34 }], primary: 0 })
 })

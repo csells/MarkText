@@ -1,10 +1,10 @@
 import { expect, it } from 'vitest'
 import { createDocumentCore } from '../src/index.js'
 
-// Upstream (8d6c198c) writes a table afresh after an untracked paste into a cell.
+// A paste into a cell changes only its own bytes (ADR 0007).
 it.each([
-  { source: '| a | b |\n| --- | --- |\n| c | d |\n', column: 0, expected: '| a   | b   |\n| --- | --- |\n| y   | d   |\n' },
-  { source: '| a | b | c |\n| --- | --- | --- |\n| x |\n', column: 2, expected: '| a   | b   | c   |\n| --- | --- | --- |\n| x   |     | y   |\n' }
+  { source: '| a | b |\n| --- | --- |\n| c | d |\n', column: 0, expected: '| a | b |\n| --- | --- |\n| y | d |\n' },
+  { source: '| a | b | c |\n| --- | --- | --- |\n| x |\n', column: 2, expected: '| a | b | c |\n| --- | --- | --- |\n| x | | y |\n' }
 ])('pastes through the owned frozen cell at column $column', ({ source, column, expected }) => {
   const core = createDocumentCore()
   const revision = core.open(source)
