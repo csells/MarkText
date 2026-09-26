@@ -1901,7 +1901,9 @@ const selectCoreDocumentAnnotation = (event: MouseEvent | KeyboardEvent): void =
   )
   if (!binding) return
   const start = binding.sourceRange.start + Number(element.dataset.criticStart)
-  selectCoreAnnotationAt(start, true)
+  // ADR 0004: a pointer hit only selects the entry; keyboard activation of the
+  // comment marker is a deliberate request to open Review.
+  selectCoreAnnotationAt(start, event instanceof KeyboardEvent)
 }
 const selectCoreAnnotationAt = (start: number, open: boolean): void => {
   if (coreCommentOpen.value || coreReviewResolving.value) return
