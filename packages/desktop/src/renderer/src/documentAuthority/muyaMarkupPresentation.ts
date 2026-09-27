@@ -1,5 +1,5 @@
 import { imageAltText } from '@marktext/document-core'
-import type { DocumentSourceEdit, MarkdownAstNode, SourceRange } from '@marktext/document-core'
+import type { MarkdownAstNode, SourceRange } from '@marktext/document-core'
 import type { IInlinePresentationContext } from '@muyajs/core'
 import { sanitize, PREVIEW_DOMPURIFY_CONFIG, EXPORT_DOMPURIFY_CONFIG } from '../util/dompurify'
 import type { MuyaMarkupBinding, MuyaMarkupComment, MuyaMarkupDecoration } from './muyaMarkupView'
@@ -40,40 +40,6 @@ export const escapeHtml = (value: string): string =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
-
-const rebaseMarks = (
-  before: string,
-  after: string
-): ((range: SourceRange) => SourceRange | undefined) => {
-  let start = 0
-  while (start < before.length && start < after.length && before[start] === after[start]) start += 1
-  let oldEnd = before.length
-  let newEnd = after.length
-  while (oldEnd > start && newEnd > start && before[oldEnd - 1] === after[newEnd - 1]) {
-    oldEnd -= 1
-    newEnd -= 1
-  }
-  return rebaseMarkRange({ start, end: oldEnd, insert: after.slice(start, newEnd) })
-}
-
-// Pending view geometry follows the common document operation. It never
-// recognizes syntax or decides which canonical annotations survive an edit.
-const rebaseMarkRange = ({ start, end: oldEnd, insert }: DocumentSourceEdit) => {
-  const newEnd = start + insert.length
-  const delta = newEnd - oldEnd
-  return (range: SourceRange): SourceRange | undefined => {
-    if (range.end <= start) return range
-    if (range.start >= oldEnd) return { start: range.start + delta, end: range.end + delta }
-    if (range.start <= start && range.end >= oldEnd) {
-      return { start: range.start, end: range.end + delta }
-    }
-    // A replacement crossing a mark boundary has no acknowledged attribution.
-    // Keep only the unchanged part rather than inventing a new marked extent.
-    if (range.start < start) return { start: range.start, end: start }
-    if (range.end > oldEnd) return { start: newEnd, end: range.end + delta }
-    return undefined
-  }
-}
 
 const syntaxSpans = (
   binding: MuyaMarkupBinding,
@@ -403,8 +369,7 @@ export function renderMuyaMarkupBinding(
   currentText: string,
   context?: IInlinePresentationContext,
   comments: readonly MuyaMarkupComment[] = [],
-  commentLabel = 'Comment',
-  pendingEdits?: readonly DocumentSourceEdit[]
+  commentLabel = 'Comment'
 ): string {
   const spans: PresentationSpan[] = []
   for (const highlight of context?.highlights ?? []) {
@@ -423,19 +388,31 @@ export function renderMuyaMarkupBinding(
       close: '</span>'
     })
   }
-  const rebase =
-    pendingEdits !== undefined
-      ? (range: SourceRange): SourceRange | undefined => {
-        let mapped: SourceRange | undefined = range
-        for (const edit of pendingEdits) {
-          if (mapped === undefined) break
-          mapped = rebaseMarkRange(edit)(mapped)
-        }
-        return mapped
-      }
-      : currentText === binding.text
-        ? (range: SourceRange): SourceRange => range
-        : rebaseMarks(binding.text, currentText)
+  const trailingLine =
+    binding.trailingLinePosition !== undefined && currentText === `${binding.text}\n`
+      ? { start: binding.text.length, end: currentText.length }
+      : undefined
+  // Enter on an earlier line of a paragraph shows the new paragraph's empty
+  // first line before its text, as upstream does.
+  const leadingLine =
+    binding.leadingLinePosition !== undefined && currentText === `\n${binding.text}`
+  // Upstream keeps a space typed after a cell's text in the cell.
+  const cellPadding =
+    binding.tableCellPadding !== undefined &&
+    currentText.length > binding.text.length &&
+    currentText.length - binding.text.length <= binding.tableCellPadding &&
+    currentText.startsWith(binding.text) &&
+    /^ +$/u.test(currentText.slice(binding.text.length))
+  const acknowledged = currentText === binding.text || trailingLine !== undefined || cellPadding
+  // Only Core's view locates marks. Other native text is a draft awaiting its
+  // acknowledgement and stays literal: comparing strings cannot tell which of
+  // two equal characters an edit changed.
+  const rebase = (range: SourceRange): SourceRange | undefined =>
+    acknowledged
+      ? range
+      : leadingLine
+        ? { start: range.start + 1, end: range.end + 1 }
+        : undefined
   const markers: PresentationMarker[] = []
   for (const comment of comments) {
     if (
@@ -484,27 +461,9 @@ export function renderMuyaMarkupBinding(
       close: '</span>'
     })
   }
-  const trailingLine =
-    binding.trailingLinePosition !== undefined && currentText === `${binding.text}\n`
-      ? { start: binding.text.length, end: currentText.length }
-      : undefined
-  // Enter on an earlier line of a paragraph shows the new paragraph's empty
-  // first line before its text, as upstream does.
-  const leadingLine =
-    binding.leadingLinePosition !== undefined && currentText === `\n${binding.text}`
-  // Upstream keeps a space typed after a cell's text in the cell.
-  const cellPadding =
-    binding.tableCellPadding !== undefined &&
-    currentText.length > binding.text.length &&
-    currentText.length - binding.text.length <= binding.tableCellPadding &&
-    currentText.startsWith(binding.text) &&
-    /^ +$/u.test(currentText.slice(binding.text.length))
-  if (
-    (currentText === binding.text || trailingLine !== undefined || cellPadding) &&
-    !pendingEdits?.length
-  ) {
+  if (acknowledged) {
     spans.push(...syntaxSpans(binding, context))
-  } else if (leadingLine && !pendingEdits?.length) {
+  } else if (leadingLine) {
     spans.push(
       ...syntaxSpans(binding, context).map((span) => ({
         ...span,

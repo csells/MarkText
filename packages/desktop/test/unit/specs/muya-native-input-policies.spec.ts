@@ -456,13 +456,6 @@ describe('native input preferences in the shared document', () => {
         anchor: { offset: testCase.selection[0] },
         focus: { offset: testCase.selection[1] }
       })
-      if (testCase.literal !== undefined) {
-        expect(
-          presentation.syntaxContext({ path: block.path, offset: testCase.selection[0] })
-        ).toMatchObject(
-          testCase.literal === 'code' ? { isInInlineCode: true } : { isInInlineMath: true }
-        )
-      }
       muya.on('json-change', (change: { source: string }) => {
         if (change.source === 'user') results.push('native-bypass')
       })
