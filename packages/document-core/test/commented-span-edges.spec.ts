@@ -82,3 +82,35 @@ it('Source edits keep the bytes the author typed (ADR 0015)', () => {
   const previous = core.open(source)
   expect(core.apply(previous, [{ start: 11, end: 11, insert: 'Z' }]).revision.source).toBe('x {==abc==}Z{>>n<<} y\n')
 })
+
+// Profile 1 V6: resolution keeps the Highlight/Comment relation meaningful.
+const resolved = (text: string, decision: 'accept' | 'reject', kind: 'addition' | 'deletion' | 'substitution' = 'addition') => {
+  const core = createDocumentCore()
+  const previous = core.open(text)
+  const pending = [...previous.annotations]
+  while (pending.length > 0) {
+    const annotation = pending.shift()!
+    if (annotation.kind === kind) return core.resolve(previous, annotation, decision).revision.source
+    for (const arm of annotation.arms) pending.push(...arm.annotations)
+  }
+  throw new Error(`No ${kind} in ${text}`)
+}
+
+it.each([
+  { text: 'x {=={++new++}==}{>>n<<} y', decision: 'reject' as const, kind: 'addition' as const, expected: 'x {>>n<<} y' },
+  { text: 'x {=={--old--}==}{>>n<<} y', decision: 'accept' as const, kind: 'deletion' as const, expected: 'x {>>n<<} y' },
+  { text: 'x {=={++new++}==}{>>n<<} y', decision: 'accept' as const, kind: 'addition' as const, expected: 'x {==new==}{>>n<<} y' },
+  { text: 'x {==a{++b++}==}{>>n<<} y', decision: 'reject' as const, kind: 'addition' as const, expected: 'x {==a==}{>>n<<} y' }
+])('resolving the only text of commented passage $text ($decision) leaves a standalone comment', ({ text, decision, kind, expected }) => {
+  expect(resolved(text, decision, kind)).toBe(expected)
+})
+
+it.each([
+  { text: '{==a==}{++x++}{>>n<<} y', decision: 'reject' as const, kind: 'addition' as const, expected: '{==a{>>n<<}==} y' },
+  { text: '{==a==}{--x--}{>>n<<} y', decision: 'accept' as const, kind: 'deletion' as const, expected: '{==a{>>n<<}==} y' },
+  { text: '{==a==}{~~x~>~~}{>>n<<} y', decision: 'accept' as const, kind: 'substitution' as const, expected: '{==a{>>n<<}==} y' },
+  { text: '{==a==}{++x++}{>>n<<} y', decision: 'accept' as const, kind: 'addition' as const, expected: '{==a==}x{>>n<<} y' },
+  { text: '{==z==}{=={++x++}==}{>>n<<} y', decision: 'reject' as const, kind: 'addition' as const, expected: '{==z{>>n<<}==} y' }
+])('resolving $text ($decision) does not pair a highlight with a comment it was not paired with', ({ text, decision, kind, expected }) => {
+  expect(resolved(text, decision, kind)).toBe(expected)
+})

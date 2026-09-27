@@ -1,4 +1,5 @@
 import {
+  commentPairPreservingResolution,
   createDocumentCore,
   projectTableSelection,
   projectModelTextSelection,
@@ -2130,6 +2131,8 @@ export function createCoreActor(
           sourceLength: revision.sourceLength
         })
       }
+      const resolvingCore = core
+      const resolvingRevision = revision
       const edits =
         request.type === 'configure'
           ? Object.freeze([])
@@ -2145,13 +2148,15 @@ export function createCoreActor(
                 ? Object.freeze([authoredEdit!])
                 : request.type === 'edit-comment'
                   ? Object.freeze([editedComment!])
-                  : request.type === 'resolve-all'
-                    ? bulkResolutionEdits!
-                    : request.type === 'resolve'
-                      ? Object.freeze([resolutionEdit!])
-                      : request.type === 'undo'
-                        ? historyEntry!.undo
-                        : historyEntry!.redo
+                  : request.type === 'resolve-all' || request.type === 'resolve'
+                    ? commentPairPreservingResolution(
+                      resolvingRevision.annotations,
+                      request.type === 'resolve' ? [resolutionEdit!] : bulkResolutionEdits!,
+                      (range) => resolvingCore.sourceSlice(resolvingRevision, range)
+                    )
+                    : request.type === 'undo'
+                      ? historyEntry!.undo
+                      : historyEntry!.redo
       const editingRevision = revision
       if (
         (request.type === 'source-input' ||
