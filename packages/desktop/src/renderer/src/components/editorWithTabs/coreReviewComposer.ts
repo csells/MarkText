@@ -14,6 +14,10 @@ export interface CoreReviewComposerState {
       form?: 'comment' | 'substitution'
       selection?: MuyaPlainTextAuthorSelection
       item?: NonNullable<CoreReviewItemReply['item']>
+      /** The review entry whose card holds the composer (Google Docs keeps it on its card). */
+      entryStart?: number
+      /** Where a new item's draft card sits among the entries. */
+      draftStart?: number
     }>
     | undefined
 }

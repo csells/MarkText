@@ -148,9 +148,48 @@
             :entries="coreReviewOverview"
             :text-direction="textDirection"
             :active-start="coreReviewTargeted ? coreReviewItem?.range.start : undefined"
-            :busy="coreReviewResolving || coreCommentOpen"
+            :busy="coreReviewResolving"
+            :composing="coreCommentOpen && coreCommentTarget !== undefined"
+            :composer-start="coreCommentTarget?.entryStart"
+            :draft-start="coreCommentTarget?.draftStart"
             @select="selectCoreReviewEntry"
           >
+            <template #composer>
+              <CoreReviewCommentEditor
+                v-if="!sourceCode && coreCommentTarget !== undefined"
+                v-model="coreCommentOpen"
+                v-model:draft-text="coreCommentDraft"
+                :target-id="coreCommentTarget.id"
+                :text-direction="textDirection"
+                :default-text="coreCommentTarget.text"
+                :submitting="coreReviewResolving"
+                :error="coreCommentError"
+                :notice="coreCommentEscapeNotice"
+                :test-id-prefix="
+                  coreCommentTarget.form === 'substitution'
+                    ? 'critic-review-replacement'
+                    : 'critic-review-comment'
+                "
+                :allow-empty="coreCommentTarget.form !== 'substitution'"
+                :label="
+                  t(
+                    coreCommentTarget.form === 'substitution'
+                      ? 'editor.coreReview.replacementPrompt'
+                      : 'editor.coreReview.commentPrompt'
+                  )
+                "
+                :submit-label="
+                  t(
+                    coreCommentTarget.form === 'substitution'
+                      ? 'editor.coreReview.suggestReplacement'
+                      : 'editor.coreReview.saveComment'
+                  )
+                "
+                :cancel-label="t('common.cancel')"
+                :target-changed-label="t('editor.coreReview.commentTargetChanged')"
+                @submit="submitCoreComment"
+              />
+            </template>
             <template #actions>
               <div
                 v-if="!coreCommentOpen"
@@ -223,47 +262,16 @@
           </div>
           <p
             v-if="
-              coreLease !== undefined && !sourceCode && !coreReviewItem && !coreReviewRefreshPending
+              coreLease !== undefined &&
+                !sourceCode &&
+                !coreReviewItem &&
+                !coreReviewRefreshPending &&
+                !coreCommentOpen
             "
             class="core-review-hint"
           >
             {{ t('editor.coreReview.empty') }}
           </p>
-          <CoreReviewCommentEditor
-            v-if="!sourceCode && coreCommentTarget !== undefined"
-            v-model="coreCommentOpen"
-            v-model:draft-text="coreCommentDraft"
-            :target-id="coreCommentTarget.id"
-            :text-direction="textDirection"
-            :restore-focus="restoreCoreCommentFocus"
-            :default-text="coreCommentTarget.text"
-            :submitting="coreReviewResolving"
-            :error="coreCommentError"
-            :notice="coreCommentEscapeNotice"
-            :test-id-prefix="
-              coreCommentTarget.form === 'substitution'
-                ? 'critic-review-replacement'
-                : 'critic-review-comment'
-            "
-            :allow-empty="coreCommentTarget.form !== 'substitution'"
-            :label="
-              t(
-                coreCommentTarget.form === 'substitution'
-                  ? 'editor.coreReview.replacementPrompt'
-                  : 'editor.coreReview.commentPrompt'
-              )
-            "
-            :submit-label="
-              t(
-                coreCommentTarget.form === 'substitution'
-                  ? 'editor.coreReview.suggestReplacement'
-                  : 'editor.coreReview.saveComment'
-              )
-            "
-            :cancel-label="t('common.cancel')"
-            :target-changed-label="t('editor.coreReview.commentTargetChanged')"
-            @submit="submitCoreComment"
-          />
         </div>
       </section>
     </Teleport>
@@ -1772,7 +1780,8 @@ const editCoreReviewComment = async (): Promise<void> => {
     id: `edit:${authoredRevision}:${item.range.start}:${item.range.end}`,
     revision: authoredRevision,
     text: coreReviewCommentText.value ?? '',
-    item
+    item,
+    entryStart: item.range.start
   }
   coreCommentError.value = ''
   coreCommentOpen.value = true
@@ -1977,7 +1986,8 @@ const authorCoreReview = async (
       revision: state.revision,
       text: '',
       form,
-      selection
+      selection,
+      draftStart: adapter.selectionSourceRange(selection)?.start ?? Number.MAX_SAFE_INTEGER
     }
     coreCommentError.value = ''
     coreCommentOpen.value = true
@@ -2071,7 +2081,10 @@ watch([coreAuthorSelection, coreDocumentRevision], ([selection, revision], [prev
 })
 // A closed composer, whether submitted or cancelled, ends its authoring invocation.
 watch(coreCommentOpen, (open) => {
-  if (!open) coreAuthorInvocationSelection.value = undefined
+  if (open) return
+  coreAuthorInvocationSelection.value = undefined
+  // The composer lives on its card, which closing removes, so focus returns here.
+  nextTick(restoreCoreCommentFocus)
 })
 const handleCoreReviewCommand = (value: unknown): void => {
   const command = reviewCommands.find((command) => command.id === value)?.id
@@ -2258,7 +2271,8 @@ const handleCoreContextAction = (value: unknown): void => {
       id: `context:${action.requestId}`,
       revision: initial.revision,
       text: target.comment.commentText ?? '',
-      item: target.comment.item
+      item: target.comment.item,
+      entryStart: target.comment.item.range.start
     }
     coreCommentError.value = ''
     coreCommentOpen.value = true
