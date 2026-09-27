@@ -3,7 +3,8 @@ import { createDocumentCore } from '../src/index.js'
 
 // Profile 1 R3b: an unescaped `|` keeps delimiting table cells between
 // CriticMarkup markers, so an annotation may not cut through a cell. It may sit
-// inside one cell, or cover whole cells, rows or the whole table.
+// inside one cell, or, with both markers touching pipes or outside the cells,
+// cover whole cells, rows or the whole table.
 
 const table = (row: string): string => `| h | i |\n|---|---|\n${row}\n`
 
@@ -25,7 +26,8 @@ describe('an annotation that cuts through a table cell does not form', () => {
     ['highlight', '| a {==x | y==} |'],
     ['comment', '| a {>>x | y<<} |'],
     ['substitution separator in the next cell', '| a {~~x~> | y~~} |'],
-    ['addition across two rows', '| a {++x | y |\n| z++} | w |']
+    ['addition across two rows', '| a {++x | y |\n| z++} | w |'],
+    ['a closer inside the next cell\'s text', '| {++x | y++}w |']
   ])('%s', (_name, row) => {
     const source = table(row)
     const read_ = read(source)
@@ -62,7 +64,11 @@ describe('an annotation inside one cell forms', () => {
 describe('an annotation covering whole cells, rows or tables forms', () => {
   it.each([
     ['a cell added at the end of a row', table('| x |{++ y |++}'), 'addition'],
-    ['whole cells in the middle of a row', table('| {++x | y++} |'), 'addition'],
+    ['a cell inserted before another, as tracked column insertion spells it', table('| x |{++ y |++} z |'), 'addition'],
+    ['a cell removed with its pipe, as tracked column removal spells it', table('| x {--| y --}|'), 'deletion'],
+    ['whole cells between the row pipes', table('|{++ x | y ++}|'), 'addition'],
+    ['the whole text of two cells', table('| {++x | y++} |'), 'addition'],
+    ['the text of a cell with its pipe', table('| {--x|--}z |'), 'deletion'],
     ['a whole row', '| h | i |\n|---|---|{++\n| x | y |++}\n', 'addition'],
     ['a row replaced whole', table('{~~| x |~>| x | y |~~}'), 'substitution'],
     ['the whole table', '{--| h | i |\n|---|---|\n| x | y |--}\n', 'deletion']
@@ -96,5 +102,31 @@ describe('tracked authoring across cells', () => {
     const next = core.apply(revision, edits).revision
     expect(next.source).toBe(table('| a{++X++}b | cd |'))
     expect(next.annotations.map(annotation => annotation.kind)).toEqual(['addition'])
+  })
+})
+
+describe('Markup editing at the end of a suggestion inside a cell', () => {
+  it('lands text that would cut the cell just after the closer', () => {
+    // Pasting `p|q` over `--}y | ` at the end of a Deletion's arm would put a
+    // structural pipe inside the Deletion, which then could not form.
+    const source = table('| {--x--}y | z |')
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const closer = source.indexOf('--}')
+    const edits = core.markupEdits(revision, [{ start: closer, end: source.indexOf('z |'), insert: 'p|q' }])
+    if (edits === undefined) throw new Error('Markup paste refused')
+    const next = core.apply(revision, edits).revision
+    expect(next.source).toBe(table('| {--x--}p|qz |'))
+    expect(next.annotations.map(annotation => annotation.kind)).toEqual(['deletion'])
+  })
+
+  it('keeps a pipe that ends the cell inside the arm when the annotation still forms', () => {
+    const source = table('| {--x--}y | z |')
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const closer = source.indexOf('--}')
+    const edits = core.markupEdits(revision, [{ start: closer, end: source.indexOf('z |'), insert: '|' }])
+    if (edits === undefined) throw new Error('Markup pipe refused')
+    expect(core.apply(revision, edits).revision.source).toBe(table('| {--x|--}z |'))
   })
 })

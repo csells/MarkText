@@ -2,10 +2,11 @@
  * Profile rule R3b: inside a GFM table an unescaped `|` keeps delimiting
  * cells between CriticMarkup markers, so an annotation may not cut through a
  * cell. It forms when its opener and its other marker sit in one cell, or
- * when its opener begins a cell's text (or stands outside every cell) and
- * its other marker ends one (or stands outside), so it covers whole cells,
- * rows or tables. `| a {++ | b ++} |` does not form; `| x |{++ y |++}` adds
- * a whole cell.
+ * when each stands on a cell boundary (touching a pipe, beginning or ending
+ * its cell's text, or outside every cell), so it covers whole cells with
+ * their pipes, whole rows or whole tables, as tracked column and row edits
+ * spell them. `| a {++ | b ++} |` does not form; `| x |{++ y |++}` adds a
+ * cell and `| x {--| y --}|` removes one.
  *
  * Table structure is read from the canonical source before CriticMarkup is
  * recognized. Delimiter runs at a row's start or end are not row text
@@ -54,6 +55,12 @@ function rowSpan(source: string, start: number, end: number): RowSpan {
     to -= trailing[0].length
   }
   return Object.freeze({ start: from, end: to })
+}
+
+function hasOddBackslashRunBefore(source: string, offset: number): boolean {
+  let backslashes = 0
+  for (let back = offset - 1; back >= 0 && source.charCodeAt(back) === 92; back -= 1) backslashes += 1
+  return backslashes % 2 === 1
 }
 
 function unescapedPipes(source: string, span: RowSpan): number[] {
@@ -118,7 +125,9 @@ function delimiterCellCount(source: string, span: RowSpan): number | undefined {
   if (unescapedPipes(source, span).length === 0) return undefined
   const cells = rowCells(source, span)
   for (const cell of cells) {
-    if (!/^[ \t]*:?-+:?[ \t]*$/u.test(source.slice(cell.start, cell.end))) return undefined
+    // Delimiters are not row text: `| :--- |{++ --- |++}` is a delimiter row.
+    const text = source.slice(cell.start, cell.end).replace(DELIMITER_TOKEN, '')
+    if (!/^[ \t]*:?-+:?[ \t]*$/u.test(text)) return undefined
   }
   return cells.length === 0 ? undefined : cells.length
 }
@@ -201,13 +210,18 @@ export function createTableCellContainment(
     return cell !== undefined && offset < cell.end ? low - 1 : -1
   }
   const blank = (start: number, end: number): boolean => /^[ \t]*$/u.test(source.slice(start, end))
-  // An opener stands at the start of its cell's text, a closer at its end.
-  const atEdge = (marker: RowSpan, side: 'start' | 'end'): boolean => {
+  // A marker stands on a cell boundary when it touches a pipe, or when an
+  // opener begins its cell's text or a closer ends it: the annotation then
+  // takes all of that cell's text or none of it.
+  const onBoundary = (marker: RowSpan, role: 'open' | 'close'): boolean => {
     const cell = cells[cellAt(marker.start)]
-    return cell === undefined || (side === 'start' ? blank(cell.start, marker.start) : blank(marker.end, cell.end))
+    return cell === undefined ||
+      (source.charCodeAt(marker.start - 1) === 124 && !hasOddBackslashRunBefore(source, marker.start - 1)) ||
+      source.charCodeAt(marker.end) === 124 ||
+      (role === 'open' ? blank(cell.start, marker.start) : blank(marker.end, cell.end))
   }
   return Object.freeze({
     pairs: (open: RowSpan, other: RowSpan): boolean =>
-      cellAt(open.start) === cellAt(other.start) || (atEdge(open, 'start') && atEdge(other, 'end'))
+      cellAt(open.start) === cellAt(other.start) || (onBoundary(open, 'open') && onBoundary(other, 'close'))
   })
 }
