@@ -3,6 +3,8 @@ import 'codemirror/addon/edit/closebrackets'
 import 'codemirror/addon/edit/closetag'
 import 'codemirror/addon/selection/active-line'
 import 'codemirror/mode/meta'
+// Source view colors math bodies Core locates with the TeX mode synchronously.
+import 'codemirror/mode/stex/stex'
 import codeMirror from 'codemirror/lib/codemirror'
 import type CodeMirror from 'codemirror'
 
