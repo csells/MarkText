@@ -4716,7 +4716,7 @@ describe('document-core semantic changes', () => {
       end: at,
       insert: overDepth
     }], { projections: ['markup'] }))
-      .toThrow(/CM_RESOURCE_LOGICAL_NODES_EXCEEDED/)
+      .toThrow(/CM_RESOURCE_CM_DEPTH_EXCEEDED/)
     const afterRejections = inspectionOf(core)
     expect(afterRejections.retainedCommittedUpdates)
       .toBe(beforeRejections.retainedCommittedUpdates)
