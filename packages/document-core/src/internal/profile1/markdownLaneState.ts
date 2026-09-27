@@ -682,6 +682,8 @@ interface ContainerLineState {
   readonly containerBaseColumn: number
   readonly openers: readonly MarkdownContainerOpener[]
   readonly lazy: boolean
+  /** The line underlines the open paragraph, turning it into a setext heading. */
+  readonly setextUnderline: boolean
 }
 
 interface ListContinuationIndentationState {
@@ -712,6 +714,40 @@ export { advanceColumn as advanceMarkdownColumn }
 
 function advanceColumn(column: number, codeUnit: number): number {
   return codeUnit === 9 ? column + (4 - (column % 4)) : column + 1
+}
+
+function isBlankFrom(source: string, start: number, end: number): boolean {
+  for (let offset = start; offset < end; offset += 1) {
+    if (!isSpaceOrTab(source.charCodeAt(offset))) return false
+  }
+  return true
+}
+
+/**
+ * Whether a list marker leaves the line to the open paragraph (CommonMark
+ * 0.31.2 §5.2, §4.3). While the paragraph is the innermost open block, an
+ * empty item cannot interrupt it and a `-` run is its setext underline. An
+ * ordered item not starting at 1 cannot interrupt it either; like upstream
+ * MarkText, that also holds on a lazy continuation line. Inside a list item,
+ * upstream nests an empty or renumbered item as a sublist, so only the
+ * underline applies there.
+ */
+function refusesParagraphInterruption(
+  source: string,
+  marker: ListMarker,
+  lineContentEnd: number,
+  paragraphOpen: boolean,
+  containersMatched: boolean,
+  insideListItem: boolean
+): boolean {
+  if (!paragraphOpen) return false
+  const empty = isBlankFrom(source, marker.end, lineContentEnd)
+  if (containersMatched && empty && isSetextUnderline(source, marker.start, lineContentEnd)) {
+    return true
+  }
+  if (insideListItem) return false
+  return (containersMatched && empty) ||
+    (marker.ordered && marker.startNumber !== 1)
 }
 
 function isThematicBreakFrom(source: string, start: number, end: number): boolean {
@@ -847,7 +883,6 @@ function analyzeContainerLine(
   line: SourceLine,
   inheritedContainers: readonly ActiveBlockContainer[],
   paragraphOpen: boolean,
-  previousLineLazy: boolean,
   suppressNewContainers: boolean = false
 ): ContainerLineState {
   let offset = line.start
@@ -986,11 +1021,14 @@ function analyzeContainerLine(
     const listMarker = findListMarker(source, offset, line.contentEnd)
     if (
       listMarker === undefined ||
-      (
-        paragraphOpen &&
-        !inheritedContainers.some((container) => container.kind === 'list-item') &&
-        listMarker.ordered &&
-        listMarker.startNumber !== 1
+      refusesParagraphInterruption(
+        source,
+        listMarker,
+        line.contentEnd,
+        paragraphOpen,
+        inheritedMatchDepth === inheritedContainers.length &&
+          activeContainers.length === inheritedContainers.length,
+        inheritedContainers.some((container) => container.kind === 'list-item')
       )
     ) {
       break
@@ -1048,12 +1086,19 @@ function analyzeContainerLine(
     lineContentEnd: line.contentEnd,
     containerBaseColumn,
     openers: Object.freeze(openers),
-    lazy: false
+    lazy: false,
+    setextUnderline:
+      paragraphOpen &&
+      inheritedMatchDepth === inheritedContainers.length &&
+      openers.length === 0 &&
+      contentOffset < line.contentEnd &&
+      contentColumn - containerBaseColumn <= 3 &&
+      isSetextUnderline(source, contentOffset, line.contentEnd)
   })
   if (
     paragraphOpen &&
     inheritedMatchDepth < inheritedContainers.length &&
-    isLazyParagraphContinuation(source, provisionalState, previousLineLazy)
+    isLazyParagraphContinuation(source, provisionalState)
   ) {
     return Object.freeze({
       ...provisionalState,
@@ -1166,8 +1211,7 @@ function isSetextUnderline(
 
 function isLazyParagraphContinuation(
   source: string,
-  state: ContainerLineState,
-  previousLineLazy: boolean
+  state: ContainerLineState
 ): boolean {
   if (state.indentation >= 4 && !state.blank && state.openers.length === 0) {
     return true
@@ -1177,10 +1221,6 @@ function isLazyParagraphContinuation(
     state.openers.length > 0 ||
     isAtxHeadingLine(source, state) ||
     isThematicBreakFrom(source, state.contentOffset, state.lineContentEnd) ||
-    (
-      !previousLineLazy &&
-      isSetextUnderline(source, state.contentOffset, state.lineContentEnd)
-    ) ||
     findMarkdownFenceOpening(
       source.slice(0, state.lineContentEnd),
       state.contentOffset,
@@ -1210,7 +1250,6 @@ export function markdownPendingLineIsContainerPrefix(
     { start: 0, contentEnd: lineText.length, end: lineText.length },
     checkpoint.activeContainers,
     false,
-    false,
     true
   )
   return lineState.blank &&
@@ -1234,8 +1273,7 @@ export function inspectMarkdownPendingLineBlock(
     lineText,
     { start: 0, contentEnd: lineText.length, end: lineText.length },
     checkpoint.activeContainers,
-    checkpoint.paragraphOpen,
-    checkpoint.lastLineLazy
+    checkpoint.paragraphOpen
   )
   const opensFence = findMarkdownFenceOpening(
     lineText,
@@ -1263,6 +1301,7 @@ export function inspectMarkdownPendingLineBlock(
     !ownsBlockLiteral &&
     !opensFence &&
     !isAtxHeadingLine(lineText, lineState) &&
+    !lineState.setextUnderline &&
     !isThematicBreakFrom(
       lineText,
       lineState.contentOffset,
@@ -1315,11 +1354,7 @@ export function inspectMarkdownPendingLineBlock(
     continuesExistingParagraph:
       checkpoint.paragraphOpen &&
       paragraphOpen &&
-      isLazyParagraphContinuation(
-        lineText,
-        lineState,
-        checkpoint.lastLineLazy
-      ),
+      isLazyParagraphContinuation(lineText, lineState),
     containerPath: Object.freeze(
       lineState.activeContainers.map((container) => container.kind)
     ),
@@ -2940,15 +2975,13 @@ export function createMarkdownLaneState(
           { start: 0, contentEnd: armFragmentLine.length, end: armFragmentLine.length },
           activeContainers,
           paragraphOpen,
-          lastLineLazy,
           true
         )
       const probeState = analyzeContainerLine(
         probeLine,
         { start: 0, contentEnd: probeLine.length, end: probeLine.length },
         activeContainers,
-        paragraphOpen,
-        lastLineLazy
+        paragraphOpen
       )
       if (firstContainerDepthFailure === undefined) {
         const excess = firstExcessContainer(probeState)
@@ -3637,8 +3670,7 @@ export function createMarkdownLaneState(
         boundaryLine,
         { start: 0, contentEnd: boundaryLine.length, end: boundaryLine.length },
         activeContainers,
-        paragraphOpen,
-        lastLineLazy
+        paragraphOpen
       )
       if (isFenceCloserLine(boundaryLine, boundaryState, fence)) {
         completedLiterals.push(Object.freeze({
@@ -3713,7 +3745,6 @@ export function createMarkdownLaneState(
         completedBounds,
         checkpoint.activeContainers,
         checkpoint.paragraphOpen,
-        checkpoint.lastLineLazy,
         markdownCheckpointContinuesLiteralContainer(
           source,
           completedBounds,
@@ -3726,8 +3757,7 @@ export function createMarkdownLaneState(
         completedLine,
         { start: 0, contentEnd: completedLine.length, end: completedLine.length },
         activeContainers,
-        paragraphOpen,
-        lastLineLazy
+        paragraphOpen
       )
       if (lineState.blank || lineBlockClosed) {
         enclosingLabelInterrupted = true
@@ -4004,6 +4034,7 @@ export function createMarkdownLaneState(
         htmlBlock === undefined &&
         definition === undefined &&
         !isAtxHeadingLine(completedLine, lineState) &&
+        !lineState.setextUnderline &&
         !isThematicBreakFrom(
           completedLine,
           lineState.contentOffset,
@@ -4109,7 +4140,6 @@ export function createMarkdownLaneState(
           }),
           checkpoint.activeContainers,
           checkpoint.paragraphOpen,
-          checkpoint.lastLineLazy,
           markdownCheckpointContinuesLiteralContainer(
             source,
             Object.freeze({
@@ -4271,8 +4301,7 @@ export function createMarkdownLaneState(
       lineText,
       { start: 0, contentEnd: lineText.length, end: lineText.length },
       checkpoint.activeContainers,
-      checkpoint.paragraphOpen,
-      checkpoint.lastLineLazy
+      checkpoint.paragraphOpen
     )
     const completedLiterals: MarkdownLiteralRange[] = []
     let indentedCode = checkpoint.indentedCode
@@ -4414,7 +4443,6 @@ export function createMarkdownLaneState(
       { start: 0, contentEnd: lineText.length, end: lineText.length },
       checkpoint.activeContainers,
       false,
-      false,
       true
     )
     const container = 'container' in literal ? literal.container : undefined
@@ -4452,7 +4480,6 @@ export function createMarkdownLaneState(
           lineText,
           { start: 0, contentEnd: lineText.length, end: lineText.length },
           checkpoint.activeContainers,
-          false,
           false,
           true
         ),
@@ -4570,8 +4597,7 @@ export function createMarkdownLaneState(
           pendingLine,
           { start: 0, contentEnd: pendingLine.length, end: pendingLine.length },
           checkpoint.activeContainers,
-          checkpoint.paragraphOpen,
-          checkpoint.lastLineLazy
+          checkpoint.paragraphOpen
         )
         const excess = firstExcessContainer(lineState)
         if (excess === undefined) {
@@ -4668,7 +4694,6 @@ export function buildPlainMarkdownLine(
   bounds: Readonly<{ start: number, contentEnd: number, end: number }>,
   activeContainers: MarkdownCheckpoint['activeContainers'],
   paragraphOpen: boolean,
-  lastLineLazy: boolean,
   literalOpen: boolean = false
 ): PlainMarkdownLine {
   const { start, contentEnd, end } = bounds
@@ -4677,7 +4702,6 @@ export function buildPlainMarkdownLine(
     { start, contentEnd, end },
     activeContainers,
     paragraphOpen,
-    lastLineLazy,
     literalOpen
   )
   let openerIndex = 0
@@ -4782,8 +4806,7 @@ export function markdownCheckpointContinuesLiteralContainer(
         source,
         bounds,
         checkpoint.activeContainers,
-        checkpoint.paragraphOpen,
-        checkpoint.lastLineLazy
+        checkpoint.paragraphOpen
       ),
       literalContainer
     )
@@ -4856,8 +4879,7 @@ function parsePlainMarkdownLanePass(
           source,
           bounds,
           checkpoint.activeContainers,
-          checkpoint.paragraphOpen,
-          checkpoint.lastLineLazy
+          checkpoint.paragraphOpen
         ),
         literalContainer
       )
@@ -4866,7 +4888,6 @@ function parsePlainMarkdownLanePass(
       bounds,
       checkpoint.activeContainers,
       checkpoint.paragraphOpen,
-      checkpoint.lastLineLazy,
       lineContinuesLiteralContainer ||
         checkpoint.frontMatter !== undefined
     ))
