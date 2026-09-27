@@ -678,6 +678,13 @@ function markdownOptions(
   options: Readonly<Partial<MarkdownOptions>> = {},
   inherited: MarkdownOptions = DEFAULT_MARKDOWN_OPTIONS
 ): MarkdownOptionsV1 {
+  // Profile 1 Y1: an unrecognized configuration name is refused rather than
+  // carried into a revision's parse configuration.
+  for (const name of Object.keys(options)) {
+    if (!Object.hasOwn(DEFAULT_MARKDOWN_OPTIONS, name)) {
+      throw new TypeError(`Unknown Markdown option ${name}`)
+    }
+  }
   const resolved = Object.freeze({
     gfm: inherited.gfm,
     gfmAutolinks: inherited.gfmAutolinks,
