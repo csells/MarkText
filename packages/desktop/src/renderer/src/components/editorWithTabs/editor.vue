@@ -479,6 +479,7 @@ import {
   muyaClipboardToModel,
   muyaActiveFormats,
   muyaCaretStep,
+  muyaLineEndStep,
   muyaCodeLanguage,
   muyaEmojiContext,
   muyaFormatToModel,
@@ -3912,6 +3913,10 @@ onMounted(() => {
         coreAcknowledgedMarkupView === undefined
           ? undefined
           : muyaCaretStep(muya, coreAcknowledgedMarkupView, point, direction),
+      lineEndStep: (point) =>
+        coreAcknowledgedMarkupView === undefined
+          ? undefined
+          : muyaLineEndStep(muya, coreAcknowledgedMarkupView, point),
       prepareImage: async (operation, payload, prepare): Promise<boolean> => {
         const adapter = corePlainTextAdapter
         const lease = props.coreLease
