@@ -99,12 +99,26 @@ interface MarkdownDefinitionState {
     | 'footnote'
   /** Close delimiter of a title still open across lines. */
   readonly titleCloseCodeUnit?: number | undefined
+  /**
+   * A footnote body is paragraph text; only its `[^label]:` owns markers.
+   * Source offset just after that colon, present until the lane passes it.
+   */
+  readonly footnoteBodyStart?: number | undefined
 }
 
 type MarkdownDefinitionStep = Readonly<{
   phase: MarkdownDefinitionState['phase']
   titleCloseCodeUnit?: number | undefined
+  /** Probe-line offset just after a footnote label's colon. */
+  footnoteBodyOffset?: number | undefined
 }>
+
+/** Markers in a definition are data, except in a footnote's body. */
+function definitionOwnsMarkers(definition: MarkdownDefinitionState): boolean {
+  return definition.phase === 'footnote'
+    ? definition.footnoteBodyStart !== undefined
+    : definition.phase !== 'reference-label'
+}
 
 /** Phases whose state, if the definition ends there, yields a real literal.
  * A definition abandoned mid-label, awaiting its destination, or inside an
@@ -342,7 +356,10 @@ export function shiftMarkdownCheckpoint(
         ...checkpoint.definition,
         openStart: checkpoint.definition.openStart + delta,
         lastOwnedEnd: checkpoint.definition.lastOwnedEnd + delta,
-        lineStart: checkpoint.definition.lineStart + delta
+        lineStart: checkpoint.definition.lineStart + delta,
+        footnoteBodyStart: checkpoint.definition.footnoteBodyStart === undefined
+          ? undefined
+          : checkpoint.definition.footnoteBodyStart + delta
       }),
     pendingCarriageReturn: checkpoint.pendingCarriageReturn === undefined
       ? undefined
@@ -1837,7 +1854,7 @@ function definitionOpening(
   const isFootnote = lineText.charCodeAt(state.contentOffset + 1) === 94
   if (isFootnote) {
     return footnotesEnabled
-      ? Object.freeze({ phase: 'footnote' as const })
+      ? Object.freeze({ phase: 'footnote' as const, footnoteBodyOffset: colon + 1 })
       : undefined
   }
   let tailStart = colon + 1
@@ -2968,11 +2985,21 @@ export function createMarkdownLaneState(
       lineBlockProbeCanPersist &&
       checkpoint.linePath !== undefined &&
       linePathsWithBlockProbe.has(checkpoint.linePath)
+    // Inline syntax pending from the previous line continues its paragraph,
+    // but a footnote body's paragraph continues only while its definition does.
+    const footnoteLineUnprobed =
+      checkpoint.definition?.phase === 'footnote' &&
+      checkpoint.definition.lineStart !== checkpoint.lineStart
     if (
       !containsEol &&
-      checkpoint.inlineCode === undefined &&
-      checkpoint.math === undefined &&
-      checkpoint.fixedInline === undefined &&
+      (
+        footnoteLineUnprobed ||
+        (
+          checkpoint.inlineCode === undefined &&
+          checkpoint.math === undefined &&
+          checkpoint.fixedInline === undefined
+        )
+      ) &&
       !lineBlockProbeEstablished
     ) {
       const inheritedPrefix = materializeMarkdownLine(checkpoint.linePath)
@@ -3104,6 +3131,14 @@ export function createMarkdownLaneState(
             definition,
             definition.lastOwnedEnd
           ))
+          if (definition.phase === 'footnote') {
+            // Inline syntax opened in the footnote body ends with it.
+            inlineCode = undefined
+            if (math?.block !== true) math = undefined
+            fixedInline = undefined
+            bracketPath = undefined
+            pendingLinkLabel = undefined
+          }
           definition = undefined
         } else {
           definition = Object.freeze({
@@ -3242,7 +3277,17 @@ export function createMarkdownLaneState(
                 lastOwnedEnd: sourceLineEnd(source, lookaheadEnd, laneEnd),
                 lineStart,
                 phase: definitionKind.phase,
-                titleCloseCodeUnit: definitionKind.titleCloseCodeUnit
+                titleCloseCodeUnit: definitionKind.titleCloseCodeUnit,
+                footnoteBodyStart: definitionKind.footnoteBodyOffset === undefined
+                  ? undefined
+                  : probeSourceOffsetAt(
+                    checkpoint.linePath,
+                    inheritedPrefix.length,
+                    textSourceStart,
+                    text.length,
+                    sourceEnd,
+                    definitionKind.footnoteBodyOffset
+                  )
               })
               activeContainers = probeState.activeContainers
               if (definitionKind.phase !== 'reference-label') {
@@ -3263,10 +3308,18 @@ export function createMarkdownLaneState(
       htmlBlock === undefined &&
       (
         definition === undefined ||
-        definition.phase === 'reference-label'
+        !definitionOwnsMarkers(definition) ||
+        (
+          definition.phase === 'footnote' &&
+          (definition.footnoteBodyStart ?? sourceEnd) < sourceEnd
+        )
       )
     ) {
-      for (let offset = sourceStart; offset < sourceEnd;) {
+      // A footnote's label is not paragraph text; its body starts after `:`.
+      const inlineStart = definition?.phase === 'footnote'
+        ? Math.max(sourceStart, definition.footnoteBodyStart ?? sourceStart)
+        : sourceStart
+      for (let offset = inlineStart; offset < sourceEnd;) {
         if (fixedInline !== undefined) {
           if (fixedInline.closeEnd > sourceEnd) {
             break
@@ -3917,6 +3970,13 @@ export function createMarkdownLaneState(
               definition,
               definition.lastOwnedEnd
             ))
+            if (definition.phase === 'footnote') {
+              inlineCode = undefined
+              if (math?.block !== true) math = undefined
+              fixedInline = undefined
+              bracketPath = undefined
+              pendingLinkLabel = undefined
+            }
             definition = undefined
           } else {
             definition = Object.freeze({
@@ -4069,11 +4129,21 @@ export function createMarkdownLaneState(
           lineState.contentOffset,
           completedLine.length
         )
-      if (!paragraphOpen) {
+      // A footnote body's lines form paragraphs of their own, which a blank
+      // line ends.
+      const footnoteParagraphContinues =
+        lineOwnedByDefinition &&
+        definition?.phase === 'footnote' &&
+        !lineState.blank
+      if (!paragraphOpen && !footnoteParagraphContinues) {
         // Code spans and inline math are paragraph content: once the line
         // ends its paragraph or leaf block, a later run cannot close them.
         inlineCode = undefined
         if (math?.block !== true) math = undefined
+        if (lineOwnedByDefinition && definition?.phase === 'footnote') {
+          bracketPath = undefined
+          pendingLinkLabel = undefined
+        }
       }
       lastLineLazy = lineState.lazy
       frontMatterEligible = false
@@ -4121,7 +4191,11 @@ export function createMarkdownLaneState(
         frontMatter,
         indentedCode,
         htmlBlock,
-        definition,
+        definition:
+          definition?.footnoteBodyStart !== undefined &&
+          definition.footnoteBodyStart <= sourceEnd
+            ? Object.freeze({ ...definition, footnoteBodyStart: undefined })
+            : definition,
         pendingCarriageReturn: undefined,
         firstContainerDepthFailure,
         enclosingLabelInterrupted,
@@ -4347,6 +4421,7 @@ export function createMarkdownLaneState(
       indentedCode = undefined
     }
     let definition = checkpoint.definition
+    let footnoteEnded = false
     if (definition !== undefined && definition.lineStart !== checkpoint.lineStart) {
       const continuation = definitionContinuationPhase(
         lineText,
@@ -4360,6 +4435,7 @@ export function createMarkdownLaneState(
           definition,
           definition.lastOwnedEnd
         ))
+        footnoteEnded = definition.phase === 'footnote'
         definition = undefined
       } else {
         definition = Object.freeze({
@@ -4415,7 +4491,16 @@ export function createMarkdownLaneState(
         indentedCode,
         definition,
         fence,
-        htmlBlock
+        htmlBlock,
+        ...(footnoteEnded
+          ? {
+            inlineCode: undefined,
+            math: checkpoint.math?.block === true ? checkpoint.math : undefined,
+            fixedInline: undefined,
+            bracketPath: undefined,
+            pendingLinkLabel: undefined
+          }
+          : {})
       }),
       completedLiterals: Object.freeze(completedLiterals)
     })
@@ -4494,7 +4579,7 @@ export function createMarkdownLaneState(
     const definition = checkpoint.definition
     if (
       definition === undefined ||
-      definition.phase === 'reference-label' ||
+      !definitionOwnsMarkers(definition) ||
       definition.openStart < armStart ||
       definition.lineStart !== checkpoint.lineStart
     ) {
@@ -4656,7 +4741,7 @@ export function createMarkdownLaneState(
         checkpoint.htmlBlock !== undefined ||
         (
           checkpoint.definition !== undefined &&
-          checkpoint.definition.phase !== 'reference-label'
+          definitionOwnsMarkers(checkpoint.definition)
         )
     ),
     compatibleCloserStandsAgainstLiteral: Object.freeze(

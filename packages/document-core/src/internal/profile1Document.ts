@@ -21,6 +21,7 @@ import type {
 import { DOCUMENT_RESOURCE_POLICY_V1 } from '../resourcePolicy.js'
 import {
   composeMarkdownLiteralRanges,
+  markdownLiteralOwnedEnd,
   type MarkdownContainerDepthFailure,
   type MarkdownLiteralRange
 } from './profile1/markdownLiterals.js'
@@ -3183,18 +3184,25 @@ function guardProjectionCandidate(
    * decision stream, so a projection may retain only decisions with the same
    * source identity and stack topology.
    */
+  const owningLiterals = projectedMarkdownLiterals.map(literal =>
+    literal.blockKind === 'footnote-definition'
+      ? Object.freeze({
+        start: literal.start,
+        end: markdownLiteralOwnedEnd(candidateSource, literal)
+      })
+      : literal)
   let literalIndex = 0
   const markerIsMarkdownOwned = (
     markerStart: number,
     compatibleCloser: boolean
   ): boolean => {
     while (
-      (projectedMarkdownLiterals[literalIndex]?.end ?? Number.POSITIVE_INFINITY) <=
+      (owningLiterals[literalIndex]?.end ?? Number.POSITIVE_INFINITY) <=
       markerStart
     ) {
       literalIndex += 1
     }
-    const literal = projectedMarkdownLiterals[literalIndex]
+    const literal = owningLiterals[literalIndex]
     return !compatibleCloser &&
       literal !== undefined &&
       literal.start <= markerStart &&
@@ -5064,7 +5072,10 @@ function parseProfile1DocumentWithExecution(
     if (literal.start >= literal.end) {
       continue
     }
-    const ownerRange = sourceRange(literal.start, literal.end)
+    const ownerRange = sourceRange(
+      literal.start,
+      markdownLiteralOwnedEnd(source, literal)
+    )
     syntaxIdentity.emitOwnership(
       ownerRange,
       Object.freeze({
