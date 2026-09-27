@@ -33,6 +33,42 @@ import { createLocalCoreOwner, type CoreModelTestControl } from '@/documentAutho
 const submitMarkup = (binding: EditorCoreBinding, edits: readonly DocumentSourceEdit[]) =>
   binding.submit({ edits, projections: ['markup'] }).acknowledged
 
+const trackingOptions = { autoPairBracket: true, autoPairQuote: true, autoPairMarkdownSyntax: true }
+
+/** Submits one Track Changes edit through the production native-input request. */
+const handleTracked = (
+  actor: CoreActor,
+  request: {
+    readonly session: number
+    readonly sequence: number
+    readonly baseRevision: number
+    readonly range: { readonly start: number; readonly end: number }
+    readonly text: string
+    readonly projections: []
+    readonly nativeHistoryGroup?: string
+  }
+) =>
+  actor.handle({
+    type: 'input',
+    session: request.session,
+    sequence: request.sequence,
+    baseRevision: request.baseRevision,
+    tracked: true,
+    action: trackedAction(request.range, request.text),
+    ...(request.nativeHistoryGroup === undefined
+      ? {}
+      : { nativeHistoryGroup: request.nativeHistoryGroup }),
+    projections: request.projections
+  })
+
+const trackedAction = (range: { readonly start: number; readonly end: number }, text: string) => ({
+  range: { start: range.start, end: range.end },
+  selection: { ranges: [{ anchor: range.start, focus: range.end }], primary: 0 },
+  inputType: text.length === 0 ? 'deleteContentBackward' : 'insertText',
+  data: text.length === 0 ? null : text,
+  options: trackingOptions
+})
+
 const unexpectedBindingCall = (operation: string): never => {
   throw new Error(`unexpected ${operation}`)
 }
@@ -1906,8 +1942,7 @@ describe('Core actor protocol', () => {
     })
     expect(opened).toMatchObject({ type: 'opened', revision: 1 })
 
-    const insertion = actor.handle({
-      type: 'track',
+    const insertion = handleTracked(actor, {
       session: 765,
       sequence: 2,
       baseRevision: 1,
@@ -1974,8 +2009,7 @@ describe('Core actor protocol', () => {
     })
     expect(opened2).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor2.handle({
-        type: 'track',
+      handleTracked(actor2, {
         session: 766,
         sequence: 2,
         baseRevision: 1,
@@ -2043,8 +2077,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor3.handle({
-        type: 'track',
+      handleTracked(actor3, {
         session: 767,
         sequence: 2,
         baseRevision: 1,
@@ -2115,8 +2148,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 774,
         sequence: 2,
         baseRevision: 1,
@@ -2313,8 +2345,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 768,
         sequence: 2,
         baseRevision: 1,
@@ -2401,8 +2432,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 771,
         sequence: 2,
         baseRevision: 1,
@@ -2497,8 +2527,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 782,
         sequence: 2,
         baseRevision: 1,
@@ -2580,8 +2609,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 773,
         sequence: 2,
         baseRevision: 1,
@@ -2626,8 +2654,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 770,
         sequence: 2,
         baseRevision: 1,
@@ -2640,11 +2667,8 @@ describe('Core actor protocol', () => {
       revision: 2,
       change: {
         appliedEdits: [
-          {
-            start: 7,
-            end: 32,
-            insert: '{--old --}{--nested--}{-- \\--} tail--}'
-          }
+          { start: 7, end: 11, insert: '{--old --}' },
+          { start: 23, end: 32, insert: '{-- \\--} tail--}' }
         ]
       }
     })
@@ -2690,8 +2714,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 769,
         sequence: 2,
         baseRevision: 1,
@@ -2745,8 +2768,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 792,
         sequence: 2,
         baseRevision: 1,
@@ -2829,7 +2851,7 @@ describe('Core actor protocol', () => {
     ).toMatchObject({ type: 'source', source: '{++sXd++}\n' })
   })
 
-  it('does not record an identical replacement inside an Addition', () => {
+  it('keeps source unchanged for an identical replacement inside an Addition', () => {
     const actor = createCoreActor()
     const source = '{++abc++}\n'
     expect(
@@ -2840,43 +2862,23 @@ describe('Core actor protocol', () => {
         source
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
-    expect(
-      actor.handle({
-        type: 'track',
-        session: 800,
-        sequence: 2,
-        baseRevision: 1,
-        range: { start: 3, end: 6 },
-        text: 'abc',
-        projections: []
-      })
-    ).toMatchObject({
-      type: 'rejected',
-      reason: 'no-change',
-      revision: 1,
-      sourceLength: source.length
+    const replaced = handleTracked(actor, {
+      session: 800,
+      sequence: 2,
+      baseRevision: 1,
+      range: { start: 3, end: 6 },
+      text: 'abc',
+      projections: []
     })
+    expect(replaced).toMatchObject({ type: 'applied', sourceLength: source.length })
     expect(
       actor.handle({
         type: 'source-at-barrier',
         session: 800,
         sequence: 3,
-        baseRevision: 1
+        baseRevision: replaced.type === 'applied' ? replaced.revision : 1
       })
     ).toMatchObject({ type: 'source', source })
-    expect(
-      actor.handle({
-        type: 'undo',
-        session: 800,
-        sequence: 4,
-        baseRevision: 1,
-        projections: []
-      })
-    ).toMatchObject({
-      type: 'rejected',
-      reason: 'history-empty',
-      revision: 1
-    })
     actor.dispose()
   })
 
@@ -2892,8 +2894,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 787,
         sequence: 2,
         baseRevision: 1,
@@ -2975,8 +2976,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 798,
         sequence: 2,
         baseRevision: 1,
@@ -3066,8 +3066,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 788,
         sequence: 2,
         baseRevision: 1,
@@ -3149,8 +3148,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 790,
         sequence: 2,
         baseRevision: 1,
@@ -3247,8 +3245,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 789,
         sequence: 2,
         baseRevision: 1,
@@ -3279,8 +3276,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 785,
         sequence: 2,
         baseRevision: 1,
@@ -3363,8 +3359,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 777,
         sequence: 2,
         baseRevision: 1,
@@ -3434,7 +3429,7 @@ describe('Core actor protocol', () => {
     ).toMatchObject({ type: 'source', source: '{++see++}\n' })
   })
 
-  it('rejects deletion of a protective byte inside an Addition atomically', () => {
+  it('leaves a protective byte inside an Addition unchanged under tracked deletion', () => {
     const actor = createCoreActor()
     const source = 'a{++\\{--x++}b\n'
     expect(
@@ -3446,8 +3441,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1, diagnosticCount: 0 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 786,
         sequence: 2,
         baseRevision: 1,
@@ -3456,9 +3450,9 @@ describe('Core actor protocol', () => {
         projections: []
       })
     ).toMatchObject({
-      type: 'rejected',
-      reason: 'invalid-edit',
-      revision: 1
+      type: 'applied',
+      revision: 1,
+      change: { appliedEdits: [] }
     })
     expect(
       actor.handle({
@@ -3495,8 +3489,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 781,
         sequence: 2,
         baseRevision: 1,
@@ -3567,8 +3560,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 775,
         sequence: 2,
         baseRevision: 1,
@@ -3599,8 +3591,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 776,
         sequence: 2,
         baseRevision: 1,
@@ -3609,10 +3600,10 @@ describe('Core actor protocol', () => {
         projections: []
       })
     ).toMatchObject({
-      type: 'rejected',
+      type: 'applied',
       revision: 1,
-      accepted: false,
-      reason: 'no-change',
+      accepted: true,
+      change: { appliedEdits: [] },
       sourceLength: source.length
     })
     expect(
@@ -3646,8 +3637,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({ type: 'opened', revision: 1 })
     expect(
-      actor.handle({
-        type: 'track',
+      handleTracked(actor, {
         session: 772,
         sequence: 2,
         baseRevision: 1,
@@ -5797,16 +5787,16 @@ describe('Core document session manager', () => {
     const oldLease = manager.lease('recover-track.md')
     await expect(
       oldLease.binding.submit({
-        kind: 'track',
-        range: { start: 4, end: 4 },
-        text: '!',
+        kind: 'input',
+        action: trackedAction({ start: 4, end: 4 }, '!'),
+        tracked: true,
         projections: []
       }).acknowledged
     ).toMatchObject({ type: 'applied', revision: 2 })
     expect(workers[0]?.requests.at(-1)?.request).toMatchObject({
-      type: 'track',
-      range: { start: 4, end: 4 },
-      text: '!'
+      type: 'input',
+      tracked: true,
+      action: { range: { start: 4, end: 4 }, data: '!' }
     })
     expect(workers[0]?.requests.at(-1)?.request).not.toHaveProperty('edit')
 
@@ -5815,9 +5805,9 @@ describe('Core document session manager', () => {
     expect(workers[1]?.requests.map((envelope) => envelope.request)).toEqual([
       expect.objectContaining({ type: 'open', source: 'seed\n' }),
       expect.objectContaining({
-        type: 'track',
-        range: { start: 4, end: 4 },
-        text: '!'
+        type: 'input',
+        tracked: true,
+        action: expect.objectContaining({ range: { start: 4, end: 4 }, data: '!' })
       })
     ])
     await expect(manager.saveBarrier('recover-track.md')).resolves.toMatchObject({
@@ -5861,9 +5851,9 @@ describe('Core document session manager', () => {
     const oldLease = manager.lease('recover-checkpointed-track.md')
     await expect(
       oldLease.binding.submit({
-        kind: 'track',
-        range: { start: 4, end: 4 },
-        text: '!',
+        kind: 'input',
+        action: trackedAction({ start: 4, end: 4 }, '!'),
+        tracked: true,
         projections: []
       }).acknowledged
     ).toMatchObject({ type: 'applied', revision: 2 })

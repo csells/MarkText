@@ -980,18 +980,6 @@ export function createCoreActor(
     return Object.freeze(suggestions)
   }
 
-  const trackedEditFor = (
-    activeCore: DocumentCore,
-    activeRevision: DocumentRevision,
-    request: Extract<CoreRequest, { readonly type: 'track' }>
-  ): DocumentSourceEdit | undefined => {
-    if (request.range === null || typeof request.range !== 'object') return undefined
-    return activeCore.trackedEdit(activeRevision, {
-      ...request.range,
-      insert: request.text
-    })
-  }
-
   return Object.freeze({
     handle(request: CoreRequest): CoreReply {
       if (disposed) throw new Error('Core actor is disposed')
@@ -1526,69 +1514,6 @@ export function createCoreActor(
           throw error
         }
       }
-      let trackedEdit: DocumentSourceEdit | undefined
-      let trackedNoChange = false
-      if (request.type === 'track') {
-        try {
-          trackedNoChange =
-            request.range !== null &&
-            typeof request.range === 'object' &&
-            typeof request.text === 'string' &&
-            Number.isSafeInteger(request.range.start) &&
-            Number.isSafeInteger(request.range.end) &&
-            request.range.start >= 0 &&
-            request.range.end >= request.range.start &&
-            request.range.end <= revision.sourceLength &&
-            core.sourceSlice(revision, request.range) === request.text
-          if (!trackedNoChange) {
-            trackedEdit = trackedEditFor(core, revision, request)
-            // Deleting deleted text or annotation syntax changes nothing.
-            if (trackedEdit !== undefined && trackedEdit.start === trackedEdit.end && trackedEdit.insert.length === 0) {
-              trackedNoChange = true
-              trackedEdit = undefined
-            }
-          }
-        } catch (error) {
-          if (error instanceof DocumentCoreError) {
-            return Object.freeze({
-              type: 'resource',
-              session,
-              sequence,
-              revision: revisionNumber,
-              accepted: false,
-              sourceLength: revision.sourceLength,
-              resource: Object.freeze({
-                code: error.code,
-                range: Object.freeze({ ...error.range }),
-                metadata: Object.freeze({ ...error.metadata })
-              })
-            })
-          }
-          throw error
-        }
-      }
-      if (request.type === 'track' && trackedNoChange) {
-        return Object.freeze({
-          type: 'rejected',
-          session,
-          sequence,
-          revision: revisionNumber,
-          accepted: false,
-          reason: 'no-change',
-          sourceLength: revision.sourceLength
-        })
-      }
-      if (request.type === 'track' && trackedEdit === undefined) {
-        return Object.freeze({
-          type: 'rejected',
-          session,
-          sequence,
-          revision: revisionNumber,
-          accepted: false,
-          reason: 'invalid-edit',
-          sourceLength: revision.sourceLength
-        })
-      }
       if (request.type === 'author' && authoredEdit === undefined) {
         return Object.freeze({
           type: 'rejected',
@@ -1983,13 +1908,6 @@ export function createCoreActor(
                       const activeCore = core
                       const activeRevision = revision
                       if (!Array.isArray(request.edits)) return undefined
-                      if (request.markup === true && request.tracked === true) return undefined
-                      if (request.markup === true) {
-                        return activeCore.markupEdits(activeRevision, request.edits)
-                      }
-                      if (request.tracked === true) {
-                        return activeCore.trackedEdits(activeRevision, request.edits)
-                      }
                       let previousEnd = 0
                       const valid = request.edits.every((edit) => {
                         const accepted =
@@ -2060,8 +1978,7 @@ export function createCoreActor(
       if (
         (request.type === 'clipboard' ||
           request.type === 'format' ||
-          request.type === 'input' ||
-          (request.type === 'apply' && (request.markup === true || request.tracked === true))) &&
+          request.type === 'input') &&
         effectiveApplyEdits === undefined
       ) {
         return Object.freeze({
@@ -2189,25 +2106,15 @@ export function createCoreActor(
               ? consumerSearchEdits!
               : request.type === 'author'
                 ? Object.freeze([authoredEdit!])
-                : request.type === 'track'
-                  ? Object.freeze([trackedEdit!])
-                  : request.type === 'edit-comment'
-                    ? Object.freeze([editedComment!])
-                    : request.type === 'resolve-all'
-                      ? bulkResolutionEdits!
-                      : request.type === 'resolve'
-                        ? Object.freeze([resolutionEdit!])
-                        : request.type === 'undo'
-                          ? historyEntry!.undo
-                          : historyEntry!.redo
-      const editingInput =
-        request.type === 'track'
-          ? { ...request.range, insert: request.text }
-          : request.type === 'apply' &&
-              (request.markup === true || request.tracked === true) &&
-              request.edits.length === 1
-            ? request.edits[0]
-            : undefined
+                : request.type === 'edit-comment'
+                  ? Object.freeze([editedComment!])
+                  : request.type === 'resolve-all'
+                    ? bulkResolutionEdits!
+                    : request.type === 'resolve'
+                      ? Object.freeze([resolutionEdit!])
+                      : request.type === 'undo'
+                        ? historyEntry!.undo
+                        : historyEntry!.redo
       const editingRevision = revision
       if (
         (request.type === 'source-input' ||
@@ -2258,8 +2165,7 @@ export function createCoreActor(
         request.type === 'input' ||
         request.type === 'format' ||
         request.type === 'clipboard' ||
-        request.type === 'apply' ||
-        request.type === 'track'
+        request.type === 'apply'
           ? request.nativeHistoryGroup
           : undefined
       if (
@@ -2289,7 +2195,6 @@ export function createCoreActor(
           request.type === 'apply' ||
           request.type === 'replace-consumer-search' ||
           request.type === 'author' ||
-          request.type === 'track' ||
           request.type === 'edit-comment' ||
           request.type === 'resolve' ||
           request.type === 'resolve-all'
@@ -2460,7 +2365,6 @@ export function createCoreActor(
         request.type === 'replace-consumer-search' ||
         request.type === 'resolve' ||
         request.type === 'author' ||
-        request.type === 'track' ||
         request.type === 'edit-comment' ||
         request.type === 'resolve-all'
       ) {
@@ -2501,10 +2405,6 @@ export function createCoreActor(
         undoEditRecords += historyEditRecords(historyEntry!)
       }
       const diagnostics = diagnosticsOf(commit.revision)
-      const nativeReconciliation =
-        editingInput === undefined
-          ? undefined
-          : core.editingReconciliation(editingRevision, editingInput, commit)
       return Object.freeze({
         type: 'applied',
         ...consumedPreparedSelection(),
@@ -2532,8 +2432,7 @@ export function createCoreActor(
           ? { historyResult: Object.freeze({ selection: historyEntry.beforeSelection }) }
           : request.type === 'redo' && historyEntry?.afterSelection !== undefined
             ? { historyResult: Object.freeze({ selection: historyEntry.afterSelection }) }
-            : {}),
-        ...(nativeReconciliation === undefined ? {} : { nativeReconciliation })
+            : {})
       })
     },
     dispose(): void {
