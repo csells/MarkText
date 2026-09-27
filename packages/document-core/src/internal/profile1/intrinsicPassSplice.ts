@@ -1020,15 +1020,18 @@ export function spliceIntrinsicFacts(
         node: CriticMarkupNode
         arms: readonly IntrinsicProfile1ForkLane[]
       }>[]
-    ): IntrinsicProfile1ForkLane[] => branches.flatMap((branch) => [
-      ...branch.arms,
-      ...branch.arms.flatMap((arm) => collectArmLanes(
-        arm.items.filter(
-          (item): item is typeof branch =>
-            'kind' in item && item.kind === 'critic-branch'
+    ): IntrinsicProfile1ForkLane[] => branches.flatMap((branch) =>
+      // Depth first, as the shift allocated their ids: an arm, then the
+      // lanes nested inside it, before the next arm.
+      branch.arms.flatMap((arm) => [
+        arm,
+        ...collectArmLanes(
+          arm.items.filter(
+            (item): item is typeof branch =>
+              'kind' in item && item.kind === 'critic-branch'
+          )
         )
-      ))
-    ])
+      ]))
 
     // Root items rebuild canonically from the spliced tape: slice items for
     // every run outside a branch, branch items at their node positions —
