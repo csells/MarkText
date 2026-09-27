@@ -89,6 +89,15 @@ describe('code spans and inline math end with their paragraph', () => {
   ])('%j', (source, kinds) => {
     expect(blocks(source)).toEqual(kinds)
   })
+
+  it('does not pair a backtick with a run after a blank line', () => {
+    // A later paragraph's backtick run cannot close a code span, so the
+    // suggestion between them stays a suggestion.
+    const core = createDocumentCore()
+    const revision = core.open('T`ext {++a++} x.\n\nb `c` d.\n')
+    expect(revision.annotations.map(annotation => [annotation.kind, annotation.range.start, annotation.range.end]))
+      .toEqual([['addition', 6, 13]])
+  })
 })
 
 it('splices a nested suggestion after a paragraph edit', () => {
