@@ -8,7 +8,8 @@ const splice = (source: string, edits: readonly { start: number; end: number; in
     .reduce((text, edit) => text.slice(0, edit.start) + edit.insert + text.slice(edit.end), source)
 
 describe('Core actor sparse native input results', () => {
-  it('preserves tracked paired deletion and its accepted caret', () => {
+  it('preserves tracked paired deletion and keeps the caret before the struck pair', () => {
+    // Google Docs: a tracked Backspace leaves the caret before the text it strikes.
     const actor = createCoreActor()
     try {
       const opened = actor.handle({ type: 'open', session: 1, sequence: 1, source: '()' })
@@ -31,7 +32,7 @@ describe('Core actor sparse native input results', () => {
         type: 'applied',
         inputResult: {
           compilerReconciliation: [{ start: 0, end: 0, insert: '{--()--}' }],
-          selection: { ranges: [{ anchor: 8, focus: 8 }], primary: 0 }
+          selection: { ranges: [{ anchor: 0, focus: 0 }], primary: 0 }
         }
       })
       expect(
@@ -158,4 +159,33 @@ describe('Core actor sparse native input results', () => {
       }
     }
   )
+
+  it('leaves the document and caret unchanged when Core cannot plan tracked input', () => {
+    // With Track Changes on nothing is refused: an input Core cannot spell
+    // as a suggestion is a no-op for the session, never a fault.
+    const actor = createCoreActor()
+    try {
+      const source = 'the {--s--}{++`++}{~~low~>fast~~} fox\n'
+      const opened = actor.handle({ type: 'open', session: 1, sequence: 1, source })
+      const selection = { ranges: [{ anchor: 22, focus: 22 }], primary: 0 }
+      const result = actor.handle({
+        type: 'input',
+        session: 1,
+        sequence: 2,
+        baseRevision: opened.revision,
+        action: { range: { start: 22, end: 22 }, selection, inputType: 'insertText', data: '`', options },
+        tracked: true,
+        projections: ['markup']
+      })
+      expect(result).toMatchObject({
+        type: 'applied',
+        revision: opened.revision,
+        change: { appliedEdits: [] },
+        inputResult: { selection }
+      })
+      expect(actor.handle({ type: 'source-at-barrier', session: 1, sequence: 3, baseRevision: opened.revision })).toMatchObject({ source })
+    } finally {
+      actor.dispose()
+    }
+  })
 })
