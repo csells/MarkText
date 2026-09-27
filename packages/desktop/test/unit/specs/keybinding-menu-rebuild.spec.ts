@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // templates and assert every window menu (editor + macOS settings) is rebuilt
 // from the current keybindings and the active window's menu is re-applied.
 
-const { buildFromTemplate, setApplicationMenu, configureMenu, configSettingMenu } = vi.hoisted(
+const { buildFromTemplate, setApplicationMenu, configureMenu, configSettingMenu, fromId } = vi.hoisted(
   () => ({
     buildFromTemplate: vi.fn((template: unknown) => ({
       template,
@@ -14,14 +14,17 @@ const { buildFromTemplate, setApplicationMenu, configureMenu, configSettingMenu 
     })),
     setApplicationMenu: vi.fn(),
     configureMenu: vi.fn(() => ['EDITOR_TEMPLATE']),
-    configSettingMenu: vi.fn(() => ['SETTINGS_TEMPLATE'])
+    configSettingMenu: vi.fn(() => ['SETTINGS_TEMPLATE']),
+    // A rebuilt editor menu looks up its window to restore review state.
+    fromId: vi.fn(() => null)
   })
 )
 
 vi.mock('electron', () => ({
   app: { addRecentDocument: vi.fn(), clearRecentDocuments: vi.fn() },
   ipcMain: { on: vi.fn(), handle: vi.fn(), emit: vi.fn() },
-  Menu: { buildFromTemplate, setApplicationMenu, getApplicationMenu: vi.fn() }
+  Menu: { buildFromTemplate, setApplicationMenu, getApplicationMenu: vi.fn() },
+  BrowserWindow: { fromId }
 }))
 
 vi.mock('common/filesystem', () => ({
@@ -60,6 +63,7 @@ describe('AppMenu.updateKeybindings rebuilds menus after a keybinding change (#3
     setApplicationMenu.mockClear()
     configureMenu.mockClear()
     configSettingMenu.mockClear()
+    fromId.mockClear()
   })
 
   it('rebuilds the active editor menu and re-applies it as the application menu', () => {
@@ -75,7 +79,9 @@ describe('AppMenu.updateKeybindings rebuilds menus after a keybinding change (#3
 
     // The editor menu is rebuilt from the current keybindings...
     expect(configureMenu).toHaveBeenCalled()
-    // ...and pushed to the OS as the active application menu.
+    // ...takes back its window's review state...
+    expect(fromId).toHaveBeenCalledWith(1)
+    // ...and is pushed to the OS as the active application menu.
     expect(setApplicationMenu).toHaveBeenCalledTimes(1)
   })
 
