@@ -74,6 +74,24 @@ describe('visible line-end caret after a trailing annotation', () => {
     }
   })
 
+  // The browser can end the line beside a comment marker rather than in text.
+  it('leaves an addition that ends after a comment marker from the marker boundary', async() => {
+    const initial = 'Alpha {++{==beta==}{>>c<<}++}\n'
+    const app = bootBoundMuya(initial)
+    try {
+      const marker = content(app).domNode!.querySelector('.mu-critic-comment-marker')!
+      const parent = marker.parentNode!
+      const point = { node: parent, offset: Array.prototype.indexOf.call(parent.childNodes, marker) + 1 }
+      const exterior = createMuyaModelSelection(app.muya, app.view()).lineEndStep(point)
+      expect(exterior).toBeDefined()
+      app.muya.editor.selection.setDOMSelection(exterior!, exterior!)
+      await type(app, 'Z')
+      expect(source(app)).toBe('Alpha {++{==beta==}{>>c<<}++}Z\n')
+    } finally {
+      app.dispose()
+    }
+  })
+
   it.each([
     ['Alpha {++beta++}\n', 'Alpha {++betaZ++}\n'],
     // The outer addition is the suggestion that ends the line; its content grows.

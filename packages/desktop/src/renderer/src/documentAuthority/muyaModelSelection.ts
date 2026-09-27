@@ -650,17 +650,12 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
     const binding = bindingFor(point)
     const root = binding === undefined ? undefined : contentRoot(binding)
     if (binding === undefined || root === undefined) return undefined
-    const atNodeEnd =
-      point.node.nodeType === Node.TEXT_NODE
-        ? point.offset === (point.node.textContent ?? '').length
-        : point.offset === point.node.childNodes.length
-    if (!atNodeEnd) return undefined
     // Ends of annotations whose closers follow the point on its line.
     const ends: number[] = []
-    // Visible content after `node` on its line. Payload-boundary and comment
-    // markers show no text; a comment marker ends its comment's source.
-    const continuesLine = (node: Node): boolean => {
-      for (let next = node.nextSibling; next !== null; next = next.nextSibling) {
+    // Visible content from `first` on along its line. Payload-boundary and
+    // comment markers show no text; a comment marker ends its comment's source.
+    const continuesLine = (first: Node | null): boolean => {
+      for (let next = first; next !== null; next = next.nextSibling) {
         const text = next.textContent ?? ''
         if (text.startsWith('\n') || next.nodeName === 'BR') return false
         if (
@@ -675,8 +670,12 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
       }
       return false
     }
+    // The browser can end a line in text or beside a trailing marker.
+    if (point.node.nodeType === Node.TEXT_NODE) {
+      if (point.offset < (point.node.textContent ?? '').length) return undefined
+    } else if (continuesLine(point.node.childNodes[point.offset] ?? null)) return undefined
     for (let node: Node | null = point.node; node !== null && node !== root; node = node.parentNode) {
-      if (continuesLine(node)) return undefined
+      if (continuesLine(node.nextSibling)) return undefined
       if (
         node instanceof HTMLElement &&
         node.hasAttribute('data-critic-start') &&
