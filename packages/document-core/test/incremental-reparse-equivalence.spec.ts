@@ -100,6 +100,48 @@ describe('code spans and inline math end with their paragraph', () => {
   })
 })
 
+describe('an inline literal that its paragraph never closes owns no markers', () => {
+  // A closing run on a later line counts only while every line up to it
+  // continues the opener's paragraph; otherwise the suggestion stays active.
+  const annotationsOf = (source: string): unknown => createDocumentCore().open(source).annotations
+    .map(annotation => [annotation.kind, annotation.range.start, annotation.range.end])
+
+  it.each([
+    ['a $$ b {++x++}\n\nc $$ d\n', [['addition', 7, 14]]],
+    ['a $b {++x++}\n\nc$ d\n', [['addition', 5, 12]]],
+    ['{++ad$$ded++}\n\nx $$ y\n', [['addition', 0, 13]]],
+    ['a ` b {++x++}\n# c`d\n', [['addition', 6, 13]]],
+    ['# a ` b {++x++}\nc`d\n', [['addition', 8, 15]]],
+    ['a ` b {++x++}\n===\nc`d\n', [['addition', 6, 13]]],
+    ['a ` b {++x++}\n<div>\nc`d\n', [['addition', 6, 13]]],
+    ['a ` b {++x++}\n```\nc`d\n```\n', [['addition', 6, 13]]],
+    ['- a ` b {++x++}\n- c`d\n', [['addition', 8, 15]]],
+    ['a $b {++x++}\n> c$ d\n', [['addition', 5, 12]]]
+  ])('%j', (source, expected) => {
+    expect(annotationsOf(source)).toEqual(expected)
+  })
+
+  it.each([
+    'a ` b {++x++}\nc`d\n',
+    '> a ` b {++x++}\nc`d\n',
+    'a $$ b {++x++}\nc $$ d\n',
+    '$$\nb {++x++}\n\nc $$ d\n'
+  ])('%j keeps the span that closes in its paragraph', source => {
+    expect(annotationsOf(source)).toEqual([])
+  })
+
+  it('reads the same after a regional edit adds the closing run', () => {
+    const source = 'Text with {++added++} inside.\n\nPlain words.\n\nText {++x++} and $$ here.\n'
+    const core = createDocumentCore()
+    const previous = core.open(source)
+    core.project(previous, 'markup')
+    const next = core.apply(previous, [{ start: 15, end: 15, insert: '$$' }], { projections: ['markup'] }).revision
+    const fresh = createDocumentCore()
+    expect(reading(core, next)).toEqual(reading(fresh, fresh.open(next.source)))
+    expect(next.annotations.map(annotation => annotation.kind)).toEqual(['addition', 'addition'])
+  })
+})
+
 it('splices a nested suggestion after a paragraph edit', () => {
   // Arm lanes of nested suggestions number depth first; the splice listed
   // them breadth first and rejected its own fork graph.

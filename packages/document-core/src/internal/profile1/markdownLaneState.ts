@@ -2674,6 +2674,138 @@ export function createMarkdownLaneState(
   ): MarkdownContainerOpener | undefined =>
     state.openers.find((opener) => opener.observed > containerDepthLimit)
 
+  // A code span or inline math span is paragraph content, so a closing run on
+  // a later line counts only when every line up to it continues the opener's
+  // paragraph. The closer searches stop at blank lines; a heading, fence,
+  // list item or other interrupting line ends the paragraph too, and
+  // treating the span as open across it made markers before that line
+  // literal although the span never closes. Paragraph ends are memoized by
+  // line start so each line is examined once per lane state.
+  let sourceLineStarts: number[] | undefined
+  const rawLineStartAt = (offset: number): number => {
+    if (sourceLineStarts === undefined) {
+      sourceLineStarts = [0]
+      for (let index = 0; index < source.length; index += 1) {
+        const codeUnit = source.charCodeAt(index)
+        if (codeUnit === 13 && source.charCodeAt(index + 1) === 10) continue
+        if (codeUnit === 10 || codeUnit === 13) sourceLineStarts.push(index + 1)
+      }
+    }
+    const starts = sourceLineStarts
+    const index = firstRunIndexAtLeast(starts, offset + 1)
+    return starts[index - 1] ?? 0
+  }
+  const paragraphEndByLineStart = new Map<number, Readonly<{
+    end: number
+    laneLimited: boolean
+  }>>()
+  const inlineLiteralParagraphEnd = (
+    openerOffset: number,
+    laneEnd: number,
+    containers: readonly ActiveBlockContainer[],
+    paragraphWasOpen: boolean,
+    previousLineLazy: boolean
+  ): number => {
+    const openerLineStart = rawLineStartAt(openerOffset)
+    const cached = paragraphEndByLineStart.get(openerLineStart)
+    if (cached !== undefined && (!cached.laneLimited || cached.end >= laneEnd)) {
+      return Math.min(cached.end, laneEnd)
+    }
+    const lineAt = (start: number): Readonly<{ text: string, next: number }> => {
+      const contentEnd = sourceLineContentEnd(source, start, source.length, execution)
+      return Object.freeze({
+        text: source.slice(start, contentEnd),
+        next: sourceLineEnd(source, contentEnd, source.length)
+      })
+    }
+    const analyzed = (
+      text: string,
+      inherited: readonly ActiveBlockContainer[],
+      open: boolean,
+      lazy: boolean
+    ): ContainerLineState => analyzeContainerLine(
+      text,
+      { start: 0, contentEnd: text.length, end: text.length },
+      inherited,
+      open,
+      lazy
+    )
+    const visited = [openerLineStart]
+    const openerLine = lineAt(openerLineStart)
+    const openerState = analyzed(openerLine.text, containers, paragraphWasOpen, previousLineLazy)
+    let end: number
+    let laneLimited = false
+    if (isAtxHeadingLine(openerLine.text, openerState)) {
+      end = openerLine.next
+    } else {
+      let lineContainers = openerState.lazy ? containers : openerState.activeContainers
+      let lazy = openerState.lazy
+      let cursor = openerLine.next
+      for (;;) {
+        if (cursor >= laneEnd || cursor >= source.length) {
+          end = Math.min(cursor, laneEnd)
+          laneLimited = cursor >= laneEnd && laneEnd < source.length
+          break
+        }
+        const line = lineAt(cursor)
+        const state = analyzed(line.text, lineContainers, true, lazy)
+        const continues = !state.blank && (
+          state.lazy ||
+          (
+            state.continuedContainerDepth === lineContainers.length &&
+            isLazyParagraphContinuation(line.text, state, false)
+          )
+        )
+        if (!continues) {
+          end = cursor
+          break
+        }
+        visited.push(cursor)
+        if (!state.lazy) lineContainers = state.activeContainers
+        lazy = state.lazy
+        cursor = line.next
+      }
+    }
+    const entry = Object.freeze({ end, laneLimited })
+    for (const lineStart of visited) paragraphEndByLineStart.set(lineStart, entry)
+    return end
+  }
+  /** Whether a closer found for an inline literal lies inside its opener's paragraph. */
+  const inlineLiteralCloserInParagraph = (
+    openerOffset: number,
+    closeStart: number,
+    laneEnd: number,
+    containers: readonly ActiveBlockContainer[],
+    paragraphWasOpen: boolean,
+    previousLineLazy: boolean,
+    doubleDollar: boolean = false
+  ): boolean => {
+    const openerLineStart = rawLineStartAt(openerOffset)
+    if (rawLineStartAt(closeStart) === openerLineStart) return true
+    if (doubleDollar) {
+      // A `$$` alone on its line opens a math block, which spans blank lines.
+      const text = source.slice(
+        openerLineStart,
+        sourceLineContentEnd(source, openerLineStart, source.length, execution)
+      )
+      const state = analyzeContainerLine(
+        text,
+        { start: 0, contentEnd: text.length, end: text.length },
+        containers,
+        paragraphWasOpen,
+        previousLineLazy
+      )
+      if (text.slice(state.contentOffset).trim() === '$$') return true
+    }
+    return closeStart < inlineLiteralParagraphEnd(
+      openerOffset,
+      laneEnd,
+      containers,
+      paragraphWasOpen,
+      previousLineLazy
+    )
+  }
+
   const advanceCore = (
     checkpoint: MarkdownCheckpoint,
     sourceStart: number,
@@ -3324,7 +3456,18 @@ export function createMarkdownLaneState(
                 const closeStart = delimiterLength === 0
                   ? undefined
                   : nextMathRunStart(delimiterLength, opener, opener + delimiterLength, laneEnd)
-                if (closeStart !== undefined) {
+                if (
+                  closeStart !== undefined &&
+                  inlineLiteralCloserInParagraph(
+                    opener,
+                    closeStart,
+                    laneEnd,
+                    activeContainers,
+                    paragraphOpen,
+                    lastLineLazy,
+                    delimiterLength === 2
+                  )
+                ) {
                   math = Object.freeze({ openStart: opener, delimiterLength, closeStart })
                   break
                 }
@@ -3465,7 +3608,17 @@ export function createMarkdownLaneState(
             runEnd,
             laneEnd
           )
-          if (closeStart !== undefined) {
+          if (
+            closeStart !== undefined &&
+            inlineLiteralCloserInParagraph(
+              offset,
+              closeStart,
+              laneEnd,
+              activeContainers,
+              paragraphOpen,
+              lastLineLazy
+            )
+          ) {
             inlineCode = Object.freeze({ openStart: offset, markerLength, closeStart })
           }
         }
