@@ -4,68 +4,102 @@
     data-testid="critic-review-list"
     :aria-label="t('editor.coreReview.sidebarTitle')"
   >
-    <li
-      v-for="entry in entries"
+    <template
+      v-for="(entry, index) in entries"
       :key="`${entry.item.range.start}:${entry.item.range.end}`"
-      class="core-review-entry"
-      :class="{ active: entry.item.range.start === activeStart }"
-      data-testid="critic-review-entry"
     >
-      <button
-        type="button"
-        :aria-pressed="entry.item.range.start === activeStart"
-        :aria-label="entryName(entry)"
-        :disabled="busy"
-        @click="$emit('select', entry.item.range.start)"
+      <li
+        v-if="composing && index === draftIndex"
+        class="core-review-entry active draft"
+        data-testid="critic-review-draft-entry"
       >
-        <span
-          class="core-review-entry-kind"
-          :data-testid="entry.item.range.start === activeStart ? 'critic-review-kind' : undefined"
-          :data-kind="entry.item.kind"
-        >{{ t(`editor.coreReview.kinds.${entry.item.kind}`) }}</span>
-        <span
-          v-if="entry.text !== undefined"
-          :dir="textDirection"
-          class="core-review-excerpt"
-          :class="entry.item.kind"
-        >{{ entry.text }}</span>
-        <span
-          v-if="entry.replacementText !== undefined"
-          :dir="textDirection"
-          class="core-review-excerpt addition"
-        >{{ entry.replacementText }}</span>
-      </button>
-      <div
-        v-if="entry.commentProjection"
-        class="core-review-comment"
-        :dir="textDirection"
+        <slot name="composer" />
+      </li>
+      <li
+        class="core-review-entry"
+        :class="{ active: entry.item.range.start === activeStart || entry.item.range.start === composerStart }"
+        data-testid="critic-review-entry"
       >
-        <CoreDocumentProjection
-          :projection="entry.commentProjection"
-          kind="comment"
-          :label="t('editor.coreReview.commentPrompt')"
+        <button
+          type="button"
+          :aria-pressed="entry.item.range.start === activeStart"
+          :aria-label="entryName(entry)"
+          :disabled="busy"
+          @click="$emit('select', entry.item.range.start)"
+        >
+          <span
+            class="core-review-entry-kind"
+            :data-testid="entry.item.range.start === activeStart ? 'critic-review-kind' : undefined"
+            :data-kind="entry.item.kind"
+          >{{ t(`editor.coreReview.kinds.${entry.item.kind}`) }}</span>
+          <span
+            v-if="entry.text !== undefined"
+            :dir="textDirection"
+            class="core-review-excerpt"
+            :class="entry.item.kind"
+          >{{ entry.text }}</span>
+          <span
+            v-if="entry.replacementText !== undefined"
+            :dir="textDirection"
+            class="core-review-excerpt addition"
+          >{{ entry.replacementText }}</span>
+        </button>
+        <div
+          v-if="entry.commentProjection"
+          class="core-review-comment"
+          :dir="textDirection"
+        >
+          <CoreDocumentProjection
+            :projection="entry.commentProjection"
+            kind="comment"
+            :label="t('editor.coreReview.commentPrompt')"
+          />
+        </div>
+        <slot
+          v-if="composing && entry.item.range.start === composerStart"
+          name="composer"
         />
-      </div>
-      <slot
-        v-if="entry.item.range.start === activeStart"
-        name="actions"
-      />
+        <slot
+          v-else-if="entry.item.range.start === activeStart"
+          name="actions"
+        />
+      </li>
+    </template>
+    <li
+      v-if="composing && draftIndex === entries.length"
+      class="core-review-entry active draft"
+      data-testid="critic-review-draft-entry"
+    >
+      <slot name="composer" />
     </li>
   </ul>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { t } from '@/i18n'
 import type { CoreReviewOverviewEntry } from '../../documentAuthority/coreProtocol'
 import CoreDocumentProjection from './CoreDocumentProjection.vue'
 
-defineProps<{
+const props = defineProps<{
   entries: readonly CoreReviewOverviewEntry[]
   activeStart?: number
   busy: boolean
   textDirection: string
+  /** An open composer is in place of this entry's actions (Google Docs keeps it on its card). */
+  composerStart?: number
+  /** An open composer for a new item is a draft card at this source position. */
+  draftStart?: number
+  composing?: boolean
 }>()
 defineEmits<{ select: [start: number] }>()
+
+const draftIndex = computed(() => {
+  if (props.draftStart === undefined || props.composerStart !== undefined) return -1
+  const start = props.draftStart
+  const index = props.entries.findIndex((entry) => entry.item.range.start > start)
+  return index < 0 ? props.entries.length : index
+})
 
 // The visible kind and excerpt are separate elements; join them into one
 // readable accessible name.
@@ -85,6 +119,9 @@ const entryName = (entry: CoreReviewOverviewEntry): string => {
 .core-review-entry {
   border-left: 2px solid transparent;
   padding: 6px;
+}
+.core-review-entry.draft {
+  padding: 6px 0;
 }
 .core-review-entry.active {
   border-left-color: var(--themeColor);
