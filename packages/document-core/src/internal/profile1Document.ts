@@ -3307,6 +3307,17 @@ function guardProjectionCandidate(
       kind,
       marker.role
     )
+    // `~>` separates only inside an open Substitution; anywhere else it is
+    // text in every reading, so it needs no protection. Protecting it made the
+    // spelling depend on whether any other delimiter appeared in the view.
+    if (
+      decision === undefined &&
+      marker.role === 'separator' &&
+      (top?.kind !== 'substitution' || top.separatorSeen)
+    ) {
+      candidateOffset += 1
+      continue
+    }
     if (!topologyMatches(decision, kind, marker.role)) {
       const protectionOffset =
         marker.role === 'close'
