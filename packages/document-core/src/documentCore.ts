@@ -1,3 +1,4 @@
+import { editsMayRepairDollarMath } from './internal/profile1/dollarMathPairing.js'
 import { planAuthor, type DocumentAuthorAction, type DocumentAuthorPlan } from './authorPlanning.js'
 import { commentPairPreservingResolution, commentedSpanSafeClipboard, commentedSpanSafeInput } from './commentedSpans.js'
 import { planCommentEdit, type DocumentCommentAction, type DocumentCommentPlan } from './commentSpelling.js'
@@ -3545,6 +3546,11 @@ function createDocumentCoreWithExecutionBudget(
       fallbackReason = 'markdown-options-changed'
     } else if (source.requiresFragmentationRebase) {
       fallbackReason = 'source-fragmentation-rebase'
+    } else if (
+      resolvedOptions.texMathDollars &&
+      editsMayRepairDollarMath(previousState.source, source, stableEdits)
+    ) {
+      fallbackReason = 'structural-region-ineligible'
     }
     if (fallbackReason !== undefined) {
       return Object.freeze({
@@ -3920,6 +3926,12 @@ function createDocumentCoreWithExecutionBudget(
       if (!sameMarkdownOptions(previousState.markdownOptions, resolvedOptions)) {
         return undefined
       }
+      if (
+        resolvedOptions.texMathDollars &&
+        editsMayRepairDollarMath(previousState.source, source, stableEdits)
+      ) {
+        return undefined
+      }
       const retained = products.retainedIntrinsic
       return retained === undefined
         ? undefined
@@ -3946,8 +3958,10 @@ function createDocumentCoreWithExecutionBudget(
     preflightSourceEdits(state.source.length, stableEdits)
     const source = state.source.applyExact(stableEdits, 'Authoring candidate')
       .materialize('fallback')
+    const reusable = !(state.markdownOptions.texMathDollars &&
+      editsMayRepairDollarMath(state.source, source, stableEdits))
     return state.productStore.withProduct(previousProducts => {
-      const retained = previousProducts.retainedIntrinsic
+      const retained = reusable ? previousProducts.retainedIntrinsic : undefined
       const products = isolatedProducts(source, state.markdownOptions,
         retained === undefined ? undefined : { retained, edits: stableEdits })
       return inspect(products, source)
@@ -3987,6 +4001,9 @@ function createDocumentCoreWithExecutionBudget(
   }> | undefined => {
     const edits = Object.freeze([edit])
     const source = state.source.applyExact(edits, 'Authoring regional candidate')
+    if (state.markdownOptions.texMathDollars && editsMayRepairDollarMath(state.source, source, edits)) {
+      return undefined
+    }
     if (state.regionalInventory !== undefined) {
       const candidate = previewRegionalInventory(
         state.regionalInventory, state.source, source, edits, [], executionBudget,
