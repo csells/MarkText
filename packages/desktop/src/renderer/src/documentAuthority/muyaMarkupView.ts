@@ -144,6 +144,11 @@ export interface MuyaCaretSnap {
 export interface MuyaMarkupDecoration {
   /** Exact caret origin for annotation payload boundaries omitted by block layout. */
   readonly sourcePosition?: number
+  /**
+   * The annotation's end, after its closer, when `sourcePosition` ends its
+   * final arm: a caret after this boundary is outside the annotation.
+   */
+  readonly exteriorEnd?: number
   readonly path: MuyaMarkupPath
   readonly range: SourceRange
   readonly mark: MarkupMark
@@ -153,6 +158,8 @@ export interface MuyaMarkupComment {
   readonly annotationRange: SourceRange
   readonly path: MuyaMarkupPath
   readonly offset: number
+  /** The Comment's Revised plain text, which names its hidden-payload marker. */
+  readonly text?: string
 }
 
 export interface MuyaMarkupView {
@@ -332,7 +339,8 @@ export function mappedMuyaSourceRange(
 export function createMuyaMarkupView(
   projection: MarkupProjection,
   annotations: readonly CriticMarkupAnnotation[] = [],
-  canonicalSource?: string
+  canonicalSource?: string,
+  commentText?: (comment: CriticMarkupAnnotation) => string
 ): MuyaMarkupView {
   const sourceEvents = projection.events.filter((event) => event.kind === 'text')
   const markdownSegments: MuyaMarkdownSegment[] = []
@@ -1238,7 +1246,16 @@ export function createMuyaMarkupView(
         return []
       }
       const { binding, offset } = visiblePoint(sourcePosition)
-      return [{ path: binding.path, range: { start: offset, end: offset }, mark, sourcePosition }]
+      const final =
+        sourcePosition === arm.range.end &&
+        annotation?.arms.every((other) => other.range.end <= arm.range.end) === true
+      return [{
+        path: binding.path,
+        range: { start: offset, end: offset },
+        mark,
+        sourcePosition,
+        ...(final ? { exteriorEnd: mark.annotationRange.end } : {})
+      }]
     })
     return [...ranges, ...boundaries]
   })
@@ -1246,7 +1263,13 @@ export function createMuyaMarkupView(
   for (const annotation of visibleAnnotations) {
     if (annotation.kind !== 'comment') continue
     const { binding, offset } = visiblePoint(annotation.range.start)
-    comments.push({ annotationRange: annotation.range, path: binding.path, offset })
+    const text = commentText?.(annotation)
+    comments.push({
+      annotationRange: annotation.range,
+      path: binding.path,
+      offset,
+      ...(text === undefined ? {} : { text })
+    })
   }
   for (const builder of builders) builder.state.text = builder.text
   const annotationPaths = new Set([
