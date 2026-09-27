@@ -9,7 +9,9 @@ import {
   sendIpcToRenderer
 } from './helpers'
 
-test('tracks continued typing inside a highlight and preserves its comment through save and history', async() => {
+// Google Docs keeps text typed at the edge of commented text out of the
+// comment (plan 0012 G39), so tracked typing there follows the comment.
+test('tracks typing at the end of commented text after its comment through save and history', async() => {
   const source = '{==word==}{>>note<<}\n'
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
@@ -21,15 +23,14 @@ test('tracks continued typing inside a highlight and preserves its comment throu
   try {
     await page.getByTestId('critic-review-track-changes').click()
     await placeCaretInEditor(page)
-    // End lands after the comment marker; the first ArrowLeft crosses it and
-    // the second enters the highlight at its end.
+    // End lands after the comment marker; ArrowLeft reaches the highlight's end.
     await page.keyboard.press('ArrowLeft')
     await page.keyboard.press('ArrowLeft')
     await page.keyboard.type('X')
     await page.evaluate(() => window.__marktextDocumentCore?.settled())
     await page.keyboard.type('Y')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
-    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('{==word{++XY++}==}{>>note<<}\n')
+    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('{==word==}{>>note<<}{++XY++}\n')
     await expect(page.getByTestId('core-recovery-draft')).toHaveCount(0)
     await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
