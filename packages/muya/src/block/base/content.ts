@@ -849,7 +849,7 @@ class Content extends TreeNode {
             const focus = this.muya.editor.selection.getDOMPoint({ path: this.path, offset: right });
             if (!selection || !anchor || !focus)
                 throw new Error('Spelling replacement has no model selection');
-            return model.input({
+            return this.muya.editor.history.recordModelCommand(historyGroup => model.input({
                 inputType: 'insertReplacementText',
                 data: replacement,
                 selection,
@@ -859,7 +859,8 @@ class Content extends TreeNode {
                     autoPairQuote: this.muya.options.autoPairQuote,
                     autoPairMarkdownSyntax: this.muya.options.autoPairMarkdownSyntax,
                 },
-            }, () => {});
+                historyGroup,
+            }, () => {}));
         }
 
         // Reuse the text setter so the change dispatches a json edit op.

@@ -52,7 +52,7 @@ class LangInputContent extends Content {
             if (!selection || !anchor || !focus)
                 throw new Error('Code info replacement has no current document boundary');
             this.muya.flush();
-            model.input({ selection, range: { anchor, focus }, inputType: 'insertReplacementText', data: lang, options: this.muya.options }, () => {});
+            this.muya.editor.history.recordModelCommand(historyGroup => model.input({ selection, range: { anchor, focus }, inputType: 'insertReplacementText', data: lang, options: this.muya.options, historyGroup }, () => {}));
             return;
         }
         const { start, end } = this.getCursor()!;

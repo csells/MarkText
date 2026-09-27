@@ -433,7 +433,7 @@ class Format extends Content {
             if (!selection || !context)
                 return;
             this.muya.flush();
-            model.input({ selection, range: context.range, inputType: 'insertReplacementText', data: `:${text}:`, options: this.muya.options }, () => {});
+            this.muya.editor.history.recordModelCommand(historyGroup => model.input({ selection, range: context.range, inputType: 'insertReplacementText', data: `:${text}:`, options: this.muya.options, historyGroup }, () => {}));
             return;
         }
         // TODO: @JOCS remove use this.selection directly.
@@ -461,7 +461,7 @@ class Format extends Content {
             if (!selection)
                 throw new Error('The image property target has no current document boundary');
             this.muya.flush();
-            model.format({ format: 'image-properties', selection, properties: { alt, src, title } });
+            this.muya.editor.history.recordModelCommand(historyGroup => model.format({ format: 'image-properties', selection, properties: { alt, src, title }, historyGroup }));
             return;
         }
         const { token } = imageInfo;
@@ -518,7 +518,7 @@ class Format extends Content {
             if (!selection)
                 throw new Error('The image layout target has no current document boundary');
             this.muya.flush();
-            if (!model.format({ format: 'image-properties', selection, properties: { [attrName]: attrValue } })) {
+            if (!this.muya.editor.history.recordModelCommand(historyGroup => model.format({ format: 'image-properties', selection, properties: { [attrName]: attrValue }, historyGroup }))) {
                 // Discard the resize preview by rendering the accepted model.
                 const current = this.selection.getSelection();
                 this.update();
@@ -575,7 +575,7 @@ class Format extends Content {
                 const parent = reference.parentNode;
                 const index = Array.prototype.indexOf.call(parent.childNodes, reference) as number;
                 this.muya.flush();
-                model.format({ format: 'unlink', selection: { anchor: { node: parent, offset: index }, focus: { node: parent, offset: index + 1 } } });
+                this.muya.editor.history.recordModelCommand(historyGroup => model.format({ format: 'unlink', selection: { anchor: { node: parent, offset: index }, focus: { node: parent, offset: index + 1 } }, historyGroup }));
             }
             this.muya.eventCenter.emit('muya-link-tools', { reference: null });
             return;
@@ -597,7 +597,7 @@ class Format extends Content {
                 throw new Error('The selected image has no current document boundary');
             const draft = createDocumentTextDraft(this.muya, selection, '');
             this.muya.flush();
-            model.clipboard({ kind: 'cut', selection }, draft);
+            this.muya.editor.history.recordModelCommand(historyGroup => model.clipboard({ kind: 'cut', selection, historyGroup }, draft));
             this.muya.eventCenter.emit('muya-transformer', { reference: null });
             this.muya.eventCenter.emit('muya-image-toolbar', { reference: null });
             return;

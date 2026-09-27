@@ -132,7 +132,7 @@ export class FootnoteTool extends BaseFloat {
             const selection = this.muya.editor.selection.getDOMSelection();
             if (!selection)
                 throw new Error('Footnote creation requires a document selection');
-            model.input({
+            this.muya.editor.history.recordModelCommand(historyGroup => model.input({
                 kind: 'command',
                 command: 'createFootnote',
                 identifier: this._identifier,
@@ -142,7 +142,8 @@ export class FootnoteTool extends BaseFloat {
                     autoPairQuote: this.muya.options.autoPairQuote,
                     autoPairMarkdownSyntax: this.muya.options.autoPairMarkdownSyntax,
                 },
-            }, () => {});
+                historyGroup,
+            }, () => {}));
             return;
         }
         const { scrollPage } = this.muya.editor;

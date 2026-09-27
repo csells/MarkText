@@ -3,6 +3,9 @@ import { expect, it } from 'vitest'
 import { createDocumentCore } from '@marktext/document-core'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
 import { isFormat } from '../helpers/muyaTypes'
+import { undoWindowClock } from '../helpers/separateUndoSteps'
+
+const clock = undoWindowClock()
 
 it.each([false, true])(
   'completes the parser-owned emoji target before next input (annotated=%s)',
@@ -31,12 +34,14 @@ it.each([false, true])(
       if (!isFormat(current)) throw new Error('Expected formattable text')
       current.domNode!.dispatchEvent(new KeyboardEvent('keyup', { key: 'i', bubbles: true }))
       expect(suggestions).toContain('smi')
+      clock.pause()
       current.setEmoji('smiley')
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: completed })
       expect(app.muya.getSelection()).toMatchObject({
         anchor: { offset: 15 },
         focus: { offset: 15 }
       })
+      clock.pause()
       app.muya.editor.selection
         .getSelection()!
         .anchor.block.domNode!.dispatchEvent(

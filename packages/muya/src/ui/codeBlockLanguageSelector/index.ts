@@ -208,7 +208,7 @@ export class CodeBlockLanguageSelector extends BaseScrollFloat {
             const selection = muya.editor.selection.getDOMSelection();
             if (!selection)
                 throw new Error('Code language selector has no model selection');
-            model.input({
+            muya.editor.history.recordModelCommand(historyGroup => model.input({
                 kind: 'command',
                 command: 'setCodeLanguage',
                 language: name,
@@ -218,7 +218,8 @@ export class CodeBlockLanguageSelector extends BaseScrollFloat {
                     autoPairQuote: muya.options.autoPairQuote,
                     autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
                 },
-            }, () => {});
+                historyGroup,
+            }, () => {}));
             super.selectItem(item);
             return;
         }

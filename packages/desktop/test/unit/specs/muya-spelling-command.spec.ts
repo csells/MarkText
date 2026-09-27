@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { undoWindowClock } from '../helpers/separateUndoSteps'
+
+const clock = undoWindowClock()
 
 it.each([false, true])(
   'replaces the selected repeated word through the common model (Track Changes %s)',
@@ -23,6 +26,7 @@ it.each([false, true])(
         focus: { offset: caret }
       })
       app.track(false)
+      clock.pause()
       app.muya.editor.selection.getSelection()!.anchor.block.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',

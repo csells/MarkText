@@ -1164,7 +1164,8 @@ export class Muya {
             const selection = this.editor.selection.getDOMSelection();
             if (!selection)
                 throw new Error('Image insertion has no model selection');
-            this.editor.documentEditing.format({ format: 'image', image: { src, alt }, selection });
+            const model = this.editor.documentEditing;
+            this.editor.history.recordModelCommand(historyGroup => model.format({ format: 'image', image: { src, alt }, selection, historyGroup }));
             return;
         }
 
