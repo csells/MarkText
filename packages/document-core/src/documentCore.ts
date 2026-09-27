@@ -241,7 +241,9 @@ export interface MarkdownAstNode {
    *
    * Link, image, and autolink nodes use `rawDestination` and `rawTitle` to
    * retain Markdown source spelling. Their renderer-ready decoded values are
-   * exposed as `semanticDestination` and `semanticTitle`. Resolved reference
+   * exposed as `semanticDestination` and `semanticTitle`; `decodedDestination`
+   * resolves escapes and entities without percent-encoding, as document
+   * formats that store a path rather than a URL expect. Resolved reference
    * links/images and footnote references use `resolvedDefinitionStart` and
    * `resolvedDefinitionEnd`; every footnote reference also has a `resolved`
    * boolean and a `rawLabel` preserving the spelling of unresolved references.
@@ -971,6 +973,9 @@ function markdownAstOf(
       attributes.semanticDestination = task.node.kind === 'autolink'
         ? normalizeMarkdownAutolinkDestination(link.destination)
         : normalizeMarkdownSemanticDestination(link.destination)
+      attributes.decodedDestination = task.node.kind === 'autolink'
+        ? link.destination
+        : decodeMarkdownSemanticText(link.destination)
       if (link.title !== undefined) {
         attributes.rawTitle = link.title
         attributes.semanticTitle = decodeMarkdownSemanticText(link.title)
