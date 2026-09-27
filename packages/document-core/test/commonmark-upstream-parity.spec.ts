@@ -73,6 +73,18 @@ describe('CommonMark and upstream agree', () => {
   ])('%j', (source, expected) => {
     expect(html(source)).toBe(canonical(expected))
   })
+
+  it.each([
+    // GFM reads a paragraph's last line as the header of a table below it.
+    ['Foo\n| a | b |\n|---|---|\n', '<p>Foo</p><table><thead><tr><th>a</th><th>b</th></tr></thead></table>'],
+    // Another block ends the table.
+    ['| a | b |\n|---|---|\n# h\n', '<table><thead><tr><th>a</th><th>b</th></tr></thead></table><h1>h</h1>'],
+    ['| a | b |\n|---|---|\n***\n', '<table><thead><tr><th>a</th><th>b</th></tr></thead></table><hr />'],
+    // A task marker begins a paragraph; an underlined one is heading text.
+    ['- [ ] t\n  =\n', '<ul><li><h1>[ ] t</h1></li></ul>']
+  ])('GFM %j', (source, expected) => {
+    expect(html(source, true)).toBe(canonical(expected))
+  })
 })
 
 describe('where CommonMark and upstream differ (Profile 1)', () => {
@@ -115,6 +127,8 @@ describe('typing these lines reads as a fresh open', () => {
     ['Foo\n\n', 4, '>     code'],
     ['    x\n\n', 6, '>'],
     ['<div>\n\n', 6, '- '],
+    ['- [ ] t\n\n', 8, '  ='],
+    ['Foo\n\n|---|---|\n', 4, '| a | b |'],
     ['a {++b++}\n\n', 10, '-'],
     ['{++a++}\n-\n\n{--b--}\n', 8, 'x']
   ])('%j at %i types %j', (source, at, insert) => {
