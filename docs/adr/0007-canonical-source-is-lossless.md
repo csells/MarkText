@@ -15,8 +15,11 @@ is permitted only as an explicit document transformation. Hash algorithms,
 framing, snapshot fields, and save implementation are versioned implementation
 details, not language semantics.
 
-Named exception, by owner decision (plan 0012 G11, G24): to match upstream
-MarkText, an untracked edit inside a table rewrites that table's pipes, cell
-padding and delimiter row. That respelling never removes text. A row's cells
-beyond the header's columns, which upstream drops, stay as written after the
-row's last column. Tracked edits never re-pad.
+Typing never re-spells source it does not change (owner decision, plan 0012
+G24): an edit inside a table or paragraph changes only what was typed. Explicit
+commands are explicit transformations and may re-spell the structure they act
+on, as upstream MarkText does: table commands (insert or delete a row or
+column, alignment) re-pad their table, and list Tab/Shift+Tab renumber the
+following ordered items and remove blank lines where the item joins a tight
+list (upstream #5349). They never remove text; a row's cells beyond the
+header's columns stay as written. Tracked edits never re-pad.
