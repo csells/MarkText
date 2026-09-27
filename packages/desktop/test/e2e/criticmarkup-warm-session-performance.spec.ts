@@ -326,10 +326,10 @@ test.describe('warm native-keyboard performance', () => {
           : saved
         writeFileSync(path.join(scratch, 'raw.json'), JSON.stringify({ tracking, metrics, enterMs }, null, 2), { flag: 'wx' })
         console.log(`[warm] enter-plain-1000${tracking ? '-tracked' : ''}: ${JSON.stringify(metrics)}; raw ${path.join(scratch, 'raw.json')}`)
-        // Each Enter splits before "editing", and each typed character ends
-        // the paragraph that the next Enter splits off.
+        // The caret stays before "editing": each Enter ends the paragraph of
+        // the character typed last, and the final one stays in front of it.
         expect(accepted).toBe(source.replace('Warm editing paragraph.',
-          'Warm ' + '\n\nx'.repeat(warmup + measured) + '\n\nediting paragraph.'))
+          'Warm ' + '\n\nx'.repeat(warmup + measured) + 'editing paragraph.'))
         expect(metrics.enterSettledMs.p95, 'Enter settled p95 target').toBeLessThanOrEqual(50)
         await expectNoRendererErrors(app)
         await expectEditorWindowHidden(app)
