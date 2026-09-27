@@ -30,7 +30,8 @@ import pandoc, {
   getPandocLanguage,
   getPandocReader,
   listLinkedMedia,
-  shouldMirrorMedia
+  shouldMirrorMedia,
+  toPandocJson
 } from '../../utils/pandoc'
 import { t, getCurrentLanguage } from '../../i18n'
 import type {
@@ -214,11 +215,13 @@ const handlePandocExport = async(e: IpcMainEvent, payload: PandocExportPayload):
     const linksMedia = formatLinksMedia(format.target)
     const media = linksMedia ? await listLinkedMedia(markdown, reader) : []
 
-    const { warnings } = await pandoc.toFile(format.target, filePath, markdown, {
+    // A document with tracked changes arrives as a Pandoc AST; everything else is Markdown.
+    const input = payload.document ? await toPandocJson(payload.document) : markdown
+    const { warnings } = await pandoc.toFile(format.target, filePath, input, {
       cwd: sourceDir,
       resourcePath: sourceDir,
       mirrorMedia: linksMedia && shouldMirrorMedia(media, sourceDir, filePath),
-      reader,
+      reader: payload.document ? 'json' : reader,
       // Only EPUB takes a title, for its title page; `lang` is the app's, not the spawn locale.
       metadata: {
         ...(format.target === 'epub3' ? { title: title || stem } : {}),

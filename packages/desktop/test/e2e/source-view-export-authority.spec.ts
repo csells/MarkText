@@ -103,11 +103,14 @@ test.describe('exports from Source view', () => {
   })
 
   test('styled HTML, PDF, Print and Pandoc include an edit typed in Source view', async() => {
-    // Pandoc is replaced by a script that copies the Markdown it receives.
+    // Pandoc is replaced by a script that copies the input it receives. Asked
+    // for the JSON envelope (no `-o`), it answers with an empty document.
     const pandoc = path.join(outputDir, 'pandoc-stub.sh')
     fs.writeFileSync(
       pandoc,
-      '#!/bin/sh\nout=""\nwhile [ $# -gt 0 ]; do\n  if [ "$1" = "-o" ]; then out="$2"; shift; fi\n  shift\ndone\ncat > "$out"\n',
+      '#!/bin/sh\nout=""\nwhile [ $# -gt 0 ]; do\n  if [ "$1" = "-o" ]; then out="$2"; shift; fi\n  shift\ndone\n' +
+        'if [ -z "$out" ]; then cat > /dev/null; printf \'{"pandoc-api-version":[1,23,1],"meta":{},"blocks":[]}\'; exit 0; fi\n' +
+        'cat > "$out"\n',
       { mode: 0o755 }
     )
     const launched = await launchWithMarkdown(DOCUMENT, { env: { MARKTEXT_PANDOC: pandoc } })
@@ -138,8 +141,12 @@ test.describe('exports from Source view', () => {
     await runFileCommand(app, page, 'Word (.docx)')
     const docxPath = path.join(outputDir, 'note.docx')
     await expect.poll(() => fs.existsSync(docxPath), { timeout: 15_000 }).toBe(true)
-    await expect.poll(() => fs.readFileSync(docxPath, 'utf8'), { timeout: 15_000 }).toBe(
-      `${DOCUMENT}${SOURCE_EDIT}`
-    )
+    // The document has a suggestion, so Word receives Core's tracked AST.
+    await expect.poll(() => fs.readFileSync(docxPath, 'utf8').length, { timeout: 15_000 }).toBeGreaterThan(0)
+    const docxInput = fs.readFileSync(docxPath, 'utf8')
+    const blocks = JSON.stringify((JSON.parse(docxInput) as { blocks: unknown }).blocks)
+    expect(blocks).toContain(`"${SOURCE_EDIT}"`)
+    expect(blocks).toContain('[["",["insertion"],[["author","unknown"]]],[{"t":"Str","c":"added"}]]')
+    expect(blocks).not.toContain('{++')
   })
 })
