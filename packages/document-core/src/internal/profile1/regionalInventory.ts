@@ -1099,6 +1099,28 @@ export function previewRegionalInventory(...args: RegionalInventoryArguments): R
   return evaluateRegionalInventory(...args, true)
 }
 
+/**
+ * The top-level paragraphs around `position` with one unchanged block of
+ * context on each side, parsed as the block window of an edit there would
+ * parse them, for planning a key against its neighbours without a document
+ * parse. The window keeps its safe points, so its blocks read as they do in
+ * the whole document.
+ */
+export function previewRegionalContext(
+  inventory: RegionalInventory,
+  source: CanonicalSourceView,
+  position: number,
+  executionBudget: ExecutionBudgetId,
+  markdownOptions: MarkdownOptionsV1,
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1
+): RegionalInventoryPreview | undefined {
+  const edit = Object.freeze({ start: position, end: position, insert: '' })
+  const result = evaluateBlockWindow(
+    inventoryValue(inventory), source, source, edit, executionBudget, markdownOptions, physicalRecorder, true
+  )
+  return result?.kind === 'validated' ? result : undefined
+}
+
 function evaluateRegionalInventory(...args: [...RegionalInventoryArguments, true]): RegionalInventoryPreviewResult
 function evaluateRegionalInventory(...args: [...RegionalInventoryArguments, false]): RegionalInventoryApplyResult
 function evaluateRegionalInventory(

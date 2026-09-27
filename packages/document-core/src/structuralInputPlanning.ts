@@ -195,9 +195,10 @@ function softBreakBeforeBlankLine(core: DocumentCore, revision: DocumentRevision
   return { start, end }
 }
 
-export function planStructuralInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction<SourceRange>, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, selectedCell?: ReturnType<typeof resolveTableCell>): DocumentSourceInputPlan {
+/** `syntax`, when given, is the revision's syntax or a regional window of it that `physicalLines` and `enterConversion` also read. */
+export function planStructuralInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction<SourceRange>, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, selectedCell?: ReturnType<typeof resolveTableCell>, syntax?: MarkupSyntax): DocumentSourceInputPlan {
   const inputType = 'inputType' in action ? action.inputType : undefined
-  const projection = core.project(revision, 'markup').syntax
+  const projection = syntax ?? core.project(revision, 'markup').syntax
   const breakAt = action.selection.start === action.selection.end && (inputType === 'insertParagraph' || inputType === 'insertLineBreak')
     ? annotationExteriorBreak(revision.annotations, projection, action.selection.start)
     : undefined
@@ -208,7 +209,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
   if (inputType === 'insertLineBreak' && start === end && selectedCell === undefined) {
     const dropped = softBreakBeforeBlankLine(core, revision, projection, physicalLines(), start)
     if (dropped !== undefined) {
-      return planStructuralInput(core, revision, { ...action, inputType: 'insertParagraph', data: '\n', selection: dropped, range: dropped } as DocumentInputAction<SourceRange>, enterConversion, physicalLines, selectedCell)
+      return planStructuralInput(core, revision, { ...action, inputType: 'insertParagraph', data: '\n', selection: dropped, range: dropped } as DocumentInputAction<SourceRange>, enterConversion, physicalLines, selectedCell, syntax)
     }
   }
   const rawRange = 'range' in action ? action.range : { start, end: start }
