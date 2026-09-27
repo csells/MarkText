@@ -48,6 +48,8 @@ test('keyboard comment editing restores the selected review item after Escape an
   })
   try {
     const marker = page.locator('.mu-critic-comment-marker')
+    // The marker has no visible text, so its name carries the comment (G18).
+    await expect(marker).toHaveAttribute('aria-label', 'Comment: A comment.')
     await marker.focus()
     await page.keyboard.press('Enter')
     await tabTo(page, 'critic-review-edit-comment')
@@ -64,6 +66,7 @@ test('keyboard comment editing restores the selected review item after Escape an
     await expect(selected).toBeFocused()
     await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
     await expect.poll(() => readFileSync(filePath, 'utf8')).toBe('Passage.{>>Keyboard note.<<}\n')
+    await expect(marker).toHaveAttribute('aria-label', 'Comment: Keyboard note.')
     await expectNoRendererErrors(app)
   } finally {
     await app.close()
@@ -114,7 +117,7 @@ test('review labels and marker names switch language while teleported comment te
       await sendIpcToRenderer(app, 'mt::user-preference', { language: locale })
       await expect(page.locator('.mu-critic-comment-marker')).toHaveAttribute(
         'aria-label',
-        markerLabel
+        `${markerLabel}: ملاحظة (ABC 123).`
       )
       await expect(page.locator('#core-review-panel h2')).toHaveText(title)
       await expect(page.locator('.core-review-comment')).toHaveCSS('direction', 'rtl')
