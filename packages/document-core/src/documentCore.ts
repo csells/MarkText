@@ -4304,9 +4304,43 @@ function createDocumentCoreWithExecutionBudget(
   }
 
   /**
+   * A tracked join of two paragraphs, away from every suggestion, proved by
+   * reparsing them: the removed break becomes a new Deletion. The window
+   * proves the Deletion is recognized as written and changes no other
+   * suggestion, and the text on both sides is plain, as for a tracked break.
+   */
+  const regionalTrackedJoin = (
+    state: RevisionState,
+    previous: DocumentRevision,
+    edit: DocumentSourceEdit
+  ): DocumentSourceEdit | undefined => {
+    if (plansFromDocumentParse(core) || edit.insert !== '' || edit.start >= edit.end) return undefined
+    const removed = core.sourceSlice(previous, edit)
+    if (!/^(?:\r\n|\r|\n)+$/u.test(removed) ||
+        markupAnnotations(previous.annotations).some(annotation =>
+          annotation.range.start <= edit.end && edit.start <= annotation.range.end) ||
+        !plainParagraphAround(previous, edit.start) || !plainParagraphAround(previous, edit.end)) return undefined
+    const planned = Object.freeze({ start: edit.start, end: edit.end, insert: `{--${removed}--}` })
+    const candidate = regionalCandidate(state, planned)
+    if (candidate?.structural === undefined || candidate.structural.touchesAnnotation ||
+        candidate.structural.markerDelta !== 2 || candidate.nextProducts.diagnostics.count !== 0 ||
+        (candidate.nextProducts.retainedIntrinsic?.diagnostics.length ?? 0) !== 0) return undefined
+    const local = edit.start - candidate.sourceStart
+    const root = candidate.nextProducts.retainedIntrinsic?.roots.find(node => node.range.start === local)
+    const content = root?.arms[0]
+    return root?.kind === 'deletion' && root.arms.length === 1 && root.range.end === local + planned.insert.length &&
+      content !== undefined && content.children.length === 0 &&
+      content.range.start === local + 3 && content.range.end === local + 3 + removed.length
+      ? planned
+      : undefined
+  }
+
+  /**
    * Whether the paragraph text around `at` is words and plain punctuation,
-   * apart from Addition delimiters: no Markdown delimiter there can pair
-   * across the break differently in a suggestion than in untracked text.
+   * apart from Addition delimiters, and the line the break starts begins
+   * with a letter: no delimiter there can pair across the break, and no
+   * block marker can begin the new line, differently in a suggestion than in
+   * untracked text.
    */
   const plainParagraphAround = (previous: DocumentRevision, at: number): boolean => {
     const reach = 4096
@@ -4318,7 +4352,8 @@ function createDocumentCoreWithExecutionBudget(
     if (opening === undefined && at > reach || closing < 0 && previous.sourceLength - at > reach) return false
     const text = before.slice(opening === undefined ? 0 : opening.index + opening[0].length) +
       after.slice(0, closing < 0 ? after.length : closing)
-    return /^[\p{L}\p{N} \t\r\n.,;:'"?!()-]*$/u.test(text.replace(/\{\+\+|\+\+\}/gu, ''))
+    return /^[\p{L}\p{N} \t\r\n.,;:'"?!()]*$/u.test(text.replace(/\{\+\+|\+\+\}/gu, '')) &&
+      /^(?:\+\+\})?[ \t]*(?:\p{L}|\r|\n|$)/u.test(after)
   }
 
   const resolutionEdit = (
@@ -4411,7 +4446,7 @@ function createDocumentCoreWithExecutionBudget(
       return Object.freeze({ start: first.start, end: last.end, insert })
     }
     const regional = regionalPayloadEdit(state, edit, true) ?? regionalTrackedInsertion(state, previous, edit) ??
-      regionalTrackedBreak(state, previous, edit)
+      regionalTrackedBreak(state, previous, edit) ?? regionalTrackedJoin(state, previous, edit)
     if (regional !== undefined) return regional
     const planned = createTrackedSourceEdit(core, previous, edit, preview) ??
       createTrackedLiteralSourceEdit(core, previous, edit, preview) ??
