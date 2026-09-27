@@ -61,12 +61,18 @@ export const clickText = async(page: Page, text: string, where: 'start' | 'end' 
  * Presses a key through Electron's native input path, so menu accelerators and
  * before-input shortcuts run as they do for a user's keyboard.
  */
-export const nativeKey = async(app: ElectronApplication, keyCode: string, modifiers: string[] = []): Promise<void> => {
-  await app.evaluate(({ BrowserWindow }, { keyCode, modifiers }) => {
+export const nativeKey = async(
+  app: ElectronApplication,
+  keyCode: string,
+  modifiers: string[] = [],
+  holdMs = 0
+): Promise<void> => {
+  await app.evaluate(async({ BrowserWindow }, { keyCode, modifiers, holdMs }) => {
     const contents = BrowserWindow.getAllWindows()[0].webContents
     contents.sendInputEvent({ type: 'keyDown', keyCode, modifiers: modifiers as never })
+    if (holdMs > 0) await new Promise(resolve => setTimeout(resolve, holdMs))
     contents.sendInputEvent({ type: 'keyUp', keyCode, modifiers: modifiers as never })
-  }, { keyCode, modifiers })
+  }, { keyCode, modifiers, holdMs })
 }
 
 export const menuStates = (app: ElectronApplication, ids: readonly string[]) =>
