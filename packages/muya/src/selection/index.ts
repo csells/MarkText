@@ -218,6 +218,15 @@ class Selection {
                     { offset: 0, block: anchorBlock, path },
                     { offset: anchorBlock.text.length, block: anchorBlock, path },
                 );
+                // A drag or Shift+arrow shows the selection toolbar from its
+                // mouse or key event; the application menu's Select All has
+                // neither. Duck-typed, as a Format import would be circular.
+                if (typeof (anchorBlock as { getActiveFormats?: unknown }).getActiveFormats === 'function') {
+                    this._muya.eventCenter.emit('muya-format-picker', {
+                        reference: getCursorReference(),
+                        block: anchorBlock,
+                    });
+                }
                 return;
             }
         }

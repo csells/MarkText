@@ -322,3 +322,17 @@ describe('selection.selectAll honors the live selection over stale cache', () =>
         expect(selection.focus!.offset).toBe(second.text.length);
     });
 });
+
+describe('selection.selectAll selection toolbar', () => {
+    it('offers the selection toolbar when it grows a caret to its whole paragraph', () => {
+        const muya = bootMuya('alpha beta\n');
+        const shown = vi.fn();
+        muya.eventCenter.subscribe('muya-format-picker', shown);
+        const paragraph = muya.editor.scrollPage!.firstContentInDescendant()!;
+        paragraph.setCursor(2, 2, false);
+
+        muya.editor.selection.selectAll();
+
+        expect(shown).toHaveBeenCalledWith(expect.objectContaining({ block: paragraph }));
+    });
+});
