@@ -485,9 +485,19 @@ function createNode(
   }
   const stableAttributes = Object.freeze({ ...attributes })
   const sourceIdentity = identity.sourceAt(start, end)
+  // A text node's trimmed extent is a fact of its own view: the same source
+  // text ends its line in one view and not in another. Relative to the node,
+  // it is view-independent, so it belongs in the identity.
+  const semanticStart = stableAttributes['semanticStart']
+  const semanticEnd = stableAttributes['semanticEnd']
+  const semanticExtentKey =
+    typeof semanticStart === 'number' && typeof semanticEnd === 'number'
+      ? `semantic=${String(semanticStart - start)},${String(semanticEnd - end)}`
+      : ''
   const semanticKey = [
     sourceIdentity.key,
     stableAttributesKey(stableAttributes),
+    semanticExtentKey,
     ...stableChildren.map((child) => child.nodeId)
   ].join('\u0000')
   const nodeId = identity.registry.emitNode(
