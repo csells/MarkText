@@ -1056,6 +1056,7 @@
       "saveComment": "儲存註解",
       "commentTargetChanged": "文件已變更。註解草稿已保留；選擇其他目標之前請先取消。",
       "commentEscapeNotice": "包含類似 CriticMarkup 的文字；MarkText 已用反斜線跳脫，其他 CriticMarkup 工具可能會原樣顯示這些反斜線。",
+      "authorEscapeNotice": "MarkText 已用反斜線跳脫類似 CriticMarkup 的文字，其他 CriticMarkup 工具可能會照原樣顯示。",
       "commentSaveFailed": "無法儲存註解。草稿與原始目標已保留。",
       "finishDraftBeforeClosing": "關閉此文件前，請儲存或取消待處理的註解或取代文字。",
       "commentPrompt": "註解",

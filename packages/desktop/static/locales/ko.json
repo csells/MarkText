@@ -1056,6 +1056,7 @@
       "saveComment": "댓글 저장",
       "commentTargetChanged": "문서가 변경되었습니다. 댓글 초안은 보존되어 있습니다. 다른 대상을 선택하기 전에 취소하세요.",
       "commentEscapeNotice": "CriticMarkup과 비슷한 텍스트가 있습니다. MarkText가 백슬래시로 이스케이프했으며, 다른 CriticMarkup 도구에서는 백슬래시가 그대로 표시될 수 있습니다.",
+      "authorEscapeNotice": "MarkText가 CriticMarkup과 비슷한 텍스트를 백슬래시로 이스케이프했습니다. 다른 CriticMarkup 도구에서는 그대로 표시될 수 있습니다.",
       "commentSaveFailed": "댓글을 저장할 수 없습니다. 초안과 원래 대상은 보존되어 있습니다.",
       "finishDraftBeforeClosing": "이 문서를 닫기 전에 보류 중인 댓글 또는 대체 텍스트를 저장하거나 취소하세요.",
       "commentPrompt": "댓글",

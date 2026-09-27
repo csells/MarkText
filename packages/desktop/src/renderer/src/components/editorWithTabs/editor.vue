@@ -1866,6 +1866,8 @@ const submitCoreComment = async (draft: { targetId: string; text: string }): Pro
       coreCommentError.value = t('editor.coreReview.commentSaveFailed')
       return
     }
+    // The composer already disclosed an escaped comment payload.
+    if (coreCommentEscapeNotice.value === '') discloseCoreAuthorEscapes(outcome)
     coreCommentOpen.value = false
     coreCommentDraft.value = undefined
     coreAuthorSelection.value = undefined
@@ -2030,6 +2032,7 @@ const authorCoreReview = async (
       state: adapter.state()
     })
     if (outcome !== undefined) {
+      discloseCoreAuthorEscapes(outcome)
       coreAuthorSelection.value = undefined
       await refreshCoreReviewItem('next', 0)
     }
@@ -2073,6 +2076,21 @@ const commentOnCoreHighlight = async (
   coreCommentError.value = ''
   coreCommentOpen.value = true
   reviewLayoutStore.SET_LAYOUT({ showSideBar: true, rightColumn: 'review' })
+}
+
+/**
+ * Backslash CriticMarkup escaping is a MarkText extension other tools may show
+ * literally, so the author is told whenever authoring adds one (ADR 0015).
+ */
+const discloseCoreAuthorEscapes = (outcome: CoreAppliedReply): void => {
+  if (outcome.authorResult?.escaped !== true) return
+  notice
+    .notify({
+      title: t('editor.coreReview.sidebarTitle'),
+      type: 'info',
+      message: t('editor.coreReview.authorEscapeNotice')
+    })
+    .catch(() => undefined)
 }
 
 const beginCoreAuthorReview = (

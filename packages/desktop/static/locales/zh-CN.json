@@ -1056,6 +1056,7 @@
       "saveComment": "保存批注",
       "commentTargetChanged": "文档已更改。批注草稿已保留；选择其他目标之前请先取消。",
       "commentEscapeNotice": "包含类似 CriticMarkup 的文本；MarkText 已用反斜杠转义，其他 CriticMarkup 工具可能会原样显示这些反斜杠。",
+      "authorEscapeNotice": "MarkText 已用反斜杠转义类似 CriticMarkup 的文本，其他 CriticMarkup 工具可能会按原样显示。",
       "commentSaveFailed": "无法保存批注。草稿和原始目标已保留。",
       "finishDraftBeforeClosing": "关闭此文档前，请保存或取消待处理的批注或替换文本。",
       "commentPrompt": "批注",

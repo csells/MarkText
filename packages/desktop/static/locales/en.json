@@ -1056,6 +1056,7 @@
       "saveComment": "Save Comment",
       "commentTargetChanged": "The document changed. Your comment draft is preserved; cancel before choosing a new target.",
       "commentEscapeNotice": "Contains CriticMarkup-like text; MarkText escaped it with backslashes, which other CriticMarkup tools may show literally.",
+      "authorEscapeNotice": "MarkText escaped CriticMarkup-like text with backslashes, which other CriticMarkup tools may show literally.",
       "commentSaveFailed": "The comment could not be saved. Your draft and original target are preserved.",
       "finishDraftBeforeClosing": "Save or cancel the pending comment or replacement before closing this document.",
       "commentPrompt": "Comment",
