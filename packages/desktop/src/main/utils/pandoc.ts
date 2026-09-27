@@ -3,7 +3,7 @@ import { spawn } from 'child_process'
 import path from 'path'
 import { isExecutableFile } from 'common/filesystem'
 import { resolveCommand } from './resolveCommand'
-import type { PandocTrackedDocument } from '@shared/types/files'
+import type { PandocDocument } from '@shared/types/files'
 import type { PandocCommandInfo } from '@shared/types/pandoc'
 
 const pandocCommand = 'pandoc'
@@ -49,155 +49,6 @@ export const shouldMirrorMedia = (
   !links.some(isRemoteMedia) &&
   (!!sourceDir || links.every((url) => path.isAbsolute(url))) &&
   (sourceDir === undefined || path.relative(sourceDir, path.dirname(outputPath)) !== '')
-
-/** The Preferences → Markdown toggles that map onto a pandoc reader extension. */
-export interface PandocReaderOptions {
-  superSubScript: boolean
-  /** `false` keeps a `[^1]` literal; the readers enable `footnotes` themselves. */
-  footnotes?: boolean
-  /** `false` drops `$…$`; the readers enable `tex_math_dollars` themselves. */
-  texMathDollars?: boolean
-  /** pandoc's `tex_math_gfm`: GitHub's `` $`…`$ `` and ` ```math ` math. */
-  texMathGfm?: boolean
-  /** pandoc's `tex_math_single_backslash`: `\(…\)` and `\[…\]`. */
-  texMathSingleBackslash?: boolean
-  /** pandoc's `tex_math_double_backslash`: `\\(…\\)` and `\\[…\\]`. */
-  texMathDoubleBackslash?: boolean
-}
-
-/** Every extension a reader lists, mapped to whether that reader enables it by default. */
-export type ReaderExtensionDefaults = ReadonlyMap<string, boolean>
-
-export interface PandocReaderExtensions {
-  gfm: ReaderExtensionDefaults
-  markdown: ReaderExtensionDefaults
-}
-
-/**
- * The reader a pandoc export parses with, from the Preferences → Markdown toggles.
- *
- * `gfm` is the reader that matches the editor, but pandoc's `gfm` carries neither
- * `tex_math_single_backslash` nor `tex_math_double_backslash` — naming one makes pandoc
- * reject the whole reader (#5566). When either is on, the reader is built from
- * `markdown`, which supports them, and every other extension is forced to gfm's own
- * default so tables, strikeout and task lists keep reading the same way.
- *
- * `tex_math_gfm` is commonmark-only: no pandoc reader carries it together with the
- * backslash extensions, so a document enabling both is read with the backslash ones and
- * the GFM math is left to the reader's default. The `tex_math_gfm` flag and the
- * `markdown` diff are both written only from `extensions`, the installed pandoc's own
- * listing; without it each reader keeps its format defaults, since pandoc rejects a
- * reader carrying a name it does not know.
- */
-export const getPandocReader = (
-  options: PandocReaderOptions,
-  extensions?: PandocReaderExtensions | null
-): string => {
-  const {
-    superSubScript,
-    footnotes = true,
-    texMathDollars = true,
-    texMathGfm = false,
-    texMathSingleBackslash = false,
-    texMathDoubleBackslash = false
-  } = options
-
-  if (texMathSingleBackslash || texMathDoubleBackslash) {
-    // `superSubScript`, `footnotes` and the three math extensions are the editor's; every
-    // other extension follows gfm, including the ones gfm does not carry (which stay off).
-    const desired = (name: string): boolean => {
-      switch (name) {
-        case 'superscript':
-        case 'subscript':
-          return superSubScript
-        case 'footnotes':
-          return footnotes
-        case 'tex_math_dollars':
-          return texMathDollars
-        case 'tex_math_single_backslash':
-          return texMathSingleBackslash
-        case 'tex_math_double_backslash':
-          return texMathDoubleBackslash
-        default:
-          return extensions?.gfm.get(name) ?? false
-      }
-    }
-    const flags: string[] = []
-    for (const [name, markdownDefault] of extensions?.markdown ?? []) {
-      const want = desired(name)
-      if (want && !markdownDefault) flags.push(`+${name}`)
-      if (!want && markdownDefault) flags.push(`-${name}`)
-    }
-    // Without a listing only the math flags can be named safely; the rest keeps the
-    // reader's own defaults rather than a guess at what this pandoc carries.
-    if (!extensions) {
-      if (!texMathDollars) flags.push('-tex_math_dollars')
-      if (texMathSingleBackslash) flags.push('+tex_math_single_backslash')
-      if (texMathDoubleBackslash) flags.push('+tex_math_double_backslash')
-    }
-    return `markdown${flags.join('')}`
-  }
-
-  const flags: string[] = []
-  if (superSubScript) flags.push('+superscript+subscript')
-  if (!footnotes) flags.push('-footnotes')
-  if (!texMathDollars) flags.push('-tex_math_dollars')
-  if (extensions?.gfm.has('tex_math_gfm')) {
-    flags.push(texMathGfm ? '+tex_math_gfm' : '-tex_math_gfm')
-  }
-  return `gfm${flags.join('')}`
-}
-
-/**
- * The extensions a reader lists, each with whether it enables them by default, from
- * `--list-extensions=<format>`. The listing marks every line (`+tex_math_dollars`,
- * `-smart`). `null` is the answer a pandoc that cannot list gives — a spawn that fails,
- * a non-zero exit, or no line at all. It is never an empty map: that would read as "this
- * reader carries nothing" and strip the reader down to bare math flags.
- */
-export const listReaderExtensions = async(
-  format: string
-): Promise<ReaderExtensionDefaults | null> => {
-  const command = await getCommand()
-  return new Promise((resolve) => {
-    const proc = spawn(command, [`--list-extensions=${format}`])
-    let output = ''
-    proc.stdout.on('data', (chunk: Buffer | string) => {
-      output += chunk.toString()
-    })
-    proc.stdin.on('error', () => {})
-    proc.on('error', () => resolve(null))
-    proc.on('close', (code: number | null) => {
-      const defaults = new Map<string, boolean>()
-      if (code === 0) {
-        for (const line of output.split('\n')) {
-          // Lines end in `\r\n` on Windows, which `.` would not cross.
-          const match = line.trim().match(/^([+-])(.+)$/)
-          if (match) defaults.set(match[2].trim(), match[1] === '+')
-        }
-      }
-      resolve(defaults.size > 0 ? defaults : null)
-    })
-    proc.stdin.end()
-  })
-}
-
-let readerExtensions: Promise<PandocReaderExtensions | null> | undefined
-
-/**
- * Both listings, or `null` when either is unavailable. A hit is remembered — it is two
- * spawns and each export asks the same question — but a miss is not, so a pandoc
- * installed or repaired later is not stuck behind the first failure.
- */
-export const getReaderExtensions = async(): Promise<PandocReaderExtensions | null> => {
-  readerExtensions ??= Promise.all([
-    listReaderExtensions('gfm'),
-    listReaderExtensions('markdown')
-  ]).then(([gfm, markdown]) => (gfm && markdown ? { gfm, markdown } : null))
-  const extensions = await readerExtensions
-  if (extensions === null) readerExtensions = undefined
-  return extensions
-}
 
 // pandoc knows no `zh`/`zh-CN` and would warn, so Chinese takes the script subtag.
 export const getPandocLanguage = (locale: string): string => {
@@ -323,8 +174,6 @@ export interface PandocToFileOptions {
   resourcePath?: string
   /** Copy the document's images into the output's folder and rewrite the links. */
   mirrorMedia?: boolean
-  /** Reader used to parse `input`; see `getPandocReader`. */
-  reader?: string
   metadata?: Record<string, string>
 }
 
@@ -333,7 +182,10 @@ export interface PandocToFileResult {
   warnings: string
 }
 
-/** Convert `input` to `outputPath`; the converter above cannot serve binary targets. */
+/**
+ * Convert `input`, a Pandoc JSON document (see `toPandocJson`), to `outputPath`;
+ * the converter above cannot serve binary targets.
+ */
 pandoc.toFile = async(
   to: string,
   outputPath: string,
@@ -342,14 +194,8 @@ pandoc.toFile = async(
 ): Promise<PandocToFileResult> => {
   const command = await getCommand()
   return new Promise((resolve, reject) => {
-    const {
-      cwd,
-      reader = getPandocReader({ superSubScript: false }),
-      metadata = {},
-      resourcePath,
-      mirrorMedia
-    } = options
-    const option = ['-f', reader, '-t', to, '-s']
+    const { cwd, metadata = {}, resourcePath, mirrorMedia } = options
+    const option = ['-f', 'json', '-t', to, '-s']
     // pandoc splits `--metadata` on the first colon only, so "Q3: plan" survives.
     for (const [key, value] of Object.entries(metadata)) {
       if (value) option.push(`--metadata=${key}:${value}`)
@@ -383,47 +229,33 @@ pandoc.toFile = async(
   })
 }
 
-// The links pandoc found, which is what an export mirrors; raw HTML `<img>` is not listed.
-export const listLinkedMedia = async(input: string, reader: string): Promise<string[]> => {
-  const command = await getCommand()
-  return new Promise((resolve) => {
-    const proc = spawn(command, ['-f', reader, '-t', 'json'])
-    let ast = ''
-    proc.stdout.on('data', (chunk: Buffer | string) => {
-      ast += chunk.toString()
-    })
-    proc.stdin.on('error', () => {})
-    // A document pandoc cannot parse has nothing to mirror; the conversion says why.
-    proc.on('error', () => resolve([]))
-    proc.on('close', () => {
-      const urls: string[] = []
-      try {
-        JSON.parse(ast, (_key, node: unknown) => {
-          const { t, c } = (node ?? {}) as { t?: string; c?: unknown[] }
-          const target = t === 'Image' ? c?.[2] : undefined
-          if (Array.isArray(target) && typeof target[0] === 'string') urls.push(target[0])
-          return node
-        })
-      } catch {
-        urls.length = 0
-      }
-      resolve(urls)
-    })
-    proc.stdin.end(input)
-  })
+// The pictures an export mirrors: every image target, in the document or its
+// metadata. A raw HTML `<img>` is raw text to pandoc, so it is not listed.
+export const listLinkedMedia = (document: PandocDocument): string[] => {
+  const urls: string[] = []
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(visit)
+    } else if (value !== null && typeof value === 'object') {
+      const { t, c } = value as { t?: unknown; c?: unknown }
+      const target = t === 'Image' && Array.isArray(c) ? c[2] : undefined
+      if (Array.isArray(target) && typeof target[0] === 'string') urls.push(target[0])
+      visit(c)
+    }
+  }
+  visit(document.blocks)
+  visit(Object.values(document.meta))
+  return urls
 }
 
 /**
- * A tracked document as the JSON pandoc reads. The API version is the running
- * pandoc's, which its JSON reader insists on, and front matter becomes metadata
- * exactly as the Markdown reader would make it.
+ * A document as the JSON pandoc reads. The JSON reader insists on the running
+ * pandoc's API version, which an empty document from its native reader states.
  */
-export const toPandocJson = async(document: PandocTrackedDocument): Promise<string> => {
+export const toPandocJson = async(document: PandocDocument): Promise<string> => {
   const command = await getCommand()
-  const frontMatter = document.frontMatter ?? ''
-  const header = frontMatter ? `---\n${frontMatter}${frontMatter.endsWith('\n') ? '' : '\n'}---\n` : ''
   const envelope = await new Promise<string>((resolve, reject) => {
-    const proc = spawn(command, ['-f', 'gfm', '-t', 'json'])
+    const proc = spawn(command, ['-f', 'native', '-t', 'json'])
     let output = ''
     let errorOutput = ''
     proc.on('error', reject)
@@ -438,13 +270,11 @@ export const toPandocJson = async(document: PandocTrackedDocument): Promise<stri
       if (code === 0) resolve(output)
       else reject(new Error(errorOutput.trim() || `pandoc exited with code ${String(code)}`))
     })
-    proc.stdin.end(header)
+    proc.stdin.end('[]')
   })
-  const { 'pandoc-api-version': version, meta } = JSON.parse(envelope) as {
-    'pandoc-api-version': unknown
-    meta: unknown
-  }
-  return JSON.stringify({ 'pandoc-api-version': version, meta, blocks: document.blocks })
+  const { 'pandoc-api-version': version } = JSON.parse(envelope) as { 'pandoc-api-version': unknown }
+  // pandoc's text readers normalize their input to NFC and its JSON reader does not.
+  return JSON.stringify({ 'pandoc-api-version': version, meta: document.meta, blocks: document.blocks }).normalize('NFC')
 }
 
 export default pandoc

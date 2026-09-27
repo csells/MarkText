@@ -20,6 +20,7 @@ vi.mock('@/services/notification', () => ({
   default: { notify: vi.fn(), name: 'notify' }
 }))
 
+import type { PandocExportPayload } from '@shared/types/files'
 import { useEditorStore } from '@/store/editor'
 import { usePreferencesStore } from '@/store/preferences'
 import bus from '@/bus'
@@ -50,17 +51,11 @@ function onFlushCommit(store: ReturnType<typeof useEditorStore>) {
 }
 
 const sentPayload = (sendSpy: { mock: { calls: unknown[][] } }) =>
-  sendSpy.mock.calls.find((c) => c[0] === 'mt::response-pandoc-export')?.[1] as {
-    markdown: string
-    pathname: string
-    target: string
-    superSubScript: boolean
-    footnote: boolean
-    texMathDollars: boolean
-    texMathGfm: boolean
-    texMathSingleBackslash: boolean
-    texMathDoubleBackslash: boolean
-  }
+  sendSpy.mock.calls.find((c) => c[0] === 'mt::response-pandoc-export')?.[1] as
+    | PandocExportPayload
+    | undefined
+
+const str = (c: string) => ({ t: 'Str', c })
 
 describe('pandoc export payload (#5379)', () => {
   let detach: (() => void) | undefined
@@ -80,37 +75,28 @@ describe('pandoc export payload (#5379)', () => {
     detach = undefined
   })
 
-  it('sends the tab markdown, the source pathname and the target', () => {
+  it('sends the flushed tab as Core parsed it, the source pathname and the target', () => {
     detach = onFlushCommit(store)
     store.EXPORT_PANDOC('docx')
 
-    expect(sentPayload(sendSpy)).toBeDefined()
     expect(sentPayload(sendSpy)).toMatchObject({
-      markdown: FLUSHED,
+      document: { meta: {}, blocks: [{ t: 'Para', c: [str('hello'), { t: 'Space' }, str('world!')] }] },
       pathname: '/tmp/note.md',
       target: 'docx'
     })
   })
 
-  // Only the renderer knows these: `gfm` enables footnotes itself, so it must be told to stop,
-  // and the math delimiters the editor reads are preferences pandoc does not know (#5566).
-  it('reports the reader preferences to the main process', () => {
+  // Core reads the document with the editor's own switches, so the export means what it shows.
+  it('parses the document with the editor\'s Markdown preferences', () => {
     usePreferencesStore().superSubScript = true
     usePreferencesStore().footnote = false
-    usePreferencesStore().texMathDollars = false
-    usePreferencesStore().texMathGfm = true
-    usePreferencesStore().texMathSingleBackslash = true
-    usePreferencesStore().texMathDoubleBackslash = true
+    store.currentFile!.markdown = 'x^2^[^1]\n\n[^1]: n\n'
 
     store.EXPORT_PANDOC('docx')
 
-    expect(sentPayload(sendSpy)).toMatchObject({
-      superSubScript: true,
-      footnote: false,
-      texMathDollars: false,
-      texMathGfm: true,
-      texMathSingleBackslash: true,
-      texMathDoubleBackslash: true
+    expect(sentPayload(sendSpy)?.document.blocks[0]).toEqual({
+      t: 'Para',
+      c: [str('x'), { t: 'Superscript', c: [str('2')] }, str('[^1]')]
     })
   })
 

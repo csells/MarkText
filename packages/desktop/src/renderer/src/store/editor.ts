@@ -2109,20 +2109,14 @@ export const useEditorStore = defineStore('editor', {
       // edits the store's copy has not seen.
       const pending = withAuthoritativeSaveSource(id, markdown, (source) => {
         // Pandoc reads what Core makes of the document, never raw CriticMarkup.
-        const input = projectPandocExport(
+        const pandocDocument = projectPandocExport(
           source,
           coreMarkdownOptionsFromPreferences(preferencesStore),
           target
         )
         window.electron.ipcRenderer.send('mt::response-pandoc-export', {
           target,
-          ...input,
-          superSubScript: preferencesStore.superSubScript === true,
-          footnote: preferencesStore.footnote === true,
-          texMathDollars: preferencesStore.texMathDollars === true,
-          texMathGfm: preferencesStore.texMathGfm === true,
-          texMathSingleBackslash: preferencesStore.texMathSingleBackslash === true,
-          texMathDoubleBackslash: preferencesStore.texMathDoubleBackslash === true,
+          document: pandocDocument,
           title,
           pathname
         })

@@ -17,41 +17,13 @@ import pandoc, {
   findOnPath,
   formatLinksMedia,
   getPandocLanguage,
-  getPandocReader,
-  getReaderExtensions,
   isRemoteMedia,
   listLinkedMedia,
-  listReaderExtensions,
   pandocLocations,
   shouldMirrorMedia,
-  type PandocReaderExtensions,
+  toPandocJson,
   type PandocToFileOptions
 } from 'main_renderer/utils/pandoc'
-
-/** A stand-in for `--list-extensions`: gfm's set plus the extras `markdown` turns on. */
-const EXTENSIONS: PandocReaderExtensions = {
-  gfm: new Map([
-    ['pipe_tables', true],
-    ['strikeout', true],
-    ['footnotes', true],
-    ['tex_math_dollars', true],
-    ['tex_math_gfm', true],
-    ['superscript', false],
-    ['subscript', false]
-  ]),
-  markdown: new Map([
-    ['pipe_tables', true],
-    ['strikeout', true],
-    ['footnotes', true],
-    ['tex_math_dollars', true],
-    ['tex_math_single_backslash', false],
-    ['tex_math_double_backslash', false],
-    ['superscript', true],
-    ['subscript', true],
-    ['smart', true],
-    ['fenced_divs', true]
-  ])
-}
 
 /**
  * The ChildProcess `spawn` would hand back; stdin is an emitter so the EPIPE is
@@ -125,74 +97,6 @@ describe('pandoc export', () => {
     expect(ids).not.toContain('opml')
   })
 
-  // `gfm` is what the editor shows; the extensions asked for mirror its preferences (#5379).
-  // `gfm` enables `tex_math_dollars` and `footnotes`, so the defaults are already the
-  // editor's, and only the prefs that diverge or opt in add a flag.
-  it('reads GFM, adding sub/superscript or dropping footnotes only when asked', () => {
-    expect(getPandocReader({ superSubScript: false })).toBe('gfm')
-    expect(getPandocReader({ superSubScript: false, footnotes: false })).toBe('gfm-footnotes')
-    expect(getPandocReader({ superSubScript: true })).toBe('gfm+superscript+subscript')
-  })
-
-  // #5566: the Preferences → Markdown math toggles must reach the reader, or an export
-  // silently parses the delimiters the editor turns on — or leaves on — differently.
-  it('forwards the dollar and gfm math toggles to the gfm reader', () => {
-    expect(getPandocReader({ superSubScript: false, texMathDollars: false })).toBe(
-      'gfm-tex_math_dollars'
-    )
-    expect(getPandocReader({ superSubScript: false, texMathGfm: true }, EXTENSIONS)).toBe(
-      'gfm+tex_math_gfm'
-    )
-    expect(getPandocReader({ superSubScript: false, texMathGfm: false }, EXTENSIONS)).toBe(
-      'gfm-tex_math_gfm'
-    )
-    // No listing, or one without the name: `gfm`'s own default is the only safe answer.
-    expect(getPandocReader({ superSubScript: false, texMathGfm: true })).toBe('gfm')
-  })
-
-  // pandoc's `gfm` rejects the backslash math extensions, so one switches the reader to
-  // `markdown` — told to read every non-math extension the way `gfm` does (#5566).
-  it('reads the backslash math from a gfm-shaped markdown reader', () => {
-    const reader = getPandocReader({ superSubScript: false, texMathSingleBackslash: true }, EXTENSIONS)
-    expect(reader.startsWith('markdown')).toBe(true)
-    expect(reader).toContain('+tex_math_single_backslash')
-    expect(reader).not.toContain('tex_math_double_backslash')
-    // The extensions `gfm` does not carry come off, so the quote/dash `smart` rewrite and
-    // the definition-list and fenced-div syntaxes cannot change the document.
-    expect(reader).toContain('-smart')
-    expect(reader).toContain('-fenced_divs')
-    // `pipe_tables` is on in both, so it needs no flag either way.
-    expect(reader).not.toMatch(/[+-]pipe_tables/)
-    // commonmark-only: no pandoc reader carries it beside the backslash extensions.
-    expect(reader).not.toContain('tex_math_gfm')
-
-    expect(
-      getPandocReader(
-        {
-          superSubScript: true,
-          footnotes: false,
-          texMathSingleBackslash: true,
-          texMathDoubleBackslash: true
-        },
-        EXTENSIONS
-      )
-    ).toContain('+tex_math_single_backslash+tex_math_double_backslash')
-    // `markdown` enables sub/superscript itself, so an enabled preference adds no flag.
-    expect(reader).toContain('-superscript')
-
-    // No listing, or one that failed (`null`): only the math flags can be named, so a
-    // backslash document still exports its formulas instead of bare `markdown`.
-    expect(getPandocReader({ superSubScript: false, texMathSingleBackslash: true })).toBe(
-      'markdown+tex_math_single_backslash'
-    )
-    expect(getPandocReader({ superSubScript: false, texMathSingleBackslash: true }, null)).toBe(
-      'markdown+tex_math_single_backslash'
-    )
-    expect(
-      getPandocReader({ superSubScript: false, texMathDollars: false, texMathDoubleBackslash: true })
-    ).toBe('markdown-tex_math_dollars+tex_math_double_backslash')
-  })
-
   // pandoc ships no `zh`/`zh-CN`/`zh-TW`, and an unresolvable `lang` warns on every export (#5379).
   it('spells the Chinese region as the script subtag pandoc carries', () => {
     expect(getPandocLanguage('zh-CN')).toBe('zh-Hans')
@@ -203,21 +107,21 @@ describe('pandoc export', () => {
     expect(getPandocLanguage('ja')).toBe('ja')
   })
 
-  // The argv is asserted because `cwd` is what makes `![](pics/a.png)` resolve.
-  it('spawns the named binary with the reader and target asked for', async() => {
+  // The argv is asserted because `cwd` is what makes `![](pics/a.png)` resolve, and
+  // because pandoc reads only the JSON AST built from Core, never Markdown (G40).
+  it('spawns the named binary reading JSON into the target asked for', async() => {
     const { proc, done } = await runToFile('docx', '/tmp/notes.docx', {
-      input: '# Title',
-      cwd: '/docs/notes',
-      reader: getPandocReader({ superSubScript: true })
+      input: '{"blocks":[]}',
+      cwd: '/docs/notes'
     })
 
     await expect(done).resolves.toEqual({ warnings: '' })
     expect(spawnMock).toHaveBeenCalledWith(
       process.execPath,
-      ['-f', 'gfm+superscript+subscript', '-t', 'docx', '-s', '-o', '/tmp/notes.docx'],
+      ['-f', 'json', '-t', 'docx', '-s', '-o', '/tmp/notes.docx'],
       { cwd: '/docs/notes' }
     )
-    expect(proc.stdin.end).toHaveBeenCalledWith('# Title')
+    expect(proc.stdin.end).toHaveBeenCalledWith('{"blocks":[]}')
 
     await expect(pandoc.exists()).resolves.toBe(true)
   })
@@ -356,102 +260,34 @@ describe('pandoc export', () => {
     expect(shouldMirrorMedia(['pics/a.png'], dir, `${dir}${path.sep}..${path.sep}${path.basename(dir)}${path.sep}notes.rst`)).toBe(false)
   })
 
-  // The listing is the authority on which names the installed pandoc accepts and whether
-  // it enables each one; the reader is built from exactly what it reports.
-  it('reads the extension names pandoc lists, with their default state', async() => {
-    const proc = startProcess()
-    const pending = listReaderExtensions('gfm')
-    await proc.spawned()
-    proc.stdout.emit('data', Buffer.from('+tex_math_dollars\r\n-smart\n+tex_math_gfm\n'))
-    proc.emit('close', 0)
-
-    await expect(pending).resolves.toEqual(
-      new Map([
-        ['tex_math_dollars', true],
-        ['smart', false],
-        ['tex_math_gfm', true]
-      ])
-    )
-    expect(spawnMock).toHaveBeenCalledWith(expect.any(String), ['--list-extensions=gfm'])
-
-    // A probe that fails, exits non-zero or names nothing is `null`, not an empty
-    // listing: the reader then falls back instead of reading as "carries nothing".
-    const failing = startProcess()
-    const missing = listReaderExtensions('markdown')
-    await failing.spawned()
-    failing.emit('error', new Error('spawn pandoc ENOENT'))
-    await expect(missing).resolves.toBeNull()
-
-    const broken = startProcess()
-    const exited = listReaderExtensions('markdown')
-    await broken.spawned()
-    broken.emit('close', 2)
-    await expect(exited).resolves.toBeNull()
-
-    const empty = startProcess()
-    const nothing = listReaderExtensions('markdown')
-    await empty.spawned()
-    empty.emit('close', 0)
-    await expect(nothing).resolves.toBeNull()
+  // The list comes from the AST built from Core, with no pandoc run; a raw `<img>` is raw text.
+  it('lists the images of the document and its metadata', () => {
+    const image = (url: string): unknown => ({ t: 'Image', c: [['', [], []], [], [url, '']] })
+    expect(listLinkedMedia({
+      meta: { cover: { t: 'MetaInlines', c: [image('cover.png')] } },
+      blocks: [
+        { t: 'Para', c: [image('pics/a.png'), { t: 'Link', c: [['', [], []], [image('pics/c.png')], ['x.md', '']] }] },
+        { t: 'RawBlock', c: ['html', '<img src="pics/b.png">'] }
+      ]
+    })).toEqual(['pics/a.png', 'pics/c.png', 'cover.png'])
+    expect(spawnMock).not.toHaveBeenCalled()
   })
 
-  // A miss must not be remembered: a pandoc installed or repaired after a failed probe is
-  // picked up by the next export instead of riding the empty listing forever.
-  it('retries both probes after a miss and caches the hit', async() => {
-    const procs = [0, 1, 2, 3].map(() =>
-      Object.assign(new EventEmitter(), {
-        stdin: Object.assign(new EventEmitter(), { end: vi.fn() }),
-        stderr: new EventEmitter(),
-        stdout: new EventEmitter()
-      })
-    )
-    let next = 0
-    spawnMock.mockImplementation(() => procs[next++])
-
-    const first = getReaderExtensions()
-    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2))
-    procs[0].emit('error', new Error('spawn pandoc ENOENT'))
-    procs[1].emit('error', new Error('spawn pandoc ENOENT'))
-    await expect(first).resolves.toBeNull()
-
-    const second = getReaderExtensions()
-    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(4))
-    procs[2].stdout.emit('data', Buffer.from('+tex_math_gfm\n'))
-    procs[2].emit('close', 0)
-    procs[3].stdout.emit('data', Buffer.from('+tex_math_dollars\n-tex_math_single_backslash\n'))
-    procs[3].emit('close', 0)
-    await expect(second).resolves.toEqual({
-      gfm: new Map([['tex_math_gfm', true]]),
-      markdown: new Map([
-        ['tex_math_dollars', true],
-        ['tex_math_single_backslash', false]
-      ])
-    })
-
-    // The hit is remembered: a third call spawns nothing more.
-    await expect(getReaderExtensions()).resolves.toEqual({
-      gfm: new Map([['tex_math_gfm', true]]),
-      markdown: new Map([
-        ['tex_math_dollars', true],
-        ['tex_math_single_backslash', false]
-      ])
-    })
-    expect(spawnMock).toHaveBeenCalledTimes(4)
-  })
-
-  // The list comes from pandoc's AST; a raw `<img>` is a raw node and never reaches it.
-  it('lists the images pandoc found in the document', async() => {
+  // pandoc's JSON reader refuses another API version, and only its text readers normalize to NFC.
+  it('stamps the running pandoc\'s API version on the document, composed to NFC', async() => {
     const proc = startProcess()
-    const pending = listLinkedMedia('# Title', 'gfm')
+    const pending = toPandocJson({ meta: {}, blocks: [{ t: 'Para', c: [{ t: 'Str', c: 'cafe\u0301' }] }] })
     await proc.spawned()
-    proc.stdout.emit('data', Buffer.from(JSON.stringify([
-      { t: 'Para', c: [{ t: 'Image', c: [[], [], ['pics/a.png', 'fig:']] }] },
-      { t: 'RawInline', c: ['html', '<img src="pics/b.png">'] }
-    ])))
+    proc.stdout.emit('data', Buffer.from('{"pandoc-api-version":[1,23,1],"meta":{},"blocks":[]}'))
     proc.emit('close', 0)
 
-    await expect(pending).resolves.toEqual(['pics/a.png'])
-    expect(spawnMock).toHaveBeenCalledWith(expect.any(String), ['-f', 'gfm', '-t', 'json'])
-    expect(proc.stdin.end).toHaveBeenCalledWith('# Title')
+    expect(JSON.parse(await pending)).toEqual({
+      'pandoc-api-version': [1, 23, 1],
+      meta: {},
+      blocks: [{ t: 'Para', c: [{ t: 'Str', c: 'caf\u00e9' }] }]
+    })
+    // The native reader states the version without reading any Markdown.
+    expect(spawnMock).toHaveBeenCalledWith(expect.any(String), ['-f', 'native', '-t', 'json'])
+    expect(proc.stdin.end).toHaveBeenCalledWith('[]')
   })
 })
