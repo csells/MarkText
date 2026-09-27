@@ -287,6 +287,15 @@ describe('Pandoc metadata from front matter (G40)', () => {
     })
   })
 
+  it('keeps CriticMarkup in a value literal, as Core keeps front matter', () => {
+    expect(meta('title: "{++a {--b--}++} `{==c==}`"\n')).toEqual({
+      title: {
+        t: 'MetaInlines',
+        c: [str('{++a'), space, str('{--b--}++}'), space, { t: 'Code', c: [attr(), '{==c==}'] }]
+      }
+    })
+  })
+
   it('keeps front matter out of the body', () => {
     expect(blocks('---\ntitle: T\n---\n\nx\n')).toEqual([para(str('x'))])
   })
