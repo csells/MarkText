@@ -1,5 +1,28 @@
+import { isUtf8 } from 'buffer'
 import ced from 'ced'
+import iconv from 'iconv-lite'
 import type { Encoding } from 'common/encoding'
+
+/**
+ * Refuses an edited save of a file whose bytes did not survive decoding: the
+ * save would replace them with what the editor shows, U+FFFD for bytes that
+ * were not valid in `encoding`.
+ */
+export class LossyDecodeError extends Error {
+  constructor(
+    readonly pathname: string,
+    readonly encoding: Encoding
+  ) {
+    super(`"${pathname}" contains bytes that are not valid ${encoding.encoding}.`)
+    this.name = 'LossyDecodeError'
+  }
+}
+
+/** Whether encoding `text` under `encoding` gives back exactly the `buffer` it was decoded from. */
+export const decodesLosslessly = (buffer: Buffer, text: string, encoding: Encoding): boolean => {
+  if (encoding.encoding === 'utf8') return isUtf8(buffer)
+  return iconv.encode(text, encoding.encoding, { addBOM: encoding.isBom }).equals(buffer)
+}
 
 const CED_ICONV_ENCODINGS: Record<string, string> = {
   'BIG5-CP950': 'big5',

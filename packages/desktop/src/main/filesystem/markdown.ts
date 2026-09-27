@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import fsPromises from 'fs/promises'
 import path from 'path'
 import log from 'electron-log'
@@ -6,7 +7,7 @@ import { LINE_ENDING_REG, LF_LINE_ENDING_REG, CRLF_LINE_ENDING_REG } from '../co
 import { isDirectory2 } from 'common/filesystem'
 import { isMarkdownFile } from 'common/filesystem/paths'
 import { normalizeAndResolvePath, writeFile } from '../filesystem'
-import { guessEncoding } from './encoding'
+import { LossyDecodeError, decodesLosslessly, guessEncoding } from './encoding'
 import type { Encoding } from 'common/encoding'
 import type { LineEnding } from '@shared/types/files'
 
@@ -25,6 +26,53 @@ interface MarkdownDocumentRaw {
   adjustLineEndingOnSave: boolean
   trimTrailingNewline: number
   isMixedLineEndings: boolean
+  /** Some bytes were not valid in `encoding`; the text shows U+FFFD in their place. */
+  isLossyDecode: boolean
+}
+
+/**
+ * The file as the last load or save left it, so saving the same text under the
+ * same options writes the file's own bytes back instead of re-encoding them.
+ * Only digests are kept: the bytes are re-read and verified at save time, so a
+ * stale entry can never put old bytes over a file that changed since.
+ */
+interface DiskBaseline {
+  textDigest: string
+  /** Null when the load normalized line endings at the user's request, which the save must keep. */
+  bytesDigest: string | null
+  encoding: string
+  isBom: boolean
+  lineEnding: LineEnding
+  adjustLineEndingOnSave: boolean
+  isLossyDecode: boolean
+}
+
+const diskBaselines = new Map<string, DiskBaseline>()
+
+const digest = (data: Buffer): string => createHash('sha256').update(data).digest('hex')
+
+// UTF-16 code units, so strings that differ only in lone surrogates never collide.
+const digestText = (text: string): string =>
+  createHash('sha256').update(text, 'utf16le').digest('hex')
+
+const isSameSave = (
+  baseline: DiskBaseline,
+  textDigest: string,
+  options: MarkdownDocumentOptions
+): boolean =>
+  baseline.textDigest === textDigest &&
+  baseline.encoding === options.encoding.encoding &&
+  baseline.isBom === !!options.encoding.isBom &&
+  baseline.lineEnding === options.lineEnding &&
+  baseline.adjustLineEndingOnSave === options.adjustLineEndingOnSave
+
+const readBytesMatching = async(pathname: string, bytesDigest: string): Promise<Buffer | null> => {
+  try {
+    const bytes = await fsPromises.readFile(pathname)
+    return digest(bytes) === bytesDigest ? bytes : null
+  } catch {
+    return null
+  }
 }
 
 const getLineEnding = (lineEnding: LineEnding): string => {
@@ -65,23 +113,48 @@ export const normalizeMarkdownPath = (
 
 /**
  * Write the content into a file.
+ *
+ * Saving the text a load or save produced, under the same options, writes that
+ * file's bytes back unchanged. Other text is encoded under `options`; if the
+ * file's bytes did not survive decoding, that throws `LossyDecodeError` unless
+ * `allowLossyDecode` records the user's consent.
  */
-export const writeMarkdownFile = (
+export const writeMarkdownFile = async(
   pathname: string,
   content: string,
-  options: MarkdownDocumentOptions
+  options: MarkdownDocumentOptions,
+  { allowLossyDecode = false }: { allowLossyDecode?: boolean } = {}
 ): Promise<void> => {
-  const { adjustLineEndingOnSave, lineEnding } = options
-  const { encoding, isBom } = options.encoding
-  const extension = path.extname(pathname) || '.md'
+  const target = path.extname(pathname) ? pathname : `${pathname}.md`
+  const key = path.resolve(target)
+  const textDigest = digestText(content)
+  const baseline = diskBaselines.get(key)
 
-  if (adjustLineEndingOnSave) {
-    content = convertLineEndings(content, lineEnding)
+  if (baseline?.bytesDigest && isSameSave(baseline, textDigest, options)) {
+    const original = await readBytesMatching(target, baseline.bytesDigest)
+    if (original !== null) {
+      return writeFile(target, original, undefined, undefined)
+    }
+  }
+  if (baseline?.isLossyDecode && !allowLossyDecode) {
+    throw new LossyDecodeError(target, { encoding: baseline.encoding, isBom: baseline.isBom })
   }
 
-  const buffer = iconv.encode(content, encoding, { addBOM: isBom })
+  const { adjustLineEndingOnSave, lineEnding } = options
+  const { encoding, isBom } = options.encoding
+  const text = adjustLineEndingOnSave ? convertLineEndings(content, lineEnding) : content
+  const buffer = iconv.encode(text, encoding, { addBOM: isBom })
 
-  return writeFile(pathname, buffer, extension, undefined)
+  await writeFile(target, buffer, undefined, undefined)
+  diskBaselines.set(key, {
+    textDigest,
+    bytesDigest: digest(buffer),
+    encoding,
+    isBom: !!isBom,
+    lineEnding,
+    adjustLineEndingOnSave,
+    isLossyDecode: false
+  })
 }
 
 /**
@@ -105,7 +178,9 @@ export const loadMarkdownFile = async(
     throw new Error(`"${encoding.encoding}" encoding is not supported.`)
   }
 
-  let markdown = iconv.decode(buffer, encoding.encoding)
+  const decoded = iconv.decode(buffer, encoding.encoding)
+  const isLossyDecode = !decodesLosslessly(buffer, decoded, encoding)
+  let markdown = decoded
 
   // Detect line ending
   const isLf = LF_LINE_ENDING_REG.test(markdown)
@@ -144,6 +219,16 @@ export const loadMarkdownFile = async(
     }
   }
 
+  diskBaselines.set(path.resolve(pathname), {
+    textDigest: digestText(markdown),
+    bytesDigest: autoNormalizeLineEndings && markdown !== decoded ? null : digest(buffer),
+    encoding: encoding.encoding,
+    isBom: !!encoding.isBom,
+    lineEnding,
+    adjustLineEndingOnSave,
+    isLossyDecode
+  })
+
   const filename = path.basename(pathname)
 
   return {
@@ -154,6 +239,7 @@ export const loadMarkdownFile = async(
     lineEnding,
     adjustLineEndingOnSave,
     trimTrailingNewline,
-    isMixedLineEndings
+    isMixedLineEndings,
+    isLossyDecode
   }
 }
