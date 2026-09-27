@@ -65,6 +65,15 @@ export const updateReviewMenu = (
     }
   }
 }
+/**
+ * A rebuilt menu (theme, language or keybinding change) starts from the
+ * template's defaults; give it back the window's last review state, which the
+ * renderer sends only when that state changes.
+ */
+export const restoreReviewMenu = (menu: Menu, win: BrowserWindow | null | undefined): void => {
+  const state = win ? states.get(win) : undefined
+  if (win && state) updateReviewMenu(menu, win, state)
+}
 export const loadReviewCommands = (manager: CommandManager): void => {
   for (const command of reviewCommands) {
     manager.add(`review.${command.id}`, (win: BrowserWindow) =>

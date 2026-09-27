@@ -5,7 +5,7 @@ import log from 'electron-log'
 import { ensureDirSync, isDirectory2, isFile2 } from 'common/filesystem'
 import { isOsx, isWindows } from '../config'
 import { updateSidebarMenu } from '../menu/actions/edit'
-import { updateReviewMenu } from './actions/review'
+import { restoreReviewMenu, updateReviewMenu } from './actions/review'
 import type { ReviewCommandState } from 'common/commands/review'
 import { updateFormatMenu } from '../menu/actions/format'
 import { updateSelectionMenus, type SelectionState } from '../menu/actions/paragraph'
@@ -310,6 +310,7 @@ class AppMenu {
       updateMenuItem(oldMenu, newMenu, 'focusModeMenuItem')
       updateMenuItem(oldMenu, newMenu, 'sideBarMenuItem')
       updateMenuItem(oldMenu, newMenu, 'tabBarMenuItem')
+      restoreReviewMenu(newMenu, BrowserWindow.fromId(key))
 
       // update window menu
       value.menu = newMenu
@@ -339,6 +340,7 @@ class AppMenu {
         updateMenuItem(oldMenu, rebuilt, 'focusModeMenuItem')
         updateMenuItem(oldMenu, rebuilt, 'sideBarMenuItem')
         updateMenuItem(oldMenu, rebuilt, 'tabBarMenuItem')
+        restoreReviewMenu(rebuilt, BrowserWindow.fromId(key))
         newMenu = rebuilt
       } else if (type === MenuType.SETTINGS) {
         newMenu = this._buildSettingMenu().menu
