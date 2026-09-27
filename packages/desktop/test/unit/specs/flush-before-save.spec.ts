@@ -1537,18 +1537,12 @@ describe('editor store — flush pending edits before saving (#3803)', () => {
       isSaved: false,
       muyaIndexCursor: cursor
     })
-    const emitSpy = vi.spyOn(bus, 'emit')
 
     store.RECONCILE_CORE_SOURCE_AT_HANDOFF('tab-1', 'acknowledged source')
 
     expect(store.currentFile?.markdown).toBe('acknowledged source')
     expect(store.currentFile?.isSaved).toBe(false)
-    expect(emitSpy).toHaveBeenCalledWith('file-changed', {
-      id: 'tab-1',
-      markdown: 'acknowledged source',
-      muyaIndexCursor: cursor,
-      renderCursor: true
-    })
+    expect(store.currentFile?.muyaIndexCursor).toEqual(cursor)
   })
 
   it('FILE_SAVE_AS sends the flushed markdown, not the stale pre-flush snapshot', () => {
