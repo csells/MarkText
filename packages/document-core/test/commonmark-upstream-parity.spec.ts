@@ -50,6 +50,11 @@ describe('CommonMark and upstream agree', () => {
     ['> q\n=\n', '<blockquote><p>q =</p></blockquote>'],
     ['> q\n--\n', '<blockquote><p>q --</p></blockquote>'],
     ['> q\n=\n=\n', '<blockquote><p>q = =</p></blockquote>'],
+    // An empty item's blank line does not end its list.
+    ['-\n\n-\n', '<ul><li></li><li></li></ul>'],
+    ['+\n\n+\n', '<ul><li></li><li></li></ul>'],
+    ['1.\n\n2.\n', '<ol><li></li><li></li></ol>'],
+    ['>\n\n-\n2) d\n', '<blockquote></blockquote><ul><li></li></ul><ol start="2"><li>d</li></ol>'],
     // A setext heading closes its paragraph, so a following item may start.
     ['Foo\n=\n-\n', '<h1>Foo</h1><ul><li></li></ul>'],
     ['bar\n-\n-\n', '<h2>bar</h2><ul><li></li></ul>'],
@@ -95,6 +100,7 @@ describe('typing these lines reads as a fresh open', () => {
     ['Foo\n-\n', 4, '1.'],
     ['> q\n\n', 4, '='],
     ['> q\n\n', 4, '--'],
+    ['-\n\n-\n', 1, 'a'],
     ['a {++b++}\n\n', 10, '-'],
     ['{++a++}\n-\n\n{--b--}\n', 8, 'x']
   ])('%j at %i types %j', (source, at, insert) => {
