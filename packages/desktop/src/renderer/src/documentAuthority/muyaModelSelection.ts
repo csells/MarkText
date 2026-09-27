@@ -163,7 +163,7 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
       ? undefined
       : {
         start: decoration?.sourcePosition ?? start,
-        end: decoration?.sourcePosition ?? end,
+        end: decoration?.exteriorEnd ?? decoration?.sourcePosition ?? end,
         decoration
       }
   }
@@ -655,18 +655,26 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
         ? point.offset === (point.node.textContent ?? '').length
         : point.offset === point.node.childNodes.length
     if (!atNodeEnd) return undefined
-    // Visible content after `node` on its line; payload-boundary markers are empty.
+    // Ends of annotations whose closers follow the point on its line.
+    const ends: number[] = []
+    // Visible content after `node` on its line. Payload-boundary and comment
+    // markers show no text; a comment marker ends its comment's source.
     const continuesLine = (node: Node): boolean => {
       for (let next = node.nextSibling; next !== null; next = next.nextSibling) {
         const text = next.textContent ?? ''
         if (text.startsWith('\n') || next.nodeName === 'BR') return false
-        if (text !== '' || (next instanceof Element && !next.hasAttribute('data-critic-position'))) {
-          return true
+        if (
+          next instanceof HTMLElement &&
+          text === '' &&
+          (next.hasAttribute('data-critic-position') || next.dataset.criticKind === 'comment')
+        ) {
+          ends.push(binding.sourceRange.start + Number(next.dataset.criticEnd))
+          continue
         }
+        if (text !== '' || next instanceof Element) return true
       }
       return false
     }
-    const closing: HTMLElement[] = []
     for (let node: Node | null = point.node; node !== null && node !== root; node = node.parentNode) {
       if (continuesLine(node)) return undefined
       if (
@@ -674,14 +682,13 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
         node.hasAttribute('data-critic-start') &&
         !node.hasAttribute('data-critic-position')
       ) {
-        closing.push(node)
+        ends.push(binding.sourceRange.start + Number(node.dataset.criticEnd))
       }
     }
     const current = domPointToModel(point, true)
-    // The outermost closer with a rendered position after it; a nested closer
-    // whose outer closer has none still leaves the inner annotation.
-    for (const element of closing.reverse()) {
-      const end = binding.sourceRange.start + Number(element.dataset.criticEnd)
+    // The outermost end with a rendered position after it; one whose outer
+    // end has none still leaves the inner annotations.
+    for (const end of [...new Set(ends)].sort((left, right) => right - left)) {
       const exterior = modelPointToDOM(end, undefined, true)
       if (exterior !== undefined && isEqual(domPointToModel(exterior, true), end)) {
         return isEqual(current, end) ? undefined : exterior
