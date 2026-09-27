@@ -15,19 +15,24 @@ import {
 } from './reviewGestures'
 
 // Plan 0012 G44: text inside annotations is ordinary document text. Caret
-// movement, selection, deletion, Review authoring and resolution never split
-// a user-perceived character (grapheme cluster). Every step is a real key or
-// pointer gesture; the saved file is the oracle.
+// movement, selection, Delete, Review authoring and resolution never split a
+// user-perceived character (grapheme cluster). Backspace inside a line removes
+// what Chromium's Backspace removes, as in upstream MarkText: a whole emoji,
+// flag or astral character, but only the last code point of a combining
+// sequence. Every step is a real key or pointer gesture; the saved file is the
+// oracle.
 
 const clusters = [
-  { name: 'a ZWJ emoji sequence', text: '\u{1F468}‍\u{1F469}‍\u{1F467}' },
-  { name: 'a regional-indicator flag', text: '\u{1F1EF}\u{1F1F5}' },
-  { name: 'a base letter with a combining accent', text: 'é' },
-  { name: 'an astral-plane letter', text: '\u{1D49C}' }
+  { name: 'a ZWJ emoji sequence', text: '\u{1F468}‍\u{1F469}‍\u{1F467}', backspaced: '' },
+  { name: 'a regional-indicator flag', text: '\u{1F1EF}\u{1F1F5}', backspaced: '' },
+  { name: 'a base letter with a combining accent', text: 'é', backspaced: 'e' },
+  { name: 'an astral-plane letter', text: '\u{1D49C}', backspaced: '' }
 ] as const
 
 // Hebrew shin with its dot and a vowel point: one right-to-left cluster.
-const RTL = 'שָׁ'
+// Backspace after it removes only the vowel point.
+const RTL = '\u05E9\u05C1\u05B8'
+const RTL_BACKSPACED = '\u05E9\u05C1'
 
 const settle = (page: Page) => page.evaluate(() => window.__marktextDocumentCore?.settled())
 
@@ -55,7 +60,7 @@ test.describe('Unicode inside annotations', () => {
   test.describe.configure({ timeout: 60_000 })
 
   for (const cluster of clusters) {
-    test(`arrows, selection, Delete and Backspace keep ${cluster.name} whole inside an Addition`, async() => {
+    test(`arrows, selection and Delete keep ${cluster.name} whole inside an Addition, and Backspace removes the browser's unit`, async() => {
       const G = cluster.text
       const { app, page, filePath } = await launchWithReviewMarkdown(
         `Start {++pq${G}rs${G}tu${G}vw++} end\n`,
@@ -82,7 +87,7 @@ test.describe('Unicode inside annotations', () => {
 
         await clickText(page, 'vw', 'start')
         await press(page, 'Backspace')
-        await expectSaved(app, filePath, 'Start {++pqYZXrstuvw++} end\n')
+        await expectSaved(app, filePath, `Start {++pqYZXrstu${cluster.backspaced}vw++} end\n`)
         await expectHealthy(app, page)
       } finally {
         await app.close()
@@ -132,7 +137,7 @@ test.describe('Unicode inside annotations', () => {
     })
   }
 
-  test('Delete and Backspace remove a right-to-left cluster inside an Addition whole', async() => {
+  test('Delete removes a right-to-left cluster inside an Addition whole and Backspace its vowel point', async() => {
     const { app, page, filePath } = await launchWithReviewMarkdown(
       `Start {++pq${RTL}rs${RTL}tu++} end\n`,
       { suppressErrorDialog: true, env }
@@ -145,10 +150,58 @@ test.describe('Unicode inside annotations', () => {
 
       await clickText(page, 'tu', 'start')
       await press(page, 'Backspace')
-      await expectSaved(app, filePath, 'Start {++pqrstu++} end\n')
+      await expectSaved(app, filePath, `Start {++pqrs${RTL_BACKSPACED}tu++} end\n`)
 
       await type(page, 'X')
-      await expectSaved(app, filePath, 'Start {++pqrsXtu++} end\n')
+      await expectSaved(app, filePath, `Start {++pqrs${RTL_BACKSPACED}Xtu++} end\n`)
+      await expectHealthy(app, page)
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('Backspace removes an accent inside a line and the whole letter at the line end, tracked and untracked', async() => {
+    const accented = 'e\u0301'
+    const source = `mid caf${accented}s | end caf${accented}\n`
+    const { app, page, filePath } = await launchWithReviewMarkdown(source, { suppressErrorDialog: true, env })
+    try {
+      // Chromium removes the combining accent, as upstream MarkText leaves it to.
+      await clickText(page, 's |', 'start')
+      await press(page, 'Backspace')
+      await expectSaved(app, filePath, `mid cafes | end caf${accented}\n`)
+
+      // Upstream Muya removes the whole last grapheme of a paragraph itself.
+      await clickText(page, 'end caf', 'end')
+      await press(page, 'ArrowRight')
+      await press(page, 'Backspace')
+      await expectSaved(app, filePath, 'mid cafes | end caf\n')
+      await nativeKey(app, 'Z', ['meta'])
+      await nativeKey(app, 'Z', ['meta'])
+      await expectSaved(app, filePath, source)
+
+      await page.getByTestId('critic-review-track-changes').click()
+      await clickText(page, 's |', 'start')
+      await press(page, 'Backspace')
+      await expectSaved(app, filePath, `mid cafe{--\u0301--}s | end caf${accented}\n`)
+      await nativeKey(app, 'Z', ['meta'])
+      await expectSaved(app, filePath, source)
+      await expectHealthy(app, page)
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('tracked Backspace beside an Addition removes only the accent at its end', async() => {
+    const accented = 'e\u0301'
+    const { app, page, filePath } = await launchWithReviewMarkdown(
+      `Start {++pq${accented}++}rs end\n`,
+      { suppressErrorDialog: true, env }
+    )
+    try {
+      await page.getByTestId('critic-review-track-changes').click()
+      await clickText(page, 'rs', 'start')
+      await press(page, 'Backspace')
+      await expectSaved(app, filePath, 'Start {++pqe++}rs end\n')
       await expectHealthy(app, page)
     } finally {
       await app.close()
