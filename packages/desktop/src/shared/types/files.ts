@@ -23,6 +23,8 @@ export interface MarkdownDocument {
   adjustLineEndingOnSave?: boolean
   trimTrailingNewline?: number
   isMixedLineEndings?: boolean
+  /** Some bytes were not valid in `encoding`; the text shows U+FFFD in their place. */
+  isLossyDecode?: boolean
 }
 
 export interface FileHistory {

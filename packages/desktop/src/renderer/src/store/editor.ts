@@ -8,6 +8,7 @@ import {
   getBlankFileState,
   defaultFileState
 } from './help'
+import { getEncodingName } from 'common/encoding'
 import notice from '../services/notification'
 import {
   FileEncodingCommand,
@@ -85,6 +86,7 @@ interface FileChangePayload {
   pathname: string
   data: {
     isMixedLineEndings?: boolean
+    isLossyDecode?: boolean
     lineEnding?: LineEnding | string
     adjustLineEndingOnSave?: boolean
     trimTrailingNewline?: number
@@ -466,6 +468,7 @@ export const useEditorStore = defineStore('editor', {
       const { data, pathname } = change
       const {
         isMixedLineEndings,
+        isLossyDecode,
         lineEnding,
         adjustLineEndingOnSave,
         trimTrailingNewline,
@@ -551,6 +554,17 @@ export const useEditorStore = defineStore('editor', {
             showConfirm: false,
             style: 'info',
             exclusiveType: ''
+          })
+        }
+        if (isLossyDecode && encoding) {
+          this.pushTabNotification({
+            tabId: liveTab.id,
+            msg: t('store.editor.lossyDecode', {
+              name: filename,
+              encoding: getEncodingName(encoding)
+            }),
+            style: 'warn',
+            exclusiveType: 'lossy_decode'
           })
         }
 
@@ -1841,6 +1855,17 @@ export const useEditorStore = defineStore('editor', {
               })
             })
           }
+        }
+        if (markdownDocument.isLossyDecode) {
+          this.pushTabNotification({
+            tabId: id,
+            msg: t('store.editor.lossyDecode', {
+              name: markdownDocument.filename,
+              encoding: getEncodingName(docState.encoding)
+            }),
+            style: 'warn',
+            exclusiveType: 'lossy_decode'
+          })
         }
       }
 

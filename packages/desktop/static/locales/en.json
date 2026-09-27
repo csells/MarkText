@@ -956,7 +956,11 @@
     "unsafeFileTitle": "Potentially unsafe file",
     "unsafeFileMessage": "This link opens a file that can run code",
     "unsafeFileDetail": "\"{name}\" is an executable or script file. Opening it may run programs on your computer. Only continue if you trust this document.",
-    "openAnyway": "Open Anyway"
+    "openAnyway": "Open Anyway",
+    "saveAnyway": "Save Anyway",
+    "lossyDecodeTitle": "Unreadable bytes",
+    "lossyDecodeMessage": "This file contains bytes that are not valid {encoding}",
+    "lossyDecodeDetail": "Saving your edits to \"{name}\" replaces those bytes with the � shown in the editor. The original bytes cannot be recovered afterwards."
   },
   "error": {
     "configSchemaViolation": "Configuration schema violation",
@@ -982,6 +986,7 @@
       "errorLoadingTabTitle": "Error loading tab",
       "errorLoadingTabMessage": "There was an error while loading the file changes because the tab cannot be found.",
       "mixedLineEndingsNormalized": "\"{name}\" has mixed line endings which are automatically normalized to {lineEnding}.",
+      "lossyDecode": "\"{name}\" contains bytes that are not valid {encoding}; they appear as �. Saving without edits keeps the file unchanged, and MarkText asks before an edited save replaces them.",
       "imageDeletionUrlTitle": "Image deletion URL",
       "imageDeletionUrlMessage": "Click to copy the deletion URL of the uploaded image to the clipboard {url}",
       "errorWhileSaving": "There was an error while saving: {msg}",

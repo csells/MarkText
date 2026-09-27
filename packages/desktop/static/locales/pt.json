@@ -956,7 +956,11 @@
     "unsafeFileTitle": "Arquivo potencialmente inseguro",
     "unsafeFileMessage": "Este link abre um arquivo que pode executar código",
     "unsafeFileDetail": "\"{name}\" é um arquivo executável ou de script. Abri-lo pode executar programas no seu computador. Continue apenas se confiar neste documento.",
-    "openAnyway": "Abrir mesmo assim"
+    "openAnyway": "Abrir mesmo assim",
+    "saveAnyway": "Salvar mesmo assim",
+    "lossyDecodeTitle": "Bytes ilegíveis",
+    "lossyDecodeMessage": "Este arquivo contém bytes que não são válidos em {encoding}",
+    "lossyDecodeDetail": "Salvar suas edições em “{name}” substitui esses bytes pelo � exibido no editor. Os bytes originais não poderão ser recuperados depois."
   },
   "error": {
     "configSchemaViolation": "Violação do esquema de configuração",
@@ -982,6 +986,7 @@
       "errorLoadingTabTitle": "Erro ao carregar a aba",
       "errorLoadingTabMessage": "Ocorreu um erro ao carregar a alteração do arquivo porque a aba não pôde ser encontrada.",
       "mixedLineEndingsNormalized": "“{name}” possui finais de linha mistos que foram normalizados automaticamente para {lineEnding}.",
+      "lossyDecode": "“{name}” contém bytes que não são válidos em {encoding}; eles aparecem como �. Salvar sem edições mantém o arquivo inalterado, e o MarkText pergunta antes que um salvamento com edições os substitua.",
       "imageDeletionUrlTitle": "URL de exclusão da imagem",
       "imageDeletionUrlMessage": "Clique para copiar para a área de transferência a URL de exclusão da imagem enviada ({url}).",
       "errorWhileSaving": "Ocorreu um erro ao salvar: {msg}",

@@ -956,7 +956,11 @@
     "unsafeFileTitle": "Möglicherweise unsichere Datei",
     "unsafeFileMessage": "Dieser Link öffnet eine Datei, die Code ausführen kann",
     "unsafeFileDetail": "„{name}“ ist eine ausführbare Datei oder ein Skript. Das Öffnen kann Programme auf Ihrem Computer ausführen. Fahren Sie nur fort, wenn Sie diesem Dokument vertrauen.",
-    "openAnyway": "Trotzdem öffnen"
+    "openAnyway": "Trotzdem öffnen",
+    "saveAnyway": "Trotzdem speichern",
+    "lossyDecodeTitle": "Unlesbare Bytes",
+    "lossyDecodeMessage": "Diese Datei enthält Bytes, die in {encoding} ungültig sind",
+    "lossyDecodeDetail": "Beim Speichern Ihrer Änderungen an „{name}“ werden diese Bytes durch das im Editor angezeigte � ersetzt. Die ursprünglichen Bytes lassen sich danach nicht wiederherstellen."
   },
   "error": {
     "configSchemaViolation": "Konfigurationsschema-Verletzung",
@@ -982,6 +986,7 @@
       "errorLoadingTabTitle": "Fehler beim Laden des Tabs",
       "errorLoadingTabMessage": "Beim Laden der Dateiänderung ist ein Fehler aufgetreten, da der Tab nicht gefunden werden kann.",
       "mixedLineEndingsNormalized": "„{name}“ enthält gemischte Zeilenenden, die automatisch zu {lineEnding} normalisiert wurden.",
+      "lossyDecode": "„{name}“ enthält Bytes, die in {encoding} ungültig sind; sie werden als � angezeigt. Speichern ohne Änderungen lässt die Datei unverändert, und MarkText fragt nach, bevor ein Speichern mit Änderungen sie ersetzt.",
       "imageDeletionUrlTitle": "Bild‑Lösch‑URL",
       "imageDeletionUrlMessage": "Klicken, um die Lösch-URL des hochgeladenen Bildes in die Zwischenablage zu kopieren ({url}).",
       "errorWhileSaving": "Beim Speichern ist ein Fehler aufgetreten: {msg}",

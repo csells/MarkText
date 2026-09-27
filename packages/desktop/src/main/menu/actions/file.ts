@@ -10,6 +10,7 @@ import {
   type MenuItem
 } from 'electron'
 import log from 'electron-log'
+import { getEncodingName } from 'common/encoding'
 import { isDirectory, isFile, exists } from 'common/filesystem'
 import {
   MARKDOWN_EXTENSIONS,
@@ -22,6 +23,7 @@ import { COMMANDS } from '../../commands'
 import type { CommandManager } from '../../commands'
 import { EXTENSION_HASN, PANDOC_EXTENSIONS, URL_REG } from '../../config'
 import { normalizeAndResolvePath, resolveLocalLinkTarget, writeFile } from '../../filesystem'
+import { LossyDecodeError } from '../../filesystem/encoding'
 import { writeMarkdownFile } from '../../filesystem/markdown'
 import { getPath, getRecommendTitleFromMarkdownString } from '../../utils'
 import pandoc, {
@@ -42,7 +44,7 @@ import type {
   UnsavedFile
 } from '@shared/types/files'
 import { prepareWindowClose } from '../../windows/prepareClose'
-import { withSaveDestination } from '../../windows/saveDestination'
+import { isSameSaveDestination, withSaveDestination } from '../../windows/saveDestination'
 
 type Win = BrowserWindow | null | undefined
 
@@ -292,6 +294,41 @@ const handleResponseForPrint = async(e: IpcMainEvent): Promise<void> => {
   })
 }
 
+/**
+ * Resolves false when the user keeps a file whose bytes did not survive
+ * decoding rather than let an edited save replace them. Replacing a different
+ * file was already confirmed by the save dialog, so Save As never asks.
+ */
+const writeMarkdownWithConsent = async(
+  win: BrowserWindow,
+  filePath: string,
+  sourcePathname: string | undefined,
+  markdown: string,
+  options: Parameters<typeof writeMarkdownFile>[2]
+): Promise<boolean> => {
+  try {
+    await writeMarkdownFile(filePath, markdown, options)
+    return true
+  } catch (error) {
+    if (!(error instanceof LossyDecodeError)) throw error
+    if (sourcePathname !== undefined && isSameSaveDestination(filePath, sourcePathname)) {
+      const { response } = await dialog.showMessageBox(win, {
+        type: 'warning',
+        buttons: [t('dialog.cancel'), t('dialog.saveAnyway')],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+        title: t('dialog.lossyDecodeTitle'),
+        message: t('dialog.lossyDecodeMessage', { encoding: getEncodingName(error.encoding) }),
+        detail: t('dialog.lossyDecodeDetail', { name: path.basename(filePath) })
+      })
+      if (response !== 1) return false
+    }
+    await writeMarkdownFile(filePath, markdown, options, { allowLossyDecode: true })
+    return true
+  }
+}
+
 const handleResponseForSave = async(
   e: IpcMainEvent,
   id: string,
@@ -340,48 +377,46 @@ const handleResponseForSave = async(
   filePath = path.resolve(filePath)
   const extension = path.extname(filePath) || '.md'
   filePath = !filePath.endsWith(extension) ? (filePath += extension) : filePath
-  // The original JS passed `win` here; writeMarkdownFile only takes 3 args
-  // (the 4th was silently ignored). Drop it explicitly under strict mode.
   // The IPC `SaveOptions` has every field optional, but writeMarkdownFile
   // requires the strict `MarkdownDocumentOptions` shape — the renderer always
   // populates every field for the unsaved-file dialog payload, so the cast
   // is safe at this seam.
   return withSaveDestination(filePath, pathname, () =>
-    writeMarkdownFile(filePath, markdown, options as Parameters<typeof writeMarkdownFile>[2]).then(
-      () => {
-        if (!alreadyExistOnDisk) {
-          ipcMain.emit('window-add-file-path', win.id, filePath)
-          ipcMain.emit('menu-add-recently-used', filePath)
+    writeMarkdownWithConsent(
+      win,
+      filePath!,
+      pathname,
+      markdown,
+      options as Parameters<typeof writeMarkdownFile>[2]
+    ).then((written) => {
+      if (!written) return
+      if (!alreadyExistOnDisk) {
+        ipcMain.emit('window-add-file-path', win.id, filePath)
+        ipcMain.emit('menu-add-recently-used', filePath)
 
-          const newFilename = path.basename(filePath!)
-          win.webContents.send('mt::set-pathname', {
-            id,
-            pathname: filePath,
-            filename: newFilename,
-            saveIdentity,
-            ...(saveIdentity ? { savedSource: markdown } : {})
-          })
-        } else if (pathname !== filePath) {
-          ipcMain.emit('window-change-file-path', win.id, filePath, pathname)
-          win.webContents.send('mt::set-pathname', {
-            id,
-            pathname: filePath,
-            filename: path.basename(filePath),
-            saveIdentity,
-            ...(saveIdentity ? { savedSource: markdown } : {})
-          })
-        } else {
-          ipcMain.emit('window-file-saved', win.id, filePath)
-          win.webContents.send(
-            'mt::tab-saved',
-            id,
-            saveIdentity,
-            ...(saveIdentity ? [markdown] : [])
-          )
-        }
-        return saveIdentity === undefined || saveIdentity === null ? id : { id, saveIdentity }
+        const newFilename = path.basename(filePath!)
+        win.webContents.send('mt::set-pathname', {
+          id,
+          pathname: filePath,
+          filename: newFilename,
+          saveIdentity,
+          ...(saveIdentity ? { savedSource: markdown } : {})
+        })
+      } else if (pathname !== filePath) {
+        ipcMain.emit('window-change-file-path', win.id, filePath, pathname)
+        win.webContents.send('mt::set-pathname', {
+          id,
+          pathname: filePath,
+          filename: path.basename(filePath),
+          saveIdentity,
+          ...(saveIdentity ? { savedSource: markdown } : {})
+        })
+      } else {
+        ipcMain.emit('window-file-saved', win.id, filePath)
+        win.webContents.send('mt::tab-saved', id, saveIdentity, ...(saveIdentity ? [markdown] : []))
       }
-    )
+      return saveIdentity === undefined || saveIdentity === null ? id : { id, saveIdentity }
+    })
   ).catch((err: unknown) => {
     log.error('Error while saving:', err)
     const msg = err instanceof Error ? err.message : String(err)

@@ -956,7 +956,11 @@
     "unsafeFileTitle": "Mogelijk onveilig bestand",
     "unsafeFileMessage": "Deze link opent een bestand dat code kan uitvoeren",
     "unsafeFileDetail": "\"{name}\" is een uitvoerbaar bestand of script. Het openen kan programma's op je computer uitvoeren. Ga alleen door als je dit document vertrouwt.",
-    "openAnyway": "Toch openen"
+    "openAnyway": "Toch openen",
+    "saveAnyway": "Toch opslaan",
+    "lossyDecodeTitle": "Onleesbare bytes",
+    "lossyDecodeMessage": "Dit bestand bevat bytes die niet geldig zijn in {encoding}",
+    "lossyDecodeDetail": "Als u uw wijzigingen in \"{name}\" opslaat, worden die bytes vervangen door het � dat de editor toont. De oorspronkelijke bytes kunnen daarna niet worden hersteld."
   },
   "error": {
     "configSchemaViolation": "Configuratieschemaovertreding",
@@ -982,6 +986,7 @@
       "errorLoadingTabTitle": "Fout bij laden tabblad",
       "errorLoadingTabMessage": "Er is een fout opgetreden bij het laden van de bestandswijziging omdat het tabblad niet gevonden kan worden.",
       "mixedLineEndingsNormalized": "\"{name}\" heeft gemengde regeleindes die automatisch genormaliseerd zijn naar {lineEnding}.",
+      "lossyDecode": "\"{name}\" bevat bytes die niet geldig zijn in {encoding}; ze worden weergegeven als �. Opslaan zonder wijzigingen laat het bestand ongewijzigd, en MarkText vraagt het eerst voordat een opslag met wijzigingen ze vervangt.",
       "imageDeletionUrlTitle": "Verwijder-URL afbeelding",
       "imageDeletionUrlMessage": "Klik om de verwijder-URL van de geüploade afbeelding naar het klembord te kopiëren {url}",
       "errorWhileSaving": "Er is een fout opgetreden bij het opslaan: {msg}",

@@ -956,7 +956,11 @@
     "unsafeFileTitle": "潛在不安全的檔案",
     "unsafeFileMessage": "此連結將開啟一個可執行程式碼的檔案",
     "unsafeFileDetail": "「{name}」是可執行檔或指令碼檔案。開啟它可能會在你的電腦上執行程式。請僅在信任此文件時繼續。",
-    "openAnyway": "仍要開啟"
+    "openAnyway": "仍要開啟",
+    "saveAnyway": "仍要儲存",
+    "lossyDecodeTitle": "無法讀取的位元組",
+    "lossyDecodeMessage": "此檔案包含在 {encoding} 中無效的位元組",
+    "lossyDecodeDetail": "儲存對「{name}」的編輯會將這些位元組取代為編輯器中顯示的 �，之後將無法復原原始位元組。"
   },
   "error": {
     "configSchemaViolation": "設定結構違規",
@@ -982,6 +986,7 @@
       "errorLoadingTabTitle": "載入標籤頁發生錯誤",
       "errorLoadingTabMessage": "載入檔案變更時發生錯誤，因為找不到該標籤頁。",
       "mixedLineEndingsNormalized": "「{name}」含有混合換行字元，已自動正規化為 {lineEnding}。",
+      "lossyDecode": "「{name}」包含在 {encoding} 中無效的位元組，顯示為 �。未編輯直接儲存會保持檔案不變；儲存編輯內容而取代這些位元組之前，MarkText 會先詢問。",
       "imageDeletionUrlTitle": "圖片刪除連結",
       "imageDeletionUrlMessage": "點擊將已上傳圖片的刪除連結複製到剪貼簿（{url}）。",
       "errorWhileSaving": "儲存時發生錯誤：{msg}",

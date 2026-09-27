@@ -956,7 +956,11 @@
     "unsafeFileTitle": "Archivo potencialmente peligroso",
     "unsafeFileMessage": "Este enlace abre un archivo que puede ejecutar código",
     "unsafeFileDetail": "«{name}» es un archivo ejecutable o de script. Abrirlo podría ejecutar programas en tu equipo. Continúa solo si confías en este documento.",
-    "openAnyway": "Abrir de todos modos"
+    "openAnyway": "Abrir de todos modos",
+    "saveAnyway": "Guardar de todos modos",
+    "lossyDecodeTitle": "Bytes ilegibles",
+    "lossyDecodeMessage": "Este archivo contiene bytes que no son válidos en {encoding}",
+    "lossyDecodeDetail": "Al guardar tus cambios en «{name}», esos bytes se sustituyen por el � que muestra el editor. Después no se podrán recuperar los bytes originales."
   },
   "error": {
     "configSchemaViolation": "Violación del esquema de configuración",
@@ -982,6 +986,7 @@
       "errorLoadingTabTitle": "Error al cargar la pestaña",
       "errorLoadingTabMessage": "Se produjo un error al cargar la modificación del archivo porque no se puede encontrar la pestaña.",
       "mixedLineEndingsNormalized": "«{name}» tiene finales de línea mixtos que se normalizaron automáticamente a {lineEnding}.",
+      "lossyDecode": "«{name}» contiene bytes que no son válidos en {encoding}; aparecen como �. Guardar sin cambios deja el archivo intacto, y MarkText pregunta antes de que un guardado con cambios los sustituya.",
       "imageDeletionUrlTitle": "URL de eliminación de la imagen",
       "imageDeletionUrlMessage": "Haz clic para copiar al portapapeles la URL de eliminación de la imagen subida ({url}).",
       "errorWhileSaving": "Se produjo un error al guardar: {msg}",

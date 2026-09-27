@@ -956,7 +956,11 @@
     "unsafeFileTitle": "Güvenli olmayabilecek dosya",
     "unsafeFileMessage": "Bu bağlantı, kod çalıştırabilen bir dosyayı açar",
     "unsafeFileDetail": "\"{name}\" bir yürütülebilir veya betik dosyasıdır. Açmak, bilgisayarınızda program çalıştırabilir. Yalnızca bu belgeye güveniyorsanız devam edin.",
-    "openAnyway": "Yine de aç"
+    "openAnyway": "Yine de aç",
+    "saveAnyway": "Yine de kaydet",
+    "lossyDecodeTitle": "Okunamayan baytlar",
+    "lossyDecodeMessage": "Bu dosya {encoding} için geçersiz baytlar içeriyor",
+    "lossyDecodeDetail": "\"{name}\" üzerindeki düzenlemelerinizi kaydetmek bu baytları düzenleyicide gösterilen � ile değiştirir. Özgün baytlar daha sonra geri getirilemez."
   },
   "error": {
     "configSchemaViolation": "Yapılandırma şeması ihlali",
@@ -982,6 +986,7 @@
       "errorLoadingTabTitle": "Sekme yüklenirken hata",
       "errorLoadingTabMessage": "Sekme bulunamadığı için dosya değişikliği yüklenirken bir hata oluştu.",
       "mixedLineEndingsNormalized": "\"{name}\" karışık satır sonları içeriyor; otomatik olarak {lineEnding} biçimine normalleştirildi.",
+      "lossyDecode": "\"{name}\" {encoding} için geçersiz baytlar içeriyor; bunlar � olarak görünüyor. Düzenleme yapmadan kaydetmek dosyayı değiştirmez; düzenlenmiş bir kayıt bunları değiştirmeden önce MarkText onay ister.",
       "imageDeletionUrlTitle": "Görsel silme URL'si",
       "imageDeletionUrlMessage": "Yüklenen görselin silme URL'sini panoya kopyalamak için tıklayın {url}",
       "errorWhileSaving": "Kaydedilirken bir hata oluştu: {msg}",
