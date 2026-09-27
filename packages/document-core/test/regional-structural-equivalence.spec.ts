@@ -223,6 +223,16 @@ describe('structural regional edits read as a fresh open', () => {
       [[28, 39, '\n\n'], [10, 10, '# '], [57, 58, '\n\n'], [48, 59, '\n\n'], [50, 54, '']])
   })
 
+  it('spells a separator outside any Substitution the same wherever it is', () => {
+    // A stray `~>` was escaped in Markup only when some other delimiter
+    // appeared anywhere in the view, so a reparse of its own paragraph
+    // disagreed with a fresh open of the document.
+    replay(' {++d++} {>><<}\n\n`++}`', [[8, 8, '~>']])
+    const core = createDocumentCore()
+    const markup = core.project(core.open(' {++d++}~> {>><<}\n\n`++}`'), 'markup')
+    expect(markup.syntax.ast.root.children.map(node => [node.range.start, node.range.end])).toEqual([[0, 5], [7, 12]])
+  })
+
   it('starts a region after a run of blank lines, not inside it', () => {
     // Which lines of a blank run read as empty paragraphs depends on the whole
     // run, so a region starting inside it misplaced the suggestion's first line.
