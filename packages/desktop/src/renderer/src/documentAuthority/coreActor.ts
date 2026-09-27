@@ -2167,9 +2167,9 @@ export function createCoreActor(
           (edit) =>
             edit.start >= 0 &&
             edit.start <= edit.end &&
-            edit.end <= revision.sourceLength &&
+            edit.end <= resolvingRevision.sourceLength &&
             edit.end - edit.start === edit.insert.length &&
-            core.sourceSlice(revision, edit) === edit.insert
+            resolvingCore.sourceSlice(resolvingRevision, edit) === edit.insert
         )
       if (
         (request.type === 'source-input' ||
