@@ -4,12 +4,15 @@
   ([ADR-0016](../../docs/adr/0016-arm-boundaries-end-arm-opened-literals.md)).
   Conformance examples live in
   `packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts`.
+  Rule **L1f** was added on 27 September 2026 by the plan 0012 gap analysis;
+  its examples live in
+  `packages/document-core/test/criticmarkup-footnote-bodies.spec.ts`.
 - **Identifiers:** `markdownProfile: 'markdown-profile-2'` ·
   `criticMarkupProfile: 'marktext-profile-2'`.
 - **Base:** [Profile 1](marktext-markdown-profile-1.md) with
-  [Markdown Profile 2](marktext-markdown-profile-2.md). This document adds rule
-  **L2c** and replaces rules **L2b** and **C3**. Every other rule, including L1,
-  L2 and L2a, is unchanged.
+  [Markdown Profile 2](marktext-markdown-profile-2.md). This document adds rules
+  **L1f** and **L2c** and replaces rules **L2b** and **C3**. Every other rule,
+  including L1, L2 and L2a, is unchanged.
 
 ## Why
 
@@ -61,6 +64,30 @@ The Substitution forms; Original is the HTML block and Revised is `new`.
 The Addition closes after the list-item prefix; `after` is a paragraph in the
 same item. A fence opened before any arm is unaffected:
 ` ```⏎++}⏎``` ` is one code block containing `++}`.
+
+## L1f — footnote bodies are paragraph text
+
+Profile 1 §7 lists footnote-definition tracking ranges among the literal
+ranges. Under this profile a footnote definition owns only its label,
+`[^label]:`. Its body, from just after the colon through its indented
+continuation lines, is paragraph text: the five CriticMarkup forms are active
+there exactly as in any paragraph, and the body's own inline literals (code
+spans, math, autolinks, link destinations and inline HTML) own marker-looking
+text under L1. For example, in
+
+```markdown
+[^a]: one {++two++} `{--three--}`
+```
+
+`{++two++}` is an Addition and `` `{--three--}` `` is a code span. A marker
+inside the label is data. Footnote definitions are block structure like list
+items, not containment boundaries: an annotation may begin in one definition
+and end in the next definition or in a following paragraph (R3, C4).
+
+Why: a footnote's text is prose the author reviews like any other, and with
+Track Changes on every edit must be recordable as a tracked change. Under
+Profile 1 an edit inside a footnote could only be recorded by replacing the
+whole definition, and a suggestion typed there read back as literal text.
 
 ## L2b — reference-dependent ownership (replaces Profile 1 L2b)
 
@@ -130,13 +157,16 @@ The compatibility cost is deliberate:
   boundary token of its annotation now ends the literal and the annotation
   there. For example, a Comment whose fenced code sample shows a line `<<}`
   closes at that line.
+- Marker-looking text in an existing footnote body, outside that body's inline
+  literals, now forms annotations (L1f). A body that shows a CriticMarkup
+  sample must put it in a code span, as a paragraph must.
 - A reference outside an Addition, Deletion or Substitution may now resolve in
   Revised or Original to a definition inside the arm, and a definition line
   whose destination ran through an Addition, Deletion or Substitution closer now
   ends at that closer.
 
 The canonical CriticMarkup specification, MultiMarkdown 6 and Fevol/Commentator
-define no literal-block interaction, so neither rule departs from a published
+define no literal-block interaction, so none of these rules departs from a published
 behavior; L1 itself is already a MarkText ruling (Profile 1 §12, D1). Both
 profile identifiers describe one composed grammar and do not authorize a second
 parser or per-view reparsing.

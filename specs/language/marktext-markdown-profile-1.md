@@ -5,8 +5,9 @@
   image sizing while retaining this CriticMarkup profile. Profile 1 remains the
   base semantic record; its existing text is not silently redefined.
 - **CriticMarkup extension:** [CriticMarkup Profile 2](marktext-criticmarkup-profile-2.md)
-  (`marktext-profile-2`) adds rule L2c and replaces L2b and C3 so every
-  untracked edit can be recorded as a tracked change.
+  (`marktext-profile-2`) adds rules L1f and L2c and replaces L2b and C3 so every
+  untracked edit can be recorded as a tracked change; L1f makes footnote bodies
+  paragraph text rather than a literal range (§7).
 - **Identifiers:** `markdownProfile: 'markdown-profile-1'` ·
   `criticMarkupProfile: 'marktext-profile-1'`
 - **Derived from:** the canonical CriticMarkup specification, CommonMark and GFM, historical

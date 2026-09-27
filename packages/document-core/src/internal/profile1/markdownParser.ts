@@ -2556,7 +2556,8 @@ function footnoteDefinitionParts(
   lines: readonly PlainMarkdownLine[],
   fromLineIndex: number,
   referenceDefinitions: MarkdownReferenceDefinitionLookup,
-  boundaryPolicy?: InlineBoundaryPolicy
+  boundaryPolicy?: InlineBoundaryPolicy,
+  constructs: ReadonlyMap<number, MappedMarkdownLiteral> = EMPTY_INLINE_CONSTRUCTS
 ): FootnoteDefinitionParts {
   const firstLine = lines[fromLineIndex]
   if (firstLine === undefined) {
@@ -2666,7 +2667,7 @@ function footnoteDefinitionParts(
       parseInlineLineSequence(
         source,
         paragraphLines,
-        EMPTY_INLINE_CONSTRUCTS,
+        constructs,
         referenceDefinitions,
         boundaryPolicy
       )
@@ -2863,7 +2864,8 @@ function blockLiteralNode(
   fromLineIndex?: number,
   referenceDefinitions: MarkdownReferenceDefinitionLookup =
   EMPTY_REFERENCE_DEFINITIONS,
-  boundaryPolicy?: InlineBoundaryPolicy
+  boundaryPolicy?: InlineBoundaryPolicy,
+  constructs: ReadonlyMap<number, MappedMarkdownLiteral> = EMPTY_INLINE_CONSTRUCTS
 ): MarkdownNode | undefined {
   if (literal.provider === 'fenced-code' || literal.provider === 'indented-code') {
     if (lines === undefined || fromLineIndex === undefined) throw new Error('Code block payload requires its owned physical lines')
@@ -2907,7 +2909,8 @@ function blockLiteralNode(
         lines,
         fromLineIndex,
         referenceDefinitions,
-        boundaryPolicy
+        boundaryPolicy,
+        constructs
       )
       return createNode(
         'footnote-definition',
@@ -3876,7 +3879,8 @@ function parseOrderedContainerSequence(
           lines,
           nextLineIndex,
           referenceDefinitions,
-          boundaryPolicy
+          boundaryPolicy,
+          constructs
         )
         : undefined
     if (literal !== undefined && literalNode !== undefined) {
@@ -4475,7 +4479,8 @@ function parseBlocksRegion(
           lines,
           lineIndex,
           referenceDefinitions,
-          boundaryPolicy
+          boundaryPolicy,
+          constructs
         )
         : undefined
     if (literal !== undefined && literalNode !== undefined) {
