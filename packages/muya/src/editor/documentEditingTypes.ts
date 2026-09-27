@@ -108,6 +108,11 @@ export interface IDocumentEditing {
      * order, such as the interior of hidden syntax; undefined leaves the key native.
      */
     caretStep?: (point: DocumentDOMPoint, direction: 'forward' | 'backward') => DocumentDOMPoint | undefined;
+    /**
+     * The model caret position for a line-end move that lands at `point`, such
+     * as after hidden syntax closing the line; undefined leaves the key native.
+     */
+    lineEndStep?: (point: DocumentDOMPoint) => DocumentDOMPoint | undefined;
 }
 
 export type DocumentTextPoint = IDocumentTextPoint;

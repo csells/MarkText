@@ -235,3 +235,43 @@ test('Accept leaves the caret where it was; Reject of the change around it place
     await app.close()
   }
 })
+
+const lineEnd = process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End'
+const lineStart = process.platform === 'darwin' ? 'Meta+ArrowLeft' : 'Home'
+
+for (const [name, source, anchor, key, typed, expected] of [
+  ['line end after a trailing addition', 'Alpha {++beta++}\n', 'Alpha', lineEnd, 'Z', 'Alpha {++beta++}Z\n'],
+  ['line end after a trailing highlight', 'Alpha {==beta==}\n', 'Alpha', lineEnd, 'Z', 'Alpha {==beta==}Z\n'],
+  ['line end after a trailing comment', 'Alpha {==beta==}{>>c<<}\n', 'Alpha', lineEnd, 'Z', 'Alpha {==beta==}{>>c<<}Z\n'],
+  ['line start before a leading addition', '{++lead++} rest\n', 'rest', lineStart, 'Y', 'Y{++lead++} rest\n']
+] as const) {
+  test(`untracked typing at the ${name} stays outside it`, async() => {
+    const { app, page, filePath } = await launchWithMarkdown(source, { suppressErrorDialog: true, env })
+    try {
+      await clickText(page, anchor, 1)
+      await page.keyboard.press(key)
+      await page.keyboard.type(typed)
+      await expectSaved(app, filePath, expected)
+      await expectNoRendererErrors(app)
+    } finally {
+      await app.close()
+    }
+  })
+}
+
+test('tracked typing at the line end after a trailing addition extends that addition', async() => {
+  const source = 'Alpha {++beta++}\n'
+  const { app, page, filePath } = await launchWithMarkdown(source, { suppressErrorDialog: true, env })
+  try {
+    await clickText(page, 'Alpha', 1)
+    await nativeKey(app, 'E', ['meta', 'shift'])
+    await expect.poll(() => app.evaluate(({ Menu }) =>
+      Menu.getApplicationMenu()?.getMenuItemById('critic-track-changes')?.checked)).toBe(true)
+    await page.keyboard.press(lineEnd)
+    await page.keyboard.type('Z')
+    await expectSaved(app, filePath, 'Alpha {++betaZ++}\n')
+    await expectNoRendererErrors(app)
+  } finally {
+    await app.close()
+  }
+})

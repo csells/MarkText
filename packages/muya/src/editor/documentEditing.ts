@@ -91,6 +91,13 @@ function replaceViewRange(states: TState[], start: DocumentTextPoint, end: Docum
     return { state: retain(roots) as TState[], path: [...start.path] };
 }
 
+/** The platform's caret move to the visible line end: ⌘→ on macOS, End elsewhere. */
+function isLineEndKey(event: KeyboardEvent): boolean {
+    if (event.shiftKey || event.altKey || event.ctrlKey)
+        return false;
+    return isOsx ? event.key === 'ArrowRight' && event.metaKey : event.key === 'End' && !event.metaKey;
+}
+
 /** Captures a rejected-action draft before model reconciliation can replace the view. */
 export function createDocumentTextDraft(
     muya: Muya,
@@ -457,6 +464,29 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
         event.stopImmediatePropagation();
         muya.editor.selection.setDOMSelection(next, next);
     };
+    const lineEndKey = (event: KeyboardEvent) => {
+        if (!isLineEndKey(event) || composition || event.isComposing || !model.lineEndStep)
+            return;
+        const native = document.getSelection();
+        const selection = muya.editor.selection.getDOMSelection();
+        if (!native || !selection || selection.anchor.node !== selection.focus.node || selection.anchor.offset !== selection.focus.offset)
+            return;
+        const element = selection.focus.node instanceof Element ? selection.focus.node : selection.focus.node.parentElement;
+        if (element?.closest('[dir]')?.getAttribute('dir') === 'rtl')
+            return;
+        // Let the browser find the visible line end, then ask the model whether
+        // that position is inside syntax the line ends with.
+        native.modify('move', 'forward', 'lineboundary');
+        const moved = muya.editor.selection.getDOMSelection();
+        const next = moved ? model.lineEndStep(moved.focus) : undefined;
+        if (!next) {
+            muya.editor.selection.setDOMSelection(selection.anchor, selection.focus);
+            return;
+        }
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        muya.editor.selection.setDOMSelection(next, next);
+    };
     const beforeInput = (event: Event) => {
         if (composition && event instanceof InputEvent && event.inputType === 'insertCompositionText') {
             if (event.data !== null) {
@@ -525,6 +555,7 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
     muya.domNode.addEventListener('keydown', compositionKey, true);
     muya.domNode.addEventListener('keydown', commandKey, true);
     muya.domNode.addEventListener('keydown', caretKey, true);
+    muya.domNode.addEventListener('keydown', lineEndKey, true);
     muya.domNode.addEventListener('dragstart', dragStart, true);
     muya.domNode.addEventListener('dragend', dragEnd, true);
 
@@ -538,6 +569,7 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
         muya.domNode.removeEventListener('keydown', compositionKey, true);
         muya.domNode.removeEventListener('keydown', commandKey, true);
         muya.domNode.removeEventListener('keydown', caretKey, true);
+        muya.domNode.removeEventListener('keydown', lineEndKey, true);
         muya.domNode.removeEventListener('dragstart', dragStart, true);
         muya.domNode.removeEventListener('dragend', dragEnd, true);
     };

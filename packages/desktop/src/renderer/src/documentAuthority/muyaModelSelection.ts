@@ -640,8 +640,58 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
     const model = domPointToModel(interior, true)
     return model === undefined || isEqual(model, exterior) ? undefined : interior
   }
+  /**
+   * A line-end move leaves annotations that end the visible line, as a
+   * line-start move is before those that begin it: typing there is not part
+   * of the annotation (owner decision; Google Docs keeps text typed at a
+   * comment's edge outside it).
+   */
+  const lineEndStep = (point: DocumentDOMPoint): DocumentDOMPoint | undefined => {
+    const binding = bindingFor(point)
+    const root = binding === undefined ? undefined : contentRoot(binding)
+    if (binding === undefined || root === undefined) return undefined
+    const atNodeEnd =
+      point.node.nodeType === Node.TEXT_NODE
+        ? point.offset === (point.node.textContent ?? '').length
+        : point.offset === point.node.childNodes.length
+    if (!atNodeEnd) return undefined
+    // Visible content after `node` on its line; payload-boundary markers are empty.
+    const continuesLine = (node: Node): boolean => {
+      for (let next = node.nextSibling; next !== null; next = next.nextSibling) {
+        const text = next.textContent ?? ''
+        if (text.startsWith('\n') || next.nodeName === 'BR') return false
+        if (text !== '' || (next instanceof Element && !next.hasAttribute('data-critic-position'))) {
+          return true
+        }
+      }
+      return false
+    }
+    const closing: HTMLElement[] = []
+    for (let node: Node | null = point.node; node !== null && node !== root; node = node.parentNode) {
+      if (continuesLine(node)) return undefined
+      if (
+        node instanceof HTMLElement &&
+        node.hasAttribute('data-critic-start') &&
+        !node.hasAttribute('data-critic-position')
+      ) {
+        closing.push(node)
+      }
+    }
+    const current = domPointToModel(point, true)
+    // The outermost closer with a rendered position after it; a nested closer
+    // whose outer closer has none still leaves the inner annotation.
+    for (const element of closing.reverse()) {
+      const end = binding.sourceRange.start + Number(element.dataset.criticEnd)
+      const exterior = modelPointToDOM(end, undefined, true)
+      if (exterior !== undefined && isEqual(domPointToModel(exterior, true), end)) {
+        return isEqual(current, end) ? undefined : exterior
+      }
+    }
+    return undefined
+  }
   return {
     caretStep,
+    lineEndStep,
     snapCaret,
     domPointToModel,
     domPointToTableCell: (point: DocumentDOMPoint) => bindingFor(point)?.tableCell,
@@ -1136,6 +1186,15 @@ export function muyaClipboardSelection(
   }
   const selection = native.table.getDOMSelection()
   return selection === null ? undefined : muyaTableSelectionToModel(muya, view, selection)
+}
+
+/** Where a line-end move places the caret when the line ends in annotations. */
+export function muyaLineEndStep(
+  muya: Muya,
+  view: MuyaMarkupView,
+  point: DocumentDOMPoint
+): DocumentDOMPoint | undefined {
+  return createMuyaModelSelection(muya, view).lineEndStep(point)
 }
 
 /** The model's zero-width caret step for a plain horizontal arrow key. */
