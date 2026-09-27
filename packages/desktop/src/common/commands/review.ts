@@ -19,10 +19,22 @@ export const reviewCommands = [
   { id: 'revised', label: 'revised' }
 ] as const
 export type ReviewCommand = typeof reviewCommands[number]['id']
+export type ReviewAuthorForm = 'addition' | 'comment' | 'highlight' | 'substitution'
+const authoringForms: Partial<Record<ReviewCommand, ReviewAuthorForm>> = {
+  'add-comment': 'comment',
+  'mark-highlight': 'highlight',
+  'mark-addition': 'addition',
+  'suggest-replacement': 'substitution'
+}
 export interface ReviewCommandState {
   available: boolean
   editable: boolean
   canAuthor: boolean
+  /**
+   * The forms authoring can make now; absent means all of them when
+   * `canAuthor`. A caret in a standalone highlight can take only a comment.
+   */
+  authorForms?: readonly ReviewAuthorForm[]
   canTrack: boolean
   tracking: boolean
   hasItem: boolean
@@ -38,7 +50,8 @@ export const reviewCommandEnabled = (id: ReviewCommand, state?: ReviewCommandSta
   if (!state?.available || state.busy) return false
   if (id === 'markup' || id === 'original' || id === 'revised') return true
   if (id === 'previous' || id === 'next') return state.hasItem
-  if (id === 'add-comment' || id === 'mark-highlight' || id === 'mark-addition' || id === 'suggest-replacement') return state.editable && state.canAuthor
+  const form = authoringForms[id]
+  if (form !== undefined) return state.editable && state.canAuthor && (state.authorForms?.includes(form) ?? true)
   if (id === 'track-changes') return state.editable && state.canTrack
   // Resolution changes source, so it needs the editable Markup view; per-item
   // resolution also needs a visible target.
@@ -49,7 +62,15 @@ export const reviewCommandEnabled = (id: ReviewCommand, state?: ReviewCommandSta
   return state.hasItem
 }
 
-export type ReviewContextCommand = 'accept' | 'reject' | 'remove' | 'edit-comment'
+export type ReviewContextCommand = 'accept' | 'reject' | 'remove' | 'edit-comment' | 'add-comment'
+export const reviewContextLabels = ['removeHighlight', 'removeComment'] as const
+export type ReviewContextLabel = typeof reviewContextLabels[number]
 export interface ReviewContextRequest { requestId: number; x: number; y: number }
-export interface ReviewContextReply { requestId: number; commands?: ReviewContextCommand[]; error?: string }
+export interface ReviewContextReply {
+  requestId: number
+  commands?: ReviewContextCommand[]
+  /** Names a command for its target, as the sidebar card does. */
+  labels?: Partial<Record<ReviewContextCommand, ReviewContextLabel>>
+  error?: string
+}
 export interface ReviewContextAction { requestId: number; command: ReviewContextCommand }
