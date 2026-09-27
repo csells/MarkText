@@ -60,11 +60,7 @@ async function mountSource(source: string, selection: DocumentSelection) {
   const preferences = Vue.reactive({
     theme: 'light',
     sourceCode: true,
-    sourceCodeLineNumbers: true,
-    texMathDollars: true,
-    texMathGfm: false,
-    texMathSingleBackslash: false,
-    texMathDoubleBackslash: false
+    sourceCodeLineNumbers: true
   })
   const dependencies: Record<string, unknown> = {
     vue: Vue,
@@ -85,11 +81,6 @@ async function mountSource(source: string, selection: DocumentSelection) {
         character: text.length,
         all: text.length
       })
-    },
-    '../../util': {
-      adjustCursor: () => {
-        throw new Error('Core Source must not reinterpret Markdown cursor context')
-      }
     },
     '../../bus': { __esModule: true, default: bus },
     '@/config': { oneDarkThemes: [], railscastsThemes: [] },

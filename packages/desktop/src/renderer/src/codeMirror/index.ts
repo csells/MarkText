@@ -9,7 +9,6 @@ import type CodeMirror from 'codemirror'
 import loadmode from './loadmode'
 import overlayMode from './overlayMode'
 import multiplexMode from './mltiplexMode'
-import registerMarkdownMathMode from './markdownMathMode'
 import languages from './modes'
 import 'codemirror/lib/codemirror.css'
 import './index.css'
@@ -40,7 +39,6 @@ interface MatchedMode {
 loadmode(codeMirror)
 overlayMode(codeMirror)
 multiplexMode(codeMirror)
-registerMarkdownMathMode(codeMirror)
 ;(window as unknown as { CodeMirror: CodeMirrorLike }).CodeMirror = codeMirror
 
 const modes: ModeInfoEntry[] = codeMirror.modeInfo
