@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { expect, it } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { undoWindowClock } from '../helpers/separateUndoSteps'
+
+const clock = undoWindowClock()
 
 it.each([
   {
@@ -29,6 +32,7 @@ it.each([
       app.muya.editor.scrollPage!.firstContentInDescendant()!.setCursor(range[0]!, range[1]!, true)
       app.muya.insertImage({ src: 'images/cat.png' })
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: changed })
+      clock.pause()
       app.muya.editor.selection.getSelection()!.anchor.block.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
