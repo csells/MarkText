@@ -383,6 +383,148 @@ export function lastGraphemeLength(text: string): number {
     return length;
 }
 
+const VARIATION_SELECTOR = /^\p{Variation_Selector}$/u;
+const PICTOGRAPHIC = /^[\p{Extended_Pictographic}\p{Emoji}]$/u;
+const MODIFIER_BASE = /^\p{Emoji_Modifier_Base}$/u;
+
+const isVariationSelector = (char: string) => VARIATION_SELECTOR.test(char);
+const isPictographic = (char: string) => PICTOGRAPHIC.test(char);
+const isModifier = (point: number) => point >= 0x1F3FB && point <= 0x1F3FF;
+const isRegionalIndicator = (point: number) => point >= 0x1F1E6 && point <= 0x1F1FF;
+const isKeycapBase = (char: string) => /^[0-9#*]$/.test(char);
+const isTag = (point: number) => (point >= 0xE0030 && point <= 0xE0039) || (point >= 0xE0061 && point <= 0xE007A);
+
+/**
+ * Whether `char` has a nonzero canonical combining class, the class NFD
+ * reorders marks by; a precomposed letter has its base letter's class.
+ */
+function combines(char: string): boolean {
+    const decomposed = String.fromCodePoint(char.normalize('NFD').codePointAt(0)!);
+    return `ͅ${decomposed}`.normalize('NFD') !== `ͅ${decomposed}`
+        || `${decomposed}̴`.normalize('NFD') !== `${decomposed}̴`;
+}
+
+/**
+ * Length in UTF-16 code units of what Chromium's Backspace removes before the
+ * end of `text`: Blink's BackspaceStateMachine. Unlike a grapheme cluster, it
+ * removes only the last code point of a combining sequence (the accent of
+ * `é`, a Hebrew point, a trailing Hangul jamo) while keeping emoji
+ * ZWJ, modifier, keycap, flag and tag sequences whole. A lone surrogate is
+ * removed alone, so the result never splits a pair.
+ */
+export function backspaceLength(text: string): number {
+    // Code points before the end of `text`, read backward on demand.
+    const points: string[] = [];
+    let unread = text.length;
+    const point = (index: number): string => {
+        while (points.length <= index && unread > 0) {
+            const unit = text.charCodeAt(unread - 1);
+            const lead = unread >= 2 ? text.charCodeAt(unread - 2) : 0;
+            const size = unit >= 0xDC00 && unit <= 0xDFFF && lead >= 0xD800 && lead <= 0xDBFF ? 2 : 1;
+            points.push(text.slice(unread - size, unread));
+            unread -= size;
+        }
+        return points[index] ?? '';
+    };
+    const code = (index: number) => point(index).codePointAt(0) ?? -1;
+    const first = point(0);
+    if (first === '')
+        return 0;
+    const start = code(0);
+    if (first.length === 1 && start >= 0xD800 && start <= 0xDFFF)
+        return 1;
+    let deleted = first.length;
+    let index = 1;
+    // kBeforeEmojiModifier, after the modifier at `index - 1`: its base, or a
+    // presentation selector and its base, which ends the sequence.
+    const modifierBase = (): 'base' | 'end' => {
+        const base = point(index);
+        if (isVariationSelector(base)) {
+            const selected = point(index + 1);
+            if (MODIFIER_BASE.test(selected))
+                deleted += base.length + selected.length;
+            return 'end';
+        }
+        if (!MODIFIER_BASE.test(base))
+            return 'end';
+        deleted += base.length;
+        index += 1;
+        return 'base';
+    };
+    // kBeforeZWJEmoji: emoji joined before the one already counted.
+    const zwjChain = (): number => {
+        while (point(index) === '\u200D') {
+            const before = point(index + 1);
+            if (isPictographic(before)) {
+                deleted += before.length + 1;
+                index += 2;
+                if (isModifier(code(index - 1)) && modifierBase() === 'end')
+                    return deleted;
+                continue;
+            }
+            const emoji = point(index + 2);
+            if (!isVariationSelector(before) || !isPictographic(emoji))
+                return deleted;
+            deleted += emoji.length + 1 + before.length;
+            index += 3;
+        }
+        return deleted;
+    };
+    // kBeforeVS: an emoji or a non-combining base takes its selector along.
+    const selectorBase = (followZwj: boolean): number => {
+        const base = point(index);
+        if (isPictographic(base)) {
+            deleted += base.length;
+            index += 1;
+            return followZwj ? zwjChain() : deleted;
+        }
+        return base !== '' && !isVariationSelector(base) && !combines(base) ? deleted + base.length : deleted;
+    };
+    if (first === '\n')
+        return point(1) === '\r' ? 2 : 1;
+    if (isVariationSelector(first))
+        return selectorBase(true);
+    if (isRegionalIndicator(start)) {
+        let count = 1;
+        while (isRegionalIndicator(code(count)))
+            count += 1;
+        // An odd run pairs the last indicator with the one before it.
+        return count % 2 === 0 ? 4 : 2;
+    }
+    if (isModifier(start))
+        return modifierBase() === 'base' ? zwjChain() : deleted;
+    if (isPictographic(first))
+        return zwjChain();
+    if (start === 0x20E3) {
+        const base = point(1);
+        if (isVariationSelector(base))
+            return isKeycapBase(point(2)) ? deleted + base.length + 1 : deleted;
+        return isKeycapBase(base) ? deleted + 1 : deleted;
+    }
+    if (start === 0xE007F) {
+        while (isTag(code(index))) {
+            deleted += 2;
+            index += 1;
+        }
+        if (index === 1)
+            return deleted;
+        const base = point(index);
+        if (isModifier(code(index))) {
+            deleted += base.length;
+            index += 1;
+            modifierBase();
+            return deleted;
+        }
+        if (isVariationSelector(base)) {
+            deleted += base.length;
+            index += 1;
+            return selectorBase(false);
+        }
+        return isPictographic(base) ? deleted + base.length : deleted;
+    }
+    return deleted;
+}
+
 export type TDiff = (string | number | { d: string });
 
 /**

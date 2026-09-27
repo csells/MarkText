@@ -1195,6 +1195,89 @@ export function muyaClipboardSelection(
   return selection === null ? undefined : muyaTableSelectionToModel(muya, view, selection)
 }
 
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
+/**
+ * Upstream Muya's own Backspace (#113, #4926) removes the whole grapheme
+ * before a caret that ends a top-level inline token of the line, or follows
+ * its first grapheme; elsewhere Chromium removes one code point of a
+ * combining sequence. Upstream reads CriticMarkup delimiters and comments as
+ * text, so a text token runs through the hidden annotation source beside it:
+ * a caret inside an Addition's end is not at its text token's end. Code keeps
+ * the browser's unit.
+ */
+export function muyaBackspaceRemovesGrapheme(
+  muya: Muya,
+  view: MuyaMarkupView,
+  point: DocumentDOMPoint
+): boolean {
+  const text = muya.editor.selection.getTextPoint(point)
+  if (text == null) return false
+  const binding = view.bindings.find((item) => samePath(item.path, text.path))
+  if (binding === undefined || ['code-block', 'diagram', 'math-block'].includes(binding.syntax.kind)) {
+    return false
+  }
+  const caret = createMuyaModelSelection(muya, view).domPointToModel(point, true)
+  const { segments } = binding
+  const first = segments[0]
+  const last = segments.at(-1)
+  if (typeof caret !== 'number' || first === undefined || last === undefined) return false
+  const annotations = [
+    ...view.decorations.filter((item) => samePath(item.path, binding.path)).map((item) => item.mark.annotationRange),
+    ...view.comments.filter((item) => samePath(item.path, binding.path)).map((item) => item.annotationRange)
+  ]
+  /** Extends `offset` over annotation source that contains or adjoins it. */
+  const across = (offset: number, direction: 'forward' | 'backward'): number => {
+    for (let moved = true; moved;) {
+      moved = false
+      for (const range of annotations) {
+        if (direction === 'forward' && range.start <= offset && offset < range.end) {
+          offset = range.end
+          moved = true
+        } else if (direction === 'backward' && range.start < offset && offset <= range.end) {
+          offset = range.start
+          moved = true
+        }
+      }
+    }
+    return offset
+  }
+  const toSource = (syntax: number, side: 'start' | 'end'): number | undefined => {
+    const segment =
+      side === 'start'
+        ? segments.find((item) => item.syntax.start <= syntax && syntax < item.syntax.end) ??
+          segments.find((item) => item.syntax.end === syntax)
+        : segments.find((item) => item.syntax.start < syntax && syntax <= item.syntax.end) ??
+          segments.find((item) => item.syntax.start === syntax)
+    return segment && segment.source.start + syntax - segment.syntax.start
+  }
+  const toText = (syntax: number): number | undefined => {
+    const segment = segments.find((item) => item.syntax.start <= syntax && syntax <= item.syntax.end)
+    return segment && segment.text.start + syntax - segment.syntax.start
+  }
+  return binding.syntax.children.some((node) => {
+    const start = toSource(node.range.start, 'start')
+    const end = toSource(node.range.end, 'end')
+    if (start === undefined || end === undefined) return false
+    let tokenStart = start
+    let tokenEnd = end
+    if (node.kind === 'text') {
+      const before = segments.find((item) => item.syntax.end === node.range.start)
+      const after = segments.find((item) => item.syntax.start === node.range.end)
+      tokenStart = node.range.start === first.syntax.start ? across(start, 'backward') : (before?.source.end ?? start)
+      tokenEnd = node.range.end === last.syntax.end ? across(end, 'forward') : (after?.source.start ?? end)
+    }
+    if (caret === tokenEnd) return true
+    // Upstream's first character there is a hidden delimiter's.
+    if (tokenStart < start) return false
+    const textStart = toText(node.range.start)
+    const textEnd = toText(node.range.end)
+    if (textStart === undefined || textEnd === undefined) return false
+    const [grapheme] = graphemes.segment(binding.text.slice(textStart, textEnd))
+    return grapheme !== undefined && caret === start + grapheme.segment.length
+  })
+}
+
 /** Where a line-end move places the caret when the line ends in annotations. */
 export function muyaLineEndStep(
   muya: Muya,
