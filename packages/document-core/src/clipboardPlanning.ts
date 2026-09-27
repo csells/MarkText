@@ -12,6 +12,7 @@ import { positionAfter } from './sourcePosition.js'
 import { prepareBlockClipboardMarkdown, prepareClipboardMarkdown } from './clipboardMarkdown.js'
 import { createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { createTrackedSourceEdit, prepareTrackedBlockEdit } from './trackedAuthoring.js'
+import { joinedTrackedEdit, trackedEditableEdits, trackedEditableSpans, unchangedTrackedEdit } from './trackedHistoryEditing.js'
 import type { MarkdownLineIndex } from './revision.js'
 import { planEmptiedParagraph } from './emptiedParagraphPlanning.js'
 import { syntaxPathAt } from './syntaxPath.js'
@@ -168,20 +169,28 @@ export function planClipboard(
     : prepareBlockClipboardMarkdown(core, previous, { start, end, insert }, blockPlacement, physicalLines())
   const input = prepared.edit
   const inputs = [input, ...(prepared.after ?? [])]
+  const compileTracked = (edit: DocumentSourceEdit): DocumentSourceEdit | undefined => {
+    // Widening reproduces the untracked paste exactly; terminating an
+    // enclosed block literal with blank lines is the fallback spelling.
+    const widened = createTrackedSourceEdit(core, previous, edit, preview, true)
+    if (widened !== undefined) return widened
+    const enclosed = prepareTrackedBlockEdit(core, previous, edit, previewSyntax([edit]))
+    return enclosed === edit ? undefined : createTrackedSourceEdit(core, previous, enclosed, preview, true)
+  }
+  // Paste over deleted text proposes the rest like typing; cutting deleted
+  // text again leaves it deleted (Google Docs).
   const trackedInputs = action.tracked
     ? inputs.map(edit => {
-      // Widening reproduces the untracked paste exactly; terminating an
-      // enclosed block literal with blank lines is the fallback spelling.
-      const widened = createTrackedSourceEdit(core, previous, edit, preview, true)
-      if (widened !== undefined) return widened
-      const enclosed = prepareTrackedBlockEdit(core, previous, edit, previewSyntax([edit]))
-      return enclosed === edit ? undefined : createTrackedSourceEdit(core, previous, enclosed, preview, true)
+      const editable = trackedEditableSpans(previous, edit)
+      if (editable?.history !== true) return compileTracked(edit)
+      const parts = trackedEditableEdits(core, edit, editable, compileTracked)
+      return parts === undefined ? undefined : joinedTrackedEdit(core, previous, edit.start, parts)
     })
     : undefined
   const tracked = trackedInputs?.[0]
   let edits = trackedInputs === undefined
     ? (action.kind === 'paste' ? regional?.compile(inputs) : undefined) ?? createMarkupCompoundSourceEdits(core, previous, inputs, preview, true)
-    : trackedInputs.every(edit => edit !== undefined) ? trackedInputs : undefined
+    : trackedInputs.every(edit => edit !== undefined) ? trackedInputs.filter(edit => !unchangedTrackedEdit(edit)) : undefined
   if (edits === undefined) throw new RangeError('Clipboard action has no safe source edit')
   let materializedPrefix = 0
   if (selectedCell !== undefined && selectedCell.slotStart === undefined && insert !== '') {
@@ -221,7 +230,9 @@ export function planClipboard(
       caret = respelled.selection.start
     }
   }
-  if (action.tracked && tracked !== undefined && insert.length > 0) {
+  if (action.tracked && tracked !== undefined && insert.length > 0 && edits.length > 0) {
+    // Text extending an existing draft ends where its insertion does.
+    if (edits.length === 1 && tracked.start === tracked.end) caret = tracked.start + materializedPrefix + tracked.insert.length
     const candidate = preview(edits)
     const pending: CriticMarkupAnnotation[] = [...candidate.annotations]
     while (pending.length > 0) {

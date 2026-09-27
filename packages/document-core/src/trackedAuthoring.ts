@@ -4,6 +4,7 @@ import type {
 } from './documentCore.js'
 import { createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations as annotationTree, markupReplacementRange } from './markupEditOwnership.js'
+import { historyInsertionPoint, substitutionBeforeDeletion, substitutionDraftInsertionPoint, trackedEditableSpans, trackedPartsSeparate, withinHistory } from './trackedHistoryEditing.js'
 import { createTrackedOracle, draftTrackedSourceEdit, equivalenceDeferred, memoizedPreview, rejoinedTrackedHistoryEdit, splitTrackedHistoryEdit, trackedPreviewFacts, widenedTrackedSourceEdit } from './trackedExtent.js'
 
 /** Protective spelling retains exactly where the language compiler inserts escapes. */
@@ -72,6 +73,8 @@ export function createTrackedPendingArmEdits(
   compile: (edits: readonly DocumentSourceEdit[]) => readonly DocumentSourceEdit[] | undefined = edits => core.markupEdits(revision, edits)
 ): readonly DocumentSourceEdit[] | undefined {
   if (!edits.some(edit => edit.start < edit.end)) return undefined
+  // Deleted text a draft holds stays deleted; only the rest is edited.
+  if (edits.some(edit => trackedEditableSpans(revision, edit)?.history === true)) return undefined
   const annotations = annotationTree(revision.annotations)
   let owner: CriticMarkupAnnotation | undefined
   for (const annotation of annotations) {
@@ -172,7 +175,10 @@ function trackedRequest(
   }
   const insertion = request.range.start === request.range.end && request.text.length > 0
   if (insertion) {
+    // Suggestions inside deleted text are history too: typing beside them
+    // splits the deletion instead of extending them.
     const annotations = annotationTree(activeRevision.annotations)
+      .filter(annotation => !withinHistory(activeRevision.annotations, annotation.range))
     const deletionEdge = annotations.find(annotation => annotation.kind === 'deletion' &&
       annotation.arms.some(arm => arm.name === 'content' &&
         (arm.range.start === request.range.start || arm.range.end === request.range.start)))
@@ -218,6 +224,17 @@ export const createTrackedSourceEdit = (
   preserveCanonicalMarkup = false,
   scope: 'visible' | 'structure' = 'visible'
 ): DocumentSourceEdit | undefined => {
+  if (edit.start === edit.end && edit.insert.length > 0) {
+    const point = historyInsertionPoint(activeRevision.annotations, edit.start)
+    if (point !== edit.start) edit = Object.freeze({ start: point, end: point, insert: edit.insert })
+  }
+  if (scope === 'visible' && edit.start === edit.end && edit.insert.length > 0 && !/[\r\n]/u.test(edit.insert)) {
+    const payload = preserveCanonicalMarkup ? edit.insert : protectNativeCriticText(edit.insert)
+    const merged = substitutionBeforeDeletion(activeCore, activeRevision, edit.start, payload, edit.insert, preview)
+    if (merged !== undefined) return merged
+    const draft = substitutionDraftInsertionPoint(activeRevision, edit.start)
+    if (draft !== undefined) edit = Object.freeze({ start: draft, end: draft, insert: edit.insert })
+  }
   const request = trackedRequest(activeCore, activeRevision, edit, scope)
   if (request === undefined) return undefined
   preview = memoizedPreview(preview)
@@ -520,7 +537,7 @@ function inlineTrackedSourceEdit(
       // Cancelling proposed text uses the same owned deletion whether the
       // native selection encloses its complete wrapper or only its payload.
       const removal = Object.freeze({ ...cancelled.range, insert: '' })
-      return rejoinedTrackedHistoryEdit(activeCore, activeRevision, cancelled, preview) ?? removal
+      return (trackedPartsSeparate(activeCore) ? undefined : rejoinedTrackedHistoryEdit(activeCore, activeRevision, cancelled, preview)) ?? removal
     }
     const pending = [...activeRevision.annotations]
     while (pending.length > 0) {
@@ -584,7 +601,7 @@ function inlineTrackedSourceEdit(
           insert: ''
         }])
         if (remainingContent.length === 0) {
-          const rejoined = annotation.kind === 'addition'
+          const rejoined = annotation.kind === 'addition' && !trackedPartsSeparate(activeCore)
             ? rejoinedTrackedHistoryEdit(activeCore, activeRevision, annotation, preview)
             : undefined
           if (rejoined !== undefined) return rejoined

@@ -5,13 +5,14 @@ import { sourceSyntaxSpans, type DocumentSourceSyntaxSpan } from './sourceSyntax
 import { paragraphEnterConversion } from './internal/profile1/markdownParser.js'
 import { planClipboard, type DocumentClipboardAction, type DocumentClipboardPlan } from './clipboardPlanning.js'
 import { planFormat, type DocumentFormatAction, type DocumentFormatPlan } from './formatPlanning.js'
-import { planInput, reconcileInput, inputSourceRange, type DocumentInputAction, type DocumentInputPlan, type DocumentInputResult } from './inputPlanning.js'
+import { planInput, positionBefore, reconcileInput, inputSourceRange, type DocumentInputAction, type DocumentInputPlan, type DocumentInputResult } from './inputPlanning.js'
 import { editingReconciliation } from './editingReconciliation.js'
 import { paragraphBackwardStructuralTarget } from './paragraphJoinPlanning.js'
 import { isLiteralBlock } from './literalBlock.js'
 import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
+import { joinedTrackedEdit, mergedTrackedDeletion, trackedEditableEdits, trackedEditableSpans, unchangedTrackedEdit } from './trackedHistoryEditing.js'
 import { deferEquivalence, projectionSignature, trackedMarkdownSignatures, trackedOperationEquivalent, trackedPreviewFacts, withDeferredEquivalence } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
@@ -3964,6 +3965,9 @@ function createDocumentCoreWithExecutionBudget(
       // behavior beyond a literal payload splice; preserve the full planner.
       if (node.kind !== 'comment' && node.arms.some(arm => arm.range.start === arm.range.end)) return undefined
       if (tracked && edit.start === edit.end && (node.range.end === start || node.range.start === end)) return undefined
+      // A draft nested in deleted text is history: typing there splits it.
+      if (tracked && node.arms.some(arm => (node.kind === 'deletion' || arm.name === 'old' || arm.name === 'comment') &&
+        arm.range.start <= start && end <= arm.range.end)) return undefined
       if (node.range.start < start && node.range.end > start &&
           (owner === undefined || node.range.end - node.range.start < owner.range.end - owner.range.start)) owner = node
       for (const arm of node.arms) pending.push(...arm.children)
@@ -4049,6 +4053,139 @@ function createDocumentCoreWithExecutionBudget(
     })
   }
 
+  /** Tracked compilation of an edit that changes no deleted text or annotation syntax. */
+  const ownedTrackedEdit = (
+    state: RevisionState,
+    previous: DocumentRevision,
+    edit: DocumentSourceEdit,
+    preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision
+  ): DocumentSourceEdit | undefined => {
+    const pending = createTrackedPendingArmEdits(core, previous, [edit])
+    if (pending !== undefined && pending.length > 0) {
+      const first = pending[0]
+      const last = pending.at(-1)
+      if (first === undefined || last === undefined) return undefined
+      // This singular API carries the same exact script as one source edit.
+      // Untouched gaps (including comments) come directly from the revision.
+      let insert = ''
+      let cursor = first.start
+      for (const part of pending) {
+        insert += core.sourceSlice(previous, { start: cursor, end: part.start }) + part.insert
+        cursor = part.end
+      }
+      return Object.freeze({ start: first.start, end: last.end, insert })
+    }
+    const regional = regionalPayloadEdit(state, edit, true)
+    if (regional !== undefined) return regional
+    const planned = createTrackedSourceEdit(core, previous, edit, preview) ??
+      createTrackedLiteralSourceEdit(core, previous, edit, preview) ??
+      // A selection starting or ending between suggestions owns the ones it encloses.
+      (edit.start < edit.end ? createTrackedSourceEdit(core, previous, edit, preview, false, 'structure') : undefined)
+    return planned !== undefined && edit.insert.length === 0
+      ? mergedTrackedDeletion(core, previous, edit, planned, preview) ?? planned
+      : planned
+  }
+
+  /**
+   * Tracked compilation of one requested edit, as ordered disjoint parts:
+   * one part unless the edit also covers deleted text or annotation syntax.
+   */
+  const trackedEditParts = (previous: DocumentRevision, edit: DocumentSourceEdit): readonly DocumentSourceEdit[] | undefined => {
+    const state = currentStateOf(previous)
+    const edits = stableSourceEdits([edit])
+    preflightSourceEdits(state.source.length, edits)
+    const stableEdit = edits[0]
+    if (stableEdit === undefined) throw new Error('Tracked source edit is missing')
+    const preview = (candidateEdits: readonly DocumentSourceEdit[]) => previewSourceEdits(previous, candidateEdits)
+    // Typing over the whole of one's own Addition rewrites its text.
+    const compile = (part: DocumentSourceEdit) => {
+      const content = part.insert.length === 0 || part.start === part.end
+        ? undefined
+        : markupAnnotations(previous.annotations).find(annotation => annotation.kind === 'addition' &&
+          annotation.range.start === part.start && annotation.range.end === part.end)?.arms[0]
+      return ownedTrackedEdit(state, previous, content === undefined ? part : { ...content.range, insert: part.insert }, preview)
+    }
+    const single = (planned: DocumentSourceEdit | undefined) =>
+      planned === undefined ? undefined : Object.freeze(unchangedTrackedEdit(planned) ? [] : [planned])
+    const editable = trackedEditableSpans(previous, stableEdit)
+    const enclosed = trackedEditableSpans(previous, stableEdit, true)
+    // Deleting text that holds one's own draft removes that draft outright
+    // and strikes the rest (Google Docs), so inline deletions never nest.
+    // A deleted block stays one suggestion around what it holds.
+    if (stableEdit.insert.length === 0 && enclosed !== undefined && !/[\r\n]/u.test(core.sourceSlice(previous, stableEdit))) {
+      return trackedEditableEdits(core, stableEdit, enclosed, compile)
+    }
+    const planned = editable?.history === true
+      ? trackedEditableEdits(core, stableEdit, editable, compile)
+      : single(ownedTrackedEdit(state, previous, stableEdit, preview))
+    if (planned !== undefined) return planned
+    // An edit reaching past a draft's delimiters, or a replacement whose
+    // suggestion cannot enclose the existing ones, changes only the text a
+    // reader can still edit, part by part.
+    const parts = editable !== undefined && !editable.history ? trackedEditableEdits(core, stableEdit, editable, compile) : undefined
+    return parts ?? (enclosed === undefined ? undefined : trackedEditableEdits(core, stableEdit, enclosed, compile))
+  }
+
+  /**
+   * Tracked input that deletes or replaces already deleted text follows
+   * Google Docs: Backspace or Delete over deleted text only moves the caret
+   * across it, and a replacement proposes its text for the rest of the
+   * selection. Backspace keeps the caret before the text it strikes, Delete
+   * after it, and typing after its own text.
+   */
+  const trackedInputPlan = (previous: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan): DocumentInputPlan => {
+    if ('kind' in action || !('ranges' in action.selection) || !('ranges' in plan.selection)) return plan
+    const caret = action.selection.ranges[action.selection.primary]
+    const planned = plan.selection.ranges[plan.selection.primary]
+    if (caret === undefined || planned === undefined || plan.edits.length === 0) return plan
+    const collapsed = (at: number) => Object.freeze({ ranges: Object.freeze([Object.freeze({ anchor: at, focus: at })]), primary: 0 })
+    // The character a caret key targets is already deleted: move over it,
+    // whatever the untracked policy would also delete beside it.
+    const direction = action.inputType === 'deleteContentBackward' ? 'backward' : action.inputType === 'deleteContentForward' ? 'forward' : undefined
+    if (direction !== undefined && caret.anchor === caret.focus && 'start' in action.range && action.range.start < action.range.end &&
+        trackedEditableSpans(previous, action.range, true)?.length === 0) {
+      return Object.freeze({
+        edits: Object.freeze([]),
+        selection: collapsed(direction === 'backward' ? action.range.start : action.range.end),
+        reconciliation: Object.freeze([...plan.edits].reverse().map(edit => Object.freeze({ start: edit.start, end: edit.start, insert: core.sourceSlice(previous, edit) })))
+      })
+    }
+    // Where the compiler's spelling has no proven mapping, the caret follows
+    // the same source position past the suggestion that now holds it.
+    const fallback = Object.freeze({ at: positionBefore(plan.edits, planned.focus), side: 'after' as const, fallback: true })
+    const edit = plan.edits[0]
+    if (plan.edits.length !== 1 || edit === undefined) return Object.freeze({ ...plan, trackedCaret: fallback })
+    const deletion = edit.insert.length === 0 && edit.start < edit.end
+    // A deleted selection keeps the caret after the struck text.
+    const backward = caret.anchor === caret.focus && !action.inputType.includes('Forward')
+    const struck = Object.freeze({ at: backward ? edit.start : edit.end, side: backward ? 'before' as const : 'after' as const })
+    const editable = trackedEditableSpans(previous, edit, deletion && !/[\r\n]/u.test(core.sourceSlice(previous, edit)))
+    if (editable === undefined) {
+      return Object.freeze({ ...plan, trackedCaret: deletion && caret.anchor === caret.focus && action.inputType.startsWith('delete') ? struck : fallback })
+    }
+    if (editable.length > 0) {
+      const spans = deletion ? editable : trackedEditableSpans(previous, edit)
+      return Object.freeze({
+        ...plan,
+        trackedCaret: deletion ? struck : spans?.history === true ? Object.freeze({ at: spans[0]?.end ?? edit.end, side: 'after' as const }) : Object.freeze({ ...fallback, at: edit.end })
+      })
+    }
+    if (!deletion) {
+      // Typing over deleted text only is typing at the selection's start.
+      return Object.freeze({
+        edits: Object.freeze([Object.freeze({ start: edit.start, end: edit.start, insert: edit.insert })]),
+        selection: collapsed(edit.start + edit.insert.length),
+        reconciliation: Object.freeze([]),
+        trackedCaret: Object.freeze({ at: edit.start, side: 'after' as const, fallback: true })
+      })
+    }
+    return Object.freeze({
+      edits: Object.freeze([]),
+      selection: caret.anchor !== caret.focus ? action.selection : collapsed(backward ? edit.start : edit.end),
+      reconciliation: Object.freeze([Object.freeze({ start: edit.start, end: edit.start, insert: core.sourceSlice(previous, edit) })])
+    })
+  }
+
   const planNativeEdits = (
     previous: DocumentRevision,
     input: readonly DocumentSourceEdit[],
@@ -4088,8 +4225,7 @@ function createDocumentCoreWithExecutionBudget(
             candidateEdits => previewSourceEdits(previous, candidateEdits), false, 'visible', 'admit-typed')
           : undefined)
       }
-      const planned = core.trackedEdit(previous, edit)
-      return planned === undefined ? undefined : Object.freeze([planned])
+      return trackedEditParts(previous, edit)
     }
     if (!tracked) {
       return createMarkupCompoundSourceEdits(core, previous, edits,
@@ -4142,14 +4278,17 @@ function createDocumentCoreWithExecutionBudget(
     const result: DocumentSourceEdit[] = []
     const authored: Array<{ edit: DocumentSourceEdit, annotation: CriticMarkupAnnotation }> = []
     let boundary = previous.sourceLength + 1
+    // An insertion exactly at the next edit's start precedes it in source order.
+    const beyond = (item: DocumentSourceEdit) => item.end > boundary ||
+      item.start >= boundary && !(item.start === item.end && item.start === boundary)
     for (const edit of [...edits].reverse()) {
-      if (edit.start >= boundary || edit.end > boundary) return compoundSuggestion()
+      if (beyond(edit)) return compoundSuggestion()
       if (candidateCore.sourceSlice(candidate, edit) === edit.insert) continue
       const trackedEdit = tracked ? candidateCore.trackedEdit(candidate, edit) : undefined
       const planned = tracked
-        ? trackedEdit === undefined ? undefined : [trackedEdit]
+        ? trackedEdit === undefined ? undefined : unchangedTrackedEdit(trackedEdit) ? [] : [trackedEdit]
         : candidateCore.markupEdit(candidate, edit)
-      if (planned === undefined || planned.some(item => item.start >= boundary || item.end > boundary)) return compoundSuggestion()
+      if (planned === undefined || planned.some(beyond)) return compoundSuggestion()
       if (planned.length === 0) continue
       candidate = candidateCore.apply(candidate, planned).revision
       for (const edit of planned) {
@@ -4368,10 +4507,11 @@ function createDocumentCoreWithExecutionBudget(
       const state = currentStateOf(previous)
       if ('inputType' in action) preflightSourceEdits(state.source.length, stableSourceEdits([{ ...inputSourceRange(core, previous, action.range), insert: action.data ?? '' }]))
       preflightSourceEdits(state.source.length, stableSourceEdits([{ ...inputSourceRange(core, previous, action.selection), insert: '' }]))
-      return planInput(core, previous, action, range => state.productStore.withProduct(products =>
+      const plan = planInput(core, previous, action, range => state.productStore.withProduct(products =>
         paragraphEnterConversion(products.editing().source, range.start, range.end, state.markdownOptions.texMathDollars)),
       () => state.productStore.withProduct(products => products.editing().markdown.lines),
       range => regionalInputSyntax(state, range), options?.tracked === false, edits => tablePreview(previous, edits))
+      return options?.tracked === true ? trackedInputPlan(previous, action, plan) : plan
     },
     reconcileInput(previous: DocumentRevision, policy: DocumentInputPlan, commit: DocumentCommit | null, action: DocumentInputAction) {
       if (!stateByRevision.has(previous) || commit !== null && !stateByRevision.has(commit.revision)) throw new Error('Document revision belongs to another core')
@@ -4410,35 +4550,8 @@ function createDocumentCoreWithExecutionBudget(
       previous: DocumentRevision,
       edit: DocumentSourceEdit
     ): DocumentSourceEdit | undefined {
-      const state = currentStateOf(previous)
-      const edits = stableSourceEdits([edit])
-      preflightSourceEdits(state.source.length, edits)
-      const stableEdit = edits[0]
-      if (stableEdit === undefined) throw new Error('Tracked source edit is missing')
-      const pending = createTrackedPendingArmEdits(core, previous, [stableEdit])
-      if (pending !== undefined && pending.length > 0) {
-        const first = pending[0]
-        const last = pending.at(-1)
-        if (first === undefined || last === undefined) return undefined
-        // This singular API carries the same exact script as one source edit.
-        // Untouched gaps (including comments) come directly from the revision.
-        let insert = ''
-        let cursor = first.start
-        for (const edit of pending) {
-          insert += core.sourceSlice(previous, { start: cursor, end: edit.start }) + edit.insert
-          cursor = edit.end
-        }
-        return Object.freeze({ start: first.start, end: last.end, insert })
-      }
-      const regional = regionalPayloadEdit(state, stableEdit, true)
-      if (regional !== undefined) return regional
-      return createTrackedSourceEdit(
-        core, previous, stableEdit,
-        candidateEdits => previewSourceEdits(previous, candidateEdits)
-      ) ?? createTrackedLiteralSourceEdit(
-        core, previous, stableEdit,
-        candidateEdits => previewSourceEdits(previous, candidateEdits)
-      )
+      const parts = trackedEditParts(previous, edit)
+      return parts === undefined ? undefined : joinedTrackedEdit(core, previous, edit.start, parts)
     },
 
     track(

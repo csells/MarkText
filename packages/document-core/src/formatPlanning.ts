@@ -6,6 +6,7 @@ import { formatDelimiters } from '@marktext/input-policy'
 import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
 import { inlineHtmlFormatPairs } from './documentFormatContext.js'
 import { createTrackedSourceEdit } from './trackedAuthoring.js'
+import { trackedEditableSpans } from './trackedHistoryEditing.js'
 import { imageDestination, imageLabel, planImageProperties, type DocumentImagePropertiesAction } from './imagePropertyPlanning.js'
 
 export type DocumentFormatAction = DocumentImagePropertiesAction | {
@@ -73,6 +74,48 @@ function canonicalSelection(target: DocumentInputTarget, backward = false): Docu
 
 /** Plans one formatting action from the current syntax tree, never native text diffs. */
 export function planFormat(
+  core: DocumentCore,
+  previous: DocumentRevision,
+  action: DocumentFormatAction,
+  preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision,
+  previewSyntax: (edits: readonly DocumentSourceEdit[]) => MarkupSyntax
+): DocumentFormatPlan {
+  const selected = action.format === 'image-properties' || !action.tracked || action.format === 'image' || action.selection.kind === 'model-text' ||
+    action.selection.ranges.length !== 1
+    ? undefined
+    : action.selection.ranges[action.selection.primary]
+  const range = selected === undefined ? undefined : { start: Math.min(selected.anchor, selected.focus), end: Math.max(selected.anchor, selected.focus) }
+  const editable = range === undefined ? undefined : trackedEditableSpans(previous, range)
+  if (range === undefined || selected === undefined || action.format === 'image-properties') return planSelectedFormat(core, previous, action, preview, previewSyntax)
+  // Formatting deleted text is a no-op there, as in Google Docs; the rest of
+  // the selection is formatted as usual.
+  const spanned = (spans: readonly SourceRange[]): DocumentFormatPlan => {
+    const editable = spans.filter(span => /\S/u.test(core.sourceSlice(previous, span)))
+    if (editable.length === 0) return Object.freeze({ edits: Object.freeze([]), selection: canonicalSelection({ start: Math.min(selected.anchor, selected.focus), end: Math.max(selected.anchor, selected.focus) }, selected.anchor > selected.focus) })
+    const plans = editable.map(span => planSelectedFormat(core, previous, { ...action, selection: { ranges: [{ anchor: span.start, focus: span.end }], primary: 0 } }, preview, previewSyntax))
+    const edits = plans.flatMap(plan => plan.edits).sort((left, right) => left.start - right.start || left.end - right.end)
+    if (edits.some((edit, index) => index > 0 && edits[index - 1]!.end > edit.start)) throw new RangeError('Formatting edits overlap')
+    const bounds = (plan: DocumentFormatPlan): SourceRange => {
+      const range = 'ranges' in plan.selection ? plan.selection.ranges[plan.selection.primary] : undefined
+      if (range === undefined) throw new RangeError('Tracked formatting has no proven resulting selection')
+      return { start: Math.min(range.anchor, range.focus), end: Math.max(range.anchor, range.focus) }
+    }
+    const last = plans.at(-1)!
+    const before = plans.slice(0, -1).flatMap(plan => plan.edits).reduce((sum, edit) => sum + edit.insert.length - (edit.end - edit.start), 0)
+    return Object.freeze({ edits: Object.freeze(edits), selection: canonicalSelection({ start: bounds(plans[0]!).start, end: bounds(last).end + before }, selected.anchor > selected.focus) })
+  }
+  if (editable?.history === true) return spanned(editable)
+  try {
+    return planSelectedFormat(core, previous, action, preview, previewSyntax)
+  } catch (error) {
+    // A selection enclosing a suggestion formats its proposed text only.
+    const enclosing = editable ?? trackedEditableSpans(previous, range, true)
+    if (!(error instanceof RangeError) || enclosing === undefined) throw error
+    return spanned(enclosing)
+  }
+}
+
+function planSelectedFormat(
   core: DocumentCore,
   previous: DocumentRevision,
   action: DocumentFormatAction,

@@ -37,12 +37,13 @@ describe('native replacement inside an existing pending arm with nested annotati
       .toBe('{~~a{++a++}a~>**X{>>note<<}**~~}\n')
   })
 
-  it('does not change a nested old arm when typing belongs to its proposed sibling', () => {
+  it('types over a nested old arm into its proposed sibling, keeping the deleted text', () => {
+    // Google Docs: typing over deleted text proposes the text at the
+    // selection's start; the deletion stays as it was.
     const core = createDocumentCore()
-    const source = '{~~old~>a{~~old~>new~~}z~~}\n'
-    const revision = core.open(source)
+    const revision = core.open('{~~old~>a{~~old~>new~~}z~~}\n')
     const edit = core.trackedEdit(revision, { start: 12, end: 15, insert: 'X' })
-    expect(edit).toBeUndefined()
-    expect(revision.source).toBe(source)
+    expect(edit).toBeDefined()
+    expect(core.apply(revision, [edit!]).revision.source).toBe('{~~old~>a{~~old~>Xnew~~}z~~}\n')
   })
 })

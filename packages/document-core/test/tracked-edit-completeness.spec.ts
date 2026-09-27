@@ -263,19 +263,29 @@ describe('structural commands compile through the tracked path', () => {
     const action = { kind: 'command', ...command, selection: { ranges: [{ anchor: at, focus: at }], primary: 0 }, options } as DocumentInputAction
     const untrackedCore = createDocumentCore()
     const untrackedPrevious = untrackedCore.open(source)
-    let untrackedEdits: readonly DocumentSourceEdit[] | undefined
-    try {
-      const plan = untrackedCore.planInput(untrackedPrevious, action)
-      if (plan.edits.length === 0) return
-      untrackedEdits = untrackedCore.inputEdits(untrackedPrevious, action, plan, false)
-    } catch {
-      return
-    }
-    if (untrackedEdits === undefined) return
-    const untracked = untrackedCore.apply(untrackedPrevious, untrackedEdits).revision.source
-
     const core = createDocumentCore()
     const previous = core.open(source)
+    let untrackedEdits: readonly DocumentSourceEdit[] | undefined
+    let unavailable: Error | undefined
+    try {
+      untrackedEdits = untrackedCore.inputEdits(untrackedPrevious, action, untrackedCore.planInput(untrackedPrevious, action), false)
+    } catch (error) {
+      unavailable = error as Error
+    }
+    // A command unavailable here untracked (reset outside code, a heading
+    // command outside a paragraph) is unavailable tracked for the same reason.
+    if (unavailable !== undefined) {
+      expect(() => core.inputEdits(previous, action, core.planInput(previous, action), true)).toThrow(unavailable.message)
+      return
+    }
+    expect(untrackedEdits, 'the untracked command is available').toBeDefined()
+    if (untrackedEdits!.length === 0) {
+      // A command with nothing to change untracked changes nothing tracked.
+      expect(core.inputEdits(previous, action, core.planInput(previous, action), true)).toEqual([])
+      return
+    }
+    const untracked = untrackedCore.apply(untrackedPrevious, untrackedEdits!).revision.source
+
     const edits = core.inputEdits(previous, action, core.planInput(previous, action), true)
     expect(edits, 'a tracked command must never be refused').toBeDefined()
     const tracked = core.apply(previous, edits!).revision.source
@@ -289,5 +299,59 @@ describe('structural commands compile through the tracked path', () => {
       expect(rendering(accepted)).toBe(rendering(untracked))
       expect(rendering(rejected)).toBe(rendering(source))
     }
+  })
+})
+
+describe('edits over existing suggestions follow Google Docs (plan 0012 G34)', () => {
+  // Deleted text and annotation syntax are not editable: an edit over them
+  // changes only the rest, so Accept All is the untracked edit of the
+  // visible text (`accepted`) and Reject All the previous Original.
+  const rows: ReadonlyArray<{ name: string, source: string, at: number | readonly [number, number], insert: string, tracked: string, accepted: string }> = [
+    { name: 'Backspace before a deletion extends it leftward', source: 'hell{--o--} world\n', at: [3, 4], insert: '', tracked: 'hel{--lo--} world\n', accepted: 'hel world\n' },
+    { name: 'Delete after a deletion extends it rightward', source: '{--h--}ello\n', at: [7, 8], insert: '', tracked: '{--he--}llo\n', accepted: 'llo\n' },
+    { name: 'a deletion between two deletions joins them', source: 'a{--b--}c{--d--}e\n', at: [8, 9], insert: '', tracked: 'a{--bcd--}e\n', accepted: 'ae\n' },
+    { name: 'a deletion before a Substitution extends its old text', source: 'ab{~~c~>d~~}e\n', at: [1, 2], insert: '', tracked: 'a{~~bc~>d~~}e\n', accepted: 'ade\n' },
+    { name: 'deleting deleted text is a no-op', source: 'the {--slow --}fox\n', at: [8, 10], insert: '', tracked: 'the {--slow --}fox\n', accepted: 'the fox\n' },
+    { name: 'deleting old text is a no-op', source: 'the {~~slow~>fast~~} fox\n', at: [8, 10], insert: '', tracked: 'the {~~slow~>fast~~} fox\n', accepted: 'the fast fox\n' },
+    { name: 'deleting only a delimiter is a no-op', source: 'a{++x++}b\n', at: [6, 7], insert: '', tracked: 'a{++x++}b\n', accepted: 'axb\n' },
+    { name: 'typing before a deletion merges into one Substitution', source: 'he{--llo--} world\n', at: 2, insert: 'Z', tracked: 'he{~~llo~>Z~~} world\n', accepted: 'heZ world\n' },
+    { name: 'typing at a deletion\'s first character merges too', source: 'he{--llo--} world\n', at: 5, insert: 'Z', tracked: 'he{~~llo~>Z~~} world\n', accepted: 'heZ world\n' },
+    { name: 'typing before a deleted block stays its own Addition', source: 'a\n\n{--b\n\nc--}\n', at: 3, insert: 'Z', tracked: 'a\n\n{++Z++}{--b\n\nc--}\n', accepted: 'a\n\nZ\n' },
+    { name: 'typing inside a deletion splits it', source: 'x {--abcd--} y', at: 6, insert: 'X', tracked: 'x {--a--}{++X++}{--bcd--} y', accepted: 'x X y' },
+    { name: 'typing at an old arm\'s end types into the proposed text', source: 'the {~~slow~>fast~~} fox\n', at: 11, insert: 'X', tracked: 'the {~~slow~>Xfast~~} fox\n', accepted: 'the Xfast fox\n' },
+    { name: 'typing at an old arm\'s start types into the proposed text', source: 'the {~~slow~>fast~~} fox\n', at: 7, insert: 'X', tracked: 'the {~~slow~>Xfast~~} fox\n', accepted: 'the Xfast fox\n' },
+    { name: 'typing inside a comment types after it', source: 'a{>>note<<}b\n', at: 5, insert: 'X', tracked: 'a{>>note<<}{++X++}b\n', accepted: 'aXb\n' },
+    { name: 'replacing a selection containing a deletion keeps it inside one replacement', source: 'ab {--cd--} ef\n', at: [1, 13], insert: 'X', tracked: 'a{~~b {--cd--} e~>X~~}f\n', accepted: 'aXf\n' },
+    { name: 'replacing from inside a deletion proposes the rest', source: 'the {--slow --}fox\n', at: [9, 17], insert: 'X', tracked: 'the {--slow --}{~~fo~>X~~}x\n', accepted: 'the Xx\n' },
+    { name: 'replacing to inside a deletion proposes the rest', source: 'the {--slow --}fox\n', at: [1, 9], insert: 'X', tracked: 't{~~he ~>X~~}{--slow --}fox\n', accepted: 'tXfox\n' },
+    { name: 'typing over deleted text only types at the selection start', source: 'the {--slow --}fox\n', at: [8, 10], insert: 'X', tracked: 'the {--s--}{++X++}{--low --}fox\n', accepted: 'the Xfox\n' },
+    { name: 'replacing across a Substitution\'s arms edits the proposed text', source: 'the {~~slow~>fast~~} fox\n', at: [9, 15], insert: 'X', tracked: 'the {~~slow~>Xst~~} fox\n', accepted: 'the Xst fox\n' },
+    { name: 'deleting across one\'s own Addition removes it and strikes the rest', source: 'a {++xy++}cd\n', at: [6, 11], insert: '', tracked: 'a {++x++}{--c--}d\n', accepted: 'a xd\n' },
+    { name: 'deleting across a deletion strikes only the rest', source: 'ab{--cd--}ef\n', at: [1, 11], insert: '', tracked: 'a{--b--}{--cd--}{--e--}f\n', accepted: 'af\n' }
+  ]
+  it.each(rows)('$name', row => {
+    const [start, end] = typeof row.at === 'number' ? [row.at, row.at] : row.at
+    const core = createDocumentCore()
+    const previous = core.open(row.source)
+    const planned = core.trackedEdit(previous, { start, end, insert: row.insert })
+    expect(planned, 'a tracked edit must never be refused').toBeDefined()
+    const unchanged = planned!.start === planned!.end && planned!.insert === ''
+    const next = unchanged ? previous : core.apply(previous, [planned!]).revision
+    expect(next.source).toBe(row.tracked)
+    expect(resolveAll(next.source, 'accept')).toBe(row.accepted)
+    expect(resolveAll(next.source, 'reject')).toBe(resolveAll(row.source, 'reject'))
+    expect(core.project(next, 'original').markdown).toBe(core.project(previous, 'original').markdown)
+    // Each suggestion is reviewed on its own: resolving one leaves the rest formed.
+    for (const [index] of next.annotations.entries()) {
+      for (const decision of ['accept', 'reject'] as const) {
+        const review = createDocumentCore()
+        const opened = review.open(next.source)
+        expect(review.resolve(opened, opened.annotations[index]!, decision).revision.diagnostics).toHaveLength(0)
+      }
+    }
+    if (unchanged) return
+    // Undo restores the exact previous source.
+    const undo = { start: planned!.start, end: planned!.start + planned!.insert.length, insert: row.source.slice(planned!.start, planned!.end) }
+    expect(core.apply(next, [undo]).revision.source).toBe(row.source)
   })
 })

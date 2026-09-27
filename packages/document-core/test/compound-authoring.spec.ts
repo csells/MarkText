@@ -52,13 +52,24 @@ it.each(['markup', 'tracked'] as const)('plans %s container prefixes atomically 
     : '- {++first++}{>>keep note<<}\n{++  ++}- second\n{++  ++}- third\n')
 })
 
-it.each(['markup', 'tracked'] as const)('refuses an unsafe %s batch without advancing the acknowledged lineage', lane => {
+it('refuses an unsafe markup batch without advancing the acknowledged lineage', () => {
   const core = createDocumentCore()
   const source = '{++word++}\nnext\n'
   const revision = core.open(source)
   const edits = [{ start: 1, end: 2, insert: '' }, { start: source.length, end: source.length, insert: '!' }]
-  expect(lane === 'markup' ? core.markupEdits(revision, edits) : core.trackedEdits(revision, edits)).toBeUndefined()
+  expect(core.markupEdits(revision, edits)).toBeUndefined()
   expect(core.apply(revision, [{ start: source.length, end: source.length, insert: '?' }]).revision.source).toBe(source + '?')
+})
+
+it('tracks the rest of a batch that also deletes annotation syntax, leaving that syntax alone', () => {
+  // With Track Changes on, an edit is never refused: annotation delimiters
+  // are not text, so deleting one changes nothing (Google Docs).
+  const core = createDocumentCore()
+  const source = '{++word++}\nnext\n'
+  const revision = core.open(source)
+  const edits = core.trackedEdits(revision, [{ start: 1, end: 2, insert: '' }, { start: source.length, end: source.length, insert: '!' }])
+  expect(edits).toBeDefined()
+  expect(core.apply(revision, edits!).revision.source).toBe('{++word++}\nnext\n{++!++}')
 })
 
 it('accepts adjacent disjoint ranges in a compound ordinary edit', () => {
