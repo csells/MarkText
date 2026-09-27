@@ -379,6 +379,23 @@ const renderSpans = (
   return output.join('')
 }
 
+const COMMENT_NAME_LIMIT = 200
+
+/**
+ * A comment marker has no visible text, so its accessible name carries the
+ * comment itself; long comments are shortened for announcement.
+ */
+export function commentMarkerName(label: string, text: string | undefined): string {
+  const words = text?.replace(/\s+/gu, ' ').trim() ?? ''
+  if (words === '') return label
+  const characters = Array.from(words)
+  const spoken =
+    characters.length > COMMENT_NAME_LIMIT
+      ? `${characters.slice(0, COMMENT_NAME_LIMIT).join('')}…`
+      : words
+  return `${label}: ${spoken}`
+}
+
 /** Presents Core-owned syntax and marks without recognizing flattened Markdown. */
 export function renderMuyaMarkupBinding(
   binding: MuyaMarkupBinding,
@@ -435,7 +452,7 @@ export function renderMuyaMarkupBinding(
     // character to Muya's editable text. Core remains the annotation owner.
     markers.push({
       offset: location.start,
-      html: `<span class="mu-critic-comment-marker mu-remove" contenteditable="false" role="button" tabindex="0" aria-label="${escapeHtml(commentLabel)}" data-critic-kind="comment" data-critic-start="${comment.annotationRange.start - binding.sourceRange.start}" data-critic-end="${comment.annotationRange.end - binding.sourceRange.start}"></span>`
+      html: `<span class="mu-critic-comment-marker mu-remove" contenteditable="false" role="button" tabindex="0" aria-label="${escapeHtml(commentMarkerName(commentLabel, comment.text))}" data-critic-kind="comment" data-critic-start="${comment.annotationRange.start - binding.sourceRange.start}" data-critic-end="${comment.annotationRange.end - binding.sourceRange.start}"></span>`
     })
   }
   for (const decoration of decorations) {

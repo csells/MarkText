@@ -177,6 +177,7 @@ const samePresentation = (before: Entry, after: Entry): boolean => {
     const b = after.comments[index]
     if (
       a.offset !== b.offset ||
+      a.text !== b.text ||
       a.annotationRange.start - left.sourceRange.start !==
         b.annotationRange.start - right.sourceRange.start ||
       a.annotationRange.end - left.sourceRange.start !==

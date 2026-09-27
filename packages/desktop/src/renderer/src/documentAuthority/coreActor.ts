@@ -1250,6 +1250,8 @@ export function createCoreActor(
       }
       if (request.type === 'plain-text-view-at-barrier') {
         const source = revision.source
+        const viewCore = core
+        const viewRevision = revision
         return Object.freeze({
           type: 'plain-text-view',
           session,
@@ -1258,7 +1260,15 @@ export function createCoreActor(
           accepted: true,
           sourceLength: revision.sourceLength,
           source,
-          view: createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, source)
+          view: createMuyaMarkupView(
+            core.project(revision, 'markup'),
+            revision.annotations,
+            source,
+            (comment) =>
+              viewCore.projectComment(viewRevision, comment).ast.root.children
+                .map(consumerSemanticTextOf)
+                .join(' ')
+          )
         })
       }
       if (request.type === 'display-projection-at-barrier') {

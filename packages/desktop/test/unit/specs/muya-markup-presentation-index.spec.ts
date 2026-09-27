@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { createMuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
 import { renderMuyaMarkupBinding } from '@/documentAuthority/muyaMarkupPresentation'
 import { createMuyaMarkupPresentationIndex } from '@/documentAuthority/muyaMarkupPresentationIndex'
+import { createEditorCoreBinding } from '@/documentAuthority/editorCoreBinding'
+import { createLocalCoreOwner } from '@/documentAuthority/localCoreOwner'
 
 describe('Muya Markup presentation index', () => {
   it('uses the rendered Core syntax for inline code and math input boundaries', () => {
@@ -133,6 +135,42 @@ describe('Muya Markup presentation index', () => {
     expect(suggestion?.textContent).toBe('a')
     expect(suggestion?.previousSibling?.textContent).toBe('aa')
     expect(suggestion?.nextSibling?.textContent).toBe('a')
+  })
+
+  it('names each comment marker by its comment text, as the Review card shows it', () => {
+    const binding = createEditorCoreBinding(createLocalCoreOwner())
+    binding.open({
+      documentId: 'marker-name.md',
+      source: 'a{>>check  **this**\n\nsource<<}b{>><<}c'
+    })
+    const reply = binding.plainTextViewAtBarrier()
+    if (reply.type !== 'plain-text-view' || !('state' in reply.view)) {
+      throw new Error('Expected typed view')
+    }
+    const index = createMuyaMarkupPresentationIndex(reply.view, undefined, undefined, 'Comment')
+    const host = document.createElement('div')
+    host.innerHTML = index.render([0, 'text'], 'abc') ?? ''
+    expect(
+      [...host.querySelectorAll('[role="button"]')].map((marker) => marker.getAttribute('aria-label'))
+    ).toEqual(['Comment: check this source', 'Comment'])
+    expect(host.textContent).toBe('abc')
+  })
+
+  it('re-renders a marker whose comment text changed at the same length', () => {
+    const core = createDocumentCore()
+    const viewOf = (source: string) => {
+      const revision = core.open(source)
+      return createMuyaMarkupView(
+        core.project(revision, 'markup'),
+        revision.annotations,
+        source,
+        (comment) => core.sourceSlice(revision, comment.arms[0].range)
+      )
+    }
+    const before = createMuyaMarkupPresentationIndex(viewOf('a{>>old<<}b'), undefined, undefined, 'Comment')
+    const after = createMuyaMarkupPresentationIndex(viewOf('a{>>new<<}b'), before, undefined, 'Comment')
+    expect(after.changedPaths).toContainEqual([0, 'text'])
+    expect(after.render([0, 'text'], 'ab')).toContain('aria-label="Comment: new"')
   })
 
   it('refreshes localized comment names without changing source or reusing the old locale cache', () => {
