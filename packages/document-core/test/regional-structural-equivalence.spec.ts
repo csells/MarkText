@@ -117,7 +117,9 @@ function documentFrom(random: () => number): string {
 }
 
 describe('structural regional edits read as a fresh open', () => {
-  it.each(Array.from({ length: 24 }, (_, seed) => seed + 1))('seed %i', seed => {
+  // Seeds past the first 24 are ones a 4,000-seed run once found diverging.
+  const regressionSeeds = [1012, 1063, 1107, 1139, 1152, 1225, 1261, 1274, 1296]
+  it.each([...Array.from({ length: 24 }, (_, seed) => seed + 1), ...regressionSeeds])('seed %i', seed => {
     const random = lcg(seed * 7919)
     for (let documentIndex = 0; documentIndex < 20; documentIndex += 1) {
       const source = documentFrom(random)
@@ -169,5 +171,16 @@ describe('structural regional edits read as a fresh open', () => {
     step(plain, middle + 3, middle + 3, '\n\n', 'split inside the suggestion')
     step(plain, middle + 3, middle + 5, '', 'join inside the suggestion')
     expect(plain.regional).toBe(3)
+  })
+
+  it('starts a region after a run of blank lines, not inside it', () => {
+    // Which lines of a blank run read as empty paragraphs depends on the whole
+    // run, so a region starting inside it misplaced the suggestion's first line.
+    const source = 'a\n\n\n\n{++\n\nparagraph.++}\n'
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const session: Session = { core, revision, markup: core.project(revision, 'markup'), regional: 0 }
+    step(session, 14, 15, '', 'delete inside a suggestion after a blank run')
+    expect(session.regional).toBe(1)
   })
 })

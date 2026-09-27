@@ -7175,6 +7175,9 @@ export function intrinsicForkSafeSourcePoints(
         previous.containers.length === 0 &&
         next?.start === sourcePoint &&
         next.containers.length === 0 &&
+        // Inside a run of blank lines the run's length decides which of its
+        // lines read as empty paragraphs, so a region may not start there.
+        !next.blank &&
         !literalOverlaps(blank.start, blank.end)
       ) {
         points.add(sourcePoint)
