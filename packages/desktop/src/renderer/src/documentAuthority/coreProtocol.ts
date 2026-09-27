@@ -338,7 +338,11 @@ export type CoreAppliedReply = Readonly<{
   readonly inputResult?: DocumentInputResult
   readonly preparedSelection?: DocumentClipboardSelection
   readonly clipboardResult?: Readonly<{ selection: DocumentSelection }>
-  readonly authorResult?: Readonly<{ selection: Readonly<{ start: number; end: number }> }>
+  readonly authorResult?: Readonly<{
+    selection: Readonly<{ start: number; end: number }>
+    /** The authored spelling adds MarkText-only backslash escapes (ADR 0015). */
+    escaped?: boolean
+  }>
   readonly formatResult?: Readonly<{ selection: DocumentInputSelection }>
 }>
 export type CoreRejectedReply = Readonly<{
