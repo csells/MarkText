@@ -223,6 +223,36 @@ describe('desktop locale validation', () => {
     }
   })
 
+  // Plan 0012 G29: `{==…==}` authoring must not share its name with the
+  // `==mark==` Highlight format command it sits beside in menus and palette.
+  describe('review highlight is named apart from format highlight', () => {
+    for (const lang of locales) {
+      it(`${lang}.json names Highlight for Review distinctly`, () => {
+        const locale = loadLocale(lang)
+        const review = getByPath(locale, 'editor.coreReview.markHighlight') as string
+        const palette = getByPath(locale, 'commands.review.mark-highlight') as string
+        const formats = [
+          getByPath(locale, 'menu.format.highlight'),
+          getByPath(locale, 'commands.format.highlight'),
+          getByPath(locale, 'editor.coreReview.kinds.highlight')
+        ]
+        expect(formats).not.toContain(review)
+        expect(palette.endsWith(`: ${review}`)).toBe(true)
+      })
+    }
+  })
+
+  describe('retired review strings', () => {
+    for (const lang of locales) {
+      it(`${lang}.json has no unused review prompts`, () => {
+        const review = getByPath(loadLocale(lang), 'editor.coreReview') as Record<string, unknown>
+        for (const key of ['selectionHint', 'authorTitle', 'editCommentPrompt']) {
+          expect(review, key).not.toHaveProperty(key)
+        }
+      })
+    }
+  })
+
   describe('no empty values', () => {
     for (const lang of locales) {
       it(`${lang}.json has no empty strings`, () => {
