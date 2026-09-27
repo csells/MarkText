@@ -60,6 +60,8 @@ export interface ProjectedDocumentCount {
 export interface ProjectedTocEntry {
   readonly lvl: number
   readonly content: string
+  /** An ATX heading's text as the Revised Markdown spells it, inline syntax included. */
+  readonly source?: string
   readonly [key: string]: unknown
 }
 
@@ -410,12 +412,38 @@ export function tocProjectedDocument(
     if (node.kind === 'heading') {
       const level = node.attributes['level']
       if (typeof level !== 'number' || !Number.isSafeInteger(level) || level < 1 || level > 6) { throw new Error('Projected Markdown heading has no valid level') }
-      entries.push(Object.freeze({ lvl: level, content: semanticTextOf(node) }))
+      const { contentStart, contentEnd, style } = node.attributes
+      const source =
+        style !== 'setext' && typeof contentStart === 'number' && typeof contentEnd === 'number'
+          ? projection.markdown.slice(contentStart, contentEnd).trim()
+          : ''
+      entries.push(
+        Object.freeze({
+          lvl: level,
+          content: semanticTextOf(node),
+          ...(source === '' ? {} : { source })
+        })
+      )
     }
     for (const child of node.children) visit(child)
   }
   visit(projection.ast.root)
   return Object.freeze(entries)
+}
+
+/**
+ * The name Save suggests for a new file: the text of the shallowest ATX heading,
+ * the first of them at that level, as MarkText has always chosen it.
+ */
+export function recommendedDocumentTitle(
+  toc: readonly Readonly<{ lvl: number | null; source?: string }>[]
+): string {
+  let title: Readonly<{ lvl: number | null; source?: string }> | undefined
+  for (const entry of toc) {
+    if (!entry.source || entry.lvl === null) continue
+    if (title === undefined || entry.lvl < (title.lvl ?? 0)) title = entry
+  }
+  return title?.source ?? ''
 }
 
 export const renderProjectedDocumentHtml = renderMarkdownProjectionToSafeHtml

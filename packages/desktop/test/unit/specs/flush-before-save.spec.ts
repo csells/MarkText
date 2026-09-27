@@ -1361,7 +1361,7 @@ describe('editor store — flush pending edits before saving (#3803)', () => {
     store.LISTEN_FOR_CORE_CONTENT_CHANGE('tab-1', { generation: 1, revision: 2 })
     await store.FILE_SAVE()
     const request = sendSpy.mock.calls.find((call) => call[0] === 'mt::response-file-save')
-    expect(request?.at(-1)).toEqual({ generation: 1, revision: 2 })
+    expect(request?.[7]).toEqual({ generation: 1, revision: 2 })
 
     store.LISTEN_FOR_CORE_CONTENT_CHANGE('tab-1', { generation: 1, revision: 3 })
     saved?.({}, 'tab-1', { generation: 1, revision: 2 })
@@ -1405,7 +1405,7 @@ describe('editor store — flush pending edits before saving (#3803)', () => {
       })
     )
     await store.FILE_SAVE()
-    expect(sendSpy.mock.calls.find((call) => call[0] === 'mt::response-file-save')?.at(-1)).toEqual(
+    expect(sendSpy.mock.calls.find((call) => call[0] === 'mt::response-file-save')?.[7]).toEqual(
       { generation: 41, revision: 2 }
     )
 
@@ -1480,7 +1480,7 @@ describe('editor store — flush pending edits before saving (#3803)', () => {
     const laterSave = sendSpy.mock.calls
       .filter((call) => call[0] === 'mt::response-file-save')
       .at(-1)
-    expect(laterSave?.at(-1)).toEqual({ generation: 1, revision: 3 })
+    expect(laterSave?.[7]).toEqual({ generation: 1, revision: 3 })
     saved?.({}, 'tab-1', { generation: 1, revision: 3 })
     expect(store.currentFile?.isSaved).toBe(true)
   })

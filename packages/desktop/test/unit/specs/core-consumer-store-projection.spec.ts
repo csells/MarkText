@@ -127,4 +127,32 @@ describe('Core consumer projection store seam', () => {
     expect(store.listToc).toEqual([{ lvl: 1, content: 'Current' }])
     expect(tab.markdown).toBe('unobserved')
   })
+
+  it('sends Save the title from the current TOC, not from the saved Markdown', async() => {
+    const store = useEditorStore()
+    const send = vi.fn()
+    window.electron.ipcRenderer.send = send as never
+    const tab = {
+      id: 'title-tab',
+      filename: 'Untitled-1',
+      markdown: '# Draft {++new++}\n',
+      wordCount: {},
+      encoding: { encoding: 'utf8', isBom: false },
+      lineEnding: 'lf',
+      adjustLineEndingOnSave: false,
+      trimTrailingNewline: 2
+    }
+    store.currentFile = tab as never
+    store.tabs = [tab] as never
+    store.tabIdToIndex = { 'title-tab': 0 }
+    store.REGISTER_CORE_SAVE_IDENTITY('title-tab', { generation: 2, revision: 1 })
+    store.UPDATE_CORE_CONSUMER_TOC('title-tab', { generation: 2, revision: 1 }, [
+      { lvl: 2, content: 'Second', source: 'Second' },
+      { lvl: 1, content: 'Draft new', source: 'Draft new' }
+    ])
+
+    await store.FILE_SAVE_AS()
+    expect(send.mock.lastCall?.[0]).toBe('mt::response-file-save-as')
+    expect(send.mock.lastCall?.[8]).toBe('Draft new')
+  })
 })

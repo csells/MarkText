@@ -151,6 +151,8 @@ export interface UnsavedFile {
   options: SaveOptions
   defaultPath?: string
   saveIdentity?: DocumentSaveIdentity
+  /** The name Save suggests for a new file, from the document's headings. */
+  title?: string
 }
 
 export interface BootstrapEditorConfig {
