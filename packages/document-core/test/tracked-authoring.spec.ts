@@ -260,11 +260,12 @@ it.each([
   expect(core.project(next, 'original').markdown).toBe(core.project(revision, 'original').markdown)
 })
 
-it('does not cancel an addition within an existing deleted arm', () => {
+it('leaves an addition within an existing deleted arm deleted, changing nothing', () => {
+  // Google Docs: deleting already deleted text again is a no-op.
   const core = createDocumentCore()
   const revision = core.open('a{--{++b++}--}c')
-  expect(core.trackedEdit(revision, { start: 4, end: 11, insert: '' })).toBeUndefined()
-  expect(revision.source).toBe('a{--{++b++}--}c')
+  expect(core.trackedEdit(revision, { start: 4, end: 11, insert: '' })).toEqual({ start: 4, end: 4, insert: '' })
+  expect(core.trackedEdits(revision, [{ start: 4, end: 11, insert: '' }])).toEqual([])
 })
 
 it.each([

@@ -54,6 +54,24 @@ export interface DocumentInputPlan {
   readonly selection: DocumentInputSelection
   /** Exact edits from the raw native echo domain into the policy-authored domain. */
   readonly reconciliation: readonly DocumentSourceEdit[]
+  /**
+   * The caret after a tracked edit that retains text: a previous-source
+   * position mapped to the near side of the suggestion that now holds it.
+   * Backspace keeps the caret before the text it strikes, Delete after it.
+   */
+  readonly trackedCaret?: Readonly<{ at: number, side: 'before' | 'after', fallback?: true }>
+}
+
+/** The previous-source position of a planned position, after its own inserted text. */
+export function positionBefore(edits: readonly DocumentSourceEdit[], position: number): number {
+  let delta = 0
+  for (const edit of edits) {
+    const start = edit.start + delta
+    if (position < start) break
+    if (position <= start + edit.insert.length) return edit.end
+    delta += edit.insert.length - (edit.end - edit.start)
+  }
+  return position - delta
 }
 
 export interface DocumentSourceInputPlan extends Omit<DocumentInputPlan, 'selection'> {
@@ -487,6 +505,17 @@ export interface DocumentInputResult {
   readonly selection?: DocumentInputSelection
 }
 
+/** Map a position to just after the replacement that contains it. */
+function positionBehind(edits: readonly DocumentSourceEdit[], position: number): number {
+  let delta = 0
+  for (const edit of edits) {
+    if (edit.start >= position) break
+    if (position < edit.end) return edit.start + delta + edit.insert.length
+    delta += edit.insert.length - (edit.end - edit.start)
+  }
+  return position + delta
+}
+
 export function reconcileInput(
   core: DocumentCore, previous: DocumentRevision, policy: DocumentInputPlan, commit: DocumentCommit | null, action: DocumentInputAction
 ): DocumentInputResult {
@@ -506,6 +535,19 @@ export function reconcileInput(
     : edit === undefined
       ? sparseEditingReconciliation(core, previous, policy.edits, commit, 'kind' in action && action.command === 'moveText', policy.editScope ?? 'structure')
       : editingReconciliation(core, previous, edit, commit, codeJoin || 'kind' in action && (action.command === 'changeBlock' || action.command === 'createFootnote' || action.command === 'setCodeLanguage' || action.command === 'createTable' || action.command === 'createFrontMatter' || action.command === 'changeThematicBreak' || action.command === 'createMathBlock' || action.command === 'createHtmlBlock' || action.command === 'createCodeBlock' || action.command === 'wrapCodeBlocks' || action.command === 'resetCodeBlock' || (action.command === 'changeHeading' || action.command === 'changeBlockquote') && action.change.type === 'quick-insert') ? 'structure' : 'visible')
+  // A mapping that cannot place the planned caret inside the result is unproven.
+  const plannedCaret = 'ranges' in policy.selection ? policy.selection.ranges[policy.selection.primary] : undefined
+  const mapped = compilerReconciliation !== undefined && plannedCaret !== undefined
+    ? [plannedCaret.anchor, plannedCaret.focus].every(position => {
+      const at = positionAfter(compilerReconciliation, position, true)
+      return at >= 0 && at <= next.sourceLength
+    })
+    : compilerReconciliation !== undefined
+  const tracked = commit === null || unchanged || policy.trackedCaret?.fallback === true && mapped ? undefined : policy.trackedCaret
+  if (tracked !== undefined && policy.selection.kind !== 'model-text' && policy.selection.kind !== 'table-cell') {
+    const caret = tracked.side === 'before' ? positionAfter(applied, tracked.at, false) : positionBehind(applied, tracked.at)
+    return Object.freeze({ policy, ...(compilerReconciliation === undefined ? {} : { compilerReconciliation }), selection: copyDocumentSelection({ ranges: [{ anchor: caret, focus: caret }], primary: 0 }, next.sourceLength) })
+  }
   if (compilerReconciliation === undefined) return Object.freeze({ policy })
   const deletion = policy.edits.length > 0 && policy.edits.every(edit => edit.insert.length === 0)
   const point = (position: number): number => {

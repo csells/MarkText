@@ -183,31 +183,36 @@ function compiledReplacementReconciliation(
     }
   }
   if (input.start === input.end && applied.start === applied.end && input.insert === applied.insert && input.start !== applied.start) {
-    // Tracked insertion at a suggestion's exterior may extend its existing
-    // content/new arm. Relate those exact owned delimiters to the declared payload;
-    // the unchanged surrounding text is never inferred by diffing projections.
+    // Tracked insertion beside a suggestion may move across its hidden
+    // delimiters and retained history into an existing content/new arm.
+    // Relate that exact hidden source to the declared payload; the unchanged
+    // surrounding text is never inferred by diffing projections.
+    const from = Math.min(input.start, applied.start)
+    const to = Math.max(input.start, applied.start)
+    let hidden = true
+    for (let offset = from; offset < to && hidden; offset += 1) hidden = !visibleAt(previous.annotations, offset)
+    // The payload lands at an edge of a proposed arm, never inside syntax.
     const pending = [...previous.annotations]
-    while (pending.length > 0) {
-      const annotation = pending.pop()
-      if (annotation === undefined) break
+    let armEdge = false
+    while (pending.length > 0 && !armEdge) {
+      const annotation = pending.pop()!
       for (const arm of annotation.arms) pending.push(...arm.annotations)
-      if (annotation.kind !== 'addition' && annotation.kind !== 'substitution') continue
-      const arm = annotation.arms.find(arm => arm.name === (annotation.kind === 'addition' ? 'content' : 'new'))
-      if (arm === undefined) continue
-      if (input.start === annotation.range.start && applied.start === arm.range.start) {
-        const delimiter = core.sourceSlice(previous, { start: annotation.range.start, end: arm.range.start })
-        return Object.freeze([
-          Object.freeze({ start: input.start, end: input.start, insert: delimiter }),
-          Object.freeze({ start: input.start + input.insert.length, end: applied.start + input.insert.length, insert: '' })
+      armEdge = (annotation.kind === 'addition' || annotation.kind === 'substitution') && annotation.arms.some(arm =>
+        arm.name === (annotation.kind === 'addition' ? 'content' : 'new') &&
+        (applied.start > input.start ? arm.range.start : arm.range.end) === applied.start)
+    }
+    if (hidden && armEdge) {
+      const gap = core.sourceSlice(previous, { start: from, end: to })
+      const end = input.start + input.insert.length
+      return applied.start > input.start
+        ? Object.freeze([
+          Object.freeze({ start: input.start, end: input.start, insert: gap }),
+          Object.freeze({ start: end, end: end + gap.length, insert: '' })
         ])
-      }
-      if (input.start === annotation.range.end && applied.start === arm.range.end) {
-        const delimiter = core.sourceSlice(previous, { start: arm.range.end, end: annotation.range.end })
-        return Object.freeze([
+        : Object.freeze([
           Object.freeze({ start: applied.start, end: input.start, insert: '' }),
-          Object.freeze({ start: input.start + input.insert.length, end: input.start + input.insert.length, insert: delimiter })
+          Object.freeze({ start: end, end, insert: gap })
         ])
-      }
     }
   }
   if (input.start < applied.start || input.end > applied.end) {
