@@ -182,11 +182,27 @@ export interface PageOptions {
 
 export type ExportType = 'pdf' | 'html' | 'styledHtml' | 'png' | 'jpeg'
 
+/** One node of Pandoc's JSON AST, as pandoc-types serializes it. */
+export interface PandocJsonNode {
+  t: string
+  c?: unknown
+}
+
+/** A document built as a Pandoc AST rather than read from Markdown. */
+export interface PandocTrackedDocument {
+  blocks: PandocJsonNode[]
+  /** YAML front matter, which becomes the document's metadata as pandoc reads it. */
+  frontMatter?: string
+}
+
 /** Current document handed to the main process for a pandoc export. */
 export interface PandocExportPayload {
   /** One of `PANDOC_EXPORT_FORMATS[].id`. */
   target: string
+  /** The Revised projection; the input unless `document` is present. */
   markdown: string
+  /** Replaces `markdown` as the input when the export carries tracked changes. */
+  document?: PandocTrackedDocument
   /** Names the output when the tab has no path yet. */
   title: string
   /** Folder pandoc resolves the document's relative links against. */

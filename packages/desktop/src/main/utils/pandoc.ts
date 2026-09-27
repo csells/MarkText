@@ -3,6 +3,7 @@ import { spawn } from 'child_process'
 import path from 'path'
 import { isExecutableFile } from 'common/filesystem'
 import { resolveCommand } from './resolveCommand'
+import type { PandocTrackedDocument } from '@shared/types/files'
 import type { PandocCommandInfo } from '@shared/types/pandoc'
 
 const pandocCommand = 'pandoc'
@@ -410,6 +411,40 @@ export const listLinkedMedia = async(input: string, reader: string): Promise<str
     })
     proc.stdin.end(input)
   })
+}
+
+/**
+ * A tracked document as the JSON pandoc reads. The API version is the running
+ * pandoc's, which its JSON reader insists on, and front matter becomes metadata
+ * exactly as the Markdown reader would make it.
+ */
+export const toPandocJson = async(document: PandocTrackedDocument): Promise<string> => {
+  const command = await getCommand()
+  const frontMatter = document.frontMatter ?? ''
+  const header = frontMatter ? `---\n${frontMatter}${frontMatter.endsWith('\n') ? '' : '\n'}---\n` : ''
+  const envelope = await new Promise<string>((resolve, reject) => {
+    const proc = spawn(command, ['-f', 'gfm', '-t', 'json'])
+    let output = ''
+    let errorOutput = ''
+    proc.on('error', reject)
+    proc.stdout.on('data', (chunk: Buffer | string) => {
+      output += chunk.toString()
+    })
+    proc.stderr.on('data', (chunk: Buffer | string) => {
+      errorOutput += chunk.toString()
+    })
+    proc.stdin.on('error', () => {})
+    proc.on('close', (code: number | null) => {
+      if (code === 0) resolve(output)
+      else reject(new Error(errorOutput.trim() || `pandoc exited with code ${String(code)}`))
+    })
+    proc.stdin.end(header)
+  })
+  const { 'pandoc-api-version': version, meta } = JSON.parse(envelope) as {
+    'pandoc-api-version': unknown
+    meta: unknown
+  }
+  return JSON.stringify({ 'pandoc-api-version': version, meta, blocks: document.blocks })
 }
 
 export default pandoc

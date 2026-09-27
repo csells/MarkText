@@ -28,6 +28,8 @@ import {
   type ResolvedSources
 } from './bufferedState'
 import { coreDocumentSaveAuthority } from '../documentAuthority/coreDocumentSaveAuthority'
+import { coreMarkdownOptionsFromPreferences } from '../documentAuthority/coreMarkdownPreferences'
+import { projectPandocExport } from '../documentConsumers/pandocExportProjection'
 import {
   canonicalCoreLineEnding,
   coreDocumentReloadAuthority
@@ -2280,9 +2282,15 @@ export const useEditorStore = defineStore('editor', {
       // Pandoc converts the document the save barrier would write, including
       // edits the store's copy has not seen.
       const pending = withAuthoritativeSaveSource(id, markdown, (source) => {
+        // Pandoc reads what Core makes of the document, never raw CriticMarkup.
+        const input = projectPandocExport(
+          source,
+          coreMarkdownOptionsFromPreferences(preferencesStore),
+          target
+        )
         window.electron.ipcRenderer.send('mt::response-pandoc-export', {
           target,
-          markdown: source,
+          ...input,
           superSubScript: preferencesStore.superSubScript === true,
           footnote: preferencesStore.footnote === true,
           texMathDollars: preferencesStore.texMathDollars === true,
