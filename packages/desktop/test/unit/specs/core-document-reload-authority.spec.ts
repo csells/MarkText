@@ -20,7 +20,6 @@ vi.mock('@/services/notification', () => ({
 }))
 vi.mock('@/store/bufferedState', () => ({ debouncedSendBufferedState: vi.fn() }))
 
-import bus from '@/bus'
 import { useEditorStore } from '@/store/editor'
 import { coreDocumentReloadAuthority } from '@/documentAuthority/coreDocumentReloadAuthority'
 
@@ -83,14 +82,10 @@ describe('Core document external reload authority', () => {
     const publicationOrder: string[] = []
     const replace = vi.fn(async() => {
       await held
-      publicationOrder.push('core')
-      return () => { publicationOrder.push('view') }
+      publicationOrder.push(`core over ${tab.markdown}`)
+      return () => { publicationOrder.push(`view over ${tab.markdown}`) }
     })
     unregister = coreDocumentReloadAuthority.register('reload-id', replace)
-    const emit = vi.spyOn(bus, 'emit')
-    emit.mockImplementation((event) => {
-      if (event === 'file-changed') publicationOrder.push('pinia')
-    })
 
     const reloading = store.loadChange(change)
     expect(reloading).toBeInstanceOf(Promise)
@@ -100,32 +95,21 @@ describe('Core document external reload authority', () => {
       lineEnding: '\r\n'
     })
     expect(tab.markdown).toBe('stale Pinia bytes')
-    expect(emit).not.toHaveBeenCalledWith('file-changed', expect.anything())
 
     release()
     await reloading
     expect(tab.markdown).toBe('exact reload bytes')
-    expect(publicationOrder).toEqual(['core', 'pinia', 'view'])
-    expect(emit).toHaveBeenCalledWith('file-changed', expect.objectContaining({
-      id: 'reload-id',
-      markdown: 'exact reload bytes',
-      isReload: true
-    }))
+    expect(publicationOrder).toEqual(['core over stale Pinia bytes', 'view over exact reload bytes'])
   })
 
   it('keeps legacy reload synchronous when no Core session is registered', () => {
     const { store, tab } = seed()
-    const emit = vi.spyOn(bus, 'emit')
 
     const result = store.loadChange(change)
 
     expect(result).toBeUndefined()
     expect(tab.markdown).toBe('exact reload bytes')
-    expect(emit).toHaveBeenCalledWith('file-changed', expect.objectContaining({
-      id: 'reload-id',
-      markdown: 'exact reload bytes',
-      isReload: true
-    }))
+    expect(store.currentFile?.id).toBe('reload-id')
   })
 
   it('does not reactivate a reload target after the user switches tabs', async() => {
@@ -145,7 +129,6 @@ describe('Core document external reload authority', () => {
       await held
       return () => {}
     })
-    const emit = vi.spyOn(bus, 'emit')
 
     const reloading = store.loadChange(change)
     store.currentFile = otherTab as typeof store.currentFile
@@ -154,10 +137,6 @@ describe('Core document external reload authority', () => {
 
     expect(store.currentFile?.id).toBe('other-id')
     expect(tab.markdown).toBe('exact reload bytes')
-    expect(emit).not.toHaveBeenCalledWith(
-      'file-changed',
-      expect.objectContaining({ id: 'reload-id' })
-    )
   })
 
   it('does not resurrect a reload target closed before publication', async() => {
@@ -168,7 +147,6 @@ describe('Core document external reload authority', () => {
       await held
       return () => {}
     })
-    const emit = vi.spyOn(bus, 'emit')
 
     const reloading = store.loadChange(change)
     store.tabs = []
@@ -179,9 +157,5 @@ describe('Core document external reload authority', () => {
 
     expect(store.tabs).toEqual([])
     expect(store.currentFile).toBeNull()
-    expect(emit).not.toHaveBeenCalledWith(
-      'file-changed',
-      expect.objectContaining({ id: 'reload-id' })
-    )
   })
 })

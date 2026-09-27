@@ -65,7 +65,6 @@
 import { ref, computed } from 'vue'
 import { useEditorStore } from '@/store/editor'
 import { storeToRefs } from 'pinia'
-import bus from '../../bus'
 import { useI18n } from 'vue-i18n'
 import { ArrowRight } from '@element-plus/icons-vue'
 import type { SearchResult, SearchMatch } from './types'
@@ -146,15 +145,6 @@ const handleSearchResultClick = (searchMatch: SearchMatch): void => {
     openedTab.cursor = cursor
     if (currentFile.value !== openedTab) {
       editorStore.UPDATE_CURRENT_FILE(openedTab)
-    } else {
-      const { id, markdown, history } = currentFile.value
-      bus.emit('file-changed', {
-        id,
-        markdown,
-        cursor: currentFile.value.cursor,
-        renderCursor: true,
-        history
-      })
     }
   } else {
     window.electron.ipcRenderer.send('mt::open-file', filePath, {
