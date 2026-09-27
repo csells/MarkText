@@ -55,6 +55,12 @@ describe('CommonMark and upstream agree', () => {
     ['+\n\n+\n', '<ul><li></li><li></li></ul>'],
     ['1.\n\n2.\n', '<ol><li></li><li></li></ol>'],
     ['>\n\n-\n2) d\n', '<blockquote></blockquote><ul><li></li></ul><ol start="2"><li>d</li></ol>'],
+    // A container opened on the line ends the paragraph before it.
+    ['Foo\n>     code\n', '<p>Foo</p><blockquote><pre><code>code </code></pre></blockquote>'],
+    ['- a\n>     code\n', '<ul><li>a</li></ul><blockquote><pre><code>code </code></pre></blockquote>'],
+    // A container marker is not indented code content.
+    ['    x\n>     code\n', '<pre><code>x </code></pre><blockquote><pre><code>code </code></pre></blockquote>'],
+    ['    code\n>\n    code\n', '<pre><code>code </code></pre><blockquote></blockquote><pre><code>code </code></pre>'],
     // A setext heading closes its paragraph, so a following item may start.
     ['Foo\n=\n-\n', '<h1>Foo</h1><ul><li></li></ul>'],
     ['bar\n-\n-\n', '<h2>bar</h2><ul><li></li></ul>'],
@@ -101,6 +107,8 @@ describe('typing these lines reads as a fresh open', () => {
     ['> q\n\n', 4, '='],
     ['> q\n\n', 4, '--'],
     ['-\n\n-\n', 1, 'a'],
+    ['Foo\n\n', 4, '>     code'],
+    ['    x\n\n', 6, '>'],
     ['a {++b++}\n\n', 10, '-'],
     ['{++a++}\n-\n\n{--b--}\n', 8, 'x']
   ])('%j at %i types %j', (source, at, insert) => {
