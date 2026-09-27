@@ -80,3 +80,16 @@ for (const ending of ['\n', '\r\n', '\r']) {
     })
   }
 }
+
+// An Addition whose Revised text needs a protective escape gives the editing
+// view a distinct semantic spine. Blank lines elsewhere still read as the
+// empty paragraphs they are without it: no distant spelling changes them.
+it.each([
+  { source: 'a\n\n\n\nb\n\n{++Whole.+++}+}\n', at: 3 },
+  { source: '{++Whole.+++}+}\n\na\n\n\n\nb\n', at: 20 }
+])('keeps blank-line paragraphs beside a suggestion with a distinct semantic spine: $source', ({ source, at }) => {
+  const core = createDocumentCore()
+  const markup = core.project(core.open(source), 'markup')
+  const empty = emptyParagraphs(markup.syntax.ast.root)
+  expect(empty.map(node => markup.syntax.coordinates.toSource(node.range.start, 'next'))).toEqual([at])
+})

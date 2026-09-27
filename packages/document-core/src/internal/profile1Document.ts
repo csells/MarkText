@@ -5259,6 +5259,7 @@ function parseProfile1DocumentWithExecution(
         role: prepared.traceView,
         forkLane: prepared.forkLane,
         lane: prepared.semanticMarkdownLane,
+        ...(key === rootEditingKey ? { endsAtDocumentEnd } : {}),
         ...(reuseSyntaxFrom === undefined ? {} : { reuseSyntaxFrom: `${reuseSyntaxFrom}:semantic` })
       }))
     }
