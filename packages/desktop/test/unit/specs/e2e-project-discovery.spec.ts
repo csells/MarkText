@@ -43,6 +43,7 @@ describe('public E2E project discovery', () => {
     const output = discover('test:e2e:installed')
     expect(output).toContain('[installed]')
     for (const spec of artifactSpecs) expect(output).toContain(spec)
+    expect(output).toContain('criticmarkup-orphaned-recovery.spec.ts')
     expect(output).not.toContain('criticmarkup-draft-recovery.spec.ts')
   })
 })
