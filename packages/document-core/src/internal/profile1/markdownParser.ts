@@ -3419,7 +3419,11 @@ function parseOrderedContainerSequence(
         break
       }
       let probe = nextLineIndex
-      while (lines[probe]?.blank === true) {
+      // An empty item's marker line is blank too, but it resumes the run.
+      while (
+        lines[probe]?.blank === true &&
+        lines[probe]?.containers.length === 0
+      ) {
         probe += 1
       }
       if ((lines[probe]?.containers.length ?? 0) === 0) {
