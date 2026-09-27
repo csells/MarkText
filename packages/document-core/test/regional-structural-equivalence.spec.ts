@@ -39,6 +39,24 @@ const blocks = [
 
 const insertions = ['x', ' ', '\n', '\n\n', '\n\n\n\n', '{++n++}', '{--d--}', '{++', '++}', '# ', '- ', '    ', '*', '`', '$$', '[r]', '---', '===', '<div>']
 
+// A wider pool: tables, math blocks, quotes, lists, HTML, setext headings,
+// footnotes and references around suggestions, with every delimiter piece.
+const wideBlocks = [
+  ...blocks,
+  '| a | b |\n| --- | --- |\n| {++c++} | d |',
+  '$$\nx {++y++}\n$$',
+  'Math $a$ and `x {++b++}` y.',
+  '> quote {--gone--}\n> more',
+  '1. one {~~a~>b~~}\n2. two',
+  '<div>\n{++html++}\n</div>',
+  'Setext {==hi==}\n===',
+  'Lazy\n- item\ncontinued {>>c<<}',
+  '[^1]: note {++n++}',
+  'Ref [x] {++y++}.\n\n[x]: http://x.y',
+  '- a\n\n  b {--c--}\n- d'
+]
+const wideInsertions = ['$', '`', '``', '> ', '1. ', '|', '<!--', '-->', '{~~', '~>', '~~}', '{>>c<<}', '{==', '==}', '\\', '[^1]', ...insertions]
+
 function applyReplacement(previous: readonly MarkupEvent[], replacement: MarkupRegionReplacement): readonly MarkupEvent[] {
   const delta = replacement.next.source.end - replacement.previous.source.end
   const shift = (range: SourceRange): SourceRange => range.end <= replacement.previous.source.end
@@ -104,11 +122,11 @@ function step(session: Session, start: number, end: number, insert: string, labe
   session.markup = freshMarkup
 }
 
-function documentFrom(random: () => number): string {
+function documentFrom(random: () => number, pool: readonly string[] = blocks): string {
   const count = 3 + Math.floor(random() * 10)
   const parts: string[] = []
   for (let index = 0; index < count; index += 1) {
-    parts.push(blocks[Math.floor(random() * blocks.length)] ?? '')
+    parts.push(pool[Math.floor(random() * pool.length)] ?? '')
     if (random() < 0.15) parts.push('')
   }
   const separator = random() < 0.1 ? '\r\n' : '\n'
@@ -119,10 +137,10 @@ function documentFrom(random: () => number): string {
 describe('structural regional edits read as a fresh open', () => {
   // Seeds past the first 24 are ones a 4,000-seed run once found diverging.
   const regressionSeeds = [1012, 1063, 1107, 1139, 1152, 1225, 1261, 1274, 1296]
-  it.each([...Array.from({ length: 24 }, (_, seed) => seed + 1), ...regressionSeeds])('seed %i', seed => {
+  const fuzz = (seed: number, pool: readonly string[], pieces: readonly string[]): void => {
     const random = lcg(seed * 7919)
     for (let documentIndex = 0; documentIndex < 20; documentIndex += 1) {
-      const source = documentFrom(random)
+      const source = documentFrom(random, pool)
       const core = createDocumentCore()
       const revision = core.open(source)
       const session: Session = { core, revision, markup: core.project(revision, 'markup'), regional: 0 }
@@ -133,7 +151,7 @@ describe('structural regional edits read as a fresh open', () => {
         let end = start
         let insert = ''
         if (choice < 0.55) {
-          insert = insertions[Math.floor(random() * insertions.length)] ?? ''
+          insert = pieces[Math.floor(random() * pieces.length)] ?? ''
         } else if (choice < 0.85) {
           end = Math.min(length, start + 1 + Math.floor(random() * 4))
         } else {
@@ -144,6 +162,14 @@ describe('structural regional edits read as a fresh open', () => {
         step(session, start, end, insert, label)
       }
     }
+  }
+  it.each([...Array.from({ length: 24 }, (_, seed) => seed + 1), ...regressionSeeds])('seed %i', seed => {
+    fuzz(seed, blocks, insertions)
+  })
+  // Seeds past the first 16 once diverged: a stray separator, a definition
+  // read with two extents, and a block start moved inside a window.
+  it.each([...Array.from({ length: 16 }, (_, seed) => seed + 1), 18, 20, 35, 315])('wide seed %i', seed => {
+    fuzz(seed, wideBlocks, wideInsertions)
   })
 
   it('exercises regional splits, joins and new suggestions', () => {
