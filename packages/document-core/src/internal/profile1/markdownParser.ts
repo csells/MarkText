@@ -3209,6 +3209,10 @@ function parseOrderedContainerSequence(
   let paragraphLines: PlainMarkdownLine[] = []
   let literalEnd = -1
   let nextLineIndex = lineIndex
+  // The item whose first paragraph began after a task marker, with that
+  // line as written: a setext underline makes the paragraph a heading, and
+  // then the marker is heading text rather than a task (GFM 5.3).
+  let taskParagraph: Readonly<{ item: MutableContainerNode, line: PlainMarkdownLine }> | undefined
 
   const currentParent = (): MutableContainerNode =>
     stack.at(-1)?.content ?? root
@@ -3832,6 +3836,7 @@ function parseOrderedContainerSequence(
         nextLineIndex += 1
         continue
       }
+      taskParagraph = Object.freeze({ item: parent, line })
     }
     const contentLine =
       taskMarker === undefined
@@ -3874,7 +3879,7 @@ function parseOrderedContainerSequence(
     }
 
     const table = activeMarkdownGfmEnabled
-      ? parseTable(source, lines, nextLineIndex, constructs, referenceDefinitions, boundaryPolicy)
+      ? parseTable(source, lines, nextLineIndex, constructs, referenceDefinitions, boundaryPolicy, literals)
       : undefined
     if (table !== undefined) {
       closeParagraph()
@@ -3893,6 +3898,24 @@ function parseOrderedContainerSequence(
     ) {
       const underlineLevel = setextUnderlineLevel(source, contentLine)
       if (underlineLevel !== undefined) {
+        if (
+          taskParagraph !== undefined &&
+          taskParagraph.item === parent &&
+          parent.children[0] === paragraph
+        ) {
+          const {
+            task: _task,
+            checked: _checked,
+            taskStateStart: _taskStateStart,
+            taskStateEnd: _taskStateEnd,
+            taskMarkerStart: _taskMarkerStart,
+            taskMarkerEnd: _taskMarkerEnd,
+            ...itemAttributes
+          } = parent.attributes
+          parent.attributes = Object.freeze(itemAttributes)
+          paragraphLines[0] = taskParagraph.line
+          paragraph.start = taskParagraph.line.contentOffset
+        }
         const heading = createNode(
           'heading',
           paragraph.start,
@@ -4165,6 +4188,82 @@ function parseTableDelimiter(
   return Object.freeze({ cells, alignments: Object.freeze(alignments) })
 }
 
+const continuesTableContainer = (
+  headerLine: PlainMarkdownLine,
+  line: PlainMarkdownLine
+): boolean =>
+  line.containers.length === headerLine.containers.length &&
+  line.containers.every((descriptor, index) => descriptor.continued &&
+    descriptor.kind === headerLine.containers[index]?.kind)
+
+/** A GFM table's header row and delimiter row, when a table starts at `lineIndex`. */
+function tableHeadAt(
+  source: string,
+  lines: readonly PlainMarkdownLine[],
+  lineIndex: number
+): Readonly<{
+  headerLine: PlainMarkdownLine
+  delimiterLine: PlainMarkdownLine
+  headerCells: readonly TableCellRange[]
+  delimiter: NonNullable<ReturnType<typeof parseTableDelimiter>>
+}> | undefined {
+  const headerLine = lines[lineIndex]
+  const delimiterLine = lines[lineIndex + 1]
+  if (
+    headerLine === undefined ||
+    delimiterLine === undefined ||
+    headerLine.blank ||
+    delimiterLine.blank ||
+    !continuesTableContainer(headerLine, delimiterLine)
+  ) {
+    return undefined
+  }
+  const delimiter = parseTableDelimiter(source, delimiterLine)
+  if (delimiter === undefined) return undefined
+  const headerCells = splitTableCells(source, headerLine)
+  if (headerCells === undefined || headerCells.length !== delimiter.alignments.length) {
+    return undefined
+  }
+  return { headerLine, delimiterLine, headerCells, delimiter }
+}
+
+/** A table body row ends where another block starts (GFM 4.10). */
+function startsBlockInsideTable(
+  source: string,
+  line: PlainMarkdownLine,
+  literals: readonly MappedMarkdownLiteral[],
+  constructs: ReadonlyMap<number, MappedMarkdownLiteral>,
+  referenceDefinitions: MarkdownReferenceDefinitionLookup
+): boolean {
+  if (line.indentation > 3) return false
+  if (isThematicBreakRun(source, line.contentOffset, line.contentEnd)) return true
+  if (parseAtxHeading(source, line.contentOffset, line.contentEnd, constructs, referenceDefinitions) !== undefined) {
+    return true
+  }
+  // Literals are ordered by start; only the first one starting on this
+  // line can open a block here.
+  let low = 0
+  let high = literals.length
+  while (low < high) {
+    const middle = (low + high) >>> 1
+    if ((literals[middle]?.start ?? Number.POSITIVE_INFINITY) < line.start) low = middle + 1
+    else high = middle
+  }
+  for (let index = low; index < literals.length; index += 1) {
+    const candidate = literals[index]
+    if (candidate === undefined || candidate.start > line.contentOffset) break
+    if (
+      (candidate.provider === 'fenced-code' ||
+        candidate.provider === 'html-block' ||
+        candidate.provider === 'diagram') &&
+      candidate.start < line.contentEnd
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
 interface ParsedTable {
   readonly node: MarkdownNode
   readonly nextLineIndex: number
@@ -4176,33 +4275,15 @@ function parseTable(
   lineIndex: number,
   constructs: ReadonlyMap<number, MappedMarkdownLiteral>,
   referenceDefinitions: MarkdownReferenceDefinitionLookup,
-  boundaryPolicy?: InlineBoundaryPolicy
+  boundaryPolicy: InlineBoundaryPolicy | undefined,
+  literals: readonly MappedMarkdownLiteral[]
 ): ParsedTable | undefined {
-  const headerLine = lines[lineIndex]
-  const delimiterLine = lines[lineIndex + 1]
-  if (
-    headerLine === undefined ||
-    delimiterLine === undefined ||
-    headerLine.blank ||
-    delimiterLine.blank
-  ) {
-    return undefined
-  }
+  const head = tableHeadAt(source, lines, lineIndex)
+  if (head === undefined) return undefined
+  const { headerLine, delimiterLine, headerCells, delimiter } = head
+  const { alignments } = delimiter
   const continuesContainer = (line: PlainMarkdownLine): boolean =>
-    line.containers.length === headerLine.containers.length &&
-    line.containers.every((descriptor, index) => descriptor.continued &&
-      descriptor.kind === headerLine.containers[index]?.kind)
-  if (!continuesContainer(delimiterLine)) return undefined
-  const headerCells = splitTableCells(source, headerLine)
-  const delimiter = parseTableDelimiter(source, delimiterLine)
-  const alignments = delimiter?.alignments
-  if (
-    headerCells === undefined ||
-    alignments === undefined || delimiter === undefined ||
-    headerCells.length !== alignments.length
-  ) {
-    return undefined
-  }
+    continuesTableContainer(headerLine, line)
   const rows: MarkdownNode[] = []
   const createRow = (
     line: PlainMarkdownLine,
@@ -4250,7 +4331,12 @@ function parseTable(
   let nextLineIndex = lineIndex + 2
   while (nextLineIndex < lines.length) {
     const line = lines[nextLineIndex]
-    if (line === undefined || line.blank || !continuesContainer(line)) {
+    if (
+      line === undefined ||
+      line.blank ||
+      !continuesContainer(line) ||
+      startsBlockInsideTable(source, line, literals, constructs, referenceDefinitions)
+    ) {
       break
     }
     const cells = splitTableCells(source, line) ?? (() => {
@@ -4355,7 +4441,8 @@ function parseBlocksRegion(
           lineIndex,
           constructs,
           referenceDefinitions,
-          boundaryPolicy
+          boundaryPolicy,
+          literals
         )
         : undefined
     if (table !== undefined) {
@@ -4449,6 +4536,10 @@ function parseBlocksRegion(
         ) !== undefined ||
         (nextLine.listMarkers.length > 0 && !nextLine.blank) ||
         isThematicBreak(source, nextLine) ||
+        // GFM reads a paragraph's last line as the header of a table the
+        // next line delimits, as it does inside containers.
+        (activeMarkdownGfmEnabled &&
+          tableHeadAt(source, lines, nextLineIndex) !== undefined) ||
         literals.some((candidate) =>
           (candidate.provider === 'fenced-code' ||
             candidate.provider === 'html-block' ||
