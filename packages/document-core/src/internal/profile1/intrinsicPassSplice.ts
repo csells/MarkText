@@ -917,7 +917,13 @@ export function spliceIntrinsicFacts(
     const suffixSideTransitions: IntrinsicProfile1LaneTransition[] = []
     const retainsSuffix = bracket.endPrevious < retained.sourceLength
     for (const transition of retainedRoot.transitions) {
-      const extent = transitionExtent(transition)
+      const consumedExtent = transitionExtent(transition)
+      // A finish-lane consumes nothing yet completes the pending last line,
+      // so the facts it emits decide which side of the bracket it is on.
+      let factsEnd = consumedExtent.end
+      for (const line of transition.emittedFacts.lines) factsEnd = Math.max(factsEnd, line.end)
+      for (const literal of transition.emittedFacts.literals) factsEnd = Math.max(factsEnd, literal.end)
+      const extent = Object.freeze({ start: consumedExtent.start, end: factsEnd })
       if (extent.end <= bracket.start) {
         prefixTransitions.push(shiftTransition(transition, 0, remapPrefix))
       } else if (extent.start >= bracket.endPrevious) {
