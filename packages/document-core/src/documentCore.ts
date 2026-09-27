@@ -1,4 +1,5 @@
 import { planAuthor, type DocumentAuthorAction, type DocumentAuthorPlan } from './authorPlanning.js'
+import { commentedSpanSafeClipboard, commentedSpanSafeInput } from './commentedSpans.js'
 import { planCommentEdit, type DocumentCommentAction, type DocumentCommentPlan } from './commentSpelling.js'
 import { planSourceInput, type DocumentSourceInputAction } from './sourceInputPlanning.js'
 import { sourceSyntaxSpans, type DocumentSourceSyntaxSpan } from './sourceSyntax.js'
@@ -4552,7 +4553,7 @@ function createDocumentCoreWithExecutionBudget(
     planClipboard(previous: DocumentRevision, action: DocumentClipboardAction) {
       // Cut and paste change only their own bytes, in a table too (ADR 0007;
       // owner decision 25 Sep, plan 0012 G24).
-      return planUnspelledClipboard(previous, action)
+      return planUnspelledClipboard(previous, commentedSpanSafeClipboard(previous, action))
     },
     planSourceInput(previous: DocumentRevision, action: DocumentSourceInputAction) {
       currentStateOf(previous)
@@ -4567,6 +4568,7 @@ function createDocumentCoreWithExecutionBudget(
     },
     inputEdits(previous: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, tracked: boolean) {
       currentStateOf(previous)
+      action = commentedSpanSafeInput(previous, action)
       const joinSyntax = 'kind' in action && action.command === 'joinParagraphBackward' ? core.project(previous, 'markup').syntax : undefined
       const codeJoin = joinSyntax !== undefined && paragraphBackwardStructuralTarget(joinSyntax,
         joinSyntax.coordinates.toProjected(inputSourceRange(core, previous, action.selection).start, 'next')) !== undefined
@@ -4664,6 +4666,7 @@ function createDocumentCoreWithExecutionBudget(
     },
     planInput(previous: DocumentRevision, action: DocumentInputAction, options?: { readonly tracked?: boolean }) {
       const state = currentStateOf(previous)
+      action = commentedSpanSafeInput(previous, action)
       if ('inputType' in action) preflightSourceEdits(state.source.length, stableSourceEdits([{ ...inputSourceRange(core, previous, action.range), insert: action.data ?? '' }]))
       preflightSourceEdits(state.source.length, stableSourceEdits([{ ...inputSourceRange(core, previous, action.selection), insert: '' }]))
       const plan = planInput(core, previous, action, range => state.productStore.withProduct(products =>
@@ -4674,7 +4677,7 @@ function createDocumentCoreWithExecutionBudget(
     },
     reconcileInput(previous: DocumentRevision, policy: DocumentInputPlan, commit: DocumentCommit | null, action: DocumentInputAction) {
       if (!stateByRevision.has(previous) || commit !== null && !stateByRevision.has(commit.revision)) throw new Error('Document revision belongs to another core')
-      return reconcileInput(core, previous, policy, commit, action)
+      return reconcileInput(core, previous, policy, commit, commentedSpanSafeInput(previous, action))
     },
     editingReconciliation(previous: DocumentRevision, input: DocumentSourceEdit, commit: DocumentCommit) {
       const previousState = stateByRevision.get(previous)
