@@ -193,7 +193,10 @@ for (const example of [
     markdown: '**bold**',
     plainText: 'bold',
     inserted: '**bold**',
-    text: 'seed**bold**'
+    text: 'seed**bold**',
+    // Inline structure inside plain paragraphs is re-proven by its own
+    // paragraphs' regional parse (plan 0012 G35).
+    scope: 'regions'
   }
 ]) {
   it.each(['prepared', 'direct'] as const)(
@@ -234,7 +237,7 @@ for (const example of [
           ).toEqual({ accepted: true, changed: true })
         }
         expect(app.outcome()?.change.projections).toMatchObject([
-          { name: 'markup', scope: 'document' }
+          { name: 'markup', scope: 'scope' in example ? example.scope : 'document' }
         ])
         expect(app.view().bindings.some((binding) => binding.text === example.text)).toBe(true)
         const nextSelection = app.outcome()?.clipboardResult?.selection
