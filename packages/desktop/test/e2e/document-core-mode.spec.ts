@@ -288,7 +288,6 @@ test('Core mode saves a native Source edit from the Core authority', async() => 
       worker: 'dedicated',
       revision: 2,
       sourceLength: source.length,
-      requestedSourceSnapshots: 0,
       change: {
         appliedEdits: [
           {
