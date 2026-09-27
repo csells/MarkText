@@ -216,6 +216,16 @@
                   {{ t('editor.coreReview.reject') }}
                 </button>
                 <button
+                  v-if="coreReviewItem?.kind === 'highlight'"
+                  type="button"
+                  class="button small"
+                  data-testid="critic-review-add-comment"
+                  :disabled="!reviewCommandEnabled('add-comment', coreReviewCommandState)"
+                  @click="commentOnCoreHighlight()"
+                >
+                  {{ t('editor.coreReview.addComment') }}
+                </button>
+                <button
                   v-if="coreReviewHasComment"
                   type="button"
                   class="button small"
@@ -364,6 +374,7 @@ import {
   reviewCommands,
   reviewCommandEnabled,
   type ReviewCommandState,
+  type ReviewContextCommand,
   type ReviewContextRequest,
   type ReviewContextReply,
   type ReviewContextAction
@@ -1969,6 +1980,12 @@ const authorCoreReview = async (
     (selection.anchor.offset === selection.focus.offset &&
       selection.anchor.path.join('/') === selection.focus.path.join('/'))
   ) {
+    // A caret in a standalone highlight comments on that highlight (plan 0012 G16).
+    if (form === 'comment' && coreReviewHighlightTarget.value !== undefined) {
+      coreAuthorInvocationSelection.value = undefined
+      await commentOnCoreHighlight(coreReviewHighlightTarget.value)
+      return
+    }
     latestCorePlainTextChange = Object.freeze({
       result: 'author-unavailable',
       selection
@@ -2024,6 +2041,40 @@ const authorCoreReview = async (
   }
 }
 
+/** The standalone highlight the caret is in, which Add Comment comments on. */
+const coreReviewHighlightTarget = computed(() => {
+  const item = coreReviewItem.value
+  // `{==` and `==}` are six source units; an empty highlight has no text to comment on.
+  return coreReviewTargeted.value && item?.kind === 'highlight' && item.range.end - item.range.start > 6
+    ? item
+    : undefined
+})
+
+/**
+ * Opens the comment composer on a standalone highlight's card. Saving adds a
+ * gapless comment after the highlight, making one commented span (ADR 0003).
+ */
+const commentOnCoreHighlight = async (
+  item: NonNullable<CoreReviewItemReply['item']> | undefined = coreReviewHighlightTarget.value
+): Promise<void> => {
+  const adapter = corePlainTextAdapter
+  if (adapter === undefined || item?.kind !== 'highlight' || coreCommentOpen.value) return
+  await adapter.settled()
+  const state = adapter.state()
+  if (!('revision' in state) || coreCommentOpen.value) return
+  coreCommentTarget.value = {
+    id: `author:highlight-comment:${state.revision}:${item.range.start}:${item.range.end}`,
+    revision: state.revision,
+    text: '',
+    form: 'comment',
+    selection: Object.freeze({ start: item.range.start + 3, end: item.range.end - 3 }),
+    entryStart: item.range.start
+  }
+  coreCommentError.value = ''
+  coreCommentOpen.value = true
+  reviewLayoutStore.SET_LAYOUT({ showSideBar: true, rightColumn: 'review' })
+}
+
 const beginCoreAuthorReview = (
   form: 'addition' | 'comment' | 'highlight' | 'substitution'
 ): void => {
@@ -2033,10 +2084,20 @@ const beginCoreAuthorReview = (
   })
 }
 
+// A selection takes the forms Core can author over it; a caret in a
+// standalone highlight can take a comment on that highlight (plan 0012 G16).
+const coreReviewAuthorForms = computed<readonly CoreAuthorForm[]>(() =>
+  coreAuthorSelection.value !== undefined
+    ? coreAuthorForms.value
+    : coreReviewHighlightTarget.value !== undefined
+      ? ['comment']
+      : []
+)
 const coreReviewCommandState = computed<ReviewCommandState>(() => ({
   available: props.coreLease !== undefined && !sourceCode.value,
   editable: coreDisplayMode.value === 'markup',
-  canAuthor: coreAuthorSelection.value !== undefined && coreAuthorForms.value.length > 0,
+  canAuthor: coreReviewAuthorForms.value.length > 0,
+  authorForms: coreReviewAuthorForms.value,
   canTrack: canToggleCoreTrackChanges({
     enabled: coreTrackChangesEnabled.value,
     editableBindingCount: coreEditableBindingCount.value,
@@ -2209,15 +2270,24 @@ const handleCoreContextRequest = (value: unknown): void => {
       removable: ['comment', 'commented-span', 'highlight'].includes(target.deepest.item.kind),
       hasComment: target.comment !== undefined
     }
-    const commands = (['accept', 'reject', 'remove', 'edit-comment'] as const).filter((command) =>
-      reviewCommandEnabled(command, state)
-    )
+    const commands: ReviewContextCommand[] = (
+      ['accept', 'reject', 'remove', 'edit-comment'] as const
+    ).filter((command) => reviewCommandEnabled(command, state))
+    if (target.deepest.item.kind === 'highlight' && state.editable && !state.busy) {
+      commands.push('add-comment')
+    }
     coreContextSession.set(
       request.requestId,
       { documentId: lease.documentId, revision: reply.revision, lease },
       target
     )
-    return { requestId: request.requestId, commands }
+    return {
+      requestId: request.requestId,
+      commands,
+      labels: {
+        remove: target.deepest.item.kind === 'highlight' ? 'removeHighlight' : 'removeComment'
+      }
+    }
   }
   prepare()
     .then((reply) => window.electron.ipcRenderer.send('mt::review-context-reply', reply))
@@ -2261,6 +2331,12 @@ const handleCoreContextAction = (value: unknown): void => {
     targeted: true,
     removable: ['comment', 'commented-span', 'highlight'].includes(target.deepest.item.kind),
     hasComment: target.comment !== undefined
+  }
+  if (action.command === 'add-comment') {
+    if (!applicability.busy && applicability.editable && target.deepest.item.kind === 'highlight') {
+      commentOnCoreHighlight(target.deepest.item).catch((error) => emit('core-fault', error))
+    }
+    return
   }
   if (!reviewCommandEnabled(action.command, applicability)) return
   coreReviewItem.value = target.deepest.item

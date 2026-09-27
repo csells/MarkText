@@ -38,6 +38,13 @@ export type MuyaPlainTextAuthorSelection = Readonly<{
     readonly offset: number
   }>
 }>
+/**
+ * What review authoring addresses: a Muya selection, or a source range such
+ * as a highlight's text when commenting on the highlight itself.
+ */
+export type MuyaPlainTextAuthorTarget =
+  | MuyaPlainTextAuthorSelection
+  | Readonly<{ readonly start: number; readonly end: number }>
 
 /** Canonical source positions resolved from the current model's rendered DOM. */
 export type MuyaModelInput = DocumentInputAction & Readonly<{ historyGroup?: number }>
@@ -199,7 +206,7 @@ export interface MuyaPlainTextCoreAdapter {
   ): Promise<CoreAppliedReply | undefined>
   author(
     form: CoreAuthorForm,
-    selection: MuyaPlainTextAuthorSelection,
+    target: MuyaPlainTextAuthorTarget,
     text: string,
     reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
   ): Promise<CoreAppliedReply | undefined>
@@ -272,7 +279,7 @@ type PendingCommand =
   | Readonly<{
     readonly kind: 'author'
     readonly form: CoreAuthorForm
-    readonly selection: MuyaPlainTextAuthorSelection
+    readonly selection: MuyaPlainTextAuthorTarget
     readonly text: string
     readonly reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
     readonly resolve: (outcome: CoreAppliedReply | undefined) => void
@@ -426,6 +433,14 @@ export function createMuyaPlainTextCoreAdapter(
   }
   installBindings(bindings)
 
+  const authorSourceRange = (
+    target: MuyaPlainTextAuthorTarget
+  ): Readonly<{ readonly start: number; readonly end: number }> | undefined =>
+    'start' in target
+      ? Number.isSafeInteger(target.start) && Number.isSafeInteger(target.end) && target.start <= target.end
+        ? target
+        : undefined
+      : sourceRangeForSelection(target)
   const sourceRangeForSelection = (
     selection: MuyaPlainTextAuthorSelection,
     allowCollapsed = false,
@@ -567,7 +582,7 @@ export function createMuyaPlainTextCoreAdapter(
     active = command
     latestSubmitted = command
     const authorRange =
-      command.kind === 'author' ? sourceRangeForSelection(command.selection) : undefined
+      command.kind === 'author' ? authorSourceRange(command.selection) : undefined
     if (command.kind === 'author' && authorRange === undefined) {
       active = undefined
       command.resolve(undefined)
@@ -1492,7 +1507,7 @@ export function createMuyaPlainTextCoreAdapter(
     },
     author(
       form: CoreAuthorForm,
-      selection: MuyaPlainTextAuthorSelection,
+      selection: MuyaPlainTextAuthorTarget,
       text: string,
       reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
     ): Promise<CoreAppliedReply | undefined> {
@@ -1502,7 +1517,7 @@ export function createMuyaPlainTextCoreAdapter(
         return Promise.reject(new Error('Core Muya authoring cannot run during composition'))
       }
       if (
-        sourceRangeForSelection(selection) === undefined ||
+        authorSourceRange(selection) === undefined ||
         (form === 'substitution' && text.length === 0)
       ) {
         return Promise.resolve(undefined)
@@ -1520,16 +1535,19 @@ export function createMuyaPlainTextCoreAdapter(
           Object.freeze({
             kind: 'author',
             form,
-            selection: Object.freeze({
-              anchor: Object.freeze({
-                path: Object.freeze([...selection.anchor.path]),
-                offset: selection.anchor.offset
-              }),
-              focus: Object.freeze({
-                path: Object.freeze([...selection.focus.path]),
-                offset: selection.focus.offset
-              })
-            }),
+            selection:
+              'start' in selection
+                ? Object.freeze({ start: selection.start, end: selection.end })
+                : Object.freeze({
+                  anchor: Object.freeze({
+                    path: Object.freeze([...selection.anchor.path]),
+                    offset: selection.anchor.offset
+                  }),
+                  focus: Object.freeze({
+                    path: Object.freeze([...selection.focus.path]),
+                    offset: selection.focus.offset
+                  })
+                }),
             text,
             reconcile,
             resolve,

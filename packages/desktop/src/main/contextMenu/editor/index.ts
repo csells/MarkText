@@ -13,7 +13,7 @@ import {
 } from './menuItems'
 import spellcheckMenuBuilder from './spellcheck'
 import type { ReviewContextReply } from '../../../common/commands/review'
-import { reviewCommands } from '../../../common/commands/review'
+import { reviewCommands, reviewContextLabels, type ReviewContextLabel } from '../../../common/commands/review'
 import { reviewMenuItems } from '../../menu/actions/review'
 import { t } from '../../i18n'
 import { isOsx } from '../../config'
@@ -46,6 +46,10 @@ type ContextMenuEvent = {
   preventDefault?: () => void
   readonly defaultPrevented?: boolean
 }
+
+/** The renderer names only known labels; anything else keeps the command's own. */
+const reviewContextLabel = (label: unknown): ReviewContextLabel | undefined =>
+  reviewContextLabels.find(known => known === label)
 
 // Dynamically fetch menu items to ensure correct translation
 const getContextItems = (): MenuItemConstructorOptions[] => [
@@ -123,9 +127,11 @@ export const showEditorContextMenu = (
       : []
     for (const command of reviewContext?.commands ?? []) {
       const descriptor = reviewCommands.find(item => item.id === command)!
+      // A selection's Add Comment already covers the annotation under it.
+      if (reviewItems.some(item => item.id === `critic-${command}`)) continue
       reviewItems.push({
         id: `critic-${command}`,
-        label: t(`editor.coreReview.${descriptor.label}`),
+        label: t(`editor.coreReview.${reviewContextLabel(reviewContext?.labels?.[command]) ?? descriptor.label}`),
         enabled: true,
         click: () => win.webContents.send('mt::editor-review-context-action', { requestId: reviewContext!.requestId, command })
       })

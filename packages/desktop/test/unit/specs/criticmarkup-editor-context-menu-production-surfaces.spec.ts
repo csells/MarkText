@@ -155,6 +155,35 @@ describe('CriticMarkup editor context-menu production surfaces', () => {
     expect(send.mock.calls).toEqual([['mt::editor-review-context-action', { requestId: 7, command: 'accept' }]])
   })
 
+  // Plan 0012 G16/G29: the menu names removal as the sidebar card does, and
+  // a standalone highlight under the pointer can take a comment.
+  it('names the annotation actions for their target and offers Add Comment on a highlight', () => {
+    showEditorContextMenu(fakeWindow, {}, params(''), true, {
+      requestId: 8,
+      commands: ['remove', 'add-comment'],
+      labels: { remove: 'removeHighlight' }
+    })
+    const remove = required(electron.appended.find(item => item.id === 'critic-remove'), 'critic-remove')
+    expect(remove.label).toBe('editor.coreReview.removeHighlight')
+    const comment = required(electron.appended.find(item => item.id === 'critic-add-comment'), 'critic-add-comment')
+    expect(comment.label).toBe('editor.coreReview.addComment')
+    click(comment)
+    expect(send.mock.calls).toEqual([['mt::editor-review-context-action', { requestId: 8, command: 'add-comment' }]])
+
+    electron.appended.length = 0
+    showEditorContextMenu(fakeWindow, {}, params(''), true, {
+      requestId: 9,
+      commands: ['remove'],
+      labels: { remove: 'not.a.label' as never }
+    })
+    expect(electron.appended.find(item => item.id === 'critic-remove')?.label).toBe('editor.coreReview.removeAnnotation')
+  })
+
+  it('lists Add Comment once when a selection and the annotation under it both offer it', () => {
+    showEditorContextMenu(fakeWindow, {}, params('selected'), true, { requestId: 10, commands: ['add-comment'] })
+    expect(electron.appended.filter(item => item.id === 'critic-add-comment')).toHaveLength(1)
+  })
+
   it('routes spelling root, language, and dictionary surfaces to exact boundaries', () => {
     show('typo', 'typo', [])
     const spelling = electron.appended.find(item => item.label === 'contextMenu.spelling')

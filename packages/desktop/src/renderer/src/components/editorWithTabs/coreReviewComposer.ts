@@ -1,5 +1,5 @@
 import { spellCommentPayload, type MarkdownOptions } from '@marktext/document-core'
-import type { MuyaPlainTextAuthorSelection } from '@/documentAuthority/muyaPlainTextCoreAdapter'
+import type { MuyaPlainTextAuthorTarget } from '@/documentAuthority/muyaPlainTextCoreAdapter'
 import type { CoreReviewItemReply } from '@/documentAuthority/coreProtocol'
 
 export interface CoreReviewComposerState {
@@ -12,7 +12,8 @@ export interface CoreReviewComposerState {
       revision: number
       text: string
       form?: 'comment' | 'substitution'
-      selection?: MuyaPlainTextAuthorSelection
+      /** A new item's text: the editor selection, or a highlight's source text. */
+      selection?: MuyaPlainTextAuthorTarget
       item?: NonNullable<CoreReviewItemReply['item']>
       /** The review entry whose card holds the composer (Google Docs keeps it on its card). */
       entryStart?: number
