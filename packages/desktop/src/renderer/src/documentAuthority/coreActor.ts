@@ -2158,6 +2158,19 @@ export function createCoreActor(
                       ? historyEntry!.undo
                       : historyEntry!.redo
       const editingRevision = revision
+      // Rewriting text with itself, such as typing a selection's own text,
+      // changes nothing and records no undo step, tracked or not. Its commit
+      // still carries the planned selection.
+      const unchangedByEdits =
+        edits!.length > 0 &&
+        edits!.every(
+          (edit) =>
+            edit.start >= 0 &&
+            edit.start <= edit.end &&
+            edit.end <= revision.sourceLength &&
+            edit.end - edit.start === edit.insert.length &&
+            core.sourceSlice(revision, edit) === edit.insert
+        )
       if (
         (request.type === 'source-input' ||
           request.type === 'clipboard' ||
@@ -2399,7 +2412,8 @@ export function createCoreActor(
       }
       revisionNumber += 1
       if (
-        request.type === 'source-input' ||
+        !unchangedByEdits &&
+        (request.type === 'source-input' ||
         request.type === 'clipboard' ||
         request.type === 'format' ||
         request.type === 'input' ||
@@ -2408,7 +2422,7 @@ export function createCoreActor(
         request.type === 'resolve' ||
         request.type === 'author' ||
         request.type === 'edit-comment' ||
-        request.type === 'resolve-all'
+        request.type === 'resolve-all')
       ) {
         const entry = prospectiveEntry!
         redoStack.splice(0)
