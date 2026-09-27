@@ -1,3 +1,4 @@
+import { createTableCellContainment } from './profile1/tableCellContainment.js'
 import type {
   CriticMarkupArm,
   CriticMarkupNode,
@@ -1179,6 +1180,7 @@ function parseIntrinsicProfile1Pass(
     sourceProgression.hasCriticMarkupCandidate,
     physicalRecorder
   )
+  const cellContainment = createTableCellContainment(source, markdownOptions.gfm)
   const roots: CriticMarkupNode[] = []
   const frames: ParseFrame[] = []
   const framesByKind = new Map<ImplementedKind, ParseFrame[]>()
@@ -1302,6 +1304,18 @@ function parseIntrinsicProfile1Pass(
     kind: ImplementedKind,
     start: number
   ): number => sourceProgression.nextCloserStart(kind, start)
+  // Profile rule R3b: an opener whose every later closer would cut through a
+  // table cell can never form, so it degrades to text at once.
+  const closerStandsInRegion = (kind: ImplementedKind, open: SourceRange): boolean => {
+    for (
+      let closer = nextCloserStart(kind, open.end);
+      closer < source.length;
+      closer = nextCloserStart(kind, closer + 1)
+    ) {
+      if (cellContainment.pairs(open, { start: closer, end: closer + 3 })) return true
+    }
+    return false
+  }
   const nextLaneBoundary = (frame: ParseFrame, start: number): number =>
     frame.definition.kind === 'substitution' && frame.separator === undefined
       ? Math.min(
@@ -1482,7 +1496,7 @@ function parseIntrinsicProfile1Pass(
 
     if (
       markerRole === 'open' &&
-      nextCloserStart(kind, run.range.end) >= source.length
+      !closerStandsInRegion(kind, run.range)
     ) {
       // An opener with no later same-form closer can never participate in a
       // valid annotation. Degrade it immediately so it cannot sit on top of
@@ -1573,7 +1587,8 @@ function parseIntrinsicProfile1Pass(
       if (
         frame !== undefined &&
         frame.definition.kind === 'substitution' &&
-        frame.separator === undefined
+        frame.separator === undefined &&
+        cellContainment.pairs(frame.open.range, run.range)
       ) {
         const finishedArm = markdownLane.finishLane(
           frame.currentCheckpoint,
@@ -1645,7 +1660,13 @@ function parseIntrinsicProfile1Pass(
         ? undefined
         : framesByKind.get(kind)?.at(-1)
 
-    if (frame === undefined) {
+    if (
+      frame === undefined ||
+      (
+        frame.definition.kind === kind &&
+        !cellContainment.pairs(frame.open.range, run.range)
+      )
+    ) {
       markerDecisions.push(
         Object.freeze({
           kind,
