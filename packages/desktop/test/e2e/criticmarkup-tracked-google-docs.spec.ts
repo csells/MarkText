@@ -104,6 +104,18 @@ const scenarios: ReadonlyArray<{
     expected: 'hel{--lo--}{~~ w~>Q~~}orld\n'
   },
   {
+    name: 'Enter then typing is one Addition',
+    source: 'Warm editing\n',
+    gestures: async page => {
+      await press(page, 'ArrowRight', 5)
+      await press(page, 'Enter')
+      await page.keyboard.type('ab')
+      await press(page, 'Enter')
+      await page.keyboard.type('c')
+    },
+    expected: 'Warm {++\n\nab\n\nc++}editing\n'
+  },
+  {
     name: 'bold over struck text changes nothing',
     source: 'hello world\n',
     gestures: async page => {

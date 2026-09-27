@@ -320,6 +320,7 @@ describe('edits over existing suggestions follow Google Docs (plan 0012 G34)', (
     { name: 'typing inside a deletion splits it', source: 'x {--abcd--} y', at: 6, insert: 'X', tracked: 'x {--a--}{++X++}{--bcd--} y', accepted: 'x X y' },
     { name: 'typing at an old arm\'s end types into the proposed text', source: 'the {~~slow~>fast~~} fox\n', at: 11, insert: 'X', tracked: 'the {~~slow~>Xfast~~} fox\n', accepted: 'the Xfast fox\n' },
     { name: 'typing at an old arm\'s start types into the proposed text', source: 'the {~~slow~>fast~~} fox\n', at: 7, insert: 'X', tracked: 'the {~~slow~>Xfast~~} fox\n', accepted: 'the Xfast fox\n' },
+    { name: 'typing after a draft that ends with a paragraph break continues it', source: 'Warm {++\n\n++}editing\n', at: 13, insert: 'x', tracked: 'Warm {++\n\nx++}editing\n', accepted: 'Warm \n\nxediting\n' },
     { name: 'typing inside a comment types after it', source: 'a{>>note<<}b\n', at: 5, insert: 'X', tracked: 'a{>>note<<}{++X++}b\n', accepted: 'aXb\n' },
     { name: 'replacing a selection containing a deletion keeps it inside one replacement', source: 'ab {--cd--} ef\n', at: [1, 13], insert: 'X', tracked: 'a{~~b {--cd--} e~>X~~}f\n', accepted: 'aXf\n' },
     { name: 'replacing from inside a deletion proposes the rest', source: 'the {--slow --}fox\n', at: [9, 17], insert: 'X', tracked: 'the {--slow --}{~~fo~>X~~}x\n', accepted: 'the Xx\n' },
