@@ -390,7 +390,15 @@ export function createProjectedSearchReplacementPlan(
 export function countProjectedDocument(
   projection: DocumentConsumerProjection
 ): ProjectedDocumentCount {
-  return Object.freeze(wordCount(projection.markdown))
+  return countProjectedText(projection.markdown)
+}
+
+/**
+ * Counts projected text as MarkText always has, over LF line endings: its
+ * editor held a CRLF document's text with LF breaks.
+ */
+export function countProjectedText(text: string): ProjectedDocumentCount {
+  return Object.freeze(wordCount(text.replace(/\r\n?/gu, '\n')))
 }
 
 /** Derives the export/navigation TOC from heading nodes in projection order. */

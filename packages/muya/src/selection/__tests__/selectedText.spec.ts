@@ -77,6 +77,24 @@ describe('muya.getSelectedText', () => {
         });
     }
 
+    it('reads each selected part through the host reader with the same separators', () => {
+        const muya = boot('First\n\n- beta\n- gamma\n\nLast\n');
+        const first = content(muya, 'First');
+        const last = content(muya, 'Last');
+        muya.editor.selection.setSelection(
+            { block: first, path: first.path, offset: 2 },
+            { block: last, path: last.path, offset: 3 },
+        );
+        const reads: Array<[string, number, number]> = [];
+        const text = muya.getSelectedText((block, start, end) => {
+            reads.push([block.text, start, end]);
+            return block.text.slice(start, end).toUpperCase();
+        });
+
+        expect(text).toBe('RST\n\nBETA\nGAMMA\n\nLAS');
+        expect(reads).toEqual([['First', 2, 5], ['beta', 0, 4], ['gamma', 0, 5], ['Last', 0, 3]]);
+    });
+
     it('returns empty text for a caret, a cleared selection and another editor', () => {
         const muya = boot('Alpha beta\n');
         const block = content(muya, 'Alpha beta');

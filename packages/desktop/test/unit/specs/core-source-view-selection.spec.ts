@@ -18,7 +18,8 @@ import type { DocumentSelection } from '@marktext/document-core'
 import type CodeMirror from 'codemirror'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
 import { muyaClipboardCurrentSelection } from '@/documentAuthority/muyaModelSelection'
-import { matchString, buildRegexValue } from '@muyajs/core'
+import { matchString, buildRegexValue, wordCount } from '@muyajs/core'
+import { countProjectedText } from '@/documentConsumers/documentProjectionConsumers'
 import { scrollSourceEditorToLine } from '@/util/sourceModeToc'
 
 const rect = Object.getOwnPropertyDescriptor(Range.prototype, 'getBoundingClientRect')
@@ -55,7 +56,10 @@ async function mountSource(source: string, selection: DocumentSelection) {
     REFRESH_CORE_SAVED_STATE: vi.fn(),
     UPDATE_CORE_CONSUMER_TOC: vi.fn(),
     UPDATE_CORE_CONSUMER_SEARCH: vi.fn(),
-    SET_SELECTION_WORD_COUNT: vi.fn()
+    selectionWordCount: null as unknown,
+    SET_SELECTION_WORD_COUNT: vi.fn((count: unknown) => {
+      store.selectionWordCount = count
+    })
   })
   const preferences = Vue.reactive({
     theme: 'light',
@@ -69,19 +73,8 @@ async function mountSource(source: string, selection: DocumentSelection) {
     '@/store/editor': { useEditorStore: () => store },
     '@/store/preferences': { usePreferencesStore: () => preferences },
     '../../codeMirror': { __esModule: true, ...codeMirror },
-    '@muyajs/core': {
-      matchString,
-      buildRegexValue,
-      // Only the status bar's count of the selected text (#4457) may count
-      // here; the document count is Core's, and the store has no
-      // LISTEN_FOR_CONTENT_CHANGE for a text-derived one to reach.
-      wordCount: (text: string) => ({
-        word: text.split(/\s+/).filter(Boolean).length,
-        paragraph: 0,
-        character: text.length,
-        all: text.length
-      })
-    },
+    '@muyajs/core': { matchString, buildRegexValue },
+    '@/documentConsumers/documentProjectionConsumers': { countProjectedText },
     '../../bus': { __esModule: true, default: bus },
     '@/config': { oneDarkThemes: [], railscastsThemes: [] },
     '@/documentAuthority': authority,
@@ -137,6 +130,7 @@ async function mountSource(source: string, selection: DocumentSelection) {
     capture: () => exposed.value!.captureDocumentSelection(),
     faults,
     search: store.UPDATE_CORE_CONSUMER_SEARCH,
+    selectionCount: store.SET_SELECTION_WORD_COUNT,
     save: () => manager.saveBarrier(file.id),
     async dispose() {
       await manager.handoff(lease)
@@ -200,6 +194,24 @@ it('Source search navigates canonical raw matches, replaces captures atomically 
     bus.emit('searchValue', { value: '', opt: { selectHighlight: true } })
     app.editor.replaceSelection('X', 'end', '+input')
     expect((await app.save()).source).toBe('12:cat {++34:X++}\n{--56:cat--} 78:cat\n')
+    expect(app.faults).toEqual([])
+  } finally {
+    await app.dispose()
+  }
+})
+
+it('Source counts the selected words Revised shows, not the CriticMarkup source', async() => {
+  const source = 'Keep {--gone--} {++new++} {~~old~>fresh~~} text{>>a note<<}\r\nnext\r\n'
+  const app = await mountSource(source, { ranges: [{ anchor: 0, focus: 0 }], primary: 0 })
+  try {
+    app.editor.execCommand('selectAll')
+    await vi.waitFor(() =>
+      expect(app.selectionCount.mock.lastCall?.[0]).toEqual(
+        wordCount('Keep  new fresh text\nnext\n')
+      )
+    )
+    app.editor.setCursor({ line: 0, ch: 0 })
+    await vi.waitFor(() => expect(app.selectionCount.mock.lastCall?.[0]).toBeNull())
     expect(app.faults).toEqual([])
   } finally {
     await app.dispose()

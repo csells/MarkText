@@ -30,6 +30,14 @@ const debug = logger('textselection:');
 
 // Code, table and tight-list content is newline-separated; anything else needs
 // a blank line, which is also what would re-parse a tight list as loose.
+/**
+ * The text a selected part of one block contributes, between offsets in that
+ * block's own text. A host can read the same range from its document model.
+ */
+export type TSelectedTextOf = (block: Content, start: number, end: number) => string;
+
+const defaultSelectedText: TSelectedTextOf = (block, start, end) => block.text.slice(start, end);
+
 function getTextSeparator(previous: Content, next: Content): string {
     const ancestors = next.getAncestors();
     let container = previous.getAncestors().find(block => ancestors.includes(block));
@@ -230,7 +238,7 @@ class TextSelection {
         };
     }
 
-    getSelectedText(): string {
+    getSelectedText(textOf: TSelectedTextOf = defaultSelectedText): string {
         const selection = this.getSelection();
         if (!selection || selection.isCollapsed)
             return '';
@@ -242,13 +250,13 @@ class TextSelection {
 
         const [start, end] = direction === SelectionDirection.BACKWARD ? [focus, anchor] : [anchor, focus];
         if (start.block === end.block)
-            return start.block.text.slice(start.offset, end.offset);
+            return textOf(start.block, start.offset, end.offset);
 
-        const parts = [start.block.text.slice(start.offset)];
+        const parts = [textOf(start.block, start.offset, start.block.text.length)];
         let previous = start.block;
         let block = previous.nextContentInContext();
         while (block) {
-            parts.push(getTextSeparator(previous, block), block === end.block ? block.text.slice(0, end.offset) : block.text);
+            parts.push(getTextSeparator(previous, block), textOf(block, 0, block === end.block ? end.offset : block.text.length));
             if (block === end.block)
                 return parts.join('');
             previous = block;
