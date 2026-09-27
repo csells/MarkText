@@ -1,6 +1,7 @@
 // List of all static commands that are loaded into command center.
 import bus from '../bus'
-import { reviewCommands } from 'common/commands/review'
+import { reviewCommandEnabled, reviewCommands } from 'common/commands/review'
+import { reviewStatus } from '@/components/editorWithTabs/reviewStatus'
 import { delay, isMac } from '@/util'
 import { isUpdatable } from './utils'
 import getCommandDescriptionById from './descriptions'
@@ -28,6 +29,8 @@ export interface CommandDescriptor {
   description?: string
   shortcut?: string[]
   subcommands?: CommandSubcommand[]
+  /** False while the command does not apply; the palette lists it but will not run it. */
+  enabled?: () => boolean
   execute?: () => void | Promise<void>
   executeSubcommand?: (commandId: string, value?: unknown) => void | Promise<void>
 }
@@ -63,7 +66,9 @@ const commands: CommandDescriptor[] = [
   ...reviewCommands.map(command => ({
     id: `review.${command.id}`,
     description: t(`commands.review.${command.id}`),
-    execute: async() => { bus.emit('review-command', command.id) }
+    enabled: () => reviewCommandEnabled(command.id, reviewStatus.commands),
+    // Return focus to the document the command applies to, as the menu does.
+    execute: async() => focusEditorAndExecute(() => bus.emit('review-command', command.id))
   })),
   // --------------------------------------------------------------------------
   // File
