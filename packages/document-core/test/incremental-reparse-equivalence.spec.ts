@@ -90,3 +90,13 @@ describe('code spans and inline math end with their paragraph', () => {
     expect(blocks(source)).toEqual(kinds)
   })
 })
+
+it('splices a nested suggestion after a paragraph edit', () => {
+  // Arm lanes of nested suggestions number depth first; the splice listed
+  // them breadth first and rejected its own fork graph.
+  const source = 'wo\n\nAn\n\n{~~{++++}~>~~}i'
+  const core = createDocumentCore()
+  const next = core.apply(core.open(source), [{ start: 0, end: 6, insert: '\n\n' }]).revision
+  const fresh = createDocumentCore()
+  expect(reading(core, next)).toEqual(reading(fresh, fresh.open(next.source)))
+})
