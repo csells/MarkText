@@ -787,7 +787,8 @@ export function muyaInputToModel(
         command: input.command,
         identifier: input.identifier,
         selection,
-        options: input.options
+        options: input.options,
+        ...(input.historyGroup === undefined ? {} : { historyGroup: input.historyGroup })
       }
     }
     if (input.command === 'changeBlock') {

@@ -2,6 +2,9 @@
 import { CodeBlockLanguageSelector } from '@muyajs/core'
 import { afterEach, expect, it, vi } from 'vitest'
 import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { undoWindowClock } from '../helpers/separateUndoSteps'
+
+const clock = undoWindowClock()
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -65,6 +68,7 @@ it.each([
       const body = app.muya.editor.selection.getSelection()?.anchor.block
       expect(body?.blockName).toBe('codeblock.content')
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
+      clock.pause()
       body!.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
           inputType: 'insertText',
