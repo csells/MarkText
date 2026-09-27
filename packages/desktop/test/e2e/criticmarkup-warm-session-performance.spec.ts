@@ -23,8 +23,12 @@ const measured = Number(process.env.MARKTEXT_WARM_SAMPLES ?? 40)
 const paragraphCount = Number(process.env.MARKTEXT_WARM_PARAGRAPHS ?? 80)
 const interval = Number(process.env.MARKTEXT_WARM_INTERVAL_MS ?? 80)
 const denseParagraph = 'Review {++new evidence++} alongside {--obsolete details--}, {~~old wording~>better wording~~}, and {==a claim==}{>>Check this source.<<}.'
-const workloads: ReadonlyArray<{ name: string, paragraph: string, tracking: boolean, input?: string, media?: boolean }> = [
-  { name: 'plain', paragraph: 'Writing a useful document takes careful editing and a clear view of the text.', tracking: false },
+const plainParagraph = 'Writing a useful document takes careful editing and a clear view of the text.'
+const workloads: ReadonlyArray<{ name: string, paragraph: string, tracking: boolean, input?: string, media?: boolean, paragraphs?: number }> = [
+  { name: 'plain', paragraph: plainParagraph, tracking: false },
+  // Plan 0012 G35: the first suggestion in a long plain document, then
+  // typing that extends it, with no later suggestion to bound a region.
+  { name: 'plain-1000-tracked', paragraph: plainParagraph, tracking: true, paragraphs: 1000 },
   { name: 'dense-criticmarkup-ordinary', paragraph: denseParagraph, tracking: false },
   { name: 'dense-criticmarkup', paragraph: denseParagraph, tracking: true },
   ...(process.env.MARKTEXT_WARM_EXTENDED === '1'
@@ -68,12 +72,13 @@ test.describe('warm native-keyboard performance', () => {
       test.setTimeout(Math.max(180_000, measured * (interval + 150)))
       const scratch = mkdtempSync(path.join(tmpdir(), `marktext-warm-${workload.name}-`))
       const character = workload.input ?? 'x'
-      const source = ['Warm editing paragraph.', ...Array.from({ length: paragraphCount }, () => workload.paragraph)].join('\n\n') + '\n'
+      const sections = workload.paragraphs ?? paragraphCount
+      const source = ['Warm editing paragraph.', ...Array.from({ length: sections }, () => workload.paragraph)].join('\n\n') + '\n'
       const metadata = {
         startedAt: new Date().toISOString(),
         workload: workload.name,
         sourceUnits: source.length,
-        repeatedSections: paragraphCount,
+        repeatedSections: sections,
         inputText: character,
         sourceSha256: createHash('sha256').update(source).digest('hex'),
         head: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(),
@@ -262,6 +267,73 @@ test.describe('warm native-keyboard performance', () => {
         })).catch(() => ({ unavailable: true }))
         writeFileSync(path.join(scratch, 'failure.json'), JSON.stringify({ error: String(error), runtimeEvents, diagnostic }, null, 2), { flag: 'wx' })
         throw error
+      } finally {
+        await app.close()
+      }
+    })
+  }
+
+  // Plan 0012 G35: Enter splits a paragraph of a long plain document, then a
+  // character goes into the new paragraph. The latency trace pairs only
+  // appended text, so each Enter is timed from the key to the settled
+  // authority, which includes one Playwright round trip.
+  for (const tracking of [false, true]) {
+    test(`enter-plain-1000${tracking ? '-tracked' : ''}`, async() => {
+      test.setTimeout(Math.max(180_000, measured * (interval + 400)))
+      const scratch = mkdtempSync(path.join(tmpdir(), 'marktext-warm-enter-'))
+      const source = ['Warm editing paragraph.', ...Array.from({ length: 1000 }, () => plainParagraph)].join('\n\n') + '\n'
+      const { app, page, filePath } = await launchWithMarkdown(source, {
+        suppressErrorDialog: true,
+        env: {
+          MARKTEXT_E2E_HIDDEN_WINDOW: '1',
+          MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined
+        }
+      })
+      try {
+        await expectEditorWindowHidden(app)
+        expectEditorNotFrontmost(app)
+        const paragraph = page.locator('span.mu-paragraph-content').first()
+        await expect(paragraph).toHaveAttribute('contenteditable', 'true')
+        if (tracking) {
+          const toggle = page.getByTestId('critic-review-track-changes')
+          await toggle.click()
+          await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+        }
+        await paragraph.click()
+        await page.keyboard.press('Home')
+        // Split inside "Warm editing paragraph." so each new paragraph keeps text.
+        for (let index = 0; index < 'Warm '.length; index += 1) await page.keyboard.press('ArrowRight')
+        await page.evaluate(() => window.__marktextDocumentCore?.settled())
+        const enterMs: number[] = []
+        for (let index = 0; index < warmup + measured; index += 1) {
+          const started = await page.evaluate(() => performance.now())
+          await page.keyboard.press('Enter')
+          const settled = await page.evaluate(async() => {
+            await window.__marktextDocumentCore?.settled()
+            return performance.now()
+          })
+          if (index >= warmup) enterMs.push(settled - started)
+          await page.keyboard.type('x', { delay: 0 })
+          await page.evaluate(() => window.__marktextDocumentCore?.settled())
+          await page.waitForTimeout(interval)
+        }
+        const metrics = { enterSettledMs: distribution(enterMs) }
+        await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+        await expect.poll(() => readFileSync(filePath, 'utf8').length).toBeGreaterThan(source.length)
+        const saved = readFileSync(filePath, 'utf8')
+        const accepted = tracking
+          ? saved.replace(/\{\+\+([\s\S]*?)\+\+\}/gu, '$1')
+          : saved
+        writeFileSync(path.join(scratch, 'raw.json'), JSON.stringify({ tracking, metrics, enterMs }, null, 2), { flag: 'wx' })
+        console.log(`[warm] enter-plain-1000${tracking ? '-tracked' : ''}: ${JSON.stringify(metrics)}; raw ${path.join(scratch, 'raw.json')}`)
+        // Each Enter splits before "editing", and each typed character ends
+        // the paragraph that the next Enter splits off.
+        expect(accepted).toBe(source.replace('Warm editing paragraph.',
+          'Warm ' + '\n\nx'.repeat(warmup + measured) + '\n\nediting paragraph.'))
+        expect(metrics.enterSettledMs.p95, 'Enter settled p95 target').toBeLessThanOrEqual(50)
+        await expectNoRendererErrors(app)
+        await expectEditorWindowHidden(app)
+        expectEditorNotFrontmost(app)
       } finally {
         await app.close()
       }
