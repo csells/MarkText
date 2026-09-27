@@ -2829,7 +2829,8 @@ export function createMarkdownLaneState(
           state.lazy ||
           (
             state.continuedContainerDepth === lineContainers.length &&
-            isLazyParagraphContinuation(line.text, state, false)
+            !isSetextUnderline(line.text, state.contentOffset, state.lineContentEnd) &&
+            isLazyParagraphContinuation(line.text, state)
           )
         )
         if (!continues) {
