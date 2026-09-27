@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   installProjectedSelectionClipboardGuard,
+  installUnboundDocumentGuard,
   installUnprovenSelectionClipboardGuard
 } from '@/documentConsumers/projectedClipboardGuard'
 import { createProjectedSelectionClipboardAuthority } from '@/documentConsumers/projectedSelectionClipboardAuthority'
@@ -13,6 +14,28 @@ const projected = () => {
 }
 
 describe('projected clipboard selection guard', () => {
+  it.each(['copy', 'cut', 'paste', 'drop'])(
+    'keeps native %s from Muya while its view has no Core document',
+    (type) => {
+      // Muya listens on the node it mounts inside the guarded surface.
+      const surface = document.createElement('div')
+      const muyaRoot = surface.appendChild(document.createElement('div'))
+      const muya = vi.fn()
+      muyaRoot.addEventListener(type, muya, { capture: true })
+      const uninstall = installUnboundDocumentGuard(surface)
+
+      const guarded = new Event(type, { bubbles: true, cancelable: true })
+      expect(muyaRoot.dispatchEvent(guarded)).toBe(false)
+      expect(muya).not.toHaveBeenCalled()
+
+      uninstall()
+      expect(muyaRoot.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }))).toBe(
+        true
+      )
+      expect(muya).toHaveBeenCalledOnce()
+    }
+  )
+
   it('fails closed for native copy until a selection projection producer exists', () => {
     const target = new EventTarget()
     const observed = vi.fn()

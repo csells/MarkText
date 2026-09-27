@@ -40,3 +40,28 @@ export function installProjectedSelectionClipboardGuard(
 export const installUnprovenSelectionClipboardGuard = (
   target: EventTarget
 ): (() => void) => installProjectedSelectionClipboardGuard(target, () => undefined)
+
+const unboundDocumentEvents = ['paste', 'drop'] as const
+
+/**
+ * A mounted view without a Core document lease owns no document. Guard its
+ * surface, an ancestor of Muya's root so capture runs before Muya's handlers:
+ * copy and cut must not serialize Muya's own tree, and paste or drop must not
+ * reach Muya's Markdown parser.
+ */
+export function installUnboundDocumentGuard(surface: EventTarget): () => void {
+  const uninstallClipboard = installUnprovenSelectionClipboardGuard(surface)
+  const refuse = (event: Event): void => {
+    event.preventDefault()
+    event.stopImmediatePropagation()
+  }
+  for (const type of unboundDocumentEvents) {
+    surface.addEventListener(type, refuse, { capture: true })
+  }
+  return () => {
+    uninstallClipboard()
+    for (const type of unboundDocumentEvents) {
+      surface.removeEventListener(type, refuse, { capture: true })
+    }
+  }
+}

@@ -14,6 +14,7 @@
   >
     <div
       v-show="coreDisplayMode === 'markup'"
+      ref="editorSurfaceRef"
       class="editor-surface"
       @click="selectCoreDocumentAnnotation"
       @keydown.capture="activateCoreCommentMarker"
@@ -376,18 +377,13 @@ import debounce from 'lodash/debounce'
 import {
   Muya,
   wordCount as muyaWordCount,
-  type IHistorySelection,
   type IPreviewDiagramPayload,
   type IMuyaOptions,
-  type IReplaceOption,
-  type ISearchOption,
-  type ISerializedHistory,
   type DocumentInput
 } from '@muyajs/core'
 import { registerDesktopMuyaPlugins } from './muyaPluginRegistration'
 import { getMuyaLocale } from '@/util/muyaLocale'
 import {
-  exportStyledHTML,
   exportStyledHTMLFromProjection,
   type ExportStyledHtmlOptions,
   type HeaderFooterPart
@@ -404,13 +400,13 @@ import {
 } from '@/documentConsumers/projectedSearchReplacementAuthority'
 import {
   installProjectedSelectionClipboardGuard,
+  installUnboundDocumentGuard,
   type ProjectedSelectionClipboardOperation
 } from '@/documentConsumers/projectedClipboardGuard'
 import {
   createProjectedSelectionClipboardAuthority,
   type ProjectedSelectionClipboardAuthority
 } from '@/documentConsumers/projectedSelectionClipboardAuthority'
-import { acceptsRendererDocumentPayload } from '@/documentConsumers/rendererDocumentPayloadPolicy'
 import { createLatestViewRefresh } from '@/documentConsumers/latestViewRefresh'
 import type { CoreRecoveryDraftInput } from '@shared/types/coreRecoveryDraft'
 import {
@@ -418,7 +414,6 @@ import {
   type ProjectedSearchPresentation,
   type ProjectedSearchPresentationBlock
 } from '@/documentConsumers/projectedSearchPresentation'
-import { applyCursor, isIndexCursor } from '@/util/cursor'
 import EditorSearch from '../search/index.vue'
 import MediaViewer from '../mediaViewer/index.vue'
 import CoreReviewCommentEditor from './CoreReviewCommentEditor.vue'
@@ -447,7 +442,6 @@ import { useEditorStore } from '@/store/editor'
 import { useProjectStore } from '@/store/project'
 import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
-import { SyntheticHistory, type IFileHistoryLike } from './syntheticHistory'
 import {
   canToggleCoreTrackChanges,
   createCoreAuthorityPerformanceTrace,
@@ -525,12 +519,8 @@ interface MuyaChange {
 }
 
 const props = defineProps<{
-  markdown?: string
-  cursor?: unknown
-  muyaIndexCursor?: unknown
   textDirection: string
   platform?: string
-  coreRequired?: boolean
   coreLease?: CoreDocumentViewLease
   /** The current document's lease in any view; exports read it while Source view is up. */
   coreDocumentLease?: CoreDocumentViewLease
@@ -609,7 +599,7 @@ const {
 } = storeToRefs(preferencesStore)
 
 // Editor store refs
-const { currentFile, tabs } = storeToRefs(editorStore)
+const { currentFile } = storeToRefs(editorStore)
 
 // Project store refs
 const { projectTree } = storeToRefs(projectStore)
@@ -738,6 +728,7 @@ const coreReviewRemoveLabel = computed(() =>
 let uninstallCoreInputDelivery: (() => void) | undefined
 let coreCompositionRoot: HTMLElement | undefined
 let uninstallCoreSelectionClipboardGuard: (() => void) | undefined
+let uninstallUnboundDocumentGuard: (() => void) | undefined
 let coreSelectionClipboardAuthority: ProjectedSelectionClipboardAuthority | undefined
 let coreSearchPresentation: ProjectedSearchPresentation | undefined
 let coreConsumerInputEpoch = 0
@@ -764,6 +755,7 @@ const tableChecker = reactive({
 const editorRef = ref<HTMLDivElement | null>(null)
 const mediaViewer = ref<InstanceType<typeof MediaViewer> | null>(null)
 const viewerOpen = ref(false)
+const editorSurfaceRef = ref<HTMLDivElement | null>(null)
 const rowInput = ref<InputNumberInstance | null>(null)
 
 // Non-reactive variables
@@ -772,59 +764,6 @@ let spellchecker: SpellChecker | null = null
 let switchLanguageCommand: SpellcheckerLanguageCommand | null = null
 // The engine has no `scroll` event; we listen on the scroll container directly.
 let scrollHandler: ((e: Event) => void) | null = null
-// The engine's undo/redo history (`getHistory()`) has a different shape than
-// the desktop store's `tab.history` (which drives the save/dirty tracking and
-// is migrated separately). We therefore keep the real engine history in a
-// per-tab map here for restoration across in-session tab switches, and feed the
-// store a SYNTHETIC desktop-shaped history.
-const engineHistoryByTab = new Map<string, ISerializedHistory>()
-
-// The WYSIWYG caret captured the instant the user switches INTO source mode.
-// Focus moves to CodeMirror while source mode is up, so by the time the tab is
-// handed back (`replaceContent`) the live DOM selection no longer points into
-// the muya tree. We stash the pre-source caret here and feed it to
-// `replaceContent` as the rebuild boundary's restore-selection, so the first
-// undo after the handoff returns the caret to where source mode was entered.
-let preSourceModeSelection: IHistorySelection | null = null
-
-// Per-tab monotonic save-tracking id allocator. The synthetic history entry id
-// is a MONOTONIC, never-reused id keyed on the live document content (see
-// `syntheticHistory.ts`), NOT the engine undo-stack depth: depth is reused
-// across distinct documents at the same stack height, which falsely showed a
-// divergently re-edited tab as clean (Phase G — G6). Reset whenever the engine
-// reloads the document via `setContent` (which clears the engine history), so
-// the reloaded content is the id-0 baseline matching the store's seeded
-// `lastSavedHistoryId: 0`.
-const syntheticHistoryByTab = new Map<string, SyntheticHistory>()
-const getSyntheticHistory = (id: string, baselineContent: string): SyntheticHistory => {
-  let tracker = syntheticHistoryByTab.get(id)
-  if (!tracker) {
-    tracker = new SyntheticHistory(baselineContent)
-    syntheticHistoryByTab.set(id, tracker)
-  }
-  return tracker
-}
-// Re-baseline a tab's id allocator to the given content (id 0). Called after
-// `setContent` reloads the document so the freshly loaded content is clean.
-const resetSyntheticHistory = (id: string, baselineContent: string): void => {
-  syntheticHistoryByTab.set(id, new SyntheticHistory(baselineContent))
-}
-const makeSyntheticHistory = (id: string, content: string): IFileHistoryLike => {
-  return getSyntheticHistory(id, content).build(content)
-}
-// Drop per-tab bookkeeping for tabs that no longer exist. Tab ids are unique
-// over the session, so without pruning these maps (and the content -> id map
-// each `SyntheticHistory` holds) would grow unbounded as tabs are opened and
-// closed. Driven by a watcher on the store's live tab id set.
-const pruneClosedTabState = (liveTabIds: Set<string>): void => {
-  for (const id of engineHistoryByTab.keys()) {
-    if (!liveTabIds.has(id)) engineHistoryByTab.delete(id)
-  }
-  for (const id of syntheticHistoryByTab.keys()) {
-    if (!liveTabIds.has(id)) syntheticHistoryByTab.delete(id)
-  }
-}
-
 interface SelectionFormatLike {
   type: string
   [key: string]: unknown
@@ -939,16 +878,6 @@ const serializeCursor = (
 }
 
 // Watchers
-// Prune per-tab engine/synthetic history bookkeeping when tabs close, so the
-// maps don't accumulate stale entries (and their content -> id maps) over a long
-// session. Watching the id set keeps this cheap — it only fires on tab add/close.
-watch(
-  () => tabs.value.map((t) => t.id),
-  (ids) => {
-    pruneClosedTabState(new Set(ids))
-  }
-)
-
 watch(typewriter, (value) => {
   if (value) {
     scrollToCursor()
@@ -1071,55 +1000,10 @@ watch(frontmatterType, (value, oldValue) => {
   }
 })
 
-// `setOptions(..., true)` re-renders headings in place without emitting
-// `json-change`, so nothing else refreshes the outline after a toggle.
-const applyOutlineAffectingOption = (options: Partial<IMuyaOptions>): void => {
-  const muya = editor.value
-  if (!muya) return
-  muya.setOptions(options, true)
-  editorStore.REFRESH_TOC(muya.getTOC())
-}
-
-watch(superSubScript, (value, oldValue) => {
-  if (!props.coreRequired && value !== oldValue) applyOutlineAffectingOption({ superSubScript: value })
-})
-
-watch(footnote, (value, oldValue) => {
-  if (!props.coreRequired && value !== oldValue) applyOutlineAffectingOption({ footnote: value })
-})
-
-watch(texMathDollars, (value, oldValue) => {
-  if (!props.coreRequired && value !== oldValue) applyOutlineAffectingOption({ texMathDollars: value })
-})
-
 watch(isHtmlEnabled, (value, oldValue) => {
   if (value !== oldValue && editor.value) {
     editor.value.setOptions({ disableHtml: !value }, true)
   }
-})
-
-watch(texMathGfm, (value, oldValue) => {
-  if (!props.coreRequired && value !== oldValue) applyOutlineAffectingOption({ texMathGfm: value })
-})
-
-watch(texMathSingleBackslash, (value, oldValue) => {
-  if (!props.coreRequired && value !== oldValue) applyOutlineAffectingOption({ texMathSingleBackslash: value })
-})
-
-watch(texMathDoubleBackslash, (value, oldValue) => {
-  if (!props.coreRequired && value !== oldValue) applyOutlineAffectingOption({ texMathDoubleBackslash: value })
-})
-
-watch(highlightSyntax, (value, oldValue) => {
-  if (!props.coreRequired && value !== oldValue) applyOutlineAffectingOption({ highlightSyntax: value })
-})
-
-watch(inlineDiff, (value, oldValue) => {
-  if (!props.coreRequired && value !== oldValue) applyOutlineAffectingOption({ inlineDiff: value })
-})
-
-watch(multilineBlockquote, (value, oldValue) => {
-  if (!props.coreRequired && value !== oldValue) applyOutlineAffectingOption({ multilineBlockquote: value })
 })
 
 watch(softNewlineAsSpace, (value, oldValue) => {
@@ -1272,38 +1156,9 @@ watch(currentFile, (value, oldValue) => {
 watch(
   sourceCode,
   (value, oldValue) => {
-    if (value && value !== oldValue) {
-      // The viewer holds a rendering of a document that is about to stop being
-      // shown, and holds the editor behind it inert while it is up.
-      mediaViewer.value?.close()
-      if (props.coreRequired || props.coreLease !== undefined) return
-      if (editor.value) {
-        editor.value.hideAllFloatTools()
-        // Flush the engine's queued rAF-batch ops into the tab before
-        // sourceCode.vue mounts and snapshots `currentFile.markdown` — an edit
-        // made in the same frame as the mode switch (e.g. a task-checkbox
-        // click) would otherwise be missing from the snapshot, and the swap
-        // back out of source mode cancels the scheduled flush, dropping the
-        // edit permanently. Same guard as saving (#3803) and tab switch
-        // (#2938).
-        editor.value.flush()
-        // Compute the WYSIWYG caret as a source-markdown `{ line, ch }` index
-        // cursor JUST-IN-TIME, only when entering source mode (Phase G — G7),
-        // and write it to the tab before sourceCode.vue mounts (`flush: 'sync'`
-        // runs this before the `v-if`-gated child reads `props.muyaIndexCursor`
-        // in its onMounted). This is the inverse of the `setCursorByOffset`
-        // source -> WYSIWYG path. Computing it here rather than on every
-        // json-change/selection-change avoids serializing the whole document on
-        // each keystroke/caret move, and guarantees a fresh (never stale) value.
-        if (currentFile.value) {
-          currentFile.value.muyaIndexCursor = editor.value.getCursorOffset() ?? null
-        }
-        // Capture the block-key caret too (same fresh selection getCursorOffset
-        // reads) so the post-handoff undo can restore it — see
-        // `preSourceModeSelection`.
-        preSourceModeSelection = editor.value.getSelection()
-      }
-    }
+    // The viewer holds a rendering of a document that is about to stop being
+    // shown, and holds the editor behind it inert while it is up.
+    if (value && value !== oldValue) mediaViewer.value?.close()
   },
   { flush: 'sync' }
 )
@@ -1331,11 +1186,7 @@ const imagePathAutoComplete = async (src: string) => {
   })
 }
 
-const imageAction = async (
-  image: string | File,
-  id: string | null,
-  alt: string = ''
-): Promise<string> => {
+const imageAction = async (image: string | File): Promise<string> => {
   // TODO(Refactor): Refactor this method.
   if (!currentFile.value) return ''
   const { filename, pathname: currentPathname } = currentFile.value
@@ -1440,22 +1291,13 @@ const imageAction = async (
     }
   }
 
-  if (id && sourceCode.value) {
-    bus.emit('image-action', {
-      id,
-      result: destImagePath,
-      alt
-    })
-  }
   return destImagePath
 }
 
 // Adapt the engine's `imageAction` contract (`{ src, alt, title }`) to the
-// desktop's `imageAction(image, id, alt)`. The engine handles a single inline
-// image edit (no `id` round-trip / source-mode bus event), so we pass `null`
-// for `id`.
+// desktop's `imageAction(image)`; the engine keeps the alt text and title.
 const muyaImageAction = (state: { src: string; alt?: string; title?: string }): Promise<string> =>
-  imageAction(state.src, null, state.alt ?? '')
+  imageAction(state.src)
 
 const imagePathPicker = () => {
   return editorStore.ASK_FOR_IMAGE_PATH()
@@ -2415,9 +2257,9 @@ const handleCoreContextAction = (value: unknown): void => {
   }
 }
 
-const handleCoreHistory = (command: 'undo' | 'redo'): boolean => {
+const handleCoreHistory = (command: 'undo' | 'redo'): void => {
   const adapter = corePlainTextAdapter
-  if (adapter === undefined) return false
+  if (adapter === undefined) return
   editor.value?.flush()
   adapter
     .history(command, reconcileCoreHistoryView)
@@ -2443,7 +2285,6 @@ const handleCoreHistory = (command: 'undo' | 'redo'): boolean => {
     .catch((error) => {
       emit('core-fault', error)
     })
-  return true
 }
 
 const handleUndo = () => {
@@ -2451,11 +2292,7 @@ const handleUndo = () => {
     return
   }
 
-  if (handleCoreHistory('undo')) return
-
-  if (editor.value) {
-    editor.value.undo()
-  }
+  handleCoreHistory('undo')
 }
 
 const handleRedo = () => {
@@ -2463,11 +2300,7 @@ const handleRedo = () => {
     return
   }
 
-  if (handleCoreHistory('redo')) return
-
-  if (editor.value) {
-    editor.value.redo()
-  }
+  handleCoreHistory('redo')
 }
 
 const handleSelectAll = () => {
@@ -2570,17 +2403,16 @@ const COPY_PASTE_METHOD_MAP: Record<string, 'copyAsRich' | 'copyAsHtml' | 'paste
   pasteAsPlainText: 'pasteAsPlainText'
 }
 const handleCopyPaste = async (type: unknown): Promise<void> => {
-  if (editor.value) {
-    const method = COPY_PASTE_METHOD_MAP[type as string]
-    if (method === undefined) return
-    if (method === 'pasteAsPlainText' && !markupEditingAvailable.value) return
-    if (props.coreLease !== undefined && method !== 'pasteAsPlainText') {
-      if (await prepareCoreSelectionClipboard(method === 'copyAsHtml' ? 'html' : 'rich')) {
-        document.execCommand('copy')
-      }
-      return
-    }
-    editor.value[method]()
+  const method = COPY_PASTE_METHOD_MAP[type as string]
+  // Without a Core lease this view has no document to copy or paste into;
+  // Muya's own serialization and paste parsing never stand in for Core.
+  if (method === undefined || editor.value === null || props.coreLease === undefined) return
+  if (method === 'pasteAsPlainText') {
+    if (markupEditingAvailable.value) editor.value.pasteAsPlainText()
+    return
+  }
+  if (await prepareCoreSelectionClipboard(method === 'copyAsHtml' ? 'html' : 'rich')) {
+    document.execCommand('copy')
   }
 }
 
@@ -2609,7 +2441,8 @@ const toSearchMatches = (result: unknown) => {
 
 const handleSearch = async (payload: unknown): Promise<void> => {
   if (sourceCode.value) return
-  const { value, opt } = payload as { value: string; opt?: ISearchOption }
+  const { value, opt } = payload as { value: string; opt?: ProjectedSearchOptions }
+  // Search reads only Core's projection; a view without a lease has none.
   if (props.coreLease !== undefined) {
     const inputEpoch = coreConsumerInputEpoch
     const selection =
@@ -2621,15 +2454,11 @@ const handleSearch = async (payload: unknown): Promise<void> => {
     coreSearchSnapshot = undefined
     try {
       const { lease, identity, projection } = await coreProjectionAtBarrier()
-      const result = searchProjectedDocument(
-        projection,
-        value,
-        (opt ?? {}) as ProjectedSearchOptions
-      )
+      const result = searchProjectedDocument(projection, value, opt ?? {})
       coreSearchSnapshot = Object.freeze({
         identity,
         result,
-        options: Object.freeze({ ...((opt ?? {}) as ProjectedSearchOptions) })
+        options: Object.freeze({ ...(opt ?? {}) })
       })
       coreSearchPresentation?.present(result)
       if (selection !== undefined) {
@@ -2649,11 +2478,7 @@ const handleSearch = async (payload: unknown): Promise<void> => {
     } catch (error) {
       if (inputEpoch === coreConsumerInputEpoch) emit('core-fault', error)
     }
-    return
   }
-  if (!editor.value) return
-  editorStore.SEARCH(toSearchMatches(editor.value.search(value, opt)))
-  scrollToHighlight()
 }
 
 const replaceCoreSearch = async (payload: unknown): Promise<void> => {
@@ -2729,14 +2554,8 @@ const replaceCoreSearch = async (payload: unknown): Promise<void> => {
 }
 
 const handReplace = (payload: unknown) => {
-  if (!markupEditingAvailable.value) return
-  if (props.coreLease !== undefined) {
-    replaceCoreSearch(payload).catch((error) => emit('core-fault', error))
-    return
-  }
-  if (!editor.value) return
-  const { value, opt } = payload as { value: string; opt?: IReplaceOption }
-  editorStore.SEARCH(toSearchMatches(editor.value.replace(value, opt)))
+  if (!markupEditingAvailable.value || props.coreLease === undefined) return
+  replaceCoreSearch(payload).catch((error) => emit('core-fault', error))
 }
 
 const handleUploadedImage = (url: unknown, deletionUrl?: unknown) => {
@@ -2816,31 +2635,6 @@ const scrollToCursor = (duration = 300) => {
   })
 }
 
-const scrollToCords = (y: number) => {
-  const container = getScrollContainer()
-  if (!container) return
-  // Depending on how much the user previously scrolled, sometimes the container has not fully rendered all elements.
-  // Hence, container.scrollHeight < [saved scrollTop]
-  // What we need to do is to temporarily add a padding to the container so that we can actually set the scrollTop without getting clamped.
-
-  const maxScrollHeight = container.scrollHeight - container.clientHeight // max scroll height is actually calculated as such
-  if (y > maxScrollHeight) {
-    const editorId = container.firstElementChild as HTMLElement | null
-    if (editorId) {
-      editorId.style.paddingBottom = `${y - maxScrollHeight + 100}px` // 100px is the default editor padding
-      // attach a resize observer so we know when to remove the padding when it is of the "correct" height
-      resizeObserverForEditor.observe(editorId)
-    }
-  }
-  requestAnimationFrame(() => {
-    if (!container) return
-    // wait for the padding to be applied (if any)
-    container.style.visibility = 'visible'
-    container.style.pointerEvents = 'auto'
-    container.scrollTop = y
-  })
-}
-
 // Smoothly scroll the editor so `anchor` sits at the standard caret offset.
 // Shared by search highlights and non-heading in-document anchors.
 const scrollElementIntoView = (anchor: Element | null | undefined, duration = 300) => {
@@ -2904,11 +2698,7 @@ const handleFindAction = (action: unknown) => {
       toSearchMatches(result)
     )
     scrollToHighlight()
-    return
   }
-  if (!editor.value) return
-  editorStore.SEARCH(toSearchMatches(editor.value.find(action as Parameters<Muya['find']>[0])))
-  scrollToHighlight()
 }
 
 interface ExportOptions {
@@ -2942,20 +2732,14 @@ const handleExport = async (options: unknown) => {
     exportOptions: Omit<ExportStyledHtmlOptions, 'toc'>
   ): Promise<string> => {
     const documentLease = props.coreLease ?? props.coreDocumentLease
-    if (documentLease !== undefined) {
-      const projection =
-        documentLease === props.coreLease
-          ? (await coreProjectionAtBarrier()).projection
-          : await documentLease.consumerProjectionAtBarrier()
-      return exportStyledHTMLFromProjection(muya, projection, {
-        ...exportOptions,
-        toc: getHtmlToc([...tocProjectedDocument(projection)], opts as unknown as HtmlTocOptions)
-      })
-    }
-    if (props.coreRequired) throw new Error('Core consumer projection is unavailable')
-    return exportStyledHTML(muya, muya.getMarkdown(), {
+    if (documentLease === undefined) throw new Error('Core consumer projection is unavailable')
+    const projection =
+      documentLease === props.coreLease
+        ? (await coreProjectionAtBarrier()).projection
+        : await documentLease.consumerProjectionAtBarrier()
+    return exportStyledHTMLFromProjection(muya, projection, {
       ...exportOptions,
-      toc: getHtmlToc(muya.getTOC(), opts as unknown as HtmlTocOptions)
+      toc: getHtmlToc([...tocProjectedDocument(projection)], opts as unknown as HtmlTocOptions)
     })
   }
 
@@ -3294,186 +3078,6 @@ const handleDialogTableConfirm = async () => {
   }
 }
 
-interface FileLoadedPayload {
-  id?: string
-  markdown?: string
-  cursor?: unknown
-}
-
-// listen for `open-single-file` event, it will call this method only when open a new file.
-const setMarkdownToEditor = (payload: unknown) => {
-  if (
-    !acceptsRendererDocumentPayload(
-      props.coreRequired || props.coreLease !== undefined ? 'core' : 'legacy'
-    )
-  ) {
-    return
-  }
-  const { id, markdown: newMarkdown, cursor: newCursor } = (payload ?? {}) as FileLoadedPayload
-  if (editor.value) {
-    // `setContent` resets the document and clears the undo history; only set a
-    // cursor afterwards (a freshly-opened file has no history to restore).
-    editor.value.setContent(newMarkdown ?? '')
-    // The freshly loaded content is this tab's clean baseline (id 0). Re-seed
-    // the monotonic save-tracking allocator so undoing an edit back to this
-    // content reads as clean again (matches the store's `lastSavedHistoryId: 0`).
-    // Seed from the engine's OWN serialization of the loaded document (not the
-    // raw payload) so it matches the markdown later emitted on `json-change`
-    // — the engine may normalize trailing newlines / whitespace on round-trip.
-    if (id) {
-      resetSyntheticHistory(id, editor.value.getMarkdown())
-    }
-    if (newCursor) {
-      applyCursor(editor.value, newCursor)
-      // A folder-search jump carries an index cursor; a freshly opened file
-      // starts scrolled to the top, so reveal the resolved caret.
-      if (isIndexCursor(newCursor)) {
-        scrollToCursor()
-      }
-    }
-    // `setContent` rebuilds the block tree synchronously but fires no
-    // `json-change`, so seed the TOC explicitly (otherwise it stays empty until
-    // the first edit, and a file switch keeps the previous file's TOC).
-    editorStore.UPDATE_TOC(editor.value.getTOC())
-    // A freshly created/opened tab should be ready to type into.
-    if (editorStore.TAKE_OPEN_INTENT(currentFile.value?.pathname) !== false) focusFreshEditor()
-  }
-}
-
-interface FileChangePayload {
-  id?: string
-  markdown?: string
-  cursor?: unknown
-  renderCursor?: boolean
-  history?: unknown
-  scrollTop?: number
-  muyaIndexCursor?: unknown
-  blocks?: unknown
-  isReload?: boolean
-}
-
-// listen for markdown change form source mode or change tabs etc
-const handleFileChange = (payload: unknown) => {
-  if (
-    !acceptsRendererDocumentPayload(
-      props.coreRequired || props.coreLease !== undefined ? 'core' : 'legacy'
-    )
-  ) {
-    return
-  }
-  const {
-    id,
-    markdown: newMarkdown,
-    cursor: newCursor,
-    muyaIndexCursor,
-    history: payloadHistory,
-    scrollTop,
-    isReload
-  } = (payload ?? {}) as FileChangePayload
-  if (!editor.value) return
-  const container = getScrollContainer()
-  if (!container) return
-
-  if (typeof newMarkdown === 'string') {
-    // Returning from source-code mode: the WYSIWYG engine is never unmounted
-    // while source mode is up (index.vue overlays it via `v-if`), so it still
-    // holds the PRE-source-mode document and undo history. Record the bulk
-    // source-mode edit as a SINGLE engine undo boundary via `replaceContent`
-    // (PG14 parity): the first Ctrl+Z after the handoff reverts the entire
-    // source-mode change in one step, matching legacy muyajs' full-state
-    // snapshot history. `replaceContent` builds a fully-invertible whole-document
-    // ot-json1 op and applies undo/redo via a full block-tree rebuild (never the
-    // incremental pick/drop walker), so arbitrary block-type changes round-trip
-    // safely.
-    //
-    // Detection: only sourceCode.vue's onBeforeUnmount emits `file-changed` with
-    // a source-mode index cursor AND no block-key `cursor` AND no `history`
-    // (see sourceCode.vue ~L368). Every tab-switch / file-reload emitter in
-    // editor.ts carries both `cursor` and `history` alongside, so requiring
-    // those absent reliably isolates the WYSIWYG<-source handoff from a tab
-    // activation that merely replays a tab's persisted `muyaIndexCursor`.
-    const isSourceModeHandoff =
-      isIndexCursor(muyaIndexCursor) && !newCursor && payloadHistory == null
-
-    if (isSourceModeHandoff) {
-      // Record the bulk source-mode edit as a single undo boundary. When the
-      // document is unchanged this is a no-op (returns false) and the existing
-      // history/content already match — either way the caret still needs
-      // remapping below.
-      editor.value.replaceContent(newMarkdown, preSourceModeSelection)
-      preSourceModeSelection = null
-      editorStore.UPDATE_TOC(editor.value.getTOC())
-      // Map the CodeMirror `{ line, ch }` cursor onto a block-key cursor so the
-      // WYSIWYG caret lands where the source-mode cursor was (PG2).
-      editor.value.setCursorByOffset(muyaIndexCursor)
-    } else if (isReload) {
-      // External disk reload (`loadChange`): the tab is already the live engine
-      // document, so record the new on-disk content as a SINGLE invertible undo
-      // boundary via `replaceContent` (legacy muyajs full-state-snapshot parity)
-      // — the first undo after the reload restores the pre-reload document in one
-      // step. `setContent` would clear the engine history and lose that boundary;
-      // restoring the per-tab engine history (the tab-switch path) would clobber
-      // it too. `replaceContent` preserves the existing undo stack and pushes the
-      // boundary on top.
-      //
-      // The new content is this tab's clean baseline (the store seeds
-      // `lastSavedHistoryId: 0`), so re-seed the save-tracking allocator BEFORE
-      // applying: `replaceContent` fires a SYNCHRONOUS `json-change` that would
-      // otherwise mark the tab dirty against the stale (pre-reload) baseline.
-      if (id) {
-        resetSyntheticHistory(id, newMarkdown)
-      }
-      editor.value.replaceContent(newMarkdown)
-      editorStore.UPDATE_TOC(editor.value.getTOC())
-      if (newCursor) {
-        applyCursor(editor.value, newCursor)
-      }
-    } else {
-      // Tab switch / programmatic content swap: `setContent` replaces the
-      // document and clears history, so restore the real engine history (kept
-      // per-tab) afterwards — preserves undo/redo on in-session tab switch. The
-      // `history` in the payload is the synthetic desktop-shaped history used
-      // for save tracking, not the engine history.
-      editor.value.setContent(newMarkdown)
-      // Tab switch swaps content without firing `json-change`, so re-seed the
-      // TOC (otherwise returning to an open tab keeps the other tab's TOC).
-      editorStore.UPDATE_TOC(editor.value.getTOC())
-      if (newCursor) {
-        applyCursor(editor.value, newCursor)
-      } else if (isIndexCursor(muyaIndexCursor)) {
-        // Source-mode handoff for a tab the engine has no history for (e.g.
-        // first interaction after load): fall back to a caret-only remap. The
-        // engine runs its own setContent dance internally, so restore the
-        // history after.
-        editor.value.setCursorByOffset(muyaIndexCursor)
-      }
-      const savedEngineHistory = id ? engineHistoryByTab.get(id) : undefined
-      if (savedEngineHistory) {
-        editor.value.setHistory(savedEngineHistory)
-      }
-      // First activation of a tab the save-tracking allocator has never seen:
-      // seed its clean baseline from the engine's serialization now, before
-      // any edit. For a tab that already has a tracker this is a no-op —
-      // switching back must keep the existing content -> id map.
-      if (id) {
-        getSyntheticHistory(id, editor.value.getMarkdown())
-      }
-    }
-  } else if (newCursor) {
-    applyCursor(editor.value, newCursor)
-  }
-
-  if (typeof scrollTop === 'number') {
-    container.style.visibility = 'hidden'
-    container.style.pointerEvents = 'none'
-    scrollToCords(scrollTop)
-  } else {
-    container.style.visibility = 'visible'
-    container.style.pointerEvents = 'auto'
-    scrollToCursor(0)
-  }
-}
-
 const handleInsertParagraph = (location: unknown) => {
   if (!markupEditingAvailable.value) return
   editor.value && editor.value.insertParagraph(location as Parameters<Muya['insertParagraph']>[0])
@@ -3496,23 +3100,6 @@ const focusEditor = () => {
   ed.focus()
 }
 
-// Focus a freshly opened/created tab's editor. The sibling `file-changed`
-// handler (emitted first, while the store commits the tab switch) hides the
-// editor and queues a `requestAnimationFrame` via `scrollToCords` to restore
-// it, and focus() is a no-op while the container is `visibility:hidden`. Our
-// rAF is registered after that restore rAF, so it runs once the editor is
-// visible; then take DOM focus (the engine's `focus()` only sets the selection
-// range — the contenteditable also needs focus or no caret blinks) and place
-// the caret at the document start.
-const focusFreshEditor = () => {
-  requestAnimationFrame(() => {
-    const ed = editor.value
-    if (!ed) return
-    ed.domNode.focus()
-    ed.focus()
-  })
-}
-
 // When a focus-trapping modal (the command palette) opens, release the editor's
 // contenteditable focus first. element-plus's el-dialog restores focus to the
 // previously focused element on close; restoring it into the engine's
@@ -3532,20 +3119,6 @@ const handleModalOpening = () => {
 const handleScreenShot = (filePath?: unknown) => {
   if (markupEditingAvailable.value && editor.value && typeof filePath === 'string' && filePath) {
     editor.value.pasteImage(filePath)
-  }
-}
-
-const handleResetPaddingBottom = () => {
-  const container = getScrollContainer()
-  if (!container) return
-  const firstChild = container.firstElementChild as HTMLElement | null
-  if (!firstChild) return
-  const newScrollableHeightWithoutPadding =
-    container.scrollHeight - container.clientHeight - parseFloat(firstChild.style.paddingBottom)
-
-  if (currentFile.value && newScrollableHeightWithoutPadding > currentFile.value.scrollTop) {
-    container.style.paddingBottom = ''
-    resizeObserverForEditor.unobserve(firstChild) // unobserve #ag-editor-id since we have removed the padding
   }
 }
 
@@ -3583,14 +3156,12 @@ watch(
     if (coreReviewLocatedNode !== undefined) revealCoreReviewItem(false)
   }
 )
-const resizeObserverForEditor = new ResizeObserver(handleResetPaddingBottom)
 
 const coreViewDocumentId = props.coreLease?.documentId
 const ownsCurrentDocument = () =>
-  !props.coreRequired ||
-  (coreViewDocumentId !== undefined &&
-    props.coreLease?.documentId === coreViewDocumentId &&
-    currentFile.value?.id === coreViewDocumentId)
+  coreViewDocumentId !== undefined &&
+  props.coreLease?.documentId === coreViewDocumentId &&
+  currentFile.value?.id === coreViewDocumentId
 watch(
   coreReviewCommandState,
   (state) => {
@@ -3640,7 +3211,7 @@ onMounted(() => {
           })),
     focusMode: focus.value,
     // Core parses the document; Muya renders only the Core view's state.
-    markdown: props.coreRequired ? '' : props.markdown,
+    markdown: '',
     locale: getMuyaLocale(language.value),
     preferLooseListItem: preferLooseListItem.value,
     autoPairBracket: autoPairBracket.value,
@@ -3715,24 +3286,17 @@ onMounted(() => {
   muya.init({ focus: takeOpenFocus })
   // A fresh Core mount has no editing authority until its lease and mappings
   // are installed below. Outgoing mounted views keep their captured lease.
-  if (props.coreRequired) muya.setEditablePaths([])
+  muya.setEditablePaths([])
+  // Until a lease mounts this view's successor, nothing here is a document:
+  // native clipboard and drops must not fall through to Muya's own parser.
+  if (props.coreLease === undefined && editorSurfaceRef.value !== null) {
+    uninstallUnboundDocumentGuard = installUnboundDocumentGuard(editorSurfaceRef.value)
+  }
   editor.value = muya
   if (props.corePlainTextView !== undefined) {
     const view = props.corePlainTextView
     muya.setContent(asMuyaStates(structuredClone([...view.state])))
   }
-  // The first document's content is set via constructor options, so no
-  // `file-loaded` / `setMarkdownToEditor` runs for it — seed its TOC here.
-  if (!props.coreRequired && props.coreLease === undefined) editorStore.UPDATE_TOC(muya.getTOC())
-  // Seed the save-tracking baseline for the mount-loaded document (from the
-  // engine's OWN serialization, same reason as setMarkdownToEditor). Without
-  // this the allocator is created lazily on the first `json-change` — i.e.
-  // after the first edit — so the pristine content never maps to id 0 and
-  // undoing back to the on-disk content can never read as clean again (PG15).
-  if (!props.coreRequired && currentFile.value?.id) {
-    getSyntheticHistory(currentFile.value.id, muya.getMarkdown())
-  }
-
   const container = getScrollContainer()!
 
   // Listen for language changes and update the engine locale.
@@ -3750,7 +3314,6 @@ onMounted(() => {
   }
 
   // listen for bus events.
-  bus.on('file-loaded', setMarkdownToEditor)
   bus.on('invalidate-image-cache', handleInvalidateImageCache)
   bus.on('undo', handleUndo)
   bus.on('redo', handleRedo)
@@ -3768,7 +3331,6 @@ onMounted(() => {
   bus.on('find-action', handleFindAction)
   bus.on('insert-image', insertImage)
   bus.on('image-uploaded', handleUploadedImage)
-  bus.on('file-changed', handleFileChange)
   bus.on('flush-active-editor', flushActiveEditor)
   bus.on('editor-blur', blurEditor)
   bus.on('editor-focus', focusEditor)
@@ -3787,11 +3349,6 @@ onMounted(() => {
   bus.on('open-command-spellchecker-switch-language', openSpellcheckerLanguageCommand)
   bus.on('replace-misspelling', replaceMisspelling)
 
-  // The engine emits a low-level `json-change` ({ op, source, prevDoc, doc })
-  // on every document mutation; the desktop's content-change pipeline wants the
-  // derived document snapshot (markdown / word count / cursor / history / TOC /
-  // block AST), so we compute it here — mirroring the legacy engine's
-  // `dispatchChange` payload.
   if (props.coreLease !== undefined && props.corePlainTextView !== undefined) {
     const activeCoreLease = props.coreLease
     coreBoundLease = activeCoreLease
@@ -4474,57 +4031,24 @@ onMounted(() => {
   }
 
   editor.value.on('json-change', (change: unknown) => {
-    if (coreDraftFrozen) return
-    if (props.coreRequired && corePlainTextAdapter === undefined) return
-    // There is a chance that this event is fired AFTER the tab is switched. If we purely rely on this.currentFile later on
-    // it can cause invalid updates. Hence, we need the id to identify changes as part of each tab
-    if (!currentFile.value || !editor.value) return
-    const { id } = currentFile.value
-    if (!id) return
-    if (corePlainTextAdapter !== undefined) {
-      // Applying a document operation patches its view through the native API.
-      // The originating model operation already owns submission and observation.
-      if (
-        change !== null &&
-        typeof change === 'object' &&
-        (change as { source?: unknown }).source === 'api'
-      ) {
-        return
-      }
-      invalidateCoreInputConsumers()
-      // User edits must enter the common model before touching presentation.
-      // An unexpected native mutation is a recoverable fault, never another
-      // opportunity to infer the user's action from a resulting JSON diff.
-      captureRecoveryDraft(new Error('Native document mutation bypassed the document model'))
-      observeCoreInput(
-        corePlainTextAdapter,
-        'unsupported',
-        coreTrackChangesMode?.enabled() ?? false,
-        change
-      )
+    const adapter = corePlainTextAdapter
+    if (coreDraftFrozen || adapter === undefined) return
+    // Applying a document operation patches its view through the native API.
+    // The originating model operation already owns submission and observation.
+    if (
+      change !== null &&
+      typeof change === 'object' &&
+      (change as { source?: unknown }).source === 'api'
+    ) {
       return
     }
-    const markdown = editor.value.getMarkdown()
-    // Stash the real engine history for in-session tab-switch restoration. The
-    // synthetic save-tracking id is derived from the live document content (a
-    // monotonic, never-reused id — see `syntheticHistory.ts`), NOT the engine
-    // undo-stack depth, which is reused and falsely showed a divergently
-    // re-edited tab as clean (Phase G — G6).
-    const engineHistory = editor.value.getHistory()
-    engineHistoryByTab.set(id, engineHistory)
-    editorStore.LISTEN_FOR_CONTENT_CHANGE({
-      id,
-      markdown,
-      wordCount: muyaWordCount(markdown),
-      cursor: serializeCursor(editor.value.getSelection()),
-      // Synthetic, desktop-shaped history so the store's save/dirty tracking
-      // keeps working (the engine history shape is incompatible).
-      history: makeSyntheticHistory(id, markdown),
-      toc: editor.value.getTOC(),
-      blocks: editor.value.getState()
-    })
+    invalidateCoreInputConsumers()
+    // User edits must enter the common model before touching presentation.
+    // An unexpected native mutation is a recoverable fault, never another
+    // opportunity to infer the user's action from a resulting JSON diff.
+    captureRecoveryDraft(new Error('Native document mutation bypassed the document model'))
+    observeCoreInput(adapter, 'unsupported', coreTrackChangesMode?.enabled() ?? false, change)
   })
-
   // The engine does not emit `scroll`; listen on the scroll container directly
   // so the desktop can persist each tab's scroll position.
   scrollHandler = () => {
@@ -4537,19 +4061,17 @@ onMounted(() => {
   // Core owns the anchor spelling; native paths identify the clicked heading.
   editor.value.on(
     'heading-copy-link',
-    ({ key, path }: { key: string; path: readonly (number | string)[] }) => {
-      if (props.coreLease === undefined) editorStore.copyGithubSlug(key)
-      else {
-        const lease = props.coreLease
-        const epoch = coreConsumerInputEpoch
-        refreshCoreConsumerCount().then((refreshed) => {
-          if (!refreshed || props.coreLease !== lease || epoch !== coreConsumerInputEpoch) return
-          const item = editorStore.listToc.find(
-            (entry) => JSON.stringify(entry.nativePath) === JSON.stringify(path)
-          )
-          if (item?.slug !== undefined) editorStore.copyGithubSlug(item.slug)
-        })
-      }
+    ({ path }: { path: readonly (number | string)[] }) => {
+      const lease = props.coreLease
+      if (lease === undefined) return
+      const epoch = coreConsumerInputEpoch
+      refreshCoreConsumerCount().then((refreshed) => {
+        if (!refreshed || props.coreLease !== lease || epoch !== coreConsumerInputEpoch) return
+        const item = editorStore.listToc.find(
+          (entry) => JSON.stringify(entry.nativePath) === JSON.stringify(path)
+        )
+        if (item?.slug !== undefined) editorStore.copyGithubSlug(item.slug)
+      })
     }
   )
 
@@ -4704,9 +4226,7 @@ onMounted(() => {
     ) {
       coreAuthorSelection.value = undefined
     }
-    // Persist the caret so a click/arrow-key move (which never fires
-    // `json-change`) survives an in-session tab switch — `tab.cursor` is what
-    // `handleFileChange` replays on re-activation. Cheap: serialized caret only.
+    // Persist the caret with the tab's buffered state. Cheap: serialized caret only.
     if (currentFile.value?.id && editor.value && ownsCurrentDocument()) {
       editorStore.PERSIST_CURSOR(currentFile.value.id, serializeCursor(editor.value.getSelection()))
     }
@@ -4725,10 +4245,9 @@ onMounted(() => {
       projectSource: true
     })
   } else if (freshDocument) {
-    // Core documents bypass `setMarkdownToEditor`, whose fresh-editor focus
-    // leaves a newly opened document ready to type into at its start. This view
-    // is never hidden, so it takes that focus now rather than a frame later,
-    // through the native boundary its model selection is read from.
+    // A newly opened document is ready to type into at its start. This view is
+    // never hidden, so it takes that focus now, through the native boundary its
+    // model selection is read from.
     const first = muya.editor.scrollPage?.firstContentInDescendant()
     const start =
       first === undefined || first === null
@@ -4738,9 +4257,9 @@ onMounted(() => {
     if (start !== null) muya.editor.selection.setDOMSelection(start, start)
   }
 
-  // Core replaces the mounted view on handoff, bypassing legacy file-changed
-  // restoration. Restore after caret placement without letting a retired view
-  // move the incoming document's viewport.
+  // Core replaces the mounted view on handoff. Restore the tab's scroll position
+  // after caret placement without letting a retired view move the incoming
+  // document's viewport.
   if (coreViewDocumentId !== undefined) {
     requestAnimationFrame(() => {
       if (ownsCurrentDocument() && container.isConnected) {
@@ -4764,6 +4283,8 @@ onBeforeUnmount(() => {
   if (props.coreLease !== undefined) delete window.__marktextDocumentCore
   uninstallCoreSelectionClipboardGuard?.()
   uninstallCoreSelectionClipboardGuard = undefined
+  uninstallUnboundDocumentGuard?.()
+  uninstallUnboundDocumentGuard = undefined
   coreSelectionClipboardAuthority?.reset()
   coreSelectionClipboardAuthority = undefined
   coreSearchPresentation?.clear()
@@ -4771,7 +4292,6 @@ onBeforeUnmount(() => {
   coreSearchProjectionEpoch = -1
   coreSearchSnapshot = undefined
 
-  bus.off('file-loaded', setMarkdownToEditor)
   bus.off('invalidate-image-cache', handleInvalidateImageCache)
   bus.off('undo', handleUndo)
   bus.off('redo', handleRedo)
@@ -4790,7 +4310,6 @@ onBeforeUnmount(() => {
   bus.off('find-action', handleFindAction)
   bus.off('insert-image', insertImage)
   bus.off('image-uploaded', handleUploadedImage)
-  bus.off('file-changed', handleFileChange)
   bus.off('flush-active-editor', flushActiveEditor)
   bus.off('editor-blur', blurEditor)
   bus.off('editor-focus', focusEditor)
@@ -4821,7 +4340,6 @@ onBeforeUnmount(() => {
   }
   scrollHandler = null
 
-  resizeObserverForEditor.disconnect()
   coreReviewLocatedNode?.classList.remove('core-review-current-block')
 
   if (editor.value) {
