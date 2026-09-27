@@ -33,6 +33,15 @@ describe('review command availability', () => {
     expect(reviewCommandEnabled('accept-all', { ...markup, targeted: false })).toBe(true)
     expect(reviewCommandEnabled('next', { ...markup, targeted: false })).toBe(true)
   })
+  it('enables only the authoring forms available now (plan 0012 G16)', () => {
+    const caretInHighlight = { ...markup, authorForms: ['comment'] as const }
+    expect(reviewCommandEnabled('add-comment', caretInHighlight)).toBe(true)
+    for (const command of ['mark-highlight', 'mark-addition', 'suggest-replacement'] as const) {
+      expect(reviewCommandEnabled(command, caretInHighlight), command).toBe(false)
+    }
+    expect(reviewCommandEnabled('add-comment', { ...markup, canAuthor: false, authorForms: [] })).toBe(false)
+    expect(reviewCommandEnabled('mark-addition', markup)).toBe(true)
+  })
   it('protects an active draft or transaction on every surface', () => {
     expect(reviewCommandEnabled('accept', { ...markup, busy: true })).toBe(false)
     expect(reviewCommandEnabled('original', { ...markup, busy: true })).toBe(false)
