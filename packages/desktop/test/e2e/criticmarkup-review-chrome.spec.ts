@@ -29,8 +29,8 @@ test('Review menu items carry the agreed names and shortcuts', async() => {
       'critic-track-changes': { label: 'Track Changes', accelerator: 'Command+Shift+E' },
       'critic-next': { label: 'Next', accelerator: 'Command+Alt+]' },
       'critic-previous': { label: 'Previous', accelerator: 'Command+Alt+[' },
-      'critic-accept': { label: 'Accept', accelerator: 'Command+Alt+A' },
-      'critic-reject': { label: 'Reject', accelerator: 'Command+Alt+R' }
+      'critic-accept': { label: 'Accept', accelerator: null },
+      'critic-reject': { label: 'Reject', accelerator: null }
     })
     await expectNoRendererErrors(app)
   } finally {

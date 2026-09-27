@@ -90,8 +90,8 @@ const keybindings: Map<string, string> = new Map([
   ['review.track-changes', 'Command+Shift+E'],
   ['review.next', 'Command+Alt+]'],
   ['review.previous', 'Command+Alt+['],
-  ['review.accept', 'Command+Alt+A'],
-  ['review.reject', 'Command+Alt+R'],
+  // Accept and Reject keep no default: Google Docs offers them only as commands,
+  // and ⌘⌥A / ⌘⌥R already belong to Edit → Screenshot and dev reload.
 
   // Window menu
   ['window.minimize', 'Command+M'],
