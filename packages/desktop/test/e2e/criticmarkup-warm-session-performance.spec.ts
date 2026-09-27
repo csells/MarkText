@@ -304,6 +304,13 @@ test.describe('warm native-keyboard performance', () => {
         // Split inside "Warm editing paragraph." so each new paragraph keeps text.
         for (let index = 0; index < 'Warm '.length; index += 1) await page.keyboard.press('ArrowRight')
         await page.evaluate(() => window.__marktextDocumentCore?.settled())
+        const profiler = process.env.MARKTEXT_WARM_PROFILE === '1'
+          ? await page.context().newCDPSession(page)
+          : undefined
+        if (profiler !== undefined) {
+          await profiler.send('Profiler.enable')
+          await profiler.send('Profiler.start')
+        }
         const enterMs: number[] = []
         for (let index = 0; index < warmup + measured; index += 1) {
           const started = await page.evaluate(() => performance.now())
@@ -316,6 +323,11 @@ test.describe('warm native-keyboard performance', () => {
           await page.keyboard.type('x', { delay: 0 })
           await page.evaluate(() => window.__marktextDocumentCore?.settled())
           await page.waitForTimeout(interval)
+        }
+        if (profiler !== undefined) {
+          const { profile } = await profiler.send('Profiler.stop')
+          writeFileSync(path.join(scratch, 'renderer.cpuprofile'), JSON.stringify(profile), { flag: 'wx' })
+          await profiler.detach()
         }
         const metrics = { enterSettledMs: distribution(enterMs) }
         await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
