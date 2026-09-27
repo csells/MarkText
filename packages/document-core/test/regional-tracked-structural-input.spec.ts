@@ -17,14 +17,18 @@ interface Session {
   readonly core: DocumentCore
   revision: DocumentRevision
   caret: number
+  /** Document parses while planning and compiling keys. */
   parses: number
+  /** Document parses while committing keys. */
+  commitParses: number
+  readonly keys: Array<Readonly<{ planned: number, committed: number }>>
 }
 
 const open = (source: string, caret: number): Session => {
   const core = createDocumentCore()
   const revision = core.open(source)
   core.project(revision, 'markup')
-  return { core, revision, caret, parses: 0 }
+  return { core, revision, caret, parses: 0, commitParses: 0, keys: [] }
 }
 
 /** One native key through the same planning, compilation and commit the desktop adapter uses. */
@@ -44,9 +48,13 @@ const press = (session: Session, key: Key, tracked: boolean, range?: Readonly<{ 
   const plan = core.planInput(revision, action, { tracked })
   const edits = core.inputEdits(revision, action, plan, tracked)
   if (edits === undefined) throw new Error(`${key.inputType} was refused`)
+  const planned = inspectDocumentCore(core).documentParses
+  session.parses += planned - before
   const commit = core.apply(revision, edits, { projections: ['markup'] })
   const result = core.reconcileInput(revision, plan, commit, action)
-  session.parses += inspectDocumentCore(core).documentParses - before
+  const committed = inspectDocumentCore(core).documentParses - planned
+  session.commitParses += committed
+  session.keys.push({ planned: planned - before, committed })
   const selection = result.selection
   if (selection === undefined || !('ranges' in selection)) throw new Error('Expected a text selection')
   const focus = selection.ranges[selection.primary]?.focus
@@ -81,10 +89,50 @@ describe('tracked typing extends its suggestion without a document parse', () =>
     const session = open(source, paragraphStart(index) + 7)
     press(session, { inputType: 'insertText', data: 'x' }, true)
     expect(session.revision.source.slice(paragraphStart(index), paragraphStart(index) + 15)).toBe('Writing{++x++} ')
-    session.parses = 0
     for (const data of ['y', 'z', 'é', '🙂']) press(session, { inputType: 'insertText', data }, true)
-    expect(session.parses).toBe(0)
+    expect(session.parses + session.commitParses).toBe(0)
     expect(session.revision.source.slice(paragraphStart(index), paragraphStart(index) + 20)).toBe('Writing{++xyzé🙂++} ')
     expectFullParseParity(session)
   })
+})
+
+describe('structural keys and new suggestions reparse only their paragraphs', () => {
+  const suggestions = (count: number): string => Array.from({ length: count }, (_, index) =>
+    index % 2 === 0 ? `Suggested {++addition ${index}++} text.` : `Retired {--deletion ${index}--} text.`).join('\n\n')
+  const fixtures = [
+    { name: 'a plain document', source: plain(300) },
+    { name: 'a document whose suggestions all precede the edit', source: suggestions(20) + '\n\n' + plain(300) },
+    { name: 'a document with one suggestion', source: plain(100) + 'One {++suggestion++} here.\n\n' + plain(200) }
+  ]
+  // Forty paragraphs before the end: after the last suggestion, away from both document edges.
+  const target = (source: string): number => source.length - 40 * (paragraph.length + 2) + 30
+
+  for (const fixture of fixtures) {
+    for (const tracked of [false, true]) {
+      it(`${tracked ? 'tracked' : 'untracked'} typing, Enter and a Backspace join in ${fixture.name}`, () => {
+        const session = open(fixture.source, target(fixture.source))
+        press(session, { inputType: 'insertText', data: 'x' }, tracked)
+        press(session, { inputType: 'insertText', data: 'y' }, tracked)
+        press(session, { inputType: 'insertParagraph' }, tracked)
+        press(session, { inputType: 'insertText', data: 'z' }, tracked)
+        press(session, { inputType: 'insertParagraph' }, tracked)
+        // Backspace at the next paragraph's start joins it to the one before.
+        const start = session.revision.source.indexOf('\n\nWriting', session.caret) + 2
+        session.caret = start
+        press(session, { inputType: 'deleteContentBackward' }, tracked, { start: start - 2, end: start })
+        const [first, second, enter, typed, secondEnter, join] = session.keys
+        // Typing plans and commits regionally, and so does a first suggestion
+        // in a document spelling no other CriticMarkup.
+        const firstSuggestionIsRegional = !tracked || fixture.name === 'a plain document'
+        expect(first).toEqual(firstSuggestionIsRegional ? { planned: 0, committed: 0 } : expect.anything())
+        for (const key of [second, typed]) expect(key).toEqual({ planned: 0, committed: 0 })
+        // Enter commits regionally, inside a suggestion too.
+        for (const key of [enter, secondEnter]) expect(key?.committed).toBe(0)
+        // An untracked join commits regionally. A tracked join spells a new
+        // Deletion, which only a marker-free document admits regionally.
+        if (!tracked) expect(join?.committed).toBe(0)
+        expectFullParseParity(session)
+      })
+    }
+  }
 })
