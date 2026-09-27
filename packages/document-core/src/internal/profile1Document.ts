@@ -5149,7 +5149,17 @@ function parseProfile1DocumentWithExecution(
     ? sharedEditingPrepared
     : Object.freeze({
       ...sharedEditingPrepared,
-      markdownLane: Object.freeze({ ...sharedEditingPrepared.markdownLane, forkView: 'editing' as const })
+      markdownLane: Object.freeze({ ...sharedEditingPrepared.markdownLane, forkView: 'editing' as const }),
+      // The semantic spine is what the Markup view publishes, so it needs the
+      // editable blank nodes too.
+      ...(sharedEditingPrepared.semanticMarkdownLane === undefined
+        ? {}
+        : {
+          semanticMarkdownLane: Object.freeze({
+            ...sharedEditingPrepared.semanticMarkdownLane,
+            forkView: 'editing' as const
+          })
+        })
     })
   const preparedCommentDisplays = prepareCommentDisplayProjections(
     graphCore,

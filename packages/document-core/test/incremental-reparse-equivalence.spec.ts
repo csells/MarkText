@@ -142,6 +142,16 @@ describe('an inline literal that its paragraph never closes owns no markers', ()
   })
 })
 
+it('keeps editable blank paragraphs when Markup escapes generated text', () => {
+  // A paragraph that reads `+}` after its suggestion is spelled with a
+  // generated escape; the Markup view read its blocks from the Revised parse,
+  // which has no editable blank paragraphs, while a regional reparse had them.
+  const core = createDocumentCore()
+  const blocks = core.project(core.open(' {+++++}+}\n\nt\n\n\n\n'), 'markup').syntax.ast.root.children
+  expect(blocks.map(node => [node.kind, node.range.start, node.range.end]))
+    .toEqual([['paragraph', 0, 5], ['paragraph', 7, 8], ['paragraph', 10, 10]])
+})
+
 it('splices a nested suggestion after a paragraph edit', () => {
   // Arm lanes of nested suggestions number depth first; the splice listed
   // them breadth first and rejected its own fork graph.
