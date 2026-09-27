@@ -1754,12 +1754,16 @@ function admitBlockWindow(
     let index: PlainParagraphRetainedIndex
     const gapEdit = edit.start - (edited.source - edited.local)
     const expected: number[] = []
+    let interiorShifts = false
     for (let rank = edited.rank + 1; rank < editedEnd.rank; rank += 1) {
       const point = plain.coordinateAt(rank)
+      if (point > gapEdit && delta !== 0) interiorShifts = true
       expected.push((point <= gapEdit ? point : point + delta) - edited.local)
     }
-    if (sameArray(localPoints, expected)) {
-      // Only the edited block's length changed.
+    if (!interiorShifts && sameArray(localPoints, expected)) {
+      // Only the edited block's length changed; a block start after the edit
+      // inside the window would move with it, which the length delta alone
+      // does not express.
       index = plain.withRegionLengthDelta(editedEnd.rank, delta, nextLength)
     } else {
       const coordinates = plain.coordinates()

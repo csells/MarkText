@@ -189,6 +189,40 @@ describe('structural regional edits read as a fresh open', () => {
     step(session, start, end, insert, `${JSON.stringify(source)} [${start}, ${end}) ${JSON.stringify(insert)}`)
   })
 
+  const replay = (source: string, edits: ReadonlyArray<readonly [number, number, string]>): void => {
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const session: Session = { core, revision, markup: core.project(revision, 'markup'), regional: 0 }
+    for (const [start, end, insert] of edits) {
+      step(session, start, end, insert, `${JSON.stringify(session.revision.source)} [${start}, ${end}) ${JSON.stringify(insert)}`)
+    }
+  }
+
+  it.each([
+    ['a\n\n=', 3, 3, '\n'],
+    ['\n\n=', 2, 2, '\n'],
+    ['a\n\nb\n', 3, 4, '']
+  ] as const)('gives a blank line at a region start to the block before in %j', (source, start, end, insert) => {
+    // The previous block's event owns the blank lines after it, so a region
+    // may not begin with one.
+    replay(source, [[start, end, insert]])
+  })
+
+  it('splices the unterminated last line out of the reused prefix', () => {
+    // The finish that completed the old last line consumed nothing, so the
+    // splice kept it with the prefix and lost the new block start.
+    replay('Another ordinary sentence with more words.\n\nText {--deleted--} and {~~old~>new~~} too.\n\nPara *em* and `code` here.',
+      [[102, 108, '\n\n'], [97, 97, '===']])
+  })
+
+  it('moves a plain block start that follows an edit inside the reparsed blocks', () => {
+    // Deleting across a block start inside the window moved the next block's
+    // start, but the plain index kept its old coordinate and a later edit
+    // read past the end of the source.
+    replay('Text with {++added++} inside.\n\nPlain words here.\n\nMulti\nline\nparagraph.',
+      [[28, 39, '\n\n'], [10, 10, '# '], [57, 58, '\n\n'], [48, 59, '\n\n'], [50, 54, '']])
+  })
+
   it('starts a region after a run of blank lines, not inside it', () => {
     // Which lines of a blank run read as empty paragraphs depends on the whole
     // run, so a region starting inside it misplaced the suggestion's first line.
