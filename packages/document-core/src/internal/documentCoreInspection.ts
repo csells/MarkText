@@ -100,6 +100,21 @@ export function registerDocumentCoreInspection(
   READERS.set(core, reader)
 }
 
+const DOCUMENT_PLANNERS = new WeakSet<object>()
+
+/**
+ * Package-private negative control for regional planning tests: the core
+ * plans every key from its document parse, as it does when no window can
+ * prove the key's result.
+ */
+export function planFromDocumentParse(core: object): void {
+  DOCUMENT_PLANNERS.add(core)
+}
+
+export function plansFromDocumentParse(core: object): boolean {
+  return DOCUMENT_PLANNERS.has(core)
+}
+
 export function inspectDocumentCore(core: object): DocumentCoreInspection {
   const reader = READERS.get(core)
   if (reader === undefined) {

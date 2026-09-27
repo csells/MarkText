@@ -7,7 +7,7 @@ import { sourceSyntaxSpans, type DocumentSourceSyntaxSpan } from './sourceSyntax
 import { paragraphEnterConversion } from './internal/profile1/markdownParser.js'
 import { planClipboard, type DocumentClipboardAction, type DocumentClipboardPlan } from './clipboardPlanning.js'
 import { planFormat, type DocumentFormatAction, type DocumentFormatPlan } from './formatPlanning.js'
-import { planInput, positionBefore, reconcileInput, inputSourceRange, type DocumentInputAction, type DocumentInputPlan, type DocumentInputResult } from './inputPlanning.js'
+import { planInput, positionBefore, reconcileInput, inputSourceRange, type DocumentInputAction, type DocumentInputPlan, type DocumentInputResult, type RegionalBlockContext } from './inputPlanning.js'
 import { editingReconciliation } from './editingReconciliation.js'
 import { paragraphBackwardStructuralTarget } from './paragraphJoinPlanning.js'
 import { isLiteralBlock } from './literalBlock.js'
@@ -42,6 +42,7 @@ import {
   createPlainRegionalInventory,
   createRegionalInventory,
   materializeRegionalInventoryAnnotations,
+  previewRegionalContext,
   previewRegionalInventory,
   referenceDependencyPrefixEnd,
   type RegionalInventory,
@@ -59,7 +60,7 @@ import {
   type PersistentCanonicalSource,
   type PersistentCanonicalSourceRecorder
 } from './internal/persistentCanonicalSource.js'
-import { registerDocumentCoreInspection } from './internal/documentCoreInspection.js'
+import { plansFromDocumentParse, registerDocumentCoreInspection } from './internal/documentCoreInspection.js'
 import {
   createRevisionProductStore,
   type RevisionProductStore
@@ -4092,9 +4093,36 @@ function createDocumentCoreWithExecutionBudget(
   const regionalInputSyntax = (state: RevisionState, range: SourceRange): MarkupSyntax | undefined => {
     const candidate = regionalCandidate(state, { start: range.start, end: range.start, insert: '' })
     if (candidate === undefined || range.end > candidate.sourceStart + candidate.nextWindow.length) return undefined
+    return windowSyntax(candidate.sourceStart, candidate.nextProducts, candidate.nextWindow.length)
+  }
+
+  /**
+   * The blocks around a caret with their neighbours, for planning a key
+   * against a revision that no longer holds its document parse. A revision
+   * still holding it plans against it.
+   */
+  const regionalBlockContext = (state: RevisionState, position: number): RegionalBlockContext | undefined => {
+    if (plansFromDocumentParse(core) || state.productStore.withRetained(() => true) === true) return undefined
+    const inventory = state.regionalInventory ?? convertedRegionalInventory(state)
+    if (inventory === undefined) return undefined
+    const candidate = previewRegionalContext(inventory, state.source, position, executionBudget,
+      state.markdownOptions, regionalPhysicalRecorder)
+    if (candidate === undefined) return undefined
     const editing = candidate.nextProducts.editing()
-    const local = projectionCoordinatesOf(editing, candidate.nextWindow.length)
-    const shift = candidate.sourceStart
+    return Object.freeze({
+      syntax: windowSyntax(candidate.sourceStart, candidate.nextProducts, candidate.nextWindow.length),
+      lines: editing.markdown.lines,
+      enterConversion: (range: SourceRange) =>
+        paragraphEnterConversion(editing.source, range.start, range.end, state.markdownOptions.texMathDollars),
+      source: Object.freeze({ start: candidate.sourceStart, end: candidate.sourceStart + candidate.nextWindow.length })
+    })
+  }
+
+  /** A window's syntax, in its own projected coordinates, mapped to document source offsets. */
+  const windowSyntax = (sourceStart: number, products: Profile1DocumentProducts, windowLength: number): MarkupSyntax => {
+    const editing = products.editing()
+    const local = projectionCoordinatesOf(editing, windowLength)
+    const shift = sourceStart
     const coordinates = Object.freeze<ProjectionCoordinateMap>({
       originAt(offset) {
         const origin = local.originAt(offset)
@@ -4726,7 +4754,8 @@ function createDocumentCoreWithExecutionBudget(
       const plan = planInput(core, previous, action, range => state.productStore.withProduct(products =>
         paragraphEnterConversion(products.editing().source, range.start, range.end, state.markdownOptions.texMathDollars)),
       () => state.productStore.withProduct(products => products.editing().markdown.lines),
-      range => regionalInputSyntax(state, range), options?.tracked === false, edits => tablePreview(previous, edits))
+      range => regionalInputSyntax(state, range), options?.tracked === false, edits => tablePreview(previous, edits),
+      position => regionalBlockContext(state, position))
       return options?.tracked === true ? trackedInputPlan(previous, action, plan) : plan
     },
     reconcileInput(previous: DocumentRevision, policy: DocumentInputPlan, commit: DocumentCommit | null, action: DocumentInputAction) {
