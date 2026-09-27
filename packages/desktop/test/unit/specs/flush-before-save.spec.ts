@@ -1467,13 +1467,10 @@ describe('editor store — flush pending edits before saving (#3803)', () => {
     store.RECONCILE_CORE_SOURCE_AT_HANDOFF('tab-1', 'actor revision two')
     detachCoreAuthority()
     detachCoreAuthority = undefined
-    store.LISTEN_FOR_CONTENT_CHANGE({
-      id: 'tab-1',
-      markdown: 'newer WYSIWYG content'
-    })
+    // The next WYSIWYG view's edit advances the same Core identity.
+    store.LISTEN_FOR_CORE_CONTENT_CHANGE('tab-1', { generation: 1, revision: 3 })
 
     saved?.({}, 'tab-1', { generation: 1, revision: 2 })
-    expect(store.currentFile?.markdown).toBe('newer WYSIWYG content')
     expect(store.currentFile?.isSaved).toBe(false)
 
     store.FILE_SAVE()
@@ -1530,38 +1527,6 @@ describe('editor store — flush pending edits before saving (#3803)', () => {
 
     const call = sendSpy.mock.calls.find((call) => call[0] === 'mt::response-file-save')
     expect(call?.[MARKDOWN_ARG]).toBe('actor autosave source')
-  })
-
-  it('fails over legacy autosave callers to the registered Core authority', async() => {
-    vi.useFakeTimers()
-    const store = useEditorStore()
-    const preferences = usePreferencesStore()
-    preferences.autoSaveDelay = 25
-    seedCurrentFile(store, { markdown: 'poisoned legacy autosave source', isSaved: false })
-    store.tabs = [store.currentFile!]
-    detachCoreAuthority = coreDocumentSaveAuthority.register('tab-1', async() => ({
-      documentId: 'tab-1',
-      identity: { generation: 1, revision: 2 },
-      source: 'actor source for legacy autosave caller'
-    }))
-    const sendSpy = vi.spyOn(window.electron.ipcRenderer, 'send')
-
-    store.HANDLE_AUTO_SAVE({
-      id: 'tab-1',
-      filename: 'note.md',
-      pathname: '/tmp/note.md',
-      markdown: 'poisoned legacy autosave argument',
-      options: {
-        encoding: { encoding: 'utf8', isBom: false },
-        lineEnding: 'lf',
-        adjustLineEndingOnSave: false,
-        trimTrailingNewline: 2
-      }
-    })
-    await vi.advanceTimersByTimeAsync(25)
-
-    const call = sendSpy.mock.calls.find((call) => call[0] === 'mt::response-file-save')
-    expect(call?.[MARKDOWN_ARG]).toBe('actor source for legacy autosave caller')
   })
 
   it('moves the acknowledged Core source into Pinia only at an authority handoff', () => {

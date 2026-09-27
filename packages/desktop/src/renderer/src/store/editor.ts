@@ -1,4 +1,3 @@
-import equal from 'deep-equal'
 import bus from '../bus'
 import { getUniqueId, deepClone } from '../util'
 import listToTree, { type ListItem, type TreeNode } from '../util/listToTree'
@@ -112,25 +111,6 @@ interface ExportPayload {
   type: string
   content?: string
   pageOptions?: PageOptions
-}
-
-interface AutoSavePayload {
-  id: string
-  filename: string
-  pathname: string
-  markdown: string
-  options: ReturnType<typeof getOptionsFromState>
-}
-
-interface ContentChangePayload {
-  id: string
-  markdown: string
-  wordCount?: IFileState['wordCount']
-  cursor?: unknown
-  muyaIndexCursor?: unknown
-  history?: IFileState['history']
-  toc?: TocItem[]
-  blocks?: unknown
 }
 
 // Once a document has entered Core authority, this identity continues across
@@ -699,11 +679,6 @@ export const useEditorStore = defineStore('editor', {
       } else {
         return Promise.resolve([])
       }
-    },
-
-    SEARCH(value: IFileState['searchMatches']): void {
-      if (!this.currentFile) return
-      this.currentFile.searchMatches = deepClone(value) // deep clone to trigger state changes
     },
 
     SHOW_IMAGE_DELETION_URL(deletionUrl: string): void {
@@ -1929,15 +1904,10 @@ export const useEditorStore = defineStore('editor', {
     },
 
     /**
-     * Replaces the table of contents with a fresh snapshot from the engine.
-     *
-     * Used on file load and tab switch, where the engine fires no `json-change`
-     * event (so `LISTEN_FOR_CONTENT_CHANGE` never runs and the TOC would
-     * otherwise stay empty until the first edit). Assigns unconditionally: this
-     * is a re-seed on load/switch, so there is no `equal` guard to short-circuit
-     * — the incoming snapshot always wins, even if it happens to deep-equal the
-     * current TOC.
-     * @param toc Flat list of headings returned by `muya.getTOC()`.
+     * Replaces the table of contents with the current document's snapshot.
+     * Assigns unconditionally: the incoming snapshot always wins, even if it
+     * deep-equals the current TOC.
+     * @param toc Flat list of the document's headings, from Core's projection.
      */
     UPDATE_TOC(toc: TocItem[]): void {
       this.listToc = toc ?? []
@@ -1983,99 +1953,6 @@ export const useEditorStore = defineStore('editor', {
       if (this.activeHeadingSlug !== slug) {
         this.activeHeadingSlug = slug
       }
-    },
-
-    // Content change from realtime preview editor and source code editor
-    // There is a chance that this event is fired AFTER the tab is switched.
-    LISTEN_FOR_CONTENT_CHANGE({
-      id,
-      markdown,
-      wordCount,
-      cursor,
-      muyaIndexCursor,
-      history,
-      toc,
-      blocks
-    }: ContentChangePayload): void {
-      const preferencesStore = usePreferencesStore()
-      const { autoSave } = preferencesStore
-      if (!id) {
-        throw new Error('Listen for document change but id was not set!')
-      } else if (this.tabs.length === 0) {
-        return
-      } else if (!(id in this.tabIdToIndex)) {
-        // This only happens when the sourceCode tries to write a stale id via prepareTabSwitch() but the tab
-        // has already been closed. In this case we can safely ignore the update.
-        return
-      }
-
-      const tab = this.tabs[this.tabIdToIndex[id]!]
-      if (!tab) return
-
-      const { filename, pathname, markdown: oldMarkdown, trimTrailingNewline } = tab
-
-      markdown = adjustTrailingNewlines(markdown, trimTrailingNewline)
-      tab.markdown = markdown
-      if (markdown !== oldMarkdown && coreIdentityByTab.has(id)) {
-        const identity = coreIdentityByTab.get(id)!
-        coreIdentityByTab.set(
-          id,
-          Object.freeze({
-            generation: identity.generation,
-            revision: identity.revision + 1
-          })
-        )
-      }
-
-      if (oldMarkdown.length === 0 && markdown.length === 1 && markdown[0] === '\n') {
-        debouncedSendBufferedState()
-        return
-      }
-
-      if (wordCount) tab.wordCount = wordCount
-      if (cursor) tab.cursor = cursor
-      if (muyaIndexCursor) tab.muyaIndexCursor = muyaIndexCursor
-      if (history) tab.history = history
-      if (blocks) tab.blocks = blocks
-
-      // Only update TOC if it's the current file
-      if (id === this.currentFile?.id && toc && !equal(toc, this.listToc)) {
-        this.listToc = toc
-        this.toc = listToTree<TocItem>(toc)
-        tocDocumentId = id
-      }
-
-      const lastEditIndex = tab.history.lastEditIndex
-      const editEntry =
-        typeof lastEditIndex === 'number' && lastEditIndex >= 0
-          ? tab.history.stack[lastEditIndex]
-          : undefined
-      const historyMarksDirty =
-        (typeof lastEditIndex === 'number' &&
-          lastEditIndex >= 0 &&
-          editEntry !== undefined &&
-          editEntry.id !== tab.lastSavedHistoryId) ||
-        (lastEditIndex === -1 &&
-          tab.lastSavedHistoryId !== -1 &&
-          tab.lastSavedHistoryId !== tab.history.lastInitIndex) // Edge Case: Undo to original content (lastEditIndex === -1) after saving means we cant use the lastEditIndex. Compare it against the lastInitIndex instead.
-      const isDirty = history === undefined ? markdown !== oldMarkdown : historyMarksDirty
-      if (isDirty) {
-        tab.isSaved = false
-        if (pathname && autoSave) {
-          const options = getOptionsFromState(tab)
-          this.HANDLE_AUTO_SAVE({
-            id,
-            filename,
-            pathname,
-            markdown,
-            options
-          })
-        }
-      } else if (history !== undefined && tab.lastSavedHistoryId !== -1) {
-        // Check here is to prevent it from overriding a restored .isSaved state
-        tab.isSaved = true // An undo can trigger this
-      }
-      debouncedSendBufferedState()
     },
 
     LISTEN_FOR_CORE_CONTENT_CHANGE(id: string, identity?: DocumentSaveIdentity): void {
@@ -2219,50 +2096,6 @@ export const useEditorStore = defineStore('editor', {
         })
       }
       debouncedSendBufferedState()
-    },
-
-    HANDLE_AUTO_SAVE({ id, filename, pathname, markdown, options }: AutoSavePayload): void {
-      if (!id || !pathname) {
-        throw new Error('HANDLE_AUTO_SAVE: Invalid tab.')
-      }
-
-      const preferencesStore = usePreferencesStore()
-      const projectStore = useProjectStore()
-      const { autoSaveDelay } = preferencesStore
-
-      if (autoSaveTimers.has(id)) {
-        const timer = autoSaveTimers.get(id)
-        clearTimeout(timer)
-        autoSaveTimers.delete(id)
-      }
-
-      const timer = setTimeout(() => {
-        autoSaveTimers.delete(id)
-
-        const tab = this.tabs.find((t) => t.id === id)
-        if (tab && !tab.isSaved) {
-          const defaultPath = getRootFolderFromState(projectStore)
-          const persist = withAuthoritativeSaveSource(id, markdown, (source, identity) => {
-            const currentTab = this.tabs.find((candidate) => candidate.id === id)
-            if (currentTab === undefined || currentTab.isSaved) return
-            window.electron.ipcRenderer.send(
-              'mt::response-file-save',
-              id,
-              currentTab.filename || filename,
-              currentTab.pathname || pathname,
-              source,
-              deepClone(getOptionsFromState(currentTab) || options),
-              defaultPath,
-              identity,
-              recommendedTitleOf(id)
-            )
-          })
-          persist?.catch((error) => {
-            console.error('Document autosave barrier failed', error)
-          })
-        }
-      }, autoSaveDelay)
-      autoSaveTimers.set(id, timer)
     },
 
     SELECTION_CHANGE(changes: SelectionChange): void {
@@ -2584,59 +2417,6 @@ const getRootFolderFromState = (projectStore: ProjectStoreLike): string => {
     return openedFolder.pathname ?? ''
   }
   return ''
-}
-
-/**
- * Trim the final newlines according `trimTrailingNewlineOption`.
- *
- * @param markdown The text to trim.
- * @param trimTrailingNewlineOption The option how we should trim the final newlines.
- */
-const adjustTrailingNewlines = (markdown: string, trimTrailingNewlineOption: number): string => {
-  if (!markdown) {
-    return ''
-  }
-
-  switch (trimTrailingNewlineOption) {
-    // Trim trailing newlines.
-    case 0: {
-      return trimTrailingNewlines(markdown)
-    }
-    // Ensure single trailing newline.
-    case 1: {
-      // Muya will always add a final new line to the markdown text. Check first whether
-      // only one newline exist to prevent copying the string.
-      const lastIndex = markdown.length - 1
-      if (markdown[lastIndex] === '\n') {
-        if (markdown.length === 1) {
-          // Just return nothing because adding a final new line makes no sense.
-          return ''
-        } else if (markdown[lastIndex - 1] !== '\n') {
-          return markdown
-        }
-      }
-
-      // Otherwise trim trailing newlines and add one.
-      markdown = trimTrailingNewlines(markdown)
-      if (markdown.length === 0) {
-        // Just return nothing because adding a final new line makes no sense.
-        return ''
-      }
-      return markdown + '\n'
-    }
-    // Disabled, use text as it is.
-    default:
-      return markdown
-  }
-}
-
-/**
- * Trim trailing newlines from `text`.
- *
- * @param {string} text The text to trim.
- */
-const trimTrailingNewlines = (text: string): string => {
-  return text.replace(/[\r?\n]+$/, '')
 }
 
 interface ApplicationMenuState {
