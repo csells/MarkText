@@ -4785,21 +4785,16 @@ export function admitProfile1PlainParagraphRegion(
   const startsBlank = (text: string): boolean => /^[ \t]*(?:\r\n|\r|\n)/u.test(text)
   let bracket = previousIndex.bracketForEdits(edits, source.length)
   if (bracket === undefined) return undefined
+  let previousWindow = previousSource.slice(bracket.start, bracket.endPrevious)
+  let nextWindow = source.slice(bracket.start, bracket.endNext)
   // A blank line at a region's start belongs to the block before it, whose
   // event and empty paragraphs read it; start the region one block earlier.
-  if (
-    bracket.start > 0 &&
-    (startsBlank(source.slice(bracket.start, bracket.endNext)) ||
-      startsBlank(previousSource.slice(bracket.start, bracket.endPrevious)))
-  ) {
+  if (bracket.start > 0 && (startsBlank(nextWindow) || startsBlank(previousWindow))) {
     bracket = previousIndex.bracketForEdits(edits, source.length, true)
     if (bracket === undefined) return undefined
+    previousWindow = previousSource.slice(bracket.start, bracket.endPrevious)
+    nextWindow = source.slice(bracket.start, bracket.endNext)
   }
-  const previousWindow = previousSource.slice(
-    bracket.start,
-    bracket.endPrevious
-  )
-  const nextWindow = source.slice(bracket.start, bracket.endNext)
   const options = bracket.start === 0 ? markdownOptions : Object.freeze({ ...markdownOptions, frontMatter: false })
   const parse = (window: string, endsAtDocumentEnd: boolean): Profile1DocumentResult => parseProfile1Document(
     window, executionBudget, undefined, options, false, undefined,
