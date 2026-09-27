@@ -55,6 +55,7 @@ import {
 import {
   createPersistentCanonicalSource,
   type CanonicalSourceMaterializationReason,
+  type CanonicalSourceView,
   type PersistentCanonicalSource,
   type PersistentCanonicalSourceRecorder
 } from './internal/persistentCanonicalSource.js'
@@ -2016,6 +2017,24 @@ function createDocumentCoreWithExecutionBudget(
   >()
   let reuseCache: Profile1DocumentReuseCache =
     createProfile1DocumentReuseCache()
+  // Whether a source spells no `$` at all, carried from each source to the
+  // next so the check below reads no text for documents without math.
+  const dollarFreeSources = new WeakMap<CanonicalSourceView, boolean>()
+  const editsMayRepairMath = (
+    previous: CanonicalSourceView,
+    next: CanonicalSourceView,
+    edits: readonly DocumentSourceEdit[],
+    options: MarkdownOptionsV1
+  ): boolean => {
+    let dollarFree = dollarFreeSources.get(previous)
+    if (dollarFree === undefined) {
+      dollarFree = !previous.slice(0, previous.length).includes('$')
+      dollarFreeSources.set(previous, dollarFree)
+    }
+    dollarFreeSources.set(next, dollarFree && edits.every(edit => !edit.insert.includes('$')))
+    // Without a `$` before the edit, every `$$` is in the edited text.
+    return options.texMathDollars && !dollarFree && editsMayRepairDollarMath(previous, next, edits)
+  }
   const physicalRecorder = createPhysicalTraversalRecorderV1()
   const regionalPhysicalRecorder = createPhysicalTraversalRecorderV1()
   const inspection: MutableDocumentCoreInspection = {
@@ -3546,10 +3565,7 @@ function createDocumentCoreWithExecutionBudget(
       fallbackReason = 'markdown-options-changed'
     } else if (source.requiresFragmentationRebase) {
       fallbackReason = 'source-fragmentation-rebase'
-    } else if (
-      resolvedOptions.texMathDollars &&
-      editsMayRepairDollarMath(previousState.source, source, stableEdits)
-    ) {
+    } else if (editsMayRepairMath(previousState.source, source, stableEdits, resolvedOptions)) {
       fallbackReason = 'structural-region-ineligible'
     }
     if (fallbackReason !== undefined) {
@@ -3926,10 +3942,7 @@ function createDocumentCoreWithExecutionBudget(
       if (!sameMarkdownOptions(previousState.markdownOptions, resolvedOptions)) {
         return undefined
       }
-      if (
-        resolvedOptions.texMathDollars &&
-        editsMayRepairDollarMath(previousState.source, source, stableEdits)
-      ) {
+      if (editsMayRepairMath(previousState.source, source, stableEdits, resolvedOptions)) {
         return undefined
       }
       const retained = products.retainedIntrinsic
@@ -3958,8 +3971,7 @@ function createDocumentCoreWithExecutionBudget(
     preflightSourceEdits(state.source.length, stableEdits)
     const source = state.source.applyExact(stableEdits, 'Authoring candidate')
       .materialize('fallback')
-    const reusable = !(state.markdownOptions.texMathDollars &&
-      editsMayRepairDollarMath(state.source, source, stableEdits))
+    const reusable = !editsMayRepairMath(state.source, { length: source.length, slice: (start: number, end: number) => source.slice(start, end) }, stableEdits, state.markdownOptions)
     return state.productStore.withProduct(previousProducts => {
       const retained = reusable ? previousProducts.retainedIntrinsic : undefined
       const products = isolatedProducts(source, state.markdownOptions,
@@ -4001,7 +4013,7 @@ function createDocumentCoreWithExecutionBudget(
   }> | undefined => {
     const edits = Object.freeze([edit])
     const source = state.source.applyExact(edits, 'Authoring regional candidate')
-    if (state.markdownOptions.texMathDollars && editsMayRepairDollarMath(state.source, source, edits)) {
+    if (editsMayRepairMath(state.source, source, edits, state.markdownOptions)) {
       return undefined
     }
     if (state.regionalInventory !== undefined) {
@@ -4756,11 +4768,9 @@ function createDocumentCoreWithExecutionBudget(
       demoteCurrentProductStore()
       reuseCache = createProfile1DocumentReuseCache()
       const products = parse(source, resolvedOptions)
-      return publish(
-        createPersistentCanonicalSource(source, sourceRecorder),
-        products,
-        resolvedOptions
-      )
+      const canonical = createPersistentCanonicalSource(source, sourceRecorder)
+      dollarFreeSources.set(canonical, !source.includes('$'))
+      return publish(canonical, products, resolvedOptions)
     },
 
     apply(
