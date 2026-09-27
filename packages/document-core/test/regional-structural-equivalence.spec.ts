@@ -173,6 +173,22 @@ describe('structural regional edits read as a fresh open', () => {
     expect(plain.regional).toBe(3)
   })
 
+  it.each([
+    ['$$\n\n{--d--}\n', 7, 7, '$$'],
+    ['$$\n\n{++.++} ', 11, 11, '$$'],
+    ['$$\n{++++}\n\ne', 11, 11, '$$'],
+    ['$$\n\nt', 4, 4, '$$'],
+    ['$$\n\na\n\nb $$ {++c++}\n', 11, 13, ''],
+    ['x$$\n\na\n\nb $$ {++c++}\n', 0, 1, '']
+  ] as const)('re-pairs a $$ math block far from the edit in %j', (source, start, end, insert) => {
+    // A `$$` alone on its line closes at the next `$$` anywhere later, so an
+    // edit to a `$` can change a math block outside every reparsed window.
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const session: Session = { core, revision, markup: core.project(revision, 'markup'), regional: 0 }
+    step(session, start, end, insert, `${JSON.stringify(source)} [${start}, ${end}) ${JSON.stringify(insert)}`)
+  })
+
   it('starts a region after a run of blank lines, not inside it', () => {
     // Which lines of a blank run read as empty paragraphs depends on the whole
     // run, so a region starting inside it misplaced the suggestion's first line.
