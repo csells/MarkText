@@ -1557,9 +1557,17 @@ describe('document-core facade', () => {
     expect(core.project(ordinary, 'revised').markdown)
       .toBe('[^a]: inside footnote\n')
 
-    expect(withFootnotes.annotations).toEqual([])
-    expect(core.project(withFootnotes, 'original').markdown).toBe(source)
-    expect(core.project(withFootnotes, 'revised').markdown).toBe(source)
+    // CriticMarkup Profile 2 L1f: a footnote body is paragraph text, so only
+    // the reading of the label changes with the option.
+    expect(withFootnotes.annotations.map(annotation => annotation.kind))
+      .toEqual(['addition'])
+    expect(core.project(withFootnotes, 'original').markdown).toBe('[^a]: \n')
+    expect(core.project(withFootnotes, 'revised').markdown)
+      .toBe('[^a]: inside footnote\n')
+    const labelled = core.open('[^{++a++}]: body\n', { footnotes: true })
+    expect(labelled.annotations).toEqual([])
+    expect(core.open('[^{++a++}]: body\n').annotations.map(annotation => annotation.kind))
+      .toEqual(['addition'])
   })
 
   it('materializes deeply nested annotations without using the call stack', () => {
@@ -1767,7 +1775,8 @@ describe('document-core facade', () => {
   })
 
   it('merges partial apply options over the previous revision options', () => {
-    const source = '[^a]: {++inside footnote++}\n'
+    // Markers in a footnote label are data only while footnotes stay enabled.
+    const source = '[^{++a++}]: inside footnote\n'
     const core = createDocumentCore()
     const previous = core.open(source, {
       footnotes: true,
