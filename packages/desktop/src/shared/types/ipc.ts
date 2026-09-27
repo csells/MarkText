@@ -204,7 +204,8 @@ export interface IpcSendChannels {
     markdown: string,
     options: SaveOptions,
     defaultPath: string,
-    saveIdentity?: DocumentSaveIdentity | null
+    saveIdentity?: DocumentSaveIdentity | null,
+    title?: string
   ]
   'mt::response-file-save-as': [
     id: string,
@@ -213,7 +214,8 @@ export interface IpcSendChannels {
     markdown: string,
     options: SaveOptions,
     defaultPath: string,
-    saveIdentity?: DocumentSaveIdentity | null
+    saveIdentity?: DocumentSaveIdentity | null,
+    title?: string
   ]
   'mt::response-pandoc-export': [payload: PandocExportPayload]
   'mt::response-print': []

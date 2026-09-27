@@ -7,7 +7,8 @@ import {
   createProjectedSearchReplacementPlan,
   renderProjectedDocumentHtml,
   searchProjectedDocument,
-  tocProjectedDocument
+  tocProjectedDocument,
+  recommendedDocumentTitle
 } from '@/documentConsumers/documentProjectionConsumers'
 
 const revisedProjectionOf = (source: string) => {
@@ -71,10 +72,48 @@ describe('document projection search and count consumers', () => {
     )
 
     expect(tocProjectedDocument(projection)).toEqual([
-      { lvl: 1, content: 'Keep current' },
-      { lvl: 2, content: 'Use bold and a link' },
-      { lvl: 3, content: 'Drop  add fresh' }
+      { lvl: 1, content: 'Keep current', source: 'Keep current' },
+      {
+        lvl: 2,
+        content: 'Use bold and a link',
+        source: 'Use **bold** and [a link](https://example.com)'
+      },
+      { lvl: 3, content: 'Drop  add fresh', source: 'Drop  add fresh' }
     ])
+  })
+
+  it('suggests the title MarkText always has for a plain document', () => {
+    // Upstream's rule, applied to real headings: the shallowest ATX heading's
+    // text, the first at that level, inline syntax included.
+    const upstream = (markdown: string): string => {
+      const tokens = markdown.match(/#{1,6} {1,}(.*\S.*)(?:\n|$)/g)
+      if (!tokens) return ''
+      return tokens
+        .map((token) => {
+          const [, marks, content] = token.trim().match(/(#{1,6}) {1,}(.+)/)!
+          return { level: marks.length, content: content.trim() }
+        })
+        .sort((a, b) => a.level - b.level)[0].content
+    }
+    for (const markdown of [
+      '## Second\n\n# First **bold** `code`\n\n# Later\n',
+      'Intro\n\n### Three\n\n## Two [link](x.md)\n',
+      '- item\n\n> ## Quoted\n',
+      'No headings at all\n'
+    ]) {
+      expect(recommendedDocumentTitle(tocProjectedDocument(revisedProjectionOf(markdown)))).toBe(
+        upstream(markdown)
+      )
+    }
+  })
+
+  it('suggests a title without CriticMarkup, and none from code or setext lines', () => {
+    const title = (markdown: string): string =>
+      recommendedDocumentTitle(tocProjectedDocument(revisedProjectionOf(markdown)))
+    expect(title('# Draft {++new++}{>>why<<} {--old--}\n')).toBe('Draft new')
+    expect(title('```sh\n# comment\n```\n\nText\n')).toBe('')
+    expect(title('Setext\n===\n\n## Atx\n')).toBe('Atx')
+    expect(title('#\n\n## Named\n')).toBe('Named')
   })
 
   it('builds every shipped clipboard flavor from one projection', () => {

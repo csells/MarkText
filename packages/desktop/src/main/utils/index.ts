@@ -7,23 +7,6 @@ export const getUniqueId = (): string => {
   return `${ID_PREFIX}${id++}`
 }
 
-// TODO: Remove this function and load the recommend title from the editor (renderer) when
-// requesting the document to save/export.
-export const getRecommendTitleFromMarkdownString = (markdown: string): string => {
-  // NOTE: We should read the title from the renderer cache because this regex matches in
-  // code blocks too.
-  const tokens = markdown.match(/#{1,6} {1,}(.*\S.*)(?:\n|$)/g)
-  if (!tokens) return ''
-  const headers = tokens.map((t) => {
-    const matches = t.trim().match(/(#{1,6}) {1,}(.+)/)!
-    return {
-      level: matches[1]!.length,
-      content: matches[2]!.trim()
-    }
-  })
-  return headers.sort((a, b) => a.level - b.level)[0]!.content
-}
-
 /**
  * Returns a special directory path for the requested name.
  *

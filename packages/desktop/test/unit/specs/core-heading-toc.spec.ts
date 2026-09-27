@@ -43,6 +43,7 @@ describe('Core heading navigation identity', () => {
       {
         lvl: 1,
         content: 'Current',
+        source: 'Current',
         githubSlug: 'current',
         slug: 'core-heading-17',
         nativePath: [1],
@@ -51,6 +52,7 @@ describe('Core heading navigation identity', () => {
       {
         lvl: 1,
         content: 'Current',
+        source: 'Current',
         githubSlug: 'current-1',
         slug: 'core-heading-39',
         nativePath: [2],

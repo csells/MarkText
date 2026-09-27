@@ -31,6 +31,7 @@ import {
 import { coreDocumentSaveAuthority } from '../documentAuthority/coreDocumentSaveAuthority'
 import { coreMarkdownOptionsFromPreferences } from '../documentAuthority/coreMarkdownPreferences'
 import { projectPandocExport } from '../documentConsumers/pandocExportProjection'
+import { recommendedDocumentTitle } from '../documentConsumers/documentProjectionConsumers'
 import {
   canonicalCoreLineEnding,
   coreDocumentReloadAuthority
@@ -54,6 +55,8 @@ interface TocItem extends ListItem {
   slug?: string
   githubSlug?: string
   content?: string
+  /** An ATX heading's text as the document spells it, for Save's suggested name. */
+  source?: string
   lvl: number | null
   /** Core-bound documents: the heading's source offset, for Source mode. */
   sourceOffset?: number
@@ -139,6 +142,14 @@ const coreIdentityByTab = new Map<string, DocumentSaveIdentity>()
 let tocDocumentId: string | undefined
 let pendingAnchor: { id: string; anchor: string } | undefined
 const coreSavedSourceByTab = new WeakMap<IFileState, string>()
+// Save's suggested name for a new file, from the title Core reports with each
+// document's TOC. A tab that never had a Core view suggests its filename.
+const coreTitleByTab = new Map<string, string>()
+const recommendedTitleOf = (id: string): string | undefined => coreTitleByTab.get(id) || undefined
+const withRecommendedTitle = <T extends { id: string }>(file: T): T & { title?: string } => {
+  const title = recommendedTitleOf(file.id)
+  return title === undefined ? file : { ...file, title }
+}
 
 const saveIdentitiesEqual = (left: DocumentSaveIdentity, right: DocumentSaveIdentity): boolean =>
   left.generation === right.generation && left.revision === right.revision
@@ -745,7 +756,8 @@ export const useEditorStore = defineStore('editor', {
           source,
           deepClone(options),
           defaultPath,
-          identity
+          identity,
+          recommendedTitleOf(id)
         )
       }
       return withAuthoritativeSaveSource(id, markdown, send)
@@ -779,7 +791,8 @@ export const useEditorStore = defineStore('editor', {
             source,
             deepClone(options),
             defaultPath,
-            identity
+            identity,
+            recommendedTitleOf(id)
           )
         })
       }
@@ -891,7 +904,7 @@ export const useEditorStore = defineStore('editor', {
           const { id, filename, pathname, markdown } = file
           const identity = sources[index]!.identity
           return [
-            {
+            withRecommendedTitle({
               id,
               filename,
               pathname,
@@ -899,7 +912,7 @@ export const useEditorStore = defineStore('editor', {
               options: getOptionsFromState(file),
               defaultPath: getRootFolderFromState(projectStore),
               ...(identity === null ? {} : { saveIdentity: identity })
-            }
+            })
           ]
         })
       type CloseRequest = {
@@ -1020,10 +1033,14 @@ export const useEditorStore = defineStore('editor', {
       })
 
       return withAuthoritativeFileSources(files, (authoritativeFiles) => {
-        const unsavedFiles = authoritativeFiles.filter((file) => {
-          const currentFile = this.tabs.find((tab) => tab.id === file.id)
-          return currentFile !== undefined && !(currentFile.isSaved && /[^\n]/.test(file.markdown))
-        })
+        const unsavedFiles = authoritativeFiles
+          .filter((file) => {
+            const currentFile = this.tabs.find((tab) => tab.id === file.id)
+            return (
+              currentFile !== undefined && !(currentFile.isSaved && /[^\n]/.test(file.markdown))
+            )
+          })
+          .map(withRecommendedTitle)
         if (closeTabs) {
           if (unsavedFiles.length) {
             this.CLOSE_TABS(this.tabs.filter((f) => f.isSaved).map((f) => f.id))
@@ -1056,7 +1073,8 @@ export const useEditorStore = defineStore('editor', {
             source,
             deepClone(options),
             defaultPath,
-            identity
+            identity,
+            recommendedTitleOf(id)
           )
         })
       } else {
@@ -1102,7 +1120,8 @@ export const useEditorStore = defineStore('editor', {
             source,
             deepClone(options),
             defaultPath,
-            identity
+            identity,
+            recommendedTitleOf(id)
           )
         })
       } else {
@@ -1317,14 +1336,14 @@ export const useEditorStore = defineStore('editor', {
         }
         const options = getOptionsFromState(currentTarget)
         window.electron.ipcRenderer.send('mt::save-and-close-tabs', [
-          {
+          withRecommendedTitle({
             id: currentTarget.id,
             pathname: currentTarget.pathname,
             filename: currentTarget.filename,
             markdown: source!.source,
             options: deepClone(options),
             ...(source!.identity === null ? {} : { saveIdentity: source!.identity })
-          }
+          })
         ])
       })
     },
@@ -1376,6 +1395,7 @@ export const useEditorStore = defineStore('editor', {
         autoSaveTimers.delete(file.id)
       }
       coreIdentityByTab.delete(file.id)
+      coreTitleByTab.delete(file.id)
 
       this.updateTabIdToIndex() // Update before sending it out to prevent stale mappings.
 
@@ -1426,14 +1446,14 @@ export const useEditorStore = defineStore('editor', {
       return withAuthoritativeSaveSource(id, markdown, (source, identity) => {
         if (closeRefused([id])) return
         window.electron.ipcRenderer.send('mt::save-and-close-tabs', [
-          {
+          withRecommendedTitle({
             id,
             pathname,
             filename,
             markdown: source,
             options: deepClone(options),
             ...(identity === null ? {} : { saveIdentity: identity })
-          }
+          })
         ])
       })
     },
@@ -1473,6 +1493,7 @@ export const useEditorStore = defineStore('editor', {
           markdown: string
           options: ReturnType<typeof getOptionsFromState>
           saveIdentity?: DocumentSaveIdentity
+          title?: string
         }> = []
         files.forEach((file, index) => {
           const currentFile = this.tabs.find((tab) => tab.id === file.id)
@@ -1486,14 +1507,16 @@ export const useEditorStore = defineStore('editor', {
           if (source === undefined) {
             throw new Error('Document close authority omitted a target')
           }
-          unsavedFiles.push({
-            id: currentFile.id,
-            pathname: currentFile.pathname,
-            filename: currentFile.filename,
-            markdown: source.authority === 'core' ? source.source : currentFile.markdown,
-            options: deepClone(getOptionsFromState(currentFile)),
-            ...(source.identity === null ? {} : { saveIdentity: source.identity })
-          })
+          unsavedFiles.push(
+            withRecommendedTitle({
+              id: currentFile.id,
+              pathname: currentFile.pathname,
+              filename: currentFile.filename,
+              markdown: source.authority === 'core' ? source.source : currentFile.markdown,
+              options: deepClone(getOptionsFromState(currentFile)),
+              ...(source.identity === null ? {} : { saveIdentity: source.identity })
+            })
+          )
         })
         savedFiles.forEach((file) => this.FORCE_CLOSE_TAB(file))
         if (unsavedFiles.length) {
@@ -1555,6 +1578,7 @@ export const useEditorStore = defineStore('editor', {
 
         this.tabs.splice(index, 1)
         coreIdentityByTab.delete(id)
+        coreTitleByTab.delete(id)
         const timer = autoSaveTimers.get(id)
         if (timer !== undefined) clearTimeout(timer)
         autoSaveTimers.delete(id)
@@ -2027,7 +2051,8 @@ export const useEditorStore = defineStore('editor', {
               source,
               deepClone(getOptionsFromState(tab)),
               getRootFolderFromState(projectStore),
-              identity
+              identity,
+              recommendedTitleOf(id)
             )
           })
           if (persist !== undefined) {
@@ -2113,6 +2138,7 @@ export const useEditorStore = defineStore('editor', {
       ) {
         return
       }
+      coreTitleByTab.set(id, recommendedDocumentTitle(toc))
       this.UPDATE_TOC(toc)
     },
 
@@ -2172,7 +2198,8 @@ export const useEditorStore = defineStore('editor', {
               source,
               deepClone(getOptionsFromState(currentTab) || options),
               defaultPath,
-              identity
+              identity,
+              recommendedTitleOf(id)
             )
           })
           persist?.catch((error) => {
