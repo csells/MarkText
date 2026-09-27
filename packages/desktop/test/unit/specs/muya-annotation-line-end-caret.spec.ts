@@ -52,8 +52,12 @@ describe('visible line-end caret after a trailing annotation', () => {
     ['Alpha {--beta--}\n', 'Alpha {--beta--}Z\n'],
     ['Alpha {==beta==}\n', 'Alpha {==beta==}Z\n'],
     ['Alpha {~~old~>new~~}\n', 'Alpha {~~old~>new~~}Z\n'],
-    // The outer closer has no rendered position of its own; typing leaves the highlight.
-    ['Alpha {++{==beta==}++}\n', 'Alpha {++{==beta==}Z++}\n']
+    ['Alpha {==beta==}{>>c<<}\n', 'Alpha {==beta==}{>>c<<}Z\n'],
+    // Nested annotations that end the line are all left, not only the innermost.
+    ['Alpha {++{==beta==}++}\n', 'Alpha {++{==beta==}++}Z\n'],
+    ['Alpha {=={++beta++}==}\n', 'Alpha {=={++beta++}==}Z\n'],
+    ['Alpha {++{==beta==}{>>c<<}++}\n', 'Alpha {++{==beta==}{>>c<<}++}Z\n'],
+    ['Alpha {~~old~>{==new==}~~}\n', 'Alpha {~~old~>{==new==}~~}Z\n']
   ])('types after the closer of %s', async(initial, expected) => {
     const app = bootBoundMuya(initial)
     try {
@@ -70,15 +74,19 @@ describe('visible line-end caret after a trailing annotation', () => {
     }
   })
 
-  it('extends the trailing addition when Track Changes is on', async() => {
-    const app = bootBoundMuya('Alpha {++beta++}\n')
+  it.each([
+    ['Alpha {++beta++}\n', 'Alpha {++betaZ++}\n'],
+    // The outer addition is the suggestion that ends the line; its content grows.
+    ['Alpha {++{==beta==}++}\n', 'Alpha {++{==beta==}Z++}\n']
+  ])('extends the trailing addition of %s when Track Changes is on', async(initial, expected) => {
+    const app = bootBoundMuya(initial)
     try {
       app.track(true)
       content(app).setCursor(1, 1, true)
       const exterior = lineEndStep(app)
       app.muya.editor.selection.setDOMSelection(exterior!, exterior!)
       await type(app, 'Z')
-      expect(source(app)).toBe('Alpha {++betaZ++}\n')
+      expect(source(app)).toBe(expected)
     } finally {
       app.dispose()
     }
@@ -86,6 +94,8 @@ describe('visible line-end caret after a trailing annotation', () => {
 
   it.each([
     'Alpha {++beta++} tail\n',
+    'Alpha {++{==beta==}++} tail\n',
+    'Alpha {==beta==}{>>c<<} tail\n',
     'Alpha beta\n'
   ])('leaves the native line end of %s alone', (initial) => {
     const app = bootBoundMuya(initial)
