@@ -1532,6 +1532,11 @@ export function createCoreActor(
             core.sourceSlice(revision, request.range) === request.text
           if (!trackedNoChange) {
             trackedEdit = trackedEditFor(core, revision, request)
+            // Deleting deleted text or annotation syntax changes nothing.
+            if (trackedEdit !== undefined && trackedEdit.start === trackedEdit.end && trackedEdit.insert.length === 0) {
+              trackedNoChange = true
+              trackedEdit = undefined
+            }
           }
         } catch (error) {
           if (error instanceof DocumentCoreError) {
@@ -1901,6 +1906,34 @@ export function createCoreActor(
           sourceLength: revision.sourceLength
         })
       }
+      // With Track Changes on, an operation Core cannot plan changes nothing
+      // and keeps the selection; tracked input is never refused.
+      const trackedUnplanned = (): boolean =>
+        (request.type === 'input' && request.tracked === true) ||
+        (request.type === 'clipboard' && request.action.tracked === true)
+      const unplannedRevision = revision
+      const trackedUnchanged = () => {
+        const unchanged = Object.freeze({
+          type: 'applied' as const,
+          ...consumedPreparedSelection(),
+          session,
+          sequence,
+          revision: revisionNumber,
+          accepted: true as const,
+          sourceLength: unplannedRevision.sourceLength,
+          ...diagnosticsOf(unplannedRevision),
+          change: Object.freeze({
+            appliedEdits: Object.freeze([]),
+            projections: Object.freeze([])
+          })
+        })
+        if (request.type === 'clipboard') {
+          return Object.freeze({ ...unchanged, clipboardResult: Object.freeze({ selection: request.action.selection }) })
+        }
+        if (request.type !== 'input') throw new Error('Only tracked input and clipboard actions are unchanged')
+        const policy = inputPlan ?? Object.freeze({ edits: Object.freeze([]), selection: request.action.selection, reconciliation: Object.freeze([]) })
+        return Object.freeze({ ...unchanged, inputResult: Object.freeze({ policy, selection: request.action.selection }) })
+      }
       let sourceInputPlan: DocumentSourceInputAction | undefined
       let clipboardPlan: DocumentClipboardPlan | undefined
       let formatPlan: DocumentFormatPlan | undefined
@@ -1973,6 +2006,12 @@ export function createCoreActor(
                     : undefined
       } catch (error) {
         if (
+          (error instanceof DocumentSourceEditError || error instanceof RangeError) &&
+          trackedUnplanned()
+        ) {
+          return trackedUnchanged()
+        }
+        if (
           error instanceof DocumentSourceEditError ||
           error instanceof RangeError ||
           ((request.type === 'input' ||
@@ -2007,6 +2046,7 @@ export function createCoreActor(
         }
         throw error
       }
+      if (effectiveApplyEdits === undefined && trackedUnplanned()) return trackedUnchanged()
       if (
         (request.type === 'clipboard' ||
           request.type === 'format' ||
@@ -2084,7 +2124,14 @@ export function createCoreActor(
             appliedEdits: Object.freeze([]),
             projections: Object.freeze([])
           }),
-          inputResult: core.reconcileInput(revision, inputPlan, null, request.action)
+          inputResult: (() => {
+            try {
+              return core.reconcileInput(revision, inputPlan, null, request.action)
+            } catch (error) {
+              if (!(error instanceof RangeError) || request.tracked !== true) throw error
+              return Object.freeze({ policy: inputPlan, selection: request.action.selection })
+            }
+          })()
         })
       }
       if (

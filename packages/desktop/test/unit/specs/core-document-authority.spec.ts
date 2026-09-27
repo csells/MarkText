@@ -2612,7 +2612,9 @@ describe('Core actor protocol', () => {
     ).toMatchObject({ type: 'source', source: 'a{++\\{--X\\--}++}b\n' })
   })
 
-  it('preserves nested CriticMarkup while protecting an outer tracked deletion', () => {
+  it('keeps an enclosed deletion its own suggestion while protecting the new tracked deletion', () => {
+    // Google Docs: deleting across already deleted text strikes the rest and
+    // leaves the earlier deletion as it was.
     const actor = createCoreActor()
     const source = 'before old {--nested--} --} tail after\n'
     expect(
@@ -2641,7 +2643,7 @@ describe('Core actor protocol', () => {
           {
             start: 7,
             end: 32,
-            insert: '{--old {--nested--} \\--} tail--}'
+            insert: '{--old --}{--nested--}{-- \\--} tail--}'
           }
         ]
       }
@@ -2655,7 +2657,7 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({
       type: 'source',
-      source: 'before {--old {--nested--} \\--} tail--} after\n'
+      source: 'before {--old --}{--nested--}{-- \\--} tail--} after\n'
     })
     expect(
       actor.handle({
@@ -3231,7 +3233,9 @@ describe('Core actor protocol', () => {
     ).toMatchObject({ type: 'source', source: '{--old--}\n' })
   })
 
-  it('rejects tracked insertion into a nested hidden Substitution arm', () => {
+  it('types at a nested old arm\'s start into its proposed text', () => {
+    // Google Docs: typing beside deleted text proposes new text; it never
+    // edits the deleted text and is never refused.
     const actor = createCoreActor()
     const source = '{++{~~old~>new~~}++}\n'
     expect(
@@ -3252,32 +3256,15 @@ describe('Core actor protocol', () => {
         text: '!',
         projections: []
       })
-    ).toMatchObject({
-      type: 'rejected',
-      reason: 'invalid-edit',
-      revision: 1
-    })
+    ).toMatchObject({ type: 'applied', revision: 2 })
     expect(
       actor.handle({
         type: 'source-at-barrier',
         session: 789,
         sequence: 3,
-        baseRevision: 1
+        baseRevision: 2
       })
-    ).toMatchObject({ type: 'source', source })
-    expect(
-      actor.handle({
-        type: 'undo',
-        session: 789,
-        sequence: 4,
-        baseRevision: 1,
-        projections: []
-      })
-    ).toMatchObject({
-      type: 'rejected',
-      reason: 'history-empty',
-      revision: 1
-    })
+    ).toMatchObject({ type: 'source', source: '{++{~~old~>!new~~}++}\n' })
   })
 
   it('protects an incomplete Critic token when extending an Addition', () => {
@@ -3568,7 +3555,7 @@ describe('Core actor protocol', () => {
     ).toMatchObject({ type: 'source', source: '\n' })
   })
 
-  it('rejects tracked insertion into actor-owned marker bytes atomically', () => {
+  it('types beside annotation syntax when the caret is inside marker bytes', () => {
     const actor = createCoreActor()
     const source = 'a{++x++}b\n'
     expect(
@@ -3589,37 +3576,18 @@ describe('Core actor protocol', () => {
         text: '!',
         projections: []
       })
-    ).toMatchObject({
-      type: 'rejected',
-      revision: 1,
-      accepted: false,
-      reason: 'invalid-edit',
-      sourceLength: source.length
-    })
+    ).toMatchObject({ type: 'applied', revision: 2 })
     expect(
       actor.handle({
         type: 'source-at-barrier',
         session: 775,
         sequence: 3,
-        baseRevision: 1
+        baseRevision: 2
       })
-    ).toMatchObject({ type: 'source', source })
-    expect(
-      actor.handle({
-        type: 'undo',
-        session: 775,
-        sequence: 4,
-        baseRevision: 1,
-        projections: []
-      })
-    ).toMatchObject({
-      type: 'rejected',
-      reason: 'history-empty',
-      revision: 1
-    })
+    ).toMatchObject({ type: 'source', source: 'a{++x!++}b\n' })
   })
 
-  it('rejects a tracked edit that partially overlaps actor-owned markup', () => {
+  it('leaves annotation syntax unchanged when a tracked deletion reaches only into it', () => {
     const actor = createCoreActor()
     const source = 'a{++x++}b\n'
     expect(
@@ -3644,7 +3612,7 @@ describe('Core actor protocol', () => {
       type: 'rejected',
       revision: 1,
       accepted: false,
-      reason: 'invalid-edit',
+      reason: 'no-change',
       sourceLength: source.length
     })
     expect(
