@@ -1,6 +1,7 @@
 import { commentPayloadCandidates } from './commentSpelling.js'
+import { highlightCommentLayout, type HighlightCommentLayout, type HighlightCommentPair } from './commentedSpans.js'
 import { protectNativeCriticText } from './trackedAuthoring.js'
-import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, SourceRange } from './documentCore.js'
+import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, SourceRange } from './documentCore.js'
 
 export type DocumentAuthorForm = 'addition' | 'comment' | 'highlight' | 'substitution'
 export interface DocumentAuthorAction {
@@ -34,10 +35,20 @@ export const planAuthor = (
       !Number.isSafeInteger(request.range.start) ||
       !Number.isSafeInteger(request.range.end) ||
       request.range.start < 0 ||
-      request.range.end <= request.range.start ||
+      request.range.end < request.range.start ||
       request.range.end > activeRevision.sourceLength ||
       (request.form === 'substitution' && request.text.length === 0)
   ) { return undefined }
+  const layout = highlightCommentLayout(activeRevision.annotations)
+  if (request.form === 'comment') {
+    const around = innermostHighlightAround(layout, request.range)
+    // A comment on text in a standalone highlight comments on that highlight
+    // (plan 0012 G16); in a commented passage it nests a new pair below.
+    if (around !== undefined && layout.standalone.includes(around)) {
+      return planHighlightComment(activeCore, activeRevision, around, request.text, preview, diagnosticsOf)
+    }
+  }
+  if (request.range.start === request.range.end) return undefined
   const projection = activeCore.project(activeRevision, 'revised')
   let authoredRange = request.range
   const visitForCompleteLink = (node: MarkdownAstNode): void => {
@@ -59,17 +70,44 @@ export const planAuthor = (
     for (const child of node.children) visitForCompleteLink(child)
   }
   visitForCompleteLink(projection.ast.root)
-  const pendingAnnotations = [...activeRevision.annotations]
-  while (pendingAnnotations.length > 0) {
-    const annotation = pendingAnnotations.pop()
-    if (annotation === undefined) break
-    const overlaps =
-        authoredRange.start < annotation.range.end && authoredRange.end > annotation.range.start
-    const contains =
-        authoredRange.start <= annotation.range.start && authoredRange.end >= annotation.range.end
-    if (overlaps && !contains) return undefined
-    for (const arm of annotation.arms) {
-      pendingAnnotations.push(...arm.annotations)
+  const outside = outsideCommentedSpanEdges(layout.pairs, authoredRange)
+  if (outside === undefined) return undefined
+  authoredRange = outside
+  // Docs allows overlapping comments. CriticMarkup cannot cross annotations,
+  // so a comment that overlaps highlighted text encloses all of it.
+  for (let widened = true; widened;) {
+    widened = false
+    const pendingAnnotations = [...activeRevision.annotations]
+    while (pendingAnnotations.length > 0) {
+      const annotation = pendingAnnotations.pop()
+      if (annotation === undefined) break
+      const overlaps =
+          authoredRange.start < annotation.range.end && authoredRange.end > annotation.range.start
+      const contains =
+          authoredRange.start <= annotation.range.start && authoredRange.end >= annotation.range.end
+      if (overlaps && !contains) {
+        if (request.form !== 'comment') return undefined
+        const content = annotation.kind === 'highlight'
+          ? annotation.arms.find(arm => arm.name === 'content')?.range
+          : undefined
+        const nested = content !== undefined && content.start <= authoredRange.start && authoredRange.end <= content.end
+        if (!nested) {
+          const pair = layout.pairs.find(item => item.highlight === annotation || item.comment === annotation)
+          const enclosed = pair === undefined
+            ? annotation.kind === 'highlight' ? annotation.range : undefined
+            : { start: pair.highlight.range.start, end: pair.comment.range.end }
+          if (enclosed === undefined) return undefined
+          authoredRange = Object.freeze({
+            start: Math.min(authoredRange.start, enclosed.start),
+            end: Math.max(authoredRange.end, enclosed.end)
+          })
+          widened = true
+          break
+        }
+      }
+      for (const arm of annotation.arms) {
+        pendingAnnotations.push(...arm.annotations)
+      }
     }
   }
   const protectCriticPayload = (source: string): string => {
@@ -128,10 +166,13 @@ export const planAuthor = (
       // The document owner's preview proves both the form and its exact arms.
       // The returned selection belongs to that same resulting syntax.
     const candidate = preview([edit])
+    // A comment may nest inside highlighted text, so its syntax can be below the top level.
+    const authoredAnnotations = request.form === 'comment' ? allAnnotations(candidate.annotations) : candidate.annotations
     const selectedContent = (range: SourceRange): SourceRange => selected === rawSelected
       ? Object.freeze({
-        start: range.start + request.range.start - authoredRange.start,
-        end: range.start + request.range.end - authoredRange.start
+        // The authored range can move off a commented span's hidden edges.
+        start: range.start + Math.max(request.range.start, authoredRange.start) - authoredRange.start,
+        end: range.start + Math.min(request.range.end, authoredRange.end) - authoredRange.start
       })
       : range
     const authoredEnd = authoredRange.start + insert.length
@@ -173,10 +214,10 @@ export const planAuthor = (
         ? Object.freeze({ edit, selection: selectedContent(content.range) })
         : undefined
     }
-    const highlight = candidate.annotations.find(
+    const highlight = authoredAnnotations.find(
       (item) => item.kind === 'highlight' && item.range.start === authoredRange.start
     )
-    const comment = candidate.annotations.find(
+    const comment = authoredAnnotations.find(
       (item) => item.kind === 'comment' && item.range.end === authoredRange.start + insert.length
     )
     const highlightContent = highlight?.arms.find((arm) => arm.name === 'content')
@@ -216,4 +257,77 @@ export const planAuthor = (
   )
   if (protectedText === request.text) return undefined
   return planned(candidateFor(protectedSelected, protectedText), protectedSelected, protectedText)
+}
+
+/** The smallest Highlight whose content holds `range`, bounds included. */
+function innermostHighlightAround(layout: HighlightCommentLayout, range: SourceRange): CriticMarkupAnnotation | undefined {
+  let best: CriticMarkupAnnotation | undefined
+  for (const highlight of [...layout.standalone, ...layout.pairs.map(pair => pair.highlight)]) {
+    const content = highlight.arms.find(arm => arm.name === 'content')?.range
+    if (content === undefined || content.start > range.start || range.end > content.end) continue
+    if (best === undefined || highlight.range.end - highlight.range.start < best.range.end - best.range.start) best = highlight
+  }
+  return best
+}
+
+/**
+ * Keeps an authored range's delimiters out of a commented span's gap and off
+ * its hidden edges (plan 0012 G39): a range that starts at the end of
+ * commented text starts after its Comment, one that ends at its start ends
+ * before its Highlight, and one that covers all its text takes the Comment.
+ */
+function outsideCommentedSpanEdges(pairs: readonly HighlightCommentPair[], range: SourceRange): SourceRange | undefined {
+  let { start, end } = range
+  for (let pass = 0; pass <= pairs.length; pass += 1) {
+    const before = [start, end]
+    for (const { highlight, comment, content } of pairs) {
+      const nonempty = content.start < content.end
+      if (start === highlight.range.end || nonempty && start === content.end) start = comment.range.end
+      if (nonempty && end === content.start) end = highlight.range.start
+      if (end === highlight.range.end || nonempty && end === content.end) {
+        if (start <= highlight.range.start) end = comment.range.end
+        else if (end === highlight.range.end) end = content.end
+      }
+    }
+    if (before[0] === start && before[1] === end) break
+  }
+  return start < end ? Object.freeze({ start, end }) : undefined
+}
+
+/** Adds a Comment directly after a standalone Highlight, forming one commented span. */
+function planHighlightComment(
+  activeCore: DocumentCore,
+  activeRevision: DocumentRevision,
+  highlight: CriticMarkupAnnotation,
+  text: string,
+  preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision,
+  diagnosticsOf: (payload: string) => readonly { readonly range: SourceRange }[]
+): DocumentAuthorPlan | undefined {
+  const content = highlight.arms.find(arm => arm.name === 'content')?.range
+  if (content === undefined || content.start === content.end) return undefined
+  const at = highlight.range.end
+  const payloads = [text, ...commentPayloadCandidates(text, diagnosticsOf).map(({ payload }) => payload).filter(payload => payload !== text)]
+  for (const payload of payloads) {
+    const edit = Object.freeze({ start: at, end: at, insert: `{>>${payload}<<}` })
+    const candidate = preview([edit])
+    const end = at + edit.insert.length
+    if (candidate.diagnostics.some(diagnostic => diagnostic.range.start < end && diagnostic.range.end > at)) continue
+    const pair = highlightCommentLayout(candidate.annotations).pairs.find(item =>
+      item.highlight.range.start === highlight.range.start && item.highlight.range.end === at && item.comment.range.end === end)
+    const arm = pair?.comment.arms.find(item => item.name === 'comment')
+    if (arm === undefined || arm.annotations.length > 0 || candidate.source.slice(arm.range.start, arm.range.end) !== payload) continue
+    return Object.freeze({ edit, selection: Object.freeze({ ...content }), escaped: payload !== text })
+  }
+  return undefined
+}
+
+function allAnnotations(roots: readonly CriticMarkupAnnotation[]): readonly CriticMarkupAnnotation[] {
+  const all: CriticMarkupAnnotation[] = []
+  const pending = [...roots]
+  while (pending.length > 0) {
+    const annotation = pending.pop()!
+    all.push(annotation)
+    for (const arm of annotation.arms) pending.push(...arm.annotations)
+  }
+  return all
 }
