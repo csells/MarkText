@@ -10,13 +10,16 @@ const CED_ICONV_ENCODINGS: Record<string, string> = {
 
   Unicode: 'utf8',
 
-  // Map ASCII / subsets of UTF-8 to UTF-8.
+  // Only bytes that are not valid UTF-8 reach `ced`, so each name must map to
+  // the encoding it denotes: decoding them as UTF-8 would replace bytes. `ced`
+  // calls ISO-8859-1 "ASCII" and Shift_JIS "SJS".
+  SJS: 'shiftjis',
+  ASCII: 'latin1',
+  MACINTOSH: 'macintosh',
+
+  // 7-bit encodings iconv-lite cannot decode; their bytes are also valid UTF-8.
   JIS: 'utf8',
-  SJS: 'utf8',
-  shiftjis: 'utf8',
-  'ASCII-7-bit': 'utf8',
-  ASCII: 'utf8',
-  MACINTOSH: 'utf8'
+  'ASCII-7-bit': 'utf8'
 }
 
 // Byte Order Marks to detect endianness and encoding.
