@@ -454,12 +454,13 @@ const cases = [
   },
   {
     name: 'Enter before a nested item text on its next line',
-    initial: '- a\n  - \n    b\n',
+    // `  -` under `a` would be its setext underline, so the nested item uses `*`.
+    initial: '- a\n  * \n    b\n',
     leaf: 1,
     at: 0,
     key: 'Enter',
-    changed: '- a\n  - \n  - b\n',
-    typed: '- a\n  - \n  - zb\n'
+    changed: '- a\n  * \n  * b\n',
+    typed: '- a\n  * \n  * zb\n'
   },
   {
     name: 'Enter in an empty task paragraph before a later paragraph',

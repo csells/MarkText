@@ -165,7 +165,8 @@ describe('Enter splits a list item as upstream does', () => {
     ['-\n  b\n', enter(4), '-\n- b\n', 4],
     ['1. \n   b\n', enter(7), '1. \n2. b\n', 7],
     ['> - \n>   b\n', enter(9), '> - \n> - b\n', 9],
-    ['- a\n  - \n    b\n', enter(13), '- a\n  - \n  - b\n', 13],
+    // `  -` under `a` would be its setext underline, so the nested item uses `*`.
+    ['- a\n  * \n    b\n', enter(13), '- a\n  * \n  * b\n', 13],
     ['- \n  ab\n', enter(6), '- \n  a\n- b\n', 9],
     ['- [ ] \n\n  b\n', enter(6), '- [ ] \n\n- [ ] b\n', 14],
     ['- \n  - c\n  - d\n', enter(2), '- \n- - c\n  - d\n', 7],
