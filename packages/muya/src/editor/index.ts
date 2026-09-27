@@ -409,6 +409,9 @@ export class Editor {
                 // model boundary (including beside block-displayed widgets).
                 this._muya.domNode.focus({ preventScroll: true });
                 selection.setDOMSelection(dom.anchor, dom.focus);
+                // As in the path below, the focused block is the caret's block
+                // (Focus mode shows it undimmed).
+                this.activeContentBlock = block;
                 return;
             }
         }

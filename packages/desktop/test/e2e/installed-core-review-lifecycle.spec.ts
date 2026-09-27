@@ -1,5 +1,5 @@
 import { _electron, expect, test } from '@playwright/test'
-import type { ElectronApplication } from 'playwright'
+import type { ElectronApplication, Page } from 'playwright'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
@@ -82,11 +82,22 @@ async function menu(app: ElectronApplication, section: string, label: string): P
   )
 }
 
+// A pointer on the comment marker only selects its entry (ADR 0004); Review →
+// Edit Comment opens the composer, and with it the sidebar.
+async function editMarkedComment(app: ElectronApplication, page: Page) {
+  await page.locator('.mu-critic-comment-marker').click()
+  await expect
+    .poll(() =>
+      app.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById('critic-edit-comment')?.enabled)
+    )
+    .toBe(true)
+  await menu(app, 'Review', 'Edit Comment')
+}
+
 test('an unsubmitted comment survives switching tabs and commits through normal history and save', async() => {
   const { app, page, file, other } = await launch(true)
   try {
-    await page.locator('.mu-critic-comment-marker').click()
-    await page.getByTestId('critic-review-edit-comment').click()
+    await editMarkedComment(app, page)
     await page.getByTestId('critic-review-comment-input').fill('My pending **comment**')
     await page.locator(`.tabs-container li[title="${other}"]`).click()
     await expect(page.getByTestId('critic-review-comment-input')).toHaveCount(0)
@@ -113,8 +124,7 @@ test('an unsubmitted comment survives switching tabs and commits through normal 
 test('an unsubmitted comment survives Source handoff and refuses a changed target without losing its text', async() => {
   const { app, page, file } = await launch()
   try {
-    await page.locator('.mu-critic-comment-marker').click()
-    await page.getByTestId('critic-review-edit-comment').click()
+    await editMarkedComment(app, page)
     await page.getByTestId('critic-review-comment-input').fill('Retained across Source')
     await enterSourceMode(page, app)
     await expect(page.getByTestId('critic-review-comment-input')).toHaveCount(0)
@@ -154,8 +164,7 @@ test('tab and window close ask before discarding a pending comment', async() => 
   const { app, page, file } = await launch()
   let closed = false
   try {
-    await page.locator('.mu-critic-comment-marker').click()
-    await page.getByTestId('critic-review-edit-comment').click()
+    await editMarkedComment(app, page)
     await page.getByTestId('critic-review-comment-input').fill('Do not discard me')
     await enterSourceMode(page, app)
     // The native confirmation is answered in main so no real dialog is shown.

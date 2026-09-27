@@ -1774,15 +1774,50 @@ const revealCoreReviewItem = (scroll = true): void => {
   node.classList.add('core-review-current-block')
   if (scroll) node.scrollIntoView({ block: 'center', behavior: 'instant' })
 }
+/** The source position of the Markup caret, or of a selection's focus. */
+const coreCaretSource = (): number | undefined => {
+  const focus = editor.value?.getSelection()?.focus
+  const binding = focus && coreMarkupBindingsByPath.get(JSON.stringify(focus.path))
+  if (!focus || !binding) return undefined
+  return mappedMuyaSourceRange(binding, {
+    start: Math.min(focus.offset, binding.text.length),
+    end: Math.min(focus.offset, binding.text.length)
+  })?.start
+}
+/**
+ * As Google Docs does, put the caret at the start of the current item with
+ * keyboard focus in the document, so typing continues there.
+ */
+const placeCaretAtCoreReviewItem = (): void => {
+  const item = coreReviewItem.value
+  const muya = editor.value
+  const view = coreAcknowledgedMarkupView
+  if (!item || !muya || !view || coreDisplayMode.value !== 'markup') return
+  restoreMuyaDocumentSelection(
+    muya,
+    view,
+    { ranges: [{ anchor: item.range.start, focus: item.range.start }], primary: 0 },
+    { projectSource: true }
+  )
+  muya.focus()
+}
 const navigateCoreReview = async (direction: 'next' | 'previous'): Promise<void> => {
-  if (!coreReviewItem.value) return
+  const item = coreReviewItem.value
+  if (!item) return
   pendingCoreCaret = undefined
+  // From a caret away from the current item, move to the item after or before it.
+  const from = coreReviewTargeted.value
+    ? undefined
+    : coreDisplayMode.value === 'markup'
+      ? coreCaretSource()
+      : undefined
   if (coreDisplayMode.value !== 'markup') await showCoreProjection('markup')
   await refreshCoreReviewItem(
     direction,
-    direction === 'next' ? coreReviewItem.value.range.end : coreReviewItem.value.range.start
+    from ?? (direction === 'next' ? item.range.end : item.range.start)
   )
   revealCoreReviewItem()
+  placeCaretAtCoreReviewItem()
 }
 const selectCoreReviewEntry = async (start: number): Promise<void> => {
   // A visible entry remains navigable during a view read. Its new request must
@@ -1885,6 +1920,7 @@ const editCoreReviewComment = async (): Promise<void> => {
   }
   coreCommentError.value = ''
   coreCommentOpen.value = true
+  reviewLayoutStore.SET_LAYOUT({ showSideBar: true, rightColumn: 'review' })
 }
 
 let coreCommentFocusPending = false
@@ -2089,6 +2125,7 @@ const authorCoreReview = async (
     }
     coreCommentError.value = ''
     coreCommentOpen.value = true
+    reviewLayoutStore.SET_LAYOUT({ showSideBar: true, rightColumn: 'review' })
     return
   }
   const text = ''
@@ -2190,10 +2227,11 @@ const handleCoreReviewCommand = (value: unknown): void => {
     return
   }
   pendingCoreCaret = undefined
-  reviewLayoutStore.SET_LAYOUT({ showSideBar: true, rightColumn: 'review' })
   const run = async (): Promise<void> => {
     switch (command) {
       case 'show':
+        // As in Google Docs, only this request and a comment composer open the panel.
+        reviewLayoutStore.SET_LAYOUT({ showSideBar: true, rightColumn: 'review' })
         return
       case 'add-comment':
         beginCoreAuthorReview('comment')
