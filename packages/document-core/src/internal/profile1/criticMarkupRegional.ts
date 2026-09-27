@@ -319,7 +319,6 @@ export function createCriticMarkupRegionalIndex(
       break
     }
   }
-  if (sourceStart === 0 || sourceEnd >= retained.sourceLength) return undefined
   const editing = products.editing()
   const syntaxStart = exactProjectedOffset(editing, sourceStart)
   const syntaxEnd = exactProjectedOffset(editing, sourceEnd)
@@ -457,10 +456,13 @@ function expectedLocalTopology(
 function evolveIndex(
   index: CriticMarkupRegionalIndex,
   edit: RetainedPassSourceEdit,
-  delta: number
+  delta: number,
+  extendsArmEnd: boolean
 ): CriticMarkupRegionalIndex {
   const transformOffset = (offset: number): number =>
-    offset <= edit.start ? offset : offset + delta
+    offset < edit.start || (offset === edit.start && !extendsArmEnd)
+      ? offset
+      : offset + delta
   const transformRange = (sourceRange: SourceRange): SourceRange => range(
     transformOffset(sourceRange.start),
     transformOffset(sourceRange.end)
@@ -531,15 +533,19 @@ export function admitCriticMarkupRegionalChange(
 ): CriticMarkupRegionalAdmissionResult | undefined {
   const edit = edits.length === 1 ? edits[0] : undefined
   if (edit === undefined) return undefined
+  // Typing appends at an arm's end, so a caret there extends the arm; its
+  // closer moves with the text. A caret at an arm's start stays with the opener.
   const activeArmOrdinal = index.arms.findIndex(arm =>
     edit.start >= arm.range.start &&
     edit.end <= arm.range.end &&
     !(edit.start === edit.end &&
-      (edit.start <= arm.range.start || edit.start >= arm.range.end))
+      (edit.start <= arm.range.start || edit.start > arm.range.end))
   )
   if (activeArmOrdinal < 0) return undefined
   const delta = nextSource.length - previousSource.length
-  let nextIndex = evolveIndex(index, edit, delta)
+  const extendsArmEnd = edit.start === edit.end &&
+    edit.start === index.arms[activeArmOrdinal]?.range.end
+  let nextIndex = evolveIndex(index, edit, delta, extendsArmEnd)
   const previousWindow = previousSource.slice(
     index.source.start,
     index.source.end
@@ -548,7 +554,10 @@ export function admitCriticMarkupRegionalChange(
     index.source.start,
     index.source.end + delta
   )
-  const regionalOptions = Object.freeze({ ...markdownOptions, frontMatter: false })
+  // Only a region at the document start can open front matter.
+  const regionalOptions = index.source.start === 0
+    ? markdownOptions
+    : Object.freeze({ ...markdownOptions, frontMatter: false })
   const parseWindow = (source: string, endsAtDocumentEnd: boolean) => parseProfile1Document(
     source,
     executionBudget,
