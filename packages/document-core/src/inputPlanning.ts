@@ -168,9 +168,22 @@ export function planInput(core: DocumentCore, revision: DocumentRevision, action
  */
 function respellEnteredTable(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, preview: TablePreview): DocumentInputPlan {
   const first = plan.edits[0]
-  if ('kind' in action || action.inputType !== 'insertParagraph' || first === undefined ||
-    tableAt(core.project(revision, 'markup').syntax, first.start) !== undefined) return plan
+  if ('kind' in action || action.inputType !== 'insertParagraph' || first === undefined) return plan
+  // Only a line with a pipe can become a table's header row.
+  if (!plan.edits.some(edit => edit.insert.includes('|')) && !pipeOnLine(core, revision, first.start)) return plan
+  if (tableAt(core.project(revision, 'markup').syntax, first.start) !== undefined) return plan
   return Object.freeze(respellTableResult(plan, first.start, preview))
+}
+
+/** Whether the source line holding `position` has a pipe; unbounded lines answer yes. */
+function pipeOnLine(core: DocumentCore, revision: DocumentRevision, position: number): boolean {
+  const reach = 4096
+  const before = core.sourceSlice(revision, { start: Math.max(0, position - reach), end: position })
+  const after = core.sourceSlice(revision, { start: position, end: Math.min(revision.sourceLength, position + reach) })
+  const start = Math.max(before.lastIndexOf('\n'), before.lastIndexOf('\r'))
+  const ends = [after.indexOf('\n'), after.indexOf('\r')].filter(index => index >= 0)
+  if (start < 0 && position > reach || ends.length === 0 && revision.sourceLength - position > reach) return true
+  return before.slice(start + 1).includes('|') || after.slice(0, ends.length === 0 ? after.length : Math.min(...ends)).includes('|')
 }
 
 const tableCommands = new Set(['insertTableRow', 'insertTableColumn', 'removeTableRow', 'removeTableColumn', 'alignTableColumn', 'moveTableRow', 'moveTableColumn'])
@@ -638,3 +651,4 @@ export function reconcileInput(
   }
   return Object.freeze({ policy, compilerReconciliation, selection: directed })
 }
+
