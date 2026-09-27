@@ -236,7 +236,7 @@ export interface MarkdownAstNode {
    * `semanticInfo` separately from exact `info`. GFM strong nodes expose
    * `semanticFlattenStrongChildren` when directly nested strong wrappers are
    * transparent under the pinned GFM semantics; the delimiter tree and ranges
-   * remain lossless.
+   * remain lossless. Ordered lists expose their marker's `delimiter`, `.` or `)`.
    *
    * Link, image, and autolink nodes use `rawDestination` and `rawTitle` to
    * retain Markdown source spelling. Their renderer-ready decoded values are

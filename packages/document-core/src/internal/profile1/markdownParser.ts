@@ -3178,7 +3178,10 @@ function finalizeMutableContainer(
     attributes = Object.freeze({
       ...attributes,
       tight: !loose,
-      ...(taskList ? { taskList: true } : {})
+      ...(taskList ? { taskList: true } : {}),
+      ...(attributes['ordered'] === true && node.listDelimiterCodeUnit !== undefined
+        ? { delimiter: String.fromCharCode(node.listDelimiterCodeUnit) }
+        : {})
     })
   }
   return createNode(node.kind, node.start, node.end, children, attributes)
