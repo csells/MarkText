@@ -47,6 +47,8 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
   })
 
   it.each([
+    // Marker spelling reads against the whole document (G35).
+    { label: 'new annotation', insert: '{++new++}' },
     { label: 'new Markdown structure', insert: '\n\n# heading\n\n' },
     { label: 'reference dependency', insert: '[new][label]' }
   ])('uses a full parse when an ordinary edit introduces $label', ({ insert }) => {
@@ -66,10 +68,9 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
   })
 
-  // Plan 0012 G35: a new suggestion, a split or a joined paragraph reparses
-  // only the paragraphs it changes.
+  // Plan 0012 G35: a split or a joined paragraph reparses only the
+  // paragraphs it changes.
   it.each([
-    { label: 'a new annotation', at: (source: string) => source.indexOf('target') + 2, length: 0, insert: '{++new++}' },
     { label: 'a paragraph split', at: (source: string) => source.indexOf('target') + 2, length: 0, insert: '\n\n' },
     { label: 'a joined paragraph separator', at: (source: string) => source.indexOf('\n\n'), length: 2, insert: ' ' }
   ])('keeps $label in ordinary paragraphs regional', ({ at, length, insert }) => {

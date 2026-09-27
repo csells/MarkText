@@ -23,6 +23,8 @@ export interface RevisionProductStore<Product> {
     select: (product: Product) => Result
   ) => Result | undefined
   readonly releaseStrong: () => void
+  /** Runs with the retained product only; never rehydrates. */
+  readonly withRetained: <Result>(use: (product: Product) => Result) => Result | undefined
 }
 
 export function createRevisionProductStore<Product>(
@@ -65,6 +67,8 @@ export function createRevisionProductStore<Product>(
   return Object.freeze({
     withProduct: Object.freeze(withProduct),
     demoteStrong: Object.freeze(demoteStrong),
-    releaseStrong: Object.freeze(releaseStrong)
+    releaseStrong: Object.freeze(releaseStrong),
+    withRetained: Object.freeze(<Result>(use: (product: Product) => Result): Result | undefined =>
+      strong === undefined ? undefined : use(strong))
   })
 }
