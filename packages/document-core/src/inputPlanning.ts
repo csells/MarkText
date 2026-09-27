@@ -144,9 +144,23 @@ function emptyFencedPayloadInput(core: DocumentCore, revision: DocumentRevision,
   return { ...action, selection, range: selection }
 }
 
+/**
+ * The top-level paragraphs around a caret, parsed apart from the document
+ * with one unchanged block of context on each side. Its syntax, lines and
+ * conversions use the window's own projected coordinates; its coordinate map
+ * translates them to and from document source offsets.
+ */
+export interface RegionalBlockContext {
+  readonly syntax: MarkupSyntax
+  readonly lines: MarkdownLineIndex
+  readonly enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined
+  /** Source range of the window's blocks, context blocks included. */
+  readonly source: SourceRange
+}
+
 /** Normalize current model addresses only; physical cell materialization is an edit. */
-export function planInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, regionalSyntax?: (range: SourceRange) => MarkupSyntax | undefined, untracked = false, preview?: TablePreview): DocumentInputPlan {
-  const plan = planUnspelledInput(core, revision, action, enterConversion, physicalLines, regionalSyntax, untracked)
+export function planInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, regionalSyntax?: (range: SourceRange) => MarkupSyntax | undefined, untracked = false, preview?: TablePreview, regionalContext?: (position: number) => RegionalBlockContext | undefined): DocumentInputPlan {
+  const plan = planUnspelledInput(core, revision, action, enterConversion, physicalLines, regionalSyntax, untracked, regionalContext)
   if (!untracked || preview === undefined) return plan
   // Typing, Enter, deletion and drops inside a table change only their own
   // bytes (ADR 0007; owner decision 25 Sep, plan 0012 G24). The line a
@@ -188,7 +202,7 @@ function pipeOnLine(core: DocumentCore, revision: DocumentRevision, position: nu
 
 const tableCommands = new Set(['insertTableRow', 'insertTableColumn', 'removeTableRow', 'removeTableColumn', 'alignTableColumn', 'moveTableRow', 'moveTableColumn'])
 
-function planUnspelledInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, regionalSyntax: ((range: SourceRange) => MarkupSyntax | undefined) | undefined, untracked: boolean): DocumentInputPlan {
+function planUnspelledInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, regionalSyntax: ((range: SourceRange) => MarkupSyntax | undefined) | undefined, untracked: boolean, regionalContext?: (position: number) => RegionalBlockContext | undefined): DocumentInputPlan {
   if ('kind' in action && action.command === 'moveText') return planTextMove(core, revision, action, physicalLines())
   if ('kind' in action && action.command === 'moveBlock') return planBlockMove(core, revision, action, physicalLines())
   action = constrainLiteralDeletion(core, revision, action, regionalSyntax)
@@ -235,7 +249,7 @@ function planUnspelledInput(core: DocumentCore, revision: DocumentRevision, acti
     const span = planTableSpanCut(core, revision, regionalSyntax?.(selection) ?? core.project(revision, 'markup').syntax, selection, action.data ?? '')
     if (span !== undefined) return finish({ edits: Object.freeze([...span.edits]), selection: Object.freeze({ start: span.caret, end: span.caret }), reconciliation: Object.freeze([]) })
   }
-  const plan = planSourceInput(core, revision, normalized, enterConversion, physicalLines, selectedCell, regionalSyntax)
+  const plan = planSourceInput(core, revision, normalized, enterConversion, physicalLines, selectedCell, regionalSyntax, regionalContext)
   if ('kind' in action && action.command === 'tableBoundaryBackspace' && plan.edits.length === 0 && plan.selection.start === selection.start && plan.selection.end === selection.end) return Object.freeze({ ...plan, selection: actual })
   if (selectedCell === undefined || selectedCell.slotStart !== undefined || 'kind' in action || action.inputType === 'insertParagraph' ||
     plan.edits.length === 0 || plan.edits.every(edit => edit.start === edit.end && edit.insert.length === 0)) {
@@ -262,20 +276,57 @@ function planUnspelledInput(core: DocumentCore, revision: DocumentRevision, acti
   })
 }
 
+/** Enter or a soft break, planned against `syntax` and the lines and conversions read with it. */
+function planLineBreak(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction<SourceRange>, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, selectedCell: ReturnType<typeof resolveTableCell> | undefined, syntax?: MarkupSyntax): Readonly<{ plan: DocumentSourceInputPlan, broken: DocumentInputAction<SourceRange> }> {
+  const trailingLine = selectedCell === undefined ? planSetextTrailingLine(core, revision, action, syntax ?? core.project(revision, 'markup').syntax) : undefined
+  if (trailingLine !== undefined && !('moveTo' in trailingLine)) return { plan: trailingLine, broken: action }
+  const broken = trailingLine === undefined
+    ? action
+    : { ...action, ...(trailingLine.paragraph === true ? { inputType: 'insertParagraph' } : {}), selection: trailingLine.moveTo, range: trailingLine.moveTo }
+  return { plan: planStructuralInput(core, revision, broken, enterConversion, physicalLines, selectedCell, syntax), broken }
+}
+
+/**
+ * A break planned from a regional window's blocks alone, kept only when
+ * everything it reads and writes lies between the window's context blocks,
+ * where the window reads as the whole document does.
+ */
+function planRegionalLineBreak(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction<SourceRange>, context: RegionalBlockContext): DocumentSourceInputPlan | undefined {
+  const blocks = context.syntax.ast.root.children
+  const first = blocks[0]
+  const last = blocks.at(-1)
+  if (blocks.length < 2 || first === undefined || last === undefined) return undefined
+  // Positions inside the first or last block may depend on blocks outside the
+  // window, unless that block is the document's own first or last.
+  const from = context.source.start === 0 ? 0 : context.syntax.coordinates.toSource(first.range.end, 'previous')
+  const to = context.source.end === revision.sourceLength ? revision.sourceLength : context.syntax.coordinates.toSource(last.range.start, 'next')
+  let planned: ReturnType<typeof planLineBreak>
+  try {
+    planned = planLineBreak(core, revision, action, context.enterConversion, () => context.lines, undefined, context.syntax)
+  } catch {
+    // A window without the block the caret needs cannot plan it; the
+    // document's own syntax decides, refusals included.
+    return undefined
+  }
+  const { plan, broken } = planned
+  const carets = [action.selection.start, broken.selection.start, broken.selection.end]
+  const edits = [...plan.edits, ...plan.reconciliation].flatMap(edit => [edit.start, edit.end])
+  return carets.every(position => from < position && position < to) && edits.every(position => from <= position && position <= to)
+    ? plan
+    : undefined
+}
+
 /** Plans native input against the current revision's owned syntax, without reparsing a draft. */
-function planSourceInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction<SourceRange>, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, selectedCell?: ReturnType<typeof resolveTableCell>, regionalSyntax?: (range: SourceRange) => MarkupSyntax | undefined): DocumentSourceInputPlan {
+function planSourceInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction<SourceRange>, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, selectedCell?: ReturnType<typeof resolveTableCell>, regionalSyntax?: (range: SourceRange) => MarkupSyntax | undefined, regionalContext?: (position: number) => RegionalBlockContext | undefined): DocumentSourceInputPlan {
   if ('kind' in action) return planStructuralInput(core, revision, action, enterConversion, physicalLines, selectedCell)
   const { selection, inputType, data, options } = action
   if (inputType === 'cancelComposition') {
     return Object.freeze({ edits: Object.freeze([]), selection: Object.freeze({ ...selection }), reconciliation: Object.freeze([]) })
   }
   if (inputType === 'insertParagraph' || inputType === 'insertLineBreak') {
-    const trailingLine = selectedCell === undefined ? planSetextTrailingLine(core, revision, action, core.project(revision, 'markup').syntax) : undefined
-    if (trailingLine !== undefined && !('moveTo' in trailingLine)) return trailingLine
-    const broken = trailingLine === undefined
-      ? action
-      : { ...action, ...(trailingLine.paragraph === true ? { inputType: 'insertParagraph' } : {}), selection: trailingLine.moveTo, range: trailingLine.moveTo }
-    return planStructuralInput(core, revision, broken, enterConversion, physicalLines, selectedCell)
+    const context = selectedCell === undefined && selection.start === selection.end ? regionalContext?.(selection.start) : undefined
+    return (context === undefined ? undefined : planRegionalLineBreak(core, revision, action, context)) ??
+      planLineBreak(core, revision, action, enterConversion, physicalLines, selectedCell).plan
   }
   const syntax = selectedCell === undefined && selection.start === selection.end
     ? regionalSyntax?.({ start: Math.min(selection.start, action.range.start), end: Math.max(selection.end, action.range.end) }) ?? core.project(revision, 'markup').syntax
