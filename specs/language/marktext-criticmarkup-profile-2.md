@@ -97,6 +97,29 @@ Comment payloads remain isolated subdocuments (R5); inside a Comment Display the
 same rule applies to its nested annotations. The Markup view keeps definitions
 arm-local.
 
+## Editing around commented spans (plan 0012 G39)
+
+This section governs MarkText's editing and review operations, not
+recognition: it changes how no existing source parses, so it needs no profile
+identifier of its own and applies under Profile 1 as well. It keeps the
+Highlight/Comment relation of Profile 1 V5 meaningful.
+
+- **Markup input.** Typing, paste and drops in the Markup view never insert
+  between a Highlight and the Comment after it. Text at the edges of commented
+  text goes outside the commented span: after the Comment at its end, before
+  the Highlight at its start. Text typed inside the commented text joins it.
+  Google Docs likewise keeps text typed at a comment's edge out of the comment.
+  Source-mode edits keep the bytes the author typed (ADR 0015).
+- **Resolution.** Accepting or rejecting changes applies Profile 1 V4 and then,
+  in the same transaction: if resolution removes all of a commented passage's
+  text, its now-empty Highlight goes with it and the Comment stays standalone
+  at that position (ADR 0003), so rejecting `{=={++new++}==}{>>n<<}` gives
+  `{>>n<<}`, not `{====}{>>n<<}`; if resolution would leave a standalone
+  Comment directly after a Highlight it was not paired with, the Comment moves
+  to the end of that Highlight's text, keeping its position without creating a
+  pair, so rejecting the Addition in `{==a==}{++x++}{>>n<<}` gives
+  `{==a{>>n<<}==}`.
+
 ## Compatibility and versioning
 
 These rules change the recognition of existing source, so they form a new

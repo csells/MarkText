@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createLocalCoreOwner } from '../../../src/renderer/src/documentAuthority/localCoreOwner'
 
-// Profile 1 V6 (plan 0012 G39): resolution keeps the Highlight/Comment
+// Profile 2, "Editing around commented spans" (plan 0012 G39): resolution keeps the Highlight/Comment
 // relation meaningful for single and bulk resolution, and one Undo restores it.
 type Request =
   | { readonly kind: 'one'; readonly annotation: { kind: 'addition' | 'deletion'; range: { start: number; end: number } }; readonly decision: 'accept' | 'reject' }

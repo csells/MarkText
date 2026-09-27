@@ -83,7 +83,7 @@ it('Source edits keep the bytes the author typed (ADR 0015)', () => {
   expect(core.apply(previous, [{ start: 11, end: 11, insert: 'Z' }]).revision.source).toBe('x {==abc==}Z{>>n<<} y\n')
 })
 
-// Profile 1 V6: resolution keeps the Highlight/Comment relation meaningful.
+// Profile 2, "Editing around commented spans": resolution keeps the Highlight/Comment relation meaningful.
 const resolved = (text: string, decision: 'accept' | 'reject', kind: 'addition' | 'deletion' | 'substitution' = 'addition') => {
   const core = createDocumentCore()
   const previous = core.open(text)
