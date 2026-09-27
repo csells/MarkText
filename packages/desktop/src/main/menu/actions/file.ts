@@ -25,7 +25,7 @@ import { EXTENSION_HASN, PANDOC_EXTENSIONS, URL_REG } from '../../config'
 import { normalizeAndResolvePath, resolveLocalLinkTarget, writeFile } from '../../filesystem'
 import { LossyDecodeError } from '../../filesystem/encoding'
 import { writeMarkdownFile } from '../../filesystem/markdown'
-import { getPath, getRecommendTitleFromMarkdownString } from '../../utils'
+import { getPath } from '../../utils'
 import pandoc, {
   PANDOC_EXPORT_FORMATS,
   formatLinksMedia,
@@ -315,16 +315,15 @@ const handleResponseForSave = async(
   options: UnsavedFile['options'],
   defaultPath?: string,
   saveIdentity?: DocumentSaveIdentity | null,
-  saveAs: boolean = false
+  saveAs: boolean = false,
+  title?: string
 ): Promise<string | { id: string; saveIdentity: DocumentSaveIdentity } | void> => {
   const win = BrowserWindow.fromWebContents(e.sender)
   if (!win) {
     return Promise.resolve()
   }
-  let recommendFilename = getRecommendTitleFromMarkdownString(markdown)
-  if (!recommendFilename) {
-    recommendFilename = filename || 'Untitled'
-  }
+  // The renderer reads the title from Core's parse of the document.
+  const recommendFilename = title || filename || 'Untitled'
 
   // If the file doesn't exist on disk add it to the recently used documents later
   // and execute file from filesystem watcher for a short time. The file may exists
@@ -470,7 +469,9 @@ ipcMain.on('mt::save-tabs', (e, unsavedFiles: UnsavedFile[]) => {
         file.markdown,
         file.options,
         file.defaultPath,
-        file.saveIdentity
+        file.saveIdentity,
+        false,
+        file.title
       )
     )
   ).catch(log.error)
@@ -498,7 +499,9 @@ ipcMain.on('mt::save-and-close-tabs', async(e, unsavedFiles: UnsavedFile[]) => {
           file.markdown,
           file.options,
           file.defaultPath,
-          file.saveIdentity
+          file.saveIdentity,
+          false,
+          file.title
         )
       )
     )
@@ -528,7 +531,8 @@ ipcMain.on(
     markdown: string,
     options: UnsavedFile['options'],
     defaultPath?: string,
-    saveIdentity?: DocumentSaveIdentity | null
+    saveIdentity?: DocumentSaveIdentity | null,
+    title?: string
   ) => {
     await handleResponseForSave(
       e,
@@ -539,7 +543,8 @@ ipcMain.on(
       options,
       defaultPath,
       saveIdentity,
-      true
+      true,
+      title
     ).catch(() => {})
   }
 )
@@ -602,7 +607,9 @@ const handleWindowClose = async(e: IpcMainEvent, unsavedFiles?: UnsavedFile[]): 
               file.markdown,
               file.options,
               file.defaultPath,
-              file.saveIdentity
+              file.saveIdentity,
+              false,
+              file.title
             )
           )
         )
@@ -647,9 +654,33 @@ const handleWindowClose = async(e: IpcMainEvent, unsavedFiles?: UnsavedFile[]): 
 ipcMain.on('mt::close-window-confirm', handleWindowClose)
 ipcMain.on('mt::close-window', (e) => handleWindowClose(e))
 
-ipcMain.on('mt::response-file-save', async(...args: Parameters<typeof handleResponseForSave>) => {
-  await handleResponseForSave(...args).catch(() => {})
-})
+ipcMain.on(
+  'mt::response-file-save',
+  async(
+    e: IpcMainEvent,
+    id: string,
+    filename: string,
+    pathname: string | undefined,
+    markdown: string,
+    options: UnsavedFile['options'],
+    defaultPath?: string,
+    saveIdentity?: DocumentSaveIdentity | null,
+    title?: string
+  ) => {
+    await handleResponseForSave(
+      e,
+      id,
+      filename,
+      pathname,
+      markdown,
+      options,
+      defaultPath,
+      saveIdentity,
+      false,
+      title
+    ).catch(() => {})
+  }
+)
 
 ipcMain.on('mt::response-export', handleResponseForExport as Parameters<typeof ipcMain.on>[1])
 
