@@ -40,7 +40,8 @@ describe('cross-block editing input without an enumerated input type (#5415)', (
     }
   })
 
-  it('leaves a same-block selection to the browser for an unenumerated type', () => {
+  // Plan 0012 G42: the browser must not edit model-owned text on its own.
+  it('prevents an unenumerated type without stated text over a same-block selection', () => {
     const app = bootBoundMuya('abc\n')
     try {
       const block = app.muya.editor.scrollPage?.firstContentInDescendant()
@@ -52,8 +53,10 @@ describe('cross-block editing input without an enumerated input type (#5415)', (
         cancelable: true
       })
       block.domNode!.dispatchEvent(input)
-      expect(input.defaultPrevented).toBe(false)
+      expect(input.defaultPrevented).toBe(true)
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: 'abc\n' })
+      app.muya.flush()
+      expect(app.legacyChanges).toEqual([])
     } finally {
       app.dispose()
     }

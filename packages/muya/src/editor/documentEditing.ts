@@ -29,6 +29,9 @@ const inputTypes = new Set([
     'deleteHardLineForward',
     'deleteEntireSoftLine',
 ]);
+// macOS text-system commands (Ctrl+T, Ctrl+Y) whose beforeinput states the
+// replacement text and its target range, as insertReplacementText does.
+const statedInputTypes = new Set(['insertTranspose', 'insertFromYank']);
 
 function point(endpoint: ISelection['anchor']): DocumentTextPoint {
     return {
@@ -161,6 +164,11 @@ export function ownsDocumentTextKey(muya: Muya, event: KeyboardEvent): boolean {
     if (event.key === 'Delete')
         return !selection.isCollapsed || selection.focus.offset < selection.focus.block.text.length;
     return false;
+}
+
+/** Form fields inside widgets edit their own value, not model-owned text. */
+function isNativeTextField(target: EventTarget | null) {
+    return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
 }
 
 function inputSelection(muya: Muya, event: InputEvent | KeyboardEvent) {
@@ -323,7 +331,7 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
         if (!input) {
             // A caret without a model position must not let the browser edit
             // rendered DOM that the document model does not own.
-            if (!(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement))
+            if (!isNativeTextField(event.target))
                 event.preventDefault();
             return;
         }
@@ -512,6 +520,14 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
             const selection = muya.editor.selection.getSelection();
             if (replacement != null && selection && !selection.isCollapsed && !selection.isSelectionInSameBlock)
                 applyInput(event, replacement === '' ? 'deleteContentBackward' : 'insertText', replacement === '' ? null : replacement);
+            // Chromium states the text; an empty kill ring states none.
+            else if (statedInputTypes.has(event.inputType) && event.data)
+                applyInput(event, event.inputType, event.data);
+            // Formatting, list, link and native history commands have no model
+            // operation here; the model owns the rendered text, so the browser
+            // must not edit it either.
+            else if (!isNativeTextField(event.target))
+                event.preventDefault();
             return;
         }
         const data = event.inputType === 'insertFromDrop'
