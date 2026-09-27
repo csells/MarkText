@@ -101,7 +101,7 @@ export function bindCodeMirrorSourceSyntax(input: {
         // Reuse registered embedded modes as before, never a Markdown/GFM parser.
         const highlightLiteral =
           mode !== undefined &&
-          !['null', 'markdown', 'gfm', 'markdown-math'].includes(mode.name ?? 'null')
+          !['null', 'markdown', 'gfm'].includes(mode.name ?? 'null')
         const math = span.kind === 'inline-math' || span.kind === 'math-block'
         // Math delimiters are faded apart from the formula they enclose.
         const outerRanges =

@@ -47,7 +47,6 @@
         ref="coreSourceEditor"
         :key="coreSourceGeneration"
         :markdown="coreProjectionMarkdown ?? markdown"
-        :muya-index-cursor="muyaIndexCursor"
         :text-direction="textDirection"
         :core-lease="activeCoreLease"
         :initial-document-selection="coreInitialDocumentSelection"
