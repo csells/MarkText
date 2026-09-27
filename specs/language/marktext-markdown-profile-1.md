@@ -230,6 +230,14 @@ Profile 1 recognizes exactly the five canonical forms, with exactly these delimi
     in a table. An annotation MAY instead enclose the entire table (open before its first row,
     close after its last). Annotations spanning _some but not all_ of a table's rows do not
     form (openers/closers are literal). _(Profile 1 ruling; the reference ecosystem is silent.)_
+    _Implementation (27 Sep): the parser enforces cell containment as "an annotation may
+    not cut through a cell": it forms when its markers sit in one cell, or when its opener
+    begins a cell's text (or stands outside every cell) and its other marker ends a cell's
+    text (or stands outside), so it covers whole cells or whole rows (`| x |{++ y |++}`
+    adds a cell). Whole-row annotations form, because tracked row insertion, removal and
+    moves spell them; the some-but-not-all-rows clause is therefore not enforced and awaits
+    an owner ruling. Table structure for containment is read from the canonical source,
+    where delimiter runs at a row's edges are not row text._
 - **R4 — Substitution divider.** Exactly one `~>` at the top nesting level of a substitution's
   payload divides _old_ from _new_. A `~>` anywhere outside a substitution payload is literal
   text. Profile 1 deliberately diverges from MMD-6, which erases stray `~>` tokens; see §12. A

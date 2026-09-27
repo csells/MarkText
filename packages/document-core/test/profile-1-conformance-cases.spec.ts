@@ -341,13 +341,7 @@ const superseded: Readonly<Record<string, Readonly<{ ruling: string, observed: R
 
 // Open conformance gaps: the current observable is pinned so a fix fails this
 // test and moves the case back to the baseline expectation.
-const knownNonconformance: Readonly<Record<string, Record<string, unknown>>> = {
-  // R3b: an unescaped `|` in a table row should keep delimiting cells between
-  // CM markers, so an annotation crossing a cell edge must not form. The
-  // parser recognizes CriticMarkup without table-cell containment, so the
-  // Addition forms and hides the pipe from Original's table.
-  'case-R3b': { annotationCount: 1 }
-}
+const knownNonconformance: Readonly<Record<string, Record<string, unknown>>> = {}
 
 describe('CriticMarkup Profile 1 conformance cases executed against document-core', () => {
   it('has an observer for all 40 baseline cases', () => {
