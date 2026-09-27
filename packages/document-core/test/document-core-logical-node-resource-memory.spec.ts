@@ -11,7 +11,7 @@ describe('document-core logical-node resource policy', () => {
     ))
     const result = spawnSync(process.execPath, [
       '--expose-gc',
-      '--max-old-space-size=512',
+      '--max-old-space-size=2048',
       '--import',
       'tsx',
       childPath,
@@ -20,7 +20,7 @@ describe('document-core logical-node resource policy', () => {
       cwd: fileURLToPath(new URL('../../..', import.meta.url)),
       encoding: 'utf8',
       env: { ...process.env, NODE_NO_WARNINGS: '1' },
-      timeout: 30_000
+      timeout: 90_000
     })
     expect(result.error).toBeUndefined()
     expect(result.signal, result.stderr || result.stdout).toBeNull()
@@ -30,9 +30,9 @@ describe('document-core logical-node resource policy', () => {
 
   it('admits below and at the desktop limit and rejects the next node', () => {
     runChild('edge')
-  }, 35_000)
+  }, 95_000)
 
   it('rejects a compact far overshoot and keeps the prior head recoverable', () => {
     runChild('overshoot')
-  }, 35_000)
+  }, 95_000)
 })

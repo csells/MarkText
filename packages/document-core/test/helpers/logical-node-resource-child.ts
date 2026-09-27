@@ -15,10 +15,10 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
 }
 
-const BOUNDED_HEAP_BYTES = 512 * 1_024 * 1_024
+const BOUNDED_HEAP_BYTES = 2 * 1_024 * 1_024 * 1_024
 const HEAP_RESERVE_NUMERATOR = 1
 const HEAP_RESERVE_DENOMINATOR = 4
-const LOGICAL_NODE_ENVELOPE_BYTES = 4_096
+const LOGICAL_NODE_ENVELOPE_BYTES = 2_048
 const modeledNodeCapacity = Math.floor((
   BOUNDED_HEAP_BYTES * (
     HEAP_RESERVE_DENOMINATOR - HEAP_RESERVE_NUMERATOR
@@ -29,8 +29,8 @@ const EXPECTED_LOGICAL_NODE_LIMIT = 2 ** Math.floor(
   Math.log2(modeledNodeCapacity)
 )
 assert(
-  EXPECTED_LOGICAL_NODE_LIMIT === 65_536,
-  'The resource-envelope inputs no longer derive 65,536 logical nodes'
+  EXPECTED_LOGICAL_NODE_LIMIT === 524_288,
+  'The resource-envelope inputs no longer derive 524,288 logical nodes'
 )
 
 function logicalNodeError(error: unknown): DocumentCoreError {
@@ -57,8 +57,8 @@ assert(
 
 if (mode === 'edge') {
   // The Profile 1 event algebra for these three plain-document fixtures is
-  // independently frozen here: 65,534, 65,536, and 65,537 logical nodes.
-  const prefix = 'x\n\n'.repeat(8_191)
+  // independently frozen here: 524,286, 524,288, and 524,289 logical nodes.
+  const prefix = 'x\n\n'.repeat(65_535)
   const below = `${prefix}x`
   const at = `${prefix}x\n`
   const above = `${prefix}\n\n#`
@@ -93,7 +93,7 @@ if (mode === 'edge') {
   const opened = core.open(source)
   const originalProjection = core.project(opened, 'original')
   const before = inspectDocumentCore(core)
-  // This source is under 0.6 million UTF-16 units, but would materialize about
+  // This source is under 4.8 million UTF-16 units, but would materialize about
   // sixteen times the production limit if admission waited for every product.
   const farAbove = '{++x++}\n\n'.repeat(EXPECTED_LOGICAL_NODE_LIMIT)
 

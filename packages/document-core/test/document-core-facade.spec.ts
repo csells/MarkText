@@ -1577,7 +1577,7 @@ describe('document-core facade', () => {
     expect(annotation?.arms[0]?.annotations).toEqual([])
   })
 
-  it('applies the logical-node guard before late nesting validation', () => {
+  it('refuses annotation nesting past the depth limit', () => {
     const depth = 16_385
     const source = `${'{++'.repeat(depth)}x${'++}'.repeat(depth)}`
 
@@ -1590,11 +1590,32 @@ describe('document-core facade', () => {
 
     expect(rejection).toBeInstanceOf(DocumentCoreError)
     expect(rejection).toMatchObject({
-      code: 'CM_RESOURCE_LOGICAL_NODES_EXCEEDED',
-      range: { start: 98_305, end: 98_305 },
-      metadata: { limit: '65536', observed: '65537' }
+      code: 'CM_RESOURCE_CM_DEPTH_EXCEEDED',
+      range: { start: 49_152, end: 49_155 },
+      metadata: { limit: '16384', observed: '16385' }
     })
   })
+
+  it('applies the logical-node guard before late nesting validation', () => {
+    // Each nesting level emits four logical nodes, so this depth crosses the
+    // node limit before depth validation runs on the completed tree.
+    const depth = 131_073
+    const source = `${'{++'.repeat(depth)}x${'++}'.repeat(depth)}`
+
+    let rejection: unknown
+    try {
+      createDocumentCore().open(source)
+    } catch (error) {
+      rejection = error
+    }
+
+    expect(rejection).toBeInstanceOf(DocumentCoreError)
+    expect(rejection).toMatchObject({
+      code: 'CM_RESOURCE_LOGICAL_NODES_EXCEEDED',
+      range: { start: 786_433, end: 786_433 },
+      metadata: { limit: '524288', observed: '524289' }
+    })
+  }, 30_000)
 
   it('bounds malformed-syntax diagnostics before publishing a revision', () => {
     const admitted = createDocumentCore().open('++}'.repeat(1_024))
@@ -1700,7 +1721,7 @@ describe('document-core facade', () => {
       start,
       end: start + 4,
       insert: overLimit
-    }])).toThrow('CM_RESOURCE_LOGICAL_NODES_EXCEEDED')
+    }])).toThrow('CM_RESOURCE_CM_DEPTH_EXCEEDED')
 
     expect(observableRevision(core, current)).toEqual(before)
     const accepted = core.apply(current, [{
@@ -1830,7 +1851,7 @@ describe('document-core facade', () => {
       start,
       end: start + 4,
       insert: overLimit
-    }])).toThrow('CM_RESOURCE_LOGICAL_NODES_EXCEEDED')
+    }])).toThrow('CM_RESOURCE_CM_DEPTH_EXCEEDED')
 
     const acceptedSource = 'head\n\nTAIL\n'
     const reopened = core.reopen(current, acceptedSource, [{
