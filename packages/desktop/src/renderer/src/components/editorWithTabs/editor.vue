@@ -645,6 +645,9 @@ let latestCorePlainTextChange: unknown
 let coreAuthorityPerformanceTrace: CoreAuthorityPerformanceTrace | undefined
 const coreAuthorSelection = ref<MuyaPlainTextAuthorSelection>()
 const coreAuthorInvocationSelection = ref<MuyaPlainTextAuthorSelection>()
+// The latest document revision this view has acknowledged. Undo can restore a
+// selection equal to one already seen, over a document that has changed.
+const coreDocumentRevision = ref<number>()
 // Review forms Core can author over the selection. Code and other literal
 // contexts have none, so authoring controls stay unavailable there.
 const coreAuthorForms = shallowRef<readonly CoreAuthorForm[]>([])
@@ -699,6 +702,7 @@ const coreReviewRefresh = createLatestViewRefresh<CoreReviewItemReply>({
     coreReviewOverview.value = reply.overview ?? []
     coreReviewItem.value = reply.item
     coreReviewRevision.value = reply.revision
+    coreDocumentRevision.value = reply.revision
     coreReviewCommentText.value = reply.commentText
     nextTick(() => {
       const caret = pendingCoreCaret
@@ -1653,6 +1657,7 @@ const reconcileCoreHistoryView = (
   })
   if (coreDraftFrozen) return view.bindings
   coreAcknowledgedViewRevision = outcome.revision
+  coreDocumentRevision.value = outcome.revision
   if (muya === null) {
     coreAcknowledgedMarkupView = view
     return view.bindings
@@ -2142,24 +2147,38 @@ const coreReviewCommandState = computed<ReviewCommandState>(() => ({
   busy: coreReviewBusy.value || coreCommentOpen.value || coreDisplayLoading.value,
   mode: coreDisplayMode.value
 }))
-watch(coreAuthorSelection, (selection, previous) => {
-  // Selection observers re-report an unchanged range; keep its known forms.
-  if (selection !== undefined && previous !== undefined && isEqual(selection, previous)) return
+watch([coreAuthorSelection, coreDocumentRevision], ([selection, revision], [previous, previousRevision]) => {
+  // Selection observers re-report an unchanged range; keep its known forms
+  // while the document is unchanged too.
+  if (
+    selection !== undefined &&
+    previous !== undefined &&
+    isEqual(selection, previous) &&
+    revision === previousRevision
+  ) {
+    return
+  }
   coreAuthorForms.value = []
   const lease = props.coreLease
   const adapter = corePlainTextAdapter
   if (selection === undefined || lease === undefined || adapter === undefined) return
+  const current = () =>
+    isEqual(coreAuthorSelection.value, selection) && coreDocumentRevision.value === revision
   adapter
     .settled()
     .then(async () => {
-      if (coreAuthorSelection.value !== selection) return
+      if (!current()) return
       const range = adapter.selectionSourceRange(selection)
       const forms = range === undefined ? [] : await lease.authorFormsAtBarrier(range)
-      if (coreAuthorSelection.value === selection) coreAuthorForms.value = forms ?? []
+      if (current()) coreAuthorForms.value = forms ?? []
     })
     .catch((error) => {
-      if (coreAuthorSelection.value === selection) emit('core-fault', error)
+      if (current()) emit('core-fault', error)
     })
+})
+// A closed composer, whether submitted or cancelled, ends its authoring invocation.
+watch(coreCommentOpen, (open) => {
+  if (!open) coreAuthorInvocationSelection.value = undefined
 })
 const handleCoreReviewCommand = (value: unknown): void => {
   const command = reviewCommands.find((command) => command.id === value)?.id
@@ -3536,9 +3555,13 @@ const ownsCurrentDocument = () =>
 watch(
   coreReviewCommandState,
   (state) => {
+    // The selection toolbar draws the same commands; redraw it so it never
+    // disagrees with the menu.
+    editor.value?.eventCenter.emit('inline-toolbar-actions-change')
     if (!ownsCurrentDocument()) return
     window.electron.ipcRenderer.send('mt::review-command-state', state)
     reviewStatus.tracking = state.available && state.tracking
+    reviewStatus.commands = state
   },
   { immediate: true }
 )

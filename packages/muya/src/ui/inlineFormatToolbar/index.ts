@@ -151,6 +151,13 @@ export class InlineFormatToolbar extends BaseFloat {
             this._render();
         });
 
+        // The host's actions depend on state Muya does not own, such as
+        // whether the document allows authoring over the selection.
+        eventCenter.subscribe('inline-toolbar-actions-change', () => {
+            if (this.status)
+                this._render();
+        });
+
         eventCenter.attachDOMEvent(domNode, 'keydown', (event) => {
             this._handleKeydown(event, editor);
         });

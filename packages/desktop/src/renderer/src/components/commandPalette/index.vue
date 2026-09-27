@@ -38,7 +38,8 @@
                     if (el) commandItems[index] = el as HTMLElement
                   }
                 "
-                :class="{ active: index === selectedCommandIndex }"
+                :class="{ active: index === selectedCommandIndex, disabled: isDisabled(item) }"
+                :aria-disabled="isDisabled(item) ? 'true' : undefined"
                 @click="search(item.id)"
               >
                 <span
@@ -79,6 +80,7 @@ interface CommandItem {
   description?: string
   title?: string
   shortcut?: string[]
+  enabled?: () => boolean
   execute?: () => void
   run?: () => Promise<void>
   search?: (q: string) => Promise<CommandItem[]>
@@ -292,12 +294,16 @@ const updateCommands = () => {
   selectedCommandIndex.value = availableCommands.value.length ? 0 : -1
 }
 
+const isDisabled = (command: CommandItem): boolean => command.enabled?.() === false
+
 const executeCommand = (commandId: string) => {
   const command = availableCommands.value.find((c) => c.id === commandId)
   if (!command) {
     log.error(`Command not found: ${commandId}`)
     return
   }
+  // A command that does not apply stays listed, and dimmed, but does not run.
+  if (isDisabled(command)) return
 
   const cmd = currentCommand.value
   if (!cmd) return
@@ -433,6 +439,10 @@ ul.commands li:hover {
 }
 ul.commands li.active {
   background: var(--floatHoverColor);
+}
+ul.commands li.disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 ul.commands li span {
   text-overflow: ellipsis;
