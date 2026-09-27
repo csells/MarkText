@@ -78,9 +78,9 @@ export function createMarkupCompoundSourceEdits(
     return true
   }
   if (!validates(planned)) {
-    if (canonicalImport) return undefined
     let changed = false
-    for (let index = 0; index < planned.length; index += 1) {
+    // A canonical import keeps its bytes; only typed text is protected.
+    for (let index = 0; index < (canonicalImport ? 0 : planned.length); index += 1) {
       const item = planned[index]
       if (item === undefined) continue
       const insert = protectNativeCriticText(item.insert)
@@ -92,8 +92,27 @@ export function createMarkupCompoundSourceEdits(
     // Typed Markdown that changes how existing annotations parse has the
     // language's meaning for those bytes, exactly as in upstream MarkText;
     // only typed CriticMarkup receives a protective spelling.
-    if (!changed && recognitionChange === 'refuse') return undefined
-    if (changed && !validates(planned)) return undefined
+    if (changed && validates(planned)) return Object.freeze(planned.map(item => Object.freeze(item)))
+    // Text typed at the end of an arm joins that arm, unless it would stop
+    // the annotation forming (a pipe inside a table cell's suggestion,
+    // Profile 1 R3b): then it lands just after the closer instead.
+    const moved = planned.map(item => {
+      const owner = !item.insert.includes('|')
+        ? undefined
+        : annotations.find(annotation => annotation.arms.at(-1)?.range.end === item.start)
+      return owner === undefined ? item : { ...item, start: owner.range.end, end: Math.max(owner.range.end, item.end) }
+    })
+    const merged: DocumentSourceEdit[] = []
+    for (const item of [...moved].sort((a, b) => a.start - b.start || a.end - b.end)) {
+      const last = merged.at(-1)
+      if (last !== undefined && item.start <= last.end) {
+        merged[merged.length - 1] = { start: last.start, end: Math.max(last.end, item.end), insert: last.insert + item.insert }
+      } else merged.push(item)
+    }
+    if ((recognitionChange === 'refuse' || canonicalImport) && moved.some((item, index) => item !== planned[index]) && validates(merged)) {
+      return Object.freeze(merged.map(item => Object.freeze(item)))
+    }
+    if (canonicalImport || recognitionChange === 'refuse' || changed) return undefined
   }
   return Object.freeze(planned.map(item => Object.freeze(item)))
 }
