@@ -49,9 +49,15 @@ export interface PlainParagraphRetainedIndex {
    */
   readonly dependencyPrefixEnd: number
   readonly coordinateAt: (rank: number) => number
+  /**
+   * The region from the last safe point at or before the edits to the first
+   * after them; `beforeStart` starts it at a safe point strictly before, so a
+   * region never begins with a blank line that belongs to the block before.
+   */
   readonly bracketForEdits: (
     edits: readonly PlainParagraphSourceEdit[],
-    nextLength: number
+    nextLength: number,
+    beforeStart?: boolean
   ) => PlainParagraphRegionBracket | undefined
   readonly withRegionLengthDelta: (
     endSafePointRank: number,
@@ -180,7 +186,8 @@ function createIndex(
   }
   const bracketForEdits = Object.freeze((
     edits: readonly PlainParagraphSourceEdit[],
-    nextLength: number
+    nextLength: number,
+    beforeStart = false
   ): PlainParagraphRegionBracket | undefined => {
     if (edits.length === 0) return undefined
     let editStart = Number.POSITIVE_INFINITY
@@ -198,7 +205,9 @@ function createIndex(
       editStart = Math.min(editStart, edit.start)
       editEnd = Math.max(editEnd, edit.end)
     }
-    const startInsertionRank = bound(editStart, true)
+    const startInsertionRank = beforeStart && editStart > 0
+      ? bound(editStart - 1, true)
+      : bound(editStart, true)
     const startSafePointRank = startInsertionRank - 1
     const start = startSafePointRank < 0
       ? 0
