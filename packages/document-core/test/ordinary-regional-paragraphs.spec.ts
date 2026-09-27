@@ -47,7 +47,6 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
   })
 
   it.each([
-    { label: 'new annotation', insert: '{++new++}' },
     { label: 'new Markdown structure', insert: '\n\n# heading\n\n' },
     { label: 'reference dependency', insert: '[new][label]' }
   ])('uses a full parse when an ordinary edit introduces $label', ({ insert }) => {
@@ -67,12 +66,27 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
   })
 
-  it('does not admit an edit crossing the safe paragraph separator', () => {
+  // Plan 0012 G35: a new suggestion, a split or a joined paragraph reparses
+  // only the paragraphs it changes.
+  it.each([
+    { label: 'a new annotation', at: (source: string) => source.indexOf('target') + 2, length: 0, insert: '{++new++}' },
+    { label: 'a paragraph split', at: (source: string) => source.indexOf('target') + 2, length: 0, insert: '\n\n' },
+    { label: 'a joined paragraph separator', at: (source: string) => source.indexOf('\n\n'), length: 2, insert: ' ' }
+  ])('keeps $label in ordinary paragraphs regional', ({ at, length, insert }) => {
     const source = 'first target\n\nsecond target\n\n' + suffix
-    const start = source.indexOf('\n\n')
+    const start = at(source)
     const core = createDocumentCore()
-    const result = core.apply(core.open(source), [{ start, end: start + 2, insert: ' ' }], { projections: ['markup'] })
-    expect(result.change.projections[0]?.scope).toBe('document')
-    expect(result.revision.source).toBe(source.slice(0, start) + ' ' + source.slice(start + 2))
+    const opened = core.open(source)
+    const before = inspectDocumentCore(core)
+    const result = core.apply(opened, [{ start, end: start + length, insert }], { projections: ['markup'] })
+    expect(inspectDocumentCore(core).documentParses - before.documentParses).toBe(0)
+    expect(result.change.projections[0]?.scope).toBe('regions')
+    const expectedSource = source.slice(0, start) + insert + source.slice(start + length)
+    expect(result.revision.source).toBe(expectedSource)
+    const oracle = createDocumentCore()
+    const expected = oracle.open(expectedSource)
+    expect(result.revision.annotations).toEqual(expected.annotations)
+    expect(core.project(result.revision, 'markup').events).toEqual(oracle.project(expected, 'markup').events)
+    expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
   })
 })

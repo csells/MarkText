@@ -58,6 +58,8 @@ export interface PlainParagraphRetainedIndex {
     delta: number,
     nextLength: number
   ) => PlainParagraphRetainedIndex
+  /** Every current safe-point coordinate, in one linear pass over the overlay. */
+  readonly coordinates: () => readonly number[]
 }
 
 function deltaNode(
@@ -250,13 +252,34 @@ function createIndex(
       recorder
     )
   })
+  const coordinates = Object.freeze((): readonly number[] => {
+    const deltas = new Array<number>(baseSafePoints.length).fill(0)
+    const collect = (node: DeltaNode | undefined, low: number, high: number): void => {
+      if (node === undefined) return
+      recorder.recordOverlayNodeVisit()
+      if (high - low === 1) {
+        deltas[low] = node.sum
+        return
+      }
+      const middle = low + ((high - low) >> 1)
+      collect(node.left, low, middle)
+      collect(node.right, middle, high)
+    }
+    collect(overlay, 0, baseSafePoints.length)
+    let shift = 0
+    return Object.freeze(baseSafePoints.map((point, rank) => {
+      shift += deltas[rank] ?? 0
+      return point + shift
+    }))
+  })
   return Object.freeze({
     sourceLength,
     safePointCount: baseSafePoints.length,
     dependencyPrefixEnd,
     coordinateAt,
     bracketForEdits,
-    withRegionLengthDelta
+    withRegionLengthDelta,
+    coordinates
   })
 }
 
