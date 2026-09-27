@@ -1,5 +1,6 @@
 import type TableBodyCell from '../block/gfm/table/cell';
 import type { Muya } from '../muya';
+import type { TSelectedTextOf } from './TextSelection';
 import type { IAnchorFocusInfo, IDOMPoint, IDOMSelection, IImageSelectionData, ISelection, ITextPoint } from './types';
 import { CLASS_NAMES } from '../config';
 import {
@@ -128,8 +129,8 @@ class Selection {
      * The source text of the current text selection. Empty for a caret, and for
      * table and image selections — both drop the native range this reads.
      */
-    getSelectedText(): string {
-        return this._text.getSelectedText();
+    getSelectedText(textOf?: TSelectedTextOf): string {
+        return this._text.getSelectedText(textOf);
     }
 
     getDOMSelection(): IDOMSelection | null {

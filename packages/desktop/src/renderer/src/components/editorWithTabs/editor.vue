@@ -376,7 +376,6 @@ import isEqual from 'lodash/isEqual'
 import debounce from 'lodash/debounce'
 import {
   Muya,
-  wordCount as muyaWordCount,
   type IPreviewDiagramPayload,
   type IMuyaOptions,
   type DocumentInput
@@ -390,6 +389,7 @@ import {
 } from '@/util/exportHtml'
 import {
   countProjectedDocument,
+  countProjectedText,
   searchProjectedDocument,
   tocProjectedDocument,
   type ProjectedSearchOptions
@@ -460,6 +460,10 @@ import {
   type MuyaMarkupPresentationIndex
 } from '@/documentAuthority/muyaMarkupPresentationIndex'
 import { createMuyaRecoveryDraftCapture } from '@/documentAuthority/muyaRecoveryDraftCapture'
+import {
+  createMuyaRevisedTextReader,
+  type MuyaRevisedTextReader
+} from '@/documentAuthority/muyaRevisedText'
 import { presentPendingClipboardImage } from '@/documentAuthority/muyaPendingClipboardImage'
 import {
   muyaClipboardSelection,
@@ -851,12 +855,19 @@ const adaptSelectionChange = (changes: MuyaChange) => {
 }
 
 // The engine reports only committed selections, so recounting per notification
-// is cheap; a caret reports no text and stops here.
-const setSelectionWordCountFromText = (selectedText: string) => {
+// is cheap; a caret reports no text and stops here. The count covers what
+// Revised shows of the selection, read from Core's acknowledged view. A block
+// that view does not hold with this text keeps the text Core's state gave it.
+const updateSelectionWordCount = (muya: Muya) => {
+  const read = coreRevisedText
+  const selectedText = muya.getSelectedText(
+    (block, start, end) =>
+      read?.(block.path, block.text, start, end) ?? block.text.slice(start, end)
+  )
   const hasSelection = selectedText.trim().length > 0
   if (!hasSelection && editorStore.selectionWordCount == null) return
 
-  editorStore.SET_SELECTION_WORD_COUNT(hasSelection ? muyaWordCount(selectedText) : null)
+  editorStore.SET_SELECTION_WORD_COUNT(hasSelection ? countProjectedText(selectedText) : null)
 }
 
 // Build a JSON-serializable cursor from the engine selection (drop the live
@@ -1319,7 +1330,7 @@ const SELECTION_KEYS = new Set([
 
 const keyup = (event: KeyboardEvent) => {
   if (!sourceCode.value && editor.value && SELECTION_KEYS.has(event.key)) {
-    setSelectionWordCountFromText(editor.value.getSelectedText())
+    updateSelectionWordCount(editor.value)
   }
 }
 
@@ -1388,6 +1399,7 @@ const applyCorePlainTextEditability = (bindings: readonly MuyaPlainTextSourceBin
 
 let coreMarkupPresentation: MuyaMarkupPresentationIndex | undefined
 let coreAcknowledgedMarkupView: MuyaMarkupView | undefined
+let coreRevisedText: MuyaRevisedTextReader | undefined
 let coreMarkupBindingsByPath = new Map<string, MuyaMarkupView['bindings'][number]>()
 let coreAcknowledgedViewRevision = props.coreLease?.identity.revision
 const coreMarkupDirtyPaths = new Map<string, readonly (string | number)[]>()
@@ -1470,6 +1482,7 @@ defineExpose({
 })
 const installCoreMarkupPresentation = (muya: Muya, view: MuyaMarkupView): void => {
   coreAcknowledgedMarkupView = view
+  coreRevisedText = createMuyaRevisedTextReader(view)
   coreMarkupBindingsByPath = new Map(
     view.bindings.map((binding) => [JSON.stringify(binding.path), binding])
   )
@@ -4169,9 +4182,7 @@ onMounted(() => {
     // again; only a moved selection leaves the review target.
     const selectionMoved = !isEqual(caretOf(selectionChange.value), caretOf(changes))
     selectionChange.value = changes
-    if (!sourceCode.value && editor.value) {
-      setSelectionWordCountFromText(editor.value.getSelectedText())
-    }
+    if (!sourceCode.value && editor.value) updateSelectionWordCount(editor.value)
     // The current rendered annotation and acknowledged leaf own its position.
     // Sidebar clicks do not change the document caret, so explicit parent
     // navigation remains selected until the user moves the document selection.

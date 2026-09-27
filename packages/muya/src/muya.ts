@@ -7,6 +7,7 @@ import type { ILocale } from './i18n/types';
 import type { TInlinePresentation } from './inlineRenderer/types';
 import type { IReplaceOption, ISearchOption } from './search/types';
 import type { IIndexCursor } from './selection/offsetCursor';
+import type { TSelectedTextOf } from './selection/TextSelection';
 import type { IHistorySelection, IPublicCursorInput } from './selection/types';
 import type { ITocItem } from './state/getTOC';
 import type { IBulletListState, IOrderListState, ITableState, ITaskListState, TState } from './state/types';
@@ -670,9 +671,10 @@ export class Muya {
     /**
      * The source text of the current text selection: blank lines between
      * paragraphs, single newlines inside code, tables and tight lists.
+     * `textOf` reads each block's selected part, by default from its own text.
      */
-    getSelectedText(): string {
-        return this.editor.selection.getSelectedText();
+    getSelectedText(textOf?: TSelectedTextOf): string {
+        return this.editor.selection.getSelectedText(textOf);
     }
 
     /**

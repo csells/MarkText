@@ -23,12 +23,8 @@ import { scrollSourceEditorToLine } from '@/util/sourceModeToc'
 import { storeToRefs } from 'pinia'
 import type CodeMirror from 'codemirror'
 import codeMirror, { setCursorAtFirstLine, setTextDirection } from '../../codeMirror'
-import {
-  wordCount as getWordCount,
-  matchString,
-  buildRegexValue,
-  type ISearchQueryOptions
-} from '@muyajs/core'
+import { matchString, buildRegexValue, type ISearchQueryOptions } from '@muyajs/core'
+import { countProjectedText } from '@/documentConsumers/documentProjectionConsumers'
 import EditorSearch from '../search/index.vue'
 import bus from '../../bus'
 import { oneDarkThemes, railscastsThemes } from '@/config'
@@ -361,16 +357,39 @@ const selectionKey = (cm: CodeMirror.Editor): string =>
     .map(({ anchor, head }) => `${anchor.line}:${anchor.ch}-${head.line}:${head.ch}`)
     .join(',')
 
+let selectionCountEpoch = 0
+
+const publishSelectionWordCount = (selectedText: string): void => {
+  const hasSelection = selectedText.trim().length > 0
+  if (!hasSelection && editorStore.selectionWordCount == null) return
+  editorStore.SET_SELECTION_WORD_COUNT(hasSelection ? countProjectedText(selectedText) : null)
+}
+
+// The count covers what Revised shows of each selected source range, as Core
+// projects it; CodeMirror's text would count CriticMarkup delimiters, deleted
+// text and comments. Ranges join with a newline, as CodeMirror joins them.
 const updateSelectionWordCount = (cm: CodeMirror.Editor) => {
   const key = selectionKey(cm)
   if (key === lastSelectionKey && editorStore.selectionWordCount != null) return
   lastSelectionKey = key
 
-  const selectedText = cm.getSelection()
-  const hasSelection = selectedText.trim().length > 0
-  if (!hasSelection && editorStore.selectionWordCount == null) return
-
-  editorStore.SET_SELECTION_WORD_COUNT(hasSelection ? getWordCount(selectedText) : null)
+  const epoch = ++selectionCountEpoch
+  const ranges = (coreAdapter?.documentSelection().ranges ?? [])
+    .map(({ anchor, focus }) => ({ start: Math.min(anchor, focus), end: Math.max(anchor, focus) }))
+    .filter((range) => range.end > range.start)
+  if (ranges.length === 0) {
+    publishSelectionWordCount('')
+    return
+  }
+  const lease = props.coreLease
+  Promise.all(ranges.map((range) => lease.selectionProjectionAtBarrier(range)))
+    .then((projections) => {
+      if (epoch !== selectionCountEpoch || viewDestroyed.value || props.coreLease !== lease) return
+      publishSelectionWordCount(projections.map((projection) => projection.markdown).join('\n'))
+    })
+    .catch((error) => {
+      if (epoch === selectionCountEpoch && !viewDestroyed.value) requestCoreRecovery(error)
+    })
 }
 
 // #3580: in Source Code mode the WYSIWYG container is hidden, so the
