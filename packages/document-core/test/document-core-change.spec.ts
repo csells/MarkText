@@ -4081,10 +4081,15 @@ describe('document-core semantic changes', () => {
       const edits: Array<{ start: number, end: number, insert: string }> = []
       let cursor = 0
       const editCount = 1 + random(4)
+      // Edits land on code-point boundaries; one inside a surrogate pair is refused.
+      const inPair = (offset: number) => /[\uDC00-\uDFFF]/u.test(expected[offset] ?? '') &&
+        /[\uD800-\uDBFF]/u.test(expected[offset - 1] ?? '')
       for (let ordinal = 0; ordinal < editCount; ordinal += 1) {
-        const start = cursor + random(expected.length - cursor + 1)
+        let start = cursor + random(expected.length - cursor + 1)
+        if (inPair(start)) start += 1
         const deletion = random(Math.min(4, expected.length - start) + 1)
-        const end = start + deletion
+        let end = start + deletion
+        if (inPair(end)) end += 1
         edits.push({
           start,
           end,
@@ -4154,15 +4159,17 @@ describe('document-core semantic changes', () => {
   })
 
   it('preserves BOM, CRLF, and isolated surrogate code units exactly', () => {
-    const source = '\uFEFFa\r\n😀z'
+    // An opened source's lone surrogate stays as it is; edits never make one.
+    const source = '\uFEFFa\r\n\uD83Dz😀'
     const edits = [
       { start: 2, end: 3, insert: '\r' },
-      { start: 4, end: 5, insert: 'X' },
-      { start: 7, end: 7, insert: '\uFEFF' }
+      { start: 5, end: 6, insert: 'X' },
+      { start: 8, end: 8, insert: '\uFEFF' }
     ]
     const expected = applyExactSourceEdits(source, edits, 'oracle edit')
     const core = createDocumentCore()
     const opened = core.open(source)
+    expect(() => core.apply(opened, [{ start: 7, end: 7, insert: 'X' }])).toThrow(/splits a surrogate pair/)
     const commit = core.apply(opened, edits)
 
     expect(commit.revision.source).toBe(expected)
