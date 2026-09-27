@@ -153,7 +153,7 @@ describe('Enter in a long document plans and commits without a document parse', 
     expect(core.project(revision, 'markup').syntax.ast).toEqual(oracle.project(fresh, 'markup').syntax.ast)
   }
 
-  for (const tracked of [false]) {
+  for (const tracked of [false, true]) {
     it(`${tracked ? 'tracked' : 'untracked'} Enter then typing, as the warm workload types`, () => {
       const core = createDocumentCore()
       let revision = core.open(long(300))
@@ -181,7 +181,7 @@ describe('Enter in a long document plans and commits without a document parse', 
     })
   }
 
-  for (const tracked of [false]) {
+  for (const tracked of [false, true]) {
     it(`${tracked ? 'tracked' : 'untracked'} Enter in the middle of a paragraph`, () => {
       const core = createDocumentCore()
       const source = long(300)
