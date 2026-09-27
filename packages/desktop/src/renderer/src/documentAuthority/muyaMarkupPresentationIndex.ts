@@ -1,11 +1,5 @@
-import type { DocumentSourceEdit, MarkdownAstNode } from '@marktext/document-core'
-import { documentInputContext } from '@marktext/document-core'
-import type {
-  DocumentInputSyntaxContext,
-  DocumentTextPoint,
-  DocumentTextReplacement,
-  IInlinePresentationContext
-} from '@muyajs/core'
+import type { MarkdownAstNode } from '@marktext/document-core'
+import type { IInlinePresentationContext } from '@muyajs/core'
 import { escapeHtml, isMuyaImageSyntax, renderMuyaMarkupBinding } from './muyaMarkupPresentation'
 import type {
   MuyaMarkupBinding,
@@ -16,10 +10,6 @@ import type {
 } from './muyaMarkupView'
 
 export interface MuyaMarkupPresentationIndex {
-  /** Returns only syntax established by the shared document model. */
-  syntaxContext(point: DocumentTextPoint): DocumentInputSyntaxContext | undefined
-  /** Advances pending view locations using the common model's exact operation. */
-  replaceText(operation: DocumentTextReplacement): void
   /** Includes removed paths, which remain literal until their view is removed. */
   readonly changedPaths: readonly MuyaMarkupPath[]
   render(path: MuyaMarkupPath, text: string, context?: IInlinePresentationContext): string
@@ -32,7 +22,6 @@ interface Entry {
   readonly decorations: readonly MuyaMarkupDecoration[]
   readonly comments: readonly MuyaMarkupComment[]
   readonly hasNativeWidget: boolean
-  pendingEdits?: DocumentSourceEdit[]
   rendered?: { readonly text: string; readonly html: string; readonly highlights: Highlights }
 }
 const stores = new WeakMap<
@@ -49,26 +38,6 @@ const hasNativeWidget = (node: MarkdownAstNode): boolean =>
   node.kind === 'inline-math' ||
   node.kind === 'inline-html' ||
   node.children.some(hasNativeWidget)
-const inputContext = (
-  binding: MuyaMarkupBinding,
-  offset: number
-): DocumentInputSyntaxContext | undefined => {
-  if (!Number.isInteger(offset) || offset < 0 || offset > binding.text.length) return undefined
-  const segment =
-    binding.segments.find((item) => item.text.start <= offset && offset < item.text.end) ??
-    binding.segments.find((item) => item.text.end === offset)
-  const syntaxOffset =
-    segment === undefined
-      ? binding.text.length === 0
-        ? binding.syntax.range.start
-        : undefined
-      : offset === segment.text.end
-        ? segment.syntax.end
-        : segment.syntax.start + offset - segment.text.start
-  if (syntaxOffset === undefined) return undefined
-  return documentInputContext(binding.syntax, syntaxOffset)
-}
-
 // These facts locate reference owners; resolved semantic values, rather than
 // absolute owner positions, determine rendered output.
 const referencePositions = new Set([
@@ -217,7 +186,6 @@ export function createMuyaMarkupPresentationIndex(
     else group.push(comment)
   }
   const entries = new Map<string, Entry>()
-  let pendingStructure = false
   const changedPaths: MuyaMarkupPath[] = []
   for (const binding of view.bindings) {
     const key = pathKey(binding.path)
@@ -230,7 +198,6 @@ export function createMuyaMarkupPresentationIndex(
     const retained = before?.get(key)
     if (
       retained !== undefined &&
-      !retained.pendingEdits?.length &&
       (entry.comments.length === 0 || previousStore?.commentLabel === commentLabel) &&
       samePresentation(retained, entry)
     ) {
@@ -246,32 +213,6 @@ export function createMuyaMarkupPresentationIndex(
   }
   const index: MuyaMarkupPresentationIndex = {
     changedPaths,
-    syntaxContext(point) {
-      const entry = entries.get(pathKey(point.path))
-      // Exact positions alone cannot establish syntax after an unacknowledged
-      // edit: even one delimiter can change the remainder of a paragraph.
-      return pendingStructure || entry === undefined || entry.pendingEdits?.length
-        ? undefined
-        : inputContext(entry.binding, point.offset)
-    },
-    replaceText(operation) {
-      const { anchor, focus } = operation.selection
-      const key = pathKey(anchor.path)
-      if (key !== pathKey(focus.path)) {
-        pendingStructure = true
-        return
-      }
-      if (/[\r\n]/u.test(operation.text)) pendingStructure = true
-      const entry = entries.get(key)
-      if (entry === undefined) return
-      const edit = {
-        start: Math.min(anchor.offset, focus.offset),
-        end: Math.max(anchor.offset, focus.offset),
-        insert: operation.text
-      }
-      ;(entry.pendingEdits ??= []).push(edit)
-      entry.rendered = undefined
-    },
     render(path, text, context) {
       const entry = entries.get(pathKey(path))
       // Mount and reconciliation can briefly expose a native placeholder
@@ -301,8 +242,7 @@ export function createMuyaMarkupPresentationIndex(
         text,
         context,
         entry.comments,
-        commentLabel,
-        entry.pendingEdits
+        commentLabel
       )
       entry.rendered = { text, html, highlights: highlights.map((highlight) => ({ ...highlight })) }
       return html
