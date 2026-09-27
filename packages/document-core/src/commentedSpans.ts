@@ -1,5 +1,5 @@
 import type { DocumentClipboardAction } from './clipboardPlanning.js'
-import type { CriticMarkupAnnotation, DocumentRevision, SourceRange } from './documentCore.js'
+import type { CriticMarkupAnnotation, DocumentRevision, DocumentSourceEdit, SourceRange } from './documentCore.js'
 import type { DocumentInputAction, DocumentInputSelection, DocumentInputTarget } from './inputPlanning.js'
 import type { DocumentTextSelection } from './sourceInputPlanning.js'
 
@@ -138,4 +138,61 @@ export function commentedSpanSafeClipboard(revision: DocumentRevision, action: D
     selection: caretAt(moved),
     ...(current === at ? { currentSelection: caretAt(moved) } : {})
   }
+}
+
+/**
+ * Adjusts resolution edits so the Highlight/Comment relation stays meaningful
+ * (Profile 1 V6; plan 0012 G39). `edits` each replace one whole annotation.
+ * A commented passage whose text resolution removes loses its empty Highlight
+ * and keeps a standalone Comment where it was (ADR 0003). A standalone Comment
+ * that resolution would leave directly after a Highlight it was not paired
+ * with moves to the end of that Highlight's text, which keeps its position
+ * without making the two one commented span.
+ */
+export function commentPairPreservingResolution(
+  roots: readonly CriticMarkupAnnotation[],
+  edits: readonly DocumentSourceEdit[],
+  slice: (range: SourceRange) => string
+): readonly DocumentSourceEdit[] {
+  let result = [...edits].sort((left, right) => left.start - right.start)
+  const within = (range: SourceRange) => result.filter(edit => range.start <= edit.start && edit.end <= range.end)
+  for (const { highlight, content } of highlightCommentLayout(roots).pairs) {
+    if (content.start === content.end) continue
+    const inside = within(content)
+    if (inside.length === 0) continue
+    let text = ''
+    let offset = content.start
+    for (const edit of inside) {
+      text += slice({ start: offset, end: edit.start }) + edit.insert
+      offset = edit.end
+    }
+    text += slice({ start: offset, end: content.end })
+    if (text !== '') continue
+    result = [...result.filter(edit => !inside.includes(edit)), Object.freeze({ ...highlight.range, insert: '' })]
+      .sort((left, right) => left.start - right.start)
+  }
+  const removed = (annotation: CriticMarkupAnnotation) =>
+    result.some(edit => edit.start === annotation.range.start && edit.end === annotation.range.end && edit.insert === '')
+  const moves: DocumentSourceEdit[] = []
+  const pending: (readonly CriticMarkupAnnotation[])[] = [roots]
+  while (pending.length > 0) {
+    const list = pending.pop()!
+    for (let index = 0; index < list.length; index += 1) {
+      const highlight = list[index]!
+      if (highlight.kind !== 'comment') for (const arm of highlight.arms) pending.push(arm.annotations)
+      const content = highlight.arms.find(arm => arm.name === 'content')
+      if (highlight.kind !== 'highlight' || content === undefined || removed(highlight)) continue
+      let end = highlight.range.end
+      let next = index + 1
+      while (list[next] !== undefined && list[next]!.range.start === end && list[next]!.kind !== 'comment' && removed(list[next]!)) {
+        end = list[next]!.range.end
+        next += 1
+      }
+      const comment = list[next]
+      if (next === index + 1 || comment?.kind !== 'comment' || comment.range.start !== end || removed(comment)) continue
+      moves.push(Object.freeze({ ...comment.range, insert: '' }))
+      moves.push(Object.freeze({ start: content.range.end, end: content.range.end, insert: slice(comment.range) }))
+    }
+  }
+  return Object.freeze([...result, ...moves].sort((left, right) => left.start - right.start || left.end - right.end))
 }

@@ -384,6 +384,18 @@ Nested annotations resolve recursively per the same table.
   identity, stored intent, or a grammar production (toolkit convention;
   lang-criticmarkup sibling-node precedent). A standalone Comment anchors to its own source
   position only.
+- **V6 — Resolution and commented spans (MarkText editing rule, plan 0012 G39).** Accepting
+  or rejecting changes applies V4 and then keeps V5's relation honest within the same
+  transaction; recognition is unchanged. If resolution removes all of a commented passage's
+  text, its now-empty Highlight is removed with it and the Comment stays standalone at that
+  position (ADR 0003): rejecting `{=={++new++}==}{>>n<<}` gives `{>>n<<}`, not
+  `{====}{>>n<<}`. If resolution would leave a standalone Comment directly after a Highlight it
+  was not paired with, the Comment moves to the end of that Highlight's text, which keeps its
+  position without creating a pair: rejecting the Addition in `{==a==}{++x++}{>>n<<}` gives
+  `{==a{>>n<<}==}`. Markup typing, paste and drops never insert between a Highlight and its
+  Comment: text at a commented passage's edges goes outside it (after the Comment at its end,
+  before the Highlight at its start), as Google Docs keeps text typed at a comment's edge out
+  of the comment. Source-mode edits keep the bytes the author typed (ADR 0015).
 
 ## 11. Error tolerance
 
