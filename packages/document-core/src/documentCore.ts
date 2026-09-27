@@ -65,6 +65,7 @@ import {
   type RevisionProductStore
 } from './internal/revisionProductStore.js'
 import { DOCUMENT_RESOURCE_POLICY_V1 } from './resourcePolicy.js'
+import { surrogateSplittingEdit } from './surrogatePairEdits.js'
 import {
   decodeGfmTableCodeContent,
   decodeMarkdownSemanticText,
@@ -604,6 +605,13 @@ export interface DocumentCore {
     source: string,
     options?: Readonly<Partial<MarkdownOptions>>
   ): DocumentRevision
+  /**
+   * Admits exact source edits as one transaction. Edits never split a UTF-16
+   * surrogate pair: one whose start or end falls between a pair's halves, or
+   * whose insert holds a lone surrogate, is refused with
+   * DocumentSourceEditError and nothing is published. Refusing rather than
+   * widening keeps each edit's reported extent the caller's own.
+   */
   apply(
     previous: DocumentRevision,
     edits: readonly DocumentSourceEdit[],
@@ -3928,6 +3936,18 @@ function createDocumentCoreWithExecutionBudget(
     return nextLength
   }
 
+  const rejectSurrogateSplits = (
+    source: PersistentCanonicalSource,
+    edits: readonly DocumentSourceEdit[]
+  ): void => {
+    const index = surrogateSplittingEdit(source, edits)
+    if (index !== undefined) {
+      throw new DocumentSourceEditError(
+        `Document core source edit ${String(index)} splits a surrogate pair`
+      )
+    }
+  }
+
   const applyCandidate = (
     previousState: RevisionState,
     source: PersistentCanonicalSource,
@@ -4784,6 +4804,7 @@ function createDocumentCoreWithExecutionBudget(
       const projectionRequests = normalizeProjectionRequests(
         options?.projections
       )
+      rejectSurrogateSplits(previousState.source, stableEdits)
       let source: PersistentCanonicalSource
       try {
         source = previousState.source.applyExact(
@@ -4892,6 +4913,7 @@ function createDocumentCoreWithExecutionBudget(
 
       const stableEdits = stableSourceEdits(edits)
       preflightSourceEdits(previousState.source.length, stableEdits)
+      rejectSurrogateSplits(previousState.source, stableEdits)
       let candidate: PersistentCanonicalSource
       try {
         candidate = previousState.source.applyExact(

@@ -53,6 +53,11 @@ export interface PersistentCanonicalSource extends CanonicalSourceView {
   /** Conservative; fully removed buffers may remain counted until compaction. */
   readonly retainedBufferUnitsUpperBound: number
   readonly requiresFragmentationRebase: boolean
+  /**
+   * The UTF-16 code unit at `offset`, or NaN outside the source. A point read
+   * for boundary checks; it walks one root-to-leaf path and is not a slice.
+   */
+  readonly codeUnitAt: (offset: number) => number
   readonly applyExact: (
     edits: readonly PersistentCanonicalSourceEdit[],
     label: string
@@ -350,6 +355,21 @@ function createSource(
     recorder.recordSlice(pieces, end - start)
     return chunks.join('')
   })
+  const codeUnitAt = Object.freeze((offset: number): number => {
+    if (!Number.isInteger(offset) || offset < 0 || offset >= length) return Number.NaN
+    let node = activeRoot
+    let local = offset
+    for (let depth = 1; node !== undefined; depth += 1) {
+      recorder.recordNodeVisit(depth)
+      if (node.kind === 'leaf') return node.span.buffer.text.charCodeAt(node.span.start + local)
+      if (local < node.left.length) node = node.left
+      else {
+        local -= node.left.length
+        node = node.right
+      }
+    }
+    return Number.NaN
+  })
   const applyExact = Object.freeze((
     edits: readonly PersistentCanonicalSourceEdit[],
     label: string
@@ -449,6 +469,7 @@ function createSource(
       return requiresFragmentationRebase()
     },
     slice,
+    codeUnitAt,
     applyExact,
     materialize
   })
