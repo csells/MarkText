@@ -5144,12 +5144,16 @@ function parseProfile1DocumentWithExecution(
           forkParser
         )
   // The editing document shares recognized regions and coordinates with an
-  // equivalent reader projection, but retains its own editable blank nodes.
+  // equivalent reader projection, but retains its own editable blank nodes,
+  // in its semantic spine too: that spine is the syntax views read.
   const editingPrepared = sharedEditingPrepared.markdownLane.forkView === 'editing'
     ? sharedEditingPrepared
     : Object.freeze({
       ...sharedEditingPrepared,
-      markdownLane: Object.freeze({ ...sharedEditingPrepared.markdownLane, forkView: 'editing' as const })
+      markdownLane: Object.freeze({ ...sharedEditingPrepared.markdownLane, forkView: 'editing' as const }),
+      ...(sharedEditingPrepared.semanticMarkdownLane === undefined
+        ? {}
+        : { semanticMarkdownLane: Object.freeze({ ...sharedEditingPrepared.semanticMarkdownLane, forkView: 'editing' as const }) })
     })
   const preparedCommentDisplays = prepareCommentDisplayProjections(
     graphCore,
@@ -5200,6 +5204,7 @@ function parseProfile1DocumentWithExecution(
         role: prepared.traceView,
         forkLane: prepared.forkLane,
         lane: prepared.semanticMarkdownLane,
+        ...(key === rootEditingKey ? { endsAtDocumentEnd } : {}),
         ...(reuseSyntaxFrom === undefined ? {} : { reuseSyntaxFrom: `${reuseSyntaxFrom}:semantic` })
       }))
     }
