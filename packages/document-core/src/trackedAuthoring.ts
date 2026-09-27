@@ -201,7 +201,12 @@ function trackedRequest(
     )
     if (adjacent !== undefined && arm !== undefined) {
       const after = adjacent.range.end === request.range.start
-      if (pendingArmOwnsInlineEdge(activeCore, activeRevision, arm.range, after)) {
+      // A draft that ends with a paragraph break continues with the text
+      // typed at the start of that new paragraph (Enter then typing is one
+      // Addition in Google Docs).
+      const continuesParagraph = after && arm.range.end > arm.range.start && !/[\r\n]/u.test(request.text) &&
+        /[\r\n]$/u.test(activeCore.sourceSlice(activeRevision, { start: arm.range.end - 1, end: arm.range.end }))
+      if (continuesParagraph || pendingArmOwnsInlineEdge(activeCore, activeRevision, arm.range, after)) {
         const offset = after ? arm.range.end : arm.range.start
         request.range = { start: offset, end: offset }
       }
