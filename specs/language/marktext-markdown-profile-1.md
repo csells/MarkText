@@ -94,6 +94,27 @@ this boundary reason. It never creates emphasis that a whitespace, empty-run,
 or intraword-underscore rule already forbids, and it must not change the
 expected output of any CommonMark 0.31.2 conformance example.
 
+### 2.2 List items that interrupt a paragraph
+
+Two deliberate narrowings follow upstream MarkText (marked) rather than
+CommonMark:
+
+- **Inside a list item**, an empty list item or an ordered item not starting
+  at 1 opens a nested list under the item's paragraph (`1. a` + `   1.`,
+  `- a` + `  2. b`), as upstream shows it. CommonMark reads both as paragraph
+  text. A `-` run there is still the paragraph's setext underline (`- a` +
+  `  -` is a heading), as both read it.
+- **On a lazy continuation line**, an ordered item not starting at 1 stays
+  paragraph text (`> a` + `2. b` is one quoted paragraph). CommonMark starts a
+  list after the quote; upstream shows a list inside it, and typing in the
+  paragraph respells the line into the quote as upstream writes it.
+
+Everywhere else Profile 1 follows CommonMark where marked differs: a lazy
+`=` or `--` line is paragraph text inside a list item rather than an
+underline, an indented `-` run underlines a paragraph whose earlier line
+looks like a list marker, and a line after a setext heading is not a lazy
+continuation of the heading's block quote.
+
 ## 3. Layer B — GFM extension set (pinned)
 
 Profile 1 includes these GFM extensions, per the GFM spec's definitions:
@@ -415,6 +436,8 @@ compatibility documentation:
 | D6  | Recursive nesting incl. same-form (N1)                                                           | lang-criticmarkup/Fevol parse nested markers as flat text                | MMD-6's tested recursion is the authoritative precedent                                                                                  |
 | D7  | Comments retain isolated full Profile 1 Markdown+CriticMarkup subdocuments (R5)                  | Toolkit/MMD erase or render the payload as inline metadata               | A portable note may contain full Markdown while remaining one unstructured payload; local resolution and Comment Display stay lossless   |
 | D8  | An annotation closer stands against an in-arm open literal whose completion lies beyond it (L2a) | An alternative shared-loop parser reading defers the closer              | Reliable closer behavior and arm containment (ADR-0014)                                                                                  |
+| D9  | Inside a list item an empty or renumbered item nests under the paragraph (§2.2)                  | CommonMark reads it as paragraph continuation text                       | Upstream MarkText's reading; lists typed with Enter and Tab keep their nested items                                                      |
+| D10 | A renumbered item on a lazy line continues the quoted paragraph (§2.2)                           | CommonMark starts a list after the quote; marked nests one inside it     | Keeps the line with its quote as upstream does; the first edit respells it as upstream writes it                                         |
 
 ## 13. Implementation boundary
 
