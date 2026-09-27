@@ -188,7 +188,8 @@ test('sidebar icons show keyboard focus and review actions use shared light/dark
       await page.keyboard.press('Enter')
       await expect(page.getByTestId('critic-review-comment-input')).toBeFocused()
       await expect(page.getByTestId('critic-review-next')).toBeHidden()
-      await expect(page.locator('.core-review-entry.active > button')).toBeDisabled()
+      // The composer sits on its card and the list stays usable (plan 0012 G31).
+      await expect(page.locator('.core-review-entry.active > button')).toBeEnabled()
       await page.screenshot({ path: test.info().outputPath(`review-${theme}-narrow-focus.png`) })
       await expectReviewFits(page)
       await page.keyboard.press('Escape')
