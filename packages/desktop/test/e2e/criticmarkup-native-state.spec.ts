@@ -85,7 +85,7 @@ test('standalone comment marker opens its entry and preserves editing and save',
     const paragraph = page.locator('.mu-paragraph-content').first()
     await paragraph.click()
     await page.keyboard.press('Home')
-    const marker = paragraph.getByRole('button', { name: 'Comment', exact: true })
+    const marker = paragraph.getByRole('button', { name: 'Comment: A hidden note.', exact: true })
     await expect(marker).toBeVisible()
     await marker.click()
     await expect(
