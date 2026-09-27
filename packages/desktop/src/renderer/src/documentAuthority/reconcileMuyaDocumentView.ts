@@ -205,7 +205,7 @@ export function restoreMuyaDocumentSelection(
     cellSelection !== undefined ||
     modelTextSelection !== undefined
   ) {
-    const { modelPointToDOM, modelPointToText, modelCellPointToDOM, modelCellPointToText } =
+    const { modelPointToDOM, modelPointToText, modelCellPointToDOM, modelCellPointToText, projectSourcePoint } =
       createMuyaModelSelection(muya, view)
     const collapsed =
       cellSelection !== undefined
@@ -267,6 +267,20 @@ export function restoreMuyaDocumentSelection(
       }
       anchor = domPoint('anchor')
       focus = domPoint('focus')
+    }
+    // A caret in hidden syntax with no text of its own (a paragraph broken
+    // inside one's own Addition leaves only the arm's end on the new line)
+    // shows at the nearest rendered model boundary.
+    if (
+      (anchor === undefined || focus === undefined) &&
+      collapsed &&
+      inputSelection !== undefined &&
+      cellSelection === undefined &&
+      modelTextSelection === undefined
+    ) {
+      // Resolve through text so the caret stays on the line that follows.
+      const shown = modelPointToText(projectSourcePoint(inputSelection.start))
+      anchor = focus = shown === undefined ? undefined : (muya.editor.selection.getDOMPoint(shown) ?? undefined)
     }
     if (anchor === undefined || focus === undefined) {
       throw new Error('The accepted model selection has no rendered native boundary')
