@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 // must override it whenever the bytes are valid UTF-8.
 vi.mock('ced', () => ({ default: vi.fn(() => 'GB') }))
 
+const { default: ced } = await import('ced')
 const { guessEncoding } = await import('main_renderer/filesystem/encoding')
 
 describe('guessEncoding — prefer UTF-8 over a ced misdetection (#3151)', () => {
@@ -31,5 +32,20 @@ describe('guessEncoding — prefer UTF-8 over a ced misdetection (#3151)', () =>
     const result = guessEncoding(buffer, true)
     expect(result.encoding).toBe('utf8')
     expect(result.isBom).toBe(true)
+  })
+})
+
+// Plan 0012 G41: only bytes that are not valid UTF-8 reach `ced`, so reading
+// its answer as UTF-8 replaced every byte it had recognized.
+describe('guessEncoding — a legacy guess is decoded as that encoding', () => {
+  const notUtf8 = Buffer.from([0x68, 0x69, 0xc2, 0x20, 0x6f, 0x6b])
+
+  it.each([
+    ['SJS', 'shiftjis'],
+    ['ASCII', 'cp1252'],
+    ['MACINTOSH', 'macintosh']
+  ])('reads ced %s as %s', (guess, encoding) => {
+    vi.mocked(ced).mockReturnValueOnce(guess)
+    expect(guessEncoding(notUtf8, true).encoding).toBe(encoding)
   })
 })
