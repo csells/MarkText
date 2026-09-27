@@ -16,6 +16,11 @@ import {
 } from '../profile1Document.js'
 import type { CanonicalSourceView } from '../persistentCanonicalSource.js'
 import type { Profile1PhysicalTraversalRecorderV1 } from './physicalTraversalAccounting.js'
+import {
+  createPlainParagraphRetainedIndex,
+  type PlainParagraphIndexRecorder,
+  type PlainParagraphRetainedIndex
+} from './plainParagraphRetainedIndex.js'
 
 export interface RegionalInventoryRecorder {
   readonly recordBuildUnit: () => void
@@ -65,6 +70,19 @@ export interface RegionalInventoryAdmission {
   readonly next: RegionalInventorySpan
   readonly nextProducts: Profile1DocumentProducts
   readonly nextWindow: string
+  /**
+   * Present when the products were parsed with unchanged context around the
+   * replaced blocks: the products' document offsets, and the replaced
+   * blocks' local source and projection ranges within them.
+   */
+  readonly window?: Readonly<{
+    readonly source: number
+    readonly syntax: number
+    readonly blocks: Readonly<{
+      readonly source: Readonly<{ readonly start: number; readonly end: number }>
+      readonly syntax: Readonly<{ readonly start: number; readonly end: number }>
+    }>
+  }>
   readonly commentImpacts: readonly RegionalInventoryCommentImpact[]
 }
 
@@ -91,6 +109,12 @@ export interface RegionalInventoryPreview {
   readonly sourceStart: number
   readonly nextProducts: Profile1DocumentProducts
   readonly nextWindow: string
+  /**
+   * Present when the edit changes block or annotation structure, which a
+   * payload splice cannot assume: whether the edit touches an existing
+   * annotation, and how many CriticMarkup markers the window gains.
+   */
+  readonly structural?: Readonly<{ touchesAnnotation: boolean, markerDelta: number }>
 }
 
 type RegionalInventoryArguments = [
@@ -161,6 +185,13 @@ interface MeasuredGapLeaf {
   readonly sourceLength: number
   readonly syntaxLength: number
   readonly eventCount: number
+  /**
+   * Local top-level block starts of a gap whose every block is plain,
+   * CriticMarkup-free text with one public event and an unmapped projection.
+   * It lets an edit reparse only its own blocks without allocating an
+   * inventory node per block of a long plain run.
+   */
+  readonly plain?: PlainParagraphRetainedIndex
 }
 
 type RegionLeaf = MeasuredRegionLeaf | MeasuredGapLeaf
@@ -189,6 +220,7 @@ interface InventoryValue extends RegionalInventory {
   readonly logicalNodeLimit: number
   readonly dependencyPrefixEnd: number
   readonly recorder: RegionalInventoryRecorder
+  readonly plainRecorder?: PlainParagraphIndexRecorder
 }
 
 interface LocatedLeaf {
@@ -620,7 +652,8 @@ export function createRegionalInventory(
   sourceLength: number,
   recorder: RegionalInventoryRecorder,
   logicalNodeLimit: number = DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes,
-  dependencyPrefixEnd: number = 0
+  dependencyPrefixEnd: number = 0,
+  plainRecorder?: PlainParagraphIndexRecorder
 ): RegionalInventory | undefined {
   const retained = products.retainedIntrinsic
   if (
@@ -655,6 +688,15 @@ export function createRegionalInventory(
   const editingRoot = products.editing().markdown.root
   const mappedTape = products.editing().mappedTape
   const annotationExtent = retained.roots[retained.roots.length - 1]?.range.end ?? 0
+  const crossed = literalCrossings(retained.markdownLiterals, boundaries)
+  let plainGap: { leafIndex: number, points: number[], eligible: boolean } | undefined
+  const finishPlainGap = (): void => {
+    const pending = plainGap
+    plainGap = undefined
+    const leaf = pending === undefined ? undefined : leaves[pending.leafIndex]
+    if (pending === undefined || !pending.eligible || plainRecorder === undefined || leaf?.kind !== 'gap') return
+    leaves[pending.leafIndex] = plainGapLeaf(leaf.sourceLength, pending.points, plainRecorder)
+  }
   for (let ordinal = 0; ordinal + 1 < boundaries.length; ordinal += 1) {
     recorder.recordBuildUnit()
     const sourceStart = boundaries[ordinal]
@@ -746,8 +788,15 @@ export function createRegionalInventory(
       markerDecisions.length === 0 &&
       projectionKinds.every(kind => kind === 'canonical')
     if (roots.length === 0 && !ordinaryParagraph) {
+      const plainRegion = markerDecisions.length === 0 &&
+        projectionKinds.every(kind => kind === 'canonical') &&
+        syntaxEnd - syntaxStart === sourceEnd - sourceStart &&
+        counts[ordinal] === 1 &&
+        crossed[ordinal] !== true && crossed[ordinal + 1] !== true
       const previous = leaves[leaves.length - 1]
-      if (previous?.kind === 'gap') {
+      if (previous?.kind === 'gap' && plainGap !== undefined) {
+        plainGap.points.push(previous.sourceLength)
+        plainGap.eligible &&= plainRegion
         leaves[leaves.length - 1] = Object.freeze({
           kind: 'gap',
           sourceLength: previous.sourceLength + sourceEnd - sourceStart,
@@ -755,6 +804,8 @@ export function createRegionalInventory(
           eventCount: previous.eventCount + (counts[ordinal] ?? 0)
         })
       } else {
+        finishPlainGap()
+        plainGap = { leafIndex: leaves.length, points: [], eligible: plainRegion }
         leaves.push(Object.freeze({
           kind: 'gap',
           sourceLength: sourceEnd - sourceStart,
@@ -763,6 +814,7 @@ export function createRegionalInventory(
         }))
       }
     } else {
+      finishPlainGap()
       leaves.push(createLeafFromParts(
         products,
         sourceStart,
@@ -779,6 +831,7 @@ export function createRegionalInventory(
       ))
     }
   }
+  finishPlainGap()
   if (
     rootCursor !== retained.roots.length ||
     markdownCursor !== editingRoot.childCount ||
@@ -797,7 +850,47 @@ export function createRegionalInventory(
     ),
     logicalNodeLimit,
     dependencyPrefixEnd,
-    recorder
+    recorder,
+    ...(plainRecorder === undefined ? {} : { plainRecorder })
+  })
+}
+
+/**
+ * Boundaries lying strictly inside a Markdown literal. A literal never
+ * crosses a top-level block start in a complete parse; one that does marks
+ * text whose meaning a window parse could not reproduce.
+ */
+function literalCrossings(
+  literals: readonly Readonly<{ start: number, end: number }>[],
+  boundaries: readonly number[]
+): readonly boolean[] {
+  const crossed = boundaries.map(() => false)
+  for (const literal of literals) {
+    let low = 0
+    let high = boundaries.length
+    while (low < high) {
+      const middle = low + ((high - low) >> 1)
+      if ((boundaries[middle] ?? Infinity) <= literal.start) low = middle + 1
+      else high = middle
+    }
+    for (let index = low; index < boundaries.length && (boundaries[index] ?? Infinity) < literal.end; index += 1) {
+      crossed[index] = true
+    }
+  }
+  return crossed
+}
+
+function plainGapLeaf(
+  sourceLength: number,
+  points: readonly number[],
+  recorder: PlainParagraphIndexRecorder
+): MeasuredGapLeaf {
+  return Object.freeze({
+    kind: 'gap',
+    sourceLength,
+    syntaxLength: sourceLength,
+    eventCount: points.length + 1,
+    plain: createPlainParagraphRetainedIndex(points, sourceLength, 0, recorder)
   })
 }
 
@@ -922,7 +1015,7 @@ function editTouchesMarker(
 function replaceLeaf(
   node: RegionTree,
   ordinal: number,
-  replacement: MeasuredRegionLeaf,
+  replacement: RegionLeaf,
   recorder: RegionalInventoryRecorder
 ): RegionTree {
   recorder.recordNodeVisited()
@@ -998,6 +1091,38 @@ function evaluateRegionalInventory(
   physicalRecorder: Profile1PhysicalTraversalRecorderV1,
   previewOnly: boolean
 ): RegionalInventoryApplyResult | RegionalInventoryPreviewResult {
+  const sameShape = evaluateSameShape(
+    previousInventory, previousSource, nextSource, edits, subscriptions,
+    executionBudget, markdownOptions, physicalRecorder, previewOnly
+  )
+  const edit = edits.length === 1 ? edits[0] : undefined
+  if (
+    sameShape.kind !== 'fallback' || sameShape.reason !== 'fixed-region-ineligible' ||
+    sameShape === BUDGET_EXHAUSTED ||
+    edit === undefined || subscriptions.some(subscription => subscription.name === 'comment')
+  ) {
+    return sameShape
+  }
+  return evaluateBlockWindow(
+    inventoryValue(previousInventory), previousSource, nextSource, edit,
+    executionBudget, markdownOptions, physicalRecorder, previewOnly
+  ) ?? sameShape
+}
+
+/** A window any larger than the one refused would exceed the budget too. */
+const BUDGET_EXHAUSTED: RegionalInventoryFallback = Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
+
+function evaluateSameShape(
+  previousInventory: RegionalInventory,
+  previousSource: CanonicalSourceView,
+  nextSource: CanonicalSourceView,
+  edits: readonly RetainedPassSourceEdit[],
+  subscriptions: readonly RegionalInventorySubscription[],
+  executionBudget: ExecutionBudgetId,
+  markdownOptions: MarkdownOptionsV1,
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  previewOnly: boolean
+): RegionalInventoryApplyResult | RegionalInventoryPreviewResult {
   const inventory = inventoryValue(previousInventory)
   const edit = edits.length === 1 ? edits[0] : undefined
   if (
@@ -1040,7 +1165,7 @@ function evaluateRegionalInventory(
   }
   const localStart = edit.start - start.sourceStart
   const localEnd = edit.end - start.sourceStart
-  if (editTouchesMarker(start.leaf, localStart, localEnd)) {
+  if (editChangesBacktickPairing(previousSource, edit) || editTouchesMarker(start.leaf, localStart, localEnd)) {
     return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
   }
   const delta = nextSource.length - previousSource.length
@@ -1104,7 +1229,7 @@ function evaluateRegionalInventory(
     inventory.accountingUpperBound + candidateAccountingUnits >
       inventory.logicalNodeLimit
   ) {
-    return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
+    return BUDGET_EXHAUSTED
   }
   if (!sameRegionShape(start.leaf, candidate)) {
     return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
@@ -1251,6 +1376,424 @@ function evaluateRegionalInventory(
     nextProducts: result,
     nextWindow,
     commentImpacts: Object.freeze(commentImpacts)
+  })
+}
+
+interface WindowEdge {
+  readonly ordinal: number
+  readonly leaf: RegionLeaf
+  readonly source: number
+  readonly syntax: number
+  readonly event: number
+  /** Offset of the edge within its leaf. */
+  readonly local: number
+  /** For a plain gap, the safe-point rank at (start) or after (end) the edge. */
+  readonly rank: number
+}
+
+function windowEdge(
+  inventory: InventoryValue,
+  position: number,
+  side: 'start' | 'end'
+): WindowEdge | undefined {
+  const length = inventory.root.sourceLength
+  if (side === 'end' && position === length) {
+    const last = locateBySource(inventory, length - 1)
+    if (last === undefined) return undefined
+    return Object.freeze({
+      ordinal: last.ordinal,
+      leaf: last.leaf,
+      source: length,
+      syntax: inventory.root.syntaxLength,
+      event: inventory.root.eventCount,
+      local: last.leaf.sourceLength,
+      rank: last.leaf.kind === 'gap' ? last.leaf.plain?.safePointCount ?? 0 : 0
+    })
+  }
+  const located = locateBySource(inventory, Math.min(position, length - 1))
+  if (located === undefined) return undefined
+  const { leaf } = located
+  if (leaf.kind === 'region') {
+    return side === 'start'
+      ? Object.freeze({ ordinal: located.ordinal, leaf, source: located.sourceStart, syntax: located.syntaxStart, event: located.eventStart, local: 0, rank: 0 })
+      : Object.freeze({
+        ordinal: located.ordinal,
+        leaf,
+        source: located.sourceStart + leaf.sourceLength,
+        syntax: located.syntaxStart + leaf.syntaxLength,
+        event: located.eventStart + leaf.eventCount,
+        local: leaf.sourceLength,
+        rank: 0
+      })
+  }
+  if (leaf.plain === undefined) return undefined
+  const local = position - located.sourceStart
+  const bracket = leaf.plain.bracketForEdits([{ start: local, end: local, insert: '' }], leaf.sourceLength)
+  if (bracket === undefined) return undefined
+  // A plain gap has one public event and an unmapped projection per block.
+  const edge = side === 'start' ? bracket.start : bracket.endPrevious
+  const rank = side === 'start' ? bracket.startSafePointRank : bracket.endSafePointRank
+  return Object.freeze({
+    ordinal: located.ordinal,
+    leaf,
+    source: located.sourceStart + edge,
+    syntax: located.syntaxStart + edge,
+    event: located.eventStart + rank + 1,
+    local: edge,
+    rank
+  })
+}
+
+interface BlockWindowFacts {
+  readonly boundaries: readonly number[]
+  readonly syntaxBoundaries: readonly number[]
+  readonly eventCounts: readonly number[]
+}
+
+/**
+ * A reparsed run of top-level blocks reads the same inside the whole
+ * document as alone when the block starts that bound the edited blocks stay
+ * safe points: the parse state there is clean, so neither side can absorb
+ * or reinterpret the other. The run has no reference facts, which resolve
+ * across the document.
+ */
+function blockWindowFacts(
+  products: Profile1DocumentProducts,
+  window: string,
+  requiredSafePoints: readonly number[],
+  recorder: RegionalInventoryRecorder
+): BlockWindowFacts | undefined {
+  const retained = products.retainedIntrinsic
+  if (
+    retained === undefined ||
+    products.diagnostics.count !== 0 ||
+    retained.diagnostics.length !== 0 ||
+    referenceDependencyPrefixEnd(products) !== 0 ||
+    containsPotentialReferenceDependency(window) ||
+    requiredSafePoints.some(point => !retained.safePoints.includes(point))
+  ) {
+    return undefined
+  }
+  const editing = products.editing()
+  if (editing.markdown.root.childCount === 0) return undefined
+  if (editing.mappedTape.some(segment => segment.kind !== 'canonical')) return undefined
+  const closed = new Set<number>()
+  for (const decision of retained.markerDecisions) {
+    if (decision.role !== 'close') continue
+    if (decision.action !== 'matched' || decision.openerRunId === null || decision.openerRunId === undefined) return undefined
+    closed.add(decision.openerRunId)
+  }
+  if (retained.markerDecisions.some(decision => decision.role === 'open' && !closed.has(decision.runId))) return undefined
+  const boundaries = Object.freeze([0, ...retained.safePoints, window.length])
+  // The window's start is its projection's start even when an elided
+  // CriticMarkup opener begins it.
+  const laterSyntax = exactSyntaxBoundaries(products, boundaries.slice(1), recorder)
+  if (laterSyntax === undefined) return undefined
+  const syntaxBoundaries = Object.freeze([0, ...laterSyntax])
+  return Object.freeze({ boundaries, syntaxBoundaries, eventCounts: eventCounts(products, boundaries, recorder) })
+}
+
+function leafRange(
+  root: RegionTree,
+  from: number,
+  to: number
+): Array<Readonly<{ leaf: RegionLeaf, sourceStart: number }>> {
+  const result: Array<Readonly<{ leaf: RegionLeaf, sourceStart: number }>> = []
+  const visit = (node: RegionTree, firstOrdinal: number, sourceStart: number): void => {
+    const lastOrdinal = firstOrdinal + leafCount(node) - 1
+    if (lastOrdinal < from || firstOrdinal > to) return
+    if (node.kind !== 'branch') {
+      result.push(Object.freeze({ leaf: node, sourceStart }))
+      return
+    }
+    visit(node.left, firstOrdinal, sourceStart)
+    visit(node.right, firstOrdinal + leafCount(node.left), sourceStart + node.left.sourceLength)
+  }
+  visit(root, 0, 0)
+  return result
+}
+
+/**
+ * The intrinsic pass pairs a backtick run with a later equal run beyond its
+ * paragraph, so adding, removing, joining or splitting a run (or a
+ * backslash escaping one) can change CriticMarkup recognition in blocks no
+ * window contains.
+ */
+function editChangesBacktickPairing(source: CanonicalSourceView, edit: RetainedPassSourceEdit): boolean {
+  return /[`\\]/u.test(edit.insert) ||
+    /[`\\]/u.test(source.slice(Math.max(0, edit.start - 1), Math.min(source.length, edit.end + 1)))
+}
+
+function leavesOf(root: RegionTree): RegionLeaf[] {
+  const leaves: RegionLeaf[] = []
+  const pending: RegionTree[] = [root]
+  while (pending.length > 0) {
+    const node = pending.pop()
+    if (node === undefined) break
+    if (node.kind === 'branch') {
+      pending.push(node.right, node.left)
+    } else {
+      leaves.push(node)
+    }
+  }
+  return leaves
+}
+
+/** The plain gap between two of its own safe-point coordinates. */
+function plainGapSlice(
+  coordinates: readonly number[],
+  from: number,
+  to: number,
+  recorder: PlainParagraphIndexRecorder
+): MeasuredGapLeaf | undefined {
+  if (to <= from) return undefined
+  const points = coordinates.filter(point => point > from && point < to).map(point => point - from)
+  return plainGapLeaf(to - from, points, recorder)
+}
+
+/**
+ * Replace the top-level blocks around one edit, reparsing only them, when the
+ * edit changes their structure: a split or joined paragraph, or a new
+ * suggestion. The edited blocks run from the block holding the edit's start
+ * to the block holding its end, including a block that begins exactly at its
+ * end. One unchanged block on each side joins the reparse, so the parse
+ * proves the edited blocks' bounds are still safe points.
+ */
+function evaluateBlockWindow(
+  inventory: InventoryValue,
+  previousSource: CanonicalSourceView,
+  nextSource: CanonicalSourceView,
+  edit: RetainedPassSourceEdit,
+  executionBudget: ExecutionBudgetId,
+  markdownOptions: MarkdownOptionsV1,
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  previewOnly: boolean
+): RegionalInventoryApplyResult | RegionalInventoryPreviewResult | undefined {
+  const length = previousSource.length
+  if (
+    length !== inventory.root.sourceLength ||
+    length === 0 ||
+    (inventory.dependencyPrefixEnd !== 0 && edit.start <= inventory.dependencyPrefixEnd)
+  ) {
+    return undefined
+  }
+  if (editChangesBacktickPairing(previousSource, edit)) return undefined
+  const edited = windowEdge(inventory, edit.start, 'start')
+  const editedEnd = windowEdge(inventory, edit.end, 'end')
+  if (edited === undefined || editedEnd === undefined || editedEnd.ordinal < edited.ordinal ||
+      edited.source > edit.start || editedEnd.source < edit.end) {
+    return undefined
+  }
+  const first = edited.source > 0 ? windowEdge(inventory, edited.source - 1, 'start') : edited
+  const last = editedEnd.source < length ? windowEdge(inventory, editedEnd.source, 'end') : editedEnd
+  if (first === undefined || last === undefined) return undefined
+  const delta = nextSource.length - length
+  const nextWindow = nextSource.slice(first.source, last.source + delta)
+  const atDocumentEnd = last.source + delta === nextSource.length
+  inventory.recorder.recordCandidateRegionParse(nextWindow.length)
+  const result = parseProfile1Document(
+    nextWindow,
+    executionBudget,
+    undefined,
+    first.source === 0 ? markdownOptions : Object.freeze({ ...markdownOptions, frontMatter: false }),
+    false,
+    undefined,
+    createProfile1DocumentReuseCache(),
+    physicalRecorder,
+    undefined,
+    atDocumentEnd
+  )
+  // The document parse reports a window's resource failure authoritatively.
+  if (result.kind !== 'complete') return undefined
+  const requiredSafePoints = [
+    ...(edited.source > first.source ? [edited.source - first.source] : []),
+    ...(last.source > editedEnd.source ? [editedEnd.source + delta - first.source] : [])
+  ]
+  const facts = blockWindowFacts(result, nextWindow, requiredSafePoints, inventory.recorder)
+  if (facts === undefined) return undefined
+  const candidateAccountingUnits = result.accountingCounts.reduce((total, count) => total + count, 0)
+  if (inventory.accountingUpperBound + candidateAccountingUnits > inventory.logicalNodeLimit) return undefined
+  const { boundaries, syntaxBoundaries } = facts
+  // Only the edited blocks are replaced: the unchanged block on each side
+  // served as context, and its own parse can depend on text beyond the window.
+  const editedStart = edited.source - first.source
+  const editedStop = editedEnd.source + delta - first.source
+  const from = boundaries.indexOf(editedStart)
+  const to = boundaries.indexOf(editedStop)
+  if (from < 0 || to <= from || first.syntax + (syntaxBoundaries[from] ?? 0) !== edited.syntax) return undefined
+  // Views replace paragraphs in place; any other block kind takes the full path.
+  const editedBlocks = result.editing().markdown.root
+  let paragraphs = 0
+  for (let ordinal = 0; ordinal < editedBlocks.childCount; ordinal += 1) {
+    const block = editedBlocks.childAt(ordinal)
+    if (block.range.start < (syntaxBoundaries[from] ?? 0) || block.range.start >= (syntaxBoundaries[to] ?? 0)) continue
+    if (block.kind !== 'paragraph') return undefined
+    paragraphs += 1
+  }
+  if (paragraphs === 0) return undefined
+  if (previewOnly) {
+    let touchesAnnotation = false
+    let previousMarkers = 0
+    for (const located of leafRange(inventory.root, first.ordinal, last.ordinal)) {
+      if (located.leaf.kind !== 'region') continue
+      previousMarkers += located.leaf.markers.length
+      const { nodes, roots } = located.leaf.annotations
+      touchesAnnotation ||= roots.some(ordinal => {
+        const node = nodes[ordinal]
+        return node !== undefined && located.sourceStart + node.start <= edit.end &&
+          located.sourceStart + node.end >= edit.start
+      })
+    }
+    return Object.freeze({
+      kind: 'validated',
+      sourceStart: first.source,
+      nextProducts: result,
+      nextWindow,
+      structural: Object.freeze({
+        touchesAnnotation,
+        markerDelta: (result.retainedIntrinsic?.markerDecisions.length ?? 0) - previousMarkers
+      })
+    })
+  }
+  const blockBoundaries = boundaries.slice(from, to + 1)
+  const blockSyntax = syntaxBoundaries.slice(from, to + 1)
+  const counts = facts.eventCounts.slice(from, to)
+  const retained = result.retainedIntrinsic
+  const crossed = literalCrossings(retained?.markdownLiterals ?? [], blockBoundaries)
+  const plainRecorder = inventory.plainRecorder
+  // Plain blocks inside one plain gap stay in that gap, so a long plain run
+  // never gains an inventory node per edited block.
+  const plainBlocks = retained !== undefined &&
+    !retained.roots.some(root => root.range.end > editedStart && root.range.start < editedStop) &&
+    !retained.markerDecisions.some(decision => decision.range.end > editedStart && decision.range.start < editedStop) &&
+    counts.every(count => count === 1) &&
+    blockBoundaries.every((boundary, index) => blockSyntax[index] === boundary - editedStart + (blockSyntax[0] ?? 0) && crossed[index] !== true)
+  let nextRoot: RegionTree
+  if (
+    plainBlocks && plainRecorder !== undefined && edited.ordinal === editedEnd.ordinal &&
+    edited.leaf.kind === 'gap' && edited.leaf.plain !== undefined
+  ) {
+    const gap = edited.leaf
+    const plain = edited.leaf.plain
+    const nextLength = gap.sourceLength + delta
+    const localPoints = blockBoundaries.slice(1, -1).map(point => point - editedStart)
+    let index: PlainParagraphRetainedIndex
+    const gapEdit = edit.start - (edited.source - edited.local)
+    const expected: number[] = []
+    for (let rank = edited.rank + 1; rank < editedEnd.rank; rank += 1) {
+      const point = plain.coordinateAt(rank)
+      expected.push((point <= gapEdit ? point : point + delta) - edited.local)
+    }
+    if (sameArray(localPoints, expected)) {
+      // Only the edited block's length changed.
+      index = plain.withRegionLengthDelta(editedEnd.rank, delta, nextLength)
+    } else {
+      const coordinates = plain.coordinates()
+      index = createPlainParagraphRetainedIndex([
+        ...coordinates.slice(0, edited.rank + 1),
+        ...localPoints.map(point => edited.local + point),
+        ...coordinates.slice(editedEnd.rank).map(point => point + delta)
+      ], nextLength, 0, plainRecorder)
+    }
+    nextRoot = replaceLeaf(inventory.root, edited.ordinal, Object.freeze({
+      kind: 'gap',
+      sourceLength: nextLength,
+      syntaxLength: nextLength,
+      eventCount: index.safePointCount + 1,
+      plain: index
+    }), inventory.recorder)
+  } else {
+    const replacement: RegionLeaf[] = []
+    if (edited.leaf.kind === 'gap' && edited.local > 0) {
+      if (edited.leaf.plain === undefined || plainRecorder === undefined) return undefined
+      const prefix = plainGapSlice(edited.leaf.plain.coordinates(), 0, edited.local, plainRecorder)
+      if (prefix !== undefined) replacement.push(prefix)
+    }
+    for (let block = 0; block + 1 < blockBoundaries.length; block += 1) {
+      replacement.push(createLeaf(
+        result,
+        blockBoundaries[block] ?? 0,
+        blockBoundaries[block + 1] ?? 0,
+        blockSyntax[block] ?? 0,
+        blockSyntax[block + 1] ?? 0,
+        counts[block] ?? 0
+      ))
+    }
+    if (editedEnd.leaf.kind === 'gap' && editedEnd.local < editedEnd.leaf.sourceLength) {
+      if (editedEnd.leaf.plain === undefined || plainRecorder === undefined) return undefined
+      const suffix = plainGapSlice(editedEnd.leaf.plain.coordinates(), editedEnd.local, editedEnd.leaf.sourceLength, plainRecorder)
+      if (suffix !== undefined) replacement.push(suffix)
+    }
+    const leaves = leavesOf(inventory.root)
+    leaves.splice(edited.ordinal, editedEnd.ordinal - edited.ordinal + 1, ...replacement)
+    nextRoot = buildTree(leaves, 0, leaves.length, inventory.recorder)
+  }
+  inventory.recorder.recordRootAttempted()
+  const eventTotal = counts.reduce((total, count) => total + count, 0)
+  const syntaxStart = blockSyntax[0] ?? 0
+  const syntaxEnd = blockSyntax[blockSyntax.length - 1] ?? 0
+  return Object.freeze({
+    kind: 'admitted',
+    nextInventory: Object.freeze({
+      [inventoryBrand]: true as const,
+      root: nextRoot,
+      accountingUpperBound: inventory.accountingUpperBound + candidateAccountingUnits,
+      logicalNodeLimit: inventory.logicalNodeLimit,
+      dependencyPrefixEnd: inventory.dependencyPrefixEnd,
+      recorder: inventory.recorder,
+      ...(plainRecorder === undefined ? {} : { plainRecorder })
+    }),
+    previous: Object.freeze({
+      source: range(edited.source, editedEnd.source),
+      syntax: range(edited.syntax, editedEnd.syntax),
+      events: range(edited.event, editedEnd.event)
+    }),
+    next: Object.freeze({
+      source: range(edited.source, edited.source + editedStop - editedStart),
+      syntax: range(edited.syntax, edited.syntax + syntaxEnd - syntaxStart),
+      events: range(edited.event, edited.event + eventTotal)
+    }),
+    nextProducts: result,
+    nextWindow,
+    window: Object.freeze({
+      source: first.source,
+      syntax: first.syntax,
+      blocks: Object.freeze({
+        source: range(editedStart, editedStop),
+        syntax: range(syntaxStart, syntaxEnd)
+      })
+    }),
+    commentImpacts: Object.freeze([])
+  })
+}
+
+/**
+ * The inventory of a document whose annotations occupy no blocks yet: one
+ * plain gap reusing the document's plain paragraph index unchanged.
+ */
+export function createPlainRegionalInventory(
+  index: PlainParagraphRetainedIndex,
+  accountingUpperBound: number,
+  recorder: RegionalInventoryRecorder,
+  plainRecorder: PlainParagraphIndexRecorder,
+  logicalNodeLimit: number = DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
+): RegionalInventory | undefined {
+  if (index.sourceLength === 0) return undefined
+  recorder.recordNodeAllocated()
+  return Object.freeze({
+    [inventoryBrand]: true as const,
+    root: Object.freeze({
+      kind: 'gap',
+      sourceLength: index.sourceLength,
+      syntaxLength: index.sourceLength,
+      eventCount: index.safePointCount + 1,
+      plain: index
+    }),
+    accountingUpperBound,
+    logicalNodeLimit,
+    dependencyPrefixEnd: index.dependencyPrefixEnd,
+    recorder,
+    plainRecorder
   })
 }
 

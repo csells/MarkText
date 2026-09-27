@@ -1,0 +1,161 @@
+import { describe, expect, it } from 'vitest'
+import {
+  createDocumentCore,
+  type DocumentCore,
+  type DocumentRevision,
+  type MarkupEvent,
+  type MarkupMark,
+  type MarkupProjection,
+  type MarkupRegionReplacement,
+  type SourceRange
+} from '../src/index.js'
+
+// Plan 0012 G35: a regional apply that splits, joins or annotates blocks is an
+// optimization of one parse. Its annotations and its projection replacement,
+// composed with the previous projection, must read exactly as a fresh open of
+// the resulting source, and later regional edits must build on it exactly.
+
+const lcg = (seed: number) => (): number => {
+  seed = (seed * 1664525 + 1013904223) >>> 0
+  return seed / 2 ** 32
+}
+
+const blocks = [
+  'Plain words here.',
+  'Another ordinary sentence with more words.',
+  'Text with {++added++} inside.',
+  'Text {--deleted--} and {~~old~>new~~} too.',
+  'Note {==marked==}{>>comment<<} end.',
+  '{++Whole paragraph addition.++}',
+  '# Heading',
+  '- item one\n- item two',
+  '> quoted line',
+  '```\ncode\n\nmore\n```',
+  '    indented code',
+  'Para *em* and `code` here.',
+  'A [link](http://x.y) here.',
+  'Multi\nline\nparagraph.'
+]
+
+const insertions = ['x', ' ', '\n', '\n\n', '\n\n\n\n', '{++n++}', '{--d--}', '{++', '++}', '# ', '- ', '    ', '*', '`', '$$', '[r]', '---', '===', '<div>']
+
+function applyReplacement(previous: readonly MarkupEvent[], replacement: MarkupRegionReplacement): readonly MarkupEvent[] {
+  const delta = replacement.next.source.end - replacement.previous.source.end
+  const shift = (range: SourceRange): SourceRange => range.end <= replacement.previous.source.end
+    ? range
+    : { start: range.start + delta, end: range.end + delta }
+  const marks = new Map<MarkupMark, MarkupMark>()
+  const shiftMark = (mark: MarkupMark): MarkupMark => {
+    const cached = marks.get(mark)
+    if (cached !== undefined) return cached
+    const shifted = { ...mark, annotationRange: shift(mark.annotationRange) } as MarkupMark
+    marks.set(mark, shifted)
+    return shifted
+  }
+  return [
+    ...previous.slice(0, replacement.previous.events.start),
+    ...replacement.events,
+    ...previous.slice(replacement.previous.events.end).map(event => event.kind === 'text'
+      ? { ...event, sourceRange: shift(event.sourceRange) }
+      : { ...event, mark: shiftMark(event.mark) })
+  ]
+}
+
+const blockShape = (projection: MarkupProjection) => projection.syntax.ast.root.children
+  .map(node => ({ kind: node.kind, start: node.range.start, end: node.range.end }))
+
+/** The previous view with the replaced region spliced in, as the desktop composes it. */
+function composedShape(previous: MarkupProjection, replacement: MarkupRegionReplacement) {
+  const delta = replacement.next.syntax.end - replacement.previous.syntax.end
+  return [
+    ...blockShape(previous).filter(node => node.start < replacement.previous.syntax.start),
+    ...replacement.syntaxBlocks.map(node => ({ kind: node.kind, start: node.range.start, end: node.range.end })),
+    ...blockShape(previous).filter(node => node.start >= replacement.previous.syntax.end)
+      .map(node => ({ ...node, start: node.start + delta, end: node.end + delta }))
+  ]
+}
+
+interface Session {
+  readonly core: DocumentCore
+  revision: DocumentRevision
+  markup: MarkupProjection
+  regional: number
+}
+
+function step(session: Session, start: number, end: number, insert: string, label: string): void {
+  const { core, revision } = session
+  const commit = core.apply(revision, [{ start, end, insert }], { projections: ['markup'] })
+  const source = revision.source.slice(0, start) + insert + revision.source.slice(end)
+  const oracle = createDocumentCore()
+  const fresh = oracle.open(source)
+  const freshMarkup = oracle.project(fresh, 'markup')
+  expect(commit.revision.source, label).toBe(source)
+  expect(commit.revision.annotations, label).toEqual(fresh.annotations)
+  expect(commit.revision.diagnostics, label).toEqual(fresh.diagnostics)
+  const change = commit.change.projections[0]
+  if (change?.name === 'markup' && change.scope === 'regions') {
+    session.regional += 1
+    const replacement = change.replacements[0]
+    if (replacement === undefined) throw new Error('Expected a replacement')
+    expect(applyReplacement(session.markup.events, replacement), label).toEqual(freshMarkup.events)
+    expect(composedShape(session.markup, replacement), label).toEqual(blockShape(freshMarkup))
+  }
+  session.revision = commit.revision
+  session.markup = freshMarkup
+}
+
+function documentFrom(random: () => number): string {
+  const count = 3 + Math.floor(random() * 10)
+  const parts: string[] = []
+  for (let index = 0; index < count; index += 1) {
+    parts.push(blocks[Math.floor(random() * blocks.length)] ?? '')
+    if (random() < 0.15) parts.push('')
+  }
+  const separator = random() < 0.1 ? '\r\n' : '\n'
+  const text = parts.join('\n\n') + (random() < 0.8 ? '\n' : '')
+  return separator === '\n' ? text : text.replace(/\n/gu, '\r\n')
+}
+
+describe('structural regional edits read as a fresh open', () => {
+  it.each(Array.from({ length: 24 }, (_, seed) => seed + 1))('seed %i', seed => {
+    const random = lcg(seed * 7919)
+    for (let documentIndex = 0; documentIndex < 20; documentIndex += 1) {
+      const source = documentFrom(random)
+      const core = createDocumentCore()
+      const revision = core.open(source)
+      const session: Session = { core, revision, markup: core.project(revision, 'markup'), regional: 0 }
+      for (let edit = 0; edit < 8; edit += 1) {
+        const length = session.revision.sourceLength
+        const start = Math.floor(random() * (length + 1))
+        const choice = random()
+        let end = start
+        let insert = ''
+        if (choice < 0.55) {
+          insert = insertions[Math.floor(random() * insertions.length)] ?? ''
+        } else if (choice < 0.85) {
+          end = Math.min(length, start + 1 + Math.floor(random() * 4))
+        } else {
+          end = Math.min(length, start + 1 + Math.floor(random() * 12))
+          insert = random() < 0.5 ? 'Z' : '\n\n'
+        }
+        const label = `${JSON.stringify(session.revision.source)} [${start}, ${end}) ${JSON.stringify(insert)}`
+        step(session, start, end, insert, label)
+      }
+    }
+  })
+
+  it('exercises regional splits, joins and new suggestions', () => {
+    const paragraph = 'Plain words here.'
+    const source = [paragraph, 'A {++b++} c.', paragraph, 'D {--e--} f.', paragraph, paragraph, paragraph].join('\n\n') + '\n'
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const session: Session = { core, revision, markup: core.project(revision, 'markup'), regional: 0 }
+    const tail = source.lastIndexOf(paragraph) + 5
+    step(session, tail, tail, '\n\n', 'split in the plain tail')
+    step(session, tail + 2, tail + 2, '{++new++}', 'suggestion in the plain tail')
+    step(session, tail, tail + 2, '', 'join in the plain tail')
+    step(session, 5, 5, '\n\n', 'split before the first suggestion')
+    step(session, 5, 7, '', 'join before the first suggestion')
+    expect(session.regional).toBe(5)
+  })
+})

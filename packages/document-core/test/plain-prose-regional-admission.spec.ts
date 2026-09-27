@@ -45,8 +45,6 @@ it('updates a sole punctuated paragraph without constructing an EOF overlay', ()
 
 it.each([
   { label: 'heading', insert: '# changed' },
-  { label: 'inline structure', insert: '**changed**' },
-  { label: 'annotation', insert: '{++changed++}' },
   { label: 'reference definition', insert: '[label]: /url' },
   { label: 'front matter at BOF', insert: '---\ntitle: changed\n---' }
 ])('falls back when first-paragraph editing creates $label', ({ insert }) => {
@@ -57,10 +55,24 @@ it.each([
   expect(result.revision.source).toBe(insert + source.slice(18))
 })
 
-it('falls back when editing a paragraph separator', () => {
+// Plan 0012 G35: an edit that only restructures paragraphs, or adds a
+// suggestion inside one, reparses just those paragraphs.
+it.each([
+  { label: 'inline structure in the first paragraph', source: 'ordinary sentence.\n\nsecond paragraph.\n', start: 0, end: 18, insert: '**changed**' },
+  { label: 'an annotation in the first paragraph', source: 'ordinary sentence.\n\nsecond paragraph.\n', start: 0, end: 18, insert: '{++changed++}' },
+  { label: 'a joined paragraph separator', source: 'first.\n\nlast.', start: 6, end: 8, insert: ' ' }
+])('reparses only the paragraphs changed by $label', ({ source, start, end, insert }) => {
   const core = createDocumentCore()
-  const source = 'first.\n\nlast.'
-  const result = core.apply(core.open(source), [{ start: 6, end: 8, insert: ' ' }], { projections: ['markup'] })
-  expect(result.change.projections[0]?.scope).toBe('document')
-  expect(result.revision.source).toBe('first. last.')
+  const opened = core.open(source)
+  const before = inspectDocumentCore(core)
+  const result = core.apply(opened, [{ start, end, insert }], { projections: ['markup'] })
+  expect(inspectDocumentCore(core).documentParses - before.documentParses).toBe(0)
+  expect(result.change.projections[0]?.scope).toBe('regions')
+  const expectedSource = source.slice(0, start) + insert + source.slice(end)
+  expect(result.revision.source).toBe(expectedSource)
+  const reference = createDocumentCore()
+  const expected = reference.open(expectedSource)
+  expect(result.revision.annotations).toEqual(expected.annotations)
+  expect(core.project(result.revision, 'markup').events).toEqual(reference.project(expected, 'markup').events)
+  expect(core.project(result.revision, 'markup').syntax.ast).toEqual(reference.project(expected, 'markup').syntax.ast)
 })

@@ -1765,9 +1765,25 @@ describe('document-core semantic changes', () => {
     expect(delta(afterEmpty, beforeEmpty, 'regionalAstMaterializedNodes')).toBe(0)
     expect(delta(afterEmpty, beforeEmpty, 'regionalCoordinateSegments')).toBe(0)
 
+    // A new suggestion inside an ordinary paragraph stays regional (G35);
+    // a new block kind or changed options still reparse the document.
+    const suggestionCore = createDocumentCore()
+    const suggestionOpened = suggestionCore.open(emptySource)
+    const beforeSuggestion = inspectionOf(suggestionCore)
+    const suggestion = suggestionCore.apply(suggestionOpened, [{
+      start: emptyAt,
+      end: emptyAt + 4,
+      insert: '{++added++}'
+    }], { projections: [] })
+    const afterSuggestion = inspectionOf(suggestionCore)
+    expect(suggestion.change.projections).toEqual([])
+    expect(delta(afterSuggestion, beforeSuggestion, 'regionalFastApplies')).toBe(1)
+    expect(delta(afterSuggestion, beforeSuggestion, 'documentParses')).toBe(0)
+    expect(suggestion.revision.annotations)
+      .toEqual(createDocumentCore().open(suggestion.revision.source).annotations)
+
     for (const candidate of [
       { insert: 'text\n# heading', markdown: undefined },
-      { insert: '{++added++}', markdown: undefined },
       { insert: 'WORDS', markdown: { gfm: false } }
     ] as const) {
       const fallbackCore = createDocumentCore()
@@ -3717,36 +3733,6 @@ describe('document-core semantic changes', () => {
       reason: 'structural-region-ineligible'
     },
     {
-      name: 'a newline changes paragraph structure',
-      source: 'head\n\ntarget word\n\ntail\n\n',
-      edit: (source: string) => ({
-        start: source.indexOf('word'),
-        end: source.indexOf('word'),
-        insert: '\n'
-      }),
-      reason: 'structural-region-ineligible'
-    },
-    {
-      name: 'whitespace becomes a paragraph',
-      source: 'head\n\n   \n\ntail\n\n',
-      edit: () => ({
-        start: 7,
-        end: 7,
-        insert: 'X'
-      }),
-      reason: 'structural-region-ineligible'
-    },
-    {
-      name: 'a paragraph becomes whitespace',
-      source: 'head\n\ntarget\n\ntail\n\n',
-      edit: (source: string) => ({
-        start: source.indexOf('target'),
-        end: source.indexOf('target') + 'target'.length,
-        insert: '   '
-      }),
-      reason: 'structural-region-ineligible'
-    },
-    {
       name: 'CriticMarkup facts are present',
       source: 'head {++added++}\n\ntarget word\n\ntail\n\n',
       edit: (source: string) => ({
@@ -4593,6 +4579,8 @@ describe('document-core semantic changes', () => {
       events: { start: 2, end: 3 }
     })
 
+    // A replacement ending at the boundary joins the block that begins
+    // there, so the region spans both blocks.
     const replacementCore = createDocumentCore()
     const replacementOpened = replacementCore.open(source)
     const replacement = replacementCore.apply(replacementOpened, [{
@@ -4600,11 +4588,53 @@ describe('document-core semantic changes', () => {
       end: boundary,
       insert: 'Z'
     }], { projections: ['markup'] })
-    expect(replacement.change.projections).toEqual([{
-      name: 'markup',
-      scope: 'document',
-      reason: 'structural-region-ineligible'
-    }])
+    const replacementChange = replacement.change.projections[0]
+    if (replacementChange?.name !== 'markup' || replacementChange.scope !== 'regions') {
+      throw new Error('Boundary replacement did not select a region')
+    }
+    expect(replacementChange.replacements[0]?.previous.source).toEqual({
+      start: source.indexOf('first'),
+      end: source.indexOf('tail')
+    })
+    const joined = 'guard\n\nfZfollowing word\n\ntail\n\n'
+    const oracle = createDocumentCore()
+    expect(replacement.revision.source).toBe(joined)
+    expect(replacementCore.project(replacement.revision, 'markup').events)
+      .toEqual(oracle.project(oracle.open(joined), 'markup').events)
+  })
+
+  // Plan 0012 G35: paragraph structure changes reparse only their blocks.
+  it.each([
+    { name: 'whitespace becomes a paragraph', source: 'head\n\n   \n\ntail\n\n', start: 7, end: 7, insert: 'X' },
+    { name: 'a paragraph becomes whitespace', source: 'head\n\ntarget\n\ntail\n\n', start: 6, end: 12, insert: '   ' }
+  ])('keeps a paragraph change regional when $name', ({ source, start, end, insert }) => {
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const before = inspectionOf(core)
+    const commit = core.apply(opened, [{ start, end, insert }], { projections: ['markup'] })
+    expect(commit.change.projections[0]?.scope).toBe('regions')
+    expect(delta(inspectionOf(core), before, 'documentParses')).toBe(0)
+    const oracle = createDocumentCore()
+    const fresh = oracle.open(commit.revision.source)
+    expect(core.project(commit.revision, 'markup').events)
+      .toEqual(oracle.project(fresh, 'markup').events)
+    expect(core.project(commit.revision, 'markup').syntax.ast)
+      .toEqual(oracle.project(fresh, 'markup').syntax.ast)
+  })
+
+  it('keeps a soft break typed inside a paragraph regional', () => {
+    const source = 'head\n\ntarget word\n\ntail\n\n'
+    const at = source.indexOf('word')
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const before = inspectionOf(core)
+    const commit = core.apply(opened, [{ start: at, end: at, insert: '\n' }], { projections: ['markup'] })
+    expect(commit.change.projections[0]?.scope).toBe('regions')
+    expect(delta(inspectionOf(core), before, 'documentParses')).toBe(0)
+    const oracle = createDocumentCore()
+    const fresh = oracle.open(commit.revision.source)
+    expect(core.project(commit.revision, 'markup').syntax.ast)
+      .toEqual(oracle.project(fresh, 'markup').syntax.ast)
   })
 
   it('projects shuffled old roots then continues the current overlay head', () => {

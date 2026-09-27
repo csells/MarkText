@@ -37,6 +37,7 @@ import {
 } from './internal/profile1/commentRegional.js'
 import {
   applyRegionalInventory,
+  createPlainRegionalInventory,
   createRegionalInventory,
   materializeRegionalInventoryAnnotations,
   previewRegionalInventory,
@@ -1007,6 +1008,10 @@ function markdownAstOf(
   return Object.freeze({ root: materializedRoot })
 }
 
+function accountingUnitsOf(products: Profile1DocumentProducts): number {
+  return products.accountingCounts.reduce((total, count) => total + count, 0)
+}
+
 function countMarkdownAstNodes(root: MarkdownAstNode): number {
   let count = 0
   const pending = [root]
@@ -1862,6 +1867,8 @@ interface FullRevisionState {
   readonly criticMarkupIndex: CriticMarkupRegionalIndex | undefined
   readonly commentIndex: CommentRegionalIndex | undefined
   readonly regionalInventory: RegionalInventory | undefined
+  /** Parser accounting units of the whole revision, bounded from above. */
+  readonly accountingUpperBound: number | undefined
 }
 
 interface RegionalRevisionState {
@@ -1878,6 +1885,7 @@ interface RegionalRevisionState {
   }>[]
   readonly inventoryAnnotations: (() => readonly CriticMarkupAnnotation[]) |
     undefined
+  readonly accountingUpperBound: number | undefined
   readonly productStore: RevisionProductStore<Profile1DocumentProducts>
   readonly annotations: (
     products?: Profile1DocumentProducts,
@@ -2315,6 +2323,14 @@ function createDocumentCoreWithExecutionBudget(
     return result
   }
 
+  // A regional edit never lowers the bound: replaced text's units stay counted.
+  const grownAccountingBound = (
+    previousState: RevisionState,
+    windowProducts: Profile1DocumentProducts
+  ): number | undefined => previousState.accountingUpperBound === undefined
+    ? undefined
+    : previousState.accountingUpperBound + accountingUnitsOf(windowProducts)
+
   const publish = (
     source: PersistentCanonicalSource,
     products: Profile1DocumentProducts,
@@ -2348,7 +2364,8 @@ function createDocumentCoreWithExecutionBudget(
         executionBudget.limitsProfile === 'desktop-v1'
           ? DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
           : Number.MAX_SAFE_INTEGER,
-        dependencyPrefixEnd
+        dependencyPrefixEnd,
+        retainedIndexRecorder
       )
       const retainedSummary = retained === undefined
         ? undefined
@@ -2420,7 +2437,8 @@ function createDocumentCoreWithExecutionBudget(
         retainedIndex,
         criticMarkupIndex,
         commentIndex,
-        regionalInventory
+        regionalInventory,
+        accountingUpperBound: accountingUnitsOf(products)
       }))
       currentRevision = revision
       inspection.sourceRopeRootsCommitted += 1
@@ -2443,7 +2461,8 @@ function createDocumentCoreWithExecutionBudget(
     annotations: readonly CriticMarkupAnnotation[] = Object.freeze([]),
     commentIndex: CommentRegionalIndex | undefined = undefined,
     regionalComments: RegionalRevisionState['regionalComments'] = Object.freeze([]),
-    regionalInventory: RegionalInventory | undefined = undefined
+    regionalInventory: RegionalInventory | undefined = undefined,
+    accountingUpperBound: number | undefined = undefined
   ): DocumentRevision => {
     demoteCurrentProductStore()
     const productStore = createRevisionProductStore(
@@ -2475,6 +2494,7 @@ function createDocumentCoreWithExecutionBudget(
       regionalInventory,
       regionalComments,
       inventoryAnnotations: undefined,
+      accountingUpperBound,
       productStore,
       annotations: revisionAnnotations
     }))
@@ -2528,6 +2548,7 @@ function createDocumentCoreWithExecutionBudget(
       regionalInventory: inventory,
       regionalComments,
       inventoryAnnotations,
+      accountingUpperBound: undefined,
       productStore,
       annotations: inventoryAnnotations
     }))
@@ -2589,7 +2610,8 @@ function createDocumentCoreWithExecutionBudget(
     source: PersistentCanonicalSource,
     stableEdits: readonly DocumentSourceEdit[],
     resolvedOptions: MarkdownOptionsV1,
-    requests: NormalizedProjectionRequests
+    requests: NormalizedProjectionRequests,
+    inventory: RegionalInventory | undefined = previousState.regionalInventory
   ): Readonly<{
     readonly kind: 'applied'
     readonly revision: DocumentRevision
@@ -2598,7 +2620,6 @@ function createDocumentCoreWithExecutionBudget(
     readonly kind: 'fallback'
     readonly reason: DocumentProjectionFallbackReason
   }> | undefined => {
-    const inventory = previousState.regionalInventory
     if (inventory === undefined) return undefined
     const subscriptions = Object.freeze([
       ...(requests.markup ? [{ name: 'markup' as const }] : []),
@@ -2650,13 +2671,29 @@ function createDocumentCoreWithExecutionBudget(
       materialized.rangeByNodeId,
       admission.nextWindow.length
     )
+    // Products parsed with unchanged context contribute only the replaced
+    // blocks; their offsets are relative to the whole parsed window.
+    const window = admission.window ?? {
+      source: admission.next.source.start,
+      syntax: admission.next.syntax.start,
+      blocks: {
+        source: { start: 0, end: admission.nextWindow.length },
+        syntax: { start: 0, end: Number.POSITIVE_INFINITY }
+      }
+    }
+    const { blocks } = window
     const events = shiftRegionalMarkupEvents(
-      markup.events,
-      admission.next.source.start
+      admission.window === undefined
+        ? markup.events
+        : markup.events.filter(event => event.kind === 'text'
+          ? event.sourceRange.start >= blocks.source.start && event.sourceRange.end <= blocks.source.end
+          : event.mark.annotationRange.start >= blocks.source.start && event.mark.annotationRange.end <= blocks.source.end),
+      window.source
     )
-    const syntaxBlocks = Object.freeze(markup.syntax.ast.root.children.map(
-      child => shiftMarkdownAstNode(child, admission.next.syntax.start)
-    ))
+    const syntaxBlocks = Object.freeze(markup.syntax.ast.root.children
+      .filter(child => admission.window === undefined ||
+        (child.range.start >= blocks.syntax.start && child.range.start < blocks.syntax.end))
+      .map(child => shiftMarkdownAstNode(child, window.syntax)))
     const markupCoordinates: MarkupCoordinateSegment[] = []
     for (const segment of admission.nextProducts.editing().mappedTape) {
       if (segment.kind !== 'canonical') {
@@ -2665,15 +2702,18 @@ function createDocumentCoreWithExecutionBudget(
           reason: 'structural-region-ineligible'
         })
       }
-      const length = segment.projectedEnd - segment.projectedStart
+      const projectedStart = Math.max(segment.projectedStart, blocks.syntax.start)
+      const projectedEnd = Math.min(segment.projectedEnd, blocks.syntax.end)
+      if (projectedEnd <= projectedStart && admission.window !== undefined) continue
+      const sourceStart = segment.sourceStart + projectedStart - segment.projectedStart
       markupCoordinates.push(Object.freeze({
         projected: Object.freeze({
-          start: admission.next.syntax.start + segment.projectedStart,
-          end: admission.next.syntax.start + segment.projectedEnd
+          start: window.syntax + projectedStart,
+          end: window.syntax + projectedEnd
         }),
         source: Object.freeze({
-          start: admission.next.source.start + segment.sourceStart,
-          end: admission.next.source.start + segment.sourceStart + length
+          start: window.source + sourceStart,
+          end: window.source + sourceStart + projectedEnd - projectedStart
         })
       }))
     }
@@ -2911,7 +2951,11 @@ function createDocumentCoreWithExecutionBudget(
       resolvedOptions,
       undefined,
       admission.nextIndex,
-      annotations
+      annotations,
+      undefined,
+      undefined,
+      undefined,
+      grownAccountingBound(previousState, admission.nextProducts)
     )
     inspection.regionalFastApplies += 1
     inspection.regionalProjectionPreparationUnits +=
@@ -3310,7 +3354,14 @@ function createDocumentCoreWithExecutionBudget(
       source,
       resolvedOptions,
       admission.retainedIndex,
-      undefined
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      admission.parsed.kind === 'complete'
+        ? grownAccountingBound(previousState, admission.parsed)
+        : undefined
     )
     inspection.regionalFastApplies += 1
     inspection.regionalProjectionPreparationUnits += regionSource.length
@@ -3414,7 +3465,14 @@ function createDocumentCoreWithExecutionBudget(
       source,
       resolvedOptions,
       admission.retainedIndex,
-      undefined
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      admission.parsed.kind === 'complete'
+        ? grownAccountingBound(previousState, admission.parsed)
+        : undefined
     )
     inspection.regionalFastApplies += 1
     return Object.freeze({ kind: 'applied', revision })
@@ -3525,6 +3583,15 @@ function createDocumentCoreWithExecutionBudget(
         projections: fallbackProjectionChanges(requests, reason)
       })
     }
+    // A structural edit the plain or single-suggestion index cannot express
+    // still reparses only its own blocks, through an inventory of the
+    // unchanged document.
+    const converted = (): ReturnType<typeof tryInventoryRegionalApply> => {
+      const inventory = convertedRegionalInventory(previousState)
+      return inventory === undefined
+        ? undefined
+        : tryInventoryRegionalApply(previousState, source, stableEdits, resolvedOptions, requests, inventory)
+    }
     if (!requests.markup) {
       const sourceOnly = trySourceOnlyRegionalApply(
         previousState,
@@ -3539,6 +3606,8 @@ function createDocumentCoreWithExecutionBudget(
           projections: Object.freeze([])
         })
       }
+      const structural = converted()
+      if (structural?.kind === 'applied') return Object.freeze({ ...structural })
       return Object.freeze({
         kind: 'fallback',
         reason: sourceOnly.reason,
@@ -3558,12 +3627,26 @@ function createDocumentCoreWithExecutionBudget(
         projections: Object.freeze([markup.projection])
       })
     }
+    const structural = converted()
+    if (structural?.kind === 'applied') return Object.freeze({ ...structural })
     if (markup?.kind === 'fallback') {
       return Object.freeze({
         kind: 'fallback',
         reason: markup.reason,
         projections: fallbackProjectionChanges(requests, markup.reason)
       })
+    }
+    return undefined
+  }
+
+  const convertedRegionalInventory = (state: RevisionState): RegionalInventory | undefined => {
+    if (state.regionalInventory !== undefined || state.accountingUpperBound === undefined) return undefined
+    const logicalNodeLimit = executionBudget.limitsProfile === 'desktop-v1'
+      ? DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
+      : Number.MAX_SAFE_INTEGER
+    if (state.retainedIndex !== undefined) {
+      return createPlainRegionalInventory(state.retainedIndex, state.accountingUpperBound,
+        regionalInventoryRecorder, retainedIndexRecorder, logicalNodeLimit)
     }
     return undefined
   }
@@ -3871,7 +3954,12 @@ function createDocumentCoreWithExecutionBudget(
   const regionalCandidate = (
     state: RevisionState,
     edit: DocumentSourceEdit
-  ): Readonly<{ sourceStart: number, nextProducts: Profile1DocumentProducts, nextWindow: string }> | undefined => {
+  ): Readonly<{
+    sourceStart: number
+    nextProducts: Profile1DocumentProducts
+    nextWindow: string
+    structural?: Readonly<{ touchesAnnotation: boolean, markerDelta: number }>
+  }> | undefined => {
     const edits = Object.freeze([edit])
     const source = state.source.applyExact(edits, 'Authoring regional candidate')
     if (state.regionalInventory !== undefined) {
@@ -3909,6 +3997,15 @@ function createDocumentCoreWithExecutionBudget(
           nextWindow: candidate.nextWindow
         })
       }
+    }
+    const converted = convertedRegionalInventory(state)
+    if (converted !== undefined) {
+      const candidate = previewRegionalInventory(
+        converted, state.source, source, edits, [], executionBudget,
+        state.markdownOptions, regionalPhysicalRecorder
+      )
+      if (candidate.kind === 'resource-failure') throw documentCoreError(candidate.fatalDiagnostic)
+      if (candidate.kind === 'validated') return candidate
     }
     return undefined
   }
@@ -3948,6 +4045,11 @@ function createDocumentCoreWithExecutionBudget(
     if (edit.start === edit.end && edit.insert.length === 0) return undefined
     const candidate = regionalCandidate(state, edit)
     if (candidate === undefined) return undefined
+    // A structural window proves the parse, not that the planner would splice
+    // the raw text: an edit touching a suggestion, or spelling new markers,
+    // keeps its full planning.
+    if (candidate.structural !== undefined &&
+        (tracked || candidate.structural.touchesAnnotation || candidate.structural.markerDelta !== 0)) return undefined
     const start = edit.start - candidate.sourceStart
     const end = start + edit.insert.length
     let visible = false
