@@ -18,8 +18,15 @@ describe('Core actor Markup WYSIWYG barrier', () => {
     })
     await binding.open({ documentId: 'markup.md', source: 'a{++bc++}d\n' })
     const outcome = await binding.submit({
-      kind: 'markup-edits',
-      edits: [{ start: 5, end: 10, insert: '' }],
+      kind: 'input',
+      action: {
+        range: { start: 5, end: 10 },
+        selection: { ranges: [{ anchor: 5, focus: 10 }], primary: 0 },
+        inputType: 'deleteContentBackward',
+        data: null,
+        options: { autoPairBracket: true, autoPairQuote: true, autoPairMarkdownSyntax: true }
+      },
+      tracked: false,
       projections: []
     }).acknowledged
     expect(outcome.type).toBe('applied')

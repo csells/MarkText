@@ -192,8 +192,6 @@ export type CoreRequest =
   }>
   | Readonly<{
     readonly type: 'apply'
-    readonly markup?: true
-    readonly tracked?: true
     readonly nativeHistoryGroup?: string
     readonly session: number
     readonly sequence: number
@@ -313,16 +311,6 @@ export type CoreRequest =
     readonly text: string
     readonly projections: readonly DocumentProjectionRequest[]
   }>
-  | Readonly<{
-    readonly type: 'track'
-    readonly nativeHistoryGroup?: string
-    readonly session: number
-    readonly sequence: number
-    readonly baseRevision: number
-    readonly range: Readonly<{ readonly start: number; readonly end: number }>
-    readonly text: string
-    readonly projections: readonly DocumentProjectionRequest[]
-  }>
 
 export type CoreOpenedReply = Readonly<{
   readonly type: 'opened'
@@ -352,8 +340,6 @@ export type CoreAppliedReply = Readonly<{
   readonly clipboardResult?: Readonly<{ selection: DocumentSelection }>
   readonly authorResult?: Readonly<{ selection: Readonly<{ start: number; end: number }> }>
   readonly formatResult?: Readonly<{ selection: DocumentInputSelection }>
-  /** Core-owned spelling and review-arm insertions into the operation’s post-edit source domain. */
-  readonly nativeReconciliation?: readonly DocumentSourceEdit[]
 }>
 export type CoreRejectedReply = Readonly<{
   readonly type: 'rejected'
