@@ -39,13 +39,17 @@ describe('Markup view trailing line of a block', () => {
 
 describe('Markup view container prefix of a later line', () => {
   const prefixSnaps = (source: string) =>
-    bindings(source)[0]?.caretSnaps?.filter((snap) => snap.from === snap.at + 1)
+    bindings(source)[0]?.caretSnaps?.filter((snap) => snap.from === snap.at + 1) ?? []
 
   it.each([
     { source: '> a\n> b\n', expected: [{ from: 5, to: 7, at: 4 }] },
     { source: '- a\n  b\n', expected: [{ from: 5, to: 7, at: 4 }] },
     // Hidden annotation syntax that begins the line is not container prefix.
-    { source: '> a\n> {++b++}\n', expected: [{ from: 5, to: 7, at: 4 }] }
+    { source: '> a\n> {++b++}\n', expected: [{ from: 5, to: 7, at: 4 }] },
+    // An empty last line holds only its prefix, never the closing fence.
+    { source: '> ```\n> a\n>\n> ```\n', expected: [{ from: 11, to: 12, at: 10 }] },
+    { source: '$$\nx\n\n$$\n', expected: [] },
+    { source: '```\n\n\n```\n', expected: [] }
   ])('is the quote marker or indentation in $source', ({ source, expected }) => {
     expect(prefixSnaps(source)).toEqual(expected)
   })
