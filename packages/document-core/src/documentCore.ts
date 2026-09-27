@@ -1,5 +1,5 @@
 import { planAuthor, type DocumentAuthorAction, type DocumentAuthorPlan } from './authorPlanning.js'
-import { commentedSpanSafeClipboard, commentedSpanSafeInput } from './commentedSpans.js'
+import { commentPairPreservingResolution, commentedSpanSafeClipboard, commentedSpanSafeInput } from './commentedSpans.js'
 import { planCommentEdit, type DocumentCommentAction, type DocumentCommentPlan } from './commentSpelling.js'
 import { planSourceInput, type DocumentSourceInputAction } from './sourceInputPlanning.js'
 import { sourceSyntaxSpans, type DocumentSourceSyntaxSpan } from './sourceSyntax.js'
@@ -4832,7 +4832,8 @@ function createDocumentCoreWithExecutionBudget(
         throw new TypeError('Document annotation is malformed')
       }
       const edit = resolutionEdit(previousState, annotation, decision)
-      return core.apply(previous, Object.freeze([edit]), options)
+      return core.apply(previous, commentPairPreservingResolution(previous.annotations, [edit],
+        range => previousState.source.slice(range.start, range.end)), options)
     },
 
     sourceSlice(revision: DocumentRevision, range: SourceRange): string {

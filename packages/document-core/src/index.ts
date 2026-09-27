@@ -69,6 +69,7 @@ export { copyDocumentSelection } from './sourceInputPlanning.js'
 export type { DocumentSelection, DocumentTextSelection, DocumentTableSelection, DocumentTableCellAddress, DocumentTableCellSelection, DocumentSourceInputAction } from './sourceInputPlanning.js'
 
 export type { DocumentAuthorAction, DocumentAuthorForm, DocumentAuthorPlan } from './authorPlanning.js'
+export { commentPairPreservingResolution } from './commentedSpans.js'
 export { spellCommentPayload, type DocumentCommentAction, type DocumentCommentPlan, type DocumentCommentPayloadSpelling } from './commentSpelling.js'
 
 export { imageAltText } from './imagePropertyPlanning.js'
