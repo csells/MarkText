@@ -248,11 +248,19 @@ describe('Muya Core Markup presentation', () => {
     expect(host.querySelector('.mu-link')?.hasAttribute('href')).toBe(false)
   })
 
-  it('rebases existing change marks while speculative text waits for Core acknowledgement', () => {
+  it('shows speculative text literally until Core acknowledges its marks', () => {
     const host = rendered('A {++**bold**++} Z', 'A **bolder** Z')
     expect(host.textContent).toBe('A **bolder** Z')
     expect(host.querySelector('strong')).toBeNull()
-    expect(host.querySelector('[data-critic-kind="addition"]')?.textContent).toBe('**bolder**')
+    expect(host.querySelector('[data-critic-kind]')).toBeNull()
+  })
+
+  it('never attributes a mark to repeated text by comparing strings', () => {
+    // Typing `a` at the start of `a{++a++}a` makes `aaaa`; a text comparison
+    // cannot tell which `a` is new and would move the addition onto old text.
+    const host = rendered('a{++a++}a{>>note<<}', 'aaaa')
+    expect(host.textContent).toBe('aaaa')
+    expect(host.querySelector('[data-critic-kind]')).toBeNull()
   })
 
   it('preserves independently valid inline formatting inside both substitution arms', () => {
