@@ -936,9 +936,46 @@ export function createCoreActor(
     annotation: CriticMarkupAnnotation,
     decision: 'accept' | 'reject'
   ): DocumentSourceEdit | undefined => {
+    // Bulk resolution yields the Revised or Original column (Profile 1 §10),
+    // so suggestions nested in the kept arm resolve with the same decision.
+    // Highlights keep their markers and Comments keep their exact payload.
+    const resolvedSource = (
+      range: SourceRange,
+      annotations: readonly CriticMarkupAnnotation[]
+    ): string | undefined => {
+      let resolved = ''
+      let cursor = range.start
+      for (const nested of annotations) {
+        resolved += activeCore.sourceSlice(activeRevision, { start: cursor, end: nested.range.start })
+        if (nested.kind === 'highlight') {
+          const content = nested.arms.find((arm) => arm.name === 'content')
+          const inner =
+            content === undefined ? undefined : resolvedSource(content.range, content.annotations)
+          if (content === undefined || inner === undefined) return undefined
+          resolved +=
+            activeCore.sourceSlice(activeRevision, {
+              start: nested.range.start,
+              end: content.range.start
+            }) +
+            inner +
+            activeCore.sourceSlice(activeRevision, {
+              start: content.range.end,
+              end: nested.range.end
+            })
+        } else if (nested.kind === 'comment') {
+          resolved += activeCore.sourceSlice(activeRevision, nested.range)
+        } else {
+          const edit = resolutionEditFor(activeCore, activeRevision, nested, decision)
+          if (edit === undefined) return undefined
+          resolved += edit.insert
+        }
+        cursor = nested.range.end
+      }
+      return resolved + activeCore.sourceSlice(activeRevision, { start: cursor, end: range.end })
+    }
     const armSource = (name: string): string | undefined => {
       const arm = annotation.arms.find((candidate) => candidate.name === name)
-      return arm === undefined ? undefined : activeCore.sourceSlice(activeRevision, arm.range)
+      return arm === undefined ? undefined : resolvedSource(arm.range, arm.annotations)
     }
     const insert =
       annotation.kind === 'addition'
