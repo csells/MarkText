@@ -1178,9 +1178,18 @@ export function createMuyaMarkupView(
       leavesOf.set(block, leaves)
     }
     const projected = projection.syntax.coordinates.toProjected(lineStart, 'next')
-    const next = leaves[firstEndingAfter(leaves, projected)]
+    // An empty text node marks where an empty line's text would begin.
+    let index = firstEndingAfter(leaves, projected - 1)
+    while (index < leaves.length && leaves[index].range.start < projected && leaves[index].range.end === projected) {
+      index += 1
+    }
+    const next = leaves[index]
     const textStart = Math.min(next?.range.start ?? block.range.end, block.range.end)
-    const end = projection.syntax.coordinates.toSource(Math.max(projected, textStart), 'previous')
+    let end = projection.syntax.coordinates.toSource(Math.max(projected, textStart), 'previous')
+    // A prefix never continues past its own line.
+    for (let position = lineStart; position < end; position += 1) {
+      if (sourceCharacter(position) === '\n' || sourceCharacter(position) === '\r') end = position
+    }
     return end > lineStart ? { from: lineStart + 1, to: end + 1, at: lineStart } : undefined
   }
   const bindings = unsnappedBindings.map((binding): MuyaMarkupBinding => {
