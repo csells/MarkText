@@ -4,7 +4,10 @@ const installedArtifactSpecs = ['**/installed-*.spec.ts']
 const installedSpecs = [
   ...installedArtifactSpecs,
   '**/criticmarkup-image-size.spec.ts',
-  '**/criticmarkup-window-close.spec.ts'
+  '**/criticmarkup-window-close.spec.ts',
+  // Backups a crash left behind must be found on the packaged app's normal
+  // startup. Draft recovery stays out: it needs Core fault test controls.
+  '**/criticmarkup-orphaned-recovery.spec.ts'
 ]
 
 // Must stay at the package root: Playwright only auto-loads a config from the
