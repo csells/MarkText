@@ -957,6 +957,33 @@ export function createMuyaMarkupView(
       start -= 1
     }
   }
+  const blockAncestors = (target: MarkdownAstNode): readonly MarkdownAstNode[] => {
+    const path: MarkdownAstNode[] = []
+    const visit = (node: MarkdownAstNode): boolean => {
+      path.push(node)
+      if (node === target || node.children.some(visit)) return true
+      path.pop()
+      return false
+    }
+    return visit(projection.syntax.ast.root) ? path : []
+  }
+  /**
+   * Whether the parser gives the source line only to the paragraph's own
+   * containers — their quote and list markers — and to no other block.
+   */
+  const ownContainerLine = (start: number, end: number, paragraph: MarkdownAstNode): boolean => {
+    const from = projection.syntax.coordinates.toProjected(start, 'next')
+    const to = projection.syntax.coordinates.toProjected(end, 'previous')
+    const ancestors = new Set(blockAncestors(paragraph))
+    const onLine = (node: MarkdownAstNode) =>
+      node.range.start <= to &&
+      (node.range.end > from || (node.range.start === node.range.end && node.range.start >= from))
+    const occupiedByOther = (node: MarkdownAstNode): boolean =>
+      ancestors.has(node)
+        ? node.children.some(occupiedByOther)
+        : onLine(node)
+    return ancestors.size > 0 && !occupiedByOther(projection.syntax.ast.root)
+  }
   const leadingLinePosition = (builder: (typeof builders)[number]): number | undefined => {
     if (builder.state.name === 'thematic-break') {
       return setextUnderlineLeadingLine(projection.syntax, builder.syntax, sourceText)
@@ -983,8 +1010,11 @@ export function createMuyaMarkupView(
     const containerLine = lineStartOf(
       projection.syntax.coordinates.toSource(builder.container.range.start, 'next')
     )
-    const containerOnly = /^[ \t>]*(?:(?:[-+*]|\d{1,9}[.)])(?:[ \t]+\[[ xX]\])?)?[ \t]*$/u
-    if (containerLine === undefined || containerLine > previousStart || !containerOnly.test(line)) {
+    if (
+      containerLine === undefined ||
+      containerLine > previousStart ||
+      !ownContainerLine(previousStart, end, builder.syntax)
+    ) {
       return undefined
     }
     // An item's first paragraph after blank lines begins on the item's empty
@@ -995,13 +1025,13 @@ export function createMuyaMarkupView(
     ) {
       let lineEnd = end
       let lineStart = previousStart
-      while (lineStart > containerLine && /^[ \t>]*$/u.test(sourceText(lineStart, lineEnd))) {
+      while (lineStart > containerLine && ownContainerLine(lineStart, lineEnd, builder.syntax)) {
         lineEnd = lineStart - (sourceText(lineStart - 2, lineStart) === '\r\n' ? 2 : 1)
         const start = lineStartOf(lineEnd)
         if (start === undefined) return undefined
         lineStart = start
       }
-      if (lineStart === containerLine && containerOnly.test(sourceText(lineStart, lineEnd))) {
+      if (lineStart === containerLine && ownContainerLine(lineStart, lineEnd, builder.syntax)) {
         return lineEnd
       }
     }
