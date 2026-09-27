@@ -684,6 +684,11 @@ interface ContainerLineState {
   readonly lazy: boolean
   /** The line underlines the open paragraph, turning it into a setext heading. */
   readonly setextUnderline: boolean
+  /**
+   * The open paragraph is still the innermost block on this line, so blocks
+   * that cannot interrupt a paragraph cannot start here.
+   */
+  readonly paragraphContinues: boolean
 }
 
 interface ListContinuationIndentationState {
@@ -1087,6 +1092,10 @@ function analyzeContainerLine(
     containerBaseColumn,
     openers: Object.freeze(openers),
     lazy: false,
+    paragraphContinues:
+      paragraphOpen &&
+      inheritedMatchDepth === inheritedContainers.length &&
+      openers.length === 0,
     setextUnderline:
       paragraphOpen &&
       inheritedMatchDepth === inheritedContainers.length &&
@@ -1109,7 +1118,8 @@ function analyzeContainerLine(
           depth + (container.kind === 'blockquote' ? 1 : 0),
         0
       ),
-      lazy: true
+      lazy: true,
+      paragraphContinues: true
     })
   }
   return provisionalState
@@ -1291,9 +1301,9 @@ export function inspectMarkdownPendingLineBlock(
       checkpoint.frontMatterEligible &&
       frontMatterOpeningStyle(lineText) !== undefined
     ) ||
-    (!checkpoint.paragraphOpen && lineState.indentation >= 4) ||
-    htmlBlockOpening(lineText, lineState, checkpoint.paragraphOpen) !== undefined ||
-    definitionOpening(lineText, lineState, checkpoint.paragraphOpen, false) !==
+    (!lineState.paragraphContinues && lineState.indentation >= 4) ||
+    htmlBlockOpening(lineText, lineState, lineState.paragraphContinues) !== undefined ||
+    definitionOpening(lineText, lineState, lineState.paragraphContinues, false) !==
       undefined
   const paragraphOpen =
     !checkpoint.lineBlockClosed &&
@@ -2069,6 +2079,20 @@ function continuesBlockContainer(
     }
   }
   return true
+}
+
+/**
+ * Whether indented code continues on this line: a blank line keeps it open,
+ * other lines need four columns of indentation inside its container. A
+ * marker that opens a container here means the line is not code at all.
+ */
+function continuesIndentedCode(
+  state: ContainerLineState,
+  container: MarkdownBlockContainer
+): boolean {
+  if (state.openers.length > 0) return false
+  return state.blank ||
+    (state.indentation >= 4 && continuesBlockContainer(state, container))
 }
 
 function firstRunIndexAtLeast(
@@ -3029,11 +3053,8 @@ export function createMarkdownLaneState(
       }
       if (
         indentedCode !== undefined &&
-        !probeState.blank &&
-        (
-          probeState.indentation < 4 ||
-          !continuesBlockContainer(probeState, indentedCode.container)
-        )
+        lineStart !== indentedCode.openLineStart &&
+        !continuesIndentedCode(probeState, indentedCode.container)
       ) {
         completedLiterals.push(Object.freeze({
           kind: 'indented-code',
@@ -3135,7 +3156,7 @@ export function createMarkdownLaneState(
           bracketPath = undefined
           pendingLinkLabel = undefined
         } else if (
-          !paragraphOpen &&
+          !probeState.paragraphContinues &&
           !probeState.blank &&
           probeState.indentation >= 4
         ) {
@@ -3163,7 +3184,7 @@ export function createMarkdownLaneState(
           const htmlOpening = htmlBlockOpening(
             probeLine,
             probeState,
-            paragraphOpen
+            probeState.paragraphContinues
           )
           if (htmlOpening !== undefined) {
             htmlBlock = Object.freeze({
@@ -3191,7 +3212,7 @@ export function createMarkdownLaneState(
             const definitionKind = definitionOpening(
               probeLine,
               probeState,
-              paragraphOpen,
+              probeState.paragraphContinues,
               true,
               footnotesEnabled
             ) ?? (
@@ -3200,7 +3221,7 @@ export function createMarkdownLaneState(
                 : definitionOpening(
                   armFragmentLine,
                   armFragmentState,
-                  paragraphOpen,
+                  armFragmentState.paragraphContinues,
                   true,
                   footnotesEnabled
                 )
@@ -3827,15 +3848,14 @@ export function createMarkdownLaneState(
           lineOwnedByIndentedCode = true
         } else if (
           !lineState.blank &&
-          lineState.indentation >= 4 &&
-          continuesBlockContainer(lineState, indentedCode.container)
+          continuesIndentedCode(lineState, indentedCode.container)
         ) {
           indentedCode = Object.freeze({
             ...indentedCode,
             lastCodeEnd: sourceEnd
           })
           lineOwnedByIndentedCode = true
-        } else if (lineState.blank) {
+        } else if (continuesIndentedCode(lineState, indentedCode.container)) {
           lineOwnedByIndentedCode = true
         } else {
           completedLiterals.push(Object.freeze({
@@ -4307,8 +4327,8 @@ export function createMarkdownLaneState(
     let indentedCode = checkpoint.indentedCode
     if (
       indentedCode !== undefined &&
-      !lineState.blank &&
-      lineState.indentation < 4
+      indentedCode.openLineStart !== checkpoint.lineStart &&
+      !continuesIndentedCode(lineState, indentedCode.container)
     ) {
       completedLiterals.push(Object.freeze({
         kind: 'indented-code',
