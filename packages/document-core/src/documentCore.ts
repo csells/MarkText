@@ -2235,6 +2235,18 @@ function createDocumentCoreWithExecutionBudget(
       inspection.documentAnnotationMaterializedNodes += 1
     }
   })
+  // Block starts of plain runs inside the suggestion inventory count as
+  // inventory work, apart from the plain document's own retained overlay.
+  const inventoryPlainIndexRecorder: PlainParagraphIndexRecorder = Object.freeze({
+    recordInitialBuildUnit: regionalInventoryRecorder.recordBuildUnit,
+    recordLookupComparison: regionalInventoryRecorder.recordLookupComparison,
+    recordOverlayNodeVisit: regionalInventoryRecorder.recordNodeVisited,
+    recordOverlayNodeAllocation: regionalInventoryRecorder.recordNodeAllocated,
+    recordOverlayNodeReuse: regionalInventoryRecorder.recordNodeShared,
+    recordChangedLeafUnit: (): void => {},
+    recordLocalCopyUnit: (): void => {},
+    recordOverlayDepth: (): void => {}
+  })
   let currentRevision: DocumentRevision | undefined
   const productStoreRecorder = Object.freeze({
     recordStrongAcquire: (): void => {
@@ -2365,7 +2377,7 @@ function createDocumentCoreWithExecutionBudget(
           ? DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
           : Number.MAX_SAFE_INTEGER,
         dependencyPrefixEnd,
-        retainedIndexRecorder
+        inventoryPlainIndexRecorder
       )
       const retainedSummary = retained === undefined
         ? undefined
@@ -3648,7 +3660,12 @@ function createDocumentCoreWithExecutionBudget(
       return createPlainRegionalInventory(state.retainedIndex, state.accountingUpperBound,
         regionalInventoryRecorder, retainedIndexRecorder, logicalNodeLimit)
     }
-    return undefined
+    // A single suggestion's index covers only its own region; the parse
+    // this revision still holds inventories the rest.
+    if (state.kind !== 'full' || state.criticMarkupIndex === undefined) return undefined
+    return state.productStore.withRetained(products => createRegionalInventory(
+      products, state.source.length, regionalInventoryRecorder, logicalNodeLimit,
+      referenceDependencyPrefixEnd(products), inventoryPlainIndexRecorder, 1))
   }
 
   function projectRevision(
@@ -4046,10 +4063,11 @@ function createDocumentCoreWithExecutionBudget(
     const candidate = regionalCandidate(state, edit)
     if (candidate === undefined) return undefined
     // A structural window proves the parse, not that the planner would splice
-    // the raw text: an edit touching a suggestion, or spelling new markers,
-    // keeps its full planning.
-    if (candidate.structural !== undefined &&
-        (tracked || candidate.structural.touchesAnnotation || candidate.structural.markerDelta !== 0)) return undefined
+    // the raw text: an edit spelling new markers, or an untracked edit
+    // touching a suggestion, keeps its full planning. Tracked text still
+    // needs the draft ownership checked below.
+    if (candidate.structural !== undefined && (candidate.structural.markerDelta !== 0 ||
+        (!tracked && candidate.structural.touchesAnnotation))) return undefined
     const start = edit.start - candidate.sourceStart
     const end = start + edit.insert.length
     let visible = false
@@ -4086,6 +4104,38 @@ function createDocumentCoreWithExecutionBudget(
       }
     }
     return edit
+  }
+
+  /**
+   * Plain words typed away from every suggestion become one Addition. Its
+   * source accepts to the untracked text and rejects to the previous text;
+   * the general planner's whole-document preview only proves the Addition
+   * is recognized as written, which the reparsed paragraphs prove here: the
+   * new markers pair with each other and change no other suggestion.
+   */
+  const regionalTrackedInsertion = (
+    state: RevisionState,
+    previous: DocumentRevision,
+    edit: DocumentSourceEdit
+  ): DocumentSourceEdit | undefined => {
+    if (edit.start !== edit.end || !/^[\p{L}\p{N}][\p{L}\p{N} ]*$/u.test(edit.insert)) return undefined
+    if (markupAnnotations(previous.annotations).some(annotation =>
+      annotation.range.start <= edit.start && edit.start <= annotation.range.end)) return undefined
+    const insert = `{++${edit.insert}++}`
+    const candidate = regionalCandidate(state, { start: edit.start, end: edit.start, insert })
+    if (
+      candidate?.structural === undefined || candidate.structural.touchesAnnotation ||
+      candidate.structural.markerDelta !== 2 || candidate.nextProducts.diagnostics.count !== 0
+    ) {
+      return undefined
+    }
+    const local = edit.start - candidate.sourceStart
+    const root = candidate.nextProducts.retainedIntrinsic?.roots.find(node => node.range.start === local)
+    const arm = root?.arms[0]
+    return root?.kind === 'addition' && root.range.end === local + insert.length && arm !== undefined &&
+      arm.children.length === 0 && arm.range.start === local + 3 && arm.range.end === local + 3 + edit.insert.length
+      ? Object.freeze({ ...edit, insert })
+      : undefined
   }
 
   const resolutionEdit = (
@@ -4177,7 +4227,7 @@ function createDocumentCoreWithExecutionBudget(
       }
       return Object.freeze({ start: first.start, end: last.end, insert })
     }
-    const regional = regionalPayloadEdit(state, edit, true)
+    const regional = regionalPayloadEdit(state, edit, true) ?? regionalTrackedInsertion(state, previous, edit)
     if (regional !== undefined) return regional
     const planned = createTrackedSourceEdit(core, previous, edit, preview) ??
       createTrackedLiteralSourceEdit(core, previous, edit, preview) ??

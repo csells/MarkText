@@ -146,16 +146,28 @@ describe('structural regional edits read as a fresh open', () => {
 
   it('exercises regional splits, joins and new suggestions', () => {
     const paragraph = 'Plain words here.'
-    const source = [paragraph, 'A {++b++} c.', paragraph, 'D {--e--} f.', paragraph, paragraph, paragraph].join('\n\n') + '\n'
+    const marked = [paragraph, 'A {++b++} c.', paragraph, 'D {--e--} f.', paragraph, paragraph, paragraph].join('\n\n') + '\n'
     const core = createDocumentCore()
-    const revision = core.open(source)
+    const revision = core.open(marked)
     const session: Session = { core, revision, markup: core.project(revision, 'markup'), regional: 0 }
-    const tail = source.lastIndexOf(paragraph) + 5
+    const tail = marked.lastIndexOf(paragraph) + 5
     step(session, tail, tail, '\n\n', 'split in the plain tail')
-    step(session, tail + 2, tail + 2, '{++new++}', 'suggestion in the plain tail')
     step(session, tail, tail + 2, '', 'join in the plain tail')
     step(session, 5, 5, '\n\n', 'split before the first suggestion')
     step(session, 5, 7, '', 'join before the first suggestion')
-    expect(session.regional).toBe(5)
+    // Marker spelling reads against the whole document, so a new suggestion
+    // stays regional only in a document spelling no other markers.
+    step(session, tail, tail, '{++new++}', 'suggestion beside others')
+    expect(session.regional).toBe(4)
+
+    const plainCore = createDocumentCore()
+    const plainSource = Array.from({ length: 6 }, () => paragraph).join('\n\n') + '\n'
+    const plainRevision = plainCore.open(plainSource)
+    const plain: Session = { core: plainCore, revision: plainRevision, markup: plainCore.project(plainRevision, 'markup'), regional: 0 }
+    const middle = 3 * (paragraph.length + 2) + 5
+    step(plain, middle, middle, '{++new++}', 'first suggestion')
+    step(plain, middle + 3, middle + 3, '\n\n', 'split inside the suggestion')
+    step(plain, middle + 3, middle + 5, '', 'join inside the suggestion')
+    expect(plain.regional).toBe(3)
   })
 })

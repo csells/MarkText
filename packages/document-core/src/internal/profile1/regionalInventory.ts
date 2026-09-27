@@ -218,6 +218,13 @@ interface InventoryValue extends RegionalInventory {
   readonly root: RegionTree
   readonly accountingUpperBound: number
   readonly logicalNodeLimit: number
+  /**
+   * The document spells no CriticMarkup marker candidate. Marker spelling is
+   * tokenized against the whole document (an overlapping `{++}` reads as an
+   * opener or a closer depending on markers far away), so an edit may add
+   * markers regionally only to a document that has none.
+   */
+  readonly markerFree: boolean
   readonly dependencyPrefixEnd: number
   readonly recorder: RegionalInventoryRecorder
   readonly plainRecorder?: PlainParagraphIndexRecorder
@@ -653,7 +660,8 @@ export function createRegionalInventory(
   recorder: RegionalInventoryRecorder,
   logicalNodeLimit: number = DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes,
   dependencyPrefixEnd: number = 0,
-  plainRecorder?: PlainParagraphIndexRecorder
+  plainRecorder?: PlainParagraphIndexRecorder,
+  minimumRoots: number = 2
 ): RegionalInventory | undefined {
   const retained = products.retainedIntrinsic
   if (
@@ -662,7 +670,7 @@ export function createRegionalInventory(
     dependencyPrefixEnd < 0 || dependencyPrefixEnd > sourceLength ||
     retained === undefined ||
     retained.sourceLength !== sourceLength ||
-    retained.rootCount <= 1 ||
+    retained.rootCount < minimumRoots ||
     retained.diagnostics.length !== 0
   ) {
     return undefined
@@ -849,10 +857,23 @@ export function createRegionalInventory(
       0
     ),
     logicalNodeLimit,
+    markerFree: false,
     dependencyPrefixEnd,
     recorder,
     ...(plainRecorder === undefined ? {} : { plainRecorder })
   })
+}
+
+function markersPaired(
+  decisions: NonNullable<Profile1DocumentProducts['retainedIntrinsic']>['markerDecisions']
+): boolean {
+  const closed = new Set<number>()
+  for (const decision of decisions) {
+    if (decision.role !== 'close') continue
+    if (decision.action !== 'matched' || decision.openerRunId === null || decision.openerRunId === undefined) return false
+    closed.add(decision.openerRunId)
+  }
+  return decisions.every(decision => decision.role !== 'open' || closed.has(decision.runId))
 }
 
 /**
@@ -1109,6 +1130,8 @@ function evaluateRegionalInventory(
   ) ?? sameShape
 }
 
+const EMPTY_PARAGRAPH = /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)|^[ \t]*(?:\r\n|\r|\n)|(?:^|\r\n|\r|\n)[ \t]+(?:\r\n|\r|\n|$)/u
+
 /** A window any larger than the one refused would exceed the budget too. */
 const BUDGET_EXHAUSTED: RegionalInventoryFallback = Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
 
@@ -1253,8 +1276,10 @@ function evaluateSameShape(
     accountingUpperBound:
       inventory.accountingUpperBound + candidateAccountingUnits,
     logicalNodeLimit: inventory.logicalNodeLimit,
+    markerFree: inventory.markerFree,
     dependencyPrefixEnd: inventory.dependencyPrefixEnd,
-    recorder: inventory.recorder
+    recorder: inventory.recorder,
+    ...(inventory.plainRecorder === undefined ? {} : { plainRecorder: inventory.plainRecorder })
   })
   const nextCommentLeaves = new Map<number, Readonly<{
     products: Profile1DocumentProducts
@@ -1460,7 +1485,6 @@ interface BlockWindowFacts {
 function blockWindowFacts(
   products: Profile1DocumentProducts,
   window: string,
-  requiredSafePoints: readonly number[],
   recorder: RegionalInventoryRecorder
 ): BlockWindowFacts | undefined {
   const retained = products.retainedIntrinsic
@@ -1469,21 +1493,14 @@ function blockWindowFacts(
     products.diagnostics.count !== 0 ||
     retained.diagnostics.length !== 0 ||
     referenceDependencyPrefixEnd(products) !== 0 ||
-    containsPotentialReferenceDependency(window) ||
-    requiredSafePoints.some(point => !retained.safePoints.includes(point))
+    containsPotentialReferenceDependency(window)
   ) {
     return undefined
   }
   const editing = products.editing()
   if (editing.markdown.root.childCount === 0) return undefined
   if (editing.mappedTape.some(segment => segment.kind !== 'canonical')) return undefined
-  const closed = new Set<number>()
-  for (const decision of retained.markerDecisions) {
-    if (decision.role !== 'close') continue
-    if (decision.action !== 'matched' || decision.openerRunId === null || decision.openerRunId === undefined) return undefined
-    closed.add(decision.openerRunId)
-  }
-  if (retained.markerDecisions.some(decision => decision.role === 'open' && !closed.has(decision.runId))) return undefined
+  if (!markersPaired(retained.markerDecisions)) return undefined
   const boundaries = Object.freeze([0, ...retained.safePoints, window.length])
   // The window's start is its projection's start even when an elided
   // CriticMarkup opener begins it.
@@ -1578,39 +1595,96 @@ function evaluateBlockWindow(
     return undefined
   }
   if (editChangesBacktickPairing(previousSource, edit)) return undefined
-  const edited = windowEdge(inventory, edit.start, 'start')
-  const editedEnd = windowEdge(inventory, edit.end, 'end')
-  if (edited === undefined || editedEnd === undefined || editedEnd.ordinal < edited.ordinal ||
-      edited.source > edit.start || editedEnd.source < edit.end) {
+  // Only a marker-free document admits new markers; skip the reparse early.
+  if (!inventory.markerFree && /[{}]/u.test(edit.insert + previousSource.slice(edit.start, edit.end))) return undefined
+  const editedStartEdge = windowEdge(inventory, edit.start, 'start')
+  const editedEndEdge = windowEdge(inventory, edit.end, 'end')
+  if (editedStartEdge === undefined || editedEndEdge === undefined || editedEndEdge.ordinal < editedStartEdge.ordinal ||
+      editedStartEdge.source > edit.start || editedEndEdge.source < edit.end) {
     return undefined
   }
-  const first = edited.source > 0 ? windowEdge(inventory, edited.source - 1, 'start') : edited
-  const last = editedEnd.source < length ? windowEdge(inventory, editedEnd.source, 'end') : editedEnd
-  if (first === undefined || last === undefined) return undefined
+  let edited: WindowEdge = editedStartEdge
+  let editedEnd: WindowEdge = editedEndEdge
   const delta = nextSource.length - length
-  const nextWindow = nextSource.slice(first.source, last.source + delta)
-  const atDocumentEnd = last.source + delta === nextSource.length
-  inventory.recorder.recordCandidateRegionParse(nextWindow.length)
-  const result = parseProfile1Document(
-    nextWindow,
-    executionBudget,
-    undefined,
-    first.source === 0 ? markdownOptions : Object.freeze({ ...markdownOptions, frontMatter: false }),
-    false,
-    undefined,
-    createProfile1DocumentReuseCache(),
-    physicalRecorder,
-    undefined,
-    atDocumentEnd
-  )
-  // The document parse reports a window's resource failure authoritatively.
-  if (result.kind !== 'complete') return undefined
-  const requiredSafePoints = [
-    ...(edited.source > first.source ? [edited.source - first.source] : []),
-    ...(last.source > editedEnd.source ? [editedEnd.source + delta - first.source] : [])
-  ]
-  const facts = blockWindowFacts(result, nextWindow, requiredSafePoints, inventory.recorder)
+  // A suggestion spanning a blank line joins the blocks around it into one
+  // region; when a bound stops being a block start, the neighbouring block
+  // joins the edited ones and the reparse widens by one more block.
+  for (let widening = 0; ; widening += 1) {
+    const first: WindowEdge | undefined = edited.source > 0 ? windowEdge(inventory, edited.source - 1, 'start') : edited
+    const last: WindowEdge | undefined = editedEnd.source < length ? windowEdge(inventory, editedEnd.source, 'end') : editedEnd
+    if (first === undefined || last === undefined) return undefined
+    const nextWindow = nextSource.slice(first.source, last.source + delta)
+    const atDocumentEnd = last.source + delta === nextSource.length
+    inventory.recorder.recordCandidateRegionParse(nextWindow.length)
+    const result = parseProfile1Document(
+      nextWindow,
+      executionBudget,
+      undefined,
+      first.source === 0 ? markdownOptions : Object.freeze({ ...markdownOptions, frontMatter: false }),
+      false,
+      undefined,
+      createProfile1DocumentReuseCache(),
+      physicalRecorder,
+      undefined,
+      atDocumentEnd
+    )
+    // The document parse reports a window's resource failure authoritatively.
+    if (result.kind !== 'complete') return undefined
+    // Consecutive blank lines read as empty paragraphs whose zero width sits
+    // on a block boundary, where views and the inventory disagree on ownership.
+    const previousWindow = previousSource.slice(first.source, last.source)
+    if (EMPTY_PARAGRAPH.test(nextWindow) || EMPTY_PARAGRAPH.test(previousWindow)) return undefined
+    // Splitting or joining paragraphs moves the bound that stops a backtick
+    // run pairing with a later one.
+    if (/[\r\n]/u.test(edit.insert + previousSource.slice(edit.start, edit.end)) &&
+        (nextWindow.includes('`') || previousWindow.includes('`'))) return undefined
+    const safePoints = result.retainedIntrinsic?.safePoints ?? []
+    const startStands = edited.source === first.source || safePoints.includes(edited.source - first.source)
+    const endStands = editedEnd.source === last.source || safePoints.includes(editedEnd.source + delta - first.source)
+    if (!startStands || !endStands) {
+      if (widening === 2) return undefined
+      if (!startStands) edited = first
+      if (!endStands) editedEnd = last
+      continue
+    }
+    return admitBlockWindow(
+      inventory, edit, delta, edited, editedEnd, first, last,
+      result, nextWindow, atDocumentEnd, previewOnly
+    )
+  }
+}
+
+function admitBlockWindow(
+  inventory: InventoryValue,
+  edit: RetainedPassSourceEdit,
+  delta: number,
+  edited: WindowEdge,
+  editedEnd: WindowEdge,
+  first: WindowEdge,
+  last: WindowEdge,
+  result: Profile1DocumentProducts,
+  nextWindow: string,
+  atDocumentEnd: boolean,
+  previewOnly: boolean
+): RegionalInventoryApplyResult | RegionalInventoryPreviewResult | undefined {
+  const facts = blockWindowFacts(result, nextWindow, inventory.recorder)
   if (facts === undefined) return undefined
+  if (!inventory.markerFree) {
+    // Elsewhere-spelled markers keep their reading only if the window spells
+    // exactly the markers it spelled before.
+    const previousMarkers: MarkerCapsule[] = []
+    for (const located of leafRange(inventory.root, first.ordinal, last.ordinal)) {
+      if (located.leaf.kind === 'region') previousMarkers.push(...located.leaf.markers)
+      else if (located.leaf.plain === undefined) return undefined
+    }
+    const nextMarkers = markerCapsules(result.retainedIntrinsic?.markerDecisions ?? [], 0)
+    if (nextMarkers.length !== previousMarkers.length || nextMarkers.some((marker, ordinal) => {
+      const before = previousMarkers[ordinal]
+      return before === undefined || marker.kind !== before.kind || marker.role !== before.role || marker.action !== before.action
+    })) {
+      return undefined
+    }
+  }
   const candidateAccountingUnits = result.accountingCounts.reduce((total, count) => total + count, 0)
   if (inventory.accountingUpperBound + candidateAccountingUnits > inventory.logicalNodeLimit) return undefined
   const { boundaries, syntaxBoundaries } = facts
@@ -1739,6 +1813,7 @@ function evaluateBlockWindow(
       root: nextRoot,
       accountingUpperBound: inventory.accountingUpperBound + candidateAccountingUnits,
       logicalNodeLimit: inventory.logicalNodeLimit,
+      markerFree: inventory.markerFree && (result.retainedIntrinsic?.markerDecisions.length ?? 0) === 0,
       dependencyPrefixEnd: inventory.dependencyPrefixEnd,
       recorder: inventory.recorder,
       ...(plainRecorder === undefined ? {} : { plainRecorder })
@@ -1791,6 +1866,7 @@ export function createPlainRegionalInventory(
     }),
     accountingUpperBound,
     logicalNodeLimit,
+    markerFree: true,
     dependencyPrefixEnd: index.dependencyPrefixEnd,
     recorder,
     plainRecorder

@@ -3342,6 +3342,16 @@ describe('document-core semantic changes', () => {
       projections: ['markup']
     })
 
+    // The single-suggestion index refuses these; the document inventory may
+    // still reparse just their paragraphs (G35), reading as a fresh open.
+    if (commit.change.projections[0]?.scope === 'regions') {
+      const oracle = createDocumentCore()
+      const fresh = oracle.open(commit.revision.source)
+      expect(commit.revision.annotations).toEqual(fresh.annotations)
+      expect(core.project(commit.revision, 'markup').events)
+        .toEqual(oracle.project(fresh, 'markup').events)
+      return
+    }
     expect(commit.change.projections).toEqual([{
       name: 'markup',
       scope: 'document',
@@ -3722,6 +3732,28 @@ describe('document-core semantic changes', () => {
   })
 
   it.each([
+    // Whitespace-only lines are empty paragraphs whose boundary ownership
+    // stays with the full parse (G35).
+    {
+      name: 'whitespace becomes a paragraph',
+      source: 'head\n\n   \n\ntail\n\n',
+      edit: () => ({
+        start: 7,
+        end: 7,
+        insert: 'X'
+      }),
+      reason: 'structural-region-ineligible'
+    },
+    {
+      name: 'a paragraph becomes whitespace',
+      source: 'head\n\ntarget\n\ntail\n\n',
+      edit: (source: string) => ({
+        start: source.indexOf('target'),
+        end: source.indexOf('target') + 'target'.length,
+        insert: '   '
+      }),
+      reason: 'structural-region-ineligible'
+    },
     {
       name: 'a heading prefix changes paragraph structure',
       source: 'head\n\ntarget word\n\ntail\n\n',
@@ -3731,16 +3763,6 @@ describe('document-core semantic changes', () => {
         insert: '# '
       }),
       reason: 'structural-region-ineligible'
-    },
-    {
-      name: 'CriticMarkup facts are present',
-      source: 'head {++added++}\n\ntarget word\n\ntail\n\n',
-      edit: (source: string) => ({
-        start: source.indexOf('word'),
-        end: source.indexOf('word'),
-        insert: 'X'
-      }),
-      reason: 'criticmarkup-facts-present'
     },
     {
       name: 'definition and reference facts are present',
@@ -4603,25 +4625,6 @@ describe('document-core semantic changes', () => {
       .toEqual(oracle.project(oracle.open(joined), 'markup').events)
   })
 
-  // Plan 0012 G35: paragraph structure changes reparse only their blocks.
-  it.each([
-    { name: 'whitespace becomes a paragraph', source: 'head\n\n   \n\ntail\n\n', start: 7, end: 7, insert: 'X' },
-    { name: 'a paragraph becomes whitespace', source: 'head\n\ntarget\n\ntail\n\n', start: 6, end: 12, insert: '   ' }
-  ])('keeps a paragraph change regional when $name', ({ source, start, end, insert }) => {
-    const core = createDocumentCore()
-    const opened = core.open(source)
-    const before = inspectionOf(core)
-    const commit = core.apply(opened, [{ start, end, insert }], { projections: ['markup'] })
-    expect(commit.change.projections[0]?.scope).toBe('regions')
-    expect(delta(inspectionOf(core), before, 'documentParses')).toBe(0)
-    const oracle = createDocumentCore()
-    const fresh = oracle.open(commit.revision.source)
-    expect(core.project(commit.revision, 'markup').events)
-      .toEqual(oracle.project(fresh, 'markup').events)
-    expect(core.project(commit.revision, 'markup').syntax.ast)
-      .toEqual(oracle.project(fresh, 'markup').syntax.ast)
-  })
-
   it('keeps a soft break typed inside a paragraph regional', () => {
     const source = 'head\n\ntarget word\n\ntail\n\n'
     const at = source.indexOf('word')
@@ -4768,15 +4771,18 @@ describe('document-core semantic changes', () => {
     }], { projections: ['markup'] })
     const after = inspectionOf(core)
 
-    expect(commit.change.projections[0]?.scope).toBe('document')
+    // A suggestion's inventory keeps the CM document regional (G35); the
+    // plain overlay is never touched either way.
+    expect(commit.change.projections[0]?.scope).toBe(buildsDependencyIndex ? 'document' : 'regions')
     if (buildsDependencyIndex) {
       expect(before.retainedInitialBuildUnits).toBeGreaterThan(0)
+      expect(delta(after, before, 'sourceFallbackMaterializations')).toBe(1)
+      expect(delta(after, before, 'sourceMaterializations')).toBe(1)
+      expect(delta(after, before, 'retainedCommittedUpdates')).toBe(0)
     } else {
       expect(before.retainedInitialBuildUnits).toBe(0)
+      expect(delta(after, before, 'documentParses')).toBe(0)
     }
     expect(delta(after, before, 'retainedOverlayNodesAllocated')).toBe(0)
-    expect(delta(after, before, 'retainedCommittedUpdates')).toBe(0)
-    expect(delta(after, before, 'sourceFallbackMaterializations')).toBe(1)
-    expect(delta(after, before, 'sourceMaterializations')).toBe(1)
   })
 })
