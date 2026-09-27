@@ -2116,8 +2116,23 @@ function createNextBacktickRunStart(
       reportedOffset = offset
     }
   }
+  // A code span is paragraph content and no paragraph crosses a blank line,
+  // so a run after the next blank line can never close an opener.
+  const blankLineStarts: number[] = []
+  let lineStart = -1
+  let lineBlank = false
   for (let offset = 0; offset < source.length;) {
-    if (source.charCodeAt(offset) !== 96) {
+    const codeUnit = source.charCodeAt(offset)
+    if (codeUnit === 10 || codeUnit === 13) {
+      if (lineBlank) blankLineStarts.push(lineStart)
+      offset += codeUnit === 13 && source.charCodeAt(offset + 1) === 10 ? 2 : 1
+      lineStart = offset
+      lineBlank = true
+      reportThrough(offset)
+      continue
+    }
+    if (codeUnit !== 32 && codeUnit !== 9) lineBlank = false
+    if (codeUnit !== 96) {
       offset += 1
       reportThrough(offset)
       continue
@@ -2143,6 +2158,8 @@ function createNextBacktickRunStart(
     matchingPolicy === undefined
       ? undefined
       : scopePartitionedRunStarts(startsByLength, matchingPolicy)
+  const paragraphLimit = (after: number, laneEnd: number): number =>
+    Math.min(laneEnd, firstRunStartAtLeast(blankLineStarts, after) ?? laneEnd)
 
   return (
     markerLength: number,
@@ -2150,6 +2167,7 @@ function createNextBacktickRunStart(
     after: number,
     laneEnd: number
   ): number | undefined => {
+    laneEnd = paragraphLimit(after, laneEnd)
     if (matchingPolicy === undefined || scopedStarts === undefined) {
       const start = firstRunStartAtLeast(startsByLength.get(markerLength), after)
       return start !== undefined && start < laneEnd ? start : undefined
