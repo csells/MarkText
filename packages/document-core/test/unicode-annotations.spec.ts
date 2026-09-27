@@ -3,24 +3,39 @@ import { createDocumentCore, type CriticMarkupAnnotation, type DocumentCore, typ
 
 // Unicode inside and beside annotations through the production input path
 // (planInput, inputEdits, apply, reconcileInput). The editing view targets
-// Backspace and Delete at one whole grapheme of the visible text, as Muya's
-// input capture does with Intl.Segmenter; the model must keep that grapheme
-// whole in every tracked and untracked result.
+// Delete at one whole grapheme of the visible text, and Backspace inside a
+// line at what Chromium's Backspace removes: the whole of an emoji, flag or
+// astral character, but only the last code point of a combining sequence
+// (Muya's `backspaceLength`). The model must keep exactly that target, never
+// split a surrogate pair, and keep every other grapheme whole.
 
 const options = { autoPairBracket: true, autoPairQuote: true, autoPairMarkdownSyntax: true }
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
+// Each sample with what Backspace after it leaves of it.
 const samples = [
-  ['ASCII baseline', 'x'],
-  ['ZWJ family', '👩\u200D👩\u200D👧'],
-  ['regional-indicator flag', '🇯🇵'],
-  ['combining acute', 'e\u0301'],
-  ['decomposed Hangul syllable', '\u1100\u1161\u11A8'],
-  ['astral letter', '𝒳'],
-  ['astral emoji', '😀']
+  ['ASCII baseline', 'x', ''],
+  ['ZWJ family', '👩\u200D👩\u200D👧', ''],
+  ['regional-indicator flag', '🇯🇵', ''],
+  ['combining acute', 'e\u0301', 'e'],
+  ['decomposed Hangul syllable', '\u1100\u1161\u11A8', '\u1100\u1161'],
+  ['astral letter', '𝒳', ''],
+  ['astral emoji', '😀', '']
 ] as const
 
-/** The source range of the visible grapheme beside a caret. */
+/**
+ * The code units of `grapheme` that Chromium's Backspace removes, for the
+ * samples here: the last code point after a combining mark or Hangul jamo,
+ * otherwise the whole grapheme.
+ */
+function backspaceUnit(grapheme: string): number {
+  const last = [...grapheme].at(-1)!
+  return grapheme !== last && /^[\p{M}\u1160-\u11FF]$/u.test(last) && !/\p{Extended_Pictographic}/u.test(grapheme)
+    ? last.length
+    : grapheme.length
+}
+
+/** The source range the view targets for Backspace or Delete beside a caret. */
 function neighbor(core: DocumentCore, revision: DocumentRevision, caret: number, backward: boolean): SourceRange {
   const { coordinates, ast } = core.project(revision, 'markup').syntax
   let visible = ''
@@ -33,6 +48,7 @@ function neighbor(core: DocumentCore, revision: DocumentRevision, caret: number,
   for (const { segment } of graphemes.segment(visible)) {
     const end = start + segment.length
     if (backward ? end === projected : start === projected) {
+      if (backward) start = end - backspaceUnit(segment)
       const first = coordinates.originAt(start)
       const last = coordinates.originAt(end - 1)
       if (first.kind !== 'source' || last.kind !== 'source') break
@@ -113,29 +129,40 @@ function resolveAll(core: DocumentCore, revision: DocumentRevision, decision: 'a
 }
 
 // `X` is the sample grapheme; the expected source substitutes it the same way.
-const deletionCases = [
-  { name: 'Backspace ends an Addition payload', start: 'a{++bX|++}c', act: (s: Session, _grapheme: string) => s.backspace(), plain: 'a{++b|++}c', suggested: 'a{++b|++}c' },
+// When Backspace leaves part of it, `K` is that kept part, `D` the removed code
+// point, and the `kept` expectations apply.
+type DeletionCase = {
+  name: string
+  start: string
+  act: (s: Session, grapheme: string) => Session
+  plain: string
+  suggested: string
+  kept?: { plain: string, suggested: string }
+}
+const deletionCases: readonly DeletionCase[] = [
+  { name: 'Backspace ends an Addition payload', start: 'a{++bX|++}c', act: (s: Session, _grapheme: string) => s.backspace(), plain: 'a{++b|++}c', suggested: 'a{++b|++}c', kept: { plain: 'a{++bK|++}c', suggested: 'a{++bK|++}c' } },
   { name: 'Delete starts an Addition payload', start: 'a{++|Xb++}c', act: (s: Session, _grapheme: string) => s.delete(), plain: 'a{++|b++}c', suggested: 'a{++|b++}c' },
-  { name: 'Backspace empties an Addition', start: 'a{++X|++}c', act: (s: Session, _grapheme: string) => s.backspace(), plain: 'a|c', suggested: 'a|c' },
-  { name: 'Backspace after plain text', start: 'aX|c', act: (s: Session, _grapheme: string) => s.backspace(), plain: 'a|c', suggested: 'a|{--X--}c' },
+  { name: 'Backspace empties an Addition', start: 'a{++X|++}c', act: (s: Session, _grapheme: string) => s.backspace(), plain: 'a|c', suggested: 'a|c', kept: { plain: 'a{++K|++}c', suggested: 'a{++K|++}c' } },
+  { name: 'Backspace after plain text', start: 'aX|c', act: (s: Session, _grapheme: string) => s.backspace(), plain: 'a|c', suggested: 'a|{--X--}c', kept: { plain: 'aK|c', suggested: 'aK|{--D--}c' } },
   { name: 'Delete before plain text', start: 'a|Xc', act: (s: Session, _grapheme: string) => s.delete(), plain: 'a|c', suggested: 'a{--X--}|c' },
-  { name: 'Backspace after an Addition', start: '{++a++}X|c', act: (s: Session, _grapheme: string) => s.backspace(), plain: '{++a++}|c', suggested: '{++a++}|{--X--}c' },
-  { name: 'Backspace over a Deletion', start: 'a{--X|--}c', act: (s: Session, _grapheme: string) => s.backspace(), plain: 'a|c', suggested: 'a{--|X--}c' },
-  { name: 'Backspace in a commented Highlight', start: 'a{==X|==}{>>n<<}c', act: (s: Session, _grapheme: string) => s.backspace(), plain: 'a|{>>n<<}c', suggested: 'a{==|{--X--}==}{>>n<<}c' },
-  { name: 'Backspace in a Substitution’s new arm', start: 'a{~~o~>X|~~}c', act: (s: Session, _grapheme: string) => s.backspace(), plain: 'a{~~o~>|~~}c', suggested: 'a|{--o--}c' },
+  { name: 'Backspace after an Addition', start: '{++a++}X|c', act: (s: Session, _grapheme: string) => s.backspace(), plain: '{++a++}|c', suggested: '{++a++}|{--X--}c', kept: { plain: '{++a++}K|c', suggested: '{++a++}K|{--D--}c' } },
+  { name: 'Backspace over a Deletion', start: 'a{--X|--}c', act: (s: Session, _grapheme: string) => s.backspace(), plain: 'a|c', suggested: 'a{--|X--}c', kept: { plain: 'a{--K|--}c', suggested: 'a{--K|D--}c' } },
+  { name: 'Backspace in a commented Highlight', start: 'a{==X|==}{>>n<<}c', act: (s: Session, _grapheme: string) => s.backspace(), plain: 'a|{>>n<<}c', suggested: 'a{==|{--X--}==}{>>n<<}c', kept: { plain: 'a{==K|==}{>>n<<}c', suggested: 'a{==K|{--D--}==}{>>n<<}c' } },
+  { name: 'Backspace in a Substitution’s new arm', start: 'a{~~o~>X|~~}c', act: (s: Session, _grapheme: string) => s.backspace(), plain: 'a{~~o~>|~~}c', suggested: 'a|{--o--}c', kept: { plain: 'a{~~o~>K|~~}c', suggested: 'a{~~o~>K|~~}c' } },
   { name: 'typing after the grapheme', start: 'aX|', act: (s: Session, _grapheme: string) => s.type('Z'), plain: 'aXZ|', suggested: 'aX{++Z|++}' },
   { name: 'typing the grapheme in an Addition', start: 'a{++X|++}c', act: (s: Session, grapheme: string) => s.type(grapheme), plain: 'a{++XX|++}c', suggested: 'a{++XX|++}c' },
   { name: 'typing the grapheme into plain text', start: 'a|c', act: (s: Session, grapheme: string) => s.type(grapheme), plain: 'aX|c', suggested: 'a{++X|++}c' }
-] as const
+]
 
 describe('graphemes inside and beside annotations', () => {
-  for (const [label, grapheme] of samples) {
+  for (const [label, grapheme, kept] of samples) {
     describe(label, () => {
-      const spell = (template: string) => template.replaceAll('X', grapheme)
-      it.each(deletionCases.flatMap(testCase => [false, true].map(tracked => ({ ...testCase, tracked }))))('$name (tracked: $tracked)', ({ start, act, plain, suggested, tracked }) => {
+      const spell = (template: string) => template.replaceAll('X', grapheme).replaceAll('K', kept).replaceAll('D', grapheme.slice(kept.length))
+      it.each(deletionCases.flatMap(testCase => [false, true].map(tracked => ({ ...testCase, tracked }))))('$name (tracked: $tracked)', ({ start, act, plain, suggested, kept: partial, tracked }) => {
         const session = new Session(spell(start), tracked)
         act(session, grapheme)
-        expect(session.shown).toBe(spell(tracked ? suggested : plain))
+        const expected = kept !== '' && partial !== undefined ? partial : { plain, suggested }
+        expect(session.shown).toBe(spell(tracked ? expected.suggested : expected.plain))
       })
     })
   }
