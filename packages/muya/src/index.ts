@@ -9,7 +9,6 @@ export type { IMatch, IReplaceOption, ISearchOption } from './search/types';
 export type { IIndexCursor } from './selection/offsetCursor';
 
 export type { IHistorySelection, IPublicCursorInput } from './selection/types';
-export { applyNativeOperation, serializeNativeState, serializeNativeTable } from './state/applyNativeOperation';
 export type { ITocItem } from './state/getTOC';
 export { MarkdownToHtml } from './state/markdownToHtml';
 export { renderToStaticHTML } from './state/renderToStaticHTML';
