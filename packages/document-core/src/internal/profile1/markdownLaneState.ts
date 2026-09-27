@@ -3884,7 +3884,9 @@ export function createMarkdownLaneState(
               lastOwnedEnd: sourceEnd
             })
           }
-        } else if (lineState.blank) {
+        } else if (lineState.blank && lineState.openers.length === 0) {
+          // A marker-only line such as `-` or `>` is content, not the blank
+          // line that ends this HTML block.
           completedLiterals.push(Object.freeze({
             kind: 'html-block',
             htmlTermination: htmlBlock.terminator === undefined ? 'blank-line' : 'explicit',
@@ -3946,7 +3948,14 @@ export function createMarkdownLaneState(
         lineOwnedByDefinition
       ) {
         if (!lineOpenedHtmlBlock && !lineOpenedIndentedCode) {
-          activeContainers = lineState.activeContainers
+          // A `>` or list marker inside the block is content; it opens
+          // nothing for the lines after it.
+          activeContainers = lineState.openers.length === 0
+            ? lineState.activeContainers
+            : Object.freeze(lineState.activeContainers.slice(
+              0,
+              lineState.activeContainers.length - lineState.openers.length
+            ))
         }
       } else if (frontMatter !== undefined) {
         if (

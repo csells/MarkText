@@ -61,6 +61,11 @@ describe('CommonMark and upstream agree', () => {
     // A container marker is not indented code content.
     ['    x\n>     code\n', '<pre><code>x </code></pre><blockquote><pre><code>code </code></pre></blockquote>'],
     ['    code\n>\n    code\n', '<pre><code>code </code></pre><blockquote></blockquote><pre><code>code </code></pre>'],
+    // Inside an HTML block a marker-only line is content, not a blank line.
+    ['<div>\n- \n', '<div>\n-'],
+    ['<div>\n1.\n', '<div>\n1.'],
+    ['<div>\n> =\n>\n', '<div>\n> =\n>'],
+    ['</div>\n> - y\n> -\n', '</div>\n> - y\n> -'],
     // A setext heading closes its paragraph, so a following item may start.
     ['Foo\n=\n-\n', '<h1>Foo</h1><ul><li></li></ul>'],
     ['bar\n-\n-\n', '<h2>bar</h2><ul><li></li></ul>'],
@@ -109,6 +114,7 @@ describe('typing these lines reads as a fresh open', () => {
     ['-\n\n-\n', 1, 'a'],
     ['Foo\n\n', 4, '>     code'],
     ['    x\n\n', 6, '>'],
+    ['<div>\n\n', 6, '- '],
     ['a {++b++}\n\n', 10, '-'],
     ['{++a++}\n-\n\n{--b--}\n', 8, 'x']
   ])('%j at %i types %j', (source, at, insert) => {
