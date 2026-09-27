@@ -14,11 +14,11 @@ import pandoc, {
   PANDOC_EXPORT_FORMATS,
   formatLinksMedia,
   getPandocLanguage,
-  getPandocReader,
   isRemoteMedia,
   listLinkedMedia,
   pandocLocations,
   shouldMirrorMedia,
+  toPandocJson,
   type PandocToFileOptions
 } from 'main_renderer/utils/pandoc'
 
@@ -82,14 +82,6 @@ describe('pandoc export', () => {
     expect(ids).not.toContain('opml')
   })
 
-  // `gfm` is what the editor shows; the extensions asked for mirror its preferences (#5379).
-  it('reads GFM, adding sub/superscript or dropping footnotes only when asked', () => {
-    expect(getPandocReader(false)).toBe('gfm')
-    expect(getPandocReader(false, false)).toBe('gfm-footnotes')
-    expect(getPandocReader(true)).toBe('gfm+superscript+subscript')
-    expect(getPandocReader(true)).not.toMatch(/tex_math_gfm|alerts/)
-  })
-
   // pandoc ships no `zh`/`zh-CN`/`zh-TW`, and an unresolvable `lang` warns on every export (#5379).
   it('spells the Chinese region as the script subtag pandoc carries', () => {
     expect(getPandocLanguage('zh-CN')).toBe('zh-Hans')
@@ -100,21 +92,21 @@ describe('pandoc export', () => {
     expect(getPandocLanguage('ja')).toBe('ja')
   })
 
-  // The argv is asserted because `cwd` is what makes `![](pics/a.png)` resolve.
-  it('spawns the named binary with the reader and target asked for', async() => {
+  // The argv is asserted because `cwd` is what makes `![](pics/a.png)` resolve, and
+  // because pandoc reads only the JSON AST built from Core, never Markdown (G40).
+  it('spawns the named binary reading JSON into the target asked for', async() => {
     const { proc, done } = await runToFile('docx', '/tmp/notes.docx', {
-      input: '# Title',
-      cwd: '/docs/notes',
-      reader: getPandocReader(true)
+      input: '{"blocks":[]}',
+      cwd: '/docs/notes'
     })
 
     await expect(done).resolves.toEqual({ warnings: '' })
     expect(spawnMock).toHaveBeenCalledWith(
       process.execPath,
-      ['-f', 'gfm+superscript+subscript', '-t', 'docx', '-s', '-o', '/tmp/notes.docx'],
+      ['-f', 'json', '-t', 'docx', '-s', '-o', '/tmp/notes.docx'],
       { cwd: '/docs/notes' }
     )
-    expect(proc.stdin.end).toHaveBeenCalledWith('# Title')
+    expect(proc.stdin.end).toHaveBeenCalledWith('{"blocks":[]}')
 
     await expect(pandoc.exists()).resolves.toBe(true)
   })
@@ -236,19 +228,34 @@ describe('pandoc export', () => {
     expect(shouldMirrorMedia(['pics/a.png'], dir, `${dir}${path.sep}..${path.sep}${path.basename(dir)}${path.sep}notes.rst`)).toBe(false)
   })
 
-  // The list comes from pandoc's AST; a raw `<img>` is a raw node and never reaches it.
-  it('lists the images pandoc found in the document', async() => {
+  // The list comes from the AST built from Core, with no pandoc run; a raw `<img>` is raw text.
+  it('lists the images of the document and its metadata', () => {
+    const image = (url: string): unknown => ({ t: 'Image', c: [['', [], []], [], [url, '']] })
+    expect(listLinkedMedia({
+      meta: { cover: { t: 'MetaInlines', c: [image('cover.png')] } },
+      blocks: [
+        { t: 'Para', c: [image('pics/a.png'), { t: 'Link', c: [['', [], []], [image('pics/c.png')], ['x.md', '']] }] },
+        { t: 'RawBlock', c: ['html', '<img src="pics/b.png">'] }
+      ]
+    })).toEqual(['pics/a.png', 'pics/c.png', 'cover.png'])
+    expect(spawnMock).not.toHaveBeenCalled()
+  })
+
+  // pandoc's JSON reader refuses another API version, and only its text readers normalize to NFC.
+  it('stamps the running pandoc\'s API version on the document, composed to NFC', async() => {
     const proc = startProcess()
-    const pending = listLinkedMedia('# Title', 'gfm')
+    const pending = toPandocJson({ meta: {}, blocks: [{ t: 'Para', c: [{ t: 'Str', c: 'cafe\u0301' }] }] })
     await proc.spawned()
-    proc.stdout.emit('data', Buffer.from(JSON.stringify([
-      { t: 'Para', c: [{ t: 'Image', c: [[], [], ['pics/a.png', 'fig:']] }] },
-      { t: 'RawInline', c: ['html', '<img src="pics/b.png">'] }
-    ])))
+    proc.stdout.emit('data', Buffer.from('{"pandoc-api-version":[1,23,1],"meta":{},"blocks":[]}'))
     proc.emit('close', 0)
 
-    await expect(pending).resolves.toEqual(['pics/a.png'])
-    expect(spawnMock).toHaveBeenCalledWith(expect.any(String), ['-f', 'gfm', '-t', 'json'])
-    expect(proc.stdin.end).toHaveBeenCalledWith('# Title')
+    expect(JSON.parse(await pending)).toEqual({
+      'pandoc-api-version': [1, 23, 1],
+      meta: {},
+      blocks: [{ t: 'Para', c: [{ t: 'Str', c: 'caf\u00e9' }] }]
+    })
+    // The native reader states the version without reading any Markdown.
+    expect(spawnMock).toHaveBeenCalledWith(expect.any(String), ['-f', 'native', '-t', 'json'])
+    expect(proc.stdin.end).toHaveBeenCalledWith('[]')
   })
 })

@@ -2,7 +2,7 @@
 import { spawn } from 'child_process'
 import path from 'path'
 import { resolveCommand } from './resolveCommand'
-import type { PandocTrackedDocument } from '@shared/types/files'
+import type { PandocDocument } from '@shared/types/files'
 
 const pandocCommand = 'pandoc'
 
@@ -47,11 +47,6 @@ export const shouldMirrorMedia = (
   !links.some(isRemoteMedia) &&
   (!!sourceDir || links.every((url) => path.isAbsolute(url))) &&
   (sourceDir === undefined || path.relative(sourceDir, path.dirname(outputPath)) !== '')
-
-// `gfm` matches the editor within what pandoc 3.1.3 accepts (no `tex_math_gfm`);
-// `-footnotes` keeps a `[^1]` literal unless the editor's preference renders it.
-export const getPandocReader = (superSubScript: boolean, footnotes = true): string =>
-  `gfm${superSubScript ? '+superscript+subscript' : ''}${footnotes ? '' : '-footnotes'}`
 
 // pandoc knows no `zh`/`zh-CN` and would warn, so Chinese takes the script subtag.
 export const getPandocLanguage = (locale: string): string => {
@@ -144,8 +139,6 @@ export interface PandocToFileOptions {
   resourcePath?: string
   /** Copy the document's images into the output's folder and rewrite the links. */
   mirrorMedia?: boolean
-  /** Reader used to parse `input`; see `getPandocReader`. */
-  reader?: string
   metadata?: Record<string, string>
 }
 
@@ -154,7 +147,10 @@ export interface PandocToFileResult {
   warnings: string
 }
 
-/** Convert `input` to `outputPath`; the converter above cannot serve binary targets. */
+/**
+ * Convert `input`, a Pandoc JSON document (see `toPandocJson`), to `outputPath`;
+ * the converter above cannot serve binary targets.
+ */
 pandoc.toFile = async(
   to: string,
   outputPath: string,
@@ -163,8 +159,8 @@ pandoc.toFile = async(
 ): Promise<PandocToFileResult> => {
   const command = await getCommand()
   return new Promise((resolve, reject) => {
-    const { cwd, reader = getPandocReader(false), metadata = {}, resourcePath, mirrorMedia } = options
-    const option = ['-f', reader, '-t', to, '-s']
+    const { cwd, metadata = {}, resourcePath, mirrorMedia } = options
+    const option = ['-f', 'json', '-t', to, '-s']
     // pandoc splits `--metadata` on the first colon only, so "Q3: plan" survives.
     for (const [key, value] of Object.entries(metadata)) {
       if (value) option.push(`--metadata=${key}:${value}`)
@@ -198,47 +194,33 @@ pandoc.toFile = async(
   })
 }
 
-// The links pandoc found, which is what an export mirrors; raw HTML `<img>` is not listed.
-export const listLinkedMedia = async(input: string, reader: string): Promise<string[]> => {
-  const command = await getCommand()
-  return new Promise((resolve) => {
-    const proc = spawn(command, ['-f', reader, '-t', 'json'])
-    let ast = ''
-    proc.stdout.on('data', (chunk: Buffer | string) => {
-      ast += chunk.toString()
-    })
-    proc.stdin.on('error', () => {})
-    // A document pandoc cannot parse has nothing to mirror; the conversion says why.
-    proc.on('error', () => resolve([]))
-    proc.on('close', () => {
-      const urls: string[] = []
-      try {
-        JSON.parse(ast, (_key, node: unknown) => {
-          const { t, c } = (node ?? {}) as { t?: string; c?: unknown[] }
-          const target = t === 'Image' ? c?.[2] : undefined
-          if (Array.isArray(target) && typeof target[0] === 'string') urls.push(target[0])
-          return node
-        })
-      } catch {
-        urls.length = 0
-      }
-      resolve(urls)
-    })
-    proc.stdin.end(input)
-  })
+// The pictures an export mirrors: every image target, in the document or its
+// metadata. A raw HTML `<img>` is raw text to pandoc, so it is not listed.
+export const listLinkedMedia = (document: PandocDocument): string[] => {
+  const urls: string[] = []
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(visit)
+    } else if (value !== null && typeof value === 'object') {
+      const { t, c } = value as { t?: unknown; c?: unknown }
+      const target = t === 'Image' && Array.isArray(c) ? c[2] : undefined
+      if (Array.isArray(target) && typeof target[0] === 'string') urls.push(target[0])
+      visit(c)
+    }
+  }
+  visit(document.blocks)
+  visit(Object.values(document.meta))
+  return urls
 }
 
 /**
- * A tracked document as the JSON pandoc reads. The API version is the running
- * pandoc's, which its JSON reader insists on, and front matter becomes metadata
- * exactly as the Markdown reader would make it.
+ * A document as the JSON pandoc reads. The JSON reader insists on the running
+ * pandoc's API version, which an empty document from its native reader states.
  */
-export const toPandocJson = async(document: PandocTrackedDocument): Promise<string> => {
+export const toPandocJson = async(document: PandocDocument): Promise<string> => {
   const command = await getCommand()
-  const frontMatter = document.frontMatter ?? ''
-  const header = frontMatter ? `---\n${frontMatter}${frontMatter.endsWith('\n') ? '' : '\n'}---\n` : ''
   const envelope = await new Promise<string>((resolve, reject) => {
-    const proc = spawn(command, ['-f', 'gfm', '-t', 'json'])
+    const proc = spawn(command, ['-f', 'native', '-t', 'json'])
     let output = ''
     let errorOutput = ''
     proc.on('error', reject)
@@ -253,13 +235,11 @@ export const toPandocJson = async(document: PandocTrackedDocument): Promise<stri
       if (code === 0) resolve(output)
       else reject(new Error(errorOutput.trim() || `pandoc exited with code ${String(code)}`))
     })
-    proc.stdin.end(header)
+    proc.stdin.end('[]')
   })
-  const { 'pandoc-api-version': version, meta } = JSON.parse(envelope) as {
-    'pandoc-api-version': unknown
-    meta: unknown
-  }
-  return JSON.stringify({ 'pandoc-api-version': version, meta, blocks: document.blocks })
+  const { 'pandoc-api-version': version } = JSON.parse(envelope) as { 'pandoc-api-version': unknown }
+  // pandoc's text readers normalize their input to NFC and its JSON reader does not.
+  return JSON.stringify({ 'pandoc-api-version': version, meta: document.meta, blocks: document.blocks }).normalize('NFC')
 }
 
 export default pandoc
