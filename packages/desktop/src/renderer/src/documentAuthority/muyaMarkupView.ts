@@ -904,6 +904,59 @@ export function createMuyaMarkupView(
     projection.syntax.ast.root.range.end,
     'next'
   )
+  let parents: Map<MarkdownAstNode, MarkdownAstNode> | undefined
+  const blockAncestors = (target: MarkdownAstNode): readonly MarkdownAstNode[] => {
+    if (parents === undefined) {
+      const map = new Map<MarkdownAstNode, MarkdownAstNode>()
+      const stack = [projection.syntax.ast.root]
+      for (let node = stack.pop(); node !== undefined; node = stack.pop()) {
+        for (const child of node.children) {
+          map.set(child, node)
+          stack.push(child)
+        }
+      }
+      parents = map
+    }
+    const path: MarkdownAstNode[] = []
+    for (let node: MarkdownAstNode | undefined = target; node !== undefined; node = parents.get(node)) {
+      path.unshift(node)
+    }
+    return path[0] === projection.syntax.ast.root ? path : []
+  }
+  /** The first of `nodes`, in source order, that ends after `position`. */
+  const firstEndingAfter = (nodes: readonly MarkdownAstNode[], position: number): number => {
+    let low = 0
+    let high = nodes.length
+    while (low < high) {
+      const middle = (low + high) >> 1
+      if (nodes[middle].range.end > position) high = middle
+      else low = middle + 1
+    }
+    return low
+  }
+  /**
+   * Whether the parser gives the source line only to the block's own
+   * containers — their quote and list markers — and to no other block.
+   */
+  const ownContainerLine = (start: number, end: number, block: MarkdownAstNode): boolean => {
+    const from = projection.syntax.coordinates.toProjected(start, 'next')
+    const to = projection.syntax.coordinates.toProjected(end, 'previous')
+    const ancestors = new Set(blockAncestors(block))
+    const onLine = (node: MarkdownAstNode) =>
+      node.range.start <= to &&
+      (node.range.end > from || (node.range.start === node.range.end && node.range.start >= from))
+    const occupiedByOther = (node: MarkdownAstNode): boolean => {
+      if (!ancestors.has(node)) return onLine(node)
+      // Children are in source order; an empty child at `from` ends there.
+      for (let index = firstEndingAfter(node.children, from - 1); index < node.children.length; index += 1) {
+        const child = node.children[index]
+        if (child.range.start > to) break
+        if (occupiedByOther(child)) return true
+      }
+      return false
+    }
+    return ancestors.size > 0 && !occupiedByOther(projection.syntax.ast.root)
+  }
   const trailingLinePosition = (builder: (typeof builders)[number]): number | undefined => {
     if (builder.state.name === 'setext-heading') {
       return setextUnderlineStart(projection.syntax, builder.syntax, sourceText)
@@ -933,16 +986,21 @@ export function createMuyaMarkupView(
     } else if (literal && sourceCharacter(end - 1) === '\r') end -= 1
     const lineEnding = sourceText(end, end + 2).match(/^(?:\r\n|\r|\n)/u)?.[0]
     if (lineEnding === undefined) return undefined
-    let position = end + lineEnding.length
-    while (/^[ \t>]$/u.test(sourceCharacter(position))) position += 1
-    const following = sourceText(position, position + 1)
+    const lineStart = end + lineEnding.length
+    let position = lineStart
+    while (!['', '\r', '\n'].includes(sourceCharacter(position))) position += 1
     // A regional projection ends at its region; its owner decides whether
     // that is the document end.
-    const blank =
-      /^[\r\n]$/u.test(following) ||
-      (following === '' &&
-        position === documentEndOffset &&
+    const lineEnded =
+      sourceCharacter(position) !== '' ||
+      (position === documentEndOffset &&
         (canonicalSource === undefined || position === canonicalSource.length))
+    // The line is blank within the block's containers: the parser gives it
+    // only to their quote markers and indentation.
+    const blank =
+      lineEnded &&
+      (/^[ \t]*$/u.test(sourceText(lineStart, position)) ||
+        ownContainerLine(lineStart, position, builder.syntax))
     return blank ? position : undefined
   }
   const trailingLines = builders.map(trailingLinePosition)
@@ -956,33 +1014,6 @@ export function createMuyaMarkupView(
       if (previous === '\n' || previous === '\r') return start
       start -= 1
     }
-  }
-  const blockAncestors = (target: MarkdownAstNode): readonly MarkdownAstNode[] => {
-    const path: MarkdownAstNode[] = []
-    const visit = (node: MarkdownAstNode): boolean => {
-      path.push(node)
-      if (node === target || node.children.some(visit)) return true
-      path.pop()
-      return false
-    }
-    return visit(projection.syntax.ast.root) ? path : []
-  }
-  /**
-   * Whether the parser gives the source line only to the paragraph's own
-   * containers — their quote and list markers — and to no other block.
-   */
-  const ownContainerLine = (start: number, end: number, paragraph: MarkdownAstNode): boolean => {
-    const from = projection.syntax.coordinates.toProjected(start, 'next')
-    const to = projection.syntax.coordinates.toProjected(end, 'previous')
-    const ancestors = new Set(blockAncestors(paragraph))
-    const onLine = (node: MarkdownAstNode) =>
-      node.range.start <= to &&
-      (node.range.end > from || (node.range.start === node.range.end && node.range.start >= from))
-    const occupiedByOther = (node: MarkdownAstNode): boolean =>
-      ancestors.has(node)
-        ? node.children.some(occupiedByOther)
-        : onLine(node)
-    return ancestors.size > 0 && !occupiedByOther(projection.syntax.ast.root)
   }
   const leadingLinePosition = (builder: (typeof builders)[number]): number | undefined => {
     if (builder.state.name === 'thematic-break') {
@@ -1129,10 +1160,27 @@ export function createMuyaMarkupView(
     }
     return from < position ? { from, to: position, at: position } : undefined
   }
-  /** A later line's container prefix, shown at that line's start. */
-  const prefixAfter = (lineStart: number): MuyaCaretSnap | undefined => {
-    let end = lineStart
-    while (/^[ \t>]$/u.test(sourceCharacter(end))) end += 1
+  /**
+   * A later line's container prefix, shown at that line's start: the source
+   * the parser leaves between the line break and the block's next inline node.
+   */
+  const leavesOf = new Map<MarkdownAstNode, readonly MarkdownAstNode[]>()
+  const prefixAfter = (block: MarkdownAstNode, lineStart: number): MuyaCaretSnap | undefined => {
+    let leaves = leavesOf.get(block)
+    if (leaves === undefined) {
+      const collected: MarkdownAstNode[] = []
+      const collect = (node: MarkdownAstNode) => {
+        if (node.children.length === 0) collected.push(node)
+        else node.children.forEach(collect)
+      }
+      block.children.forEach(collect)
+      leaves = collected
+      leavesOf.set(block, leaves)
+    }
+    const projected = projection.syntax.coordinates.toProjected(lineStart, 'next')
+    const next = leaves[firstEndingAfter(leaves, projected)]
+    const textStart = Math.min(next?.range.start ?? block.range.end, block.range.end)
+    const end = projection.syntax.coordinates.toSource(Math.max(projected, textStart), 'previous')
     return end > lineStart ? { from: lineStart + 1, to: end + 1, at: lineStart } : undefined
   }
   const bindings = unsnappedBindings.map((binding): MuyaMarkupBinding => {
@@ -1169,7 +1217,7 @@ export function createMuyaMarkupView(
               (segment) => segment.source.start <= position && position < segment.source.end
             )
         )
-        .map(prefixAfter)
+        .map((position) => prefixAfter(binding.syntax, position))
     ].filter((snap): snap is MuyaCaretSnap => snap !== undefined)
     return snaps.length === 0 ? binding : { ...binding, caretSnaps: snaps }
   })
