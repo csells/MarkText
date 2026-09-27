@@ -104,6 +104,13 @@ export interface IDocumentEditing {
     /** Returns whether the model committed a source edit; selection-only input is false. */
     input: (operation: DocumentInput, present: () => void) => boolean;
     /**
+     * Whether Backspace at a caret removes the whole grapheme before it, as
+     * upstream Muya does where the caret ends a top-level inline token or
+     * follows its first grapheme (#113, #4926); elsewhere the browser removes
+     * its own backspace unit, one code point of a combining sequence.
+     */
+    backspaceRemovesGrapheme?: (point: DocumentDOMPoint) => boolean;
+    /**
      * A model caret position at the same visible offset, one step in reading
      * order, such as the interior of hidden syntax; undefined leaves the key native.
      */

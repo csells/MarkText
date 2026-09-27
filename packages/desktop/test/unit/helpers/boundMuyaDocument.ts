@@ -10,6 +10,7 @@ import { createMuyaMarkupPresentationIndex } from '@/documentAuthority/muyaMarku
 import {
   muyaInputToModel,
   muyaCaretStep,
+  muyaBackspaceRemovesGrapheme,
   muyaCodeLanguage,
   muyaEmojiContext,
   muyaActiveFormats,
@@ -74,6 +75,7 @@ export const bootBoundMuya = (source: string, options?: EditorCoreOpenInput['opt
     emojiContext: (point) => muyaEmojiContext(muya, view(), point),
     codeLanguage: (point) => muyaCodeLanguage(muya, view(), point),
     caretStep: (point, direction) => muyaCaretStep(muya, view(), point, direction),
+    backspaceRemovesGrapheme: (point) => muyaBackspaceRemovesGrapheme(muya, view(), point),
     prepareImage: unexpected,
     async prepareClipboard(selection, payload, prepare, blockPlacement, historyGroup) {
       const operation =

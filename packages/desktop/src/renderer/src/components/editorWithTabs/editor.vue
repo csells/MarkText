@@ -497,6 +497,7 @@ import {
   muyaActiveFormats,
   muyaCaretStep,
   muyaLineEndStep,
+  muyaBackspaceRemovesGrapheme,
   muyaCodeLanguage,
   muyaEmojiContext,
   muyaFormatToModel,
@@ -3597,6 +3598,9 @@ onMounted(() => {
         coreAcknowledgedMarkupView === undefined
           ? undefined
           : muyaLineEndStep(muya, coreAcknowledgedMarkupView, point),
+      backspaceRemovesGrapheme: (point) =>
+        coreAcknowledgedMarkupView !== undefined &&
+        muyaBackspaceRemovesGrapheme(muya, coreAcknowledgedMarkupView, point),
       prepareImage: async (operation, payload, prepare): Promise<boolean> => {
         const adapter = corePlainTextAdapter
         const lease = props.coreLease

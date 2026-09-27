@@ -10,6 +10,7 @@ import { BLOCK_DOM_PROPERTY, isOsx } from '../config';
 import { findContentDOM, getOffsetOfParagraph } from '../selection/dom';
 
 import { SelectionDirection } from '../selection/types';
+import { backspaceLength, lastGraphemeLength } from '../utils';
 
 export type { DocumentDOMPoint, DocumentEditing, DocumentTextInput, DocumentTextReplacement } from './documentEditingTypes';
 
@@ -171,14 +172,37 @@ function isNativeTextField(target: EventTarget | null) {
     return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
 }
 
-function inputSelection(muya: Muya, event: InputEvent | KeyboardEvent) {
+/**
+ * Where the browser's Backspace at a caret starts: Chromium reports the whole
+ * grapheme as the target range but removes only its backspace unit from the
+ * caret's text node (one code point of a combining sequence).
+ */
+function browserBackspaceTarget(targetRange: StaticRange): StaticRange {
+    const { startContainer, startOffset, endContainer, endOffset } = targetRange;
+    if (!(endContainer instanceof Text) || endOffset === 0)
+        return targetRange;
+    const offset = endOffset - backspaceLength(endContainer.data.slice(0, endOffset));
+    if (startContainer === endContainer && offset <= startOffset)
+        return targetRange;
+    return new StaticRange({ startContainer: endContainer, startOffset: offset, endContainer, endOffset });
+}
+
+/** The range the browser's input edits, rather than the one it reports. */
+function inputTargetRange(event: InputEvent, nativeRange: Range, caret: DocumentDOMPoint, model?: DocumentEditing) {
+    const reported = event.getTargetRanges?.()[0];
+    return reported && nativeRange.collapsed && event.inputType === 'deleteContentBackward' && !model?.backspaceRemovesGrapheme?.(caret)
+        ? browserBackspaceTarget(reported)
+        : reported;
+}
+
+function inputSelection(muya: Muya, event: InputEvent | KeyboardEvent, model?: DocumentEditing) {
     const selection = muya.editor.selection.getSelection();
     const domSelection = muya.editor.selection.getDOMSelection();
     const browserSelection = muya.domNode.ownerDocument.getSelection();
     const nativeRange = browserSelection?.rangeCount ? browserSelection.getRangeAt(0) : undefined;
-    const targetRange = event instanceof InputEvent ? event.getTargetRanges?.()[0] : undefined;
     if (!selection || !domSelection || !nativeRange)
         return null;
+    const targetRange = event instanceof InputEvent ? inputTargetRange(event, nativeRange, domSelection.focus, model) : undefined;
     const browserRange = targetRange ?? nativeRange;
     const domRange = {
         anchor: { node: browserRange.startContainer, offset: browserRange.startOffset },
@@ -202,8 +226,12 @@ function inputSelection(muya: Muya, event: InputEvent | KeyboardEvent) {
     };
 }
 
-/** A browser target range is already expanded; only a caret needs grapheme deletion. */
-function replacementRange(range: ISelection, inputType: string) {
+/**
+ * A browser target range is already expanded; only a caret needs expanding:
+ * forward Delete removes a grapheme, and Backspace the browser's backspace
+ * unit unless upstream Muya removes the whole grapheme there.
+ */
+function replacementRange(range: ISelection, inputType: string, backspaceGrapheme: boolean) {
     const { anchor, focus } = range;
     const forward = range.direction !== 'backward';
     let start = point(forward ? anchor : focus);
@@ -213,9 +241,9 @@ function replacementRange(range: ISelection, inputType: string) {
     if (range.isCollapsed && inputType === 'deleteContentBackward') {
         if (start.offset === 0)
             return undefined;
-        const preceding = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(first.text.slice(0, start.offset))];
-        const deleted = preceding[preceding.length - 1]!.segment;
-        start = { ...start, offset: start.offset - deleted.length };
+        const preceding = first.text.slice(0, start.offset);
+        const deleted = backspaceGrapheme ? lastGraphemeLength(preceding) : backspaceLength(preceding);
+        start = { ...start, offset: start.offset - deleted };
     }
     else if (range.isCollapsed && inputType === 'deleteContentForward') {
         if (end.offset === last.text.length)
@@ -327,7 +355,7 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
     const applyInput = (event: InputEvent | KeyboardEvent, inputType: string, data: string | null) => {
         if (muya.editor.selection.table.hasSelection)
             return;
-        const input = inputSelection(muya, event);
+        const input = inputSelection(muya, event, model);
         if (!input) {
             // A caret without a model position must not let the browser edit
             // rendered DOM that the document model does not own.
@@ -340,7 +368,7 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
         const text = structural ? '\n' : data ?? '';
         if (!structural && inputType.startsWith('insert') && data === null)
             return;
-        const replacement = replacementRange(range, inputType);
+        const replacement = replacementRange(range, inputType, range.isCollapsed && inputType === 'deleteContentBackward' && !!model.backspaceRemovesGrapheme?.(domSelection.focus));
         if (replacement === undefined)
             return;
         const { start, end, first, last } = replacement;
