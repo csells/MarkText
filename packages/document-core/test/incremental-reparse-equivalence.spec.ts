@@ -152,6 +152,17 @@ it('keeps editable blank paragraphs when Markup escapes generated text', () => {
     .toEqual([['paragraph', 0, 5], ['paragraph', 7, 8], ['paragraph', 10, 10]])
 })
 
+it('opens a reference definition whose line ends in a suggestion opener', () => {
+  // Original and Revised each read the definition with a different extent;
+  // both views emitted it at one start and the open threw.
+  const core = createDocumentCore()
+  const revision = core.open('[a]: e {++\nn++}\n\n[a]\n')
+  expect(revision.annotations.map(annotation => [annotation.kind, annotation.range.start, annotation.range.end]))
+    .toEqual([['addition', 7, 15]])
+  expect(core.project(revision, 'revised').ast.root.children.map(node => node.kind))
+    .toEqual(['definition', 'paragraph', 'paragraph'])
+})
+
 it('splices a nested suggestion after a paragraph edit', () => {
   // Arm lanes of nested suggestions number depth first; the splice listed
   // them breadth first and rejected its own fork graph.

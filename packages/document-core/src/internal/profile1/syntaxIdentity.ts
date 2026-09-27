@@ -199,8 +199,11 @@ export function createProfile1SyntaxIdentityRegistry(
     readonly owner: SourceOwner
   }>> = []
   const ownershipFactKeys = new Set<string>()
-  const definitionBySourceStart = new Map<number, NodeId>()
-  const pendingReferences = new Map<number, NodeId[]>()
+  // Views of one document can each read a definition at the same start (with
+  // a different extent), so a reference resolves to every one of them and a
+  // view's document index keeps the one it contains.
+  const definitionsBySourceStart = new Map<number, NodeId[]>()
+  const referencesBySourceStart = new Map<number, NodeId[]>()
   const referenceTargetsByNode = new Map<NodeId, NodeId[]>()
   const footnoteDefinitionLabelByNode = new Map<NodeId, string>()
   const footnoteReferenceLabelByNode = new Map<NodeId, string>()
@@ -341,12 +344,14 @@ export function createProfile1SyntaxIdentityRegistry(
     if (!nodeById.has(nodeId)) {
       throw new Error('Markdown definition identity was not emitted')
     }
-    const existing = definitionBySourceStart.get(sourceStart)
-    if (existing !== undefined && existing !== nodeId) {
-      throw new Error('One Markdown definition start emitted two identities')
+    const existing = definitionsBySourceStart.get(sourceStart)
+    if (existing?.includes(nodeId) === true) return
+    if (existing === undefined) {
+      definitionsBySourceStart.set(sourceStart, [nodeId])
+    } else {
+      existing.push(nodeId)
     }
-    definitionBySourceStart.set(sourceStart, nodeId)
-    for (const reference of pendingReferences.get(sourceStart) ?? []) {
+    for (const reference of referencesBySourceStart.get(sourceStart) ?? []) {
       emitEdge('reference', reference, nodeId)
       const targets = referenceTargetsByNode.get(reference)
       if (targets === undefined) {
@@ -355,7 +360,6 @@ export function createProfile1SyntaxIdentityRegistry(
         targets.push(nodeId)
       }
     }
-    pendingReferences.delete(sourceStart)
   }
 
   const emitReference = (
@@ -365,8 +369,7 @@ export function createProfile1SyntaxIdentityRegistry(
     if (!nodeById.has(nodeId)) {
       throw new Error('Markdown reference identity was not emitted')
     }
-    const definition = definitionBySourceStart.get(definitionSourceStart)
-    if (definition !== undefined) {
+    for (const definition of definitionsBySourceStart.get(definitionSourceStart) ?? []) {
       emitEdge('reference', nodeId, definition)
       const targets = referenceTargetsByNode.get(nodeId)
       if (targets === undefined) {
@@ -374,13 +377,13 @@ export function createProfile1SyntaxIdentityRegistry(
       } else if (!targets.includes(definition)) {
         targets.push(definition)
       }
-      return
     }
-    const pending = pendingReferences.get(definitionSourceStart)
-    if (pending === undefined) {
-      pendingReferences.set(definitionSourceStart, [nodeId])
-    } else if (!pending.includes(nodeId)) {
-      pending.push(nodeId)
+    // A definition a later view emits at this start also resolves it.
+    const references = referencesBySourceStart.get(definitionSourceStart)
+    if (references === undefined) {
+      referencesBySourceStart.set(definitionSourceStart, [nodeId])
+    } else if (!references.includes(nodeId)) {
+      references.push(nodeId)
     }
   }
 
