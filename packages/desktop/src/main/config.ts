@@ -76,7 +76,8 @@ export const EXTENSION_HASN: Readonly<{ styledHtml: string; pdf: string }> = Obj
 
 export const TITLE_BAR_HEIGHT: number = isOsx ? 21 : 32
 export const LINE_ENDING_REG = /(?:\r\n|\n)/g
-export const LF_LINE_ENDING_REG = /(?:[^\r]\n)|(?:^\n$)/
+// A bare LF, including one at the very start of the text.
+export const LF_LINE_ENDING_REG = /(?:^|[^\r])\n/
 export const CRLF_LINE_ENDING_REG = /\r\n/
 
 export const GITHUB_REPO_URL = 'https://github.com/marktext/marktext'
