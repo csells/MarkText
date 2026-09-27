@@ -142,7 +142,7 @@ export function commentedSpanSafeClipboard(revision: DocumentRevision, action: D
 
 /**
  * Adjusts resolution edits so the Highlight/Comment relation stays meaningful
- * (Profile 1 V6; plan 0012 G39). `edits` each replace one whole annotation.
+ * (Profile 2, "Editing around commented spans"; plan 0012 G39). `edits` each replace one whole annotation.
  * A commented passage whose text resolution removes loses its empty Highlight
  * and keeps a standalone Comment where it was (ADR 0003). A standalone Comment
  * that resolution would leave directly after a Highlight it was not paired
