@@ -128,6 +128,9 @@ describe('structural keys and new suggestions reparse only their paragraphs', ()
         for (const key of [second, typed]) expect(key).toEqual({ planned: 0, committed: 0 })
         // Enter commits regionally, inside a suggestion too.
         for (const key of [enter, secondEnter]) expect(key?.committed).toBe(0)
+        // Untracked Enter plans with one syntax read: a line without a pipe
+        // cannot become a table, so no table-conversion preview is parsed.
+        if (!tracked) for (const key of [enter, secondEnter]) expect(key?.planned).toBeLessThanOrEqual(1)
         // An untracked join commits regionally. A tracked join spells a new
         // Deletion, which only a marker-free document admits regionally.
         if (!tracked) expect(join?.committed).toBe(0)
