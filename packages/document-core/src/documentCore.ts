@@ -4228,6 +4228,99 @@ function createDocumentCoreWithExecutionBudget(
       : undefined
   }
 
+  /**
+   * A tracked paragraph or line break, proved by reparsing the paragraphs it
+   * changes instead of previewing the document: inside an Addition's text,
+   * or at the end of one whose last text the caret follows, the break
+   * extends that Addition; away from every suggestion it is a new Addition.
+   * The window proves the result is recognized as written and changes no
+   * other suggestion, so accepting it is the untracked break and rejecting
+   * it restores the previous text.
+   */
+  const regionalTrackedBreak = (
+    state: RevisionState,
+    previous: DocumentRevision,
+    edit: DocumentSourceEdit
+  ): DocumentSourceEdit | undefined => {
+    if (plansFromDocumentParse(core) || edit.start !== edit.end || !/^(?:\r\n|\r|\n)+$/u.test(edit.insert)) return undefined
+    const touching = markupAnnotations(previous.annotations).filter(annotation =>
+      annotation.range.start <= edit.start && edit.start <= annotation.range.end)
+    const owner = touching[0]
+    if (touching.length > 1 || owner !== undefined && (owner.kind !== 'addition' || owner.range.start === edit.start)) return undefined
+    const arm = owner?.arms[0]
+    let at = edit.start
+    if (owner !== undefined) {
+      if (arm === undefined || owner.arms.length !== 1 || arm.annotations.length !== 0 ||
+          core.sourceSlice(previous, arm.range).includes('\\')) return undefined
+      if (at === owner.range.end) {
+        // Enter after the closer continues the Addition only where its text
+        // reaches the closer, as exterior typing does.
+        const syntax = regionalInputSyntax(state, { start: arm.range.end, end: arm.range.end })
+        if (syntax === undefined || arm.range.start === arm.range.end) return undefined
+        const edge = syntax.coordinates.toProjected(arm.range.end, 'previous')
+        const reaches = (node: MarkdownAstNode): boolean => {
+          if (node.range.start >= edge || node.range.end < edge) return false
+          if (node.kind === 'text') {
+            return syntax.coordinates.toSource(node.range.start, 'next') < arm.range.end &&
+              syntax.coordinates.toSource(node.range.end, 'previous') > arm.range.start
+          }
+          // Literal spans reaching the edge keep the full planner.
+          if (['inline-code', 'inline-math', 'inline-html', 'autolink', 'image', 'footnote-reference'].includes(node.kind)) return false
+          return node.children.some(reaches)
+        }
+        if (!reaches(syntax.ast.root)) return undefined
+        at = arm.range.end
+      } else if (at < arm.range.start || at > arm.range.end) {
+        return undefined
+      }
+    }
+    if (!plainParagraphAround(previous, at)) return undefined
+    const planned = Object.freeze({ start: at, end: at, insert: owner === undefined ? `{++${edit.insert}++}` : edit.insert })
+    const candidate = regionalCandidate(state, planned)
+    if (candidate?.structural === undefined || candidate.nextProducts.diagnostics.count !== 0 ||
+        (candidate.nextProducts.retainedIntrinsic?.diagnostics.length ?? 0) !== 0) return undefined
+    const shift = candidate.sourceStart
+    const roots = candidate.nextProducts.retainedIntrinsic?.roots ?? []
+    if (owner === undefined) {
+      if (candidate.structural.touchesAnnotation || candidate.structural.markerDelta !== 2) return undefined
+      const local = at - shift
+      const root = roots.find(node => node.range.start === local)
+      const content = root?.arms[0]
+      return root?.kind === 'addition' && root.arms.length === 1 && root.range.end === local + planned.insert.length &&
+        content !== undefined && content.children.length === 0 &&
+        content.range.start === local + 3 && content.range.end === local + 3 + edit.insert.length
+        ? planned
+        : undefined
+    }
+    if (candidate.structural.markerDelta !== 0 || arm === undefined) return undefined
+    const grown = edit.insert.length
+    const root = roots.find(node => node.range.start === owner.range.start - shift)
+    const content = root?.arms[0]
+    return root?.kind === 'addition' && root.arms.length === 1 && root.range.end === owner.range.end + grown - shift &&
+      content !== undefined && content.children.length === 0 &&
+      content.range.start === arm.range.start - shift && content.range.end === arm.range.end + grown - shift
+      ? planned
+      : undefined
+  }
+
+  /**
+   * Whether the paragraph text around `at` is words and plain punctuation,
+   * apart from Addition delimiters: no Markdown delimiter there can pair
+   * across the break differently in a suggestion than in untracked text.
+   */
+  const plainParagraphAround = (previous: DocumentRevision, at: number): boolean => {
+    const reach = 4096
+    const blank = /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/gu
+    const before = core.sourceSlice(previous, { start: Math.max(0, at - reach), end: at })
+    const after = core.sourceSlice(previous, { start: at, end: Math.min(previous.sourceLength, at + reach) })
+    const opening = [...before.matchAll(blank)].at(-1)
+    const closing = after.search(blank)
+    if (opening === undefined && at > reach || closing < 0 && previous.sourceLength - at > reach) return false
+    const text = before.slice(opening === undefined ? 0 : opening.index + opening[0].length) +
+      after.slice(0, closing < 0 ? after.length : closing)
+    return /^[\p{L}\p{N} \t\r\n.,;:'"?!()-]*$/u.test(text.replace(/\{\+\+|\+\+\}/gu, ''))
+  }
+
   const resolutionEdit = (
     previousState: RevisionState,
     annotation: CriticMarkupAnnotation,
@@ -4317,7 +4410,8 @@ function createDocumentCoreWithExecutionBudget(
       }
       return Object.freeze({ start: first.start, end: last.end, insert })
     }
-    const regional = regionalPayloadEdit(state, edit, true) ?? regionalTrackedInsertion(state, previous, edit)
+    const regional = regionalPayloadEdit(state, edit, true) ?? regionalTrackedInsertion(state, previous, edit) ??
+      regionalTrackedBreak(state, previous, edit)
     if (regional !== undefined) return regional
     const planned = createTrackedSourceEdit(core, previous, edit, preview) ??
       createTrackedLiteralSourceEdit(core, previous, edit, preview) ??
