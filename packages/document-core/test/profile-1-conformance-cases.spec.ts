@@ -371,3 +371,13 @@ describe('CriticMarkup Profile 1 conformance cases executed against document-cor
     expect(testCase.expectedObservable).not.toEqual(replacement.observed)
   })
 })
+
+describe('Profile identifiers at the facade (Y1)', () => {
+  it.each([
+    ['open', (core: DocumentCore) => core.open('x', { criticMarkupProfile: true } as never)],
+    ['configure', (core: DocumentCore) => core.apply(core.open('x'), [], { markdown: { markdownProfile: false } as never })]
+  ] as const)('rejects an unknown configuration name on %s before publishing a revision', (_name, act) => {
+    const core = createDocumentCore()
+    expect(() => act(core)).toThrow(/Unknown Markdown option/)
+  })
+})
