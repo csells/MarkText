@@ -348,17 +348,6 @@ const copySubmitInput = (input: EditorCoreSubmitInput): EditorCoreSubmitInput =>
       projections
     })
   }
-  if (!('edits' in input) && input.kind === 'track') {
-    return Object.freeze({
-      kind: 'track',
-      ...(input.nativeHistoryGroup === undefined
-        ? {}
-        : { nativeHistoryGroup: input.nativeHistoryGroup }),
-      range: Object.freeze({ ...input.range }),
-      text: input.text,
-      projections
-    })
-  }
   if (!('edits' in input)) {
     return Object.freeze({ kind: input.kind, projections })
   }
@@ -630,7 +619,6 @@ export function createCoreDocumentSessionManager(
                 outcome.reason === 'no-change' ||
                 (outcome.reason === 'history-resource' &&
                   !('edits' in journalInput) &&
-                  journalInput.kind !== 'track' &&
                   journalInput.kind !== 'input' &&
                   journalInput.kind !== 'source-input') ||
                 (outcome.reason === 'stale-base' &&

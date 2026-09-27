@@ -124,7 +124,7 @@ export type EditorCoreSubmitInput =
     readonly projections: readonly DocumentProjectionRequest[]
   }>
   | Readonly<{
-    readonly kind?: 'source-edits' | 'markup-edits' | 'track-edits'
+    readonly kind?: 'source-edits'
     readonly nativeHistoryGroup?: string
     readonly edits: readonly DocumentSourceEdit[]
     readonly projections: readonly DocumentProjectionRequest[]
@@ -162,13 +162,6 @@ export type EditorCoreSubmitInput =
     readonly kind: 'edit-comment'
     readonly authoredRevision: number
     readonly annotation: CoreReviewItemLocator
-    readonly text: string
-    readonly projections: readonly DocumentProjectionRequest[]
-  }>
-  | Readonly<{
-    readonly kind: 'track'
-    readonly nativeHistoryGroup?: string
-    readonly range: Readonly<{ readonly start: number; readonly end: number }>
     readonly text: string
     readonly projections: readonly DocumentProjectionRequest[]
   }>
@@ -590,8 +583,6 @@ export function createEditorCoreBinding(port: CoreModelOwner): EditorCoreBinding
                         edits: Object.freeze(
                           input.edits.map((edit) => Object.freeze({ ...edit }))
                         ),
-                        ...(input.kind === 'markup-edits' ? { markup: true as const } : {}),
-                        ...(input.kind === 'track-edits' ? { tracked: true as const } : {}),
                         ...(input.nativeHistoryGroup === undefined
                           ? {}
                           : { nativeHistoryGroup: input.nativeHistoryGroup }),
@@ -685,26 +676,13 @@ export function createEditorCoreBinding(port: CoreModelOwner): EditorCoreBinding
                                     text: input.text,
                                     projections
                                   })
-                                  : input.kind === 'track'
-                                    ? Object.freeze({
-                                      type: 'track' as const,
-                                      ...(input.nativeHistoryGroup === undefined
-                                        ? {}
-                                        : { nativeHistoryGroup: input.nativeHistoryGroup }),
-                                      session,
-                                      sequence: transactionId,
-                                      baseRevision: revision,
-                                      range: Object.freeze({ ...input.range }),
-                                      text: input.text,
-                                      projections
-                                    })
-                                    : Object.freeze({
-                                      type: input.kind,
-                                      session,
-                                      sequence: transactionId,
-                                      baseRevision: revision,
-                                      projections
-                                    })
+                                  : Object.freeze({
+                                    type: input.kind,
+                                    session,
+                                    sequence: transactionId,
+                                    baseRevision: revision,
+                                    projections
+                                  })
         const reply = port.request(request)
         if (reply.type !== 'applied' && reply.type !== 'rejected' && reply.type !== 'resource') {
           throw new Error('Core apply reply is invalid')
@@ -717,8 +695,6 @@ export function createEditorCoreBinding(port: CoreModelOwner): EditorCoreBinding
               reply.reason === 'no-change' ||
               (reply.reason === 'history-resource' &&
                 input.kind !== 'source-edits' &&
-                input.kind !== 'track' &&
-                input.kind !== 'track-edits' &&
                 input.kind !== 'input') ||
               (reply.reason === 'stale-base' &&
                 (input.kind === 'resolve' ||

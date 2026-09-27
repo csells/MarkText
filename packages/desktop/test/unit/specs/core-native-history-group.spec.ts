@@ -6,6 +6,14 @@ import {
 } from '@/documentAuthority/editorCoreBinding'
 import { createCoreDocumentSessionManager } from '@/documentAuthority/coreDocumentSessionManager'
 
+const trackedTyping = (at: number, data: string) => ({
+  range: { start: at, end: at },
+  selection: { ranges: [{ anchor: at, focus: at }], primary: 0 },
+  inputType: 'insertText',
+  data,
+  options: { autoPairBracket: true, autoPairQuote: true, autoPairMarkdownSyntax: true }
+})
+
 describe('native authoritative undo groups', () => {
   it.each([
     { lane: 'ordinary', checkpoint: false },
@@ -37,9 +45,9 @@ describe('native authoritative undo groups', () => {
               nativeHistoryGroup: 'view:1'
             }
             : {
-              kind: 'track',
-              range: { start, end: start },
-              text,
+              kind: 'input',
+              action: trackedTyping(start, text),
+              tracked: true,
               projections: [],
               nativeHistoryGroup: 'view:1'
             }
@@ -82,9 +90,9 @@ describe('native authoritative undo groups', () => {
               nativeHistoryGroup: 'view-one:1'
             }
             : {
-              kind: 'track',
-              range: { start, end: start },
-              text,
+              kind: 'input',
+              action: trackedTyping(start, text),
+              tracked: true,
               projections: [],
               nativeHistoryGroup: 'view-one:1'
             }
