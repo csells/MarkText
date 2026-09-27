@@ -132,13 +132,15 @@ describe('tracked text authoring', () => {
     const edit = core.trackedEdit(revision, { start: 6, end: 6, insert: 'x' })
     const after = inspectDocumentCore(core)
     expect(edit).toEqual({ start: 6, end: 6, insert: '{++x++}' })
-    expect(after.documentParses - before.documentParses).toBe(1)
+    // The new Addition is proved by reparsing its paragraph (plan 0012 G35).
+    expect(after.documentParses - before.documentParses).toBe(0)
     const candidateCore = createDocumentCore()
     candidateCore.open(source.slice(0, 6) + '{++x++}' + source.slice(6))
     expect(after.intrinsicSourceUnits - before.intrinsicSourceUnits)
       .toBeLessThanOrEqual(inspectDocumentCore(candidateCore).intrinsicSourceUnits)
-    expect(after.regionalInventoryBuildUnits).toBe(before.regionalInventoryBuildUnits)
-    expect(inspectDocumentCore(candidateCore).regionalInventoryBuildUnits).toBeGreaterThan(0)
+    // Inventorying the retained parse is bounded by the candidate's own work.
+    expect(after.regionalInventoryBuildUnits - before.regionalInventoryBuildUnits)
+      .toBeLessThanOrEqual(inspectDocumentCore(candidateCore).regionalInventoryBuildUnits)
     expect(after.fullProductStoresStrongCurrent).toBe(before.fullProductStoresStrongCurrent)
     expect(after.fullProductStoreReleases).toBe(before.fullProductStoreReleases)
     expect(core.project(revision, 'markup')).toBe(markup)

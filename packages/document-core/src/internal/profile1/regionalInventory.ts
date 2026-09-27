@@ -1563,6 +1563,11 @@ function editChangesBacktickPairing(source: CanonicalSourceView, edit: RetainedP
     /[`\\]/u.test(source.slice(Math.max(0, edit.start - 1), Math.min(source.length, edit.end + 1)))
 }
 
+/** Positions where a CriticMarkup marker is spelled, overlapping spellings each counted. */
+function markerSpellings(text: string): number {
+  return [...text.matchAll(/(?=\{\+\+|\{--|\{~~|\{==|\{>>|~>|\+\+\}|--\}|~~\}|==\}|<<\})/gu)].length
+}
+
 function leavesOf(root: RegionTree): RegionLeaf[] {
   const leaves: RegionLeaf[] = []
   const pending: RegionTree[] = [root]
@@ -1617,8 +1622,21 @@ function evaluateBlockWindow(
     return undefined
   }
   if (editChangesBacktickPairing(previousSource, edit)) return undefined
-  // Only a marker-free document admits new markers; skip the reparse early.
-  if (!inventory.markerFree && /[{}]/u.test(edit.insert + previousSource.slice(edit.start, edit.end))) return undefined
+  // Markers pair as one nested stack across the document, and backtick and
+  // dollar runs pair beyond their paragraphs. A window proves changed markers
+  // only where nothing outside it can reach them: in a document spelling no
+  // markers, or in one without those runs where every marker spelling is a
+  // recognized marker (an inventory's markers all pair), so no spelling
+  // elsewhere can start pairing with the window's.
+  const touchesMarkers = /[{}]/u.test(edit.insert + previousSource.slice(edit.start, edit.end))
+  const markersProvable = inventory.markerFree || touchesMarkers && (() => {
+    const previousText = previousSource.slice(0, previousSource.length)
+    if (/[`$\\]/u.test(previousText) || /[`$\\]/u.test(edit.insert)) return false
+    let recognized = 0
+    for (const leaf of leavesOf(inventory.root)) if (leaf.kind === 'region') recognized += leaf.markers.length
+    return markerSpellings(previousText) === recognized
+  })()
+  if (touchesMarkers && !markersProvable) return undefined
   const editedStartEdge = windowEdge(inventory, edit.start, 'start')
   const editedEndEdge = windowEdge(inventory, edit.end, 'end')
   if (editedStartEdge === undefined || editedEndEdge === undefined || editedEndEdge.ordinal < editedStartEdge.ordinal ||
@@ -1671,7 +1689,7 @@ function evaluateBlockWindow(
     }
     return admitBlockWindow(
       inventory, edit, delta, edited, editedEnd, first, last,
-      result, nextWindow, atDocumentEnd, previewOnly
+      result, nextWindow, atDocumentEnd, previewOnly, markersProvable
     )
   }
 }
@@ -1687,11 +1705,14 @@ function admitBlockWindow(
   result: Profile1DocumentProducts,
   nextWindow: string,
   atDocumentEnd: boolean,
-  previewOnly: boolean
+  previewOnly: boolean,
+  markersProvable: boolean
 ): RegionalInventoryApplyResult | RegionalInventoryPreviewResult | undefined {
   const facts = blockWindowFacts(result, nextWindow, inventory.recorder)
   if (facts === undefined) return undefined
-  if (!inventory.markerFree) {
+  if (markersProvable && !inventory.markerFree &&
+      markerSpellings(nextWindow) !== (result.retainedIntrinsic?.markerDecisions.length ?? 0)) return undefined
+  if (!markersProvable) {
     // Elsewhere-spelled markers keep their reading only if the window spells
     // exactly the markers it spelled before.
     const previousMarkers: MarkerCapsule[] = []
