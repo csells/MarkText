@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import type { ElectronApplication } from 'playwright'
-import { expectEditorWindowHidden, expectNoRendererErrors, launchWithMarkdown } from './helpers'
+import { clickMenuById, expectEditorWindowHidden, expectNoRendererErrors, launchWithMarkdown } from './helpers'
 import {
   authoringForms,
   clickReviewMenu,
@@ -13,6 +13,7 @@ import {
   nativeKey,
   openPaletteAt,
   paletteLabels,
+  sidebarState,
   textPoint,
   toolbarState
 } from './reviewGestures'
@@ -126,6 +127,109 @@ test('the command palette does not run a disabled review command and returns foc
     await page.keyboard.press('ArrowRight')
     await page.keyboard.type('!')
     await expect.poll(() => page.locator('.editor-component').innerText()).toContain('!')
+    await expectNoRendererErrors(app)
+  } finally {
+    await app.close()
+  }
+})
+
+test('Review commands open the sidebar only to show comments or compose one', async() => {
+  const source = 'Plain {++added++} text and {--gone--} more.\n\nSecond para here.\n'
+  const { app, page } = await launchWithMarkdown(source, { suppressErrorDialog: true, env })
+  try {
+    await clickText(page, 'Second para', 3)
+    expect((await sidebarState(page)).shown).toBe(false)
+    await nativeKey(app, 'E', ['meta', 'shift'])
+    await expect.poll(() => app.evaluate(({ Menu }) =>
+      Menu.getApplicationMenu()?.getMenuItemById('critic-track-changes')?.checked)).toBe(true)
+    await nativeKey(app, 'E', ['meta', 'shift'])
+    await nativeKey(app, ']', ['meta', 'alt'])
+    await expect.poll(() => menuStates(app, ['accept'])).toEqual({ accept: true })
+    await clickReviewMenu(app, 'original')
+    await clickReviewMenu(app, 'markup')
+    expect((await sidebarState(page)).shown).toBe(false)
+
+    await clickReviewMenu(app, 'show')
+    await expect.poll(() => sidebarState(page)).toEqual({ shown: true, active: 'Comments and Suggestions' })
+    await clickMenuById(app, 'sideBarMenuItem')
+    await expect.poll(async() => (await sidebarState(page)).shown).toBe(false)
+
+    await doubleClick(page, 'para here', 1)
+    await expect.poll(() => authoringMenu(app)).toBe(true)
+    await clickReviewMenu(app, 'add-comment')
+    await expect(page.getByTestId('critic-review-comment-input')).toBeFocused()
+    expect(await sidebarState(page)).toEqual({ shown: true, active: 'Comments and Suggestions' })
+    await page.getByTestId('critic-review-comment-cancel').click()
+    await expectNoRendererErrors(app)
+  } finally {
+    await app.close()
+  }
+})
+
+test('Next and Previous put the caret at the start of the change with focus in the document', async() => {
+  const source = 'Plain {++added++} text and {--gone--} more.\n\nSecond para here.\n'
+  const { app, page, filePath } = await launchWithMarkdown(source, { suppressErrorDialog: true, env })
+  try {
+    await clickText(page, 'Second para', 3)
+    await nativeKey(app, ']', ['meta', 'alt'])
+    await expect.poll(() => menuStates(app, ['accept'])).toEqual({ accept: true })
+    await expect.poll(() => focusInDocument(page)).toBe(true)
+    await page.keyboard.type('Q')
+    await expectSaved(app, filePath, 'Plain Q{++added++} text and {--gone--} more.\n\nSecond para here.\n')
+    await nativeKey(app, 'Z', ['meta'])
+    await expectSaved(app, filePath, source)
+
+    await clickText(page, 'Second para', 3)
+    await nativeKey(app, '[', ['meta', 'alt'])
+    await expect.poll(() => menuStates(app, ['accept'])).toEqual({ accept: true })
+    await page.keyboard.type('R')
+    await expectSaved(app, filePath, 'Plain {++added++} text and R{--gone--} more.\n\nSecond para here.\n')
+    expect((await sidebarState(page)).shown).toBe(false)
+    await expectNoRendererErrors(app)
+  } finally {
+    await app.close()
+  }
+})
+
+test('in Focus mode Next makes the change\'s block the focused block', async() => {
+  const source = 'Para one here.\n\nPara two {--del--} end.\n'
+  const { app, page } = await launchWithMarkdown(source, { suppressErrorDialog: true, env })
+  try {
+    await clickText(page, 'one here', 2)
+    await clickMenuById(app, 'focusModeMenuItem')
+    const second = page.locator('.mu-container > *').nth(1)
+    await expect(second).not.toHaveClass(/mu-active/)
+    await nativeKey(app, ']', ['meta', 'alt'])
+    await expect(second).toHaveClass(/mu-active/)
+    await expect.poll(() => second.evaluate(element => Number(getComputedStyle(element).opacity))).toBe(1)
+    await expectNoRendererErrors(app)
+  } finally {
+    await app.close()
+  }
+})
+
+test('Accept leaves the caret where it was; Reject of the change around it places it where the change was', async() => {
+  const source = 'Plain {++added++} text.\n'
+  const { app, page, filePath } = await launchWithMarkdown(source, { suppressErrorDialog: true, env })
+  try {
+    await clickText(page, 'added', 2)
+    await expect.poll(() => menuStates(app, ['accept'])).toEqual({ accept: true })
+    await clickReviewMenu(app, 'accept')
+    await expectSaved(app, filePath, 'Plain added text.\n')
+    await expect.poll(() => focusInDocument(page)).toBe(true)
+    await page.keyboard.type('Q')
+    await expectSaved(app, filePath, 'Plain adQded text.\n')
+    await nativeKey(app, 'Z', ['meta'])
+    await nativeKey(app, 'Z', ['meta'])
+    await expectSaved(app, filePath, source)
+
+    await clickText(page, 'added', 2)
+    await expect.poll(() => menuStates(app, ['reject'])).toEqual({ reject: true })
+    await clickReviewMenu(app, 'reject')
+    await expectSaved(app, filePath, 'Plain  text.\n')
+    await page.keyboard.type('Q')
+    await expectSaved(app, filePath, 'Plain Q text.\n')
+    expect((await sidebarState(page)).shown).toBe(false)
     await expectNoRendererErrors(app)
   } finally {
     await app.close()
