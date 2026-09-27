@@ -6,9 +6,9 @@ import {
   type MarkdownAstNode,
   type MarkdownOptions
 } from '@marktext/document-core'
-import { createHeadingIdAllocator } from '@muyajs/core'
+import { isAlias, isMap, isScalar, isSeq, parseDocument, type Document } from 'yaml'
 
-import type { PandocJsonNode, PandocTrackedDocument } from '@shared/types/files'
+import type { PandocDocument, PandocJsonNode } from '@shared/types/files'
 
 /**
  * Pandoc's own default for a change or comment with no author. MarkText records
@@ -18,13 +18,6 @@ export const PANDOC_NEUTRAL_AUTHOR = 'unknown'
 
 /** Pandoc writer whose output carries suggestions and comments natively. */
 export const PANDOC_TRACKED_TARGET = 'docx'
-
-export interface PandocExportInput {
-  /** The Revised (accept-all) Markdown, read with the upstream `gfm` reader. */
-  readonly markdown: string
-  /** Present for `.docx` with CriticMarkup: the Markup view as a Pandoc AST. */
-  readonly document?: PandocTrackedDocument
-}
 
 type Wrap = 'mark' | 'insertion' | 'deletion'
 // Insertion outside deletion is how Word spells text inserted and then deleted.
@@ -63,9 +56,44 @@ const textTokens = (text: string): PandocJsonNode[] =>
     .filter((part) => part !== '')
     .map((part) => (/^[ \t]+$/u.test(part) ? { t: 'Space' } : str(part)))
 
+// Containers pandoc-types' builder joins when two of the same kind meet.
+const MELDED_CONTAINERS = new Set(['Emph', 'Underline', 'Strong', 'Subscript', 'Superscript', 'Strikeout'])
+
+/**
+ * Joins neighbouring inlines exactly as pandoc-types' `Inlines` builder does,
+ * so the AST is the one pandoc's own readers would produce. Writers split runs
+ * and escape text per node, so unjoined neighbours change their output.
+ */
+const normalizeInlines = (inlines: readonly PandocJsonNode[]): PandocJsonNode[] => {
+  const joined: PandocJsonNode[] = []
+  for (const inline of inlines) {
+    const last = joined[joined.length - 1]
+    const kinds = `${last?.t ?? ''} ${inline.t}`
+    if (last === undefined) {
+      joined.push(inline)
+    } else if (kinds === 'Str Str') {
+      joined[joined.length - 1] = str(`${last.c as string}${inline.c as string}`)
+    } else if (kinds === 'Space Space' || kinds === 'SoftBreak SoftBreak') {
+      continue
+    } else if (kinds === 'Space SoftBreak' || kinds === 'SoftBreak Space') {
+      joined[joined.length - 1] = { t: 'SoftBreak' }
+    } else if (/^(Space|SoftBreak) LineBreak$|^LineBreak (Space|SoftBreak)$/u.test(kinds)) {
+      joined[joined.length - 1] = { t: 'LineBreak' }
+    } else if (last.t === inline.t && MELDED_CONTAINERS.has(inline.t)) {
+      joined[joined.length - 1] = {
+        t: inline.t,
+        c: normalizeInlines([...(last.c as PandocJsonNode[]), ...(inline.c as PandocJsonNode[])])
+      }
+    } else {
+      joined.push(inline)
+    }
+  }
+  return joined
+}
+
 const wrapSpan = (wrap: Wrap, content: PandocJsonNode[]): PandocJsonNode => ({
   t: 'Span',
-  c: [['', [wrap], wrap === 'mark' ? [] : [['author', PANDOC_NEUTRAL_AUTHOR]]], content]
+  c: [['', [wrap], wrap === 'mark' ? [] : [['author', PANDOC_NEUTRAL_AUTHOR]]], normalizeInlines(content)]
 })
 
 const wrapItems = (items: readonly Item[]): PandocJsonNode[] => {
@@ -86,7 +114,7 @@ const wrapItems = (items: readonly Item[]): PandocJsonNode[] => {
     for (const wrap of (key.split('|') as Wrap[]).reverse()) content = [wrapSpan(wrap, content)]
     inlines.push(...content)
   }
-  return inlines
+  return normalizeInlines(inlines)
 }
 
 const stringAttribute = (node: MarkdownAstNode, name: string): string => {
@@ -94,17 +122,63 @@ const stringAttribute = (node: MarkdownAstNode, name: string): string => {
   return typeof value === 'string' ? value : ''
 }
 
-const plainTextOf = (node: MarkdownAstNode): string => {
-  switch (node.kind) {
-    case 'text':
-      return stringAttribute(node, 'semanticText')
-    case 'soft-break':
-    case 'hard-break':
-      return ' '
-    case 'inline-code':
-      return stringAttribute(node, 'semanticContent')
-    default:
-      return node.children.map(plainTextOf).join('')
+// pandoc keeps a link's path as written: escapes resolved, nothing percent-encoded.
+const destinationOf = (node: MarkdownAstNode): string =>
+  stringAttribute(node, 'decodedDestination') || stringAttribute(node, 'semanticDestination')
+
+/** pandoc's `stringify`, with emoji spelled by name as its identifiers use them. */
+const identifierText = (inlines: readonly PandocJsonNode[]): string =>
+  inlines
+    .map((inline) => {
+      const content = inline.c as unknown[]
+      switch (inline.t) {
+        case 'Str':
+          return inline.c as string
+        case 'Space':
+        case 'SoftBreak':
+        case 'LineBreak':
+          return ' '
+        case 'Code':
+        case 'Math':
+          return content[1] as string
+        case 'RawInline':
+          // pandoc #2105: an HTML line break separates words.
+          return content[0] === 'html' && (content[1] as string).startsWith('<br') ? ' ' : ''
+        case 'Span': {
+          const [[, classes, pairs], children] = content as [[string, string[], string[][]], PandocJsonNode[]]
+          const emoji = classes.includes('emoji') ? pairs.find(([name]) => name === 'data-emoji') : undefined
+          return emoji?.[1] ?? identifierText(children)
+        }
+        case 'Link':
+        case 'Image':
+          return identifierText(content[1] as PandocJsonNode[])
+        case 'Note':
+          return ''
+        default:
+          return MELDED_CONTAINERS.has(inline.t) ? identifierText(inline.c as PandocJsonNode[]) : ''
+      }
+    })
+    .join('')
+
+// Haskell's `isSpace` and the characters `gfm_auto_identifiers` keeps.
+const IDENTIFIER_SPACE = /[\t\n\v\f\r\p{Zs}]/gu
+const IDENTIFIER_DROPPED = /[^\p{L}\p{N}\p{Mn}\p{Mc}\p{Me}\p{Pc}_-]/gu
+
+/**
+ * Heading identifiers as pandoc's `gfm` reader assigns them: GitHub's slug
+ * (each space a hyphen, punctuation dropped), repeated slugs numbered by how
+ * often that slug occurred before, even when the number collides.
+ */
+const createPandocIdentifierAllocator = (): ((inlines: readonly PandocJsonNode[]) => string) => {
+  const occurrences = new Map<string, number>()
+  return (inlines) => {
+    const base = identifierText(inlines)
+      .toLowerCase()
+      .replace(IDENTIFIER_SPACE, '-')
+      .replace(IDENTIFIER_DROPPED, '')
+    const seen = occurrences.get(base) ?? 0
+    occurrences.set(base, seen + 1)
+    return seen === 0 ? base : `${base}-${seen}`
   }
 }
 
@@ -117,25 +191,36 @@ const ALIGNMENTS: Readonly<Record<string, string>> = {
   right: 'AlignRight'
 }
 
+const DISPLAY_MATH_MARKERS = new Set(['$$', '\\[', '\\\\['])
+
+interface TextPiece {
+  readonly at: number
+  readonly text: string
+  readonly literal?: true
+}
+
 interface TrackingContext {
   /** The wrap key for a position in the AST's coordinate domain. */
   readonly keyAt: (position: number) => string
   /** Comment markers owed to one inline block, in emission order. */
   readonly eventsOf: (block: MarkdownAstNode) => readonly PointEvent[]
+  /** Whether a position holds protective text the parser generated. */
+  readonly isGenerated: (position: number) => boolean
 }
 
 const UNTRACKED: TrackingContext = {
   keyAt: () => '',
-  eventsOf: () => []
+  eventsOf: () => [],
+  isGenerated: () => false
 }
 
-/** Converts one parser-owned Markdown AST into Pandoc blocks, tracked or not. */
-const createAstConverter = (
-  root: MarkdownAstNode,
-  context: TrackingContext,
-  isGenerated: (position: number) => boolean
-) => {
-  const allocateHeadingId = createHeadingIdAllocator()
+/**
+ * Converts one parser-owned Markdown AST into Pandoc blocks, tracked or not.
+ * `markdown` is the projection the AST ranges index, when it has one; front
+ * matter's exact lines come from it.
+ */
+const createAstConverter = (root: MarkdownAstNode, context: TrackingContext, markdown?: string) => {
+  const allocateHeadingId = createPandocIdentifierAllocator()
   const footnotes = new Map<number, MarkdownAstNode>()
   const collectFootnotes = (node: MarkdownAstNode): void => {
     if (node.kind === 'footnote-definition') footnotes.set(node.range.start, node)
@@ -147,31 +232,30 @@ const createAstConverter = (
 
   // Pairs each code unit of a text node's semantic value with its position.
   // Normalized spellings are positioned at their segment; protective text the
-  // parser generates carries no value of its own.
-  const textPieces = (node: MarkdownAstNode): Array<{ at: number; text: string }> => {
+  // parser generates carries no value of its own. A `literal` piece is text a
+  // longer spelling such as `&#9;` stands for, which is never a word break.
+  const textPieces = (node: MarkdownAstNode): TextPiece[] => {
     const value = stringAttribute(node, 'semanticText')
-    if (node.attributes['emojiClosed'] === true) {
-      return [{ at: node.range.start, text: stringAttribute(node, 'emojiValue') || value }]
-    }
     const segments = [...(node.semanticTextSegments ?? [])].sort(
       (left, right) => left.range.start - right.range.start
     )
-    const align = (skipGenerated: boolean): Array<{ at: number; text: string }> | undefined => {
-      const pieces: Array<{ at: number; text: string }> = []
+    const align = (skipGenerated: boolean): TextPiece[] | undefined => {
+      const pieces: TextPiece[] = []
       let offset = 0
       let segment = 0
       for (let position = node.range.start; position < node.range.end;) {
         const next = segments[segment]
         if (next !== undefined && next.range.start <= position) {
           if (next.range.start === position && next.value !== '') {
-            pieces.push({ at: position, text: next.value })
+            const literal = next.range.end - next.range.start > next.value.length
+            pieces.push({ at: position, text: next.value, ...(literal ? { literal: true as const } : {}) })
           }
           offset += next.range.start === position ? next.value.length : 0
           position = Math.max(position + 1, next.range.end)
           segment += 1
           continue
         }
-        if (!(skipGenerated && isGenerated(position))) {
+        if (!(skipGenerated && context.isGenerated(position))) {
           if (offset >= value.length) return undefined
           pieces.push({ at: position, text: value[offset]! })
           offset += 1
@@ -199,13 +283,21 @@ const createAstConverter = (
       const uniform = inner.every((item) => item.event !== true && item.key === key)
       items.push(
         uniform
-          ? { inline: build(inner.map((item) => item.inline)), key }
+          ? { inline: build(normalizeInlines(inner.map((item) => item.inline))), key }
           : { inline: build(wrapItems(inner)), key: '' }
       )
     }
     for (const node of nodes) {
       switch (node.kind) {
         case 'text': {
+          const emoji = stringAttribute(node, 'emojiValue')
+          if (node.attributes['emojiClosed'] === true && emoji !== '') {
+            atom(node, {
+              t: 'Span',
+              c: [['', ['emoji'], [['data-emoji', stringAttribute(node, 'emojiAlias')]]], [str(emoji)]]
+            })
+            break
+          }
           let run = ''
           let runKey = ''
           const close = (): void => {
@@ -220,7 +312,12 @@ const createAstConverter = (
               items.push(...pending)
               runKey = key
             }
-            run += piece.text
+            if (piece.literal === true && /\s/u.test(piece.text)) {
+              close()
+              items.push({ inline: str(piece.text), key })
+            } else {
+              run += piece.text
+            }
           }
           close()
           break
@@ -235,7 +332,13 @@ const createAstConverter = (
           atom(node, { t: 'Code', c: [EMPTY_ATTR, stringAttribute(node, 'semanticContent')] })
           break
         case 'inline-math':
-          atom(node, { t: 'Math', c: [{ t: 'InlineMath' }, stringAttribute(node, 'content')] })
+          atom(node, {
+            t: 'Math',
+            c: [
+              { t: DISPLAY_MATH_MARKERS.has(stringAttribute(node, 'marker')) ? 'DisplayMath' : 'InlineMath' },
+              stringAttribute(node, 'content')
+            ]
+          })
           break
         case 'inline-html':
           atom(node, { t: 'RawInline', c: ['html', stringAttribute(node, 'content')] })
@@ -246,7 +349,7 @@ const createAstConverter = (
             c: [
               EMPTY_ATTR,
               [str(stringAttribute(node, 'rawDestination'))],
-              [stringAttribute(node, 'semanticDestination'), '']
+              [destinationOf(node), '']
             ]
           })
           break
@@ -258,13 +361,13 @@ const createAstConverter = (
             const value = stringAttribute(node, attribute!)
             return value ? [[name, value]] : []
           })
-          const alt = convertInlines(node.children, () => []).map((item) => item.inline)
+          const alt = normalizeInlines(convertInlines(node.children, () => []).map((item) => item.inline))
           atom(node, {
             t: 'Image',
             c: [
               ['', [], layout],
               alt,
-              [stringAttribute(node, 'semanticDestination'), stringAttribute(node, 'semanticTitle')]
+              [destinationOf(node), stringAttribute(node, 'semanticTitle')]
             ]
           })
           break
@@ -290,14 +393,9 @@ const createAstConverter = (
         case 'emphasis':
           container(node, (content) => ({ t: 'Emph', c: content }))
           break
+        // Nested strong stays nested, as CommonMark and pandoc's readers keep it.
         case 'strong':
-          container(
-            node,
-            (content) => ({ t: 'Strong', c: content }),
-            node.attributes['semanticFlattenStrongChildren'] === true
-              ? node.children.flatMap((child) => (child.kind === 'strong' ? child.children : [child]))
-              : node.children
-          )
+          container(node, (content) => ({ t: 'Strong', c: content }))
           break
         case 'strikethrough':
           container(node, (content) => ({ t: 'Strikeout', c: content }))
@@ -314,7 +412,7 @@ const createAstConverter = (
             c: [
               EMPTY_ATTR,
               content,
-              [stringAttribute(node, 'semanticDestination'), stringAttribute(node, 'semanticTitle')]
+              [destinationOf(node), stringAttribute(node, 'semanticTitle')]
             ]
           }))
           break
@@ -374,14 +472,11 @@ const createAstConverter = (
       }
       case 'heading': {
         const level = node.attributes['level']
+        const inlines = blockInlines(node)
         return [
           {
             t: 'Header',
-            c: [
-              typeof level === 'number' ? level : 1,
-              [allocateHeadingId(plainTextOf(node)), [], []],
-              blockInlines(node)
-            ]
+            c: [typeof level === 'number' ? level : 1, [allocateHeadingId(inlines), [], []], inlines]
           }
         ]
       }
@@ -397,7 +492,7 @@ const createAstConverter = (
             if (first !== undefined && (first.t === 'Plain' || first.t === 'Para')) {
               const content = first.c as PandocJsonNode[]
               while (content[0]?.t === 'Space') content.shift()
-              first.c = [...box, ...content]
+              first.c = normalizeInlines([...box, ...content])
             } else {
               blocks.unshift({ t: 'Plain', c: box.slice(0, 1) })
             }
@@ -406,10 +501,11 @@ const createAstConverter = (
         })
         if (node.attributes['ordered'] !== true) return [{ t: 'BulletList', c: items }]
         const start = node.attributes['start']
+        const delimiter = node.attributes['delimiter'] === ')' ? 'OneParen' : 'Period'
         return [
           {
             t: 'OrderedList',
-            c: [[typeof start === 'number' ? start : 1, { t: 'Decimal' }, { t: 'Period' }], items]
+            c: [[typeof start === 'number' ? start : 1, { t: 'Decimal' }, { t: delimiter }], items]
           }
         ]
       }
@@ -418,10 +514,15 @@ const createAstConverter = (
       case 'code-block': {
         const info = stringAttribute(node, 'semanticInfo').trim().split(/\s/u)[0] ?? ''
         const content = stringAttribute(node, 'content')
+        // pandoc keeps the last newline of a fence left open to the end of the document.
+        const unclosed =
+          node.attributes['provider'] === 'fenced-code' &&
+          node.attributes['contentEnd'] === node.range.end &&
+          node.range.end === root.range.end
         return [
           literalBlock(node, content, () => ({
             t: 'CodeBlock',
-            c: [['', info ? [info] : [], []], withoutFinalNewline(content)]
+            c: [['', info ? [info] : [], []], unclosed ? content : withoutFinalNewline(content)]
           }))
         ]
       }
@@ -436,7 +537,9 @@ const createAstConverter = (
       }
       case 'math-block': {
         const content = stringAttribute(node, 'content')
-        const math = { t: 'Math', c: [{ t: 'DisplayMath' }, content] }
+        // pandoc keeps the line breaks inside `$$`…`$$`; a ```math fence loses its last.
+        const tex = node.attributes['syntax'] === 'dollar' ? `\n${content}` : withoutFinalNewline(content)
+        const math = { t: 'Math', c: [{ t: 'DisplayMath' }, tex] }
         const start = node.attributes['contentStart']
         const key = context.keyAt(typeof start === 'number' ? start : node.range.start)
         return [{ t: 'Para', c: wrapItems([{ inline: math, key }]) }]
@@ -484,8 +587,11 @@ const createAstConverter = (
           }
         ]
       }
-      // Front matter becomes metadata; definitions render where they are used.
       case 'front-matter':
+        // Only YAML is metadata to pandoc; its `gfm` reader shows other front
+        // matter as the paragraph of lines it is.
+        return node.attributes['lang'] === 'yaml' ? [] : [literalLines(node)]
+      // Definitions render where they are used.
       case 'definition':
       case 'footnote-definition':
         return []
@@ -494,16 +600,33 @@ const createAstConverter = (
     }
   }
 
-  return { convertBlocks, blockInlines }
+  const literalLines = (node: MarkdownAstNode): PandocJsonNode => {
+    const lines = [
+      stringAttribute(node, 'opener'),
+      ...withoutFinalNewline(contentText(node) ?? stringAttribute(node, 'content')).split(/\r\n|\r|\n/u),
+      stringAttribute(node, 'closer')
+    ].filter((line) => line !== '')
+    return {
+      t: 'Para',
+      c: normalizeInlines(lines.flatMap((line, index) => [...(index > 0 ? [{ t: 'SoftBreak' }] : []), ...textTokens(line)]))
+    }
+  }
+
+  // Front matter's exact lines, which its parsed content strips of indentation.
+  const contentText = (node: MarkdownAstNode): string | undefined => {
+    const { contentStart, contentEnd } = node.attributes
+    return markdown !== undefined && typeof contentStart === 'number' && typeof contentEnd === 'number'
+      ? markdown.slice(contentStart, contentEnd)
+      : undefined
+  }
+
+  return { convertBlocks, blockInlines, contentText }
 }
 
 /** A Comment's Markdown body as the inline content Pandoc gives a comment. */
 const commentBody = (core: DocumentCore, revision: DocumentRevision, comment: CriticMarkupAnnotation): PandocJsonNode[] => {
   const projection = core.projectComment(revision, comment)
-  const blocks = createAstConverter(projection.ast.root, UNTRACKED, () => false).convertBlocks(
-    [projection.ast.root],
-    false
-  )
+  const blocks = createAstConverter(projection.ast.root, UNTRACKED).convertBlocks([projection.ast.root], false)
   const inlinesOf = (block: PandocJsonNode): PandocJsonNode[][] => {
     switch (block.t) {
       case 'Plain':
@@ -541,15 +664,12 @@ const commentMarker = (
 })
 
 /**
- * The Markup view of a document as a Pandoc AST: additions and deletions are
+ * The Markup view of a document as Pandoc blocks: additions and deletions are
  * insertion/deletion spans (Word tracked changes), a substitution is both, a
  * commented highlight is a comment over its text, a lone comment is anchored
  * where it stands, and a lone highlight is highlighted text.
  */
-export const buildTrackedPandocDocument = (
-  core: DocumentCore,
-  revision: DocumentRevision
-): PandocTrackedDocument => {
+const buildTrackedBlocks = (core: DocumentCore, revision: DocumentRevision): PandocJsonNode[] => {
   const markup = core.project(revision, 'markup')
   const { ast, coordinates } = markup.syntax
   const regions: Region[] = []
@@ -615,8 +735,6 @@ export const buildTrackedPandocDocument = (
     const origin = coordinates.originAt(position)
     return origin.kind === 'source' ? origin.sourceOffset : origin.sourcePosition
   }
-  const isGenerated = (position: number): boolean =>
-    coordinates.originAt(position).kind === 'generated'
 
   // Each comment marker belongs to the last paragraph, heading or cell that
   // starts at or before it, so a marker between blocks stays with the text it follows.
@@ -650,24 +768,17 @@ export const buildTrackedPandocDocument = (
     eventsByBlock.set(owner, list)
   }
 
-  const converter = createAstConverter(
-    ast.root,
-    {
-      keyAt: (position) => keyAtSource(sourceOf(position)),
-      eventsOf: (block) => eventsByBlock.get(block) ?? []
-    },
-    isGenerated
-  )
+  const converter = createAstConverter(ast.root, {
+    keyAt: (position) => keyAtSource(sourceOf(position)),
+    eventsOf: (block) => eventsByBlock.get(block) ?? [],
+    isGenerated: (position) => coordinates.originAt(position).kind === 'generated'
+  })
   const blocks = converter.convertBlocks([ast.root], false)
   // Markers owed to blocks that never render (an unreferenced footnote) still
   // close their comment.
   const orphans = events.filter((event) => !event.emitted).map((event) => event.inline)
   if (orphans.length > 0) blocks.push({ t: 'Para', c: orphans })
-
-  const frontMatter = ast.root.children[0]
-  return frontMatter?.kind === 'front-matter' && frontMatter.attributes['lang'] === 'yaml'
-    ? { blocks, frontMatter: stringAttribute(frontMatter, 'content') }
-    : { blocks }
+  return blocks
 }
 
 /** Looks up the wraps covering a canonical source position. */
@@ -700,20 +811,121 @@ const createRegionIndex = (regions: readonly Region[]): ((source: number) => str
   }
 }
 
+// How pandoc resolves an unquoted YAML scalar that is not text.
+const YAML_NULL = /^(?:~|null|Null|NULL|)$/u
+const YAML_TRUE = /^(?:true|True|TRUE|yes|Yes|YES|on|On|ON)$/u
+const YAML_FALSE = /^(?:false|False|FALSE|no|No|NO|off|Off|OFF)$/u
+const YAML_NUMBER = /^(?:[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+|[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?)$/u
+
 /**
- * The Pandoc input for one export. Every format reads the Revised projection
- * through the upstream `gfm` reader; `.docx` of a document with CriticMarkup
- * instead receives the Markup view as a Pandoc AST so Word shows tracked
- * changes and comments.
+ * pandoc's `blocksToInlines`, which a metadata value written on one line uses
+ * when its Markdown is more than one paragraph: blocks run on after a line
+ * break, and a heading or code block ends with one.
+ */
+const blocksToInlines = (blocks: readonly PandocJsonNode[]): PandocJsonNode[] =>
+  blocks.flatMap((block, index) => {
+    const separator = index > 0 ? [{ t: 'LineBreak' }] : []
+    const content = block.c as unknown[]
+    switch (block.t) {
+      case 'Plain':
+      case 'Para':
+        return [...separator, ...(content as PandocJsonNode[])]
+      case 'Header':
+        return [...separator, ...(content[2] as PandocJsonNode[]), { t: 'LineBreak' }]
+      case 'CodeBlock':
+        return [...separator, { t: 'Code', c: [content[0], content[1]] }, { t: 'LineBreak' }]
+      case 'RawBlock':
+        return [...separator, { t: 'RawInline', c: content }]
+      case 'BlockQuote':
+        return [...separator, ...blocksToInlines(content as PandocJsonNode[])]
+      case 'BulletList':
+        return [...separator, ...(content as PandocJsonNode[][]).flatMap(blocksToInlines)]
+      case 'OrderedList':
+        return [...separator, ...(content[1] as PandocJsonNode[][]).flatMap(blocksToInlines)]
+      default:
+        return separator
+    }
+  })
+
+/**
+ * Front matter as pandoc's metadata. pandoc reads YAML string values as
+ * Markdown; here Core reads them, with the document's own options, so the
+ * metadata means what the editor shows. Unreadable YAML is no metadata.
+ */
+const frontMatterMeta = (
+  core: DocumentCore,
+  yamlText: string,
+  options: Readonly<Partial<MarkdownOptions>>
+): Record<string, PandocJsonNode> => {
+  const yaml = parseDocument(yamlText, { schema: 'core' })
+  if (yaml.errors.length > 0 || !isMap(yaml.contents)) return {}
+
+  // Front matter is literal to Core, so CriticMarkup in a value is text: every
+  // opener Core recognizes is escaped until none is left.
+  const literalCriticMarkup = (text: string): DocumentRevision => {
+    let source = text
+    for (;;) {
+      const revision = core.open(source, options)
+      if (revision.annotations.length === 0) return revision
+      const openers = revision.annotations.map((annotation) => annotation.range.start).sort((left, right) => right - left)
+      for (const opener of openers) source = `${source.slice(0, opener)}\\${source.slice(opener)}`
+    }
+  }
+  const markdownValue = (text: string): PandocJsonNode => {
+    const revised = core.project(literalCriticMarkup(text), 'revised')
+    const blocks = createAstConverter(revised.ast.root, UNTRACKED, revised.markdown).convertBlocks([revised.ast.root], false)
+    if (text.endsWith('\n')) return { t: 'MetaBlocks', c: blocks }
+    const [only] = blocks
+    const single = blocks.length === 1 && (only?.t === 'Para' || only?.t === 'Plain')
+    return { t: 'MetaInlines', c: single ? only.c : normalizeInlines(blocksToInlines(blocks)) }
+  }
+  const value = (node: unknown, document: Document): PandocJsonNode => {
+    if (isAlias(node)) return value(node.resolve(document), document)
+    if (isMap(node)) {
+      const entries: Record<string, PandocJsonNode> = {}
+      for (const pair of node.items) {
+        const key = isScalar(pair.key) ? String(pair.key.value) : String(pair.key)
+        if (!key.endsWith('_')) entries[key] = value(pair.value, document)
+      }
+      return { t: 'MetaMap', c: entries }
+    }
+    if (isSeq(node)) return { t: 'MetaList', c: node.items.map((item) => value(item, document)) }
+    if (!isScalar(node)) return { t: 'MetaString', c: '' }
+    if (node.type === 'PLAIN') {
+      const plain = node.source ?? ''
+      if (YAML_NULL.test(plain)) return { t: 'MetaString', c: '' }
+      if (YAML_TRUE.test(plain)) return { t: 'MetaBool', c: true }
+      if (YAML_FALSE.test(plain)) return { t: 'MetaBool', c: false }
+      if (YAML_NUMBER.test(plain)) return { t: 'MetaInlines', c: [str(String(Number(plain)))] }
+    }
+    return markdownValue(String(node.value ?? ''))
+  }
+  return (value(yaml.contents, yaml) as { c: Record<string, PandocJsonNode> }).c
+}
+
+/**
+ * The Pandoc AST for one export, built from Core's parse so pandoc never reads
+ * Markdown itself. Every format carries the Revised projection; `.docx` of a
+ * document with CriticMarkup carries the Markup view instead, so Word shows
+ * tracked changes and comments. Front matter becomes metadata either way.
  */
 export const projectPandocExport = (
   source: string,
   options: Readonly<Partial<MarkdownOptions>>,
   target: string
-): PandocExportInput => {
+): PandocDocument => {
   const core = createDocumentCore()
   const revision = core.open(source, options)
-  const markdown = core.project(revision, 'revised').markdown
-  if (target !== PANDOC_TRACKED_TARGET || revision.annotations.length === 0) return { markdown }
-  return { markdown, document: buildTrackedPandocDocument(core, revision) }
+  const revised = core.project(revision, 'revised')
+  const converter = createAstConverter(revised.ast.root, UNTRACKED, revised.markdown)
+  const [frontMatter] = revised.ast.root.children
+  const yaml =
+    frontMatter?.kind === 'front-matter' && frontMatter.attributes['lang'] === 'yaml'
+      ? converter.contentText(frontMatter)
+      : undefined
+  const blocks =
+    target === PANDOC_TRACKED_TARGET && revision.annotations.length > 0
+      ? buildTrackedBlocks(core, revision)
+      : converter.convertBlocks([revised.ast.root], false)
+  return { meta: yaml === undefined ? {} : frontMatterMeta(core, yaml, options), blocks }
 }

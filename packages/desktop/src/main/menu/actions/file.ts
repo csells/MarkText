@@ -30,8 +30,6 @@ import pandoc, {
   PANDOC_EXPORT_FORMATS,
   formatLinksMedia,
   getPandocLanguage,
-  getPandocReader,
-  getReaderExtensions,
   listLinkedMedia,
   shouldMirrorMedia,
   toPandocJson
@@ -199,17 +197,7 @@ const handlePandocExport = async(e: IpcMainEvent, payload: PandocExportPayload):
     return
   }
 
-  const {
-    markdown,
-    title,
-    pathname,
-    superSubScript,
-    footnote,
-    texMathDollars,
-    texMathGfm,
-    texMathSingleBackslash,
-    texMathDoubleBackslash
-  } = payload
+  const { document, title, pathname } = payload
   // The save dialog and pandoc's link resolution both need the document's folder.
   const sourceDir = pathname ? path.dirname(pathname) : undefined
   const stem = sanitizeFilename(pathname ? path.basename(pathname, path.extname(pathname)) : title)
@@ -223,30 +211,16 @@ const handlePandocExport = async(e: IpcMainEvent, payload: PandocExportPayload):
     if (canceled || !chosen || win.isDestroyed()) return
     // What comes back is the user's answer, "replace this one" included.
     filePath = chosen
-    // The reader is built once the export is certain: naming `tex_math_gfm` needs pandoc
-    // to have answered `--list-extensions`, and a cancelled dialog should not pay for it.
-    const reader = getPandocReader(
-      {
-        superSubScript: superSubScript === true,
-        footnotes: footnote === true,
-        texMathDollars: texMathDollars === true,
-        texMathGfm: texMathGfm === true,
-        texMathSingleBackslash: texMathSingleBackslash === true,
-        texMathDoubleBackslash: texMathDoubleBackslash === true
-      },
-      await getReaderExtensions()
-    )
     // The plain-text writers keep images as links, so the pictures are mirrored along.
     const linksMedia = formatLinksMedia(format.target)
-    const media = linksMedia ? await listLinkedMedia(markdown, reader) : []
+    const media = linksMedia ? listLinkedMedia(document) : []
 
-    // A document with tracked changes arrives as a Pandoc AST; everything else is Markdown.
-    const input = payload.document ? await toPandocJson(payload.document) : markdown
+    // The renderer built the AST from Core's parse; pandoc never reads the Markdown.
+    const input = await toPandocJson(document)
     const { warnings } = await pandoc.toFile(format.target, filePath, input, {
       cwd: sourceDir,
       resourcePath: sourceDir,
       mirrorMedia: linksMedia && shouldMirrorMedia(media, sourceDir, filePath),
-      reader: payload.document ? 'json' : reader,
       // Only EPUB takes a title, for its title page; `lang` is the app's, not the spawn locale.
       metadata: {
         ...(format.target === 'epub3' ? { title: title || stem } : {}),

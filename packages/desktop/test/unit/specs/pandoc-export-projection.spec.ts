@@ -28,11 +28,8 @@ const commentEnd = (id: string): PandocJsonNode => ({
   c: [['', ['comment-end'], [['id', id]]], []]
 })
 
-const docxBlocks = (source: string, options = {}): PandocJsonNode[] => {
-  const input = projectPandocExport(source, options, 'docx')
-  if (input.document === undefined) throw new Error('docx export carries no tracked document')
-  return input.document.blocks
-}
+const docxBlocks = (source: string, options = {}): PandocJsonNode[] =>
+  projectPandocExport(source, options, 'docx').blocks
 
 describe('Pandoc export input from Core (G40)', () => {
   it('uses pandoc\'s default author for every change and comment', () => {
@@ -40,18 +37,30 @@ describe('Pandoc export input from Core (G40)', () => {
   })
 
   it.each(['odt', 'rtf', 'epub', 'latex', 'rst', 'org', 'mediawiki', 'textile'])(
-    '%s reads the Revised projection, not raw CriticMarkup',
+    '%s carries the Revised projection, not raw CriticMarkup',
     (target) => {
-      const input = projectPandocExport(ALL_FORMS, {}, target)
-      expect(input.markdown).toBe('Keep added  new marked lit end\n')
-      expect(input.document).toBeUndefined()
+      const words = 'Keep added new marked lit end'.split(' ')
+      expect(projectPandocExport(ALL_FORMS, {}, target)).toEqual({
+        meta: {},
+        blocks: [{ t: 'Para', c: words.flatMap((word, index) => (index > 0 ? [space, str(word)] : [str(word)])) }]
+      })
     }
   )
 
-  it('keeps plain Markdown exactly as written for every format, docx included', () => {
+  it('writes plain Markdown the same way for every format, docx included', () => {
     const source = '# Title\r\n\r\nSome *text* with `{code}`.\r\n'
+    const expected = {
+      meta: {},
+      blocks: [
+        { t: 'Header', c: [1, ['title', [], []], [str('Title')]] },
+        {
+          t: 'Para',
+          c: [str('Some'), space, { t: 'Emph', c: [str('text')] }, space, str('with'), space, { t: 'Code', c: [['', [], []], '{code}'] }, str('.')]
+        }
+      ]
+    }
     for (const target of ['docx', 'rst']) {
-      expect(projectPandocExport(source, {}, target)).toEqual({ markdown: source })
+      expect(projectPandocExport(source, {}, target)).toEqual(expected)
     }
   })
 
@@ -183,9 +192,10 @@ describe('Pandoc export input from Core (G40)', () => {
   })
 
   it('hands front matter over as metadata, not text', () => {
-    const input = projectPandocExport('---\ntitle: T\n---\n{++x++}\n', {}, 'docx')
-    expect(input.document?.frontMatter).toBe('title: T\n')
-    expect(input.document?.blocks).toEqual([
+    const input = projectPandocExport('---\ntitle: T{++2++}\n---\n{++x++}\n', {}, 'docx')
+    // Core keeps CriticMarkup in front matter literal, and so does the metadata.
+    expect(input.meta).toEqual({ title: { t: 'MetaInlines', c: [str('T{++2++}')] } })
+    expect(input.blocks).toEqual([
       { t: 'Para', c: [tracked('insertion', [str('x')])] }
     ])
   })

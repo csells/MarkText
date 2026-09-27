@@ -192,30 +192,23 @@ export interface PandocJsonNode {
   c?: unknown
 }
 
-/** A document built as a Pandoc AST rather than read from Markdown. */
-export interface PandocTrackedDocument {
+/**
+ * A document as the Pandoc AST MarkText builds from Core's parse. pandoc reads
+ * it with its JSON reader once the running pandoc's API version is added.
+ */
+export interface PandocDocument {
+  /** Front matter as Pandoc metadata values, keyed by field name. */
+  meta: Record<string, PandocJsonNode>
   blocks: PandocJsonNode[]
-  /** YAML front matter, which becomes the document's metadata as pandoc reads it. */
-  frontMatter?: string
 }
 
 /** Current document handed to the main process for a pandoc export. */
 export interface PandocExportPayload {
   /** One of `PANDOC_EXPORT_FORMATS[].id`. */
   target: string
-  /** The Revised projection; the input unless `document` is present. */
-  markdown: string
-  /** Replaces `markdown` as the input when the export carries tracked changes. */
-  document?: PandocTrackedDocument
+  document: PandocDocument
   /** Names the output when the tab has no path yet. */
   title: string
   /** Folder pandoc resolves the document's relative links against. */
   pathname: string
-  /** Reader preferences only the renderer knows; see `getPandocReader`. */
-  superSubScript: boolean
-  footnote: boolean
-  texMathDollars: boolean
-  texMathGfm: boolean
-  texMathSingleBackslash: boolean
-  texMathDoubleBackslash: boolean
 }

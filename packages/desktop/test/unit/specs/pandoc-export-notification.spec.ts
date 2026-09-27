@@ -3,12 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as PandocUtils from 'main_renderer/utils/pandoc'
 
 // `menu/actions/file.ts` registers on `ipcMain` at load, so the handler is driven here.
-const { handlers, showSaveDialog, fromWebContents, toFile, listLinkedMedia, sent } = vi.hoisted(
+const { handlers, showSaveDialog, fromWebContents, toFile, toPandocJson, listLinkedMedia, sent } = vi.hoisted(
   () => ({
     handlers: new Map<string, (...args: unknown[]) => unknown>(),
     showSaveDialog: vi.fn(),
     fromWebContents: vi.fn(),
     toFile: vi.fn(),
+    toPandocJson: vi.fn(),
     listLinkedMedia: vi.fn(),
     sent: [] as Array<{ channel: string, payload: Record<string, unknown> }>
   })
@@ -50,22 +51,10 @@ vi.mock('main_renderer/utils/pandoc', async(importOriginal) => {
       { id: 'epub', label: 'EPUB', target: 'epub3', extension: '.epub' },
       { id: 'rst', label: 'RST', target: 'rst', extension: '.rst' }
     ],
-    getPandocReader: actual.getPandocReader,
-    // A stand-in listing: `gfm` carries `tex_math_gfm`, `markdown` the backslash pair.
-    getReaderExtensions: async() => ({
-      gfm: new Map([
-        ['tex_math_dollars', true],
-        ['tex_math_gfm', true]
-      ]),
-      markdown: new Map([
-        ['tex_math_dollars', true],
-        ['tex_math_single_backslash', false],
-        ['tex_math_double_backslash', false]
-      ])
-    }),
     getPandocLanguage: (locale: string) => locale,
     formatLinksMedia: (target: string) => target === 'rst',
     listLinkedMedia,
+    toPandocJson,
     shouldMirrorMedia: actual.shouldMirrorMedia
   }
 })
@@ -84,15 +73,9 @@ const FAKE_WIN = {
 
 const EXPORT_PAYLOAD = {
   target: 'docx',
-  markdown: '# Notes',
+  document: { meta: {}, blocks: [{ t: 'Header', c: [1, ['notes', [], []], [{ t: 'Str', c: 'Notes' }]] }] },
   title: 'Notes',
-  pathname: '/docs/notes.md',
-  superSubScript: false,
-  footnote: false,
-  texMathDollars: true,
-  texMathGfm: false,
-  texMathSingleBackslash: false,
-  texMathDoubleBackslash: false
+  pathname: '/docs/notes.md'
 }
 
 const exportWith = async(
@@ -128,7 +111,9 @@ describe('mt::response-pandoc-export notifications', () => {
     fromWebContents.mockReset()
     toFile.mockReset()
     listLinkedMedia.mockReset()
-    listLinkedMedia.mockResolvedValue([])
+    listLinkedMedia.mockReturnValue([])
+    toPandocJson.mockReset()
+    toPandocJson.mockResolvedValue('{"blocks":[]}')
 
     showSaveDialog.mockResolvedValue({ filePath: '/out/notes.docx', canceled: false })
     fromWebContents.mockReturnValue(FAKE_WIN)
@@ -209,11 +194,11 @@ describe('mt::response-pandoc-export notifications', () => {
     await exportWith('rst')
     expect(optionsOfLastExport()).toMatchObject({ mirrorMedia: true, resourcePath: '/docs' })
 
-    listLinkedMedia.mockResolvedValue(['pics/a.png', 'https://example.com/b.png'])
+    listLinkedMedia.mockReturnValue(['pics/a.png', 'https://example.com/b.png'])
     await exportWith('rst')
     expect(optionsOfLastExport()).toMatchObject({ mirrorMedia: false })
 
-    listLinkedMedia.mockResolvedValue(['pics/a.png'])
+    listLinkedMedia.mockReturnValue(['pics/a.png'])
     await exportWith('docx')
     expect(optionsOfLastExport()).toMatchObject({ mirrorMedia: false })
   })
@@ -221,26 +206,21 @@ describe('mt::response-pandoc-export notifications', () => {
   // A never-saved document has no folder for `pics/a.png`, and a mirrored link is rewritten to
   // a file pandoc never found: the picture becomes its alt text, where the link would survive.
   it('leaves the links of a never-saved document alone, mirroring the absolute ones', async() => {
-    listLinkedMedia.mockResolvedValue(['pics/a.png'])
+    listLinkedMedia.mockReturnValue(['pics/a.png'])
     await exportWith('rst', { pathname: '' })
     expect(optionsOfLastExport()).toMatchObject({ mirrorMedia: false })
 
-    listLinkedMedia.mockResolvedValue([path.resolve('/docs/pics/a.png')])
+    listLinkedMedia.mockReturnValue([path.resolve('/docs/pics/a.png')])
     await exportWith('rst', { pathname: '' })
     expect(optionsOfLastExport()).toMatchObject({ mirrorMedia: true })
   })
 
-  // #5566: the Preferences → Markdown math toggles reach the reader the export spawns with,
-  // or a `\(…\)` document is read as escaped punctuation and stays raw LaTeX in Word.
-  it('builds the reader from the math preferences in the payload', async() => {
-    // A backslash extension moves the reader off `gfm`, which cannot name it.
-    await exportWith('rst', { texMathSingleBackslash: true })
-    expect(optionsOfLastExport().reader).toBe('markdown+tex_math_single_backslash')
-
-    // GFM math stays on the `gfm` reader.
-    toFile.mockClear()
-    await exportWith('docx', { texMathGfm: true })
-    expect(optionsOfLastExport().reader).toBe('gfm-footnotes+tex_math_gfm')
+  // pandoc reads the AST the renderer built from Core, never Markdown (G40).
+  it('converts the document the renderer built', async() => {
+    await exportWith('rst')
+    expect(toPandocJson).toHaveBeenLastCalledWith(EXPORT_PAYLOAD.document)
+    expect(listLinkedMedia).toHaveBeenLastCalledWith(EXPORT_PAYLOAD.document)
+    expect(toFile.mock.calls.at(-1)?.[2]).toBe('{"blocks":[]}')
   })
 
   // EPUB takes `title` for its title page; `lang` must be the app's, not the spawn locale.
