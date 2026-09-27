@@ -2466,7 +2466,12 @@ export function createCoreActor(
         ...(inputResult === undefined ? {} : { inputResult }),
         ...(authorPlan === undefined
           ? {}
-          : { authorResult: Object.freeze({ selection: authorPlan.selection }) }),
+          : {
+            authorResult: Object.freeze({
+              selection: authorPlan.selection,
+              escaped: authorPlan.escaped
+            })
+          }),
         ...(sourceInputPlan === undefined
           ? {}
           : { sourceInputResult: Object.freeze({ selection: sourceInputPlan.afterSelection }) }),
