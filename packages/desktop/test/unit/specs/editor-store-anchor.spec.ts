@@ -161,38 +161,14 @@ describe('useEditorStore FORMAT_LINK_CLICK (anchor links)', () => {
   })
 })
 
-// The TOC only becomes the target document's once editor.vue handles the
-// tab-activation events; `seedTocOn` stands in for that.
+// The target document's TOC arrives from its view (UPDATE_TOC) after the
+// store activates the tab; the anchor waits for it.
 describe('useEditorStore cross-file anchor links (#5292)', () => {
   const targetToc = [{ githubSlug: 'english-section', slug: 'uid-9', lvl: 2 }]
-  const seedTocOn = (event: 'file-changed' | 'file-loaded') => {
-    const store = useEditorStore()
-    const handler = () => {
-      store.listToc = targetToc
-    }
-    bus.on(event, handler)
-    return () => bus.off(event, handler)
-  }
 
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
-  })
-
-  it('scrolls to the anchor after switching to the already-open target tab', () => {
-    const store = useEditorStore()
-    store.tabs = [
-      { id: 'tab-2', pathname: '/docs/other.md', markdown: '# Other' }
-    ] as unknown as typeof store.tabs
-    store.listToc = [{ githubSlug: 'english-section', slug: 'stale', lvl: 2 }]
-    const off = seedTocOn('file-changed')
-    const emitSpy = vi.spyOn(bus, 'emit')
-
-    store.SWITCH_TAB_BY_FILEPATH('/docs/other.md', { anchor: 'english-section' })
-    off()
-
-    expect(emitSpy).toHaveBeenCalledWith('file-changed', expect.objectContaining({ id: 'tab-2' }))
-    expect(emitSpy).toHaveBeenLastCalledWith('scroll-to-header', 'uid-9')
   })
 
   it('does not scroll when the switch carries no anchor', () => {
@@ -200,11 +176,10 @@ describe('useEditorStore cross-file anchor links (#5292)', () => {
     store.tabs = [
       { id: 'tab-2', pathname: '/docs/other.md', markdown: '# Other' }
     ] as unknown as typeof store.tabs
-    const off = seedTocOn('file-changed')
     const emitSpy = vi.spyOn(bus, 'emit')
 
     store.SWITCH_TAB_BY_FILEPATH('/docs/other.md')
-    off()
+    store.UPDATE_TOC(targetToc)
 
     expect(emitSpy).not.toHaveBeenCalledWith('scroll-to-header', expect.anything())
   })
@@ -215,7 +190,6 @@ describe('useEditorStore cross-file anchor links (#5292)', () => {
     }
     w.fileUtils ??= { isSamePathSync: (a, b) => a === b }
     const store = useEditorStore()
-    const off = seedTocOn('file-loaded')
     const emitSpy = vi.spyOn(bus, 'emit')
 
     store.NEW_TAB_WITH_CONTENT({
@@ -227,7 +201,8 @@ describe('useEditorStore cross-file anchor links (#5292)', () => {
       options: { anchor: 'english-section' },
       selected: true
     })
-    off()
+    expect(emitSpy).not.toHaveBeenCalledWith('scroll-to-header', expect.anything())
+    store.UPDATE_TOC(targetToc)
 
     expect(emitSpy).toHaveBeenLastCalledWith('scroll-to-header', 'uid-9')
     expect(store.currentFile).not.toHaveProperty('anchor')

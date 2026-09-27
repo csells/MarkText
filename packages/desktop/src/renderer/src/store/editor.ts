@@ -563,20 +563,6 @@ export const useEditorStore = defineStore('editor', {
         if (this.currentFile?.id === oldId) {
           // save current state first
           this.currentFile = liveTab
-          const { id, cursor, history, scrollTop, muyaIndexCursor } = liveTab // Should not use blocks history as this is loaded from disk
-          bus.emit('file-changed', {
-            id,
-            markdown,
-            muyaIndexCursor,
-            cursor,
-            renderCursor: true,
-            history,
-            scrollTop,
-            // External disk reload: the engine handler records the new content as a
-            // single invertible undo boundary (replaceContent) instead of clearing
-            // history (setContent), so the first undo restores the pre-reload doc.
-            isReload: true
-          })
         }
         debouncedSendBufferedState()
       }
@@ -1148,8 +1134,7 @@ export const useEditorStore = defineStore('editor', {
       const oldCurrentFile = this.currentFile
       let didUpdateCurrentFile = false
       if (oldCurrentFile == null || oldCurrentFile.id !== currentFile.id) {
-        const { id, markdown, cursor, history, pathname, scrollTop, blocks, muyaIndexCursor } =
-          currentFile
+        const { pathname } = currentFile
         // Must run while `currentFile` still points at the outgoing tab, so its
         // flushed edit is attributed to that tab and not lost on switch (#2938).
         if (oldCurrentFile) {
@@ -1166,17 +1151,6 @@ export const useEditorStore = defineStore('editor', {
           this.tabs.push(currentFile)
           this.updateTabIdToIndex()
         }
-
-        bus.emit('file-changed', {
-          id,
-          markdown,
-          cursor,
-          muyaIndexCursor,
-          renderCursor: true,
-          history,
-          scrollTop,
-          blocks
-        })
       }
 
       this.UPDATE_LINE_ENDING_MENU()
@@ -1385,19 +1359,8 @@ export const useEditorStore = defineStore('editor', {
         this.currentFile = fileState
         this.selectionWordCount = null
         if (fileState && typeof fileState.markdown === 'string') {
-          const { id, markdown, cursor, history, pathname, scrollTop, blocks, muyaIndexCursor } =
-            fileState
+          const { pathname } = fileState
           window.DIRNAME = pathname ? window.path.dirname(pathname) : ''
-          bus.emit('file-changed', {
-            id,
-            markdown,
-            cursor,
-            muyaIndexCursor,
-            renderCursor: true,
-            history,
-            scrollTop,
-            blocks
-          })
         } else {
           window.DIRNAME = ''
         }
@@ -1579,19 +1542,8 @@ export const useEditorStore = defineStore('editor', {
           this.tabs[tabIndex] ?? this.tabs[tabIndex - 1] ?? this.tabs[0] ?? null
         this.selectionWordCount = null
         if (this.currentFile && typeof this.currentFile.markdown === 'string') {
-          const { id, markdown, cursor, history, pathname, scrollTop, blocks, muyaIndexCursor } =
-            this.currentFile
+          const { pathname } = this.currentFile
           window.DIRNAME = pathname ? window.path.dirname(pathname) : ''
-          bus.emit('file-changed', {
-            id,
-            markdown,
-            cursor,
-            muyaIndexCursor,
-            renderCursor: true,
-            history,
-            scrollTop,
-            blocks
-          })
         }
       }
 
@@ -1766,9 +1718,7 @@ export const useEditorStore = defineStore('editor', {
       )
 
       if (selected) {
-        const { id, markdown } = fileState
         this.UPDATE_CURRENT_FILE(fileState)
-        bus.emit('file-loaded', { id, markdown })
       } else {
         this.tabs.push(fileState)
         this.updateTabIdToIndex()
@@ -1823,7 +1773,7 @@ export const useEditorStore = defineStore('editor', {
           this.SHOW_TAB_VIEW(false)
         }
 
-        const { markdown, isMixedLineEndings } = markdownDocument
+        const { isMixedLineEndings } = markdownDocument
         const docState = createDocumentState(
           Object.assign(
             {},
@@ -1831,11 +1781,10 @@ export const useEditorStore = defineStore('editor', {
             options as Record<string, unknown>
           )
         )
-        const { id, cursor } = docState
+        const { id } = docState
 
         if (selected) {
           this.UPDATE_CURRENT_FILE(docState)
-          bus.emit('file-loaded', { id, markdown, cursor })
           if (options.anchor) this.REVEAL_ANCHOR(id, options.anchor)
         } else {
           this.tabs.push(docState)
@@ -2087,14 +2036,6 @@ export const useEditorStore = defineStore('editor', {
         (this.currentFile?.id === id ? this.currentFile : undefined)
       if (tab === undefined) return
       tab.markdown = source
-      if (this.currentFile?.id === id) {
-        bus.emit('file-changed', {
-          id,
-          markdown: source,
-          muyaIndexCursor: tab.muyaIndexCursor,
-          renderCursor: true
-        })
-      }
       debouncedSendBufferedState()
     },
 
