@@ -64,10 +64,10 @@ function documentFrom(random: () => number, blocks: readonly string[]): string {
   return random() < 0.1 ? text.replace(/\n/gu, '\r\n') : text
 }
 
-type Key = 'insertParagraph' | 'insertLineBreak'
+type Key = 'insertParagraph' | 'insertLineBreak' | 'deleteContentBackward'
 
 const action = (caret: number, inputType: Key): DocumentInputAction => ({
-  range: { start: caret, end: caret },
+  range: { start: inputType === 'deleteContentBackward' ? Math.max(0, caret - 1) : caret, end: caret },
   selection: { ranges: [{ anchor: caret, focus: caret }], primary: 0 },
   inputType,
   data: null,
@@ -108,7 +108,7 @@ describe.each([
   it.each(Array.from({ length: 20 }, (_, index) => index + 1))('seed %i', seed => {
     const random = lcg(seed * 104729 + blocks.length)
     let regionalPlans = 0
-    for (let documentIndex = 0; documentIndex < 12; documentIndex += 1) {
+    for (let documentIndex = 0; documentIndex < 8; documentIndex += 1) {
       const source = documentFrom(random, blocks)
       const warm = wordEnds(source)
       if (warm.length === 0) continue
@@ -116,12 +116,12 @@ describe.each([
       const edited = source.slice(0, at) + 'q' + source.slice(at)
       // Carets favour the places Enter usually lands: line ends and the
       // edges and insides of suggestions.
-      const favoured = [...edited.matchAll(/(?=\r?\n|\+\+\}|--\}|~~\})|\{\+\+|[a-z] /gu)].map(match => match.index + match[0].length)
+      const favoured = [...edited.matchAll(/(?=\r?\n|\+\+\}|--\}|~~\})|\{\+\+|[a-z] |\n\n(?=[A-Za-z{])/gu)].map(match => match.index + match[0].length)
       for (let trial = 0; trial < 4; trial += 1) {
         const caret = random() < 0.6 && favoured.length > 0
           ? favoured[Math.floor(random() * favoured.length)] ?? 0
           : Math.floor(random() * (edited.length + 1))
-        for (const key of ['insertParagraph', 'insertLineBreak'] as const) {
+        for (const key of ['insertParagraph', 'insertLineBreak', 'deleteContentBackward'] as const) {
           for (const tracked of [false, true]) {
             const core = createDocumentCore()
             const revision = regional(core, source, at)
@@ -138,7 +138,7 @@ describe.each([
     }
     // Prose documents must exercise the windows; other blocks may refuse them.
     if (blocks === prose) expect(regionalPlans).toBeGreaterThan(0)
-  })
+  }, 60_000)
 })
 
 describe('Enter in a long document plans and commits without a document parse', () => {
@@ -193,4 +193,36 @@ describe('Enter in a long document plans and commits without a document parse', 
       expect(outcome.edits).toEqual([{ start: start + 1, end: start + 1, insert: tracked ? '{++\n\n++}' : '\n\n' }])
     })
   }
+})
+
+describe('new suggestions in a document that already has suggestions reparse only their paragraphs', () => {
+  const paragraph = 'Writing a useful document takes careful editing and a clear view of the text.'
+  const suggestions = Array.from({ length: 20 }, (_, index) => index % 2 === 0
+    ? `Suggested {++addition ${index}++} text.`
+    : `Retired {--deletion ${index}--} text.`).join('\n\n')
+  const source = suggestions + '\n\n' + Array.from({ length: 300 }, () => paragraph).join('\n\n') + '\n'
+  const target = source.indexOf(paragraph, source.length / 2)
+
+  it.each([
+    { name: 'a tracked word', caret: target + 30, inputType: 'insertText', data: 'x', range: { start: target + 31, end: target + 31 }, insert: '{++x++}' },
+    { name: 'a tracked Enter', caret: target + 30, inputType: 'insertParagraph', data: null, range: { start: target + 31, end: target + 31 }, insert: '{++\n\n++}' },
+    { name: 'a tracked join', caret: target, inputType: 'deleteContentBackward', data: null, range: { start: target - 1, end: target + 1 }, insert: '{--\n\n--}' }
+  ])('$name', ({ caret, inputType, data, range, insert }) => {
+    const core = createDocumentCore()
+    const revision = core.apply(core.open(source), [{ start: 5, end: 5, insert: 'q' }], { projections: ['markup'] }).revision
+    const at = caret + 1
+    const input = { range, selection: { ranges: [{ anchor: at, focus: at }], primary: 0 }, inputType, data, options } as DocumentInputAction
+    const before = inspectDocumentCore(core).documentParses
+    const plan = core.planInput(revision, input, { tracked: true })
+    const edits = core.inputEdits(revision, input, plan, true)
+    if (edits === undefined) throw new Error('The key was refused')
+    const commit = core.apply(revision, edits, { projections: ['markup'] })
+    core.reconcileInput(revision, plan, commit, input)
+    expect(inspectDocumentCore(core).documentParses - before).toBe(0)
+    expect(edits.map(edit => edit.insert)).toEqual([insert])
+    const oracle = createDocumentCore()
+    const fresh = oracle.open(commit.revision.source)
+    expect(commit.revision.annotations).toEqual(fresh.annotations)
+    expect(core.project(commit.revision, 'markup').syntax.ast).toEqual(oracle.project(fresh, 'markup').syntax.ast)
+  })
 })

@@ -46,13 +46,32 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     }
   })
 
-  it.each([
-    // Marker spelling reads against the whole document (G35).
-    { label: 'new annotation', insert: '{++new++}' },
-    { label: 'new Markdown structure', insert: '\n\n# heading\n\n' },
-    { label: 'reference dependency', insert: '[new][label]' }
-  ])('uses a full parse when an ordinary edit introduces $label', ({ insert }) => {
+  // Plan 0012 G35: markers pair as one stack across the document and backtick
+  // runs pair beyond their paragraphs, so a new annotation is regional where
+  // every other marker pairs and no such run can reach it.
+  it('reparses only the paragraph an ordinary edit adds an annotation to', () => {
     const source = 'ordinary target\n\n' + suffix
+    const start = source.indexOf('target') + 2
+    const insert = '{++new++}'
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const before = inspectDocumentCore(core)
+    const result = core.apply(revision, [{ start, end: start, insert }], { projections: ['markup'] })
+    const after = inspectDocumentCore(core)
+    expect(result.change.projections[0]?.scope).toBe('regions')
+    expect(after.documentParses - before.documentParses).toBe(0)
+    const oracle = createDocumentCore()
+    const expected = oracle.open(source.slice(0, start) + insert + source.slice(start))
+    expect(result.revision.annotations).toEqual(expected.annotations)
+    expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
+  })
+
+  it.each([
+    { label: 'new annotation beside a code span', insert: '{++new++}', tail: 'A `code` span.\n' },
+    { label: 'new Markdown structure', insert: '\n\n# heading\n\n', tail: '' },
+    { label: 'reference dependency', insert: '[new][label]', tail: '' }
+  ])('uses a full parse when an ordinary edit introduces $label', ({ insert, tail }) => {
+    const source = 'ordinary target\n\n' + suffix + tail
     const start = source.indexOf('target') + 2
     const core = createDocumentCore()
     const revision = core.open(source)

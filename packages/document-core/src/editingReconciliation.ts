@@ -13,12 +13,14 @@ function ordinaryCompilationMatches(
   // the already committed product only for exactly the same compiled operation;
   // this proof neither reparses source nor publishes a second revision.
   // One ordinary insertion compiles to itself at its own position, in its own
-  // or its protected spelling; any other result is decided without its proof.
+  // or its protected spelling, and ordinary deletions insert nothing; any
+  // other result is decided without its proof.
   const insertion = inputs.length === 1 ? inputs[0] : undefined
   const compiled = applied.length === 1 ? applied[0] : undefined
   if (insertion !== undefined && insertion.start === insertion.end && insertion.insert.length > 0 &&
       (compiled === undefined || compiled.start !== insertion.start || compiled.end !== insertion.start ||
         (compiled.insert !== insertion.insert && compiled.insert !== protectNativeCriticText(insertion.insert)))) return false
+  if (inputs.every(input => input.insert.length === 0) && applied.some(edit => edit.insert.length > 0)) return false
   const mismatch = Symbol('different compilation')
   let planned: readonly DocumentSourceEdit[] | undefined
   try {

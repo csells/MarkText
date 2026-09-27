@@ -183,10 +183,11 @@ describe('structural regional edits read as a fresh open', () => {
     step(session, tail, tail + 2, '', 'join in the plain tail')
     step(session, 5, 5, '\n\n', 'split before the first suggestion')
     step(session, 5, 7, '', 'join before the first suggestion')
-    // Marker spelling reads against the whole document, so a new suggestion
-    // stays regional only in a document spelling no other markers.
+    // Markers pair as one stack across the document, so a new suggestion is
+    // regional where every other marker pairs and no backtick or dollar run
+    // can reach it.
     step(session, tail, tail, '{++new++}', 'suggestion beside others')
-    expect(session.regional).toBe(4)
+    expect(session.regional).toBe(5)
 
     const plainCore = createDocumentCore()
     const plainSource = Array.from({ length: 6 }, () => paragraph).join('\n\n') + '\n'
