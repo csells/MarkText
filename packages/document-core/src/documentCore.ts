@@ -14,8 +14,8 @@ import { isLiteralBlock } from './literalBlock.js'
 import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
-import { joinedTrackedEdit, mergedTrackedDeletion, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit } from './trackedHistoryEditing.js'
-import { deferEquivalence, projectionSignature, trackedMarkdownSignatures, trackedOperationEquivalent, trackedPreviewFacts, withDeferredEquivalence } from './trackedExtent.js'
+import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit } from './trackedHistoryEditing.js'
+import { deferEquivalence, equivalenceDeferred, projectionSignature, trackedMarkdownSignatures, trackedOperationEquivalent, trackedPreviewFacts, withDeferredEquivalence } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import {
@@ -48,6 +48,10 @@ import {
   previewRegionalContext,
   previewRegionalInventory,
   previewRegionalRange,
+  regionalInventoryDefinitions,
+  regionalInventoryRootCount,
+  regionalRangeWindow,
+  strayMarkersStayLocal,
   referenceDependencyPrefixEnd,
   type RegionalInventory,
   type RegionalInventoryRecorder
@@ -2082,6 +2086,147 @@ export function createUnboundedDocumentCoreForInspection(): DocumentCore {
   }))
 }
 
+/** Annotations read alike once each is placed at its own source offset. */
+function sameAnnotations(
+  left: readonly CriticMarkupAnnotation[],
+  leftStart: number,
+  right: readonly CriticMarkupAnnotation[],
+  rightStart: number
+): boolean {
+  const same = (a: SourceRange, b: SourceRange) => a.start + leftStart === b.start + rightStart && a.end + leftStart === b.end + rightStart
+  const sameArm = (arm: CriticMarkupArm, other: CriticMarkupArm | undefined) => other !== undefined &&
+    arm.name === other.name && same(arm.range, other.range) &&
+    sameAnnotations(arm.annotations, leftStart, other.annotations, rightStart)
+  return left.length === right.length && left.every((annotation, ordinal) => {
+    const other = right[ordinal]
+    return other !== undefined && annotation.kind === other.kind && same(annotation.range, other.range) &&
+      annotation.arms.length === other.arms.length &&
+      annotation.arms.every((arm, armOrdinal) => sameArm(arm, other.arms[armOrdinal]))
+  })
+}
+
+function sameDiagnostics(
+  left: readonly DocumentDiagnostic[],
+  leftStart: number,
+  right: readonly DocumentDiagnostic[],
+  rightStart: number
+): boolean {
+  return left.length === right.length && left.every((diagnostic, ordinal) => {
+    const other = right[ordinal]
+    return other !== undefined && diagnostic.code === other.code &&
+      diagnostic.range.start + leftStart === other.range.start + rightStart &&
+      diagnostic.range.end + leftStart === other.range.end + rightStart &&
+      JSON.stringify(diagnostic.metadata) === JSON.stringify(other.metadata)
+  })
+}
+
+/**
+ * A block's structure without its text, which the escaping of an unfinished
+ * opener elsewhere may change.
+ */
+function blockStructure(root: MarkdownAstNode): string {
+  const parts: string[] = []
+  const visit = (node: MarkdownAstNode): void => {
+    const attributes = Object.entries(node.attributes)
+      .filter(([name, value]) => !(typeof value === 'number' && /(?:Start|End)$/u.test(name)) &&
+        !(typeof value === 'string' && (node.kind === 'text' || /(?:[Tt]ext|[Cc]ontent)$/u.test(name))))
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    parts.push(`(${node.kind}${JSON.stringify(attributes)}`)
+    for (const child of node.children) visit(child)
+    parts.push(')')
+  }
+  visit(root)
+  return parts.join('')
+}
+
+/**
+ * Whether the blocks of a window document outside the run of lines between
+ * blank lines that holds the range `start`..`end` of `previous` keep their
+ * places and structure in `next`, which replaced that range and grew by
+ * `delta`, in every view: an edit whose effect leaves its blocks, as one
+ * splitting a fence, changes a block after them. 'unbounded' when a side has
+ * no such block before `limit`, unless the window reaches that edge of its
+ * document (`edges`).
+ */
+function contextBlocksKept(
+  core: DocumentCore,
+  previous: DocumentRevision,
+  next: DocumentRevision,
+  range: SourceRange,
+  delta: number,
+  limit: number,
+  edges: Readonly<{ start: boolean, end: boolean }>
+): 'kept' | 'changed' | 'unbounded' {
+  const { start, end } = range
+  // A view elides deleted text, so a block's own range can stop short of an
+  // edit to it; the blank lines around the edit bound the blocks it touches.
+  const text = core.sourceSlice(previous, { start: 0, end: limit })
+  const blank = /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/gu
+  let editedStart = 0
+  let editedEnd = limit
+  for (const match of text.matchAll(blank)) {
+    // A blank line the edit reaches no longer separates its neighbours.
+    if (match.index + match[0].length <= start) editedStart = match.index + match[0].length
+    else if (match.index >= end) {
+      editedEnd = match.index
+      break
+    }
+  }
+  const blocks = (revision: DocumentRevision, view: 'original' | 'revised' | 'markup') => {
+    const projection = core.project(revision, view)
+    const { ast, coordinates } = projection.kind === 'markup' ? projection.syntax : projection
+    return ast.root.children.map(block => ({
+      range: { start: coordinates.toSource(block.range.start, 'next'), end: coordinates.toSource(block.range.end, 'previous') },
+      structure: blockStructure(block)
+    }))
+  }
+  for (const view of ['original', 'revised', 'markup'] as const) {
+    const before = blocks(previous, view)
+    const around = (items: typeof before, shift: number) => items.filter(block =>
+      (block.range.end < editedStart || block.range.start > editedEnd + shift) && block.range.start < limit + shift)
+    const kept = around(before, 0)
+    if ((!edges.start && !kept.some(block => block.range.end < editedStart)) ||
+        (!edges.end && !kept.some(block => block.range.start > editedEnd))) return 'unbounded'
+    const after = around(blocks(next, view), delta)
+    if (after.length !== kept.length || kept.some((block, ordinal) => {
+      const other = after[ordinal]
+      const shift = block.range.start > editedEnd ? delta : 0
+      return other === undefined || other.structure !== block.structure ||
+        other.range.start !== block.range.start + shift || other.range.end !== block.range.end + shift
+    })) return 'changed'
+  }
+  return 'kept'
+}
+
+type SourceEditPreview = (previous: DocumentRevision, edits: readonly DocumentSourceEdit[]) => DocumentRevision
+
+// A core's candidate preview and native edit planner, for compiling on a
+// window core of another; a window core compiles on its own document.
+const sourceEditPreviews = new WeakMap<DocumentCore, SourceEditPreview>()
+const nativeEditPlanners = new WeakMap<DocumentCore, (
+  previous: DocumentRevision,
+  edits: readonly DocumentSourceEdit[],
+  tracked: boolean,
+  typed: boolean
+) => readonly DocumentSourceEdit[] | undefined>()
+const windowCores = new WeakSet<DocumentCore>()
+
+/** The general tracked compiler for one edit, on any core. */
+function generalTrackedEdit(
+  activeCore: DocumentCore,
+  previous: DocumentRevision,
+  edit: DocumentSourceEdit,
+  preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision
+): DocumentSourceEdit | undefined {
+  const planned = createTrackedSourceEdit(activeCore, previous, edit, preview) ??
+    createTrackedLiteralSourceEdit(activeCore, previous, edit, preview) ??
+    // A selection starting or ending between suggestions owns the ones it encloses.
+    (edit.start < edit.end ? createTrackedSourceEdit(activeCore, previous, edit, preview, false, 'structure') : undefined)
+  return planned !== undefined && edit.insert.length === 0
+    ? mergedTrackedDeletion(activeCore, previous, edit, planned, preview) ?? planned
+    : planned
+}
+
 function createDocumentCoreWithExecutionBudget(
   executionBudget: ExecutionBudgetId
 ): DocumentCore {
@@ -2571,6 +2716,7 @@ function createDocumentCoreWithExecutionBudget(
         accountingUpperBound: accountingUnitsOf(products)
       }))
       currentRevision = revision
+      previewedCandidates = undefined
       inspection.sourceRopeRootsCommitted += 1
       return revision
     } catch (error) {
@@ -2629,6 +2775,7 @@ function createDocumentCoreWithExecutionBudget(
       annotations: revisionAnnotations
     }))
     currentRevision = revision
+    previewedCandidates = undefined
     inspection.sourceRopeRootsCommitted += 1
     inspection.retainedCommittedUpdates += 1
     return revision
@@ -2687,6 +2834,7 @@ function createDocumentCoreWithExecutionBudget(
       annotations: inventoryAnnotations
     }))
     currentRevision = revision
+    previewedCandidates = undefined
     inspection.sourceRopeRootsCommitted += 1
     regionalInventoryRecorder.recordRootCommitted()
     return revision
@@ -4332,6 +4480,32 @@ function createDocumentCoreWithExecutionBudget(
     )
   }
 
+  // The candidates previewed for the current revision, newest first: planning
+  // a key may preview one edit several times, and the edit it settles on is
+  // applied next, which publishes the same parse instead of repeating it.
+  const PREVIEWED_CANDIDATES_RETAINED = 2
+  let previewedCandidates: {
+    revision: DocumentRevision
+    entries: Array<Readonly<{ key: string, source: string, products: Profile1DocumentProducts }>>
+  } | undefined
+  const candidateKey = (edits: readonly DocumentSourceEdit[]): string => JSON.stringify(edits.map(edit => [edit.start, edit.end, edit.insert]))
+  const previewedCandidate = (revision: DocumentRevision, edits: readonly DocumentSourceEdit[]) => {
+    if (previewedCandidates?.revision !== revision || revision !== currentRevision) return undefined
+    const key = candidateKey(edits)
+    return previewedCandidates.entries.find(entry => entry.key === key)
+  }
+  const rememberPreviewedCandidate = (
+    revision: DocumentRevision,
+    edits: readonly DocumentSourceEdit[],
+    source: string,
+    products: Profile1DocumentProducts
+  ): void => {
+    if (revision !== currentRevision) return
+    if (previewedCandidates?.revision !== revision) previewedCandidates = { revision, entries: [] }
+    previewedCandidates.entries.unshift(Object.freeze({ key: candidateKey(edits), source, products }))
+    previewedCandidates.entries.length = Math.min(previewedCandidates.entries.length, PREVIEWED_CANDIDATES_RETAINED)
+  }
+
   // Authoring validates the complete candidate in the acknowledged parser
   // context, but cannot publish, demote, or alter the live reuse cache. Only
   // detached facts leave this callback; candidate parser products are discarded.
@@ -4343,15 +4517,18 @@ function createDocumentCoreWithExecutionBudget(
     const state = currentStateOf(previous)
     const stableEdits = stableSourceEdits(edits)
     preflightSourceEdits(state.source.length, stableEdits)
+    const cached = previewedCandidate(previous, stableEdits)
+    if (cached !== undefined) return inspect(cached.products, cached.source)
     const source = state.source.applyExact(stableEdits, 'Authoring candidate')
       .materialize('fallback')
     const reusable = !editsMayRepairMath(state.source, { length: source.length, slice: (start: number, end: number) => source.slice(start, end) }, stableEdits, state.markdownOptions)
-    return state.productStore.withProduct(previousProducts => {
-      const retained = reusable ? previousProducts.retainedIntrinsic : undefined
-      const products = isolatedProducts(source, state.markdownOptions,
-        retained === undefined ? undefined : { retained, edits: stableEdits })
-      return inspect(products, source)
-    })
+    // A revision holding its parse lends it to the candidate's; one edited
+    // regionally is not parsed for that, as the candidate's parse is whole.
+    const retained = reusable ? state.productStore.withRetained(products => products.retainedIntrinsic) : undefined
+    const products = isolatedProducts(source, state.markdownOptions,
+      retained === undefined ? undefined : { retained, edits: stableEdits })
+    rememberPreviewedCandidate(previous, stableEdits, source, products)
+    return inspect(products, source)
   }
 
   const previewSourceEdits = (previous: DocumentRevision, edits: readonly DocumentSourceEdit[]): DocumentRevision =>
@@ -4439,7 +4616,10 @@ function createDocumentCoreWithExecutionBudget(
   }
 
   const regionalInputSyntax = (state: RevisionState, range: SourceRange): MarkupSyntax | undefined => {
-    const candidate = regionalCandidate(state, { start: range.start, end: range.start, insert: '' })
+    // A caret inside a marker's spelling splits it, which no edit window
+    // admits; the blocks around it still read as they do in place.
+    const candidate = regionalCandidate(state, { start: range.start, end: range.start, insert: '' }) ??
+      regionalReadWindow(state, range)
     if (candidate === undefined || range.end > candidate.sourceStart + candidate.nextWindow.length) return undefined
     return windowSyntax(candidate.sourceStart, candidate.nextProducts, candidate.nextWindow.length)
   }
@@ -4453,8 +4633,12 @@ function createDocumentCoreWithExecutionBudget(
     if (plansFromDocumentParse(core) || state.productStore.withRetained(() => true) === true) return undefined
     const inventory = state.regionalInventory ?? convertedRegionalInventory(state)
     if (inventory === undefined) return undefined
+    // Blocks other than paragraphs, or a caret splitting a marker's spelling,
+    // admit no edit window, yet still read in place as in the document.
     const candidate = previewRegionalContext(inventory, state.source, position, executionBudget,
-      state.markdownOptions, regionalPhysicalRecorder)
+      state.markdownOptions, regionalPhysicalRecorder) ??
+      previewRegionalRange(inventory, state.source, { start: position, end: position }, executionBudget,
+        state.markdownOptions, regionalPhysicalRecorder)
     if (candidate === undefined) return undefined
     const editing = candidate.nextProducts.editing()
     return Object.freeze({
@@ -4545,6 +4729,63 @@ function createDocumentCoreWithExecutionBudget(
   }
 
   /**
+   * Where a new Addition at `at` stands among the suggestions touching it,
+   * as the general compiler places one: beside a Highlight or a Comment
+   * (after a Comment only, for a break, which the compiler moves past a
+   * Comment it meets), or inside a Highlight's text, nested there. Any
+   * other suggestion there keeps the general compiler.
+   */
+  const newAdditionPlacement = (
+    previous: DocumentRevision,
+    at: number,
+    around: readonly CriticMarkupAnnotation[],
+    breaking: boolean
+  ): Readonly<{ beside: readonly CriticMarkupAnnotation[], host: CriticMarkupAnnotation | undefined }> | undefined => {
+    if (trackedPartsSeparate(core) || !plainParagraphAround(previous, at, breaking)) return undefined
+    // Words typed at a Highlight's text edges are nested too; a break keeps
+    // to the compiler there.
+    const host = around.find(annotation => annotation.kind === 'highlight' && annotation.arms.length === 1 &&
+      annotation.arms[0] !== undefined && annotation.arms[0].annotations.length === 0 &&
+      (breaking
+        ? annotation.arms[0].range.start < at && at < annotation.arms[0].range.end
+        : annotation.arms[0].range.start <= at && at <= annotation.arms[0].range.end))
+    const beside = around.filter(annotation => annotation !== host && (
+      annotation.range.end === at && (annotation.kind === 'highlight' || annotation.kind === 'comment') ||
+      annotation.range.start === at && (annotation.kind === 'highlight' || !breaking && annotation.kind === 'comment')))
+    // Between a Highlight and its Comment the pair would split.
+    return around.length !== beside.length + (host === undefined ? 0 : 1) || beside.length > 1
+      ? undefined
+      : { beside, host }
+  }
+
+  /**
+   * The suggestions a new Addition placed by `placement` stands among in a
+   * reparsed window: the window's roots, or the children of the Highlight
+   * hosting it, provided that the suggestions it abuts and its host are
+   * recognized unchanged around it.
+   */
+  const placedAdditionSiblings = (
+    candidate: NonNullable<ReturnType<typeof regionalCandidate>>,
+    placement: Readonly<{ beside: readonly CriticMarkupAnnotation[], host: CriticMarkupAnnotation | undefined }>,
+    planned: DocumentSourceEdit
+  ): readonly CriticMarkupNode[] | undefined => {
+    const shift = candidate.sourceStart
+    const roots = candidate.nextProducts.retainedIntrinsic?.roots ?? []
+    if (!neighboursUnchanged(roots, shift, placement.beside, planned)) return undefined
+    const host = placement.host
+    if (host === undefined) return roots
+    const grown = planned.insert.length
+    const text = host.arms[0]
+    const next = roots.find(node => node.range.start === host.range.start - shift)
+    const nextText = next?.arms[0]
+    return next?.kind === 'highlight' && next.arms.length === 1 && text !== undefined && nextText !== undefined &&
+      next.range.end === host.range.end + grown - shift && nextText.children.length === 1 &&
+      nextText.range.start === text.range.start - shift && nextText.range.end === text.range.end + grown - shift
+      ? nextText.children
+      : undefined
+  }
+
+  /**
    * Whether every suggestion in `neighbours`, which the planned edit only
    * abuts, is recognized unchanged in a reparsed window, moved by the edit
    * when it follows it.
@@ -4565,6 +4806,143 @@ function createDocumentCoreWithExecutionBudget(
    * them: right before its text they propose a replacement for it, turning
    * it into a Substitution; right after it they are an Addition of their own.
    */
+  /**
+   * Words or a break typed inside a Deletion's text, as the general compiler
+   * writes them: at its text's start typed words replace it, turning it into
+   * a Substitution; at its text's end they are an Addition after it; inside
+   * its text they split it around an Addition of their own.
+   */
+  const regionalTrackedInsideDeletion = (
+    state: RevisionState,
+    previous: DocumentRevision,
+    edit: DocumentSourceEdit
+  ): DocumentSourceEdit | undefined => {
+    const breaking = /^(?:\r\n|\r|\n)+$/u.test(edit.insert)
+    if (plansFromDocumentParse(core) || trackedPartsSeparate(core) || edit.start !== edit.end ||
+        !breaking && !/^[\p{L}\p{N}][\p{L}\p{N} ]*$/u.test(edit.insert)) return undefined
+    const at = edit.start
+    const touching = markupAnnotations(rootsAround(previous, at)).filter(annotation =>
+      annotation.range.start < at && at < annotation.range.end)
+    const owner = touching[0]
+    const text = owner?.arms[0]
+    if (touching.length !== 1 || owner?.kind !== 'deletion' || text === undefined || owner.arms.length !== 1 ||
+        text.annotations.length !== 0 || text.range.start !== owner.range.start + 3 || text.range.end !== owner.range.end - 3 ||
+        at < text.range.start || at > text.range.end || !plainParagraphAround(previous, at, breaking)) return undefined
+    // At an edge of its text, words join one's own Addition touching that
+    // edge, and any other suggestion there keeps the general compiler.
+    const touchingEdge = (edge: number): readonly CriticMarkupAnnotation[] => markupAnnotations(rootsAround(previous, edge)).filter(other =>
+      (other.range.start !== owner.range.start || other.range.end !== owner.range.end) &&
+      (other.range.end === edge || other.range.start === edge))
+    const edgeNeighbours = at === text.range.start ? touchingEdge(owner.range.start) : at === text.range.end ? touchingEdge(owner.range.end) : []
+    if (edgeNeighbours.length > 0) {
+      const draft = edgeNeighbours[0]
+      const draftText = draft?.arms[0]
+      if (breaking || edgeNeighbours.length !== 1 || draft?.kind !== 'addition' || draftText === undefined || draft.arms.length !== 1 ||
+          draftText.annotations.length !== 0 || draftText.range.start !== draft.range.start + 3 || draftText.range.end !== draft.range.end - 3 ||
+          !/^[\p{L}\p{N} .,;:'"?!()]+$/u.test(core.sourceSlice(previous, draftText.range))) return undefined
+      const target = at === text.range.start ? draftText.range.end : draftText.range.start
+      const joined = Object.freeze({ start: target, end: target, insert: edit.insert })
+      const candidate = regionalCandidate(state, joined)
+      if (candidate === undefined || (candidate.structural?.markerDelta ?? 0) !== 0) return undefined
+      const shift = candidate.sourceStart
+      const roots = candidate.nextProducts.retainedIntrinsic?.roots ?? []
+      const grown = edit.insert.length
+      return neighboursUnchanged(roots, shift, [owner], joined) && roots.some(node => node.kind === 'addition' &&
+        node.range.start === draft.range.start + (draft.range.start >= target ? grown : 0) - shift &&
+        node.range.end === draft.range.end + grown - shift)
+        ? joined
+        : undefined
+    }
+    const old = core.sourceSlice(previous, text.range)
+    if (!/^[\p{L}\p{N} .,;:'"?!()]+$/u.test(old)) return undefined
+    let planned: DocumentSourceEdit
+    let expected: ReadonlyArray<Readonly<{ kind: CriticMarkupNode['kind'], start: number, end: number }>>
+    if (at === text.range.start) {
+      if (breaking) return undefined
+      planned = { start: owner.range.start, end: owner.range.end, insert: `{~~${old}~>${edit.insert}~~}` }
+      expected = [{ kind: 'substitution', start: owner.range.start, end: owner.range.start + planned.insert.length }]
+    } else if (at === text.range.end) {
+      if (breaking) return undefined
+      planned = { start: owner.range.end, end: owner.range.end, insert: `{++${edit.insert}++}` }
+      expected = [{ kind: 'addition', start: owner.range.end, end: owner.range.end + planned.insert.length }]
+    } else {
+      planned = { start: at, end: at, insert: `--}{++${edit.insert}++}{--` }
+      const addition = at + 3
+      expected = [
+        { kind: 'deletion', start: owner.range.start, end: addition },
+        { kind: 'addition', start: addition, end: addition + edit.insert.length + 6 },
+        { kind: 'deletion', start: addition + edit.insert.length + 6, end: owner.range.end + planned.insert.length }
+      ]
+    }
+    planned = Object.freeze(planned)
+    const candidate = regionalCandidate(state, planned)
+    if (candidate?.structural === undefined) return undefined
+    const shift = candidate.sourceStart
+    const roots = candidate.nextProducts.retainedIntrinsic?.roots ?? []
+    return expected.every(({ kind, start, end }) => roots.some(node => node.kind === kind &&
+      node.range.start === start - shift && node.range.end === end - shift && node.arms.every(arm => arm.children.length === 0)))
+      ? planned
+      : undefined
+  }
+
+  /**
+   * Words or a break typed at one's own Substitution, as the general
+   * compiler writes them: a break at its edges or at its old text's start
+   * begins or ends its new text, and one inside its new text stays there;
+   * words or a break typed inside its old text split off the old text before
+   * the caret as a Deletion, followed by an Addition of their own.
+   */
+  const regionalTrackedInSubstitution = (
+    state: RevisionState,
+    previous: DocumentRevision,
+    edit: DocumentSourceEdit
+  ): DocumentSourceEdit | undefined => {
+    const breaking = /^(?:\r\n|\r|\n)+$/u.test(edit.insert)
+    if (plansFromDocumentParse(core) || trackedPartsSeparate(core) || edit.start !== edit.end ||
+        !breaking && !/^[\p{L}\p{N}][\p{L}\p{N} ]*$/u.test(edit.insert)) return undefined
+    const at = edit.start
+    const touching = markupAnnotations(rootsAround(previous, at)).filter(annotation =>
+      annotation.range.start <= at && at <= annotation.range.end)
+    const owner = touching[0]
+    const [old, proposed] = owner?.arms ?? []
+    const words = /^[\p{L}\p{N} .,;:'"?!()]+$/u
+    if (touching.length !== 1 || owner?.kind !== 'substitution' || old === undefined || proposed === undefined ||
+        owner.arms.length !== 2 || old.annotations.length !== 0 || proposed.annotations.length !== 0 ||
+        old.range.start !== owner.range.start + 3 || proposed.range.end !== owner.range.end - 3 ||
+        !words.test(core.sourceSlice(previous, old.range)) || !words.test(core.sourceSlice(previous, proposed.range)) ||
+        !plainParagraphAround(previous, at, breaking)) return undefined
+    let planned: DocumentSourceEdit
+    let expected: ReadonlyArray<Readonly<{ kind: CriticMarkupNode['kind'], start: number, end: number }>>
+    if (old.range.start < at && at < old.range.end) {
+      const struck = core.sourceSlice(previous, { start: old.range.start, end: at })
+      planned = { start: owner.range.start, end: at, insert: `{--${struck}--}{++${edit.insert}++}{~~` }
+      const addition = owner.range.start + struck.length + 6
+      expected = [
+        { kind: 'deletion', start: owner.range.start, end: addition },
+        { kind: 'addition', start: addition, end: addition + edit.insert.length + 6 },
+        { kind: 'substitution', start: addition + edit.insert.length + 6, end: owner.range.end + planned.insert.length - (at - owner.range.start) }
+      ]
+    } else if (breaking) {
+      const into = at === owner.range.start || at === old.range.start
+        ? proposed.range.start
+        : at === owner.range.end || at === proposed.range.end
+          ? proposed.range.end
+          : proposed.range.start < at && at < proposed.range.end ? at : undefined
+      if (into === undefined) return undefined
+      planned = { start: into, end: into, insert: edit.insert }
+      expected = [{ kind: 'substitution', start: owner.range.start, end: owner.range.end + edit.insert.length }]
+    } else return undefined
+    planned = Object.freeze(planned)
+    const candidate = regionalCandidate(state, planned)
+    if (candidate?.structural === undefined) return undefined
+    const shift = candidate.sourceStart
+    const roots = candidate.nextProducts.retainedIntrinsic?.roots ?? []
+    return expected.every(({ kind, start, end }) => roots.some(node => node.kind === kind &&
+      node.range.start === start - shift && node.range.end === end - shift && node.arms.every(arm => arm.children.length === 0)))
+      ? planned
+      : undefined
+  }
+
   const regionalTrackedBesideDeletion = (
     state: RevisionState,
     previous: DocumentRevision,
@@ -4617,6 +4995,116 @@ function createDocumentCoreWithExecutionBudget(
   }
 
   /**
+   * An untracked break at a suggestion, as the ordinary compiler writes it:
+   * at the suggestion's outer edge or inside its text it stays where it is
+   * typed, and at the start of its first text it moves before the
+   * suggestion. Every suggestion there is recognized again around it.
+   */
+  const regionalUntrackedBreak = (
+    state: RevisionState,
+    previous: DocumentRevision,
+    edit: DocumentSourceEdit
+  ): DocumentSourceEdit | undefined => {
+    if (plansFromDocumentParse(core) || edit.start !== edit.end || !/^(?:\r\n|\r|\n)+$/u.test(edit.insert) ||
+        !plainParagraphAround(previous, edit.start, false)) return undefined
+    const around = markupAnnotations(rootsAround(previous, edit.start)).filter(annotation =>
+      annotation.range.start <= edit.start && edit.start <= annotation.range.end)
+    if (around.length === 0 || around.length > 2) return undefined
+    let at = edit.start
+    for (const annotation of around) {
+      if (annotation.arms.some(arm => arm.annotations.length > 0)) return undefined
+      if (at === annotation.range.start || at === annotation.range.end) continue
+      const first = annotation.arms[0]
+      const last = annotation.arms.at(-1)
+      if (around.length !== 1 || first === undefined || last === undefined || annotation.arms.some(arm => arm.name === 'comment')) return undefined
+      // At its first text's start the break moves before the suggestion, at
+      // its last text's end after it; between its texts it stays.
+      if (at === first.range.start && first.range.start === annotation.range.start + 3) {
+        at = annotation.range.start
+      } else if (at === last.range.end && last.range.end === annotation.range.end - 3) {
+        at = annotation.range.end
+      } else if (!annotation.arms.some(arm => arm.range.start <= at && at <= arm.range.end)) return undefined
+    }
+    const planned = Object.freeze({ start: at, end: at, insert: edit.insert })
+    const candidate = regionalCandidate(state, planned)
+    if (candidate?.structural === undefined || candidate.structural.markerDelta !== 0) return undefined
+    const shift = candidate.sourceStart
+    const roots = candidate.nextProducts.retainedIntrinsic?.roots ?? []
+    const grown = planned.insert.length
+    return around.every(annotation => roots.some(node => node.kind === annotation.kind &&
+      node.range.start === annotation.range.start + (annotation.range.start >= at ? grown : 0) - shift &&
+      node.range.end === annotation.range.end + (annotation.range.end > at || annotation.range.start >= at ? grown : 0) - shift))
+      ? planned
+      : undefined
+  }
+
+  /**
+   * Untracked words typed, or text struck, beside suggestions that the edit
+   * only abuts stay exactly as written, as the ordinary compiler writes
+   * them; the reparsed paragraphs prove those suggestions unchanged.
+   */
+  const regionalUntrackedBeside = (
+    state: RevisionState,
+    previous: DocumentRevision,
+    edit: DocumentSourceEdit
+  ): DocumentSourceEdit | undefined => {
+    const words = /^[\p{L}\p{N} .,;:'"?!()]+$/u
+    if (plansFromDocumentParse(core) || (edit.start === edit.end
+      ? !words.test(edit.insert)
+      : edit.insert !== '' ||
+        !words.test(core.sourceSlice(previous, edit))) || !plainParagraphAround(previous, edit.start, false)) return undefined
+    const around = markupAnnotations(rootsAround(previous, edit.start)).filter(annotation =>
+      annotation.range.start <= edit.end && edit.start <= annotation.range.end)
+    if (around.length === 0 || around.some(annotation => annotation.range.end !== edit.start && annotation.range.start !== edit.end)) return undefined
+    const planned = Object.freeze({ ...edit })
+    const candidate = regionalCandidate(state, planned)
+    return candidate !== undefined && (candidate.structural?.markerDelta ?? 0) === 0 &&
+      neighboursUnchanged(candidate.nextProducts.retainedIntrinsic?.roots ?? [], candidate.sourceStart, around, planned)
+      ? planned
+      : undefined
+  }
+
+  /**
+   * An untracked Backspace or Delete of the whole text of an Addition,
+   * Deletion or Highlight removes it, as the ordinary compiler removes an
+   * emptied suggestion; the reparsed paragraphs prove nothing else changes.
+   */
+  const regionalUntrackedEmptied = (
+    state: RevisionState,
+    previous: DocumentRevision,
+    edit: DocumentSourceEdit
+  ): DocumentSourceEdit | undefined => {
+    if (plansFromDocumentParse(core) || edit.insert !== '' || edit.start >= edit.end) return undefined
+    const owner = markupAnnotations(rootsAround(previous, edit.start)).find(annotation =>
+      annotation.range.start < edit.start && edit.end < annotation.range.end)
+    // Emptying one of a Substitution's texts keeps it, with that text empty.
+    if (owner?.kind === 'substitution') {
+      const arm = owner.arms.find(item => item.range.start === edit.start && item.range.end === edit.end)
+      if (arm === undefined || owner.arms.length !== 2 || owner.arms.some(item => item.annotations.length !== 0) ||
+          !/^[\p{L}\p{N} .,;:'"?!()]+$/u.test(core.sourceSlice(previous, edit))) return undefined
+      const emptied = Object.freeze({ ...edit })
+      const candidate = regionalCandidate(state, emptied)
+      const root = candidate?.nextProducts.retainedIntrinsic?.roots.find(node => node.range.start === owner.range.start - candidate.sourceStart)
+      return candidate !== undefined && root?.kind === 'substitution' && root.arms.length === 2 &&
+        root.range.end === owner.range.end - (edit.end - edit.start) - candidate.sourceStart
+        ? emptied
+        : undefined
+    }
+    const text = owner?.arms[0]
+    if (owner === undefined || text === undefined || owner.arms.length !== 1 || text.annotations.length !== 0 ||
+        !['addition', 'deletion', 'highlight'].includes(owner.kind) ||
+        text.range.start !== edit.start || text.range.end !== edit.end ||
+        text.range.start !== owner.range.start + 3 || text.range.end !== owner.range.end - 3 ||
+        !/^[\p{L}\p{N} .,;:'"?!()]+$/u.test(core.sourceSlice(previous, edit))) return undefined
+    const abutting = markupAnnotations(rootsAround(previous, owner.range.start)).filter(annotation => annotation !== owner &&
+      (annotation.range.end === owner.range.start || annotation.range.start === owner.range.end))
+    if (abutting.length > 0) return undefined
+    const removal = Object.freeze({ start: owner.range.start, end: owner.range.end, insert: '' })
+    const candidate = regionalCandidate(state, removal)
+    return candidate?.structural !== undefined && candidate.structural.markerDelta === -2 ? removal : undefined
+  }
+
+  /**
    * Plain words typed away from every suggestion become one Addition. Its
    * source accepts to the untracked text and rejects to the previous text;
    * the general planner's whole-document preview only proves the Addition
@@ -4629,18 +5117,24 @@ function createDocumentCoreWithExecutionBudget(
     edit: DocumentSourceEdit
   ): DocumentSourceEdit | undefined => {
     if (edit.start !== edit.end || !/^[\p{L}\p{N}][\p{L}\p{N} ]*$/u.test(edit.insert)) return undefined
-    if (markupAnnotations(rootsAround(previous, edit.start)).some(annotation =>
-      annotation.range.start <= edit.start && edit.start <= annotation.range.end)) return undefined
+    const around = markupAnnotations(rootsAround(previous, edit.start)).filter(annotation =>
+      annotation.range.start <= edit.start && edit.start <= annotation.range.end)
+    // Beside a Highlight or Comment, or inside a Highlight's text, words
+    // typed are an Addition of their own, as away from every suggestion.
+    const placement = around.length === 0 ? { beside: [], host: undefined } : newAdditionPlacement(previous, edit.start, around, false)
+    if (placement === undefined) return undefined
     const insert = `{++${edit.insert}++}`
-    const candidate = regionalCandidate(state, { start: edit.start, end: edit.start, insert })
+    const planned = Object.freeze({ start: edit.start, end: edit.start, insert })
+    const candidate = regionalCandidate(state, planned)
     if (
-      candidate?.structural === undefined || candidate.structural.touchesAnnotation ||
+      candidate?.structural === undefined || (around.length === 0 && candidate.structural.touchesAnnotation) ||
       candidate.structural.markerDelta !== 2
     ) {
       return undefined
     }
     const local = edit.start - candidate.sourceStart
-    const root = candidate.nextProducts.retainedIntrinsic?.roots.find(node => node.range.start === local)
+    const siblings = placedAdditionSiblings(candidate, placement, planned)
+    const root = siblings?.find(node => node.range.start === local)
     const arm = root?.arms[0]
     return root?.kind === 'addition' && root.range.end === local + insert.length && arm !== undefined &&
       arm.children.length === 0 && arm.range.start === local + 3 && arm.range.end === local + 3 + edit.insert.length
@@ -4682,10 +5176,16 @@ function createDocumentCoreWithExecutionBudget(
   ): DocumentSourceEdit | undefined => {
     if (plansFromDocumentParse(core) || edit.start !== edit.end || !/^[\p{L}\p{N}][\p{L}\p{N} ]*$/u.test(edit.insert)) return undefined
     const at = edit.start
-    const touching = markupAnnotations(rootsAround(previous, at)).filter(annotation =>
+    const around = markupAnnotations(rootsAround(previous, at)).filter(annotation =>
       annotation.range.start <= at && at <= annotation.range.end)
+    // A Deletion on the other side of the caret stays as it is.
+    const besideDeletion = around.length === 2
+      ? around.filter(annotation => annotation.kind === 'deletion' && (annotation.range.end === at || annotation.range.start === at))
+      : []
+    const touching = around.filter(annotation => !besideDeletion.includes(annotation))
     const owner = touching[0]
-    if (touching.length !== 1 || owner === undefined || !plainParagraphAround(previous, at, false)) return undefined
+    if (touching.length !== 1 || owner === undefined || !plainParagraphAround(previous, at, false) ||
+        besideDeletion.length > 0 && owner.range.start !== at && owner.range.end !== at) return undefined
     const text = owner.arms.find(arm => arm.name === (owner.kind === 'addition' ? 'content' : 'new'))
     const history = owner.kind === 'substitution' ? owner.arms.find(arm => arm.name === 'old') : undefined
     if ((owner.kind !== 'addition' && owner.kind !== 'substitution') || text === undefined || text.range.start === text.range.end ||
@@ -4707,8 +5207,10 @@ function createDocumentCoreWithExecutionBudget(
     if (candidate === undefined || (candidate.structural?.markerDelta ?? 0) !== 0) return undefined
     const shift = candidate.sourceStart
     const grown = edit.insert.length
-    const root = candidate.nextProducts.retainedIntrinsic?.roots.find(node => node.range.start === owner.range.start - shift)
-    if (root?.kind !== owner.kind || root.range.end !== owner.range.end + grown - shift || root.arms.length !== owner.arms.length) return undefined
+    const roots = candidate.nextProducts.retainedIntrinsic?.roots ?? []
+    const root = roots.find(node => node.range.start === owner.range.start - shift)
+    if (root?.kind !== owner.kind || root.range.end !== owner.range.end + grown - shift || root.arms.length !== owner.arms.length ||
+        !neighboursUnchanged(roots, shift, besideDeletion, planned)) return undefined
     return owner.arms.every((arm, index) => {
       const next = root.arms[index]
       const start = arm.range.start + (arm !== text && arm.range.start >= target ? grown : 0)
@@ -4736,19 +5238,38 @@ function createDocumentCoreWithExecutionBudget(
     if (plansFromDocumentParse(core) || edit.start !== edit.end || !/^(?:\r\n|\r|\n)+$/u.test(edit.insert)) return undefined
     const around = markupAnnotations(rootsAround(previous, edit.start)).filter(annotation =>
       annotation.range.start <= edit.start && edit.start <= annotation.range.end)
+    // A break at a Highlight's text start is an Addition before it.
+    const opened = around.length === 1 && around[0]?.kind === 'highlight' && around[0].range.start < edit.start &&
+      around[0].arms[0]?.range.start === edit.start
+      ? around[0]
+      : undefined
+    if (opened !== undefined) {
+      return regionalTrackedBreak(state, previous, Object.freeze({ ...edit, start: opened.range.start, end: opened.range.start }))
+    }
     // A break beside a Deletion is an Addition of its own, as away from
     // every suggestion.
-    const beside = around.filter(annotation => annotation.kind === 'deletion' &&
+    const besideDeletions = around.filter(annotation => annotation.kind === 'deletion' &&
       (annotation.range.end === edit.start || annotation.range.start === edit.start))
-    const touching = around.filter(annotation => !beside.includes(annotation))
+    const rest = around.filter(annotation => !besideDeletions.includes(annotation))
+    // So is one beside a Highlight or after a Comment, or inside a
+    // Highlight's text, where it is nested.
+    const placement = rest.length > 0 && rest.every(annotation => annotation.kind === 'highlight' || annotation.kind === 'comment')
+      ? newAdditionPlacement(previous, edit.start, rest, true)
+      : undefined
+    const beside = [...besideDeletions, ...(placement?.beside ?? [])]
+    const touching = around.filter(annotation => !beside.includes(annotation) && annotation !== placement?.host)
     const owner = touching[0]
-    if (touching.length > 1 || owner !== undefined && (owner.kind !== 'addition' || owner.range.start === edit.start)) return undefined
+    if (touching.length > 1 || owner !== undefined && owner.kind !== 'addition') return undefined
     const arm = owner?.arms[0]
     let at = edit.start
     if (owner !== undefined) {
       if (arm === undefined || owner.arms.length !== 1 || arm.annotations.length !== 0 ||
           core.sourceSlice(previous, arm.range).includes('\\')) return undefined
-      if (at === owner.range.end) {
+      // Enter before the opener begins the Addition's text.
+      if (at === owner.range.start) {
+        if (arm.range.start !== owner.range.start + 3 || arm.range.start === arm.range.end) return undefined
+        at = arm.range.start
+      } else if (at === owner.range.end) {
         // Enter after the closer continues the Addition only where its text
         // reaches the closer, as exterior typing does.
         const syntax = regionalInputSyntax(state, { start: arm.range.end, end: arm.range.end })
@@ -4777,10 +5298,10 @@ function createDocumentCoreWithExecutionBudget(
     const shift = candidate.sourceStart
     const roots = candidate.nextProducts.retainedIntrinsic?.roots ?? []
     if (owner === undefined) {
-      if ((beside.length === 0 && candidate.structural.touchesAnnotation) || candidate.structural.markerDelta !== 2 ||
-          !neighboursUnchanged(roots, shift, beside, planned)) return undefined
+      if ((around.length === 0 && candidate.structural.touchesAnnotation) || candidate.structural.markerDelta !== 2) return undefined
+      const siblings = placedAdditionSiblings(candidate, { beside, host: placement?.host }, planned)
       const local = at - shift
-      const root = roots.find(node => node.range.start === local)
+      const root = siblings?.find(node => node.range.start === local)
       const content = root?.arms[0]
       return root?.kind === 'addition' && root.arms.length === 1 && root.range.end === local + planned.insert.length &&
         content !== undefined && content.children.length === 0 &&
@@ -4837,6 +5358,78 @@ function createDocumentCoreWithExecutionBudget(
    * as the general compiler merges them. The window proves the result is
    * recognized as written and changes no other suggestion.
    */
+  /**
+   * Text struck between two suggestions, as the general compiler merges it:
+   * into a Deletion before it, a Deletion or Substitution after it, or both
+   * at once, and otherwise as a Deletion of its own beside them. The window
+   * proves the merged suggestion is recognized with the struck text in its
+   * deleted text, and that a suggestion it does not merge with is unchanged.
+   */
+  const regionalTrackedDeletionBetween = (
+    state: RevisionState,
+    previous: DocumentRevision,
+    edit: DocumentSourceEdit,
+    removed: string,
+    touching: readonly CriticMarkupAnnotation[]
+  ): DocumentSourceEdit | undefined => {
+    if (trackedPartsSeparate(core)) return undefined
+    const left = touching.find(annotation => annotation.range.end === edit.start && annotation.range.start < edit.start)
+    const right = touching.find(annotation => annotation.range.start === edit.end && annotation.range.end > edit.end)
+    if (left === undefined || right === undefined || left === right) return undefined
+    const words = /^[\p{L}\p{N} .,;:'"?!()]*$/u
+    const deleted = (annotation: CriticMarkupAnnotation, kinds: readonly string[]) => {
+      if (!kinds.includes(annotation.kind)) return undefined
+      const arm = annotation.arms[0]
+      const arms = annotation.kind === 'substitution' ? 2 : 1
+      return arm !== undefined && annotation.arms.length === arms && annotation.arms.every(item => item.annotations.length === 0) &&
+        arm.range.start === annotation.range.start + 3 && (arms === 2 || arm.range.end === annotation.range.end - 3) &&
+        words.test(core.sourceSlice(previous, arm.range))
+        ? arm
+        : undefined
+    }
+    const leftText = deleted(left, ['deletion'])
+    const rightText = deleted(right, ['deletion', 'substitution'])
+    if (left.kind === 'deletion' && leftText === undefined || (right.kind === 'deletion' || right.kind === 'substitution') && rightText === undefined) return undefined
+    const leftStruck = leftText === undefined ? '' : core.sourceSlice(previous, leftText.range)
+    let planned: DocumentSourceEdit
+    let merged: Readonly<{ kind: CriticMarkupAnnotation['kind'], start: number, end: number, text: string }>
+    const unchanged: CriticMarkupAnnotation[] = []
+    if (leftText !== undefined && rightText !== undefined) {
+      const rightStruck = core.sourceSlice(previous, rightText.range)
+      planned = right.kind === 'deletion'
+        ? { start: leftText.range.end, end: rightText.range.start, insert: removed }
+        : { start: left.range.start, end: rightText.range.start, insert: `{~~${leftStruck}${removed}` }
+      merged = { kind: right.kind, start: left.range.start, end: right.range.end, text: leftStruck + removed + rightStruck }
+    } else if (leftText !== undefined) {
+      planned = { start: leftText.range.end, end: edit.end, insert: `${removed}--}` }
+      merged = { kind: 'deletion', start: left.range.start, end: edit.end, text: leftStruck + removed }
+      unchanged.push(right)
+    } else if (rightText !== undefined) {
+      planned = { start: edit.start, end: rightText.range.start, insert: `${right.kind === 'substitution' ? '{~~' : '{--'}${removed}` }
+      merged = { kind: right.kind, start: edit.start, end: right.range.end, text: removed + core.sourceSlice(previous, rightText.range) }
+      unchanged.push(left)
+    } else {
+      planned = { start: edit.start, end: edit.end, insert: `{--${removed}--}` }
+      merged = { kind: 'deletion', start: edit.start, end: edit.end, text: removed }
+      unchanged.push(left, right)
+    }
+    planned = Object.freeze(planned)
+    const shift = planned.insert.length - (planned.end - planned.start)
+    const candidate = regionalCandidate(state, planned)
+    if (candidate?.structural === undefined) return undefined
+    const local = candidate.sourceStart
+    const roots = candidate.nextProducts.retainedIntrinsic?.roots ?? []
+    if (!neighboursUnchanged(roots, local, unchanged, planned)) return undefined
+    const root = roots.find(node => node.range.start === merged.start - local)
+    const text = root?.arms[0]
+    return root?.kind === merged.kind && root.range.end === merged.end + shift - local && text !== undefined &&
+      root.arms.every(arm => arm.children.length === 0) &&
+      candidate.nextWindow.slice(text.range.start, text.range.end) === merged.text &&
+      (merged.kind !== 'substitution' || root.arms.length === 2)
+      ? planned
+      : undefined
+  }
+
   const regionalTrackedDeletion = (
     state: RevisionState,
     previous: DocumentRevision,
@@ -4848,6 +5441,7 @@ function createDocumentCoreWithExecutionBudget(
         !plainParagraphAround(previous, edit.start, false)) return undefined
     const touching = markupAnnotations(rootsAround(previous, edit.start)).filter(annotation =>
       annotation.range.start <= edit.end && edit.start <= annotation.range.end)
+    if (touching.length === 2) return regionalTrackedDeletionBetween(state, previous, edit, removed, touching)
     if (touching.length > 1) return undefined
     // Parts of one edit keep to the general compiler, which keeps them apart.
     if (trackedPartsSeparate(core) && touching[0] !== undefined && touching[0].kind !== 'deletion') return undefined
@@ -4872,6 +5466,23 @@ function createDocumentCoreWithExecutionBudget(
       return candidate?.structural !== undefined && candidate.structural.markerDelta === -2 &&
         neighboursUnchanged(candidate.nextProducts.retainedIntrinsic?.roots ?? [], candidate.sourceStart, abutting, removal)
         ? removal
+        : undefined
+    }
+    // Striking the whole of one's own Substitution's new text leaves its old
+    // text as a Deletion.
+    const proposal = owner?.kind === 'substitution' ? owner.arms[1] : undefined
+    if (owner !== undefined && proposal !== undefined && proposal.range.start === edit.start && proposal.range.end === edit.end) {
+      const old = owner.arms[0]
+      if (old === undefined || owner.arms.length !== 2 || old.annotations.length !== 0 || proposal.annotations.length !== 0 ||
+          old.range.start !== owner.range.start + 3 || proposal.range.end !== owner.range.end - 3) return undefined
+      const struck = core.sourceSlice(previous, old.range)
+      if (!/^[\p{L}\p{N} .,;:'"?!()]+$/u.test(struck)) return undefined
+      const withdrawn = Object.freeze({ start: owner.range.start, end: owner.range.end, insert: `{--${struck}--}` })
+      const candidate = regionalCandidate(state, withdrawn)
+      const root = candidate?.nextProducts.retainedIntrinsic?.roots.find(node => node.range.start === owner.range.start - candidate.sourceStart)
+      return candidate?.structural !== undefined && root?.kind === 'deletion' &&
+        root.range.end === owner.range.start + withdrawn.insert.length - candidate.sourceStart
+        ? withdrawn
         : undefined
     }
     // Text struck right before a Substitution joins its old text.
@@ -4963,7 +5574,7 @@ function createDocumentCoreWithExecutionBudget(
     const text = before.slice(opening === undefined ? 0 : opening.index + opening[0].length) +
       after.slice(0, closing < 0 ? after.length : closing)
     return /^[\p{L}\p{N} \t\r\n.,;:'"?!()]*$/u.test(text.replace(/\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\}/gu, '')) &&
-      (!breaking || /^(?:\+\+\}|\{--[^{}\r\n]*--\})?[ \t]*(?:\p{L}|\r|\n|$)/u.test(after))
+      (!breaking || /^[ \t]*(?:\+\+\}|~~\})?(?:\{(?:\+\+|--|==)\p{L}[^{}\r\n]*(?:\+\+|--|==)\}|\{~~\p{L}[^{}\r\n]*~~\}|\{>>[^{}\r\n]*<<\})*[ \t]*(?:\p{L}|[.,;:'"?!()]|\r|\n|$)/u.test(after))
   }
 
   const resolutionEdit = (
@@ -5033,6 +5644,220 @@ function createDocumentCoreWithExecutionBudget(
     })
   }
 
+  /**
+   * The blocks around `reach` with a block of context on each side, cut from
+   * the revision's inventory, or at the safe points of the parse it holds.
+   * `inPlace` is their parse in place when it proves they read there as in
+   * the document; `roots` counts the document's root annotations,
+   * `definitions` are its reference and footnote definitions when known, and
+   * `strayLocal` tells whether replacing the window keeps every marker
+   * reading outside it (see strayMarkersStayLocal()).
+   */
+  const windowFrame = (state: RevisionState, reach: SourceRange): Readonly<{
+    sourceStart: number
+    window: string
+    inPlace?: Profile1DocumentProducts
+    roots: number
+    definitions: readonly SourceRange[] | undefined
+    strayLocal: (nextWindow: string, nextRoots: number, nextUnfinished: boolean, escapingSeen: boolean) => boolean
+  }> | undefined => {
+    const inventory = state.regionalInventory ?? convertedRegionalInventory(state)
+    if (inventory !== undefined) {
+      const context = regionalRangeWindow(inventory, state.source, reach, executionBudget,
+        state.markdownOptions, regionalPhysicalRecorder)
+      if (context === undefined) return undefined
+      const start = context.sourceStart
+      const end = start + context.nextWindow.length
+      return Object.freeze({
+        sourceStart: start,
+        window: context.nextWindow,
+        ...(context.validated ? { inPlace: context.nextProducts } : {}),
+        roots: regionalInventoryRootCount(inventory),
+        definitions: regionalInventoryDefinitions(inventory),
+        strayLocal: (nextWindow: string, nextRoots: number, nextUnfinished: boolean, escapingSeen: boolean) =>
+          strayMarkersStayLocal(inventory, state.source, start, end, nextWindow, nextRoots, nextUnfinished, escapingSeen)
+      })
+    }
+    return state.productStore.withRetained(products => {
+      const retained = products.retainedIntrinsic
+      // Without an inventory nothing proves stray markers stay local.
+      if (retained === undefined || products.diagnostics.count !== 0) return undefined
+      const points = [0, ...retained.safePoints, state.source.length]
+      let first = 0
+      while (first + 1 < points.length && (points[first + 1] ?? Infinity) <= reach.start) first += 1
+      let last = points.length - 1
+      while (last > 0 && (points[last - 1] ?? -Infinity) >= reach.end) last -= 1
+      const start = points[Math.max(0, first - 1)] ?? 0
+      const end = points[Math.min(points.length - 1, last + 1)] ?? state.source.length
+      return Object.freeze({
+        sourceStart: start,
+        window: state.source.slice(start, end),
+        roots: products.criticMarkup.rootCount,
+        definitions: referenceDependencyPrefixEnd(products) === 0 ? Object.freeze([]) : undefined,
+        strayLocal: () => true
+      })
+    })
+  }
+
+  /**
+   * The general compiler run on the blocks around an edit, with a block of
+   * context on each side, instead of on the whole document, so a key the
+   * regional planners do not know costs at most the parse apply() needs.
+   * The window must read as a document as its blocks read in place. Its
+   * result then reads back in place: parsed regionally as apply() would, or,
+   * when no region admits it but the blocks around it keep their structure
+   * in the window, in one document preview that apply() reuses; either must
+   * hold the suggestions and diagnostics the window compile produced and
+   * leave every other one as it was. Undefined when that cannot
+   * be shown, which leaves the key to the document compile; `edits` is
+   * undefined when the compiler refuses the edit in a window whose blocks
+   * are proven to read as in the document.
+   */
+  const windowedGeneralEdits = (
+    state: RevisionState,
+    previous: DocumentRevision,
+    edits: readonly DocumentSourceEdit[],
+    compile: (
+      windowCore: DocumentCore,
+      revision: DocumentRevision,
+      edits: readonly DocumentSourceEdit[],
+      preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision
+    ) => readonly DocumentSourceEdit[] | undefined,
+    reach?: SourceRange,
+    widenings = 0
+  ): { readonly edits: readonly DocumentSourceEdit[] | undefined } | undefined => {
+    const firstEdit = edits[0]
+    const lastEdit = edits.at(-1)
+    if (plansFromDocumentParse(core) || windowCores.has(core) || firstEdit === undefined || lastEdit === undefined) return undefined
+    const span = { start: firstEdit.start, end: lastEdit.end }
+    const context = windowFrame(state, reach ?? span)
+    if (context === undefined) return undefined
+    const { sourceStart, window, definitions } = context
+    const windowEnd = sourceStart + window.length
+    // A label resolves against definitions anywhere in the document, so the
+    // window document ends with the document's own; one the edit writes
+    // could reach labels outside the window.
+    const inserted = edits.map(edit => edit.insert).join('\n')
+    if (/(?:^|[\r\n])[ \t]{0,3}\[[^\]\r\n]*\]:|\[\^/u.test(inserted)) return undefined
+    const open = window.indexOf('[')
+    const labels = (open !== -1 && window.indexOf(']', open + 1) !== -1) || /[[\]]/u.test(inserted)
+    let windowSource = window
+    if (labels && definitions?.length !== 0) {
+      if (definitions === undefined ||
+          definitions.some(definition => definition.start < windowEnd && definition.end > sourceStart)) return undefined
+      windowSource += (/(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)$/u.test(window) ? '' : /[\r\n]$/u.test(window) ? '\n' : '\n\n') +
+        definitions.map(definition => state.source.slice(definition.start, definition.end)).join('\n\n') + '\n'
+    }
+    if (span.start < sourceStart || span.end > windowEnd) return undefined
+    const windowCore = createDocumentCoreWithExecutionBudget(executionBudget)
+    windowCores.add(windowCore)
+    if (equivalenceDeferred(core)) deferEquivalence(windowCore)
+    const { schema: _schema, ...options } = state.markdownOptions
+    const opened = windowCore.open(windowSource, sourceStart === 0 ? options : { ...options, frontMatter: false })
+    const within = <T extends { range: SourceRange }>(items: readonly T[], start: number, end: number): T[] =>
+      items.filter(item => item.range.start >= start && item.range.end <= end)
+    const straddling = (items: readonly { range: SourceRange }[], start: number, end: number): boolean =>
+      items.some(item => item.range.start < end && item.range.end > start && (item.range.start < start || item.range.end > end))
+    if (context.inPlace !== undefined) {
+      if (!sameAnnotations(opened.annotations, 0, windowAnnotationsOf(context.inPlace).annotations, 0) ||
+          !sameDiagnostics(opened.diagnostics, 0, diagnosticsOf(context.inPlace), 0)) return undefined
+    } else {
+      const roots = rootsOverlapping(previous, { start: sourceStart, end: windowEnd })
+      const diagnostics = previous.diagnostics
+      if (straddling(roots, sourceStart, windowEnd) || straddling(diagnostics, sourceStart, windowEnd) ||
+          !sameAnnotations(opened.annotations, sourceStart, within(roots, sourceStart, windowEnd), 0) ||
+          !sameDiagnostics(opened.diagnostics, sourceStart, within(diagnostics, sourceStart, windowEnd), 0)) return undefined
+    }
+    // An unfinished opener is escaped in the views of a document with
+    // annotations, so the window's own must have them exactly when the
+    // document does, whatever a candidate adds or removes.
+    if (opened.diagnostics.some(diagnostic => diagnostic.code === 'CM_UNTERMINATED_OPENER') &&
+        opened.annotations.length !== context.roots) return undefined
+    const windowPreview = sourceEditPreviews.get(windowCore)
+    if (windowPreview === undefined) return undefined
+    const local = Object.freeze(edits.map(edit => Object.freeze({
+      start: edit.start - sourceStart, end: edit.end - sourceStart, insert: edit.insert
+    })))
+    const run = () => compile(windowCore, opened, local, candidate => windowPreview(opened, candidate))
+    const compiled = trackedPartsSeparate(core) ? separateTrackedParts(windowCore, run) : run()
+    if (compiled === undefined) return context.inPlace !== undefined ? { edits: undefined } : undefined
+    if (compiled.length === 0) return { edits: Object.freeze([]) }
+    if (compiled.some(part => part.end > window.length)) return undefined
+    const planned = Object.freeze(compiled.map(part => Object.freeze({
+      start: part.start + sourceStart, end: part.end + sourceStart, insert: part.insert
+    })))
+    const expected = windowPreview(opened, compiled)
+    const delta = expected.sourceLength - windowSource.length
+    const first = planned[0]
+    const last = planned.at(-1)
+    if (first === undefined || last === undefined) return undefined
+    let insert = ''
+    let cursor = first.start
+    for (const part of planned) {
+      insert += window.slice(cursor - sourceStart, part.start - sourceStart) + part.insert
+      cursor = part.end
+    }
+    const combined = Object.freeze({ start: first.start, end: last.end, insert })
+    const candidate = regionalCandidate(state, combined)
+    if (candidate !== undefined) {
+      // Both parses must cover the edited text with a block to spare, and
+      // agree on every suggestion and diagnostic in the text they share.
+      const shared = {
+        start: Math.max(sourceStart, candidate.sourceStart),
+        end: Math.min(windowEnd + delta, candidate.sourceStart + candidate.nextWindow.length)
+      }
+      const inPlace = windowAnnotationsOf(candidate.nextProducts).annotations
+      const inPlaceDiagnostics = diagnosticsOf(candidate.nextProducts)
+      const covered = (shared.start < combined.start || shared.start === 0) &&
+        (shared.end > combined.start + insert.length || shared.end === state.source.length + delta)
+      const sharedInWindow = { start: shared.start - sourceStart, end: shared.end - sourceStart }
+      const sharedInPlace = { start: shared.start - candidate.sourceStart, end: shared.end - candidate.sourceStart }
+      if (covered &&
+          !straddling(expected.annotations, sharedInWindow.start, sharedInWindow.end) &&
+          !straddling(inPlace, sharedInPlace.start, sharedInPlace.end) &&
+          sameAnnotations(within(expected.annotations, sharedInWindow.start, sharedInWindow.end), sourceStart,
+            within(inPlace, sharedInPlace.start, sharedInPlace.end), candidate.sourceStart) &&
+          sameDiagnostics(within(expected.diagnostics, sharedInWindow.start, sharedInWindow.end), sourceStart,
+            within(inPlaceDiagnostics, sharedInPlace.start, sharedInPlace.end), candidate.sourceStart)) {
+        return { edits: planned }
+      }
+    }
+    const nextEnd = window.length + delta
+    if (!context.strayLocal(expected.source.slice(0, nextEnd),
+      within(expected.annotations, 0, nextEnd).length,
+      expected.diagnostics.some(diagnostic => diagnostic.code === 'CM_UNTERMINATED_OPENER' && diagnostic.range.end <= nextEnd),
+      opened.diagnostics.some(diagnostic => diagnostic.code === 'CM_UNTERMINATED_OPENER' && diagnostic.range.end <= window.length))) return undefined
+    const kept = contextBlocksKept(windowCore, opened, windowCore.apply(opened, compiled).revision,
+      { start: first.start - sourceStart, end: last.end - sourceStart }, delta, window.length,
+      { start: sourceStart === 0, end: windowEnd === state.source.length })
+    // A result reaching the window's context, as a join of two blocks,
+    // is compiled again with the blocks around it as context.
+    if (kept === 'unbounded' && widenings < 3) {
+      const widened = reach ?? span
+      return windowedGeneralEdits(state, previous, edits, compile, {
+        start: Math.max(0, Math.min(widened.start, first.start) - 1),
+        end: Math.min(state.source.length, Math.max(widened.end, last.end) + 1)
+      }, widenings + 1)
+    }
+    if (kept !== 'kept') return undefined
+    // The document preview is the parse apply() publishes for these edits.
+    const whole = previewSourceEdits(previous, planned)
+    const readsBack = <T extends { range: SourceRange }>(
+      after: readonly T[],
+      before: readonly T[],
+      inWindow: readonly T[],
+      same: (left: readonly T[], leftStart: number, right: readonly T[], rightStart: number) => boolean
+    ): boolean => !straddling(after, sourceStart, windowEnd + delta) && !straddling(before, sourceStart, windowEnd) &&
+      same(after.filter(item => item.range.end <= sourceStart), 0, before.filter(item => item.range.end <= sourceStart), 0) &&
+      same(within(after, sourceStart, windowEnd + delta), 0, inWindow, sourceStart) &&
+      same(after.filter(item => item.range.start >= windowEnd + delta), 0,
+        before.filter(item => item.range.start >= windowEnd), delta)
+    return readsBack(whole.annotations, previous.annotations, expected.annotations, sameAnnotations) &&
+      readsBack(whole.diagnostics, previous.diagnostics, expected.diagnostics, sameDiagnostics)
+      ? { edits: planned }
+      : undefined
+  }
+
   /** Tracked compilation of an edit that changes no deleted text or annotation syntax. */
   const ownedTrackedEdit = (
     state: RevisionState,
@@ -5057,16 +5882,21 @@ function createDocumentCoreWithExecutionBudget(
     }
     const regional = regionalPayloadEdit(state, edit, true) ?? regionalTrackedInsertion(state, previous, edit) ??
       regionalTrackedArmEdge(state, previous, edit) ?? regionalTrackedBesideDeletion(state, previous, edit) ??
+      regionalTrackedInsideDeletion(state, previous, edit) ?? regionalTrackedInSubstitution(state, previous, edit) ??
       regionalTrackedBreak(state, previous, edit) ?? regionalTrackedJoin(state, previous, edit) ??
       regionalTrackedDeletion(state, previous, edit)
     if (regional !== undefined) return regional
-    const planned = createTrackedSourceEdit(core, previous, edit, preview) ??
-      createTrackedLiteralSourceEdit(core, previous, edit, preview) ??
-      // A selection starting or ending between suggestions owns the ones it encloses.
-      (edit.start < edit.end ? createTrackedSourceEdit(core, previous, edit, preview, false, 'structure') : undefined)
-    return planned !== undefined && edit.insert.length === 0
-      ? mergedTrackedDeletion(core, previous, edit, planned, preview) ?? planned
-      : planned
+    const windowed = windowedGeneralEdits(state, previous, [edit], (windowCore, revision, [local], windowPreview) => {
+      const planned = local === undefined ? undefined : generalTrackedEdit(windowCore, revision, local, windowPreview)
+      return planned === undefined ? undefined : [planned]
+    })
+    if (windowed !== undefined) {
+      const planned = windowed.edits?.[0]
+      return planned === undefined
+        ? undefined
+        : Object.freeze({ start: planned.start, end: planned.end, insert: planned.insert })
+    }
+    return generalTrackedEdit(core, previous, edit, preview)
   }
 
   /**
@@ -5203,13 +6033,22 @@ function createDocumentCoreWithExecutionBudget(
     const edit = edits[0]
     if (edits.length === 1 && edit !== undefined) {
       if (!tracked) {
-        return core.markupEdit(previous, edit) ?? (typed
-          ? createMarkupCompoundSourceEdits(core, previous, [edit],
-            candidateEdits => previewSourceEdits(previous, candidateEdits), false, 'visible', 'admit-typed')
-          : undefined)
+        const direct = core.markupEdit(previous, edit)
+        if (direct !== undefined || !typed) return direct
+        const windowed = windowedGeneralEdits(currentStateOf(previous), previous, [edit],
+          (windowCore, revision, local, windowPreview) =>
+            createMarkupCompoundSourceEdits(windowCore, revision, local, windowPreview, false, 'visible', 'admit-typed'))
+        if (windowed !== undefined) return windowed.edits
+        return createMarkupCompoundSourceEdits(core, previous, [edit],
+          candidateEdits => previewSourceEdits(previous, candidateEdits), false, 'visible', 'admit-typed')
       }
       return trackedEditParts(previous, edit)
     }
+    // Several edits, as Enter in a setext heading's text writes, are planned
+    // on the blocks around them too.
+    const windowed = windowedGeneralEdits(state, previous, edits, (windowCore, revision, local) =>
+      nativeEditPlanners.get(windowCore)?.(revision, local, tracked, typed))
+    if (windowed !== undefined) return windowed.edits
     if (!tracked) {
       return createMarkupCompoundSourceEdits(core, previous, edits,
         candidateEdits => previewSourceEdits(previous, candidateEdits), false, 'visible', typed ? 'admit-typed' : 'refuse')
@@ -5526,8 +6365,13 @@ function createDocumentCoreWithExecutionBudget(
       preflightSourceEdits(state.source.length, edits)
       const stableEdit = edits[0]
       if (stableEdit === undefined) throw new Error('Markup source edit is missing')
-      const regional = regionalPayloadEdit(state, stableEdit, false)
+      const regional = regionalPayloadEdit(state, stableEdit, false) ??
+        regionalUntrackedBreak(state, previous, stableEdit) ?? regionalUntrackedEmptied(state, previous, stableEdit) ??
+        regionalUntrackedBeside(state, previous, stableEdit)
       if (regional !== undefined) return Object.freeze([regional])
+      const windowed = windowedGeneralEdits(state, previous, [stableEdit], (windowCore, revision, [local], windowPreview) =>
+        local === undefined ? undefined : createMarkupSourceEdits(windowCore, revision, local, windowPreview))
+      if (windowed !== undefined) return windowed.edits
       return createMarkupSourceEdits(core, previous, stableEdit,
         candidateEdits => previewSourceEdits(previous, candidateEdits))
     },
@@ -5608,16 +6452,20 @@ function createDocumentCoreWithExecutionBudget(
           })
         })
       }
-      const revision = applyCandidate(
-        previousState,
-        source,
-        stableEdits,
-        options?.markdown,
-        regional?.kind === 'fallback' &&
-        regional.reason === 'source-fragmentation-rebase'
-          ? 'rebase'
-          : 'fallback'
-      )
+      const previewed = options?.markdown === undefined ? previewedCandidate(previous, stableEdits) : undefined
+      previewedCandidates = undefined
+      const revision = previewed !== undefined
+        ? (demoteCurrentProductStore(), publish(source, previewed.products, previousState.markdownOptions))
+        : applyCandidate(
+          previousState,
+          source,
+          stableEdits,
+          options?.markdown,
+          regional?.kind === 'fallback' &&
+          regional.reason === 'source-fragmentation-rebase'
+            ? 'rebase'
+            : 'fallback'
+        )
       const resynchronizationReason = regional?.kind === 'fallback'
         ? regional.reason
         : projectionRequests === undefined
@@ -5740,6 +6588,8 @@ function createDocumentCoreWithExecutionBudget(
     projectAround
   })
   registerAnnotationsAround(core, { around: rootsAround, overlapping: rootsOverlapping })
+  sourceEditPreviews.set(core, previewSourceEdits)
+  nativeEditPlanners.set(core, planNativeEdits)
   registerDocumentCoreInspection(core, () => {
     const documentPhysical = physicalRecorder.counts()
     const regionalPhysical = regionalPhysicalRecorder.counts()

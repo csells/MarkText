@@ -143,14 +143,16 @@ export function compiledEditReconciliation(
   revision: DocumentRevision,
   scope: 'visible' | 'structure'
 ): readonly DocumentSourceEdit[] | undefined {
-  // Striking the whole text of an Addition removes its delimiters with it:
-  // the intervals relate that removal exactly, with no ownership to prove.
+  // Striking the whole text of an Addition, Deletion or Highlight removes its
+  // delimiters with it: the intervals relate that removal exactly, with no
+  // ownership to prove.
   const removal = edits.length === 1 ? edits[0] : undefined
   if (removal !== undefined && input.insert === '' && removal.insert === '' && input.start < input.end &&
       removal.start === input.start - 3 && removal.end === input.end + 3 &&
-      core.sourceSlice(previous, { start: removal.start, end: input.start }) === '{++' &&
-      core.sourceSlice(previous, { start: input.end, end: removal.end }) === '++}' &&
-      !/\{\+\+|\+\+\}/u.test(core.sourceSlice(previous, input))) {
+      [['{++', '++}'], ['{--', '--}'], ['{==', '==}']].some(([opener, closer]) =>
+        core.sourceSlice(previous, { start: removal.start, end: input.start }) === opener &&
+        core.sourceSlice(previous, { start: input.end, end: removal.end }) === closer) &&
+      !/[{}]/u.test(core.sourceSlice(previous, input))) {
     return ordinaryIntervalReconciliation(core, previous, input, [removal])
   }
   const ordinary = ordinaryReconciliation(core, previous, input, edits, revision, scope)

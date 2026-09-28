@@ -253,6 +253,13 @@ interface InventoryValue extends RegionalInventory {
    */
   readonly strayMarkers: boolean
   readonly dependencyPrefixEnd: number
+  /**
+   * Source ranges of the reference and footnote definitions, all before
+   * dependencyPrefixEnd, where no regional edit reaches, so they stay put
+   * across regional revisions. Undefined when a definition could not be
+   * placed in source, as one inside a suggestion.
+   */
+  readonly definitions?: readonly Readonly<{ readonly start: number; readonly end: number }>[]
   readonly recorder: RegionalInventoryRecorder
   readonly plainRecorder?: PlainParagraphIndexRecorder
 }
@@ -808,6 +815,54 @@ export function referenceDependencyPrefixEnd(
 }
 
 /**
+ * Source ranges of the document's reference and footnote definitions, in
+ * source order, or undefined unless each reads identically in every view
+ * and maps to canonical source.
+ */
+function referenceDefinitionRanges(
+  products: Profile1DocumentProducts
+): readonly Readonly<{ start: number, end: number }>[] | undefined {
+  let found: Readonly<{ start: number, end: number }>[] | undefined
+  for (const view of products.revised === products.original ? [products.original] : [products.original, products.revised]) {
+    const segments = view.mappedTape
+    // The canonical segment holding `projected`, entered from `side`.
+    const sourceAt = (projected: number, side: 'start' | 'end'): number | undefined => {
+      let low = 0
+      let high = segments.length
+      while (low < high) {
+        const middle = low + Math.floor((high - low) / 2)
+        const segment = segments[middle]
+        if (segment !== undefined && (side === 'start' ? segment.projectedEnd <= projected : segment.projectedEnd < projected)) low = middle + 1
+        else high = middle
+      }
+      const segment = segments[low]
+      if (segment?.kind !== 'canonical' || segment.projectedStart > projected ||
+          (side === 'start' && segment.projectedStart === segment.projectedEnd)) return undefined
+      return segment.sourceStart + projected - segment.projectedStart
+    }
+    const ranges: Readonly<{ start: number, end: number }>[] = []
+    const pending: MarkdownNode[] = [view.markdown.root]
+    while (pending.length > 0) {
+      const node = pending.pop()
+      if (node === undefined) break
+      if (node.kind === 'definition' || node.kind === 'footnote-definition') {
+        const start = sourceAt(node.range.start, 'start')
+        const end = sourceAt(node.range.end, 'end')
+        if (start === undefined || end === undefined || end < start) return undefined
+        ranges.push(Object.freeze({ start, end }))
+        continue
+      }
+      for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) pending.push(node.childAt(ordinal))
+    }
+    ranges.sort((left, right) => left.start - right.start)
+    if (found !== undefined && (found.length !== ranges.length ||
+        found.some((range, ordinal) => range.start !== ranges[ordinal]?.start || range.end !== ranges[ordinal]?.end))) return undefined
+    found = ranges
+  }
+  return Object.freeze(found ?? [])
+}
+
+/**
  * A leaf-only parse cannot resolve a label against definitions retained in a
  * different leaf. Fail closed when the bounded candidate contains the
  * delimiter pair required by reference links, images, footnotes, or
@@ -1039,6 +1094,10 @@ export function createRegionalInventory(
     markerFree: false,
     strayMarkers: products.diagnostics.count !== 0,
     dependencyPrefixEnd,
+    ...(() => {
+      const definitions = dependencyPrefixEnd === 0 ? Object.freeze([]) : referenceDefinitionRanges(products)
+      return definitions === undefined ? {} : { definitions }
+    })(),
     recorder,
     ...(plainRecorder === undefined ? {} : { plainRecorder })
   })
@@ -1427,14 +1486,31 @@ export function previewRegionalRange(
   markdownOptions: MarkdownOptionsV1,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1
 ): Readonly<{ sourceStart: number, nextProducts: Profile1DocumentProducts, nextWindow: string }> | undefined {
+  const window = regionalRangeWindow(inventory, source, range, executionBudget, markdownOptions, physicalRecorder)
+  return window?.validated === true
+    ? Object.freeze({ sourceStart: window.sourceStart, nextProducts: window.nextProducts, nextWindow: window.nextWindow })
+    : undefined
+}
+
+/**
+ * The window previewRegionalRange() parses for `range`, also when it cannot
+ * prove that its blocks read as in the whole document (`validated` false):
+ * its safe points do not stand, its marker readings differ from the
+ * document's, or reference definitions reach it. A caller then proves what it
+ * reads there against the document some other way.
+ */
+export function regionalRangeWindow(
+  inventory: RegionalInventory,
+  source: CanonicalSourceView,
+  range: Readonly<{ readonly start: number; readonly end: number }>,
+  executionBudget: ExecutionBudgetId,
+  markdownOptions: MarkdownOptionsV1,
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1
+): Readonly<{ sourceStart: number, nextProducts: Profile1DocumentProducts, nextWindow: string, validated: boolean }> | undefined {
   const value = inventoryValue(inventory)
   const length = source.length
-  if (
-    length !== value.root.sourceLength || length === 0 || range.end > length ||
-    (value.dependencyPrefixEnd !== 0 && range.start <= value.dependencyPrefixEnd)
-  ) {
-    return undefined
-  }
+  if (length !== value.root.sourceLength || length === 0 || range.end > length) return undefined
+  const referenced = value.dependencyPrefixEnd !== 0 && range.start <= value.dependencyPrefixEnd
   let edited = windowEdge(value, range.start, 'start')
   let editedEnd = windowEdge(value, range.end, 'end')
   if (edited === undefined || editedEnd === undefined || editedEnd.ordinal < edited.ordinal ||
@@ -1456,11 +1532,13 @@ export function previewRegionalRange(
       last.source === length
     )
     if (result.kind !== 'complete') return undefined
+    const read = (validated: boolean) =>
+      Object.freeze({ sourceStart: first.source, nextProducts: result, nextWindow: window, validated: validated && !referenced })
     const safePoints = result.retainedIntrinsic?.safePoints ?? []
     const startStands = edited.source === first.source || safePoints.includes(edited.source - first.source)
     const endStands = editedEnd.source === last.source || safePoints.includes(editedEnd.source - first.source)
     if (!startStands || !endStands) {
-      if (widening === 2) return undefined
+      if (widening === 2) return read(false)
       if (!startStands) edited = first
       if (!endStands) editedEnd = last
       continue
@@ -1468,18 +1546,70 @@ export function previewRegionalRange(
     const documentMarkers: MarkerCapsule[] = []
     for (const located of leafRange(value.root, first.ordinal, last.ordinal)) {
       if (located.leaf.kind === 'region') documentMarkers.push(...located.leaf.markers)
-      else if (located.leaf.plain === undefined) return undefined
+      else if (located.leaf.plain === undefined) return read(false)
     }
     const windowMarkers = markerCapsules(result.retainedIntrinsic?.markerDecisions ?? [], 0)
-    if (windowMarkers.length !== documentMarkers.length || windowMarkers.some((marker, ordinal) => {
+    return read(windowMarkers.length === documentMarkers.length && windowMarkers.every((marker, ordinal) => {
       const document = documentMarkers[ordinal]
-      return document === undefined || marker.kind !== document.kind || marker.role !== document.role ||
-        marker.action !== document.action
-    })) {
-      return undefined
-    }
-    return Object.freeze({ sourceStart: first.source, nextProducts: result, nextWindow: window })
+      return document !== undefined && marker.kind === document.kind && marker.role === document.role &&
+        marker.action === document.action
+    }))
   }
+}
+
+/**
+ * Whether replacing the blocks from `start` to `end` with `nextWindow`, which
+ * holds `nextRoots` root annotations and an unfinished opener when
+ * `nextUnfinished`, keeps every marker reading outside those blocks, as a
+ * block window requires in a document with stray markers: no table cell
+ * changes, no spellings overlap, no closer form it adds has an unfinished
+ * opener before it, and while any opener stays unfinished the document keeps
+ * having annotations or not having any. With `escapingSeen`, a caller that
+ * parses the whole result and whose blocks held an unfinished opener of
+ * their own (so saw its escaping change too) accepts that last change.
+ * Always true without stray markers.
+ */
+export function strayMarkersStayLocal(
+  inventory: RegionalInventory,
+  source: CanonicalSourceView,
+  start: number,
+  end: number,
+  nextWindow: string,
+  nextRoots: number,
+  nextUnfinished: boolean,
+  escapingSeen = false
+): boolean {
+  const value = inventoryValue(inventory)
+  if (!value.strayMarkers) return true
+  if (source.length !== value.root.sourceLength) return false
+  const first = windowEdge(value, start, 'start')
+  const last = end > start ? windowEdge(value, end - 1, 'end') : undefined
+  if (first === undefined || last === undefined || first.source !== start || last.source !== end) return false
+  const previousWindow = source.slice(start, end)
+  if (previousWindow.includes('|') || nextWindow.includes('|') || overlappingSpellings(nextWindow) ||
+      (unterminatedFormsBefore(value.root, first.ordinal) & addedCloserForms(previousWindow, nextWindow)) !== 0) return false
+  let replacedRoots = 0
+  for (const located of leafRange(value.root, first.ordinal, last.ordinal)) replacedRoots += rootCountIn(located.leaf)
+  const documentRoots = rootCountIn(value.root)
+  const unfinished = nextUnfinished ||
+    (unterminatedFormsBefore(value.root, first.ordinal) | unterminatedFormsFrom(value.root, last.ordinal + 1)) !== 0
+  return escapingSeen || !unfinished || (documentRoots - replacedRoots + nextRoots > 0) === (documentRoots > 0)
+}
+
+/** How many root annotations the document holds. */
+export function regionalInventoryRootCount(inventory: RegionalInventory): number {
+  return rootCountIn(inventoryValue(inventory).root)
+}
+
+/**
+ * The source ranges of the document's reference and footnote definitions,
+ * none when it resolves no label, or undefined when they are not known.
+ */
+export function regionalInventoryDefinitions(
+  inventory: RegionalInventory
+): readonly Readonly<{ readonly start: number; readonly end: number }>[] | undefined {
+  const value = inventoryValue(inventory)
+  return value.dependencyPrefixEnd === 0 ? Object.freeze([]) : value.definitions
 }
 
 function evaluateRegionalInventory(...args: [...RegionalInventoryArguments, true]): RegionalInventoryPreviewResult
@@ -1666,6 +1796,7 @@ function evaluateSameShape(
     markerFree: inventory.markerFree,
     strayMarkers: inventory.strayMarkers,
     dependencyPrefixEnd: inventory.dependencyPrefixEnd,
+    ...(inventory.definitions === undefined ? {} : { definitions: inventory.definitions }),
     recorder: inventory.recorder,
     ...(inventory.plainRecorder === undefined ? {} : { plainRecorder: inventory.plainRecorder })
   })
@@ -2311,6 +2442,7 @@ function admitBlockWindow(
       markerFree: inventory.markerFree && (result.retainedIntrinsic?.markerDecisions.length ?? 0) === 0,
       strayMarkers: inventory.strayMarkers,
       dependencyPrefixEnd: inventory.dependencyPrefixEnd,
+      ...(inventory.definitions === undefined ? {} : { definitions: inventory.definitions }),
       recorder: inventory.recorder,
       ...(plainRecorder === undefined ? {} : { plainRecorder })
     }),
