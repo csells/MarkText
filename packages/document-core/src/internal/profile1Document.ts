@@ -4817,6 +4817,8 @@ export function admitProfile1PlainParagraphRegion(
     if (bracket === undefined) return undefined
     previousWindow = previousSource.slice(bracket.start, bracket.endPrevious)
     nextWindow = source.slice(bracket.start, bracket.endNext)
+    // No earlier block to start from: the blank line stays unowned here.
+    if (bracket.start > 0 && (startsBlank(nextWindow) || startsBlank(previousWindow))) return undefined
   }
   const options = bracket.start === 0 ? markdownOptions : Object.freeze({ ...markdownOptions, frontMatter: false })
   const parse = (window: string, endsAtDocumentEnd: boolean): Profile1DocumentResult => parseProfile1Window(
