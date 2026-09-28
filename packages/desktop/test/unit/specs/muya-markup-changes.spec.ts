@@ -215,7 +215,8 @@ describe('Applying Core Markup regions to an existing Muya view', () => {
           },
           events: [{ kind: 'text', sourceRange: { start: 6, end: 16 }, text: 'sec\n\nond\n\n' }],
           syntaxBlocks: projection.syntax.ast.root.children.slice(1, 3),
-          coordinates: [{ source: { start: 6, end: 16 }, projected: { start: 6, end: 16 } }]
+          coordinates: [{ source: { start: 6, end: 16 }, projected: { start: 6, end: 16 } }],
+          annotations: []
         }
       ]
     }
