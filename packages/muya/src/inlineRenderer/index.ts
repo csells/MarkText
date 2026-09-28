@@ -15,26 +15,26 @@ import { beginRules } from './rules';
 
 const debug = logger('inlineRenderer:');
 
-/** Whether `target` has `source`'s elements and attribute names, whatever their text and values. */
-function sameStructure(target: Node, source: Node): boolean {
+/**
+ * Whether `target` has `source`'s shape: the same text nodes and plain spans
+ * and line breaks, whatever their text and attributes. Other elements, such
+ * as widgets holding their own state, never count as the same.
+ */
+function sameShape(target: Node, source: Node): boolean {
     if (target.nodeType !== source.nodeType || target.childNodes.length !== source.childNodes.length)
         return false;
-    if (target instanceof Element) {
-        const other = source as Element;
-        if (target.tagName !== other.tagName || target.attributes.length !== other.attributes.length)
-            return false;
-        for (const attribute of other.attributes) {
-            if (!target.hasAttribute(attribute.name))
-                return false;
-        }
-    }
+    if (source.nodeType === Node.ELEMENT_NODE && !['SPAN', 'BR'].includes((source as Element).tagName))
+        return false;
+    if (source.nodeType === Node.ELEMENT_NODE && (target as Element).tagName !== (source as Element).tagName)
+        return false;
     for (let index = 0; index < source.childNodes.length; index++) {
-        if (!sameStructure(target.childNodes[index], source.childNodes[index]))
+        if (!sameShape(target.childNodes[index], source.childNodes[index]))
             return false;
     }
     return true;
 }
 
+/** Give `target` exactly `source`'s text and attributes, as a fresh copy would have. */
 function copyContent(target: Node, source: Node) {
     if (target.nodeType === Node.TEXT_NODE || target.nodeType === Node.COMMENT_NODE) {
         if (target.nodeValue !== source.nodeValue)
@@ -42,7 +42,12 @@ function copyContent(target: Node, source: Node) {
         return;
     }
     if (target instanceof Element) {
-        for (const attribute of (source as Element).attributes) {
+        const other = source as Element;
+        for (const name of target.getAttributeNames()) {
+            if (!other.hasAttribute(name))
+                target.removeAttribute(name);
+        }
+        for (const attribute of other.attributes) {
             if (target.getAttribute(attribute.name) !== attribute.value)
                 target.setAttribute(attribute.name, attribute.value);
         }
@@ -52,17 +57,17 @@ function copyContent(target: Node, source: Node) {
 }
 
 /**
- * Show a host presentation's HTML. When only its text and attribute values
- * differ from what is shown, such as after typing, the shown nodes keep
- * their identity and only those change; replacing elements makes the browser
- * lay out and resynchronize the selection across the whole editable document.
+ * Show a host presentation's HTML. When it has the shape of what is shown,
+ * such as after typing, the shown nodes keep their identity and take its
+ * text and attributes; replacing them makes the browser lay out and
+ * resynchronize the selection across the whole editable document.
  */
 function presentHTML(domNode: HTMLElement, html: string) {
     const template = document.createElement('template');
     template.innerHTML = html;
     const shown = domNode.childNodes;
     const next = template.content.childNodes;
-    if (shown.length === next.length && [...next].every((node, index) => sameStructure(shown[index], node))) {
+    if (shown.length === next.length && [...next].every((node, index) => sameShape(shown[index], node))) {
         next.forEach((node, index) => copyContent(shown[index], node));
         return;
     }
