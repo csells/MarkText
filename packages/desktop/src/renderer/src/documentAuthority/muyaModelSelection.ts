@@ -31,6 +31,7 @@ import {
   isMuyaNormalizedTextSegment
 } from './muyaMarkupView'
 import type { MuyaModelInput } from './muyaPlainTextCoreAdapter'
+import { muyaItemAtPath, muyaItemsAtPath, muyaItemsAtRoot } from './muyaMarkupViewLookup'
 
 const samePath = (left: readonly (string | number)[], right: readonly (string | number)[]) =>
   left.length === right.length && left.every((part, index) => part === right[index])
@@ -55,19 +56,17 @@ const nativeOffsetAtSource = (segment: MuyaMarkupBinding['segments'][number], so
 /** The model projection is the only source of semantic DOM boundary positions. */
 export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
   const nativeSelection = muya.editor.selection
-  const leadingLineBindings = new Map(
-    view.bindings.flatMap((binding) =>
-      binding.leadingLinePosition === undefined
-        ? []
-        : [[JSON.stringify(binding.path), binding] as const]
-    )
-  )
+  const bindingAt = (path: readonly (string | number)[]) => muyaItemAtPath(view.bindings, path)
+  const leadingLineBinding = (path: readonly (string | number)[]) => {
+    const binding = bindingAt(path)
+    return binding?.leadingLinePosition === undefined ? undefined : binding
+  }
   /**
    * The binding's leading line position, while Muya renders that line before
    * its text, or renders an underline's empty setext heading in its place.
    */
   const presentedLeadingLine = (path: readonly (string | number)[]): number | undefined => {
-    const binding = leadingLineBindings.get(JSON.stringify(path))
+    const binding = leadingLineBinding(path)
     if (binding?.leadingLinePosition === undefined) return undefined
     const block = muya.editor.scrollPage?.queryBlock([...path])
     if (!block?.isContent()) return undefined
@@ -79,7 +78,7 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
   }
   /** Muya's text offsets include a presented leading line; binding offsets exclude it. */
   const presentedLineShift = (path: readonly (string | number)[]): number => {
-    const binding = leadingLineBindings.get(JSON.stringify(path))
+    const binding = leadingLineBinding(path)
     return binding === undefined ||
       presentedLeadingLine(path) === undefined ||
       binding.syntax.kind === 'thematic-break'
@@ -111,7 +110,10 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
   }
   /** The marker line whose container Muya shows as its literal paragraph at `path`. */
   const presentedMarkerLine = (path: readonly (string | number)[]) => {
-    const line = view.bindings.find(
+    // A marker line's container holds its paragraph, so both share a root.
+    const candidates =
+      typeof path[0] === 'number' ? muyaItemsAtRoot(view.bindings, path[0]) : view.bindings
+    const line = candidates.find(
       (binding) =>
         binding.markerLine !== undefined &&
         samePath([...binding.markerLine.statePath, 'text'], path)
@@ -124,32 +126,27 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
   }
   /** The empty paragraph whose blank line's spaces Muya shows at `path`. */
   const presentedBlankLine = (path: readonly (string | number)[]) => {
-    const binding = view.bindings.find(
-      (item) => item.blankLineText !== undefined && samePath(item.path, path)
-    )
+    const at = bindingAt(path)
+    const binding = at?.blankLineText === undefined ? undefined : at
     const block = binding && muya.editor.scrollPage?.queryBlock([...path])
     return block?.isContent() && block.text === binding?.blankLineText ? binding : undefined
   }
   const bindingFor = (point: DocumentDOMPoint): MuyaMarkupBinding | undefined => {
     const text = native.getTextPoint(point)
-    return text == null
-      ? undefined
-      : view.bindings.find((binding) => samePath(binding.path, text.path))
+    return text == null ? undefined : bindingAt(text.path)
   }
   const anchorFor = (node: Node, binding: MuyaMarkupBinding) => {
     if (!(node instanceof HTMLElement) || !node.hasAttribute('data-critic-start')) return undefined
     const start = Number(node.dataset.criticStart) + binding.sourceRange.start
     const end = Number(node.dataset.criticEnd) + binding.sourceRange.start
-    const comment = view.comments.find(
+    const comment = muyaItemsAtPath(view.comments, binding.path).find(
       (item) =>
-        samePath(item.path, binding.path) &&
         item.annotationRange.start === start &&
         item.annotationRange.end === end &&
         node.dataset.criticKind === 'comment'
     )
-    const decoration = view.decorations.find(
+    const decoration = muyaItemsAtPath(view.decorations, binding.path).find(
       (item) =>
-        samePath(item.path, binding.path) &&
         item.mark.annotationRange.start === start &&
         item.mark.annotationRange.end === end &&
         item.mark.kind === node.dataset.criticKind &&
@@ -338,6 +335,24 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
         : undefined
     return prefix === undefined ? mapped : prefix.to - 1
   }
+  /**
+   * Whether the binding's rendering can hold `source`: in its text, or at an
+   * edge or payload boundary of an annotation or Comment shown in it. Only
+   * such a binding's DOM is read.
+   */
+  const mayRenderSource = (binding: MuyaMarkupBinding, source: number): boolean =>
+    (binding.text.length === 0 && binding.sourceRange.end === source) ||
+    binding.segments.some((segment) => segment.source.start <= source && source <= segment.source.end) ||
+    muyaItemsAtPath(view.decorations, binding.path).some(
+      (item) =>
+        item.mark.annotationRange.start === source ||
+        item.mark.annotationRange.end === source ||
+        item.sourcePosition === source ||
+        item.exteriorEnd === source
+    ) ||
+    muyaItemsAtPath(view.comments, binding.path).some(
+      (item) => item.annotationRange.start === source || item.annotationRange.end === source
+    )
   const edge = (node: Node, after: boolean): DocumentDOMPoint | undefined => {
     const parent = node.parentNode
     if (parent === null) return undefined
@@ -392,6 +407,7 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
     }
     for (const binding of view.bindings) {
       if (cell !== undefined && !sameCell(binding.tableCell, cell)) continue
+      if (!mayRenderSource(binding, source)) continue
       const block = muya.editor.scrollPage?.queryBlock([...binding.path])
       const root = block?.isContent() ? block.domNode : undefined
       if (!(root instanceof HTMLElement)) continue
@@ -476,7 +492,8 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
       if (presentedMarkerLine(path) === undefined) continue
       return nativeSelection.getDOMPoint({ path, offset: source - line.start }) ?? undefined
     }
-    for (const binding of leadingLineBindings.values()) {
+    for (const binding of view.bindings) {
+      if (binding.leadingLinePosition === undefined) continue
       const position = presentedLeadingLine(binding.path)
       if (position === undefined) continue
       const offset = source - position + leadingLineSpaces(binding)

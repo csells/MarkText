@@ -1,5 +1,5 @@
-import type { SourceRange } from '@marktext/document-core'
 import type { MuyaMarkupPath, MuyaMarkupView } from './muyaMarkupView'
+import { muyaItemAtPath, muyaItemsAtPath } from './muyaMarkupViewLookup'
 
 /**
  * Reads a leaf's text as Revised shows it: the parts Core marks as suggested
@@ -17,23 +17,18 @@ export type MuyaRevisedTextReader = (
 export function createMuyaRevisedTextReader(
   view: Pick<MuyaMarkupView, 'bindings' | 'decorations'>
 ): MuyaRevisedTextReader {
-  const texts = new Map<string, string>()
-  for (const binding of view.bindings) texts.set(JSON.stringify(binding.path), binding.text)
-  const omitted = new Map<string, SourceRange[]>()
-  for (const { path, range, mark } of view.decorations) {
-    if (range.end <= range.start) continue
-    if (mark.kind !== 'deletion' && !(mark.kind === 'substitution' && mark.arm === 'old')) continue
-    const key = JSON.stringify(path)
-    const ranges = omitted.get(key)
-    if (ranges === undefined) omitted.set(key, [range])
-    else ranges.push(range)
-  }
   return (path, text, start, end) => {
-    const key = JSON.stringify(path)
-    if (texts.get(key) !== text) return undefined
+    if (muyaItemAtPath(view.bindings, path)?.text !== text) return undefined
+    const omitted = muyaItemsAtPath(view.decorations, path)
+      .filter(
+        ({ range, mark }) =>
+          range.end > range.start &&
+          (mark.kind === 'deletion' || (mark.kind === 'substitution' && mark.arm === 'old'))
+      )
+      .map(({ range }) => range)
     let revised = ''
     let offset = start
-    for (const range of [...(omitted.get(key) ?? [])].sort((a, b) => a.start - b.start)) {
+    for (const range of omitted.sort((a, b) => a.start - b.start)) {
       if (range.end <= offset) continue
       if (range.start >= end) break
       if (range.start > offset) revised += text.slice(offset, range.start)
