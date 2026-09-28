@@ -3684,6 +3684,21 @@ function createDocumentCoreWithExecutionBudget(
         projections: fallbackProjectionChanges(requests, fallbackReason)
       })
     }
+    // A key that only moves the caret, such as Delete over struck text,
+    // applies no edit: the next revision reads exactly as this one.
+    if (stableEdits.length === 0) {
+      const unchanged = republishUnchanged(previousState, source)
+      if (unchanged !== undefined) {
+        inspection.regionalFastApplies += 1
+        return Object.freeze({
+          kind: 'applied',
+          revision: unchanged,
+          projections: requests.markup
+            ? Object.freeze([Object.freeze({ name: 'markup' as const, scope: 'regions' as const, replacements: Object.freeze([]) })])
+            : Object.freeze([])
+        })
+      }
+    }
     const inventoryApplied = (
       previousState.kind === 'regional' &&
       previousState.regionalInventory !== undefined
@@ -3788,6 +3803,22 @@ function createDocumentCoreWithExecutionBudget(
       })
     }
     return undefined
+  }
+
+  /** A revision of the same source reusing the regional facts `state` holds. */
+  const republishUnchanged = (
+    state: RevisionState,
+    source: PersistentCanonicalSource
+  ): DocumentRevision | undefined => {
+    if (state.regionalInventory !== undefined) {
+      return publishInventoryRegional(source, state.markdownOptions, state.regionalInventory,
+        state.kind === 'regional' ? state.regionalComments : Object.freeze([]))
+    }
+    if (state.kind !== 'regional' || (state.retainedIndex === undefined && state.criticMarkupIndex === undefined)) {
+      return undefined
+    }
+    return publishRegional(source, state.markdownOptions, state.retainedIndex, state.criticMarkupIndex,
+      state.annotations(), state.commentIndex, state.regionalComments, undefined, state.accountingUpperBound)
   }
 
   const convertedRegionalInventory = (state: RevisionState): RegionalInventory | undefined => {
@@ -4513,6 +4544,78 @@ function createDocumentCoreWithExecutionBudget(
   }
 
   /**
+   * Whether every suggestion in `neighbours`, which the planned edit only
+   * abuts, is recognized unchanged in a reparsed window, moved by the edit
+   * when it follows it.
+   */
+  const neighboursUnchanged = (
+    roots: readonly CriticMarkupNode[],
+    shift: number,
+    neighbours: readonly CriticMarkupAnnotation[],
+    planned: DocumentSourceEdit
+  ): boolean => neighbours.every(neighbour => {
+    const moved = neighbour.range.start >= planned.end ? planned.insert.length - (planned.end - planned.start) : 0
+    return roots.some(node => node.kind === neighbour.kind &&
+      node.range.start === neighbour.range.start + moved - shift && node.range.end === neighbour.range.end + moved - shift)
+  })
+
+  /**
+   * Plain words typed beside a Deletion, as the general compiler writes
+   * them: right before its text they propose a replacement for it, turning
+   * it into a Substitution; right after it they are an Addition of their own.
+   */
+  const regionalTrackedBesideDeletion = (
+    state: RevisionState,
+    previous: DocumentRevision,
+    edit: DocumentSourceEdit
+  ): DocumentSourceEdit | undefined => {
+    if (plansFromDocumentParse(core) || trackedPartsSeparate(core) || edit.start !== edit.end ||
+        !/^[\p{L}\p{N}][\p{L}\p{N} ]*$/u.test(edit.insert)) return undefined
+    const touching = markupAnnotations(rootsAround(previous, edit.start)).filter(annotation =>
+      annotation.range.start <= edit.start && edit.start <= annotation.range.end)
+    const before = touching.filter(annotation => annotation.range.end === edit.start && annotation.range.start < edit.start)
+    const after = touching.filter(annotation => annotation.range.start === edit.start && annotation.range.end > edit.start)
+    if (touching.length !== before.length + after.length || before.length > 1 || after.length > 1 ||
+        before.some(annotation => annotation.kind !== 'deletion') || !plainParagraphAround(previous, edit.start, false)) return undefined
+    const replaced = after[0]
+    if (replaced !== undefined && replaced.kind !== 'deletion') return undefined
+    const struck = replaced?.arms[0]
+    let planned: DocumentSourceEdit
+    if (replaced === undefined) {
+      if (before.length === 0) return undefined
+      planned = Object.freeze({ start: edit.start, end: edit.start, insert: `{++${edit.insert}++}` })
+    } else {
+      if (struck === undefined || replaced.arms.length !== 1 || struck.annotations.length !== 0 ||
+          struck.range.start !== replaced.range.start + 3 || struck.range.end !== replaced.range.end - 3) return undefined
+      const old = core.sourceSlice(previous, struck.range)
+      if (!/^[\p{L}\p{N} .,;:'"?!()]+$/u.test(old)) return undefined
+      planned = Object.freeze({ start: replaced.range.start, end: replaced.range.end, insert: `{~~${old}~>${edit.insert}~~}` })
+    }
+    const candidate = regionalCandidate(state, planned)
+    if (candidate?.structural === undefined || candidate.structural.markerDelta !== (replaced === undefined ? 2 : 1)) return undefined
+    const shift = candidate.sourceStart
+    const roots = candidate.nextProducts.retainedIntrinsic?.roots ?? []
+    if (!neighboursUnchanged(roots, shift, before, planned)) return undefined
+    const root = roots.find(node => node.range.start === planned.start - shift)
+    if (root === undefined || root.range.end !== planned.start + planned.insert.length - shift ||
+        root.arms.some(arm => arm.children.length !== 0)) return undefined
+    if (replaced === undefined) {
+      const text = root.arms[0]
+      return root.kind === 'addition' && root.arms.length === 1 && text !== undefined &&
+        text.range.start === planned.start + 3 - shift && text.range.end === planned.start + 3 + edit.insert.length - shift
+        ? planned
+        : undefined
+    }
+    const [oldArm, newArm] = root.arms
+    const oldLength = planned.insert.length - edit.insert.length - 8
+    return root.kind === 'substitution' && root.arms.length === 2 && oldArm !== undefined && newArm !== undefined &&
+      oldArm.range.start === planned.start + 3 - shift && oldArm.range.end === planned.start + 3 + oldLength - shift &&
+      newArm.range.start === oldArm.range.end + 2 && newArm.range.end === newArm.range.start + edit.insert.length
+      ? planned
+      : undefined
+  }
+
+  /**
    * Plain words typed away from every suggestion become one Addition. Its
    * source accepts to the untracked text and rejects to the previous text;
    * the general planner's whole-document preview only proves the Addition
@@ -4622,8 +4725,13 @@ function createDocumentCoreWithExecutionBudget(
     edit: DocumentSourceEdit
   ): DocumentSourceEdit | undefined => {
     if (plansFromDocumentParse(core) || edit.start !== edit.end || !/^(?:\r\n|\r|\n)+$/u.test(edit.insert)) return undefined
-    const touching = markupAnnotations(rootsAround(previous, edit.start)).filter(annotation =>
+    const around = markupAnnotations(rootsAround(previous, edit.start)).filter(annotation =>
       annotation.range.start <= edit.start && edit.start <= annotation.range.end)
+    // A break beside a Deletion is an Addition of its own, as away from
+    // every suggestion.
+    const beside = around.filter(annotation => annotation.kind === 'deletion' &&
+      (annotation.range.end === edit.start || annotation.range.start === edit.start))
+    const touching = around.filter(annotation => !beside.includes(annotation))
     const owner = touching[0]
     if (touching.length > 1 || owner !== undefined && (owner.kind !== 'addition' || owner.range.start === edit.start)) return undefined
     const arm = owner?.arms[0]
@@ -4660,7 +4768,8 @@ function createDocumentCoreWithExecutionBudget(
     const shift = candidate.sourceStart
     const roots = candidate.nextProducts.retainedIntrinsic?.roots ?? []
     if (owner === undefined) {
-      if (candidate.structural.touchesAnnotation || candidate.structural.markerDelta !== 2) return undefined
+      if ((beside.length === 0 && candidate.structural.touchesAnnotation) || candidate.structural.markerDelta !== 2 ||
+          !neighboursUnchanged(roots, shift, beside, planned)) return undefined
       const local = at - shift
       const root = roots.find(node => node.range.start === local)
       const content = root?.arms[0]
@@ -4730,11 +4839,60 @@ function createDocumentCoreWithExecutionBudget(
         !plainParagraphAround(previous, edit.start, false)) return undefined
     const touching = markupAnnotations(rootsAround(previous, edit.start)).filter(annotation =>
       annotation.range.start <= edit.end && edit.start <= annotation.range.end)
-    const owner = touching[0]
     if (touching.length > 1) return undefined
+    // Parts of one edit keep to the general compiler, which keeps them apart.
+    if (trackedPartsSeparate(core) && touching[0] !== undefined && touching[0].kind !== 'deletion') return undefined
+    // Text struck right after an Addition, Substitution, Highlight or Comment,
+    // or right before one of them other than a Substitution (whose old text
+    // it joins), is a Deletion of its own, as the general compiler strikes it.
+    const beside = touching[0] !== undefined && touching[0].kind !== 'deletion' &&
+      (touching[0].range.end === edit.start ||
+        touching[0].range.start === edit.end && touching[0].kind !== 'substitution')
+    const owner = beside ? undefined : touching[0]
+    // Striking the last of one's own Addition's text removes the Addition.
+    const emptied = owner?.kind === 'addition' ? owner : undefined
+    if (emptied !== undefined) {
+      const text = emptied.arms[0]
+      if (text === undefined || emptied.arms.length !== 1 || text.annotations.length !== 0 ||
+          text.range.start !== edit.start || text.range.end !== edit.end) return undefined
+      const abutting = markupAnnotations(rootsAround(previous, emptied.range.start)).filter(annotation => annotation !== emptied &&
+        (annotation.range.end === emptied.range.start || annotation.range.start === emptied.range.end))
+      if (abutting.length > 1 || abutting.some(annotation => annotation.kind !== 'deletion')) return undefined
+      const removal = Object.freeze({ start: emptied.range.start, end: emptied.range.end, insert: '' })
+      const candidate = regionalCandidate(state, removal)
+      return candidate?.structural !== undefined && candidate.structural.markerDelta === -2 &&
+        neighboursUnchanged(candidate.nextProducts.retainedIntrinsic?.roots ?? [], candidate.sourceStart, abutting, removal)
+        ? removal
+        : undefined
+    }
+    // Text struck right before a Substitution joins its old text.
+    const joined = owner?.kind === 'substitution' && owner.range.start === edit.end ? owner : undefined
+    if (joined !== undefined) {
+      const [old, proposed] = joined.arms
+      if (old === undefined || proposed === undefined || joined.arms.length !== 2 || old.annotations.length !== 0 ||
+          proposed.annotations.length !== 0 || old.range.start !== joined.range.start + 3) return undefined
+      const join = Object.freeze({ start: edit.start, end: old.range.start, insert: `{~~${removed}` })
+      const candidate = regionalCandidate(state, join)
+      if (candidate?.structural === undefined || candidate.structural.markerDelta !== 0) return undefined
+      const shift = candidate.sourceStart
+      const root = candidate.nextProducts.retainedIntrinsic?.roots.find(node => node.range.start === edit.start - shift)
+      const [oldArm, newArm] = root?.arms ?? []
+      return root?.kind === 'substitution' && root.arms.length === 2 && root.range.end === joined.range.end - shift &&
+        oldArm !== undefined && newArm !== undefined && oldArm.children.length === 0 && newArm.children.length === 0 &&
+        oldArm.range.start === edit.start + 3 - shift && oldArm.range.end === old.range.end - shift &&
+        newArm.range.start === proposed.range.start - shift && newArm.range.end === proposed.range.end - shift
+        ? join
+        : undefined
+    }
+    // Text struck inside a Highlight's text is a Deletion nested in it.
+    const highlighted = owner?.kind === 'highlight' && owner.arms.length === 1 &&
+      owner.arms[0] !== undefined && owner.arms[0].annotations.length === 0 &&
+      owner.arms[0].range.start <= edit.start && edit.end <= owner.arms[0].range.end
+      ? owner
+      : undefined
     let planned: DocumentSourceEdit
     let expected: Readonly<{ start: number, end: number, content: SourceRange }>
-    if (owner === undefined) {
+    if (owner === undefined || highlighted !== undefined) {
       planned = Object.freeze({ start: edit.start, end: edit.end, insert: `{--${removed}--}` })
       expected = { start: edit.start, end: edit.start + planned.insert.length, content: { start: edit.start + 3, end: edit.end + 3 } }
     } else {
@@ -4753,10 +4911,23 @@ function createDocumentCoreWithExecutionBudget(
       } else return undefined
     }
     const candidate = regionalCandidate(state, planned)
-    if (candidate?.structural === undefined || candidate.structural.markerDelta !== (owner === undefined ? 2 : 0) ||
-        (owner === undefined && candidate.structural.touchesAnnotation)) return undefined
+    if (candidate?.structural === undefined ||
+        candidate.structural.markerDelta !== (owner === undefined || highlighted !== undefined ? 2 : 0) ||
+        (owner === undefined && !beside && candidate.structural.touchesAnnotation)) return undefined
     const shift = candidate.sourceStart
-    const root = candidate.nextProducts.retainedIntrinsic?.roots.find(node => node.range.start === expected.start - shift)
+    let siblings = candidate.nextProducts.retainedIntrinsic?.roots ?? []
+    // The suggestion beside the new Deletion stays as it was.
+    if (beside && !neighboursUnchanged(siblings, shift, touching, planned)) return undefined
+    if (highlighted !== undefined) {
+      const text = highlighted.arms[0]
+      const host = siblings.find(node => node.range.start === highlighted.range.start - shift)
+      const hostText = host?.arms[0]
+      if (host?.kind !== 'highlight' || host.arms.length !== 1 || text === undefined || hostText === undefined ||
+          host.range.end !== highlighted.range.end + 6 - shift || hostText.children.length !== 1 ||
+          hostText.range.start !== text.range.start - shift || hostText.range.end !== text.range.end + 6 - shift) return undefined
+      siblings = hostText.children
+    }
+    const root = siblings.find(node => node.range.start === expected.start - shift)
     const content = root?.arms[0]
     return root?.kind === 'deletion' && root.arms.length === 1 && root.range.end === expected.end - shift &&
       content !== undefined && content.children.length === 0 &&
@@ -4783,7 +4954,7 @@ function createDocumentCoreWithExecutionBudget(
     const text = before.slice(opening === undefined ? 0 : opening.index + opening[0].length) +
       after.slice(0, closing < 0 ? after.length : closing)
     return /^[\p{L}\p{N} \t\r\n.,;:'"?!()]*$/u.test(text.replace(/\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\}/gu, '')) &&
-      (!breaking || /^(?:\+\+\})?[ \t]*(?:\p{L}|\r|\n|$)/u.test(after))
+      (!breaking || /^(?:\+\+\}|\{--[^{}\r\n]*--\})?[ \t]*(?:\p{L}|\r|\n|$)/u.test(after))
   }
 
   const resolutionEdit = (
@@ -4876,7 +5047,7 @@ function createDocumentCoreWithExecutionBudget(
       return Object.freeze({ start: first.start, end: last.end, insert })
     }
     const regional = regionalPayloadEdit(state, edit, true) ?? regionalTrackedInsertion(state, previous, edit) ??
-      regionalTrackedArmEdge(state, previous, edit) ??
+      regionalTrackedArmEdge(state, previous, edit) ?? regionalTrackedBesideDeletion(state, previous, edit) ??
       regionalTrackedBreak(state, previous, edit) ?? regionalTrackedJoin(state, previous, edit) ??
       regionalTrackedDeletion(state, previous, edit)
     if (regional !== undefined) return regional
