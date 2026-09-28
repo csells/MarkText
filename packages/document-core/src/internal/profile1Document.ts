@@ -1306,16 +1306,8 @@ function parseIntrinsicProfile1Pass(
   ): number => sourceProgression.nextCloserStart(kind, start)
   // Profile rule R3b: an opener whose every later closer would cut through a
   // table cell can never form, so it degrades to text at once.
-  const closerStandsInRegion = (kind: ImplementedKind, open: SourceRange): boolean => {
-    for (
-      let closer = nextCloserStart(kind, open.end);
-      closer < source.length;
-      closer = nextCloserStart(kind, closer + 1)
-    ) {
-      if (cellContainment.pairs(open, { start: closer, end: closer + 3 })) return true
-    }
-    return false
-  }
+  const closerStandsInRegion = (kind: ImplementedKind, open: SourceRange): boolean =>
+    cellContainment.pairsAnyCloser(open, sourceProgression.closerStarts(kind))
   const nextLaneBoundary = (frame: ParseFrame, start: number): number =>
     frame.definition.kind === 'substitution' && frame.separator === undefined
       ? Math.min(

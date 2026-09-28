@@ -105,8 +105,12 @@ export interface IntrinsicProfile1SourceProgression {
     kind: Profile1CriticKind,
     start: number
   ) => number
+  /** Every closer start of `kind`, ascending; the same array on every call. */
+  readonly closerStarts: (kind: Profile1CriticKind) => readonly number[]
   readonly nextSubstitutionSeparatorStart: (start: number) => number
 }
+
+const NO_CLOSER_STARTS: readonly number[] = Object.freeze([])
 
 function nextIndexedOffset(
   offsets: readonly number[],
@@ -284,10 +288,12 @@ export function createIntrinsicProfile1SourceProgression(
       kind: Profile1CriticKind,
       start: number
     ): number => nextIndexedOffset(
-      closerStartsByKind.get(kind) ?? Object.freeze([]),
+      closerStartsByKind.get(kind) ?? NO_CLOSER_STARTS,
       start,
       source.length
     )),
+    closerStarts: Object.freeze((kind: Profile1CriticKind): readonly number[] =>
+      closerStartsByKind.get(kind) ?? NO_CLOSER_STARTS),
     nextSubstitutionSeparatorStart: Object.freeze((
       start: number
     ): number => nextIndexedOffset(
