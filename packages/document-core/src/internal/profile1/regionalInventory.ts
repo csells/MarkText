@@ -5,7 +5,8 @@ import type {
   MarkdownOptionsV1,
   NodeId,
   ResourceDiagnostic,
-  SourceRange
+  SourceRange,
+  SyntaxDiagnostic
 } from '../../revision.js'
 import { DOCUMENT_RESOURCE_POLICY_V1 } from '../../resourcePolicy.js'
 import {
@@ -83,6 +84,12 @@ export interface RegionalInventoryAdmission {
     }>
   }>
   readonly commentImpacts: readonly RegionalInventoryCommentImpact[]
+  /**
+   * The document has stray markers, whose escapes in the Markup view are
+   * generated text: they claim no source, so the replacement's coordinates
+   * leave them out, as the document's own do.
+   */
+  readonly strayMarkers: boolean
 }
 
 export interface RegionalInventoryFallback {
@@ -167,6 +174,13 @@ interface MarkerCapsule {
   readonly action?: 'matched' | 'non-top' | 'unmatched'
 }
 
+interface DiagnosticCapsule {
+  readonly code: SyntaxDiagnostic['code']
+  readonly start: number
+  readonly end: number
+  readonly metadata: SyntaxDiagnostic['metadata']
+}
+
 interface MeasuredRegionLeaf {
   readonly kind: 'region'
   readonly sourceLength: number
@@ -174,6 +188,10 @@ interface MeasuredRegionLeaf {
   readonly eventCount: number
   readonly annotations: AnnotationCapsule
   readonly markers: readonly MarkerCapsule[]
+  /** The leaf's syntax diagnostics, in document order, at leaf offsets. */
+  readonly diagnostics: readonly DiagnosticCapsule[]
+  /** Forms with an unfinished opener in the leaf, as `FORM_BIT` flags. */
+  readonly unterminatedForms: number
   readonly tapeRoles: readonly string[]
   readonly markdownTopology: readonly string[]
   readonly mappedKinds: readonly string[]
@@ -203,6 +221,8 @@ interface RegionBranch {
   readonly sourceLength: number
   readonly syntaxLength: number
   readonly eventCount: number
+  readonly unterminatedForms: number
+  readonly rootCount: number
 }
 
 type RegionTree = RegionLeaf | RegionBranch
@@ -224,6 +244,14 @@ interface InventoryValue extends RegionalInventory {
    * markers regionally only to a document that has none.
    */
   readonly markerFree: boolean
+  /**
+   * The document has syntax diagnostics: stray or unfinished markers, whose
+   * reading depends on marker spellings anywhere after them (an unfinished
+   * opener stays text only while no later closer of its form can close it).
+   * An edit then keeps every marker spelling of its window, or proves each
+   * closer form it adds has no unfinished opener before it.
+   */
+  readonly strayMarkers: boolean
   readonly dependencyPrefixEnd: number
   readonly recorder: RegionalInventoryRecorder
   readonly plainRecorder?: PlainParagraphIndexRecorder
@@ -536,8 +564,109 @@ function createLeaf(
         ? [run.role]
         : []
     )),
-    mappedKinds(products, syntaxStart, syntaxEnd)
+    mappedKinds(products, syntaxStart, syntaxEnd),
+    diagnosticsWithin(products, sourceStart, sourceEnd)
   )
+}
+
+function diagnosticsWithin(
+  products: Profile1DocumentProducts,
+  sourceStart: number,
+  sourceEnd: number
+): readonly SyntaxDiagnostic[] {
+  const within: SyntaxDiagnostic[] = []
+  for (let ordinal = 0; ordinal < products.diagnostics.count; ordinal += 1) {
+    const diagnostic = products.diagnostics.at(ordinal)
+    if (sourceStart <= diagnostic.range.start && diagnostic.range.end <= sourceEnd) within.push(diagnostic)
+  }
+  return within
+}
+
+const FORM_BIT: Readonly<Record<CriticMarkupNode['kind'], number>> = Object.freeze({
+  addition: 1,
+  deletion: 2,
+  substitution: 4,
+  highlight: 8,
+  comment: 16
+})
+
+const OPENER_FORM: Readonly<Record<string, CriticMarkupNode['kind']>> = Object.freeze({
+  '{++': 'addition',
+  '{--': 'deletion',
+  '{~~': 'substitution',
+  '{==': 'highlight',
+  '{>>': 'comment'
+})
+
+const CLOSER_FORM: Readonly<Record<string, CriticMarkupNode['kind']>> = Object.freeze({
+  '++}': 'addition',
+  '--}': 'deletion',
+  '~~}': 'substitution',
+  '==}': 'highlight',
+  '<<}': 'comment'
+})
+
+function diagnosticCapsules(
+  diagnostics: readonly SyntaxDiagnostic[],
+  sourceStart: number
+): readonly DiagnosticCapsule[] {
+  return Object.freeze(diagnostics.map(diagnostic => Object.freeze({
+    code: diagnostic.code,
+    start: diagnostic.range.start - sourceStart,
+    end: diagnostic.range.end - sourceStart,
+    metadata: diagnostic.metadata
+  })))
+}
+
+const ALL_FORMS = 31
+
+type CanonicalSegment = Readonly<{ sourceStart: number, sourceEnd: number, projectedStart: number }>
+const canonicalSegmentsByProducts = new WeakMap<Profile1DocumentProducts, readonly CanonicalSegment[]>()
+
+/** The source text of `[start, end)`, read through the Markup view's canonical text. */
+function canonicalText(
+  products: Profile1DocumentProducts,
+  start: number,
+  end: number
+): string | undefined {
+  const editing = products.editing()
+  let segments = canonicalSegmentsByProducts.get(products)
+  if (segments === undefined) {
+    segments = Object.freeze(editing.mappedTape.flatMap(segment => segment.kind === 'canonical'
+      ? [Object.freeze({
+        sourceStart: segment.sourceStart,
+        sourceEnd: segment.sourceStart + segment.projectedEnd - segment.projectedStart,
+        projectedStart: segment.projectedStart
+      })]
+      : []))
+    canonicalSegmentsByProducts.set(products, segments)
+  }
+  let low = 0
+  let high = segments.length
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2)
+    if ((segments[middle]?.sourceEnd ?? Infinity) < end) low = middle + 1
+    else high = middle
+  }
+  const segment = segments[low]
+  if (segment === undefined || segment.sourceStart > start) return undefined
+  const projected = segment.projectedStart + start - segment.sourceStart
+  return editing.source.slice(projected, projected + end - start)
+}
+
+/** Forms of the unfinished openers these diagnostics report, as `FORM_BIT` flags. */
+function unterminatedFormsOf(
+  diagnostics: readonly SyntaxDiagnostic[],
+  products: Profile1DocumentProducts
+): number {
+  let forms = 0
+  for (const diagnostic of diagnostics) {
+    if (diagnostic.code !== 'CM_UNTERMINATED_OPENER') continue
+    const form = OPENER_FORM[canonicalText(products, diagnostic.range.start, diagnostic.range.end) ?? '']
+    // An unfinished opener whose spelling cannot be read back fails closed.
+    forms |= form === undefined ? ALL_FORMS : FORM_BIT[form]
+  }
+  return forms
 }
 
 function createLeafFromParts(
@@ -554,6 +683,7 @@ function createLeafFromParts(
   >['markerDecisions'][number][],
   tapeRoles: readonly string[],
   projectionKinds: readonly string[],
+  diagnostics: readonly SyntaxDiagnostic[],
   recorder?: RegionalInventoryRecorder
 ): MeasuredRegionLeaf {
   return Object.freeze({
@@ -563,6 +693,8 @@ function createLeafFromParts(
     eventCount,
     annotations: annotationCapsule(roots, sourceStart, products, recorder),
     markers: markerCapsules(markerDecisions, sourceStart, recorder),
+    diagnostics: diagnosticCapsules(diagnostics, sourceStart),
+    unterminatedForms: unterminatedFormsOf(diagnostics, products),
     tapeRoles,
     markdownTopology: markdownTopology(markdownRoots, syntaxStart, recorder),
     mappedKinds: projectionKinds
@@ -582,8 +714,19 @@ function branch(
     leafCount: leafCount(left) + leafCount(right),
     sourceLength: left.sourceLength + right.sourceLength,
     syntaxLength: left.syntaxLength + right.syntaxLength,
-    eventCount: left.eventCount + right.eventCount
+    eventCount: left.eventCount + right.eventCount,
+    unterminatedForms: unterminatedFormsIn(left) | unterminatedFormsIn(right),
+    rootCount: rootCountIn(left) + rootCountIn(right)
   })
+}
+
+function unterminatedFormsIn(node: RegionTree): number {
+  return node.kind === 'gap' ? 0 : node.unterminatedForms
+}
+
+/** Top-level annotations under `node`. */
+function rootCountIn(node: RegionTree): number {
+  return node.kind === 'gap' ? 0 : node.kind === 'region' ? node.annotations.roots.length : node.rootCount
 }
 
 function leafCount(node: RegionTree): number {
@@ -623,20 +766,42 @@ export function referenceDependencyPrefixEnd(
   products: Profile1DocumentProducts
 ): number {
   let end = 0
-  const pending: MarkdownNode[] = [products.original.markdown.root]
-  while (pending.length > 0) {
-    const node = pending.pop()
-    if (node === undefined) break
-    if (
-      node.kind === 'definition' ||
-      node.kind === 'footnote-definition' ||
-      node.kind === 'footnote-reference' ||
-      typeof node.attributes['referenceLabel'] === 'string'
-    ) {
-      end = Math.max(end, node.range.end)
+  // Views elide annotation text, so a node's view range is mapped back to
+  // source; Original and Revised each resolve their own view-global labels.
+  for (const view of products.revised === products.original ? [products.original] : [products.original, products.revised]) {
+    const segments = view.mappedTape
+    const sourceEnd = (projectedEnd: number): number => {
+      let low = 0
+      let high = segments.length
+      while (low < high) {
+        const middle = low + Math.floor((high - low) / 2)
+        if ((segments[middle]?.projectedStart ?? Infinity) < projectedEnd) low = middle + 1
+        else high = middle
+      }
+      for (let ordinal = low - 1; ordinal >= 0; ordinal -= 1) {
+        const segment = segments[ordinal]
+        if (segment?.kind === 'canonical') {
+          return segment.sourceStart + Math.min(projectedEnd, segment.projectedEnd) - segment.projectedStart
+        }
+        if (segment !== undefined) return segment.sourcePosition
+      }
+      return 0
     }
-    for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
-      pending.push(node.childAt(ordinal))
+    const pending: MarkdownNode[] = [view.markdown.root]
+    while (pending.length > 0) {
+      const node = pending.pop()
+      if (node === undefined) break
+      if (
+        node.kind === 'definition' ||
+        node.kind === 'footnote-definition' ||
+        node.kind === 'footnote-reference' ||
+        typeof node.attributes['referenceLabel'] === 'string'
+      ) {
+        end = Math.max(end, sourceEnd(node.range.end))
+      }
+      for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) {
+        pending.push(node.childAt(ordinal))
+      }
     }
   }
   return end
@@ -669,8 +834,7 @@ export function createRegionalInventory(
     dependencyPrefixEnd < 0 || dependencyPrefixEnd > sourceLength ||
     retained === undefined ||
     retained.sourceLength !== sourceLength ||
-    retained.rootCount < minimumRoots ||
-    retained.diagnostics.length !== 0
+    retained.rootCount < minimumRoots
   ) {
     return undefined
   }
@@ -692,6 +856,7 @@ export function createRegionalInventory(
   let markerCursor = 0
   let tapeCursor = 0
   let mappedCursor = 0
+  let diagnosticCursor = 0
   const editingRoot = products.editing().markdown.root
   const mappedTape = products.editing().mappedTape
   const annotationExtent = retained.roots[retained.roots.length - 1]?.range.end ?? 0
@@ -768,6 +933,17 @@ export function createRegionalInventory(
       tapeRoles.push(run.role)
       tapeCursor += 1
     }
+    const diagnostics: SyntaxDiagnostic[] = []
+    while (diagnosticCursor < products.diagnostics.count) {
+      const diagnostic = products.diagnostics.at(diagnosticCursor)
+      if (diagnostic.range.start >= sourceEnd) break
+      recorder.recordBuildUnit()
+      if (!(sourceStart <= diagnostic.range.start && diagnostic.range.end <= sourceEnd)) {
+        return undefined
+      }
+      diagnostics.push(diagnostic)
+      diagnosticCursor += 1
+    }
     const projectionKinds: string[] = []
     while (mappedCursor < mappedTape.length) {
       const segment = mappedTape[mappedCursor]
@@ -794,7 +970,9 @@ export function createRegionalInventory(
       markdownRoots.length === 1 && markdownRoots[0]?.kind === 'paragraph' &&
       markerDecisions.length === 0 &&
       projectionKinds.every(kind => kind === 'canonical')
-    if (roots.length === 0 && !ordinaryParagraph) {
+    // Stray markers and their diagnostics stay measured, so an edit beside
+    // them can prove it leaves them as they were.
+    if (roots.length === 0 && !ordinaryParagraph && markerDecisions.length === 0 && diagnostics.length === 0) {
       const plainRegion = markerDecisions.length === 0 &&
         projectionKinds.every(kind => kind === 'canonical') &&
         syntaxEnd - syntaxStart === sourceEnd - sourceStart &&
@@ -834,6 +1012,7 @@ export function createRegionalInventory(
         Object.freeze(markerDecisions),
         Object.freeze(tapeRoles),
         Object.freeze(projectionKinds),
+        diagnostics,
         recorder
       ))
     }
@@ -844,7 +1023,8 @@ export function createRegionalInventory(
     markdownCursor !== editingRoot.childCount ||
     markerCursor !== retained.markerDecisions.length ||
     tapeCursor !== retained.tape.length ||
-    mappedCursor !== mappedTape.length
+    mappedCursor !== mappedTape.length ||
+    diagnosticCursor !== products.diagnostics.count
   ) {
     return undefined
   }
@@ -857,6 +1037,7 @@ export function createRegionalInventory(
     ),
     logicalNodeLimit,
     markerFree: false,
+    strayMarkers: products.diagnostics.count !== 0,
     dependencyPrefixEnd,
     recorder,
     ...(plainRecorder === undefined ? {} : { plainRecorder })
@@ -1011,6 +1192,7 @@ function sameRegionShape(
     sameArray(previous.tapeRoles, next.tapeRoles) &&
     sameArray(previous.markdownTopology, next.markdownTopology) &&
     sameArray(previous.mappedKinds, next.mappedKinds) &&
+    sameDiagnostics(previous.diagnostics, next.diagnostics) &&
     previous.markers.length === next.markers.length &&
     previous.markers.every((marker, ordinal) => {
       const candidate = next.markers[ordinal]
@@ -1019,6 +1201,115 @@ function sameRegionShape(
         marker.relation === candidate.relation &&
         marker.action === candidate.action
     })
+}
+
+/** The same diagnostics in the same order; offsets may move with the edit. */
+function sameDiagnostics(
+  previous: readonly Pick<DiagnosticCapsule, 'code' | 'metadata'>[],
+  next: readonly Pick<DiagnosticCapsule, 'code' | 'metadata'>[]
+): boolean {
+  return previous.length === next.length && previous.every((diagnostic, ordinal) => {
+    const candidate = next[ordinal]
+    if (candidate === undefined || candidate.code !== diagnostic.code) return false
+    const keys = Object.keys(diagnostic.metadata)
+    return keys.length === Object.keys(candidate.metadata).length &&
+      keys.every(key => candidate.metadata[key] === diagnostic.metadata[key])
+  })
+}
+
+/**
+ * Whether the diagnostics after an edit are those before it, each moved
+ * with the text around it. Offsets are in one coordinate space, with the
+ * edit at `[editStart, editEnd)` growing the text by `delta`; a diagnostic
+ * the edit touches has no place to move to.
+ */
+function diagnosticsMoveWithEdit(
+  previous: readonly DiagnosticCapsule[],
+  next: readonly DiagnosticCapsule[],
+  editStart: number,
+  editEnd: number,
+  delta: number
+): boolean {
+  if (!sameDiagnostics(previous, next)) return false
+  return previous.every((diagnostic, ordinal) => {
+    const candidate = next[ordinal]
+    if (candidate === undefined) return false
+    if (diagnostic.end <= editStart) return candidate.start === diagnostic.start && candidate.end === diagnostic.end
+    if (diagnostic.start >= editEnd) return candidate.start === diagnostic.start + delta && candidate.end === diagnostic.end + delta
+    return false
+  })
+}
+
+/**
+ * Whether an edit that keeps its window's marker spellings is also local in
+ * a document with stray markers. Every spelling keeps its reading because
+ * none is added, removed or re-spelled, and no table cell changes, since
+ * whether an unfinished opener can close depends on the cells of every
+ * later closer of its form (profile rule R3b).
+ */
+function strayMarkersUnchanged(previousWindow: string, nextWindow: string): boolean {
+  return !previousWindow.includes('|') && !nextWindow.includes('|') &&
+    markerSpellingSequence(previousWindow) === markerSpellingSequence(nextWindow)
+}
+
+const MARKER_SPELLING = /(?=(\{\+\+|\{--|\{~~|\{==|\{>>|~>|\+\+\}|--\}|~~\}|==\}|<<\}))/gu
+
+/** The marker spellings of `text` in order, overlapping spellings each read. */
+function markerSpellingSequence(text: string): string {
+  return [...text.matchAll(MARKER_SPELLING)].map(match => match[1]).join(' ')
+}
+
+/**
+ * Whether two marker spellings of `text` overlap, as in `{++}`: which of
+ * them the document reads depends on markers far away.
+ */
+function overlappingSpellings(text: string): boolean {
+  let previousEnd = -1
+  for (const match of text.matchAll(MARKER_SPELLING)) {
+    if (match.index < previousEnd) return true
+    previousEnd = match.index + (match[1]?.length ?? 0)
+  }
+  return false
+}
+
+/** Forms whose closer `nextWindow` spells more often than `previousWindow` does. */
+function addedCloserForms(previousWindow: string, nextWindow: string): number {
+  const counts = (text: string): Map<string, number> => {
+    const result = new Map<string, number>()
+    for (const match of text.matchAll(MARKER_SPELLING)) {
+      const spelling = match[1] ?? ''
+      if (CLOSER_FORM[spelling] !== undefined) result.set(spelling, (result.get(spelling) ?? 0) + 1)
+    }
+    return result
+  }
+  const before = counts(previousWindow)
+  let forms = 0
+  for (const [spelling, count] of counts(nextWindow)) {
+    const form = CLOSER_FORM[spelling]
+    if (form !== undefined && count > (before.get(spelling) ?? 0)) forms |= FORM_BIT[form]
+  }
+  return forms
+}
+
+/** Forms with an unfinished opener in the leaves before `ordinal`. */
+function unterminatedFormsBefore(node: RegionTree, ordinal: number): number {
+  if (ordinal <= 0) return 0
+  if (node.kind !== 'branch') return unterminatedFormsIn(node)
+  const leftCount = leafCount(node.left)
+  return ordinal <= leftCount
+    ? unterminatedFormsBefore(node.left, ordinal)
+    : unterminatedFormsIn(node.left) | unterminatedFormsBefore(node.right, ordinal - leftCount)
+}
+
+/** Forms with an unfinished opener in the leaves from `ordinal` on. */
+function unterminatedFormsFrom(node: RegionTree, ordinal: number): number {
+  if (ordinal >= leafCount(node)) return 0
+  if (ordinal <= 0) return unterminatedFormsIn(node)
+  if (node.kind !== 'branch') return 0
+  const leftCount = leafCount(node.left)
+  return ordinal >= leftCount
+    ? unterminatedFormsFrom(node.right, ordinal - leftCount)
+    : unterminatedFormsFrom(node.left, ordinal) | unterminatedFormsIn(node.right)
 }
 
 function editTouchesMarker(
@@ -1217,11 +1508,13 @@ function evaluateSameShape(
     start.sourceStart,
     start.sourceStart + start.leaf.sourceLength + delta
   )
+  const previousWindow = previousSource.slice(start.sourceStart, start.sourceStart + start.leaf.sourceLength)
   // An empty paragraph reads a whitespace-only line differently when no
   // block follows it in the parsed text, as none does in a lone region.
   if (
     EMPTY_PARAGRAPH.test(nextWindow) ||
-    EMPTY_PARAGRAPH.test(previousSource.slice(start.sourceStart, start.sourceStart + start.leaf.sourceLength))
+    EMPTY_PARAGRAPH.test(previousWindow) ||
+    inventory.strayMarkers && !strayMarkersUnchanged(previousWindow, nextWindow)
   ) {
     return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
   }
@@ -1232,7 +1525,8 @@ function evaluateSameShape(
     markdownOptions,
     false,
     physicalRecorder,
-    start.sourceStart + start.leaf.sourceLength + delta === nextSource.length
+    start.sourceStart + start.leaf.sourceLength + delta === nextSource.length,
+    rootCountIn(inventory.root) > 0
   )
   if (result.kind !== 'complete') {
     return Object.freeze({
@@ -1242,12 +1536,6 @@ function evaluateSameShape(
         start.sourceStart
       )
     })
-  }
-  if (
-    result.diagnostics.count !== 0 ||
-    (result.retainedIntrinsic?.diagnostics.length ?? 0) !== 0
-  ) {
-    return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
   }
   if ((result.retainedIntrinsic?.safePoints.length ?? 0) !== 0) {
     return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
@@ -1279,7 +1567,10 @@ function evaluateSameShape(
   ) {
     return BUDGET_EXHAUSTED
   }
-  if (!sameRegionShape(start.leaf, candidate)) {
+  if (
+    !sameRegionShape(start.leaf, candidate) ||
+    !diagnosticsMoveWithEdit(start.leaf.diagnostics, candidate.diagnostics, localStart, localEnd, delta)
+  ) {
     return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
   }
   if (previewOnly) {
@@ -1302,6 +1593,7 @@ function evaluateSameShape(
       inventory.accountingUpperBound + candidateAccountingUnits,
     logicalNodeLimit: inventory.logicalNodeLimit,
     markerFree: inventory.markerFree,
+    strayMarkers: inventory.strayMarkers,
     dependencyPrefixEnd: inventory.dependencyPrefixEnd,
     recorder: inventory.recorder,
     ...(inventory.plainRecorder === undefined ? {} : { plainRecorder: inventory.plainRecorder })
@@ -1334,7 +1626,8 @@ function evaluateSameShape(
       markdownOptions,
       false,
       physicalRecorder,
-      nextSourceStart + resolved.located.leaf.sourceLength === nextSource.length
+      nextSourceStart + resolved.located.leaf.sourceLength === nextSource.length,
+      rootCountIn(inventory.root) > 0
     )
     if (parsed.kind !== 'complete') {
       return Object.freeze({
@@ -1345,11 +1638,7 @@ function evaluateSameShape(
         )
       })
     }
-    if (
-      parsed.diagnostics.count !== 0 ||
-      (parsed.retainedIntrinsic?.diagnostics.length ?? 0) !== 0 ||
-      (parsed.retainedIntrinsic?.safePoints.length ?? 0) !== 0
-    ) {
+    if ((parsed.retainedIntrinsic?.safePoints.length ?? 0) !== 0) {
       return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
     }
     const unchanged = createLeaf(
@@ -1421,7 +1710,8 @@ function evaluateSameShape(
     }),
     nextProducts: result,
     nextWindow,
-    commentImpacts: Object.freeze(commentImpacts)
+    commentImpacts: Object.freeze(commentImpacts),
+    strayMarkers: inventory.strayMarkers
   })
 }
 
@@ -1506,13 +1796,14 @@ interface BlockWindowFacts {
 function blockWindowFacts(
   products: Profile1DocumentProducts,
   window: string,
-  recorder: RegionalInventoryRecorder
+  recorder: RegionalInventoryRecorder,
+  strayMarkers: boolean
 ): BlockWindowFacts | undefined {
   const retained = products.retainedIntrinsic
   if (
     retained === undefined ||
-    products.diagnostics.count !== 0 ||
-    retained.diagnostics.length !== 0 ||
+    // Diagnostics are compared with the replaced leaves' own by the caller.
+    !strayMarkers && products.diagnostics.count !== 0 ||
     referenceDependencyPrefixEnd(products) !== 0 ||
     containsPotentialReferenceDependency(window)
   ) {
@@ -1520,8 +1811,8 @@ function blockWindowFacts(
   }
   const editing = products.editing()
   if (editing.markdown.root.childCount === 0) return undefined
-  if (editing.mappedTape.some(segment => segment.kind !== 'canonical')) return undefined
-  if (!markersPaired(retained.markerDecisions)) return undefined
+  if (!strayMarkers && editing.mappedTape.some(segment => segment.kind !== 'canonical')) return undefined
+  if (!strayMarkers && !markersPaired(retained.markerDecisions)) return undefined
   const boundaries = Object.freeze([0, ...retained.safePoints, window.length])
   // The window's start is its projection's start even when an elided
   // CriticMarkup opener begins it.
@@ -1627,10 +1918,14 @@ function evaluateBlockWindow(
   // markers, or in one without those runs where every marker spelling is a
   // recognized marker (an inventory's markers all pair), so no spelling
   // elsewhere can start pairing with the window's.
+  // With stray markers, a changed marker is proved by the window's diagnostics
+  // staying as they were and by no unfinished opener before the window
+  // having a closer form the edit adds (checked once the window is parsed).
   const touchesMarkers = /[{}]/u.test(edit.insert + previousSource.slice(edit.start, edit.end))
   const markersProvable = inventory.markerFree || touchesMarkers && (() => {
     const previousText = previousSource.slice(0, previousSource.length)
     if (/[`$\\]/u.test(previousText) || /[`$\\]/u.test(edit.insert)) return false
+    if (inventory.strayMarkers) return true
     let recognized = 0
     for (const leaf of leavesOf(inventory.root)) if (leaf.kind === 'region') recognized += leaf.markers.length
     return markerSpellings(previousText) === recognized
@@ -1661,11 +1956,16 @@ function evaluateBlockWindow(
       first.source === 0 ? markdownOptions : Object.freeze({ ...markdownOptions, frontMatter: false }),
       false,
       physicalRecorder,
-      atDocumentEnd
+      atDocumentEnd,
+      rootCountIn(inventory.root) > 0
     )
     // The document parse reports a window's resource failure authoritatively.
     if (result.kind !== 'complete') return undefined
     const previousWindow = previousSource.slice(first.source, last.source)
+    if (inventory.strayMarkers && (markersProvable
+      ? previousWindow.includes('|') || nextWindow.includes('|') || overlappingSpellings(nextWindow) ||
+        (unterminatedFormsBefore(inventory.root, first.ordinal) & addedCloserForms(previousWindow, nextWindow)) !== 0
+      : !strayMarkersUnchanged(previousWindow, nextWindow))) return undefined
     // Splitting or joining paragraphs moves the bound that stops a backtick
     // run pairing with a later one.
     if (/[\r\n]/u.test(edit.insert + previousSource.slice(edit.start, edit.end)) &&
@@ -1679,11 +1979,57 @@ function evaluateBlockWindow(
       if (!endStands) editedEnd = last
       continue
     }
+    // The unchanged blocks around the edited ones must read as they did: an
+    // edited block's kind can change how blank lines before or after it are
+    // read, as editable empty paragraphs before an HTML block.
+    inventory.recorder.recordCandidateRegionParse(previousWindow.length)
+    const previousResult = parseProfile1Window(
+      previousWindow,
+      executionBudget,
+      first.source === 0 ? markdownOptions : Object.freeze({ ...markdownOptions, frontMatter: false }),
+      false,
+      physicalRecorder,
+      last.source === length,
+      rootCountIn(inventory.root) > 0
+    )
+    if (previousResult.kind !== 'complete') return undefined
     return admitBlockWindow(
       inventory, edit, delta, edited, editedEnd, first, last,
-      result, nextWindow, atDocumentEnd, previewOnly, markersProvable
+      result, nextWindow, atDocumentEnd, previewOnly, markersProvable, previousResult
     )
   }
+}
+
+/**
+ * Whether the top-level blocks before `[previousStart, previousEnd)` in the
+ * window before an edit, and after it, are those before `[nextStart,
+ * nextEnd)` and after it in the window after the edit, at the same offsets
+ * from the edited blocks.
+ */
+function contextBlocksUnchanged(
+  previous: Profile1DocumentProducts,
+  next: Profile1DocumentProducts,
+  previousStart: number,
+  nextStart: number,
+  previousEnd: number,
+  nextEnd: number
+): boolean {
+  const blocks = (products: Profile1DocumentProducts, keep: (start: number) => boolean, shift: number): string[] => {
+    const root = products.editing().markdown.root
+    const result: string[] = []
+    for (let ordinal = 0; ordinal < root.childCount; ordinal += 1) {
+      const block = root.childAt(ordinal)
+      if (keep(block.range.start)) result.push(`${block.kind}:${block.range.start - shift}:${block.range.end - shift}`)
+    }
+    return result
+  }
+  return sameArray(
+    blocks(previous, start => start < previousStart, 0),
+    blocks(next, start => start < nextStart, 0)
+  ) && sameArray(
+    blocks(previous, start => start >= previousEnd && start > previousStart, previousEnd),
+    blocks(next, start => start >= nextEnd && start > nextStart, nextEnd)
+  )
 }
 
 function admitBlockWindow(
@@ -1698,12 +2044,29 @@ function admitBlockWindow(
   nextWindow: string,
   atDocumentEnd: boolean,
   previewOnly: boolean,
-  markersProvable: boolean
+  markersProvable: boolean,
+  previousResult: Profile1DocumentProducts
 ): RegionalInventoryApplyResult | RegionalInventoryPreviewResult | undefined {
-  const facts = blockWindowFacts(result, nextWindow, inventory.recorder)
+  const facts = blockWindowFacts(result, nextWindow, inventory.recorder, inventory.strayMarkers)
   if (facts === undefined) return undefined
-  if (markersProvable && !inventory.markerFree &&
+  if (markersProvable && !inventory.markerFree && !inventory.strayMarkers &&
       markerSpellings(nextWindow) !== (result.retainedIntrinsic?.markerDecisions.length ?? 0)) return undefined
+  if (inventory.strayMarkers) {
+    const previousDiagnostics: DiagnosticCapsule[] = []
+    for (const located of leafRange(inventory.root, first.ordinal, last.ordinal)) {
+      if (located.leaf.kind !== 'region') continue
+      previousDiagnostics.push(...located.leaf.diagnostics.map(diagnostic => ({
+        ...diagnostic,
+        start: located.sourceStart + diagnostic.start,
+        end: located.sourceStart + diagnostic.end
+      })))
+    }
+    const nextDiagnostics: DiagnosticCapsule[] = []
+    for (let ordinal = 0; ordinal < result.diagnostics.count; ordinal += 1) {
+      nextDiagnostics.push(...diagnosticCapsules([result.diagnostics.at(ordinal)], -first.source))
+    }
+    if (!diagnosticsMoveWithEdit(previousDiagnostics, nextDiagnostics, edit.start, edit.end, delta)) return undefined
+  }
   if (!markersProvable) {
     // Elsewhere-spelled markers keep their reading only if the window spells
     // exactly the markers it spelled before.
@@ -1730,6 +2093,27 @@ function admitBlockWindow(
   const from = boundaries.indexOf(editedStart)
   const to = boundaries.indexOf(editedStop)
   if (from < 0 || to <= from || first.syntax + (syntaxBoundaries[from] ?? 0) !== edited.syntax) return undefined
+  if (!contextBlocksUnchanged(
+    previousResult, result,
+    edited.syntax - first.syntax, syntaxBoundaries[from] ?? 0,
+    editedEnd.syntax - first.syntax, syntaxBoundaries[to] ?? 0
+  )) return undefined
+  if (inventory.strayMarkers) {
+    // An unfinished opener is escaped in the views of a document with
+    // annotations and not in one without, so while any remains an edit may
+    // not add the first annotation or remove the last.
+    let replacedRoots = 0
+    for (const located of leafRange(inventory.root, edited.ordinal, editedEnd.ordinal)) {
+      replacedRoots += rootCountIn(located.leaf)
+    }
+    const editedRoots = (result.retainedIntrinsic?.roots ?? []).filter(root =>
+      root.range.start >= editedStart && root.range.end <= editedStop).length
+    const documentRoots = rootCountIn(inventory.root)
+    const unfinished = (unterminatedFormsBefore(inventory.root, edited.ordinal) |
+      unterminatedFormsFrom(inventory.root, editedEnd.ordinal + 1)) !== 0 ||
+      (result.retainedIntrinsic?.diagnostics ?? []).some(diagnostic => diagnostic.code === 'CM_UNTERMINATED_OPENER')
+    if (unfinished && (documentRoots - replacedRoots + editedRoots > 0) !== (documentRoots > 0)) return undefined
+  }
   // Views replace paragraphs in place; any other block kind takes the full path.
   const editedBlocks = result.editing().markdown.root
   let paragraphs = 0
@@ -1774,6 +2158,7 @@ function admitBlockWindow(
   // never gains an inventory node per edited block.
   const plainBlocks = retained !== undefined &&
     !retained.roots.some(root => root.range.end > editedStart && root.range.start < editedStop) &&
+    !retained.diagnostics.some(diagnostic => diagnostic.range.end > editedStart && diagnostic.range.start < editedStop) &&
     !retained.markerDecisions.some(decision => decision.range.end > editedStart && decision.range.start < editedStop) &&
     counts.every(count => count === 1) &&
     blockBoundaries.every((boundary, index) => blockSyntax[index] === boundary - editedStart + (blockSyntax[0] ?? 0) && crossed[index] !== true)
@@ -1853,6 +2238,7 @@ function admitBlockWindow(
       accountingUpperBound: inventory.accountingUpperBound + candidateAccountingUnits,
       logicalNodeLimit: inventory.logicalNodeLimit,
       markerFree: inventory.markerFree && (result.retainedIntrinsic?.markerDecisions.length ?? 0) === 0,
+      strayMarkers: inventory.strayMarkers,
       dependencyPrefixEnd: inventory.dependencyPrefixEnd,
       recorder: inventory.recorder,
       ...(plainRecorder === undefined ? {} : { plainRecorder })
@@ -1877,7 +2263,8 @@ function admitBlockWindow(
         syntax: range(syntaxStart, syntaxEnd)
       })
     }),
-    commentImpacts: Object.freeze([])
+    commentImpacts: Object.freeze([]),
+    strayMarkers: inventory.strayMarkers
   })
 }
 
@@ -1906,10 +2293,36 @@ export function createPlainRegionalInventory(
     accountingUpperBound,
     logicalNodeLimit,
     markerFree: true,
+    strayMarkers: false,
     dependencyPrefixEnd: index.dependencyPrefixEnd,
     recorder,
     plainRecorder
   })
+}
+
+/** The document's syntax diagnostics, in document order, at document offsets. */
+export function materializeRegionalInventoryDiagnostics(
+  inventory: RegionalInventory
+): readonly SyntaxDiagnostic[] {
+  const diagnostics: SyntaxDiagnostic[] = []
+  const pending: Array<Readonly<{ node: RegionTree, sourceStart: number }>> = [{ node: inventoryValue(inventory).root, sourceStart: 0 }]
+  while (pending.length > 0) {
+    const task = pending.pop()
+    if (task === undefined) break
+    const { node, sourceStart } = task
+    if (node.kind === 'branch') {
+      pending.push({ node: node.right, sourceStart: sourceStart + node.left.sourceLength }, { node: node.left, sourceStart })
+    } else if (node.kind === 'region') {
+      for (const diagnostic of node.diagnostics) {
+        diagnostics.push(Object.freeze({
+          code: diagnostic.code,
+          range: internalRange(sourceStart + diagnostic.start, sourceStart + diagnostic.end),
+          metadata: diagnostic.metadata
+        }))
+      }
+    }
+  }
+  return Object.freeze(diagnostics)
 }
 
 /** Every annotation of the inventory, in document order. */
@@ -1936,7 +2349,9 @@ export function materializeRegionalInventoryAnnotationsAround(
     value.root,
     last === undefined ? position + 1 : last.sourceStart + last.leaf.sourceLength,
     Number.POSITIVE_INFINITY,
-    3
+    3,
+    // A leaf of stray markers holds no annotation to follow one.
+    leaf => leaf.annotations.roots.length > 0
   ).find(located => !leaves.some(item => item.sourceStart === located.sourceStart))
   return materializeLeafAnnotations(value, following === undefined ? leaves : [...leaves, following])
 }
@@ -1946,7 +2361,8 @@ function regionLeavesIn(
   root: RegionTree,
   from: number,
   to: number,
-  limit = Number.POSITIVE_INFINITY
+  limit = Number.POSITIVE_INFINITY,
+  include: (leaf: MeasuredRegionLeaf) => boolean = () => true
 ): Array<Readonly<{ leaf: MeasuredRegionLeaf, sourceStart: number }>> {
   const located: Array<Readonly<{ leaf: MeasuredRegionLeaf, sourceStart: number }>> = []
   const pending: Array<Readonly<{ node: RegionTree, sourceStart: number }>> = [{ node: root, sourceStart: 0 }]
@@ -1955,7 +2371,7 @@ function regionLeavesIn(
     if (task === undefined) break
     if (task.sourceStart > to || task.sourceStart + task.node.sourceLength < from) continue
     if (task.node.kind !== 'branch') {
-      if (task.node.kind === 'region') located.push(Object.freeze({ leaf: task.node, sourceStart: task.sourceStart }))
+      if (task.node.kind === 'region' && include(task.node)) located.push(Object.freeze({ leaf: task.node, sourceStart: task.sourceStart }))
       continue
     }
     pending.push({ node: task.node.right, sourceStart: task.sourceStart + task.node.left.sourceLength })
