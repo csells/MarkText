@@ -9,8 +9,7 @@ import type {
 } from '../../revision.js'
 import { DOCUMENT_RESOURCE_POLICY_V1 } from '../../resourcePolicy.js'
 import {
-  createProfile1DocumentReuseCache,
-  parseProfile1Document,
+  parseProfile1Window,
   type Profile1DocumentProducts,
   type RetainedPassSourceEdit
 } from '../profile1Document.js'
@@ -1227,16 +1226,12 @@ function evaluateSameShape(
     return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
   }
   inventory.recorder.recordCandidateRegionParse(nextWindow.length)
-  const result = parseProfile1Document(
+  const result = parseProfile1Window(
     nextWindow,
     executionBudget,
-    undefined,
     markdownOptions,
     false,
-    undefined,
-    createProfile1DocumentReuseCache(),
     physicalRecorder,
-    undefined,
     start.sourceStart + start.leaf.sourceLength + delta === nextSource.length
   )
   if (result.kind !== 'complete') {
@@ -1333,16 +1328,12 @@ function evaluateSameShape(
       nextSourceStart + resolved.located.leaf.sourceLength
     )
     inventory.recorder.recordCandidateRegionParse(window.length)
-    const parsed = parseProfile1Document(
+    const parsed = parseProfile1Window(
       window,
       executionBudget,
-      undefined,
       markdownOptions,
       false,
-      undefined,
-      createProfile1DocumentReuseCache(),
       physicalRecorder,
-      undefined,
       nextSourceStart + resolved.located.leaf.sourceLength === nextSource.length
     )
     if (parsed.kind !== 'complete') {
@@ -1664,16 +1655,12 @@ function evaluateBlockWindow(
     const nextWindow = nextSource.slice(first.source, last.source + delta)
     const atDocumentEnd = last.source + delta === nextSource.length
     inventory.recorder.recordCandidateRegionParse(nextWindow.length)
-    const result = parseProfile1Document(
+    const result = parseProfile1Window(
       nextWindow,
       executionBudget,
-      undefined,
       first.source === 0 ? markdownOptions : Object.freeze({ ...markdownOptions, frontMatter: false }),
       false,
-      undefined,
-      createProfile1DocumentReuseCache(),
       physicalRecorder,
-      undefined,
       atDocumentEnd
     )
     // The document parse reports a window's resource failure authoritatively.

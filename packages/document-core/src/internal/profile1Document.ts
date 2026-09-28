@@ -4836,9 +4836,8 @@ export function admitProfile1PlainParagraphRegion(
     nextWindow = source.slice(bracket.start, bracket.endNext)
   }
   const options = bracket.start === 0 ? markdownOptions : Object.freeze({ ...markdownOptions, frontMatter: false })
-  const parse = (window: string, endsAtDocumentEnd: boolean): Profile1DocumentResult => parseProfile1Document(
-    window, executionBudget, undefined, options, false, undefined,
-    createProfile1DocumentReuseCache(), physicalRecorder, undefined, endsAtDocumentEnd
+  const parse = (window: string, endsAtDocumentEnd: boolean): Profile1DocumentResult => parseProfile1Window(
+    window, executionBudget, options, false, physicalRecorder, endsAtDocumentEnd
   )
   const previous = parse(previousWindow, bracket.endPrevious === previousSource.length)
   const parsed = parse(nextWindow, bracket.endNext === source.length)
@@ -4880,6 +4879,67 @@ export function admitProfile1PlainParagraphRegion(
       source.length
     )
   })
+}
+
+interface WindowParse {
+  readonly source: string
+  readonly executionBudget: ExecutionBudgetId
+  readonly markdownOptions: MarkdownOptionsV1
+  readonly captureAccountingTrace: boolean
+  readonly physicalRecorder: Profile1PhysicalTraversalRecorderV1
+  readonly endsAtDocumentEnd: boolean
+  readonly result: Profile1DocumentResult
+}
+
+const WINDOW_PARSES_RETAINED = 8
+const WINDOW_PARSE_RETAINED_UNITS = 1 << 16
+const windowParses: WindowParse[] = []
+
+function sameMarkdownOptions(left: MarkdownOptionsV1, right: MarkdownOptionsV1): boolean {
+  if (left === right) return true
+  const keys = Object.keys(left) as (keyof MarkdownOptionsV1)[]
+  return keys.length === Object.keys(right).length && keys.every(key => left[key] === right[key])
+}
+
+/**
+ * Parse a regional window of a document, alone. Planning a key previews the
+ * window that applying it parses again, so a few recent window results are
+ * kept: a result depends only on these arguments. The physical recorder
+ * counts a window's traversal once.
+ */
+export function parseProfile1Window(
+  source: string,
+  executionBudget: ExecutionBudgetId,
+  markdownOptions: MarkdownOptionsV1,
+  captureAccountingTrace: boolean,
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  endsAtDocumentEnd: boolean
+): Profile1DocumentResult {
+  const retained = windowParses.find(parse =>
+    parse.source === source &&
+    parse.executionBudget === executionBudget &&
+    parse.captureAccountingTrace === captureAccountingTrace &&
+    parse.physicalRecorder === physicalRecorder &&
+    parse.endsAtDocumentEnd === endsAtDocumentEnd &&
+    sameMarkdownOptions(parse.markdownOptions, markdownOptions))
+  if (retained !== undefined) return retained.result
+  const result = parseProfile1Document(
+    source, executionBudget, undefined, markdownOptions, captureAccountingTrace, undefined,
+    createProfile1DocumentReuseCache(), physicalRecorder, undefined, endsAtDocumentEnd
+  )
+  if (source.length <= WINDOW_PARSE_RETAINED_UNITS) {
+    windowParses.unshift(Object.freeze({
+      source,
+      executionBudget,
+      markdownOptions,
+      captureAccountingTrace,
+      physicalRecorder,
+      endsAtDocumentEnd,
+      result
+    }))
+    windowParses.length = Math.min(windowParses.length, WINDOW_PARSES_RETAINED)
+  }
+  return result
 }
 
 export function parseProfile1Document(

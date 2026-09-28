@@ -7,8 +7,7 @@ import type {
   SourceRange
 } from '../../revision.js'
 import {
-  createProfile1DocumentReuseCache,
-  parseProfile1Document,
+  parseProfile1Window,
   type Profile1DocumentProducts,
   type RetainedPassSourceEdit
 } from '../profile1Document.js'
@@ -558,17 +557,8 @@ export function admitCriticMarkupRegionalChange(
   const regionalOptions = index.source.start === 0
     ? markdownOptions
     : Object.freeze({ ...markdownOptions, frontMatter: false })
-  const parseWindow = (source: string, endsAtDocumentEnd: boolean) => parseProfile1Document(
-    source,
-    executionBudget,
-    undefined,
-    regionalOptions,
-    true,
-    undefined,
-    createProfile1DocumentReuseCache(),
-    physicalRecorder,
-    undefined,
-    endsAtDocumentEnd
+  const parseWindow = (source: string, endsAtDocumentEnd: boolean) => parseProfile1Window(
+    source, executionBudget, regionalOptions, true, physicalRecorder, endsAtDocumentEnd
   )
   const previousProducts = parseWindow(previousWindow, index.source.end === previousSource.length)
   const nextProducts = parseWindow(nextWindow, index.source.end + delta === nextSource.length)

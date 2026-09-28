@@ -6,8 +6,7 @@ import type {
   SourceRange
 } from '../../revision.js'
 import {
-  createProfile1DocumentReuseCache,
-  parseProfile1Document,
+  parseProfile1Window,
   type Profile1DocumentProducts,
   type RetainedPassSourceEdit
 } from '../profile1Document.js'
@@ -389,17 +388,8 @@ export function admitCommentRegionalChange(
     index.source.start,
     index.source.end + delta
   )
-  const parseWindow = (source: string, endsAtDocumentEnd: boolean) => parseProfile1Document(
-    source,
-    executionBudget,
-    undefined,
-    markdownOptions,
-    true,
-    undefined,
-    createProfile1DocumentReuseCache(),
-    physicalRecorder,
-    undefined,
-    endsAtDocumentEnd
+  const parseWindow = (source: string, endsAtDocumentEnd: boolean) => parseProfile1Window(
+    source, executionBudget, markdownOptions, true, physicalRecorder, endsAtDocumentEnd
   )
   const previousProducts = parseWindow(previousWindow, index.source.end === previousSource.length)
   if (previousProducts.kind !== 'complete') {
