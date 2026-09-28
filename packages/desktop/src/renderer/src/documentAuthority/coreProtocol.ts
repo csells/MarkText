@@ -26,6 +26,7 @@ import type {
   MarkdownOptions,
   MarkdownProjectionName
 } from '@marktext/document-core'
+import type { MarkupPassage } from '../documentConsumers/markupPassage'
 import type { MuyaMarkupView } from './muyaMarkupView'
 
 export type CoreHistoryEntry = Readonly<{
@@ -467,11 +468,14 @@ export type CoreSelectionProjectionReply = Readonly<{
   readonly projection: CoreConsumerProjection
 }>
 export type CoreReviewOverviewEntry = Readonly<{
-  readonly text?: string
-  readonly replacementText?: string
+  /** The passage a suggestion or highlight holds; the old text of a Substitution. */
+  readonly excerpt?: MarkupPassage
+  readonly replacementExcerpt?: MarkupPassage
   readonly item: CoreReviewItemLocator
+  /** The Comment payload exactly as written, for its editor. */
   readonly commentText?: string
-  readonly commentProjection?: Readonly<{ readonly ast: MarkdownAst }>
+  /** The Comment payload in its Markup reading. */
+  readonly commentProjection?: MarkupPassage
 }>
 export type CoreReviewItemReply = Readonly<{
   readonly type: 'review-item'
@@ -483,7 +487,10 @@ export type CoreReviewItemReply = Readonly<{
   readonly item: CoreReviewItemLocator | null
   readonly overview?: readonly CoreReviewOverviewEntry[]
   readonly commentText?: string
-  readonly commentProjection?: Readonly<{ readonly ast: MarkdownAst }>
+  readonly commentProjection?: Readonly<{
+    readonly ast: MarkdownAst
+    readonly marks?: MarkupPassage['marks']
+  }>
 }>
 export type CoreReply =
   | CoreRetainedSelectionReply

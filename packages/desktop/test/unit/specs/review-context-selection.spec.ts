@@ -5,7 +5,7 @@ import type { CoreReviewOverviewEntry } from '../../../src/renderer/src/document
 const entries: CoreReviewOverviewEntry[] = [
   { item: { kind: 'commented-span', range: { start: 0, end: 80 }, highlightRange: { start: 0, end: 60 }, commentRange: { start: 60, end: 80 } }, commentText: 'Outer' },
   { item: { kind: 'commented-span', range: { start: 10, end: 50 }, highlightRange: { start: 10, end: 30 }, commentRange: { start: 30, end: 50 } }, commentText: 'Inner' },
-  { item: { kind: 'addition', range: { start: 15, end: 25 } }, text: 'suggestion' }
+  { item: { kind: 'addition', range: { start: 15, end: 25 } } }
 ]
 
 it('retains the deepest suggestion and independently selects its nearest anchored comment', () => {

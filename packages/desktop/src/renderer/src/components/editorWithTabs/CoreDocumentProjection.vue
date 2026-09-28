@@ -33,9 +33,11 @@ import {
   presentMarkdownProjectionHtml
 } from '@/documentConsumers/markdownProjectionHtml'
 import { createLatestViewRefresh } from '@/documentConsumers/latestViewRefresh'
+import type { MarkupPassage } from '@/documentConsumers/markupPassage'
 
 const props = defineProps<{
-  projection: Readonly<{ ast: MarkdownAst }>
+  /** Review marks are present when the projection is a Markup reading. */
+  projection: Readonly<{ ast: MarkdownAst; marks?: MarkupPassage['marks'] }>
   kind: 'original' | 'revised' | 'comment'
   label: string
 }>()
