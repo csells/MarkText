@@ -25,7 +25,10 @@ const blocks = [
   '{--Whole paragraph deletion.--}',
   'Para *em* and {--gone--} here.',
   '# Heading {++new++}',
-  '- item {--one--}\n- item two'
+  '- item {--one--}\n- item two',
+  '- same\n{~~- ~>\n  ~~}target\n- last',
+  '- {++sa++}me{>>keep<<}\n- target\n- end',
+  'Line {++one\ntwo++} words.'
 ]
 
 type Key = 'insertText' | 'insertParagraph' | 'insertLineBreak' | 'deleteContentBackward' | 'deleteContentForward'
@@ -69,8 +72,9 @@ describe('keys in a document dense with suggestions read as the document parse',
     let regionalKeys = 0
     for (let documentIndex = 0; documentIndex < 4; documentIndex += 1) {
       const count = 4 + Math.floor(random() * 6)
-      const source = Array.from({ length: count }, () => blocks[Math.floor(random() * blocks.length)] ?? '')
+      const joined = Array.from({ length: count }, () => blocks[Math.floor(random() * blocks.length)] ?? '')
         .join('\n\n') + '\n'
+      const source = random() < 0.25 ? joined.replace(/\n/gu, '\r\n') : joined
       const edited = source.slice(0, 1) + 'q' + source.slice(1)
       // Carets favour suggestion edges: outside, inside and among delimiters.
       const edges = [...edited.matchAll(/\{(?:\+\+|--|~~|==|>>)|(?:\+\+|--|~~|==|<<)\}|~>/gu)]
