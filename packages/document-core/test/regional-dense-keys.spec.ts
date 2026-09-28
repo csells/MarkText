@@ -72,8 +72,14 @@ describe('keys in a document dense with suggestions read as the document parse',
       const source = Array.from({ length: count }, () => blocks[Math.floor(random() * blocks.length)] ?? '')
         .join('\n\n') + '\n'
       const edited = source.slice(0, 1) + 'q' + source.slice(1)
+      // Carets favour suggestion edges: outside, inside and among delimiters.
+      const edges = [...edited.matchAll(/\{(?:\+\+|--|~~|==|>>)|(?:\+\+|--|~~|==|<<)\}|~>/gu)]
+        .flatMap(match => [match.index, match.index + 1, match.index + 2, match.index + 3])
+        .filter(position => position >= 2)
       for (let trial = 0; trial < 6; trial += 1) {
-        const caret = 2 + Math.floor(random() * (edited.length - 2))
+        const caret = random() < 0.5 && edges.length > 0
+          ? edges[Math.floor(random() * edges.length)] ?? 2
+          : 2 + Math.floor(random() * (edited.length - 2))
         for (const key of ['insertText', 'insertParagraph', 'insertLineBreak', 'deleteContentBackward', 'deleteContentForward'] as const) {
           for (const tracked of [false, true]) {
             const core = createDocumentCore()
@@ -103,6 +109,8 @@ describe('keys in a long dense document cost no document parse', () => {
     { name: 'tracked Backspace before a Deletion', at: target + 'Review {++new evidence++} alongside '.length, key: 'deleteContentBackward', tracked: true },
     { name: 'tracked Delete after a Deletion', at: target + 'Review {++new evidence++} alongside {--obsolete details--}'.length, key: 'deleteContentForward', tracked: true },
     { name: 'tracked typing in an Addition', at: target + 'Review {++new ev'.length, key: 'insertText', tracked: true },
+    { name: 'tracked typing after an Addition', at: target + 'Review {++new evidence++}'.length, key: 'insertText', tracked: true },
+    { name: 'tracked typing before a Substitution', at: target + 'Review {++new evidence++} alongside {--obsolete details--}, '.length, key: 'insertText', tracked: true },
     { name: 'untracked typing in plain words', at: target + 'Review {++new evidence++} alongs'.length, key: 'insertText', tracked: false },
     { name: 'tracked Enter in an Addition', at: target + 'Review {++new ev'.length, key: 'insertParagraph', tracked: true },
     { name: 'tracked Enter between suggestions', at: target + 'Review {++new evidence++} alongs'.length, key: 'insertParagraph', tracked: true },
