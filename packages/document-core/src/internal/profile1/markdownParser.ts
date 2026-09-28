@@ -3510,7 +3510,7 @@ function parseOrderedContainerSequence(
           activeMarkdownGfmEnabled,
           activeMarkdownFootnotesEnabled,
           activeMarkdownSubscriptAndSuperscriptEnabled,
-          referenceDefinitions.cacheKey,
+          referenceDefinitionsKeyDigest(referenceDefinitions.cacheKey),
           windowSource,
           linesKey,
           literalsKey
@@ -3615,7 +3615,7 @@ function parseOrderedContainerSequence(
           activeMarkdownGfmEnabled,
           activeMarkdownFootnotesEnabled,
           activeMarkdownSubscriptAndSuperscriptEnabled,
-          referenceDefinitions.cacheKey,
+          referenceDefinitionsKeyDigest(referenceDefinitions.cacheKey),
           windowSource,
           linesKey,
           literalsKey
@@ -4712,6 +4712,28 @@ function retainedFragmentKeyDigest(serialized: string): string {
   return `${serialized.length.toString(36)}:${hashA.toString(36)}:${hashB.toString(36)}`
 }
 
+let lastReferenceDefinitionsKey: string | undefined
+let lastReferenceDefinitionsKeyDigest: string | undefined
+
+/**
+ * A lane's reference-definition key spells every definition and matching
+ * scope in the lane, and every region and item key of that lane repeats it.
+ * Region keys therefore carry its digest, computed once per lane, so keying
+ * a region costs its own size rather than the size of the whole lane.
+ */
+function referenceDefinitionsKeyDigest(
+  cacheKey: string | undefined
+): string | undefined {
+  if (cacheKey === undefined) {
+    return undefined
+  }
+  if (cacheKey !== lastReferenceDefinitionsKey) {
+    lastReferenceDefinitionsKey = cacheKey
+    lastReferenceDefinitionsKeyDigest = retainedFragmentKeyDigest(cacheKey)
+  }
+  return lastReferenceDefinitionsKeyDigest
+}
+
 function fragmentSourceCanFit(source: string): boolean {
   return retainedStringBytes(source) + RETAINED_CACHE_ENTRY_BYTES <=
     PROFILE1_MARKDOWN_REUSE_MAX_RETAINED_ENTRY_BYTES_V1
@@ -5354,6 +5376,61 @@ function scopeConstrainedReferenceDefinitions(
   })
 }
 
+/**
+ * The runs overlapping `[start, end)`, in order. `runs` must be sorted and
+ * pairwise disjoint, as scope runs, canonical identity runs and merged image
+ * size omissions are, so a region reads only its own runs rather than
+ * scanning every run in the lane once per region.
+ */
+function disjointRunsOverlapping<Run>(
+  runs: readonly Run[],
+  start: number,
+  end: number,
+  startOf: (run: Run) => number,
+  endOf: (run: Run) => number
+): readonly Run[] {
+  const overlapping: Run[] = []
+  for (
+    let index = firstDisjointRunEndingAfter(runs, start, endOf);
+    index < runs.length;
+    index += 1
+  ) {
+    const run = runs[index]
+    if (run === undefined || startOf(run) >= end) {
+      break
+    }
+    overlapping.push(run)
+  }
+  return overlapping
+}
+
+/** The index of the first of sorted, disjoint `runs` ending after `offset`. */
+function firstDisjointRunEndingAfter<Run>(
+  runs: readonly Run[],
+  offset: number,
+  endOf: (run: Run) => number
+): number {
+  let low = 0
+  let high = runs.length
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2)
+    const run = runs[middle]
+    if (run !== undefined && endOf(run) <= offset) {
+      low = middle + 1
+    } else {
+      high = middle
+    }
+  }
+  return low
+}
+
+const scopeStart = (scope: Readonly<{ start: number }>): number => scope.start
+const scopeEnd = (scope: Readonly<{ end: number }>): number => scope.end
+const identityRunStart = (run: MappedMarkdownCanonicalIdentityRun): number =>
+  run.candidateStart
+const identityRunEnd = (run: MappedMarkdownCanonicalIdentityRun): number =>
+  run.candidateEnd
+
 function markdownRegionBoundaryPolicy(
   boundaryPolicy: InlineBoundaryPolicy | undefined,
   regionStart: number,
@@ -5362,35 +5439,50 @@ function markdownRegionBoundaryPolicy(
   if (boundaryPolicy === undefined) {
     return undefined
   }
+  const scopeRuns = disjointRunsOverlapping(
+    boundaryPolicy.scopeRuns,
+    regionStart,
+    regionEnd,
+    scopeStart,
+    scopeEnd
+  )
+  // Bounds are only ever looked up by the id of a scope run, so the region
+  // needs the bounds of its own runs' scopes, not every scope in the lane.
+  const scopeBounds = new Map<number, MappedMarkdownMatchingScope>()
+  for (const run of scopeRuns) {
+    const bounds = boundaryPolicy.scopeBounds.get(run.id)
+    if (bounds !== undefined) {
+      scopeBounds.set(run.id, bounds)
+    }
+  }
   return createInlineBoundaryPolicy(
-    Object.freeze(boundaryPolicy.scopeRuns
-      .filter((scope) =>
-        scope.start < regionEnd && regionStart < scope.end)
-      .map((scope) =>
-        Object.freeze({
-          ...scope,
-          start: Math.max(scope.start, regionStart) - regionStart,
-          end: Math.min(scope.end, regionEnd) - regionStart
-        }))),
-    Object.freeze(boundaryPolicy.canonicalIdentityRuns.flatMap(
-      (run): readonly MappedMarkdownCanonicalIdentityRun[] => {
-        const overlapStart = Math.max(run.candidateStart, regionStart)
-        const overlapEnd = Math.min(run.candidateEnd, regionEnd)
-        return overlapStart >= overlapEnd
-          ? Object.freeze([])
-          : Object.freeze([Object.freeze({
-            candidateStart: overlapStart - regionStart,
-            candidateEnd: overlapEnd - regionStart,
-            sourceRunId: run.sourceRunId,
-            sourceStart:
-              run.sourceStart + overlapStart - run.candidateStart
-          })])
-      }
-    )),
+    Object.freeze(scopeRuns.map((scope) =>
+      Object.freeze({
+        ...scope,
+        start: Math.max(scope.start, regionStart) - regionStart,
+        end: Math.min(scope.end, regionEnd) - regionStart
+      }))),
+    Object.freeze(disjointRunsOverlapping(
+      boundaryPolicy.canonicalIdentityRuns,
+      regionStart,
+      regionEnd,
+      identityRunStart,
+      identityRunEnd
+    ).map((run): MappedMarkdownCanonicalIdentityRun => {
+      const overlapStart = Math.max(run.candidateStart, regionStart)
+      const overlapEnd = Math.min(run.candidateEnd, regionEnd)
+      return Object.freeze({
+        candidateStart: overlapStart - regionStart,
+        candidateEnd: overlapEnd - regionStart,
+        sourceRunId: run.sourceRunId,
+        sourceStart:
+          run.sourceStart + overlapStart - run.candidateStart
+      })
+    })),
     boundaryPolicy.projectionSafetyFlanking,
-    boundaryPolicy.imageSizeOmissions.filter(range => range.start < regionEnd && regionStart < range.end)
+    disjointRunsOverlapping(boundaryPolicy.imageSizeOmissions, regionStart, regionEnd, scopeStart, scopeEnd)
       .map(range => ({ start: Math.max(range.start, regionStart) - regionStart, end: Math.min(range.end, regionEnd) - regionStart })),
-    [...boundaryPolicy.scopeBounds.values()].filter(scope => scope.start < regionEnd && regionStart < scope.end)
+    [...scopeBounds.values()]
       .map(scope => ({ ...scope, start: Math.max(scope.start, regionStart) - regionStart, end: Math.min(scope.end, regionEnd) - regionStart }))
   )
 }
@@ -5676,10 +5768,11 @@ function emitMarkdownAstRegions(
       }
     }
     const regionSource = source.slice(region.start, region.end)
+    const firstScope = boundaryPolicy?.scopeRuns[
+      firstDisjointRunEndingAfter(boundaryPolicy.scopeRuns, region.start, scopeEnd)
+    ]
     const regionBoundaryPolicy =
-      boundaryPolicy?.scopeRuns.some(
-        (scope) => scope.start < region.end && region.start < scope.end
-      ) === true
+      firstScope !== undefined && firstScope.start < region.end
         ? boundaryPolicy
         : undefined
     const sourceCanFitCache =
@@ -5703,7 +5796,7 @@ function emitMarkdownAstRegions(
           activeMarkdownGfmEnabled,
           activeMarkdownFootnotesEnabled,
           activeMarkdownSubscriptAndSuperscriptEnabled,
-          referenceDefinitions.cacheKey,
+          referenceDefinitionsKeyDigest(referenceDefinitions.cacheKey),
           regionSource,
           linesKey,
           literalsKey
