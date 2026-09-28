@@ -1,12 +1,15 @@
-import type { CriticMarkupAnnotation, DocumentRevision } from '../documentCore.js'
+import type { CriticMarkupAnnotation, DocumentRevision, SourceRange } from '../documentCore.js'
 
-type Reader = (revision: DocumentRevision, position: number) => readonly CriticMarkupAnnotation[]
+type Readers = Readonly<{
+  around: (revision: DocumentRevision, position: number) => readonly CriticMarkupAnnotation[]
+  overlapping: (revision: DocumentRevision, range: SourceRange) => readonly CriticMarkupAnnotation[]
+}>
 
-const readers = new WeakMap<object, Reader>()
+const readers = new WeakMap<object, Readers>()
 
-/** Package-private: lets planners read a revision's annotations near a position. */
-export function registerAnnotationsAround(core: object, reader: Reader): void {
-  readers.set(core, reader)
+/** Package-private: lets planners read a revision's annotations near a position or range. */
+export function registerAnnotationsAround(core: object, value: Readers): void {
+  readers.set(core, value)
 }
 
 /**
@@ -15,5 +18,13 @@ export function registerAnnotationsAround(core: object, reader: Reader): void {
  * `position` without materializing every annotation of a large revision.
  */
 export function annotationsAround(core: object, revision: DocumentRevision, position: number): readonly CriticMarkupAnnotation[] {
-  return readers.get(core)?.(revision, position) ?? revision.annotations
+  return readers.get(core)?.around(revision, position) ?? revision.annotations
+}
+
+/**
+ * Root annotations of the blocks `range` touches, in document order: every
+ * annotation that overlaps or touches `range` comes with its root.
+ */
+export function annotationsOverlapping(core: object, revision: DocumentRevision, range: SourceRange): readonly CriticMarkupAnnotation[] {
+  return readers.get(core)?.overlapping(revision, range) ?? revision.annotations
 }

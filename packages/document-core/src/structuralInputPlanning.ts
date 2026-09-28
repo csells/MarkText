@@ -16,6 +16,7 @@ import { materializeTableCellEdit, tableRowCompletion } from './tableCellEditing
 import { paragraphPrefixPosition, paragraphImageRange } from './paragraphBoundary.js'
 import { literalJoinParagraphText, tableJoinParagraphText, emptyParagraphJoinContainer, paragraphJoinBlock, paragraphJoinAdjacent, paragraphJoinTrailingEdits, paragraphLeadingLineJoin } from './paragraphJoinPlanning.js'
 import { syntaxPathAt } from './syntaxPath.js'
+import { annotationsAround, annotationsOverlapping } from './internal/annotationsAround.js'
 import { planEmptiedSetextReset } from './setextTrailingLine.js'
 import { mergeAdjacentEdits, planEmptiedParagraph } from './emptiedParagraphPlanning.js'
 import { blockCommandTarget, planBlockCommand } from './blockCommandPlanning.js'
@@ -126,26 +127,32 @@ export function planTableRemoval(
  * follows them, or else before openers starting there. Splitting inside would
  * leave an annotation with an empty payload on one side of the break.
  */
-function annotationExteriorBreak(annotations: readonly CriticMarkupAnnotation[], syntax: MarkupSyntax, caret: number): number {
-  const all: CriticMarkupAnnotation[] = []
-  const collect = (items: readonly CriticMarkupAnnotation[]): void => {
-    for (const item of items) {
-      all.push(item)
-      for (const arm of item.arms) collect(arm.annotations)
+function annotationExteriorBreak(rootsAround: (position: number) => readonly CriticMarkupAnnotation[], syntax: MarkupSyntax, caret: number): number {
+  // Each step moves to an edge of an annotation holding or touching the
+  // current position, so the roots around that position hold every candidate.
+  const around = (position: number): CriticMarkupAnnotation[] => {
+    const all: CriticMarkupAnnotation[] = []
+    const collect = (items: readonly CriticMarkupAnnotation[]): void => {
+      for (const item of items) {
+        all.push(item)
+        for (const arm of item.arms) collect(arm.annotations)
+      }
     }
+    collect(rootsAround(position))
+    return all
   }
-  collect(annotations)
   let after = caret
   for (;;) {
-    const exited = all.find(item => item.range.end > after &&
+    const exited = around(after).find(item => item.range.end > after &&
       (item.arms.at(-1)?.range.end === after || item.kind === 'comment' && item.range.start === after))
     if (exited === undefined) break
     after = exited.range.end
   }
   let before = caret
   for (;;) {
-    const entered = all.find(item => item.kind !== 'comment' && item.range.start < before && item.arms[0]?.range.start === before)
-    if (entered === undefined || after !== caret) break
+    if (after !== caret) break
+    const entered = around(before).find(item => item.kind !== 'comment' && item.range.start < before && item.arms[0]?.range.start === before)
+    if (entered === undefined) break
     before = entered.range.start
   }
   const target = after === caret ? before : after
@@ -166,7 +173,7 @@ function softBreakBeforeBlankLine(core: DocumentCore, revision: DocumentRevision
   const line = lines.at(index)
   // Annotation delimiters around the break keep the ordinary soft break.
   const around = { start: sourceAt(lines.at(index - 1).start), end: projection.coordinates.toSource(line.end, 'previous') }
-  if (revision.annotations.some(annotation => annotation.range.start <= around.end && around.start <= annotation.range.end)) return undefined
+  if (annotationsOverlapping(core, revision, around).some(annotation => annotation.range.start <= around.end && around.start <= annotation.range.end)) return undefined
   const contentStart = contentStartOf(line)
   if (contentStart > projected || !/^[ \t]*$/u.test(core.sourceSlice(revision, { start: sourceAt(contentStart), end: caret }))) return undefined
   const previous = lines.at(index - 1)
@@ -200,7 +207,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
   const inputType = 'inputType' in action ? action.inputType : undefined
   const projection = syntax ?? core.project(revision, 'markup').syntax
   const breakAt = action.selection.start === action.selection.end && (inputType === 'insertParagraph' || inputType === 'insertLineBreak')
-    ? annotationExteriorBreak(revision.annotations, projection, action.selection.start)
+    ? annotationExteriorBreak(position => annotationsAround(core, revision, position), projection, action.selection.start)
     : undefined
   const { start, end } = breakAt === undefined ? action.selection : { start: breakAt, end: breakAt }
   // A soft break that would leave an empty line ends the paragraph instead:
@@ -555,7 +562,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
         const from = sourceAt(table.range.start)
         const to = projection.coordinates.toSource(table.range.end, 'previous')
         const empty = table.children.every(row => row.children.every(cell => cell.children.length === 0)) &&
-          !revision.annotations.some(annotation => annotation.range.start < to && annotation.range.end > from)
+          !annotationsOverlapping(core, revision, { start: from, end: to }).some(annotation => annotation.range.start < to && annotation.range.end > from)
         if (empty) return result([{ start: from, end: to, insert: '' }], { start: from, end: from })
         let previous: MarkdownAstNode | undefined
         const visit = (node: MarkdownAstNode): void => {

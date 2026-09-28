@@ -4,6 +4,7 @@ import { createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupEditOwnership, markupReplacementRange } from './markupEditOwnership.js'
 import { nativeCriticSpelling, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { positionAfter } from './sourcePosition.js'
+import { annotationsAround, annotationsOverlapping } from './internal/annotationsAround.js'
 
 function ordinaryCompilationMatches(
   core: DocumentCore, previous: DocumentRevision, inputs: readonly DocumentSourceEdit[],
@@ -208,10 +209,11 @@ function compiledReplacementReconciliation(
     // surrounding text is never inferred by diffing projections.
     const from = Math.min(input.start, applied.start)
     const to = Math.max(input.start, applied.start)
+    const near = annotationsOverlapping(core, previous, { start: from, end: to })
     let hidden = true
-    for (let offset = from; offset < to && hidden; offset += 1) hidden = !visibleAt(previous.annotations, offset)
+    for (let offset = from; offset < to && hidden; offset += 1) hidden = !visibleAt(near, offset)
     // The payload lands at an edge of a proposed arm, never inside syntax.
-    const pending = [...previous.annotations]
+    const pending = [...near]
     let armEdge = false
     while (pending.length > 0 && !armEdge) {
       const annotation = pending.pop()!
@@ -256,9 +258,9 @@ function compiledReplacementReconciliation(
       /^\\+$/u.test(native.slice(0, native.length - applied.insert.length))) {
     return Object.freeze([Object.freeze({ start: applied.start, end: applied.start + native.length - applied.insert.length, insert: '' })])
   }
-  return ownedReplacementReconciliation(applied, committed, compiledOffset, native) ??
-    visibleReplacementReconciliation(previous, input, applied, committed, compiledOffset, native) ??
-    splitHistoryReconciliation(input, applied, committed, compiledOffset)
+  return ownedReplacementReconciliation(core, applied, committed, compiledOffset, native) ??
+    visibleReplacementReconciliation(core, previous, input, applied, committed, compiledOffset, native) ??
+    splitHistoryReconciliation(core, input, applied, committed, compiledOffset)
 }
 
 /** Whether a committed source offset is visible text rather than delimiter or history. */
@@ -281,15 +283,18 @@ function visibleAt(annotations: readonly CriticMarkupAnnotation[], offset: numbe
  * span previously contained move into the suggestion's hidden arms.
  */
 function visibleReplacementReconciliation(
-  previous: DocumentRevision, input: DocumentSourceEdit,
+  core: DocumentCore, previous: DocumentRevision, input: DocumentSourceEdit,
   applied: DocumentSourceEdit, committed: DocumentRevision, compiledOffset: number, native: string
 ): readonly DocumentSourceEdit[] | undefined {
   const start = applied.start + compiledOffset
   const prefix = input.start - applied.start
+  // Both spellings are read only within the replaced and compiled intervals.
+  const previousNear = annotationsOverlapping(core, previous, applied)
+  const committedNear = annotationsOverlapping(core, committed, { start, end: start + applied.insert.length })
   const nativeHidden = (index: number): boolean => {
     if (index >= prefix && index < prefix + input.insert.length) return false
     const offset = index < prefix ? applied.start + index : input.end + index - prefix - input.insert.length
-    return !visibleAt(previous.annotations, offset)
+    return !visibleAt(previousNear, offset)
   }
   const edits: DocumentSourceEdit[] = []
   const push = (edit: DocumentSourceEdit): void => {
@@ -307,7 +312,7 @@ function visibleReplacementReconciliation(
     }
     if (index >= applied.insert.length) return undefined
     const character = applied.insert[index]!
-    const visible = visibleAt(committed.annotations, start + index)
+    const visible = visibleAt(committedNear, start + index)
     index += 1
     if (visible && native[consumed] === character) {
       consumed += 1
@@ -331,11 +336,11 @@ function visibleReplacementReconciliation(
 
 /** Text typed into history is the complete Addition that splits it. */
 function splitHistoryReconciliation(
-  input: DocumentSourceEdit, applied: DocumentSourceEdit, committed: DocumentRevision, compiledOffset: number
+  core: DocumentCore, input: DocumentSourceEdit, applied: DocumentSourceEdit, committed: DocumentRevision, compiledOffset: number
 ): readonly DocumentSourceEdit[] | undefined {
   if (input.start !== input.end || input.insert.length === 0) return undefined
   const start = applied.start + compiledOffset
-  const pending = [...committed.annotations]
+  const pending = [...annotationsOverlapping(core, committed, { start, end: start + applied.insert.length })]
   while (pending.length > 0) {
     const annotation = pending.pop()!
     for (const arm of annotation.arms) pending.push(...arm.annotations)
@@ -358,7 +363,7 @@ function splitHistoryReconciliation(
 }
 
 function ownedReplacementReconciliation(
-  applied: DocumentSourceEdit, committed: DocumentRevision, compiledOffset: number, native: string
+  core: DocumentCore, applied: DocumentSourceEdit, committed: DocumentRevision, compiledOffset: number, native: string
 ): readonly DocumentSourceEdit[] | undefined {
   const spelling = nativeCriticSpelling(native)
   const inserts = new Map<number, string>()
@@ -372,7 +377,8 @@ function ownedReplacementReconciliation(
     return true
   }
   if (!payload(applied.insert)) {
-    const pending: CriticMarkupAnnotation[] = [...committed.annotations]
+    // The owner starts at the compiled insertion.
+    const pending: CriticMarkupAnnotation[] = [...annotationsAround(core, committed, applied.start + compiledOffset)]
     let owner: CriticMarkupAnnotation | undefined
     while (pending.length > 0) {
       const annotation = pending.pop()
@@ -506,8 +512,8 @@ export function retainedSourceEndpoint(core: DocumentCore, previous: DocumentRev
       // caret beside the same retained text, as at a line start before an opener.
       let start = syntax.coordinates.toSource(node.range.start, 'next')
       let end = syntax.coordinates.toSource(node.range.end, 'previous')
-      while (start > original && isAnnotationDelimiter(previous.annotations, start - 1)) start -= 1
-      while (end < original && isAnnotationDelimiter(previous.annotations, end)) end += 1
+      while (start > original && isAnnotationDelimiter(annotationsAround(core, previous, start - 1), start - 1)) start -= 1
+      while (end < original && isAnnotationDelimiter(annotationsAround(core, previous, end), end)) end += 1
       return original >= start && original <= end &&
         (retained(Math.max(start, original - 1), original) || retained(original, Math.min(end, original + 1)))
     }
