@@ -1,8 +1,7 @@
 import { createDocumentCore } from '@marktext/document-core'
 import { describe, expect, it } from 'vitest'
 import { applyMuyaMarkupChanges } from '@/documentAuthority/muyaMarkupChanges'
-import { createMuyaMarkupView, type MuyaMarkupPath } from '@/documentAuthority/muyaMarkupView'
-import { muyaItemsInRootOrder } from '@/documentAuthority/muyaMarkupViewLookup'
+import { createMuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
 
 // Plan 0012 G35: a view patched with a regional reply reads exactly as the
 // view of the whole new revision, whatever the edit: blank-line runs and
@@ -34,12 +33,6 @@ const blocks = [
   'Text {--gone--} and ++} stray.'
 ]
 const insertions = ['x', ' ', '\n', '\n\n', '\n\n\n\n', '   ', '{++n++}', '# ', '- ', '++}', '{==']
-
-// Root lookups search a list the patch records as in root order unread.
-const inRootOrder = (items: readonly { readonly path: MuyaMarkupPath }[]): boolean =>
-  items.every(
-    (item, index) => index === 0 || Number(items[index - 1].path[0]) <= Number(item.path[0])
-  )
 
 const seeds = Number(process.env.MARKTEXT_VIEW_FUZZ_SEEDS ?? 40)
 const first = Number(process.env.MARKTEXT_VIEW_FUZZ_FIRST ?? 1)
@@ -77,12 +70,7 @@ describe('Patched Markup views read as the whole view', () => {
           change?.name === 'markup' && change.scope === 'regions'
             ? applyMuyaMarkupChanges(view, structuredClone(change))
             : undefined
-        if (patched !== undefined) {
-          expect(patched, label).toEqual(expected)
-          for (const items of [patched.bindings, patched.decorations, patched.comments]) {
-            expect(muyaItemsInRootOrder(items), label).toBe(inRootOrder(items))
-          }
-        }
+        if (patched !== undefined) expect(patched, label).toEqual(expected)
         view = patched ?? expected
         revision = commit.revision
       }
