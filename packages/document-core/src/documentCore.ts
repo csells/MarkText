@@ -42,6 +42,7 @@ import {
   createPlainRegionalInventory,
   createRegionalInventory,
   materializeRegionalInventoryAnnotations,
+  materializeRegionalInventoryAnnotationsAround,
   previewRegionalContext,
   previewRegionalInventory,
   referenceDependencyPrefixEnd,
@@ -61,6 +62,7 @@ import {
   type PersistentCanonicalSourceRecorder
 } from './internal/persistentCanonicalSource.js'
 import { plansFromDocumentParse, registerDocumentCoreInspection } from './internal/documentCoreInspection.js'
+import { registerAnnotationsAround } from './internal/annotationsAround.js'
 import {
   createRevisionProductStore,
   type RevisionProductStore
@@ -4327,7 +4329,7 @@ function createDocumentCoreWithExecutionBudget(
     edit: DocumentSourceEdit
   ): DocumentSourceEdit | undefined => {
     if (edit.start !== edit.end || !/^[\p{L}\p{N}][\p{L}\p{N} ]*$/u.test(edit.insert)) return undefined
-    if (markupAnnotations(previous.annotations).some(annotation =>
+    if (markupAnnotations(rootsAround(previous, edit.start)).some(annotation =>
       annotation.range.start <= edit.start && edit.start <= annotation.range.end)) return undefined
     const insert = `{++${edit.insert}++}`
     const candidate = regionalCandidate(state, { start: edit.start, end: edit.start, insert })
@@ -4353,6 +4355,18 @@ function createDocumentCoreWithExecutionBudget(
    * its text they end it. The reparsed paragraphs prove the suggestion is
    * recognized with the words and no other suggestion changes.
    */
+  /**
+   * The root annotations of the blocks around `position` and the root after
+   * them. A revision reached regionally reads them from its inventory's
+   * nearby blocks instead of materializing every annotation.
+   */
+  const rootsAround = (revision: DocumentRevision, position: number): readonly CriticMarkupAnnotation[] => {
+    const state = stateByRevision.get(revision)
+    return state?.kind === 'regional' && state.regionalInventory !== undefined
+      ? materializeRegionalInventoryAnnotationsAround(state.regionalInventory, position) as readonly CriticMarkupAnnotation[]
+      : revision.annotations
+  }
+
   const regionalTrackedArmEdge = (
     state: RevisionState,
     previous: DocumentRevision,
@@ -4360,7 +4374,7 @@ function createDocumentCoreWithExecutionBudget(
   ): DocumentSourceEdit | undefined => {
     if (plansFromDocumentParse(core) || edit.start !== edit.end || !/^[\p{L}\p{N}][\p{L}\p{N} ]*$/u.test(edit.insert)) return undefined
     const at = edit.start
-    const touching = markupAnnotations(previous.annotations).filter(annotation =>
+    const touching = markupAnnotations(rootsAround(previous, at)).filter(annotation =>
       annotation.range.start <= at && at <= annotation.range.end)
     const owner = touching[0]
     if (touching.length !== 1 || owner === undefined || !plainParagraphAround(previous, at, false)) return undefined
@@ -4409,7 +4423,7 @@ function createDocumentCoreWithExecutionBudget(
     edit: DocumentSourceEdit
   ): DocumentSourceEdit | undefined => {
     if (plansFromDocumentParse(core) || edit.start !== edit.end || !/^(?:\r\n|\r|\n)+$/u.test(edit.insert)) return undefined
-    const touching = markupAnnotations(previous.annotations).filter(annotation =>
+    const touching = markupAnnotations(rootsAround(previous, edit.start)).filter(annotation =>
       annotation.range.start <= edit.start && edit.start <= annotation.range.end)
     const owner = touching[0]
     if (touching.length > 1 || owner !== undefined && (owner.kind !== 'addition' || owner.range.start === edit.start)) return undefined
@@ -4483,7 +4497,7 @@ function createDocumentCoreWithExecutionBudget(
     if (plansFromDocumentParse(core) || edit.insert !== '' || edit.start >= edit.end) return undefined
     const removed = core.sourceSlice(previous, edit)
     if (!/^(?:\r\n|\r|\n)+$/u.test(removed) ||
-        markupAnnotations(previous.annotations).some(annotation =>
+        markupAnnotations(rootsAround(previous, edit.start)).some(annotation =>
           annotation.range.start <= edit.end && edit.start <= annotation.range.end) ||
         !plainParagraphAround(previous, edit.start) || !plainParagraphAround(previous, edit.end)) return undefined
     const planned = Object.freeze({ start: edit.start, end: edit.end, insert: `{--${removed}--}` })
@@ -4517,7 +4531,7 @@ function createDocumentCoreWithExecutionBudget(
     const removed = core.sourceSlice(previous, edit)
     if (!/^[\p{L}\p{N} .,;:'"?!()]+$/u.test(removed) ||
         !plainParagraphAround(previous, edit.start, false)) return undefined
-    const touching = markupAnnotations(previous.annotations).filter(annotation =>
+    const touching = markupAnnotations(rootsAround(previous, edit.start)).filter(annotation =>
       annotation.range.start <= edit.end && edit.start <= annotation.range.end)
     const owner = touching[0]
     if (touching.length > 1) return undefined
@@ -4986,7 +5000,7 @@ function createDocumentCoreWithExecutionBudget(
     planClipboard(previous: DocumentRevision, action: DocumentClipboardAction) {
       // Cut and paste change only their own bytes, in a table too (ADR 0007;
       // owner decision 25 Sep, plan 0012 G24).
-      return planUnspelledClipboard(previous, commentedSpanSafeClipboard(previous, action))
+      return planUnspelledClipboard(previous, commentedSpanSafeClipboard(previous, action, at => rootsAround(previous, at)))
     },
     planSourceInput(previous: DocumentRevision, action: DocumentSourceInputAction) {
       currentStateOf(previous)
@@ -5001,7 +5015,7 @@ function createDocumentCoreWithExecutionBudget(
     },
     inputEdits(previous: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, tracked: boolean) {
       currentStateOf(previous)
-      action = commentedSpanSafeInput(previous, action)
+      action = commentedSpanSafeInput(previous, action, at => rootsAround(previous, at))
       const joinSyntax = 'kind' in action && action.command === 'joinParagraphBackward' ? core.project(previous, 'markup').syntax : undefined
       const codeJoin = joinSyntax !== undefined && paragraphBackwardStructuralTarget(joinSyntax,
         joinSyntax.coordinates.toProjected(inputSourceRange(core, previous, action.selection).start, 'next')) !== undefined
@@ -5099,7 +5113,7 @@ function createDocumentCoreWithExecutionBudget(
     },
     planInput(previous: DocumentRevision, action: DocumentInputAction, options?: { readonly tracked?: boolean }) {
       const state = currentStateOf(previous)
-      action = commentedSpanSafeInput(previous, action)
+      action = commentedSpanSafeInput(previous, action, at => rootsAround(previous, at))
       if ('inputType' in action) preflightSourceEdits(state.source.length, stableSourceEdits([{ ...inputSourceRange(core, previous, action.range), insert: action.data ?? '' }]))
       preflightSourceEdits(state.source.length, stableSourceEdits([{ ...inputSourceRange(core, previous, action.selection), insert: '' }]))
       const plan = planInput(core, previous, action, range => state.productStore.withProduct(products =>
@@ -5111,7 +5125,7 @@ function createDocumentCoreWithExecutionBudget(
     },
     reconcileInput(previous: DocumentRevision, policy: DocumentInputPlan, commit: DocumentCommit | null, action: DocumentInputAction) {
       if (!stateByRevision.has(previous) || commit !== null && !stateByRevision.has(commit.revision)) throw new Error('Document revision belongs to another core')
-      return reconcileInput(core, previous, policy, commit, commentedSpanSafeInput(previous, action))
+      return reconcileInput(core, previous, policy, commit, commentedSpanSafeInput(previous, action, at => rootsAround(previous, at)))
     },
     editingReconciliation(previous: DocumentRevision, input: DocumentSourceEdit, commit: DocumentCommit) {
       const previousState = stateByRevision.get(previous)
@@ -5347,6 +5361,7 @@ function createDocumentCoreWithExecutionBudget(
     project: projectRevision,
     projectComment: projectCommentView
   })
+  registerAnnotationsAround(core, rootsAround)
   registerDocumentCoreInspection(core, () => {
     const documentPhysical = physicalRecorder.counts()
     const regionalPhysical = regionalPhysicalRecorder.counts()
