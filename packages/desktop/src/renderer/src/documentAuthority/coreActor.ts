@@ -40,7 +40,7 @@ import type {
   CoreReviewOverviewEntry
 } from './coreProtocol'
 import { createMuyaMarkupView } from './muyaMarkupView'
-import { commentPassage, documentArmPassage } from '../documentConsumers/markupPassage'
+import { createReviewOverviewTracker } from './coreReviewOverview'
 
 export interface CoreActor {
   handle(request: CoreRequest): CoreReply
@@ -673,155 +673,22 @@ export function createCoreActor(
     return index.get(`${locator.kind}:${locator.range.start}:${locator.range.end}`)
   }
 
+  const reviewOverview = createReviewOverviewTracker()
   const reviewItemsFor = (
     activeCore: DocumentCore,
     activeRevision: DocumentRevision
-  ): readonly CoreReviewItemLocator[] => {
-    const items: CoreReviewItemLocator[] = []
-    const annotations = activeRevision.annotations
-    let revisedProjection: MarkdownProjection | undefined
-    const appendVisibleNestedItems = (annotation: CriticMarkupAnnotation): void => {
-      if (annotation.kind !== 'highlight') return
-      const content = annotation.arms.find((arm) => arm.name === 'content')
-      if (content === undefined) return
-      type PendingVisible =
-        | Readonly<{
-          readonly kind: 'annotations'
-          readonly annotations: readonly CriticMarkupAnnotation[]
-        }>
-        | Readonly<{
-          readonly kind: 'item'
-          readonly annotation: CriticMarkupAnnotation
-        }>
-        | Readonly<{
-          readonly kind: 'pair'
-          readonly highlight: CriticMarkupAnnotation
-          readonly comment: CriticMarkupAnnotation
-        }>
-      const pending: PendingVisible[] = [
-        {
-          kind: 'annotations',
-          annotations: content.annotations
-        }
-      ]
-      while (pending.length > 0) {
-        const next = pending.pop()
-        if (next === undefined) break
-        if (next.kind === 'annotations') {
-          for (let index = next.annotations.length - 1; index >= 0; index -= 1) {
-            const current = next.annotations[index]
-            if (current === undefined) continue
-            const prior = next.annotations[index - 1]
-            const pair =
-              current.kind === 'comment' &&
-              prior?.kind === 'highlight' &&
-              prior.range.end === current.range.start
-            if (pair) {
-              pending.push({ kind: 'pair', highlight: prior, comment: current })
-              const nestedContent = prior.arms.find((arm) => arm.name === 'content')
-              if (nestedContent !== undefined) {
-                pending.push({
-                  kind: 'annotations',
-                  annotations: nestedContent.annotations
-                })
-              }
-              index -= 1
-              continue
-            }
-            pending.push({ kind: 'item', annotation: current })
-            if (current.kind === 'highlight') {
-              const nestedContent = current.arms.find((arm) => arm.name === 'content')
-              if (nestedContent !== undefined) {
-                pending.push({
-                  kind: 'annotations',
-                  annotations: nestedContent.annotations
-                })
-              }
-            }
-          }
-          continue
-        }
-        if (next.kind === 'pair') {
-          const nestedContent = next.highlight.arms.find((arm) => arm.name === 'content')
-          revisedProjection ??= activeCore.project(activeRevision, 'revised')
-          if (
-            nestedContent !== undefined &&
-            revisedProjection.coordinates.intersectsSource(nestedContent.range)
-          ) {
-            items.push(
-              Object.freeze({
-                kind: 'commented-span',
-                range: Object.freeze({
-                  start: next.highlight.range.start,
-                  end: next.comment.range.end
-                }),
-                highlightRange: Object.freeze({ ...next.highlight.range }),
-                commentRange: Object.freeze({ ...next.comment.range })
-              })
-            )
-            continue
-          }
-        }
-        const visible = next.kind === 'pair' ? next.highlight : next.annotation
-        items.push(
-          Object.freeze({
-            kind: visible.kind,
-            range: Object.freeze({ ...visible.range })
-          })
-        )
-      }
-    }
-    for (let index = 0; index < annotations.length; index += 1) {
-      const annotation = annotations[index]
-      if (annotation === undefined) continue
-      const next = annotations[index + 1]
-      const content =
-        annotation.kind === 'highlight'
-          ? annotation.arms.find((arm) => arm.name === 'content')
-          : undefined
-      if (
-        annotation.kind === 'highlight' &&
-        next?.kind === 'comment' &&
-        annotation.range.end === next.range.start &&
-        content !== undefined
-      ) {
-        revisedProjection ??= activeCore.project(activeRevision, 'revised')
-        if (revisedProjection.coordinates.intersectsSource(content.range)) {
-          appendVisibleNestedItems(annotation)
-          items.push(
-            Object.freeze({
-              kind: 'commented-span',
-              range: Object.freeze({
-                start: annotation.range.start,
-                end: next.range.end
-              }),
-              highlightRange: Object.freeze({ ...annotation.range }),
-              commentRange: Object.freeze({ ...next.range })
-            })
-          )
-          index += 1
-          continue
-        }
-      }
-      appendVisibleNestedItems(annotation)
-      items.push(
-        Object.freeze({
-          kind: annotation.kind,
-          range: Object.freeze({ ...annotation.range })
-        })
-      )
-    }
-    return Object.freeze(items)
-  }
+  ): readonly CoreReviewItemLocator[] =>
+    reviewOverview.overview(activeCore, activeRevision).map((entry) => entry.item)
 
   const reviewItemFor = (
     activeCore: DocumentCore,
     activeRevision: DocumentRevision,
     direction: 'next' | 'previous',
     from: number
-  ): CoreReviewItemLocator | undefined => {
+  ): CoreReviewOverviewEntry | undefined => {
     let best: CoreReviewItemLocator | undefined
-    const items = reviewItemsFor(activeCore, activeRevision)
+    const entries = reviewOverview.overview(activeCore, activeRevision)
+    const items = entries.map((entry) => entry.item)
     for (const annotation of items) {
       if (direction === 'next') {
         const containsCursor = annotation.range.start < from && annotation.range.end > from
@@ -862,7 +729,7 @@ export function createCoreActor(
         }
       }
     }
-    return best
+    return best === undefined ? undefined : entries[items.indexOf(best)]
   }
 
   const commentAnnotationFor = (
@@ -888,55 +755,6 @@ export function createCoreActor(
         range: span.commentRange
       })
       : undefined
-  }
-
-  const reviewOverviewEntry = (
-    core: DocumentCore,
-    revision: DocumentRevision,
-    item: CoreReviewItemLocator
-  ): CoreReviewOverviewEntry => {
-    // Items here come from Core's visible review traversal, so their paired
-    // comment ranges are already validated. Do not traverse the document again
-    // for every sidebar entry.
-    const comment =
-      item.kind === 'comment'
-        ? annotationFor(revision, item)
-        : item.kind === 'commented-span'
-          ? annotationFor(revision, { kind: 'comment', range: item.commentRange })
-          : undefined
-    const arm = comment?.arms.find((arm) => arm.name === 'comment')
-    const annotation =
-      item.kind === 'commented-span'
-        ? annotationFor(revision, { kind: 'highlight', range: item.highlightRange })
-        : annotationFor(revision, item)
-    const content = annotation?.arms.find((arm) => arm.name === 'content' || arm.name === 'old')
-    const replacement = annotation?.arms.find((arm) => arm.name === 'new')
-    // Excerpts read as the editor's Markup view does, nested suggestions included.
-    const markup = content === undefined && replacement === undefined
-      ? undefined
-      : core.project(revision, 'markup')
-    return Object.freeze({
-      ...(annotation === undefined || content === undefined || markup === undefined
-        ? {}
-        : { excerpt: documentArmPassage(markup, annotation, content) }),
-      ...(annotation === undefined || replacement === undefined || markup === undefined
-        ? {}
-        : { replacementExcerpt: documentArmPassage(markup, annotation, replacement) }),
-      item: Object.freeze({
-        ...item,
-        range: Object.freeze({ ...item.range }),
-        ...(item.kind === 'commented-span'
-          ? {
-            highlightRange: Object.freeze({ ...item.highlightRange }),
-            commentRange: Object.freeze({ ...item.commentRange })
-          }
-          : {})
-      }),
-      ...(arm === undefined ? {} : { commentText: core.sourceSlice(revision, arm.range) }),
-      ...(comment === undefined
-        ? {}
-        : { commentProjection: commentPassage(core.projectComment(revision, comment, 'markup'), comment) })
-    })
   }
 
   const resolutionEditFor = (
@@ -1084,6 +902,7 @@ export function createCoreActor(
         }
         core = nextCore
         revision = opened
+        reviewOverview.reset()
         markdownOptions =
           request.options === undefined ? undefined : Object.freeze({ ...request.options })
         session = request.session
@@ -1502,7 +1321,7 @@ export function createCoreActor(
         }
         // Navigation anchors survive edits. A deleted prefix can move an old
         // anchor past EOF; searching from the new boundary is a valid read.
-        const annotation = reviewItemFor(
+        const entry = reviewItemFor(
           core,
           revision,
           request.direction,
@@ -1515,17 +1334,9 @@ export function createCoreActor(
           revision: revisionNumber,
           accepted: true,
           sourceLength: revision.sourceLength,
-          ...(annotation === undefined
-            ? { item: null }
-            : reviewOverviewEntry(core, revision, annotation)),
+          ...(entry === undefined ? { item: null } : entry),
           ...(request.includeOverview
-            ? {
-              overview: Object.freeze(
-                reviewItemsFor(core, revision).map(
-                  reviewOverviewEntry.bind(undefined, core, revision)
-                )
-              )
-            }
+            ? { overview: reviewOverview.overview(core, revision) }
             : {})
         })
       }
@@ -2414,6 +2225,7 @@ export function createCoreActor(
           target.status = 'conflict'
         }
       }
+      reviewOverview.committed(revision, commit.revision, commit.change)
       revision = commit.revision
       if (request.type === 'configure') {
         markdownOptions = Object.freeze({ ...markdownOptions, ...request.options })
@@ -2510,6 +2322,7 @@ export function createCoreActor(
       nativeHistoryGroup = undefined
       core = undefined
       revision = undefined
+      reviewOverview.reset()
       undoStack.splice(0)
       redoStack.splice(0)
       undoUnits = 0

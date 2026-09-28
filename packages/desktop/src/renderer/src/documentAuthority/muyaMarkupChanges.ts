@@ -21,7 +21,7 @@ const shiftRange = (range: SourceRange, delta: number): SourceRange => ({
 })
 
 /** A regional reply carries only canonical runs; gaps are omitted/generated text. */
-const coordinatesOf = (replacement: MarkupRegionReplacement): ProjectionCoordinateMap => {
+export const markupRegionCoordinates = (replacement: MarkupRegionReplacement): ProjectionCoordinateMap => {
   const runs = replacement.coordinates
   const position = (
     offset: number,
@@ -536,7 +536,7 @@ export function applyMuyaMarkupChanges(
             children: replacement.syntaxBlocks
           }
         },
-        coordinates: coordinatesOf(replacement)
+        coordinates: markupRegionCoordinates(replacement)
       }
     }, replacement.annotations)
     const localLength =

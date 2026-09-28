@@ -4,7 +4,7 @@ import type {
   CriticMarkupArm,
   MarkdownAst,
   MarkdownAstNode,
-  MarkupProjection,
+  MarkupSyntax,
   ProjectionCoordinateMap,
   SourceRange
 } from '@marktext/document-core'
@@ -64,15 +64,29 @@ const collectMarks = (
   }
 }
 
+const positionKeys = new Map<string, boolean>()
+const isPositionKey = (key: string): boolean => {
+  let position = positionKeys.get(key)
+  if (position === undefined) {
+    position = /(?:Start|End)$/u.test(key)
+    positionKeys.set(key, position)
+  }
+  return position
+}
+
 // Keeps the ancestors of whatever the range touches, so the passage keeps the
 // formatting it has in the document. Text is clipped when it is presented.
-const pruneTo = (node: MarkdownAstNode, range: SourceRange): MarkdownAstNode | undefined => {
-  if (node.kind !== 'document' && !(node.range.start < range.end && node.range.end > range.start)) {
-    return undefined
-  }
-  if (node.children.length === 0) return node
-  // Children are in document order; skip those that end before the range
-  // without visiting them, since every sidebar entry prunes the whole document.
+// Positions become relative to `base`, the start of the passage's first
+// block, so a passage reads the same wherever an edit moves its block;
+// positions outside `[0, end]`, such as a reference's definition elsewhere in
+// the document, are left out.
+const localized = (
+  node: MarkdownAstNode,
+  range: SourceRange,
+  base: number,
+  end: number
+): MarkdownAstNode | undefined => {
+  if (!(node.range.start < range.end && node.range.end > range.start)) return undefined
   let low = 0
   let high = node.children.length
   while (low < high) {
@@ -84,27 +98,77 @@ const pruneTo = (node: MarkdownAstNode, range: SourceRange): MarkdownAstNode | u
   for (let index = low; index < node.children.length; index += 1) {
     const child = node.children[index]!
     if (child.range.start >= range.end) break
-    const kept = pruneTo(child, range)
+    const kept = localized(child, range, base, end)
     if (kept !== undefined) children.push(kept)
   }
-  return Object.freeze({ ...node, children: Object.freeze(children) })
+  let attributes: Record<string, MarkdownAstNode['attributes'][string]> | undefined
+  for (const key in node.attributes) {
+    const value = node.attributes[key]
+    if (typeof value !== 'number' || !isPositionKey(key)) continue
+    attributes ??= { ...node.attributes }
+    if (value - base < 0 || value - base > end) delete attributes[key]
+    else attributes[key] = value - base
+  }
+  return Object.freeze({
+    ...node,
+    range: Object.freeze({ start: node.range.start - base, end: node.range.end - base }),
+    attributes: attributes === undefined ? node.attributes : Object.freeze(attributes),
+    ...(node.semanticTextSegments === undefined
+      ? {}
+      : {
+        semanticTextSegments: Object.freeze(node.semanticTextSegments.map((segment) => Object.freeze({
+          ...segment,
+          range: Object.freeze({ start: segment.range.start - base, end: segment.range.end - base })
+        })))
+      }),
+    children: Object.freeze(children)
+  })
 }
 
-/** One arm of a document annotation, with the suggestions nested in it. */
+/**
+ * One arm of a document annotation, with the suggestions nested in it, as
+ * the Markup syntax of the arm's blocks presents it. The passage's positions
+ * start at its first block.
+ */
 export const documentArmPassage = (
-  markup: MarkupProjection,
+  syntax: MarkupSyntax,
   annotation: CriticMarkupAnnotation,
   arm: CriticMarkupArm
 ): MarkupPassage => {
-  const { coordinates, ast } = markup.syntax
+  const { coordinates, ast } = syntax
   const range = projectedArm(coordinates, arm)
   const marks: MarkupPassageMark[] = []
   collectMarks(coordinates, { ...annotation, arms: [arm] }, marks)
-  const root = pruneTo(ast.root, range) ?? ast.root
+  // Top-level blocks are in document order; find the arm's by bisection,
+  // since every sidebar entry reads the whole document's syntax.
+  const roots = ast.root.children
+  let low = 0
+  let high = roots.length
+  while (low < high) {
+    const middle = (low + high) >> 1
+    if (roots[middle]!.range.end <= range.start) low = middle + 1
+    else high = middle
+  }
+  const blocks: MarkdownAstNode[] = []
+  for (let index = low; index < roots.length && roots[index]!.range.start < range.end; index += 1) {
+    blocks.push(roots[index]!)
+  }
+  const base = blocks[0]?.range.start ?? range.start
+  const end = (blocks.at(-1)?.range.end ?? range.end) - base
+  const children = blocks.flatMap((block) => localized(block, range, base, end) ?? [])
   return Object.freeze({
-    ast: Object.freeze({ root }),
-    marks: Object.freeze(marks),
-    range: Object.freeze(range)
+    ast: Object.freeze({
+      root: Object.freeze({
+        kind: 'document',
+        range: Object.freeze({ start: 0, end }),
+        attributes: Object.freeze({}),
+        children: Object.freeze(children)
+      })
+    }),
+    marks: Object.freeze(
+      marks.map((mark) => Object.freeze({ ...mark, start: mark.start - base, end: mark.end - base }))
+    ),
+    range: Object.freeze({ start: range.start - base, end: range.end - base })
   })
 }
 
