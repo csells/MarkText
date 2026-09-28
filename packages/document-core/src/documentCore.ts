@@ -368,6 +368,12 @@ export interface MarkupRegionReplacement {
   readonly events: readonly MarkupEvent[]
   readonly syntaxBlocks: readonly MarkdownAstNode[]
   readonly coordinates: readonly MarkupCoordinateSegment[]
+  /**
+   * The outermost annotations of the replaced blocks, as the revision's
+   * annotations hold them: a view reads the region with the same
+   * annotation facts it reads the whole document with.
+   */
+  readonly annotations: readonly CriticMarkupAnnotation[]
 }
 
 export interface MarkupRegionProjectionChange {
@@ -1099,6 +1105,18 @@ function shiftMarkdownAstNode(
       child => shiftMarkdownAstNode(child, delta)
     ))
   })
+}
+
+/** Window annotations inside `[start, end)` of the window, in document source offsets. */
+function regionalAnnotations(
+  annotations: readonly CriticMarkupAnnotation[],
+  sourceStart: number,
+  start = 0,
+  end = Number.POSITIVE_INFINITY
+): readonly CriticMarkupAnnotation[] {
+  return Object.freeze(annotations
+    .filter(annotation => annotation.range.start >= start && annotation.range.end <= end)
+    .map(annotation => shiftCriticMarkupAnnotation(annotation, sourceStart)))
 }
 
 function shiftRegionalTextEvent(
@@ -2746,7 +2764,11 @@ function createDocumentCoreWithExecutionBudget(
     )
     const syntaxBlocks = Object.freeze(markup.syntax.ast.root.children
       .filter(child => admission.window === undefined ||
-        (child.range.start >= blocks.syntax.start && child.range.start < blocks.syntax.end))
+        (child.range.start >= blocks.syntax.start && child.range.start < blocks.syntax.end) ||
+        // An empty paragraph on a whitespace-only last line sits at the
+        // document's end, which is also the end of blocks reaching it.
+        (child.range.start === blocks.syntax.end && child.range.end === child.range.start &&
+          admission.next.source.end === source.length))
       .map(child => shiftMarkdownAstNode(child, window.syntax)))
     const markupCoordinates: MarkupCoordinateSegment[] = []
     for (const segment of admission.nextProducts.editing().mappedTape) {
@@ -2785,7 +2807,10 @@ function createDocumentCoreWithExecutionBudget(
         }),
         events,
         syntaxBlocks,
-        coordinates: Object.freeze(markupCoordinates)
+        coordinates: Object.freeze(markupCoordinates),
+        annotations: regionalAnnotations(
+          materialized.annotations, window.source, blocks.source.start, blocks.source.end
+        )
       }) satisfies MarkupRegionReplacement
       projections.push(Object.freeze({
         name: 'markup',
@@ -2992,7 +3017,8 @@ function createDocumentCoreWithExecutionBudget(
       }),
       events,
       syntaxBlocks,
-      coordinates: Object.freeze(coordinates)
+      coordinates: Object.freeze(coordinates),
+      annotations: regionalAnnotations(materialized.annotations, admission.nextIndex.source.start)
     }) satisfies MarkupRegionReplacement
     const annotations = Object.freeze([
       shiftCriticMarkupAnnotation(
@@ -3163,7 +3189,8 @@ function createDocumentCoreWithExecutionBudget(
         }),
         events,
         syntaxBlocks,
-        coordinates: Object.freeze(coordinates)
+        coordinates: Object.freeze(coordinates),
+        annotations: regionalAnnotations(materialized.annotations, admission.nextIndex.source.start)
       }) satisfies MarkupRegionReplacement
       projections.push(Object.freeze({
         name: 'markup',
@@ -3402,7 +3429,8 @@ function createDocumentCoreWithExecutionBudget(
       }),
       events,
       syntaxBlocks,
-      coordinates: Object.freeze(coordinates)
+      coordinates: Object.freeze(coordinates),
+      annotations: regionalAnnotations(materialized.annotations, admission.bracket.start)
     }) satisfies MarkupRegionReplacement
     const revision = publishRegional(
       source,

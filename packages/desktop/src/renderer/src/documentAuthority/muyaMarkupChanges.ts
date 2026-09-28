@@ -353,14 +353,24 @@ export function applyMuyaMarkupChanges(
     for (const decoration of previous.decorations) {
       const index = Number(decoration.path[0])
       if (index >= start && index < end) {
-        decorations.push({
-          ...decoration,
-          path: [index + pathDelta, ...decoration.path.slice(1)],
-          mark: {
-            ...decoration.mark,
-            annotationRange: shiftRange(decoration.mark.annotationRange, sourceDelta)
-          }
-        })
+        decorations.push(
+          sourceDelta === 0 && pathDelta === 0
+            ? decoration
+            : {
+              ...decoration,
+              path: pathDelta === 0 ? decoration.path : [index + pathDelta, ...decoration.path.slice(1)],
+              ...(decoration.sourcePosition === undefined
+                ? {}
+                : { sourcePosition: decoration.sourcePosition + sourceDelta }),
+              ...(decoration.exteriorEnd === undefined
+                ? {}
+                : { exteriorEnd: decoration.exteriorEnd + sourceDelta }),
+              mark: {
+                ...decoration.mark,
+                annotationRange: shiftRange(decoration.mark.annotationRange, sourceDelta)
+              }
+            }
+        )
       }
     }
     for (const comment of previous.comments) {
@@ -477,7 +487,7 @@ export function applyMuyaMarkupChanges(
         },
         coordinates: coordinatesOf(replacement)
       }
-    })
+    }, replacement.annotations)
     const localLength =
       end === previous.state.length ? local.bindings.length : replacement.syntaxBlocks.length
     const base = state.length
