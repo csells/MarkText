@@ -27,6 +27,7 @@ import type {
   MarkdownProjectionName
 } from '@marktext/document-core'
 import type { MarkupPassage } from '../documentConsumers/markupPassage'
+import type { CoreConsumerSummary } from './coreConsumerSummary'
 import type { MuyaMarkupView } from './muyaMarkupView'
 
 export type CoreHistoryEntry = Readonly<{
@@ -234,6 +235,12 @@ export type CoreRequest =
   }>
   | Readonly<{
     readonly type: 'consumer-projection-at-barrier'
+    readonly session: number
+    readonly sequence: number
+    readonly baseRevision: number
+  }>
+  | Readonly<{
+    readonly type: 'consumer-summary-at-barrier'
     readonly session: number
     readonly sequence: number
     readonly baseRevision: number
@@ -448,6 +455,16 @@ export type CoreConsumerProjectionReply = Readonly<{
   readonly sourceLength: number
   readonly projection: CoreConsumerProjection
 }>
+/** The Revised text and headings counts and the outline read, without the rest of the projection. */
+export type CoreConsumerSummaryReply = Readonly<{
+  readonly type: 'consumer-summary'
+  readonly session: number
+  readonly sequence: number
+  readonly revision: number
+  readonly accepted: true
+  readonly sourceLength: number
+  readonly summary: CoreConsumerSummary
+}>
 /** Review forms Core would author over a source range, without changing it. */
 export type CoreAuthorFormsReply = Readonly<{
   readonly type: 'author-forms'
@@ -505,6 +522,7 @@ export type CoreReply =
   | CorePlainTextViewReply
   | CoreDisplayProjectionReply
   | CoreConsumerProjectionReply
+  | CoreConsumerSummaryReply
   | CoreSelectionProjectionReply
   | CoreAuthorFormsReply
   | CoreReviewItemReply

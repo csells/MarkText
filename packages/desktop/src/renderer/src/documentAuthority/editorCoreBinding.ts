@@ -28,6 +28,7 @@ import type {
   CoreAppliedReply,
   CoreAuthorForm,
   CoreConsumerProjectionReply,
+  CoreConsumerSummaryReply,
   CoreDisplayProjectionReply,
   CoreConsumerSearchReplacement,
   CoreSelectionProjectionReply,
@@ -69,6 +70,7 @@ export interface EditorCoreBinding {
   sourceSyntaxAtBarrier(): CoreSourceSyntaxReply | CoreRejectedReply
   plainTextViewAtBarrier(): CorePlainTextViewReply | CoreRejectedReply
   consumerProjectionAtBarrier?(): CoreConsumerProjectionReply | CoreRejectedReply
+  consumerSummaryAtBarrier?(): CoreConsumerSummaryReply | CoreRejectedReply
   displayProjectionAtBarrier?(
     name: MarkdownProjectionName
   ): CoreDisplayProjectionReply | CoreRejectedReply
@@ -831,6 +833,27 @@ export function createEditorCoreBinding(port: CoreModelOwner): EditorCoreBinding
       )
       if (reply.type !== 'display-projection' && reply.type !== 'rejected') {
         throw new Error('Core display projection barrier reply is invalid')
+      }
+      return reply
+    },
+    consumerSummaryAtBarrier(): CoreConsumerSummaryReply | CoreRejectedReply {
+      if (disposed) throw new Error('Editor Core binding is disposed')
+      if (!opened) throw new Error('Editor Core document is not open')
+      if (reconciliationRequired) {
+        throw new Error('Editor Core reconciliation is required')
+      }
+      if (inFlight) throw new Error('Core edit transaction is already in flight')
+      sequence += 1
+      const reply = port.request(
+        Object.freeze({
+          type: 'consumer-summary-at-barrier',
+          session,
+          sequence,
+          baseRevision: revision
+        })
+      )
+      if (reply.type !== 'consumer-summary' && reply.type !== 'rejected') {
+        throw new Error('Core consumer summary barrier reply is invalid')
       }
       return reply
     },
