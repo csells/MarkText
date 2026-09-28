@@ -181,7 +181,7 @@ export function planClipboard(
   // text again leaves it deleted (Google Docs).
   const trackedInputs = action.tracked
     ? inputs.map(edit => {
-      const editable = trackedEditableSpans(previous, edit)
+      const editable = trackedEditableSpans(core, previous, edit)
       if (editable?.history !== true) return compileTracked(edit)
       const parts = trackedEditableEdits(core, edit, editable, compileTracked)
       return parts === undefined ? undefined : joinedTrackedEdit(core, previous, edit.start, parts)

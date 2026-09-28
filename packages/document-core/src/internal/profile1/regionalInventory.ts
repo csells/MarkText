@@ -2427,6 +2427,19 @@ export function materializeRegionalInventoryAnnotationsAround(
   return materializeLeafAnnotations(value, following === undefined ? leaves : [...leaves, following])
 }
 
+/**
+ * The root annotations of the region leaves touching `[from, to]`: each
+ * annotation that overlaps or touches that range comes with its root.
+ */
+export function materializeRegionalInventoryAnnotationsIn(
+  inventory: RegionalInventory,
+  from: number,
+  to: number
+): readonly RegionalInventoryAnnotation[] {
+  const value = inventoryValue(inventory)
+  return materializeLeafAnnotations(value, regionLeavesIn(value.root, from, to))
+}
+
 /** Region leaves whose source touches `[from, to]`, in document order, at most `limit` of them. */
 function regionLeavesIn(
   root: RegionTree,

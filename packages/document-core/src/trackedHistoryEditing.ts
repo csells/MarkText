@@ -1,6 +1,7 @@
 import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit, SourceRange } from './documentCore.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import { trackedPreviewFacts } from './trackedExtent.js'
+import { annotationsOverlapping } from './internal/annotationsAround.js'
 
 type Preview = (edits: readonly DocumentSourceEdit[]) => DocumentRevision
 
@@ -18,8 +19,10 @@ const draftArm = (annotation: CriticMarkupAnnotation, name: string): boolean =>
  * syntax are frozen too, and an enclosed addition is a part of its own. Returns undefined when nothing inside the range is frozen; `history` says
  * whether deleted text or a comment is, rather than only a draft's delimiters.
  */
-export function trackedEditableSpans(revision: DocumentRevision, range: SourceRange, enclosed = false): (readonly SourceRange[] & { readonly history: boolean }) | undefined {
+export function trackedEditableSpans(core: DocumentCore, revision: DocumentRevision, range: SourceRange, enclosed = false): (readonly SourceRange[] & { readonly history: boolean }) | undefined {
   if (range.start >= range.end) return undefined
+  // Only annotations overlapping the range freeze or annotate its text.
+  const roots = annotationsOverlapping(core, revision, range)
   const frozen: Array<SourceRange & { history: boolean }> = []
   const cuts: number[] = []
   const visit = (annotations: readonly CriticMarkupAnnotation[]): void => {
@@ -42,7 +45,7 @@ export function trackedEditableSpans(revision: DocumentRevision, range: SourceRa
       if (cursor < annotation.range.end) frozen.push({ start: cursor, end: annotation.range.end, history })
     }
   }
-  visit(revision.annotations)
+  visit(roots)
   const blocked = frozen.filter(span => span.end > range.start && span.start < range.end)
     .sort((left, right) => left.start - right.start)
   const cut = (span: SourceRange): SourceRange[] => {
@@ -57,7 +60,7 @@ export function trackedEditableSpans(revision: DocumentRevision, range: SourceRa
   }
   if (cursor < range.end) spans.push(...cut({ start: cursor, end: range.end }))
   // A comment alone is a note on text, not text a reader edits.
-  const comments = markupAnnotations(revision.annotations).filter(annotation => annotation.kind === 'comment')
+  const comments = markupAnnotations(roots).filter(annotation => annotation.kind === 'comment')
   const text = spans.filter(span => {
     let cursor = span.start
     for (const comment of comments.filter(comment => comment.range.start >= span.start && comment.range.end <= span.end)

@@ -85,7 +85,7 @@ export function planFormat(
     ? undefined
     : action.selection.ranges[action.selection.primary]
   const range = selected === undefined ? undefined : { start: Math.min(selected.anchor, selected.focus), end: Math.max(selected.anchor, selected.focus) }
-  const editable = range === undefined ? undefined : trackedEditableSpans(previous, range)
+  const editable = range === undefined ? undefined : trackedEditableSpans(core, previous, range)
   if (range === undefined || selected === undefined || action.format === 'image-properties') return planSelectedFormat(core, previous, action, preview, previewSyntax)
   // Formatting deleted text is a no-op there, as in Google Docs; the rest of
   // the selection is formatted as usual.
@@ -109,7 +109,7 @@ export function planFormat(
     return planSelectedFormat(core, previous, action, preview, previewSyntax)
   } catch (error) {
     // A selection enclosing a suggestion formats its proposed text only.
-    const enclosing = editable ?? trackedEditableSpans(previous, range, true)
+    const enclosing = editable ?? trackedEditableSpans(core, previous, range, true)
     if (!(error instanceof RangeError) || enclosing === undefined) throw error
     return spanned(enclosing)
   }
