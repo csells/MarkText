@@ -1912,35 +1912,62 @@ export function createPlainRegionalInventory(
   })
 }
 
+/** Every annotation of the inventory, in document order. */
 export function materializeRegionalInventoryAnnotations(
   inventory: RegionalInventory
 ): readonly RegionalInventoryAnnotation[] {
   const value = inventoryValue(inventory)
-  const locatedLeaves: Array<Readonly<{
-    leaf: MeasuredRegionLeaf
-    sourceStart: number
-  }>> = []
-  const pendingTrees: Array<Readonly<{
-    node: RegionTree
-    sourceStart: number
-  }>> = [{ node: value.root, sourceStart: 0 }]
-  while (pendingTrees.length > 0) {
-    const task = pendingTrees.pop()
+  return materializeLeafAnnotations(value, regionLeavesIn(value.root, 0, Number.POSITIVE_INFINITY))
+}
+
+/**
+ * The root annotations of the region leaves around `position`: the leaves
+ * touching it and the next region leaf after them, so an annotation there
+ * comes with the sibling that directly follows it.
+ */
+export function materializeRegionalInventoryAnnotationsAround(
+  inventory: RegionalInventory,
+  position: number
+): readonly RegionalInventoryAnnotation[] {
+  const value = inventoryValue(inventory)
+  const leaves = regionLeavesIn(value.root, position - 1, position + 1)
+  const last = leaves.at(-1)
+  const following = regionLeavesIn(
+    value.root,
+    last === undefined ? position + 1 : last.sourceStart + last.leaf.sourceLength,
+    Number.POSITIVE_INFINITY,
+    3
+  ).find(located => !leaves.some(item => item.sourceStart === located.sourceStart))
+  return materializeLeafAnnotations(value, following === undefined ? leaves : [...leaves, following])
+}
+
+/** Region leaves whose source touches `[from, to]`, in document order, at most `limit` of them. */
+function regionLeavesIn(
+  root: RegionTree,
+  from: number,
+  to: number,
+  limit = Number.POSITIVE_INFINITY
+): Array<Readonly<{ leaf: MeasuredRegionLeaf, sourceStart: number }>> {
+  const located: Array<Readonly<{ leaf: MeasuredRegionLeaf, sourceStart: number }>> = []
+  const pending: Array<Readonly<{ node: RegionTree, sourceStart: number }>> = [{ node: root, sourceStart: 0 }]
+  while (pending.length > 0 && located.length < limit) {
+    const task = pending.pop()
     if (task === undefined) break
+    if (task.sourceStart > to || task.sourceStart + task.node.sourceLength < from) continue
     if (task.node.kind !== 'branch') {
-      if (task.node.kind === 'gap') continue
-      locatedLeaves.push(Object.freeze({
-        leaf: task.node,
-        sourceStart: task.sourceStart
-      }))
+      if (task.node.kind === 'region') located.push(Object.freeze({ leaf: task.node, sourceStart: task.sourceStart }))
       continue
     }
-    pendingTrees.push({
-      node: task.node.right,
-      sourceStart: task.sourceStart + task.node.left.sourceLength
-    })
-    pendingTrees.push({ node: task.node.left, sourceStart: task.sourceStart })
+    pending.push({ node: task.node.right, sourceStart: task.sourceStart + task.node.left.sourceLength })
+    pending.push({ node: task.node.left, sourceStart: task.sourceStart })
   }
+  return located
+}
+
+function materializeLeafAnnotations(
+  value: InventoryValue,
+  locatedLeaves: ReadonlyArray<Readonly<{ leaf: MeasuredRegionLeaf, sourceStart: number }>>
+): readonly RegionalInventoryAnnotation[] {
   const roots: RegionalInventoryAnnotation[] = []
   for (const located of locatedLeaves) {
     const materialized = new Map<number, RegionalInventoryAnnotation>()

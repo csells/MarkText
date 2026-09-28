@@ -1,4 +1,5 @@
 import type { CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
+import { annotationsAround } from './internal/annotationsAround.js'
 import { containerContinuationPrefix } from './clipboardMarkdown.js'
 import { INLINE_UPDATE_REG, inlineUpdateLayout } from './inputPolicy.js'
 import { syntaxPathAt } from './syntaxPath.js'
@@ -219,8 +220,10 @@ export function planInlineUpdate(
   let text = original
   // Every annotation delimiter includes a brace or, between arms, a tilde.
   const annotated = /[{}~]/u.test(original)
+  // The paragraph and its line prefixes lie in the blocks around its start.
+  const roots = annotated ? annotationsAround(core, revision, start) : []
   let hidden = Array.from({ length: original.length }, (_, index) =>
-    annotated && annotationSyntaxAt(revision.annotations, start + index))
+    annotated && annotationSyntaxAt(roots, start + index))
   for (const edit of [...edits].sort((a, b) => b.start - a.start)) {
     text = text.slice(0, edit.start - start) + edit.insert + text.slice(edit.end - start)
     hidden = [...hidden.slice(0, edit.start - start), ...Array.from({ length: edit.insert.length }, () => false), ...hidden.slice(edit.end - start)]
@@ -232,7 +235,7 @@ export function planInlineUpdate(
   // Annotation syntax on the first line's prefix is not the container's.
   const spelled = containers.length > 1 ? containerContinuationPrefix(core, revision, syntax, paragraph, containers) : ''
   const continuation = /[{}~]/u.test(spelled)
-    ? spelled.split('').filter((_, index) => !annotationSyntaxAt(revision.annotations, start - spelled.length + index)).join('')
+    ? spelled.split('').filter((_, index) => !annotationSyntaxAt(annotationsAround(core, revision, start), start - spelled.length + index)).join('')
     : spelled
   // Each later line's prefix spells the continuation around any annotation syntax.
   const prefixes = lines.map((line, index) => {
