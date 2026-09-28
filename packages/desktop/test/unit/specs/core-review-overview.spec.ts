@@ -126,6 +126,14 @@ describe('sidebar excerpts', () => {
     ])
   })
 
+  it('present a suggestion in an image description as its own text', () => {
+    const overview = overviewOf('![A {++sunny ++}{++sandy ++}beach{>>keep<<}](beach.png)\n')
+    expect(overview.map(excerptsOf).filter((entry) => entry.kind === 'addition')).toEqual([
+      { kind: 'addition', excerpt: { html: ins('sunny '), text: 'sunny' }, replacement: undefined },
+      { kind: 'addition', excerpt: { html: ins('sandy '), text: 'sandy' }, replacement: undefined }
+    ])
+  })
+
   it('present suggestions nested in a passage as suggestions, never as delimiters', () => {
     const overview = overviewOf(
       'Nested {==outer {++inner addition++} mark==}{>>Nested pair note.<<} and ' +
