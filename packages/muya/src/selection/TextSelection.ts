@@ -184,7 +184,15 @@ class TextSelection {
         const selection = this._doc.getSelection();
         if (!selection)
             throw new Error('Native selection is unavailable');
-        selection.setBaseAndExtent(anchor.node, anchor.offset, focus.node, focus.offset);
+        // Reapplying the selection it already has only costs the browser work.
+        if (
+            selection.anchorNode !== anchor.node
+            || selection.anchorOffset !== anchor.offset
+            || selection.focusNode !== focus.node
+            || selection.focusOffset !== focus.offset
+        ) {
+            selection.setBaseAndExtent(anchor.node, anchor.offset, focus.node, focus.offset);
+        }
         const geometry = this.getSelection();
         if (!geometry)
             throw new Error('Native selection geometry is unavailable');
