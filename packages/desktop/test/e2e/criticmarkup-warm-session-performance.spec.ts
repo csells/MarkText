@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import type { ElectronApplication, Page } from 'playwright'
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
@@ -31,6 +32,9 @@ const workloads: ReadonlyArray<{ name: string, paragraph: string, tracking: bool
   { name: 'plain-1000-tracked', paragraph: plainParagraph, tracking: true, paragraphs: 1000 },
   { name: 'dense-criticmarkup-ordinary', paragraph: denseParagraph, tracking: false },
   { name: 'dense-criticmarkup', paragraph: denseParagraph, tracking: true },
+  // Plan 0012 G35: tracked typing in a long document dense with suggestions,
+  // whose keys reparse only the paragraphs they change.
+  { name: 'dense-2000-tracked', paragraph: denseParagraph, tracking: true, paragraphs: 2000 },
   ...(process.env.MARKTEXT_WARM_EXTENDED === '1'
     ? [
       { name: 'unicode-tracked', paragraph: '日本語の編集、café, naïve, Ελληνικά, العربية, and 👩🏽‍💻. ' + denseParagraph, tracking: true, input: 'λ' },
@@ -47,6 +51,26 @@ const workloads: ReadonlyArray<{ name: string, paragraph: string, tracking: bool
     }]
     : [])
 ]
+
+/**
+ * With MARKTEXT_WARM_REVIEW_SIDEBAR=1, measure with the Comments and
+ * Suggestions sidebar open, whose list refreshes after typing pauses.
+ */
+const openReviewSidebar = async(app: ElectronApplication, page: Page): Promise<void> => {
+  if (process.env.MARKTEXT_WARM_REVIEW_SIDEBAR !== '1') return
+  await app.evaluate(({ BrowserWindow, Menu }) => {
+    const view = Menu.getApplicationMenu()?.items.find(item => item.label === 'View')
+    const toggle = view?.submenu?.items.find(item => item.label === 'Toggle Sidebar')
+    const win = BrowserWindow.getAllWindows().find(win => win.webContents.getURL().includes('type=editor'))
+    if (!toggle?.enabled || !win) throw new Error('Toggle Sidebar is unavailable')
+    toggle.click(undefined, win, win.webContents)
+  })
+  const reviewTab = page.locator('.side-bar .left-column li[aria-label="Comments and Suggestions"]')
+  await expect(reviewTab).toBeVisible()
+  if ((await reviewTab.getAttribute('aria-selected')) !== 'true') await reviewTab.click()
+  await expect(reviewTab).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByTestId('critic-review-list')).toBeAttached()
+}
 
 const rendererBuildHashes = (): Record<string, string> => {
   const root = path.join(repo, 'packages/desktop/out/renderer')
@@ -90,6 +114,7 @@ test.describe('warm native-keyboard performance', () => {
         intervalMs: interval,
         tracking: workload.tracking,
         rendererCpuProfiling: process.env.MARKTEXT_WARM_PROFILE === '1',
+        reviewSidebarOpen: process.env.MARKTEXT_WARM_REVIEW_SIDEBAR === '1',
         retainedHeapCheck: process.env.MARKTEXT_WARM_HEAP === '1',
         limits: 'One warm app per workload; browser beforeinput to exact DOM echo, not physical input or compositor paint. Native Playwright keyboard through Chromium; hidden unfocused window. Concurrent machine work is uncontrolled. Reconcile corrected is a code-path flag, not a measured visual correction.'
       }
@@ -136,6 +161,7 @@ test.describe('warm native-keyboard performance', () => {
           await tracking.click()
           await expect(tracking).toHaveAttribute('aria-pressed', 'true')
         }
+        await openReviewSidebar(app, page)
         await paragraph.click()
         await page.keyboard.press('End')
         await page.evaluate(() => window.__marktextDocumentCore?.settled())
@@ -165,6 +191,12 @@ test.describe('warm native-keyboard performance', () => {
           await profiler.send('Profiler.enable')
           await profiler.send('Profiler.start')
         }
+        const tracing = process.env.MARKTEXT_WARM_TRACE === '1' ? await page.context().newCDPSession(page) : undefined
+        const traceEvents: unknown[] = []
+        if (tracing !== undefined) {
+          tracing.on('Tracing.dataCollected', (data: { value: unknown[] }) => { traceEvents.push(...data.value) })
+          await tracing.send('Tracing.start', { categories: 'devtools.timeline,blink,blink.user_timing,disabled-by-default-devtools.timeline', transferMode: 'ReportEvents' })
+        }
         for (let index = 0; index < measured; index += 1) {
           await page.keyboard.type(character, { delay: 0 })
           // No authority/settled barrier between keys: backlog is part of the observation.
@@ -177,6 +209,13 @@ test.describe('warm native-keyboard performance', () => {
           const { profile } = await profiler.send('Profiler.stop')
           writeFileSync(path.join(scratch, 'renderer.cpuprofile'), JSON.stringify(profile), { flag: 'wx' })
           await profiler.detach()
+        }
+        if (tracing !== undefined) {
+          const done = new Promise(resolve => tracing.once('Tracing.tracingComplete', resolve))
+          await tracing.send('Tracing.end')
+          await done
+          writeFileSync(path.join(scratch, 'trace.json'), JSON.stringify(traceEvents), { flag: 'wx' })
+          await tracing.detach()
         }
         const input = await readInputLatencyTrace(page)
         const probeStatus = await readInputLatencyTraceStatus(page)
@@ -299,6 +338,7 @@ test.describe('warm native-keyboard performance', () => {
           await toggle.click()
           await expect(toggle).toHaveAttribute('aria-pressed', 'true')
         }
+        await openReviewSidebar(app, page)
         await paragraph.click()
         await page.keyboard.press('Home')
         // Split inside "Warm editing paragraph." so each new paragraph keeps text.
