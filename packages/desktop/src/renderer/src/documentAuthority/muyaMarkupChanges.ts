@@ -12,8 +12,16 @@ import {
   createMuyaMarkupView,
   type MuyaMarkdownSegment,
   type MuyaMarkupBinding,
+  type MuyaMarkupComment,
+  type MuyaMarkupDecoration,
   type MuyaMarkupView
 } from './muyaMarkupView'
+import {
+  muyaItemsAtRoot,
+  muyaItemsInRootOrder,
+  muyaItemsInRoots,
+  rememberMuyaItemsInRootOrder
+} from './muyaMarkupViewLookup'
 
 const shiftRange = (range: SourceRange, delta: number): SourceRange => ({
   start: range.start + delta,
@@ -179,6 +187,141 @@ const shiftSyntax = (node: MarkdownAstNode, delta: number): MarkdownAstNode =>
       children: node.children.length === 0 ? node.children : node.children.map((child) => shiftSyntax(child, delta))
     }
 
+type Mutable<T> = { -readonly [Key in keyof T]: T[Key] }
+
+const shiftedRange = (range: SourceRange, delta: number): SourceRange =>
+  delta === 0 ? range : shiftRange(range, delta)
+
+/**
+ * `binding` once the text before it changed length by `sourceDelta` source
+ * units (`syntaxDelta` in editing syntax) and its root index by `pathDelta`.
+ * Parts that hold no position are shared with `binding`, as the decoration
+ * and comment helpers below share theirs.
+ */
+function movedBinding(
+  binding: MuyaMarkupBinding,
+  pathDelta: number,
+  sourceDelta: number,
+  syntaxDelta: number
+): MuyaMarkupBinding {
+  const moved: Mutable<MuyaMarkupBinding> = { ...binding }
+  const root = Number(binding.path[0]) + pathDelta
+  if (pathDelta !== 0) moved.path = [root, ...binding.path.slice(1)]
+  if (syntaxDelta !== 0) moved.syntax = shiftSyntax(binding.syntax, syntaxDelta)
+  if (sourceDelta !== 0 || syntaxDelta !== 0) {
+    moved.segments = binding.segments.map((segment) => ({
+      ...segment,
+      source: shiftedRange(segment.source, sourceDelta),
+      syntax: shiftedRange(segment.syntax, syntaxDelta)
+    }))
+  }
+  if (pathDelta === 0 && sourceDelta === 0) return moved
+  if (binding.markerLine !== undefined) {
+    moved.markerLine = {
+      ...binding.markerLine,
+      start: binding.markerLine.start + sourceDelta,
+      end: binding.markerLine.end + sourceDelta,
+      content: binding.markerLine.content + sourceDelta,
+      statePath: [root, ...binding.markerLine.statePath.slice(1)]
+    }
+  }
+  if (binding.sourceStructure !== undefined) {
+    moved.sourceStructure = {
+      ...binding.sourceStructure,
+      range: shiftedRange(binding.sourceStructure.range, sourceDelta),
+      nodes: binding.sourceStructure.nodes.map((node) => {
+        const movedNode: Mutable<typeof node> = {
+          ...node,
+          path: [Number(node.path[0]) + pathDelta, ...node.path.slice(1)],
+          range: shiftedRange(node.range, sourceDelta)
+        }
+        if (node.lineStarts !== undefined && sourceDelta !== 0) {
+          movedNode.lineStarts = node.lineStarts.map((offset) => offset + sourceDelta)
+        }
+        if (node.delimiterRange !== undefined) {
+          movedNode.delimiterRange = shiftedRange(node.delimiterRange, sourceDelta)
+        }
+        return movedNode
+      })
+    }
+  }
+  if (sourceDelta === 0) return moved
+  moved.sourceRange = shiftRange(binding.sourceRange, sourceDelta)
+  if (binding.tableCell !== undefined) {
+    moved.tableCell = { ...binding.tableCell, table: shiftRange(binding.tableCell.table, sourceDelta) }
+  }
+  if (binding.tableCellContent !== undefined) {
+    moved.tableCellContent = shiftRange(binding.tableCellContent, sourceDelta)
+  }
+  if (binding.documentEnd !== undefined) {
+    moved.documentEnd = { ...binding.documentEnd, offset: binding.documentEnd.offset + sourceDelta }
+  }
+  if (binding.containerPrefix !== undefined) {
+    moved.containerPrefix = {
+      ...binding.containerPrefix,
+      range: shiftRange(binding.containerPrefix.range, sourceDelta)
+    }
+  }
+  if (binding.paragraphPrefixPosition !== undefined) {
+    moved.paragraphPrefixPosition = binding.paragraphPrefixPosition + sourceDelta
+  }
+  if (binding.trailingLinePosition !== undefined) {
+    moved.trailingLinePosition = binding.trailingLinePosition + sourceDelta
+  }
+  if (binding.leadingLinePosition !== undefined) {
+    moved.leadingLinePosition = binding.leadingLinePosition + sourceDelta
+  }
+  if (binding.caretSnaps !== undefined) {
+    moved.caretSnaps = binding.caretSnaps.map((snap) => ({
+      from: snap.from + sourceDelta,
+      to: snap.to + sourceDelta,
+      at: snap.at + sourceDelta
+    }))
+  }
+  if (binding.outerBlock !== undefined) {
+    moved.outerBlock = {
+      ...binding.outerBlock,
+      range: shiftRange(binding.outerBlock.range, sourceDelta)
+    }
+  }
+  return moved
+}
+
+function movedDecoration(
+  decoration: MuyaMarkupDecoration,
+  pathDelta: number,
+  sourceDelta: number
+): MuyaMarkupDecoration {
+  const moved: Mutable<MuyaMarkupDecoration> = { ...decoration }
+  if (pathDelta !== 0) {
+    moved.path = [Number(decoration.path[0]) + pathDelta, ...decoration.path.slice(1)]
+  }
+  if (sourceDelta === 0) return moved
+  if (decoration.sourcePosition !== undefined) {
+    moved.sourcePosition = decoration.sourcePosition + sourceDelta
+  }
+  if (decoration.exteriorEnd !== undefined) moved.exteriorEnd = decoration.exteriorEnd + sourceDelta
+  moved.mark = {
+    ...decoration.mark,
+    annotationRange: shiftRange(decoration.mark.annotationRange, sourceDelta)
+  }
+  return moved
+}
+
+function movedComment(
+  comment: MuyaMarkupComment,
+  pathDelta: number,
+  sourceDelta: number
+): MuyaMarkupComment {
+  return {
+    ...comment,
+    ...(pathDelta === 0
+      ? {}
+      : { path: [Number(comment.path[0]) + pathDelta, ...comment.path.slice(1)] }),
+    annotationRange: shiftedRange(comment.annotationRange, sourceDelta)
+  }
+}
+
 /** Root ranges an applied change replaced, for consumers that update in place. */
 export interface MuyaMarkupViewPatch {
   readonly previous: MuyaMarkupView
@@ -217,6 +360,25 @@ const validCoordinates = (coordinates: readonly MarkupCoordinateSegment[]): bool
           segment.source.start >= coordinates[index - 1].source.end))
   )
 
+/** Views whose every binding belongs to one of their root blocks. */
+const rootedViews = new WeakMap<MuyaMarkupView, boolean>()
+const hasRootedBindings = (view: MuyaMarkupView): boolean => {
+  let rooted = rootedViews.get(view)
+  if (rooted === undefined) {
+    rooted = view.bindings.every((binding) => {
+      const root = binding.path[0]
+      return (
+        typeof root === 'number' &&
+        Number.isSafeInteger(root) &&
+        root >= 0 &&
+        root < view.state.length
+      )
+    })
+    rootedViews.set(view, rooted)
+  }
+  return rooted
+}
+
 /**
  * Consume portable Core regions replacing top-level paragraphs. Untouched block shapes
  * retain their native state and mapped leaves. Changed structural blocks,
@@ -228,21 +390,7 @@ export function applyMuyaMarkupChanges(
   change: MarkupRegionProjectionChange
 ): MuyaMarkupView | undefined {
   if (change.replacements.length === 0) return previous
-  const byRoot = new Map<number, MuyaMarkupBinding[]>()
-  for (const binding of previous.bindings) {
-    const root = binding.path[0]
-    if (
-      typeof root !== 'number' ||
-      !Number.isSafeInteger(root) ||
-      root < 0 ||
-      root >= previous.state.length
-    ) {
-      return undefined
-    }
-    const group = byRoot.get(root) ?? []
-    group.push(binding)
-    byRoot.set(root, group)
-  }
+  if (!hasRootedBindings(previous)) return undefined
   const offset = markdownOffsets(previous)
   if (offset === undefined) return undefined
   const replacements = [...change.replacements].sort(
@@ -261,6 +409,14 @@ export function applyMuyaMarkupChanges(
   let sourceDelta = 0
   let syntaxDelta = 0
   let markdownLength = 0
+  // Retained runs and replaced regions follow one another in root order, so
+  // the new lists keep the order of the lists they are taken from.
+  let bindingsOrdered = muyaItemsInRootOrder(previous.bindings)
+  let decorationsOrdered = muyaItemsInRootOrder(previous.decorations)
+  const commentsOrdered = muyaItemsInRootOrder(previous.comments)
+  // Retained roots stay roots of the view; each region's roots are checked.
+  let regionRootEnd = 0
+  let regionRooted = true
   const appendMarkdown = (
     view: MuyaMarkupView,
     start: number,
@@ -285,154 +441,19 @@ export function applyMuyaMarkupChanges(
   const retainUntil = (end: number): void => {
     const start = previousIndex
     const pathDelta = state.length - start
-    for (; previousIndex < end; previousIndex += 1) {
-      state.push(previous.state[previousIndex])
-      for (const binding of byRoot.get(previousIndex) ?? []) {
-        bindings.push(
-          sourceDelta === 0 && syntaxDelta === 0 && pathDelta === 0
-            ? binding
-            : {
-              ...binding,
-              path: pathDelta === 0 ? binding.path : [previousIndex + pathDelta, ...binding.path.slice(1)],
-              sourceRange: shiftRange(binding.sourceRange, sourceDelta),
-              ...(binding.tableCell === undefined
-                ? {}
-                : {
-                  tableCell: {
-                    ...binding.tableCell,
-                    table: shiftRange(binding.tableCell.table, sourceDelta)
-                  }
-                }),
-              ...(binding.tableCellContent === undefined
-                ? {}
-                : {
-                  tableCellContent: shiftRange(binding.tableCellContent, sourceDelta)
-                }),
-              ...(binding.documentEnd === undefined
-                ? {}
-                : {
-                  documentEnd: {
-                    ...binding.documentEnd,
-                    offset: binding.documentEnd.offset + sourceDelta
-                  }
-                }),
-              ...(binding.containerPrefix === undefined
-                ? {}
-                : {
-                  containerPrefix: {
-                    ...binding.containerPrefix,
-                    range: shiftRange(binding.containerPrefix.range, sourceDelta)
-                  }
-                }),
-              ...(binding.paragraphPrefixPosition === undefined
-                ? {}
-                : {
-                  paragraphPrefixPosition: binding.paragraphPrefixPosition + sourceDelta
-                }),
-              ...(binding.trailingLinePosition === undefined
-                ? {}
-                : { trailingLinePosition: binding.trailingLinePosition + sourceDelta }),
-              ...(binding.leadingLinePosition === undefined
-                ? {}
-                : { leadingLinePosition: binding.leadingLinePosition + sourceDelta }),
-              ...(binding.markerLine === undefined
-                ? {}
-                : {
-                  markerLine: {
-                    ...binding.markerLine,
-                    start: binding.markerLine.start + sourceDelta,
-                    end: binding.markerLine.end + sourceDelta,
-                    content: binding.markerLine.content + sourceDelta,
-                    statePath: [
-                      previousIndex + pathDelta,
-                      ...binding.markerLine.statePath.slice(1)
-                    ]
-                  }
-                }),
-              ...(binding.caretSnaps === undefined
-                ? {}
-                : {
-                  caretSnaps: binding.caretSnaps.map((snap) => ({
-                    from: snap.from + sourceDelta,
-                    to: snap.to + sourceDelta,
-                    at: snap.at + sourceDelta
-                  }))
-                }),
-              ...(binding.outerBlock === undefined
-                ? {}
-                : {
-                  outerBlock: {
-                    ...binding.outerBlock,
-                    range: shiftRange(binding.outerBlock.range, sourceDelta)
-                  }
-                }),
-              ...(binding.sourceStructure === undefined
-                ? {}
-                : {
-                  sourceStructure: {
-                    ...binding.sourceStructure,
-                    range: shiftRange(binding.sourceStructure.range, sourceDelta),
-                    nodes: binding.sourceStructure.nodes.map((node) => ({
-                      ...node,
-                      path: [Number(node.path[0]) + pathDelta, ...node.path.slice(1)],
-                      range: shiftRange(node.range, sourceDelta),
-                      ...(node.lineStarts === undefined
-                        ? {}
-                        : {
-                          lineStarts: node.lineStarts.map((offset) => offset + sourceDelta)
-                        }),
-                      ...(node.delimiterRange === undefined
-                        ? {}
-                        : { delimiterRange: shiftRange(node.delimiterRange, sourceDelta) })
-                    }))
-                  }
-                }),
-              syntax: shiftSyntax(binding.syntax, syntaxDelta),
-              segments: binding.segments.map((segment) => ({
-                ...segment,
-                source: shiftRange(segment.source, sourceDelta),
-                syntax: shiftRange(segment.syntax, syntaxDelta)
-              }))
-            }
-        )
-      }
+    for (; previousIndex < end; previousIndex += 1) state.push(previous.state[previousIndex])
+    const moved = sourceDelta !== 0 || syntaxDelta !== 0 || pathDelta !== 0
+    for (const binding of muyaItemsInRoots(previous.bindings, start, end)) {
+      bindings.push(moved ? movedBinding(binding, pathDelta, sourceDelta, syntaxDelta) : binding)
     }
-    for (const decoration of previous.decorations) {
-      const index = Number(decoration.path[0])
-      if (index >= start && index < end) {
-        decorations.push(
-          sourceDelta === 0 && pathDelta === 0
-            ? decoration
-            : {
-              ...decoration,
-              path: pathDelta === 0 ? decoration.path : [index + pathDelta, ...decoration.path.slice(1)],
-              ...(decoration.sourcePosition === undefined
-                ? {}
-                : { sourcePosition: decoration.sourcePosition + sourceDelta }),
-              ...(decoration.exteriorEnd === undefined
-                ? {}
-                : { exteriorEnd: decoration.exteriorEnd + sourceDelta }),
-              mark: {
-                ...decoration.mark,
-                annotationRange: shiftRange(decoration.mark.annotationRange, sourceDelta)
-              }
-            }
-        )
-      }
+    const annotationsMoved = sourceDelta !== 0 || pathDelta !== 0
+    for (const decoration of muyaItemsInRoots(previous.decorations, start, end)) {
+      decorations.push(
+        annotationsMoved ? movedDecoration(decoration, pathDelta, sourceDelta) : decoration
+      )
     }
-    for (const comment of previous.comments) {
-      const index = Number(comment.path[0])
-      if (index >= start && index < end) {
-        comments.push(
-          sourceDelta === 0 && pathDelta === 0
-            ? comment
-            : {
-              ...comment,
-              path: pathDelta === 0 ? comment.path : [index + pathDelta, ...comment.path.slice(1)],
-              annotationRange: shiftRange(comment.annotationRange, sourceDelta)
-            }
-        )
-      }
+    for (const comment of muyaItemsInRoots(previous.comments, start, end)) {
+      comments.push(annotationsMoved ? movedComment(comment, pathDelta, sourceDelta) : comment)
     }
   }
   for (const replacement of replacements) {
@@ -466,8 +487,8 @@ export function applyMuyaMarkupChanges(
     if (start < previousIndex || start < 0) return undefined
     let end = start
     while (end < previous.state.length) {
-      const group = byRoot.get(end)
-      const binding = group?.[0]
+      const group = muyaItemsAtRoot(previous.bindings, end)
+      const binding = group[0]
       if (
         binding === undefined ||
         !(
@@ -479,7 +500,7 @@ export function applyMuyaMarkupChanges(
         break
       }
       if (
-        group?.length !== 1 ||
+        group.length !== 1 ||
         previous.state[end].name !== 'paragraph' ||
         binding.syntax.kind !== 'paragraph' ||
         binding.path.length !== 2 ||
@@ -541,6 +562,8 @@ export function applyMuyaMarkupChanges(
     }, replacement.annotations)
     const localLength =
       end === previous.state.length ? local.bindings.length : replacement.syntaxBlocks.length
+    bindingsOrdered &&= muyaItemsInRootOrder(local.bindings)
+    decorationsOrdered &&= muyaItemsInRootOrder(local.decorations)
     const base = state.length
     state.push(...local.state.slice(0, localLength))
     const expectedEnd = previous.bindings.at(-1)?.documentEnd
@@ -554,7 +577,7 @@ export function applyMuyaMarkupChanges(
     }
     // The line before the region is unchanged. A region cannot see it, so its
     // first paragraph keeps the leading line its predecessor had there.
-    const outsideLeading = byRoot.get(start)?.[0]?.leadingLinePosition
+    const outsideLeading = muyaItemsAtRoot(previous.bindings, start)[0]?.leadingLinePosition
     bindings.push(
       ...local.bindings.slice(0, localLength).map((binding, index) => {
         const { documentEnd, trailingLinePosition, ...rest } = binding
@@ -589,6 +612,11 @@ export function applyMuyaMarkupChanges(
         }
       })
     )
+    for (const binding of local.bindings.slice(0, localLength)) {
+      const root = Number(binding.path[0]) + base
+      regionRooted &&= Number.isSafeInteger(root) && root >= 0
+      regionRootEnd = Math.max(regionRootEnd, root + 1)
+    }
     decorations.push(
       ...local.decorations
         .filter((decoration) => Number(decoration.path[0]) < localLength)
@@ -614,6 +642,10 @@ export function applyMuyaMarkupChanges(
     decorations,
     comments
   }
+  if (regionRooted && regionRootEnd <= state.length) rootedViews.set(view, true)
+  if (bindingsOrdered) rememberMuyaItemsInRootOrder(bindings)
+  if (decorationsOrdered) rememberMuyaItemsInRootOrder(decorations)
+  if (commentsOrdered) rememberMuyaItemsInRootOrder(comments)
   if (replacedStart !== undefined) {
     const nextEnd = replacedEnd + state.length - previous.state.length
     patches.set(view, { previous, start: replacedStart, previousEnd: replacedEnd, nextEnd })
