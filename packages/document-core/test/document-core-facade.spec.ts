@@ -1625,21 +1625,16 @@ describe('document-core facade', () => {
     })
   }, 30_000)
 
-  it('bounds malformed-syntax diagnostics before publishing a revision', () => {
-    const admitted = createDocumentCore().open('++}'.repeat(1_024))
-    expect(admitted.diagnostics).toHaveLength(1_024)
-
-    let rejection: unknown
-    try {
-      createDocumentCore().open('++}'.repeat(1_025))
-    } catch (error) {
-      rejection = error
-    }
-    expect(rejection).toBeInstanceOf(DocumentCoreError)
-    expect(rejection).toMatchObject({
-      code: 'CM_RESOURCE_LOGICAL_NODES_EXCEEDED',
-      metadata: { limit: '1024', observed: '1025' }
-    })
+  it('opens malformed syntax past the former 1,024-diagnostic cap', () => {
+    // Stray markers are ordinary text upstream, so their count never refuses
+    // a document; the logical-node budget still bounds the whole graph.
+    const source = '++}'.repeat(1_025)
+    const core = createDocumentCore()
+    const admitted = core.open(source)
+    expect(admitted.diagnostics).toHaveLength(1_025)
+    expect(admitted.diagnostics.every(diagnostic =>
+      diagnostic.code === 'CM_UNMATCHED_CLOSER')).toBe(true)
+    expect(core.project(admitted, 'original').markdown).toBe(source)
   })
 
   it('reopens through retained parser state with full-parse-equivalent results', () => {

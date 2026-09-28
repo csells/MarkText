@@ -17,7 +17,8 @@ it('retains Source text and rejected intent when the model refuses native input'
     canonicalRevision: 1,
     insertedLineEnding: '\n'
   })
-  const refused = '++}'.repeat(1_025)
+  // Blockquotes nested past the desktop's 128-level Markdown depth.
+  const refused = `\n${'>'.repeat(129)} deep`
   try {
     doc.replaceRange('q', { line: 0, ch: 4 })
     await adapter.settled()
