@@ -2,6 +2,7 @@ import type { HeadingChange, ListChange } from '@marktext/input-policy';
 import type Content from './block/base/content';
 import type Parent from './block/base/parent';
 import type { TBlockPath } from './block/types';
+import type { IReconcileRegion } from './editor/index';
 import type { Listener } from './event/types';
 import type { ILocale } from './i18n/types';
 import type { TInlinePresentation } from './inlineRenderer/types';
@@ -166,7 +167,7 @@ export class Muya {
     public i18n: I18n;
 
     private _uiPlugins: Record<string, unknown> = {};
-    private _editablePaths: readonly (readonly (string | number)[])[] | null = null;
+    private _editablePaths: readonly (readonly (string | number)[])[] | (() => readonly (readonly (string | number)[])[]) | null = null;
 
     constructor(element: HTMLElement, options?: Partial<IMuyaOptions>) {
         this.options = Object.assign({}, MUYA_DEFAULT_OPTIONS, options ?? {});
@@ -299,10 +300,10 @@ export class Muya {
      * Present an acknowledged document state while retaining unchanged native roots.
      * Its owner installs current editable paths before restoring model selection.
      */
-    reconcileContent(content: readonly TState[]): boolean {
+    reconcileContent(content: readonly TState[], region?: IReconcileRegion): boolean {
         let changed = false;
         this.editor.history.preserveInputGrouping(() => {
-            changed = this.editor.reconcileContent(content);
+            changed = this.editor.reconcileContent(content, region);
         });
         return changed;
     }
@@ -314,13 +315,19 @@ export class Muya {
     /**
      * Restrict editing to the exact content-block paths owned by a host
      * projection. Passing `null` restores Muya's ordinary all-editable policy.
-     * The policy survives whole-document rebuilds such as `setContent`.
+     * The policy survives whole-document rebuilds such as `setContent`. A
+     * function is read only when the whole document is rebuilt; `roots` limits
+     * this update to the blocks under roots `[start, end)`, whose policy is the
+     * only one that changed.
      */
-    setEditablePaths(paths: readonly (readonly (string | number)[])[] | null) {
-        this._editablePaths = paths === null
-            ? null
+    setEditablePaths(
+        paths: readonly (readonly (string | number)[])[] | (() => readonly (readonly (string | number)[])[]) | null,
+        roots?: readonly [number, number],
+    ) {
+        this._editablePaths = paths === null || typeof paths === 'function'
+            ? paths
             : Object.freeze(paths.map(path => Object.freeze([...path])));
-        this._applyEditablePaths();
+        this._applyEditablePaths(roots);
     }
 
     /**
@@ -333,19 +340,25 @@ export class Muya {
         this.editor.inlineRenderer.presentation = renderer;
     }
 
-    private _applyEditablePaths() {
-        const paths = this._editablePaths;
-        if (!this.editor.scrollPage)
+    private _applyEditablePaths(roots?: readonly [number, number]) {
+        const source = this._editablePaths;
+        const scrollPage = this.editor.scrollPage;
+        if (!scrollPage)
             return;
+        const paths = typeof source === 'function' ? source() : source;
+        const inRoots = (path: readonly (string | number)[]) =>
+            roots === undefined || (typeof path[0] === 'number' && path[0] >= roots[0] && path[0] < roots[1]);
         const editable = new Set<Content>();
         if (paths !== null) {
             for (const path of paths) {
-                const block = this.editor.scrollPage.queryBlock([...path]);
+                if (!inRoots(path))
+                    continue;
+                const block = scrollPage.queryBlock([...path]);
                 if (block?.isContent())
                     editable.add(block);
             }
         }
-        this.domNode.querySelectorAll<HTMLElement>('.mu-content').forEach((node) => {
+        const apply = (node: HTMLElement) => {
             const block = node[BLOCK_DOM_PROPERTY] as Content | undefined;
             const enabled = paths === null || (block !== undefined && editable.has(block));
             if (block?.isContent())
@@ -353,7 +366,15 @@ export class Muya {
             const value = enabled ? 'true' : 'false';
             if (node.getAttribute('contenteditable') !== value)
                 node.setAttribute('contenteditable', value);
-        });
+        };
+        if (roots === undefined) {
+            this.domNode.querySelectorAll<HTMLElement>('.mu-content').forEach(apply);
+            return;
+        }
+        let root = scrollPage.find(roots[0]);
+        for (let index = roots[0]; index < roots[1] && root != null; index++, root = root.next as typeof root) {
+            root.domNode?.querySelectorAll<HTMLElement>('.mu-content').forEach(apply);
+        }
     }
 
     /**

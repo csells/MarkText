@@ -157,6 +157,59 @@ export class ScrollPage extends Parent {
     }
 
     /**
+     * Present `next` in place of the roots `[start, previousEnd)`. The caller
+     * vouches that every other root already presents its state, so only this
+     * range is read.
+     */
+    reconcileStateRegion(next: readonly TState[], start: number, previousEnd: number): boolean {
+        const roots: Parent[] = [];
+        let root = this.find(start) as Nullable<Parent>;
+        for (let index = start; index < previousEnd; index++) {
+            if (root == null || !root.isParent())
+                throw new Error('Document view root must be a parent block');
+            roots.push(root);
+            root = root.next as Nullable<Parent>;
+        }
+        const boundary = root ?? null;
+        let changed = false;
+        if (roots.length === next.length) {
+            for (let index = 0; index < next.length; index++) {
+                if (isEqual(roots[index].getState(), next[index]))
+                    continue;
+                roots[index].replaceWith(ScrollPage.loadBlock(next[index].name).create(this.muya, next[index]), 'api');
+                changed = true;
+            }
+        }
+        else {
+            const before = roots.map(block => block.getState());
+            let head = 0;
+            while (head < roots.length && head < next.length && isEqual(before[head], next[head]))
+                head++;
+            let tail = 0;
+            while (
+                tail < roots.length - head
+                && tail < next.length - head
+                && isEqual(before[roots.length - tail - 1], next[next.length - tail - 1])
+            ) {
+                tail++;
+            }
+            const insertion = roots[roots.length - tail] ?? boundary;
+            for (let index = head; index < roots.length - tail; index++)
+                roots[index].remove('api');
+            for (let index = head; index < next.length - tail; index++) {
+                this.insertBefore(
+                    ScrollPage.loadBlock(next[index].name).create(this.muya, next[index]),
+                    insertion,
+                    'api',
+                );
+            }
+            changed = true;
+        }
+        this.muya.editor.inlineRenderer.flushPendingPresentation();
+        return changed;
+    }
+
+    /**
      * Find the content block by the path
      * @param {Array} path
      */

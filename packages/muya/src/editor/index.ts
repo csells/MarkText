@@ -24,6 +24,13 @@ import { attachDocumentEditing } from './documentEditing';
 import { attachDragDropImageHandlers } from './dragDropImage';
 import { attachLinkMouseHandlers } from './linkMouseEvents';
 
+/** Presented roots `[start, previousEnd)` that a reconciled state holds at `[start, nextEnd)`. */
+export interface IReconcileRegion {
+    readonly start: number;
+    readonly previousEnd: number;
+    readonly nextEnd: number;
+}
+
 const debug = logger('editor:');
 
 // The pick/drop walkers operate on live block-tree nodes (ScrollPage,
@@ -572,8 +579,29 @@ export class Editor {
             this.focus();
     }
 
-    /** Install an owned view projection; this does not dispatch an editing operation. */
-    reconcileContent(content: readonly TState[]): boolean {
+    /**
+     * Install an owned view projection; this does not dispatch an editing operation.
+     * With `region`, only roots `[start, previousEnd)` of the presented document
+     * can differ from `content`, where they are `[start, nextEnd)`.
+     */
+    reconcileContent(content: readonly TState[], region?: IReconcileRegion): boolean {
+        if (
+            region !== undefined
+            && region.start >= 0
+            && region.start <= region.previousEnd
+            && region.start <= region.nextEnd
+            && region.nextEnd <= content.length
+            && this.scrollPage!.length() === content.length - region.nextEnd + region.previousEnd
+        ) {
+            const roots = deepClone(content.slice(region.start, region.nextEnd));
+            this.jsonState.replaceRoots(region.start, region.previousEnd, roots);
+            const changed = this.scrollPage!.reconcileStateRegion(roots, region.start, region.previousEnd);
+            if (changed) {
+                this.history.clear();
+                this.searchModule.reset();
+            }
+            return changed;
+        }
         const state = deepClone([...content]);
         this.jsonState.setContent(state);
         const changed = this.scrollPage!.reconcileState(state);

@@ -88,6 +88,19 @@ class JSONState {
             this._setMarkdown(content);
     }
 
+    /**
+     * Replace roots `[start, end)` with `roots`, as `setContent` replaces the
+     * whole document: a pending batch belongs to the outgoing roots.
+     */
+    replaceRoots(start: number, end: number, roots: readonly TState[]) {
+        if (this._rafId !== null) {
+            cancelAnimationFrame(this._rafId);
+            this._rafId = null;
+        }
+        this._operationCache = [];
+        this._state = [...this._state.slice(0, start), ...roots, ...this._state.slice(end)];
+    }
+
     private _setState(state: TState[]) {
         this._state = state;
     }
