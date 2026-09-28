@@ -235,6 +235,13 @@ describe('structural regional edits read as a fresh open', () => {
     replay(source, [[start, end, insert]])
   })
 
+  it('refuses a plain region that starts on a blank line with no block before it to widen to', () => {
+    // Splitting `   on.` left a whitespace-only first line, which belongs to
+    // the block before; widening found no earlier plain block to start from.
+    replay('> quoted line\n\n\t\n\n{++Whole paragraph addition.++}\n',
+      [[7, 14, '\n\n'], [12, 17, '\n\n'], [27, 27, '``'], [32, 37, '\n\n'], [39, 39, '\n\n   '], [34, 34, '\n\n   '], [38, 38, '\n']])
+  })
+
   it('splices the unterminated last line out of the reused prefix', () => {
     // The finish that completed the old last line consumed nothing, so the
     // splice kept it with the prefix and lost the new block start.
