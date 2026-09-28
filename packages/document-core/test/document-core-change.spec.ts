@@ -3735,28 +3735,50 @@ describe('document-core semantic changes', () => {
   })
 
   it.each([
-    // Whitespace-only lines are empty paragraphs whose boundary ownership
-    // stays with the full parse (G35).
-    {
-      name: 'whitespace becomes a paragraph',
-      source: 'head\n\n   \n\ntail\n\n',
-      edit: () => ({
-        start: 7,
-        end: 7,
-        insert: 'X'
-      }),
-      reason: 'structural-region-ineligible'
-    },
-    {
-      name: 'a paragraph becomes whitespace',
-      source: 'head\n\ntarget\n\ntail\n\n',
-      edit: (source: string) => ({
-        start: source.indexOf('target'),
-        end: source.indexOf('target') + 'target'.length,
-        insert: '   '
-      }),
-      reason: 'structural-region-ineligible'
-    },
+    { name: 'whitespace becomes a paragraph', source: 'head\n\n   \n\ntail\n\n', at: 7, remove: 0, insert: 'X' },
+    { name: 'a paragraph becomes whitespace', source: 'head\n\ntarget\n\ntail\n\n', at: 6, remove: 6, insert: '   ' },
+    { name: 'Enter ends a paragraph', source: 'head\n\ntarget\n\ntail\n\n', at: 12, remove: 0, insert: '\n\n' },
+    { name: 'Enter on a whitespace-only line', source: 'head\n\n   \n\ntail\n\n', at: 9, remove: 0, insert: '\n\n' },
+    { name: 'a whitespace-only last line joins a paragraph', source: 'head\n\ntarget\n\n \t \n', at: 12, remove: 2, insert: '' }
+  ])('reads whitespace-only lines regionally as the document parse does when $name (G35)', ({
+    source,
+    at,
+    remove,
+    insert
+  }) => {
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const before = inspectionOf(core)
+    const commit = core.apply(opened, [{ start: at, end: at + remove, insert }], {
+      projections: ['markup']
+    })
+    expect(delta(inspectionOf(core), before, 'documentParses')).toBe(0)
+    const change = commit.change.projections[0]
+    if (change?.name !== 'markup' || change.scope !== 'regions') {
+      throw new Error('Expected a regional Markup change')
+    }
+    const nextSource = source.slice(0, at) + insert + source.slice(at + remove)
+    const freshCore = createDocumentCore()
+    const freshProjection = freshCore.project(freshCore.open(nextSource), 'markup')
+    const previous = core.project(opened, 'markup').syntax.ast.root.children
+    const [replacement] = change.replacements
+    if (replacement === undefined) throw new Error('Expected a replacement')
+    const shift = replacement.next.syntax.end - replacement.previous.syntax.end
+    // The previous blocks outside the replaced range, around the new ones.
+    const composed = [
+      ...previous.filter(node => node.range.start < replacement.previous.syntax.start),
+      ...replacement.syntaxBlocks,
+      ...previous.filter(node => node.range.start >= replacement.previous.syntax.end &&
+          !(node.range.start === replacement.previous.syntax.end && node.range.end === node.range.start &&
+            replacement.previous.source.end === source.length))
+        .map(node => ({ ...node, range: { start: node.range.start + shift, end: node.range.end + shift } }))
+    ].map(node => ({ kind: node.kind, range: node.range }))
+    expect(composed).toEqual(freshProjection.syntax.ast.root.children
+      .map(node => ({ kind: node.kind, range: node.range })))
+    expect(core.project(commit.revision, 'markup').events).toEqual(freshProjection.events)
+  })
+
+  it.each([
     {
       name: 'a heading prefix changes paragraph structure',
       source: 'head\n\ntarget word\n\ntail\n\n',

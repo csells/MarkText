@@ -1665,10 +1665,7 @@ function evaluateBlockWindow(
     )
     // The document parse reports a window's resource failure authoritatively.
     if (result.kind !== 'complete') return undefined
-    // Consecutive blank lines read as empty paragraphs whose zero width sits
-    // on a block boundary, where views and the inventory disagree on ownership.
     const previousWindow = previousSource.slice(first.source, last.source)
-    if (EMPTY_PARAGRAPH.test(nextWindow) || EMPTY_PARAGRAPH.test(previousWindow)) return undefined
     // Splitting or joining paragraphs moves the bound that stops a backtick
     // run pairing with a later one.
     if (/[\r\n]/u.test(edit.insert + previousSource.slice(edit.start, edit.end)) &&
