@@ -2626,7 +2626,24 @@ function appendProjectionRange(
   candidateEnd: number,
   projectedStart: number
 ): void {
-  for (const segment of sourceSegments) {
+  // Segments tile the candidate in order, so only a contiguous run of them
+  // overlaps the range; a codec applying one edit per stray marker must not
+  // rescan every segment for each edit.
+  let low = 0
+  let high = sourceSegments.length
+  while (low < high) {
+    const middle = low + Math.floor((high - low) / 2)
+    if ((sourceSegments[middle]?.projectedEnd ?? Number.POSITIVE_INFINITY) <= candidateStart) {
+      low = middle + 1
+    } else {
+      high = middle
+    }
+  }
+  for (let index = low; index < sourceSegments.length; index += 1) {
+    const segment = sourceSegments[index]
+    if (segment === undefined || segment.projectedStart >= candidateEnd) {
+      break
+    }
     const overlapStart = Math.max(candidateStart, segment.projectedStart)
     const overlapEnd = Math.min(candidateEnd, segment.projectedEnd)
     if (overlapStart >= overlapEnd) {
@@ -2744,6 +2761,16 @@ function applyGeneratedCodecEdits(
     candidateSource.length,
     projectedLength
   )
+  // Replacements are ordered and disjoint, so their ends never decrease and
+  // an offset is decided by the first replacement ending at or after it.
+  const deltaBefore: number[] = [0]
+  for (const replacement of orderedReplacements) {
+    deltaBefore.push(
+      (deltaBefore.at(-1) ?? 0) +
+      replacement.text.length -
+      (replacement.candidateEnd - replacement.candidateStart)
+    )
+  }
   const mapOffset = Object.freeze((
     candidateOffset: number,
     affinity: 'previous' | 'next'
@@ -2755,31 +2782,35 @@ function applyGeneratedCodecEdits(
     ) {
       throw new RangeError('Projection codec offset is outside its candidate')
     }
-    let delta = 0
-    for (const replacement of orderedReplacements) {
-      const removedLength =
-        replacement.candidateEnd - replacement.candidateStart
-      const insertedLength = replacement.text.length
-      if (candidateOffset < replacement.candidateStart) {
-        break
-      }
-      if (
-        candidateOffset === replacement.candidateStart &&
-        removedLength === 0
-      ) {
-        return candidateOffset + delta +
-          (affinity === 'next' ? insertedLength : 0)
-      }
-      if (candidateOffset < replacement.candidateEnd) {
-        return replacement.candidateStart + delta +
-          (affinity === 'next' ? insertedLength : 0)
-      }
-      delta += insertedLength - removedLength
-      if (candidateOffset === replacement.candidateEnd) {
-        return candidateOffset + delta
+    let first = 0
+    let last = orderedReplacements.length
+    while (first < last) {
+      const middle = first + Math.floor((last - first) / 2)
+      if ((orderedReplacements[middle]?.candidateEnd ?? Number.POSITIVE_INFINITY) < candidateOffset) {
+        first = middle + 1
+      } else {
+        last = middle
       }
     }
-    return candidateOffset + delta
+    const replacement = orderedReplacements[first]
+    const delta = deltaBefore[first] ?? 0
+    if (replacement === undefined || candidateOffset < replacement.candidateStart) {
+      return candidateOffset + delta
+    }
+    const insertedLength = replacement.text.length
+    if (
+      candidateOffset === replacement.candidateStart &&
+      replacement.candidateEnd === replacement.candidateStart
+    ) {
+      return candidateOffset + delta +
+        (affinity === 'next' ? insertedLength : 0)
+    }
+    if (candidateOffset < replacement.candidateEnd) {
+      return replacement.candidateStart + delta +
+        (affinity === 'next' ? insertedLength : 0)
+    }
+    // The replacement ends exactly at the offset.
+    return candidateOffset + (deltaBefore[first + 1] ?? delta)
   })
   return Object.freeze({
     source: chunks.join(''),
