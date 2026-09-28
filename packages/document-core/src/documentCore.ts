@@ -284,6 +284,20 @@ export interface CommentProjection {
   readonly coordinates: ProjectionCoordinateMap
 }
 
+/**
+ * The Markup reading of one Comment payload, as the Review sidebar shows it.
+ * Its syntax holds every nested suggestion and highlight arm in canonical
+ * order, as the document's Markup syntax does; nested Comments stay hidden.
+ * The Comment annotation's nested arms locate those marks, and the
+ * coordinates map into the enclosing document's source.
+ */
+export interface CommentMarkupProjection {
+  readonly kind: 'comment-markup'
+  /** Full canonical range of the enclosing `{>> … <<}` annotation. */
+  readonly annotationRange: SourceRange
+  readonly syntax: MarkupSyntax
+}
+
 export type MarkupMark =
   | Readonly<{
     readonly kind: 'addition' | 'deletion' | 'highlight'
@@ -669,6 +683,11 @@ export interface DocumentCore {
     revision: DocumentRevision,
     comment: CriticMarkupAnnotation
   ): CommentProjection
+  projectComment(
+    revision: DocumentRevision,
+    comment: CriticMarkupAnnotation,
+    view: 'markup'
+  ): CommentMarkupProjection
 }
 
 const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = Object.freeze({
@@ -2047,6 +2066,10 @@ function createDocumentCoreWithExecutionBudget(
   const commentProjectionCache = new WeakMap<
     DocumentRevision,
     WeakMap<CriticMarkupAnnotation, CommentProjection>
+  >()
+  const commentMarkupProjectionCache = new WeakMap<
+    DocumentRevision,
+    WeakMap<CriticMarkupAnnotation, CommentMarkupProjection>
   >()
   let reuseCache: Profile1DocumentReuseCache =
     createProfile1DocumentReuseCache()
@@ -3890,6 +3913,66 @@ function createDocumentCoreWithExecutionBudget(
     return result
   }
 
+  const projectCommentMarkup = (
+    revision: DocumentRevision,
+    comment: CriticMarkupAnnotation
+  ): CommentMarkupProjection => {
+    const state = stateByRevision.get(revision)
+    if (state === undefined) {
+      throw new Error('Document revision belongs to another core')
+    }
+    if (comment.kind !== 'comment') {
+      throw new RangeError('CriticMarkup annotation is not a Comment')
+    }
+    let cachedByComment = commentMarkupProjectionCache.get(revision)
+    if (cachedByComment === undefined) {
+      cachedByComment = new WeakMap()
+      commentMarkupProjectionCache.set(revision, cachedByComment)
+    }
+    const cached = cachedByComment.get(comment)
+    if (cached !== undefined) return cached
+    if (revision !== currentRevision) demoteCurrentProductStore()
+
+    const result = withFacts(state, (facts): CommentMarkupProjection => {
+      const nodeId = facts.nodeIdByAnnotation.get(comment)
+      if (nodeId === undefined) {
+        throw new Error('Comment does not belong to this revision')
+      }
+      const editing = facts.products.commentEditing(nodeId)
+      return Object.freeze({
+        kind: 'comment-markup',
+        annotationRange: comment.range,
+        syntax: Object.freeze({
+          ast: markdownAstOf(editing),
+          coordinates: projectionCoordinatesOf(editing, state.source.length)
+        })
+      })
+    }, revision === currentRevision)
+    cachedByComment.set(comment, result)
+    return result
+  }
+
+  function projectCommentView(
+    revision: DocumentRevision,
+    comment: CriticMarkupAnnotation
+  ): CommentProjection
+  function projectCommentView(
+    revision: DocumentRevision,
+    comment: CriticMarkupAnnotation,
+    view: 'markup'
+  ): CommentMarkupProjection
+  function projectCommentView(
+    revision: DocumentRevision,
+    comment: CriticMarkupAnnotation,
+    view?: 'markup'
+  ): CommentProjection | CommentMarkupProjection {
+    if (view === undefined) return projectComment(revision, comment)
+    if (view !== 'markup') {
+      throw new RangeError(`Unknown Comment projection: ${String(view)}`)
+    }
+    return projectCommentMarkup(revision, comment)
+  }
+
   const stableSourceEdits = (
     edits: readonly DocumentSourceEdit[]
   ): readonly DocumentSourceEdit[] => {
@@ -4264,6 +4347,54 @@ function createDocumentCoreWithExecutionBudget(
   }
 
   /**
+   * Plain words typed at the edge of one's own Addition or Substitution,
+   * outside its text or inside its hidden delimiters, join its new text, as
+   * the general compiler writes them: before its text they begin it, after
+   * its text they end it. The reparsed paragraphs prove the suggestion is
+   * recognized with the words and no other suggestion changes.
+   */
+  const regionalTrackedArmEdge = (
+    state: RevisionState,
+    previous: DocumentRevision,
+    edit: DocumentSourceEdit
+  ): DocumentSourceEdit | undefined => {
+    if (plansFromDocumentParse(core) || edit.start !== edit.end || !/^[\p{L}\p{N}][\p{L}\p{N} ]*$/u.test(edit.insert)) return undefined
+    const at = edit.start
+    const touching = markupAnnotations(previous.annotations).filter(annotation =>
+      annotation.range.start <= at && at <= annotation.range.end)
+    const owner = touching[0]
+    if (touching.length !== 1 || owner === undefined || !plainParagraphAround(previous, at, false)) return undefined
+    const text = owner.arms.find(arm => arm.name === (owner.kind === 'addition' ? 'content' : 'new'))
+    const history = owner.kind === 'substitution' ? owner.arms.find(arm => arm.name === 'old') : undefined
+    if ((owner.kind !== 'addition' && owner.kind !== 'substitution') || text === undefined || text.range.start === text.range.end ||
+        owner.arms.some(arm => arm.annotations.length > 0) || (owner.kind === 'substitution' && history === undefined)) return undefined
+    // Before the text: the opener, and for a Substitution its whole old text.
+    const leading = history === undefined
+      ? at <= text.range.start
+      : at <= history.range.start || (history.range.end <= at && at <= text.range.start)
+    const target = leading ? text.range.start : text.range.end <= at ? text.range.end : undefined
+    if (target === undefined || (target === at && at > owner.range.start && at < owner.range.end)) return undefined
+    const planned = Object.freeze({ start: target, end: target, insert: edit.insert })
+    const candidate = regionalCandidate(state, planned)
+    // A region of the same shape keeps its markers.
+    if (candidate === undefined || (candidate.structural?.markerDelta ?? 0) !== 0 ||
+        candidate.nextProducts.diagnostics.count !== 0 ||
+        (candidate.nextProducts.retainedIntrinsic?.diagnostics.length ?? 0) !== 0) return undefined
+    const shift = candidate.sourceStart
+    const grown = edit.insert.length
+    const root = candidate.nextProducts.retainedIntrinsic?.roots.find(node => node.range.start === owner.range.start - shift)
+    if (root?.kind !== owner.kind || root.range.end !== owner.range.end + grown - shift || root.arms.length !== owner.arms.length) return undefined
+    return owner.arms.every((arm, index) => {
+      const next = root.arms[index]
+      const start = arm.range.start + (arm !== text && arm.range.start >= target ? grown : 0)
+      const end = arm.range.end + (arm === text || arm.range.end > target ? grown : 0)
+      return next !== undefined && next.children.length === 0 && next.range.start === start - shift && next.range.end === end - shift
+    })
+      ? planned
+      : undefined
+  }
+
+  /**
    * A tracked paragraph or line break, proved by reparsing the paragraphs it
    * changes instead of previewing the document: inside an Addition's text,
    * or at the end of one whose last text the caret follows, the break
@@ -4535,6 +4666,7 @@ function createDocumentCoreWithExecutionBudget(
       return Object.freeze({ start: first.start, end: last.end, insert })
     }
     const regional = regionalPayloadEdit(state, edit, true) ?? regionalTrackedInsertion(state, previous, edit) ??
+      regionalTrackedArmEdge(state, previous, edit) ??
       regionalTrackedBreak(state, previous, edit) ?? regionalTrackedJoin(state, previous, edit) ??
       regionalTrackedDeletion(state, previous, edit)
     if (regional !== undefined) return regional
@@ -5213,7 +5345,7 @@ function createDocumentCoreWithExecutionBudget(
       }), revision === currentRevision)
     },
     project: projectRevision,
-    projectComment
+    projectComment: projectCommentView
   })
   registerDocumentCoreInspection(core, () => {
     const documentPhysical = physicalRecorder.counts()
