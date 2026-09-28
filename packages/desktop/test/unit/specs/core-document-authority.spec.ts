@@ -34,6 +34,9 @@ const submitMarkup = (binding: EditorCoreBinding, edits: readonly DocumentSource
   binding.submit({ edits, projections: ['markup'] }).acknowledged
 
 const trackingOptions = { autoPairBracket: true, autoPairQuote: true, autoPairMarkdownSyntax: true }
+// Blockquotes nested past the desktop's 128-level Markdown depth: a source
+// Core refuses as a resource, whatever text surrounds it.
+const refusedSource = `${'>'.repeat(129)} deep\n`
 
 /** Submits one Track Changes edit through the production native-input request. */
 const handleTracked = (
@@ -4189,7 +4192,7 @@ describe('Core actor protocol', () => {
   it('rejects reversible recovery history whose reachable source exceeds policy', () => {
     const actor = createCoreActor()
     const source = 'safe'
-    const unreachable = '++}'.repeat(1_025)
+    const unreachable = refusedSource
     expect(
       actor.handle({
         type: 'open',
@@ -4646,7 +4649,7 @@ describe('Core actor protocol', () => {
         session: 11,
         sequence: 2,
         baseRevision: opened.revision,
-        edits: [{ start: 0, end: 0, insert: '++}'.repeat(1_025) }],
+        edits: [{ start: 0, end: 0, insert: refusedSource }],
         projections: ['markup']
       })
     ).toMatchObject({
@@ -4655,9 +4658,9 @@ describe('Core actor protocol', () => {
       revision: 1,
       sourceLength: 5,
       resource: {
-        code: 'CM_RESOURCE_LOGICAL_NODES_EXCEEDED',
+        code: 'CM_RESOURCE_MARKDOWN_DEPTH_EXCEEDED',
         range: expect.any(Object),
-        metadata: { limit: '1024', observed: '1025' }
+        metadata: { limit: '128', observed: '129' }
       }
     })
     expect(
@@ -4697,14 +4700,14 @@ describe('Core actor protocol', () => {
         type: 'open',
         session: 12,
         sequence: 1,
-        source: '++}'.repeat(1_025)
+        source: refusedSource
       })
     ).toMatchObject({
       type: 'resource',
       accepted: false,
       revision: 0,
       sourceLength: 0,
-      resource: { code: 'CM_RESOURCE_LOGICAL_NODES_EXCEEDED' }
+      resource: { code: 'CM_RESOURCE_MARKDOWN_DEPTH_EXCEEDED' }
     })
     expect(
       port.request({
@@ -4723,13 +4726,28 @@ describe('Core actor protocol', () => {
     port.dispose()
   })
 
+  it('opens a document with more stray CriticMarkup markers than the former 1,024 cap', () => {
+    const port = createLocalCoreOwner()
+    const source = '++}'.repeat(1_025)
+    expect(
+      port.request({ type: 'open', session: 13, sequence: 1, source })
+    ).toMatchObject({
+      type: 'opened',
+      accepted: true,
+      revision: 1,
+      sourceLength: source.length,
+      diagnosticCount: 1_025
+    })
+    port.dispose()
+  })
+
   it('returns a typed rejected-open outcome and retries on the same binding', async() => {
     const binding = createEditorCoreBinding(new ActorBackedCoreOwner().modelOwner)
 
     await expect(
       binding.open({
         documentId: 'retry.md',
-        source: '++}'.repeat(1_025)
+        source: refusedSource
       })
     ).toMatchObject({
       type: 'resource',
@@ -5102,7 +5120,7 @@ describe('Core document session manager', () => {
     await manager.open({ documentId: 'abort.md', source: 'alpha', lineEnding: '\n' })
     const lease = manager.lease('abort.md')
     const rejected = lease.binding.submit({
-      edits: [{ start: 0, end: 0, insert: '++}'.repeat(1_025) }],
+      edits: [{ start: 0, end: 0, insert: refusedSource }],
       projections: ['markup']
     })
 
@@ -6552,7 +6570,7 @@ describe('Core document session manager', () => {
     })
     const lease = manager.lease('rejected.md')
     const rejected = lease.binding.submit({
-      edits: [{ start: 0, end: 0, insert: '++}'.repeat(1_025) }],
+      edits: [{ start: 0, end: 0, insert: refusedSource }],
       projections: ['markup']
     })
 
@@ -7987,7 +8005,7 @@ describe('CodeMirror Core adapter', () => {
       insertedLineEnding: '\n'
     })
 
-    editor.replaceRange('++}'.repeat(1_025), { line: 0, ch: 0 }, undefined, '+input')
+    editor.replaceRange(refusedSource, { line: 0, ch: 0 }, undefined, '+input')
     await expect(adapter.settled()).rejects.toThrow('reconciliation required')
     expect(adapter.state()).toEqual({
       status: 'reconciliation-required',

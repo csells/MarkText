@@ -468,9 +468,9 @@ describe('document-core semantic changes', () => {
     expect(() => core.apply(opened, [{
       start: editAt,
       end: editAt,
-      insert: '{++ '.repeat(1_025)
+      insert: `${'>'.repeat(129)} deep\n\n`
     }])).toThrow(expect.objectContaining({
-      code: 'CM_RESOURCE_LOGICAL_NODES_EXCEEDED'
+      code: 'CM_RESOURCE_MARKDOWN_DEPTH_EXCEEDED'
     }))
     const afterReject = inspectionOf(core)
     expect(afterReject.fullProductStoresStrongCurrent).toBe(0)
@@ -2328,7 +2328,7 @@ describe('document-core semantic changes', () => {
     const resourceEdit = {
       start: resourceAt,
       end: resourceAt,
-      insert: '{++ '.repeat(1_025)
+      insert: `\n${'>'.repeat(129)} deep`
     }
     const fullCore = createDocumentCore()
     const fullOpened = fullCore.open(afterFirstSource)
@@ -3427,7 +3427,7 @@ describe('document-core semantic changes', () => {
       'head\n\nbefore {++added text++} after\n\ntail\n\n' +
       'suffix\n\n'.repeat(20)
     const editAt = source.indexOf('added') + 2
-    const overLimit = '{++ '.repeat(1_025)
+    const overLimit = `\n${'>'.repeat(129)} deep`
     const edit = {
       start: editAt,
       end: editAt,
