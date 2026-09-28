@@ -42,9 +42,9 @@ const bootMarkup = (binding: ReturnType<typeof createEditorCoreBinding>) => {
       view: current,
       outcome,
       dirtyPaths: presentation.changedPaths,
-      applyEditability: (bindings) =>
+      applyEditability: (presented) =>
         muya.setEditablePaths(
-          bindings.filter((item) => item.editable !== false).map((item) => item.path)
+          presented.bindings.filter((item) => item.editable !== false).map((item) => item.path)
         )
     })
     return current.bindings

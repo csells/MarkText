@@ -45,9 +45,9 @@ async function mountOwnedDocument(source: string) {
       view,
       outcome,
       dirtyPaths: presentation.changedPaths,
-      applyEditability: (bindings) =>
+      applyEditability: (presented) =>
         muya.setEditablePaths(
-          bindings.filter((item) => item.editable !== false).map((item) => item.path)
+          presented.bindings.filter((item) => item.editable !== false).map((item) => item.path)
         )
     })
     outcomes.push(outcome)

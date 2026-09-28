@@ -148,6 +148,14 @@ function endpointPair(
     return anchor && focus ? { anchor, focus } : null;
 }
 
+/**
+ * Editable content-block paths, read when the policy is applied. Given
+ * `roots`, the paths under roots `[start, end)` suffice.
+ */
+export type TEditablePathSource = (
+    roots?: readonly [number, number],
+) => readonly (readonly (string | number)[])[];
+
 export class Muya {
     static plugins: IPlugin[] = [];
 
@@ -167,7 +175,7 @@ export class Muya {
     public i18n: I18n;
 
     private _uiPlugins: Record<string, unknown> = {};
-    private _editablePaths: readonly (readonly (string | number)[])[] | (() => readonly (readonly (string | number)[])[]) | null = null;
+    private _editablePaths: readonly (readonly (string | number)[])[] | TEditablePathSource | null = null;
 
     constructor(element: HTMLElement, options?: Partial<IMuyaOptions>) {
         this.options = Object.assign({}, MUYA_DEFAULT_OPTIONS, options ?? {});
@@ -316,12 +324,13 @@ export class Muya {
      * Restrict editing to the exact content-block paths owned by a host
      * projection. Passing `null` restores Muya's ordinary all-editable policy.
      * The policy survives whole-document rebuilds such as `setContent`. A
-     * function is read only when the whole document is rebuilt; `roots` limits
-     * this update to the blocks under roots `[start, end)`, whose policy is the
-     * only one that changed.
+     * function is read only when the policy is applied; `roots` limits this
+     * update to the blocks under roots `[start, end)`, whose policy is the
+     * only one that changed, and is passed to the function, which then need
+     * list only the paths under those roots.
      */
     setEditablePaths(
-        paths: readonly (readonly (string | number)[])[] | (() => readonly (readonly (string | number)[])[]) | null,
+        paths: readonly (readonly (string | number)[])[] | TEditablePathSource | null,
         roots?: readonly [number, number],
     ) {
         this._editablePaths = paths === null || typeof paths === 'function'
@@ -345,7 +354,7 @@ export class Muya {
         const scrollPage = this.editor.scrollPage;
         if (!scrollPage)
             return;
-        const paths = typeof source === 'function' ? source() : source;
+        const paths = typeof source === 'function' ? source(roots) : source;
         const inRoots = (path: readonly (string | number)[]) =>
             roots === undefined || (typeof path[0] === 'number' && path[0] >= roots[0] && path[0] < roots[1]);
         const editable = new Set<Content>();

@@ -502,7 +502,12 @@ import {
 } from '@/documentAuthority/muyaModelSelection'
 import { resolveMuyaViewAcknowledgement } from '@/documentAuthority/resolveMuyaViewAcknowledgement'
 import { muyaMarkupViewPatch } from '@/documentAuthority/muyaMarkupChanges'
-import { muyaItemAtPath } from '@/documentAuthority/muyaMarkupViewLookup'
+import {
+  muyaViewBindingsInRoots,
+  muyaViewEditableCount,
+  muyaViewFindNear,
+  muyaViewItemAtPath
+} from '@/documentAuthority/muyaMarkupViewLookup'
 import { composeMuyaReconcileRegion } from '@/documentAuthority/muyaReconcileRegion'
 import { asMuyaStates, mappedMuyaSourceRange, type MuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
 import {
@@ -512,8 +517,8 @@ import {
 import type { DocumentSelection } from '@marktext/document-core'
 import type {
   MuyaPlainTextAuthorSelection,
-  MuyaPlainTextCoreAdapter,
-  MuyaPlainTextSourceBinding
+  MuyaPlainTextBindings,
+  MuyaPlainTextCoreAdapter
 } from '@/documentAuthority/muyaPlainTextCoreAdapter'
 import { installMuyaInputDelivery } from '@/documentAuthority/muyaNativeInputDelivery'
 
@@ -1415,16 +1420,17 @@ const replaceMisspelling = (payload: unknown) => {
 }
 
 const applyCorePlainTextEditability = (
-  bindings: readonly MuyaPlainTextSourceBinding[],
+  view: MuyaMarkupView,
   roots?: readonly [number, number]
 ): void => {
   const muya = editor.value
-  let editable = 0
-  for (const binding of bindings) if (binding.editable !== false) editable += 1
-  coreEditableBindingCount.value = editable
+  coreEditableBindingCount.value = muyaViewEditableCount(view)
   if (muya === null) return
   muya.setEditablePaths(
-    () => bindings.filter((binding) => binding.editable !== false).map((binding) => binding.path),
+    (scope) =>
+      (scope === undefined ? view.bindings : muyaViewBindingsInRoots(view, scope[0], scope[1]))
+        .filter((binding) => binding.editable !== false)
+        .map((binding) => binding.path),
     roots
   )
 }
@@ -1435,7 +1441,7 @@ let coreRevisedText: MuyaRevisedTextReader | undefined
 /** The acknowledged view's binding at a JSON-serialized path. */
 const coreMarkupBindingAt = (key: string): MuyaMarkupView['bindings'][number] | undefined => {
   const view = coreAcknowledgedMarkupView
-  return view === undefined ? undefined : muyaItemAtPath(view.bindings, JSON.parse(key))
+  return view === undefined ? undefined : muyaViewItemAtPath(view, 'bindings', JSON.parse(key))
 }
 /**
  * Roots of the presented document that views acknowledged since Muya last
@@ -1554,12 +1560,8 @@ const installCoreMarkupPresentation = (muya: Muya, view: MuyaMarkupView): void =
   muya.setInlinePresentation(coreMarkupPresentation.render)
 }
 
-const reconcileCoreHistoryView = (
-  outcome: CoreAppliedReply
-): readonly MuyaPlainTextSourceBinding[] => {
-  if (coreDraftFrozen) {
-    return coreAcknowledgedMarkupView?.bindings ?? props.corePlainTextView?.bindings ?? []
-  }
+const reconcileCoreHistoryView = (outcome: CoreAppliedReply): MuyaPlainTextBindings => {
+  if (coreDraftFrozen) return coreAcknowledgedMarkupView ?? props.corePlainTextView ?? []
   const previousView = coreAcknowledgedMarkupView
   const { view, muya } = resolveMuyaViewAcknowledgement({
     lease: coreBoundLease,
@@ -1568,14 +1570,14 @@ const reconcileCoreHistoryView = (
     previousRevision: coreAcknowledgedViewRevision,
     currentEditor: () => editor.value
   })
-  if (coreDraftFrozen) return view.bindings
+  if (coreDraftFrozen) return view
   coreAcknowledgedViewRevision = outcome.revision
   coreDocumentRevision.value = outcome.revision
   if (muya === null) {
     coreAcknowledgedMarkupView = view
     coreMuyaReconcileRegion = undefined
     coreMuyaReconcilePending = true
-    return view.bindings
+    return view
   }
   const patch = muyaMarkupViewPatch(view)
   const change =
@@ -1596,7 +1598,7 @@ const reconcileCoreHistoryView = (
   muya.flush()
   // Later native input is already visible. Its queued operation will be mapped
   // against these acknowledged bindings before the final draft is reconciled.
-  if (corePlainTextAdapter?.hasPendingEdits()) return view.bindings
+  if (corePlainTextAdapter?.hasPendingEdits()) return view
   reconcileMuyaDocumentView({
     muya,
     view,
@@ -1608,7 +1610,7 @@ const reconcileCoreHistoryView = (
   coreMarkupDirtyPaths.clear()
   coreMuyaReconcilePending = false
   coreMuyaReconcileRegion = undefined
-  return view.bindings
+  return view
 }
 
 const showCoreProjection = async (mode: 'markup' | 'original' | 'revised'): Promise<void> => {
@@ -1687,8 +1689,18 @@ const revealCoreReviewItem = (scroll = true): void => {
   const view = coreAcknowledgedMarkupView
   if (!item || !view || coreDisplayMode.value !== 'markup') return
   const range = item.kind === 'commented-span' ? item.highlightRange : item.range
-  const comment = view.comments.find((anchor) => anchor.annotationRange.start === range.start)
-  const binding = view.bindings.find(
+  const comment = muyaViewFindNear(
+    view,
+    'comments',
+    range.start,
+    range.start,
+    (anchor) => anchor.annotationRange.start === range.start
+  )
+  const binding = muyaViewFindNear(
+    view,
+    'bindings',
+    range.start,
+    range.end,
     (binding) => binding.sourceRange.start < range.end && binding.sourceRange.end > range.start
   )
   const path = comment?.path ?? binding?.path
@@ -1709,7 +1721,7 @@ const revealCoreReviewItem = (scroll = true): void => {
 const coreCaretSource = (): number | undefined => {
   const focus = editor.value?.getSelection()?.focus
   const view = coreAcknowledgedMarkupView
-  const binding = focus && view && muyaItemAtPath(view.bindings, focus.path)
+  const binding = focus && view && muyaViewItemAtPath(view, 'bindings', focus.path)
   if (!focus || !binding) return undefined
   return mappedMuyaSourceRange(binding, {
     start: Math.min(focus.offset, binding.text.length),
@@ -3564,7 +3576,7 @@ onMounted(() => {
       })
     }
     corePlainTextAdapter = createMuyaPlainTextCoreAdapter(
-      props.corePlainTextView.bindings,
+      props.corePlainTextView,
       props.coreLease.binding,
       coreAuthorityPerformanceTrace === undefined
         ? undefined
@@ -3864,7 +3876,7 @@ onMounted(() => {
       }
     })
     activeCoreLease.onHandoff(detachDocumentEditing)
-    applyCorePlainTextEditability(props.corePlainTextView.bindings)
+    applyCorePlainTextEditability(props.corePlainTextView)
     refreshCoreReviewItem('next', 0).catch((error) => {
       emit('core-fault', error)
     })

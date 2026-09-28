@@ -5,8 +5,13 @@ import isEqual from 'lodash/isEqual'
 
 import type { CoreAppliedReply } from './coreProtocol'
 import { createMuyaModelSelection } from './muyaModelSelection'
-import { muyaItemAtPath, muyaItemsInRoots } from './muyaMarkupViewLookup'
-import type { MuyaPlainTextSourceBinding } from './muyaPlainTextCoreAdapter'
+import {
+  muyaViewBindingsInRoots,
+  muyaViewBindingsNear,
+  muyaViewFindNear,
+  muyaViewItemAtPath,
+  muyaViewLastBinding
+} from './muyaMarkupViewLookup'
 
 /**
  * Editors presenting lines or cell padding that their acknowledged view does
@@ -43,7 +48,11 @@ function presentUnownedLines(muya: Muya, view: MuyaMarkupView, points: readonly 
   const missing = points.filter((point) => modelPointToDOM(point) === undefined)
   const unowned = missing.map((point) => snapCaret(point) ?? point)
   if (unowned.length === 0) return
-  const blank = view.bindings.filter(
+  // Only bindings of roots around the points can own their lines.
+  const near = [
+    ...muyaViewBindingsNear(view, Math.min(...missing, ...unowned), Math.max(...missing, ...unowned))
+  ]
+  const blank = near.filter(
     (binding) =>
       binding.blankLineText !== undefined &&
       missing.some(
@@ -52,12 +61,12 @@ function presentUnownedLines(muya: Muya, view: MuyaMarkupView, points: readonly 
           point <= binding.sourceRange.end + (binding.blankLineText?.length ?? 0)
       )
   )
-  const trailing = view.bindings.filter(
+  const trailing = near.filter(
     (binding) =>
       binding.trailingLinePosition !== undefined && unowned.includes(binding.trailingLinePosition)
   )
   // A blank line between two paragraphs ends the first before it begins the second.
-  const leading = view.bindings.filter(
+  const leading = near.filter(
     (binding) =>
       binding.leadingLinePosition !== undefined &&
       unowned.includes(binding.leadingLinePosition) &&
@@ -101,19 +110,27 @@ function presentUnownedLines(muya: Muya, view: MuyaMarkupView, points: readonly 
  * line as that paragraph. A caret at a container's content is inside it.
  */
 function presentMarkerLines(muya: Muya, view: MuyaMarkupView, points: readonly number[]): void {
-  const lines = view.bindings.flatMap(({ markerLine: line, text }) =>
-    line !== undefined &&
-    points.some(
-      (point) =>
-        line.start <= point &&
-        (point < line.content ||
-          (text === '' &&
-            point <= line.end &&
-            !/[ \t]$/u.test(line.text.slice(0, line.content - line.start))))
-    )
-      ? [line]
-      : []
-  )
+  if (points.length === 0) return
+  const lines: NonNullable<MuyaMarkupView['bindings'][number]['markerLine']>[] = []
+  for (const { markerLine: line, text } of muyaViewBindingsNear(
+    view,
+    Math.min(...points),
+    Math.max(...points)
+  )) {
+    if (
+      line !== undefined &&
+      points.some(
+        (point) =>
+          line.start <= point &&
+          (point < line.content ||
+            (text === '' &&
+              point <= line.end &&
+              !/[ \t]$/u.test(line.text.slice(0, line.content - line.start))))
+      )
+    ) {
+      lines.push(line)
+    }
+  }
   if (lines.length === 0) return
   const state = structuredClone([...view.state]) as MuyaMarkupState[]
   for (const line of lines) {
@@ -136,7 +153,11 @@ function presentCellPadding(
   view: MuyaMarkupView,
   selection: DocumentTableCellSelection
 ): void {
-  const binding = view.bindings.find(
+  const binding = muyaViewFindNear(
+    view,
+    'bindings',
+    selection.cell.table.start,
+    selection.cell.table.start,
     (item) =>
       item.tableCell !== undefined &&
       item.tableCell.table.start === selection.cell.table.start &&
@@ -191,7 +212,11 @@ export function restoreMuyaDocumentSelection(
     let primary = 0
     for (let row = minRow; row <= maxRow; row++) {
       for (let column = minColumn; column <= maxColumn; column++) {
-        const binding = view.bindings.find(
+        const binding = muyaViewFindNear(
+          view,
+          'bindings',
+          documentSelection.table.start,
+          documentSelection.table.start,
           (item) =>
             item.tableCell?.table.start === documentSelection.table.start &&
             item.tableCell.table.end === documentSelection.table.end &&
@@ -315,10 +340,7 @@ export function reconcileMuyaDocumentView({
   view: MuyaMarkupView
   outcome: CoreAppliedReply
   dirtyPaths: Iterable<readonly (string | number)[]>
-  applyEditability: (
-    bindings: readonly MuyaPlainTextSourceBinding[],
-    roots?: readonly [number, number]
-  ) => void
+  applyEditability: (view: MuyaMarkupView, roots?: readonly [number, number]) => void
   /**
    * The only roots whose presentation can differ from `view` since the
    * editor last presented a view; other roots are neither read nor replaced.
@@ -347,7 +369,7 @@ export function reconcileMuyaDocumentView({
   const retainSelection =
     selection !== null &&
     [selection.anchor, selection.focus].every((endpoint) => {
-      const binding = muyaItemAtPath(view.bindings, endpoint.path)
+      const binding = muyaViewItemAtPath(view, 'bindings', endpoint.path)
       return (
         binding !== undefined &&
         binding.text === endpoint.block.text &&
@@ -361,7 +383,7 @@ export function reconcileMuyaDocumentView({
     asMuyaStates(view.state),
     regional ? region : undefined
   )
-  applyEditability(view.bindings, regional ? [region.start, region.nextEnd] : undefined)
+  applyEditability(view, regional ? [region.start, region.nextEnd] : undefined)
   // A retained root can have changed inline meaning without changed native
   // state, such as a reference resolved by an edited definition elsewhere.
   // Native composition can also mutate DOM without changing the view state.
@@ -369,7 +391,7 @@ export function reconcileMuyaDocumentView({
   const paths =
     unchanged && outcome.inputResult !== undefined
       ? (regional
-        ? muyaItemsInRoots(view.bindings, region.start, region.nextEnd)
+        ? muyaViewBindingsInRoots(view, region.start, region.nextEnd)
         : view.bindings
       ).map((binding) => binding.path)
       : dirtyPaths
@@ -404,9 +426,13 @@ export function reconcileMuyaDocumentView({
     if (appliedEdit !== undefined) {
       const caret = appliedEdit.start + appliedEdit.insert.length
       const binding =
-        view.bindings.find(
+        muyaViewFindNear(
+          view,
+          'bindings',
+          caret,
+          caret,
           (item) => item.sourceRange.start <= caret && caret <= item.sourceRange.end
-        ) ?? view.bindings.at(-1)
+        ) ?? muyaViewLastBinding(view)
       if (binding !== undefined) {
         const block = muya.editor.scrollPage?.queryBlock([...binding.path])
         const segments = 'segments' in binding ? binding.segments : undefined

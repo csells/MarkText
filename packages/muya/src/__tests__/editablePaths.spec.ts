@@ -82,3 +82,26 @@ it('does not toggle live editability when the authority repeats the same paths',
         muya.destroy();
     }
 });
+
+it('asks a path source only for the roots a regional update changes', () => {
+    const muya = boot('first\n\nsecond\n\nthird\n');
+    try {
+        const asked: (readonly [number, number] | undefined)[] = [];
+        muya.setEditablePaths((roots) => {
+            asked.push(roots);
+            // A regional answer lists only the paths under its roots.
+            return roots === undefined ? [[0, 'text'], [2, 'text']] : [[1, 'text']];
+        });
+        muya.setEditablePaths((roots) => {
+            asked.push(roots);
+            return roots === undefined ? [[0, 'text'], [1, 'text'], [2, 'text']] : [[1, 'text']];
+        }, [1, 2]);
+        const paragraphs = muya.domNode.querySelectorAll<HTMLElement>('span.mu-paragraph-content');
+        expect(asked).toEqual([undefined, [1, 2]]);
+        expect([...paragraphs].map(paragraph => paragraph.getAttribute('contenteditable')))
+            .toEqual(['true', 'true', 'true']);
+    }
+    finally {
+        muya.destroy();
+    }
+});
