@@ -1,19 +1,29 @@
 <template>
   <ul
+    ref="list"
     class="core-review-list"
     data-testid="critic-review-list"
     :aria-label="t('editor.coreReview.sidebarTitle')"
+    :style="{ paddingTop: `${placement.before}px`, paddingBottom: `${placement.after}px` }"
+    @focusin="focusedKey = keyOfTarget($event.target)"
+    @focusout="focusedKey = undefined"
   >
     <li
-      v-for="row in rows"
+      v-for="{ row, index, detached } in visibleRows"
       :key="row.key"
-      v-memo="row.entry === undefined ? [{}] : rowMemo(row.entry)"
+      :ref="measure"
+      v-memo="[...(row.entry === undefined ? [{}] : rowMemo(row.entry)), index, rows.length, detached]"
       class="core-review-entry"
       :class="
         row.entry === undefined
           ? 'active draft'
           : { active: row.entry.item.range.start === activeStart || row.entry.item.range.start === composerStart }
       "
+      :data-index="index"
+      :data-row-key="row.key"
+      :data-detached="detached || undefined"
+      :aria-setsize="rows.length"
+      :aria-posinset="index + 1"
       :data-testid="row.entry === undefined ? 'critic-review-draft-entry' : 'critic-review-entry'"
     >
       <slot
@@ -71,7 +81,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onBeforeUpdate, onMounted, onUpdated, ref, shallowRef, watch, type ComponentPublicInstance } from 'vue'
+import { useVirtualizer } from '@tanstack/vue-virtual'
 import { t } from '@/i18n'
 import type { CoreReviewOverviewEntry } from '../../documentAuthority/coreProtocol'
 import {
@@ -150,6 +161,162 @@ const rows = computed(() => {
   return list
 })
 
+// A long list mounts only the cards in and near the sidebar's view, so a
+// refresh renders and lays out a few cards however many the document has.
+// Up to `WHOLE_LIST_CARDS` cards are all mounted, as before: that costs less
+// than a frame, and the list then reads whole to assistive technology and
+// find in page. The selected card, the composer's and a focused card stay
+// mounted wherever they are, and while the sidebar is hidden, so focus, the
+// composer and the selected entry never lose their element.
+const WHOLE_LIST_CARDS = 200
+const list = ref<HTMLUListElement>()
+const scrollElement = shallowRef<HTMLElement | null>(null)
+const listOffset = ref(0)
+const focusedKey = ref<number | string>()
+const keyOfTarget = (target: EventTarget | null): number | string | undefined => {
+  const row = target instanceof Element ? target.closest<HTMLElement>('[data-row-key]') : null
+  const key = row?.dataset.rowKey
+  return key === undefined ? undefined : rows.value.find((candidate) => String(candidate.key) === key)?.key
+}
+const pinnedIndexes = computed(() => {
+  const pinned: number[] = []
+  rows.value.forEach((row, index) => {
+    const start = row.entry?.item.range.start
+    if (
+      row.entry === undefined ||
+      start === props.activeStart ||
+      start === props.composerStart ||
+      row.key === focusedKey.value
+    ) {
+      pinned.push(index)
+    }
+  })
+  return pinned
+})
+const virtualizer = useVirtualizer<HTMLElement, HTMLLIElement>(computed(() => ({
+  count: rows.value.length,
+  getScrollElement: () => scrollElement.value,
+  // Before the scroll box is measured, assume it is as tall as the window,
+  // so the first render already shows the cards in view.
+  initialRect: { width: 0, height: window.innerHeight },
+  estimateSize: () => 72,
+  // Cards are laid out at fractional heights; place them as the browser
+  // would stack them, without rounding.
+  measureElement: (element: HTMLLIElement) => element.getBoundingClientRect().height,
+  overscan: 8,
+  scrollMargin: listOffset.value,
+  getItemKey: (index: number) => rows.value[index]?.key ?? index
+})))
+// Cards in and near the view are laid out in flow between the list's padding,
+// which stands for the cards before and after them, so they read and stack
+// as the whole list did. A pinned card outside that run is placed at its own
+// position, out of flow.
+// The list keeps the view in place as cards above it resize (below); the
+// virtualizer must not move it again.
+virtualizer.value.shouldAdjustScrollPositionOnItemSizeChange = () => false
+const placed = computed(() => {
+  const instance = virtualizer.value
+  // Reading the items in view also brings the measurements up to date.
+  const inView = instance.getVirtualItems()
+  const measurements = instance.measurementsCache
+  const run = rows.value.length <= WHOLE_LIST_CARDS ? measurements : inView
+  const first = run[0]?.index ?? 0
+  const last = run.at(-1)?.index ?? -1
+  const items = run.map((item) => ({ item, detached: false }))
+  for (const index of pinnedIndexes.value) {
+    const item = measurements[index]
+    if (item !== undefined && (index < first || index > last)) items.push({ item, detached: true })
+  }
+  items.sort((left, right) => left.item.index - right.item.index)
+  const offset = listOffset.value
+  const total = measurements.at(-1)?.end ?? offset
+  return {
+    rows: items.flatMap(({ item, detached }) => {
+      const row = rows.value[item.index]
+      return row === undefined ? [] : [{ row, index: item.index, start: item.start - offset, detached }]
+    }),
+    before: last < first ? 0 : (measurements[first]?.start ?? offset) - offset,
+    after: last < first ? 0 : total - (measurements[last]?.end ?? total)
+  }
+})
+const visibleRows = computed(() => placed.value.rows)
+const placement = computed(() => placed.value)
+
+// Mounting and measuring cards, and entries added or resized above the view,
+// change the list above the cards in view; keep the first card in view where
+// it was, as the browser does for a list laid out whole.
+// The first card in view is found before a render and put back where it was
+// after it. Measuring newly mounted cards can render the list again before
+// `onUpdated` runs, once, for both renders; the first render's anchor stands.
+let anchor: { key: string; top: number } | undefined
+onBeforeUpdate(() => {
+  if (anchor !== undefined) return
+  const scroller = scrollElement.value
+  if (scroller === null || scroller.scrollTop <= listOffset.value) return
+  const top = scroller.getBoundingClientRect().top
+  for (const element of list.value?.children ?? []) {
+    const card = element as HTMLElement
+    if (card.dataset.detached !== undefined) continue
+    const rect = card.getBoundingClientRect()
+    if (rect.bottom > top) {
+      anchor = { key: card.dataset.rowKey ?? '', top: rect.top }
+      return
+    }
+  }
+})
+onUpdated(() => {
+  const scroller = scrollElement.value
+  const kept = anchor
+  anchor = undefined
+  if (scroller === null || kept === undefined) return
+  for (const element of list.value?.children ?? []) {
+    const card = element as HTMLElement
+    if (card.dataset.rowKey !== kept.key) continue
+    const moved = card.getBoundingClientRect().top - kept.top
+    if (moved !== 0) scroller.scrollTop += moved
+    return
+  }
+})
+const measure = (element: Element | ComponentPublicInstance | null): void => {
+  if (element instanceof HTMLLIElement) virtualizer.value.measureElement(element)
+}
+
+// Out-of-flow cards are placed directly, so moving one is not a render of it.
+const placeCards = (): void => {
+  const starts = new Map(
+    visibleRows.value.filter(({ detached }) => detached).map(({ row, start }) => [String(row.key), start])
+  )
+  for (const element of list.value?.children ?? []) {
+    const card = element as HTMLElement
+    const start = starts.get(card.dataset.rowKey ?? '')
+    card.style.top = start === undefined ? '' : `${start}px`
+  }
+}
+watch(visibleRows, placeCards, { flush: 'post' })
+
+// The list starts below the sidebar's other content in the same scroll box.
+const measureListOffset = (): void => {
+  const scroller = scrollElement.value
+  if (scroller === null || list.value === undefined) return
+  const offset = list.value.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop
+  if (Math.abs(offset - listOffset.value) >= 1) listOffset.value = offset
+}
+let resizeObserver: ResizeObserver | undefined
+onMounted(() => {
+  let scroller = list.value?.parentElement ?? null
+  while (scroller !== null && !/(auto|scroll)/u.test(getComputedStyle(scroller).overflowY)) {
+    scroller = scroller.parentElement
+  }
+  scrollElement.value = scroller
+  measureListOffset()
+  placeCards()
+  if (scroller !== null && typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(measureListOffset)
+    for (const child of scroller.children) if (child !== list.value) resizeObserver.observe(child)
+  }
+})
+onBeforeUnmount(() => resizeObserver?.disconnect())
+
 // The visible kind and excerpt are separate elements; join them into one
 // readable accessible name.
 const entryName = (entry: CoreReviewOverviewEntry): string => {
@@ -164,6 +331,7 @@ const entryName = (entry: CoreReviewOverviewEntry): string => {
 
 <style scoped>
 .core-review-list {
+  position: relative;
   list-style: none;
   padding: 0;
   margin: 12px 0;
@@ -171,6 +339,11 @@ const entryName = (entry: CoreReviewOverviewEntry): string => {
 .core-review-entry {
   border-left: 2px solid transparent;
   padding: 6px;
+}
+.core-review-entry[data-detached] {
+  position: absolute;
+  left: 0;
+  right: 0;
 }
 .core-review-entry.draft {
   padding: 6px 0;
