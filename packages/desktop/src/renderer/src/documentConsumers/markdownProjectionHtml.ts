@@ -1,4 +1,4 @@
-import type { MarkdownAstNode, MarkdownProjection } from '@marktext/document-core'
+import type { MarkdownAstNode, MarkdownProjection, SourceRange } from '@marktext/document-core'
 import {
   appendFootnoteSection,
   renderFootnoteReference,
@@ -11,6 +11,93 @@ import {
 
 import { sanitize, EXPORT_DOMPURIFY_CONFIG } from '@/util/dompurify'
 import { rewriteImageSrcs } from '@/util/rewriteImageSrcs'
+
+import type { MarkupPassage, MarkupPassageMark } from './markupPassage'
+import { semanticTextPieces } from './semanticTextPieces'
+
+// Suggested text is announced by its review meaning, as the editor announces it.
+const markRole = (mark: MarkupPassageMark): 'insertion' | 'deletion' | 'mark' => {
+  if (mark.kind === 'addition' || (mark.kind === 'substitution' && mark.arm === 'new')) {
+    return 'insertion'
+  }
+  return mark.kind === 'highlight' ? 'mark' : 'deletion'
+}
+
+const markOpenTag = (mark: MarkupPassageMark, element = 'span'): string => {
+  const arm = mark.arm === undefined ? '' : ` core-critic-${mark.kind}-${mark.arm}`
+  return `<${element} class="core-critic-mark core-critic-${mark.kind}${arm}" role="${markRole(mark)}">`
+}
+
+const marksAt = (marks: readonly MarkupPassageMark[], position: number): MarkupPassageMark[] =>
+  marks.filter((mark) => mark.start <= position && position < mark.end)
+
+/**
+ * Writes HTML whose text runs sit inside the marks covering them. Marks are
+ * closed at every element boundary, so the output stays well nested.
+ */
+const createMarkedWriter = (marks: readonly MarkupPassageMark[]) => {
+  let html = ''
+  const open: MarkupPassageMark[] = []
+  const closeMarks = (): void => {
+    html += '</span>'.repeat(open.length)
+    open.length = 0
+  }
+  const markTo = (position: number): void => {
+    const target = marksAt(marks, position)
+    let shared = 0
+    while (shared < open.length && shared < target.length && open[shared] === target[shared]) shared += 1
+    html += '</span>'.repeat(open.length - shared)
+    open.length = shared
+    for (const mark of target.slice(shared)) {
+      html += markOpenTag(mark)
+      open.push(mark)
+    }
+  }
+  return {
+    /** Text or an atom at `position`, inside the marks covering it. */
+    write(position: number, content: string): void {
+      markTo(position)
+      html += content
+    },
+    /** Markup that must not sit inside a mark span, such as an element tag. */
+    raw(content: string): void {
+      closeMarks()
+      html += content
+    },
+    finish(): string {
+      closeMarks()
+      return html
+    }
+  }
+}
+
+/** Marked HTML for one text node, limited to `range` when one is given. */
+const markedTextHtml = (
+  node: MarkdownAstNode,
+  marks: readonly MarkupPassageMark[],
+  range?: SourceRange
+): { html: string; text: string } => {
+  const writer = createMarkedWriter(marks)
+  let text = ''
+  for (const piece of semanticTextPieces(node)) {
+    if (range !== undefined && (piece.at < range.start || piece.at >= range.end)) continue
+    writer.write(piece.at, escapeHtml(piece.text))
+    text += piece.text
+  }
+  return { html: writer.finish(), text }
+}
+
+/** Wraps an atom in the marks covering its start. */
+const markedAtomHtml = (
+  marks: readonly MarkupPassageMark[],
+  position: number,
+  html: string,
+  element = 'span'
+): string =>
+  marksAt(marks, position).reduceRight(
+    (inner, mark) => `${markOpenTag(mark, element)}${inner}</${element}>`,
+    html
+  )
 
 interface RenderContext {
   readonly tightList: boolean
@@ -112,9 +199,13 @@ const renderListItem = (
  * the desktop trust boundary.
  */
 export function renderMarkdownProjectionToSafeHtml(
-  projection: Pick<MarkdownProjection, 'ast'>,
+  projection: Pick<MarkdownProjection, 'ast'> & Partial<Pick<MarkupPassage, 'marks'>>,
   options: MarkdownProjectionRenderOptions = {}
 ): string {
+  const marks = projection.marks ?? []
+  // Leaf blocks and inline atoms take the marks covering their start.
+  const marked = (node: MarkdownAstNode, html: string, element?: string): string =>
+    marks.length === 0 ? html : markedAtomHtml(marks, node.range.start, html, element)
   const footnoteDefinitions = new Map<number, MarkdownAstNode>()
   const footnoteNumbers = new Map<number, number>()
   const footnoteReferences = new Map<number, number>()
@@ -165,11 +256,12 @@ export function renderMarkdownProjectionToSafeHtml(
       case 'thematic-break':
         return '<hr />\n'
       case 'text':
-        return escapeHtml(
-          node.attributes.emojiClosed === true && typeof node.attributes.emojiValue === 'string'
-            ? node.attributes.emojiValue
-            : stringAttribute(node, 'semanticText')
-        )
+        if (node.attributes.emojiClosed === true && typeof node.attributes.emojiValue === 'string') {
+          return marked(node, escapeHtml(node.attributes.emojiValue))
+        }
+        return marks.length === 0
+          ? escapeHtml(stringAttribute(node, 'semanticText'))
+          : markedTextHtml(node, marks).html
       case 'soft-break':
         return '\n'
       case 'hard-break':
@@ -195,16 +287,18 @@ export function renderMarkdownProjectionToSafeHtml(
       case 'superscript':
         return `<sup>${children()}</sup>`
       case 'inline-code':
-        return `<code>${escapeHtml(stringAttribute(node, 'semanticContent'))}</code>`
+        return marked(node, `<code>${escapeHtml(stringAttribute(node, 'semanticContent'))}</code>`)
       case 'code-block': {
         const info = node.attributes['semanticInfo']
         const language = typeof info === 'string' ? info.trim().split(/\s/u)[0] : undefined
         const className = language ? ` class="language-${escapeHtml(language)}"` : ''
         const content = stringAttribute(node, 'content')
         const highlighted = highlightCode(content, language ?? '')
-        return (
+        return marked(
+          node,
           `<pre><code${className}>${highlighted === content ? escapeHtml(content) : highlighted}` +
-          '</code></pre>\n'
+            '</code></pre>\n',
+          'div'
         )
       }
       case 'link':
@@ -213,12 +307,14 @@ export function renderMarkdownProjectionToSafeHtml(
           `${titleAttributeOf(node)}>${children()}</a>`
         )
       case 'image':
-        return (
+        return marked(
+          node,
           `<img src="${escapeHtml(stringAttribute(node, 'semanticDestination'))}" ` +
           `alt="${escapeHtml(semanticPlainTextOf(node))}"${titleAttributeOf(node)}${imageLayoutAttributesOf(node)} />`
         )
       case 'autolink':
-        return (
+        return marked(
+          node,
           `<a href="${escapeHtml(stringAttribute(node, 'semanticDestination'))}">` +
           `${escapeHtml(stringAttribute(node, 'rawDestination'))}</a>`
         )
@@ -234,19 +330,28 @@ export function renderMarkdownProjectionToSafeHtml(
           stringAttribute(node, 'content')
         )}</code></pre>\n`
       case 'inline-math':
-        return renderMath(stringAttribute(node, 'content'), {
-          displayMode: false,
-          throwOnError: false
-        })
+        return marked(
+          node,
+          renderMath(stringAttribute(node, 'content'), {
+            displayMode: false,
+            throwOnError: false
+          })
+        )
       case 'math-block':
-        return (
+        return marked(
+          node,
           renderMath(stringAttribute(node, 'content'), { displayMode: true, throwOnError: false }) +
-          '\n'
+            '\n',
+          'div'
         )
       case 'diagram':
-        return `<pre class="diagram"><code class="language-${escapeHtml(stringAttribute(node, 'language'))}">${escapeHtml(
-          stringAttribute(node, 'content')
-        )}</code></pre>\n`
+        return marked(
+          node,
+          `<pre class="diagram"><code class="language-${escapeHtml(stringAttribute(node, 'language'))}">${escapeHtml(
+            stringAttribute(node, 'content')
+          )}</code></pre>\n`,
+          'div'
+        )
       case 'table': {
         const header = node.children
           .filter((child) => child.attributes['header'] === true)
@@ -321,6 +426,150 @@ export function renderMarkdownProjectionToSafeHtml(
   }
   const html = appendFootnoteSection(body, definitions, options.footnotePrefix)
   return rewriteImageSrcs(sanitize(html, EXPORT_DOMPURIFY_CONFIG))
+}
+
+export interface MarkupPassageExcerpt {
+  /** Sanitized phrasing content; block boundaries are line breaks. */
+  readonly html: string
+  /** The same passage as plain text, for an accessible name. */
+  readonly text: string
+}
+
+const EXCERPT_BLOCKS = new Set([
+  'document',
+  'paragraph',
+  'heading',
+  'blockquote',
+  'list',
+  'list-item',
+  'table',
+  'table-row',
+  'footnote-definition'
+])
+
+/**
+ * Presents a Markup passage as a compact excerpt that fits inside a control:
+ * text formatting and review marks as the editor shows them, with blocks
+ * flattened to lines and links, images and raw HTML reduced to their text.
+ */
+export function renderMarkupPassageExcerpt(passage: MarkupPassage): MarkupPassageExcerpt {
+  const { marks, range } = passage
+  const inRange = (node: MarkdownAstNode): boolean =>
+    range === undefined || (node.range.start < range.end && node.range.end > range.start)
+  let html = ''
+  let text = ''
+  let pendingBreak = false
+  const emit = (fragment: MarkupPassageExcerpt): void => {
+    if (fragment.html === '' && fragment.text === '') return
+    if (pendingBreak && (html !== '' || text !== '')) {
+      html += '\n'
+      text += '\n'
+    }
+    pendingBreak = false
+    html += fragment.html
+    text += fragment.text
+  }
+  const atom = (node: MarkdownAstNode, content: string, plain: string): MarkupPassageExcerpt =>
+    inRange(node) ? { html: markedAtomHtml(marks, node.range.start, content), text: plain } : { html: '', text: '' }
+
+  const inline = (node: MarkdownAstNode): MarkupPassageExcerpt => {
+    const wrap = (tag: string): MarkupPassageExcerpt => {
+      const inner = inlines(node.children)
+      return inner.html === '' ? inner : { html: `<${tag}>${inner.html}</${tag}>`, text: inner.text }
+    }
+    switch (node.kind) {
+      case 'text':
+        if (node.attributes.emojiClosed === true && typeof node.attributes.emojiValue === 'string') {
+          return atom(node, escapeHtml(node.attributes.emojiValue), node.attributes.emojiValue)
+        }
+        return markedTextHtml(node, marks, range)
+      case 'soft-break':
+      case 'hard-break':
+        return atom(node, '\n', ' ')
+      case 'emphasis':
+        return wrap('em')
+      case 'strong':
+        return wrap('strong')
+      // <del> would announce a formatting strike as a review deletion.
+      case 'strikethrough':
+        return wrap('s')
+      case 'subscript':
+        return wrap('sub')
+      case 'superscript':
+        return wrap('sup')
+      case 'link':
+        return inlines(node.children)
+      case 'inline-code': {
+        const content = stringAttribute(node, 'semanticContent')
+        return atom(node, `<code>${escapeHtml(content)}</code>`, content)
+      }
+      case 'inline-math': {
+        const content = stringAttribute(node, 'content')
+        return atom(node, renderMath(content, { displayMode: false, throwOnError: false }), content)
+      }
+      case 'image': {
+        const alt = semanticPlainTextOf(node)
+        return atom(node, escapeHtml(alt), alt)
+      }
+      case 'autolink': {
+        const destination = stringAttribute(node, 'rawDestination')
+        return atom(node, escapeHtml(destination), destination)
+      }
+      case 'inline-html': {
+        const content = stringAttribute(node, 'content')
+        return atom(node, escapeHtml(content), content)
+      }
+      case 'footnote-reference': {
+        const label = `[^${stringAttribute(node, 'rawLabel')}]`
+        return atom(node, escapeHtml(label), label)
+      }
+      default:
+        return { html: '', text: '' }
+    }
+  }
+  const inlines = (nodes: readonly MarkdownAstNode[]): MarkupPassageExcerpt => {
+    let innerHtml = ''
+    let innerText = ''
+    for (const child of nodes) {
+      const fragment = inline(child)
+      innerHtml += fragment.html
+      innerText += fragment.text
+    }
+    return { html: innerHtml, text: innerText }
+  }
+  const block = (node: MarkdownAstNode): void => {
+    if (!inRange(node)) return
+    if (EXCERPT_BLOCKS.has(node.kind)) {
+      if (node.kind === 'paragraph' || node.kind === 'heading') {
+        emit(inlines(node.children))
+      } else {
+        for (const child of node.children) block(child)
+      }
+      pendingBreak = true
+      return
+    }
+    switch (node.kind) {
+      case 'table-cell': {
+        const cell = inlines(node.children)
+        emit(cell.html === '' ? cell : { html: `${cell.html} `, text: `${cell.text} ` })
+        return
+      }
+      case 'code-block':
+      case 'diagram':
+      case 'math-block':
+      case 'front-matter':
+      case 'html-block': {
+        const content = stringAttribute(node, 'content')
+        emit(atom(node, `<code>${escapeHtml(content)}</code>`, content))
+        pendingBreak = true
+        return
+      }
+      default:
+        emit(inline(node))
+    }
+  }
+  block(passage.ast.root)
+  return { html: sanitize(html, EXPORT_DOMPURIFY_CONFIG), text: text.replace(/\s+/gu, ' ').trim() }
 }
 
 /** Enrich parser-owned HTML with the same media pipeline used by existing MarkText exports. */

@@ -114,7 +114,7 @@ describe('Core read-only display projections', () => {
     await sessions.close('review')
   })
 
-  it('publishes isolated Markdown Comment presentation while retaining its exact editable payload', async() => {
+  it('publishes an isolated Markup Comment presentation while retaining its exact editable payload', async() => {
     const sessions = createSessions()
     const payload =
       '## Local\n\n**bold** [outer][ref] {~~old~>new~~}\n\n[local]: https://local.test\n'
@@ -133,9 +133,13 @@ describe('Core read-only display projections', () => {
     if (review.commentProjection === undefined) throw new Error('Comment presentation is absent')
     const html = renderMarkdownProjectionToSafeHtml(review.commentProjection)
     expect(html).toContain('<h2 id="local">Local</h2>')
-    expect(html).toContain('<strong>bold</strong> [outer][ref] new')
+    // The sidebar shows a nested suggestion as one, both arms marked.
+    expect(html).toContain(
+      '<strong>bold</strong> [outer][ref] ' +
+        '<span class="core-critic-mark core-critic-substitution core-critic-substitution-old" role="deletion">old</span>' +
+        '<span class="core-critic-mark core-critic-substitution core-critic-substitution-new" role="insertion">new</span>'
+    )
     expect(html).not.toContain('https://outer.test')
-    expect(html).not.toContain(' old')
     await sessions.handoff(lease)
     await sessions.close('comment')
   })

@@ -33,16 +33,17 @@
             :data-kind="entry.item.kind"
           >{{ t(`editor.coreReview.kinds.${entry.item.kind}`) }}</span>
           <span
-            v-if="entry.text !== undefined"
+            v-if="excerpts.get(entry)?.excerpt !== undefined"
             :dir="textDirection"
             class="core-review-excerpt"
-            :class="entry.item.kind"
-          >{{ entry.text }}</span>
+            v-html="excerpts.get(entry)?.excerpt?.html"
+          />
           <span
-            v-if="entry.replacementText !== undefined"
+            v-if="excerpts.get(entry)?.replacement !== undefined"
             :dir="textDirection"
-            class="core-review-excerpt addition"
-          >{{ entry.replacementText }}</span>
+            class="core-review-excerpt"
+            v-html="excerpts.get(entry)?.replacement?.html"
+          />
         </button>
         <div
           v-if="entry.commentProjection"
@@ -79,6 +80,10 @@
 import { computed } from 'vue'
 import { t } from '@/i18n'
 import type { CoreReviewOverviewEntry } from '../../documentAuthority/coreProtocol'
+import {
+  renderMarkupPassageExcerpt,
+  type MarkupPassageExcerpt
+} from '../../documentConsumers/markdownProjectionHtml'
 import CoreDocumentProjection from './CoreDocumentProjection.vue'
 
 const props = defineProps<{
@@ -101,11 +106,25 @@ const draftIndex = computed(() => {
   return index < 0 ? props.entries.length : index
 })
 
+const excerpts = computed(
+  () =>
+    new Map(
+      props.entries.map((entry) => [
+        entry,
+        {
+          excerpt: entry.excerpt && renderMarkupPassageExcerpt(entry.excerpt),
+          replacement: entry.replacementExcerpt && renderMarkupPassageExcerpt(entry.replacementExcerpt)
+        } satisfies Record<string, MarkupPassageExcerpt | undefined>
+      ])
+    )
+)
+
 // The visible kind and excerpt are separate elements; join them into one
 // readable accessible name.
 const entryName = (entry: CoreReviewOverviewEntry): string => {
   const kind = t(`editor.coreReview.kinds.${entry.item.kind}`)
-  const text = [entry.text, entry.replacementText].filter((part) => part).join(' → ')
+  const rendered = excerpts.value.get(entry)
+  const text = [rendered?.excerpt?.text, rendered?.replacement?.text].filter((part) => part).join(' → ')
   return text ? `${kind}: ${text}` : kind
 }
 </script>
@@ -157,13 +176,21 @@ const entryName = (entry: CoreReviewOverviewEntry): string => {
   max-height: 5em;
   overflow: auto;
 }
-.core-review-excerpt.addition {
+/* Review marks read as they do in the editor. */
+.core-review-list :deep(.core-critic-addition),
+.core-review-list :deep(.core-critic-substitution-new) {
+  background: color-mix(in srgb, #3b9959 18%, transparent);
   text-decoration: underline;
-  text-decoration-color: var(--themeColor);
+  text-decoration-color: #3b9959;
 }
-.core-review-excerpt.deletion,
-.core-review-excerpt.substitution {
+.core-review-list :deep(.core-critic-deletion),
+.core-review-list :deep(.core-critic-substitution-old) {
+  background: color-mix(in srgb, #ce5555 14%, transparent);
   text-decoration: line-through;
+  text-decoration-color: #ce5555;
+}
+.core-review-list :deep(.core-critic-highlight) {
+  background: color-mix(in srgb, #d4ac33 26%, transparent);
 }
 .core-review-entry > .core-review-comment {
   color: var(--sideBarTextColor);
