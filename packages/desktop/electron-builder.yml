@@ -7,6 +7,8 @@ files:
   - '!**/.vscode/*'
   - '!src/*'
   - '!test/**/*'
+  # Local Playwright output must not ship when packaging after a test run.
+  - '!{test-results,playwright-report,blob-report}/**/*'
   - '!scripts/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
