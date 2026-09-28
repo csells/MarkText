@@ -5,7 +5,8 @@ import { createMuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
 
 // Plan 0012 G35: a view patched with a regional reply reads exactly as the
 // view of the whole new revision, whatever the edit: blank-line runs and
-// whitespace-only lines included, where Enter at a paragraph's end lands.
+// whitespace-only lines included, where Enter at a paragraph's end lands,
+// and stray or unfinished markers beside them.
 
 const lcg = (seed: number) => (): number => {
   seed = (seed * 1664525 + 1013904223) >>> 0
@@ -25,9 +26,13 @@ const blocks = [
   '> quoted line',
   '   ',
   '',
-  '\t'
+  '\t',
+  'Stray ++} closer and --} here.',
+  'Unfinished {== opener here.',
+  'Kept {++ok++} then {== open.',
+  'Text {--gone--} and ++} stray.'
 ]
-const insertions = ['x', ' ', '\n', '\n\n', '\n\n\n\n', '   ', '{++n++}', '# ', '- ']
+const insertions = ['x', ' ', '\n', '\n\n', '\n\n\n\n', '   ', '{++n++}', '# ', '- ', '++}', '{==']
 
 const seeds = Number(process.env.MARKTEXT_VIEW_FUZZ_SEEDS ?? 40)
 const first = Number(process.env.MARKTEXT_VIEW_FUZZ_FIRST ?? 1)
