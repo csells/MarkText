@@ -290,3 +290,12 @@ describe('Shifting soft-break line positions through a regional reply', () => {
     ).toBe(true)
   })
 })
+
+describe('Regional Markup view patches', () => {
+  it('moves a later paragraph’s payload-boundary positions with its source', () => {
+    const source = 'first paragraph\n\n{++- item++}\n\nlast\n'
+    const { actual, expected, previous } = fixture(source, { start: 5, end: 5, insert: 'XYZ' })
+    expect(previous.decorations.some((item) => item.sourcePosition !== undefined)).toBe(true)
+    expect(actual).toEqual(expected)
+  })
+})

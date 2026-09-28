@@ -1218,6 +1218,14 @@ function evaluateSameShape(
     start.sourceStart,
     start.sourceStart + start.leaf.sourceLength + delta
   )
+  // An empty paragraph reads a whitespace-only line differently when no
+  // block follows it in the parsed text, as none does in a lone region.
+  if (
+    EMPTY_PARAGRAPH.test(nextWindow) ||
+    EMPTY_PARAGRAPH.test(previousSource.slice(start.sourceStart, start.sourceStart + start.leaf.sourceLength))
+  ) {
+    return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
+  }
   inventory.recorder.recordCandidateRegionParse(nextWindow.length)
   const result = parseProfile1Document(
     nextWindow,
