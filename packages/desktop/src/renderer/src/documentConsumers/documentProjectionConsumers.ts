@@ -8,6 +8,7 @@ import type {
 import { buildRegexValue, matchString, wordCount, type ISearchQueryOptions } from '@muyajs/core'
 
 import { renderMarkdownProjectionToSafeHtml } from './markdownProjectionHtml'
+import { projectedHeadingNodes, type ProjectedHeadingNode } from './projectedHeadings'
 
 export type ProjectedSearchOptions = ISearchQueryOptions
 
@@ -407,28 +408,18 @@ export function countProjectedText(text: string): ProjectedDocumentCount {
 export function tocProjectedDocument(
   projection: DocumentConsumerProjection
 ): readonly ProjectedTocEntry[] {
-  const entries: ProjectedTocEntry[] = []
-  const visit = (node: MarkdownAstNode): void => {
-    if (node.kind === 'heading') {
-      const level = node.attributes['level']
-      if (typeof level !== 'number' || !Number.isSafeInteger(level) || level < 1 || level > 6) { throw new Error('Projected Markdown heading has no valid level') }
-      const { contentStart, contentEnd, style } = node.attributes
-      const source =
-        style !== 'setext' && typeof contentStart === 'number' && typeof contentEnd === 'number'
-          ? projection.markdown.slice(contentStart, contentEnd).trim()
-          : ''
-      entries.push(
-        Object.freeze({
-          lvl: level,
-          content: semanticTextOf(node),
-          ...(source === '' ? {} : { source })
-        })
-      )
-    }
-    for (const child of node.children) visit(child)
-  }
-  visit(projection.ast.root)
-  return Object.freeze(entries)
+  return Object.freeze(projectedHeadingNodes(projection).map(tocEntryOf))
+}
+
+/** The TOC entry of one projected heading. */
+export function tocEntryOf(heading: ProjectedHeadingNode): ProjectedTocEntry {
+  const level = heading.node.attributes['level']
+  if (typeof level !== 'number' || !Number.isSafeInteger(level) || level < 1 || level > 6) { throw new Error('Projected Markdown heading has no valid level') }
+  return Object.freeze({
+    lvl: level,
+    content: semanticTextOf(heading.node),
+    ...(heading.source === undefined ? {} : { source: heading.source })
+  })
 }
 
 /**

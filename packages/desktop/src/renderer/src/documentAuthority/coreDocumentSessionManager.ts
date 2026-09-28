@@ -30,6 +30,7 @@ import type {
   CorePlainTextViewReply
 } from './coreProtocol'
 import { createCoreConsumerProjectionRegistry } from './coreConsumerProjectionRegistry'
+import type { CoreConsumerSummary } from './coreConsumerSummary'
 import type { CanonicalLineEnding } from './canonicalEolIndex'
 import type { DocumentSaveIdentity } from '@shared/types/files'
 import type { CoreRecoveryDraftInput } from '@shared/types/coreRecoveryDraft'
@@ -53,6 +54,11 @@ export interface CoreDocumentViewLease {
   sourceAtBarrier(): Promise<string>
   consumerProjection(): CoreConsumerProjection | undefined
   consumerProjectionAtBarrier(): Promise<CoreConsumerProjection>
+  /**
+   * The Revised text and headings counts and the outline read, when the
+   * binding reads them without projecting the whole document.
+   */
+  consumerSummaryAtBarrier(): Promise<CoreConsumerSummary | undefined>
   displayProjectionAtBarrier(name: MarkdownProjectionName): Promise<CoreDisplayProjection>
   selectionProjectionAtBarrier(
     range: SourceRange | DocumentTableSelection | DocumentModelTextSelection
@@ -664,6 +670,9 @@ export function createCoreDocumentSessionManager(
         consumerProjectionAtBarrier: () => {
           throw new Error('Core view cannot bypass the session consumer projection barrier')
         },
+        consumerSummaryAtBarrier: () => {
+          throw new Error('Core view cannot bypass the session consumer summary barrier')
+        },
         displayProjectionAtBarrier: () => {
           throw new Error('Core view cannot bypass the session display projection barrier')
         },
@@ -784,6 +793,30 @@ export function createCoreDocumentSessionManager(
           }
           consumerProjections.publish(documentId, identity, result.projection)
           return result.projection
+        },
+        async consumerSummaryAtBarrier(): Promise<CoreConsumerSummary | undefined> {
+          if (released) throw new Error('Core document view lease is released')
+          if (session.recovery !== undefined || session.terminalFault !== undefined) {
+            throw new Error('Core document owner recovery is required')
+          }
+          await session.settleView?.()
+
+          if (released || sessions.get(documentId) !== session) {
+            throw new Error('Core document consumer summary generation changed')
+          }
+          if (session.barrierFailure !== undefined) throw session.barrierFailure
+          const barrier = session.binding.consumerSummaryAtBarrier
+          if (barrier === undefined) return undefined
+          const identity = session.currentIdentity
+          const result = barrier()
+          if (
+            result.type !== 'consumer-summary' ||
+            result.session !== identity.generation ||
+            result.revision !== identity.revision
+          ) {
+            throw new Error('Core document consumer summary barrier is stale')
+          }
+          return result.summary
         },
         async selectionProjectionAtBarrier(
           range: SourceRange | DocumentTableSelection | DocumentModelTextSelection

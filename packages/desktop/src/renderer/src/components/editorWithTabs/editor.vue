@@ -410,6 +410,7 @@ import {
 import {
   countProjectedDocument,
   countProjectedText,
+  tocEntryOf,
   searchProjectedDocument,
   tocProjectedDocument,
   type ProjectedSearchOptions
@@ -455,7 +456,7 @@ import {
 } from '@/util/tocNavigation'
 import { findActiveHeadingSlug, type HeadingPosition } from '@/util/findActiveHeading'
 import { caretScrollTarget } from '@/util/caretScrollTarget'
-import { createCoreHeadingToc } from '@/documentAuthority/coreHeadingToc'
+import { coreHeadingToc, createCoreHeadingToc } from '@/documentAuthority/coreHeadingToc'
 import { addCommonStyle, setEditorWidth } from '@/util/theme'
 import { usePreferencesStore } from '@/store/preferences'
 import { useEditorStore } from '@/store/editor'
@@ -2514,9 +2515,32 @@ const coreProjectionAtBarrier = async () => {
 }
 
 const refreshCoreConsumerCount = async (): Promise<boolean> => {
-  if (props.coreLease === undefined) return false
+  const summaryLease = props.coreLease
+  if (summaryLease === undefined) return false
   const inputEpoch = coreConsumerInputEpoch
   try {
+    // Counts and the outline read only the Revised text and headings, which
+    // Core reads after a regional edit without projecting the whole document.
+    const summary = await summaryLease.consumerSummaryAtBarrier()
+    if (summary !== undefined) {
+      if (inputEpoch !== coreConsumerInputEpoch || props.coreLease !== summaryLease) {
+        throw new Error('Core consumer summary identity changed')
+      }
+      const identity = Object.freeze({ ...summaryLease.identity })
+      editorStore.UPDATE_CORE_CONSUMER_COUNT(
+        summaryLease.documentId,
+        identity,
+        countProjectedText(summary.markdown)
+      )
+      editorStore.UPDATE_CORE_CONSUMER_TOC(
+        summaryLease.documentId,
+        identity,
+        coreAcknowledgedMarkupView === undefined
+          ? summary.headings.map(tocEntryOf)
+          : coreHeadingToc(summary.headings, coreAcknowledgedMarkupView)
+      )
+      return true
+    }
     const { lease, identity, projection } = await coreProjectionAtBarrier()
     editorStore.UPDATE_CORE_CONSUMER_COUNT(
       lease.documentId,
