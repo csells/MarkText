@@ -3811,7 +3811,8 @@ function prepareProjection(
   traceView: ProfileParseTraceViewV1 = view,
   markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
   forkParser?: Profile1MarkdownForkParser,
-  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder?: Profile1PhysicalTraversalRecorderV1,
+  documentHasAnnotations: boolean = false
 ): PreparedProfile1Projection {
   if (forkParser === undefined) {
     throw new Error('Projected Markdown requires the revision intrinsic fork parser')
@@ -4148,7 +4149,7 @@ function prepareProjection(
   // CriticMarkup again to discover that is pure waste, so the guard is skipped
   // and its accepted-marker count is zero by construction.
   const needsProjectionGuard =
-    graph.criticMarkup.rootCount !== 0 &&
+    (graph.criticMarkup.rootCount !== 0 || documentHasAnnotations) &&
     CRITIC_MARKER_TOKEN.test(boundarySafe.source)
   const projectedMarkdownLiterals =
     needsProjectionGuard
@@ -4870,6 +4871,7 @@ interface WindowParse {
   readonly captureAccountingTrace: boolean
   readonly physicalRecorder: Profile1PhysicalTraversalRecorderV1
   readonly endsAtDocumentEnd: boolean
+  readonly documentHasAnnotations: boolean
   readonly result: Profile1DocumentResult
 }
 
@@ -4895,7 +4897,8 @@ export function parseProfile1Window(
   markdownOptions: MarkdownOptionsV1,
   captureAccountingTrace: boolean,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1,
-  endsAtDocumentEnd: boolean
+  endsAtDocumentEnd: boolean,
+  documentHasAnnotations: boolean = false
 ): Profile1DocumentResult {
   const retained = windowParses.find(parse =>
     parse.source === source &&
@@ -4903,11 +4906,13 @@ export function parseProfile1Window(
     parse.captureAccountingTrace === captureAccountingTrace &&
     parse.physicalRecorder === physicalRecorder &&
     parse.endsAtDocumentEnd === endsAtDocumentEnd &&
+    parse.documentHasAnnotations === documentHasAnnotations &&
     sameMarkdownOptions(parse.markdownOptions, markdownOptions))
   if (retained !== undefined) return retained.result
   const result = parseProfile1Document(
     source, executionBudget, undefined, markdownOptions, captureAccountingTrace, undefined,
-    createProfile1DocumentReuseCache(), physicalRecorder, undefined, endsAtDocumentEnd
+    createProfile1DocumentReuseCache(), physicalRecorder, undefined, endsAtDocumentEnd,
+    documentHasAnnotations
   )
   if (source.length <= WINDOW_PARSE_RETAINED_UNITS) {
     windowParses.unshift(Object.freeze({
@@ -4917,6 +4922,7 @@ export function parseProfile1Window(
       captureAccountingTrace,
       physicalRecorder,
       endsAtDocumentEnd,
+      documentHasAnnotations,
       result
     }))
     windowParses.length = Math.min(windowParses.length, WINDOW_PARSES_RETAINED)
@@ -4935,7 +4941,10 @@ export function parseProfile1Document(
   physicalRecorder: Profile1PhysicalTraversalRecorderV1 =
   createPhysicalTraversalRecorderV1(),
   previousPass?: PreviousIntrinsicPass,
-  endsAtDocumentEnd = true
+  endsAtDocumentEnd = true,
+  // A window of a document holding annotations reads its stray markers as
+  // that document does, whether or not the window holds an annotation.
+  documentHasAnnotations = false
 ): Profile1DocumentResult {
   const execution = createParseExecutionTracker(executionControl)
   try {
@@ -4949,7 +4958,8 @@ export function parseProfile1Document(
       reuseCache,
       physicalRecorder,
       previousPass,
-      endsAtDocumentEnd
+      endsAtDocumentEnd,
+      documentHasAnnotations
     )
   } catch (error) {
     if (!(error instanceof Profile1LogicalNodeLimitError)) {
@@ -4978,7 +4988,8 @@ function parseProfile1DocumentWithExecution(
   reuseCache: Profile1DocumentReuseCache | undefined,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1,
   previousPass: PreviousIntrinsicPass | undefined,
-  endsAtDocumentEnd: boolean
+  endsAtDocumentEnd: boolean,
+  documentHasAnnotations: boolean
 ): Profile1DocumentResult {
   const usesDesktopLimits = executionBudget.limitsProfile === 'desktop-v1'
   let accounting = createProfile1SyntaxAccountingRecorderV1(
@@ -5189,7 +5200,9 @@ function parseProfile1DocumentWithExecution(
     traceRecorder,
     undefined,
     markdownOptions,
-    forkParser
+    forkParser,
+    undefined,
+    documentHasAnnotations
   )
   const hasDistinctRevised = forestContainsKind(
     criticMarkup.roots,
@@ -5204,7 +5217,9 @@ function parseProfile1DocumentWithExecution(
       traceRecorder,
       undefined,
       markdownOptions,
-      forkParser
+      forkParser,
+      undefined,
+      documentHasAnnotations
     )
     : originalPrepared
   const armDefinitionsAreViewGlobal = forestArmOwnsDefinition(
@@ -5232,7 +5247,9 @@ function parseProfile1DocumentWithExecution(
           undefined,
           undefined,
           markdownOptions,
-          forkParser
+          forkParser,
+          undefined,
+          documentHasAnnotations
         )
   // The editing document shares recognized regions and coordinates with an
   // equivalent reader projection, but retains its own editable blank nodes.
