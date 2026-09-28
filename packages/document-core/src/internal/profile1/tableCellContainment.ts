@@ -16,10 +16,33 @@
 export interface TableCellContainment {
   /** Whether an opener at `open` may pair with the marker at `other`. */
   readonly pairs: (open: RowSpan, other: RowSpan) => boolean
+  /**
+   * Whether an opener at `open` may pair with any closer starting at one of
+   * `closerStarts` (ascending; every closer is three code units) at or
+   * after `open.end`. Answered without visiting each later closer, so a
+   * document with many unfinished openers and stray closers stays linear.
+   */
+  readonly pairsAnyCloser: (open: RowSpan, closerStarts: readonly number[]) => boolean
+}
+
+const CLOSER_LENGTH = 3
+
+/** The first index of ascending `offsets` at or after `start`. */
+function firstOffsetAtOrAfter(offsets: readonly number[], start: number): number {
+  let low = 0
+  let high = offsets.length
+  while (low < high) {
+    const middle = (low + high) >>> 1
+    if ((offsets[middle] ?? Number.POSITIVE_INFINITY) < start) low = middle + 1
+    else high = middle
+  }
+  return low
 }
 
 const NO_CONTAINMENT: TableCellContainment = Object.freeze({
-  pairs: (): boolean => true
+  pairs: (): boolean => true,
+  pairsAnyCloser: (open: RowSpan, closerStarts: readonly number[]): boolean =>
+    firstOffsetAtOrAfter(closerStarts, open.end) < closerStarts.length
 })
 
 const EDGE_DELIMITER = /^(?:\{\+\+|\{--|\{~~|\{==|\{>>|\+\+\}|--\}|~~\}|==\}|<<\}|~>)/u
@@ -143,9 +166,10 @@ export function createTableCellContainment(
   // A comment's payload is its own subdocument: a line break inside it does
   // not end the host's table row.
   const commentBreaks = new Set<number>()
+  const lastCommentCloser = source.lastIndexOf('<<}')
   let commentDepth = 0
   for (let offset = 0; offset < source.length; offset += 1) {
-    if (source.startsWith('{>>', offset) && source.includes('<<}', offset + 3)) {
+    if (source.startsWith('{>>', offset) && lastCommentCloser >= offset + 3) {
       commentDepth += 1
       offset += 2
     } else if (commentDepth > 0 && source.startsWith('<<}', offset)) {
@@ -209,19 +233,63 @@ export function createTableCellContainment(
     const cell = cells[low - 1]
     return cell !== undefined && offset < cell.end ? low - 1 : -1
   }
-  const blank = (start: number, end: number): boolean => /^[ \t]*$/u.test(source.slice(start, end))
+  // The first and last text (neither space nor tab) of each cell, found once
+  // per cell, so a cell holding many markers is not rescanned for each.
+  const textBounds = new Map<number, Readonly<{ first: number, last: number }>>()
+  const cellTextBounds = (ordinal: number, cell: RowSpan): Readonly<{ first: number, last: number }> => {
+    let bounds = textBounds.get(ordinal)
+    if (bounds === undefined) {
+      let first = cell.start
+      while (first < cell.end && isSpaceOrTab(source.charCodeAt(first))) first += 1
+      let last = cell.end - 1
+      while (last >= cell.start && isSpaceOrTab(source.charCodeAt(last))) last -= 1
+      bounds = Object.freeze({ first, last })
+      textBounds.set(ordinal, bounds)
+    }
+    return bounds
+  }
   // A marker stands on a cell boundary when it touches a pipe, or when an
   // opener begins its cell's text or a closer ends it: the annotation then
   // takes all of that cell's text or none of it.
   const onBoundary = (marker: RowSpan, role: 'open' | 'close'): boolean => {
-    const cell = cells[cellAt(marker.start)]
-    return cell === undefined ||
+    const ordinal = cellAt(marker.start)
+    const cell = cells[ordinal]
+    if (cell === undefined ||
       (source.charCodeAt(marker.start - 1) === 124 && !hasOddBackslashRunBefore(source, marker.start - 1)) ||
-      source.charCodeAt(marker.end) === 124 ||
-      (role === 'open' ? blank(cell.start, marker.start) : blank(marker.end, cell.end))
+      source.charCodeAt(marker.end) === 124) {
+      return true
+    }
+    const bounds = cellTextBounds(ordinal, cell)
+    return role === 'open' ? bounds.first >= marker.start : bounds.last < marker.end
+  }
+  // For each closer list, the index of the next closer at or after each
+  // position that stands on a cell boundary (or outside every cell), or -1.
+  const boundaryClosers = new Map<readonly number[], Int32Array>()
+  const nextBoundaryCloser = (closerStarts: readonly number[], from: number): number => {
+    let next = boundaryClosers.get(closerStarts)
+    if (next === undefined) {
+      next = new Int32Array(closerStarts.length)
+      let following = -1
+      for (let index = closerStarts.length - 1; index >= 0; index -= 1) {
+        const start = closerStarts[index] ?? 0
+        if (onBoundary({ start, end: start + CLOSER_LENGTH }, 'close')) following = index
+        next[index] = following
+      }
+      boundaryClosers.set(closerStarts, next)
+    }
+    return next[from] ?? -1
   }
   return Object.freeze({
     pairs: (open: RowSpan, other: RowSpan): boolean =>
-      cellAt(open.start) === cellAt(other.start) || (onBoundary(open, 'open') && onBoundary(other, 'close'))
+      cellAt(open.start) === cellAt(other.start) || (onBoundary(open, 'open') && onBoundary(other, 'close')),
+    pairsAnyCloser: (open: RowSpan, closerStarts: readonly number[]): boolean => {
+      const first = firstOffsetAtOrAfter(closerStarts, open.end)
+      const firstStart = closerStarts[first]
+      if (firstStart === undefined) return false
+      // A cell is contiguous, so only the first later closer can share the
+      // opener's cell.
+      if (cellAt(open.start) === cellAt(firstStart)) return true
+      return onBoundary(open, 'open') && nextBoundaryCloser(closerStarts, first) !== -1
+    }
   })
 }
