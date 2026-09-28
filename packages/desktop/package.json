@@ -63,6 +63,7 @@
     "@marktext/file-icons": "^1.0.6",
     "@muyajs/core": "workspace:*",
     "@popperjs/core": "^2.11.8",
+    "@tanstack/vue-virtual": "^3.13.39",
     "@vscode/ripgrep": "^1.18.0",
     "arg": "^5.0.2",
     "axios": "^1.18.0",
