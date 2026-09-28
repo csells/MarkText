@@ -270,4 +270,51 @@ describe('structural regional edits read as a fresh open', () => {
     step(session, 14, 15, '', 'delete inside a suggestion after a blank run')
     expect(session.regional).toBe(1)
   })
+
+  // Stray closers and unfinished openers are text with a diagnostic; a
+  // document holding them is edited regionally like any other.
+  const strayBlocks = [
+    'Stray ++} closer and --} here.',
+    'Unfinished {== opener here.',
+    'Both {~~ and <<} marks.',
+    'Arrow ~> lone text.',
+    'Kept {++ok++} then {== open.',
+    '# Head {~~ open',
+    '- item ==} x\n- more {== y',
+    'Text {--gone--} and ++} stray.',
+    '> quoted {== open --}',
+    'Open {>> note\n\nlater <<} closes'
+  ]
+  const strayInsertions = ['++}', '--}', '{==', '==}', 'a ~~} b', '{~~ ']
+  it.each(Array.from({ length: 16 }, (_, seed) => seed + 1))('stray seed %i', seed => {
+    fuzz(seed, [...strayBlocks, ...wideBlocks], [...strayInsertions, ...wideInsertions])
+  })
+
+  it('keeps an opener that a later stray closer can close out of a window', () => {
+    // `{==` spelled over an unfinished `{>>` pairs with a stray `==}` beyond
+    // the reparsed blocks: the window read the same number of diagnostics,
+    // but not the same ones.
+    replay('Multi\nline\nparagraph.\n\nOpen {>> note\n\nlater <<} closes\n\nText with {++added++} inside.\n',
+      [[46, 58, '\n\n'], [1, 1, '{>>c<<}'], [57, 68, '\n\n'], [67, 67, '==}'], [15, 18, ''], [34, 34, '{==']])
+  })
+
+  it('keeps overlapping marker spellings out of a window', () => {
+    // `++{++}` reads its `{++` or its `++}` depending on markers far away.
+    replay('# Head {~~ open\n\n\n\nPlain words here.\n\n\n\nKept {++ok++} then {== open.\n\nMulti\nline\nparagraph.\n\n# Head {~~ open\n\nText {--gone--} and ++} stray.\n\nKept {++ok++} then {== open.\n\n# Heading\n\n\n\nBoth {~~ and <<} marks.\n',
+      [[87, 87, '{++n++}'], [29, 29, '{++n++}'], [100, 100, '{++']])
+  })
+
+  it('bounds reference facts by their source offsets, not their view offsets', () => {
+    // A definition after an Addition sits earlier in Original than in the
+    // source, so removing it looked like an edit past every reference.
+    replay('Ref [x] {++y++}.\n\n[x]: http://x.y\n\nArrow ~> lone text.\n\n[^1]: note {++n++}\n\n\n\nText {--gone--} and ++} stray.\n\nRef [x] {++y++}.\n\n[x]: http://x.y\n\n$$\nx {++y++}\n$$\n',
+      [[115, 118, '\n\n'], [67, 70, ''], [109, 111, ''], [14, 14, '> '], [38, 38, '\n\n'], [56, 56, '[r]'], [131, 133, '']])
+  })
+
+  it('keeps the blocks around a window as they read before the edit', () => {
+    // Turning an HTML block into a paragraph drops the empty paragraphs the
+    // blank lines before it read as, outside the replaced blocks.
+    replay('Another ordinary sentence with more words.\n\nUnfinished {== opener here.\n\n\n\n<div>\n{++html++}\n</div>\n',
+      [[73, 73, '\\'], [86, 86, '\n'], [85, 87, ''], [14, 17, ''], [89, 89, '\n\n   '], [97, 97, '   ']])
+  })
 })

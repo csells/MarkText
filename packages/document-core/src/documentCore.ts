@@ -43,6 +43,7 @@ import {
   createRegionalInventory,
   materializeRegionalInventoryAnnotations,
   materializeRegionalInventoryAnnotationsAround,
+  materializeRegionalInventoryDiagnostics,
   previewRegionalContext,
   previewRegionalInventory,
   referenceDependencyPrefixEnd,
@@ -2464,7 +2465,10 @@ function createDocumentCoreWithExecutionBudget(
           ? DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
           : Number.MAX_SAFE_INTEGER,
         dependencyPrefixEnd,
-        inventoryPlainIndexRecorder
+        inventoryPlainIndexRecorder,
+        // Neither smaller index covers a document with stray or unfinished
+        // markers, so it is inventoried however few suggestions it holds.
+        (retained?.diagnostics.length ?? 0) !== 0 ? 0 : 2
       )
       const retainedSummary = retained === undefined
         ? undefined
@@ -2619,6 +2623,7 @@ function createDocumentCoreWithExecutionBudget(
         return annotations
       }
     )
+    let diagnostics: readonly DocumentDiagnostic[] | undefined
     const revision = Object.freeze({
       get source(): string {
         return source.materialize('getter')
@@ -2627,7 +2632,10 @@ function createDocumentCoreWithExecutionBudget(
       get annotations(): readonly CriticMarkupAnnotation[] {
         return inventoryAnnotations()
       },
-      diagnostics: Object.freeze([])
+      get diagnostics(): readonly DocumentDiagnostic[] {
+        diagnostics ??= Object.freeze(materializeRegionalInventoryDiagnostics(inventory).map(diagnosticOf))
+        return diagnostics
+      }
     })
     const productStore = createRevisionProductStore(
       undefined,
@@ -2805,6 +2813,7 @@ function createDocumentCoreWithExecutionBudget(
     const markupCoordinates: MarkupCoordinateSegment[] = []
     for (const segment of admission.nextProducts.editing().mappedTape) {
       if (segment.kind !== 'canonical') {
+        if (admission.strayMarkers) continue
         return Object.freeze({
           kind: 'fallback',
           reason: 'structural-region-ineligible'
@@ -4335,7 +4344,7 @@ function createDocumentCoreWithExecutionBudget(
     const candidate = regionalCandidate(state, { start: edit.start, end: edit.start, insert })
     if (
       candidate?.structural === undefined || candidate.structural.touchesAnnotation ||
-      candidate.structural.markerDelta !== 2 || candidate.nextProducts.diagnostics.count !== 0
+      candidate.structural.markerDelta !== 2
     ) {
       return undefined
     }
@@ -4395,9 +4404,8 @@ function createDocumentCoreWithExecutionBudget(
     const planned = Object.freeze({ start: target, end: target, insert: edit.insert })
     const candidate = regionalCandidate(state, planned)
     // A region of the same shape keeps its markers.
-    if (candidate === undefined || (candidate.structural?.markerDelta ?? 0) !== 0 ||
-        candidate.nextProducts.diagnostics.count !== 0 ||
-        (candidate.nextProducts.retainedIntrinsic?.diagnostics.length ?? 0) !== 0) return undefined
+    // The region's diagnostics move with it unchanged.
+    if (candidate === undefined || (candidate.structural?.markerDelta ?? 0) !== 0) return undefined
     const shift = candidate.sourceStart
     const grown = edit.insert.length
     const root = candidate.nextProducts.retainedIntrinsic?.roots.find(node => node.range.start === owner.range.start - shift)
@@ -4461,8 +4469,7 @@ function createDocumentCoreWithExecutionBudget(
     if (!plainParagraphAround(previous, at)) return undefined
     const planned = Object.freeze({ start: at, end: at, insert: owner === undefined ? `{++${edit.insert}++}` : edit.insert })
     const candidate = regionalCandidate(state, planned)
-    if (candidate?.structural === undefined || candidate.nextProducts.diagnostics.count !== 0 ||
-        (candidate.nextProducts.retainedIntrinsic?.diagnostics.length ?? 0) !== 0) return undefined
+    if (candidate?.structural === undefined) return undefined
     const shift = candidate.sourceStart
     const roots = candidate.nextProducts.retainedIntrinsic?.roots ?? []
     if (owner === undefined) {
@@ -4507,8 +4514,7 @@ function createDocumentCoreWithExecutionBudget(
     const planned = Object.freeze({ start: edit.start, end: edit.end, insert: `{--${removed}--}` })
     const candidate = regionalCandidate(state, planned)
     if (candidate?.structural === undefined || candidate.structural.touchesAnnotation ||
-        candidate.structural.markerDelta !== 2 || candidate.nextProducts.diagnostics.count !== 0 ||
-        (candidate.nextProducts.retainedIntrinsic?.diagnostics.length ?? 0) !== 0) return undefined
+        candidate.structural.markerDelta !== 2) return undefined
     const local = edit.start - candidate.sourceStart
     const root = candidate.nextProducts.retainedIntrinsic?.roots.find(node => node.range.start === local)
     const content = root?.arms[0]
@@ -4561,8 +4567,7 @@ function createDocumentCoreWithExecutionBudget(
     }
     const candidate = regionalCandidate(state, planned)
     if (candidate?.structural === undefined || candidate.structural.markerDelta !== (owner === undefined ? 2 : 0) ||
-        (owner === undefined && candidate.structural.touchesAnnotation) || candidate.nextProducts.diagnostics.count !== 0 ||
-        (candidate.nextProducts.retainedIntrinsic?.diagnostics.length ?? 0) !== 0) return undefined
+        (owner === undefined && candidate.structural.touchesAnnotation)) return undefined
     const shift = candidate.sourceStart
     const root = candidate.nextProducts.retainedIntrinsic?.roots.find(node => node.range.start === expected.start - shift)
     const content = root?.arms[0]
