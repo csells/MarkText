@@ -53,11 +53,14 @@ const workloads: ReadonlyArray<{ name: string, paragraph: string, tracking: bool
 ]
 
 /**
- * With MARKTEXT_WARM_REVIEW_SIDEBAR=1, measure with the Comments and
- * Suggestions sidebar open, whose list refreshes after typing pauses.
+ * Workloads launch with the Comments and Suggestions sidebar open, whose
+ * list refreshes after typing pauses. MARKTEXT_WARM_REVIEW_SIDEBAR=0
+ * measures them with the sidebar hidden instead.
  */
-const openReviewSidebar = async(app: ElectronApplication, page: Page): Promise<void> => {
-  if (process.env.MARKTEXT_WARM_REVIEW_SIDEBAR !== '1') return
+const applyReviewSidebar = async(app: ElectronApplication, page: Page): Promise<void> => {
+  const reviewTab = page.locator('.side-bar .left-column li[aria-label="Comments and Suggestions"]')
+  await expect(reviewTab).toBeVisible()
+  if (process.env.MARKTEXT_WARM_REVIEW_SIDEBAR !== '0') return
   await app.evaluate(({ BrowserWindow, Menu }) => {
     const view = Menu.getApplicationMenu()?.items.find(item => item.label === 'View')
     const toggle = view?.submenu?.items.find(item => item.label === 'Toggle Sidebar')
@@ -65,11 +68,7 @@ const openReviewSidebar = async(app: ElectronApplication, page: Page): Promise<v
     if (!toggle?.enabled || !win) throw new Error('Toggle Sidebar is unavailable')
     toggle.click(undefined, win, win.webContents)
   })
-  const reviewTab = page.locator('.side-bar .left-column li[aria-label="Comments and Suggestions"]')
-  await expect(reviewTab).toBeVisible()
-  if ((await reviewTab.getAttribute('aria-selected')) !== 'true') await reviewTab.click()
-  await expect(reviewTab).toHaveAttribute('aria-selected', 'true')
-  await expect(page.getByTestId('critic-review-list')).toBeAttached()
+  await expect(reviewTab).toBeHidden()
 }
 
 const rendererBuildHashes = (): Record<string, string> => {
@@ -114,7 +113,7 @@ test.describe('warm native-keyboard performance', () => {
         intervalMs: interval,
         tracking: workload.tracking,
         rendererCpuProfiling: process.env.MARKTEXT_WARM_PROFILE === '1',
-        reviewSidebarOpen: process.env.MARKTEXT_WARM_REVIEW_SIDEBAR === '1',
+        reviewSidebarOpen: process.env.MARKTEXT_WARM_REVIEW_SIDEBAR !== '0',
         retainedHeapCheck: process.env.MARKTEXT_WARM_HEAP === '1',
         limits: 'One warm app per workload; browser beforeinput to exact DOM echo, not physical input or compositor paint. Native Playwright keyboard through Chromium; hidden unfocused window. Concurrent machine work is uncontrolled. Reconcile corrected is a code-path flag, not a measured visual correction.'
       }
@@ -161,7 +160,7 @@ test.describe('warm native-keyboard performance', () => {
           await tracking.click()
           await expect(tracking).toHaveAttribute('aria-pressed', 'true')
         }
-        await openReviewSidebar(app, page)
+        await applyReviewSidebar(app, page)
         await paragraph.click()
         await page.keyboard.press('End')
         await page.evaluate(() => window.__marktextDocumentCore?.settled())
@@ -338,7 +337,7 @@ test.describe('warm native-keyboard performance', () => {
           await toggle.click()
           await expect(toggle).toHaveAttribute('aria-pressed', 'true')
         }
-        await openReviewSidebar(app, page)
+        await applyReviewSidebar(app, page)
         await paragraph.click()
         await page.keyboard.press('Home')
         // Split inside "Warm editing paragraph." so each new paragraph keeps text.
