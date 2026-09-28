@@ -4,74 +4,68 @@
     data-testid="critic-review-list"
     :aria-label="t('editor.coreReview.sidebarTitle')"
   >
-    <template
-      v-for="(entry, index) in entries"
-      :key="`${entry.item.range.start}:${entry.item.range.end}`"
+    <li
+      v-for="row in rows"
+      :key="row.key"
+      v-memo="row.entry === undefined ? [{}] : rowMemo(row.entry)"
+      class="core-review-entry"
+      :class="
+        row.entry === undefined
+          ? 'active draft'
+          : { active: row.entry.item.range.start === activeStart || row.entry.item.range.start === composerStart }
+      "
+      :data-testid="row.entry === undefined ? 'critic-review-draft-entry' : 'critic-review-entry'"
     >
-      <li
-        v-if="composing && index === draftIndex"
-        class="core-review-entry active draft"
-        data-testid="critic-review-draft-entry"
-      >
-        <slot name="composer" />
-      </li>
-      <li
-        class="core-review-entry"
-        :class="{ active: entry.item.range.start === activeStart || entry.item.range.start === composerStart }"
-        data-testid="critic-review-entry"
-      >
+      <slot
+        v-if="row.entry === undefined"
+        name="composer"
+      />
+      <template v-else>
         <button
           type="button"
-          :aria-pressed="entry.item.range.start === activeStart"
-          :aria-label="entryName(entry)"
+          :aria-pressed="row.entry.item.range.start === activeStart"
+          :aria-label="entryName(row.entry)"
           :disabled="busy"
-          @click="$emit('select', entry.item.range.start)"
+          @click="select(row.entry)"
         >
           <span
             class="core-review-entry-kind"
-            :data-testid="entry.item.range.start === activeStart ? 'critic-review-kind' : undefined"
-            :data-kind="entry.item.kind"
-          >{{ t(`editor.coreReview.kinds.${entry.item.kind}`) }}</span>
+            :data-testid="row.entry.item.range.start === activeStart ? 'critic-review-kind' : undefined"
+            :data-kind="row.entry.item.kind"
+          >{{ t(`editor.coreReview.kinds.${row.entry.item.kind}`) }}</span>
           <span
-            v-if="excerpts.get(entry)?.excerpt !== undefined"
+            v-if="row.entry.excerpt !== undefined"
             :dir="textDirection"
             class="core-review-excerpt"
-            v-html="excerpts.get(entry)?.excerpt?.html"
+            v-html="rendered(row.entry.excerpt).html"
           />
           <span
-            v-if="excerpts.get(entry)?.replacement !== undefined"
+            v-if="row.entry.replacementExcerpt !== undefined"
             :dir="textDirection"
             class="core-review-excerpt"
-            v-html="excerpts.get(entry)?.replacement?.html"
+            v-html="rendered(row.entry.replacementExcerpt).html"
           />
         </button>
         <div
-          v-if="entry.commentProjection"
+          v-if="row.entry.commentProjection"
           class="core-review-comment"
           :dir="textDirection"
         >
           <CoreDocumentProjection
-            :projection="entry.commentProjection"
+            :projection="row.entry.commentProjection"
             kind="comment"
             :label="t('editor.coreReview.commentPrompt')"
           />
         </div>
         <slot
-          v-if="composing && entry.item.range.start === composerStart"
+          v-if="composing && row.entry.item.range.start === composerStart"
           name="composer"
         />
         <slot
-          v-else-if="entry.item.range.start === activeStart"
+          v-else-if="row.entry.item.range.start === activeStart"
           name="actions"
         />
-      </li>
-    </template>
-    <li
-      v-if="composing && draftIndex === entries.length"
-      class="core-review-entry active draft"
-      data-testid="critic-review-draft-entry"
-    >
-      <slot name="composer" />
+      </template>
     </li>
   </ul>
 </template>
@@ -84,6 +78,7 @@ import {
   renderMarkupPassageExcerpt,
   type MarkupPassageExcerpt
 } from '../../documentConsumers/markdownProjectionHtml'
+import type { MarkupPassage } from '../../documentConsumers/markupPassage'
 import CoreDocumentProjection from './CoreDocumentProjection.vue'
 
 const props = defineProps<{
@@ -97,7 +92,7 @@ const props = defineProps<{
   draftStart?: number
   composing?: boolean
 }>()
-defineEmits<{ select: [start: number] }>()
+const emit = defineEmits<{ select: [start: number] }>()
 
 const draftIndex = computed(() => {
   if (props.draftStart === undefined || props.composerStart !== undefined) return -1
@@ -106,25 +101,63 @@ const draftIndex = computed(() => {
   return index < 0 ? props.entries.length : index
 })
 
-const excerpts = computed(
-  () =>
-    new Map(
-      props.entries.map((entry) => [
-        entry,
-        {
-          excerpt: entry.excerpt && renderMarkupPassageExcerpt(entry.excerpt),
-          replacement: entry.replacementExcerpt && renderMarkupPassageExcerpt(entry.replacementExcerpt)
-        } satisfies Record<string, MarkupPassageExcerpt | undefined>
-      ])
-    )
-)
+// An edit elsewhere moves an entry without changing its passages, so the
+// rendering and the row of an unchanged entry are found by its passage.
+const renderedPassages = new WeakMap<MarkupPassage, MarkupPassageExcerpt>()
+const rendered = (passage: MarkupPassage): MarkupPassageExcerpt => {
+  let excerpt = renderedPassages.get(passage)
+  if (excerpt === undefined) {
+    excerpt = renderMarkupPassageExcerpt(passage)
+    renderedPassages.set(passage, excerpt)
+  }
+  return excerpt
+}
+const rowKeys = new WeakMap<MarkupPassage, number>()
+let nextRowKey = 0
+const rowKey = (entry: CoreReviewOverviewEntry): number | string => {
+  const passage = entry.excerpt ?? entry.commentProjection ?? entry.replacementExcerpt
+  if (passage === undefined) return `${entry.item.range.start}:${entry.item.range.end}`
+  let key = rowKeys.get(passage)
+  if (key === undefined) {
+    key = nextRowKey++
+    rowKeys.set(passage, key)
+  }
+  return key
+}
+
+// A row that is neither selected nor composing renders only from its
+// entry's passages, so after an edit elsewhere it is not rendered again.
+// The selected row renders its actions slot, which may change at any time.
+const rowMemo = (entry: CoreReviewOverviewEntry): unknown[] => {
+  const start = entry.item.range.start
+  const live = start === props.activeStart || start === props.composerStart
+  return [rowKey(entry), entry.item.kind, live ? {} : false, props.busy, props.textDirection]
+}
+// A kept row's handler belongs to the entry it was rendered for; select the
+// entry now in its place.
+const select = (entry: CoreReviewOverviewEntry): void => {
+  const key = rowKey(entry)
+  const current = props.entries.find((candidate) => rowKey(candidate) === key) ?? entry
+  emit('select', current.item.range.start)
+}
+
+// A draft card for a new item stands before the entry at `draftIndex`.
+const rows = computed(() => {
+  const list: { key: number | string; entry?: CoreReviewOverviewEntry }[] = props.entries.map(
+    (entry) => ({ key: rowKey(entry), entry })
+  )
+  if (props.composing && draftIndex.value >= 0) list.splice(draftIndex.value, 0, { key: 'draft' })
+  return list
+})
 
 // The visible kind and excerpt are separate elements; join them into one
 // readable accessible name.
 const entryName = (entry: CoreReviewOverviewEntry): string => {
   const kind = t(`editor.coreReview.kinds.${entry.item.kind}`)
-  const rendered = excerpts.value.get(entry)
-  const text = [rendered?.excerpt?.text, rendered?.replacement?.text].filter((part) => part).join(' → ')
+  const text = [entry.excerpt, entry.replacementExcerpt]
+    .map((passage) => passage && rendered(passage).text)
+    .filter((part) => part)
+    .join(' → ')
   return text ? `${kind}: ${text}` : kind
 }
 </script>
