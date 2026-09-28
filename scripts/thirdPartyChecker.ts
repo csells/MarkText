@@ -12,7 +12,12 @@ const checker = require('license-checker')
 // pinned because it's a published third-party dep that license-checker
 // fails to detect (MIT).
 const repoRoot = path.resolve(__dirname, '..')
-const workspaceExclusions = ['packages/desktop', 'packages/muya']
+const workspaceExclusions = [
+  'packages/desktop',
+  'packages/muya',
+  'packages/document-core',
+  'packages/input-policy'
+]
   .map((rel) => {
     const { name, version } = require(path.join(repoRoot, rel, 'package.json'))
     return `${name}@${version}`
