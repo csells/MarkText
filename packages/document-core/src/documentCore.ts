@@ -46,6 +46,7 @@ import {
   materializeRegionalInventoryDiagnostics,
   previewRegionalContext,
   previewRegionalInventory,
+  previewRegionalRange,
   referenceDependencyPrefixEnd,
   type RegionalInventory,
   type RegionalInventoryRecorder
@@ -691,6 +692,17 @@ export interface DocumentCore {
     comment: CriticMarkupAnnotation,
     view: 'markup'
   ): CommentMarkupProjection
+  /**
+   * Whether a half-open source range contributes retained text to a
+   * projection, as that projection's coordinates report. A revision reached
+   * by a regional edit answers from the blocks around the range instead of
+   * projecting the whole document.
+   */
+  intersectsProjection(
+    revision: DocumentRevision,
+    projection: DocumentProjectionName,
+    range: SourceRange
+  ): boolean
 }
 
 const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = Object.freeze({
@@ -3942,10 +3954,15 @@ function createDocumentCoreWithExecutionBudget(
     }
     const cached = cachedByComment.get(comment)
     if (cached !== undefined) return cached
+    const regional = regionalCommentMarkup(state, comment)
+    if (regional !== undefined) {
+      cachedByComment.set(comment, regional)
+      return regional
+    }
     if (revision !== currentRevision) demoteCurrentProductStore()
 
     const result = withFacts(state, (facts): CommentMarkupProjection => {
-      const nodeId = facts.nodeIdByAnnotation.get(comment)
+      const nodeId = facts.nodeIdByAnnotation.get(comment) ?? sameComment(facts, comment)
       if (nodeId === undefined) {
         throw new Error('Comment does not belong to this revision')
       }
@@ -3961,6 +3978,116 @@ function createDocumentCoreWithExecutionBudget(
     }, revision === currentRevision)
     cachedByComment.set(comment, result)
     return result
+  }
+
+  /**
+   * The node of this revision's Comment at the same range as `comment`, which
+   * a regional reply's annotations describe without being the objects the
+   * revision's own parse holds.
+   */
+  const sameComment = (facts: RevisionFacts, comment: CriticMarkupAnnotation): NodeId | undefined => {
+    for (const [annotation, nodeId] of facts.nodeIdByAnnotation) {
+      if (annotation.kind === 'comment' && annotation.range.start === comment.range.start &&
+          annotation.range.end === comment.range.end) return nodeId
+    }
+    return undefined
+  }
+
+  /**
+   * The blocks around `range` with a block of context on each side, parsed as
+   * the regional window of an edit there, for reading a revision that no
+   * longer holds its document parse. A Comment payload or a suggestion's arm
+   * reads there as in the whole document, since the window keeps its safe
+   * points. Undefined when the revision holds its parse or no window covers
+   * `range`.
+   */
+  const regionalReadWindow = (
+    state: RevisionState,
+    range: SourceRange
+  ): ReturnType<typeof previewRegionalRange> => {
+    if (state.productStore.withRetained(() => true) === true) return undefined
+    const inventory = state.regionalInventory ?? convertedRegionalInventory(state)
+    if (inventory === undefined) return undefined
+    return previewRegionalRange(inventory, state.source, range, executionBudget,
+      state.markdownOptions, regionalPhysicalRecorder)
+  }
+
+  const windowAnnotations = new WeakMap<Profile1DocumentProducts, MaterializedAnnotations>()
+  const windowAnnotationsOf = (products: Profile1DocumentProducts): MaterializedAnnotations => {
+    let materialized = windowAnnotations.get(products)
+    if (materialized === undefined) {
+      materialized = annotationsOf(products)
+      windowAnnotations.set(products, materialized)
+      inspection.regionalInventoryLocalAnnotationMaterializedNodes +=
+        countCriticMarkupAnnotationNodes(materialized.annotations)
+    }
+    return materialized
+  }
+
+  const regionalCommentMarkup = (
+    state: RevisionState,
+    comment: CriticMarkupAnnotation
+  ): CommentMarkupProjection | undefined => {
+    const window = regionalReadWindow(state, comment.range)
+    if (window === undefined) return undefined
+    const shift = window.sourceStart
+    const materialized = windowAnnotationsOf(window.nextProducts)
+    const pending = [...materialized.annotations]
+    let local: CriticMarkupAnnotation | undefined
+    while (pending.length > 0 && local === undefined) {
+      const candidate = pending.pop()
+      if (candidate === undefined) break
+      if (candidate.kind === 'comment' && candidate.range.start + shift === comment.range.start &&
+          candidate.range.end + shift === comment.range.end) local = candidate
+      for (const arm of candidate.arms) pending.push(...arm.annotations)
+    }
+    const nodeId = local === undefined ? undefined : materialized.nodeIdByAnnotation.get(local)
+    if (nodeId === undefined) return undefined
+    const editing = window.nextProducts.commentEditing(nodeId)
+    return Object.freeze({
+      kind: 'comment-markup',
+      annotationRange: comment.range,
+      syntax: Object.freeze({
+        ast: markdownAstOf(editing),
+        coordinates: shiftedRegionalProjectionCoordinatesOf(
+          editing, window.nextWindow.length, shift, state.source.length
+        )
+      })
+    })
+  }
+
+  const intersectsProjection = (
+    revision: DocumentRevision,
+    projection: DocumentProjectionName,
+    range: SourceRange
+  ): boolean => {
+    const state = stateByRevision.get(revision)
+    if (state === undefined) {
+      throw new Error('Document revision belongs to another core')
+    }
+    if (
+      range === null || typeof range !== 'object' ||
+      !Number.isInteger(range.start) || !Number.isInteger(range.end) ||
+      range.start < 0 || range.end < range.start || range.end > state.source.length
+    ) {
+      throw new RangeError('Source range is outside the revision')
+    }
+    if (projectionCache.get(revision)?.get(projection) === undefined) {
+      const window = regionalReadWindow(state, range)
+      if (window !== undefined) {
+        const products = window.nextProducts
+        const projected = projection === 'original'
+          ? products.original
+          : projection === 'revised' ? products.revised : products.editing()
+        return projectionCoordinatesOf(projected, window.nextWindow.length).intersectsSource(Object.freeze({
+          start: range.start - window.sourceStart,
+          end: range.end - window.sourceStart
+        }))
+      }
+    }
+    return projection === 'markup'
+      ? projectRevision(revision, projection).syntax.coordinates.intersectsSource(range)
+      : projectRevision(revision, projection).coordinates.intersectsSource(range)
   }
 
   function projectCommentView(
@@ -5368,7 +5495,8 @@ function createDocumentCoreWithExecutionBudget(
       }), revision === currentRevision)
     },
     project: projectRevision,
-    projectComment: projectCommentView
+    projectComment: projectCommentView,
+    intersectsProjection
   })
   registerAnnotationsAround(core, rootsAround)
   registerDocumentCoreInspection(core, () => {
