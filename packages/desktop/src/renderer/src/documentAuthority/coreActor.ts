@@ -40,6 +40,7 @@ import type {
   CoreReviewOverviewEntry
 } from './coreProtocol'
 import { createMuyaMarkupView } from './muyaMarkupView'
+import { commentPassage, documentArmPassage } from '../documentConsumers/markupPassage'
 
 export interface CoreActor {
   handle(request: CoreRequest): CoreReply
@@ -910,11 +911,17 @@ export function createCoreActor(
         : annotationFor(revision, item)
     const content = annotation?.arms.find((arm) => arm.name === 'content' || arm.name === 'old')
     const replacement = annotation?.arms.find((arm) => arm.name === 'new')
+    // Excerpts read as the editor's Markup view does, nested suggestions included.
+    const markup = content === undefined && replacement === undefined
+      ? undefined
+      : core.project(revision, 'markup')
     return Object.freeze({
-      ...(content === undefined ? {} : { text: core.sourceSlice(revision, content.range) }),
-      ...(replacement === undefined
+      ...(annotation === undefined || content === undefined || markup === undefined
         ? {}
-        : { replacementText: core.sourceSlice(revision, replacement.range) }),
+        : { excerpt: documentArmPassage(markup, annotation, content) }),
+      ...(annotation === undefined || replacement === undefined || markup === undefined
+        ? {}
+        : { replacementExcerpt: documentArmPassage(markup, annotation, replacement) }),
       item: Object.freeze({
         ...item,
         range: Object.freeze({ ...item.range }),
@@ -928,9 +935,7 @@ export function createCoreActor(
       ...(arm === undefined ? {} : { commentText: core.sourceSlice(revision, arm.range) }),
       ...(comment === undefined
         ? {}
-        : {
-          commentProjection: Object.freeze({ ast: core.projectComment(revision, comment).ast })
-        })
+        : { commentProjection: commentPassage(core.projectComment(revision, comment, 'markup'), comment) })
     })
   }
 

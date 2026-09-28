@@ -10,6 +10,8 @@ import { isAlias, isMap, isScalar, isSeq, parseDocument, type Document } from 'y
 
 import type { PandocDocument, PandocJsonNode } from '@shared/types/files'
 
+import { semanticTextPieces, type SemanticTextPiece } from './semanticTextPieces'
+
 /**
  * Pandoc's own default for a change or comment with no author. MarkText records
  * no authorship, so every tracked change and comment carries this neutral name.
@@ -193,12 +195,6 @@ const ALIGNMENTS: Readonly<Record<string, string>> = {
 
 const DISPLAY_MATH_MARKERS = new Set(['$$', '\\[', '\\\\['])
 
-interface TextPiece {
-  readonly at: number
-  readonly text: string
-  readonly literal?: true
-}
-
 interface TrackingContext {
   /** The wrap key for a position in the AST's coordinate domain. */
   readonly keyAt: (position: number) => string
@@ -230,42 +226,8 @@ const createAstConverter = (root: MarkdownAstNode, context: TrackingContext, mar
   // A definition renders at its first reference; later ones reuse its blocks.
   const renderedNotes = new Map<number, PandocJsonNode[]>()
 
-  // Pairs each code unit of a text node's semantic value with its position.
-  // Normalized spellings are positioned at their segment; protective text the
-  // parser generates carries no value of its own. A `literal` piece is text a
-  // longer spelling such as `&#9;` stands for, which is never a word break.
-  const textPieces = (node: MarkdownAstNode): TextPiece[] => {
-    const value = stringAttribute(node, 'semanticText')
-    const segments = [...(node.semanticTextSegments ?? [])].sort(
-      (left, right) => left.range.start - right.range.start
-    )
-    const align = (skipGenerated: boolean): TextPiece[] | undefined => {
-      const pieces: TextPiece[] = []
-      let offset = 0
-      let segment = 0
-      for (let position = node.range.start; position < node.range.end;) {
-        const next = segments[segment]
-        if (next !== undefined && next.range.start <= position) {
-          if (next.range.start === position && next.value !== '') {
-            const literal = next.range.end - next.range.start > next.value.length
-            pieces.push({ at: position, text: next.value, ...(literal ? { literal: true as const } : {}) })
-          }
-          offset += next.range.start === position ? next.value.length : 0
-          position = Math.max(position + 1, next.range.end)
-          segment += 1
-          continue
-        }
-        if (!(skipGenerated && context.isGenerated(position))) {
-          if (offset >= value.length) return undefined
-          pieces.push({ at: position, text: value[offset]! })
-          offset += 1
-        }
-        position += 1
-      }
-      return offset === value.length ? pieces : undefined
-    }
-    return align(false) ?? align(true) ?? [{ at: node.range.start, text: value }]
-  }
+  const textPieces = (node: MarkdownAstNode): SemanticTextPiece[] =>
+    semanticTextPieces(node, context.isGenerated)
 
   const convertInlines = (
     nodes: readonly MarkdownAstNode[],
