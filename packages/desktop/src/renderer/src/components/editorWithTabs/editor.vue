@@ -2576,10 +2576,34 @@ const refreshCoreConsumerCount = async (): Promise<boolean> => {
 // Counts, outline and passive Review navigation read whole-document projections.
 // Refresh them after native input pauses so those reads cannot queue ahead of
 // the next edit. Explicit search, clipboard and export still use their barriers.
-const refreshCorePassiveConsumers = debounce(() => {
-  refreshCoreConsumerCount()
-  refreshCoreReviewItem('next', () => coreReviewItem.value?.range.start ?? 0, true)
+// Each refresh starts in an idle period of its own, after any key already
+// queued, so a key typed meanwhile waits for one of them at most.
+const passiveIdleHandles = new Set<number>()
+const whenIdle = (task: () => void): void => {
+  const handle = requestIdleCallback(
+    () => {
+      passiveIdleHandles.delete(handle)
+      task()
+    },
+    { timeout: 500 }
+  )
+  passiveIdleHandles.add(handle)
+}
+const debouncedCorePassiveConsumers = debounce(() => {
+  whenIdle(() => {
+    refreshCoreConsumerCount()
+  })
+  whenIdle(() => {
+    refreshCoreReviewItem('next', () => coreReviewItem.value?.range.start ?? 0, true)
+  })
 }, 150)
+const refreshCorePassiveConsumers = Object.assign(() => debouncedCorePassiveConsumers(), {
+  cancel: (): void => {
+    debouncedCorePassiveConsumers.cancel()
+    for (const handle of passiveIdleHandles) cancelIdleCallback(handle)
+    passiveIdleHandles.clear()
+  }
+})
 
 const prepareCoreSelectionClipboard = async (flavor: 'html' | 'rich'): Promise<boolean> => {
   const authority = coreSelectionClipboardAuthority
