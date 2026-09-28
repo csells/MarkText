@@ -1,4 +1,5 @@
 export type { DocumentClipboardInput, DocumentCompositionResult, DocumentDOMPoint, DocumentEditing, DocumentFormatInput, DocumentInput, DocumentInputSyntaxContext, DocumentTextInput, DocumentTextPoint, DocumentTextReplacement } from './editor/documentEditingTypes';
+export type { IReconcileRegion } from './editor/index';
 export type { ISerializedHistory } from './history';
 export type { ILocale } from './i18n/types';
 export type { IInlinePresentationContext, IInlinePresentationImage, TInlinePresentation } from './inlineRenderer/types';
