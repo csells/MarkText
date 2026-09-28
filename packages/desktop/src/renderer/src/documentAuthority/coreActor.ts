@@ -41,6 +41,7 @@ import type {
 } from './coreProtocol'
 import { createMuyaMarkupView } from './muyaMarkupView'
 import { createReviewOverviewTracker } from './coreReviewOverview'
+import { createConsumerSummaryTracker } from './coreConsumerSummary'
 
 export interface CoreActor {
   handle(request: CoreRequest): CoreReply
@@ -674,6 +675,7 @@ export function createCoreActor(
   }
 
   const reviewOverview = createReviewOverviewTracker()
+  const consumerSummary = createConsumerSummaryTracker()
   const reviewItemsFor = (
     activeCore: DocumentCore,
     activeRevision: DocumentRevision
@@ -903,6 +905,7 @@ export function createCoreActor(
         core = nextCore
         revision = opened
         reviewOverview.reset()
+        consumerSummary.reset()
         markdownOptions =
           request.options === undefined ? undefined : Object.freeze({ ...request.options })
         session = request.session
@@ -1145,6 +1148,17 @@ export function createCoreActor(
           accepted: true,
           sourceLength: revision.sourceLength,
           projection: Object.freeze({ name: request.name, ast: projection.ast })
+        })
+      }
+      if (request.type === 'consumer-summary-at-barrier') {
+        return Object.freeze({
+          type: 'consumer-summary',
+          session,
+          sequence,
+          revision: revisionNumber,
+          accepted: true,
+          sourceLength: revision.sourceLength,
+          summary: consumerSummary.summary(core, revision)
         })
       }
       if (request.type === 'consumer-projection-at-barrier') {
@@ -2226,6 +2240,7 @@ export function createCoreActor(
         }
       }
       reviewOverview.committed(revision, commit.revision, commit.change)
+      consumerSummary.committed(revision, commit.revision, commit.change)
       revision = commit.revision
       if (request.type === 'configure') {
         markdownOptions = Object.freeze({ ...markdownOptions, ...request.options })
@@ -2323,6 +2338,7 @@ export function createCoreActor(
       core = undefined
       revision = undefined
       reviewOverview.reset()
+      consumerSummary.reset()
       undoStack.splice(0)
       redoStack.splice(0)
       undoUnits = 0
