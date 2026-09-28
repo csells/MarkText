@@ -235,11 +235,12 @@ export class MarkdownToHtml {
 
         // hack to add arrow marker to output html
         // TODO: JOCS, are these codes still needed?
-        const paths = document.querySelectorAll('path[id^=raphael-marker-]');
+        // Only a diagram's markup holds the defs; searching the whole document
+        // for markers costs every other rendering, such as each Comment body.
         const def = '<defs style="-webkit-tap-highlight-color: rgba(0, 0, 0, 0);">';
         result = result.replace(def, () => {
             let str = '';
-            for (const path of paths)
+            for (const path of document.querySelectorAll('path[id^=raphael-marker-]'))
                 str += path.outerHTML;
 
             return `${def}${str}`;
