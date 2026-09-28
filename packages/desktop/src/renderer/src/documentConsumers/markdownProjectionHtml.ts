@@ -507,10 +507,10 @@ export function renderMarkupPassageExcerpt(passage: MarkupPassage): MarkupPassag
         const content = stringAttribute(node, 'content')
         return atom(node, renderMath(content, { displayMode: false, throwOnError: false }), content)
       }
-      case 'image': {
-        const alt = semanticPlainTextOf(node)
-        return atom(node, escapeHtml(alt), alt)
-      }
+      // An image reads as its alt text, which a suggestion in it may hold only
+      // part of: that part is the excerpt, as for any other text.
+      case 'image':
+        return inlines(node.children)
       case 'autolink': {
         const destination = stringAttribute(node, 'rawDestination')
         return atom(node, escapeHtml(destination), destination)
