@@ -632,11 +632,20 @@ test.describe('installed editorial pass', () => {
     ]) await expect(entry(page, name), name).toHaveCount(1)
     await expect(entry(page, /^Deletion: start of removal/)).toHaveCount(1)
     const bodies = list.locator('.core-review-comment')
-    // A Comment body reads as its Revised interpretation (documentCore.projectComment).
-    for (const body of ['Verify this figure.', 'Standalone remark.', 'Nested pair note.', 'Comment with inside.']) {
+    // A Comment body reads in its Markup reading (documentCore.projectComment
+    // 'markup'): a suggestion nested in it shows as a suggestion.
+    for (const body of ['Verify this figure.', 'Standalone remark.', 'Nested pair note.', 'Comment with nested deletion inside.']) {
       await expect(bodies.filter({ hasText: body }), body).toHaveCount(1)
     }
+    const nestedDeletion = bodies.getByRole('deletion').filter({ hasText: 'nested deletion' })
+    await expect(nestedDeletion).toHaveCount(1)
+    await expect(nestedDeletion).toHaveCSS('text-decoration-line', 'line-through')
     await expect(entry(page, 'Addition: inner addition')).toHaveCount(1)
+    // A commented passage shows its nested suggestion marked, as the editor does.
+    const nestedPair = entry(page, 'Comment: outer inner addition mark')
+    await expect(nestedPair).toHaveCount(1)
+    await expect(nestedPair.getByRole('insertion')).toHaveText('inner addition')
+    await expect(entry(page, /^Deletion: start of removal end of removal/)).toHaveCount(1)
     // Selecting an entry reveals its target and keeps the sidebar consistent.
     await entry(page, 'Deletion: a removed phrase').click()
     await expect(entry(page, 'Deletion: a removed phrase')).toHaveAttribute('aria-pressed', 'true')
