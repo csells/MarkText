@@ -166,7 +166,7 @@ export function planInput(core: DocumentCore, revision: DocumentRevision, action
   // Typing, Enter, deletion and drops inside a table change only their own
   // bytes (ADR 0007; owner decision 25 Sep, plan 0012 G24). The line a
   // paragraph's Enter turns into a table is the typed line's conversion.
-  if (!('kind' in action)) return action.selection.kind === 'table-cell' ? plan : respellEnteredTable(core, revision, action, plan, preview)
+  if (!('kind' in action)) return action.selection.kind === 'table-cell' ? plan : respellEnteredTable(core, revision, action, plan, preview, regionalSyntax)
   if (!tableCommands.has(action.command)) return plan
   // An explicit table command writes the table afresh, as upstream does; the
   // padding is spelling, so a tracked command never suggests it.
@@ -181,12 +181,13 @@ export function planInput(core: DocumentCore, revision: DocumentRevision, action
  * Upstream writes the table that Enter makes of a header paragraph through its
  * serializer, so the new table arrives padded to its widest cell.
  */
-function respellEnteredTable(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, preview: TablePreview): DocumentInputPlan {
+function respellEnteredTable(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, preview: TablePreview, regionalSyntax?: (range: SourceRange) => MarkupSyntax | undefined): DocumentInputPlan {
   const first = plan.edits[0]
   if ('kind' in action || action.inputType !== 'insertParagraph' || first === undefined) return plan
   // Only a line with a pipe can become a table's header row.
   if (!plan.edits.some(edit => edit.insert.includes('|')) && !pipeOnLine(core, revision, first.start)) return plan
-  if (tableAt(core.project(revision, 'markup').syntax, first.start) !== undefined) return plan
+  const syntax = regionalSyntax?.({ start: first.start, end: first.start }) ?? core.project(revision, 'markup').syntax
+  if (tableAt(syntax, first.start) !== undefined) return plan
   return Object.freeze(respellTableResult(plan, first.start, preview))
 }
 
