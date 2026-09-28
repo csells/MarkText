@@ -1,6 +1,7 @@
 import type { MarkdownAstNode } from '@marktext/document-core'
 import type { IInlinePresentationContext } from '@muyajs/core'
 import { escapeHtml, isMuyaImageSyntax, renderMuyaMarkupBinding } from './muyaMarkupPresentation'
+import { muyaItemAtPath, muyaItemsAtPath, muyaItemsInRoots } from './muyaMarkupViewLookup'
 import type {
   MuyaMarkupBinding,
   MuyaMarkupComment,
@@ -18,18 +19,25 @@ export interface MuyaMarkupPresentationIndex {
 type Renderer = typeof renderMuyaMarkupBinding
 type Highlights = NonNullable<IInlinePresentationContext['highlights']>
 interface Entry {
-  readonly binding: MuyaMarkupBinding
-  readonly decorations: readonly MuyaMarkupDecoration[]
-  readonly comments: readonly MuyaMarkupComment[]
+  binding: MuyaMarkupBinding
+  decorations: readonly MuyaMarkupDecoration[]
+  comments: readonly MuyaMarkupComment[]
   readonly hasNativeWidget: boolean
+  /** The view whose coordinates `binding`, `decorations` and `comments` use. */
+  view: Pick<MuyaMarkupView, 'bindings' | 'decorations' | 'comments'>
   rendered?: { readonly text: string; readonly html: string; readonly highlights: Highlights }
 }
+/** Entries of each root block, keyed by the rest of their path. */
+type RootEntries = ReadonlyMap<string, Entry>
 const stores = new WeakMap<
   MuyaMarkupPresentationIndex,
   {
     readonly renderer: Renderer
     readonly commentLabel: string
-    readonly entries: ReadonlyMap<string, Entry>
+    readonly view: Pick<MuyaMarkupView, 'bindings' | 'decorations' | 'comments'>
+    readonly roots: readonly (RootEntries | undefined)[]
+    /** Entries of paths that do not start with a root block number. */
+    readonly others: RootEntries
   }
 >()
 const pathKey = (path: MuyaMarkupPath): string => JSON.stringify(path)
@@ -158,47 +166,48 @@ const samePresentation = (before: Entry, after: Entry): boolean => {
   return sameSyntax(left.syntax, right.syntax)
 }
 
+/** Roots `[start, previousEnd)` of `previous`'s view are roots `[start, nextEnd)` of the new one. */
+export interface MuyaMarkupPresentationPatch {
+  readonly previous: Pick<MuyaMarkupView, 'bindings' | 'decorations' | 'comments'>
+  readonly start: number
+  readonly previousEnd: number
+  readonly nextEnd: number
+}
+
+const restKey = (path: MuyaMarkupPath): string => JSON.stringify(path.slice(1))
+const rootOf = (path: MuyaMarkupPath): number | undefined =>
+  typeof path[0] === 'number' ? path[0] : undefined
+
 /**
  * Index one acknowledged view. The provider looks up only its own marks and
  * retains one cached rendering per leaf; it never scans the document's marks.
  * Comparison ignores uniform coordinate shifts and never serializes an AST.
+ * Given the roots a regional change replaced, only those are indexed again:
+ * every other root keeps its entries, whose coordinates are refreshed from
+ * the view only when the leaf renders again.
  */
 export function createMuyaMarkupPresentationIndex(
   view: Pick<MuyaMarkupView, 'bindings' | 'decorations' | 'comments'>,
   previous?: MuyaMarkupPresentationIndex,
   renderer: Renderer = renderMuyaMarkupBinding,
-  commentLabel = 'Comment'
+  commentLabel = 'Comment',
+  patch?: MuyaMarkupPresentationPatch
 ): MuyaMarkupPresentationIndex {
   const previousStore = previous === undefined ? undefined : stores.get(previous)
-  const before = previousStore?.renderer === renderer ? previousStore.entries : undefined
-  const decorations = new Map<string, MuyaMarkupDecoration[]>()
-  for (const decoration of view.decorations) {
-    const key = pathKey(decoration.path)
-    const group = decorations.get(key)
-    if (group === undefined) decorations.set(key, [decoration])
-    else group.push(decoration)
-  }
-  const comments = new Map<string, MuyaMarkupComment[]>()
-  for (const comment of view.comments) {
-    const key = pathKey(comment.path)
-    const group = comments.get(key)
-    if (group === undefined) comments.set(key, [comment])
-    else group.push(comment)
-  }
-  const entries = new Map<string, Entry>()
+  const before = previousStore?.renderer === renderer ? previousStore : undefined
+  const reusesComments = previousStore?.commentLabel === commentLabel
   const changedPaths: MuyaMarkupPath[] = []
-  for (const binding of view.bindings) {
-    const key = pathKey(binding.path)
+  const entryFor = (binding: MuyaMarkupBinding, retained: Entry | undefined): Entry => {
     const entry: Entry = {
       binding,
-      decorations: decorations.get(key) ?? [],
-      comments: comments.get(key) ?? [],
-      hasNativeWidget: hasNativeWidget(binding.syntax)
+      decorations: muyaItemsAtPath(view.decorations, binding.path),
+      comments: muyaItemsAtPath(view.comments, binding.path),
+      hasNativeWidget: hasNativeWidget(binding.syntax),
+      view
     }
-    const retained = before?.get(key)
     if (
       retained !== undefined &&
-      (entry.comments.length === 0 || previousStore?.commentLabel === commentLabel) &&
+      (entry.comments.length === 0 || reusesComments) &&
       samePresentation(retained, entry)
     ) {
       entry.rendered = retained.rendered
@@ -206,15 +215,93 @@ export function createMuyaMarkupPresentationIndex(
         changedPaths.push(binding.path)
       }
     } else changedPaths.push(binding.path)
-    entries.set(key, entry)
+    return entry
   }
-  for (const [key, entry] of before ?? []) {
-    if (!entries.has(key)) changedPaths.push(entry.binding.path)
+  const beforeAt = (path: MuyaMarkupPath): Entry | undefined => {
+    const root = rootOf(path)
+    return root === undefined
+      ? before?.others.get(pathKey(path))
+      : before?.roots[root]?.get(restKey(path))
+  }
+  let roots: (RootEntries | undefined)[]
+  let others: Map<string, Entry>
+  if (
+    patch !== undefined &&
+    before !== undefined &&
+    reusesComments &&
+    before.view === patch.previous &&
+    before.others.size === 0 &&
+    patch.previousEnd <= before.roots.length
+  ) {
+    const replaced: (Map<string, Entry> | undefined)[] = []
+    for (const binding of muyaItemsInRoots(view.bindings, patch.start, patch.nextEnd)) {
+      const root = rootOf(binding.path)!
+      const key = restKey(binding.path)
+      // A replaced root is compared with the root it replaces at the same
+      // place, as a full index compares leaves at the same path.
+      const retained =
+        root < patch.previousEnd ? before.roots[root]?.get(key) : undefined
+      const group = (replaced[root - patch.start] ??= new Map())
+      group.set(key, entryFor(binding, retained))
+    }
+    for (let root = patch.start; root < patch.previousEnd; root += 1) {
+      for (const [key, entry] of before.roots[root] ?? []) {
+        if (replaced[root - patch.start]?.has(key) !== true) changedPaths.push(entry.binding.path)
+      }
+    }
+    roots = [
+      ...before.roots.slice(0, patch.start),
+      ...Array.from({ length: patch.nextEnd - patch.start }, (_, index) => replaced[index]),
+      ...before.roots.slice(patch.previousEnd)
+    ]
+    others = new Map()
+  } else {
+    roots = []
+    others = new Map()
+    for (const binding of view.bindings) {
+      const root = rootOf(binding.path)
+      const entry = entryFor(binding, beforeAt(binding.path))
+      if (root === undefined) others.set(pathKey(binding.path), entry)
+      else {
+        const group = (roots[root] ??= new Map()) as Map<string, Entry>
+        group.set(restKey(binding.path), entry)
+      }
+    }
+    const present = (path: MuyaMarkupPath): boolean => {
+      const root = rootOf(path)
+      return root === undefined
+        ? others.has(pathKey(path))
+        : roots[root]?.has(restKey(path)) === true
+    }
+    for (const group of [...(before?.roots ?? []), before?.others]) {
+      for (const entry of group?.values() ?? []) {
+        if (!present(entry.binding.path)) changedPaths.push(entry.binding.path)
+      }
+    }
+  }
+  const lookup = (path: MuyaMarkupPath): Entry | undefined => {
+    const root = rootOf(path)
+    return root === undefined ? others.get(pathKey(path)) : roots[root]?.get(restKey(path))
+  }
+  /**
+   * A retained root's entry holds the coordinates of the view it was indexed
+   * with. Its presentation and cached rendering are the same, but rendering
+   * again reads its coordinates from this view.
+   */
+  const refreshed = (entry: Entry, path: MuyaMarkupPath): Entry | undefined => {
+    if (entry.view === view) return entry
+    const binding = muyaItemAtPath(view.bindings, path)
+    if (binding === undefined) return undefined
+    entry.binding = binding
+    entry.decorations = muyaItemsAtPath(view.decorations, path)
+    entry.comments = muyaItemsAtPath(view.comments, path)
+    entry.view = view
+    return entry
   }
   const index: MuyaMarkupPresentationIndex = {
     changedPaths,
     render(path, text, context) {
-      const entry = entries.get(pathKey(path))
+      const entry = lookup(path)
       // Mount and reconciliation can briefly expose a native placeholder
       // before its model path exists. Keep it literal: returning undefined
       // would delegate to Muya's independent inline parser.
@@ -236,18 +323,20 @@ export function createMuyaMarkupPresentationIndex(
       ) {
         return cached.html
       }
+      const current = refreshed(entry, path)
+      if (current === undefined) return escapeHtml(text)
       const html = renderer(
-        entry.binding,
-        entry.decorations,
+        current.binding,
+        current.decorations,
         text,
         context,
-        entry.comments,
+        current.comments,
         commentLabel
       )
       entry.rendered = { text, html, highlights: highlights.map((highlight) => ({ ...highlight })) }
       return html
     }
   }
-  stores.set(index, { renderer, entries, commentLabel })
+  stores.set(index, { renderer, commentLabel, view, roots, others })
   return index
 }

@@ -298,4 +298,18 @@ describe('Regional Markup view patches', () => {
     expect(previous.decorations.some((item) => item.sourcePosition !== undefined)).toBe(true)
     expect(actual).toEqual(expected)
   })
+
+  it('records the roots a regional change replaced', async() => {
+    const { muyaMarkupViewPatch } = await import('@/documentAuthority/muyaMarkupChanges')
+    const source = 'one\n\ntwo\n\nthree\n\nfour\n'
+    const start = source.indexOf('three') + 2
+    const { actual, previous } = fixture(source, { start, end: start, insert: '\n\n' })
+    expect(actual).toBeDefined()
+    expect(muyaMarkupViewPatch(actual!)).toEqual({
+      previous,
+      start: 2,
+      previousEnd: 3,
+      nextEnd: 4
+    })
+  })
 })
