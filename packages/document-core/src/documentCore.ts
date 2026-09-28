@@ -14,7 +14,7 @@ import { isLiteralBlock } from './literalBlock.js'
 import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
-import { joinedTrackedEdit, mergedTrackedDeletion, trackedEditableEdits, trackedEditableSpans, unchangedTrackedEdit } from './trackedHistoryEditing.js'
+import { joinedTrackedEdit, mergedTrackedDeletion, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit } from './trackedHistoryEditing.js'
 import { deferEquivalence, projectionSignature, trackedMarkdownSignatures, trackedOperationEquivalent, trackedPreviewFacts, withDeferredEquivalence } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
@@ -4371,13 +4371,67 @@ function createDocumentCoreWithExecutionBudget(
   }
 
   /**
-   * Whether the paragraph text around `at` is words and plain punctuation,
-   * apart from Addition delimiters, and the line the break starts begins
-   * with a letter: no delimiter there can pair across the break, and no
-   * block marker can begin the new line, differently in a suggestion than in
-   * untracked text.
+   * Backspace or Delete over plain words, proved by reparsing the paragraphs
+   * they are in: away from every suggestion the struck text becomes a new
+   * Deletion, and beside a Deletion that it reaches it joins that Deletion,
+   * as the general compiler merges them. The window proves the result is
+   * recognized as written and changes no other suggestion.
    */
-  const plainParagraphAround = (previous: DocumentRevision, at: number): boolean => {
+  const regionalTrackedDeletion = (
+    state: RevisionState,
+    previous: DocumentRevision,
+    edit: DocumentSourceEdit
+  ): DocumentSourceEdit | undefined => {
+    if (plansFromDocumentParse(core) || edit.insert !== '' || edit.start >= edit.end) return undefined
+    const removed = core.sourceSlice(previous, edit)
+    if (!/^[\p{L}\p{N} .,;:'"?!()]+$/u.test(removed) ||
+        !plainParagraphAround(previous, edit.start, false)) return undefined
+    const touching = markupAnnotations(previous.annotations).filter(annotation =>
+      annotation.range.start <= edit.end && edit.start <= annotation.range.end)
+    const owner = touching[0]
+    if (touching.length > 1) return undefined
+    let planned: DocumentSourceEdit
+    let expected: Readonly<{ start: number, end: number, content: SourceRange }>
+    if (owner === undefined) {
+      planned = Object.freeze({ start: edit.start, end: edit.end, insert: `{--${removed}--}` })
+      expected = { start: edit.start, end: edit.start + planned.insert.length, content: { start: edit.start + 3, end: edit.end + 3 } }
+    } else {
+      const content = owner.arms[0]
+      // Parts of one edit across deleted text stay separate suggestions.
+      if (trackedPartsSeparate(core) || owner.kind !== 'deletion' || owner.arms.length !== 1 || content === undefined || content.annotations.length !== 0 ||
+          content.range.start !== owner.range.start + 3 || content.range.end !== owner.range.end - 3) return undefined
+      if (owner.range.start === edit.end) {
+        // Backspace before a Deletion strikes the text into it.
+        planned = Object.freeze({ start: edit.start, end: content.range.start, insert: `{--${removed}` })
+        expected = { start: edit.start, end: owner.range.end, content: { start: edit.start + 3, end: content.range.end } }
+      } else if (owner.range.end === edit.start) {
+        // Delete after a Deletion strikes the text into it.
+        planned = Object.freeze({ start: content.range.end, end: edit.end, insert: `${removed}--}` })
+        expected = { start: owner.range.start, end: edit.end, content: { start: content.range.start, end: edit.end - 3 } }
+      } else return undefined
+    }
+    const candidate = regionalCandidate(state, planned)
+    if (candidate?.structural === undefined || candidate.structural.markerDelta !== (owner === undefined ? 2 : 0) ||
+        (owner === undefined && candidate.structural.touchesAnnotation) || candidate.nextProducts.diagnostics.count !== 0 ||
+        (candidate.nextProducts.retainedIntrinsic?.diagnostics.length ?? 0) !== 0) return undefined
+    const shift = candidate.sourceStart
+    const root = candidate.nextProducts.retainedIntrinsic?.roots.find(node => node.range.start === expected.start - shift)
+    const content = root?.arms[0]
+    return root?.kind === 'deletion' && root.arms.length === 1 && root.range.end === expected.end - shift &&
+      content !== undefined && content.children.length === 0 &&
+      content.range.start === expected.content.start - shift && content.range.end === expected.content.end - shift
+      ? planned
+      : undefined
+  }
+
+  /**
+   * Whether the paragraph text around `at` is words and plain punctuation,
+   * apart from CriticMarkup delimiters, and, for a break, the line it starts
+   * begins with a letter: no Markdown delimiter there can pair across the
+   * edit, and no block marker can begin the new line, differently in a
+   * suggestion than in untracked text.
+   */
+  const plainParagraphAround = (previous: DocumentRevision, at: number, breaking = true): boolean => {
     const reach = 4096
     const blank = /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/gu
     const before = core.sourceSlice(previous, { start: Math.max(0, at - reach), end: at })
@@ -4387,8 +4441,8 @@ function createDocumentCoreWithExecutionBudget(
     if (opening === undefined && at > reach || closing < 0 && previous.sourceLength - at > reach) return false
     const text = before.slice(opening === undefined ? 0 : opening.index + opening[0].length) +
       after.slice(0, closing < 0 ? after.length : closing)
-    return /^[\p{L}\p{N} \t\r\n.,;:'"?!()]*$/u.test(text.replace(/\{\+\+|\+\+\}/gu, '')) &&
-      /^(?:\+\+\})?[ \t]*(?:\p{L}|\r|\n|$)/u.test(after)
+    return /^[\p{L}\p{N} \t\r\n.,;:'"?!()]*$/u.test(text.replace(/\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\}/gu, '')) &&
+      (!breaking || /^(?:\+\+\})?[ \t]*(?:\p{L}|\r|\n|$)/u.test(after))
   }
 
   const resolutionEdit = (
@@ -4481,7 +4535,8 @@ function createDocumentCoreWithExecutionBudget(
       return Object.freeze({ start: first.start, end: last.end, insert })
     }
     const regional = regionalPayloadEdit(state, edit, true) ?? regionalTrackedInsertion(state, previous, edit) ??
-      regionalTrackedBreak(state, previous, edit) ?? regionalTrackedJoin(state, previous, edit)
+      regionalTrackedBreak(state, previous, edit) ?? regionalTrackedJoin(state, previous, edit) ??
+      regionalTrackedDeletion(state, previous, edit)
     if (regional !== undefined) return regional
     const planned = createTrackedSourceEdit(core, previous, edit, preview) ??
       createTrackedLiteralSourceEdit(core, previous, edit, preview) ??
