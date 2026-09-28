@@ -1411,6 +1411,77 @@ export function previewRegionalContext(
   return result?.kind === 'validated' ? result : undefined
 }
 
+/**
+ * The blocks holding `range` with an unchanged block of context on each
+ * side, parsed as the window an edit there would parse, for reading a
+ * revision without its document parse. Nothing is replaced, so any block
+ * kind reads there; the window's safe points and marker readings must still
+ * match the document's for its blocks to read as they do in the whole
+ * document.
+ */
+export function previewRegionalRange(
+  inventory: RegionalInventory,
+  source: CanonicalSourceView,
+  range: Readonly<{ readonly start: number; readonly end: number }>,
+  executionBudget: ExecutionBudgetId,
+  markdownOptions: MarkdownOptionsV1,
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1
+): Readonly<{ sourceStart: number, nextProducts: Profile1DocumentProducts, nextWindow: string }> | undefined {
+  const value = inventoryValue(inventory)
+  const length = source.length
+  if (
+    length !== value.root.sourceLength || length === 0 || range.end > length ||
+    (value.dependencyPrefixEnd !== 0 && range.start <= value.dependencyPrefixEnd)
+  ) {
+    return undefined
+  }
+  let edited = windowEdge(value, range.start, 'start')
+  let editedEnd = windowEdge(value, range.end, 'end')
+  if (edited === undefined || editedEnd === undefined || editedEnd.ordinal < edited.ordinal ||
+      edited.source > range.start || editedEnd.source < range.end) {
+    return undefined
+  }
+  for (let widening = 0; ; widening += 1) {
+    const first: WindowEdge | undefined = edited.source > 0 ? windowEdge(value, edited.source - 1, 'start') : edited
+    const last: WindowEdge | undefined = editedEnd.source < length ? windowEdge(value, editedEnd.source, 'end') : editedEnd
+    if (first === undefined || last === undefined) return undefined
+    const window = source.slice(first.source, last.source)
+    value.recorder.recordCandidateRegionParse(window.length)
+    const result = parseProfile1Window(
+      window,
+      executionBudget,
+      first.source === 0 ? markdownOptions : Object.freeze({ ...markdownOptions, frontMatter: false }),
+      false,
+      physicalRecorder,
+      last.source === length
+    )
+    if (result.kind !== 'complete') return undefined
+    const safePoints = result.retainedIntrinsic?.safePoints ?? []
+    const startStands = edited.source === first.source || safePoints.includes(edited.source - first.source)
+    const endStands = editedEnd.source === last.source || safePoints.includes(editedEnd.source - first.source)
+    if (!startStands || !endStands) {
+      if (widening === 2) return undefined
+      if (!startStands) edited = first
+      if (!endStands) editedEnd = last
+      continue
+    }
+    const documentMarkers: MarkerCapsule[] = []
+    for (const located of leafRange(value.root, first.ordinal, last.ordinal)) {
+      if (located.leaf.kind === 'region') documentMarkers.push(...located.leaf.markers)
+      else if (located.leaf.plain === undefined) return undefined
+    }
+    const windowMarkers = markerCapsules(result.retainedIntrinsic?.markerDecisions ?? [], 0)
+    if (windowMarkers.length !== documentMarkers.length || windowMarkers.some((marker, ordinal) => {
+      const document = documentMarkers[ordinal]
+      return document === undefined || marker.kind !== document.kind || marker.role !== document.role ||
+        marker.action !== document.action
+    })) {
+      return undefined
+    }
+    return Object.freeze({ sourceStart: first.source, nextProducts: result, nextWindow: window })
+  }
+}
+
 function evaluateRegionalInventory(...args: [...RegionalInventoryArguments, true]): RegionalInventoryPreviewResult
 function evaluateRegionalInventory(...args: [...RegionalInventoryArguments, false]): RegionalInventoryApplyResult
 function evaluateRegionalInventory(
