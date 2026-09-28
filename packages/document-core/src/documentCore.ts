@@ -4382,6 +4382,10 @@ function createDocumentCoreWithExecutionBudget(
     const history = owner.kind === 'substitution' ? owner.arms.find(arm => arm.name === 'old') : undefined
     if ((owner.kind !== 'addition' && owner.kind !== 'substitution') || text === undefined || text.range.start === text.range.end ||
         owner.arms.some(arm => arm.annotations.length > 0) || (owner.kind === 'substitution' && history === undefined)) return undefined
+    // Words join words: a suggestion whose text is a break or other
+    // syntax keeps the general compiler's decision.
+    if (owner.arms.some(arm => !/^[\p{L}\p{N} .,;:'"?!()]*$/u.test(core.sourceSlice(previous, arm.range))) ||
+        !/[\p{L}\p{N}]/u.test(core.sourceSlice(previous, text.range))) return undefined
     // Before the text: the opener, and for a Substitution its whole old text.
     const leading = history === undefined
       ? at <= text.range.start
