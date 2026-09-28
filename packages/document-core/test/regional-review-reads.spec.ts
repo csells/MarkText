@@ -89,6 +89,33 @@ describe('Regional review reads', () => {
     expect(regional).toEqual(reads(fresh, opened, freshNear))
   })
 
+  it('read the blocks a regional change replaced as the whole Revised and Original projections read them', () => {
+    const source = ['Opening paragraph.', ...Array.from({ length: 60 }, (_, index) =>
+      index % 5 === 4 ? others[Math.floor(index / 5) % others.length]! : dense)].join('\n\n') + '\n'
+    const core = createDocumentCore()
+    let revision = core.open(source)
+    core.project(revision, 'revised')
+    const at = source.indexOf('alongside', 1500)
+    const commit = core.apply(revision, [{ start: at, end: at, insert: 'q' }], { projections: ['markup'] })
+    revision = commit.revision
+    const change = commit.change.projections[0]
+    if (change?.name !== 'markup' || change.scope !== 'regions') throw new Error('Expected a regional change')
+    const replaced = change.replacements[0]!.next.source
+    const before = inspectDocumentCore(core).documentParses
+    const regional = (['revised', 'original'] as const).map((name) => {
+      const { projection, span } = core.projectAround(revision, name, replaced)
+      return projection.markdown.slice(span.start, span.end)
+    })
+    expect(inspectDocumentCore(core).documentParses).toBe(before)
+    const fresh = createDocumentCore()
+    const opened = fresh.open(revision.source)
+    expect(regional).toEqual((['revised', 'original'] as const).map((name) => {
+      const { projection, span } = fresh.projectAround(opened, name, replaced)
+      return projection.markdown.slice(span.start, span.end)
+    }))
+    expect(regional[0]).toContain('qalongside')
+  })
+
   it('project a Comment that a regional reply describes', () => {
     const core = createDocumentCore()
     const opened = core.open('Plain.\n\nText {==here==}{>>note<<}.\n')

@@ -703,6 +703,20 @@ export interface DocumentCore {
     projection: DocumentProjectionName,
     range: SourceRange
   ): boolean
+  /**
+   * A projection holding the source range `range`, whose ends are top-level
+   * block starts or the document's ends, and the projected span the range
+   * reads as there. Each end of the span falls after any text omitted or
+   * generated at that end of the range, so adjacent ranges read as adjacent
+   * spans. A revision reached by a regional edit is read from the blocks
+   * around the range, so the projection may hold only those blocks; its
+   * coordinates still map to the revision's source.
+   */
+  projectAround(
+    revision: DocumentRevision,
+    projection: MarkdownProjectionName,
+    range: SourceRange
+  ): Readonly<{ projection: MarkdownProjection; span: SourceRange }>
 }
 
 const DEFAULT_MARKDOWN_OPTIONS: MarkdownOptions = Object.freeze({
@@ -4090,6 +4104,52 @@ function createDocumentCoreWithExecutionBudget(
       : projectRevision(revision, projection).coordinates.intersectsSource(range)
   }
 
+  const projectAround = (
+    revision: DocumentRevision,
+    name: MarkdownProjectionName,
+    range: SourceRange
+  ): Readonly<{ projection: MarkdownProjection; span: SourceRange }> => {
+    const state = stateByRevision.get(revision)
+    if (state === undefined) {
+      throw new Error('Document revision belongs to another core')
+    }
+    if (name !== 'original' && name !== 'revised') {
+      throw new RangeError(`Unknown Markdown projection: ${String(name)}`)
+    }
+    if (
+      range === null || typeof range !== 'object' ||
+      !Number.isInteger(range.start) || !Number.isInteger(range.end) ||
+      range.start < 0 || range.end < range.start || range.end > state.source.length
+    ) {
+      throw new RangeError('Source range is outside the revision')
+    }
+    let projection = projectionCache.get(revision)?.get(name) as MarkdownProjection | undefined
+    if (projection === undefined) {
+      const window = regionalReadWindow(state, range)
+      if (window !== undefined) {
+        const projected = name === 'original' ? window.nextProducts.original : window.nextProducts.revised
+        projection = Object.freeze({
+          kind: 'markdown',
+          name,
+          markdown: projected.source,
+          ast: markdownAstOf(projected),
+          coordinates: shiftedRegionalProjectionCoordinatesOf(
+            projected, window.nextWindow.length, window.sourceStart, state.source.length
+          )
+        })
+        inspection.regionalAstMaterializedNodes += countMarkdownAstNodes(projection.ast.root)
+      }
+    }
+    projection ??= projectRevision(revision, name)
+    return Object.freeze({
+      projection,
+      span: Object.freeze({
+        start: projection.coordinates.toProjected(range.start, 'next'),
+        end: projection.coordinates.toProjected(range.end, 'next')
+      })
+    })
+  }
+
   function projectCommentView(
     revision: DocumentRevision,
     comment: CriticMarkupAnnotation
@@ -5496,7 +5556,8 @@ function createDocumentCoreWithExecutionBudget(
     },
     project: projectRevision,
     projectComment: projectCommentView,
-    intersectsProjection
+    intersectsProjection,
+    projectAround
   })
   registerAnnotationsAround(core, rootsAround)
   registerDocumentCoreInspection(core, () => {
