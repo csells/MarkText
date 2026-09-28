@@ -120,13 +120,8 @@ export class ScrollPage extends Parent {
         const before = roots.map(block => block.getState());
         let changed = false;
         if (roots.length === state.length) {
-            for (let index = 0; index < state.length; index++) {
-                if (isEqual(before[index], state[index]))
-                    continue;
-                const root = roots[index];
-                root.replaceWith(ScrollPage.loadBlock(state[index].name).create(this.muya, state[index]), 'api');
-                changed = true;
-            }
+            for (let index = 0; index < state.length; index++)
+                changed = this._reconcileRoot(roots[index], state[index], before[index]) || changed;
         }
         else {
             let start = 0;
@@ -157,6 +152,25 @@ export class ScrollPage extends Parent {
     }
 
     /**
+     * Present `state` in place of `root`. A root whose only difference is its
+     * single leaf's text keeps its blocks and DOM, so the shown nodes survive
+     * and only their text changes.
+     */
+    private _reconcileRoot(root: Parent, state: TState, before: TState = root.getState()): boolean {
+        if (isEqual(before, state))
+            return false;
+        const leaf = root.children.length === 1 ? root.children.head : null;
+        const text = (state as { text?: unknown }).text;
+        if (leaf?.isContent() && typeof text === 'string'
+            && isEqual({ ...before, text: undefined }, { ...state, text: undefined })) {
+            leaf.presentStateText(text);
+            return true;
+        }
+        root.replaceWith(ScrollPage.loadBlock(state.name).create(this.muya, state), 'api');
+        return true;
+    }
+
+    /**
      * Present `next` in place of the roots `[start, previousEnd)`. The caller
      * vouches that every other root already presents its state, so only this
      * range is read.
@@ -173,12 +187,8 @@ export class ScrollPage extends Parent {
         const boundary = root ?? null;
         let changed = false;
         if (roots.length === next.length) {
-            for (let index = 0; index < next.length; index++) {
-                if (isEqual(roots[index].getState(), next[index]))
-                    continue;
-                roots[index].replaceWith(ScrollPage.loadBlock(next[index].name).create(this.muya, next[index]), 'api');
-                changed = true;
-            }
+            for (let index = 0; index < next.length; index++)
+                changed = this._reconcileRoot(roots[index], next[index]) || changed;
         }
         else {
             const before = roots.map(block => block.getState());

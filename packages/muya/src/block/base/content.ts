@@ -341,6 +341,15 @@ class Content extends TreeNode {
         this.isComposed = false;
     }
 
+    /**
+     * Take text that the JSON state already holds, as reconciling a supplied
+     * state does, without dispatching an editing operation, and render it.
+     */
+    presentStateText(text: string) {
+        this._text = text;
+        this.update();
+    }
+
     getAnchor(): Nullable<Parent> {
         return null;
     }
