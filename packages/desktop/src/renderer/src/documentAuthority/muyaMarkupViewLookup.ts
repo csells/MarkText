@@ -27,6 +27,21 @@ function inRootOrder(items: readonly { readonly path: MuyaMarkupPath }[]): boole
   return result
 }
 
+/** Whether `items` lists its items in root order, which lets lookups search it. */
+export function muyaItemsInRootOrder(items: readonly { readonly path: MuyaMarkupPath }[]): boolean {
+  return inRootOrder(items)
+}
+
+/**
+ * Records that `items` is in root order without reading it, for a list its
+ * maker assembled from lists in root order, one root range after another.
+ */
+export function rememberMuyaItemsInRootOrder(
+  items: readonly { readonly path: MuyaMarkupPath }[]
+): void {
+  ordered.set(items, true)
+}
+
 /** The items whose path starts at root `root`, in list order. */
 export function muyaItemsAtRoot<Item extends { readonly path: MuyaMarkupPath }>(
   items: readonly Item[],
