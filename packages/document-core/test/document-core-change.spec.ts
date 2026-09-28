@@ -3014,7 +3014,9 @@ describe('document-core semantic changes', () => {
     expect(delta(after, before, 'documentMarkupEventUnits')).toBe(0)
     expect(delta(after, before, 'sourceMaterializations')).toBe(0)
     expect(delta(after, before, 'sourceMaterializationOutputUnits')).toBe(0)
-    expect(delta(after, before, 'regionalIntrinsicSourceUnits')).toBe(128)
+    // A chained edit's previous window is the window the edit before it
+    // parsed, which is read again instead of reparsed.
+    expect(delta(after, before, 'regionalIntrinsicSourceUnits')).toBe(96)
     expect(delta(after, before, 'regionalProjectionPreparationUnits')).toBe(128)
 
     const firstFreshCore = createDocumentCore()
@@ -3150,7 +3152,8 @@ describe('document-core semantic changes', () => {
     assertPortable(second.change)
     assertPortable(third.change)
     expect(delta(after, before, 'regionalFastApplies')).toBe(3)
-    expect(delta(after, before, 'regionalIntrinsicSourceUnits')).toBe(251)
+    // Each chained edit reads its previous window as the edit before it parsed it.
+    expect(delta(after, before, 'regionalIntrinsicSourceUnits')).toBe(167)
     expect(delta(after, before, 'documentParses')).toBe(0)
     expect(delta(after, before, 'documentProjectionPreparationUnits')).toBe(0)
     expect(delta(after, before, 'documentMarkupEventUnits')).toBe(0)
