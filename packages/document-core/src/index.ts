@@ -3,6 +3,7 @@ export {
   DocumentCoreError,
   DocumentSourceEditError,
   type CommentProjection,
+  type CommentMarkupProjection,
   type CommentCoordinateSegment,
   type CommentProjectionRequest,
   type CommentProjectionSpan,
