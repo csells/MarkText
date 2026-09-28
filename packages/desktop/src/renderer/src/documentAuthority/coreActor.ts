@@ -646,6 +646,9 @@ export function createCoreActor(
     })
   }
 
+  // The Review overview resolves every item, so index each revision's
+  // annotations once instead of walking the tree per item.
+  const annotationIndexes = new WeakMap<DocumentRevision, Map<string, CriticMarkupAnnotation>>()
   const annotationFor = (
     activeRevision: DocumentRevision,
     locator: Readonly<{
@@ -653,20 +656,20 @@ export function createCoreActor(
       readonly range: Readonly<{ readonly start: number; readonly end: number }>
     }>
   ): CriticMarkupAnnotation | undefined => {
-    const pending = [...activeRevision.annotations]
-    while (pending.length > 0) {
-      const annotation = pending.pop()
-      if (annotation === undefined) continue
-      if (
-        annotation.kind === locator.kind &&
-        annotation.range.start === locator.range.start &&
-        annotation.range.end === locator.range.end
-      ) {
-        return annotation
+    let index = annotationIndexes.get(activeRevision)
+    if (index === undefined) {
+      index = new Map()
+      const pending = [...activeRevision.annotations]
+      while (pending.length > 0) {
+        const annotation = pending.pop()
+        if (annotation === undefined) continue
+        const key = `${annotation.kind}:${annotation.range.start}:${annotation.range.end}`
+        if (!index.has(key)) index.set(key, annotation)
+        for (const arm of annotation.arms) pending.push(...arm.annotations)
       }
-      for (const arm of annotation.arms) pending.push(...arm.annotations)
+      annotationIndexes.set(activeRevision, index)
     }
-    return undefined
+    return index.get(`${locator.kind}:${locator.range.start}:${locator.range.end}`)
   }
 
   const reviewItemsFor = (

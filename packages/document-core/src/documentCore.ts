@@ -1948,6 +1948,7 @@ interface MutableDocumentCoreInspection {
   documentAstMaterializedNodes: number
   documentCoordinateSegments: number
   documentAnnotationMaterializedNodes: number
+  annotationFactTables: number
   fullProductStoresStrongCurrent: number
   fullProductStoresStrongPeak: number
   fullProductStoreReleases: number
@@ -2080,6 +2081,7 @@ function createDocumentCoreWithExecutionBudget(
     documentAstMaterializedNodes: 0,
     documentCoordinateSegments: 0,
     documentAnnotationMaterializedNodes: 0,
+    annotationFactTables: 0,
     fullProductStoresStrongCurrent: 0,
     fullProductStoresStrongPeak: 0,
     fullProductStoreReleases: 0,
@@ -2630,6 +2632,9 @@ function createDocumentCoreWithExecutionBudget(
     return revision
   }
 
+  // A reader per annotation, such as the Review overview's Comment
+  // projections, would otherwise rebuild the whole document's facts each time.
+  const materializedFacts = new WeakMap<Profile1DocumentProducts, MaterializedAnnotations>()
   const withFacts = <Result>(
     state: RevisionState,
     use: (facts: RevisionFacts) => Result,
@@ -2637,10 +2642,12 @@ function createDocumentCoreWithExecutionBudget(
   ): Result => {
     return state.productStore.withProduct(products => {
       const annotations = state.annotations(products)
-      const materialized = annotationFactsForMaterialized(
-        products,
-        annotations
-      )
+      let materialized = materializedFacts.get(products)
+      if (materialized?.annotations !== annotations) {
+        materialized = annotationFactsForMaterialized(products, annotations)
+        materializedFacts.set(products, materialized)
+        inspection.annotationFactTables += 1
+      }
       return use(Object.freeze({
         products,
         annotations: materialized.annotations,

@@ -9,6 +9,8 @@ export interface DocumentCoreInspection {
   readonly documentAstMaterializedNodes: number
   readonly documentCoordinateSegments: number
   readonly documentAnnotationMaterializedNodes: number
+  /** Whole-document annotation fact tables built for readers of a revision's parse. */
+  readonly annotationFactTables: number
   /** Strong revision-owned parser product graphs currently retained. */
   readonly fullProductStoresStrongCurrent: number
   /** Peak simultaneous strong revision-owned parser product graphs. */
