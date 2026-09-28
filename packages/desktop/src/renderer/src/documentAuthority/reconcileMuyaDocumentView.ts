@@ -1,11 +1,24 @@
-import type { Muya } from '@muyajs/core'
+import type { IReconcileRegion, Muya } from '@muyajs/core'
 import type { DocumentSelection, DocumentTableCellSelection } from '@marktext/document-core'
 import { asMuyaStates, type MuyaMarkupState, type MuyaMarkupView } from './muyaMarkupView'
 import isEqual from 'lodash/isEqual'
 
 import type { CoreAppliedReply } from './coreProtocol'
 import { createMuyaModelSelection } from './muyaModelSelection'
+import { muyaItemAtPath, muyaItemsInRoots } from './muyaMarkupViewLookup'
 import type { MuyaPlainTextSourceBinding } from './muyaPlainTextCoreAdapter'
+
+/**
+ * Editors presenting lines or cell padding that their acknowledged view does
+ * not hold, until a whole-document reconcile replaces them.
+ */
+const presentingUnownedText = new WeakSet<Muya>()
+
+/** Presents `state`, which differs from the acknowledged view it was cloned from. */
+function presentDeviation(muya: Muya, state: MuyaMarkupState[]): void {
+  presentingUnownedText.add(muya)
+  muya.reconcileContent(asMuyaStates(state))
+}
 
 /** Replaces the presented block state at `path`. */
 function replaceState(
@@ -74,7 +87,7 @@ function presentUnownedLines(muya: Muya, view: MuyaMarkupView, points: readonly 
       text: ''
     })
   }
-  muya.reconcileContent(asMuyaStates(state))
+  presentDeviation(muya, state)
   for (const binding of [...blank, ...trailing, ...leading]) {
     const block = muya.editor.scrollPage?.queryBlock([...binding.path])
     if (block?.isContent()) block.update()
@@ -106,7 +119,7 @@ function presentMarkerLines(muya: Muya, view: MuyaMarkupView, points: readonly n
   for (const line of lines) {
     replaceState(state, line.statePath, { name: 'paragraph', text: line.text })
   }
-  muya.reconcileContent(asMuyaStates(state))
+  presentDeviation(muya, state)
   for (const line of lines) {
     const block = muya.editor.scrollPage?.queryBlock([...line.statePath, 'text'])
     if (block?.isContent()) block.update()
@@ -141,7 +154,7 @@ function presentCellPadding(
     leaf = (leaf as Record<string | number, unknown>)[part]
   }
   ;(leaf as MuyaMarkupState).text = binding.text + ' '.repeat(spaces)
-  muya.reconcileContent(asMuyaStates(state))
+  presentDeviation(muya, state)
   const block = muya.editor.scrollPage?.queryBlock([...binding.path])
   if (block?.isContent()) block.update()
 }
@@ -295,13 +308,22 @@ export function reconcileMuyaDocumentView({
   view,
   outcome,
   dirtyPaths,
-  applyEditability
+  applyEditability,
+  region
 }: {
   muya: Muya
   view: MuyaMarkupView
   outcome: CoreAppliedReply
   dirtyPaths: Iterable<readonly (string | number)[]>
-  applyEditability: (bindings: readonly MuyaPlainTextSourceBinding[]) => void
+  applyEditability: (
+    bindings: readonly MuyaPlainTextSourceBinding[],
+    roots?: readonly [number, number]
+  ) => void
+  /**
+   * The only roots whose presentation can differ from `view` since the
+   * editor last presented a view; other roots are neither read nor replaced.
+   */
+  region?: IReconcileRegion
 }): void {
   const selection = muya.getSelection()
   const clipboardSelection = outcome.clipboardResult?.selection
@@ -324,22 +346,32 @@ export function reconcileMuyaDocumentView({
   // retain the native caret when both endpoint leaves still have the same text.
   const retainSelection =
     selection !== null &&
-    [selection.anchor, selection.focus].every((endpoint) =>
-      view.bindings.some(
-        (binding) =>
-          isEqual(binding.path, endpoint.path) &&
-          binding.text === endpoint.block.text &&
-          endpoint.offset <= binding.text.length
+    [selection.anchor, selection.focus].every((endpoint) => {
+      const binding = muyaItemAtPath(view.bindings, endpoint.path)
+      return (
+        binding !== undefined &&
+        binding.text === endpoint.block.text &&
+        endpoint.offset <= binding.text.length
       )
-    )
-  const unchanged = !muya.reconcileContent(asMuyaStates(view.state))
-  applyEditability(view.bindings)
+    })
+  // Presented unowned text can sit in any root; only a whole reconcile finds it.
+  const regional = region !== undefined && !presentingUnownedText.has(muya)
+  if (!regional) presentingUnownedText.delete(muya)
+  const unchanged = !muya.reconcileContent(
+    asMuyaStates(view.state),
+    regional ? region : undefined
+  )
+  applyEditability(view.bindings, regional ? [region.start, region.nextEnd] : undefined)
   // A retained root can have changed inline meaning without changed native
   // state, such as a reference resolved by an edited definition elsewhere.
   // Native composition can also mutate DOM without changing the view state.
+  // A regional view changed no other root's meaning.
   const paths =
     unchanged && outcome.inputResult !== undefined
-      ? view.bindings.map((binding) => binding.path)
+      ? (regional
+        ? muyaItemsInRoots(view.bindings, region.start, region.nextEnd)
+        : view.bindings
+      ).map((binding) => binding.path)
       : dirtyPaths
   for (const path of paths) {
     const block = muya.editor.scrollPage?.queryBlock([...path])

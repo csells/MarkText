@@ -397,6 +397,7 @@ import {
   Muya,
   type IPreviewDiagramPayload,
   type IMuyaOptions,
+  type IReconcileRegion,
   type DocumentInput
 } from '@muyajs/core'
 import { registerDesktopMuyaPlugins } from './muyaPluginRegistration'
@@ -499,6 +500,9 @@ import {
   muyaInputToModel
 } from '@/documentAuthority/muyaModelSelection'
 import { resolveMuyaViewAcknowledgement } from '@/documentAuthority/resolveMuyaViewAcknowledgement'
+import { muyaMarkupViewPatch } from '@/documentAuthority/muyaMarkupChanges'
+import { muyaItemAtPath } from '@/documentAuthority/muyaMarkupViewLookup'
+import { composeMuyaReconcileRegion } from '@/documentAuthority/muyaReconcileRegion'
 import { asMuyaStates, mappedMuyaSourceRange, type MuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
 import {
   reconcileMuyaDocumentView,
@@ -1409,18 +1413,37 @@ const replaceMisspelling = (payload: unknown) => {
   }
 }
 
-const applyCorePlainTextEditability = (bindings: readonly MuyaPlainTextSourceBinding[]): void => {
+const applyCorePlainTextEditability = (
+  bindings: readonly MuyaPlainTextSourceBinding[],
+  roots?: readonly [number, number]
+): void => {
   const muya = editor.value
-  const editable = bindings.filter((binding) => binding.editable !== false)
-  coreEditableBindingCount.value = editable.length
+  let editable = 0
+  for (const binding of bindings) if (binding.editable !== false) editable += 1
+  coreEditableBindingCount.value = editable
   if (muya === null) return
-  muya.setEditablePaths(editable.map((binding) => binding.path))
+  muya.setEditablePaths(
+    () => bindings.filter((binding) => binding.editable !== false).map((binding) => binding.path),
+    roots
+  )
 }
 
 let coreMarkupPresentation: MuyaMarkupPresentationIndex | undefined
 let coreAcknowledgedMarkupView: MuyaMarkupView | undefined
 let coreRevisedText: MuyaRevisedTextReader | undefined
-let coreMarkupBindingsByPath = new Map<string, MuyaMarkupView['bindings'][number]>()
+/** The acknowledged view's binding at a JSON-serialized path. */
+const coreMarkupBindingAt = (key: string): MuyaMarkupView['bindings'][number] | undefined => {
+  const view = coreAcknowledgedMarkupView
+  return view === undefined ? undefined : muyaItemAtPath(view.bindings, JSON.parse(key))
+}
+/**
+ * Roots of the presented document that views acknowledged since Muya last
+ * reconciled have replaced; the rest already present the latest view.
+ * Undefined when that is unknown, which reconciles every root.
+ */
+let coreMuyaReconcileRegion: IReconcileRegion | undefined
+/** Whether acknowledged views wait for Muya to reconcile them; the region then describes them all. */
+let coreMuyaReconcilePending = false
 let coreAcknowledgedViewRevision = props.coreLease?.identity.revision
 const coreMarkupDirtyPaths = new Map<string, readonly (string | number)[]>()
 let coreDraftFrozen = false
@@ -1501,17 +1524,29 @@ defineExpose({
   captureDocumentSelection
 })
 const installCoreMarkupPresentation = (muya: Muya, view: MuyaMarkupView): void => {
+  const previousView = coreAcknowledgedMarkupView
+  const patch = muyaMarkupViewPatch(view)
+  const regional = patch !== undefined && patch.previous === previousView
   coreAcknowledgedMarkupView = view
   coreRevisedText = createMuyaRevisedTextReader(view)
-  coreMarkupBindingsByPath = new Map(
-    view.bindings.map((binding) => [JSON.stringify(binding.path), binding])
-  )
   coreMarkupPresentation = createMuyaMarkupPresentationIndex(
     view,
     coreMarkupPresentation,
     undefined,
-    t('editor.coreReview.commentPrompt')
+    t('editor.coreReview.commentPrompt'),
+    regional ? patch : undefined
   )
+  if (regional && patch.nextEnd !== patch.previousEnd && coreMarkupDirtyPaths.size > 0) {
+    // Paths still waiting to render follow their roots past the replaced ones.
+    const shifted = [...coreMarkupDirtyPaths.values()].flatMap((path) => {
+      const root = path[0]
+      if (typeof root !== 'number' || root < patch.start) return [path]
+      if (root < patch.previousEnd) return []
+      return [[root + patch.nextEnd - patch.previousEnd, ...path.slice(1)]]
+    })
+    coreMarkupDirtyPaths.clear()
+    for (const path of shifted) coreMarkupDirtyPaths.set(JSON.stringify(path), path)
+  }
   for (const path of coreMarkupPresentation.changedPaths) {
     coreMarkupDirtyPaths.set(JSON.stringify(path), path)
   }
@@ -1524,10 +1559,11 @@ const reconcileCoreHistoryView = (
   if (coreDraftFrozen) {
     return coreAcknowledgedMarkupView?.bindings ?? props.corePlainTextView?.bindings ?? []
   }
+  const previousView = coreAcknowledgedMarkupView
   const { view, muya } = resolveMuyaViewAcknowledgement({
     lease: coreBoundLease,
     outcome,
-    previousView: coreAcknowledgedMarkupView,
+    previousView,
     previousRevision: coreAcknowledgedViewRevision,
     currentEditor: () => editor.value
   })
@@ -1536,8 +1572,23 @@ const reconcileCoreHistoryView = (
   coreDocumentRevision.value = outcome.revision
   if (muya === null) {
     coreAcknowledgedMarkupView = view
+    coreMuyaReconcileRegion = undefined
+    coreMuyaReconcilePending = true
     return view.bindings
   }
+  const patch = muyaMarkupViewPatch(view)
+  const change =
+    patch !== undefined && patch.previous === previousView
+      ? { start: patch.start, previousEnd: patch.previousEnd, nextEnd: patch.nextEnd }
+      : undefined
+  if (!coreMuyaReconcilePending) coreMuyaReconcileRegion = change
+  else if (view !== previousView) {
+    coreMuyaReconcileRegion =
+      change === undefined || coreMuyaReconcileRegion === undefined
+        ? undefined
+        : composeMuyaReconcileRegion(coreMuyaReconcileRegion, change)
+  }
+  coreMuyaReconcilePending = true
   installCoreMarkupPresentation(muya, view)
   // Native input may still be waiting for Muya's animation-frame batch. Admit
   // that draft before deciding whether the acknowledged view can replace DOM.
@@ -1550,9 +1601,12 @@ const reconcileCoreHistoryView = (
     view,
     outcome,
     dirtyPaths: coreMarkupDirtyPaths.values(),
-    applyEditability: applyCorePlainTextEditability
+    applyEditability: applyCorePlainTextEditability,
+    region: coreMuyaReconcileRegion
   })
   coreMarkupDirtyPaths.clear()
+  coreMuyaReconcilePending = false
+  coreMuyaReconcileRegion = undefined
   return view.bindings
 }
 
@@ -1653,7 +1707,8 @@ const revealCoreReviewItem = (scroll = true): void => {
 /** The source position of the Markup caret, or of a selection's focus. */
 const coreCaretSource = (): number | undefined => {
   const focus = editor.value?.getSelection()?.focus
-  const binding = focus && coreMarkupBindingsByPath.get(JSON.stringify(focus.path))
+  const view = coreAcknowledgedMarkupView
+  const binding = focus && view && muyaItemAtPath(view.bindings, focus.path)
   if (!focus || !binding) return undefined
   return mappedMuyaSourceRange(binding, {
     start: Math.min(focus.offset, binding.text.length),
@@ -1725,7 +1780,7 @@ const selectCoreDocumentAnnotation = (event: MouseEvent | KeyboardEvent): void =
 }
 /** The review item whose source range holds the caret, bounds included. */
 const coreItemAtCaret = (path: string, offset: number): number | undefined => {
-  const binding = coreMarkupBindingsByPath.get(path)
+  const binding = coreMarkupBindingAt(path)
   if (!binding) return undefined
   // Muya places a caret past its block's text at the text's end.
   const at = Math.min(offset, binding.text.length)
@@ -4304,7 +4359,7 @@ onMounted(() => {
         '[data-critic-start]'
       )
       const path = JSON.stringify(changes.anchorPath)
-      const binding = coreMarkupBindingsByPath.get(path)
+      const binding = coreMarkupBindingAt(path)
       const offset = changes.anchor?.offset
       // A suggestion just made, with the caret at its edge, is the current item
       // even before the review list publishes it.

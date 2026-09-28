@@ -137,18 +137,37 @@ const markdownOffsets = (
   }
 }
 
+const positionKeys = new Map<string, boolean>()
+const isPositionKey = (key: string): boolean => {
+  let position = positionKeys.get(key)
+  if (position === undefined) {
+    position = /(?:Start|End)$/u.test(key)
+    positionKeys.set(key, position)
+  }
+  return position
+}
+
+const shiftAttributes = (
+  attributes: MarkdownAstNode['attributes'],
+  delta: number
+): MarkdownAstNode['attributes'] => {
+  let shifted: Record<string, unknown> | undefined
+  for (const key in attributes) {
+    const value = attributes[key]
+    if (typeof value !== 'number' || !isPositionKey(key)) continue
+    shifted ??= { ...attributes }
+    shifted[key] = value + delta
+  }
+  return (shifted ?? attributes) as MarkdownAstNode['attributes']
+}
+
 const shiftSyntax = (node: MarkdownAstNode, delta: number): MarkdownAstNode =>
   delta === 0
     ? node
     : {
       ...node,
       range: shiftRange(node.range, delta),
-      attributes: Object.fromEntries(
-        Object.entries(node.attributes).map(([key, value]) => [
-          key,
-          typeof value === 'number' && /(?:Start|End)$/u.test(key) ? value + delta : value
-        ])
-      ),
+      attributes: shiftAttributes(node.attributes, delta),
       ...(node.semanticTextSegments === undefined
         ? {}
         : {
@@ -157,8 +176,34 @@ const shiftSyntax = (node: MarkdownAstNode, delta: number): MarkdownAstNode =>
             range: shiftRange(segment.range, delta)
           }))
         }),
-      children: node.children.map((child) => shiftSyntax(child, delta))
+      children: node.children.length === 0 ? node.children : node.children.map((child) => shiftSyntax(child, delta))
     }
+
+/** Root ranges an applied change replaced, for consumers that update in place. */
+export interface MuyaMarkupViewPatch {
+  readonly previous: MuyaMarkupView
+  /** Roots `[start, previousEnd)` of `previous` are roots `[start, nextEnd)` of the view. */
+  readonly start: number
+  readonly previousEnd: number
+  readonly nextEnd: number
+}
+const patches = new WeakMap<MuyaMarkupView, MuyaMarkupViewPatch>()
+
+/** The roots a regional change replaced to make `view`, if it was made that way. */
+export const muyaMarkupViewPatch = (view: MuyaMarkupView): MuyaMarkupViewPatch | undefined =>
+  patches.get(view)
+
+const bindingPatches = new WeakMap<
+  readonly MuyaMarkupBinding[],
+  Readonly<{ previous: readonly MuyaMarkupBinding[]; start: number; nextEnd: number }>
+>()
+
+/**
+ * The bindings a regional change made anew: those of roots `[start, nextEnd)`.
+ * Every other binding is one of `previous`'s, moved with its root.
+ */
+export const muyaMarkupBindingsPatch = (bindings: readonly MuyaMarkupBinding[]) =>
+  bindingPatches.get(bindings)
 
 const validCoordinates = (coordinates: readonly MarkupCoordinateSegment[]): boolean =>
   coordinates.length > 0 &&
@@ -210,6 +255,8 @@ export function applyMuyaMarkupChanges(
   const markdown: string[] = []
   const markdownSegments: MuyaMarkdownSegment[] = []
   let previousIndex = 0
+  let replacedStart: number | undefined
+  let replacedEnd = 0
   let markdownIndex = 0
   let sourceDelta = 0
   let syntaxDelta = 0
@@ -246,7 +293,7 @@ export function applyMuyaMarkupChanges(
             ? binding
             : {
               ...binding,
-              path: [previousIndex + pathDelta, ...binding.path.slice(1)],
+              path: pathDelta === 0 ? binding.path : [previousIndex + pathDelta, ...binding.path.slice(1)],
               sourceRange: shiftRange(binding.sourceRange, sourceDelta),
               ...(binding.tableCell === undefined
                 ? {}
@@ -376,11 +423,15 @@ export function applyMuyaMarkupChanges(
     for (const comment of previous.comments) {
       const index = Number(comment.path[0])
       if (index >= start && index < end) {
-        comments.push({
-          ...comment,
-          path: [index + pathDelta, ...comment.path.slice(1)],
-          annotationRange: shiftRange(comment.annotationRange, sourceDelta)
-        })
+        comments.push(
+          sourceDelta === 0 && pathDelta === 0
+            ? comment
+            : {
+              ...comment,
+              path: pathDelta === 0 ? comment.path : [index + pathDelta, ...comment.path.slice(1)],
+              annotationRange: shiftRange(comment.annotationRange, sourceDelta)
+            }
+        )
       }
     }
   }
@@ -546,13 +597,15 @@ export function applyMuyaMarkupChanges(
     appendMarkdown(previous, markdownIndex, from, syntaxDelta)
     appendMarkdown(local, 0, local.markdown.length, 0)
     markdownIndex = to
+    replacedStart ??= start
+    replacedEnd = end
     previousIndex = end
     sourceDelta = replacement.next.source.end - replacement.previous.source.end
     syntaxDelta = replacement.next.syntax.end - replacement.previous.syntax.end
   }
   retainUntil(previous.state.length)
   appendMarkdown(previous, markdownIndex, previous.markdown.length, syntaxDelta)
-  return {
+  const view: MuyaMarkupView = {
     kind: 'view',
     markdown: markdown.join(''),
     markdownSegments,
@@ -561,4 +614,10 @@ export function applyMuyaMarkupChanges(
     decorations,
     comments
   }
+  if (replacedStart !== undefined) {
+    const nextEnd = replacedEnd + state.length - previous.state.length
+    patches.set(view, { previous, start: replacedStart, previousEnd: replacedEnd, nextEnd })
+    bindingPatches.set(bindings, { previous: previous.bindings, start: replacedStart, nextEnd })
+  }
+  return view
 }

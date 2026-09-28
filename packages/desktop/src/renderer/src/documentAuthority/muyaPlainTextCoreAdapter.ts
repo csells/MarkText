@@ -24,7 +24,9 @@ import {
   assertMuyaDocumentSourceBinding,
   type MuyaPlainTextSourceBinding
 } from './muyaSourceBinding'
-import { mappedMuyaSourceRange } from './muyaMarkupView'
+import { mappedMuyaSourceRange, type MuyaMarkupBinding } from './muyaMarkupView'
+import { muyaMarkupBindingsPatch } from './muyaMarkupChanges'
+import { muyaItemsInRoots } from './muyaMarkupViewLookup'
 
 export type { MuyaPlainTextSourceBinding } from './muyaSourceBinding'
 
@@ -407,9 +409,18 @@ export function createMuyaPlainTextCoreAdapter(
     }
   }
 
+  let installedBindings: readonly MuyaPlainTextSourceBinding[] | undefined
   const installBindings = (nextBindings: readonly MuyaPlainTextSourceBinding[]): void => {
+    // A regional change leaves every other root's bindings as they were
+    // validated, moved together, so only the roots it made are checked.
+    const patch = muyaMarkupBindingsPatch(nextBindings as readonly MuyaMarkupBinding[])
+    const checked =
+      patch !== undefined && patch.previous === installedBindings
+        ? muyaItemsInRoots(nextBindings, patch.start, patch.nextEnd)
+        : nextBindings
+    installedBindings = nextBindings
     const editablePaths = new Set<string>()
-    for (const item of nextBindings) {
+    for (const item of checked) {
       if (item.editable === false) continue
       const key = JSON.stringify(item.path)
       if (editablePaths.has(key)) {
