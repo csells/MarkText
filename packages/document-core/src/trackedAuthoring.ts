@@ -5,6 +5,7 @@ import type {
 import { createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations as annotationTree, markupReplacementRange } from './markupEditOwnership.js'
 import { historyInsertionPoint, substitutionBeforeDeletion, substitutionDraftInsertionPoint, trackedEditableSpans, trackedPartsSeparate, withinHistory } from './trackedHistoryEditing.js'
+import { annotationsAround, annotationsOverlapping } from './internal/annotationsAround.js'
 import { createTrackedOracle, draftTrackedSourceEdit, equivalenceDeferred, memoizedPreview, rejoinedTrackedHistoryEdit, splitTrackedHistoryEdit, trackedPreviewFacts, widenedTrackedSourceEdit } from './trackedExtent.js'
 
 /** Protective spelling retains exactly where the language compiler inserts escapes. */
@@ -28,7 +29,7 @@ export function retainedTrackedHistoryEdit(
   core: DocumentCore, revision: DocumentRevision, edit: DocumentSourceEdit
 ): DocumentSourceEdit | undefined {
   if (edit.insert.length > 0 || edit.start >= edit.end) return undefined
-  const retained = annotationTree(revision.annotations).some(annotation => annotation.arms.some(arm =>
+  const retained = annotationTree(annotationsOverlapping(core, revision, edit)).some(annotation => annotation.arms.some(arm =>
     (annotation.kind === 'deletion' && arm.name === 'content' || annotation.kind === 'substitution' && arm.name === 'old') &&
     arm.range.start <= edit.start && edit.end <= arm.range.end))
   return retained ? Object.freeze({ ...edit, insert: core.sourceSlice(revision, edit) }) : undefined
@@ -74,8 +75,12 @@ export function createTrackedPendingArmEdits(
 ): readonly DocumentSourceEdit[] | undefined {
   if (!edits.some(edit => edit.start < edit.end)) return undefined
   // Deleted text a draft holds stays deleted; only the rest is edited.
-  if (edits.some(edit => trackedEditableSpans(revision, edit)?.history === true)) return undefined
-  const annotations = annotationTree(revision.annotations)
+  if (edits.some(edit => trackedEditableSpans(core, revision, edit)?.history === true)) return undefined
+  // Both the owning draft and any history arm hold an edit.
+  const annotations = annotationTree(annotationsOverlapping(core, revision, {
+    start: Math.min(...edits.map(edit => edit.start)),
+    end: Math.max(...edits.map(edit => edit.end))
+  }))
   let owner: CriticMarkupAnnotation | undefined
   for (const annotation of annotations) {
     const content = annotation.arms.find(arm =>
@@ -230,7 +235,8 @@ export const createTrackedSourceEdit = (
   scope: 'visible' | 'structure' = 'visible'
 ): DocumentSourceEdit | undefined => {
   if (edit.start === edit.end && edit.insert.length > 0) {
-    const point = historyInsertionPoint(activeRevision.annotations, edit.start)
+    // The walk stays within the root annotation holding the caret.
+    const point = historyInsertionPoint(annotationsAround(activeCore, activeRevision, edit.start), edit.start)
     if (point !== edit.start) edit = Object.freeze({ start: point, end: point, insert: edit.insert })
   }
   if (scope === 'visible' && edit.start === edit.end && edit.insert.length > 0 && !/[\r\n]/u.test(edit.insert)) {
@@ -247,7 +253,7 @@ export const createTrackedSourceEdit = (
   const { start, end } = request.range
   if (start === end && request.text.length > 0) {
     let deepest: CriticMarkupAnnotation | undefined
-    for (const annotation of annotationTree(activeRevision.annotations)) {
+    for (const annotation of annotationTree(annotationsAround(activeCore, activeRevision, start))) {
       if (annotation.range.start < start && start < annotation.range.end &&
           (deepest === undefined || annotation.range.end - annotation.range.start < deepest.range.end - deepest.range.start)) deepest = annotation
     }

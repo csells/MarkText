@@ -43,6 +43,7 @@ import {
   createRegionalInventory,
   materializeRegionalInventoryAnnotations,
   materializeRegionalInventoryAnnotationsAround,
+  materializeRegionalInventoryAnnotationsIn,
   materializeRegionalInventoryDiagnostics,
   previewRegionalContext,
   previewRegionalInventory,
@@ -4666,6 +4667,14 @@ function createDocumentCoreWithExecutionBudget(
       : revision.annotations
   }
 
+  /** The root annotations of the blocks `range` touches, read the same way. */
+  const rootsOverlapping = (revision: DocumentRevision, range: SourceRange): readonly CriticMarkupAnnotation[] => {
+    const state = stateByRevision.get(revision)
+    return state?.kind === 'regional' && state.regionalInventory !== undefined
+      ? materializeRegionalInventoryAnnotationsIn(state.regionalInventory, range.start, range.end) as readonly CriticMarkupAnnotation[]
+      : revision.annotations
+  }
+
   const regionalTrackedArmEdge = (
     state: RevisionState,
     previous: DocumentRevision,
@@ -5081,8 +5090,8 @@ function createDocumentCoreWithExecutionBudget(
     }
     const single = (planned: DocumentSourceEdit | undefined) =>
       planned === undefined ? undefined : Object.freeze(unchangedTrackedEdit(planned) ? [] : [planned])
-    const editable = trackedEditableSpans(previous, stableEdit)
-    const enclosed = trackedEditableSpans(previous, stableEdit, true)
+    const editable = trackedEditableSpans(core, previous, stableEdit)
+    const enclosed = trackedEditableSpans(core, previous, stableEdit, true)
     // Deleting text that holds one's own draft removes that draft outright
     // and strikes the rest (Google Docs), so inline deletions never nest.
     // A deleted block stays one suggestion around what it holds.
@@ -5117,7 +5126,7 @@ function createDocumentCoreWithExecutionBudget(
     // whatever the untracked policy would also delete beside it.
     const direction = action.inputType === 'deleteContentBackward' ? 'backward' : action.inputType === 'deleteContentForward' ? 'forward' : undefined
     if (direction !== undefined && caret.anchor === caret.focus && 'start' in action.range && action.range.start < action.range.end &&
-        trackedEditableSpans(previous, action.range, true)?.length === 0) {
+        trackedEditableSpans(core, previous, action.range, true)?.length === 0) {
       return Object.freeze({
         edits: Object.freeze([]),
         selection: collapsed(direction === 'backward' ? action.range.start : action.range.end),
@@ -5133,12 +5142,12 @@ function createDocumentCoreWithExecutionBudget(
     // A deleted selection keeps the caret after the struck text.
     const backward = caret.anchor === caret.focus && !action.inputType.includes('Forward')
     const struck = Object.freeze({ at: backward ? edit.start : edit.end, side: backward ? 'before' as const : 'after' as const })
-    const editable = trackedEditableSpans(previous, edit, deletion && !/[\r\n]/u.test(core.sourceSlice(previous, edit)))
+    const editable = trackedEditableSpans(core, previous, edit, deletion && !/[\r\n]/u.test(core.sourceSlice(previous, edit)))
     if (editable === undefined) {
       return Object.freeze({ ...plan, trackedCaret: deletion && caret.anchor === caret.focus && action.inputType.startsWith('delete') ? struck : fallback })
     }
     if (editable.length > 0) {
-      const spans = deletion ? editable : trackedEditableSpans(previous, edit)
+      const spans = deletion ? editable : trackedEditableSpans(core, previous, edit)
       return Object.freeze({
         ...plan,
         trackedCaret: deletion ? struck : spans?.history === true ? Object.freeze({ at: spans[0]?.end ?? edit.end, side: 'after' as const }) : Object.freeze({ ...fallback, at: edit.end })
@@ -5219,7 +5228,7 @@ function createDocumentCoreWithExecutionBudget(
       const planned = createTrackedSourceEdit(core, previous, { start, end, insert },
         candidateEdits => previewSourceEdits(previous, candidateEdits), true)
       if (planned === undefined) return undefined
-      const retained = markupAnnotations(previous.annotations).filter(annotation =>
+      const retained = markupAnnotations(rootsOverlapping(previous, { start, end })).filter(annotation =>
         annotation.range.start >= start && annotation.range.end <= end &&
         !edits.some(edit => edit.start <= annotation.range.start && edit.end >= annotation.range.end))
       const offset = (position: number, after: boolean): number => position - start + protectedEdits.reduce((delta, edit) =>
@@ -5423,7 +5432,7 @@ function createDocumentCoreWithExecutionBudget(
         const code = resetTarget
         const start = first.start
         let end = Math.max(last.end, syntax.coordinates.toSource(code.range.end, 'previous'))
-        for (const annotation of markupAnnotations(previous.annotations)) {
+        for (const annotation of markupAnnotations(rootsOverlapping(previous, { start, end: last.end }))) {
           for (const arm of annotation.arms) {
             if (arm.range.start <= start && last.end <= arm.range.end) end = Math.min(end, arm.range.end)
           }
@@ -5730,7 +5739,7 @@ function createDocumentCoreWithExecutionBudget(
     intersectsProjection,
     projectAround
   })
-  registerAnnotationsAround(core, rootsAround)
+  registerAnnotationsAround(core, { around: rootsAround, overlapping: rootsOverlapping })
   registerDocumentCoreInspection(core, () => {
     const documentPhysical = physicalRecorder.counts()
     const regionalPhysical = regionalPhysicalRecorder.counts()
