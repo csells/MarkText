@@ -25,7 +25,7 @@ const paragraphCount = Number(process.env.MARKTEXT_WARM_PARAGRAPHS ?? 80)
 const interval = Number(process.env.MARKTEXT_WARM_INTERVAL_MS ?? 80)
 const denseParagraph = 'Review {++new evidence++} alongside {--obsolete details--}, {~~old wording~>better wording~~}, and {==a claim==}{>>Check this source.<<}.'
 const plainParagraph = 'Writing a useful document takes careful editing and a clear view of the text.'
-const workloads: ReadonlyArray<{ name: string, paragraph: string, tracking: boolean, input?: string, media?: boolean, paragraphs?: number }> = [
+const workloads: ReadonlyArray<{ name: string, paragraph: string, tracking: boolean, input?: string, media?: boolean, paragraphs?: number, interval?: number }> = [
   { name: 'plain', paragraph: plainParagraph, tracking: false },
   // Plan 0012 G35: the first suggestion in a long plain document, then
   // typing that extends it, with no later suggestion to bound a region.
@@ -35,6 +35,10 @@ const workloads: ReadonlyArray<{ name: string, paragraph: string, tracking: bool
   // Plan 0012 G35: tracked typing in a long document dense with suggestions,
   // whose keys reparse only the paragraphs they change.
   { name: 'dense-2000-tracked', paragraph: denseParagraph, tracking: true, paragraphs: 2000 },
+  // Plan 0012 G35: the same typing with a pause before every key, so each key
+  // arrives while the passive refresh after the previous one (counts, outline
+  // and the Review overview, 150 ms after input stops) is running.
+  { name: 'dense-2000-tracked-refresh', paragraph: denseParagraph, tracking: true, paragraphs: 2000, interval: 230 },
   ...(process.env.MARKTEXT_WARM_EXTENDED === '1'
     ? [
       { name: 'unicode-tracked', paragraph: '日本語の編集、café, naïve, Ελληνικά, العربية, and 👩🏽‍💻. ' + denseParagraph, tracking: true, input: 'λ' },
@@ -92,7 +96,8 @@ test.describe('warm native-keyboard performance', () => {
   test.skip(!enabled, 'Opt in with MARKTEXT_WARM_PERFORMANCE=1 to measure sustained native input.')
   for (const workload of workloads) {
     test(workload.name, async() => {
-      test.setTimeout(Math.max(180_000, measured * (interval + 150)))
+      const keyInterval = workload.interval ?? interval
+      test.setTimeout(Math.max(180_000, measured * (keyInterval + 150)))
       const scratch = mkdtempSync(path.join(tmpdir(), `marktext-warm-${workload.name}-`))
       const character = workload.input ?? 'x'
       const sections = workload.paragraphs ?? paragraphCount
@@ -110,7 +115,7 @@ test.describe('warm native-keyboard performance', () => {
         hardware: { model: cpus()[0]?.model, logicalCpus: cpus().length, platform: platform(), release: release() },
         warmup,
         measured,
-        intervalMs: interval,
+        intervalMs: keyInterval,
         tracking: workload.tracking,
         rendererCpuProfiling: process.env.MARKTEXT_WARM_PROFILE === '1',
         reviewSidebarOpen: process.env.MARKTEXT_WARM_REVIEW_SIDEBAR !== '0',
@@ -166,7 +171,7 @@ test.describe('warm native-keyboard performance', () => {
         await page.evaluate(() => window.__marktextDocumentCore?.settled())
         for (let index = 0; index < warmup; index += 1) {
           await page.keyboard.type(character, { delay: 0 })
-          await page.waitForTimeout(interval)
+          await page.waitForTimeout(keyInterval)
         }
         await page.evaluate(() => window.__marktextDocumentCore?.settled())
         console.log(`[warm] ${workload.name}: ${warmup} warmup keys acknowledged; measuring ${measured} sustained keys`)
@@ -182,6 +187,17 @@ test.describe('warm native-keyboard performance', () => {
         const retainedHeapBefore = await retainedHeap()
         const initialEvents = await page.evaluate(() => window.__marktextDocumentCore?.performanceEvents?.() ?? [])
         const initialTransaction = Math.max(0, ...initialEvents.flatMap(event => 'transaction' in event ? [event.transaction] : []))
+        // A key's handler runs only when the renderer is free; the key's own
+        // timestamp says when it arrived, so the wait for a running refresh shows.
+        if (workload.interval !== undefined) {
+          await page.evaluate(() => {
+            const arrivals: number[] = []
+            Object.assign(window, { __marktextWarmKeyArrivals: arrivals })
+            window.addEventListener('keydown', (event) => {
+              if (event.key.length === 1) arrivals.push(event.timeStamp)
+            }, true)
+          })
+        }
         await startInputLatencyTrace(page, { maxSamples: measured })
         const profiler = process.env.MARKTEXT_WARM_PROFILE === '1'
           ? await page.context().newCDPSession(page)
@@ -199,7 +215,7 @@ test.describe('warm native-keyboard performance', () => {
         for (let index = 0; index < measured; index += 1) {
           await page.keyboard.type(character, { delay: 0 })
           // No authority/settled barrier between keys: backlog is part of the observation.
-          await page.waitForTimeout(interval)
+          await page.waitForTimeout(keyInterval)
           if ((index + 1) % Math.max(8, Math.ceil(measured / 10)) === 0) console.log(`[warm] ${workload.name}: ${index + 1}/${measured} measured keys sent`)
         }
         await waitForInputLatencyEcho(page, measured, 30_000)
@@ -217,6 +233,9 @@ test.describe('warm native-keyboard performance', () => {
           await tracing.detach()
         }
         const input = await readInputLatencyTrace(page)
+        const arrivals = workload.interval === undefined
+          ? undefined
+          : await page.evaluate(() => (window as unknown as { __marktextWarmKeyArrivals: number[] }).__marktextWarmKeyArrivals)
         const probeStatus = await readInputLatencyTraceStatus(page)
         const authority = await page.evaluate(() => ({
           events: window.__marktextDocumentCore?.performanceEvents?.() ?? [],
@@ -261,8 +280,23 @@ test.describe('warm native-keyboard performance', () => {
           'Warm editing paragraph.' + (workload.tracking ? `{++${inserted}++}` : inserted))
         await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
         await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(expectedSource)
+        const arrival = (index: number): number | undefined => arrivals?.[index]
         const summary = {
           metrics,
+          ...(arrivals === undefined
+            ? {}
+            : {
+              arrivalMetrics: {
+                arrivalToEventMs: distribution(input.flatMap((sample, index) => {
+                  const at = arrival(index)
+                  return at === undefined ? [] : [sample.tEvent - at]
+                })),
+                arrivalToEchoMs: distribution(input.flatMap((sample, index) => {
+                  const at = arrival(index)
+                  return at === undefined || sample.tEcho === undefined ? [] : [sample.tEcho - at]
+                }))
+              }
+            }),
           maximumPendingDepth: Math.max(0, ...stable.flatMap(sample => sample.pendingDepth === null ? [] : [sample.pendingDepth])),
           pairingValid: pairing !== undefined,
           transactionCount: transactions.length,
