@@ -1,7 +1,11 @@
 import type { MarkdownAstNode } from '@marktext/document-core'
 import type { IInlinePresentationContext } from '@muyajs/core'
 import { escapeHtml, isMuyaImageSyntax, renderMuyaMarkupBinding } from './muyaMarkupPresentation'
-import { muyaItemAtPath, muyaItemsAtPath, muyaItemsInRoots } from './muyaMarkupViewLookup'
+import {
+  muyaViewBindingsInRoots,
+  muyaViewItemAtPath,
+  muyaViewItemsAtPath
+} from './muyaMarkupViewLookup'
 import type {
   MuyaMarkupBinding,
   MuyaMarkupComment,
@@ -200,8 +204,8 @@ export function createMuyaMarkupPresentationIndex(
   const entryFor = (binding: MuyaMarkupBinding, retained: Entry | undefined): Entry => {
     const entry: Entry = {
       binding,
-      decorations: muyaItemsAtPath(view.decorations, binding.path),
-      comments: muyaItemsAtPath(view.comments, binding.path),
+      decorations: muyaViewItemsAtPath(view, 'decorations', binding.path),
+      comments: muyaViewItemsAtPath(view, 'comments', binding.path),
       hasNativeWidget: hasNativeWidget(binding.syntax),
       view
     }
@@ -234,7 +238,7 @@ export function createMuyaMarkupPresentationIndex(
     patch.previousEnd <= before.roots.length
   ) {
     const replaced: (Map<string, Entry> | undefined)[] = []
-    for (const binding of muyaItemsInRoots(view.bindings, patch.start, patch.nextEnd)) {
+    for (const binding of muyaViewBindingsInRoots(view, patch.start, patch.nextEnd)) {
       const root = rootOf(binding.path)!
       const key = restKey(binding.path)
       // A replaced root is compared with the root it replaces at the same
@@ -290,11 +294,11 @@ export function createMuyaMarkupPresentationIndex(
    */
   const refreshed = (entry: Entry, path: MuyaMarkupPath): Entry | undefined => {
     if (entry.view === view) return entry
-    const binding = muyaItemAtPath(view.bindings, path)
+    const binding = muyaViewItemAtPath(view, 'bindings', path)
     if (binding === undefined) return undefined
     entry.binding = binding
-    entry.decorations = muyaItemsAtPath(view.decorations, path)
-    entry.comments = muyaItemsAtPath(view.comments, path)
+    entry.decorations = muyaViewItemsAtPath(view, 'decorations', path)
+    entry.comments = muyaViewItemsAtPath(view, 'comments', path)
     entry.view = view
     return entry
   }

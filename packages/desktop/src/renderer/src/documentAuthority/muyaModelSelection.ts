@@ -31,7 +31,14 @@ import {
   isMuyaNormalizedTextSegment
 } from './muyaMarkupView'
 import type { MuyaModelInput } from './muyaPlainTextCoreAdapter'
-import { muyaItemAtPath, muyaItemsAtPath, muyaItemsAtRoot } from './muyaMarkupViewLookup'
+import {
+  muyaViewBindingsNear,
+  muyaViewItemAtPath,
+  muyaViewItemsAtPath,
+  muyaViewItemsAtRoot,
+  muyaViewLastBinding,
+  muyaViewPreviousBinding
+} from './muyaMarkupViewLookup'
 
 const samePath = (left: readonly (string | number)[], right: readonly (string | number)[]) =>
   left.length === right.length && left.every((part, index) => part === right[index])
@@ -56,7 +63,8 @@ const nativeOffsetAtSource = (segment: MuyaMarkupBinding['segments'][number], so
 /** The model projection is the only source of semantic DOM boundary positions. */
 export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
   const nativeSelection = muya.editor.selection
-  const bindingAt = (path: readonly (string | number)[]) => muyaItemAtPath(view.bindings, path)
+  const bindingAt = (path: readonly (string | number)[]) =>
+    muyaViewItemAtPath(view, 'bindings', path)
   const leadingLineBinding = (path: readonly (string | number)[]) => {
     const binding = bindingAt(path)
     return binding?.leadingLinePosition === undefined ? undefined : binding
@@ -112,7 +120,7 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
   const presentedMarkerLine = (path: readonly (string | number)[]) => {
     // A marker line's container holds its paragraph, so both share a root.
     const candidates =
-      typeof path[0] === 'number' ? muyaItemsAtRoot(view.bindings, path[0]) : view.bindings
+      typeof path[0] === 'number' ? muyaViewItemsAtRoot(view, 'bindings', path[0]) : view.bindings
     const line = candidates.find(
       (binding) =>
         binding.markerLine !== undefined &&
@@ -139,13 +147,13 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
     if (!(node instanceof HTMLElement) || !node.hasAttribute('data-critic-start')) return undefined
     const start = Number(node.dataset.criticStart) + binding.sourceRange.start
     const end = Number(node.dataset.criticEnd) + binding.sourceRange.start
-    const comment = muyaItemsAtPath(view.comments, binding.path).find(
+    const comment = muyaViewItemsAtPath(view, 'comments', binding.path).find(
       (item) =>
         item.annotationRange.start === start &&
         item.annotationRange.end === end &&
         node.dataset.criticKind === 'comment'
     )
-    const decoration = muyaItemsAtPath(view.decorations, binding.path).find(
+    const decoration = muyaViewItemsAtPath(view, 'decorations', binding.path).find(
       (item) =>
         item.mark.annotationRange.start === start &&
         item.mark.annotationRange.end === end &&
@@ -179,7 +187,7 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
     // whose old arm is a heading, has its opener on that line.
     const earlier =
       line === 0
-        ? (view.bindings[view.bindings.indexOf(binding) - 1]?.sourceRange.end ?? 0)
+        ? (muyaViewPreviousBinding(view, binding)?.sourceRange.end ?? 0)
         : mappedMuyaSourceRange(binding, { start: line, end: line }, 'previous')?.start
     if (earlier === undefined) return undefined
     let exterior: number | undefined
@@ -210,7 +218,7 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
     source: number,
     cell?: DocumentTableCellSelection['cell']
   ): number | undefined => {
-    for (const binding of view.bindings) {
+    for (const binding of muyaViewBindingsNear(view, source)) {
       if (cell !== undefined && !sameCell(binding.tableCell, cell)) continue
       const snap = binding.caretSnaps?.find((item) => item.from <= source && source < item.to)
       if (snap !== undefined) return snap.at
@@ -343,14 +351,14 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
   const mayRenderSource = (binding: MuyaMarkupBinding, source: number): boolean =>
     (binding.text.length === 0 && binding.sourceRange.end === source) ||
     binding.segments.some((segment) => segment.source.start <= source && source <= segment.source.end) ||
-    muyaItemsAtPath(view.decorations, binding.path).some(
+    muyaViewItemsAtPath(view, 'decorations', binding.path).some(
       (item) =>
         item.mark.annotationRange.start === source ||
         item.mark.annotationRange.end === source ||
         item.sourcePosition === source ||
         item.exteriorEnd === source
     ) ||
-    muyaItemsAtPath(view.comments, binding.path).some(
+    muyaViewItemsAtPath(view, 'comments', binding.path).some(
       (item) => item.annotationRange.start === source || item.annotationRange.end === source
     )
   const edge = (node: Node, after: boolean): DocumentDOMPoint | undefined => {
@@ -366,7 +374,7 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
     cell?: DocumentTableCellSelection['cell']
   ) => {
     if (typeof source !== 'number') {
-      for (const binding of view.bindings) {
+      for (const binding of muyaViewBindingsNear(view, source.text.start, source.text.end)) {
         const segment = binding.segments.find(
           (item) =>
             item.source.start === source.text.start &&
@@ -383,7 +391,7 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
       }
       return undefined
     }
-    for (const binding of view.bindings) {
+    for (const binding of muyaViewBindingsNear(view, source)) {
       if (cell !== undefined && !sameCell(binding.tableCell, cell)) continue
       for (const segment of binding.segments) {
         if (source < segment.source.start || source > segment.source.end) continue
@@ -405,7 +413,7 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
       const text = modelPointToText(source, cell)
       return text === undefined ? undefined : (native.getDOMPoint(text) ?? undefined)
     }
-    for (const binding of view.bindings) {
+    for (const binding of muyaViewBindingsNear(view, source)) {
       if (cell !== undefined && !sameCell(binding.tableCell, cell)) continue
       if (!mayRenderSource(binding, source)) continue
       const block = muya.editor.scrollPage?.queryBlock([...binding.path])
@@ -455,13 +463,13 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
         if (point != null && domPointToModel(point, caret) === source) return point
       }
     }
-    for (const binding of view.bindings) {
+    for (const binding of muyaViewBindingsNear(view, source)) {
       if (presentedTrailingLine(binding) !== source) continue
       return (
         native.getDOMPoint({ path: binding.path, offset: binding.text.length + 1 }) ?? undefined
       )
     }
-    for (const binding of view.bindings) {
+    for (const binding of muyaViewBindingsNear(view, source)) {
       if (cell !== undefined && !sameCell(binding.tableCell, cell)) continue
       const end = binding.tableCellContent?.end
       if (end === undefined || source <= end || source > end + presentedCellPadding(binding)) {
@@ -472,7 +480,7 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
         undefined
       )
     }
-    for (const binding of view.bindings) {
+    for (const binding of muyaViewBindingsNear(view, source)) {
       const spaces = binding.blankLineText?.length ?? 0
       if (source <= binding.sourceRange.end || source > binding.sourceRange.end + spaces) continue
       if (presentedBlankLine(binding.path) === undefined) continue
@@ -483,7 +491,7 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
         }) ?? undefined
       )
     }
-    for (const binding of view.bindings) {
+    for (const binding of muyaViewBindingsNear(view, source)) {
       const line = binding.markerLine
       if (line === undefined || source < line.start || source > line.start + line.text.length) {
         continue
@@ -492,7 +500,7 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
       if (presentedMarkerLine(path) === undefined) continue
       return nativeSelection.getDOMPoint({ path, offset: source - line.start }) ?? undefined
     }
-    for (const binding of view.bindings) {
+    for (const binding of muyaViewBindingsNear(view, source)) {
       if (binding.leadingLinePosition === undefined) continue
       const position = presentedLeadingLine(binding.path)
       if (position === undefined) continue
@@ -502,7 +510,7 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
     }
     const snapped = snapCaret(source, cell)
     if (snapped === undefined) return undefined
-    for (const binding of view.bindings) {
+    for (const binding of muyaViewBindingsNear(view, source)) {
       if (!binding.caretSnaps?.some((snap) => snap.from <= source && source < snap.to)) continue
       // The shown position maps back to the snapped source, not to `snapped`.
       for (const segment of binding.segments) {
@@ -567,24 +575,30 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
       ? undefined
       : { start: Math.min(range.anchor, range.focus), end: Math.max(range.anchor, range.focus) }
   }
+  const cellBinding = (cell: DocumentTableCellSelection['cell']) => {
+    for (const binding of muyaViewBindingsNear(view, cell.table.start)) {
+      if (sameCell(binding.tableCell, cell)) return binding
+    }
+    return undefined
+  }
   const modelCellPointToDOM = (
     selection: DocumentTableCellSelection,
     offset: number,
     caret = false
   ) => {
-    const binding = view.bindings.find((item) => sameCell(item.tableCell, selection.cell))
+    const binding = cellBinding(selection.cell)
     if (binding?.tableCellContent === undefined) return undefined
     return modelPointToDOM(binding.tableCellContent.start + offset, selection.cell, caret)
   }
   const modelCellPointToText = (selection: DocumentTableCellSelection, offset: number) => {
-    const binding = view.bindings.find((item) => sameCell(item.tableCell, selection.cell))
+    const binding = cellBinding(selection.cell)
     return binding?.tableCellContent === undefined
       ? undefined
       : modelPointToText(binding.tableCellContent.start + offset, selection.cell)
   }
   const projectSourcePoint = (source: number): number => {
     if (modelPointToDOM(source) !== undefined) return source
-    const end = view.bindings.at(-1)?.documentEnd?.offset
+    const end = muyaViewLastBinding(view)?.documentEnd?.offset
     if (!Number.isSafeInteger(source) || source < 0 || end === undefined || source > end) {
       throw new RangeError('Source caret is outside the current document')
     }
@@ -739,9 +753,7 @@ function languageBoxSelection(
 ): DocumentInputSelection | undefined {
   const text = muya.editor.selection.getTextPoint(point)
   if (text == null || text.path.at(-1) !== 'lang' || text.path.at(-2) !== 'meta') return undefined
-  const body = view.bindings.find((binding) =>
-    samePath(binding.path, [...text.path.slice(0, -2), 'text'])
-  )
+  const body = muyaViewItemAtPath(view, 'bindings', [...text.path.slice(0, -2), 'text'])
   if (body?.syntax.kind !== 'code-block' || body.syntax.attributes.provider !== 'indented-code') {
     return undefined
   }
@@ -979,7 +991,7 @@ function muyaTableSelectionToModel(
     const focus = muya.editor.selection.getTextPoint(range.focus)
     const binding =
       anchor && focus && samePath(anchor.path, focus.path)
-        ? view.bindings.find((item) => samePath(item.path, anchor.path))
+        ? muyaViewItemAtPath(view, 'bindings', anchor.path)
         : undefined
     if (binding?.tableCell === undefined) {
       throw new Error('The current model has no address for a selected table cell')
@@ -1063,7 +1075,7 @@ export function muyaEmojiContext(
 ): ReturnType<DocumentEditing['emojiContext']> {
   const text = muya.editor.selection.getTextPoint(point)
   if (text == null) return undefined
-  const binding = view.bindings.find((binding) => samePath(binding.path, text.path))
+  const binding = muyaViewItemAtPath(view, 'bindings', text.path)
   if (binding === undefined) return undefined
   const visit = (node: MarkdownAstNode): ReturnType<DocumentEditing['emojiContext']> => {
     const alias = node.attributes.emojiAlias
@@ -1110,7 +1122,7 @@ export function muyaCodeLanguage(
 ): string | undefined {
   const text = muya.editor.selection.getTextPoint(point)
   if (text == null) return undefined
-  const syntax = view.bindings.find((binding) => samePath(binding.path, text.path))?.syntax
+  const syntax = muyaViewItemAtPath(view, 'bindings', text.path)?.syntax
   if (
     syntax === undefined ||
     !['code-block', 'diagram'].includes(syntax.kind) ||
@@ -1139,7 +1151,8 @@ export function muyaActiveFormats(
     typeof focus === 'number' ? focus : focus.text.end
   )
   const formats: { type: string; tag?: string }[] = []
-  for (const binding of view.bindings) {
+  // A binding contributes only with a segment at `start`.
+  for (const binding of muyaViewBindingsNear(view, start)) {
     const first =
       binding.segments.find(
         (segment) => segment.source.start <= start && start < segment.source.end
@@ -1230,7 +1243,7 @@ export function muyaBackspaceRemovesGrapheme(
 ): boolean {
   const text = muya.editor.selection.getTextPoint(point)
   if (text == null) return false
-  const binding = view.bindings.find((item) => samePath(item.path, text.path))
+  const binding = muyaViewItemAtPath(view, 'bindings', text.path)
   if (binding === undefined || ['code-block', 'diagram', 'math-block'].includes(binding.syntax.kind)) {
     return false
   }
@@ -1240,8 +1253,8 @@ export function muyaBackspaceRemovesGrapheme(
   const last = segments.at(-1)
   if (typeof caret !== 'number' || first === undefined || last === undefined) return false
   const annotations = [
-    ...view.decorations.filter((item) => samePath(item.path, binding.path)).map((item) => item.mark.annotationRange),
-    ...view.comments.filter((item) => samePath(item.path, binding.path)).map((item) => item.annotationRange)
+    ...muyaViewItemsAtPath(view, 'decorations', binding.path).map((item) => item.mark.annotationRange),
+    ...muyaViewItemsAtPath(view, 'comments', binding.path).map((item) => item.annotationRange)
   ]
   /** Extends `offset` over annotation source that contains or adjoins it. */
   const across = (offset: number, direction: 'forward' | 'backward'): number => {

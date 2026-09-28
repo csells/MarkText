@@ -1,5 +1,5 @@
 import type { MuyaMarkupPath, MuyaMarkupView } from './muyaMarkupView'
-import { muyaItemAtPath, muyaItemsAtPath } from './muyaMarkupViewLookup'
+import { muyaViewItemAtPath, muyaViewItemsAtPath } from './muyaMarkupViewLookup'
 
 /**
  * Reads a leaf's text as Revised shows it: the parts Core marks as suggested
@@ -18,8 +18,8 @@ export function createMuyaRevisedTextReader(
   view: Pick<MuyaMarkupView, 'bindings' | 'decorations'>
 ): MuyaRevisedTextReader {
   return (path, text, start, end) => {
-    if (muyaItemAtPath(view.bindings, path)?.text !== text) return undefined
-    const omitted = muyaItemsAtPath(view.decorations, path)
+    if (muyaViewItemAtPath(view, 'bindings', path)?.text !== text) return undefined
+    const omitted = muyaViewItemsAtPath(view, 'decorations', path)
       .filter(
         ({ range, mark }) =>
           range.end > range.start &&

@@ -89,9 +89,9 @@ describe('native pending input through desktop document lifecycle', () => {
             view: acknowledged.view,
             outcome,
             dirtyPaths: presentation.changedPaths,
-            applyEditability: (bindings) =>
+            applyEditability: (presented) =>
               muya.setEditablePaths(
-                bindings
+                presented.bindings
                   .filter((binding) => binding.editable !== false)
                   .map((binding) => binding.path)
               )

@@ -24,11 +24,59 @@ import {
   assertMuyaDocumentSourceBinding,
   type MuyaPlainTextSourceBinding
 } from './muyaSourceBinding'
-import { mappedMuyaSourceRange, type MuyaMarkupBinding } from './muyaMarkupView'
-import { muyaMarkupBindingsPatch } from './muyaMarkupChanges'
-import { muyaItemsInRoots } from './muyaMarkupViewLookup'
+import { mappedMuyaSourceRange, type MuyaMarkupBinding, type MuyaMarkupView } from './muyaMarkupView'
+import { muyaMarkupViewPatch } from './muyaMarkupChanges'
+import {
+  muyaViewBindingPrecedes,
+  muyaViewBindingsInRoots,
+  muyaViewFirstBinding,
+  muyaViewItemAtPath,
+  muyaViewLastBinding
+} from './muyaMarkupViewLookup'
 
 export type { MuyaPlainTextSourceBinding } from './muyaSourceBinding'
+
+/**
+ * The bindings a view installs: a whole list, or a Muya Markup view, whose
+ * bindings are read one root at a time.
+ */
+export type MuyaPlainTextBindings = readonly MuyaPlainTextSourceBinding[] | MuyaMarkupView
+
+/** Installed bindings, looked up without listing them. */
+interface InstalledBindings {
+  at(path: readonly (string | number)[]): MuyaPlainTextSourceBinding | undefined
+  /** Whether `left` is listed before `right`; both must be installed. */
+  precedes(left: MuyaPlainTextSourceBinding, right: MuyaPlainTextSourceBinding): boolean
+  first(): MuyaPlainTextSourceBinding | undefined
+  last(): MuyaPlainTextSourceBinding | undefined
+}
+
+const samePath = (
+  left: readonly (string | number)[],
+  right: readonly (string | number)[]
+): boolean => left.length === right.length && left.every((part, index) => part === right[index])
+
+const isView = (bindings: MuyaPlainTextBindings): bindings is MuyaMarkupView =>
+  !Array.isArray(bindings)
+
+function installedBindingsOf(bindings: MuyaPlainTextBindings): InstalledBindings {
+  if (isView(bindings)) {
+    return {
+      at: (path) => muyaViewItemAtPath(bindings, 'bindings', path),
+      precedes: (left, right) =>
+        muyaViewBindingPrecedes(bindings, left as MuyaMarkupBinding, right as MuyaMarkupBinding),
+      first: () => muyaViewFirstBinding(bindings),
+      last: () => muyaViewLastBinding(bindings)
+    }
+  }
+  const list = Object.freeze([...bindings])
+  return {
+    at: (path) => list.find((item) => samePath(item.path, path)),
+    precedes: (left, right) => list.indexOf(left) < list.indexOf(right),
+    first: () => list[0],
+    last: () => list[list.length - 1]
+  }
+}
 
 export type MuyaPlainTextAuthorSelection = Readonly<{
   readonly anchor: Readonly<{
@@ -143,33 +191,33 @@ export interface MuyaPlainTextCoreAdapter {
   recoveryDraft(): MuyaRecoveryDraft | undefined
   input(
     operation: MuyaModelInput,
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
     tracked?: boolean
   ): Readonly<{ accepted: boolean; changed: boolean }>
   /** `historyGroup` is Muya's undo step for this command, as for `input`. */
   prepareImage(
     action: ImagePropertiesAction,
     payload: unknown,
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
     historyGroup?: number
   ): MuyaImagePreparation
   /** `historyGroup` is Muya's undo step for this command, as for `input`. */
   prepareClipboard(
     action: MuyaClipboardCapture,
     payload: unknown,
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
     historyGroup?: number
   ): MuyaClipboardPreparation
   /** `historyGroup` is Muya's undo step for this command, as for `input`. */
   clipboard(
     action: DocumentClipboardAction,
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
     historyGroup?: number
   ): Readonly<{ accepted: boolean; changed: boolean }>
   /** `historyGroup` is Muya's undo step for this command, as for `input`. */
   format(
     action: DocumentFormatAction,
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
     historyGroup?: number
   ): Readonly<{ accepted: boolean; changed: boolean }>
   selectionSourceRange(
@@ -179,42 +227,42 @@ export interface MuyaPlainTextCoreAdapter {
   compositionUpdate(data: string): void
   compositionEnd(
     result: DocumentCompositionResult,
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
     tracked?: boolean
   ): Readonly<{ accepted: boolean; changed: boolean }>
   configure(
     options: Readonly<Partial<MarkdownOptions>>,
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
   ): Promise<CoreAppliedReply | undefined>
   history(
     command: 'undo' | 'redo',
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
   ): Promise<CoreAppliedReply | undefined>
   resolve(
     annotation: CoreReviewItemLocator,
     authoredRevision: number,
     decision: CoreReviewDecision,
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
   ): Promise<CoreAppliedReply | undefined>
   resolveAll(
     decision: 'accept' | 'reject',
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
   ): Promise<CoreAppliedReply | undefined>
   editComment(
     annotation: CoreReviewItemLocator,
     authoredRevision: number,
     text: string,
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
   ): Promise<CoreAppliedReply | undefined>
   author(
     form: CoreAuthorForm,
     target: MuyaPlainTextAuthorTarget,
     text: string,
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
   ): Promise<CoreAppliedReply | undefined>
   reconcileApplied(
     outcome: CoreAppliedReply,
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
   ): Promise<void>
   isComposing(): boolean
   isSettled(): boolean
@@ -232,7 +280,7 @@ type PendingCommand =
     readonly target: string
     readonly operation: CorePreparedOperation
     readonly nativeHistoryGroup?: string
-    readonly reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    readonly reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
     readonly resolve: (outcome: CoreAppliedReply | undefined) => void
     readonly reject: (error: Error) => void
   }>
@@ -240,7 +288,7 @@ type PendingCommand =
     readonly kind: 'clipboard'
     readonly action: DocumentClipboardAction
     readonly nativeHistoryGroup?: string
-    readonly reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    readonly reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
     readonly resolve: (outcome: CoreAppliedReply | undefined) => void
     readonly reject: (error: Error) => void
   }>
@@ -248,7 +296,7 @@ type PendingCommand =
     readonly kind: 'format'
     readonly action: DocumentFormatAction
     readonly nativeHistoryGroup?: string
-    readonly reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    readonly reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
     readonly resolve: (outcome: CoreAppliedReply | undefined) => void
     readonly reject: (error: Error) => void
   }>
@@ -257,7 +305,7 @@ type PendingCommand =
     readonly input: MuyaModelInput
     readonly nativeHistoryGroup?: string
     readonly markup: boolean
-    readonly reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    readonly reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
     readonly resolve: (outcome: CoreAppliedReply) => void
     readonly reject: (error: Error) => void
   }>
@@ -265,7 +313,7 @@ type PendingCommand =
     readonly kind: 'history'
     readonly command: 'undo' | 'redo' | 'configure'
     readonly options?: Readonly<Partial<MarkdownOptions>>
-    readonly reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    readonly reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
     readonly resolve: (outcome: CoreAppliedReply | undefined) => void
     readonly reject: (error: Error) => void
   }>
@@ -274,7 +322,7 @@ type PendingCommand =
     readonly annotation: CoreReviewItemLocator
     readonly authoredRevision: number
     readonly decision: CoreReviewDecision
-    readonly reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    readonly reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
     readonly resolve: (outcome: CoreAppliedReply | undefined) => void
     readonly reject: (error: Error) => void
   }>
@@ -283,7 +331,7 @@ type PendingCommand =
     readonly form: CoreAuthorForm
     readonly selection: MuyaPlainTextAuthorTarget
     readonly text: string
-    readonly reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    readonly reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
     readonly resolve: (outcome: CoreAppliedReply | undefined) => void
     readonly reject: (error: Error) => void
   }>
@@ -292,14 +340,14 @@ type PendingCommand =
     readonly annotation: CoreReviewItemLocator
     readonly authoredRevision: number
     readonly text: string
-    readonly reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    readonly reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
     readonly resolve: (outcome: CoreAppliedReply | undefined) => void
     readonly reject: (error: Error) => void
   }>
   | Readonly<{
     readonly kind: 'resolve-all'
     readonly decision: 'accept' | 'reject'
-    readonly reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+    readonly reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
     readonly resolve: (outcome: CoreAppliedReply | undefined) => void
     readonly reject: (error: Error) => void
   }>
@@ -310,7 +358,7 @@ type PendingCommand =
  * reconcile or recover.
  */
 export function createMuyaPlainTextCoreAdapter(
-  bindings: readonly MuyaPlainTextSourceBinding[],
+  bindings: MuyaPlainTextBindings,
   binding: Pick<
     EditorCoreBinding,
     'submit' | 'retainSelection' | 'retainedSelectionAtBarrier' | 'releaseSelection'
@@ -323,7 +371,7 @@ export function createMuyaPlainTextCoreAdapter(
   initialRevision = 1,
   regionalMarkup = false
 ): MuyaPlainTextCoreAdapter {
-  let selectionBindings: readonly MuyaPlainTextSourceBinding[] = Object.freeze([])
+  let selectionBindings = installedBindingsOf([])
   const queued: PendingCommand[] = []
   const preparations = new Set<PendingResourcePreparation>()
   const refreshPreparation = (preparation: PendingResourcePreparation): void => {
@@ -409,15 +457,16 @@ export function createMuyaPlainTextCoreAdapter(
     }
   }
 
-  let installedBindings: readonly MuyaPlainTextSourceBinding[] | undefined
-  const installBindings = (nextBindings: readonly MuyaPlainTextSourceBinding[]): void => {
+  let installedBindings: MuyaPlainTextBindings | undefined
+  const installBindings = (nextBindings: MuyaPlainTextBindings): void => {
     // A regional change leaves every other root's bindings as they were
     // validated, moved together, so only the roots it made are checked.
-    const patch = muyaMarkupBindingsPatch(nextBindings as readonly MuyaMarkupBinding[])
-    const checked =
-      patch !== undefined && patch.previous === installedBindings
-        ? muyaItemsInRoots(nextBindings, patch.start, patch.nextEnd)
-        : nextBindings
+    const patch = isView(nextBindings) ? muyaMarkupViewPatch(nextBindings) : undefined
+    const checked = !isView(nextBindings)
+      ? nextBindings
+      : patch !== undefined && patch.previous === installedBindings
+        ? muyaViewBindingsInRoots(nextBindings, patch.start, patch.nextEnd)
+        : nextBindings.bindings
     installedBindings = nextBindings
     const editablePaths = new Set<string>()
     for (const item of checked) {
@@ -440,7 +489,7 @@ export function createMuyaPlainTextCoreAdapter(
         )
       }
     }
-    selectionBindings = Object.freeze([...nextBindings])
+    selectionBindings = installedBindingsOf(nextBindings)
   }
   installBindings(bindings)
 
@@ -457,12 +506,8 @@ export function createMuyaPlainTextCoreAdapter(
     allowCollapsed = false,
     sourceBindings = selectionBindings
   ): Readonly<{ readonly start: number; readonly end: number }> | undefined => {
-    const samePath = (
-      left: readonly (string | number)[],
-      right: readonly (string | number)[]
-    ): boolean => left.length === right.length && left.every((part, index) => part === right[index])
-    const anchorBinding = sourceBindings.find((item) => samePath(item.path, selection.anchor.path))
-    const focusBinding = sourceBindings.find((item) => samePath(item.path, selection.focus.path))
+    const anchorBinding = sourceBindings.at(selection.anchor.path)
+    const focusBinding = sourceBindings.at(selection.focus.path)
     if (
       anchorBinding === undefined ||
       focusBinding === undefined ||
@@ -476,7 +521,7 @@ export function createMuyaPlainTextCoreAdapter(
       return undefined
     }
     const forward =
-      sourceBindings.indexOf(anchorBinding) < sourceBindings.indexOf(focusBinding) ||
+      sourceBindings.precedes(anchorBinding, focusBinding) ||
       (anchorBinding === focusBinding && selection.anchor.offset <= selection.focus.offset)
     const anchorRange = mappedMuyaSourceRange(
       anchorBinding,
@@ -503,8 +548,8 @@ export function createMuyaPlainTextCoreAdapter(
     const focus = focusRange.start
     let start = Math.min(anchor, focus)
     const end = Math.max(anchor, focus)
-    const first = sourceBindings[0]
-    const last = sourceBindings[sourceBindings.length - 1]
+    const first = sourceBindings.first()
+    const last = sourceBindings.last()
     const beginPoint = forward ? selection.anchor : selection.focus
     const endPoint = forward ? selection.focus : selection.anchor
     if (
@@ -864,7 +909,7 @@ export function createMuyaPlainTextCoreAdapter(
   }
   const enqueueHistory = (
     command: 'undo' | 'redo' | 'configure',
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
     options?: Readonly<Partial<MarkdownOptions>>
   ): Promise<CoreAppliedReply | undefined> => {
     if (disposed) return Promise.reject(new Error('Core Muya adapter is disposed'))
@@ -900,7 +945,7 @@ export function createMuyaPlainTextCoreAdapter(
   const applyPrepared = (
     target: string,
     operation: CorePreparedOperation,
-    reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
     historyGroup?: number
   ): Readonly<{ accepted: boolean; changed: boolean }> => {
     latestNativeChange = { target, operation }
@@ -1066,7 +1111,7 @@ export function createMuyaPlainTextCoreAdapter(
   const adapter: MuyaPlainTextCoreAdapter = Object.freeze({
     input(
       operation: MuyaModelInput,
-      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+      reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
       tracked = false
     ): Readonly<{ accepted: boolean; changed: boolean }> {
       latestNativeChange = operation
@@ -1107,7 +1152,7 @@ export function createMuyaPlainTextCoreAdapter(
     prepareClipboard(
       action: MuyaClipboardCapture,
       payload: unknown,
-      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+      reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
       historyGroup?: number
     ): MuyaClipboardPreparation {
       const captured = structuredClone(action)
@@ -1161,7 +1206,7 @@ export function createMuyaPlainTextCoreAdapter(
     prepareImage(
       action: ImagePropertiesAction,
       payload: unknown,
-      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+      reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
       historyGroup?: number
     ): MuyaImagePreparation {
       const { selection, ...captured } = structuredClone(action)
@@ -1198,7 +1243,7 @@ export function createMuyaPlainTextCoreAdapter(
 
     clipboard(
       action: DocumentClipboardAction,
-      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+      reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
       historyGroup?: number
     ): Readonly<{ accepted: boolean; changed: boolean }> {
       latestNativeChange = action
@@ -1235,7 +1280,7 @@ export function createMuyaPlainTextCoreAdapter(
     },
     format(
       action: DocumentFormatAction,
-      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+      reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
       historyGroup?: number
     ): Readonly<{ accepted: boolean; changed: boolean }> {
       latestNativeChange = action
@@ -1285,7 +1330,7 @@ export function createMuyaPlainTextCoreAdapter(
     },
     async reconcileApplied(
       outcome: CoreAppliedReply,
-      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+      reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
     ): Promise<void> {
       if (disposed) throw new Error('Core Muya adapter is disposed')
       if (terminalError !== undefined) throw terminalError
@@ -1352,7 +1397,7 @@ export function createMuyaPlainTextCoreAdapter(
     },
     compositionEnd(
       result: DocumentCompositionResult,
-      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[],
+      reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
       tracked = false
     ): Readonly<{ accepted: boolean; changed: boolean }> {
       if (!composing || compositionInput === undefined || compositionBarrier === undefined) {
@@ -1394,7 +1439,7 @@ export function createMuyaPlainTextCoreAdapter(
     history: enqueueHistory,
     async configure(
       options: Readonly<Partial<MarkdownOptions>>,
-      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+      reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
     ) {
       await adapter.settled()
       return enqueueHistory('configure', reconcile, Object.freeze({ ...options }))
@@ -1403,7 +1448,7 @@ export function createMuyaPlainTextCoreAdapter(
       annotation: CoreReviewItemLocator,
       authoredRevision: number,
       decision: CoreReviewDecision,
-      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+      reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
     ): Promise<CoreAppliedReply | undefined> {
       if (disposed) return Promise.reject(new Error('Core Muya adapter is disposed'))
       if (terminalError !== undefined) return Promise.reject(terminalError)
@@ -1444,7 +1489,7 @@ export function createMuyaPlainTextCoreAdapter(
     },
     resolveAll(
       decision: 'accept' | 'reject',
-      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+      reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
     ): Promise<CoreAppliedReply | undefined> {
       if (disposed) return Promise.reject(new Error('Core Muya adapter is disposed'))
       if (terminalError !== undefined) return Promise.reject(terminalError)
@@ -1473,7 +1518,7 @@ export function createMuyaPlainTextCoreAdapter(
       annotation: CoreReviewItemLocator,
       authoredRevision: number,
       text: string,
-      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+      reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
     ): Promise<CoreAppliedReply | undefined> {
       if (disposed) return Promise.reject(new Error('Core Muya adapter is disposed'))
       if (terminalError !== undefined) return Promise.reject(terminalError)
@@ -1520,7 +1565,7 @@ export function createMuyaPlainTextCoreAdapter(
       form: CoreAuthorForm,
       selection: MuyaPlainTextAuthorTarget,
       text: string,
-      reconcile: (outcome: CoreAppliedReply) => readonly MuyaPlainTextSourceBinding[]
+      reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
     ): Promise<CoreAppliedReply | undefined> {
       if (disposed) return Promise.reject(new Error('Core Muya adapter is disposed'))
       if (terminalError !== undefined) return Promise.reject(terminalError)
