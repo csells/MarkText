@@ -110,27 +110,40 @@ const caretAt = (position: number): DocumentTextSelection =>
  * edges (plan 0012 G39). Source edits are not planned here: they keep the
  * bytes their author typed (ADR 0015).
  */
-export function commentedSpanSafeInput(revision: DocumentRevision, action: DocumentInputAction): DocumentInputAction {
+/**
+ * `rootsAround` gives the root annotations around a position, as the
+ * revision's roots in document order, with the root that directly follows
+ * any of them; the revision's whole list when omitted.
+ */
+export function commentedSpanSafeInput(
+  revision: DocumentRevision,
+  action: DocumentInputAction,
+  rootsAround: (position: number) => readonly CriticMarkupAnnotation[] = () => revision.annotations
+): DocumentInputAction {
   if ('kind' in action) {
     if (action.command !== 'moveText') return action
     const at = collapsedAt(action.target)
     if (at === undefined) return action
-    const moved = insertionOutsideCommentedSpans(pairsTouching(revision.annotations, at), at)
+    const moved = insertionOutsideCommentedSpans(pairsTouching(rootsAround(at), at), at)
     return moved === at ? action : { ...action, target: Object.freeze({ start: moved, end: moved }) }
   }
   if (!action.inputType.startsWith('insert') || !('ranges' in action.selection)) return action
   const at = collapsedAt(action.selection)
   if (at === undefined || collapsedAt(action.range) !== at) return action
-  const moved = insertionOutsideCommentedSpans(pairsTouching(revision.annotations, at), at)
+  const moved = insertionOutsideCommentedSpans(pairsTouching(rootsAround(at), at), at)
   if (moved === at) return action
   return { ...action, selection: caretAt(moved), range: Object.freeze({ start: moved, end: moved }) }
 }
 
-export function commentedSpanSafeClipboard(revision: DocumentRevision, action: DocumentClipboardAction): DocumentClipboardAction {
+export function commentedSpanSafeClipboard(
+  revision: DocumentRevision,
+  action: DocumentClipboardAction,
+  rootsAround: (position: number) => readonly CriticMarkupAnnotation[] = () => revision.annotations
+): DocumentClipboardAction {
   if (action.kind !== 'paste' || !('ranges' in action.selection)) return action
   const at = collapsedAt(action.selection)
   if (at === undefined) return action
-  const moved = insertionOutsideCommentedSpans(pairsTouching(revision.annotations, at), at)
+  const moved = insertionOutsideCommentedSpans(pairsTouching(rootsAround(at), at), at)
   if (moved === at) return action
   const current = action.currentSelection === undefined ? undefined : collapsedAt(action.currentSelection as DocumentInputSelection)
   return {

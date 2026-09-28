@@ -116,12 +116,19 @@ describe('keys in a long dense document cost no document parse', () => {
     { name: 'tracked Enter between suggestions', at: target + 'Review {++new evidence++} alongs'.length, key: 'insertParagraph', tracked: true },
     { name: 'untracked Enter between suggestions', at: target + 'Review {++new evidence++} alongs'.length, key: 'insertParagraph', tracked: false }
   ]
-  it.each(cases)('$name', ({ at, key, tracked }) => {
+  it.each(cases)('$name', ({ name, at, key, tracked }) => {
     const core = createDocumentCore()
     const revision = regional(core, source)
-    const before = inspectDocumentCore(core).documentParses
+    const before = inspectDocumentCore(core)
     const actual = press(core, revision, at + 1, key, tracked)
-    expect(inspectDocumentCore(core).documentParses - before).toBe(0)
+    const after = inspectDocumentCore(core)
+    expect(after.documentParses - before.documentParses).toBe(0)
+    // The document holds 1,500 annotations; typing in an Addition or in
+    // plain words reads only those of the blocks around the caret.
+    if (key === 'insertText' && (!tracked || name === 'tracked typing in an Addition')) {
+      expect(after.regionalInventoryAnnotationMaterializedNodes - before.regionalInventoryAnnotationMaterializedNodes)
+        .toBeLessThan(100)
+    }
     const control = createDocumentCore()
     planFromDocumentParse(control)
     expect(actual).toEqual(press(control, regional(control, source), at + 1, key, tracked))

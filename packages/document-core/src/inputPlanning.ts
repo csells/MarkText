@@ -1,4 +1,5 @@
 import { constrainLiteralDeletion, isEmptyFencedPayloadPoint, resolveModelTextSelection, planModelTextInput } from './modelText.js'
+import { annotationsAround } from './internal/annotationsAround.js'
 import type { MarkdownLineIndex } from './revision.js'
 import { planTextMove } from './textMovePlanning.js'
 import { planBlockMove } from './blockMovePlanning.js'
@@ -381,7 +382,7 @@ function planSourceInput(core: DocumentCore, revision: DocumentRevision, action:
   // Upstream pairs from the raw characters beside the caret, where annotation
   // delimiters are ordinary punctuation. Payload neighbors are already exact.
   const delimiter = (position: number) =>
-    inputType === 'insertText' && position >= 0 && position < revision.sourceLength && isAnnotationDelimiter(revision.annotations, position)
+    inputType === 'insertText' && position >= 0 && position < revision.sourceLength && isAnnotationDelimiter(annotationsAround(core, revision, position), position)
       ? core.sourceSlice(revision, { start: position, end: position + 1 })
       : undefined
   const delimiterAfter = delimiter(range.end)
