@@ -148,7 +148,11 @@ describe('CommonMark and upstream agree', () => {
     ['    o\n-|\n', '<pre><code>o\n</code></pre><p>-|</p>'],
     // A delimiter row four columns in, or on a lazy line, is paragraph text.
     ['x|y\n    -|-\n', '<p>x|y\n-|-</p>'],
-    ['> a|b\n-|-\n', '<blockquote><p>a|b\n-|-</p></blockquote>']
+    ['> a|b\n-|-\n', '<blockquote><p>a|b\n-|-</p></blockquote>'],
+    // Strikethrough pairs tilde runs of one length only.
+    ['~l~~\n', '<p>~l~~</p>'],
+    ['~~l~\n', '<p>~~l~</p>'],
+    ['~l~ ~~m~~\n', '<p><del>l</del> <del>m</del></p>']
   ])('GFM %j', (source, expected) => {
     expect(html(source, true)).toBe(canonical(expected))
   })
