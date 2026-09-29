@@ -95,7 +95,8 @@ test('Add Comment from the toolbar on a selection inside a standalone highlight 
       const state = await toolbarState(page)
       return state.visible && state.review.includes('add-comment:on')
     }).toBe(true)
-    await expect.poll(async() => (await toolbarState(page)).review).not.toContain('mark-addition:on')
+    // Text inside a highlight takes every form (plan 0012 G15).
+    await expect.poll(async() => (await toolbarState(page)).review).toContain('mark-addition:on')
     await page.locator('.mu-format-picker [data-action="add-comment"]').click()
     await saveComment(page, 'note')
     await expectSaved(app, filePath, 'Alpha {==beta==}{>>note<<} gamma\n')
