@@ -73,8 +73,11 @@ export const planAuthor = (
   const outside = outsideCommentedSpanEdges(layout.pairs, authoredRange)
   if (outside === undefined) return undefined
   authoredRange = outside
-  // Docs allows overlapping comments. CriticMarkup cannot cross annotations,
-  // so a comment that overlaps highlighted text encloses all of it.
+  // Every form nests inside any arm of any annotation, a Comment's payload
+  // included (Profile 1 N1, N2), as Docs lets you highlight, suggest or
+  // comment on text that is itself a suggestion. Pairing is properly nested,
+  // so no form may cross an annotation's delimiters; Docs allows overlapping
+  // comments, so a comment that overlaps highlighted text encloses all of it.
   for (let widened = true; widened;) {
     widened = false
     const pendingAnnotations = [...activeRevision.annotations]
@@ -86,11 +89,9 @@ export const planAuthor = (
       const contains =
           authoredRange.start <= annotation.range.start && authoredRange.end >= annotation.range.end
       if (overlaps && !contains) {
-        if (request.form !== 'comment') return undefined
-        const content = annotation.kind === 'highlight'
-          ? annotation.arms.find(arm => arm.name === 'content')?.range
-          : undefined
-        const nested = content !== undefined && content.start <= authoredRange.start && authoredRange.end <= content.end
+        const nested = annotation.arms.some(arm =>
+          arm.range.start <= authoredRange.start && authoredRange.end <= arm.range.end)
+        if (!nested && request.form !== 'comment') return undefined
         if (!nested) {
           const pair = layout.pairs.find(item => item.highlight === annotation || item.comment === annotation)
           const enclosed = pair === undefined
@@ -166,8 +167,8 @@ export const planAuthor = (
       // The document owner's preview proves both the form and its exact arms.
       // The returned selection belongs to that same resulting syntax.
     const candidate = preview([edit])
-    // A comment may nest inside highlighted text, so its syntax can be below the top level.
-    const authoredAnnotations = request.form === 'comment' ? allAnnotations(candidate.annotations) : candidate.annotations
+    // A form may nest inside another annotation, so its syntax can be below the top level.
+    const authoredAnnotations = allAnnotations(candidate.annotations)
     const selectedContent = (range: SourceRange): SourceRange => selected === rawSelected
       ? Object.freeze({
         // The authored range can move off a commented span's hidden edges.
@@ -183,7 +184,7 @@ export const planAuthor = (
       )
     ) { return undefined }
     if (request.form === 'substitution') {
-      const annotation = candidate.annotations.find(
+      const annotation = authoredAnnotations.find(
         (item) =>
           item.kind === 'substitution' &&
             item.range.start === authoredRange.start &&
@@ -201,7 +202,7 @@ export const planAuthor = (
         : undefined
     }
     if (request.form === 'addition' || request.form === 'highlight') {
-      const annotation = candidate.annotations.find(
+      const annotation = authoredAnnotations.find(
         (item) =>
           item.kind === request.form &&
             item.range.start === authoredRange.start &&

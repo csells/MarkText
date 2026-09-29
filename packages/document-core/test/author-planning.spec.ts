@@ -86,7 +86,7 @@ describe('Review authoring on the common document model', () => {
 
   it('still refuses other forms that partially overlap a commented passage', () => {
     expect(authored('x {==abc==}{>>n<<} y', 'highlight', 0, 7)).toBeUndefined()
-    expect(authored('x {==abc==}{>>n<<} y', 'addition', 6, 7)).toBeUndefined()
+    expect(authored('x {==abc==}{>>n<<} y', 'addition', 0, 7)).toBeUndefined()
   })
 
   // Plan 0012 G39: authored syntax never enters the gap of a Highlight+Comment pair.
