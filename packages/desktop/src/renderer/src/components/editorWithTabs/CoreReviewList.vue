@@ -103,6 +103,11 @@ const props = defineProps<{
   /** An open composer for a new item is a draft card at this source position. */
   draftStart?: number
   composing?: boolean
+  /**
+   * Changes when a click or selection gesture on an annotation in the text
+   * asks to see its card, even when that card is already the selected one.
+   */
+  revealRequest?: number
 }>()
 const emit = defineEmits<{ select: [start: number] }>()
 
@@ -283,13 +288,19 @@ onUpdated(() => {
 })
 
 // When another entry becomes selected, by navigation, the caret or a click,
-// its card is brought into view as `scrollIntoView({ block: 'nearest' })`
-// would, without moving focus. A card outside the mounted cards is placed at
-// an estimated position; mounting and measuring the cards around it moves
-// it, so it is brought into view again after each render until it stays.
+// or a click in the text asks to see the selected one, its card is brought
+// into view as `scrollIntoView({ block: 'nearest' })` would, without moving
+// focus. A card outside the mounted cards is placed at an estimated position;
+// mounting and measuring the cards around it moves it, so it is brought into
+// view again after each render until it stays.
 let revealKey: string | undefined
 let revealPasses = 0
 let revealFrame: number | undefined
+const stopReveal = (): void => {
+  revealKey = undefined
+  if (revealFrame !== undefined) cancelAnimationFrame(revealFrame)
+  revealFrame = undefined
+}
 const revealSelectedCard = (): void => {
   if (revealKey === undefined) return
   const scroller = scrollElement.value
@@ -303,12 +314,13 @@ const revealSelectedCard = (): void => {
   ) as HTMLElement | undefined
   if (card !== undefined) {
     const delta = nearestScrollDelta(scroller.getBoundingClientRect(), card.getBoundingClientRect())
-    if (delta !== 0) {
-      scroller.scrollTop += delta
-    } else if (card.dataset.detached === undefined) {
-      revealKey = undefined
+    if (delta === 0) {
+      // A card in view but still placed apart from the mounted cards is
+      // checked again when the render that mounts its neighbours runs.
+      if (card.dataset.detached === undefined) revealKey = undefined
       return
     }
+    scroller.scrollTop += delta
   }
   // Rendering after the scroll mounts and measures the cards around it; a
   // card not mounted yet is looked for again, a bounded number of times.
@@ -328,6 +340,17 @@ watch(
     revealPasses = 0
   },
   { flush: 'pre' }
+)
+watch(
+  () => props.revealRequest,
+  () => {
+    const entry = props.entries.find((candidate) => candidate.item.range.start === props.activeStart)
+    if (entry === undefined) return
+    revealKey = String(rowKey(entry))
+    revealPasses = 0
+    revealSelectedCard()
+  },
+  { flush: 'post' }
 )
 onBeforeUnmount(() => {
   if (revealFrame !== undefined) cancelAnimationFrame(revealFrame)
@@ -365,12 +388,22 @@ onMounted(() => {
   scrollElement.value = scroller
   measureListOffset()
   placeCards()
+  // The author scrolling the sidebar takes over from a card being brought
+  // into view.
+  for (const type of ['wheel', 'pointerdown', 'keydown', 'touchstart']) {
+    scroller?.addEventListener(type, stopReveal, { passive: true })
+  }
   if (scroller !== null && typeof ResizeObserver !== 'undefined') {
     resizeObserver = new ResizeObserver(measureListOffset)
     for (const child of scroller.children) if (child !== list.value) resizeObserver.observe(child)
   }
 })
-onBeforeUnmount(() => resizeObserver?.disconnect())
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
+  for (const type of ['wheel', 'pointerdown', 'keydown', 'touchstart']) {
+    scrollElement.value?.removeEventListener(type, stopReveal)
+  }
+})
 
 // The visible kind and excerpt are separate elements; join them into one
 // readable accessible name.
