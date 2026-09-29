@@ -1159,21 +1159,27 @@ function analyzeContainerLine(
         column = advanceColumn(column, source.charCodeAt(offset))
         offset += 1
       }
+      let blankOffset = offset
+      while (
+        blankOffset < line.contentEnd &&
+        isSpaceOrTab(source.charCodeAt(blankOffset))
+      ) {
+        blankOffset += 1
+      }
       if (column < targetColumn) {
         // Empty lines need not carry list-item indentation. Retain only this
         // list prefix; a following blockquote still has to match explicitly.
-        let blankOffset = offset
-        while (
-          blankOffset < line.contentEnd &&
-          isSpaceOrTab(source.charCodeAt(blankOffset))
-        ) {
-          blankOffset += 1
-        }
         if (blankOffset !== line.contentEnd || inherited.awaitingContent) {
           offset = matchStartOffset
           column = matchStartColumn
           break
         }
+      } else if (blankOffset === line.contentEnd && inherited.awaitingContent) {
+        // An item begins with at most one blank line: whatever its
+        // indentation, a blank line after an empty item's marker ends it.
+        offset = matchStartOffset
+        column = matchStartColumn
+        break
       } else {
         listContinuationIndentations.push(Object.freeze({
           containerDepth: activeContainers.length + 1,
