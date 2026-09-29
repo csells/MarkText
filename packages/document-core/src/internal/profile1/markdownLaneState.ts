@@ -1041,15 +1041,18 @@ function analyzeContainerLine(
       break
     }
     const listMarker = findListMarker(source, offset, line.contentEnd)
+    const containersMatched = inheritedMatchDepth === inheritedContainers.length &&
+      activeContainers.length === inheritedContainers.length
     if (
       listMarker === undefined ||
       refusesParagraphInterruption(
         source,
         listMarker,
         line.contentEnd,
-        paragraphOpen,
-        inheritedMatchDepth === inheritedContainers.length &&
-          activeContainers.length === inheritedContainers.length,
+        // A container opened earlier on this line has already ended the
+        // paragraph, so a marker after it interrupts nothing.
+        paragraphOpen && openers.length === 0,
+        containersMatched,
         inheritedContainers.some((container) => container.kind === 'list-item')
       )
     ) {
