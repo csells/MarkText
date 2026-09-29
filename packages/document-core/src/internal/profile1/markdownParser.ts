@@ -4569,7 +4569,8 @@ function startsBlockInsideTable(
     if (
       (candidate.provider === 'fenced-code' ||
         candidate.provider === 'html-block' ||
-        candidate.provider === 'diagram') &&
+        candidate.provider === 'diagram' ||
+        candidate.provider === 'definition') &&
       candidate.start < line.contentEnd
     ) {
       return true
