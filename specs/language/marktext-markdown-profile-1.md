@@ -133,7 +133,19 @@ paragraph text. Where the two agree, Profile 1 does too: an unfinished
 definition is paragraph text to the lines after it (they continue it
 lazily, underline it, or interrupt it as they would a paragraph), and a lazy
 line after a complete definition stays in its block quote or list item
-(`> [f]: /u` + `s` is a quoted paragraph).
+(`> [f]: /u` + `s` is a quoted paragraph). As upstream measures such a lazy
+line, its indentation counts inside the block quotes it continues and past
+the content column of each list item there that it reaches, so `> [f]: "` +
+`    *` is code in the quote.
+
+### 2.4 An HTML tag on a lazy line
+
+A complete HTML tag alone on a lazy line interrupts the paragraph it would
+continue, as upstream and micromark read it: in a block quote the line stays
+in the quote and the HTML block opens there (`> a` + `<n>`). Upstream ends a
+list item at such an opening tag, with every container inside the item, so
+`- a` + `<n>` puts the HTML block after the list; micromark keeps it in the
+item. Profile 1 follows upstream. A closing tag stays in the item.
 
 ## 3. Layer B — GFM extension set (pinned)
 
@@ -143,6 +155,12 @@ Profile 1 includes these GFM extensions, per the GFM spec's definitions:
   As upstream reads it, a lazy line ends a table in a block quote and
   continues the quote as a paragraph, but in a list item it is the table's
   delimiter row or a body row; GFM ends the table and its container there.
+  Upstream also ends a table's body rows only at indented code, at a bullet
+  or `1.` / `1)` item followed by a space, or at a block that interrupts a
+  paragraph; `-` alone, a renumbered item such as `2. x`, a raw HTML tag or
+  a definition is a row. It takes no line that begins like a definition
+  (`[f]:`) for a header row. GFM ends the rows at any block start and takes
+  such a header.
 - **Task list items** (`[ ]` / `[x]` markers at list-item start). As upstream
   shows it, a bullet item holding only a marker and a space (`- [ ] `) is an
   empty task; GFM requires text after the marker. An ordered item's marker
@@ -479,6 +497,8 @@ compatibility documentation:
 | D12 | A lazy line ends a table in a block quote as a quoted paragraph, but belongs to a list item's table (§3)                                              | GFM ends the table and its container at the lazy line                              | Upstream MarkText's reading                                                                                                              |
 | D13 | A bullet item holding only a task marker and a space is an empty task (§3)                                                                            | GFM requires text after the marker                                                 | Upstream MarkText shows the empty task                                                                                                   |
 | D14 | An ordered item's task marker shows no checkbox, and with nothing after it is the item's text (§3)                                                    | GFM and marked render a checkbox; upstream MarkText drops the marker when it saves | Upstream MarkText's editor has no ordered task (0c33241b `compatibleTaskList`, `_convertToTaskList`); source is lossless                 |
+| D15 | A table's rows end only at indented code, a bullet or `1.` item followed by a space, or an interrupting block; a `[f]:` line is no header (§3)        | GFM ends rows at any block start and takes such a header                           | Upstream MarkText's reading                                                                                                              |
+| D16 | A complete opening HTML tag on a lazy line ends a list item and every container inside it (§2.4)                                                      | micromark keeps the line in the item                                               | Upstream MarkText's reading                                                                                                              |
 
 ## 13. Implementation boundary
 
