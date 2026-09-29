@@ -2808,8 +2808,7 @@ export function createMarkdownLaneState(
     openerOffset: number,
     laneEnd: number,
     containers: readonly ActiveBlockContainer[],
-    paragraphWasOpen: boolean,
-    previousLineLazy: boolean
+    paragraphWasOpen: boolean
   ): number => {
     const openerLineStart = rawLineStartAt(openerOffset)
     const cached = paragraphEndByLineStart.get(openerLineStart)
@@ -2826,25 +2825,22 @@ export function createMarkdownLaneState(
     const analyzed = (
       text: string,
       inherited: readonly ActiveBlockContainer[],
-      open: boolean,
-      lazy: boolean
+      open: boolean
     ): ContainerLineState => analyzeContainerLine(
       text,
       { start: 0, contentEnd: text.length, end: text.length },
       inherited,
-      open,
-      lazy
+      open
     )
     const visited = [openerLineStart]
     const openerLine = lineAt(openerLineStart)
-    const openerState = analyzed(openerLine.text, containers, paragraphWasOpen, previousLineLazy)
+    const openerState = analyzed(openerLine.text, containers, paragraphWasOpen)
     let end: number
     let laneLimited = false
     if (isAtxHeadingLine(openerLine.text, openerState)) {
       end = openerLine.next
     } else {
       let lineContainers = openerState.lazy ? containers : openerState.activeContainers
-      let lazy = openerState.lazy
       let cursor = openerLine.next
       for (;;) {
         if (cursor >= laneEnd || cursor >= source.length) {
@@ -2853,7 +2849,7 @@ export function createMarkdownLaneState(
           break
         }
         const line = lineAt(cursor)
-        const state = analyzed(line.text, lineContainers, true, lazy)
+        const state = analyzed(line.text, lineContainers, true)
         const continues = !state.blank && (
           state.lazy ||
           (
@@ -2868,7 +2864,6 @@ export function createMarkdownLaneState(
         }
         visited.push(cursor)
         if (!state.lazy) lineContainers = state.activeContainers
-        lazy = state.lazy
         cursor = line.next
       }
     }
@@ -2883,7 +2878,6 @@ export function createMarkdownLaneState(
     laneEnd: number,
     containers: readonly ActiveBlockContainer[],
     paragraphWasOpen: boolean,
-    previousLineLazy: boolean,
     doubleDollar: boolean = false
   ): boolean => {
     const openerLineStart = rawLineStartAt(openerOffset)
@@ -2898,8 +2892,7 @@ export function createMarkdownLaneState(
         text,
         { start: 0, contentEnd: text.length, end: text.length },
         containers,
-        paragraphWasOpen,
-        previousLineLazy
+        paragraphWasOpen
       )
       if (text.slice(state.contentOffset).trim() === '$$') return true
     }
@@ -2907,8 +2900,7 @@ export function createMarkdownLaneState(
       openerOffset,
       laneEnd,
       containers,
-      paragraphWasOpen,
-      previousLineLazy
+      paragraphWasOpen
     )
   }
 
@@ -3601,7 +3593,6 @@ export function createMarkdownLaneState(
                     laneEnd,
                     activeContainers,
                     paragraphOpen,
-                    lastLineLazy,
                     delimiterLength === 2
                   )
                 ) {
@@ -3752,8 +3743,7 @@ export function createMarkdownLaneState(
               closeStart,
               laneEnd,
               activeContainers,
-              paragraphOpen,
-              lastLineLazy
+              paragraphOpen
             )
           ) {
             inlineCode = Object.freeze({ openStart: offset, markerLength, closeStart })
