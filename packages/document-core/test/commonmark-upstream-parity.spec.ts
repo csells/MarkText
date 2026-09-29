@@ -184,6 +184,10 @@ describe('CommonMark and upstream agree', () => {
     ['a\n:-\n', '<table><thead><tr><th align="left">a</th></tr></thead></table>'],
     ['Foo\nbar\n-|\n', '<p>Foo</p><table><thead><tr><th>bar</th></tr></thead></table>'],
     ['a\n---\n', '<h2>a</h2>'],
+    // A table interrupts the paragraph above its header, so a complete HTML
+    // tag there starts an HTML block, as it would anywhere else.
+    ['a\n<l>\n-|\n', '<p>a</p><l>\n-|'],
+    ['> a\n> <l>\n> -|\n', '<blockquote><p>a</p><l>\n-|</blockquote>'],
     // A code span pairs backticks inside one cell only.
     ['`||`c`\n-|-|-\n', '<table><thead><tr><th>`</th><th></th><th><code>c</code></th></tr></thead></table>'],
     ['b|`|`c`\n-|-|-\n', '<table><thead><tr><th>b</th><th>`</th><th><code>c</code></th></tr></thead></table>'],
