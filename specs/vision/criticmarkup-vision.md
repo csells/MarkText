@@ -162,15 +162,15 @@ The integration privileges no source of suggestions.
 
 The CriticMarkup work spans several documents; they differ by **role**, not by subject:
 
-| Role                                                                                   | Document                                                                                                                     |
-| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| **Why** — this vision                                                                  | `specs/vision/criticmarkup-vision.md`                                                                                        |
-| **Decisions** — binding, hard to reverse                                               | Semantic/product ADRs `0001`–`0005`, `0007`–`0010`, and `0013`–`0015`                                                        |
-| **What the language means** — semantic target, with historical proposals distinguished | `specs/language/marktext-markdown-profile-1.md` and its [image-layout extension](../language/marktext-markdown-profile-2.md) |
-| **How it fits MarkText** — ownership and upstream reuse                                | `specs/architecture/criticmarkup-native-integration.md`                                                                      |
-| **How we get there** — the integration plan                                            | `specs/plans/0012-criticmarkup-upstream-integration-review.md`                                                               |
-| **Vocabulary**                                                                         | `CONTEXT.md`                                                                                                                 |
-| **Evidence** — upstream research answering a specific question                         | `specs/architecture/criticmarkup-host-markdown-interaction-evidence.md`                                                      |
+| Role                                                                                   | Document                                                                                                                                                                                               |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Why** — this vision                                                                  | `specs/vision/criticmarkup-vision.md`                                                                                                                                                                  |
+| **Decisions** — binding, hard to reverse                                               | Semantic/product ADRs `0001`–`0005`, `0007`–`0010`, and `0013`–`0016`                                                                                                                                  |
+| **What the language means** — semantic target, with historical proposals distinguished | `specs/language/marktext-markdown-profile-1.md`, its [image-layout extension](../language/marktext-markdown-profile-2.md) and [CriticMarkup Profile 2](../language/marktext-criticmarkup-profile-2.md) |
+| **How it fits MarkText** — ownership and upstream reuse                                | `specs/architecture/criticmarkup-native-integration.md`                                                                                                                                                |
+| **How we get there** — the integration plan                                            | `specs/plans/0012-criticmarkup-upstream-integration-review.md`                                                                                                                                         |
+| **Vocabulary**                                                                         | `CONTEXT.md`                                                                                                                                                                                           |
+| **Evidence** — upstream research answering a specific question                         | `specs/architecture/criticmarkup-host-markdown-interaction-evidence.md`                                                                                                                                |
 
 The architecture lives in the active ADRs, `specs/architecture/criticmarkup-native-integration.md`,
 and this vision. Plans 0009, 0010 and 0011 are archived incomplete; their remaining product
