@@ -20,8 +20,8 @@
  *
  * Class a, b-neither and error documents are shrunk line- and
  * character-wise while they keep their class, and grouped by the result.
- * marked's HTML stands in for upstream: Muya's own post-processing of
- * marked's tokens (an empty bullet task item, for one) is not modelled.
+ * marked's HTML stands in for upstream, with Muya's own reading of bullet
+ * task items applied to marked's tokens in the GFM run.
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -319,9 +319,39 @@ const renderMicromark = (source: string, run: Run): string => micromark(source, 
     : {})
 })
 
+// Muya's compatibleTaskList (packages/muya/src/utils/marked) makes a bullet
+// item whose text begins with a task marker a task even where marked does
+// not: an empty `- [ ]`, or one whose text starts on the next line.
+const MUYA_EMPTY_TASK = /^ {0,3}[*+-][ \t]+\[([ x])\][ \t]*$/i
+const MUYA_TASK_PREFIX = /^ {0,3}[*+-][ \t]+\[([ x])\][ \t]+/i
+const upstreamGfm: Marked = new Marked({
+  gfm: true,
+  walkTokens: (token) => {
+    if (token.type !== 'list' || token.ordered === true) return
+    for (const item of token.items) {
+      const match = item.task ? null : MUYA_EMPTY_TASK.exec(item.raw) ?? MUYA_TASK_PREFIX.exec(item.raw)
+      const state = match?.[1]
+      if (state === undefined) continue
+      const marker = `[${state}]`
+      if (item.text.trimEnd() !== marker && !item.text.startsWith(marker)) continue
+      const rest = item.text.slice(marker.length).replace(/^[ \t]*\r?\n|^[ \t]+/u, '')
+      item.task = true
+      item.checked = state !== ' '
+      item.tokens = [
+        { type: 'checkbox', raw: `${marker} `, checked: item.checked },
+        // A tight item's paragraphs are marked's inline `text` blocks.
+        ...(rest === ''
+          ? []
+          : new Marked({ gfm: true }).lexer(rest).map(block =>
+            block.type === 'paragraph' && token.loose !== true ? { ...block, type: 'text' } : block))
+      ]
+    }
+  }
+})
+
 const markedParsers: Record<Run, Marked> = {
   commonmark: new Marked({ gfm: false }),
-  gfm: new Marked({ gfm: true })
+  gfm: upstreamGfm
 }
 
 const renderMarked = (source: string, run: Run): string =>
