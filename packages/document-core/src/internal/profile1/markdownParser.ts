@@ -3005,7 +3005,9 @@ function scanLinkTargetAttributes(
   while (offset < end && isLinkWhitespace(source.charCodeAt(offset))) {
     offset += 1
   }
-  const titleOpen = source.charCodeAt(offset)
+  // Only a title that opens and closes inside the target is one; the text
+  // after a definition's last line is not part of it.
+  const titleOpen = offset < end ? source.charCodeAt(offset) : -1
   if (titleOpen !== 34 && titleOpen !== 39 && titleOpen !== 40) {
     return { destinationStart, destinationEnd, destinationSyntaxEnd }
   }
@@ -3022,6 +3024,9 @@ function scanLinkTargetAttributes(
       break
     }
     offset += 1
+  }
+  if (offset >= end) {
+    return { destinationStart, destinationEnd, destinationSyntaxEnd }
   }
   return { destinationStart, destinationEnd, destinationSyntaxEnd, titleStart, titleEnd: offset }
 }
