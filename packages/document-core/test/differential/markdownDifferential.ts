@@ -4,6 +4,7 @@
  *
  *   pnpm --filter @marktext/document-core differential \
  *     [--count 6000] [--seed 1] [--out <dir>] [--no-minimize]
+ *     [--minimize a,b-neither,error]   (classes to shrink and group)
  *     [--source <markdown> ...]   (renders only the given documents)
  *
  * Every generated document is rendered by all three in a CommonMark run (GFM
@@ -18,8 +19,9 @@
  *          takes: b-marked, b-micromark or b-neither.
  *   error  a renderer threw.
  *
- * Class a, b-neither and error documents are shrunk line- and
- * character-wise while they keep their class, and grouped by the result.
+ * Class a, b-neither and error documents (or the classes `--minimize`
+ * names) are shrunk line- and character-wise while they keep their class,
+ * and grouped by the result.
  * marked's HTML stands in for upstream, with Muya's own reading of bullet
  * task items applied to marked's tokens in the GFM run.
  */
@@ -461,6 +463,7 @@ const main = (): void => {
       seed: { type: 'string', default: '1' },
       out: { type: 'string' },
       'no-minimize': { type: 'boolean', default: false },
+      minimize: { type: 'string', default: 'a,b-neither,error' },
       source: { type: 'string', multiple: true }
     }
   })
@@ -474,6 +477,7 @@ const main = (): void => {
     }
     return
   }
+  const minimizedClasses = new Set(values.minimize.split(','))
   const count = Number.parseInt(values.count, 10)
   const seed = Number.parseInt(values.seed, 10)
   const generator = new Generator(seed)
@@ -495,7 +499,7 @@ const main = (): void => {
       if (diffClass === undefined) continue
       differingDocuments.add(index)
       tally[run][diffClass] = (tally[run][diffClass] ?? 0) + 1
-      const minimized = !values['no-minimize'] && (diffClass === 'a' || diffClass === 'b-neither' || diffClass === 'error')
+      const minimized = !values['no-minimize'] && minimizedClasses.has(diffClass)
         ? minimize(source, run, diffClass)
         : undefined
       findings.push({
