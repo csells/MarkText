@@ -16,7 +16,8 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import MarkdownPrint from '@/services/printService'
-import { exportStyledHTML } from '@/util/exportHtml'
+import { createDocumentCore } from '@marktext/document-core'
+import { exportStyledHTMLFromProjection } from '@/util/exportHtml'
 
 // Read the stylesheet from disk: vitest runs with CSS processing off, so a
 // `?inline` import would resolve to an empty string.
@@ -28,7 +29,7 @@ const printServiceCss = readFileSync(
 
 // See exportHtml.spec.ts: the engine's export path only reads a few optional
 // `muya.options.*` flags, so a bare `null` instance is enough here.
-const NO_MUYA = null as unknown as Parameters<typeof exportStyledHTML>[0]
+const NO_MUYA = null as unknown as Parameters<typeof exportStyledHTMLFromProjection>[0]
 
 const LONG_LINE =
   'dnf install -y wget openssl-devel bzip2-devel libffi-devel zlib-devel ' +
@@ -52,7 +53,9 @@ const printWrapSelectors = (css: string): string[] => {
 }
 
 const renderPrintContainer = async(markdown: string): Promise<Element> => {
-  const html = await exportStyledHTML(NO_MUYA, markdown, {})
+  const core = createDocumentCore()
+  const projection = core.project(core.open(markdown), 'revised')
+  const html = await exportStyledHTMLFromProjection(NO_MUYA, projection, {})
   const article = /<article class="markdown-body">[\s\S]*<\/article>/.exec(html)
   expect(article).not.toBeNull()
   await new MarkdownPrint().renderMarkdown(article![0], true)

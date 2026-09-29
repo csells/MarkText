@@ -37,16 +37,15 @@ vi.hoisted(() => {
   w.window.DIRNAME = '/docs'
 })
 
-import { exportStyledHTML, exportStyledHTMLFromProjection } from '@/util/exportHtml'
+import { exportStyledHTMLFromProjection } from '@/util/exportHtml'
 import { getHtmlToc, type TocEntry } from '@/util/pdf'
 
-// `exportStyledHTML(muya, markdown, options)` renders through the real
-// `@muyajs/core` `MarkdownToHtml` engine (which runs in jsdom). The first arg is
-// a Muya instance, but the engine treats it as optional — the export path only
-// reads a few `muya.options.*` flags with `??` defaults — so the desktop wrapper
-// works with a bare `null` here, matching the engine's own parity suite which
-// calls `new MarkdownToHtml(md).generate(...)` with no muya.
-const NO_MUYA = null as unknown as Parameters<typeof exportStyledHTML>[0]
+// `exportStyledHTMLFromProjection(muya, projection, options)` renders Core's
+// Revised projection through the real `@muyajs/core` `MarkdownToHtml` shell
+// (which runs in jsdom). The engine treats the Muya instance as optional — the
+// export path only reads a few `muya.options.*` flags with `??` defaults — so
+// the desktop wrapper works with a bare `null` here.
+const NO_MUYA = null as unknown as Parameters<typeof exportStyledHTMLFromProjection>[0]
 
 const revisedProjectionOf = (source: string) => {
   const core = createDocumentCore()
@@ -55,17 +54,10 @@ const revisedProjectionOf = (source: string) => {
 }
 
 describe('exportStyledHTMLFromProjection — Core consumer authority', () => {
-  it('uses the same rendered math and embedded fonts as the native Muya exporter', async() => {
-    const markdown = 'Math: $x^2$.\n'
-    const native = await exportStyledHTML(NO_MUYA, markdown)
-    const projected = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf(markdown))
-    const nativeDocument = new DOMParser().parseFromString(native, 'text/html')
+  it('renders math with KaTeX', async() => {
+    const projected = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('Math: $x^2$.\n'))
     const projectedDocument = new DOMParser().parseFromString(projected, 'text/html')
-    expect(projectedDocument.querySelector('.katex')?.outerHTML).toBe(
-      nativeDocument.querySelector('.katex')?.outerHTML
-    )
     expect(projectedDocument.querySelector('.katex .msupsub')?.textContent).toContain('2')
-    expect(projectedDocument.head.innerHTML).toBe(nativeDocument.head.innerHTML)
   })
 
   it('builds the shipped HTML shell from Revised AST output without canonical markers', async() => {
@@ -86,9 +78,9 @@ describe('exportStyledHTMLFromProjection — Core consumer authority', () => {
   })
 })
 
-describe('exportStyledHTML — wrapper parity', () => {
+describe('exportStyledHTMLFromProjection — document shell', () => {
   it('emits a self-contained document: inline <style> blocks, no CDN <link>', async() => {
-    const out = await exportStyledHTML(NO_MUYA, '# Hi\n\ntext', {})
+    const out = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('# Hi\n\ntext'), {})
 
     // The engine inlines github-markdown-css / katex / prism as <style> blocks
     // by default (inlineStyles: true) instead of CDN <link rel="stylesheet">
@@ -99,7 +91,7 @@ describe('exportStyledHTML — wrapper parity', () => {
   })
 
   it('wraps the rendered body in exactly one <article class="markdown-body"> with the rendered <h1>', async() => {
-    const out = await exportStyledHTML(NO_MUYA, '# Hi\n\ntext', {})
+    const out = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('# Hi\n\ntext'), {})
 
     expect((out.match(/<article class="markdown-body">/g) || []).length).toBe(1)
     // Heading rendered, and the engine injects a github-compatible slug id.
@@ -108,7 +100,7 @@ describe('exportStyledHTML — wrapper parity', () => {
   })
 
   it('cleanly replaces <body> exactly once (no duplicate <body>)', async() => {
-    const out = await exportStyledHTML(NO_MUYA, '# Hi\n\ntext', {})
+    const out = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('# Hi\n\ntext'), {})
 
     expect((out.match(/<body>/g) || []).length).toBe(1)
     expect((out.match(/<\/body>/g) || []).length).toBe(1)
@@ -127,7 +119,7 @@ describe('exportStyledHTML — wrapper parity', () => {
   })
 })
 
-describe('exportStyledHTML — [TOC] expansion and slug matching', () => {
+describe('exportStyledHTMLFromProjection — [TOC] expansion and slug matching', () => {
   // Mirror what `muya.getTOC()` returns ({ lvl, content } per heading, content
   // being the heading's rendered plain text — inline markdown stripped (#4811)).
   // `getHtmlToc` re-slugs `content`; the engine slugs each heading's rendered
@@ -160,7 +152,7 @@ describe('exportStyledHTML — [TOC] expansion and slug matching', () => {
 
   it('replaces the rendered <p>[TOC]</p> with the toc list', async() => {
     const toc = getHtmlToc(TOC, {})
-    const out = await exportStyledHTML(NO_MUYA, MD, { toc })
+    const out = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf(MD), { toc })
 
     expect(out).toContain('toc-container')
     expect(out).toContain('Table of Contents')
@@ -170,7 +162,7 @@ describe('exportStyledHTML — [TOC] expansion and slug matching', () => {
 
   it('dedups repeated headings: two "Installation" → installation / installation-1, with matching anchors', async() => {
     const toc = getHtmlToc(TOC, {})
-    const out = await exportStyledHTML(NO_MUYA, MD, { toc })
+    const out = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf(MD), { toc })
 
     // Engine-written heading ids in document order.
     const ids = [...out.matchAll(/<h[1-6][^>]*\sid="([^"]+)"/g)].map((m) => m[1])
@@ -190,7 +182,7 @@ describe('exportStyledHTML — [TOC] expansion and slug matching', () => {
 
   it('a heading with inline markup produces a TOC anchor that matches the heading id (#4811)', async() => {
     const toc = getHtmlToc(TOC, {})
-    const out = await exportStyledHTML(NO_MUYA, MD, { toc })
+    const out = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf(MD), { toc })
 
     const hrefs = [...out.matchAll(/href="#([^"]+)"/g)].map((m) => m[1])
     const ids = [...out.matchAll(/<h[1-6][^>]*\sid="([^"]+)"/g)].map((m) => m[1])
@@ -207,7 +199,7 @@ describe('exportStyledHTML — [TOC] expansion and slug matching', () => {
 
   it('does not inject the toc when the document has no [TOC] marker', async() => {
     const toc = getHtmlToc(TOC, {})
-    const out = await exportStyledHTML(NO_MUYA, '# Getting Started\n\n## Installation\n', {
+    const out = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('# Getting Started\n\n## Installation\n'), {
       toc
     })
 
@@ -215,9 +207,9 @@ describe('exportStyledHTML — [TOC] expansion and slug matching', () => {
   })
 })
 
-describe('exportStyledHTML — header/footer assembly', () => {
+describe('exportStyledHTMLFromProjection — header/footer assembly', () => {
   it('type:2 + headerFooterStyled:true → styled page table with all parts', async() => {
-    const out = await exportStyledHTML(NO_MUYA, '# Hi', {
+    const out = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('# Hi'), {
       header: { type: 2, left: 'L', center: 'C', right: 'R' },
       footer: { type: 2, center: 'FC' },
       headerFooterStyled: true
@@ -236,7 +228,7 @@ describe('exportStyledHTML — header/footer assembly', () => {
   })
 
   it('type:1 + headerFooterStyled:false → single + simple', async() => {
-    const out = await exportStyledHTML(NO_MUYA, '# Hi', {
+    const out = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('# Hi'), {
       header: { type: 1, center: 'C' },
       headerFooterStyled: false
     })
@@ -248,7 +240,7 @@ describe('exportStyledHTML — header/footer assembly', () => {
   })
 
   it('no header/footer → no page-container table', async() => {
-    const out = await exportStyledHTML(NO_MUYA, '# Hi', {})
+    const out = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('# Hi'), {})
 
     expect(out).not.toContain('page-container')
     expect(out).not.toContain('page-footer')
@@ -258,7 +250,7 @@ describe('exportStyledHTML — header/footer assembly', () => {
   })
 
   it('a footer alone still builds the page table (real footer + fake footer row)', async() => {
-    const out = await exportStyledHTML(NO_MUYA, '# Hi', {
+    const out = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('# Hi'), {
       footer: { type: 2, center: 'only-footer' }
     })
 
@@ -271,22 +263,22 @@ describe('exportStyledHTML — header/footer assembly', () => {
   })
 })
 
-describe('exportStyledHTML — text direction (issue #4553)', () => {
+describe('exportStyledHTMLFromProjection — text direction (issue #4553)', () => {
   it('sets dir="rtl" on the exported <html> when dir is "rtl"', async() => {
-    const out = await exportStyledHTML(NO_MUYA, '# سلام\n\nمتن', { dir: 'rtl' })
+    const out = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('# سلام\n\nمتن'), { dir: 'rtl' })
 
     expect(out).toMatch(/<html lang="en" dir="rtl">/)
   })
 
   it('forwards dir="auto" to the exported <html>', async() => {
-    const out = await exportStyledHTML(NO_MUYA, '# Hi', { dir: 'auto' })
+    const out = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('# Hi'), { dir: 'auto' })
 
     expect(out).toMatch(/<html lang="en" dir="auto">/)
   })
 
   it('leaves the default LTR export without a dir attribute', async() => {
-    const ltr = await exportStyledHTML(NO_MUYA, '# Hi', { dir: 'ltr' })
-    const none = await exportStyledHTML(NO_MUYA, '# Hi', {})
+    const ltr = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('# Hi'), { dir: 'ltr' })
+    const none = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('# Hi'), {})
 
     expect(ltr).toContain('<html lang="en">')
     expect(ltr).not.toMatch(/<html[^>]+dir=/)
@@ -294,10 +286,10 @@ describe('exportStyledHTML — text direction (issue #4553)', () => {
   })
 })
 
-describe('exportStyledHTML — relative image paths', () => {
+describe('exportStyledHTMLFromProjection — relative image paths', () => {
   it('rewrites a relative img src to an absolute file:// URL (issue 230)', async() => {
     // window.DIRNAME is stubbed to '/docs', so `./a.png` resolves against it.
-    const out = await exportStyledHTML(NO_MUYA, '![alt](./a.png)', {})
+    const out = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('![alt](./a.png)'), {})
 
     expect(out).toMatch(/<img[^>]+src="file:\/\/\/docs\/a\.png"/)
     expect(out).not.toContain('src="./a.png"')
@@ -312,31 +304,31 @@ describe('exportStyledHTML — relative image paths', () => {
   })
 
   it('leaves a remote http(s) img src untouched', async() => {
-    const out = await exportStyledHTML(NO_MUYA, '![alt](https://example.com/a.png)', {})
+    const out = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('![alt](https://example.com/a.png)'), {})
 
     expect(out).toMatch(/<img[^>]+src="https:\/\/example\.com\/a\.png"/)
     expect(out).not.toContain('file://')
   })
 })
 
-describe('exportStyledHTML — relative link paths (#1688)', () => {
+describe('exportStyledHTMLFromProjection — relative link paths (#1688)', () => {
   it('rewrites a relative <a href> to an absolute file:// URL', async() => {
     // window.DIRNAME is stubbed to '/docs', so `./my_file.pdf` resolves against it.
-    const out = await exportStyledHTML(NO_MUYA, '[doc](./my_file.pdf)', {})
+    const out = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('[doc](./my_file.pdf)'), {})
 
     expect(out).toMatch(/<a[^>]+href="file:\/\/\/docs\/my_file\.pdf"/)
     expect(out).not.toContain('href="./my_file.pdf"')
   })
 
   it('leaves a remote http(s) link untouched', async() => {
-    const out = await exportStyledHTML(NO_MUYA, '[site](https://example.com/p)', {})
+    const out = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('[site](https://example.com/p)'), {})
 
     expect(out).toMatch(/<a[^>]+href="https:\/\/example\.com\/p"/)
     expect(out).not.toContain('file://')
   })
 
   it('leaves an in-page fragment anchor untouched', async() => {
-    const out = await exportStyledHTML(NO_MUYA, '# Heading\n\n[jump](#heading)', {})
+    const out = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('# Heading\n\n[jump](#heading)'), {})
 
     expect(out).toContain('href="#heading"')
     expect(out).not.toContain('file://')

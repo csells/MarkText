@@ -149,12 +149,6 @@ const rewriteAnchorHrefs = (html: string): string =>
     return resolved === href ? match : `${pre}${resolved}${post}`
   })
 
-/**
- * Build a styled, standalone HTML document equivalent to legacy muyajs
- * `exportStyledHTML`. Renders markdown through the new engine, injects the TOC
- * at the `[TOC]` marker, and — when a header/footer is supplied — wraps the
- * article in the page-container table for paged PDF / print export.
- */
 const optionsWithHeaderFooterCss = (options: ExportStyledHtmlOptions): ExportStyledHtmlOptions => {
   const { header, footer } = options
   let { extraCss = '' } = options
@@ -164,6 +158,12 @@ const optionsWithHeaderFooterCss = (options: ExportStyledHtmlOptions): ExportSty
   return { ...options, extraCss }
 }
 
+/**
+ * A styled, standalone HTML document equivalent to legacy muyajs
+ * `exportStyledHTML`: the TOC at the `[TOC]` marker and, when a header or
+ * footer is supplied, the article in the page-container table for paged
+ * PDF / print export.
+ */
 const finalizeStyledHtml = (
   fullDoc: string,
   projectedArticle: string,
@@ -208,24 +208,6 @@ const finalizeStyledHtml = (
 
   // Re-emit the engine document shell with the (possibly augmented) body.
   return fullDoc.replace(/<body>[\s\S]*<\/body>/, () => `<body>\n  ${bodyHtml}\n</body>`)
-}
-
-export const exportStyledHTML = async(
-  muya: Muya,
-  markdown: string,
-  options: ExportStyledHtmlOptions = {}
-): Promise<string> => {
-  const prepared = optionsWithHeaderFooterCss(options)
-  const { title = '', extraCss = '', dir } = prepared
-
-  // Legacy authority path: the Muya engine parses its own Markdown model.
-  const fullDoc = await new MarkdownToHtml(markdown, muya).generate({
-    title,
-    extraCSS: extraCss,
-    dir
-  })
-  const articleMatch = /<article class="markdown-body">([\s\S]*)<\/article>/.exec(fullDoc)
-  return finalizeStyledHtml(fullDoc, articleMatch ? articleMatch[1] : fullDoc, prepared)
 }
 
 /**
