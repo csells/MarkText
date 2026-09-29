@@ -1429,7 +1429,8 @@ function delimiterPairIsAllowed(
       !/\s/u.test(source.slice(opener.end, closer.start))
   }
   if (opener.markerCodeUnit === 126) {
-    return activeMarkdownGfmEnabled
+    // GFM strikethrough pairs tilde runs of one length only.
+    return activeMarkdownGfmEnabled && opener.length === closer.length
   }
   return !(
     (opener.canClose || closer.canOpen) &&
