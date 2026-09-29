@@ -1715,6 +1715,45 @@ function resolveInlineDelimiterItems(
   return parseEmojiTextNodes(source, nodes, boundaryPolicy)
 }
 
+/**
+ * One line's inline content in a paragraph whose lines are separated by
+ * container prefixes (`> `, list indentation) that belong to no inline node.
+ */
+interface InlineSegment {
+  readonly start: number
+  readonly end: number
+}
+
+/** The paragraph's segments, and the one the current range lies in. */
+interface InlineSegmentSequence {
+  readonly segments: readonly InlineSegment[]
+  readonly index: number
+}
+
+const clippedInlineSegments = (
+  segments: readonly InlineSegment[],
+  start: number,
+  end: number
+): readonly InlineSegment[] => segments.flatMap((segment) =>
+  segment.end <= start || segment.start >= end
+    ? []
+    : [Object.freeze({ start: Math.max(start, segment.start), end: Math.min(end, segment.end) })])
+
+const inlineSegmentsText = (
+  source: string,
+  segments: readonly InlineSegment[],
+  start: number,
+  end: number
+): string => clippedInlineSegments(segments, start, end)
+  .map((segment) => source.slice(segment.start, segment.end))
+  .join('')
+
+/**
+ * Append a range's inline items. Within a segment sequence a code span, raw
+ * HTML tag or link may close on a later line; its node then spans the
+ * container prefixes between, its content leaves them out, and the offset
+ * where the node ends is returned for the caller to resume from.
+ */
 function appendInlineRange(
   list: InlineList,
   delimiters: InlineDelimiterItem[],
@@ -1724,8 +1763,47 @@ function appendInlineRange(
   constructs: ReadonlyMap<number, MappedMarkdownLiteral> = EMPTY_INLINE_CONSTRUCTS,
   referenceDefinitions: MarkdownReferenceDefinitionLookup =
   EMPTY_REFERENCE_DEFINITIONS,
-  boundaryPolicy?: InlineBoundaryPolicy
-): void {
+  boundaryPolicy?: InlineBoundaryPolicy,
+  sequence?: InlineSegmentSequence
+): number | undefined {
+  // This range and the paragraph's later segments through the one holding
+  // `nodeEnd`, when a later line holds the end of a node starting here.
+  const reachableThrough = (nodeEnd: number): readonly InlineSegment[] | undefined => {
+    if (sequence === undefined || nodeEnd <= end) return undefined
+    const reached: InlineSegment[] = [Object.freeze({ start, end })]
+    for (let index = sequence.index + 1; index < sequence.segments.length; index += 1) {
+      const segment = sequence.segments[index]
+      if (segment === undefined || segment.start >= nodeEnd) return undefined
+      reached.push(segment)
+      if (nodeEnd <= segment.end) return reached
+    }
+    return undefined
+  }
+  const endsOnLaterLine = (nodeEnd: number): boolean =>
+    reachableThrough(nodeEnd) !== undefined
+  const reachable = (nodeEnd: number): readonly InlineSegment[] =>
+    reachableThrough(nodeEnd) ?? [Object.freeze({ start, end })]
+  // A reference link's brackets are matched in source, so its label may
+  // continue across a list item's indentation but not a `>` marker. A label
+  // holds at most 999 characters, which bounds the lines worth searching.
+  const referenceReachFrom = (from: number): number => {
+    let reach = end
+    if (sequence === undefined) return reach
+    for (let index = sequence.index + 1; index < sequence.segments.length; index += 1) {
+      const segment = sequence.segments[index]
+      const previousEnd = index === sequence.index + 1 ? end : sequence.segments[index - 1]?.end
+      if (
+        segment === undefined ||
+        previousEnd === undefined ||
+        reach - from > 2 * 1000 + 4 ||
+        !/^[\t ]*$/u.test(source.slice(previousEnd, segment.start))
+      ) {
+        break
+      }
+      reach = segment.end
+    }
+    return reach
+  }
   const appendNode = (node: MarkdownNode): void => {
     appendInlineItem(list, {
       kind: 'node',
@@ -1751,6 +1829,37 @@ function appendInlineRange(
     reportThrough(offset)
     const literal = constructs.get(offset)
     const construct = literal?.construct
+    if (
+      literal !== undefined &&
+      construct !== undefined &&
+      literal.end > end &&
+      endsOnLaterLine(literal.end)
+    ) {
+      if (textStart < offset) {
+        appendNode(createTextNode(source, textStart, offset))
+      }
+      boundaryPolicy?.bracketOffsets.add(construct.labelStart - 1)
+      boundaryPolicy?.bracketOffsets.add(construct.labelEnd)
+      appendNode(createNode(
+        construct.kind,
+        construct.start,
+        literal.end,
+        parseInlineSegments(
+          source,
+          clippedInlineSegments(reachable(literal.end), construct.labelStart, construct.labelEnd),
+          constructs,
+          referenceDefinitions,
+          boundaryPolicy
+        ),
+        {
+          ...scanLinkTargetAttributes(source, literal.start + 1, literal.end - 1),
+          labelStart: construct.labelStart,
+          labelEnd: construct.labelEnd,
+          ...(construct.kind === 'image' ? { imageSyntaxEnd: literal.end } : {})
+        }
+      ))
+      return literal.end
+    }
     if (
       literal !== undefined &&
       construct !== undefined &&
@@ -1917,7 +2026,7 @@ function appendInlineRange(
     const referenceLink = findReferenceLink(
       source,
       offset,
-      end,
+      codeUnit === 91 || codeUnit === 33 ? referenceReachFrom(offset) : end,
       start,
       constructs,
       referenceDefinitions,
@@ -1929,20 +2038,29 @@ function appendInlineRange(
       }
       boundaryPolicy?.bracketOffsets.add(referenceLink.labelStart - 1)
       boundaryPolicy?.bracketOffsets.add(referenceLink.labelEnd)
-      const size = referenceLink.kind === 'image' ? ownedImageSizeAttributes(source, referenceLink.start, referenceLink.end, end, boundaryPolicy) : {}
+      const crossesLines = referenceLink.end > end
+      const size = referenceLink.kind === 'image' && !crossesLines ? ownedImageSizeAttributes(source, referenceLink.start, referenceLink.end, end, boundaryPolicy) : {}
       const imageEnd = typeof size.sizeEnd === 'number' ? size.sizeEnd : referenceLink.end
       appendNode(createNode(
         referenceLink.kind,
         referenceLink.start,
         imageEnd,
-        parseInlineNodes(
-          source,
-          referenceLink.labelStart,
-          referenceLink.labelEnd,
-          constructs,
-          referenceDefinitions,
-          boundaryPolicy
-        ),
+        crossesLines
+          ? parseInlineSegments(
+            source,
+            clippedInlineSegments(reachable(referenceLink.end), referenceLink.labelStart, referenceLink.labelEnd),
+            constructs,
+            referenceDefinitions,
+            boundaryPolicy
+          )
+          : parseInlineNodes(
+            source,
+            referenceLink.labelStart,
+            referenceLink.labelEnd,
+            constructs,
+            referenceDefinitions,
+            boundaryPolicy
+          ),
         {
           referenceLabel: referenceLink.referenceLabel,
           rawReferenceLabel: referenceLink.rawReferenceLabel,
@@ -1952,9 +2070,55 @@ function appendInlineRange(
           ...(referenceLink.kind === 'image' ? { imageSyntaxEnd: referenceLink.end, ...size } : {})
         }
       ))
+      if (crossesLines) {
+        return imageEnd
+      }
       offset = imageEnd
       textStart = offset
       continue
+    }
+    if (
+      literal !== undefined &&
+      literal.construct === undefined &&
+      (literal.provider === 'inline-code' || literal.provider === 'inline-html') &&
+      literal.end > end &&
+      endsOnLaterLine(literal.end)
+    ) {
+      if (textStart < offset) {
+        appendNode(createTextNode(source, textStart, offset))
+      }
+      if (literal.provider === 'inline-code') {
+        let markerLength = 0
+        while (source.charCodeAt(offset + markerLength) === 96) {
+          markerLength += 1
+        }
+        if (boundaryPolicy !== undefined) {
+          recordBoundaryBackticksInRange(source, offset, literal.end, boundaryPolicy)
+        }
+        appendNode(createNode(
+          'inline-code',
+          offset,
+          literal.end,
+          [],
+          inlineCodeAttributes(
+            source,
+            offset,
+            literal.end,
+            markerLength,
+            inlineSegmentsText(source, reachable(literal.end), offset + markerLength, literal.end - markerLength)
+          )
+        ))
+      } else {
+        const content = inlineSegmentsText(source, reachable(literal.end), offset, literal.end)
+        appendNode(createNode('inline-html', offset, literal.end, [], Object.freeze({
+          ...htmlTagAttributes(source, offset, literal.end),
+          content,
+          contentStart: offset,
+          contentEnd: literal.end,
+          ...(gfmTagFilterApplies(content) ? { gfmTagFilter: true } : {})
+        })))
+      }
+      return literal.end
     }
     if (
       literal !== undefined &&
@@ -2071,6 +2235,7 @@ function appendInlineRange(
   if (textStart < end) {
     appendNode(createTextNode(source, textStart, end))
   }
+  return undefined
 }
 
 function parseInlineNodes(
@@ -2104,23 +2269,54 @@ function parseInlineLineSequence(
   referenceDefinitions: MarkdownReferenceDefinitionLookup,
   boundaryPolicy?: InlineBoundaryPolicy
 ): readonly MarkdownNode[] {
+  return parseInlineSegments(
+    source,
+    lines.map((line, index) => Object.freeze({
+      start: line.contentOffset,
+      end: index + 1 < lines.length ? line.end : line.contentEnd
+    })),
+    constructs,
+    referenceDefinitions,
+    boundaryPolicy
+  )
+}
+
+function parseInlineSegments(
+  source: string,
+  segments: readonly InlineSegment[],
+  constructs: ReadonlyMap<number, MappedMarkdownLiteral>,
+  referenceDefinitions: MarkdownReferenceDefinitionLookup,
+  boundaryPolicy?: InlineBoundaryPolicy
+): readonly MarkdownNode[] {
   const list: InlineList = { head: undefined, tail: undefined }
   const delimiters: InlineDelimiterItem[] = []
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index]
-    if (line === undefined) {
-      continue
+  let index = 0
+  let from = segments[0]?.start ?? 0
+  while (index < segments.length) {
+    const segment = segments[index]
+    if (segment === undefined) {
+      break
     }
-    appendInlineRange(
+    const resume = appendInlineRange(
       list,
       delimiters,
       source,
-      line.contentOffset,
-      index + 1 < lines.length ? line.end : line.contentEnd,
+      Math.max(from, segment.start),
+      segment.end,
       constructs,
       referenceDefinitions,
-      boundaryPolicy
+      boundaryPolicy,
+      { segments, index }
     )
+    if (resume === undefined) {
+      index += 1
+      from = segments[index]?.start ?? 0
+      continue
+    }
+    while (index < segments.length && (segments[index]?.end ?? 0) < resume) {
+      index += 1
+    }
+    from = resume
   }
   return resolveInlineDelimiterItems(list, delimiters, source, boundaryPolicy)
 }
@@ -2380,12 +2576,13 @@ function inlineCodeAttributes(
   source: string,
   start: number,
   end: number,
-  markerLength: number
+  markerLength: number,
+  // The span's text without the container prefixes of the lines it crosses.
+  text?: string
 ): Readonly<Record<string, string | number>> {
   const contentStart = Math.min(end, start + markerLength)
   const contentEnd = Math.max(contentStart, end - markerLength)
-  let content = source
-    .slice(contentStart, contentEnd)
+  let content = (text ?? source.slice(contentStart, contentEnd))
     .replace(/\r\n|\r|\n/g, ' ')
   if (
     content.length >= 2 &&

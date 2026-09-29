@@ -112,7 +112,16 @@ describe('CommonMark and upstream agree', () => {
     ['>\n\n>     x\n', '<blockquote></blockquote><blockquote><pre><code>x\n</code></pre></blockquote>'],
     ['> a\n\n>     x\n', '<blockquote><p>a</p></blockquote><blockquote><pre><code>x\n</code></pre></blockquote>'],
     ['>\n\n><e>\n', '<blockquote></blockquote><blockquote><e></blockquote>'],
-    ['>\n\n>```\n', '<blockquote></blockquote><blockquote><pre><code></code></pre></blockquote>']
+    ['>\n\n>```\n', '<blockquote></blockquote><blockquote><pre><code></code></pre></blockquote>'],
+    // A code span, link or raw tag may close on a later line of a list item
+    // or block quote; the container prefixes between are not its content.
+    ['- `a\n  b`\n', '<ul><li><code>a b</code></li></ul>'],
+    ['> `a\n> b`\n', '<blockquote><p><code>a b</code></p></blockquote>'],
+    ['1. `\n`\n', '<ol><li><code> </code></li></ol>'],
+    ['> [a\n> b](/u)\n', '<blockquote><p><a href="/u">a\nb</a></p></blockquote>'],
+    ['- a `b\n  c` [d\n  e](/f)\n', '<ul><li>a <code>b c</code> <a href="/f">d\ne</a></li></ul>'],
+    ['- [a\n  b]\n\n[a b]: /u\n', '<ul><li><a href="/u">a\nb</a></li></ul>'],
+    ['- <span\n  a="b">\n', '<ul><li><span\na="b"></li></ul>']
   ])('%j', (source, expected) => {
     expect(html(source)).toBe(canonical(expected))
   })
@@ -189,7 +198,9 @@ describe('typing these lines reads as a fresh open', () => {
     ['- a\n  > q\n\n', 10, '  > 2) d'],
     ['> a\n\n', 4, '    ---'],
     ['>\n\n', 3, '>     x'],
-    ['>\n\n', 3, '><e>']
+    ['>\n\n', 3, '><e>'],
+    ['- `a\n\n', 5, '  b`'],
+    ['> [a\n\n', 5, '> b](/u)']
   ])('%j at %i types %j', (source, at, insert) => {
     const core = createDocumentCore()
     const previous = core.open(source)
