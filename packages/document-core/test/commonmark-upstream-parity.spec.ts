@@ -124,7 +124,10 @@ describe('CommonMark and upstream agree', () => {
     ['- <span\n  a="b">\n', '<ul><li><span\na="b"></li></ul>'],
     // After a lazy line, a list item still ends the paragraph a code span
     // opened in, so its backtick closes nothing there.
-    ['1. `\na\n3. `c`\n', '<ol><li>` a</li><li><code>c</code></li></ol>']
+    ['1. `\na\n3. `c`\n', '<ol><li>` a</li><li><code>c</code></li></ol>'],
+    // A title on a definition's own line completes it.
+    ['[f]: /u "t"\n"s"\n[f]\n', '<p>&quot;s&quot;\n<a href="/u" title="t">f</a></p>'],
+    ['[f]:l ""\n""\n', '<p>&quot;&quot;</p>']
   ])('%j', (source, expected) => {
     expect(html(source)).toBe(canonical(expected))
   })
@@ -239,6 +242,7 @@ describe('typing these lines reads as a fresh open', () => {
     ['> [a\n\n', 5, '> b](/u)'],
     ['a\n\n', 2, ':-'],
     ['1. `\na\n\n', 7, '3. `c`'],
+    ['[f]: /u "t"\n\n', 12, '"s"'],
     ['> a|b\n> -|-\n\n', 12, 'c|d']
   ])('%j at %i types %j', (source, at, insert) => {
     const core = createDocumentCore()

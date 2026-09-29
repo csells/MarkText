@@ -1890,12 +1890,18 @@ function definitionOpening(
   if (tail === undefined) {
     return undefined
   }
+  // A title on the definition's own line completes it; no later line can
+  // add another.
   return tail.kind === 'title-open'
     ? Object.freeze({
       phase: 'reference-title-open' as const,
       titleCloseCodeUnit: tail.titleCloseCodeUnit
     })
-    : Object.freeze({ phase: 'reference' as const })
+    : Object.freeze({
+      phase: tail.kind === 'destination-title'
+        ? 'reference-title' as const
+        : 'reference' as const
+    })
 }
 
 function isValidReferenceTitleLine(
