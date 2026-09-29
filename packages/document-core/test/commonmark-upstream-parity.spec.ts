@@ -111,6 +111,20 @@ describe('CommonMark and upstream agree', () => {
     ['> a\n    # h\n', '<blockquote><p>a # h</p></blockquote>'],
     ['- a\n      ***\n', '<ul><li>a ***</li></ul>'],
     ['- \\\n      ---\n', '<ul><li><br />\n---</li></ul>'],
+    // Where upstream would nest a bare marker under an item's paragraph, it
+    // is heading text when the paragraph goes on to a setext underline.
+    ['2) .\n   3.\n   =\n', '<ol start="2"><li><h1>. 3.</h1></li></ol>'],
+    ['2) _\n   5)\n   -\n', '<ol start="2"><li><h2>_ 5)</h2></li></ol>'],
+    ['- a\n  +\n  b\n  =\n', '<ul><li><h1>a + b</h1></li></ul>'],
+    // Only a marker inside the item's text: a sibling list starts as before.
+    ['3) c\n-\n-\n', '<ol start="3"><li>c</li></ol><ul><li></li><li></li></ul>'],
+    ['+ ]\n1.\n-\n', '<ul><li>]</li></ul><ol><li></li></ol><ul><li></li></ul>'],
+    ['> - a\n>   4.\n>   =\n', '<blockquote><ul><li><h1>a 4.</h1></li></ul></blockquote>'],
+    // Once a list has opened in an item, its later paragraphs read markers
+    // as CommonMark does.
+    ['* -\n\n  |\n  4.\n', '<ul><li><ul><li></li></ul><p>| 4.</p></li></ul>'],
+    ['- - a\n\n  |\n  2) x\n', '<ul><li><ul><li>a</li></ul><p>| 2) x</p></li></ul>'],
+    ['1. - a\n\n   b\n   2) c\n', '<ol><li><ul><li>a</li></ul><p>b 2) c</p></li></ol>'],
     // A blank line ends a block quote, so one reopened after it with code or
     // HTML is a second quote.
     ['>\n\n>     x\n', '<blockquote></blockquote><blockquote><pre><code>x\n</code></pre></blockquote>'],
@@ -206,6 +220,10 @@ describe('where CommonMark and upstream differ (Profile 1)', () => {
     // Upstream: inside a list item an empty or renumbered item nests.
     ['1. alpha\n   1.\n', '<ol><li>alpha<ol><li></li></ol></li></ol>'],
     ['- alpha\n  +\n', '<ul><li>alpha<ul><li></li></ul></li></ul>'],
+    ['- a\n  4.\n      =\n', '<ul><li>a<ol start="4"><li>=</li></ol></li></ul>'],
+    // Upstream: a lazy `=` after a bare marker that would nest still keeps
+    // the marker as text, and the `=` is text as CommonMark reads it.
+    ['- a\n  4.\n=\n', '<ul><li>a 4. =</li></ul>'],
     // Upstream: a renumbered item stays a lazy line of the quote.
     ['> q\n2) d\n', '<blockquote><p>q 2) d</p></blockquote>'],
     // Upstream: a complete reference definition stands alone, so an indented
@@ -273,6 +291,8 @@ describe('typing these lines reads as a fresh open', () => {
     ['[f]:\n\n', 5, '1.'],
     ['> y\n\n', 4, '* 0.'],
     ['a\n\n', 2, '- -'],
+    ['2) .\n   3.\n\n', 11, '   ='],
+    ['* -\n\n  |\n\n', 9, '  4.'],
     ['- a\n  > q\n\n', 10, '  > 2) d'],
     ['> a\n\n', 4, '    ---'],
     ['>\n\n', 3, '>     x'],

@@ -192,6 +192,11 @@ export interface MarkdownCheckpoint {
    * would continue the paragraph CommonMark reads the definition from.
    */
   readonly definitionLazyContinuation?: boolean | undefined
+  /**
+   * By depth of `activeContainers`, whether that list item has held a list:
+   * once it has, its later paragraphs read list markers as CommonMark does.
+   */
+  readonly listItemsHoldingLists?: readonly boolean[] | undefined
   /** A GFM table is open, so the next line of its containers may be a row. */
   readonly tableOpen?: boolean | undefined
   /**
@@ -786,16 +791,112 @@ function refusesParagraphInterruption(
   lineContentEnd: number,
   paragraphOpen: boolean,
   containersMatched: boolean,
-  insideListItem: boolean
+  insideListItem: boolean,
+  underlinedAhead: () => boolean = () => false
 ): boolean {
   if (!paragraphOpen) return false
   const empty = isBlankFrom(source, marker.end, lineContentEnd)
   if (containersMatched && empty && isSetextUnderline(source, marker.start, lineContentEnd)) {
     return true
   }
-  if (insideListItem) return false
+  // Upstream reads a bare marker, with nothing after it, as heading text when
+  // the paragraph it follows goes on to a setext underline.
+  if (insideListItem) return containersMatched && marker.end >= lineContentEnd && underlinedAhead()
   return (containersMatched && empty) ||
     (marker.ordered && marker.startNumber !== 1)
+}
+
+/**
+ * Whether the paragraph a bare list marker would interrupt reaches a setext
+ * underline, reading on from `next` in `source`. As upstream's setext rule
+ * does, it passes lines of text, bare markers and rules, and stops at a
+ * blank line, a line that leaves the paragraph's containers, indented code,
+ * a list item with text, a block quote, an ATX heading, a fence or an HTML
+ * block.
+ */
+// The answer for each line the scan passes, so a paragraph of bare markers
+// is read once however many of them ask.
+let underlinedAheadMemo: { source: string, results: Map<string, boolean> } | undefined
+
+function paragraphUnderlinedAhead(
+  source: string,
+  next: number,
+  containers: readonly ActiveBlockContainer[]
+): boolean {
+  if (underlinedAheadMemo?.source !== source) {
+    underlinedAheadMemo = { source, results: new Map() }
+  }
+  const results = underlinedAheadMemo.results
+  const key = (start: number): string => `${String(start)}:${String(containers.length)}`
+  const known = results.get(key(next))
+  if (known !== undefined) return known
+  const visited: number[] = []
+  const settle = (answer: boolean): boolean => {
+    for (const start of visited) results.set(key(start), answer)
+    return answer
+  }
+  let start = next
+  while (start < source.length) {
+    const cached = results.get(key(start))
+    if (cached !== undefined) return settle(cached)
+    visited.push(start)
+    let contentEnd = start
+    while (
+      contentEnd < source.length &&
+      source.charCodeAt(contentEnd) !== 10 &&
+      source.charCodeAt(contentEnd) !== 13
+    ) {
+      contentEnd += 1
+    }
+    const text = source.slice(start, contentEnd)
+    const state = analyzeContainerLine(text, { start: 0, contentEnd: text.length, end: text.length }, containers, true, true)
+    if (
+      state.blank ||
+      (state.continuedContainerDepth < containers.length && !state.lazy) ||
+      state.indentation > 3
+    ) {
+      return settle(false)
+    }
+    if (isSetextUnderline(text, state.contentOffset, text.length)) return settle(true)
+    const marker = findListMarker(text, state.contentOffset, text.length)
+    if (
+      (marker !== undefined && marker.end < text.length) ||
+      text.charCodeAt(state.contentOffset) === 62 ||
+      isAtxHeadingLine(text, state) ||
+      findMarkdownFenceOpening(text, state.contentOffset, state.indentation, false) !== undefined ||
+      htmlBlockOpening(text, state, true) !== undefined
+    ) {
+      return settle(false)
+    }
+    start = contentEnd + (
+      source.charCodeAt(contentEnd) === 13 && source.charCodeAt(contentEnd + 1) === 10 ? 2 : 1
+    )
+  }
+  return settle(false)
+}
+
+const NO_LIST_HOLDERS: readonly boolean[] = Object.freeze([])
+
+/**
+ * By depth, whether each container a line leaves open is a list item that
+ * has held a list: those kept from the line before carry the answer on, and
+ * an item holds one while another list item is open inside it.
+ */
+function listHoldersAfterLine(
+  previous: readonly boolean[],
+  continuedDepth: number,
+  containers: readonly ActiveBlockContainer[]
+): readonly boolean[] {
+  let any = false
+  const holders = containers.map((container, depth) => {
+    const holds = container.kind === 'list-item' && (
+      (depth < continuedDepth && previous[depth] === true) ||
+      containers[depth + 1]?.kind === 'list-item'
+    )
+    any ||= holds
+    return holds
+  })
+  return any ? Object.freeze(holders) : NO_LIST_HOLDERS
 }
 
 /**
@@ -996,7 +1097,12 @@ function analyzeContainerLine(
   // A line after a reference definition may be lazy though no paragraph is
   // open; it then starts blocks as after any complete block.
   lazyContinuationOpen: boolean = paragraphOpen,
-  tableRowOpen: boolean = false
+  tableRowOpen: boolean = false,
+  // Where the line's paragraph goes on in full source, for a bare marker
+  // that upstream may read as heading text.
+  following?: Readonly<{ source: string, next: number }>,
+  // By depth, whether an inherited list item has held a list.
+  listHolders: readonly boolean[] = NO_LIST_HOLDERS
 ): ContainerLineState {
   let offset = line.start
   let column = 0
@@ -1146,10 +1252,17 @@ function analyzeContainerLine(
         paragraphOpen && openers.length === 0,
         containersMatched,
         // Upstream's nesting applies to a list item's own paragraph, not to
-        // one in a block quote the line continues inside that item.
+        // one in a block quote the line continues inside that item, nor
+        // once a list has opened in the item: its later paragraphs read
+        // markers as CommonMark does.
         containersMatched
-          ? inheritedContainers.at(-1)?.kind === 'list-item'
-          : inheritedContainers.some((container) => container.kind === 'list-item')
+          ? (() => {
+            const depth = activeContainers.length - 1
+            return activeContainers[depth]?.kind === 'list-item' && listHolders[depth] !== true
+          })()
+          : inheritedContainers.some((container) => container.kind === 'list-item'),
+        () => following !== undefined &&
+          paragraphUnderlinedAhead(following.source, following.next, Object.freeze([...activeContainers]))
       )
     ) {
       break
@@ -1407,7 +1520,9 @@ export function inspectMarkdownPendingLineBlock(
     checkpoint.paragraphOpen,
     false,
     lazyContinuationOpenFor(checkpoint),
-    checkpoint.tableOpen === true
+    checkpoint.tableOpen === true,
+    undefined,
+    checkpoint.listItemsHoldingLists
   )
   const opensFence = findMarkdownFenceOpening(
     lineText,
@@ -3109,6 +3224,7 @@ export function createMarkdownLaneState(
     let paragraphOpen = checkpoint.paragraphOpen
     let definitionLazyContinuation = checkpoint.definitionLazyContinuation === true
     let tableOpen = checkpoint.tableOpen === true
+    let listHolders = checkpoint.listItemsHoldingLists ?? NO_LIST_HOLDERS
     let tableHeaderCells = checkpoint.tableHeaderCells
     let lastLineLazy = checkpoint.lastLineLazy
     let lineStart = checkpoint.lineStart
@@ -3173,7 +3289,9 @@ export function createMarkdownLaneState(
           paragraphOpen,
           true,
           paragraphOpen || definitionLazyContinuation,
-          tableOpen
+          tableOpen,
+          undefined,
+          listHolders
         )
       const probeState = analyzeContainerLine(
         probeLine,
@@ -3182,7 +3300,9 @@ export function createMarkdownLaneState(
         paragraphOpen,
         false,
         paragraphOpen || definitionLazyContinuation,
-        tableOpen
+        tableOpen,
+        { source, next: sourceLineEnd(source, lookaheadEnd, laneEnd) },
+        listHolders
       )
       if (firstContainerDepthFailure === undefined) {
         const excess = firstExcessContainer(probeState)
@@ -3897,7 +4017,9 @@ export function createMarkdownLaneState(
         paragraphOpen,
         false,
         paragraphOpen || definitionLazyContinuation,
-        tableOpen
+        tableOpen,
+        undefined,
+        listHolders
       )
       if (isFenceCloserLine(boundaryLine, boundaryState, fence)) {
         completedLiterals.push(Object.freeze({
@@ -3978,7 +4100,8 @@ export function createMarkdownLaneState(
           checkpoint
         ),
         lazyContinuationOpenFor(checkpoint),
-        checkpoint.tableOpen === true
+        checkpoint.tableOpen === true,
+        checkpoint.listItemsHoldingLists
       ))
       const completedLine =
         materializeMarkdownLine(checkpoint.linePath) + text.slice(0, firstEol)
@@ -3989,7 +4112,9 @@ export function createMarkdownLaneState(
         paragraphOpen,
         false,
         paragraphOpen || definitionLazyContinuation,
-        tableOpen
+        tableOpen,
+        { source, next: completedBounds.end },
+        listHolders
       )
       if (lineState.blank || lineBlockClosed) {
         enclosingLabelInterrupted = true
@@ -4345,6 +4470,7 @@ export function createMarkdownLaneState(
           ? gfmTableRowCellCount(completedLine, lineState.contentOffset, completedLine.length)
           : undefined
       }
+      listHolders = listHoldersAfterLine(listHolders, lineState.continuedContainerDepth, activeContainers)
       definitionLazyContinuation = !paragraphOpen && lineOwnedByReferenceDefinition &&
         !lineState.blank
       lastLineLazy = lineState.lazy
@@ -4386,6 +4512,7 @@ export function createMarkdownLaneState(
         activeContainers,
         definitionLazyContinuation: definitionLazyContinuation ? true : undefined,
         tableOpen: tableOpen ? true : undefined,
+        listItemsHoldingLists: listHolders.length === 0 ? undefined : listHolders,
         tableHeaderCells,
         lineEntryContainers: linePath !== undefined && lastEol < 0 &&
             lineEntryContainers !== activeContainers
@@ -4463,7 +4590,8 @@ export function createMarkdownLaneState(
             checkpoint
           ),
           lazyContinuationOpenFor(checkpoint),
-          checkpoint.tableOpen === true
+          checkpoint.tableOpen === true,
+          checkpoint.listItemsHoldingLists
         )])
     if (checkpoint.fence !== undefined) {
       completedLiterals.push(Object.freeze({
@@ -5026,7 +5154,8 @@ export function buildPlainMarkdownLine(
   paragraphOpen: boolean,
   literalOpen: boolean = false,
   lazyContinuationOpen: boolean = paragraphOpen,
-  tableRowOpen: boolean = false
+  tableRowOpen: boolean = false,
+  listHolders: readonly boolean[] = NO_LIST_HOLDERS
 ): PlainMarkdownLine {
   const { start, contentEnd, end } = bounds
   const lineState = analyzeContainerLine(
@@ -5036,7 +5165,9 @@ export function buildPlainMarkdownLine(
     paragraphOpen,
     literalOpen,
     lazyContinuationOpen,
-    tableRowOpen
+    tableRowOpen,
+    { source, next: end },
+    listHolders
   )
   let openerIndex = 0
   let quoteMarkerIndex = 0
@@ -5230,7 +5361,8 @@ function parsePlainMarkdownLanePass(
       lineContinuesLiteralContainer ||
         checkpoint.frontMatter !== undefined,
       lazyContinuationOpenFor(checkpoint),
-      checkpoint.tableOpen === true
+      checkpoint.tableOpen === true,
+      checkpoint.listItemsHoldingLists
     ))
     // This driver owns complete physical lines. Finalize a lone CR before
     // deriving the next line's inherited container and literal state.
