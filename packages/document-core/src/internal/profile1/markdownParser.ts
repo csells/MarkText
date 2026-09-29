@@ -3965,8 +3965,10 @@ function parseOrderedContainerSequence(
     }
 
     // GFM's task marker begins the item's first paragraph, so the text after
-    // it is paragraph text rather than a heading or thematic break.
-    const heading = taskMarker !== undefined
+    // it is paragraph text rather than a heading or thematic break. Neither
+    // block starts four columns in: such a line continues the paragraph.
+    const blockStartIndented = contentLine.indentation > 3
+    const heading = taskMarker !== undefined || blockStartIndented
       ? undefined
       : parseAtxHeading(
         source,
@@ -3986,6 +3988,7 @@ function parseOrderedContainerSequence(
 
     if (
       taskMarker === undefined &&
+      !blockStartIndented &&
       isThematicBreakRun(
         source,
         contentLine.contentOffset,
