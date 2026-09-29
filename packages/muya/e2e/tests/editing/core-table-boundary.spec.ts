@@ -25,8 +25,8 @@ for (const bound of [false, true]) {
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, legacyCalls: [] });
             await page.keyboard.type('X');
             if (bound) {
-                // Typing writes the table afresh like upstream's, padded to its widest cell.
-                const typed = '| Xsa{++me++}{>>note<<} | same |\n| --------------------- | ---- |\n| same                  | same |\n';
+                // Typing writes only its own bytes (ADR 0007).
+                const typed = '| Xsa{++me++}{>>note<<} | same |\n| ---- | ---- |\n| same | same |\n';
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, anchor: 1, caret: 1, legacyCalls: [] });
                 await page.evaluate(() => window.coreBoundary.history('undo'));
                 expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
@@ -102,7 +102,8 @@ test('Core Backspace between tables preserves both and selects the previous impl
         })).toEqual({ row: 1, column: 2, table: true });
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source }, legacyCalls: [] });
         await page.keyboard.type('X');
-        const next = '| a   | b   | c   |\n| --- | --- | --- |\n| x   |     | X   |\n\n| |\n| --- |\n';
+        // Typing writes only its own bytes and adds its missing cells minimally (ADR 0007).
+        const next = '| a | b | c |\n| --- | --- | --- |\n| x | | X |\n\n| |\n| --- |\n';
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: next }, anchor: 1, caret: 1, legacyCalls: [] });
         await page.evaluate(() => window.coreBoundary.history('undo'));
         expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
@@ -113,8 +114,9 @@ test('Core Backspace between tables preserves both and selects the previous impl
 });
 
 for (const example of [
-    { name: 'hidden comment', source: '| {>>keep<<} | |\n| --- | --- |\n| | |\n', cell: 0, target: 0, next: '| X{>>keep<<} |     |\n| ----------- | --- |\n|             |     |\n' },
-    { name: 'previous implicit cell', source: '| a | b | c |\n| --- | --- | --- |\n| x |\n', cell: 5, target: 4, next: '| a   | b   | c   |\n| --- | --- | --- |\n| x   | X   |     |\n' },
+    // Typing after the Backspace writes only its own bytes (ADR 0007).
+    { name: 'hidden comment', source: '| {>>keep<<} | |\n| --- | --- |\n| | |\n', cell: 0, target: 0, next: '| X{>>keep<<} | |\n| --- | --- |\n| | |\n' },
+    { name: 'previous implicit cell', source: '| a | b | c |\n| --- | --- | --- |\n| x |\n', cell: 5, target: 4, next: '| a | b | c |\n| --- | --- | --- |\n| x | X |\n' },
 ]) {
     test(`Core boundary Backspace preserves the ${example.name}`, async ({ page }) => {
         await page.evaluate(async (example) => {

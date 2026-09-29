@@ -49,10 +49,11 @@ for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: tru
             : bound
                 ? '| same    | same                    |\n| -------:|:----------------------- |\n| onekept | one{++kept++}{>>note<<} |\n'
                 : '| same    | same    |\n| -------:|:------- |\n| onekept | onekept |\n';
+        // The drag writes the table afresh; the key typed after it writes only its own bytes (ADR 0007).
         const typed = tracked
             ? '{~~| same | same |\n| :--- | ---: |\n| one{++kept++}{>>note<<} | onekept |~>| same | same |\n| ---: | :--- |\n| onekept | oXne{++kept++}{>>note<<} |~~}\n'
             : bound
-                ? '| same    | same                     |\n| -------:|:------------------------ |\n| onekept | oXne{++kept++}{>>note<<} |\n'
+                ? '| same    | same                    |\n| -------:|:----------------------- |\n| onekept | oXne{++kept++}{>>note<<} |\n'
                 : '| same    | same     |\n| -------:|:-------- |\n| onekept | oXnekept |\n';
         await page.evaluate(async ({ source, bound, tracked }) => {
             if (bound) {
@@ -143,9 +144,9 @@ for (const tracked of [false, true]) {
     test(`row promotion materializes the selected empty header cell (Track=${tracked})`, async ({ page }) => {
         const source = '| a | b |\n| --- | --- |\n| x |\n';
         const header = '| x |     |\n| --- | --- |\n| a | b |';
-        // Untracked, the moved table is written afresh like upstream's.
+        // Untracked, the moved table is written afresh like upstream's; typing then writes only its own bytes (ADR 0007).
         const expected = tracked ? `{~~| a | b |\n| --- | --- |\n| x |~>${header}~~}\n` : '| x   |     |\n| --- | --- |\n| a   | b   |\n';
-        const typed = tracked ? '{~~| a | b |\n| --- | --- |\n| x |~>| x |     X|\n| --- | --- |\n| a | b |~~}\n' : '| x   | X   |\n| --- | --- |\n| a   | b   |\n';
+        const typed = tracked ? '{~~| a | b |\n| --- | --- |\n| x |~>| x | X    |\n| --- | --- |\n| a | b |~~}\n' : '| x   | X    |\n| --- | --- |\n| a   | b   |\n';
         await page.evaluate(async ({ source, tracked }) => {
             const modulePath = '/coreBoundaryControl.ts';
             const control = await import(/* @vite-ignore */ modulePath);
@@ -187,7 +188,7 @@ for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: tru
             : bound ? '| same                 | same |\n| -------------------- | ---- |\n| same                 | same |\n| sa{++me++}{>>note<<} | same |\n' : source;
         const typed = tracked
             ? `{~~${source.slice(0, -1)}~>| same | same |\n| ---- | ---- |\n| same | same |\n| sXa{++me++}{>>note<<} | same |~~}\n`
-            : bound ? '| same                  | same |\n| --------------------- | ---- |\n| same                  | same |\n| sXa{++me++}{>>note<<} | same |\n'
+            : bound ? '| same                 | same |\n| -------------------- | ---- |\n| same                 | same |\n| sXa{++me++}{>>note<<} | same |\n'
                 : '| same  | same |\n| ----- | ---- |\n| same  | same |\n| sXame | same |\n';
         await page.evaluate(async ({ source, bound, tracked }) => {
             if (bound) {

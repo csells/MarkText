@@ -44,7 +44,8 @@ for (const bound of [false, true]) {
                     return { offset: selection?.focus.offset, column: selection?.focus.block.domNode?.closest('td')?.cellIndex };
                 })).toEqual({ offset: 0, column: 0 });
                 await page.keyboard.type('X');
-                const edited = `${prefix}| X   |     |\n| --- | --- |\n|     |     |\n`;
+                // Upstream writes the table afresh; Core writes only the typed bytes (ADR 0007).
+                const edited = `${prefix}| X${bound ? '    ' : '   '}|     |\n| --- | --- |\n|     |     |\n`;
                 expect(await read()).toBe(edited);
                 // Upstream History groups the table with the key typed within
                 // its one-second window.

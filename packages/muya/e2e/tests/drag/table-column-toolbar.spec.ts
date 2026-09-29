@@ -259,18 +259,21 @@ test.describe('TableColumnToolbar (per-column alignment popup)', () => {
     });
 });
 
+// A column command writes the table afresh; the key typed after it writes only its own bytes (ADR 0007).
+// Tracked typing in a suggested column's empty cell extends that cell's Addition, whose
+// opener must begin the cell (Profile 1 R3b), at the cell's text after its padding space (G24).
 const REVIEW_COLUMNS = 'away\n\n| a{++a++} | aa |\n| :--- | ---: |\n| aa | aa |\n';
 
 for (const example of [
-    { name: 'consumes hidden comments within the removed column', source: 'away\n\n| first | second |\r\n| :--- | ---: |\r\n| {++cell++}{>>note<<} | remove |\r\n', button: 'li.item.remove', target: 0, survivor: 0, expected: 'away\n\n| second |\r\n| ------:|\r\n| remove |\r\n', next: 'away\n\n| xsecond |\r\n| -------:|\r\n| remove  |\r\n' },
-    { name: 'inserts before the clicked column', button: 'li.item.insert.left', survivor: 1, expected: 'away\n\n| a{++a++} |     | aa  |\n|:-------- | --- | ---:|\n| aa       |     | aa  |\n', next: 'away\n\n| a{++a++} | x   | aa  |\n|:-------- | --- | ---:|\n| aa       |     | aa  |\n' },
-    { name: 'removes the clicked column', button: 'li.item.remove', survivor: 0, expected: 'away\n\n| a{++a++} |\n|:-------- |\n| aa       |\n', next: 'away\n\n| xa{++a++} |\n|:--------- |\n| aa        |\n' },
-    { name: 'inserts after the last column', button: 'li.item.insert.right', survivor: 2, expected: 'away\n\n| a{++a++} | aa  |     |\n|:-------- | ---:| --- |\n| aa       | aa  |     |\n', next: 'away\n\n| a{++a++} | aa  | x   |\n|:-------- | ---:| --- |\n| aa       | aa  |     |\n' },
-    { name: 'removes the first annotated column', button: 'li.item.remove', target: 0, survivor: 0, expected: 'away\n\n| aa  |\n| ---:|\n| aa  |\n', next: 'away\n\n| xaa |\n| ---:|\n| aa  |\n' },
-    { name: 'tracks insertion before the clicked column', button: 'li.item.insert.left', tracked: true, survivor: 1, expected: 'away\n\n| a{++a++} |{++     |++} aa |\n| :--- |{++ --- |++} ---: |\n| aa |{++     |++} aa |\n', next: 'away\n\n| a{++a++} |{++x++}{++     |++} aa |\n| :--- |{++ --- |++} ---: |\n| aa |{++     |++} aa |\n' },
+    { name: 'consumes hidden comments within the removed column', source: 'away\n\n| first | second |\r\n| :--- | ---: |\r\n| {++cell++}{>>note<<} | remove |\r\n', button: 'li.item.remove', target: 0, survivor: 0, expected: 'away\n\n| second |\r\n| ------:|\r\n| remove |\r\n', next: 'away\n\n| xsecond |\r\n| ------:|\r\n| remove |\r\n' },
+    { name: 'inserts before the clicked column', button: 'li.item.insert.left', survivor: 1, expected: 'away\n\n| a{++a++} |     | aa  |\n|:-------- | --- | ---:|\n| aa       |     | aa  |\n', next: 'away\n\n| a{++a++} | x    | aa  |\n|:-------- | --- | ---:|\n| aa       |     | aa  |\n' },
+    { name: 'removes the clicked column', button: 'li.item.remove', survivor: 0, expected: 'away\n\n| a{++a++} |\n|:-------- |\n| aa       |\n', next: 'away\n\n| xa{++a++} |\n|:-------- |\n| aa       |\n' },
+    { name: 'inserts after the last column', button: 'li.item.insert.right', survivor: 2, expected: 'away\n\n| a{++a++} | aa  |     |\n|:-------- | ---:| --- |\n| aa       | aa  |     |\n', next: 'away\n\n| a{++a++} | aa  | x    |\n|:-------- | ---:| --- |\n| aa       | aa  |     |\n' },
+    { name: 'removes the first annotated column', button: 'li.item.remove', target: 0, survivor: 0, expected: 'away\n\n| aa  |\n| ---:|\n| aa  |\n', next: 'away\n\n| xaa  |\n| ---:|\n| aa  |\n' },
+    { name: 'tracks insertion before the clicked column', button: 'li.item.insert.left', tracked: true, survivor: 1, expected: 'away\n\n| a{++a++} |{++     |++} aa |\n| :--- |{++ --- |++} ---: |\n| aa |{++     |++} aa |\n', next: 'away\n\n| a{++a++} |{++ x    |++} aa |\n| :--- |{++ --- |++} ---: |\n| aa |{++     |++} aa |\n' },
     { name: 'tracks removal of the clicked column', button: 'li.item.remove', tracked: true, survivor: 0, expected: 'away\n\n| a{++a++} {--| aa --}|\n| :--- {--| ---: --}|\n| aa {--| aa --}|\n', next: 'away\n\n| {++x++}a{++a++} {--| aa --}|\n| :--- {--| ---: --}|\n| aa {--| aa --}|\n' },
-    { name: 'inserts before implicit cells in a short body row', source: 'away\n\n| aa | bb |\n|---|---|\n| cc |\n', button: 'li.item.insert.left', survivor: 1, expected: 'away\n\n| aa  |     | bb  |\n| --- | --- | --- |\n| cc  |     |     |\n', next: 'away\n\n| aa  | x   | bb  |\n| --- | --- | --- |\n| cc  |     |     |\n' },
-    { name: 'removes the physical cell beside an implicit body cell', source: 'away\n\n| aa | bb |\n|---|---|\n| cc |\n', button: 'li.item.remove', target: 0, survivor: 0, expected: 'away\n\n| bb  |\n| --- |\n|     |\n', next: 'away\n\n| xbb |\n| --- |\n|     |\n' },
+    { name: 'inserts before implicit cells in a short body row', source: 'away\n\n| aa | bb |\n|---|---|\n| cc |\n', button: 'li.item.insert.left', survivor: 1, expected: 'away\n\n| aa  |     | bb  |\n| --- | --- | --- |\n| cc  |     |     |\n', next: 'away\n\n| aa  | x    | bb  |\n| --- | --- | --- |\n| cc  |     |     |\n' },
+    { name: 'removes the physical cell beside an implicit body cell', source: 'away\n\n| aa | bb |\n|---|---|\n| cc |\n', button: 'li.item.remove', target: 0, survivor: 0, expected: 'away\n\n| bb  |\n| --- |\n|     |\n', next: 'away\n\n| xbb  |\n| --- |\n|     |\n' },
 ]) {
     test(`Core column toolbar ${example.name} with the editor caret elsewhere`, async ({ page }) => {
         await page.evaluate(async ({ source, tracked }) => {

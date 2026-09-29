@@ -8,8 +8,9 @@ for (const example of [
     { name: 'diagram', source: '```mermaid\ngraph TD\nA-->B\n%% a\n```\n\nb{++c++}d\n', joined: '```mermaid\ngraph TD\nA-->B\n%% ab{++c++}d\n```\n', typed: '```mermaid\ngraph TD\nA-->B\n%% axb{++c++}d\n```\n', caret: 19 },
     { name: 'front matter', source: '---\na\n---\n\nb{++c++}d\n', joined: '---\nab{++c++}d\n---\n', typed: '---\naxb{++c++}d\n---\n', caret: 1 },
     { name: 'HTML', source: '<div>a</div>\n\nb{++c++}d\n', joined: '<div>a</div>b{++c++}d\n', typed: '<div>a</div>xb{++c++}d\n', caret: 12 },
-    { name: 'table', source: '| h |\n|---|\n| a |\n\nb{++c++}d\n', joined: '| h          |\n| ---------- |\n| ab{++c++}d |\n', typed: '| h           |\n| ----------- |\n| axb{++c++}d |\n', caret: 1 },
-    { name: 'table with multiple lines', source: '| h |\n|---|\n| a |\n\nb{++c++}d\nnext\n', donor: 'bcd\nnext', joined: '| h                   |\n| ------------------- |\n| ab{++c++}d<br/>next |\n', typed: '| h                    |\n| -------------------- |\n| axb{++c++}d<br/>next |\n', caret: 1 },
+    // A join into a table cell writes only the joined bytes (ADR 0007).
+    { name: 'table', source: '| h |\n|---|\n| a |\n\nb{++c++}d\n', joined: '| h |\n|---|\n| ab{++c++}d |\n', typed: '| h |\n|---|\n| axb{++c++}d |\n', caret: 1 },
+    { name: 'table with multiple lines', source: '| h |\n|---|\n| a |\n\nb{++c++}d\nnext\n', donor: 'bcd\nnext', joined: '| h |\n|---|\n| ab{++c++}d<br/>next |\n', typed: '| h |\n|---|\n| axb{++c++}d<br/>next |\n', caret: 1 },
     { name: 'quote boundary', source: '> b{++c++}d\n>\n> tail\n', joined: 'b{++c++}d\n\n> tail\n', typed: 'xb{++c++}d\n\n> tail\n', caret: 0 },
     { name: 'thematic break', source: '***\n\nb{++c++}d\n', joined: '***b{++c++}d\n', typed: '***xb{++c++}d\n', caret: 3 },
 ]) {
