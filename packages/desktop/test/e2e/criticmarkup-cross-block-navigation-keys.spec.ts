@@ -16,17 +16,21 @@ import { expectDefaultCoreAuthority } from './installedArtifactProvenance'
 const SOURCE = 'one\n\ntwo\n\nthree\n'
 
 async function selectThreeParagraphs(page: Page): Promise<void> {
-  const start = await page.evaluate(() => {
-    const paragraph = document.querySelector('span.mu-paragraph-content')
-    const text = paragraph && document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT).nextNode()
+  // PageDown and PageUp scroll the editor with an animation. Click through the
+  // paragraph, at a point relative to it, so the click waits until the
+  // paragraph stops moving instead of landing where it was.
+  const paragraph = page.locator('span.mu-paragraph-content').first()
+  const position = await paragraph.evaluate((element) => {
+    const text = document.createTreeWalker(element, NodeFilter.SHOW_TEXT).nextNode()
     if (!text) throw new Error('The first paragraph has no text')
     const range = document.createRange()
     range.setStart(text, 1)
     range.setEnd(text, 1)
     const rect = range.getBoundingClientRect()
-    return { x: rect.left, y: rect.top + rect.height / 2 }
+    const box = element.getBoundingClientRect()
+    return { x: rect.left - box.left, y: rect.top - box.top + rect.height / 2 }
   })
-  await page.mouse.click(start.x, start.y)
+  await paragraph.click({ position })
   await page.keyboard.press('Shift+ArrowDown')
   await page.keyboard.press('Shift+ArrowDown')
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toContain('two')
