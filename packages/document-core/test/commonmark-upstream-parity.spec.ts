@@ -134,7 +134,10 @@ describe('CommonMark and upstream agree', () => {
     ['| a | b |\n|---|---|\n***\n', '<table><thead><tr><th>a</th><th>b</th></tr></thead></table><hr />'],
     // A task marker begins a paragraph; an underlined one is heading text.
     ['- [ ] t\n  =\n', '<ul><li><h1>[ ] t</h1></li></ul>'],
-    ['x|y\n-|-\n> 3)\n', '<table><thead><tr><th>x</th><th>y</th></tr></thead></table><blockquote><ol start="3"><li></li></ol></blockquote>']
+    ['x|y\n-|-\n> 3)\n', '<table><thead><tr><th>x</th><th>y</th></tr></thead></table><blockquote><ol start="3"><li></li></ol></blockquote>'],
+    // A delimiter row four columns in, or on a lazy line, is paragraph text.
+    ['x|y\n    -|-\n', '<p>x|y\n-|-</p>'],
+    ['> a|b\n-|-\n', '<blockquote><p>a|b\n-|-</p></blockquote>']
   ])('GFM %j', (source, expected) => {
     expect(html(source, true)).toBe(canonical(expected))
   })
@@ -162,6 +165,18 @@ describe('where CommonMark and upstream differ (Profile 1)', () => {
     ['[a]: /u\n-\n', '<ul><li></li></ul>']
   ])('%j', (source, expected) => {
     expect(html(source)).toBe(canonical(expected))
+  })
+
+  it.each([
+    // Upstream: a lazy line ends a quoted table and continues the quote as a
+    // paragraph. GFM ends the quote with the table.
+    ['> a|b\n> -|-\nc|d\n', '<blockquote><table><thead><tr><th>a</th><th>b</th></tr></thead></table><p>c|d</p></blockquote>'],
+    // Upstream: a lazy line in a list item is a row of the item's table, or
+    // its delimiter row.
+    ['- a|b\n  -|-\nc|d\n', '<ul><li><table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>c</td><td>d</td></tr></tbody></table></li></ul>'],
+    ['- a|b\n-|-\n', '<ul><li><table><thead><tr><th>a</th><th>b</th></tr></thead></table></li></ul>']
+  ])('GFM %j', (source, expected) => {
+    expect(html(source, true)).toBe(canonical(expected))
   })
 })
 
@@ -200,7 +215,8 @@ describe('typing these lines reads as a fresh open', () => {
     ['>\n\n', 3, '>     x'],
     ['>\n\n', 3, '><e>'],
     ['- `a\n\n', 5, '  b`'],
-    ['> [a\n\n', 5, '> b](/u)']
+    ['> [a\n\n', 5, '> b](/u)'],
+    ['> a|b\n> -|-\n\n', 12, 'c|d']
   ])('%j at %i types %j', (source, at, insert) => {
     const core = createDocumentCore()
     const previous = core.open(source)
