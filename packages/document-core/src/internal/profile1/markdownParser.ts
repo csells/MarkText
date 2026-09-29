@@ -4835,7 +4835,9 @@ function parseBlocksRegion(
           referenceDefinitions,
           boundaryPolicy
         ) !== undefined ||
-        (nextLine.listMarkers.length > 0 && !nextLine.blank) ||
+        // The lane opens a list item here only where one may interrupt the
+        // paragraph, empty or not.
+        nextLine.listMarkers.length > 0 ||
         isThematicBreak(source, nextLine) ||
         // GFM reads a paragraph's last line as the header of a table the
         // next line delimits, as it does inside containers.

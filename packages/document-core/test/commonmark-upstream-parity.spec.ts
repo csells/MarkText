@@ -97,6 +97,10 @@ describe('CommonMark and upstream agree', () => {
     // empty or renumbered item after it is a list.
     ['> y\n* 0.\n', '<blockquote><p>y</p></blockquote><ul><li><ol start="0"><li></li></ol></li></ul>'],
     ['> .\n- 2.\n', '<blockquote><p>.</p></blockquote><ul><li><ol start="2"><li></li></ol></li></ul>'],
+    // So does an item that holds only such an item (micromark alone keeps
+    // the inner marker as text).
+    ['a\n- -\n', '<p>a</p><ul><li><ul><li></li></ul></li></ul>'],
+    ['a\n+ 0.\n', '<p>a</p><ul><li><ol start="0"><li></li></ol></li></ul>'],
     // Upstream nests an empty or renumbered item under a list item's own
     // paragraph only; one in a block quote inside the item keeps the rule.
     ['- a\n  > q\n  > 2) d\n', '<ul><li>a<blockquote><p>q 2) d</p></blockquote></li></ul>'],
@@ -237,6 +241,7 @@ describe('typing these lines reads as a fresh open', () => {
     ['[\n\n', 2, '-'],
     ['[f]:\n\n', 5, '1.'],
     ['> y\n\n', 4, '* 0.'],
+    ['a\n\n', 2, '- -'],
     ['- a\n  > q\n\n', 10, '  > 2) d'],
     ['> a\n\n', 4, '    ---'],
     ['>\n\n', 3, '>     x'],
