@@ -944,6 +944,18 @@ function gfmTableRowCellCount(source: string, start: number, end: number): numbe
   return cells
 }
 
+/**
+ * Upstream (marked) takes no line that begins like a reference definition,
+ * `[label]:`, for a table's header row.
+ */
+const DEFINITION_LABEL_START = /^[ \t]*\[(?:[^\\[\]]|\\.)*\]:/u
+
+function gfmTableHeaderCellCount(source: string, start: number, end: number): number | undefined {
+  return DEFINITION_LABEL_START.test(source.slice(start, end))
+    ? undefined
+    : gfmTableRowCellCount(source, start, end)
+}
+
 /** The column count of a GFM delimiter row, or undefined if it is none. */
 function gfmTableDelimiterCellCount(source: string, start: number, end: number): number | undefined {
   const text = source.slice(start, end)
@@ -3132,7 +3144,7 @@ export function createMarkdownLaneState(
           !(state.lazy && lineContainers.at(-1)?.kind === 'blockquote') &&
           state.indentation <= 3 &&
           gfmTableDelimiterCellCount(line.text, state.contentOffset, line.text.length) ===
-            gfmTableRowCellCount(previous.text, previous.contentOffset, previous.text.length)
+            (gfmTableHeaderCellCount(previous.text, previous.contentOffset, previous.text.length) ?? -1)
         ) {
           end = previous.start
           break
@@ -3205,7 +3217,7 @@ export function createMarkdownLaneState(
       !(following.lazy && state.activeContainers.at(-1)?.kind === 'blockquote') &&
       following.indentation <= 3 &&
       gfmTableDelimiterCellCount(text, following.contentOffset, text.length) ===
-        gfmTableRowCellCount(lineText, state.contentOffset, lineText.length)
+        (gfmTableHeaderCellCount(lineText, state.contentOffset, lineText.length) ?? -1)
   }
 
   /**
@@ -4599,7 +4611,7 @@ export function createMarkdownLaneState(
           if (math?.block !== true) math = undefined
         }
         tableHeaderCells = paragraphOpen && !lineOwnedByDefinition
-          ? gfmTableRowCellCount(completedLine, lineState.contentOffset, completedLine.length)
+          ? gfmTableHeaderCellCount(completedLine, lineState.contentOffset, completedLine.length)
           : undefined
       }
       listHolders = listHoldersAfterLine(listHolders, lineState.continuedContainerDepth, activeContainers)
