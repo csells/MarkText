@@ -44,7 +44,6 @@ it('updates a sole punctuated paragraph without constructing an EOF overlay', ()
 })
 
 it.each([
-  { label: 'heading', insert: '# changed' },
   { label: 'reference definition', insert: '[label]: /url' },
   { label: 'front matter at BOF', insert: '---\ntitle: changed\n---' }
 ])('falls back when first-paragraph editing creates $label', ({ insert }) => {
@@ -59,6 +58,7 @@ it.each([
 // suggestion inside one, reparses just those paragraphs.
 it.each([
   { label: 'inline structure in the first paragraph', source: 'ordinary sentence.\n\nsecond paragraph.\n', start: 0, end: 18, insert: '**changed**' },
+  { label: 'a heading in the first paragraph', source: 'ordinary sentence.\n\nsecond paragraph.\n', start: 0, end: 18, insert: '# changed' },
   { label: 'an annotation in the first paragraph', source: 'ordinary sentence.\n\nsecond paragraph.\n', start: 0, end: 18, insert: '{++changed++}' },
   { label: 'a joined paragraph separator', source: 'first.\n\nlast.', start: 6, end: 8, insert: ' ' }
 ])('reparses only the paragraphs changed by $label', ({ source, start, end, insert }) => {

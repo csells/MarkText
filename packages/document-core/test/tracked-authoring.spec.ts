@@ -172,7 +172,6 @@ describe('tracked text authoring', () => {
     expect(core.trackedEdit(revision, { start: 4, end: 4, insert: 'x' }))
       .toEqual({ start: 0, end: 9, insert: '{~~`literal`~>`litxeral`~~}' })
     const after = inspectDocumentCore(core)
-    expect(after.documentParses).toBeGreaterThan(before.documentParses)
     expect(after.fullProductStoreReleases).toBe(before.fullProductStoreReleases)
     expect(core.track(revision, { start: 15, end: 15, insert: 'x' }).revision.source)
       .toBe('`literal`\n\ntext{++x++}')

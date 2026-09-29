@@ -9,8 +9,8 @@ import { inspectDocumentCore, planFromDocumentParse } from '../src/internal/docu
 // must read as the document parse gives it: a seeded differential replays
 // each sequence against a core that plans from its document parse, and in
 // long documents the named sequences take no document parse at all. A key
-// no region can apply, such as one in a link's paragraph or one that turns
-// a paragraph into a list, costs the single parse apply() publishes.
+// no region can apply, such as a suggestion written around a code block,
+// costs the single parse apply() publishes.
 
 const options = { autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true }
 
@@ -224,9 +224,10 @@ describe('keys the general compiler plans in a long document', () => {
     { name: 'Backspace after emphasis', block: 'Emph *a {++b++} c* and {--d--} e.', text: 'c* and', offset: 2, key: 'deleteContentBackward', parses: 0 },
     { name: 'Enter inside emphasis', block: 'Emph *a {++b++} c* and {--d--} e.', text: 'a {++', offset: 1, key: 'insertParagraph', parses: 0 },
     { name: 'typing in a Highlight beside a Comment', block: 'Pair {==x==}{>>c<<}{==y==} end.', text: 'x==', offset: 1, key: 'insertText', parses: 0 },
-    { name: 'Enter that turns the paragraph after into a list', block: 'Emph *a {++b++} c* and {--d--} e.', text: '* and', offset: 0, key: 'insertParagraph', parses: 1 },
-    { name: 'typing in a paragraph holding a link', block: 'See [a link](http://x.y) and {++added++} text.', text: 'See', offset: 2, key: 'insertText', parses: 1 },
-    { name: 'Enter in a list item', block: '- item {++one++}\n- item {--two--} end', text: 'item {++', offset: 2, key: 'insertParagraph', parses: 1 }
+    { name: 'Enter that turns the paragraph after into a list', block: 'Emph *a {++b++} c* and {--d--} e.', text: '* and', offset: 0, key: 'insertParagraph', parses: 0 },
+    { name: 'typing in a paragraph holding a link', block: 'See [a link](http://x.y) and {++added++} text.', text: 'See', offset: 2, key: 'insertText', parses: 0 },
+    { name: 'Enter in a list item', block: '- item {++one++}\n- item {--two--} end', text: 'item {++', offset: 2, key: 'insertParagraph', parses: 0 },
+    { name: 'typing in a fenced code block', block: '```\ncode {++x++} here\n```', text: 'code', offset: 2, key: 'insertText', parses: 1 }
   ] as const
   it.each(shapes)('$name', ({ block, text, offset, key, parses }) => {
     const paragraphs = ['Warm editing paragraph.', ...Array.from({ length: 300 }, () => dense)]

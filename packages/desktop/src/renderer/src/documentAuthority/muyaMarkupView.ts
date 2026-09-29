@@ -335,14 +335,29 @@ export function mappedMuyaSourceRange(
   return start === undefined || end === undefined ? undefined : { start, end }
 }
 
-/** Detaches Core Markup syntax, source maps and marks for the Muya presentation. */
+/**
+ * Detaches Core Markup syntax, source maps and marks for the Muya presentation.
+ * A regional projection may bring `precedingEvents`, the unchanged text events
+ * before its region, which only positions on the lines before its first block
+ * read, and `following`, where the next block starts with the text events up
+ * to there, which only the blank text after its last block reads.
+ */
 export function createMuyaMarkupView(
   projection: MarkupProjection,
   annotations: readonly CriticMarkupAnnotation[] = [],
   canonicalSource?: string,
-  commentText?: (comment: CriticMarkupAnnotation) => string
+  commentText?: (comment: CriticMarkupAnnotation) => string,
+  precedingEvents: readonly Extract<MarkupProjection['events'][number], { kind: 'text' }>[] = [],
+  following?: Readonly<{
+    blockStart: number
+    events: readonly Extract<MarkupProjection['events'][number], { kind: 'text' }>[]
+  }>
 ): MuyaMarkupView {
   const sourceEvents = projection.events.filter((event) => event.kind === 'text')
+  const readableEvents =
+    precedingEvents.length === 0 && following === undefined
+      ? sourceEvents
+      : [...precedingEvents, ...sourceEvents, ...(following?.events ?? [])]
   const markdownSegments: MuyaMarkdownSegment[] = []
   const sourceRuns = projection.syntax.coordinates.sourceSegments ?? []
   let markdownOffset = 0
@@ -375,17 +390,26 @@ export function createMuyaMarkupView(
   }
   // Text events are in source order, so a range's text starts at the first
   // event ending after it: found by bisection, not by scanning every event.
+  // The text a regional view was read with begins at a line start, after a
+  // line break it holds no event for. Earlier text stands in as spaces, so
+  // offsets into what it returns stay source offsets and that break is seen.
+  const readableStart = precedingEvents[0]?.sourceRange.start ?? 0
   const sourceText = (start: number, end: number): string => {
     let text = ''
+    if (start < readableStart && readableStart > 0) {
+      const to = Math.min(end, readableStart)
+      text = ' '.repeat(Math.max(0, to - start - 1)) + (to === readableStart ? '\n' : ' ')
+      if (start >= to) text = ''
+    }
     let low = 0
-    let high = sourceEvents.length
+    let high = readableEvents.length
     while (low < high) {
       const middle = (low + high) >> 1
-      if (sourceEvents[middle].sourceRange.end <= start) low = middle + 1
+      if (readableEvents[middle].sourceRange.end <= start) low = middle + 1
       else high = middle
     }
-    for (let index = low; index < sourceEvents.length; index += 1) {
-      const event = sourceEvents[index]
+    for (let index = low; index < readableEvents.length; index += 1) {
+      const event = readableEvents[index]
       if (event.sourceRange.start >= end) break
       const from = Math.max(start, event.sourceRange.start)
       const to = Math.min(end, event.sourceRange.end)
@@ -1430,10 +1454,13 @@ export function createMuyaMarkupView(
     }
     const source = sourceText(range.start, range.end)
     if (source.length === range.end - range.start) {
-      const followingEnd = projection.syntax.coordinates.toSource(
-        blocks[index + 1]?.range.start ?? projection.syntax.ast.root.range.end,
-        'previous'
-      )
+      const followingEnd =
+        blocks[index + 1] === undefined && following !== undefined
+          ? following.blockStart
+          : projection.syntax.coordinates.toSource(
+            blocks[index + 1]?.range.start ?? projection.syntax.ast.root.range.end,
+            'previous'
+          )
       const followingSource = sourceText(range.end, followingEnd)
       outerBlocks.set(index, {
         range,
