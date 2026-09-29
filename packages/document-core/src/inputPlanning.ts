@@ -588,8 +588,10 @@ export function reconcileInput(
   const applied = commit?.change.appliedEdits ?? []
   const next = commit?.revision ?? previous
   if (commit === null && policy.edits.some(edit => core.sourceSlice(previous, edit) !== edit.insert)) throw new RangeError('Input without a commit must preserve source')
-  const unchanged = applied.length === policy.edits.length && applied.every((edit, index) => {
-    const requested = policy.edits[index]
+  // A planned edit that neither removes nor inserts text commits nothing.
+  const requestedEdits = policy.edits.filter(edit => edit.start !== edit.end || edit.insert.length > 0)
+  const unchanged = applied.length === requestedEdits.length && applied.every((edit, index) => {
+    const requested = requestedEdits[index]
     return requested !== undefined && edit.start === requested.start && edit.end === requested.end && edit.insert === requested.insert
   })
   const edit = policy.edits.length === 1 ? policy.edits[0] : undefined

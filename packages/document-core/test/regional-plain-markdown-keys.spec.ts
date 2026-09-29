@@ -119,3 +119,52 @@ describe('the first suggestion in a document with an unfinished opener', () => {
     expect(outcome).toEqual(press(control, regional(control, source), caret, 'insertText', true))
   })
 })
+
+describe('keys inside a label a definition resolves', () => {
+  // Code and math spans bind before links, so a window reading the label as
+  // text plans the key as the document does.
+  it.each([
+    ['plain label', 'Read [the notes] before you start.', 'notes'],
+    ['label with a code span', 'Read [the `x` notes] before `you` start.', 'notes'],
+    ['label with math', 'Read [the $a notes] before $b start.', 'notes'],
+    ['label with an unclosed backtick', 'Read [the `notes] before you` start.', 'notes']
+  ])('%s', (_name, block, text) => {
+    const label = block.slice(block.indexOf('[') + 1, block.indexOf(']'))
+    const paragraphs = ['Warm editing paragraph.', ...Array.from({ length: 200 }, () => 'Plain words of a paragraph here.'),
+      `[${label}]: http://example.com/notes`]
+    paragraphs[100] = block
+    const source = paragraphs.join('\n\n') + '\n'
+    for (const tracked of [false, true]) {
+      for (const key of keys) {
+        const core = createDocumentCore()
+        const revision = regional(core, source)
+        const caret = revision.source.indexOf(block) + block.indexOf(text) + 2
+        const before = inspectDocumentCore(core).documentParses
+        const outcome = press(core, revision, caret, key, tracked)
+        const name = `${key} tracked=${String(tracked)}`
+        expect(inspectDocumentCore(core).documentParses - before, name).toBeLessThanOrEqual(1)
+        const control = createDocumentCore()
+        planFromDocumentParse(control)
+        expect(outcome, name).toEqual(press(control, regional(control, source), caret, key, tracked))
+      }
+    }
+  }, 120_000)
+})
+
+describe('a key that changes nothing', () => {
+  it('reconciles Backspace at the start of an HTML block without a document parse', () => {
+    const block = '<div>\nhtml text block\n</div>'
+    const paragraphs = ['Warm editing paragraph.', ...Array.from({ length: 200 }, () => 'Plain words of a paragraph here.')]
+    paragraphs[100] = block
+    const source = paragraphs.join('\n\n') + '\n'
+    const core = createDocumentCore()
+    const revision = regional(core, source)
+    const caret = revision.source.indexOf(block)
+    const before = inspectDocumentCore(core).documentParses
+    const outcome = press(core, revision, caret, 'deleteContentBackward', false)
+    expect(inspectDocumentCore(core).documentParses - before).toBe(0)
+    const control = createDocumentCore()
+    planFromDocumentParse(control)
+    expect(outcome).toEqual(press(control, regional(control, source), caret, 'deleteContentBackward', false))
+  })
+})
