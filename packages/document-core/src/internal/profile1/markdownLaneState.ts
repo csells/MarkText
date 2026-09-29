@@ -1580,7 +1580,8 @@ export function stagedMarkdownReferenceDefinitionAt(
   }
   const lineStateAt = (
     lineStart: number,
-    contentEnd: number
+    contentEnd: number,
+    paragraphOpen: boolean
   ): Readonly<{
     readonly text: string
     readonly state: ContainerLineState
@@ -1592,14 +1593,14 @@ export function stagedMarkdownReferenceDefinitionAt(
         text,
         { start: 0, contentEnd: text.length, end: text.length },
         Object.freeze([]),
-        false,
+        paragraphOpen,
         false
       )
     })
   }
 
   const firstBounds = lineBoundsAt(start)
-  const first = lineStateAt(start, firstBounds.contentEnd)
+  const first = lineStateAt(start, firstBounds.contentEnd, false)
   const opening = definitionOpening(first.text, first.state)
   if (
     opening === undefined ||
@@ -1617,7 +1618,11 @@ export function stagedMarkdownReferenceDefinitionAt(
   let lineStart = firstBounds.end
   while (lineStart < laneEnd) {
     const bounds = lineBoundsAt(lineStart)
-    const line = lineStateAt(lineStart, bounds.contentEnd)
+    const line = lineStateAt(
+      lineStart,
+      bounds.contentEnd,
+      !definitionPhaseComplete(definition.phase)
+    )
     const continuation = definitionContinuationPhase(
       line.text,
       line.state,
@@ -1918,8 +1923,13 @@ function definitionContinuationPhase(
       ? Object.freeze({ phase: 'footnote' as const })
       : undefined
   }
+  // A reference definition is read from the start of a paragraph, so a line
+  // that would not continue that paragraph ends the definition as a blank
+  // line does: a new container, a setext underline, or an interrupting block.
+  const paragraphEnds = state.setextUnderline ||
+    !isLazyParagraphContinuation(lineText, state)
   if (definition.phase === 'reference-label') {
-    if (state.blank) {
+    if (paragraphEnds) {
       return 'invalid'
     }
     for (let offset = state.contentOffset; offset < lineText.length; offset += 1) {
@@ -1964,7 +1974,7 @@ function definitionContinuationPhase(
     return Object.freeze({ phase: 'reference-label' as const })
   }
   if (definition.phase === 'reference-destination') {
-    if (state.blank) {
+    if (paragraphEnds) {
       return 'invalid'
     }
     const tail = referenceDefinitionTailInLine(lineText, state.contentOffset)
@@ -1983,7 +1993,7 @@ function definitionContinuationPhase(
       })
   }
   if (definition.phase === 'reference-title-open') {
-    if (state.blank) {
+    if (paragraphEnds) {
       return 'invalid'
     }
     for (let offset = state.contentOffset; offset < lineText.length; offset += 1) {
@@ -2007,7 +2017,7 @@ function definitionContinuationPhase(
       titleCloseCodeUnit: definition.titleCloseCodeUnit
     })
   }
-  return isValidReferenceTitleLine(lineText, state)
+  return !paragraphEnds && isValidReferenceTitleLine(lineText, state)
     ? Object.freeze({ phase: 'reference-title' as const })
     : undefined
 }
@@ -3886,13 +3896,14 @@ export function createMarkdownLaneState(
       }
       const lineEnteredWithFence = fence !== undefined
       const lineEnteredWithFrontMatter = frontMatter !== undefined
-      // The line probe opened this HTML block or indented code block and
-      // bound it to the probe's container objects. Re-analyzing the completed
-      // line against those containers mints a fresh list item for a marker on
-      // this line, so adopting that result would orphan the block from its own
-      // container on the next line.
+      // The line probe opened this HTML block, indented code block or
+      // definition and bound it to the probe's container objects.
+      // Re-analyzing the completed line against those containers mints a
+      // fresh list item for a marker on this line, so adopting that result
+      // would orphan the block from its own container on the next line.
       const lineOpenedHtmlBlock = htmlBlock?.openLineStart === lineStart
       const lineOpenedIndentedCode = indentedCode?.openLineStart === lineStart
+      const lineOpenedDefinition = definition !== undefined && definition.openStart >= lineStart
       const frontMatterStyle = frontMatterEligible ? frontMatterOpeningStyle(completedLine) : undefined
       let lineOwnedByIndentedCode = false
       if (indentedCode !== undefined) {
@@ -4010,7 +4021,7 @@ export function createMarkdownLaneState(
         lineOwnedByHtmlBlock ||
         lineOwnedByDefinition
       ) {
-        if (!lineOpenedHtmlBlock && !lineOpenedIndentedCode) {
+        if (!lineOpenedHtmlBlock && !lineOpenedIndentedCode && !lineOpenedDefinition) {
           // A `>` or list marker inside the block is content; it opens
           // nothing for the lines after it.
           activeContainers = lineState.openers.length === 0
@@ -4112,7 +4123,15 @@ export function createMarkdownLaneState(
       ) {
         math = Object.freeze({ ...math, block: true })
       }
-      paragraphOpen =
+      // An unfinished reference definition is still the paragraph it began,
+      // so the next line is read against that paragraph: lazily, as its
+      // setext underline, or as a block that may interrupt it. Once complete
+      // it stands alone, as upstream reads it, and any block may follow.
+      paragraphOpen = (
+        definition !== undefined &&
+        !definitionPhaseComplete(definition.phase) &&
+        !lineState.blank
+      ) || (
         !lineBlockClosed &&
         !lineState.blank &&
         !lineOwnedByIndentedCode &&
@@ -4132,6 +4151,7 @@ export function createMarkdownLaneState(
           lineState.contentOffset,
           completedLine.length
         )
+      )
       // A footnote body's lines form paragraphs of their own, which a blank
       // line ends.
       const footnoteParagraphContinues =

@@ -80,7 +80,19 @@ describe('CommonMark and upstream agree', () => {
     // string may hold a backtick.
     ['```\n`\n', '<pre><code>`\n</code></pre>'],
     ['````\n```\n', '<pre><code>```\n</code></pre>'],
-    ['~~~`\n', '<pre><code class="language-`"></code></pre>']
+    ['~~~`\n', '<pre><code class="language-`"></code></pre>'],
+    // An unfinished reference definition is still the paragraph it began:
+    // its lines continue lazily, take a setext underline, and end where a
+    // block interrupts the paragraph.
+    ['1. [\ny\n', '<ol><li>[ y</li></ol>'],
+    ['> [\nc\n', '<blockquote><p>[ c</p></blockquote>'],
+    ['[\n3) y\n', '<p>[ 3) y</p>'],
+    ['[\n-\n', '<h2>[</h2>'],
+    ['[a\nb\n-\n', '<h2>[a b</h2>'],
+    ['2. [\n   -\n', '<ol start="2"><li><h2>[</h2></li></ol>'],
+    ['[f]:\n1.\n', ''],
+    ['[a]:\n> /u\n', '<p>[a]:</p><blockquote><p>/u</p></blockquote>'],
+    ['- [a]:\n  /u\n  [a]\n', '<ul><li><a href="/u">a</a></li></ul>']
   ])('%j', (source, expected) => {
     expect(html(source)).toBe(canonical(expected))
   })
@@ -112,7 +124,12 @@ describe('where CommonMark and upstream differ (Profile 1)', () => {
     ['1. alpha\n   1.\n', '<ol><li>alpha<ol><li></li></ol></li></ol>'],
     ['- alpha\n  +\n', '<ul><li>alpha<ul><li></li></ul></li></ul>'],
     // Upstream: a renumbered item stays a lazy line of the quote.
-    ['> q\n2) d\n', '<blockquote><p>q 2) d</p></blockquote>']
+    ['> q\n2) d\n', '<blockquote><p>q 2) d</p></blockquote>'],
+    // Upstream: a complete reference definition stands alone, so an indented
+    // line after it is code and a `-` opens a list. CommonMark reads both as
+    // text of the paragraph the definition began.
+    ['[a]: /u\n    x\n', '<pre><code>x\n</code></pre>'],
+    ['[a]: /u\n-\n', '<ul><li></li></ul>']
   ])('%j', (source, expected) => {
     expect(html(source)).toBe(canonical(expected))
   })
@@ -143,7 +160,10 @@ describe('typing these lines reads as a fresh open', () => {
     ['a {++b++}\n\n', 10, '-'],
     ['{++a++}\n-\n\n{--b--}\n', 8, 'x'],
     ['~~~\n\ny\n', 4, '> ~~~'],
-    ['```\n\n', 4, '`']
+    ['```\n\n', 4, '`'],
+    ['1. [\n\n', 5, 'y'],
+    ['[\n\n', 2, '-'],
+    ['[f]:\n\n', 5, '1.']
   ])('%j at %i types %j', (source, at, insert) => {
     const core = createDocumentCore()
     const previous = core.open(source)
