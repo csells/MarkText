@@ -3159,6 +3159,30 @@ export function createMarkdownLaneState(
     )
   }
 
+  // Whether the line after a paragraph line is a GFM delimiter row with as
+  // many cells as that line, in its containers.
+  const tableDelimiterFollows = (
+    lineText: string,
+    state: ContainerLineState,
+    next: number
+  ): boolean => {
+    if (next >= source.length) return false
+    const contentEnd = sourceLineContentEnd(source, next, source.length, execution)
+    const text = source.slice(next, contentEnd)
+    const following = analyzeContainerLine(
+      text,
+      { start: 0, contentEnd: text.length, end: text.length },
+      state.activeContainers,
+      true
+    )
+    return !following.blank &&
+      following.openers.length === 0 &&
+      !(following.lazy && state.activeContainers.at(-1)?.kind === 'blockquote') &&
+      following.indentation <= 3 &&
+      gfmTableDelimiterCellCount(text, following.contentOffset, text.length) ===
+        gfmTableRowCellCount(lineText, state.contentOffset, lineText.length)
+  }
+
   const advanceCore = (
     checkpoint: MarkdownCheckpoint,
     sourceStart: number,
@@ -3508,11 +3532,18 @@ export function createMarkdownLaneState(
         } else {
           // A complete HTML tag interrupts the paragraph on a lazy line, as
           // upstream and micromark read it: the block opens in the lazily
-          // kept containers.
+          // kept containers. So it does where a delimiter row below would
+          // make the line a table's header: the table interrupts the
+          // paragraph, and the HTML block starts first.
           const htmlOpening = htmlBlockOpening(
             probeLine,
             probeState,
-            probeState.paragraphContinues && !probeState.lazy
+            probeState.paragraphContinues && !probeState.lazy &&
+              !(gfmEnabled && tableDelimiterFollows(
+                probeLine,
+                probeState,
+                sourceLineEnd(source, lookaheadEnd, laneEnd)
+              ))
           )
           if (htmlOpening !== undefined) {
             htmlBlock = Object.freeze({
