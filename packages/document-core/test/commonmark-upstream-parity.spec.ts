@@ -271,6 +271,8 @@ describe('where CommonMark and upstream differ (Profile 1)', () => {
     // Upstream: a lazy line ends a quoted table and continues the quote as a
     // paragraph. GFM ends the quote with the table.
     ['> a|b\n> -|-\nc|d\n', '<blockquote><table><thead><tr><th>a</th><th>b</th></tr></thead></table><p>c|d</p></blockquote>'],
+    // That paragraph may begin with a definition, which GFM reads too.
+    ['> ||||\n> -|-|-\n[t]: /u\n', '<blockquote><table><thead><tr><th></th><th></th><th></th></tr></thead></table></blockquote>'],
     // Upstream: a lazy line in a list item is a row of the item's table, or
     // its delimiter row.
     ['- a|b\n  -|-\nc|d\n', '<ul><li><table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>c</td><td>d</td></tr></tbody></table></li></ul>'],
