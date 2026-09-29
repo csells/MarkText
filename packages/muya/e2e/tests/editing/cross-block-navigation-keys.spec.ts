@@ -60,7 +60,10 @@ async function coreSource(page: Page): Promise<string> {
     return page.evaluate(async () => {
         window.muya!.flush();
         await window.coreBoundary.settle();
-        return window.coreBoundary.read().source.source;
+        const state = window.coreBoundary.read().source;
+        if (state.type !== 'source')
+            throw new Error('Missing acknowledged source');
+        return state.source;
     });
 }
 
