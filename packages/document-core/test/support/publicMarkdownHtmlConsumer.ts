@@ -183,22 +183,28 @@ const renderListItem = (
   markdown: string,
   context: RenderContext
 ): string => {
-  const rendered = node.children.map(child => renderNode(
-    child,
-    markdown,
-    child.kind === 'paragraph' ? context : { tightList: false }
-  ))
+  const checkbox = taskCheckboxOf(node)
+  // HTML renderers put a loose task item's checkbox in its first paragraph.
+  const checkboxInParagraph = checkbox !== '' && !context.tightList &&
+    node.children[0]?.kind === 'paragraph'
+  const rendered = node.children.map((child, index) => {
+    const html = renderNode(
+      child,
+      markdown,
+      child.kind === 'paragraph' ? context : { tightList: false }
+    )
+    return checkboxInParagraph && index === 0 ? html.replace(/^<p>/u, `<p>${checkbox}`) : html
+  })
   let body = ''
   for (const child of rendered) {
     if (body && !body.endsWith('\n')) body += '\n'
     body += child
   }
-  const checkbox = taskCheckboxOf(node)
   const leadingBreak = checkbox === '' && body &&
       (!context.tightList || node.children[0]?.kind !== 'paragraph')
     ? '\n'
     : ''
-  return `<li>${checkbox}${leadingBreak}${body}</li>\n`
+  return `<li>${checkboxInParagraph ? '' : checkbox}${leadingBreak}${body}</li>\n`
 }
 
 const escapeHtml = (value: string): string => value
