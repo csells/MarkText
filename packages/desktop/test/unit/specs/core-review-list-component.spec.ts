@@ -190,10 +190,16 @@ describe('Core review list', () => {
       delete (HTMLLIElement.prototype as { getBoundingClientRect?: unknown }).getBoundingClientRect
     })
     document.body.append(host)
-    const state = Vue.shallowReactive({ activeStart: entries[2]!.item.range.start })
+    const state = Vue.shallowReactive({ activeStart: entries[2]!.item.range.start, revealRequest: 0 })
     const List = loadComponent()
     const app = Vue.createApp({
-      render: () => Vue.h(List, { entries, busy: false, textDirection: 'ltr', activeStart: state.activeStart })
+      render: () => Vue.h(List, {
+        entries,
+        busy: false,
+        textDirection: 'ltr',
+        activeStart: state.activeStart,
+        revealRequest: state.revealRequest
+      })
     })
     app.mount(host)
     cleanup.push(() => {
@@ -209,5 +215,12 @@ describe('Core review list', () => {
     state.activeStart = entries[245]!.item.range.start
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(scrollTop).toBe(251 * 70 - 600)
+    // The author scrolls the selected card away, then clicks its annotation again.
+    scrollTop = 0
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(scrollTop).toBe(0)
+    state.revealRequest += 1
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(scrollTop).toBe(246 * 70 - 600)
   })
 })

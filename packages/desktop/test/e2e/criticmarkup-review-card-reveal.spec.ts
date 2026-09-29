@@ -76,6 +76,20 @@ test('Next, Previous, a click and the caret bring the selected card into view in
     await expect.poll(async() => (await selectedCard(page)).text).not.toBe(afterNext)
     await expect.poll(async() => (await selectedCard(page)).inView).toBe(true)
 
+    // Previous returned to the entry clicked first. Clicking its annotation
+    // again, after the author scrolled its card away, shows the card again
+    // though the selection does not change.
+    expect((await selectedCard(page)).text).toContain('added 140')
+    const annotation = page.locator('.mu-paragraph-content').filter({ hasText: /^Paragraph 140 / })
+      .locator('[data-critic-kind="addition"]')
+    for (const deltaY of [6000, -6000]) {
+      await scrollSidebar(page, deltaY)
+      await annotation.click()
+      await expect.poll(async() => (await selectedCard(page)).inView).toBe(true)
+      expect((await selectedCard(page)).text).toContain('added 140')
+      expect(await focusInSidebar(page)).toBe(false)
+    }
+
     // A card already in view is left where it is.
     const settled = await selectedCard(page)
     await page.locator('.mu-paragraph-content').filter({ hasText: /^Paragraph 138 / })

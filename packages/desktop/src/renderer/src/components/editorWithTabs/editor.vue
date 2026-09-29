@@ -147,6 +147,7 @@
             :entries="coreReviewOverview"
             :text-direction="textDirection"
             :active-start="coreReviewTargeted ? coreReviewItem?.range.start : undefined"
+            :reveal-request="coreReviewRevealRequest"
             :busy="coreReviewResolving"
             :composing="coreCommentOpen && coreCommentTarget !== undefined"
             :composer-start="coreCommentTarget?.entryStart"
@@ -712,6 +713,9 @@ const coreCommentEscapeNotice = computed(() =>
 )
 const coreReviewResolving = ref(false)
 const coreReviewTargeted = ref(false)
+// Counts clicks and selection gestures on annotations in the text; each asks
+// the sidebar to show the selected card, as Google Docs does.
+const coreReviewRevealRequest = ref(0)
 // A caret the review list could not yet place, rechecked on its next publish.
 let pendingCoreCaret: { readonly path: string, readonly offset: number } | undefined
 const reviewToolbarIcons: Record<string, string> = {
@@ -1871,7 +1875,7 @@ const selectCoreDocumentAnnotation = (event: MouseEvent | KeyboardEvent): void =
   const start = binding.sourceRange.start + Number(element.dataset.criticStart)
   // ADR 0004: a pointer hit only selects the entry; keyboard activation of the
   // comment marker is a deliberate request to open Review.
-  selectCoreAnnotationAt(start, event instanceof KeyboardEvent)
+  selectCoreAnnotationAt(start, event instanceof KeyboardEvent, true)
 }
 /** The review item whose source range holds the caret, bounds included. */
 const coreItemAtCaret = (path: string, offset: number): number | undefined => {
@@ -1885,7 +1889,7 @@ const coreItemAtCaret = (path: string, offset: number): number | undefined => {
     (entry) => entry.item.range.start <= position && position <= entry.item.range.end
   )?.item.range.start
 }
-const selectCoreAnnotationAt = (start: number, open: boolean): void => {
+const selectCoreAnnotationAt = (start: number, open: boolean, gesture = false): void => {
   if (coreCommentOpen.value || coreReviewResolving.value) return
   if (open) reviewLayoutStore.SET_LAYOUT({ showSideBar: true, rightColumn: 'review' })
   const current = coreReviewItem.value
@@ -1894,6 +1898,7 @@ const selectCoreAnnotationAt = (start: number, open: boolean): void => {
     (current?.kind === 'commented-span' && current.commentRange.start === start)
   ) {
     revealCoreReviewItem(false)
+    if (gesture) coreReviewRevealRequest.value += 1
     return
   }
   const entry = coreReviewOverview.value.find(
@@ -1903,7 +1908,10 @@ const selectCoreAnnotationAt = (start: number, open: boolean): void => {
   )
   if (!entry) return
   refreshCoreReviewItem('next', entry.item.range.start)
-    .then(() => revealCoreReviewItem(false))
+    .then(() => {
+      revealCoreReviewItem(false)
+      if (gesture) coreReviewRevealRequest.value += 1
+    })
     .catch((error) => emit('core-fault', error))
 }
 
