@@ -91,6 +91,7 @@ import {
 } from '../../documentConsumers/markdownProjectionHtml'
 import type { MarkupPassage } from '../../documentConsumers/markupPassage'
 import CoreDocumentProjection from './CoreDocumentProjection.vue'
+import { nearestScrollDelta, revealsSelectedEntry } from './reviewCardReveal'
 
 const props = defineProps<{
   entries: readonly CoreReviewOverviewEntry[]
@@ -250,7 +251,8 @@ const placement = computed(() => placed.value)
 // `onUpdated` runs, once, for both renders; the first render's anchor stands.
 let anchor: { key: string; top: number } | undefined
 onBeforeUpdate(() => {
-  if (anchor !== undefined) return
+  // A card being brought into view places the view itself.
+  if (anchor !== undefined || revealKey !== undefined) return
   const scroller = scrollElement.value
   if (scroller === null || scroller.scrollTop <= listOffset.value) return
   const top = scroller.getBoundingClientRect().top
@@ -268,14 +270,67 @@ onUpdated(() => {
   const scroller = scrollElement.value
   const kept = anchor
   anchor = undefined
-  if (scroller === null || kept === undefined) return
-  for (const element of list.value?.children ?? []) {
-    const card = element as HTMLElement
-    if (card.dataset.rowKey !== kept.key) continue
-    const moved = card.getBoundingClientRect().top - kept.top
-    if (moved !== 0) scroller.scrollTop += moved
+  if (scroller !== null && kept !== undefined) {
+    for (const element of list.value?.children ?? []) {
+      const card = element as HTMLElement
+      if (card.dataset.rowKey !== kept.key) continue
+      const moved = card.getBoundingClientRect().top - kept.top
+      if (moved !== 0) scroller.scrollTop += moved
+      break
+    }
+  }
+  revealSelectedCard()
+})
+
+// When another entry becomes selected, by navigation, the caret or a click,
+// its card is brought into view as `scrollIntoView({ block: 'nearest' })`
+// would, without moving focus. A card outside the mounted cards is placed at
+// an estimated position; mounting and measuring the cards around it moves
+// it, so it is brought into view again after each render until it stays.
+let revealKey: string | undefined
+let revealPasses = 0
+let revealFrame: number | undefined
+const revealSelectedCard = (): void => {
+  if (revealKey === undefined) return
+  const scroller = scrollElement.value
+  revealPasses += 1
+  if (scroller === null || scroller.clientHeight === 0 || revealPasses > 30) {
+    revealKey = undefined
     return
   }
+  const card = [...(list.value?.children ?? [])].find(
+    (element) => (element as HTMLElement).dataset.rowKey === revealKey
+  ) as HTMLElement | undefined
+  if (card !== undefined) {
+    const delta = nearestScrollDelta(scroller.getBoundingClientRect(), card.getBoundingClientRect())
+    if (delta !== 0) {
+      scroller.scrollTop += delta
+    } else if (card.dataset.detached === undefined) {
+      revealKey = undefined
+      return
+    }
+  }
+  // Rendering after the scroll mounts and measures the cards around it; a
+  // card not mounted yet is looked for again, a bounded number of times.
+  if (revealFrame !== undefined) cancelAnimationFrame(revealFrame)
+  revealFrame = requestAnimationFrame(() => {
+    revealFrame = undefined
+    revealSelectedCard()
+  })
+}
+watch(
+  () => ({ start: props.activeStart, entries: props.entries }),
+  (next, previous) => {
+    if (!revealsSelectedEntry(previous, next)) return
+    const entry = next.entries.find((candidate) => candidate.item.range.start === next.start)
+    if (entry === undefined) return
+    revealKey = String(rowKey(entry))
+    revealPasses = 0
+  },
+  { flush: 'pre' }
+)
+onBeforeUnmount(() => {
+  if (revealFrame !== undefined) cancelAnimationFrame(revealFrame)
 })
 const measure = (element: Element | ComponentPublicInstance | null): void => {
   if (element instanceof HTMLLIElement) virtualizer.value.measureElement(element)
