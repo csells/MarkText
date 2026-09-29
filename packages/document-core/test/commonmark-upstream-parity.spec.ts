@@ -54,6 +54,9 @@ describe('CommonMark and upstream agree', () => {
     ['-\n\n-\n', '<ul><li></li><li></li></ul>'],
     ['+\n\n+\n', '<ul><li></li><li></li></ul>'],
     ['1.\n\n2.\n', '<ol><li></li><li></li></ol>'],
+    // An empty item's blank line ends it however far it is indented.
+    ['-\n  \n  x\n', '<ul><li></li></ul><p>x</p>'],
+    ['1)\n\t\n   >\n', '<ol><li></li></ol><blockquote></blockquote>'],
     ['>\n\n-\n2) d\n', '<blockquote></blockquote><ul><li></li></ul><ol start="2"><li>d</li></ol>'],
     // A container opened on the line ends the paragraph before it.
     ['Foo\n>     code\n', '<p>Foo</p><blockquote><pre><code>code </code></pre></blockquote>'],
@@ -321,6 +324,7 @@ describe('typing these lines reads as a fresh open', () => {
     ['a\n\n', 2, '- -'],
     ['> a\n\n', 4, '<n>'],
     ['- a\n\n', 4, '<n>'],
+    ['-\n  \n', 5, '  x'],
     ['> <span\n\n', 8, '> a="b">'],
     ['2) .\n   3.\n\n', 11, '   ='],
     ['* -\n\n  |\n\n', 9, '  4.'],
