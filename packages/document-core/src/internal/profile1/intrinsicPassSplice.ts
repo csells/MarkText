@@ -145,6 +145,7 @@ function checkpointIsClean(checkpoint: MarkdownCheckpoint): boolean {
     checkpoint.fixedInline === undefined &&
     checkpoint.activeContainers.length === 0 &&
     !checkpoint.paragraphOpen &&
+    checkpoint.definitionLazyContinuation !== true &&
     !checkpoint.lastLineLazy &&
     checkpoint.fence === undefined &&
     !checkpoint.trailingBackslashOdd &&
