@@ -131,6 +131,11 @@ describe('CommonMark and upstream agree', () => {
     ['>|\n<l>\n* ;\n', '<blockquote><p>|</p><l></blockquote><ul><li>;</li></ul>'],
     ['> `a\n<n>\n> b`\n', '<blockquote><p>`a</p><n>\nb`</blockquote>'],
     ['> > a\n<n>\n', '<blockquote><blockquote><p>a</p><n></blockquote></blockquote>'],
+    // A closing tag keeps its lazy line in a list item, and a marker inside
+    // an item's fence or HTML block is its content.
+    ['1. ]\n</e>\n', '<ol><li>]\n</e></li></ol>'],
+    ['0. ~~~\n   -\n', '<ol start="0"><li><pre><code>-\n</code></pre></li></ol>'],
+    ['+ <e>\n  +\n', '<ul><li><e>\n+</li></ul>'],
     // A blank line ends a block quote, so one reopened after it with code or
     // HTML is a second quote.
     ['>\n\n>     x\n', '<blockquote></blockquote><blockquote><pre><code>x\n</code></pre></blockquote>'],
@@ -239,6 +244,9 @@ describe('where CommonMark and upstream differ (Profile 1)', () => {
     // Upstream: a lazy `=` after a bare marker that would nest still keeps
     // the marker as text, and the `=` is text as CommonMark reads it.
     ['- a\n  4.\n=\n', '<ul><li>a 4. =</li></ul>'],
+    // Upstream: a fenced list marker does not open a list in the item, so
+    // a later paragraph still nests an empty item.
+    ['- ```\n  - x\n  ```\n  b\n  4.\n', '<ul><li><pre><code>- x\n</code></pre>b<ol start="4"><li></li></ol></li></ul>'],
     // Upstream: a renumbered item stays a lazy line of the quote.
     ['> q\n2) d\n', '<blockquote><p>q 2) d</p></blockquote>'],
     // Upstream: the same line ends a list item, and everything inside it.
