@@ -4390,7 +4390,13 @@ function parseTableDelimiter(
   source: string,
   line: PlainMarkdownLine
 ): Readonly<{ cells: readonly TableCellRange[], alignments: readonly TableAlignment[] }> | undefined {
-  const cells = splitTableCells(source, line)
+  // Without a pipe the row is one cell, and needs a colon: a bare `-` run
+  // under a paragraph is its setext underline.
+  const cells = splitTableCells(source, line) ?? (
+    source.slice(line.contentOffset, line.contentEnd).includes(':')
+      ? wholeLineTableCell(source, line)
+      : undefined
+  )
   if (cells === undefined) {
     return undefined
   }
@@ -4425,7 +4431,10 @@ const continuesTableContainer = (
 function tableHeadAt(
   source: string,
   lines: readonly PlainMarkdownLine[],
-  lineIndex: number
+  lineIndex: number,
+  literals: readonly MappedMarkdownLiteral[],
+  constructs: ReadonlyMap<number, MappedMarkdownLiteral>,
+  referenceDefinitions: MarkdownReferenceDefinitionLookup
 ): Readonly<{
   headerLine: PlainMarkdownLine
   delimiterLine: PlainMarkdownLine
@@ -4450,11 +4459,58 @@ function tableHeadAt(
   }
   const delimiter = parseTableDelimiter(source, delimiterLine)
   if (delimiter === undefined) return undefined
-  const headerCells = splitTableCells(source, headerLine)
-  if (headerCells === undefined || headerCells.length !== delimiter.alignments.length) {
+  // The header is a line of paragraph text: not code, a heading, a rule,
+  // the first line of a fence or HTML block, or part of a definition.
+  if (
+    headerLine.indentation > 3 ||
+    startsBlockInsideTable(source, headerLine, literals, constructs, referenceDefinitions) ||
+    definitionCovers(literals, headerLine.contentOffset)
+  ) {
+    return undefined
+  }
+  const headerCells = tableRowCells(source, headerLine)
+  if (headerCells.length !== delimiter.alignments.length) {
     return undefined
   }
   return { headerLine, delimiterLine, headerCells, delimiter }
+}
+
+// Definitions never overlap, so each literal list's definitions are kept
+// in source order once and searched by offset.
+const definitionsByLiterals = new WeakMap<
+  readonly MappedMarkdownLiteral[],
+  readonly MappedMarkdownLiteral[]
+>()
+
+function definitionCovers(
+  literals: readonly MappedMarkdownLiteral[],
+  offset: number
+): boolean {
+  let definitions = definitionsByLiterals.get(literals)
+  if (definitions === undefined) {
+    definitions = literals.filter((literal) => literal.provider === 'definition')
+    definitionsByLiterals.set(literals, definitions)
+  }
+  let low = 0
+  let high = definitions.length
+  while (low < high) {
+    const middle = (low + high) >>> 1
+    if ((definitions[middle]?.start ?? Number.POSITIVE_INFINITY) <= offset) low = middle + 1
+    else high = middle
+  }
+  const candidate = definitions[low - 1]
+  return candidate !== undefined && offset < candidate.end
+}
+
+/** A row's cells: a row without a pipe is one cell, one of only pipes none. */
+function tableRowCells(
+  source: string,
+  line: Pick<PlainMarkdownLine, 'contentOffset' | 'contentEnd'>
+): readonly TableCellRange[] {
+  return splitTableCells(source, line) ??
+    (source.slice(line.contentOffset, line.contentEnd).includes('|')
+      ? Object.freeze([])
+      : wholeLineTableCell(source, line))
 }
 
 function wholeLineTableCell(
@@ -4530,7 +4586,7 @@ function parseTable(
   boundaryPolicy: InlineBoundaryPolicy | undefined,
   literals: readonly MappedMarkdownLiteral[]
 ): ParsedTable | undefined {
-  const head = tableHeadAt(source, lines, lineIndex)
+  const head = tableHeadAt(source, lines, lineIndex, literals, constructs, referenceDefinitions)
   if (head === undefined) return undefined
   const { headerLine, delimiterLine, headerCells, delimiter } = head
   const { alignments } = delimiter
@@ -4594,7 +4650,7 @@ function parseTable(
     ) {
       break
     }
-    const cells = splitTableCells(source, line) ?? wholeLineTableCell(source, line)
+    const cells = tableRowCells(source, line)
     rows.push(createRow(line, cells, false))
     nextLineIndex += 1
   }
@@ -4778,7 +4834,7 @@ function parseBlocksRegion(
         // GFM reads a paragraph's last line as the header of a table the
         // next line delimits, as it does inside containers.
         (activeMarkdownGfmEnabled &&
-          tableHeadAt(source, lines, nextLineIndex) !== undefined) ||
+          tableHeadAt(source, lines, nextLineIndex, literals, constructs, referenceDefinitions) !== undefined) ||
         literals.some((candidate) =>
           (candidate.provider === 'fenced-code' ||
             candidate.provider === 'html-block' ||
