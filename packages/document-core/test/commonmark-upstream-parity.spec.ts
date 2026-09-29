@@ -197,6 +197,10 @@ describe('CommonMark and upstream agree', () => {
     ['a|b\n-|-\n|\n', '<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td></td><td></td></tr></tbody></table>'],
     ['a\n:-\n', '<table><thead><tr><th align="left">a</th></tr></thead></table>'],
     ['Foo\nbar\n-|\n', '<p>Foo</p><table><thead><tr><th>bar</th></tr></thead></table>'],
+    // A lazy line may be a header when the delimiter row below is not lazy.
+    ['- z\nb||\n  -|-\n', '<ul><li>z<table><thead><tr><th>b</th><th></th></tr></thead></table></li></ul>'],
+    ['> \\\n-||\n> -|-\n', '<blockquote><p>\\</p><table><thead><tr><th>-</th><th></th></tr></thead></table></blockquote>'],
+    ['1. |\n   [f]:\n-|\n', '<ol><li>|\n[f]:\n-|</li></ol>'],
     ['a\n---\n', '<h2>a</h2>'],
     // A table interrupts the paragraph above its header, so a complete HTML
     // tag there starts an HTML block, as it would anywhere else.
@@ -283,6 +287,8 @@ describe('where CommonMark and upstream differ (Profile 1)', () => {
     ['a|b\n-|-\n-\n', '<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>-</td><td></td></tr></tbody></table>'],
     ['a|b\n-|-\n2. x\n', '<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>2. x</td><td></td></tr></tbody></table>'],
     ['> a|b\n> -|-\n    x\n', '<blockquote><table><thead><tr><th>a</th><th>b</th></tr></thead></table><pre><code>x\n</code></pre></blockquote>'],
+    // Upstream: a line that begins like a definition, `[f]:`, is no header.
+    ['z\n[f]:\n-|\n', '<p>z\n[f]:\n-|</p>'],
     // Upstream: a definition's destination may be a delimiter-looking line.
     // GFM starts a table under its label.
     ['[f]:\n-|\n', '']
