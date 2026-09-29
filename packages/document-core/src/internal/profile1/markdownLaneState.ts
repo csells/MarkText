@@ -1373,7 +1373,8 @@ function analyzeContainerLine(
           0
         ),
         lazy: true,
-        paragraphContinues: paragraphOpen || tableRowOpen,
+        // A lazy line leaves a quoted table as a paragraph of its own.
+        paragraphContinues: paragraphOpen || (tableRowOpen && keptContainers.at(-1)?.kind !== 'blockquote'),
         tableRowContinues: tableRowOpen
       })
     }
