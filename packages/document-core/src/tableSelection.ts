@@ -19,13 +19,16 @@ function resolveTable(syntax: MarkupSyntax, range: SourceRange) {
  * A cell's content in source. The editing syntax omits comments, so a cell
  * holding only comments has no text there and sits at its closing pipe; its
  * content is then the source those comments occupy between its padding, as a
- * cell's content includes the comments beside its text.
+ * cell's content includes the comments beside its text. An empty cell whose
+ * text sits in its padding, as inside a suggested column's Addition, has no
+ * such content: its text is where it sits.
  */
 export function tableCellContentRange(syntax: MarkupSyntax, cell: MarkdownAstNode): SourceRange {
   const start = syntax.coordinates.toSource(cell.range.start, 'previous')
   const end = syntax.coordinates.toSource(cell.range.end, 'next')
   const { cellStart, cellEnd } = cell.attributes
   if (start !== end || typeof cellStart !== 'number' || typeof cellEnd !== 'number') return { start, end }
+  if (start !== syntax.coordinates.toSource(cellEnd, 'previous')) return { start, end }
   let hidden: SourceRange | undefined
   for (let at = cellStart; at <= cellEnd; at++) {
     const before = syntax.coordinates.toSource(at, 'previous')
