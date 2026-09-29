@@ -129,7 +129,8 @@ describe('CommonMark and upstream agree', () => {
     ['[f]: /u "t"\n"s"\n[f]\n', '<p>&quot;s&quot;\n<a href="/u" title="t">f</a></p>'],
     ['[f]:l ""\n""\n', '<p>&quot;&quot;</p>'],
     // An unclosed quote after a definition is no title of it.
-    ['[ref]\n\n[ref]:l\n"\n', '<p><a href="l">ref</a></p><p>&quot;</p>']
+    ['[ref]\n\n[ref]:l\n"\n', '<p><a href="l">ref</a></p><p>&quot;</p>'],
+    ['[f]: /u ""\n[f]\n', '<p><a href="/u">f</a></p>']
   ])('%j', (source, expected) => {
     expect(html(source)).toBe(canonical(expected))
   })
