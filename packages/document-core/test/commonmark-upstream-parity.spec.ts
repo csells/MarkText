@@ -135,6 +135,17 @@ describe('CommonMark and upstream agree', () => {
     // A task marker begins a paragraph; an underlined one is heading text.
     ['- [ ] t\n  =\n', '<ul><li><h1>[ ] t</h1></li></ul>'],
     ['x|y\n-|-\n> 3)\n', '<table><thead><tr><th>x</th><th>y</th></tr></thead></table><blockquote><ol start="3"><li></li></ol></blockquote>'],
+    // A row without a pipe is one cell; so is a delimiter row with a colon.
+    ['a\n-|\nb\n', '<table><thead><tr><th>a</th></tr></thead><tbody><tr><td>b</td></tr></tbody></table>'],
+    ['a|b\n-|-\n|\n', '<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td></td><td></td></tr></tbody></table>'],
+    ['a\n:-\n', '<table><thead><tr><th align="left">a</th></tr></thead></table>'],
+    ['Foo\nbar\n-|\n', '<p>Foo</p><table><thead><tr><th>bar</th></tr></thead></table>'],
+    ['a\n---\n', '<h2>a</h2>'],
+    // The header is paragraph text, never another block's line.
+    ['|\n-|\n', '<p>|\n-|</p>'],
+    ['~~~\n-|\n', '<pre><code>-|\n</code></pre>'],
+    ['#\n-|\n', '<h1></h1><p>-|</p>'],
+    ['    o\n-|\n', '<pre><code>o\n</code></pre><p>-|</p>'],
     // A delimiter row four columns in, or on a lazy line, is paragraph text.
     ['x|y\n    -|-\n', '<p>x|y\n-|-</p>'],
     ['> a|b\n-|-\n', '<blockquote><p>a|b\n-|-</p></blockquote>']
@@ -174,7 +185,10 @@ describe('where CommonMark and upstream differ (Profile 1)', () => {
     // Upstream: a lazy line in a list item is a row of the item's table, or
     // its delimiter row.
     ['- a|b\n  -|-\nc|d\n', '<ul><li><table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>c</td><td>d</td></tr></tbody></table></li></ul>'],
-    ['- a|b\n-|-\n', '<ul><li><table><thead><tr><th>a</th><th>b</th></tr></thead></table></li></ul>']
+    ['- a|b\n-|-\n', '<ul><li><table><thead><tr><th>a</th><th>b</th></tr></thead></table></li></ul>'],
+    // Upstream: a definition's destination may be a delimiter-looking line.
+    // GFM starts a table under its label.
+    ['[f]:\n-|\n', '']
   ])('GFM %j', (source, expected) => {
     expect(html(source, true)).toBe(canonical(expected))
   })
@@ -216,6 +230,7 @@ describe('typing these lines reads as a fresh open', () => {
     ['>\n\n', 3, '><e>'],
     ['- `a\n\n', 5, '  b`'],
     ['> [a\n\n', 5, '> b](/u)'],
+    ['a\n\n', 2, ':-'],
     ['> a|b\n> -|-\n\n', 12, 'c|d']
   ])('%j at %i types %j', (source, at, insert) => {
     const core = createDocumentCore()
