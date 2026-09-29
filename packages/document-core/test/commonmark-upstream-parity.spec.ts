@@ -171,7 +171,8 @@ describe('CommonMark and upstream agree', () => {
     // A lazy line after a complete definition stays in its containers.
     ['> [f]: /u\ns\n', '<blockquote><p>s</p></blockquote>'],
     ['1. [f]: /u\no\n', '<ol><li>o</li></ol>'],
-    ['> [f]: /u "t"\n"s"\n', '<blockquote><p>&quot;s&quot;</p></blockquote>']
+    ['> [f]: /u "t"\n"s"\n', '<blockquote><p>&quot;s&quot;</p></blockquote>'],
+    ['> 2. ```\n>    ```\n>    [f]: "\n    |\n', '<blockquote><ol start="2"><li><pre><code></code></pre>|</li></ol></blockquote>']
   ])('%j', (source, expected) => {
     expect(html(source)).toBe(canonical(expected))
   })

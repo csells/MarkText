@@ -737,6 +737,12 @@ interface ContainerLineState {
    * block that cannot interrupt a paragraph, except indented code.
    */
   readonly tableRowContinues: boolean
+  /**
+   * The line's indentation as upstream measures a lazy line: inside the
+   * block quotes it lazily continues, against the content column of each
+   * list item there that it reaches. Equal to `indentation` otherwise.
+   */
+  readonly lazyIndentation: number
 }
 
 interface ListContinuationIndentationState {
@@ -1335,6 +1341,7 @@ function analyzeContainerLine(
       tableRowOpen &&
       inheritedMatchDepth === inheritedContainers.length &&
       openers.length === 0,
+    lazyIndentation: contentColumn - containerBaseColumn,
     setextUnderline:
       paragraphOpen &&
       inheritedMatchDepth === inheritedContainers.length &&
@@ -1363,6 +1370,12 @@ function analyzeContainerLine(
     }
     if (kept > inheritedMatchDepth) {
       const keptContainers = inheritedContainers.slice(0, kept)
+      let lazyIndentation = provisionalState.indentation
+      for (const container of keptContainers.slice(inheritedMatchDepth)) {
+        if (container.kind !== 'list-item') continue
+        if (lazyIndentation < container.contentIndent) break
+        lazyIndentation -= container.contentIndent
+      }
       return Object.freeze({
         ...provisionalState,
         activeContainers: Object.freeze(keptContainers),
@@ -1375,7 +1388,8 @@ function analyzeContainerLine(
         lazy: true,
         // A lazy line leaves a quoted table as a paragraph of its own.
         paragraphContinues: paragraphOpen || (tableRowOpen && keptContainers.at(-1)?.kind !== 'blockquote'),
-        tableRowContinues: tableRowOpen
+        tableRowContinues: tableRowOpen,
+        lazyIndentation
       })
     }
   }
@@ -1566,7 +1580,7 @@ export function inspectMarkdownPendingLineBlock(
       checkpoint.frontMatterEligible &&
       frontMatterOpeningStyle(lineText) !== undefined
     ) ||
-    ((!lineState.paragraphContinues || lineState.tableRowContinues) && lineState.indentation >= 4) ||
+    ((!lineState.paragraphContinues || lineState.tableRowContinues) && lineState.lazyIndentation >= 4) ||
     htmlBlockOpening(lineText, lineState, lineState.paragraphContinues && !lineState.lazy) !== undefined ||
     definitionOpening(lineText, lineState, lineState.paragraphContinues, false) !==
       undefined
@@ -3565,7 +3579,7 @@ export function createMarkdownLaneState(
         } else if (
           (!probeState.paragraphContinues || probeState.tableRowContinues) &&
           !probeState.blank &&
-          probeState.indentation >= 4
+          probeState.lazyIndentation >= 4
         ) {
           indentedCode = Object.freeze({
             openStart: Math.max(
