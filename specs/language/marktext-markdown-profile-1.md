@@ -100,28 +100,48 @@ expected output of any CommonMark 0.31.2 conformance example.
 Two deliberate narrowings follow upstream MarkText (marked) rather than
 CommonMark:
 
-- **Inside a list item**, an empty list item or an ordered item not starting
-  at 1 opens a nested list under the item's paragraph (`1. a` + `   1.`,
-  `- a` + `  2. b`), as upstream shows it. CommonMark reads both as paragraph
-  text. A `-` run there is still the paragraph's setext underline (`- a` +
-  `  -` is a heading), as both read it.
+- **Under a list item's own paragraph**, an empty list item or an ordered
+  item not starting at 1 opens a nested list (`1. a` + `   1.`, `- a` +
+  `  2. b`), as upstream shows it. CommonMark reads both as paragraph text. A
+  `-` run there is still the paragraph's setext underline (`- a` + `  -` is a
+  heading), as both read it, and a paragraph in a block quote inside the
+  item keeps the CommonMark rule (`- a` + `  > q` + `  > 2) d` is one quoted
+  paragraph).
 - **On a lazy continuation line**, an ordered item not starting at 1 stays
   paragraph text (`> a` + `2. b` is one quoted paragraph). CommonMark starts a
   list after the quote; upstream shows a list inside it, and typing in the
   paragraph respells the line into the quote as upstream writes it.
 
-Everywhere else Profile 1 follows CommonMark where marked differs: a lazy
-`=` or `--` line is paragraph text inside a list item rather than an
-underline, an indented `-` run underlines a paragraph whose earlier line
-looks like a list marker, and a line after a setext heading is not a lazy
-continuation of the heading's block quote.
+Apart from these and §2.3, Profile 1 follows CommonMark where marked
+differs: a lazy `=` or `--` line is paragraph text inside a list item rather
+than an underline, an indented `-` run underlines a paragraph whose earlier
+line looks like a list marker, and a line after a setext heading is not a
+lazy continuation of the heading's block quote.
+
+### 2.3 A complete reference definition stands alone
+
+CommonMark reads link reference definitions from the start of a paragraph,
+which stays open after them; upstream MarkText (marked) reads a complete
+definition as a block of its own. Profile 1 follows upstream for what may
+start on the next line: an indented line is code and a `-` opens a list
+(`[a]: /u` + `    x`, `[a]: /u` + `-`), where CommonMark reads both as
+paragraph text. Where the two agree, Profile 1 does too: an unfinished
+definition is paragraph text to the lines after it (they continue it
+lazily, underline it, or interrupt it as they would a paragraph), and a lazy
+line after a complete definition stays in its block quote or list item
+(`> [f]: /u` + `s` is a quoted paragraph).
 
 ## 3. Layer B — GFM extension set (pinned)
 
 Profile 1 includes these GFM extensions, per the GFM spec's definitions:
 
 - **Tables** (pipe tables with a delimiter row; `\|` writes a literal pipe in a cell).
-- **Task list items** (`[ ]` / `[x]` markers at list-item start).
+  As upstream reads it, a lazy line ends a table in a block quote and
+  continues the quote as a paragraph, but in a list item it is the table's
+  delimiter row or a body row; GFM ends the table and its container there.
+- **Task list items** (`[ ]` / `[x]` markers at list-item start). As upstream
+  shows it, a bullet item holding only a marker and a space (`- [ ] `) is an
+  empty task; GFM requires text after the marker.
 - **Strikethrough** (`~~…~~`). See §9.6 for the required disambiguation against the
   CriticMarkup substitution closer.
 - **Autolinks (extended)** as GFM defines them.
@@ -435,18 +455,21 @@ Nested annotations resolve recursively per the same table.
 Deliberate, named divergences from reference implementations — each MUST appear in user-facing
 compatibility documentation:
 
-| #   | Profile 1 behavior                                                                               | Diverges from                                                            | Rationale                                                                                                                                |
-| --- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | Literal ranges win over CM markers (L1)                                                          | MMD-6 accept/reject and the toolkit consume markers inside code/math     | Their behavior is an acknowledged defect class (patched piecemeal by MMD's own author)                                                   |
-| D2  | Multi-block annotations render (R3)                                                              | MMD-6 _rendering_ treats them as literal (its accept/reject honors them) | Owner ruling; toolkit precedent; MMD's confinement is a parser artifact. Note MMD's own render/accept asymmetry when documenting interop |
-| D3  | Backslash escaping of delimiters (E1)                                                            | No reference tool has any escape                                         | Natural consequence of intrinsic parsing; code-span escape (E2) remains the portable form                                                |
-| D4  | Stray `~>` is literal (R4)                                                                       | MMD-6 erases it under accept/reject                                      | Error tolerance (T2)                                                                                                                     |
-| D5  | No `{<del>`-style aliases, no `@@` metadata (CM1)                                                | Fevol/Commentator grammar                                                | Not canonical CM; payload bytes must round-trip                                                                                          |
-| D6  | Recursive nesting incl. same-form (N1)                                                           | lang-criticmarkup/Fevol parse nested markers as flat text                | MMD-6's tested recursion is the authoritative precedent                                                                                  |
-| D7  | Comments retain isolated full Profile 1 Markdown+CriticMarkup subdocuments (R5)                  | Toolkit/MMD erase or render the payload as inline metadata               | A portable note may contain full Markdown while remaining one unstructured payload; local resolution and Comment Display stay lossless   |
-| D8  | An annotation closer stands against an in-arm open literal whose completion lies beyond it (L2a) | An alternative shared-loop parser reading defers the closer              | Reliable closer behavior and arm containment (ADR-0014)                                                                                  |
-| D9  | Inside a list item an empty or renumbered item nests under the paragraph (§2.2)                  | CommonMark reads it as paragraph continuation text                       | Upstream MarkText's reading; lists typed with Enter and Tab keep their nested items                                                      |
-| D10 | A renumbered item on a lazy line continues the quoted paragraph (§2.2)                           | CommonMark starts a list after the quote; marked nests one inside it     | Keeps the line with its quote as upstream does; the first edit respells it as upstream writes it                                         |
+| #   | Profile 1 behavior                                                                                       | Diverges from                                                            | Rationale                                                                                                                                |
+| --- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Literal ranges win over CM markers (L1)                                                                  | MMD-6 accept/reject and the toolkit consume markers inside code/math     | Their behavior is an acknowledged defect class (patched piecemeal by MMD's own author)                                                   |
+| D2  | Multi-block annotations render (R3)                                                                      | MMD-6 _rendering_ treats them as literal (its accept/reject honors them) | Owner ruling; toolkit precedent; MMD's confinement is a parser artifact. Note MMD's own render/accept asymmetry when documenting interop |
+| D3  | Backslash escaping of delimiters (E1)                                                                    | No reference tool has any escape                                         | Natural consequence of intrinsic parsing; code-span escape (E2) remains the portable form                                                |
+| D4  | Stray `~>` is literal (R4)                                                                               | MMD-6 erases it under accept/reject                                      | Error tolerance (T2)                                                                                                                     |
+| D5  | No `{<del>`-style aliases, no `@@` metadata (CM1)                                                        | Fevol/Commentator grammar                                                | Not canonical CM; payload bytes must round-trip                                                                                          |
+| D6  | Recursive nesting incl. same-form (N1)                                                                   | lang-criticmarkup/Fevol parse nested markers as flat text                | MMD-6's tested recursion is the authoritative precedent                                                                                  |
+| D7  | Comments retain isolated full Profile 1 Markdown+CriticMarkup subdocuments (R5)                          | Toolkit/MMD erase or render the payload as inline metadata               | A portable note may contain full Markdown while remaining one unstructured payload; local resolution and Comment Display stay lossless   |
+| D8  | An annotation closer stands against an in-arm open literal whose completion lies beyond it (L2a)         | An alternative shared-loop parser reading defers the closer              | Reliable closer behavior and arm containment (ADR-0014)                                                                                  |
+| D9  | Under a list item's own paragraph an empty or renumbered item nests (§2.2)                               | CommonMark reads it as paragraph continuation text                       | Upstream MarkText's reading; lists typed with Enter and Tab keep their nested items                                                      |
+| D10 | A renumbered item on a lazy line continues the quoted paragraph (§2.2)                                   | CommonMark starts a list after the quote; marked nests one inside it     | Keeps the line with its quote as upstream does; the first edit respells it as upstream writes it                                         |
+| D11 | A complete reference definition stands alone: indented code or a list may start after it (§2.3)          | CommonMark reads the next line as text of the definition's paragraph     | Upstream MarkText's reading                                                                                                              |
+| D12 | A lazy line ends a table in a block quote as a quoted paragraph, but belongs to a list item's table (§3) | GFM ends the table and its container at the lazy line                    | Upstream MarkText's reading                                                                                                              |
+| D13 | A bullet item holding only a task marker and a space is an empty task (§3)                               | GFM requires text after the marker                                       | Upstream MarkText shows the empty task                                                                                                   |
 
 ## 13. Implementation boundary
 
