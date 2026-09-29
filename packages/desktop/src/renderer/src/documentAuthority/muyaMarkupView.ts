@@ -373,16 +373,28 @@ export function createMuyaMarkupView(
     }
     markdownOffset += event.text.length
   }
-  const sourceText = (start: number, end: number): string =>
-    sourceEvents
-      .flatMap((event) => {
-        const from = Math.max(start, event.sourceRange.start)
-        const to = Math.min(end, event.sourceRange.end)
-        return from < to
-          ? [event.text.slice(from - event.sourceRange.start, to - event.sourceRange.start)]
-          : []
-      })
-      .join('')
+  // Text events are in source order, so a range's text starts at the first
+  // event ending after it: found by bisection, not by scanning every event.
+  const sourceText = (start: number, end: number): string => {
+    let text = ''
+    let low = 0
+    let high = sourceEvents.length
+    while (low < high) {
+      const middle = (low + high) >> 1
+      if (sourceEvents[middle].sourceRange.end <= start) low = middle + 1
+      else high = middle
+    }
+    for (let index = low; index < sourceEvents.length; index += 1) {
+      const event = sourceEvents[index]
+      if (event.sourceRange.start >= end) break
+      const from = Math.max(start, event.sourceRange.start)
+      const to = Math.min(end, event.sourceRange.end)
+      if (from < to) {
+        text += event.text.slice(from - event.sourceRange.start, to - event.sourceRange.start)
+      }
+    }
+    return text
+  }
   const sourceCharacter = (offset: number): string => sourceText(offset, offset + 1)
   let sourceLineStarts: readonly { source: number; projected: number }[] | undefined
   const lineStartsWithin = (range: SourceRange): readonly number[] => {
@@ -394,9 +406,21 @@ export function createMuyaMarkupView(
         return { source, projected: projection.syntax.coordinates.toProjected(source, 'next') }
       })
     )
-    return sourceLineStarts
-      .filter((line) => line.projected > range.start && line.projected < range.end)
-      .map((line) => line.source)
+    // Projected line starts rise with the source, so the range's lines are
+    // one run, found by bisection.
+    const lines = sourceLineStarts
+    let low = 0
+    let high = lines.length
+    while (low < high) {
+      const middle = (low + high) >> 1
+      if (lines[middle].projected <= range.start) low = middle + 1
+      else high = middle
+    }
+    const starts: number[] = []
+    for (let index = low; index < lines.length && lines[index].projected < range.end; index += 1) {
+      starts.push(lines[index].source)
+    }
+    return starts
   }
   const continuations = new Map<string, Readonly<{ prefix: string; lineEnding: string }>>()
   const markerLines = new Map<string, NonNullable<MuyaMarkupBinding['markerLine']>>()
