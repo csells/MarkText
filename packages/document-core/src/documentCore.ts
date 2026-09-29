@@ -6029,7 +6029,10 @@ function createDocumentCoreWithExecutionBudget(
     if (!context.strayLocal(expected.source.slice(0, nextEnd),
       within(expected.annotations, 0, nextEnd).length,
       expected.diagnostics.some(diagnostic => diagnostic.code === 'CM_UNTERMINATED_OPENER' && diagnostic.range.end <= nextEnd),
-      opened.diagnostics.some(diagnostic => diagnostic.code === 'CM_UNTERMINATED_OPENER' && diagnostic.range.end <= window.length))) return undefined
+      // The document parse below publishes the result whole, so a first or
+      // last annotation, which changes how every unfinished opener is
+      // escaped, reads right there.
+      true)) return undefined
     const kept = contextBlocksKept(windowCore, opened, windowCore.apply(opened, compiled).revision,
       { start: first.start - sourceStart, end: last.end - sourceStart }, delta, window.length,
       { start: sourceStart === 0, end: windowEnd === state.source.length })
