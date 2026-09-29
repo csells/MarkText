@@ -4,6 +4,7 @@
  *
  *   pnpm --filter @marktext/document-core differential \
  *     [--count 6000] [--seed 1] [--out <dir>] [--no-minimize]
+ *     [--source <markdown> ...]   (renders only the given documents)
  *
  * Every generated document is rendered by all three in a CommonMark run (GFM
  * off) and a GFM run (tables, task items and strikethrough on; GFM autolink
@@ -429,9 +430,20 @@ const main = (): void => {
       count: { type: 'string', default: '6000' },
       seed: { type: 'string', default: '1' },
       out: { type: 'string' },
-      'no-minimize': { type: 'boolean', default: false }
+      'no-minimize': { type: 'boolean', default: false },
+      source: { type: 'string', multiple: true }
     }
   })
+  if (values.source !== undefined) {
+    for (const source of values.source) {
+      for (const run of ['commonmark', 'gfm'] as const) {
+        const rendered = render(source, run)
+        process.stdout.write(`[${classify(rendered) ?? 'same'} ${run}] ${JSON.stringify(source)}\n` +
+          `  core      ${rendered.core}\n  micromark ${rendered.micromark}\n  marked    ${rendered.marked}\n`)
+      }
+    }
+    return
+  }
   const count = Number.parseInt(values.count, 10)
   const seed = Number.parseInt(values.seed, 10)
   const generator = new Generator(seed)
