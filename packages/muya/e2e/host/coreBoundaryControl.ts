@@ -3,6 +3,7 @@ import type { CoreAppliedReply } from '../../../desktop/src/renderer/src/documen
 import { createEditorCoreBinding, type EditorCoreOpenInput } from '../../../desktop/src/renderer/src/documentAuthority/editorCoreBinding';
 import { createLocalCoreOwner } from '../../../desktop/src/renderer/src/documentAuthority/localCoreOwner';
 import { createMuyaMarkupPresentationIndex } from '../../../desktop/src/renderer/src/documentAuthority/muyaMarkupPresentationIndex';
+import { muyaViewBindingsInRoots } from '../../../desktop/src/renderer/src/documentAuthority/muyaMarkupViewLookup';
 import { createMuyaModelSelection, muyaActiveFormats, muyaCodeLanguage, muyaEmojiContext, muyaClipboardSelection, muyaClipboardInputSelection, muyaClipboardCurrentSelection, muyaClipboardToModel, muyaFormatToModel, muyaInputToModel } from '../../../desktop/src/renderer/src/documentAuthority/muyaModelSelection';
 import { presentPendingClipboardImage } from '../../../desktop/src/renderer/src/documentAuthority/muyaPendingClipboardImage';
 import { createMuyaPlainTextCoreAdapter } from '../../../desktop/src/renderer/src/documentAuthority/muyaPlainTextCoreAdapter';
@@ -28,7 +29,18 @@ export function bootCoreBoundary(muya: Muya, source: string, tracked = false, ex
         view = next.view;
         presentation = createMuyaMarkupPresentationIndex(view, presentation);
         muya.setInlinePresentation(presentation.render);
-        reconcileMuyaDocumentView({ muya, view, outcome, dirtyPaths: presentation.changedPaths, applyEditability: bindings => muya.setEditablePaths(bindings.filter(item => item.editable !== false).map(item => item.path)) });
+        reconcileMuyaDocumentView({
+            muya,
+            view,
+            outcome,
+            dirtyPaths: presentation.changedPaths,
+            applyEditability: (presented, roots) => muya.setEditablePaths(
+                scope => (scope === undefined ? presented.bindings : muyaViewBindingsInRoots(presented, scope[0], scope[1]))
+                    .filter(item => item.editable !== false)
+                    .map(item => item.path),
+                roots,
+            ),
+        });
         return view.bindings;
     };
     adapter = createMuyaPlainTextCoreAdapter(view.bindings, binding, undefined, initial.revision);
