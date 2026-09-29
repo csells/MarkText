@@ -104,3 +104,18 @@ describe('document parses after regional block edits', () => {
     expect(revision.annotations).toEqual(fresh.annotations)
   })
 })
+
+describe('the first suggestion in a document with an unfinished opener', () => {
+  it('costs the one parse apply() publishes', () => {
+    const source = 'Unfinished {== opener.\n\n' + Array.from({ length: 300 }, () => 'Plain words of a paragraph here.').join('\n\n') + '\n'
+    const core = createDocumentCore()
+    const revision = regional(core, source)
+    const caret = Math.floor(revision.source.length / 2) + 3
+    const before = inspectDocumentCore(core).documentParses
+    const outcome = press(core, revision, caret, 'insertText', true)
+    expect(inspectDocumentCore(core).documentParses - before).toBe(1)
+    const control = createDocumentCore()
+    planFromDocumentParse(control)
+    expect(outcome).toEqual(press(control, regional(control, source), caret, 'insertText', true))
+  })
+})
