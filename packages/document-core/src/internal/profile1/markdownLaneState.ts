@@ -1342,19 +1342,35 @@ function analyzeContainerLine(
     inheritedMatchDepth < inheritedContainers.length &&
     isLazyParagraphContinuation(source, provisionalState)
   ) {
-    return Object.freeze({
-      ...provisionalState,
-      activeContainers: Object.freeze([...inheritedContainers]),
-      continuedContainerDepth: inheritedContainers.length,
-      blockQuoteDepth: inheritedContainers.reduce(
-        (depth, container) =>
-          depth + (container.kind === 'blockquote' ? 1 : 0),
-        0
-      ),
-      lazy: true,
-      paragraphContinues: paragraphOpen || tableRowOpen,
-      tableRowContinues: tableRowOpen
-    })
+    // A complete HTML tag interrupts the paragraph it lazily continues. As
+    // upstream reads it, a block quote keeps such a line and the HTML block
+    // opens inside it, but a list item ends at an opening tag, with every
+    // container inside it.
+    let kept = inheritedContainers.length
+    if (
+      source.charCodeAt(provisionalState.contentOffset + 1) !== 47 &&
+      htmlBlockOpening(source, provisionalState, true) === undefined &&
+      htmlBlockOpening(source, provisionalState, false) !== undefined
+    ) {
+      const firstListItem = inheritedContainers.findIndex((container) => container.kind === 'list-item')
+      if (firstListItem !== -1) kept = firstListItem
+    }
+    if (kept > inheritedMatchDepth) {
+      const keptContainers = inheritedContainers.slice(0, kept)
+      return Object.freeze({
+        ...provisionalState,
+        activeContainers: Object.freeze(keptContainers),
+        continuedContainerDepth: kept,
+        blockQuoteDepth: keptContainers.reduce(
+          (depth, container) =>
+            depth + (container.kind === 'blockquote' ? 1 : 0),
+          0
+        ),
+        lazy: true,
+        paragraphContinues: paragraphOpen || tableRowOpen,
+        tableRowContinues: tableRowOpen
+      })
+    }
   }
   return provisionalState
 }
@@ -1386,7 +1402,10 @@ function htmlBlockOpening(
   ) {
     return undefined
   }
-  const candidate = lineText.slice(state.contentOffset)
+  // The line may be read inside the whole source: its text ends at its own
+  // content end, not at the source's.
+  const lineEnd = state.lineContentEnd
+  const candidate = lineText.slice(state.contentOffset, lineEnd)
   const lowerCandidate = candidate.toLowerCase()
   for (const tag of RAW_HTML_BLOCK_TAGS) {
     if (
@@ -1421,12 +1440,12 @@ function htmlBlockOpening(
   const tagEnd = findInlineHtmlEnd(
     lineText,
     state.contentOffset,
-    lineText.length
+    lineEnd
   )
   if (tagEnd === undefined) {
     return undefined
   }
-  for (let offset = tagEnd; offset < lineText.length; offset += 1) {
+  for (let offset = tagEnd; offset < lineEnd; offset += 1) {
     if (!isSpaceOrTab(lineText.charCodeAt(offset))) {
       return undefined
     }
@@ -1541,7 +1560,7 @@ export function inspectMarkdownPendingLineBlock(
       frontMatterOpeningStyle(lineText) !== undefined
     ) ||
     ((!lineState.paragraphContinues || lineState.tableRowContinues) && lineState.indentation >= 4) ||
-    htmlBlockOpening(lineText, lineState, lineState.paragraphContinues) !== undefined ||
+    htmlBlockOpening(lineText, lineState, lineState.paragraphContinues && !lineState.lazy) !== undefined ||
     definitionOpening(lineText, lineState, lineState.paragraphContinues, false) !==
       undefined
   const paragraphOpen =
@@ -3072,8 +3091,9 @@ export function createMarkdownLaneState(
         const line = lineAt(cursor)
         const state = analyzed(line.text, lineContainers, true)
         const continues = !state.blank && (
-          state.lazy ||
+          (state.lazy && htmlBlockOpening(line.text, state, false) === undefined) ||
           (
+            !state.lazy &&
             state.continuedContainerDepth === lineContainers.length &&
             !isSetextUnderline(line.text, state.contentOffset, state.lineContentEnd) &&
             isLazyParagraphContinuation(line.text, state)
@@ -3486,10 +3506,13 @@ export function createMarkdownLaneState(
           bracketPath = undefined
           pendingLinkLabel = undefined
         } else {
+          // A complete HTML tag interrupts the paragraph on a lazy line, as
+          // upstream and micromark read it: the block opens in the lazily
+          // kept containers.
           const htmlOpening = htmlBlockOpening(
             probeLine,
             probeState,
-            probeState.paragraphContinues
+            probeState.paragraphContinues && !probeState.lazy
           )
           if (htmlOpening !== undefined) {
             htmlBlock = Object.freeze({
