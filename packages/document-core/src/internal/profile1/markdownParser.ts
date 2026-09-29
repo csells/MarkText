@@ -4033,13 +4033,21 @@ function parseOrderedContainerSequence(
       closeParagraph()
     }
 
-    const taskMarker =
+    const taskCandidate =
       activeMarkdownGfmEnabled &&
       parent.kind === 'list-item' &&
       parent.children.length === 0 &&
       paragraph === undefined
         ? taskListItemMarker(source, line, boundaryPolicy)
         : undefined
+    // Upstream MarkText, marked and GFM read an ordered item's `[ ]` with
+    // nothing after it as the item's text; only a bullet item holds an empty
+    // task (Profile 1 D13, D14).
+    const itemDescriptor = stack.at(-1)?.descriptor
+    const taskMarker = taskCandidate !== undefined && itemDescriptor?.kind === 'list-item' &&
+      itemDescriptor.ordered === true && source.slice(taskCandidate.end, line.contentEnd).trim() === ''
+      ? undefined
+      : taskCandidate
     if (taskMarker !== undefined) {
       parent.attributes = Object.freeze({
         ...parent.attributes,
