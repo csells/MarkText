@@ -96,7 +96,11 @@ describe('CommonMark and upstream agree', () => {
     // A container opened earlier on the line has ended the paragraph, so an
     // empty or renumbered item after it is a list.
     ['> y\n* 0.\n', '<blockquote><p>y</p></blockquote><ul><li><ol start="0"><li></li></ol></li></ul>'],
-    ['> .\n- 2.\n', '<blockquote><p>.</p></blockquote><ul><li><ol start="2"><li></li></ol></li></ul>']
+    ['> .\n- 2.\n', '<blockquote><p>.</p></blockquote><ul><li><ol start="2"><li></li></ol></li></ul>'],
+    // Upstream nests an empty or renumbered item under a list item's own
+    // paragraph only; one in a block quote inside the item keeps the rule.
+    ['- a\n  > q\n  > 2) d\n', '<ul><li>a<blockquote><p>q 2) d</p></blockquote></li></ul>'],
+    ['1. > |\n   > 3)\n', '<ol><li><blockquote><p>| 3)</p></blockquote></li></ol>']
   ])('%j', (source, expected) => {
     expect(html(source)).toBe(canonical(expected))
   })
@@ -169,7 +173,8 @@ describe('typing these lines reads as a fresh open', () => {
     ['1. [\n\n', 5, 'y'],
     ['[\n\n', 2, '-'],
     ['[f]:\n\n', 5, '1.'],
-    ['> y\n\n', 4, '* 0.']
+    ['> y\n\n', 4, '* 0.'],
+    ['- a\n  > q\n\n', 10, '  > 2) d']
   ])('%j at %i types %j', (source, at, insert) => {
     const core = createDocumentCore()
     const previous = core.open(source)

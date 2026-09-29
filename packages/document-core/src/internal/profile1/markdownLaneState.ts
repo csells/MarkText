@@ -750,9 +750,9 @@ function isBlankFrom(source: string, start: number, end: number): boolean {
  * 0.31.2 §5.2, §4.3). While the paragraph is the innermost open block, an
  * empty item cannot interrupt it and a `-` run is its setext underline. An
  * ordered item not starting at 1 cannot interrupt it either; like upstream
- * MarkText, that also holds on a lazy continuation line. Inside a list item,
- * upstream nests an empty or renumbered item as a sublist, so only the
- * underline applies there.
+ * MarkText, that also holds on a lazy continuation line. Under a list item's
+ * own paragraph, upstream nests an empty or renumbered item as a sublist, so
+ * only the underline applies there.
  */
 function refusesParagraphInterruption(
   source: string,
@@ -1053,7 +1053,11 @@ function analyzeContainerLine(
         // paragraph, so a marker after it interrupts nothing.
         paragraphOpen && openers.length === 0,
         containersMatched,
-        inheritedContainers.some((container) => container.kind === 'list-item')
+        // Upstream's nesting applies to a list item's own paragraph, not to
+        // one in a block quote the line continues inside that item.
+        containersMatched
+          ? inheritedContainers.at(-1)?.kind === 'list-item'
+          : inheritedContainers.some((container) => container.kind === 'list-item')
       )
     ) {
       break
