@@ -75,7 +75,12 @@ describe('CommonMark and upstream agree', () => {
     ['```\n>```', '<pre><code>&gt;```\n</code></pre>'],
     ['~~~\n> ~~~\ny\n', '<pre><code>&gt; ~~~\ny\n</code></pre>'],
     ['~~~\n+ ~~~\n', '<pre><code>+ ~~~\n</code></pre>'],
-    ['0. ~~~\n   >~~~\n', '<ol start="0"><li><pre><code>&gt;~~~\n</code></pre></li></ol>']
+    ['0. ~~~\n   >~~~\n', '<ol start="0"><li><pre><code>&gt;~~~\n</code></pre></li></ol>'],
+    // A closer is at least as long as its opener, and a tilde fence's info
+    // string may hold a backtick.
+    ['```\n`\n', '<pre><code>`\n</code></pre>'],
+    ['````\n```\n', '<pre><code>```\n</code></pre>'],
+    ['~~~`\n', '<pre><code class="language-`"></code></pre>']
   ])('%j', (source, expected) => {
     expect(html(source)).toBe(canonical(expected))
   })
@@ -137,7 +142,8 @@ describe('typing these lines reads as a fresh open', () => {
     ['Foo\n\n|---|---|\n', 4, '| a | b |'],
     ['a {++b++}\n\n', 10, '-'],
     ['{++a++}\n-\n\n{--b--}\n', 8, 'x'],
-    ['~~~\n\ny\n', 4, '> ~~~']
+    ['~~~\n\ny\n', 4, '> ~~~'],
+    ['```\n\n', 4, '`']
   ])('%j at %i types %j', (source, at, insert) => {
     const core = createDocumentCore()
     const previous = core.open(source)
