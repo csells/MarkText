@@ -1336,10 +1336,13 @@ export function inspectMarkdownPendingLineBlock(
     !opensFence &&
     !isAtxHeadingLine(lineText, lineState) &&
     !lineState.setextUnderline &&
-    !isThematicBreakFrom(
-      lineText,
-      lineState.contentOffset,
-      lineText.length
+    !(
+      lineState.indentation <= 3 &&
+      isThematicBreakFrom(
+        lineText,
+        lineState.contentOffset,
+        lineText.length
+      )
     )
   const mapContiguousTrivia = (
     start: number,
@@ -4153,10 +4156,13 @@ export function createMarkdownLaneState(
         definition === undefined &&
         !isAtxHeadingLine(completedLine, lineState) &&
         !lineState.setextUnderline &&
-        !isThematicBreakFrom(
-          completedLine,
-          lineState.contentOffset,
-          completedLine.length
+        !(
+          lineState.indentation <= 3 &&
+          isThematicBreakFrom(
+            completedLine,
+            lineState.contentOffset,
+            completedLine.length
+          )
         )
       )
       // A footnote body's lines form paragraphs of their own, which a blank

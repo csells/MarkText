@@ -100,7 +100,13 @@ describe('CommonMark and upstream agree', () => {
     // Upstream nests an empty or renumbered item under a list item's own
     // paragraph only; one in a block quote inside the item keeps the rule.
     ['- a\n  > q\n  > 2) d\n', '<ul><li>a<blockquote><p>q 2) d</p></blockquote></li></ul>'],
-    ['1. > |\n   > 3)\n', '<ol><li><blockquote><p>| 3)</p></blockquote></li></ol>']
+    ['1. > |\n   > 3)\n', '<ol><li><blockquote><p>| 3)</p></blockquote></li></ol>'],
+    // Four columns in, a `---` or `#` line continues the paragraph.
+    ['> a\n>     ---\n', '<blockquote><p>a ---</p></blockquote>'],
+    ['> a\n    ***\nb\n', '<blockquote><p>a *** b</p></blockquote>'],
+    ['> a\n    # h\n', '<blockquote><p>a # h</p></blockquote>'],
+    ['- a\n      ***\n', '<ul><li>a ***</li></ul>'],
+    ['- \\\n      ---\n', '<ul><li><br />\n---</li></ul>']
   ])('%j', (source, expected) => {
     expect(html(source)).toBe(canonical(expected))
   })
@@ -174,7 +180,8 @@ describe('typing these lines reads as a fresh open', () => {
     ['[\n\n', 2, '-'],
     ['[f]:\n\n', 5, '1.'],
     ['> y\n\n', 4, '* 0.'],
-    ['- a\n  > q\n\n', 10, '  > 2) d']
+    ['- a\n  > q\n\n', 10, '  > 2) d'],
+    ['> a\n\n', 4, '    ---']
   ])('%j at %i types %j', (source, at, insert) => {
     const core = createDocumentCore()
     const previous = core.open(source)
