@@ -4378,7 +4378,8 @@ function createDocumentCoreWithExecutionBudget(
   /**
    * The blocks around `range` read for planning a key, also when a label in
    * them names one of the document's definitions: the window reads that
-   * label as text, so it serves only a key outside every bracketed span.
+   * label as text. Planning reads only blocks and code and math spans, which
+   * bind before links do, so a resolved label changes none of them.
    */
   const regionalPlanningWindow = (
     state: RevisionState,
@@ -4391,10 +4392,6 @@ function createDocumentCoreWithExecutionBudget(
     const window = regionalRangeWindow(inventory, state.source, range, executionBudget,
       state.markdownOptions, regionalPhysicalRecorder)
     if (window?.labelsOnly !== true) return undefined
-    for (const match of window.nextWindow.matchAll(/\[(?:[^[\]\\]|\\[\s\S])*\]/gu)) {
-      const start = window.sourceStart + match.index
-      if (start <= range.end && start + match[0].length >= range.start) return undefined
-    }
     return Object.freeze({ sourceStart: window.sourceStart, nextProducts: window.nextProducts, nextWindow: window.nextWindow })
   }
 
