@@ -1,3 +1,4 @@
+import type * as MuyaCore from '@muyajs/core'
 import { describe, expect, it, vi } from 'vitest'
 
 // #3359 — exporting with Header & Footer enabled dropped diagram (mermaid)
@@ -15,8 +16,13 @@ const FULL_DOC =
   '</g></svg></figure>' +
   '</article></body></html>'
 
-vi.mock('@muyajs/core', () => ({
+vi.mock('@muyajs/core', async(importOriginal) => ({
+  ...(await importOriginal<typeof MuyaCore>()),
   MarkdownToHtml: class {
+    static fromHtml(): unknown {
+      return new this()
+    }
+
     async generate(): Promise<string> {
       return FULL_DOC
     }
@@ -26,13 +32,19 @@ vi.mock('@muyajs/core', () => ({
 vi.mock('@/util/resolveImageSrc', () => ({ resolveLocalImageSrc: (s: string) => s }))
 vi.mock('@/util/resolveLinkHref', () => ({ resolveLocalLinkHref: (s: string) => s }))
 
-const { exportStyledHTML } = await import('@/util/exportHtml')
+const { exportStyledHTMLFromProjection } = await import('@/util/exportHtml')
+const { createDocumentCore } = await import('@marktext/document-core')
+
+const projectionOf = (source: string) => {
+  const core = createDocumentCore()
+  return core.project(core.open(source), 'revised')
+}
 
 const fakeMuya = {} as never
 
 describe('export with Header & Footer preserves diagram content (#3359)', () => {
   it('keeps the mermaid foreignObject label when a header is present', async() => {
-    const html = await exportStyledHTML(fakeMuya, '```mermaid\ngraph LR\n```', {
+    const html = await exportStyledHTMLFromProjection(fakeMuya, projectionOf('```mermaid\ngraph LR\n```'), {
       header: { type: 0, left: '', center: 'My Title', right: '' }
     })
     expect(html).toContain('DiagramLabel')
@@ -40,7 +52,7 @@ describe('export with Header & Footer preserves diagram content (#3359)', () => 
   })
 
   it('still strips unsafe markup from the user-supplied header text', async() => {
-    const html = await exportStyledHTML(fakeMuya, 'x', {
+    const html = await exportStyledHTMLFromProjection(fakeMuya, projectionOf('x'), {
       header: { type: 0, left: '', center: '<script>alert(1)</script>Safe', right: '' }
     })
     expect(html).toContain('Safe')
