@@ -134,7 +134,11 @@ describe('CommonMark and upstream agree', () => {
     ['[f]:l ""\n""\n', '<p>&quot;&quot;</p>'],
     // An unclosed quote after a definition is no title of it.
     ['[ref]\n\n[ref]:l\n"\n', '<p><a href="l">ref</a></p><p>&quot;</p>'],
-    ['[f]: /u ""\n[f]\n', '<p><a href="/u">f</a></p>']
+    ['[f]: /u ""\n[f]\n', '<p><a href="/u">f</a></p>'],
+    // A lazy line after a complete definition stays in its containers.
+    ['> [f]: /u\ns\n', '<blockquote><p>s</p></blockquote>'],
+    ['1. [f]: /u\no\n', '<ol><li>o</li></ol>'],
+    ['> [f]: /u "t"\n"s"\n', '<blockquote><p>&quot;s&quot;</p></blockquote>']
   ])('%j', (source, expected) => {
     expect(html(source)).toBe(canonical(expected))
   })
@@ -190,7 +194,8 @@ describe('where CommonMark and upstream differ (Profile 1)', () => {
     // line after it is code and a `-` opens a list. CommonMark reads both as
     // text of the paragraph the definition began.
     ['[a]: /u\n    x\n', '<pre><code>x\n</code></pre>'],
-    ['[a]: /u\n-\n', '<ul><li></li></ul>']
+    ['[a]: /u\n-\n', '<ul><li></li></ul>'],
+    ['> [f]: "\n    *\n', '<blockquote><pre><code>*\n</code></pre></blockquote>']
   ])('%j', (source, expected) => {
     expect(html(source)).toBe(canonical(expected))
   })
@@ -251,6 +256,8 @@ describe('typing these lines reads as a fresh open', () => {
     ['a\n\n', 2, ':-'],
     ['1. `\na\n\n', 7, '3. `c`'],
     ['[f]: /u "t"\n\n', 12, '"s"'],
+    ['> [f]: /u\n\n', 10, 's'],
+    ['1. [f]: /u\n\n', 11, 'o'],
     ['> a|b\n> -|-\n\n', 12, 'c|d']
   ])('%j at %i types %j', (source, at, insert) => {
     const core = createDocumentCore()

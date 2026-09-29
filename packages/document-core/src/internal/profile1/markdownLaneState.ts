@@ -186,6 +186,12 @@ export interface MarkdownCheckpoint {
    */
   readonly lineEntryContainers?: readonly ActiveBlockContainer[] | undefined
   readonly paragraphOpen: boolean
+  /**
+   * The last line belonged to a reference definition. No paragraph is open,
+   * but a lazy line may still continue the definition's containers, as it
+   * would continue the paragraph CommonMark reads the definition from.
+   */
+  readonly definitionLazyContinuation?: boolean | undefined
   readonly lastLineLazy: boolean
   readonly lineStart: number
   readonly fence: MarkdownFenceState | undefined
@@ -912,7 +918,10 @@ function analyzeContainerLine(
   line: SourceLine,
   inheritedContainers: readonly ActiveBlockContainer[],
   paragraphOpen: boolean,
-  suppressNewContainers: boolean = false
+  suppressNewContainers: boolean = false,
+  // A line after a reference definition may be lazy though no paragraph is
+  // open; it then starts blocks as after any complete block.
+  lazyContinuationOpen: boolean = paragraphOpen
 ): ContainerLineState {
   let offset = line.start
   let column = 0
@@ -1136,7 +1145,7 @@ function analyzeContainerLine(
       isSetextUnderline(source, contentOffset, line.contentEnd)
   })
   if (
-    paragraphOpen &&
+    lazyContinuationOpen &&
     inheritedMatchDepth < inheritedContainers.length &&
     isLazyParagraphContinuation(source, provisionalState)
   ) {
@@ -1150,7 +1159,7 @@ function analyzeContainerLine(
         0
       ),
       lazy: true,
-      paragraphContinues: true
+      paragraphContinues: paragraphOpen
     })
   }
   return provisionalState
@@ -1314,7 +1323,9 @@ export function inspectMarkdownPendingLineBlock(
     lineText,
     { start: 0, contentEnd: lineText.length, end: lineText.length },
     checkpoint.activeContainers,
-    checkpoint.paragraphOpen
+    checkpoint.paragraphOpen,
+    false,
+    lazyContinuationOpenFor(checkpoint)
   )
   const opensFence = findMarkdownFenceOpening(
     lineText,
@@ -2993,6 +3004,7 @@ export function createMarkdownLaneState(
       checkpoint.extendedAutolinkSuppressedUntil ?? 0
     let activeContainers = checkpoint.activeContainers
     let paragraphOpen = checkpoint.paragraphOpen
+    let definitionLazyContinuation = checkpoint.definitionLazyContinuation === true
     let lastLineLazy = checkpoint.lastLineLazy
     let lineStart = checkpoint.lineStart
     let fence = checkpoint.fence
@@ -3054,13 +3066,16 @@ export function createMarkdownLaneState(
           { start: 0, contentEnd: armFragmentLine.length, end: armFragmentLine.length },
           activeContainers,
           paragraphOpen,
-          true
+          true,
+          paragraphOpen || definitionLazyContinuation
         )
       const probeState = analyzeContainerLine(
         probeLine,
         { start: 0, contentEnd: probeLine.length, end: probeLine.length },
         activeContainers,
-        paragraphOpen
+        paragraphOpen,
+        false,
+        paragraphOpen || definitionLazyContinuation
       )
       if (firstContainerDepthFailure === undefined) {
         const excess = firstExcessContainer(probeState)
@@ -3770,7 +3785,9 @@ export function createMarkdownLaneState(
         boundaryLine,
         { start: 0, contentEnd: boundaryLine.length, end: boundaryLine.length },
         activeContainers,
-        paragraphOpen
+        paragraphOpen,
+        false,
+        paragraphOpen || definitionLazyContinuation
       )
       if (isFenceCloserLine(boundaryLine, boundaryState, fence)) {
         completedLiterals.push(Object.freeze({
@@ -3849,7 +3866,8 @@ export function createMarkdownLaneState(
           source,
           completedBounds,
           checkpoint
-        )
+        ),
+        lazyContinuationOpenFor(checkpoint)
       ))
       const completedLine =
         materializeMarkdownLine(checkpoint.linePath) + text.slice(0, firstEol)
@@ -3857,7 +3875,9 @@ export function createMarkdownLaneState(
         completedLine,
         { start: 0, contentEnd: completedLine.length, end: completedLine.length },
         activeContainers,
-        paragraphOpen
+        paragraphOpen,
+        false,
+        paragraphOpen || definitionLazyContinuation
       )
       if (lineState.blank || lineBlockClosed) {
         enclosingLabelInterrupted = true
@@ -3983,6 +4003,7 @@ export function createMarkdownLaneState(
         }
       }
       let lineOwnedByDefinition = false
+      let lineOwnedByReferenceDefinition = false
       if (definition !== undefined) {
         if (definition.lineStart !== lineStart) {
           const continuation = definitionContinuationPhase(
@@ -4016,6 +4037,7 @@ export function createMarkdownLaneState(
         }
         if (definition !== undefined) {
           lineOwnedByDefinition = true
+          lineOwnedByReferenceDefinition = definition.phase !== 'footnote'
           definition = Object.freeze({
             ...definition,
             lastOwnedEnd: sourceEnd
@@ -4184,6 +4206,8 @@ export function createMarkdownLaneState(
           pendingLinkLabel = undefined
         }
       }
+      definitionLazyContinuation = !paragraphOpen && lineOwnedByReferenceDefinition &&
+        !lineState.blank
       lastLineLazy = lineState.lazy
       frontMatterEligible = false
       lineStart = sourceEnd
@@ -4221,6 +4245,7 @@ export function createMarkdownLaneState(
         fixedInline,
         extendedAutolinkSuppressedUntil,
         activeContainers,
+        definitionLazyContinuation: definitionLazyContinuation ? true : undefined,
         lineEntryContainers: linePath !== undefined && lastEol < 0 &&
             lineEntryContainers !== activeContainers
           ? lineEntryContainers
@@ -4295,7 +4320,8 @@ export function createMarkdownLaneState(
               end: boundary
             }),
             checkpoint
-          )
+          ),
+          lazyContinuationOpenFor(checkpoint)
         )])
     if (checkpoint.fence !== undefined) {
       completedLiterals.push(Object.freeze({
@@ -4847,12 +4873,17 @@ export function createMarkdownLaneState(
  * exist over one lane state machine; sharing this is the first step to
  * collapsing them (Phase 0.5 step 7).
  */
+function lazyContinuationOpenFor(checkpoint: MarkdownCheckpoint): boolean {
+  return checkpoint.paragraphOpen || checkpoint.definitionLazyContinuation === true
+}
+
 export function buildPlainMarkdownLine(
   source: string,
   bounds: Readonly<{ start: number, contentEnd: number, end: number }>,
   activeContainers: MarkdownCheckpoint['activeContainers'],
   paragraphOpen: boolean,
-  literalOpen: boolean = false
+  literalOpen: boolean = false,
+  lazyContinuationOpen: boolean = paragraphOpen
 ): PlainMarkdownLine {
   const { start, contentEnd, end } = bounds
   const lineState = analyzeContainerLine(
@@ -4860,7 +4891,8 @@ export function buildPlainMarkdownLine(
     { start, contentEnd, end },
     activeContainers,
     paragraphOpen,
-    literalOpen
+    literalOpen,
+    lazyContinuationOpen
   )
   let openerIndex = 0
   let quoteMarkerIndex = 0
@@ -5052,7 +5084,8 @@ function parsePlainMarkdownLanePass(
       checkpoint.activeContainers,
       checkpoint.paragraphOpen,
       lineContinuesLiteralContainer ||
-        checkpoint.frontMatter !== undefined
+        checkpoint.frontMatter !== undefined,
+      lazyContinuationOpenFor(checkpoint)
     ))
     // This driver owns complete physical lines. Finalize a lone CR before
     // deriving the next line's inherited container and literal state.
