@@ -4434,11 +4434,16 @@ function tableHeadAt(
 }> | undefined {
   const headerLine = lines[lineIndex]
   const delimiterLine = lines[lineIndex + 1]
+  // The delimiter row is a line of the header's own containers: four
+  // columns in, or on a lazy line of a block quote, it is paragraph text.
+  // Upstream reads a list item's lazy line as its own, delimiter row or not.
   if (
     headerLine === undefined ||
     delimiterLine === undefined ||
     headerLine.blank ||
     delimiterLine.blank ||
+    (delimiterLine.lazy && headerLine.containers.at(-1)?.kind === 'blockquote') ||
+    delimiterLine.indentation > 3 ||
     !continuesTableContainer(headerLine, delimiterLine)
   ) {
     return undefined
@@ -4450,6 +4455,28 @@ function tableHeadAt(
     return undefined
   }
   return { headerLine, delimiterLine, headerCells, delimiter }
+}
+
+function wholeLineTableCell(
+  source: string,
+  line: Pick<PlainMarkdownLine, 'contentOffset' | 'contentEnd'>
+): readonly TableCellRange[] {
+  let start = line.contentOffset
+  let end = line.contentEnd
+  while (
+    start < end &&
+    (source.charCodeAt(start) === 32 || source.charCodeAt(start) === 9)
+  ) {
+    start += 1
+  }
+  while (
+    end > start &&
+    (source.charCodeAt(end - 1) === 32 ||
+      source.charCodeAt(end - 1) === 9)
+  ) {
+    end -= 1
+  }
+  return Object.freeze([Object.freeze({ start, end, cellStart: line.contentOffset, cellEnd: line.contentEnd })])
 }
 
 /** A table body row ends where another block starts (GFM 4.10). */
@@ -4556,32 +4583,18 @@ function parseTable(
   let nextLineIndex = lineIndex + 2
   while (nextLineIndex < lines.length) {
     const line = lines[nextLineIndex]
+    // Upstream ends a quoted table at a lazy line, which continues the quote
+    // as a paragraph, but keeps a lazy line in a list item as a table row.
     if (
       line === undefined ||
       line.blank ||
+      (line.lazy && headerLine.containers.at(-1)?.kind === 'blockquote') ||
       !continuesContainer(line) ||
       startsBlockInsideTable(source, line, literals, constructs, referenceDefinitions)
     ) {
       break
     }
-    const cells = splitTableCells(source, line) ?? (() => {
-      let start = line.contentOffset
-      let end = line.contentEnd
-      while (
-        start < end &&
-        (source.charCodeAt(start) === 32 || source.charCodeAt(start) === 9)
-      ) {
-        start += 1
-      }
-      while (
-        end > start &&
-        (source.charCodeAt(end - 1) === 32 ||
-          source.charCodeAt(end - 1) === 9)
-      ) {
-        end -= 1
-      }
-      return Object.freeze([Object.freeze({ start, end, cellStart: line.contentOffset, cellEnd: line.contentEnd })])
-    })()
+    const cells = splitTableCells(source, line) ?? wholeLineTableCell(source, line)
     rows.push(createRow(line, cells, false))
     nextLineIndex += 1
   }
