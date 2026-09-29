@@ -2263,12 +2263,14 @@ function codeBlockLayout(
     })
   }
   const openerText = source.slice(opener.contentOffset, opener.contentEnd)
-  const markerMatch = /^([`~]+)(.*)$/.exec(openerText)
+  const markerMatch = /^(`+|~+)(.*)$/.exec(openerText)
   const info = (markerMatch?.[2] ?? '').trim()
   const marker = markerMatch?.[1]?.charAt(0) ?? '`'
   const fenceIndent = opener.indentation
   const last = covered[covered.length - 1]
-  const closerPattern = new RegExp(`^\\${marker}+[\\t ]*$`)
+  // A closer repeats the opener's marker at least as many times; a shorter
+  // run on the last line of an unclosed fence is code.
+  const closerPattern = new RegExp(`^\\${marker}{${String(markerMatch?.[1]?.length ?? 3)},}[\\t ]*$`)
   const hasCloser =
     covered.length > 1 &&
     last !== undefined &&
