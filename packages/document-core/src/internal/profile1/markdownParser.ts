@@ -4493,6 +4493,11 @@ function tableHeadAt(
   ) {
     return undefined
   }
+  // Upstream takes no line that begins like a reference definition for a
+  // header row.
+  if (/^\[(?:[^\\[\]]|\\.)*\]:/u.test(source.slice(headerLine.contentOffset, headerLine.contentEnd))) {
+    return undefined
+  }
   const headerCells = tableRowCells(source, headerLine)
   if (headerCells.length !== delimiter.alignments.length) {
     return undefined
