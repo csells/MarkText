@@ -118,10 +118,19 @@ describe('indented code', () => {
 
 describe('task items', () => {
   it.each([
-    ['- [ ] \n\n  b\n', ['list@0', 'list-item@0', 'paragraph@6', 'paragraph@10']],
-    ['3) [ ] \n\n   b\n', ['list@0', 'list-item@0', 'paragraph@7', 'paragraph@12']],
-    ['3) [ ] \n\n   \n\n   b\n', ['list@0', 'list-item@0', 'paragraph@7', 'paragraph@12', 'paragraph@17']]
+    ['- [ ] \n\n  b\n', ['list@0', 'list-item@0', 'paragraph@6', 'paragraph@10']]
   ])('%j begins with its empty marker-line paragraph', (source, blocks) => {
+    expect(editingBlocks(source)).toEqual(blocks)
+  })
+
+  // Upstream MarkText 0c33241b reads an ordered item's `[ ]` with nothing
+  // after it as the item's text (Profile 1 D14): its markdownToState gives
+  // `3) [ ] ` an order-list item whose paragraph is "[ ]", and its marked
+  // export renders `<li>[ ]</li>`.
+  it.each([
+    ['3) [ ] \n\n   b\n', ['list@0', 'list-item@0', 'paragraph@3', 'paragraph@12']],
+    ['3) [ ] \n\n   \n\n   b\n', ['list@0', 'list-item@0', 'paragraph@3', 'paragraph@12', 'paragraph@17']]
+  ])('%j is an ordered item whose text is its `[ ]`', (source, blocks) => {
     expect(editingBlocks(source)).toEqual(blocks)
   })
 
