@@ -140,7 +140,7 @@ describe('Root queries of a regionally patched Markup view', () => {
         ) + '\n'
       const core = createDocumentCore()
       let revision = core.open(source)
-      let view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations)
+      let view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, revision.source)
       for (let edit = 0; edit < 6; edit += 1) {
         const text = revision.source
         const start = Math.floor(random() * (text.length + 1))
@@ -148,9 +148,11 @@ describe('Root queries of a regionally patched Markup view', () => {
         const insert = end > start && random() < 0.5 ? '' : insertions[Math.floor(random() * insertions.length)]
         const label = `${JSON.stringify(text)} [${start}, ${end}) ${JSON.stringify(insert)}`
         const commit = core.apply(revision, [{ start, end, insert }], { projections: ['markup'] })
+        // The editor's views read their structure from the source.
         const expected = createMuyaMarkupView(
           core.project(commit.revision, 'markup'),
-          commit.revision.annotations
+          commit.revision.annotations,
+          commit.revision.source
         )
         const change = commit.change.projections[0]
         const patched =

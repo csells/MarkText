@@ -247,7 +247,8 @@ describe('Core actor protocol', () => {
         {
           start,
           end: start + 4,
-          insert: 'text\n# heading'
+          // A reference definition changes how labels anywhere resolve.
+          insert: 'text\n\n[label]: /url\n\nmore'
         }
       ],
       projections: []
@@ -260,8 +261,8 @@ describe('Core actor protocol', () => {
         resynchronization: {
           kind: 'source',
           scope: 'document',
-          reason: 'structural-region-ineligible',
-          source: source.slice(0, start) + 'text\n# heading' + source.slice(start + 4)
+          reason: 'definition-or-reference-facts',
+          source: source.slice(0, start) + 'text\n\n[label]: /url\n\nmore' + source.slice(start + 4)
         }
       }
     })

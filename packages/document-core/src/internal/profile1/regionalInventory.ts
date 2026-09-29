@@ -16,6 +16,7 @@ import {
 } from '../profile1Document.js'
 import type { CanonicalSourceView } from '../persistentCanonicalSource.js'
 import type { Profile1PhysicalTraversalRecorderV1 } from './physicalTraversalAccounting.js'
+import { markdownReferenceDefinitionLabel, normalizeMarkdownReferenceLabel } from './markdownLaneState.js'
 import {
   createPlainParagraphRetainedIndex,
   type PlainParagraphIndexRecorder,
@@ -260,6 +261,13 @@ interface InventoryValue extends RegionalInventory {
    * placed in source, as one inside a suggestion.
    */
   readonly definitions?: readonly Readonly<{ readonly start: number; readonly end: number }>[]
+  /**
+   * The normalized labels of those definitions, read from source once and
+   * shared by every inventory derived from this one, as regional edits
+   * leave the definitions as they are. Undefined labels are unknown, as
+   * for a footnote definition.
+   */
+  readonly definitionLabels: { read: boolean, labels?: ReadonlySet<string> }
   readonly recorder: RegionalInventoryRecorder
   readonly plainRecorder?: PlainParagraphIndexRecorder
 }
@@ -873,6 +881,82 @@ function containsPotentialReferenceDependency(source: string): boolean {
   return open !== -1 && source.indexOf(']', open + 1) !== -1
 }
 
+/** The document's definition labels, or undefined when some are unknown. */
+function definitionLabelsOf(inventory: InventoryValue, source: CanonicalSourceView): ReadonlySet<string> | undefined {
+  if (inventory.dependencyPrefixEnd === 0) return EMPTY_LABELS
+  const cache = inventory.definitionLabels
+  if (!cache.read) {
+    cache.read = true
+    const labels = new Set<string>()
+    let known = inventory.definitions !== undefined
+    for (const definition of inventory.definitions ?? []) {
+      const text = source.slice(definition.start, definition.end)
+      const label = markdownReferenceDefinitionLabel(text, 0, text.length)
+      if (label === undefined) known = false
+      else labels.add(label)
+    }
+    if (known) cache.labels = labels
+  }
+  return cache.labels
+}
+
+const EMPTY_LABELS: ReadonlySet<string> = new Set()
+
+/**
+ * Whether `text` spells no bracketed label that names one of `labels`, so
+ * none of its links resolves against the document's definitions, however
+ * a window reads it.
+ */
+function labelsMiss(text: string, labels: ReadonlySet<string>): boolean {
+  if (labels.size === 0) return true
+  for (const match of text.matchAll(/\[((?:[^[\]\\]|\\[\s\S])*)\]/gu)) {
+    const inner = match[1] ?? ''
+    if (labels.has(normalizeMarkdownReferenceLabel(inner, 0, inner.length))) return false
+  }
+  return true
+}
+
+/**
+ * Whether a window of the document from `start` to `end`, reading
+ * `previousWindow` before an edit and `nextWindow` after it, reads alike
+ * with and without the document's definitions: it holds none of them, and
+ * none of its labels names one.
+ */
+function referencesStayLocal(
+  inventory: InventoryValue,
+  source: CanonicalSourceView,
+  start: number,
+  end: number,
+  previousWindow: string,
+  nextWindow: string
+): boolean {
+  if (inventory.dependencyPrefixEnd === 0) return true
+  const labels = definitionLabelsOf(inventory, source)
+  return labels !== undefined &&
+    !(inventory.definitions ?? []).some(definition => definition.start < end && definition.end > start) &&
+    labelsMiss(previousWindow, labels) && labelsMiss(nextWindow, labels)
+}
+
+/** Reference facts after an edit that leaves every definition as it was. */
+function shiftedReferenceFacts(
+  inventory: InventoryValue,
+  edit: RetainedPassSourceEdit,
+  delta: number
+): Pick<InventoryValue, 'dependencyPrefixEnd' | 'definitions' | 'definitionLabels'> {
+  const shift = (position: number): number => position >= edit.end ? position + delta : position
+  return Object.freeze({
+    dependencyPrefixEnd: inventory.dependencyPrefixEnd === 0 ? 0 : shift(inventory.dependencyPrefixEnd),
+    ...(inventory.definitions === undefined
+      ? {}
+      : {
+        definitions: Object.freeze(inventory.definitions.map(definition => Object.freeze({
+          start: shift(definition.start), end: shift(definition.end)
+        })))
+      }),
+    definitionLabels: inventory.definitionLabels
+  })
+}
+
 export function createRegionalInventory(
   products: Profile1DocumentProducts,
   sourceLength: number,
@@ -1025,14 +1109,21 @@ export function createRegionalInventory(
       markdownRoots.length === 1 && markdownRoots[0]?.kind === 'paragraph' &&
       markerDecisions.length === 0 &&
       projectionKinds.every(kind => kind === 'canonical')
+    const plainRegion = roots.length === 0 && markerDecisions.length === 0 && diagnostics.length === 0 &&
+      projectionKinds.every(kind => kind === 'canonical') &&
+      syntaxEnd - syntaxStart === sourceEnd - sourceStart &&
+      counts[ordinal] === 1 &&
+      crossed[ordinal] !== true && crossed[ordinal + 1] !== true
+    // Any other block holding no marker, such as a table or a code block
+    // whose projection is not its source, stays measured on its own, so
+    // the blocks beside it remain editable; one a literal crosses stays
+    // opaque, as a window parse could not reproduce it.
+    const measuredBlock = roots.length === 0 && !ordinaryParagraph && !plainRegion &&
+      markerDecisions.length === 0 && diagnostics.length === 0 && markdownRoots.length > 0 &&
+      crossed[ordinal] !== true && crossed[ordinal + 1] !== true
     // Stray markers and their diagnostics stay measured, so an edit beside
     // them can prove it leaves them as they were.
-    if (roots.length === 0 && !ordinaryParagraph && markerDecisions.length === 0 && diagnostics.length === 0) {
-      const plainRegion = markerDecisions.length === 0 &&
-        projectionKinds.every(kind => kind === 'canonical') &&
-        syntaxEnd - syntaxStart === sourceEnd - sourceStart &&
-        counts[ordinal] === 1 &&
-        crossed[ordinal] !== true && crossed[ordinal + 1] !== true
+    if (roots.length === 0 && !ordinaryParagraph && !measuredBlock && markerDecisions.length === 0 && diagnostics.length === 0) {
       const previous = leaves[leaves.length - 1]
       if (previous?.kind === 'gap' && plainGap !== undefined) {
         plainGap.points.push(previous.sourceLength)
@@ -1091,13 +1182,14 @@ export function createRegionalInventory(
       0
     ),
     logicalNodeLimit,
-    markerFree: false,
+    markerFree: !retained.hasCriticMarkupCandidate,
     strayMarkers: products.diagnostics.count !== 0,
     dependencyPrefixEnd,
     ...(() => {
       const definitions = dependencyPrefixEnd === 0 ? Object.freeze([]) : referenceDefinitionRanges(products)
       return definitions === undefined ? {} : { definitions }
     })(),
+    definitionLabels: { read: false },
     recorder,
     ...(plainRecorder === undefined ? {} : { plainRecorder })
   })
@@ -1497,7 +1589,9 @@ export function previewRegionalRange(
  * prove that its blocks read as in the whole document (`validated` false):
  * its safe points do not stand, its marker readings differ from the
  * document's, or reference definitions reach it. A caller then proves what it
- * reads there against the document some other way.
+ * reads there against the document some other way. `labelsOnly` marks a
+ * window whose one doubt is a label naming one of the document's
+ * definitions, which the window reads as plain text.
  */
 export function regionalRangeWindow(
   inventory: RegionalInventory,
@@ -1506,11 +1600,14 @@ export function regionalRangeWindow(
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptionsV1,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1
-): Readonly<{ sourceStart: number, nextProducts: Profile1DocumentProducts, nextWindow: string, validated: boolean }> | undefined {
+): Readonly<{ sourceStart: number, nextProducts: Profile1DocumentProducts, nextWindow: string, validated: boolean, labelsOnly: boolean }> | undefined {
   const value = inventoryValue(inventory)
   const length = source.length
   if (length !== value.root.sourceLength || length === 0 || range.end > length) return undefined
-  const referenced = value.dependencyPrefixEnd !== 0 && range.start <= value.dependencyPrefixEnd
+  const referenced = (first: number, last: number): boolean => {
+    const window = source.slice(first, last)
+    return !referencesStayLocal(value, source, first, last, window, window)
+  }
   let edited = windowEdge(value, range.start, 'start')
   let editedEnd = windowEdge(value, range.end, 'end')
   if (edited === undefined || editedEnd === undefined || editedEnd.ordinal < edited.ordinal ||
@@ -1532,8 +1629,17 @@ export function regionalRangeWindow(
       last.source === length
     )
     if (result.kind !== 'complete') return undefined
-    const read = (validated: boolean) =>
-      Object.freeze({ sourceStart: first.source, nextProducts: result, nextWindow: window, validated: validated && !referenced })
+    const read = (validated: boolean) => {
+      const labels = referenced(first.source, last.source)
+      validated &&= !frontMatterReach(markdownOptions, first.source, range.start, window)
+      return Object.freeze({
+        sourceStart: first.source,
+        nextProducts: result,
+        nextWindow: window,
+        validated: validated && !labels,
+        labelsOnly: validated && labels
+      })
+    }
     const safePoints = result.retainedIntrinsic?.safePoints ?? []
     const startStands = edited.source === first.source || safePoints.includes(edited.source - first.source)
     const endStands = editedEnd.source === last.source || safePoints.includes(editedEnd.source - first.source)
@@ -1594,6 +1700,33 @@ export function strayMarkersStayLocal(
   const unfinished = nextUnfinished ||
     (unterminatedFormsBefore(value.root, first.ordinal) | unterminatedFormsFrom(value.root, last.ordinal + 1)) !== 0
   return escapingSeen || !unfinished || (documentRoots - replacedRoots + nextRoots > 0) === (documentRoots > 0)
+}
+
+/**
+ * The source ranges of the root annotations overlapping `start`..`end`, read
+ * from the inventory's leaves without materializing an annotation.
+ */
+export function regionalInventoryRootRanges(
+  inventory: RegionalInventory,
+  start: number,
+  end: number
+): readonly Readonly<{ start: number, end: number }>[] {
+  const value = inventoryValue(inventory)
+  const from = locateBySource(value, Math.min(start, Math.max(0, value.root.sourceLength - 1)))
+  const to = locateBySource(value, Math.min(Math.max(start, end - 1), Math.max(0, value.root.sourceLength - 1)))
+  if (from === undefined || to === undefined) return []
+  const ranges: Readonly<{ start: number, end: number }>[] = []
+  for (const located of leafRange(value.root, from.ordinal, to.ordinal)) {
+    if (located.leaf.kind !== 'region') continue
+    const { nodes, roots } = located.leaf.annotations
+    for (const ordinal of roots) {
+      const node = nodes[ordinal]
+      if (node === undefined) continue
+      const range = { start: located.sourceStart + node.start, end: located.sourceStart + node.end }
+      if (range.start < end && range.end > start) ranges.push(Object.freeze(range))
+    }
+  }
+  return Object.freeze(ranges)
 }
 
 /** How many root annotations the document holds. */
@@ -1670,7 +1803,7 @@ function evaluateSameShape(
   }
   if (
     inventory.dependencyPrefixEnd !== 0 &&
-    edit.start <= inventory.dependencyPrefixEnd
+    definitionLabelsOf(inventory, previousSource) === undefined
   ) {
     return Object.freeze({
       kind: 'fallback',
@@ -1701,7 +1834,8 @@ function evaluateSameShape(
   }
   const localStart = edit.start - start.sourceStart
   const localEnd = edit.end - start.sourceStart
-  if (editChangesBacktickPairing(previousSource, edit) || editTouchesMarker(start.leaf, localStart, localEnd)) {
+  const pairingChanged = editChangesLiteralPairing(previousSource, edit)
+  if ((pairingChanged && !inventory.markerFree) || editTouchesMarker(start.leaf, localStart, localEnd)) {
     return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
   }
   const delta = nextSource.length - previousSource.length
@@ -1713,6 +1847,7 @@ function evaluateSameShape(
   // An empty paragraph reads a whitespace-only line differently when no
   // block follows it in the parsed text, as none does in a lone region.
   if (
+    frontMatterReach(markdownOptions, start.sourceStart, edit.start, previousWindow, nextWindow) ||
     EMPTY_PARAGRAPH.test(nextWindow) ||
     EMPTY_PARAGRAPH.test(previousWindow) ||
     inventory.strayMarkers && !strayMarkersUnchanged(previousWindow, nextWindow)
@@ -1738,12 +1873,13 @@ function evaluateSameShape(
       )
     })
   }
-  if ((result.retainedIntrinsic?.safePoints.length ?? 0) !== 0) {
+  if ((result.retainedIntrinsic?.safePoints.length ?? 0) !== 0 || !viewBlocksAgree(result)) {
     return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
   }
   if (
     referenceDependencyPrefixEnd(result) !== 0 ||
-    containsPotentialReferenceDependency(nextWindow)
+    !referencesStayLocal(inventory, previousSource, start.sourceStart, start.sourceStart + start.leaf.sourceLength,
+      previousWindow, nextWindow)
   ) {
     return Object.freeze({
       kind: 'fallback',
@@ -1793,10 +1929,9 @@ function evaluateSameShape(
     accountingUpperBound:
       inventory.accountingUpperBound + candidateAccountingUnits,
     logicalNodeLimit: inventory.logicalNodeLimit,
-    markerFree: inventory.markerFree,
+    markerFree: inventory.markerFree && !pairingChanged && !(result.retainedIntrinsic?.hasCriticMarkupCandidate ?? true),
     strayMarkers: inventory.strayMarkers,
-    dependencyPrefixEnd: inventory.dependencyPrefixEnd,
-    ...(inventory.definitions === undefined ? {} : { definitions: inventory.definitions }),
+    ...shiftedReferenceFacts(inventory, edit, delta),
     recorder: inventory.recorder,
     ...(inventory.plainRecorder === undefined ? {} : { plainRecorder: inventory.plainRecorder })
   })
@@ -1999,7 +2134,8 @@ function blockWindowFacts(
   products: Profile1DocumentProducts,
   window: string,
   recorder: RegionalInventoryRecorder,
-  strayMarkers: boolean
+  strayMarkers: boolean,
+  labelsUnresolvable: boolean
 ): BlockWindowFacts | undefined {
   const retained = products.retainedIntrinsic
   if (
@@ -2007,7 +2143,7 @@ function blockWindowFacts(
     // Diagnostics are compared with the replaced leaves' own by the caller.
     !strayMarkers && products.diagnostics.count !== 0 ||
     referenceDependencyPrefixEnd(products) !== 0 ||
-    containsPotentialReferenceDependency(window)
+    (!labelsUnresolvable && containsPotentialReferenceDependency(window))
   ) {
     return undefined
   }
@@ -2045,14 +2181,59 @@ function leafRange(
 }
 
 /**
- * The intrinsic pass pairs a backtick run with a later equal run beyond its
- * paragraph, so adding, removing, joining or splitting a run (or a
+ * The intrinsic pass pairs a backtick or dollar run with a later equal run
+ * beyond its paragraph, so adding, removing, joining or splitting a run (or a
  * backslash escaping one) can change CriticMarkup recognition in blocks no
- * window contains.
+ * window contains. A document spelling no marker has nothing to recognize,
+ * so such an edit stays regional there but no longer proves later markers.
  */
-function editChangesBacktickPairing(source: CanonicalSourceView, edit: RetainedPassSourceEdit): boolean {
-  return /[`\\]/u.test(edit.insert) ||
-    /[`\\]/u.test(source.slice(Math.max(0, edit.start - 1), Math.min(source.length, edit.end + 1)))
+function editChangesLiteralPairing(source: CanonicalSourceView, edit: RetainedPassSourceEdit): boolean {
+  return /[`$\\]/u.test(edit.insert) ||
+    /[`$\\]/u.test(source.slice(Math.max(0, edit.start - 1), Math.min(source.length, edit.end + 1)))
+}
+
+/**
+ * Whether the Markup view's blocks, read from the escaped text that elides
+ * unfinished openers, are the blocks of the editing parse the inventory
+ * measures. Where escaping changes them, their reading depends on markers
+ * anywhere in the document, which a window cannot see.
+ */
+function viewBlocksAgree(products: Profile1DocumentProducts): boolean {
+  const editing = products.editing()
+  const semantic = editing.semanticMarkdown
+  if (semantic === undefined) return true
+  const toProjected = editing.semanticToProjected ?? ((offset: number): number => offset)
+  const measured = editing.markdown.root
+  const viewed = semantic.root
+  if (measured.childCount !== viewed.childCount) return false
+  for (let ordinal = 0; ordinal < measured.childCount; ordinal += 1) {
+    const block = measured.childAt(ordinal)
+    const view = viewed.childAt(ordinal)
+    if (block.kind !== view.kind || block.range.start !== toProjected(view.range.start, 'previous') ||
+        block.range.end !== toProjected(view.range.end, 'previous')) return false
+  }
+  return true
+}
+
+/**
+ * Whether an edit at `editStart` in a window starting the document may change
+ * its front matter, which runs from the first line to its closing line
+ * wherever that is, so no window can bound it: the window opens front
+ * matter that it does not close before the edit.
+ */
+function frontMatterReach(markdownOptions: MarkdownOptionsV1, start: number, editStart: number, ...windows: string[]): boolean {
+  if (start !== 0 || !markdownOptions.frontMatter) return false
+  return windows.some(window => {
+    const opener = /^(---|\+\+\+)[ \t]*(?:\r\n|\r|\n|$)/u.exec(window)
+    if (opener === null) return false
+    const fence = opener[1] === '---' ? /^(?:---|\.\.\.)[ \t]*$/u : /^\+\+\+[ \t]*$/u
+    let offset = opener[0].length
+    for (const line of window.slice(offset).split(/(?<=\r\n|\r(?!\n)|\n)/u)) {
+      offset += line.length
+      if (fence.test(line.replace(/(?:\r\n|\r|\n)$/u, ''))) return editStart <= offset
+    }
+    return true
+  })
 }
 
 /** Positions where a CriticMarkup marker is spelled, overlapping spellings each counted. */
@@ -2109,11 +2290,12 @@ function evaluateBlockWindow(
   if (
     length !== inventory.root.sourceLength ||
     length === 0 ||
-    (inventory.dependencyPrefixEnd !== 0 && edit.start <= inventory.dependencyPrefixEnd)
+    (inventory.dependencyPrefixEnd !== 0 && definitionLabelsOf(inventory, previousSource) === undefined)
   ) {
     return undefined
   }
-  if (editChangesBacktickPairing(previousSource, edit)) return undefined
+  const pairingChanged = editChangesLiteralPairing(previousSource, edit)
+  if (pairingChanged && !inventory.markerFree) return undefined
   // Markers pair as one nested stack across the document, and backtick and
   // dollar runs pair beyond their paragraphs. A window proves changed markers
   // only where nothing outside it can reach them: in a document spelling no
@@ -2162,15 +2344,16 @@ function evaluateBlockWindow(
       rootCountIn(inventory.root) > 0
     )
     // The document parse reports a window's resource failure authoritatively.
-    if (result.kind !== 'complete') return undefined
+    if (result.kind !== 'complete' || !viewBlocksAgree(result)) return undefined
     const previousWindow = previousSource.slice(first.source, last.source)
+    if (frontMatterReach(markdownOptions, first.source, edit.start, previousWindow, nextWindow)) return undefined
     if (inventory.strayMarkers && (markersProvable
       ? previousWindow.includes('|') || nextWindow.includes('|') || overlappingSpellings(nextWindow) ||
         (unterminatedFormsBefore(inventory.root, first.ordinal) & addedCloserForms(previousWindow, nextWindow)) !== 0
       : !strayMarkersUnchanged(previousWindow, nextWindow))) return undefined
     // Splitting or joining paragraphs moves the bound that stops a backtick
     // run pairing with a later one.
-    if (/[\r\n]/u.test(edit.insert + previousSource.slice(edit.start, edit.end)) &&
+    if (!inventory.markerFree && /[\r\n]/u.test(edit.insert + previousSource.slice(edit.start, edit.end)) &&
         (nextWindow.includes('`') || previousWindow.includes('`'))) return undefined
     const safePoints = result.retainedIntrinsic?.safePoints ?? []
     const startStands = edited.source === first.source || safePoints.includes(edited.source - first.source)
@@ -2195,9 +2378,10 @@ function evaluateBlockWindow(
       rootCountIn(inventory.root) > 0
     )
     if (previousResult.kind !== 'complete') return undefined
+    if (!referencesStayLocal(inventory, previousSource, first.source, last.source, previousWindow, nextWindow)) return undefined
     return admitBlockWindow(
       inventory, edit, delta, edited, editedEnd, first, last,
-      result, nextWindow, atDocumentEnd, previewOnly, markersProvable, previousResult
+      result, nextWindow, previewOnly, markersProvable, previousResult, pairingChanged
     )
   }
 }
@@ -2244,12 +2428,13 @@ function admitBlockWindow(
   last: WindowEdge,
   result: Profile1DocumentProducts,
   nextWindow: string,
-  atDocumentEnd: boolean,
   previewOnly: boolean,
   markersProvable: boolean,
-  previousResult: Profile1DocumentProducts
+  previousResult: Profile1DocumentProducts,
+  pairingChanged: boolean
 ): RegionalInventoryApplyResult | RegionalInventoryPreviewResult | undefined {
-  const facts = blockWindowFacts(result, nextWindow, inventory.recorder, inventory.strayMarkers)
+  // Labels read alike in the window and in place (checked by the caller).
+  const facts = blockWindowFacts(result, nextWindow, inventory.recorder, inventory.strayMarkers, true)
   if (facts === undefined) return undefined
   if (markersProvable && !inventory.markerFree && !inventory.strayMarkers &&
       markerSpellings(nextWindow) !== (result.retainedIntrinsic?.markerDecisions.length ?? 0)) return undefined
@@ -2316,16 +2501,18 @@ function admitBlockWindow(
       (result.retainedIntrinsic?.diagnostics ?? []).some(diagnostic => diagnostic.code === 'CM_UNTERMINATED_OPENER')
     if (unfinished && (documentRoots - replacedRoots + editedRoots > 0) !== (documentRoots > 0)) return undefined
   }
-  // Views replace paragraphs in place; any other block kind takes the full path.
+  // Views replace the edited blocks in place, whatever their kind; with
+  // stray markers, only paragraphs, whose unfinished openers the window reads
+  // as the document does.
   const editedBlocks = result.editing().markdown.root
-  let paragraphs = 0
+  let replacedBlocks = 0
   for (let ordinal = 0; ordinal < editedBlocks.childCount; ordinal += 1) {
     const block = editedBlocks.childAt(ordinal)
     if (block.range.start < (syntaxBoundaries[from] ?? 0) || block.range.start >= (syntaxBoundaries[to] ?? 0)) continue
-    if (block.kind !== 'paragraph') return undefined
-    paragraphs += 1
+    if (inventory.strayMarkers && block.kind !== 'paragraph') return undefined
+    replacedBlocks += 1
   }
-  if (paragraphs === 0) return undefined
+  if (replacedBlocks === 0) return undefined
   if (previewOnly) {
     let touchesAnnotation = false
     let previousMarkers = 0
@@ -2439,10 +2626,10 @@ function admitBlockWindow(
       root: nextRoot,
       accountingUpperBound: inventory.accountingUpperBound + candidateAccountingUnits,
       logicalNodeLimit: inventory.logicalNodeLimit,
-      markerFree: inventory.markerFree && (result.retainedIntrinsic?.markerDecisions.length ?? 0) === 0,
+      markerFree: inventory.markerFree && !pairingChanged && !(result.retainedIntrinsic?.hasCriticMarkupCandidate ?? true) &&
+        (result.retainedIntrinsic?.markerDecisions.length ?? 0) === 0,
       strayMarkers: inventory.strayMarkers,
-      dependencyPrefixEnd: inventory.dependencyPrefixEnd,
-      ...(inventory.definitions === undefined ? {} : { definitions: inventory.definitions }),
+      ...shiftedReferenceFacts(inventory, edit, delta),
       recorder: inventory.recorder,
       ...(plainRecorder === undefined ? {} : { plainRecorder })
     }),
@@ -2498,6 +2685,7 @@ export function createPlainRegionalInventory(
     markerFree: true,
     strayMarkers: false,
     dependencyPrefixEnd: index.dependencyPrefixEnd,
+    definitionLabels: { read: false },
     recorder,
     plainRecorder
   })

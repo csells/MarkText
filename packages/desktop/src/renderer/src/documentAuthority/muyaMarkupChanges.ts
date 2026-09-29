@@ -17,6 +17,8 @@ import {
   createMuyaMarkupRootRun,
   createRunMuyaMarkupView,
   muyaMarkupRootsFor,
+  placedMuyaMarkupBinding,
+  placedMuyaMarkupDecoration,
   type MuyaMarkupRootRun,
   type MuyaMarkupRoots
 } from './muyaMarkupViewRoots'
@@ -42,6 +44,18 @@ export const markupRegionCoordinates = (replacement: MarkupRegionReplacement): P
       } else high = middle
     }
     const next = runs[low]
+    // Hidden delimiters before the first run are source the region starts
+    // with: a position there reached from before maps to the region's start.
+    if (
+      low === 0 &&
+      from === 'projected' &&
+      affinity === 'previous' &&
+      next !== undefined &&
+      offset === next.projected.start &&
+      next.source.start > replacement.next.source.start
+    ) {
+      return replacement.next.source.start
+    }
     if (next !== undefined && next[from].start <= offset) {
       return next[to].start + offset - next[from].start
     }
@@ -196,9 +210,29 @@ function lastBinding(roots: MuyaMarkupRoots): MuyaMarkupBinding | undefined {
 }
 
 /**
- * Consume portable Core regions replacing top-level paragraphs. Untouched block shapes
- * retain their native state and mapped leaves. Changed structural blocks,
- * missing comment inventory, or ambiguous ranges request the full-view fallback.
+ * The canonical source of a region whose text events are its whole source, at
+ * its document offsets, for the blocks whose view keeps their source text (a
+ * table, list or quote). A region with suggestions spells delimiters its
+ * events leave out, so it has none.
+ */
+const regionSource = (replacement: MarkupRegionReplacement): string | undefined => {
+  if (replacement.annotations.length > 0) return undefined
+  let text = ''
+  let cursor = replacement.next.source.start
+  for (const event of replacement.events) {
+    if (event.kind !== 'text' || event.sourceRange.start !== cursor) return undefined
+    text += event.text
+    cursor = event.sourceRange.end
+  }
+  return cursor === replacement.next.source.end
+    ? ' '.repeat(replacement.next.source.start) + text
+    : undefined
+}
+
+/**
+ * Consume portable Core regions replacing top-level blocks. Untouched block shapes
+ * retain their native state and mapped leaves. Missing comment inventory, a
+ * replaced block without text, or ambiguous ranges request the full-view fallback.
  * Retained state objects are reused; only changed regions visit the view builder.
  * Retained roots keep their items unmoved until read (see `muyaMarkupViewRoots`),
  * so apart from copying the root state list the work follows the regions.
@@ -259,28 +293,43 @@ export function applyMuyaMarkupChanges(
       return undefined
     }
     if (
-      replacement.syntaxBlocks.some((node) => node.kind !== 'paragraph') ||
       replacement.syntaxBlocks.length === 0 ||
       !validCoordinates(replacement.coordinates) ||
       !completeSourceCoverage(replacement)
     ) {
       return undefined
     }
+    const structural = replacement.syntaxBlocks.some((node) =>
+      ['table', 'list', 'blockquote'].includes(node.kind))
+    const canonicalSource = structural ? regionSource(replacement) : undefined
+    if (structural && canonicalSource === undefined) return undefined
     const firstBinding = firstBindingReaching(roots, replacement.previous.syntax.start)
     const start = firstBinding?.path[0]
     if (
       typeof start !== 'number' ||
-      firstBinding?.syntax.range.start !== replacement.previous.syntax.start
+      firstBinding === undefined ||
+      firstBinding.syntax.range.start < replacement.previous.syntax.start
     ) {
       return undefined
     }
     if (start < previousIndex || start < 0) return undefined
+    // The root before the region ends before it, so the region's first
+    // block is this root's, not a later part of that root's.
+    if (
+      start > 0 &&
+      roots.items(start - 1).bindings.some(
+        (binding) => binding.syntax.range.end > replacement.previous.syntax.start
+      )
+    ) {
+      return undefined
+    }
     let end = start
     while (end < previous.state.length) {
       const group = roots.items(end).bindings
       const binding = group[0]
+      // A root without text cannot be placed against the region's blocks.
+      if (binding === undefined) return undefined
       if (
-        binding === undefined ||
         !(
           binding.syntax.range.start < replacement.previous.syntax.end ||
           (binding.text.length === 0 &&
@@ -290,21 +339,28 @@ export function applyMuyaMarkupChanges(
         break
       }
       if (
-        group.length !== 1 ||
-        previous.state[end].name !== 'paragraph' ||
-        binding.syntax.kind !== 'paragraph' ||
-        binding.path.length !== 2 ||
-        binding.path[1] !== 'text' ||
-        binding.syntax.range.start < replacement.previous.syntax.start ||
-        binding.syntax.range.end > replacement.previous.syntax.end ||
-        binding.sourceRange.start < replacement.previous.source.start ||
-        binding.sourceRange.end > replacement.previous.source.end
+        group.some(
+          (item) =>
+            item.syntax.range.start < replacement.previous.syntax.start ||
+            item.syntax.range.end > replacement.previous.syntax.end ||
+            item.sourceRange.start < replacement.previous.source.start ||
+            item.sourceRange.end > replacement.previous.source.end
+        )
       ) {
         return undefined
       }
       end += 1
     }
     if (end === start) return undefined
+    // Blocks other than paragraphs read the suggestions around them from
+    // their containers and neighbours; the region's view does so only for
+    // text without suggestions.
+    if (replacement.syntaxBlocks.some((node) => node.kind !== 'paragraph')) {
+      if (replacement.annotations.length > 0) return undefined
+      for (let root = start; root < end; root += 1) {
+        if (roots.items(root).decorations.length > 0) return undefined
+      }
+    }
     const from = offset(replacement.previous.syntax.start)
     const to = offset(replacement.previous.syntax.end)
     if (from === undefined || to === undefined || from < markdownIndex) return undefined
@@ -354,9 +410,20 @@ export function applyMuyaMarkupChanges(
         },
         coordinates: markupRegionCoordinates(replacement)
       }
-    }, replacement.annotations)
+    }, replacement.annotations, canonicalSource, undefined, replacement.precedingEvents, replacement.following)
     const localLength =
-      end === previous.state.length ? local.bindings.length : replacement.syntaxBlocks.length
+      end === previous.state.length ? local.state.length : replacement.syntaxBlocks.length
+    if (local.state.length < localLength) return undefined
+    // A suggestion ending past its last text is shown on the next block's
+    // start, which the whole view reaches and the region's view does not.
+    if (
+      end < previous.state.length &&
+      local.decorations.some(
+        (decoration) => decoration.exteriorEnd !== undefined && Number(decoration.path[0]) === localLength - 1
+      )
+    ) {
+      return undefined
+    }
     const base = state.length
     state.push(...local.state.slice(0, localLength))
     const expectedEnd = lastBinding(roots)?.documentEnd
@@ -368,46 +435,41 @@ export function applyMuyaMarkupChanges(
     ) {
       return undefined
     }
-    // The line before the region is unchanged. A region cannot see it, so its
+    // The line before the region is unchanged. Without its text, the region's
     // first paragraph keeps the leading line its predecessor had there.
-    const outsideLeading = roots.items(start).bindings[0]?.leadingLinePosition
+    const outsideLeading =
+      replacement.precedingEvents === undefined &&
+      previous.state[start]?.name === 'paragraph' &&
+      local.state[0]?.name === 'paragraph'
+        ? roots.items(start).bindings[0]?.leadingLinePosition
+        : undefined
     const region = createMuyaMarkupRootRun(
       {
-        bindings: local.bindings.slice(0, localLength).map((binding, index) => {
-          const { documentEnd, trailingLinePosition, ...rest } = binding
-          const atDocumentEnd = end === previous.state.length
-          return {
-            ...rest,
-            ...(index === 0 &&
-            binding.leadingLinePosition === undefined &&
-            binding.text !== '' &&
-            outsideLeading !== undefined &&
-            outsideLeading < replacement.next.source.start
-              ? { leadingLinePosition: outsideLeading }
-              : {}),
-            ...(atDocumentEnd && documentEnd !== undefined ? { documentEnd } : {}),
-            ...(binding.markerLine === undefined
-              ? {}
-              : {
-                markerLine: {
-                  ...binding.markerLine,
-                  statePath: [
-                    Number(binding.markerLine.statePath[0]) + base,
-                    ...binding.markerLine.statePath.slice(1)
-                  ]
-                }
-              }),
-            // The region's end is a line only the document end can leave empty.
-            ...(trailingLinePosition === undefined ||
-            (!atDocumentEnd && trailingLinePosition === replacement.next.source.end)
-              ? {}
-              : { trailingLinePosition }),
-            path: [Number(binding.path[0]) + base, 'text']
-          }
-        }),
+        bindings: local.bindings
+          .filter((binding) => Number(binding.path[0]) < localLength)
+          .map((binding, index) => {
+            const { documentEnd, trailingLinePosition, ...rest } = placedMuyaMarkupBinding(binding, base)
+            const atDocumentEnd = end === previous.state.length
+            return {
+              ...rest,
+              ...(index === 0 &&
+              binding.leadingLinePosition === undefined &&
+              binding.text !== '' &&
+              outsideLeading !== undefined &&
+              outsideLeading < replacement.next.source.start
+                ? { leadingLinePosition: outsideLeading }
+                : {}),
+              ...(atDocumentEnd && documentEnd !== undefined ? { documentEnd } : {}),
+              // The region's end is a line only the document end can leave empty.
+              ...(trailingLinePosition === undefined ||
+              (!atDocumentEnd && trailingLinePosition === replacement.next.source.end)
+                ? {}
+                : { trailingLinePosition })
+            }
+          }),
         decorations: local.decorations
           .filter((decoration) => Number(decoration.path[0]) < localLength)
-          .map((decoration) => ({ ...decoration, path: [Number(decoration.path[0]) + base, 'text'] })),
+          .map((decoration) => placedMuyaMarkupDecoration(decoration, base)),
         comments: []
       },
       base,

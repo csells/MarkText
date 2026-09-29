@@ -239,17 +239,13 @@ describe('Applying Core Markup regions to an existing Muya view', () => {
     expect(mixedActual?.bindings.at(-1)?.path).toEqual([3, 'children', 1, 'children', 0, 'text'])
   })
 
-  it('requests the full-view fallback for unsupported structure and missing comment inventory', () => {
+  it('requests the full-view fallback for missing comment inventory and ambiguous ranges', () => {
     const { previous, change } = fixture('head\n\nsecond\n\ntail', {
       start: 6,
       end: 7,
       insert: 'S'
     })
     const core = createDocumentCore()
-    const nested = core.open('> head\n\nsecond\n\ntail')
-    expect(
-      applyMuyaMarkupChanges(createMuyaMarkupView(core.project(nested, 'markup')), change)
-    ).toBeUndefined()
     const withComment = core.open('head{>>note<<}\n\nsecond\n\ntail')
     expect(
       applyMuyaMarkupChanges(

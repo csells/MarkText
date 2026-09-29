@@ -678,6 +678,16 @@ export function createMuyaMarkupRootRun(
 
 export type { RootRun as MuyaMarkupRootRun }
 
+/** `binding` of a view made for other roots, placed `pathDelta` roots later. */
+export const placedMuyaMarkupBinding = (binding: MuyaMarkupBinding, pathDelta: number): MuyaMarkupBinding =>
+  movedBinding(binding, pathDelta, 0, 0)
+
+/** `decoration` of a view made for other roots, placed `pathDelta` roots later. */
+export const placedMuyaMarkupDecoration = (
+  decoration: MuyaMarkupDecoration,
+  pathDelta: number
+): MuyaMarkupDecoration => movedDecoration(decoration, pathDelta, 0)
+
 /**
  * A view whose roots are `runs`, which cover roots `[0, state.length)` in
  * order. Its item lists are made when first read.
