@@ -207,7 +207,7 @@
 
           <details
             v-if="picgoDetectionFailed && picgoDebugInfo"
-            class="debug-info"
+            class="debug-info app-disclosure"
           >
             <summary>{{ t('preferences.image.uploader.debugInfo') }}</summary>
             <pre>{{ picgoDebugInfo || 'No debug info available' }}</pre>

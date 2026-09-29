@@ -424,3 +424,13 @@ button.button-primary:not(.custom):focus,
 .el-tabs__active-bar {
   background-color: var(--themeColor);
 }
+
+/* Chromium hides a closed <details> body with `content-visibility: hidden`.
+   While any element in the window is locked that way, every caret update in
+   the editor costs about twice as much (4–5 ms per key in a 2,000-paragraph
+   document). The app's own disclosures carry this class to hide a closed body
+   without the lock; details in the user's document keep the default. */
+.app-disclosure:not([open])::details-content {
+  content-visibility: visible;
+  display: none;
+}
