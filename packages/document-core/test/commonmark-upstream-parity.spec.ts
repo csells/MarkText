@@ -125,6 +125,12 @@ describe('CommonMark and upstream agree', () => {
     ['* -\n\n  |\n  4.\n', '<ul><li><ul><li></li></ul><p>| 4.</p></li></ul>'],
     ['- - a\n\n  |\n  2) x\n', '<ul><li><ul><li>a</li></ul><p>| 2) x</p></li></ul>'],
     ['1. - a\n\n   b\n   2) c\n', '<ol><li><ul><li>a</li></ul><p>b 2) c</p></li></ol>'],
+    // A complete HTML tag on a lazy line interrupts the quoted paragraph and
+    // opens an HTML block inside the quote.
+    ['> a\n<n>\n', '<blockquote><p>a</p><n></blockquote>'],
+    ['>|\n<l>\n* ;\n', '<blockquote><p>|</p><l></blockquote><ul><li>;</li></ul>'],
+    ['> `a\n<n>\n> b`\n', '<blockquote><p>`a</p><n>\nb`</blockquote>'],
+    ['> > a\n<n>\n', '<blockquote><blockquote><p>a</p><n></blockquote></blockquote>'],
     // A blank line ends a block quote, so one reopened after it with code or
     // HTML is a second quote.
     ['>\n\n>     x\n', '<blockquote></blockquote><blockquote><pre><code>x\n</code></pre></blockquote>'],
@@ -226,6 +232,11 @@ describe('where CommonMark and upstream differ (Profile 1)', () => {
     ['- a\n  4.\n=\n', '<ul><li>a 4. =</li></ul>'],
     // Upstream: a renumbered item stays a lazy line of the quote.
     ['> q\n2) d\n', '<blockquote><p>q 2) d</p></blockquote>'],
+    // Upstream: the same line ends a list item, and everything inside it.
+    // micromark keeps it in the item.
+    ['- a\n<n>\n', '<ul><li>a</li></ul><n>'],
+    ['> - a\n<n>\n', '<blockquote><ul><li>a</li></ul><n></blockquote>'],
+    ['- > a\n<n>\n', '<ul><li><blockquote><p>a</p></blockquote></li></ul><n>'],
     // Upstream: a complete reference definition stands alone, so an indented
     // line after it is code and a `-` opens a list. CommonMark reads both as
     // text of the paragraph the definition began.
@@ -291,6 +302,8 @@ describe('typing these lines reads as a fresh open', () => {
     ['[f]:\n\n', 5, '1.'],
     ['> y\n\n', 4, '* 0.'],
     ['a\n\n', 2, '- -'],
+    ['> a\n\n', 4, '<n>'],
+    ['- a\n\n', 4, '<n>'],
     ['2) .\n   3.\n\n', 11, '   ='],
     ['* -\n\n  |\n\n', 9, '  4.'],
     ['- a\n  > q\n\n', 10, '  > 2) d'],
