@@ -151,6 +151,12 @@ describe('CommonMark and upstream agree', () => {
     ['| a | b |\n|---|---|\n***\n', '<table><thead><tr><th>a</th><th>b</th></tr></thead></table><hr />'],
     // A task marker begins a paragraph; an underlined one is heading text.
     ['- [ ] t\n  =\n', '<ul><li><h1>[ ] t</h1></li></ul>'],
+    // An ordered item's `[ ]` with nothing after it is the item's text.
+    ['3) [ ] \n', '<ol start="3"><li>[ ]</li></ol>'],
+    ['1. a\n2. [ ] \n', '<ol><li>a</li><li>[ ]</li></ol>'],
+    ['1. [ ] \n   x\n', '<ol><li>[ ]\nx</li></ol>'],
+    // With text after it the marker is a task's, as GFM reads it.
+    ['1. [ ] x\n', '<ol><li><input disabled="" type="checkbox"> x</li></ol>'],
     ['x|y\n-|-\n> 3)\n', '<table><thead><tr><th>x</th><th>y</th></tr></thead></table><blockquote><ol start="3"><li></li></ol></blockquote>'],
     // A row without a pipe is one cell; so is a delimiter row with a colon.
     ['a\n-|\nb\n', '<table><thead><tr><th>a</th></tr></thead><tbody><tr><td>b</td></tr></tbody></table>'],
@@ -239,6 +245,9 @@ describe('typing these lines reads as a fresh open', () => {
     ['    x\n\n', 6, '>'],
     ['<div>\n\n', 6, '- '],
     ['- [ ] t\n\n', 8, '  ='],
+    ['1. a\n\n', 5, '2. [ ] '],
+    ['3) [ ] \n', 7, 'x'],
+    ['- [ ] x\n1. y\n', 11, '[ ] '],
     ['Foo\n\n|---|---|\n', 4, '| a | b |'],
     ['a {++b++}\n\n', 10, '-'],
     ['{++a++}\n-\n\n{--b--}\n', 8, 'x'],
