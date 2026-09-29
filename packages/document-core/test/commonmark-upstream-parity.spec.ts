@@ -146,6 +146,8 @@ describe('CommonMark and upstream agree', () => {
     ['- a `b\n  c` [d\n  e](/f)\n', '<ul><li>a <code>b c</code> <a href="/f">d\ne</a></li></ul>'],
     ['- [a\n  b]\n\n[a b]: /u\n', '<ul><li><a href="/u">a\nb</a></li></ul>'],
     ['- <span\n  a="b">\n', '<ul><li><span\na="b"></li></ul>'],
+    ['> [a\n> b]\n>\n> [a b]: /u\n', '<blockquote><p><a href="/u">a\nb</a></p></blockquote>'],
+    ['> [x][a\n> b]\n>\n> [a b]: /u\n', '<blockquote><p><a href="/u">x</a></p></blockquote>'],
     // After a lazy line, a list item still ends the paragraph a code span
     // opened in, so its backtick closes nothing there.
     ['1. `\na\n3. `c`\n', '<ol><li>` a</li><li><code>c</code></li></ol>'],

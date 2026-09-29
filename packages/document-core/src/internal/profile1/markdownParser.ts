@@ -693,8 +693,25 @@ function findReferenceLink(
   floor: number,
   constructs: ReadonlyMap<number, MappedMarkdownLiteral>,
   referenceDefinitions: MarkdownReferenceDefinitionLookup,
-  boundaryPolicy?: InlineBoundaryPolicy
+  boundaryPolicy?: InlineBoundaryPolicy,
+  // Container prefixes inside [start, end), which are no part of a label.
+  gaps: readonly InlineSegment[] = []
 ): ParsedReferenceLink | undefined {
+  const labelText = (from: number, to: number): string => {
+    let text = ''
+    let cursor = from
+    for (const gap of gaps) {
+      if (gap.end <= cursor || gap.start >= to) continue
+      text += source.slice(cursor, Math.max(cursor, gap.start))
+      cursor = Math.max(cursor, gap.end)
+    }
+    return text + source.slice(cursor, to)
+  }
+  const normalizedLabelOf = (from: number, to: number): string => {
+    if (gaps.length === 0) return normalizeMarkdownReferenceLabel(source, from, to)
+    const text = labelText(from, to)
+    return normalizeMarkdownReferenceLabel(text, 0, text.length)
+  }
   const image =
     source.charCodeAt(start) === 33 && source.charCodeAt(start + 1) === 91
   const opener = image ? start + 1 : start
@@ -758,20 +775,17 @@ function findReferenceLink(
         opener + 1,
         constructs,
         referenceDefinitions,
-        boundaryPolicy
+        boundaryPolicy,
+        gaps
       ) !== undefined
     ) {
       return undefined
     }
   }
-  const normalizedLabel = normalizeMarkdownReferenceLabel(
-    source,
-    opener + 1,
-    labelEnd
-  )
+  const normalizedLabel = normalizedLabelOf(opener + 1, labelEnd)
   let constructEnd = labelEnd + 1
   let referenceLabel = normalizedLabel
-  let rawReferenceLabel = source.slice(opener + 1, labelEnd)
+  let rawReferenceLabel = labelText(opener + 1, labelEnd)
   let referenceKind: ParsedReferenceLink['referenceKind'] = 'shortcut'
   if (source.charCodeAt(constructEnd) === 91) {
     const referenceStart = constructEnd
@@ -790,14 +804,10 @@ function findReferenceLink(
       return undefined
     }
     referenceKind = referenceEnd === constructEnd + 1 ? 'collapsed' : 'full'
-    if (referenceKind === 'full') rawReferenceLabel = source.slice(constructEnd + 1, referenceEnd)
+    if (referenceKind === 'full') rawReferenceLabel = labelText(constructEnd + 1, referenceEnd)
     referenceLabel = referenceEnd === constructEnd + 1
       ? normalizedLabel
-      : normalizeMarkdownReferenceLabel(
-        source,
-        constructEnd + 1,
-        referenceEnd
-      )
+      : normalizedLabelOf(constructEnd + 1, referenceEnd)
     constructEnd = referenceEnd + 1
   }
   if (!referenceDefinitions.has(referenceLabel, start)) {
@@ -1784,22 +1794,22 @@ function appendInlineRange(
     reachableThrough(nodeEnd) !== undefined
   const reachable = (nodeEnd: number): readonly InlineSegment[] =>
     reachableThrough(nodeEnd) ?? [Object.freeze({ start, end })]
-  // A reference link's brackets are matched in source, so its label may
-  // continue across a list item's indentation but not a `>` marker. A label
+  // A reference link's brackets are matched in source across the container
+  // prefixes of the lines it spans, which its labels leave out. A label
   // holds at most 999 characters, which bounds the lines worth searching.
+  const referenceGaps: InlineSegment[] = []
   const referenceReachFrom = (from: number): number => {
     let reach = end
+    referenceGaps.length = 0
     if (sequence === undefined) return reach
     for (let index = sequence.index + 1; index < sequence.segments.length; index += 1) {
       const segment = sequence.segments[index]
       const previousEnd = index === sequence.index + 1 ? end : sequence.segments[index - 1]?.end
-      if (
-        segment === undefined ||
-        previousEnd === undefined ||
-        reach - from > 2 * 1000 + 4 ||
-        !/^[\t ]*$/u.test(source.slice(previousEnd, segment.start))
-      ) {
+      if (segment === undefined || previousEnd === undefined || reach - from > 2 * 1000 + 4) {
         break
+      }
+      if (previousEnd < segment.start) {
+        referenceGaps.push(Object.freeze({ start: previousEnd, end: segment.start }))
       }
       reach = segment.end
     }
@@ -2031,7 +2041,8 @@ function appendInlineRange(
       start,
       constructs,
       referenceDefinitions,
-      boundaryPolicy
+      boundaryPolicy,
+      codeUnit === 91 || codeUnit === 33 ? referenceGaps : []
     )
     if (referenceLink !== undefined) {
       if (textStart < offset) {
