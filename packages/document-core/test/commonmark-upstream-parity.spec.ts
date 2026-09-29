@@ -69,7 +69,13 @@ describe('CommonMark and upstream agree', () => {
     // A setext heading closes its paragraph, so a following item may start.
     ['Foo\n=\n-\n', '<h1>Foo</h1><ul><li></li></ul>'],
     ['bar\n-\n-\n', '<h2>bar</h2><ul><li></li></ul>'],
-    ['bar\n=\n+\n', '<h1>bar</h1><ul><li></li></ul>']
+    ['bar\n=\n+\n', '<h1>bar</h1><ul><li></li></ul>'],
+    // An open fence owns its line, so a container marker there is code text
+    // and the fence spelled after it does not close the block.
+    ['```\n>```', '<pre><code>&gt;```\n</code></pre>'],
+    ['~~~\n> ~~~\ny\n', '<pre><code>&gt; ~~~\ny\n</code></pre>'],
+    ['~~~\n+ ~~~\n', '<pre><code>+ ~~~\n</code></pre>'],
+    ['0. ~~~\n   >~~~\n', '<ol start="0"><li><pre><code>&gt;~~~\n</code></pre></li></ol>']
   ])('%j', (source, expected) => {
     expect(html(source)).toBe(canonical(expected))
   })
@@ -130,7 +136,8 @@ describe('typing these lines reads as a fresh open', () => {
     ['- [ ] t\n\n', 8, '  ='],
     ['Foo\n\n|---|---|\n', 4, '| a | b |'],
     ['a {++b++}\n\n', 10, '-'],
-    ['{++a++}\n-\n\n{--b--}\n', 8, 'x']
+    ['{++a++}\n-\n\n{--b--}\n', 8, 'x'],
+    ['~~~\n\ny\n', 4, '> ~~~']
   ])('%j at %i types %j', (source, at, insert) => {
     const core = createDocumentCore()
     const previous = core.open(source)
