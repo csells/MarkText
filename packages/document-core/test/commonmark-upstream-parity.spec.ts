@@ -106,7 +106,13 @@ describe('CommonMark and upstream agree', () => {
     ['> a\n    ***\nb\n', '<blockquote><p>a *** b</p></blockquote>'],
     ['> a\n    # h\n', '<blockquote><p>a # h</p></blockquote>'],
     ['- a\n      ***\n', '<ul><li>a ***</li></ul>'],
-    ['- \\\n      ---\n', '<ul><li><br />\n---</li></ul>']
+    ['- \\\n      ---\n', '<ul><li><br />\n---</li></ul>'],
+    // A blank line ends a block quote, so one reopened after it with code or
+    // HTML is a second quote.
+    ['>\n\n>     x\n', '<blockquote></blockquote><blockquote><pre><code>x\n</code></pre></blockquote>'],
+    ['> a\n\n>     x\n', '<blockquote><p>a</p></blockquote><blockquote><pre><code>x\n</code></pre></blockquote>'],
+    ['>\n\n><e>\n', '<blockquote></blockquote><blockquote><e></blockquote>'],
+    ['>\n\n>```\n', '<blockquote></blockquote><blockquote><pre><code></code></pre></blockquote>']
   ])('%j', (source, expected) => {
     expect(html(source)).toBe(canonical(expected))
   })
@@ -181,7 +187,9 @@ describe('typing these lines reads as a fresh open', () => {
     ['[f]:\n\n', 5, '1.'],
     ['> y\n\n', 4, '* 0.'],
     ['- a\n  > q\n\n', 10, '  > 2) d'],
-    ['> a\n\n', 4, '    ---']
+    ['> a\n\n', 4, '    ---'],
+    ['>\n\n', 3, '>     x'],
+    ['>\n\n', 3, '><e>']
   ])('%j at %i types %j', (source, at, insert) => {
     const core = createDocumentCore()
     const previous = core.open(source)

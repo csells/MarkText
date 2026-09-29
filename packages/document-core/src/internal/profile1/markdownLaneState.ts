@@ -178,6 +178,13 @@ export interface MarkdownCheckpoint {
   /** End of an angle-delimited text region that cannot own a GFM autolink. */
   readonly extendedAutolinkSuppressedUntil?: number | undefined
   readonly activeContainers: readonly ActiveBlockContainer[]
+  /**
+   * The containers the pending line entered with, kept once a block opened
+   * earlier on that line has bound `activeContainers` to the line's own
+   * markers. The line's record is read against these, so a marker the line
+   * opened is not taken for one it continued.
+   */
+  readonly lineEntryContainers?: readonly ActiveBlockContainer[] | undefined
   readonly paragraphOpen: boolean
   readonly lastLineLazy: boolean
   readonly lineStart: number
@@ -3840,7 +3847,7 @@ export function createMarkdownLaneState(
       completedLines.push(buildPlainMarkdownLine(
         source,
         completedBounds,
-        checkpoint.activeContainers,
+        checkpoint.lineEntryContainers ?? checkpoint.activeContainers,
         checkpoint.paragraphOpen,
         markdownCheckpointContinuesLiteralContainer(
           source,
@@ -4207,6 +4214,7 @@ export function createMarkdownLaneState(
     ) {
       linePathsWithBlockProbe.add(linePath)
     }
+    const lineEntryContainers = checkpoint.lineEntryContainers ?? checkpoint.activeContainers
     return Object.freeze({
       checkpoint: Object.freeze({
         linePath,
@@ -4217,6 +4225,10 @@ export function createMarkdownLaneState(
         fixedInline,
         extendedAutolinkSuppressedUntil,
         activeContainers,
+        lineEntryContainers: linePath !== undefined && lastEol < 0 &&
+            lineEntryContainers !== activeContainers
+          ? lineEntryContainers
+          : undefined,
         paragraphOpen,
         lastLineLazy,
         lineStart,
@@ -4277,7 +4289,7 @@ export function createMarkdownLaneState(
             contentEnd: boundary,
             end: boundary
           }),
-          checkpoint.activeContainers,
+          checkpoint.lineEntryContainers ?? checkpoint.activeContainers,
           checkpoint.paragraphOpen,
           markdownCheckpointContinuesLiteralContainer(
             source,
@@ -4947,6 +4959,11 @@ export function markdownCheckpointContinuesLiteralContainer(
 ): boolean {
   if (checkpoint.frontMatter !== undefined) {
     return true
+  }
+  // The pending line itself opened the fence or HTML block, so its markers
+  // are the block's containers rather than content inside it.
+  if (checkpoint.lineEntryContainers !== undefined) {
+    return false
   }
   const literalContainer =
     checkpoint.fence?.container ?? checkpoint.htmlBlock?.container
