@@ -67,7 +67,10 @@ const seeds = Number(process.env.MARKTEXT_DENSE_KEY_SEEDS ?? 12)
 const first = Number(process.env.MARKTEXT_DENSE_KEY_FIRST ?? 1)
 
 describe('keys in a document dense with suggestions read as the document parse', () => {
-  it.each(Array.from({ length: seeds }, (_, index) => first + index))('seed %i', seed => {
+  // Seeds past the range once diverged: Enter beside a Deletion of a whole
+  // paragraph between two lists, which join in the Revised view.
+  const regressionSeeds = [140, 188, 189, 240, 324, 359]
+  it.each([...Array.from({ length: seeds }, (_, index) => first + index), ...regressionSeeds])('seed %i', seed => {
     const random = lcg(seed * 7727)
     let regionalKeys = 0
     for (let documentIndex = 0; documentIndex < 4; documentIndex += 1) {

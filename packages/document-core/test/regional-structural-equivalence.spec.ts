@@ -172,6 +172,25 @@ describe('structural regional edits read as a fresh open', () => {
     fuzz(seed, wideBlocks, wideInsertions)
   })
 
+  // Histories a longer fuzz found diverging: a `$$` line in the window pairing
+  // with one after it, and a line that only a comment's hidden text leaves
+  // blank read as an empty paragraph at another offset in a lone region.
+  it.each([
+    ['a dollar run pairing past the window',
+      '> quoted line\n\n1. one {~~a~>b~~}\n2. two\n\n$$\nx {++y++}\n$$\n\nMath $a$ and `x {++b++}` y.\n\nMulti\nline\nparagraph.\n\n- item one\n- item two\n\nPlain words here.\n\n```\ncode\n\nmore\n```\n\nMulti\nline\nparagraph.\n\n\n\n$$\nx {++y++}\n$$\n\nPlain words here.\n',
+      [[175, 175, '<!--'], [225, 225, '[^1]'], [40, 44, ''], [90, 93, 'Z']]],
+    ['a line left blank by a comment',
+      '    indented {++x++}\n\n$$\nx {++y++}\n$$\n\nAnother ordinary sentence with more words.\n\n \t \n\n\n\nMulti\nline\nparagraph.\n\n   \n\n{++Whole paragraph addition.++}\n\nPara *em* and `code` here.\n\nAnother ordinary sentence with more words.\n\n| a | b |\n| --- | --- |\n| {++c++} | d |\n\n\n\n> quoted line',
+      [[63, 63, '*'], [235, 239, ''], [206, 206, '\n   \n'], [110, 111, ''], [210, 210, 'x'], [113, 113, '{>>c<<}'], [89, 89, '\n'], [118, 118, '[^1]']]]
+  ] as const)('replays %s', (_name, initial, edits) => {
+    const core = createDocumentCore()
+    const revision = core.open(initial)
+    const session: Session = { core, revision, markup: core.project(revision, 'markup'), regional: 0 }
+    for (const [start, end, insert] of edits) {
+      step(session, start, end, insert, `${JSON.stringify(session.revision.source)} [${start}, ${end}) ${JSON.stringify(insert)}`)
+    }
+  })
+
   it('exercises regional splits, joins and new suggestions', () => {
     const paragraph = 'Plain words here.'
     const marked = [paragraph, 'A {++b++} c.', paragraph, 'D {--e--} f.', paragraph, paragraph, paragraph].join('\n\n') + '\n'

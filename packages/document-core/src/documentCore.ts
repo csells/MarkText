@@ -5430,6 +5430,17 @@ function createDocumentCoreWithExecutionBudget(
    * other suggestion, so accepting it is the untracked break and rejecting
    * it restores the previous text.
    */
+  /** Whether `range` spans a whole block: blank lines or the document's ends lie around it. */
+  const wholeBlock = (revision: DocumentRevision, range: SourceRange): boolean => {
+    const from = Math.max(0, range.start - 256)
+    const to = Math.min(revision.sourceLength, range.end + 256)
+    const before = core.sourceSlice(revision, { start: from, end: range.start })
+    const after = core.sourceSlice(revision, { start: range.end, end: to })
+    const opens = (from === 0 && /^\s*$/u.test(before)) || /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)[ \t]*$/u.test(before)
+    const closes = (to === revision.sourceLength && /^\s*$/u.test(after)) || /^[ \t]*(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/u.test(after)
+    return opens && closes
+  }
+
   const regionalTrackedBreak = (
     state: RevisionState,
     previous: DocumentRevision,
@@ -5450,6 +5461,10 @@ function createDocumentCoreWithExecutionBudget(
     // every suggestion.
     const besideDeletions = around.filter(annotation => annotation.kind === 'deletion' &&
       (annotation.range.end === edit.start || annotation.range.start === edit.start))
+    // A Deletion of a whole block removes that block from the Revised view,
+    // where the blocks on either side then meet, as two lists join into one
+    // around an added blank line; only the document planner reads them.
+    if (besideDeletions.some(deletion => wholeBlock(previous, deletion.range))) return undefined
     const rest = around.filter(annotation => !besideDeletions.includes(annotation))
     // So is one beside a Highlight or after a Comment, or inside a
     // Highlight's text, where it is nested.

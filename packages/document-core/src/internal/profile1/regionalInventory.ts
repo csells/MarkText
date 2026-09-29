@@ -1631,7 +1631,8 @@ export function regionalRangeWindow(
     if (result.kind !== 'complete') return undefined
     const read = (validated: boolean) => {
       const labels = referenced(first.source, last.source)
-      validated &&= !frontMatterReach(markdownOptions, first.source, range.start, window)
+      validated &&= !frontMatterReach(markdownOptions, first.source, range.start, window) &&
+        !unpairedLiteralRuns(result, window)
       return Object.freeze({
         sourceStart: first.source,
         nextProducts: result,
@@ -1776,6 +1777,7 @@ function evaluateRegionalInventory(
   ) ?? sameShape
 }
 
+const SPACES_LINE = /(?:^|\r\n|\r|\n)[ \t]+(?:\r\n|\r|\n|$)/u
 const EMPTY_PARAGRAPH = /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)|^[ \t]*(?:\r\n|\r|\n)|(?:^|\r\n|\r|\n)[ \t]+(?:\r\n|\r|\n|$)/u
 
 /** A window any larger than the one refused would exceed the budget too. */
@@ -1873,7 +1875,9 @@ function evaluateSameShape(
       )
     })
   }
-  if ((result.retainedIntrinsic?.safePoints.length ?? 0) !== 0 || !viewBlocksAgree(result)) {
+  // A line of spaces that only a comment's hidden text shared is such a line too.
+  if ((result.retainedIntrinsic?.safePoints.length ?? 0) !== 0 || !viewBlocksAgree(result) ||
+      SPACES_LINE.test(result.editing().source) || unpairedLiteralRuns(result, nextWindow)) {
     return Object.freeze({ kind: 'fallback', reason: 'fixed-region-ineligible' })
   }
   if (
@@ -2198,6 +2202,24 @@ function editChangesLiteralPairing(source: CanonicalSourceView, edit: RetainedPa
  * measures. Where escaping changes them, their reading depends on markers
  * anywhere in the document, which a window cannot see.
  */
+/**
+ * Whether the window spells a backtick or dollar run its parse pairs with no
+ * other. The intrinsic pass pairs such a run with a later equal one beyond
+ * its paragraph, even past block boundaries (a `$$` line opening display
+ * math until the next one), so in the document a run outside the window may
+ * pair with it and read the text between, and the block boundaries there,
+ * differently than the window does.
+ */
+function unpairedLiteralRuns(products: Profile1DocumentProducts, window: string): boolean {
+  const literals = products.retainedIntrinsic?.markdownLiterals ?? []
+  for (const run of window.matchAll(/`+|\$+/gu)) {
+    const start = run.index
+    const end = start + run[0].length
+    if (!literals.some(literal => literal.start <= start && end <= literal.end)) return true
+  }
+  return false
+}
+
 function viewBlocksAgree(products: Profile1DocumentProducts): boolean {
   const editing = products.editing()
   const semantic = editing.semanticMarkdown
@@ -2344,7 +2366,7 @@ function evaluateBlockWindow(
       rootCountIn(inventory.root) > 0
     )
     // The document parse reports a window's resource failure authoritatively.
-    if (result.kind !== 'complete' || !viewBlocksAgree(result)) return undefined
+    if (result.kind !== 'complete' || !viewBlocksAgree(result) || unpairedLiteralRuns(result, nextWindow)) return undefined
     const previousWindow = previousSource.slice(first.source, last.source)
     if (frontMatterReach(markdownOptions, first.source, edit.start, previousWindow, nextWindow)) return undefined
     if (inventory.strayMarkers && (markersProvable
