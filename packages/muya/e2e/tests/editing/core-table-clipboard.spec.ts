@@ -4,8 +4,8 @@ import { dragSelect, selectedCount } from '../helpers/tableSelection';
 
 const plainTable = '| a | b | c |\n| --- | --- | --- |\n| a | b | d |\n| e | f | g |\n';
 const annotatedTable = '| a | b | c |\n| --- | --- | --- |\n| {++a++} | b{>>note<<} | d |\n| e | f | g |\n';
-// Clearing cells writes the table afresh like upstream's, padded to its widest cell.
-const clearedTable = '|     |     | c   |\n| --- | --- | --- |\n|     |     | d   |\n| e   | f   | g   |\n';
+// Clearing cells removes only their text (ADR 0007).
+const clearedTable = '|  |  | c |\n| --- | --- | --- |\n|  |  | d |\n| e | f | g |\n';
 
 test('rectangle Delete clears the selected cells through Core and retains the native rectangle', async ({ page }) => {
     await page.evaluate(source => window.muya!.setContent(source), plainTable);
@@ -48,14 +48,15 @@ test('rectangle Delete clears the selected cells through Core and retains the na
     finally { await page.evaluate(() => window.coreBoundary.dispose()); }
 });
 
+// Clearing cells and then removing the emptied columns or rows deletes only their bytes (ADR 0007).
 for (const example of [
     {
         name: 'two empty columns across every row',
         plain: '| a | a | cc |\n| --- | --- | --- |\n| a | a | d |\n| a | a | g |\n',
         source: '| a | a | c{++c++} |\n| --- | --- | --- |\n| a | a | d |\n| a | a | g |\n',
-        cleared: '|     |     | c{++c++} |\n| --- | --- | -------- |\n|     |     | d        |\n|     |     | g        |\n',
-        removed: '| c{++c++} |\n| -------- |\n| d        |\n| g        |\n',
-        next: '| xc{++c++} |\n| --------- |\n| d         |\n| g         |\n',
+        cleared: '|  |  | c{++c++} |\n| --- | --- | --- |\n|  |  | d |\n|  |  | g |\n',
+        removed: '| c{++c++} |\n| --- |\n| d |\n| g |\n',
+        next: '| xc{++c++} |\n| --- |\n| d |\n| g |\n',
         row: 2,
         column: 1,
         cells: ['cc', 'd', 'g'],
@@ -64,9 +65,9 @@ for (const example of [
         name: 'two empty rows including the header',
         plain: '| a | a |\n| --- | --- |\n| a | a |\n| ee | f |\n',
         source: '| a | a |\n| --- | --- |\n| a | a |\n| e{++e++} | f |\n',
-        cleared: '|          |     |\n| -------- | --- |\n|          |     |\n| e{++e++} | f   |\n',
-        removed: '| e{++e++} | f   |\n| -------- | --- |\n',
-        next: '| xe{++e++} | f   |\n| --------- | --- |\n',
+        cleared: '|  |  |\n| --- | --- |\n|  |  |\n| e{++e++} | f |\n',
+        removed: '| e{++e++} | f |\n| --- | --- |\n',
+        next: '| xe{++e++} | f |\n| --- | --- |\n',
         row: 1,
         column: 1,
         cells: ['ee', 'f'],
@@ -128,7 +129,7 @@ for (const example of [
         plain: plainTable,
         source: annotatedTable,
         expected: clearedTable,
-        next: '| x   |     | c   |\n| --- | --- | --- |\n|     |     | d   |\n| e   | f   | g   |\n',
+        next: '| x |  | c |\n| --- | --- | --- |\n|  |  | d |\n| e | f | g |\n',
         row: 1,
         column: 1,
         tableCount: 1,
@@ -208,9 +209,9 @@ test('desktop clipboard guard copies and cuts the current model rectangle', asyn
         const payload = await page.evaluate(() => window.coreBoundary.guardedClipboard('cut'));
         expect(payload.text).toBe('| a   |\n| --- |\n| b   |');
         expect(payload.html).not.toContain('other');
-        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: '|     | other |\n| --- | ----- |\n|     | tail  |\n' }, legacyCalls: [] });
+        expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: '|  | other |\n| --- | --- |\n|  | tail |\n' }, legacyCalls: [] });
         await page.keyboard.type('x');
-        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: '| x   | other |\n| --- | ----- |\n|     | tail  |\n' });
+        expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: '| x | other |\n| --- | --- |\n|  | tail |\n' });
         await page.evaluate(async () => {
             await window.coreBoundary.history('undo');
             await window.coreBoundary.history('undo');
@@ -537,16 +538,17 @@ for (const { bound, lookup } of [
                 const selection = window.muya!.getSelection();
                 return { text: selection?.anchor.block.text, anchor: selection?.anchor.offset, focus: selection?.focus.offset };
             })).toEqual({ text: 'y', anchor: 1, focus: 1 });
+            // Upstream writes the table afresh; Core writes only the pasted and typed bytes (ADR 0007).
             if (bound)
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: '| a   | b   |\n| --- | --- |\n| y   | d   |\n' }, legacyCalls: [] });
+                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: '| a | b |\n| --- | --- |\n| y | d |\n' }, legacyCalls: [] });
             else
                 expect(await page.evaluate(() => window.muya!.getMarkdown())).toBe('| a   | b   |\n| --- | --- |\n| y   | d   |\n');
             await page.keyboard.type('X');
             expect(await page.evaluate(() => window.muya!.getSelection()?.anchor.block.text)).toBe('yX');
             if (bound) {
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: '| a   | b   |\n| --- | --- |\n| yX  | d   |\n' });
+                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: '| a | b |\n| --- | --- |\n| yX | d |\n' });
                 await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: '| a   | b   |\n| --- | --- |\n| y   | d   |\n' });
+                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: '| a | b |\n| --- | --- |\n| y | d |\n' });
                 await page.evaluate(() => window.coreBoundary.history('undo'));
                 expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
                 await expect.poll(() => selectedCount(page)).toBe(1);
@@ -554,8 +556,8 @@ for (const { bound, lookup } of [
                     await window.coreBoundary.history('redo');
                     await window.coreBoundary.history('redo');
                 });
-                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: '| a   | b   |\n| --- | --- |\n| yX  | d   |\n' }, legacyCalls: [] });
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: '| a   | b   |\n| --- | --- |\n| yX  | d   |\n' });
+                expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: '| a | b |\n| --- | --- |\n| yX | d |\n' }, legacyCalls: [] });
+                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: '| a | b |\n| --- | --- |\n| yX | d |\n' });
             }
             else {
                 expect(await page.evaluate(() => {
@@ -605,7 +607,7 @@ test('Core delayed desktop clipboard-file lookup retains its frozen cell and the
         await row.locator('td').nth(1).click();
         await page.keyboard.press('End');
         await page.keyboard.type('X');
-        const interim = '| a   | b   |\n| --- | --- |\n| c   | dX  |\n';
+        const interim = '| a | b |\n| --- | --- |\n| c | dX |\n';
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: interim }, legacyCalls: [] });
         await page.evaluate(async () => {
             window.finishClipboardImage('');
@@ -613,7 +615,7 @@ test('Core delayed desktop clipboard-file lookup retains its frozen cell and the
             window.muya!.flush();
             await window.coreBoundary.settle();
         });
-        const completed = '| a   | b   |\n| --- | --- |\n| y   | dX  |\n';
+        const completed = '| a | b |\n| --- | --- |\n| y | dX |\n';
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: completed }, legacyCalls: [] });
         expect((await page.locator(`${editor.table} td`).allTextContents()).map(text => text.trim())).toEqual(['a', 'b', 'y', 'dX']);
         expect(await page.evaluate(() => {
@@ -621,7 +623,7 @@ test('Core delayed desktop clipboard-file lookup retains its frozen cell and the
             return { text: selection?.anchor.block.text, anchor: selection?.anchor.offset, focus: selection?.focus.offset };
         })).toEqual({ text: 'dX', anchor: 2, focus: 2 });
         await page.keyboard.type('Z');
-        const subsequent = '| a   | b   |\n| --- | --- |\n| y   | dXZ |\n';
+        const subsequent = '| a | b |\n| --- | --- |\n| y | dXZ |\n';
         expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: subsequent });
         for (const expected of [completed, interim, source]) {
             await page.evaluate(() => window.coreBoundary.history('undo'));

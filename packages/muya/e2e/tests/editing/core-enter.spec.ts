@@ -134,8 +134,8 @@ for (const source of ['| a | b |\n', '| {++a++} | b |\n']) {
                 await expect(page.locator('table')).toHaveCount(1);
                 await pauseUndoWindow(page);
                 await page.keyboard.type('x');
-                // Typing writes the table afresh like upstream's, padded to its widest cell.
-                const next = source.includes('{++') ? '| {++a++} | b   |\n| ------- | --- |\n| x       |     |\n' : '| a   | b   |\n| --- | --- |\n| x   |     |\n';
+                // Typing writes only its own bytes (ADR 0007): the empty cell keeps its padding after the text.
+                const next = source.includes('{++') ? '| {++a++} | b   |\n| ------- | --- |\n| x        |     |\n' : '| a   | b   |\n| --- | --- |\n| x    |     |\n';
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: next }, anchor: 1, caret: 1, legacyCalls: [] });
                 await page.evaluate(() => window.coreBoundary.history('undo'));
                 expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: expected } });
@@ -221,10 +221,11 @@ for (const example of [
 }
 
 for (const example of [
-    { name: 'next table row', key: 'Enter', expected: '| aa | bb |\n| --- | --- |\n| cc | dd |\n', next: '| aa  | bb  |\n| --- | --- |\n| xcc | dd  |\n', caret: 0 },
-    { name: 'table cell line break', key: 'Shift+Enter', expected: '| a<br/>a | bb  |\n| ------- | --- |\n| cc      | dd  |\n', next: '| a<br/>xa | bb  |\n| -------- | --- |\n| cc       | dd  |\n', caret: 6 },
-    { name: 'annotated cell line break', source: '| a{++aa++}a | bb |\n| --- | --- |\n| cc | dd |\n', at: 2, key: 'Shift+Enter', expected: '| a{++a<br/>a++}a | bb  |\n| --------------- | --- |\n| cc              | dd  |\n', next: '| a{++a<br/>xa++}a | bb  |\n| ---------------- | --- |\n| cc               | dd  |\n', caret: 7 },
-    { name: 'last row exit', key: 'Enter', body: true, expected: '| aa  | bb  |\n| --- | --- |\n| cc  | dd  |\n\n\n', next: '| aa  | bb  |\n| --- | --- |\n| cc  | dd  |\n\nx\n', caret: 0 },
+    // Enter, Shift+Enter and typing in a table write only their own bytes (ADR 0007).
+    { name: 'next table row', key: 'Enter', expected: '| aa | bb |\n| --- | --- |\n| cc | dd |\n', next: '| aa | bb |\n| --- | --- |\n| xcc | dd |\n', caret: 0 },
+    { name: 'table cell line break', key: 'Shift+Enter', expected: '| a<br/>a | bb |\n| --- | --- |\n| cc | dd |\n', next: '| a<br/>xa | bb |\n| --- | --- |\n| cc | dd |\n', caret: 6 },
+    { name: 'annotated cell line break', source: '| a{++aa++}a | bb |\n| --- | --- |\n| cc | dd |\n', at: 2, key: 'Shift+Enter', expected: '| a{++a<br/>a++}a | bb |\n| --- | --- |\n| cc | dd |\n', next: '| a{++a<br/>xa++}a | bb |\n| --- | --- |\n| cc | dd |\n', caret: 7 },
+    { name: 'last row exit', key: 'Enter', body: true, expected: '| aa | bb |\n| --- | --- |\n| cc | dd |\n\n\n', next: '| aa | bb |\n| --- | --- |\n| cc | dd |\n\nx\n', caret: 0 },
 ]) {
     test(`Core table Enter owns the ${example.name}`, async ({ page }) => {
         await page.evaluate(async (example) => {
@@ -255,12 +256,13 @@ for (const example of [
 
 test.describe('macOS table command', () => {
     test.use({ userAgent: devices['Desktop Chrome'].userAgent!.replace(/\([^)]*\)/, '(Macintosh; Intel Mac OS X 10_15_7)') });
+    // The row command writes the table afresh; typing into the new row then writes only its own bytes (ADR 0007).
     for (const example of [
-        { name: 'ordinary cells', source: '| aa | bb |\n| --- | --- |\n| cc | dd |\n', expected: '| aa  | bb  |\n| --- | --- |\n|     |     |\n| cc  | dd  |\n', next: '| aa  | bb  |\n| --- | --- |\n| x   |     |\n| cc  | dd  |\n', tracked: false },
-        { name: 'primary shortcut precedence with Alt', source: '| aa | bb |\n| --- | --- |\n| cc | dd |\n', expected: '| aa  | bb  |\n| --- | --- |\n|     |     |\n| cc  | dd  |\n', next: '| aa  | bb  |\n| --- | --- |\n| x   |     |\n| cc  | dd  |\n', tracked: false, key: 'Meta+Alt+Enter' },
-        { name: 'an existing suggestion', source: '| a{++a++} | bb |\n| --- | --- |\n| cc | dd |\n', expected: '| a{++a++} | bb  |\n| -------- | --- |\n|          |     |\n| cc       | dd  |\n', next: '| a{++a++} | bb  |\n| -------- | --- |\n| x        |     |\n| cc       | dd  |\n', tracked: false },
-        { name: 'tracked row insertion', source: '| aa | bb |\n| --- | --- |\n| cc | dd |\n', expected: '| aa | bb |\n| --- | --- |{++\n|     |     |++}\n| cc | dd |\n', next: '| aa | bb |\n| --- | --- |{++\n|     x|     |++}\n| cc | dd |\n', tracked: true },
-        { name: 'insertion after a body row', source: '| aa | bb |\n| --- | --- |\n| cc | dd |\n', expected: '| aa  | bb  |\n| --- | --- |\n| cc  | dd  |\n|     |     |\n', next: '| aa  | bb  |\n| --- | --- |\n| cc  | dd  |\n| x   |     |\n', tracked: false, body: true },
+        { name: 'ordinary cells', source: '| aa | bb |\n| --- | --- |\n| cc | dd |\n', expected: '| aa  | bb  |\n| --- | --- |\n|     |     |\n| cc  | dd  |\n', next: '| aa  | bb  |\n| --- | --- |\n| x    |     |\n| cc  | dd  |\n', tracked: false },
+        { name: 'primary shortcut precedence with Alt', source: '| aa | bb |\n| --- | --- |\n| cc | dd |\n', expected: '| aa  | bb  |\n| --- | --- |\n|     |     |\n| cc  | dd  |\n', next: '| aa  | bb  |\n| --- | --- |\n| x    |     |\n| cc  | dd  |\n', tracked: false, key: 'Meta+Alt+Enter' },
+        { name: 'an existing suggestion', source: '| a{++a++} | bb |\n| --- | --- |\n| cc | dd |\n', expected: '| a{++a++} | bb  |\n| -------- | --- |\n|          |     |\n| cc       | dd  |\n', next: '| a{++a++} | bb  |\n| -------- | --- |\n| x         |     |\n| cc       | dd  |\n', tracked: false },
+        { name: 'tracked row insertion', source: '| aa | bb |\n| --- | --- |\n| cc | dd |\n', expected: '| aa | bb |\n| --- | --- |{++\n|     |     |++}\n| cc | dd |\n', next: '| aa | bb |\n| --- | --- |{++\n| x    |     |++}\n| cc | dd |\n', tracked: true },
+        { name: 'insertion after a body row', source: '| aa | bb |\n| --- | --- |\n| cc | dd |\n', expected: '| aa  | bb  |\n| --- | --- |\n| cc  | dd  |\n|     |     |\n', next: '| aa  | bb  |\n| --- | --- |\n| cc  | dd  |\n| x    |     |\n', tracked: false, body: true },
     ]) {
         test(`Core table row command preserves ${example.name} before native mutation`, async ({ page }) => {
             const { source, expected, next } = example;

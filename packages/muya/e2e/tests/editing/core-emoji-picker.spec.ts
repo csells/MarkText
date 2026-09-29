@@ -1,4 +1,5 @@
 import { expect, test } from '../fixtures/muya';
+import { pauseUndoWindow } from '../helpers/undoWindow';
 
 for (const annotated of [false, true]) {
     test(`actual emoji picker uses owned incomplete context (${annotated ? 'annotated' : 'ordinary'})`, async ({ page }) => {
@@ -12,8 +13,11 @@ for (const annotated of [false, true]) {
         }, source);
         try {
             await page.keyboard.type('i');
+            // A pick within a second of typing joins its undo step, as upstream's does; pause so each has its own.
+            await pauseUndoWindow(page);
             await page.locator('.mu-emoji-picker [data-label="smiley"]').click();
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: completed }, anchor: 15, caret: 15, legacyCalls: [] });
+            await pauseUndoWindow(page);
             await page.keyboard.type('x');
             const typed = completed.replace(':smiley:', ':smiley:x');
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: typed }, caret: 16, legacyCalls: [] });
