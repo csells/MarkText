@@ -139,9 +139,10 @@ const stringAttribute = (node: MarkdownAstNode, name: string): string => {
   return value
 }
 
+// HTML renderers write no attribute for an empty title.
 const titleAttributeOf = (node: MarkdownAstNode): string => {
   const title = node.attributes['semanticTitle']
-  return typeof title === 'string' ? ` title="${escapeHtml(title)}"` : ''
+  return typeof title === 'string' && title !== '' ? ` title="${escapeHtml(title)}"` : ''
 }
 
 const plainTextOf = (node: MarkdownAstNode, markdown: string): string => {
