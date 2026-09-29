@@ -9,6 +9,7 @@ import ts from 'typescript'
 import { createDocumentCore } from '@marktext/document-core'
 
 import * as projectionRenderer from '@/documentConsumers/markdownProjectionHtml'
+import * as reveal from '@/components/editorWithTabs/reviewCardReveal'
 import { createReviewOverviewTracker } from '@/documentAuthority/coreReviewOverview'
 import type { CoreReviewOverviewEntry } from '@/documentAuthority/coreProtocol'
 
@@ -34,6 +35,7 @@ const loadComponent = (): Vue.Component => {
     if (name === '@/i18n') return { t: (key: string) => key }
     if (name === '../../documentConsumers/markdownProjectionHtml') return projectionRenderer
     if (name === './CoreDocumentProjection.vue') return { default: projection }
+    if (name === './reviewCardReveal') return reveal
     throw new Error(`Unexpected review list dependency ${name}`)
   }, exports)
   if (exports.default === undefined) throw new Error('Review list component did not compile')
@@ -163,5 +165,49 @@ describe('Core review list', () => {
     })
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(host.querySelector('.core-review-entry.active')?.getAttribute('aria-posinset')).toBe('251')
+  })
+
+  it('brings a newly selected card into view, and leaves the view alone for one already in it', async() => {
+    const core = createDocumentCore()
+    const revision = core.open(Array.from({ length: 300 }, (_, index) => `Paragraph {++${index}++}.`).join('\n\n') + '\n')
+    const entries = createReviewOverviewTracker().overview(core, revision)
+    // jsdom lays nothing out: the box shows 600 px, and card `i` is 70 px tall at `i * 70`.
+    const host = document.createElement('div')
+    host.style.overflowY = 'auto'
+    let scrollTop = 0
+    Object.defineProperty(host, 'offsetHeight', { value: 600 })
+    Object.defineProperty(host, 'offsetWidth', { value: 300 })
+    Object.defineProperty(host, 'clientHeight', { value: 600 })
+    Object.defineProperty(host, 'scrollTop', { get: () => scrollTop, set: (value: number) => { scrollTop = value } })
+    host.getBoundingClientRect = () => DOMRect.fromRect({ x: 0, y: 0, width: 300, height: 600 })
+    Object.defineProperty(HTMLLIElement.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value(this: HTMLLIElement) {
+        return DOMRect.fromRect({ x: 0, y: Number(this.dataset.index) * 70 - scrollTop, width: 300, height: 70 })
+      }
+    })
+    cleanup.push(() => {
+      delete (HTMLLIElement.prototype as { getBoundingClientRect?: unknown }).getBoundingClientRect
+    })
+    document.body.append(host)
+    const state = Vue.shallowReactive({ activeStart: entries[2]!.item.range.start })
+    const List = loadComponent()
+    const app = Vue.createApp({
+      render: () => Vue.h(List, { entries, busy: false, textDirection: 'ltr', activeStart: state.activeStart })
+    })
+    app.mount(host)
+    cleanup.push(() => {
+      app.unmount()
+      host.remove()
+    })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(scrollTop).toBe(0)
+    state.activeStart = entries[250]!.item.range.start
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    // Nearest: the card's bottom meets the view's bottom.
+    expect(scrollTop).toBe(251 * 70 - 600)
+    state.activeStart = entries[245]!.item.range.start
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(scrollTop).toBe(251 * 70 - 600)
   })
 })
