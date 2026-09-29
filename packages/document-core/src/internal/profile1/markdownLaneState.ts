@@ -192,6 +192,13 @@ export interface MarkdownCheckpoint {
    * would continue the paragraph CommonMark reads the definition from.
    */
   readonly definitionLazyContinuation?: boolean | undefined
+  /** A GFM table is open, so the next line of its containers may be a row. */
+  readonly tableOpen?: boolean | undefined
+  /**
+   * The cell count of the last line when it was paragraph text, which a
+   * delimiter row with as many cells turns into a table's header row.
+   */
+  readonly tableHeaderCells?: number | undefined
   readonly lastLineLazy: boolean
   readonly lineStart: number
   readonly fence: MarkdownFenceState | undefined
@@ -719,6 +726,12 @@ interface ContainerLineState {
    * that cannot interrupt a paragraph cannot start here.
    */
   readonly paragraphContinues: boolean
+  /**
+   * A GFM table's row may continue here: the table is open and the line is
+   * one of its containers' (or lazily kept in them). Such a line starts no
+   * block that cannot interrupt a paragraph, except indented code.
+   */
+  readonly tableRowContinues: boolean
 }
 
 interface ListContinuationIndentationState {
@@ -783,6 +796,67 @@ function refusesParagraphInterruption(
   if (insideListItem) return false
   return (containersMatched && empty) ||
     (marker.ordered && marker.startNumber !== 1)
+}
+
+/**
+ * Whether a list marker ends a GFM table's rows. Upstream (marked) ends
+ * them only at a bullet or a `1.` / `1)` marker followed by a space, so
+ * `-` alone or `2. x` there is a row.
+ */
+function endsTableRows(
+  source: string,
+  marker: ListMarker,
+  lineContentEnd: number
+): boolean {
+  return (!marker.ordered || marker.startNumber === 1) &&
+    marker.end < lineContentEnd &&
+    isSpaceOrTab(source.charCodeAt(marker.end))
+}
+
+/**
+ * The number of cells GFM reads in a table row: cells lie between
+ * unescaped pipes, empty edge cells are not cells, and a row without a pipe
+ * is one cell. Mirrors the parser's row splitting.
+ */
+function gfmTableRowCellCount(source: string, start: number, end: number): number {
+  const separators: number[] = []
+  for (let offset = start; offset < end; offset += 1) {
+    if (source.charCodeAt(offset) === 124 && !hasOddLineBackslashRunBefore(source, offset, start)) {
+      separators.push(offset)
+    }
+  }
+  if (separators.length === 0) return 1
+  const boundaries = [start, ...separators, end]
+  let cells = 0
+  for (let index = 0; index + 1 < boundaries.length; index += 1) {
+    const cellStart = (boundaries[index] ?? start) + (index > 0 ? 1 : 0)
+    const cellEnd = boundaries[index + 1] ?? end
+    const empty = isBlankFrom(source, cellStart, cellEnd)
+    if (!(empty && (index === 0 || index + 2 === boundaries.length))) cells += 1
+  }
+  return cells
+}
+
+/** The column count of a GFM delimiter row, or undefined if it is none. */
+function gfmTableDelimiterCellCount(source: string, start: number, end: number): number | undefined {
+  const text = source.slice(start, end)
+  const pieces = text.split(/(?<!\\)\|/u).map(piece => piece.trim())
+  if (pieces.length === 1) {
+    // Without a pipe a delimiter row needs a colon, or it is an underline.
+    return /^:-+:?$|^-+:$/u.test(pieces[0] ?? '') ? 1 : undefined
+  }
+  if (pieces[0] === '') pieces.shift()
+  if (pieces.at(-1) === '') pieces.pop()
+  if (pieces.length === 0 || !pieces.every(piece => /^:?-+:?$/u.test(piece))) return undefined
+  return pieces.length
+}
+
+function hasOddLineBackslashRunBefore(source: string, offset: number, floor: number): boolean {
+  let count = 0
+  for (let cursor = offset - 1; cursor >= floor && source.charCodeAt(cursor) === 92; cursor -= 1) {
+    count += 1
+  }
+  return count % 2 === 1
 }
 
 function isThematicBreakFrom(source: string, start: number, end: number): boolean {
@@ -921,7 +995,8 @@ function analyzeContainerLine(
   suppressNewContainers: boolean = false,
   // A line after a reference definition may be lazy though no paragraph is
   // open; it then starts blocks as after any complete block.
-  lazyContinuationOpen: boolean = paragraphOpen
+  lazyContinuationOpen: boolean = paragraphOpen,
+  tableRowOpen: boolean = false
 ): ContainerLineState {
   let offset = line.start
   let column = 0
@@ -1061,6 +1136,7 @@ function analyzeContainerLine(
       activeContainers.length === inheritedContainers.length
     if (
       listMarker === undefined ||
+      (tableRowOpen && containersMatched && !endsTableRows(source, listMarker, line.contentEnd)) ||
       refusesParagraphInterruption(
         source,
         listMarker,
@@ -1133,7 +1209,11 @@ function analyzeContainerLine(
     openers: Object.freeze(openers),
     lazy: false,
     paragraphContinues:
-      paragraphOpen &&
+      (paragraphOpen || tableRowOpen) &&
+      inheritedMatchDepth === inheritedContainers.length &&
+      openers.length === 0,
+    tableRowContinues:
+      tableRowOpen &&
       inheritedMatchDepth === inheritedContainers.length &&
       openers.length === 0,
     setextUnderline:
@@ -1145,7 +1225,7 @@ function analyzeContainerLine(
       isSetextUnderline(source, contentOffset, line.contentEnd)
   })
   if (
-    lazyContinuationOpen &&
+    (lazyContinuationOpen || tableRowOpen) &&
     inheritedMatchDepth < inheritedContainers.length &&
     isLazyParagraphContinuation(source, provisionalState)
   ) {
@@ -1159,7 +1239,8 @@ function analyzeContainerLine(
         0
       ),
       lazy: true,
-      paragraphContinues: paragraphOpen
+      paragraphContinues: paragraphOpen || tableRowOpen,
+      tableRowContinues: tableRowOpen
     })
   }
   return provisionalState
@@ -1325,7 +1406,8 @@ export function inspectMarkdownPendingLineBlock(
     checkpoint.activeContainers,
     checkpoint.paragraphOpen,
     false,
-    lazyContinuationOpenFor(checkpoint)
+    lazyContinuationOpenFor(checkpoint),
+    checkpoint.tableOpen === true
   )
   const opensFence = findMarkdownFenceOpening(
     lineText,
@@ -1343,7 +1425,7 @@ export function inspectMarkdownPendingLineBlock(
       checkpoint.frontMatterEligible &&
       frontMatterOpeningStyle(lineText) !== undefined
     ) ||
-    (!lineState.paragraphContinues && lineState.indentation >= 4) ||
+    ((!lineState.paragraphContinues || lineState.tableRowContinues) && lineState.indentation >= 4) ||
     htmlBlockOpening(lineText, lineState, lineState.paragraphContinues) !== undefined ||
     definitionOpening(lineText, lineState, lineState.paragraphContinues, false) !==
       undefined
@@ -2719,7 +2801,7 @@ export function createMarkdownLaneState(
   EMPTY_REFERENCE_DEFINITIONS,
   matchingScopePolicy?: MarkdownMatchingScopePolicy,
   frontMatterEnabled: boolean = true,
-  _gfmEnabled: boolean = true,
+  gfmEnabled: boolean = true,
   gfmAutolinksEnabled: boolean = true,
   mathEnabled: boolean = true,
   texMathGfmEnabled: boolean = true,
@@ -2859,6 +2941,13 @@ export function createMarkdownLaneState(
     } else {
       let lineContainers = openerState.lazy ? containers : openerState.activeContainers
       let cursor = openerLine.next
+      // A GFM table's header row is not paragraph text: the paragraph ends
+      // before a line that a delimiter row below turns into one.
+      let previous = Object.freeze({
+        start: openerLineStart,
+        text: openerLine.text,
+        contentOffset: openerState.contentOffset
+      })
       for (;;) {
         if (cursor >= laneEnd || cursor >= source.length) {
           end = Math.min(cursor, laneEnd)
@@ -2879,6 +2968,17 @@ export function createMarkdownLaneState(
           end = cursor
           break
         }
+        if (
+          gfmEnabled &&
+          !(state.lazy && lineContainers.at(-1)?.kind === 'blockquote') &&
+          state.indentation <= 3 &&
+          gfmTableDelimiterCellCount(line.text, state.contentOffset, line.text.length) ===
+            gfmTableRowCellCount(previous.text, previous.contentOffset, previous.text.length)
+        ) {
+          end = previous.start
+          break
+        }
+        previous = Object.freeze({ start: cursor, text: line.text, contentOffset: state.contentOffset })
         visited.push(cursor)
         if (!state.lazy) lineContainers = state.activeContainers
         cursor = line.next
@@ -2895,10 +2995,13 @@ export function createMarkdownLaneState(
     laneEnd: number,
     containers: readonly ActiveBlockContainer[],
     paragraphWasOpen: boolean,
+    // The opener is in a table row, whose inline syntax ends with the row.
+    tableRow: boolean,
     doubleDollar: boolean = false
   ): boolean => {
     const openerLineStart = rawLineStartAt(openerOffset)
     if (rawLineStartAt(closeStart) === openerLineStart) return true
+    if (tableRow) return false
     if (doubleDollar) {
       // A `$$` alone on its line opens a math block, which spans blank lines.
       const text = source.slice(
@@ -3005,6 +3108,8 @@ export function createMarkdownLaneState(
     let activeContainers = checkpoint.activeContainers
     let paragraphOpen = checkpoint.paragraphOpen
     let definitionLazyContinuation = checkpoint.definitionLazyContinuation === true
+    let tableOpen = checkpoint.tableOpen === true
+    let tableHeaderCells = checkpoint.tableHeaderCells
     let lastLineLazy = checkpoint.lastLineLazy
     let lineStart = checkpoint.lineStart
     let fence = checkpoint.fence
@@ -3067,7 +3172,8 @@ export function createMarkdownLaneState(
           activeContainers,
           paragraphOpen,
           true,
-          paragraphOpen || definitionLazyContinuation
+          paragraphOpen || definitionLazyContinuation,
+          tableOpen
         )
       const probeState = analyzeContainerLine(
         probeLine,
@@ -3075,7 +3181,8 @@ export function createMarkdownLaneState(
         activeContainers,
         paragraphOpen,
         false,
-        paragraphOpen || definitionLazyContinuation
+        paragraphOpen || definitionLazyContinuation,
+        tableOpen
       )
       if (firstContainerDepthFailure === undefined) {
         const excess = firstExcessContainer(probeState)
@@ -3234,7 +3341,7 @@ export function createMarkdownLaneState(
           bracketPath = undefined
           pendingLinkLabel = undefined
         } else if (
-          !probeState.paragraphContinues &&
+          (!probeState.paragraphContinues || probeState.tableRowContinues) &&
           !probeState.blank &&
           probeState.indentation >= 4
         ) {
@@ -3614,6 +3721,7 @@ export function createMarkdownLaneState(
                     laneEnd,
                     activeContainers,
                     paragraphOpen,
+                    tableOpen,
                     delimiterLength === 2
                   )
                 ) {
@@ -3764,7 +3872,8 @@ export function createMarkdownLaneState(
               closeStart,
               laneEnd,
               activeContainers,
-              paragraphOpen
+              paragraphOpen,
+              tableOpen
             )
           ) {
             inlineCode = Object.freeze({ openStart: offset, markerLength, closeStart })
@@ -3787,7 +3896,8 @@ export function createMarkdownLaneState(
         activeContainers,
         paragraphOpen,
         false,
-        paragraphOpen || definitionLazyContinuation
+        paragraphOpen || definitionLazyContinuation,
+        tableOpen
       )
       if (isFenceCloserLine(boundaryLine, boundaryState, fence)) {
         completedLiterals.push(Object.freeze({
@@ -3867,7 +3977,8 @@ export function createMarkdownLaneState(
           completedBounds,
           checkpoint
         ),
-        lazyContinuationOpenFor(checkpoint)
+        lazyContinuationOpenFor(checkpoint),
+        checkpoint.tableOpen === true
       ))
       const completedLine =
         materializeMarkdownLine(checkpoint.linePath) + text.slice(0, firstEol)
@@ -3877,7 +3988,8 @@ export function createMarkdownLaneState(
         activeContainers,
         paragraphOpen,
         false,
-        paragraphOpen || definitionLazyContinuation
+        paragraphOpen || definitionLazyContinuation,
+        tableOpen
       )
       if (lineState.blank || lineBlockClosed) {
         enclosingLabelInterrupted = true
@@ -4206,6 +4318,33 @@ export function createMarkdownLaneState(
           pendingLinkLabel = undefined
         }
       }
+      if (gfmEnabled) {
+        const paragraphText = paragraphOpen && !lineOwnedByDefinition
+        const ownContainers = lineState.openers.length === 0 && (
+          lineState.lazy
+            ? lineState.activeContainers.at(-1)?.kind !== 'blockquote'
+            : lineState.continuedContainerDepth === lineState.activeContainers.length
+        )
+        if (tableOpen) {
+          // Upstream reads any other text line of the table's containers as
+          // a row; a lazy line leaves a quoted table as a paragraph.
+          tableOpen = paragraphText && ownContainers
+        } else {
+          tableOpen = paragraphText && ownContainers &&
+            tableHeaderCells !== undefined &&
+            lineState.indentation <= 3 &&
+            gfmTableDelimiterCellCount(completedLine, lineState.contentOffset, completedLine.length) ===
+              tableHeaderCells
+        }
+        if (tableOpen) {
+          paragraphOpen = false
+          inlineCode = undefined
+          if (math?.block !== true) math = undefined
+        }
+        tableHeaderCells = paragraphOpen && !lineOwnedByDefinition
+          ? gfmTableRowCellCount(completedLine, lineState.contentOffset, completedLine.length)
+          : undefined
+      }
       definitionLazyContinuation = !paragraphOpen && lineOwnedByReferenceDefinition &&
         !lineState.blank
       lastLineLazy = lineState.lazy
@@ -4246,6 +4385,8 @@ export function createMarkdownLaneState(
         extendedAutolinkSuppressedUntil,
         activeContainers,
         definitionLazyContinuation: definitionLazyContinuation ? true : undefined,
+        tableOpen: tableOpen ? true : undefined,
+        tableHeaderCells,
         lineEntryContainers: linePath !== undefined && lastEol < 0 &&
             lineEntryContainers !== activeContainers
           ? lineEntryContainers
@@ -4321,7 +4462,8 @@ export function createMarkdownLaneState(
             }),
             checkpoint
           ),
-          lazyContinuationOpenFor(checkpoint)
+          lazyContinuationOpenFor(checkpoint),
+          checkpoint.tableOpen === true
         )])
     if (checkpoint.fence !== undefined) {
       completedLiterals.push(Object.freeze({
@@ -4883,7 +5025,8 @@ export function buildPlainMarkdownLine(
   activeContainers: MarkdownCheckpoint['activeContainers'],
   paragraphOpen: boolean,
   literalOpen: boolean = false,
-  lazyContinuationOpen: boolean = paragraphOpen
+  lazyContinuationOpen: boolean = paragraphOpen,
+  tableRowOpen: boolean = false
 ): PlainMarkdownLine {
   const { start, contentEnd, end } = bounds
   const lineState = analyzeContainerLine(
@@ -4892,7 +5035,8 @@ export function buildPlainMarkdownLine(
     activeContainers,
     paragraphOpen,
     literalOpen,
-    lazyContinuationOpen
+    lazyContinuationOpen,
+    tableRowOpen
   )
   let openerIndex = 0
   let quoteMarkerIndex = 0
@@ -5085,7 +5229,8 @@ function parsePlainMarkdownLanePass(
       checkpoint.paragraphOpen,
       lineContinuesLiteralContainer ||
         checkpoint.frontMatter !== undefined,
-      lazyContinuationOpenFor(checkpoint)
+      lazyContinuationOpenFor(checkpoint),
+      checkpoint.tableOpen === true
     ))
     // This driver owns complete physical lines. Finalize a lone CR before
     // deriving the next line's inherited container and literal state.
