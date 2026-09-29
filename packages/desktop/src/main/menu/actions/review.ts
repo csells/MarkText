@@ -1,4 +1,4 @@
-import { type BrowserWindow, type Menu, type MenuItemConstructorOptions } from 'electron'
+import { shell, type BrowserWindow, type Input, type Menu, type MenuItemConstructorOptions } from 'electron'
 import {
   reviewCommands,
   reviewCommandEnabled,
@@ -80,4 +80,62 @@ export const loadReviewCommands = (manager: CommandManager): void => {
       executeReviewCommand(win, command.id)
     )
   }
+}
+
+const ACCELERATOR_CODES: Readonly<Record<string, string>> = {
+  '[': 'BracketLeft',
+  ']': 'BracketRight',
+  '-': 'Minus',
+  '=': 'Equal',
+  ';': 'Semicolon',
+  "'": 'Quote',
+  ',': 'Comma',
+  '.': 'Period',
+  '/': 'Slash',
+  '\\': 'Backslash',
+  '`': 'Backquote'
+}
+
+/** Whether a key-down is the key and modifiers an Electron accelerator names. */
+export const acceleratorMatchesInput = (accelerator: string, input: Input): boolean => {
+  const parts = accelerator.split('+')
+  const key = parts.pop()
+  if (key === undefined || key === '') return false
+  const modifiers = new Set(parts.map((part) => part.toLowerCase()))
+  const meta = ['command', 'cmd', 'commandorcontrol', 'cmdorctrl', 'super', 'meta'].some((name) =>
+    modifiers.has(name))
+  const control = modifiers.has('control') || modifiers.has('ctrl')
+  const alt = modifiers.has('alt') || modifiers.has('option')
+  const shift = modifiers.has('shift')
+  if (input.meta !== meta || input.control !== control || input.alt !== alt || input.shift !== shift) {
+    return false
+  }
+  // Option and Shift change the character a key types, so match the physical key.
+  const code = /^[a-z]$/iu.test(key)
+    ? `Key${key.toUpperCase()}`
+    : /^[0-9]$/u.test(key)
+      ? `Digit${key}`
+      : ACCELERATOR_CODES[key]
+  return code === undefined ? input.key.toLowerCase() === key.toLowerCase() : input.code === code
+}
+
+/**
+ * macOS answers a key equivalent whose command is unavailable with a beep. A
+ * disabled Review command's shortcut reaches no menu item, so give the same
+ * feedback; focus stays where it was. Returns whether it beeped.
+ */
+export const beepForDisabledReviewShortcut = (
+  win: BrowserWindow,
+  input: Input,
+  keybindings: Keybindings
+): boolean => {
+  if (input.type !== 'keyDown' || input.isAutoRepeat) return false
+  for (const command of reviewCommands) {
+    const accelerator = keybindings.getAccelerator(`review.${command.id}`)
+    if (!accelerator || !acceleratorMatchesInput(accelerator, input)) continue
+    if (reviewCommandEnabled(command.id, states.get(win))) return false
+    shell.beep()
+    return true
+  }
+  return false
 }

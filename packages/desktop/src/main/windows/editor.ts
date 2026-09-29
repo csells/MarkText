@@ -11,6 +11,7 @@ import { TITLE_BAR_HEIGHT, editorWinOptions, isLinux, isOsx } from '../config'
 import { isHiddenE2eWindow } from './windowActivationPolicy'
 import { showEditorContextMenu } from '../contextMenu/editor'
 import { requestReviewContext } from '../contextMenu/editor/reviewContext'
+import { beepForDisabledReviewShortcut } from '../menu/actions/review'
 import { loadMarkdownFile } from '../filesystem/markdown'
 import { switchLanguage } from '../spellchecker'
 import fs from 'fs'
@@ -180,6 +181,9 @@ class EditorWindow extends BaseWindow {
 
     // Create a menu for the current window
     appMenu.addEditorMenu(win, { sourceCodeModeEnabled: sourceCodeModeEnabled as boolean })
+    win.webContents.on('before-input-event', (_event, input) => {
+      if (win) beepForDisabledReviewShortcut(win, input, this._accessor.keybindings)
+    })
 
     let contextMenuRequest = 0
     win.webContents.on('context-menu', (event, params) => {
