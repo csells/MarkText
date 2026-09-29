@@ -92,7 +92,11 @@ describe('CommonMark and upstream agree', () => {
     ['2. [\n   -\n', '<ol start="2"><li><h2>[</h2></li></ol>'],
     ['[f]:\n1.\n', ''],
     ['[a]:\n> /u\n', '<p>[a]:</p><blockquote><p>/u</p></blockquote>'],
-    ['- [a]:\n  /u\n  [a]\n', '<ul><li><a href="/u">a</a></li></ul>']
+    ['- [a]:\n  /u\n  [a]\n', '<ul><li><a href="/u">a</a></li></ul>'],
+    // A container opened earlier on the line has ended the paragraph, so an
+    // empty or renumbered item after it is a list.
+    ['> y\n* 0.\n', '<blockquote><p>y</p></blockquote><ul><li><ol start="0"><li></li></ol></li></ul>'],
+    ['> .\n- 2.\n', '<blockquote><p>.</p></blockquote><ul><li><ol start="2"><li></li></ol></li></ul>']
   ])('%j', (source, expected) => {
     expect(html(source)).toBe(canonical(expected))
   })
@@ -104,7 +108,8 @@ describe('CommonMark and upstream agree', () => {
     ['| a | b |\n|---|---|\n# h\n', '<table><thead><tr><th>a</th><th>b</th></tr></thead></table><h1>h</h1>'],
     ['| a | b |\n|---|---|\n***\n', '<table><thead><tr><th>a</th><th>b</th></tr></thead></table><hr />'],
     // A task marker begins a paragraph; an underlined one is heading text.
-    ['- [ ] t\n  =\n', '<ul><li><h1>[ ] t</h1></li></ul>']
+    ['- [ ] t\n  =\n', '<ul><li><h1>[ ] t</h1></li></ul>'],
+    ['x|y\n-|-\n> 3)\n', '<table><thead><tr><th>x</th><th>y</th></tr></thead></table><blockquote><ol start="3"><li></li></ol></blockquote>']
   ])('GFM %j', (source, expected) => {
     expect(html(source, true)).toBe(canonical(expected))
   })
@@ -163,7 +168,8 @@ describe('typing these lines reads as a fresh open', () => {
     ['```\n\n', 4, '`'],
     ['1. [\n\n', 5, 'y'],
     ['[\n\n', 2, '-'],
-    ['[f]:\n\n', 5, '1.']
+    ['[f]:\n\n', 5, '1.'],
+    ['> y\n\n', 4, '* 0.']
   ])('%j at %i types %j', (source, at, insert) => {
     const core = createDocumentCore()
     const previous = core.open(source)
