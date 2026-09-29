@@ -138,7 +138,7 @@
         <div class="core-review-scroll side-bar-scroll">
           <details
             v-if="coreLease !== undefined && !sourceCode"
-            class="core-review-hint"
+            class="core-review-hint app-disclosure"
           >
             <summary>{{ t('editor.coreReview.viewHelp') }}</summary>
             <p>{{ t('editor.coreReview.viewHint') }}</p>
@@ -4691,14 +4691,6 @@ onBeforeUnmount(() => {
   line-height: 1.5;
   opacity: 0.7;
   margin: 12px 0;
-}
-/* Chromium hides a closed <details> body with `content-visibility: hidden`.
-   While any element in the window is locked that way, every caret update in
-   the editor costs about twice as much (4–5 ms per key in a 2,000-paragraph
-   document), so the closed hint hides its body without the lock. */
-details.core-review-hint:not([open])::details-content {
-  content-visibility: visible;
-  display: none;
 }
 .core-review-views {
   display: flex;

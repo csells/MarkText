@@ -29,6 +29,7 @@
       v-for="draft in drafts"
       :key="draft.id"
       open
+      class="app-disclosure"
       data-testid="core-recovery-draft"
     >
       <summary>
