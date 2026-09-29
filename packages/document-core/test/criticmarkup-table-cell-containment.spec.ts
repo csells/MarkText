@@ -130,3 +130,25 @@ describe('Markup editing at the end of a suggestion inside a cell', () => {
     expect(core.apply(revision, edits).revision.source).toBe(table('| {--x|--}z |'))
   })
 })
+
+describe('typing in a suggested column', () => {
+  // The column's cells are whole-cell Additions, whose openers begin their
+  // cells. An empty cell's text starts after the space that follows its pipe
+  // (plan 0012 G24), which here is inside the Addition, so typing there extends
+  // it rather than opening a suggestion that would cut the column's cells apart.
+  const source = 'away\n\n| a{++a++} |{++     |++} aa |\n| :--- |{++ --- |++} ---: |\n| aa |{++     |++} aa |\n'
+  const options = { autoPairBracket: true, autoPairQuote: true, autoPairMarkdownSyntax: true, tabSize: 4 }
+  const cell = { kind: 'table-cell' as const, cell: { table: { start: 6, end: source.length - 1 }, row: 0, column: 1 }, anchor: 0, focus: 0 }
+  const action = { selection: cell, range: cell, inputType: 'insertText' as const, data: 'x', options }
+
+  it.each([false, true])('writes the key inside the cell\'s Addition (tracked %s)', (tracked) => {
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const plan = core.planInput(revision, action, { tracked })
+    const edits = core.inputEdits(revision, action, plan, tracked)
+    if (edits === undefined) throw new Error('Typing in the suggested cell was refused')
+    const next = core.apply(revision, edits).revision
+    expect(next.source).toBe(source.replace('|{++     |++} aa |\n| :---', '|{++ x    |++} aa |\n| :---'))
+    expect(next.annotations.map(annotation => annotation.kind)).toEqual(['addition', 'addition', 'addition', 'addition'])
+  })
+})
