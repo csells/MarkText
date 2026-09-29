@@ -127,7 +127,9 @@ describe('CommonMark and upstream agree', () => {
     ['1. `\na\n3. `c`\n', '<ol><li>` a</li><li><code>c</code></li></ol>'],
     // A title on a definition's own line completes it.
     ['[f]: /u "t"\n"s"\n[f]\n', '<p>&quot;s&quot;\n<a href="/u" title="t">f</a></p>'],
-    ['[f]:l ""\n""\n', '<p>&quot;&quot;</p>']
+    ['[f]:l ""\n""\n', '<p>&quot;&quot;</p>'],
+    // An unclosed quote after a definition is no title of it.
+    ['[ref]\n\n[ref]:l\n"\n', '<p><a href="l">ref</a></p><p>&quot;</p>']
   ])('%j', (source, expected) => {
     expect(html(source)).toBe(canonical(expected))
   })
