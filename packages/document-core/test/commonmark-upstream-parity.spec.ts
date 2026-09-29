@@ -146,6 +146,9 @@ describe('CommonMark and upstream agree', () => {
     ['- a `b\n  c` [d\n  e](/f)\n', '<ul><li>a <code>b c</code> <a href="/f">d\ne</a></li></ul>'],
     ['- [a\n  b]\n\n[a b]: /u\n', '<ul><li><a href="/u">a\nb</a></li></ul>'],
     ['- <span\n  a="b">\n', '<ul><li><span\na="b"></li></ul>'],
+    ['> <span\n> a="b">\n', '<blockquote><p><span\na="b"></p></blockquote>'],
+    ['> x <span\n> a="b"\n> c="d"> y\n', '<blockquote><p>x <span\na="b"\nc="d"> y</p></blockquote>'],
+    ['<span\n# h>\n', '<p>&lt;span</p><h1>h&gt;</h1>'],
     ['> [a\n> b]\n>\n> [a b]: /u\n', '<blockquote><p><a href="/u">a\nb</a></p></blockquote>'],
     ['> [x][a\n> b]\n>\n> [a b]: /u\n', '<blockquote><p><a href="/u">x</a></p></blockquote>'],
     // After a lazy line, a list item still ends the paragraph a code span
@@ -310,6 +313,7 @@ describe('typing these lines reads as a fresh open', () => {
     ['a\n\n', 2, '- -'],
     ['> a\n\n', 4, '<n>'],
     ['- a\n\n', 4, '<n>'],
+    ['> <span\n\n', 8, '> a="b">'],
     ['2) .\n   3.\n\n', 11, '   ='],
     ['* -\n\n  |\n\n', 9, '  4.'],
     ['- a\n  > q\n\n', 10, '  > 2) d'],
