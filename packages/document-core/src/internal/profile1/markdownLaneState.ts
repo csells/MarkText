@@ -3037,6 +3037,9 @@ export function createMarkdownLaneState(
     end: number
     laneLimited: boolean
   }>>()
+  // Where each paragraph line after an opener's line begins its content,
+  // past its container prefix, as the paragraph scan below finds it.
+  const contentStartByLineStart = new Map<number, number>()
   const inlineLiteralParagraphEnd = (
     openerOffset: number,
     laneEnd: number,
@@ -3114,6 +3117,7 @@ export function createMarkdownLaneState(
           break
         }
         previous = Object.freeze({ start: cursor, text: line.text, contentOffset: state.contentOffset })
+        contentStartByLineStart.set(cursor, cursor + state.contentOffset)
         visited.push(cursor)
         if (!state.lazy) lineContainers = state.activeContainers
         cursor = line.next
@@ -3181,6 +3185,53 @@ export function createMarkdownLaneState(
       following.indentation <= 3 &&
       gfmTableDelimiterCellCount(text, following.contentOffset, text.length) ===
         gfmTableRowCellCount(lineText, state.contentOffset, lineText.length)
+  }
+
+  /**
+   * A raw HTML tag may run onto the paragraph's later lines, but not past
+   * the paragraph. In a block quote those lines begin with a `>` marker,
+   * which is no part of the tag, so a tag that does not close on its own
+   * line is read with each later line's container prefix blanked out. Only
+   * the next 64 lines are read: no tag spans more.
+   */
+  const inlineHtmlEndAcrossPrefixes = (
+    offset: number,
+    laneEnd: number,
+    containers: readonly ActiveBlockContainer[],
+    paragraphWasOpen: boolean,
+    rawEnd: number | undefined
+  ): number | undefined => {
+    const lineEnd = sourceLineContentEnd(source, offset, laneEnd, execution)
+    const next = source.charCodeAt(offset + 1)
+    if (
+      (rawEnd !== undefined && rawEnd <= lineEnd) ||
+      !((next >= 65 && next <= 90) || (next >= 97 && next <= 122) || next === 47 || next === 33 || next === 63)
+    ) {
+      return rawEnd
+    }
+    const paragraphEnd = inlineLiteralParagraphEnd(offset, laneEnd, containers, paragraphWasOpen)
+    if (paragraphEnd <= lineEnd) return rawEnd !== undefined && rawEnd <= lineEnd ? rawEnd : undefined
+    let text = ''
+    let cursor = offset
+    let lines = 0
+    let windowEnd = paragraphEnd
+    for (
+      let lineStart = sourceLineEnd(source, lineEnd, laneEnd);
+      lineStart < paragraphEnd && lineStart > cursor;
+      lineStart = sourceLineEnd(source, sourceLineContentEnd(source, lineStart, laneEnd, execution), laneEnd)
+    ) {
+      if (lines === 64) {
+        windowEnd = lineStart
+        break
+      }
+      lines += 1
+      const contentStart = Math.min(contentStartByLineStart.get(lineStart) ?? lineStart, paragraphEnd)
+      text += source.slice(cursor, lineStart) + ' '.repeat(contentStart - lineStart)
+      cursor = contentStart
+    }
+    text += source.slice(cursor, windowEnd)
+    const end = findInlineHtmlEnd(text, 0, text.length)
+    return end === undefined ? undefined : offset + end
   }
 
   const advanceCore = (
@@ -3840,7 +3891,13 @@ export function createMarkdownLaneState(
               }
             }
             if (source.charCodeAt(offset) === 60) {
-              const htmlEnd = findInlineHtmlEnd(source, offset, laneEnd)
+              const htmlEnd = inlineHtmlEndAcrossPrefixes(
+                offset,
+                laneEnd,
+                activeContainers,
+                paragraphOpen,
+                findInlineHtmlEnd(source, offset, laneEnd)
+              )
               const autolinkEnd =
               htmlEnd === undefined
                 ? findAutolinkEnd(source, offset, laneEnd)
