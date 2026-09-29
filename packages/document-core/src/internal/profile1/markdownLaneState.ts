@@ -2043,7 +2043,9 @@ function isFenceCloserLine(
   state: ContainerLineState,
   fence: MarkdownFenceState
 ): boolean {
-  if (!continuesBlockContainer(state, fence.container)) {
+  // An open fence takes the whole line once its containers continue, so a
+  // marker such as `>` there is code text and cannot introduce a closer.
+  if (state.openers.length > 0 || !continuesBlockContainer(state, fence.container)) {
     return false
   }
   return isMarkdownFenceCloser(
