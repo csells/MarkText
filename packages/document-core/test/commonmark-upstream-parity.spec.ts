@@ -158,6 +158,8 @@ describe('CommonMark and upstream agree', () => {
     ['a\n:-\n', '<table><thead><tr><th align="left">a</th></tr></thead></table>'],
     ['Foo\nbar\n-|\n', '<p>Foo</p><table><thead><tr><th>bar</th></tr></thead></table>'],
     ['a\n---\n', '<h2>a</h2>'],
+    // A definition the lane read on a later line is no table row.
+    ['> + `\n-|\n>   -\n>   [t]: /u\n', '<blockquote><ul><li><table><thead><tr><th>`</th></tr></thead><tbody><tr><td>-</td></tr></tbody></table></li></ul></blockquote>'],
     // The header is paragraph text, never another block's line.
     ['|\n-|\n', '<p>|\n-|</p>'],
     ['~~~\n-|\n', '<pre><code>-|\n</code></pre>'],
