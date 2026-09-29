@@ -45,7 +45,7 @@ export const planAuthor = (
     // A comment on text in a standalone highlight comments on that highlight
     // (plan 0012 G16); in a commented passage it nests a new pair below.
     if (around !== undefined && layout.standalone.includes(around)) {
-      return planHighlightComment(activeCore, activeRevision, around, request.text, preview, diagnosticsOf)
+      return planHighlightComment(around, request.text, preview, diagnosticsOf)
     }
   }
   if (request.range.start === request.range.end) return undefined
@@ -297,8 +297,6 @@ function outsideCommentedSpanEdges(pairs: readonly HighlightCommentPair[], range
 
 /** Adds a Comment directly after a standalone Highlight, forming one commented span. */
 function planHighlightComment(
-  activeCore: DocumentCore,
-  activeRevision: DocumentRevision,
   highlight: CriticMarkupAnnotation,
   text: string,
   preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision,

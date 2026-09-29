@@ -66,10 +66,28 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
   })
 
+  // Plan 0012 G35: a heading or a label naming no definition is read in the
+  // blocks around it, as the whole document reads it.
   it.each([
-    { label: 'new annotation beside a code span', insert: '{++new++}', tail: 'A `code` span.\n' },
-    { label: 'new Markdown structure', insert: '\n\n# heading\n\n', tail: '' },
-    { label: 'reference dependency', insert: '[new][label]', tail: '' }
+    { label: 'new Markdown structure', insert: '\n\n# heading\n\n' },
+    { label: 'a label no definition names', insert: '[new][label]' }
+  ])('keeps an ordinary edit that introduces $label regional', ({ insert }) => {
+    const source = 'ordinary target\n\n' + suffix
+    const start = source.indexOf('target') + 2
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const before = inspectDocumentCore(core)
+    const result = core.apply(revision, [{ start, end: start, insert }], { projections: ['markup'] })
+    expect(result.change.projections[0]?.scope).toBe('regions')
+    expect(inspectDocumentCore(core).documentParses - before.documentParses).toBe(0)
+    const oracle = createDocumentCore()
+    const expected = oracle.open(source.slice(0, start) + insert + source.slice(start))
+    expect(result.revision.annotations).toEqual(expected.annotations)
+    expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
+  })
+
+  it.each([
+    { label: 'new annotation beside a code span', insert: '{++new++}', tail: 'A `code` span.\n' }
   ])('uses a full parse when an ordinary edit introduces $label', ({ insert, tail }) => {
     const source = 'ordinary target\n\n' + suffix + tail
     const start = source.indexOf('target') + 2

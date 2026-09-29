@@ -14,11 +14,6 @@ export interface TableSource {
   slice(start: number, end: number): string
 }
 
-const revisionSource = (core: DocumentCore, revision: DocumentRevision): TableSource => ({
-  length: revision.sourceLength,
-  slice: (start, end) => core.sourceSlice(revision, { start, end })
-})
-
 interface Respelling extends DocumentSourceEdit {
   /** Whitespace before a cell's content, which a caret at that content follows. */
   readonly leading?: true

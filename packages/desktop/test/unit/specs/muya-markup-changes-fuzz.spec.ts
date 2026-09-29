@@ -6,7 +6,9 @@ import { createMuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
 // Plan 0012 G35: a view patched with a regional reply reads exactly as the
 // view of the whole new revision, whatever the edit: blank-line runs and
 // whitespace-only lines included, where Enter at a paragraph's end lands,
-// and stray or unfinished markers beside them.
+// stray or unfinished markers beside them, and every block kind, whose
+// source structure the view reads from the canonical source as the editor's
+// does.
 
 const lcg = (seed: number) => (): number => {
   seed = (seed * 1664525 + 1013904223) >>> 0
@@ -30,9 +32,20 @@ const blocks = [
   'Stray ++} closer and --} here.',
   'Unfinished {== opener here.',
   'Kept {++ok++} then {== open.',
-  'Text {--gone--} and ++} stray.'
+  'Text {--gone--} and ++} stray.',
+  'Call `render()` once and cache it.',
+  'See [the guide](http://x.y) for more.',
+  'The area $a^2$ grows.',
+  '```js\nconst total = 1\n```',
+  '| a | b |\n| --- | --- |\n| c | d |',
+  'Setext title\n---',
+  '1. first step\n2. second step',
+  '<div>\nhtml text\n</div>',
+  '    indented code',
+  'Some *emphasis* and **strong** words.',
+  '---'
 ]
-const insertions = ['x', ' ', '\n', '\n\n', '\n\n\n\n', '   ', '{++n++}', '# ', '- ', '++}', '{==']
+const insertions = ['x', ' ', '\n', '\n\n', '\n\n\n\n', '   ', '{++n++}', '# ', '- ', '++}', '{==', '`', '$', '[', ']', '|', '> ', '1. ', '```']
 
 const seeds = Number(process.env.MARKTEXT_VIEW_FUZZ_SEEDS ?? 40)
 const first = Number(process.env.MARKTEXT_VIEW_FUZZ_FIRST ?? 1)
@@ -48,7 +61,7 @@ describe('Patched Markup views read as the whole view', () => {
         ) + (random() < 0.8 ? '\n' : '')
       const core = createDocumentCore()
       let revision = core.open(source)
-      let view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations)
+      let view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, revision.source)
       for (let edit = 0; edit < 6; edit += 1) {
         const text = revision.source
         // Favour paragraph ends and blank lines, where Enter lands.
@@ -63,7 +76,8 @@ describe('Patched Markup views read as the whole view', () => {
         const commit = core.apply(revision, [{ start, end, insert }], { projections: ['markup'] })
         const expected = createMuyaMarkupView(
           core.project(commit.revision, 'markup'),
-          commit.revision.annotations
+          commit.revision.annotations,
+          commit.revision.source
         )
         const change = commit.change.projections[0]
         const patched =

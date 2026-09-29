@@ -1783,7 +1783,7 @@ describe('document-core semantic changes', () => {
       .toEqual(createDocumentCore().open(suggestion.revision.source).annotations)
 
     for (const candidate of [
-      { insert: 'text\n# heading', markdown: undefined },
+      { insert: 'text\n\n[label]: /url\n\nmore', markdown: undefined },
       { insert: 'WORDS', markdown: { gfm: false } }
     ] as const) {
       const fallbackCore = createDocumentCore()
@@ -1811,15 +1811,15 @@ describe('document-core semantic changes', () => {
       [{
         start: emptyAt,
         end: emptyAt + 4,
-        insert: 'text\n# heading'
+        insert: 'text\n\n[label]: /url\n\nmore'
       }],
       { projections: [] }
     )
     expect(resynchronization.change.resynchronization).toEqual({
       kind: 'source',
       scope: 'document',
-      reason: 'structural-region-ineligible',
-      source: emptySource.slice(0, emptyAt) + 'text\n# heading' +
+      reason: 'definition-or-reference-facts',
+      source: emptySource.slice(0, emptyAt) + 'text\n\n[label]: /url\n\nmore' +
         emptySource.slice(emptyAt + 4)
     })
     expect(structuredClone(resynchronization.change))
@@ -3780,12 +3780,12 @@ describe('document-core semantic changes', () => {
 
   it.each([
     {
-      name: 'a heading prefix changes paragraph structure',
-      source: 'head\n\ntarget word\n\ntail\n\n',
+      name: 'an unclosed fence takes the blocks after its region',
+      source: 'head\n\ntarget word\n\nmiddle\n\nmore\n\ntail\n\n',
       edit: (source: string) => ({
         start: source.indexOf('target'),
         end: source.indexOf('target'),
-        insert: '# '
+        insert: '```\n'
       }),
       reason: 'structural-region-ineligible'
     },
@@ -4027,7 +4027,8 @@ describe('document-core semantic changes', () => {
     expect(delta(after, before, 'sourceMaterializationOutputUnits')).toBe(0)
     expect(delta(after, before, 'sourceRopeNodesAllocated')).toBeLessThan(2_000)
     expect(after.sourceRopeMaximumDepth).toBeLessThan(16)
-    expect(delta(after, before, 'sourceSliceCalls')).toBe(200)
+    // Each reply also reads the unchanged text just before and after its region.
+    expect(delta(after, before, 'sourceSliceCalls')).toBe(400)
     expect(delta(after, before, 'sourceSliceUnits')).toBeLessThan(20_000)
     expect(delta(after, before, 'sourceSlicePieces')).toBeLessThan(20_000)
     expect(delta(after, before, 'sourceRopeRootsAttempted')).toBe(100)
@@ -4566,7 +4567,7 @@ describe('document-core semantic changes', () => {
   })
 
   it('full-parses one structural fallback after a regional chain', () => {
-    const source = 'head\n\ntarget word\n\ntail\n\n'
+    const source = 'head\n\ntarget word\n\nmiddle\n\nmore\n\ntail\n\n'
     const core = createDocumentCore()
     const opened = core.open(source)
     const at = source.indexOf('word') + 1
@@ -4580,7 +4581,7 @@ describe('document-core semantic changes', () => {
     const fallback = core.apply(regional.revision, [{
       start: structuralAt,
       end: structuralAt,
-      insert: '# '
+      insert: '```\n'
     }], { projections: ['markup'] })
     const afterFallback = inspectionOf(core)
 

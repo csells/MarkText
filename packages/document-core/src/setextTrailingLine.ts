@@ -54,13 +54,24 @@ export function setextUnderlineAtLeadingLine(
 }
 
 function lineStartBefore(sourceText: (start: number, end: number) => string, position: number): number {
-  for (let span = 256; ; span *= 4) {
-    const start = Math.max(0, position - span)
-    const text = sourceText(start, position)
-    const found = Math.max(text.lastIndexOf('\n'), text.lastIndexOf('\r'))
-    if (found >= 0) return start + found + 1
-    if (start === 0) return 0
+  let end = position
+  while (end > 0) {
+    const start = Math.max(0, end - 256)
+    const text = sourceText(start, end)
+    if (text.length === end - start) {
+      const found = Math.max(text.lastIndexOf('\n'), text.lastIndexOf('\r'))
+      if (found >= 0) return start + found + 1
+    } else {
+      // A view's text leaves hidden delimiters out, so offsets into it are
+      // not source offsets: read the span one unit at a time instead.
+      for (let offset = end; offset > start; offset -= 1) {
+        const unit = sourceText(offset - 1, offset)
+        if (unit === '\n' || unit === '\r') return offset
+      }
+    }
+    end = start
   }
+  return 0
 }
 
 /**

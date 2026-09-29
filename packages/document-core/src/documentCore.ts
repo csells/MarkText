@@ -50,6 +50,7 @@ import {
   previewRegionalRange,
   regionalInventoryDefinitions,
   regionalInventoryRootCount,
+  regionalInventoryRootRanges,
   regionalRangeWindow,
   strayMarkersStayLocal,
   referenceDependencyPrefixEnd,
@@ -397,6 +398,22 @@ export interface MarkupRegionReplacement {
    * annotation facts it reads the whole document with.
    */
   readonly annotations: readonly CriticMarkupAnnotation[]
+  /**
+   * The unchanged text events from the block before the replaced ones to
+   * their start, when the region was read with it: the view of a block's
+   * first line can depend on the lines before it, as a blank line's end is
+   * the position of the empty line Enter leaves there.
+   */
+  readonly precedingEvents?: readonly Extract<MarkupEvent, { kind: 'text' }>[]
+  /**
+   * Where the first block after the replaced ones starts, when the region
+   * was read with it, with the text events up to there: a view keeps the
+   * blank text between a block and the next one.
+   */
+  readonly following?: Readonly<{
+    blockStart: number,
+    events: readonly Extract<MarkupEvent, { kind: 'text' }>[]
+  }>
 }
 
 export interface MarkupRegionProjectionChange {
@@ -2639,8 +2656,15 @@ function createDocumentCoreWithExecutionBudget(
         dependencyPrefixEnd,
         inventoryPlainIndexRecorder,
         // Neither smaller index covers a document with stray or unfinished
-        // markers, so it is inventoried however few suggestions it holds.
-        (retained?.diagnostics.length ?? 0) !== 0 ? 0 : 2
+        // markers, one whose code spans, links or math the plain paragraph
+        // index does not model, or an edit before its last reference
+        // definition, so such a document is inventoried however few
+        // suggestions it holds.
+        (retained?.diagnostics.length ?? 0) !== 0 ||
+          ((retainedIndex === undefined || retainedIndex.dependencyPrefixEnd !== 0) &&
+            criticMarkupIndex === undefined && commentIndex === undefined)
+          ? 0
+          : 2
       )
       const retainedSummary = retained === undefined
         ? undefined
@@ -3026,7 +3050,32 @@ function createDocumentCoreWithExecutionBudget(
         coordinates: Object.freeze(markupCoordinates),
         annotations: regionalAnnotations(
           materialized.annotations, window.source, blocks.source.start, blocks.source.end
-        )
+        ),
+        ...(admission.window === undefined || blocks.source.start === 0
+          ? {}
+          : {
+            precedingEvents: shiftRegionalMarkupEvents(
+              markup.events.filter(event => event.kind === 'text' && event.sourceRange.end <= blocks.source.start),
+              window.source
+            ) as readonly Extract<MarkupEvent, { kind: 'text' }>[]
+          }),
+        ...(() => {
+          if (admission.window === undefined) return {}
+          const next = markup.syntax.ast.root.children.find(child => child.range.start >= blocks.syntax.end &&
+            child.range.start > blocks.syntax.start)
+          if (next === undefined) return {}
+          const blockStart = markup.syntax.coordinates.toSource(next.range.start, 'previous')
+          return {
+            following: Object.freeze({
+              blockStart: window.source + blockStart,
+              events: shiftRegionalMarkupEvents(
+                markup.events.filter(event => event.kind === 'text' &&
+                  event.sourceRange.start >= blocks.source.end && event.sourceRange.start < blockStart),
+                window.source
+              ) as readonly Extract<MarkupEvent, { kind: 'text' }>[]
+            })
+          }
+        })()
       }) satisfies MarkupRegionReplacement
       projections.push(Object.freeze({
         name: 'markup',
@@ -3799,6 +3848,111 @@ function createDocumentCoreWithExecutionBudget(
     return Object.freeze(projections)
   }
 
+  // Source units before a region its replacement reads the lines of.
+  const PRECEDING_LINES_SPAN = 512
+  /**
+   * `projections` with the context each Markup region lacks: the text before
+   * it, read from the unchanged source back to a line start after the last
+   * annotation there, and where the next block starts, so the region's view
+   * reads the lines around its blocks as the whole view does.
+   */
+  const withRegionContext = (
+    previousState: RevisionState,
+    projections: readonly DocumentProjectionChange[]
+  ): readonly DocumentProjectionChange[] => Object.freeze(projections.map(change => {
+    if (change.name !== 'markup' || change.scope !== 'regions') return change
+    // The annotations around the region, read without a document parse or
+    // materializing one: a plain document's index holds none, and a
+    // revision without an inventory cannot say.
+    const inventory = previousState.regionalInventory ?? convertedRegionalInventory(previousState)
+    const rootsIn = (range: SourceRange): readonly SourceRange[] | undefined =>
+      inventory !== undefined
+        ? regionalInventoryRootRanges(inventory, range.start, range.end)
+        : previousState.retainedIndex !== undefined ? [] : undefined
+    return Object.freeze({
+      ...change,
+      replacements: Object.freeze(change.replacements.map(replacement => {
+        const end = replacement.previous.source.start
+        if (replacement.precedingEvents !== undefined || end === 0) return replacement
+        let from = Math.max(0, end - PRECEDING_LINES_SPAN)
+        // Only the text after the last annotation before the region reads
+        // as its source.
+        const before = rootsIn({ start: from, end })
+        if (before === undefined) return replacement
+        for (const root of before) {
+          if (root.start >= end || root.end <= from) continue
+          if (root.end > end) return replacement
+          from = Math.max(from, root.end)
+        }
+        const text = previousState.source.slice(from, end)
+        const breakAt = from === 0 ? -1 : text.search(/[\r\n]/u)
+        if (from !== 0 && breakAt === -1) return replacement
+        const lineStart = from === 0 ? 0 : breakAt + (text.startsWith('\r\n', breakAt) ? 2 : 1)
+        const start = from + lineStart
+        if (start >= end) return replacement
+        return Object.freeze({
+          ...replacement,
+          precedingEvents: Object.freeze([Object.freeze({
+            kind: 'text' as const,
+            text: text.slice(lineStart),
+            sourceRange: Object.freeze({ start, end })
+          })])
+        })
+      }).map(replacement => {
+        // The first block after the region, read from the blocks there.
+        const end = replacement.previous.source.end
+        if (replacement.following !== undefined || end >= previousState.source.length) return replacement
+        if (inventory === undefined) return replacement
+        // A block on a line of its own at the first line after blank lines
+        // starts there; an indented one is read from the blocks there.
+        let text = ''
+        let line = 0
+        for (let span = 64; ; span *= 8) {
+          text = previousState.source.slice(end, Math.min(previousState.source.length, end + span))
+          line = /^(?:[ \t]*(?:\r\n|\r|\n))*/u.exec(text)?.[0].length ?? 0
+          if (line < text.length || end + span >= previousState.source.length || span >= PRECEDING_LINES_SPAN) break
+        }
+        if (line === text.length) return replacement
+        let blockStart: number | undefined
+        if (!/[ \t]/u.test(text.charAt(line))) blockStart = end + line
+        else {
+          const window = regionalRangeWindow(inventory, previousState.source, { start: end, end }, executionBudget,
+            previousState.markdownOptions, regionalPhysicalRecorder)
+          if (window?.validated !== true) return replacement
+          const editing = window.nextProducts.editing()
+          const coordinates = projectionCoordinatesOf(editing, window.nextWindow.length)
+          for (const child of markdownAstOf(editing).root.children) {
+            const start = window.sourceStart + coordinates.toSource(child.range.start, 'previous')
+            if (start >= end) {
+              blockStart = start
+              break
+            }
+          }
+        }
+        if (blockStart === undefined || blockStart - end > PRECEDING_LINES_SPAN) return replacement
+        const after = rootsIn({ start: end, end: blockStart })
+        if (after === undefined || after.some(root => root.end > end && root.start < blockStart)) return replacement
+        const shift = replacement.next.source.end - end
+        return Object.freeze({
+          ...replacement,
+          following: Object.freeze({
+            blockStart: blockStart + shift,
+            events: Object.freeze(blockStart === end
+              ? []
+              : [Object.freeze({
+                kind: 'text' as const,
+                text: previousState.source.slice(end, blockStart),
+                sourceRange: Object.freeze({ start: end + shift, end: blockStart + shift })
+              })])
+          })
+        })
+      }))
+    })
+  }))
+
+  // Source units between the first and last of several edits one regional
+  // replacement may cover.
+  const COMBINED_EDIT_SPAN = 4096
   const tryRegionalApply = (
     previousState: RevisionState,
     source: PersistentCanonicalSource,
@@ -3832,6 +3986,21 @@ function createDocumentCoreWithExecutionBudget(
         reason: fallbackReason,
         projections: fallbackProjectionChanges(requests, fallbackReason)
       })
+    }
+    // Nearby edits, such as the two Enter writes in a setext heading's text,
+    // are one replacement of the text they span, which a region can hold.
+    const firstEdit = stableEdits[0]
+    const lastEdit = stableEdits.at(-1)
+    if (stableEdits.length > 1 && firstEdit !== undefined && lastEdit !== undefined &&
+        lastEdit.end - firstEdit.start <= COMBINED_EDIT_SPAN) {
+      let insert = ''
+      let cursor = firstEdit.start
+      for (const edit of stableEdits) {
+        insert += previousState.source.slice(cursor, edit.start) + edit.insert
+        cursor = edit.end
+      }
+      return tryRegionalApply(previousState, source,
+        Object.freeze([Object.freeze({ start: firstEdit.start, end: lastEdit.end, insert })]), options, requests)
     }
     // A key that only moves the caret, such as Delete over struck text,
     // applies no edit: the next revision reads exactly as this one.
@@ -4206,6 +4375,29 @@ function createDocumentCoreWithExecutionBudget(
       state.markdownOptions, regionalPhysicalRecorder)
   }
 
+  /**
+   * The blocks around `range` read for planning a key, also when a label in
+   * them names one of the document's definitions: the window reads that
+   * label as text, so it serves only a key outside every bracketed span.
+   */
+  const regionalPlanningWindow = (
+    state: RevisionState,
+    range: SourceRange
+  ): ReturnType<typeof previewRegionalRange> => {
+    const validated = regionalReadWindow(state, range)
+    if (validated !== undefined || state.productStore.withRetained(() => true) === true) return validated
+    const inventory = state.regionalInventory ?? convertedRegionalInventory(state)
+    if (inventory === undefined) return undefined
+    const window = regionalRangeWindow(inventory, state.source, range, executionBudget,
+      state.markdownOptions, regionalPhysicalRecorder)
+    if (window?.labelsOnly !== true) return undefined
+    for (const match of window.nextWindow.matchAll(/\[(?:[^[\]\\]|\\[\s\S])*\]/gu)) {
+      const start = window.sourceStart + match.index
+      if (start <= range.end && start + match[0].length >= range.start) return undefined
+    }
+    return Object.freeze({ sourceStart: window.sourceStart, nextProducts: window.nextProducts, nextWindow: window.nextWindow })
+  }
+
   const windowAnnotations = new WeakMap<Profile1DocumentProducts, MaterializedAnnotations>()
   const windowAnnotationsOf = (products: Profile1DocumentProducts): MaterializedAnnotations => {
     let materialized = windowAnnotations.get(products)
@@ -4461,7 +4653,19 @@ function createDocumentCoreWithExecutionBudget(
       ? previousState.markdownOptions
       : markdownOptions(options, previousState.markdownOptions)
     const previousPass = demoteCurrentProductStore(products => {
+      // A regionally reached revision's parse is made apart from the reuse
+      // cache the document parse reads, so its templates can describe blocks
+      // a regional edit has since changed.
+      if (previousState.kind === 'regional') return undefined
       if (!sameMarkdownOptions(previousState.markdownOptions, resolvedOptions)) {
+        return undefined
+      }
+      // Front matter runs from the document's first line to its closing line,
+      // wherever an edit moves that, so the retained pass cannot bound it.
+      const frontMatter = /^(?:---|\+\+\+)[ \t]*(?:\r\n|\r|\n|$)/u
+      if (resolvedOptions.frontMatter &&
+          (frontMatter.test(previousState.source.slice(0, Math.min(8, previousState.source.length))) ||
+           frontMatter.test(source.slice(0, Math.min(8, source.length))))) {
         return undefined
       }
       if (editsMayRepairMath(previousState.source, source, stableEdits, resolvedOptions)) {
@@ -4619,7 +4823,7 @@ function createDocumentCoreWithExecutionBudget(
     // A caret inside a marker's spelling splits it, which no edit window
     // admits; the blocks around it still read as they do in place.
     const candidate = regionalCandidate(state, { start: range.start, end: range.start, insert: '' }) ??
-      regionalReadWindow(state, range)
+      regionalPlanningWindow(state, range)
     if (candidate === undefined || range.end > candidate.sourceStart + candidate.nextWindow.length) return undefined
     return windowSyntax(candidate.sourceStart, candidate.nextProducts, candidate.nextWindow.length)
   }
@@ -4637,8 +4841,7 @@ function createDocumentCoreWithExecutionBudget(
     // admit no edit window, yet still read in place as in the document.
     const candidate = previewRegionalContext(inventory, state.source, position, executionBudget,
       state.markdownOptions, regionalPhysicalRecorder) ??
-      previewRegionalRange(inventory, state.source, { start: position, end: position }, executionBudget,
-        state.markdownOptions, regionalPhysicalRecorder)
+      regionalPlanningWindow(state, { start: position, end: position })
     if (candidate === undefined) return undefined
     const editing = candidate.nextProducts.editing()
     return Object.freeze({
@@ -6448,7 +6651,7 @@ function createDocumentCoreWithExecutionBudget(
           revision: regional.revision,
           change: Object.freeze({
             appliedEdits: stableEdits,
-            projections: regional.projections
+            projections: withRegionContext(previousState, regional.projections)
           })
         })
       }
