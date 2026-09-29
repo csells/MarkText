@@ -4557,13 +4557,17 @@ function startsBlockInsideTable(
   constructs: ReadonlyMap<number, MappedMarkdownLiteral>,
   referenceDefinitions: MarkdownReferenceDefinitionLookup
 ): boolean {
-  if (line.indentation > 3) return false
-  if (isThematicBreakRun(source, line.contentOffset, line.contentEnd)) return true
-  if (parseAtxHeading(source, line.contentOffset, line.contentEnd, constructs, referenceDefinitions) !== undefined) {
+  if (
+    line.indentation <= 3 &&
+    (
+      isThematicBreakRun(source, line.contentOffset, line.contentEnd) ||
+      parseAtxHeading(source, line.contentOffset, line.contentEnd, constructs, referenceDefinitions) !== undefined
+    )
+  ) {
     return true
   }
   // Literals are ordered by start; only the first one starting on this
-  // line can open a block here.
+  // line can open a block here, indented code included.
   let low = 0
   let high = literals.length
   while (low < high) {
@@ -4576,6 +4580,7 @@ function startsBlockInsideTable(
     if (candidate === undefined || candidate.start > line.contentOffset) break
     if (
       (candidate.provider === 'fenced-code' ||
+        candidate.provider === 'indented-code' ||
         candidate.provider === 'html-block' ||
         candidate.provider === 'diagram' ||
         candidate.provider === 'definition') &&

@@ -167,8 +167,15 @@ describe('CommonMark and upstream agree', () => {
     // A code span pairs backticks inside one cell only.
     ['`||`c`\n-|-|-\n', '<table><thead><tr><th>`</th><th></th><th><code>c</code></th></tr></thead></table>'],
     ['b|`|`c`\n-|-|-\n', '<table><thead><tr><th>b</th><th>`</th><th><code>c</code></th></tr></thead></table>'],
-    // A definition the lane read on a later line is no table row.
-    ['> + `\n-|\n>   -\n>   [t]: /u\n', '<blockquote><ul><li><table><thead><tr><th>`</th></tr></thead><tbody><tr><td>-</td></tr></tbody></table></li></ul></blockquote>'],
+    // A definition cannot start inside a table: that line is a row.
+    ['a|b\n-|-\n[r]: /u\n', '<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>[r]: /u</td><td></td></tr></tbody></table>'],
+    // A table's rows end where indented code, or a bullet or `1.` item
+    // followed by a space, begins.
+    ['a|b\n-|-\n    x\n', '<table><thead><tr><th>a</th><th>b</th></tr></thead></table><pre><code>x\n</code></pre>'],
+    ['a|b\n-|-\nc|d\n\tx\n', '<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>c</td><td>d</td></tr></tbody></table><pre><code>x\n</code></pre>'],
+    ['a|b\n-|-\n- \n', '<table><thead><tr><th>a</th><th>b</th></tr></thead></table><ul><li></li></ul>'],
+    ['a|b\n-|-\n1. \n', '<table><thead><tr><th>a</th><th>b</th></tr></thead></table><ol><li></li></ol>'],
+    ['- a|b\n  -|-\n      x\n', '<ul><li><table><thead><tr><th>a</th><th>b</th></tr></thead></table><pre><code>x\n</code></pre></li></ul>'],
     // The header is paragraph text, never another block's line.
     ['|\n-|\n', '<p>|\n-|</p>'],
     ['~~~\n-|\n', '<pre><code>-|\n</code></pre>'],
@@ -219,6 +226,11 @@ describe('where CommonMark and upstream differ (Profile 1)', () => {
     // its delimiter row.
     ['- a|b\n  -|-\nc|d\n', '<ul><li><table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>c</td><td>d</td></tr></tbody></table></li></ul>'],
     ['- a|b\n-|-\n', '<ul><li><table><thead><tr><th>a</th><th>b</th></tr></thead></table></li></ul>'],
+    // Upstream: `-` alone, `1.` alone or a renumbered item after a table
+    // is a row. GFM starts a list there.
+    ['a|b\n-|-\n-\n', '<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>-</td><td></td></tr></tbody></table>'],
+    ['a|b\n-|-\n2. x\n', '<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>2. x</td><td></td></tr></tbody></table>'],
+    ['> a|b\n> -|-\n    x\n', '<blockquote><table><thead><tr><th>a</th><th>b</th></tr></thead></table><pre><code>x\n</code></pre></blockquote>'],
     // Upstream: a definition's destination may be a delimiter-looking line.
     // GFM starts a table under its label.
     ['[f]:\n-|\n', '']
@@ -272,7 +284,10 @@ describe('typing these lines reads as a fresh open', () => {
     ['[f]: /u "t"\n\n', 12, '"s"'],
     ['> [f]: /u\n\n', 10, 's'],
     ['1. [f]: /u\n\n', 11, 'o'],
-    ['> a|b\n> -|-\n\n', 12, 'c|d']
+    ['> a|b\n> -|-\n\n', 12, 'c|d'],
+    ['a|b\n-|-\n\n', 8, '    x'],
+    ['a|b\n-|-\n\n', 8, '- '],
+    ['a|b\n-|-\nc|d\n', 12, '\n    x']
   ])('%j at %i types %j', (source, at, insert) => {
     const core = createDocumentCore()
     const previous = core.open(source)
