@@ -164,6 +164,9 @@ describe('CommonMark and upstream agree', () => {
     ['a\n:-\n', '<table><thead><tr><th align="left">a</th></tr></thead></table>'],
     ['Foo\nbar\n-|\n', '<p>Foo</p><table><thead><tr><th>bar</th></tr></thead></table>'],
     ['a\n---\n', '<h2>a</h2>'],
+    // A code span pairs backticks inside one cell only.
+    ['`||`c`\n-|-|-\n', '<table><thead><tr><th>`</th><th></th><th><code>c</code></th></tr></thead></table>'],
+    ['b|`|`c`\n-|-|-\n', '<table><thead><tr><th>b</th><th>`</th><th><code>c</code></th></tr></thead></table>'],
     // A definition the lane read on a later line is no table row.
     ['> + `\n-|\n>   -\n>   [t]: /u\n', '<blockquote><ul><li><table><thead><tr><th>`</th></tr></thead><tbody><tr><td>-</td></tr></tbody></table></li></ul></blockquote>'],
     // The header is paragraph text, never another block's line.

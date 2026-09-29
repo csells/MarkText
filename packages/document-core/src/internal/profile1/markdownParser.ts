@@ -4587,6 +4587,71 @@ function startsBlockInsideTable(
   return false
 }
 
+/**
+ * GFM splits a row into cells before reading any inline syntax, so a code
+ * span cannot pair backticks from two cells. The lane pairs runs across the
+ * row's text; where one of its code spans crosses a cell edge, each cell's
+ * backtick runs are paired again inside that cell alone.
+ */
+function cellCodeSpanConstructs(
+  source: string,
+  cells: readonly TableCellRange[],
+  constructs: ReadonlyMap<number, MappedMarkdownLiteral>
+): ReadonlyMap<number, MappedMarkdownLiteral> {
+  const crossing: number[] = []
+  for (const cell of cells) {
+    for (let offset = cell.start; offset < cell.end; offset += 1) {
+      const literal = constructs.get(offset)
+      if (literal?.provider === 'inline-code' && literal.construct === undefined && literal.end > cell.end) {
+        crossing.push(offset)
+      }
+    }
+  }
+  if (crossing.length === 0) return constructs
+  const paired = new Map(constructs)
+  for (const offset of crossing) paired.delete(offset)
+  for (const cell of cells) {
+    let offset = cell.start
+    while (offset < cell.end) {
+      const literal = paired.get(offset)
+      if (literal !== undefined && literal.end <= cell.end) {
+        offset = Math.max(offset + 1, literal.end)
+        continue
+      }
+      if (source.charCodeAt(offset) !== 96) {
+        offset += source.charCodeAt(offset) === 92 ? 2 : 1
+        continue
+      }
+      let runEnd = offset
+      while (runEnd < cell.end && source.charCodeAt(runEnd) === 96) runEnd += 1
+      const length = runEnd - offset
+      let closer = runEnd
+      let closeStart: number | undefined
+      while (closer < cell.end) {
+        if (source.charCodeAt(closer) !== 96) {
+          closer += 1
+          continue
+        }
+        let closeEnd = closer
+        while (closeEnd < cell.end && source.charCodeAt(closeEnd) === 96) closeEnd += 1
+        if (closeEnd - closer === length) {
+          closeStart = closer
+          break
+        }
+        closer = closeEnd
+      }
+      if (closeStart === undefined) {
+        paired.delete(offset)
+        offset = runEnd
+        continue
+      }
+      paired.set(offset, Object.freeze({ provider: 'inline-code', start: offset, end: closeStart + length }))
+      offset = closeStart + length
+    }
+  }
+  return paired
+}
+
 interface ParsedTable {
   readonly node: MarkdownNode
   readonly nextLineIndex: number
@@ -4612,44 +4677,47 @@ function parseTable(
     line: PlainMarkdownLine,
     cells: readonly TableCellRange[],
     header: boolean
-  ): MarkdownNode => createNode(
-    'table-row',
-    headerLine.containers.length === 0 ? line.start : line.contentOffset,
-    line.contentEnd,
-    alignments.map((alignment, index) => {
-      const cell = cells[index] ?? Object.freeze({
-        start: line.contentEnd,
-        end: line.contentEnd
-      })
-      return createNode(
-        'table-cell',
-        cell.start,
-        cell.end,
-        parseInlineNodes(
-          source,
+  ): MarkdownNode => {
+    const cellConstructs = cellCodeSpanConstructs(source, cells, constructs)
+    return createNode(
+      'table-row',
+      headerLine.containers.length === 0 ? line.start : line.contentOffset,
+      line.contentEnd,
+      alignments.map((alignment, index) => {
+        const cell = cells[index] ?? Object.freeze({
+          start: line.contentEnd,
+          end: line.contentEnd
+        })
+        return createNode(
+          'table-cell',
           cell.start,
           cell.end,
-          constructs,
-          referenceDefinitions,
-          boundaryPolicy
-        ),
-        {
-          header,
-          alignment,
-          ...(cells[index] === undefined ? {} : { cellStart: cells[index].cellStart, cellEnd: cells[index].cellEnd }),
-          ...(header && delimiter.cells[index] !== undefined
-            ? {
-              delimiterStart: delimiter.cells[index].cellStart,
-              delimiterEnd: delimiter.cells[index].cellEnd,
-              delimiterContentStart: delimiter.cells[index].start,
-              delimiterContentEnd: delimiter.cells[index].end
-            }
-            : {})
-        }
-      )
-    }),
-    { header }
-  )
+          parseInlineNodes(
+            source,
+            cell.start,
+            cell.end,
+            cellConstructs,
+            referenceDefinitions,
+            boundaryPolicy
+          ),
+          {
+            header,
+            alignment,
+            ...(cells[index] === undefined ? {} : { cellStart: cells[index].cellStart, cellEnd: cells[index].cellEnd }),
+            ...(header && delimiter.cells[index] !== undefined
+              ? {
+                delimiterStart: delimiter.cells[index].cellStart,
+                delimiterEnd: delimiter.cells[index].cellEnd,
+                delimiterContentStart: delimiter.cells[index].start,
+                delimiterContentEnd: delimiter.cells[index].end
+              }
+              : {})
+          }
+        )
+      }),
+      { header }
+    )
+  }
   rows.push(createRow(headerLine, headerCells, true))
   let nextLineIndex = lineIndex + 2
   while (nextLineIndex < lines.length) {
