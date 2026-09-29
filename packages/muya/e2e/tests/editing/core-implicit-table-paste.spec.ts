@@ -3,9 +3,12 @@ import { expect, test } from '../fixtures/muya';
 import { editor } from '../helpers/selectors';
 
 const source = '| a | b | c |\n| --- | --- | --- |\n| x |\n';
-// An edit writes the table afresh like upstream's: padded, with its missing cells.
+// Upstream writes an edited table afresh: padded, with its missing cells.
 const pastedSource = '| a   | b   | c   |\n| --- | --- | --- |\n| x   |     | y   |\n';
 const subsequentSource = '| a   | b   | c   |\n| --- | --- | --- |\n| x   |     | yX  |\n';
+// Core writes only the edit's own bytes and adds the missing cells minimally (ADR 0007).
+const corePastedSource = '| a | b | c |\n| --- | --- | --- |\n| x | | y |\n';
+const coreSubsequentSource = '| a | b | c |\n| --- | --- | --- |\n| x | | yX |\n';
 
 for (const bound of [false, true]) {
     test(`${bound ? 'Core' : 'upstream'} paste into the later implicit cell preserves its target through subsequent typing`, async ({ page }, testInfo) => {
@@ -48,8 +51,8 @@ for (const bound of [false, true]) {
             await testInfo.attach('implicit-cell-paste-observation.json', { path: observationPath, contentType: 'application/json' });
             expect(observation).toMatchObject({ error: undefined, cells: ['a', 'b', 'c', 'x', '', 'y'], focus: 1, column: 2 });
             if (bound) {
-                expect(observation.state).toMatchObject({ source: { source: pastedSource }, legacyCalls: [] });
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: pastedSource });
+                expect(observation.state).toMatchObject({ source: { source: corePastedSource }, legacyCalls: [] });
+                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: corePastedSource });
             }
             else {
                 expect(observation.source).toBe(pastedSource);
@@ -61,9 +64,9 @@ for (const bound of [false, true]) {
                 return { focus: selection?.focus.offset, column: selection?.focus.block.domNode?.closest('td')?.cellIndex };
             })).toEqual({ focus: 2, column: 2 });
             if (bound) {
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: subsequentSource });
+                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: coreSubsequentSource });
                 await page.evaluate(() => window.coreBoundary.history('undo'));
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: pastedSource });
+                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: corePastedSource });
                 await page.evaluate(() => window.coreBoundary.history('undo'));
                 expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
                 expect(await page.evaluate(() => window.muya!.getSelection()?.focus.block.domNode?.closest('td')?.cellIndex)).toBe(2);
@@ -71,7 +74,7 @@ for (const bound of [false, true]) {
                     await window.coreBoundary.history('redo');
                     await window.coreBoundary.history('redo');
                 });
-                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: subsequentSource });
+                expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: coreSubsequentSource });
             }
             else {
                 // The native branch publishes its queued edits at the flush boundary.
@@ -106,7 +109,7 @@ test('Core delayed plain paste retains the later implicit target and the interve
         await page.locator(editor.table).first().locator('tr').nth(1).locator('td').nth(0).click();
         await page.keyboard.press('End');
         await page.keyboard.type('X');
-        const beforeCompletion = '| a   | b   | c   |\n| --- | --- | --- |\n| xX  |     |     |\n';
+        const beforeCompletion = '| a | b | c |\n| --- | --- | --- |\n| xX |\n';
         expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: beforeCompletion }, legacyCalls: [] });
         await page.evaluate(async () => {
             window.finishClipboardImage('y');
@@ -114,7 +117,7 @@ test('Core delayed plain paste retains the later implicit target and the interve
             window.muya!.flush();
             await window.coreBoundary.settle();
         });
-        const completed = '| a   | b   | c   |\n| --- | --- | --- |\n| xX  |     | y   |\n';
+        const completed = '| a | b | c |\n| --- | --- | --- |\n| xX | | y |\n';
         expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: completed });
         expect((await page.locator(`${editor.table} td`).allTextContents()).map(text => text.trim())).toEqual(['a', 'b', 'c', 'xX', '', 'y']);
         expect(await page.evaluate(() => {
@@ -122,7 +125,7 @@ test('Core delayed plain paste retains the later implicit target and the interve
             return { anchor: selection?.anchor.offset, focus: selection?.focus.offset, column: selection?.focus.block.domNode?.closest('td')?.cellIndex };
         })).toEqual({ anchor: 2, focus: 2, column: 0 });
         await page.keyboard.type('Z');
-        const subsequent = '| a   | b   | c   |\n| --- | --- | --- |\n| xXZ |     | y   |\n';
+        const subsequent = '| a | b | c |\n| --- | --- | --- |\n| xXZ | | y |\n';
         expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: subsequent });
         for (const expected of [completed, beforeCompletion, source]) {
             await page.evaluate(() => window.coreBoundary.history('undo'));
@@ -176,8 +179,8 @@ test('Core delayed paste waits for Chromium composition and captures its committ
             window.muya!.flush();
             await window.coreBoundary.settle();
         });
-        const composed = '| a     | b   | c   |\n| ----- | --- | --- |\n| x日本 |     |     |\n';
-        const completed = '| a     | b   | c   |\n| ----- | --- | --- |\n| x日本 |     | y   |\n';
+        const composed = '| a | b | c |\n| --- | --- | --- |\n| x日本 |\n';
+        const completed = '| a | b | c |\n| --- | --- | --- |\n| x日本 | | y |\n';
         expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: completed });
         expect(await page.evaluate(() => {
             const selection = window.muya!.getSelection();
@@ -190,7 +193,7 @@ test('Core delayed paste waits for Chromium composition and captures its committ
         }]);
         expect(committed.browserEvents.some(event => event.type === 'input' && event.trusted && event.composing)).toBe(true);
         await page.keyboard.type('Z');
-        const subsequent = '| a      | b   | c   |\n| ------ | --- | --- |\n| x日本Z |     | y   |\n';
+        const subsequent = '| a | b | c |\n| --- | --- | --- |\n| x日本Z | | y |\n';
         expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: subsequent });
         for (const expected of [completed, composed, source]) {
             await page.evaluate(() => window.coreBoundary.history('undo'));

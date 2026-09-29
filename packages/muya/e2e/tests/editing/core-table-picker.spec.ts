@@ -8,7 +8,9 @@ for (const { bound, tracked } of [{ bound: false, tracked: false }, { bound: tru
         const tail = bound ? '\n\noutside{>>keep<<}\n' : '\n\noutside\n';
         const table = '|     |     |\n| --- | --- |\n|     |     |';
         const created = (tracked ? `{~~${query}~>${table}~~}` : table) + tail;
-        const edited = (tracked ? `{~~${query}~>|     X|     |\n| --- | --- |\n|     |     |~~}` : '| X   |     |\n| --- | --- |\n|     |     |') + tail;
+        // Upstream writes the table afresh; Core writes only the typed bytes (ADR 0007).
+        const typedRow = bound ? '| X    |     |' : '| X   |     |';
+        const edited = (tracked ? `{~~${query}~>${typedRow}\n| --- | --- |\n|     |     |~~}` : `${typedRow}\n| --- | --- |\n|     |     |`) + tail;
         await page.evaluate(async ({ source, bound, tracked }) => {
             if (bound) {
                 const modulePath = '/coreBoundaryControl.ts';
@@ -64,7 +66,8 @@ for (const bound of [false, true]) {
             const indent = placement === 'list' ? '  ' : '';
             const table = `${indent}|     |     |\n${indent}| --- | --- |\n${indent}|     |     |\n`;
             const created = prefix + table;
-            const edited = `${prefix}${indent}| X   |     |\n${indent}| --- | --- |\n${indent}|     |     |\n`;
+            // Upstream writes the table afresh; Core writes only the typed bytes (ADR 0007).
+            const edited = `${prefix}${indent}| X${bound ? '    ' : '   '}|     |\n${indent}| --- | --- |\n${indent}|     |     |\n`;
             await page.evaluate(async ({ source, bound }) => {
                 const muya = window.muya!;
                 if (bound) {

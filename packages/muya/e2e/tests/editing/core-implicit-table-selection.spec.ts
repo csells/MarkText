@@ -71,7 +71,8 @@ for (const bound of [false, true]) {
                         const saved = await page.evaluate(() => window.coreBoundary.reopen());
                         if (saved.type !== 'source')
                             throw new Error('Implicit-cell cut did not produce an acknowledged source');
-                        expect(saved.source).toBe('| a   | b   | c   |\n| --- | --- | --- |\n| x   | y   |     |\n');
+                        // Typing writes only its own bytes and adds its missing cell minimally (ADR 0007).
+                        expect(saved.source).toBe('| a | b | c |\n| --- | --- | --- |\n| x | y |\n');
                         await page.evaluate(() => window.coreBoundary.history('undo'));
                         expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source });
                         await page.evaluate(() => window.coreBoundary.history('redo'));
@@ -93,7 +94,8 @@ test('Core pairing in the later implicit cell governs the next key without an ac
         const control = await import(/* @vite-ignore */ modulePath);
         window.coreBoundary = control.bootCoreBoundary(window.muya!, source);
     }, source);
-    const expected = '| a   | b   | c   |\n| --- | --- | --- |\n| x   |     | (x) |\n';
+    // Typing writes only its own bytes and adds its missing cells minimally (ADR 0007).
+    const expected = '| a | b | c |\n| --- | --- | --- |\n| x | | (x) |\n';
     const laterCell = page.locator(editor.table).first().locator('tr').nth(1).locator('td').nth(2);
     try {
         await laterCell.click();
@@ -114,7 +116,7 @@ test('Core pairing in the later implicit cell governs the next key without an ac
         expect(immediate.state.actions).toHaveLength(2);
         expect(immediate.state.actions[0]).toMatchObject({
             accepted: true,
-            result: { source: { source: '| a   | b   | c   |\n| --- | --- | --- |\n| x   |     | ()  |\n' }, anchor: 1, caret: 1 },
+            result: { source: { source: '| a | b | c |\n| --- | --- | --- |\n| x | | () |\n' }, anchor: 1, caret: 1 },
         });
         expect((await page.locator(`${editor.table} td`).allTextContents()).map(text => text.trim())).toEqual(['a', 'b', 'c', 'x', '', '(x)']);
         await page.evaluate(() => window.coreBoundary.history('undo'));

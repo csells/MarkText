@@ -316,8 +316,9 @@ for (const sample of [
     { name: 'heading soft lines', source: '# before after\n', offset: 9, paste: 'first\nsecond', expected: '# before first\n\nsecondafter\n', caret: 6 },
     { name: 'quote paragraphs', source: '> before after\n', offset: 7, paste: 'first\n\nsecond', expected: '> before first\n>\n> secondafter\n', caret: 6 },
     { name: 'list paragraphs', source: '- before after\n', offset: 7, paste: 'first\n\nsecond', expected: '- before first\n\n  secondafter\n', caret: 6 },
-    // Like upstream, the pasted cell's table is written afresh, padded to its widest cell.
-    { name: 'table multiline', source: '| before after |\n| --- |\n| b |\n', offset: 7, paste: 'first\nsecond', expected: '| before first<br/>secondafter |\n| ---------------------------- |\n| b                            |\n', typed: '| before first<br/>secondXafter |\n| ----------------------------- |\n| b                             |\n', caret: 23 },
+    // Upstream writes the pasted cell's table afresh, padded to its widest cell;
+    // Core writes only the pasted bytes (ADR 0007).
+    { name: 'table multiline', source: '| before after |\n| --- |\n| b |\n', offset: 7, paste: 'first\nsecond', expected: '| before first<br/>secondafter |\n| ---------------------------- |\n| b                            |\n', core: '| before first<br/>secondafter |\n| --- |\n| b |\n', typed: '| before first<br/>secondXafter |\n| --- |\n| b |\n', caret: 23 },
 ]) {
     test(`preserves existing ${sample.name} paste behavior through the native caller`, async ({ page }) => {
         const native = await page.evaluate(async (sample) => {
@@ -331,6 +332,7 @@ for (const sample of [
             return { source: muya.getMarkdown(), caret: muya.getSelection()?.focus.offset };
         }, sample);
         expect(native).toEqual({ source: sample.expected, caret: sample.caret });
+        const core = sample.core ?? sample.expected;
         await page.evaluate(async (sample) => {
             const modulePath = '/coreBoundaryControl.ts';
             const control = await import(/* @vite-ignore */ modulePath);
@@ -343,15 +345,15 @@ for (const sample of [
                 data.setData('text/plain', text);
                 await window.muya!.editor.clipboard.pasteHandler(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
             }, sample.paste);
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: sample.expected }, caret: sample.caret, legacyCalls: [] });
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: core }, caret: sample.caret, legacyCalls: [] });
             await page.keyboard.type('X');
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: sample.typed ?? sample.expected.replace('after', 'Xafter') }, legacyCalls: [] });
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: sample.typed ?? core.replace('after', 'Xafter') }, legacyCalls: [] });
             await page.evaluate(() => window.coreBoundary.history('undo'));
-            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: sample.expected } });
+            expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: core } });
             await page.evaluate(() => window.coreBoundary.history('undo'));
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: sample.source } });
             await page.evaluate(() => window.coreBoundary.history('redo'));
-            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: sample.expected });
+            expect(await page.evaluate(() => window.coreBoundary.reopen())).toMatchObject({ source: core });
         }
         finally { await page.evaluate(() => window.coreBoundary.dispose()); }
     });
