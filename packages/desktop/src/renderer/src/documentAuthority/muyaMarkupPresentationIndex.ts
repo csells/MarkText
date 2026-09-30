@@ -2,6 +2,7 @@ import type { MarkdownAstNode } from '@marktext/document-core'
 import type { IInlinePresentationContext } from '@muyajs/core'
 import { escapeHtml, isMuyaImageSyntax, renderMuyaMarkupBinding } from './muyaMarkupPresentation'
 import {
+  muyaViewBindingsInItems,
   muyaViewBindingsInRoots,
   muyaViewItemAtPath,
   muyaViewItemsAtPath
@@ -258,16 +259,7 @@ export function createMuyaMarkupPresentationIndex(
     for (const [key, entry] of retained ?? []) {
       if (!replacedItem(key)) group.set(key, entry)
     }
-    for (const binding of muyaViewBindingsInRoots(view, root, root + 1)) {
-      const item = binding.path[2]
-      if (
-        binding.path[1] !== 'children' ||
-        typeof item !== 'number' ||
-        item < retainedItems.start ||
-        item >= retainedItems.nextEnd
-      ) {
-        continue
-      }
+    for (const binding of muyaViewBindingsInItems(view, root, retainedItems.start, retainedItems.nextEnd)) {
       const key = restKey(binding.path)
       group.set(key, entryFor(binding, retained?.get(key)))
     }

@@ -504,6 +504,7 @@ import {
 import { resolveMuyaViewAcknowledgement } from '@/documentAuthority/resolveMuyaViewAcknowledgement'
 import { muyaMarkupViewPatch } from '@/documentAuthority/muyaMarkupChanges'
 import {
+  muyaViewBindingsInItems,
   muyaViewBindingsInRoots,
   muyaViewEditableCount,
   muyaViewFindNear,
@@ -1433,15 +1434,12 @@ const applyCorePlainTextEditability = (
   if (muya === null) return
   muya.setEditablePaths(
     (scope, itemScope) =>
-      (scope === undefined ? view.bindings : muyaViewBindingsInRoots(view, scope[0], scope[1]))
-        .filter(
-          (binding) =>
-            binding.editable !== false &&
-            (itemScope === undefined ||
-              (typeof binding.path[2] === 'number' &&
-                binding.path[2] >= itemScope[0] &&
-                binding.path[2] < itemScope[1]))
-        )
+      (scope === undefined
+        ? view.bindings
+        : itemScope === undefined
+          ? muyaViewBindingsInRoots(view, scope[0], scope[1])
+          : muyaViewBindingsInItems(view, scope[0], itemScope[0], itemScope[1]))
+        .filter((binding) => binding.editable !== false)
         .map((binding) => binding.path),
     roots,
     items

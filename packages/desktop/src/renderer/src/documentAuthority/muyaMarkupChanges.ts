@@ -17,13 +17,25 @@ import {
   type MuyaSourceStructure
 } from './muyaMarkupView'
 import {
+  createListItemBindings,
+  groupListItems,
+  listedItemGroups,
+  createMuyaMarkupListRootRun,
   createMuyaMarkupRootRun,
   createRunMuyaMarkupView,
+  muyaMarkupItemGroups,
+  muyaMarkupItemsExtent,
+  patchedListItemBindings,
+  patchedListItemGroups,
+  placedMuyaMarkupItemGroups,
   muyaMarkupRootsFor,
   placedMuyaMarkupBinding,
   placedMuyaMarkupDecoration,
   placedMuyaMarkupItemBinding,
   placedMuyaMarkupItemDecoration,
+  type MuyaMarkupItemBindings,
+  type MuyaMarkupItemGroups,
+  type MuyaMarkupRootExtent,
   type MuyaMarkupRootRun,
   type MuyaMarkupRoots
 } from './muyaMarkupViewRoots'
@@ -143,17 +155,23 @@ const completeSourceCoverage = (replacement: MarkupRegionReplacement): boolean =
 const markdownOffsets = (
   view: MuyaMarkupView
 ): ((syntax: number) => number | undefined) | undefined => {
-  if (view.markdownSegments.length === 0) return undefined
+  const segments = view.markdownSegments
+  if (segments.length === 0) return undefined
   return (syntax) => {
-    let previous: MuyaMarkdownSegment | undefined
-    for (const next of view.markdownSegments) {
-      if (syntax < next.syntax.start) {
-        return previous?.text.end === next.text.start ? next.text.start : undefined
-      }
-      if (syntax <= next.syntax.end) return next.text.start + syntax - next.syntax.start
-      previous = next
+    // The first segment that does not end before `syntax`; segments are in order.
+    let low = 0
+    let high = segments.length
+    while (low < high) {
+      const middle = (low + high) >>> 1
+      if (segments[middle].syntax.end < syntax) low = middle + 1
+      else high = middle
     }
-    return undefined
+    const next = segments[low]
+    if (next === undefined) return undefined
+    if (syntax < next.syntax.start) {
+      return segments[low - 1]?.text.end === next.text.start ? next.text.start : undefined
+    }
+    return next.text.start + syntax - next.syntax.start
   }
 }
 
@@ -195,14 +213,15 @@ function firstBindingReaching(
 ): MuyaMarkupBinding | undefined {
   // A binding found here ends at or after `position`, so its root's syntax
   // reaches it.
+  const reaches = (item: MuyaMarkupBinding): boolean =>
+    item.syntax.range.end > position ||
+    (item.text.length === 0 && item.syntax.range.start >= position)
   for (const root of roots.syntaxRoots(position, Infinity)) {
-    const binding = roots
-      .items(root)
-      .bindings.find(
-        (item) =>
-          item.syntax.range.end > position ||
-          (item.text.length === 0 && item.syntax.range.start >= position)
-      )
+    const items = roots.items(root)
+    const groups = muyaMarkupItemGroups(items)
+    // Bindings in list order reach ever later positions, so a long list's
+    // items are searched rather than read in turn.
+    const binding = groups === undefined ? items.bindings.find(reaches) : groups.first(reaches)
     if (binding !== undefined) return binding
   }
   return undefined
@@ -242,6 +261,28 @@ const listStates = new Set(['bullet-list', 'order-list', 'task-list'])
 const itemOf = (binding: MuyaMarkupBinding): number | undefined =>
   binding.path[1] === 'children' && typeof binding.path[2] === 'number' ? binding.path[2] : undefined
 
+type StructureNode = MuyaSourceStructure['nodes'][number]
+
+const itemOfPath = (path: readonly (string | number)[]): number | undefined =>
+  path[1] === 'children' && typeof path[2] === 'number' ? path[2] : undefined
+
+/** A list's source structure nodes: the list's own, then its items' by item. */
+interface StructureItems {
+  readonly rootNodes: readonly StructureNode[]
+  readonly groups: MuyaMarkupItemGroups<StructureNode>
+}
+
+const structureItems = new WeakMap<MuyaSourceStructure, StructureItems>()
+
+/** `structure`'s nodes by item; undefined unless the list's own nodes come first. */
+function groupStructureItems(structure: MuyaSourceStructure): StructureItems | undefined {
+  const nodes = structure.nodes
+  let first = 0
+  while (first < nodes.length && itemOfPath(nodes[first].path) === undefined) first += 1
+  const groups = groupListItems(nodes.slice(first))
+  return groups === undefined ? undefined : { rootNodes: nodes.slice(0, first), groups }
+}
+
 /**
  * A list root with items `[itemsBefore, itemsBefore + previousItems)` replaced
  * by the region's items, whose bindings stand at root `root` of the previous
@@ -256,7 +297,8 @@ function listItemsPatch(
 ): Readonly<{
   root: number
   state: MuyaMarkupState
-  bindings: readonly MuyaMarkupBinding[]
+  itemGroups: MuyaMarkupItemBindings
+  extent: MuyaMarkupRootExtent
   decorations: readonly MuyaMarkupDecoration[]
   local: MuyaMarkupView
 }> | undefined {
@@ -313,7 +355,6 @@ function listItemsPatch(
   }
   const sourceDelta = replacement.next.source.end - replacement.previous.source.end
   const syntaxDelta = replacement.next.syntax.end - replacement.previous.syntax.end
-  const itemDelta = localItems.length - items.previousItems
   const after = items.itemsBefore + items.previousItems
   const atLastItem = after === children.length
   const atDocumentEnd = atLastItem && root === previous.state.length - 1
@@ -335,18 +376,18 @@ function listItemsPatch(
         replacement.next.source.end - replacement.previous.source.end))
     }
   }
-  const before: MuyaMarkupBinding[] = []
-  const later: MuyaMarkupBinding[] = []
-  for (const binding of rootItems.bindings) {
-    const item = itemOf(binding)
-    if (item === undefined) return undefined
-    if (item < items.itemsBefore) before.push(binding)
-    else if (item >= after) later.push(placedMuyaMarkupItemBinding(binding, 0, itemDelta, sourceDelta, syntaxDelta))
-    else if (
-      binding.syntax.range.start < replacement.previous.syntax.start ||
-      binding.syntax.range.end > replacement.previous.syntax.end
-    ) {
-      return undefined
+  // Only the replaced items are read: the others keep their bindings, and
+  // the later ones move when first read.
+  const groups = muyaMarkupItemGroups(rootItems) ?? createListItemBindings(rootItems.bindings)
+  if (groups === undefined || groups.count !== children.length) return undefined
+  for (let item = items.itemsBefore; item < after; item += 1) {
+    for (const binding of groups.group(item)) {
+      if (
+        binding.syntax.range.start < replacement.previous.syntax.start ||
+        binding.syntax.range.end > replacement.previous.syntax.end
+      ) {
+        return undefined
+      }
     }
   }
   // The region's own view reads its items as a list of their own: a lone
@@ -372,11 +413,18 @@ function listItemsPatch(
         : { trailingLinePosition })
     }
   })
-  const bindings = [...before, ...placed, ...later]
+  const placedGroups: MuyaMarkupBinding[][] = localItems.map(() => [])
+  for (const binding of placed) {
+    const item = itemOf(binding)
+    if (item === undefined || item < items.itemsBefore || item >= items.itemsBefore + localItems.length) return undefined
+    placedGroups[item - items.itemsBefore].push(binding)
+  }
   // The list's first binding carries its outer block and source structure.
-  const owner = rootItems.bindings[0]
-  const ownerIndex = bindings.findIndex((binding) => itemOf(binding) !== undefined)
-  if (owner === undefined || ownerIndex !== 0) return undefined
+  const firstItem = (item: number): MuyaMarkupBinding | undefined =>
+    item < items.itemsBefore ? groups.group(item)[0] : placedGroups[item - items.itemsBefore]?.[0]
+  const owner = groups.group(0)[0]
+  const nextOwner = firstItem(0)
+  if (owner === undefined || nextOwner === undefined) return undefined
   const text = (start: number, end: number, whole: Readonly<{ range: SourceRange; source: string }>): string | undefined => {
     let result = ''
     for (let offset = start; offset < end;) {
@@ -422,45 +470,80 @@ function listItemsPatch(
     const source = next === undefined ? undefined : text(next.start, next.end, structure)
     const localNodes = localOwner?.sourceStructure?.nodes
     if (next === undefined || source === undefined || localNodes === undefined) return undefined
-    const shift = (value: SourceRange): SourceRange => ({ start: value.start + sourceDelta, end: value.end + sourceDelta })
-    const nodeItem = (path: readonly (string | number)[]): number | undefined =>
-      path[1] === 'children' && typeof path[2] === 'number' ? path[2] : undefined
-    const nodes: MuyaSourceStructure['nodes'][number][] = []
-    for (const node of structure.nodes) {
-      const item = nodeItem(node.path)
-      if (item === undefined) nodes.push({ ...node, range: next })
-      else if (item < items.itemsBefore) nodes.push(node)
-    }
+    const held = structureItems.get(structure) ?? groupStructureItems(structure)
+    if (held === undefined) return undefined
+    const localGroups: StructureNode[][] = localItems.map(() => [])
     for (const node of localNodes) {
-      const item = nodeItem(node.path)
-      if (item !== undefined) nodes.push({ ...node, path: [root, 'children', item + items.itemsBefore, ...node.path.slice(3)] })
+      const item = itemOfPath(node.path)
+      if (item === undefined) continue
+      const group = localGroups[item]
+      if (group === undefined) return undefined
+      group.push({ ...node, path: [root, 'children', item + items.itemsBefore, ...node.path.slice(3)] })
     }
-    for (const node of structure.nodes) {
-      const item = nodeItem(node.path)
-      if (item === undefined || item < after) continue
-      nodes.push({
+    // Later items' nodes move when the list's nodes are first read.
+    const shifted = (value: SourceRange, delta: number): SourceRange => ({ start: value.start + delta, end: value.end + delta })
+    const groups = patchedListItemGroups(held.groups, items.itemsBefore, after, localGroups, { source: sourceDelta, syntax: 0 },
+      (node, shift) => ({
         ...node,
-        path: [node.path[0], 'children', item + itemDelta, ...node.path.slice(3)],
-        range: shift(node.range),
-        ...(node.lineStarts === undefined ? {} : { lineStarts: node.lineStarts.map((offset) => offset + sourceDelta) }),
-        ...(node.delimiterRange === undefined ? {} : { delimiterRange: shift(node.delimiterRange) })
-      })
+        path: [node.path[0], 'children', Number(node.path[2]) + shift.items, ...node.path.slice(3)],
+        range: shifted(node.range, shift.source),
+        ...(node.lineStarts === undefined ? {} : { lineStarts: node.lineStarts.map((offset) => offset + shift.source) }),
+        ...(node.delimiterRange === undefined ? {} : { delimiterRange: shifted(node.delimiterRange, shift.source) })
+      }))
+    const rootNodes = held.rootNodes.map((node) => ({ ...node, range: next }))
+    let nodes: readonly StructureNode[] | undefined
+    const nextStructure: MuyaSourceStructure = {
+      range: next,
+      source,
+      get nodes() {
+        nodes ??= [...rootNodes, ...listedItemGroups(groups)]
+        return nodes
+      }
     }
-    ownerPatch.sourceStructure = { range: next, source, nodes }
+    structureItems.set(nextStructure, { rootNodes, groups })
+    ownerPatch.sourceStructure = nextStructure
   }
   const {
     outerBlock: _ownerOuter,
     sourceStructure: _ownerStructure,
     ...ownerRest
-  } = bindings[0] as MuyaMarkupBinding
-  bindings[0] = { ...ownerRest, ...ownerPatch }
+  } = nextOwner
+  const nextOwnerBinding: MuyaMarkupBinding = { ...ownerRest, ...ownerPatch }
+  const itemGroups = patchedListItemBindings(groups, items.itemsBefore, after, placedGroups, sourceDelta, syntaxDelta,
+    (group) => [nextOwnerBinding, ...group.slice(1)])
+  // The list's positions are the unchanged items', the later items' moved,
+  // and the region's: a bound that may be wider than the items reach.
+  const previousExtent = roots.extent(root)
+  const regionExtent = muyaMarkupItemsExtent({
+    bindings: [...placed, nextOwnerBinding],
+    decorations,
+    comments: []
+  })
+  let replacedEditable = 0
+  for (let item = items.itemsBefore; item < after; item += 1) {
+    for (const binding of groups.group(item)) if (binding.editable !== false) replacedEditable += 1
+  }
+  const hull = (
+    before: readonly [number, number],
+    delta: number,
+    region: readonly [number, number]
+  ): [number, number] => [
+    Math.min(before[0], before[0] + delta, region[0]),
+    Math.max(before[1], before[1] + delta, region[1])
+  ]
+  const placedEditable = placed.filter((binding) => binding.editable !== false).length
   return {
     root,
     state: {
       ...listState,
       children: [...children.slice(0, items.itemsBefore), ...localItems, ...children.slice(after)]
     },
-    bindings,
+    itemGroups,
+    extent: {
+      source: hull(previousExtent.source, sourceDelta, regionExtent.source),
+      syntax: hull(previousExtent.syntax, syntaxDelta, regionExtent.syntax),
+      editable: previousExtent.editable - replacedEditable + placedEditable
+    },
     decorations,
     local
   }
@@ -505,10 +588,25 @@ export function applyMuyaMarkupChanges(
     shift: number
   ): void => {
     markdown.push(view.markdown.slice(start, end))
-    for (const segment of view.markdownSegments) {
+    const segments = view.markdownSegments
+    // The first segment that ends after `start`; segments are in text order.
+    let first = 0
+    let high = segments.length
+    while (first < high) {
+      const middle = (first + high) >>> 1
+      if (segments[middle].text.end <= start) first = middle + 1
+      else high = middle
+    }
+    for (let index = first; index < segments.length && segments[index].text.start < end; index += 1) {
+      const segment = segments[index]
       const from = Math.max(start, segment.text.start)
       const to = Math.min(end, segment.text.end)
       if (from >= to) continue
+      // A segment kept whole at its place is kept as it is.
+      if (shift === 0 && markdownLength === start && from === segment.text.start && to === segment.text.end) {
+        appendMuyaMarkdownSegment(markdownSegments, segment)
+        continue
+      }
       appendMuyaMarkdownSegment(markdownSegments, {
         syntax: {
           start: segment.syntax.start + from - segment.text.start + shift,
@@ -546,17 +644,12 @@ export function applyMuyaMarkupChanges(
       retainUntil(patched.root)
       const base = state.length
       state.push(patched.state)
-      const region = createMuyaMarkupRootRun(
-        {
-          bindings: patched.bindings.map((binding) => placedMuyaMarkupBinding(binding, base - patched.root)),
-          decorations: patched.decorations.map((decoration) => placedMuyaMarkupDecoration(decoration, base - patched.root)),
-          comments: []
-        },
+      runs.push(createMuyaMarkupListRootRun(
+        placedMuyaMarkupItemGroups(patched.itemGroups, base - patched.root),
+        patched.decorations.map((decoration) => placedMuyaMarkupDecoration(decoration, base - patched.root)),
         base,
-        1
-      )
-      if (region === undefined) return undefined
-      runs.push(region)
+        patched.extent
+      ))
       appendMarkdown(previous, markdownIndex, from, syntaxDelta)
       appendMarkdown(patched.local, 0, patched.local.markdown.length, 0)
       markdownIndex = to

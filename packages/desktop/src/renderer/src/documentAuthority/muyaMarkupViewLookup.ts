@@ -1,5 +1,11 @@
 import type { MuyaMarkupBinding, MuyaMarkupPath, MuyaMarkupView } from './muyaMarkupView'
-import { muyaMarkupRootsOf, type MuyaMarkupRootItems } from './muyaMarkupViewRoots'
+import {
+  muyaMarkupItemGroups,
+  muyaMarkupRootsOf,
+  type MuyaMarkupItemBindings,
+  type MuyaMarkupRootItems,
+  type MuyaMarkupRoots
+} from './muyaMarkupViewRoots'
 
 /**
  * Items of a view list, such as its bindings or decorations, that belong to
@@ -103,6 +109,57 @@ export function muyaItemAtPath<Item extends { readonly path: MuyaMarkupPath }>(
 type ViewLists = Pick<MuyaMarkupView, 'bindings' | 'decorations' | 'comments'>
 type ViewItem<Kind extends keyof MuyaMarkupRootItems> = MuyaMarkupRootItems[Kind][number]
 
+const itemOfPath = (path: MuyaMarkupPath): number | undefined =>
+  path[1] === 'children' && typeof path[2] === 'number' ? path[2] : undefined
+
+/**
+ * The bindings of `roots`' root `path[0]` that can be at `path`: for a list
+ * read item by item, only those of the item `path` is under.
+ */
+function bindingsToward(roots: MuyaMarkupRoots, path: MuyaMarkupPath): readonly MuyaMarkupBinding[] {
+  const root = path[0]
+  if (typeof root !== 'number') return []
+  const items = roots.items(root)
+  const groups = muyaMarkupItemGroups(items)
+  const item = itemOfPath(path)
+  return groups === undefined || item === undefined ? items.bindings : groups.group(item)
+}
+
+/**
+ * The item groups of a list read item by item that can hold a source position
+ * in `[low, high]`, in order: the first item, whose binding carries the whole
+ * list's extent, and the items around the position. Undefined when an item
+ * has no binding to place it by.
+ */
+function itemsNear(groups: MuyaMarkupItemBindings, low: number, high: number): number[] | undefined {
+  const start = (item: number): number | undefined => groups.group(item)[0]?.sourceRange.start
+  // The last item that starts at or before `low`, and the first after `high`.
+  let from = 0
+  let to = groups.count
+  while (from < to) {
+    const middle = (from + to) >>> 1
+    const at = start(middle)
+    if (at === undefined) return undefined
+    if (at <= low) from = middle + 1
+    else to = middle
+  }
+  let after = from
+  to = groups.count
+  while (after < to) {
+    const middle = (after + to) >>> 1
+    const at = start(middle)
+    if (at === undefined) return undefined
+    if (at <= high) after = middle + 1
+    else to = middle
+  }
+  // An item's blank lines can lie before its start or after the next one's.
+  const items: number[] = []
+  const first = Math.max(0, from - 2)
+  if (first > 0) items.push(0)
+  for (let item = first; item <= Math.min(groups.count - 1, after + 1); item += 1) items.push(item)
+  return items
+}
+
 /** The view's items of one kind at root `root`, in list order. */
 export function muyaViewItemsAtRoot<Kind extends keyof MuyaMarkupRootItems>(
   view: Pick<MuyaMarkupRootItems, Kind>,
@@ -125,11 +182,9 @@ export function muyaViewItemsAtPath<Kind extends keyof MuyaMarkupRootItems>(
   if (roots === undefined) return muyaItemsAtPath<ViewItem<Kind>>(view[kind], path)
   // Every item of such a view belongs to a root block.
   const root = path[0]
-  return typeof root === 'number'
-    ? (roots.items(root)[kind] as readonly ViewItem<Kind>[]).filter((item) =>
-      samePath(item.path, path)
-    )
-    : []
+  if (typeof root !== 'number') return []
+  const items = kind === 'bindings' ? bindingsToward(roots, path) : roots.items(root)[kind]
+  return (items as readonly ViewItem<Kind>[]).filter((item) => samePath(item.path, path))
 }
 
 /** The view's first item of one kind at exactly `path`. */
@@ -141,11 +196,9 @@ export function muyaViewItemAtPath<Kind extends keyof MuyaMarkupRootItems>(
   const roots = muyaMarkupRootsOf(view)
   if (roots === undefined) return muyaItemAtPath<ViewItem<Kind>>(view[kind], path)
   const root = path[0]
-  return typeof root === 'number'
-    ? (roots.items(root)[kind] as readonly ViewItem<Kind>[]).find((item) =>
-      samePath(item.path, path)
-    )
-    : undefined
+  if (typeof root !== 'number') return undefined
+  const items = kind === 'bindings' ? bindingsToward(roots, path) : roots.items(root)[kind]
+  return (items as readonly ViewItem<Kind>[]).find((item) => samePath(item.path, path))
 }
 
 /** The view's bindings of roots `[start, end)`, in list order. */
@@ -179,7 +232,38 @@ export function * muyaViewBindingsNear(
     yield * view.bindings
     return
   }
-  for (const root of roots.sourceRoots(low, high)) yield * roots.items(root).bindings
+  for (const root of roots.sourceRoots(low, high)) {
+    const items = roots.items(root)
+    // A suggestion or comment can reach from one item into others.
+    const groups = items.decorations.length === 0 && items.comments.length === 0
+      ? muyaMarkupItemGroups(items)
+      : undefined
+    const near = groups === undefined ? undefined : itemsNear(groups, low, high)
+    if (groups === undefined || near === undefined) yield * items.bindings
+    else for (const item of near) yield * groups.group(item)
+  }
+}
+
+/** The view's bindings under children `[start, end)` of root `root`, in list order. */
+export function muyaViewBindingsInItems(
+  view: Pick<ViewLists, 'bindings'>,
+  root: number,
+  start: number,
+  end: number
+): readonly MuyaMarkupBinding[] {
+  const roots = muyaMarkupRootsOf(view)
+  const groups = roots === undefined ? undefined : muyaMarkupItemGroups(roots.items(root))
+  if (groups === undefined) {
+    return muyaViewBindingsInRoots(view, root, root + 1).filter((binding) => {
+      const item = itemOfPath(binding.path)
+      return item !== undefined && item >= start && item < end
+    })
+  }
+  const bindings: MuyaMarkupBinding[] = []
+  for (let item = Math.max(0, start); item < Math.min(end, groups.count); item += 1) {
+    bindings.push(...groups.group(item))
+  }
+  return bindings
 }
 
 /** The view's last binding. */
@@ -202,9 +286,21 @@ export function muyaViewPreviousBinding(
   if (roots === undefined) return view.bindings[view.bindings.indexOf(binding) - 1]
   const root = binding.path[0]
   if (typeof root !== 'number') return undefined
-  const index = roots.items(root).bindings.indexOf(binding)
-  if (index < 0) return undefined
-  if (index > 0) return roots.items(root).bindings[index - 1]
+  const groups = muyaMarkupItemGroups(roots.items(root))
+  const item = itemOfPath(binding.path)
+  if (groups !== undefined && item !== undefined) {
+    const index = groups.group(item).indexOf(binding)
+    if (index < 0) return undefined
+    if (index > 0) return groups.group(item)[index - 1]
+    for (let before = item - 1; before >= 0; before -= 1) {
+      const previous = groups.group(before).at(-1)
+      if (previous !== undefined) return previous
+    }
+  } else {
+    const index = roots.items(root).bindings.indexOf(binding)
+    if (index < 0) return undefined
+    if (index > 0) return roots.items(root).bindings[index - 1]
+  }
   for (let before = root - 1; before >= 0; before -= 1) {
     const previous = roots.items(before).bindings.at(-1)
     if (previous !== undefined) return previous
@@ -222,9 +318,16 @@ export function muyaViewBindingPrecedes(
   if (roots === undefined) return view.bindings.indexOf(left) < view.bindings.indexOf(right)
   const leftRoot = Number(left.path[0])
   const rightRoot = Number(right.path[0])
-  return leftRoot !== rightRoot
-    ? leftRoot < rightRoot
-    : roots.items(leftRoot).bindings.indexOf(left) < roots.items(rightRoot).bindings.indexOf(right)
+  if (leftRoot !== rightRoot) return leftRoot < rightRoot
+  const groups = muyaMarkupItemGroups(roots.items(leftRoot))
+  const leftItem = itemOfPath(left.path)
+  const rightItem = itemOfPath(right.path)
+  if (groups !== undefined && leftItem !== undefined && rightItem !== undefined) {
+    return leftItem !== rightItem
+      ? leftItem < rightItem
+      : groups.group(leftItem).indexOf(left) < groups.group(rightItem).indexOf(right)
+  }
+  return roots.items(leftRoot).bindings.indexOf(left) < roots.items(rightRoot).bindings.indexOf(right)
 }
 
 /** The view's first binding. */

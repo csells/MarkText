@@ -32,6 +32,7 @@ import {
 } from './muyaMarkupView'
 import type { MuyaModelInput } from './muyaPlainTextCoreAdapter'
 import {
+  muyaViewBindingsInItems,
   muyaViewBindingsNear,
   muyaViewItemAtPath,
   muyaViewItemsAtPath,
@@ -118,9 +119,15 @@ export function createMuyaModelSelection(muya: Muya, view: MuyaMarkupView) {
   }
   /** The marker line whose container Muya shows as its literal paragraph at `path`. */
   const presentedMarkerLine = (path: readonly (string | number)[]) => {
-    // A marker line's container holds its paragraph, so both share a root.
+    // A marker line's container holds its paragraph, so both share a root,
+    // and in a list, the item.
+    const item = path[1] === 'children' && typeof path[2] === 'number' ? path[2] : undefined
     const candidates =
-      typeof path[0] === 'number' ? muyaViewItemsAtRoot(view, 'bindings', path[0]) : view.bindings
+      typeof path[0] !== 'number'
+        ? view.bindings
+        : item === undefined
+          ? muyaViewItemsAtRoot(view, 'bindings', path[0])
+          : muyaViewBindingsInItems(view, path[0], item, item + 1)
     const line = candidates.find(
       (binding) =>
         binding.markerLine !== undefined &&
