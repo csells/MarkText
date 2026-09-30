@@ -19,6 +19,7 @@ import {
   muyaViewLastBinding,
   muyaViewPreviousBinding
 } from '@/documentAuthority/muyaMarkupViewLookup'
+import { muyaMarkupRootsFor } from '@/documentAuthority/muyaMarkupViewRoots'
 
 // Plan 0012 G35: a view made by a regional change holds later roots unmoved
 // until they are read. Its root queries answer as the whole lists of the
@@ -208,5 +209,55 @@ describe('Root queries of a regionally patched Markup view', () => {
       view = next
       revision = commit.revision
     }
+  }, 30_000)
+
+  it.each([
+    ['before', true],
+    ['after', false]
+  ])('moves none of a long list\'s items for a key in the paragraph %s it', (_, before) => {
+    const list = Array.from({ length: 300 }, (_, index) => `- item ${index}`).join('\n\n')
+    const paragraph = 'Warm editing paragraph.'
+    const source = (before ? [paragraph, list] : [list, paragraph]).join('\n\n') + '\n'
+    const core = createDocumentCore()
+    let revision = core.open(source)
+    let view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, revision.source)
+    const listRoot = view.state.findIndex((state) => state.name === 'loose-list-item' || state.name === 'bullet-list')
+    expect(listRoot).toBeGreaterThanOrEqual(0)
+    // The view's own root index reads every binding once, as the editor's first key does.
+    muyaMarkupRootsFor(view)
+    // Moving a binding copies its segments. A key may read the list's first
+    // item to find where the edited region ends, never the whole list.
+    let moved = 0
+    for (const binding of view.bindings.filter((item) => item.path[0] === listRoot)) {
+      const segments = binding.segments
+      Object.defineProperty(binding, 'segments', {
+        enumerable: true,
+        get() {
+          moved += 1
+          return segments
+        }
+      })
+    }
+    const at = source.indexOf('Warm editing paragraph.') + 'Warm editing'.length
+    const keys = 3
+    for (let key = 0; key < keys; key += 1) {
+      const commit = core.apply(revision, [{ start: at + key, end: at + key, insert: 'x' }], {
+        projections: ['markup']
+      })
+      const change = commit.change.projections[0]
+      if (change?.name !== 'markup' || change.scope !== 'regions') {
+        throw new Error('Expected a real regional Core reply')
+      }
+      const next = applyMuyaMarkupChanges(view, change)
+      if (next === undefined) throw new Error('Expected a patched view')
+      view = next
+      revision = commit.revision
+    }
+    expect(moved).toBeLessThanOrEqual(2 * keys)
+    expectSameQueries(
+      view,
+      createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, revision.source),
+      'after three keys'
+    )
   }, 30_000)
 })
