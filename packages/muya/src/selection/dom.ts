@@ -124,8 +124,27 @@ export function compareParagraphsOrder(paragraph1: HTMLElement, paragraph2: HTML
     );
 }
 
+/**
+ * Whether `element`'s offsets are its DOM text: neither it nor any element
+ * in it is a rendered preview an offset skips (`blackList`) or an image,
+ * which stands for its source. Live collections keep this cheap to ask
+ * again while the element is unchanged.
+ */
+function plainOffsets(element: Element, blackList: readonly string[]): boolean {
+    const exceptions = [...blackList, CLASS_NAMES.MU_INLINE_IMAGE];
+    return element.tagName !== 'IMG'
+        && !exceptions.some(className => element.classList.contains(className))
+        && element.getElementsByTagName('img').length === 0
+        && exceptions.every(className => element.getElementsByClassName(className).length === 0);
+}
+
+/** Whether `node`'s offsets read as its DOM text, which is far cheaper to read than a walk over a long block. */
+function readsAsDomText(node: Node, blackList: readonly string[]): boolean {
+    return node.nodeType === Node.TEXT_NODE || blackList.length === 0 || (isElement(node) && plainOffsets(node, blackList));
+}
+
 export function getTextContent(node: Node, blackList: string[] = []) {
-    if (node.nodeType === Node.TEXT_NODE || blackList.length === 0)
+    if (readsAsDomText(node, blackList))
         return node.textContent!;
 
     let text = '';
@@ -183,6 +202,18 @@ export function getTextContent(node: Node, blackList: string[] = []) {
 }
 
 export function getOffsetOfParagraph(node: Node, paragraph: HTMLElement, nodeOffset = 0): number {
+    // The text before `node` in document order, read natively when every
+    // offset of the paragraph is its DOM text, as in a long code block.
+    if (paragraph.contains(node) && plainOffsets(paragraph, [CLASS_NAMES.MU_MATH_RENDER, CLASS_NAMES.MU_RUBY_RENDER])) {
+        const range = (paragraph.ownerDocument ?? document).createRange();
+        range.setStart(paragraph, 0);
+        if (node.nodeType === Node.TEXT_NODE) {
+            range.setEnd(node, 0);
+            return range.toString().length + nodeOffset;
+        }
+        range.setEnd(node, Math.min(nodeOffset, node.childNodes.length));
+        return range.toString().length;
+    }
     // DOM element offsets count children; text-node offsets count UTF-16 units.
     // Convert at the DOM boundary before adding preceding paragraph content.
     let offset = node.nodeType === Node.TEXT_NODE ? nodeOffset : 0;

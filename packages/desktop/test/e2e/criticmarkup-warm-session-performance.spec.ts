@@ -16,7 +16,7 @@ import {
 } from './helpers/inputLatencyTrace'
 import type { CoreAuthorityPerformanceEvent } from '../../src/renderer/src/documentAuthority/coreAuthorityPerformanceTrace'
 import { pairAppendedInputs } from './helpers/warmInputPairing'
-import { ORDINARY_MARKDOWN_WORKLOADS } from './helpers/ordinaryMarkdownWorkloads'
+import { ORDINARY_MARKDOWN_WORKLOADS, placeCaretAfterWarmEditingText } from './helpers/ordinaryMarkdownWorkloads'
 
 const enabled = process.env.MARKTEXT_WARM_PERFORMANCE === '1'
 const repo = path.resolve(__dirname, '../../../..')
@@ -160,8 +160,7 @@ test.describe('warm native-keyboard performance', () => {
       try {
         await expectEditorWindowHidden(app)
         expectEditorNotFrontmost(app)
-        const paragraph = page.locator('span.mu-paragraph-content').first()
-        await expect(paragraph).toHaveAttribute('contenteditable', 'true')
+        await expect(page.locator('span.mu-paragraph-content').first()).toHaveAttribute('contenteditable', 'true')
         if (workload.media) {
           await expect(page.locator('.mu-diagram-preview svg')).toHaveCount(paragraphCount, { timeout: 60_000 })
           await expect.poll(() => page.locator('.editor-component img').evaluateAll(images =>
@@ -174,8 +173,7 @@ test.describe('warm native-keyboard performance', () => {
           await expect(tracking).toHaveAttribute('aria-pressed', 'true')
         }
         await applyReviewSidebar(app, page)
-        await paragraph.click()
-        await page.keyboard.press('End')
+        const paragraph = await placeCaretAfterWarmEditingText(page)
         await page.evaluate(() => window.__marktextDocumentCore?.settled())
         for (let index = 0; index < warmup; index += 1) {
           await page.keyboard.type(character, { delay: 0 })
@@ -330,7 +328,9 @@ test.describe('warm native-keyboard performance', () => {
         console.log(`[warm] ${workload.name}: ${JSON.stringify(summary)}; raw ${path.join(scratch, 'raw.json')}`)
         expect(summary.pairingValid).toBe(true)
         expect(rendererBuildHashes()).toEqual(metadata.rendererBuildHashes)
-        expect(summary.finalText).toBe('Warm editing paragraph.' + inserted)
+        // A code block's text holds its other lines too.
+        if (workload.source === undefined) expect(summary.finalText).toBe('Warm editing paragraph.' + inserted)
+        else expect(summary.finalText).toContain('Warm editing paragraph.' + inserted)
         expect(stable.every(sample => sample.ackMs !== null && sample.reconcileMs !== null)).toBe(true)
         for (const [metric, target] of Object.entries({ echoMs: 16.7, dispatchMs: 8, ackMs: 50, reconcileMs: 50 })) {
           expect(metrics[metric].p95, `${metric} p95 target`).toBeLessThanOrEqual(target)

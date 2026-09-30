@@ -121,6 +121,32 @@ describe('test LinkedList', () => {
         });
     });
 
+    describe('linkedList `find` and `offset` between changes', () => {
+        it('find and offset every node, in any order, as the list changes', () => {
+            const list = new LinkedList<IMockNode>();
+            const nodes = Array.from({ length: 40 }, createLinkedNode);
+            list.append(...nodes);
+            let seed = 7;
+            const next = () => (seed = (seed * 48271) % 2147483647) % 1000;
+            for (let step = 0; step < 400; step++) {
+                const index = next() % nodes.length;
+                expect(list.find(index)).toBe(nodes[index]);
+                expect(list.offset(nodes[index])).toBe(index);
+                if (step % 7 === 0) {
+                    const removed = nodes.splice(next() % nodes.length, 1)[0];
+                    list.remove(removed);
+                }
+                if (step % 5 === 0) {
+                    const at = next() % (nodes.length + 1);
+                    const node = createLinkedNode();
+                    list.insertBefore(node, nodes[at] ?? null);
+                    nodes.splice(at, 0, node);
+                }
+            }
+            expect([...list.iterator()]).toEqual(nodes);
+        });
+    });
+
     describe('linkedList method `forEach`', () => {
         it('should work correctly in LinkedList method `forEach`', () => {
             const nodes: Record<string, IMockNode> = {};

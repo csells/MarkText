@@ -74,6 +74,7 @@ import {
 } from './helpers/inputLatencyTrace'
 import {
   ORDINARY_MARKDOWN_WORKLOADS,
+  placeCaretAfterWarmEditingText,
   WARM_EDITING_PARAGRAPH
 } from './helpers/ordinaryMarkdownWorkloads'
 
@@ -865,19 +866,8 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
           await closeActiveTab(page)
           await awaitRenderActiveInactiveConvergence(app)
           const opened = await openSample(page, documentPath)
-          // The warm-session harness types at the end of the first paragraph.
-          const first = page.locator('.editor-component span.mu-paragraph-content[contenteditable="true"]').first()
-          const box = await first.boundingBox()
-          if (box === null) throw new Error('The first paragraph is not rendered')
-          await first.click({ position: { x: box.width - 2, y: box.height / 2 } })
-          await expect.poll(() => first.evaluate(element => {
-            const selection = window.getSelection()
-            if (selection === null || selection.rangeCount === 0 || !selection.isCollapsed) return false
-            const range = document.createRange()
-            range.selectNodeContents(element)
-            range.setEnd(selection.anchorNode ?? element, selection.anchorOffset)
-            return element.contains(selection.anchorNode) && range.toString().length === (element.textContent ?? '').length
-          })).toBe(true)
+          // Both harnesses type at the end of the warm editing text.
+          const target = await placeCaretAfterWarmEditingText(page)
           for (let index = 0; index < warmup; index += 1) {
             await page.keyboard.type('x', { delay: 0 })
             await page.waitForTimeout(interval)
@@ -889,8 +879,7 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
           }
           await waitForInputLatencyEcho(page, measured, 30_000)
           const input = await readInputLatencyTrace(page)
-          const firstParagraph = await page.locator('.editor-component span.mu-paragraph-content[contenteditable="true"]').first().textContent()
-          expect(firstParagraph).toBe(WARM_EDITING_PARAGRAPH + 'x'.repeat(warmup + measured))
+          expect(await target.textContent()).toContain(WARM_EDITING_PARAGRAPH + 'x'.repeat(warmup + measured))
           await expectRenderActiveInactive(app, true)
           const echoes = input.flatMap(sample => sample.tEcho === undefined ? [] : [sample.tEcho - sample.tEvent])
           const sorted = [...echoes].sort((left, right) => left - right)

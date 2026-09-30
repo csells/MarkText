@@ -125,14 +125,28 @@ class CodeBlockContent extends Content {
             (this.outContainer?.attachments?.head as HTMLPreview).update(text);
     }
 
+    /**
+     * What the DOM was last drawn from, when drawn without search highlights.
+     * Drawing a long block again from the same text redraws nothing.
+     */
+    private _drawn: { text: string; grammar: string | undefined } | null = null;
+
     override update(_cursor?: IRenderCursor, highlights = []) {
         const { _lang: lang, text } = this;
+        // transform alias to original language
+        const fullLengthLang = transformAliasToOrigin([lang])[0];
+        const grammar = fullLengthLang && loadedLanguages.has(fullLengthLang) ? fullLengthLang : undefined;
+        const domNode = this.domNode!;
+        // Native composition can change the DOM's text without changing ours.
+        if (highlights.length === 0 && this._drawn?.text === text && this._drawn.grammar === grammar
+            && domNode.textContent === text) {
+            this._updateLineNumbers(text);
+            this._updatePreviewIfHave(text);
+            return;
+        }
         // Language loading and gutter initialization can refresh this DOM after
         // the host restored a caret, or while a cross-block selection is active.
         const selection = this.selection.getSelection();
-        // transform alias to original language
-        const fullLengthLang = transformAliasToOrigin([lang])[0];
-        const domNode = this.domNode!;
         const code = escapeHTML(getHighlightHtml(text, highlights, true))
             .replace(new RegExp(MARKER_HASH['<'], 'g'), '<')
             .replace(new RegExp(MARKER_HASH['>'], 'g'), '>')
@@ -149,11 +163,7 @@ class CodeBlockContent extends Content {
             ? `<span class="${CLASS_NAMES.MU_TRAILING_BREAK}"><br></span>`
             : '';
 
-        if (
-            fullLengthLang
-            && /\S/.test(code)
-            && loadedLanguages.has(fullLengthLang)
-        ) {
+        if (grammar && /\S/.test(code)) {
             const wrapper = document.createElement('div');
             wrapper.classList.add(`language-${fullLengthLang}`);
             wrapper.innerHTML = code;
@@ -172,6 +182,7 @@ class CodeBlockContent extends Content {
             this.selection.setSelection(endpoint(selection.anchor), endpoint(selection.focus));
         }
 
+        this._drawn = highlights.length === 0 ? { text, grammar } : null;
         this._updateLineNumbers(text);
         // Re-render the math/diagram/html preview too; undo/redo reaches this
         // block only through update(), not inputHandler (#1632).

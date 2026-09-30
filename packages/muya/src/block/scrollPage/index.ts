@@ -152,14 +152,32 @@ export class ScrollPage extends Parent {
     }
 
     /**
+     * The content block holding a root state's `text`, as each such root's
+     * `getState` reads it, or a root's single content child.
+     */
+    private static _stateTextLeaf(root: Parent) {
+        switch (root.blockName) {
+            case 'code-block':
+            case 'frontmatter':
+                return root.lastContentInDescendant();
+            case 'html-block':
+            case 'math-block':
+            case 'diagram':
+                return root.firstContentInDescendant();
+            default:
+                return root.children.length === 1 ? root.children.head : null;
+        }
+    }
+
+    /**
      * Present `state` in place of `root`. A root whose only difference is its
-     * single leaf's text keeps its blocks and DOM, so the shown nodes survive
-     * and only their text changes.
+     * text keeps its blocks and DOM, so the shown nodes survive and only
+     * their text changes: a long code block is not drawn again whole.
      */
     private _reconcileRoot(root: Parent, state: TState, before: TState = root.getState()): boolean {
         if (isEqual(before, state))
             return false;
-        const leaf = root.children.length === 1 ? root.children.head : null;
+        const leaf = ScrollPage._stateTextLeaf(root);
         const text = (state as { text?: unknown }).text;
         if (leaf?.isContent() && typeof text === 'string'
             && isEqual({ ...before, text: undefined }, { ...state, text: undefined })) {

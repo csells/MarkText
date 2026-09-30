@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import type Content from '../../../base/content';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Muya } from '../../../../muya';
 
 // `update()` ended every render in `domNode.innerHTML = code`, which destroys
@@ -116,5 +116,28 @@ describe('codeBlockContent render idempotence', () => {
 
         content.update();
         expect(content.domNode!.querySelector('.mu-highlight')).toBeNull();
+    });
+
+    // A reconcile and the host's own refresh can both draw a key's text; a
+    // long block is highlighted once for it.
+    it('draws unchanged text once', () => {
+        const muya = bootMuya('```\nて\n```\n');
+        const content = codeContent(muya);
+        const getSelection = vi.spyOn(muya.editor.selection, 'getSelection');
+
+        content.update();
+        content.update();
+
+        expect(getSelection).not.toHaveBeenCalled();
+        getSelection.mockRestore();
+    });
+
+    it('draws text again that the DOM no longer shows', () => {
+        const content = codeContent(bootMuya('```\nて\n```\n'));
+        (content.domNode!.firstChild as Text).data = 'composed';
+
+        content.update();
+
+        expect(content.domNode!.textContent).toBe('て');
     });
 });
