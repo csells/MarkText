@@ -8,6 +8,13 @@ export class LinkedList<T extends ILinkedNode> {
 
     length: number = 0;
 
+    /**
+     * The node last found or located and its index, until the list next
+     * changes. Walks over a long list, as reading each of its items in turn,
+     * start there instead of at an end.
+     */
+    private _cursor: { index: number; node: T } | null = null;
+
     * iterator(curNode = this.head, length = this.length) {
         let count = 0;
 
@@ -60,13 +67,18 @@ export class LinkedList<T extends ILinkedNode> {
             this.head = this.tail = node;
         }
         this.length += 1;
+        this._cursor = null;
     }
 
     offset(node: T) {
+        if (this._cursor?.node === node)
+            return this._cursor.index;
         let index = 0;
         for (let current = this.head; current != null && index < this.length; current = current.next as Nullable<T>) {
-            if (current === node)
+            if (current === node) {
+                this._cursor = { index, node };
                 return index;
+            }
             index += 1;
         }
         return -1;
@@ -89,6 +101,7 @@ export class LinkedList<T extends ILinkedNode> {
             this.tail = node.prev as T;
 
         this.length -= 1;
+        this._cursor = null;
     }
 
     find(index: number) {
@@ -97,12 +110,20 @@ export class LinkedList<T extends ILinkedNode> {
 
         if (!Number.isInteger(index))
             return undefined;
+        // Start from whichever of the head, the tail and the cursor is nearest.
         let current = index < this.length / 2 ? this.head : this.tail;
-        let remaining = index < this.length / 2 ? index : this.length - index - 1;
-        while (current != null && remaining > 0) {
-            current = (index < this.length / 2 ? current.next : current.prev) as Nullable<T>;
-            remaining -= 1;
+        let at = index < this.length / 2 ? 0 : this.length - 1;
+        const cursor = this._cursor;
+        if (cursor !== null && Math.abs(cursor.index - index) < Math.abs(at - index)) {
+            current = cursor.node;
+            at = cursor.index;
         }
+        while (current != null && at !== index) {
+            current = (at < index ? current.next : current.prev) as Nullable<T>;
+            at += at < index ? 1 : -1;
+        }
+        if (current != null)
+            this._cursor = { index, node: current };
         return current;
     }
 

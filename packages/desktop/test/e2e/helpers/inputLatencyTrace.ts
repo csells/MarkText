@@ -84,7 +84,7 @@ export const startInputLatencyTrace = async(
       throw new Error('MarkText editor is unavailable')
     }
 
-    const targetSelector = '.mu-paragraph-content'
+    const targetSelector = '.mu-paragraph-content, .mu-codeblock-content'
     const samples: MutableInputLatencySample[] = []
     const pending: MutableInputLatencySample[] = []
     let accepting = true

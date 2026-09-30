@@ -3,7 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CLASS_NAMES } from '../../config';
 import { Muya } from '../../muya';
-import { getOffsetOfParagraph } from '../dom';
+import { getNodeAndOffset, getOffsetOfParagraph } from '../dom';
 
 describe('native element selection boundaries', () => {
     let muya: Muya | undefined;
@@ -67,5 +67,33 @@ describe('native element selection boundaries', () => {
         paragraph.append(' after');
         expect(getOffsetOfParagraph(paragraph, paragraph, 3)).toBe(3);
         expect(getOffsetOfParagraph(paragraph, paragraph, 4)).toBe(9);
+    });
+
+    it('maps offsets in a long highlighted block as its text reads', () => {
+        const paragraph = document.createElement('span');
+        let text = '';
+        for (let line = 0; line < 40; line++) {
+            const keyword = paragraph.appendChild(document.createElement('span'));
+            keyword.className = 'token keyword';
+            keyword.append('const');
+            const nested = paragraph.appendChild(document.createElement('span'));
+            nested.append(` value${line}`, document.createElement('b'));
+            nested.lastChild!.appendChild(document.createTextNode('\t😀'));
+            paragraph.append('\n');
+            text += `const value${line}\t😀\n`;
+        }
+        const nodes: Text[] = [];
+        const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node !== null; node = walker.nextNode())
+            nodes.push(node as Text);
+        let before = 0;
+        for (const node of nodes) {
+            expect(getOffsetOfParagraph(node, paragraph, 1)).toBe(before + 1);
+            const point = getNodeAndOffset(paragraph, before + 1);
+            expect(getOffsetOfParagraph(point.node, paragraph, point.offset)).toBe(before + 1);
+            before += node.data.length;
+        }
+        expect(before).toBe(text.length);
+        expect(getOffsetOfParagraph(paragraph, paragraph, paragraph.childNodes.length)).toBe(text.length);
     });
 });

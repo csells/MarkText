@@ -336,6 +336,64 @@ export function mappedMuyaSourceRange(
 }
 
 /**
+ * The first segment, in text order, whose text holds `offset`: from its
+ * start to before its end or, when `closing`, from after its start to its
+ * end. A binding's segments follow its text, so their ends only grow.
+ */
+function segmentHolding(
+  segments: readonly MuyaMarkupSourceSegment[],
+  offset: number,
+  closing: boolean
+): MuyaMarkupSourceSegment | undefined {
+  if (!textOrdered(segments)) {
+    return segments.find((segment) => closing
+      ? segment.text.start < offset && offset <= segment.text.end
+      : segment.text.start <= offset && offset < segment.text.end)
+  }
+  let low = 0
+  let high = segments.length
+  while (low < high) {
+    const middle = (low + high) >> 1
+    const end = segments[middle].text.end
+    if (closing ? end < offset : end <= offset) low = middle + 1
+    else high = middle
+  }
+  const segment = segments[low]
+  return segment !== undefined && (closing ? segment.text.start < offset : segment.text.start <= offset)
+    ? segment
+    : undefined
+}
+
+const textOrderedSegments = new WeakMap<readonly MuyaMarkupSourceSegment[], boolean>()
+
+function textOrdered(segments: readonly MuyaMarkupSourceSegment[]): boolean {
+  let ordered = textOrderedSegments.get(segments)
+  if (ordered === undefined) {
+    ordered = segments.every((segment, index) => index === 0 || segments[index - 1].text.end <= segment.text.end)
+    textOrderedSegments.set(segments, ordered)
+  }
+  return ordered
+}
+
+/** Whether some segment's source holds a position, answered by binary search. */
+function sourceCover(segments: readonly MuyaMarkupSourceSegment[]): (position: number) => boolean {
+  const ordered = [...segments].sort((left, right) => left.source.start - right.source.start)
+  // The furthest source end among the segments starting at or before each one.
+  const reach: number[] = []
+  for (const segment of ordered) reach.push(Math.max(reach.at(-1) ?? -Infinity, segment.source.end))
+  return (position) => {
+    let low = 0
+    let high = ordered.length
+    while (low < high) {
+      const middle = (low + high) >> 1
+      if (ordered[middle].source.start <= position) low = middle + 1
+      else high = middle
+    }
+    return low > 0 && reach[low - 1] > position
+  }
+}
+
+/**
  * Detaches Core Markup syntax, source maps and marks for the Muya presentation.
  * A regional projection may bring `precedingEvents`, the unchanged text events
  * before its region, which only positions on the lines before its first block
@@ -1241,25 +1299,23 @@ export function createMuyaMarkupView(
     return end > lineStart ? { from: lineStart + 1, to: end + 1, at: lineStart } : undefined
   }
   const bindings = unsnappedBindings.map((binding): MuyaMarkupBinding => {
+    const lineBreaks = [...binding.text.matchAll(/\r\n|\r|\n/gu)]
     // Each later line's text starts after its container continuation.
-    const lineStarts = [...binding.text.matchAll(/\r\n|\r|\n/gu)].flatMap((match) => {
+    const lineStarts = lineBreaks.flatMap((match) => {
       const offset = match.index + match[0].length
-      const segment = binding.segments.find(
-        (item) => item.text.start <= offset && offset < item.text.end
-      )
+      const segment = segmentHolding(binding.segments, offset, false)
       return segment === undefined ? [] : [segment.source.start + offset - segment.text.start]
     })
     // The source just after each line break, before that line's prefix.
-    const lineBreakEnds = [...binding.text.matchAll(/\r\n|\r|\n/gu)].flatMap((match) => {
+    const lineBreakEnds = lineBreaks.flatMap((match) => {
       const offset = match.index + match[0].length
-      const segment = binding.segments.find(
-        (item) => item.text.start < offset && offset <= item.text.end
-      )
+      const segment = segmentHolding(binding.segments, offset, true)
       return segment === undefined ||
         segment.source.end - segment.source.start !== segment.text.end - segment.text.start
         ? []
         : [segment.source.start + offset - segment.text.start]
     })
+    const inSegment = sourceCover(binding.segments)
     const snaps = [
       ...[
         binding.sourceRange.start,
@@ -1268,12 +1324,7 @@ export function createMuyaMarkupView(
         binding.leadingLinePosition
       ].flatMap((position) => (position === undefined ? [] : [whitespaceBefore(position)])),
       ...lineBreakEnds
-        .filter(
-          (position) =>
-            !binding.segments.some(
-              (segment) => segment.source.start <= position && position < segment.source.end
-            )
-        )
+        .filter((position) => !inSegment(position))
         .map((position) => prefixAfter(binding.syntax, position))
     ].filter((snap): snap is MuyaCaretSnap => snap !== undefined)
     return snaps.length === 0 ? binding : { ...binding, caretSnaps: snaps }
