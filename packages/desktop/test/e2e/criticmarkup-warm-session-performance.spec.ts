@@ -16,6 +16,7 @@ import {
 } from './helpers/inputLatencyTrace'
 import type { CoreAuthorityPerformanceEvent } from '../../src/renderer/src/documentAuthority/coreAuthorityPerformanceTrace'
 import { pairAppendedInputs } from './helpers/warmInputPairing'
+import { ORDINARY_MARKDOWN_WORKLOADS } from './helpers/ordinaryMarkdownWorkloads'
 
 const enabled = process.env.MARKTEXT_WARM_PERFORMANCE === '1'
 const repo = path.resolve(__dirname, '../../../..')
@@ -25,7 +26,7 @@ const paragraphCount = Number(process.env.MARKTEXT_WARM_PARAGRAPHS ?? 80)
 const interval = Number(process.env.MARKTEXT_WARM_INTERVAL_MS ?? 80)
 const denseParagraph = 'Review {++new evidence++} alongside {--obsolete details--}, {~~old wording~>better wording~~}, and {==a claim==}{>>Check this source.<<}.'
 const plainParagraph = 'Writing a useful document takes careful editing and a clear view of the text.'
-const workloads: ReadonlyArray<{ name: string, paragraph: string, tracking: boolean, input?: string, media?: boolean, paragraphs?: number, interval?: number }> = [
+const workloads: ReadonlyArray<{ name: string, paragraph: string, tracking: boolean, input?: string, media?: boolean, paragraphs?: number, interval?: number, source?: string }> = [
   { name: 'plain', paragraph: plainParagraph, tracking: false },
   // Plan 0012 G35: the first suggestion in a long plain document, then
   // typing that extends it, with no later suggestion to bound a region.
@@ -53,6 +54,12 @@ const workloads: ReadonlyArray<{ name: string, paragraph: string, tracking: bool
       paragraph: denseParagraph + '\n\n```mermaid\nflowchart LR\n A-->B\n```\n\n![Local image](' +
           pathToFileURL(path.join(repo, 'packages/desktop/static/logo-small.png')).href + ')\n\n$$\nx^2+y^2=z^2\n$$'
     }]
+    : []),
+  // The documents the upstream warm-session producer types into
+  // (upstream-baseline-performance.spec.ts), untracked, for a like-for-like
+  // echo comparison with upstream MarkText.
+  ...(process.env.MARKTEXT_WARM_ORDINARY === '1'
+    ? ORDINARY_MARKDOWN_WORKLOADS.map(({ name, source }) => ({ name, paragraph: '', tracking: false, source }))
     : [])
 ]
 
@@ -101,12 +108,13 @@ test.describe('warm native-keyboard performance', () => {
       const scratch = mkdtempSync(path.join(tmpdir(), `marktext-warm-${workload.name}-`))
       const character = workload.input ?? 'x'
       const sections = workload.paragraphs ?? paragraphCount
-      const source = ['Warm editing paragraph.', ...Array.from({ length: sections }, () => workload.paragraph)].join('\n\n') + '\n'
+      const source = workload.source ??
+        ['Warm editing paragraph.', ...Array.from({ length: sections }, () => workload.paragraph)].join('\n\n') + '\n'
       const metadata = {
         startedAt: new Date().toISOString(),
         workload: workload.name,
         sourceUnits: source.length,
-        repeatedSections: sections,
+        repeatedSections: workload.source === undefined ? sections : undefined,
         inputText: character,
         sourceSha256: createHash('sha256').update(source).digest('hex'),
         head: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(),
