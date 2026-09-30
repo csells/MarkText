@@ -9,8 +9,8 @@ import { editor } from '../helpers/selectors';
  * (`TextSelection.handleMousemoveOrClick`). Expectation: the selection ends
  * exactly where the pointer lands — interior offsets stay interior.
  *
- * Real pointer drag → Chromium only (system Chrome locally / bundled in CI),
- * same constraint as the other `editing/` pointer specs.
+ * Real pointer drag → Chromium only, same constraint as the other `editing/`
+ * pointer specs.
  */
 
 interface SelectionSnapshot {
