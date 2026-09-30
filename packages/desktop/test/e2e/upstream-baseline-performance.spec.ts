@@ -65,11 +65,17 @@ import {
   resolveExactElectronPageTargetId,
   type PerformanceHiddenPageCapture
 } from './helpers/performancePresentationCheckpoint'
-import {
-  placeCaretInEditor,
-  waitForEditor
-} from './helpers'
+import { placeCaretInEditor } from './helpers'
 import { frontmostApplicationProcessId } from './frontmostApplication'
+import {
+  readInputLatencyTrace,
+  startInputLatencyTrace,
+  waitForInputLatencyEcho
+} from './helpers/inputLatencyTrace'
+import {
+  ORDINARY_MARKDOWN_WORKLOADS,
+  WARM_EDITING_PARAGRAPH
+} from './helpers/ordinaryMarkdownWorkloads'
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..')
 const PINNED_BASELINE = 'e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c'
@@ -352,6 +358,15 @@ const installExternalHiddenPolicy = async(
   }
 }
 
+// Upstream MarkText has no document core, so its editor is ready once Muya has
+// rendered into the editor component (the shared waitForEditor waits for Core).
+const waitForUpstreamEditor = async(page: Page): Promise<void> => {
+  await page.waitForFunction(() => {
+    const editor = document.querySelector('.editor-component')
+    return editor !== null && editor.children.length > 0
+  }, null, { timeout: 60_000 })
+}
+
 const launchRenderActiveUpstreamApplication = async(
   appBundle: string,
   profile: string,
@@ -406,7 +421,7 @@ const launchRenderActiveUpstreamApplication = async(
     processId = processIdForIdentity(processIdentity)
     await activateUpstreamPerformanceWindow(inspector, targetId)
     await page.waitForLoadState('domcontentloaded')
-    await waitForEditor(page, 60_000)
+    await waitForUpstreamEditor(page)
     return Object.freeze({
       browser,
       page,
@@ -813,4 +828,100 @@ test.describe('pinned upstream baseline raw performance producer', () => {
       if (!finalizationStarted) await removeUpstreamPerformanceRunRoot(runRoot)
     }
   })
+})
+
+// Sustained typing in upstream MarkText with the protocol of MarkText's
+// warm-session harness (criticmarkup-warm-session-performance.spec.ts with
+// MARKTEXT_WARM_ORDINARY=1): one warm app per document, 8 warmup keys, then
+// measured keys at a fixed interval at the end of the first paragraph, each
+// timed from its beforeinput to the exact DOM echo by the same probe.
+test.describe('upstream warm-session echo on ordinary Markdown', () => {
+  test.skip(
+    process.env.MARKTEXT_UPSTREAM_WARM_OUTPUT === undefined,
+    'Dedicated packaged upstream warm-session launch only'
+  )
+  const warmup = 8
+  const measured = Number(process.env.MARKTEXT_UPSTREAM_WARM_SAMPLES ?? 40)
+  const interval = Number(process.env.MARKTEXT_UPSTREAM_WARM_INTERVAL_MS ?? 80)
+
+  for (const workload of ORDINARY_MARKDOWN_WORKLOADS) {
+    test(workload.name, async() => {
+      if (process.platform !== 'darwin') throw new Error('Upstream warm sessions require macOS')
+      test.setTimeout(Math.max(300_000, (warmup + measured) * (interval + 150) + 120_000))
+      const outputDirectory = requiredPath('MARKTEXT_UPSTREAM_WARM_OUTPUT')
+      const outputPath = path.join(outputDirectory, `${workload.name}.json`)
+      const appBundle = requiredPath('MARKTEXT_UPSTREAM_WARM_APP')
+      const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-upstream-performance-'))
+      try {
+        const bootstrapFile = await createUpstreamPerformanceBlankBootstrapFile(runRoot)
+        const isolation = await createUpstreamPerformanceObservationIsolation(runRoot, 0)
+        const documentPath = path.join(isolation.root, `${workload.name}.md`)
+        fs.writeFileSync(documentPath, workload.source, { flag: 'wx' })
+        const loadBefore = os.loadavg()
+        const app = await launchRenderActiveUpstreamApplication(appBundle, isolation.profile, bootstrapFile)
+        try {
+          const { page } = app
+          await expectRenderActiveInactive(app)
+          await closeActiveTab(page)
+          await awaitRenderActiveInactiveConvergence(app)
+          const opened = await openSample(page, documentPath)
+          // The warm-session harness types at the end of the first paragraph.
+          const first = page.locator('.editor-component span.mu-paragraph-content[contenteditable="true"]').first()
+          const box = await first.boundingBox()
+          if (box === null) throw new Error('The first paragraph is not rendered')
+          await first.click({ position: { x: box.width - 2, y: box.height / 2 } })
+          await expect.poll(() => first.evaluate(element => {
+            const selection = window.getSelection()
+            if (selection === null || selection.rangeCount === 0 || !selection.isCollapsed) return false
+            const range = document.createRange()
+            range.selectNodeContents(element)
+            range.setEnd(selection.anchorNode ?? element, selection.anchorOffset)
+            return element.contains(selection.anchorNode) && range.toString().length === (element.textContent ?? '').length
+          })).toBe(true)
+          for (let index = 0; index < warmup; index += 1) {
+            await page.keyboard.type('x', { delay: 0 })
+            await page.waitForTimeout(interval)
+          }
+          await startInputLatencyTrace(page, { maxSamples: measured })
+          for (let index = 0; index < measured; index += 1) {
+            await page.keyboard.type('x', { delay: 0 })
+            await page.waitForTimeout(interval)
+          }
+          await waitForInputLatencyEcho(page, measured, 30_000)
+          const input = await readInputLatencyTrace(page)
+          const firstParagraph = await page.locator('.editor-component span.mu-paragraph-content[contenteditable="true"]').first().textContent()
+          expect(firstParagraph).toBe(WARM_EDITING_PARAGRAPH + 'x'.repeat(warmup + measured))
+          await expectRenderActiveInactive(app, true)
+          const echoes = input.flatMap(sample => sample.tEcho === undefined ? [] : [sample.tEcho - sample.tEvent])
+          const sorted = [...echoes].sort((left, right) => left - right)
+          const percentile = (value: number): number | null => sorted.length === 0
+            ? null
+            : sorted[Math.min(sorted.length - 1, Math.ceil(value * sorted.length) - 1)] ?? null
+          fs.writeFileSync(outputPath, JSON.stringify({
+            workload: workload.name,
+            sourceSha256: sha256(workload.source),
+            sourceUnits: workload.source.length,
+            upstreamBuildCommit: process.env.MARKTEXT_UPSTREAM_BUILD_COMMIT ?? null,
+            harnessCommit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim(),
+            measuredAt: new Date().toISOString(),
+            loadAverage: { before: loadBefore, after: os.loadavg() },
+            protocol: { warmup, measured, intervalMs: interval, boundary: 'beforeinput-to-exact-dom-echo' },
+            open: opened,
+            echoMs: {
+              count: sorted.length,
+              p50: percentile(0.5),
+              p95: percentile(0.95),
+              max: sorted.at(-1) ?? null
+            },
+            samples: input
+          }, null, 2), { flag: 'wx' })
+          expect(sorted).toHaveLength(measured)
+        } finally {
+          await closeRenderActiveUpstreamApplication(app)
+        }
+      } finally {
+        await removeUpstreamPerformanceRunRoot(runRoot)
+      }
+    })
+  }
 })
