@@ -77,6 +77,13 @@ import {
   placeCaretAfterWarmEditingText,
   WARM_EDITING_PARAGRAPH
 } from './helpers/ordinaryMarkdownWorkloads'
+import {
+  captureEditorDom,
+  installKeyCalibration,
+  probeForcedLayout,
+  readKeyCalibration,
+  startWarmRendererRecording
+} from './helpers/warmSessionDiagnostics'
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..')
 const PINNED_BASELINE = 'e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c'
@@ -836,6 +843,27 @@ test.describe('pinned upstream baseline raw performance producer', () => {
 // MARKTEXT_WARM_ORDINARY=1): one warm app per document, 8 warmup keys, then
 // measured keys at a fixed interval at the end of the first paragraph, each
 // timed from its beforeinput to the exact DOM echo by the same probe.
+//
+// Same-producer comparison: this producer runs any packaged MarkText app, so
+// MarkText itself can be measured under the identical launch, transparent
+// render-active window and probe. Package it unsigned
+// (`CSC_IDENTITY_AUTO_DISCOVERY=false pnpm run build:mac:arm64`), then run
+// this describe once per app and document, alternating the apps, with
+// MARKTEXT_UPSTREAM_WARM_APP set to `dist/mac-arm64/marktext.app` or to the
+// upstream build, and a fresh MARKTEXT_UPSTREAM_WARM_OUTPUT directory for
+// each run. The producer checks the window server, so keep the display lit
+// for the run (`caffeinate -d -u`, stopped afterwards).
+//
+// Opt-in diagnostics, off by default, written beside `<workload>.json`:
+// - MARKTEXT_UPSTREAM_WARM_PROFILE=1: `<workload>.cpuprofile`, the renderer's
+//   CPU profile over the measured keys.
+// - MARKTEXT_UPSTREAM_WARM_TRACE=1: `<workload>.trace.json`, a Chromium
+//   timeline trace over the measured keys.
+// - MARKTEXT_UPSTREAM_WARM_CALIBRATE=keydown or keyup:
+//   `<workload>.calibration.json`, a fixed loop's time at each measured key,
+//   which shows the renderer core's speed at that moment.
+// - MARKTEXT_UPSTREAM_WARM_DOM=1: `<workload>.dom.json`, the editor's DOM
+//   before the keys and a forced-layout probe after them.
 test.describe('upstream warm-session echo on ordinary Markdown', () => {
   test.skip(
     process.env.MARKTEXT_UPSTREAM_WARM_OUTPUT === undefined,
@@ -844,6 +872,16 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
   const warmup = 8
   const measured = Number(process.env.MARKTEXT_UPSTREAM_WARM_SAMPLES ?? 40)
   const interval = Number(process.env.MARKTEXT_UPSTREAM_WARM_INTERVAL_MS ?? 80)
+  const calibration = process.env.MARKTEXT_UPSTREAM_WARM_CALIBRATE
+  if (calibration !== undefined && calibration !== 'keydown' && calibration !== 'keyup') {
+    throw new Error('MARKTEXT_UPSTREAM_WARM_CALIBRATE must be keydown or keyup')
+  }
+  const diagnostics = Object.freeze({
+    profile: process.env.MARKTEXT_UPSTREAM_WARM_PROFILE === '1',
+    trace: process.env.MARKTEXT_UPSTREAM_WARM_TRACE === '1',
+    calibration: calibration ?? null,
+    dom: process.env.MARKTEXT_UPSTREAM_WARM_DOM === '1'
+  })
 
   for (const workload of ORDINARY_MARKDOWN_WORKLOADS) {
     test(workload.name, async() => {
@@ -868,18 +906,32 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
           const opened = await openSample(page, documentPath)
           // Both harnesses type at the end of the warm editing text.
           const target = await placeCaretAfterWarmEditingText(page)
+          const dom = diagnostics.dom ? await captureEditorDom(page) : undefined
           for (let index = 0; index < warmup; index += 1) {
             await page.keyboard.type('x', { delay: 0 })
             await page.waitForTimeout(interval)
           }
           await startInputLatencyTrace(page, { maxSamples: measured })
+          if (diagnostics.calibration !== null) await installKeyCalibration(page, diagnostics.calibration)
+          const stopRecording = diagnostics.profile || diagnostics.trace
+            ? await startWarmRendererRecording(page, diagnostics)
+            : undefined
           for (let index = 0; index < measured; index += 1) {
             await page.keyboard.type('x', { delay: 0 })
             await page.waitForTimeout(interval)
           }
           await waitForInputLatencyEcho(page, measured, 30_000)
+          await stopRecording?.(outputDirectory, workload.name)
           const input = await readInputLatencyTrace(page)
+          if (diagnostics.calibration !== null) {
+            fs.writeFileSync(path.join(outputDirectory, `${workload.name}.calibration.json`),
+              JSON.stringify({ event: diagnostics.calibration, loopMs: await readKeyCalibration(page) }), { flag: 'wx' })
+          }
           expect(await target.textContent()).toContain(WARM_EDITING_PARAGRAPH + 'x'.repeat(warmup + measured))
+          if (dom !== undefined) {
+            fs.writeFileSync(path.join(outputDirectory, `${workload.name}.dom.json`),
+              JSON.stringify({ before: dom, forcedLayoutMs: await probeForcedLayout(page) }, null, 2), { flag: 'wx' })
+          }
           await expectRenderActiveInactive(app, true)
           const echoes = input.flatMap(sample => sample.tEcho === undefined ? [] : [sample.tEcho - sample.tEvent])
           const sorted = [...echoes].sort((left, right) => left - right)
@@ -895,6 +947,7 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
             measuredAt: new Date().toISOString(),
             loadAverage: { before: loadBefore, after: os.loadavg() },
             protocol: { warmup, measured, intervalMs: interval, boundary: 'beforeinput-to-exact-dom-echo' },
+            diagnostics,
             open: opened,
             echoMs: {
               count: sorted.length,
