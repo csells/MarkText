@@ -148,7 +148,10 @@ export const createConsumerSummaryTracker = (): ConsumerSummaryTracker => {
     committed(previous, next, change) {
       if (tracked === undefined) return
       const markup = change.projections.find((projection) => projection.name === 'markup')
-      if (tracked.revision !== previous || markup === undefined || markup.scope !== 'regions') {
+      // Items replaced inside a list read in the Revised view with their
+      // whole list, which is read again.
+      if (tracked.revision !== previous || markup === undefined || markup.scope !== 'regions' ||
+          markup.replacements.some((replacement) => replacement.listItems !== undefined)) {
         tracked = undefined
         return
       }

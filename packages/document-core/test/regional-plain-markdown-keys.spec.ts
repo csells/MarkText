@@ -168,3 +168,33 @@ describe('a key that changes nothing', () => {
     expect(outcome).toEqual(press(control, regional(control, source), caret, 'deleteContentBackward', false))
   })
 })
+
+describe('keys in an item of a long list', () => {
+  // Plan 0012 G35: a key in one item reparses that item with an item of
+  // context on each side, as upstream edits one item, whatever the list's
+  // length, and reads as a core planning from its document parse reads it.
+  const item = (index: number) => `item number ${index} of the long list`
+  it.each([
+    ['tight', (index: number) => `- ${item(index)}`, '\n'],
+    ['loose', (index: number) => `- ${item(index)}`, '\n\n'],
+    ['ordered', (index: number) => `${index + 1}. ${item(index)}`, '\n'],
+    ['task', (index: number) => `- [ ] ${item(index)}`, '\n'],
+    ['nested', (index: number) => index % 3 === 0 ? `- ${item(index)}` : `  - ${item(index)}`, '\n']
+  ] as const)('%s', (_name, line, separator) => {
+    const source = 'Intro paragraph.\n\n' + Array.from({ length: 300 }, (_, index) => line(index)).join(separator) + '\n\nTail paragraph.\n'
+    for (const tracked of [false, true]) {
+      for (const key of keys) {
+        const core = createDocumentCore()
+        const revision = regional(core, source)
+        const caret = revision.source.indexOf('number 151 of') + 3
+        const before = inspectDocumentCore(core).documentParses
+        const outcome = press(core, revision, caret, key, tracked)
+        const label = `${key} tracked=${String(tracked)}`
+        expect(inspectDocumentCore(core).documentParses - before, label).toBe(0)
+        const control = createDocumentCore()
+        planFromDocumentParse(control)
+        expect(outcome, label).toEqual(press(control, regional(control, source), caret, key, tracked))
+      }
+    }
+  }, 120_000)
+})
