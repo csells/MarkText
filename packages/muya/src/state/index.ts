@@ -101,6 +101,11 @@ class JSONState {
         this._state = [...this._state.slice(0, start), ...roots, ...this._state.slice(end)];
     }
 
+    /** Root `index` as held, not a copy: callers must not change it. */
+    getRoot(index: number): Readonly<TState> | undefined {
+        return this._state[index];
+    }
+
     private _setState(state: TState[]) {
         this._state = state;
     }

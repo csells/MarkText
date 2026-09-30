@@ -176,6 +176,8 @@ export interface MuyaMarkupPresentationPatch {
   readonly start: number
   readonly previousEnd: number
   readonly nextEnd: number
+  /** With one list root replaced in place, its only changed items, as in Muya's reconcile region. */
+  readonly items?: Readonly<{ start: number; previousEnd: number; nextEnd: number }>
 }
 
 const restKey = (path: MuyaMarkupPath): string => JSON.stringify(path.slice(1))
@@ -229,7 +231,52 @@ export function createMuyaMarkupPresentationIndex(
   }
   let roots: (RootEntries | undefined)[]
   let others: Map<string, Entry>
+  const retainedItems = patch?.items === undefined ? undefined : patch.items
   if (
+    retainedItems !== undefined &&
+    retainedItems.nextEnd === retainedItems.previousEnd &&
+    patch !== undefined &&
+    patch.nextEnd === patch.start + 1 &&
+    patch.previousEnd === patch.start + 1 &&
+    before !== undefined &&
+    reusesComments &&
+    before.view === patch.previous &&
+    before.others.size === 0 &&
+    patch.previousEnd <= before.roots.length
+  ) {
+    // Typing in one item of a long list replaces no other item, so the
+    // other items keep their entries and only the replaced ones are indexed.
+    const root = patch.start
+    const replacedItem = (key: string): boolean => {
+      for (let item = retainedItems.start; item < retainedItems.previousEnd; item += 1) {
+        if (key.startsWith(`["children",${item},`)) return true
+      }
+      return false
+    }
+    const retained = before.roots[root]
+    const group = new Map<string, Entry>()
+    for (const [key, entry] of retained ?? []) {
+      if (!replacedItem(key)) group.set(key, entry)
+    }
+    for (const binding of muyaViewBindingsInRoots(view, root, root + 1)) {
+      const item = binding.path[2]
+      if (
+        binding.path[1] !== 'children' ||
+        typeof item !== 'number' ||
+        item < retainedItems.start ||
+        item >= retainedItems.nextEnd
+      ) {
+        continue
+      }
+      const key = restKey(binding.path)
+      group.set(key, entryFor(binding, retained?.get(key)))
+    }
+    for (const [key, entry] of retained ?? []) {
+      if (!group.has(key)) changedPaths.push(entry.binding.path)
+    }
+    roots = [...before.roots.slice(0, root), group, ...before.roots.slice(root + 1)]
+    others = new Map()
+  } else if (
     patch !== undefined &&
     before !== undefined &&
     reusesComments &&
