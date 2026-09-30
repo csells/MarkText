@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   createDocumentCore,
+  type CriticMarkupAnnotation,
   type DocumentProjectionName,
   type DocumentRevision
 } from '../src/index.js'
@@ -161,6 +162,25 @@ describe('L2c: a line-start arm boundary ends a block literal opened in the arm'
     expect(literal).toBeDefined()
   })
 
+  it('never ends the literal at an escaped boundary token', () => {
+    const core = createDocumentCore()
+    const source = '{++```x\n\\++}\n++}'
+    const revision = core.open(source)
+    expect(revision.annotations[0]?.range).toEqual({ start: 0, end: source.length })
+    expect(core.project(revision, 'revised').markdown).toBe('```x\n\\++}\n```\n')
+  })
+
+  it('ends the literal only at the innermost annotation\'s own boundary token', () => {
+    const core = createDocumentCore()
+    const source = '{~~a{++```x\n~>b\n++}~>c~~}'
+    const revision = core.open(source)
+    const tree = (annotation: CriticMarkupAnnotation): unknown =>
+      [annotation.kind, annotation.range.start, annotation.range.end, annotation.arms.flatMap(arm => arm.annotations.map(tree))]
+    expect(revision.annotations.map(tree)).toEqual([['substitution', 0, source.length, [['addition', 4, 19, []]]]])
+    expect(revision.diagnostics).toEqual([])
+    expect(core.project(revision, 'revised').markdown).toBe('c')
+  })
+
   it('reaches the same revision incrementally as a full parse', () => {
     const steps = [
       { before: '{++```x\ncode\n+}\nafter', at: 13, insert: '+' },
@@ -258,6 +278,21 @@ describe('C3: arm definitions are global in the reader view that keeps the arm',
     const revision = core.open('{==[a]: /u\n==}\n\n[a]\n')
     expect(linkDestinations(readerAst(core, revision, 'revised'))).toEqual([])
     expect(core.project(revision, 'revised').markdown).toContain('\\[a]')
+  })
+
+  it('keeps Comment payload definitions isolated in every view', () => {
+    const core = createDocumentCore()
+    const revision = core.open('{>>[a]: /u\n<<}\n\n[a]\n')
+    expect(linkDestinations(readerAst(core, revision, 'revised'))).toEqual([])
+    expect(linkDestinations(readerAst(core, revision, 'original'))).toEqual([])
+  })
+
+  it('applies first-definition-wins across the whole view', () => {
+    const core = createDocumentCore()
+    expect(linkDestinations(readerAst(core, core.open('[a]: /first\n\n{++[a]: /second\n++}\n\n[a]\n'), 'revised')))
+      .toEqual(['/first'])
+    expect(linkDestinations(readerAst(core, core.open('{++[a]: /second\n++}\n\n[a]: /first\n\n[a]\n'), 'revised')))
+      .toEqual(['/second'])
   })
 
   it('resolves an Addition footnote definition in Revised', () => {
