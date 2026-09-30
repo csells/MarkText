@@ -134,6 +134,11 @@ export interface RegionalInventoryPreview {
    * annotation, and how many CriticMarkup markers the window gains.
    */
   readonly structural?: Readonly<{ touchesAnnotation: boolean, markerDelta: number }>
+  /**
+   * The window begins at the first edited block, whose block before it
+   * reads the same whatever that block becomes (see `contextBefore`).
+   */
+  readonly cleanStart?: true
 }
 
 type RegionalInventoryArguments = [
@@ -1874,10 +1879,15 @@ export function previewRegionalRange(
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptionsV1,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1
-): Readonly<{ sourceStart: number, nextProducts: Profile1DocumentProducts, nextWindow: string }> | undefined {
+): Readonly<{ sourceStart: number, nextProducts: Profile1DocumentProducts, nextWindow: string, cleanStart?: true }> | undefined {
   const window = regionalRangeWindow(inventory, source, range, executionBudget, markdownOptions, physicalRecorder)
   return window?.validated === true
-    ? Object.freeze({ sourceStart: window.sourceStart, nextProducts: window.nextProducts, nextWindow: window.nextWindow })
+    ? Object.freeze({
+      sourceStart: window.sourceStart,
+      nextProducts: window.nextProducts,
+      nextWindow: window.nextWindow,
+      ...(window.cleanStart === true ? { cleanStart: true as const } : {})
+    })
     : undefined
 }
 
@@ -1897,7 +1907,14 @@ export function regionalRangeWindow(
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptionsV1,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1
-): Readonly<{ sourceStart: number, nextProducts: Profile1DocumentProducts, nextWindow: string, validated: boolean, labelsOnly: boolean }> | undefined {
+): Readonly<{
+  sourceStart: number
+  nextProducts: Profile1DocumentProducts
+  nextWindow: string
+  validated: boolean
+  labelsOnly: boolean
+  cleanStart?: true
+}> | undefined {
   const value = inventoryValue(inventory)
   const length = source.length
   if (length !== value.root.sourceLength || length === 0 || range.end > length) return undefined
@@ -1912,8 +1929,8 @@ export function regionalRangeWindow(
     return undefined
   }
   for (let widening = 0; ; widening += 1) {
-    const first: WindowEdge | undefined = edited.source > 0 ? windowEdge(value, edited.source - 1, 'start') : edited
-    const last: WindowEdge | undefined = editedEnd.source < length ? windowEdge(value, editedEnd.source, 'end') : editedEnd
+    const first = contextBefore(source, edited.source > 0 ? windowEdge(value, edited.source - 1, 'start') : edited, edited)
+    const last = contextAfter(source, editedEnd.source < length ? windowEdge(value, editedEnd.source, 'end') : editedEnd, editedEnd)
     if (first === undefined || last === undefined) return undefined
     const window = source.slice(first.source, last.source)
     value.recorder.recordCandidateRegionParse(window.length)
@@ -1926,6 +1943,7 @@ export function regionalRangeWindow(
       last.source === length
     )
     if (result.kind !== 'complete') return undefined
+    const cleanStart = first.source === edited.source && edited.source > 0
     const read = (validated: boolean) => {
       const labels = referenced(first.source, last.source)
       validated &&= !frontMatterReach(markdownOptions, first.source, range.start, window) &&
@@ -1935,7 +1953,8 @@ export function regionalRangeWindow(
         nextProducts: result,
         nextWindow: window,
         validated: validated && !labels,
-        labelsOnly: validated && labels
+        labelsOnly: validated && labels,
+        ...(cleanStart ? { cleanStart: true as const } : {})
       })
     }
     const leafPoints = leafPointsOf(result, window.length, !value.strayMarkers)
@@ -2476,6 +2495,59 @@ function windowEdge(
   })
 }
 
+/** Context longer than this reads only as far as a window needs it. */
+const CONTEXT_REACH = 1024
+
+/** Whether `leaf` holds nothing any other leaf's reading reaches or depends on. */
+function quietLeaf(leaf: RegionLeaf): boolean {
+  return leaf.kind === 'gap' || (leaf.annotations.roots.length === 0 && leaf.markers.length === 0 &&
+    leaf.diagnostics.length === 0 && leaf.listRun === undefined)
+}
+
+/** Whether `text` is one fenced code block, closed by its last line that is not blank. */
+function closedFence(text: string): boolean {
+  const lines = text.split(/\r\n|\r|\n/u)
+  const opener = /^ {0,3}(`{3,}|~{3,})/u.exec(lines[0] ?? '')
+  if (opener === null) return false
+  const fence = opener[1] ?? ''
+  const closer = new RegExp(`^ {0,3}${fence[0] === '`' ? '`' : '~'}{${fence.length},}[ \\t]*$`, 'u')
+  let last = lines.length - 1
+  while (last > 0 && /^[ \t]*$/u.test(lines[last] ?? '')) last -= 1
+  if (last === 0 || !closer.test(lines[last] ?? '')) return false
+  for (let line = 1; line < last; line += 1) if (closer.test(lines[line] ?? '')) return false
+  return true
+}
+
+/**
+ * The context before the edited leaves. A long fenced code block there is
+ * left out: a fence closed before the edited blocks begin at a block
+ * boundary reads as it did whatever they become, and they read from a clean
+ * start without it.
+ */
+function contextBefore(
+  source: CanonicalSourceView,
+  first: WindowEdge | undefined,
+  edited: WindowEdge
+): WindowEdge | undefined {
+  if (first === undefined || first === edited || edited.source - first.source <= CONTEXT_REACH || !quietLeaf(first.leaf)) return first
+  return closedFence(source.slice(first.source, edited.source)) ? edited : first
+}
+
+/**
+ * The context after the edited leaves. A long leaf there is read to the end
+ * of its first line: that line decides where the edited blocks end, blocks
+ * parse forward, and the context is compared cut alike before and after the
+ * edit. A run or marker the edited blocks would pair past the cut is left
+ * unpaired in the window, which refuses it.
+ */
+function contextAfter(source: CanonicalSourceView, last: WindowEdge | undefined, editedEnd: WindowEdge): WindowEdge | undefined {
+  if (last === undefined || last === editedEnd || last.source - editedEnd.source <= CONTEXT_REACH || !quietLeaf(last.leaf)) return last
+  const text = source.slice(editedEnd.source, editedEnd.source + CONTEXT_REACH)
+  const lineEnd = text.search(/\r\n|\r|\n/u)
+  if (lineEnd < 0) return last
+  return Object.freeze({ ...last, source: editedEnd.source + lineEnd + (text.startsWith('\r\n', lineEnd) ? 2 : 1) })
+}
+
 interface BlockWindowFacts {
   readonly boundaries: readonly number[]
   readonly syntaxBoundaries: readonly number[]
@@ -2706,8 +2778,8 @@ function evaluateBlockWindow(
   // region; when a bound stops being a block start, the neighbouring block
   // joins the edited ones and the reparse widens by one more block.
   for (let widening = 0; ; widening += 1) {
-    const first: WindowEdge | undefined = edited.source > 0 ? windowEdge(inventory, edited.source - 1, 'start') : edited
-    const last: WindowEdge | undefined = editedEnd.source < length ? windowEdge(inventory, editedEnd.source, 'end') : editedEnd
+    const first = contextBefore(previousSource, edited.source > 0 ? windowEdge(inventory, edited.source - 1, 'start') : edited, edited)
+    const last = contextAfter(previousSource, editedEnd.source < length ? windowEdge(inventory, editedEnd.source, 'end') : editedEnd, editedEnd)
     if (first === undefined || last === undefined) return undefined
     const nextWindow = nextSource.slice(first.source, last.source + delta)
     const atDocumentEnd = last.source + delta === nextSource.length
@@ -3043,6 +3115,7 @@ function admitBlockWindow(
       sourceStart: first.source,
       nextProducts: result,
       nextWindow,
+      ...(first.source === edited.source && edited.source > 0 ? { cleanStart: true as const } : {}),
       structural: Object.freeze({
         touchesAnnotation,
         markerDelta: (result.retainedIntrinsic?.markerDecisions.length ?? 0) - previousMarkers

@@ -157,6 +157,8 @@ export interface RegionalBlockContext {
   readonly enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined
   /** Source range of the window's blocks, context blocks included. */
   readonly source: SourceRange
+  /** The window begins at a block that no block before it reads differently. */
+  readonly cleanStart?: true
 }
 
 /** Normalize current model addresses only; physical cell materialization is an edit. */
@@ -298,10 +300,12 @@ function planRegionalLineBreak(core: DocumentCore, revision: DocumentRevision, a
   const blocks = context.syntax.ast.root.children.flatMap(child => child.kind === 'list' ? child.children : [child])
   const first = blocks[0]
   const last = blocks.at(-1)
-  if (blocks.length < 2 || first === undefined || last === undefined) return undefined
+  if (first === undefined || last === undefined) return undefined
   // Positions inside the first or last block may depend on blocks outside the
   // window, unless that block is the document's own first or last.
-  const from = context.source.start === 0 ? 0 : context.syntax.coordinates.toSource(first.range.end, 'previous')
+  const from = context.source.start === 0 || context.cleanStart === true
+    ? context.source.start
+    : context.syntax.coordinates.toSource(first.range.end, 'previous')
   const to = context.source.end === revision.sourceLength ? revision.sourceLength : context.syntax.coordinates.toSource(last.range.start, 'next')
   let planned: ReturnType<typeof planLineBreak>
   try {
