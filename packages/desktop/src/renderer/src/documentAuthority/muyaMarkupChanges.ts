@@ -600,8 +600,9 @@ export function applyMuyaMarkupChanges(
     }
     let end = start
     while (end < previous.state.length) {
-      const group = roots.items(end).bindings
-      const binding = group[0]
+      // Only the first binding of the root after the region is read, so a
+      // long list there is not moved to learn that it lies outside.
+      const binding = roots.bindingAt(end, 0)
       // A root without text cannot be placed against the region's blocks.
       if (binding === undefined) return undefined
       if (
@@ -614,7 +615,7 @@ export function applyMuyaMarkupChanges(
         break
       }
       if (
-        group.some(
+        roots.items(end).bindings.some(
           (item) =>
             item.syntax.range.start < replacement.previous.syntax.start ||
             item.syntax.range.end > replacement.previous.syntax.end ||
@@ -711,9 +712,8 @@ export function applyMuyaMarkupChanges(
     }
     const base = state.length
     state.push(...local.state.slice(0, localLength))
-    const expectedEnd = lastBinding(roots)?.documentEnd
+    const expectedEnd = end === previous.state.length ? lastBinding(roots)?.documentEnd : undefined
     if (
-      end === previous.state.length &&
       expectedEnd !== undefined &&
       local.bindings.at(-1)?.documentEnd?.offset !==
         expectedEnd.offset + replacement.next.source.end - replacement.previous.source.end
