@@ -20,14 +20,14 @@ export default defineConfig({
             name: 'chromium',
             use: {
                 ...devices['Desktop Chrome'],
-                // CI downloads bundled Chromium via `playwright install chromium`.
-                // Local dev falls back to the system Chrome install to avoid
-                // the ~170 MB Chromium-for-Testing download which is flaky on
-                // some networks. Set PLAYWRIGHT_USE_BUNDLED_CHROMIUM=1 locally
-                // if you actually want the bundled binary.
-                channel: process.env.CI || process.env.PLAYWRIGHT_USE_BUNDLED_CHROMIUM
-                    ? undefined
-                    : 'chrome',
+                // Bundled Chromium, as on CI (`playwright install chromium`).
+                // Installed Google Chrome starts its GoogleUpdater, which
+                // inherits the browser's stdio pipes; closing the browser
+                // waits for those pipes, so a worker cannot finish until the
+                // updater exits, which can take longer than Playwright's
+                // five-minute stop limit. PLAYWRIGHT_USE_SYSTEM_CHROME=1 runs
+                // the installed Chrome instead.
+                channel: process.env.PLAYWRIGHT_USE_SYSTEM_CHROME ? 'chrome' : undefined,
             },
         },
         // Phase 2: cross-browser matrix. Firefox + WebKit use the bundled
