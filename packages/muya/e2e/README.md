@@ -39,23 +39,21 @@ pnpm e2e:headed                 # headed Chrome with normal page UI
 Targeted runs (Phase 2 added the cross-browser matrix):
 
 ```sh
-pnpm --filter muya-e2e e2e:chromium   # Chromium only (system Chrome locally)
+pnpm --filter muya-e2e e2e:chromium   # Chromium only (bundled binary)
 pnpm --filter muya-e2e e2e:firefox    # Firefox only (bundled binary)
 pnpm --filter muya-e2e e2e:webkit     # WebKit only (bundled binary)
 ```
 
-On CI (`CI=1`), Playwright uses the bundled Chromium / Firefox / WebKit downloaded by the `playwright install --with-deps chromium firefox webkit` step in `ci-e2e.yml`. Locally, the Chromium project falls back to the OS-installed Chrome so you don't need the 170 MB Chromium-for-Testing download; Firefox and WebKit have no system equivalent, so you must download them once:
+Playwright uses its bundled Chromium, Firefox and WebKit, locally as on CI (`playwright install --with-deps chromium firefox webkit` in `ci-e2e.yml`). Download them once:
 
 ```sh
-pnpm --filter muya-e2e exec playwright install firefox webkit
-# or, to install all three at once:
 pnpm e2e:install
 ```
 
-To force bundled Chromium locally:
+The installed Google Chrome is not the default: it starts its GoogleUpdater, which inherits the browser's output pipes, and Playwright cannot finish closing that browser until the updater exits. A worker can then outlive Playwright's five-minute stop limit and fail a run whose tests all passed. To run the Chromium project in the installed Chrome anyway:
 
 ```sh
-PLAYWRIGHT_USE_BUNDLED_CHROMIUM=1 pnpm e2e
+PLAYWRIGHT_USE_SYSTEM_CHROME=1 pnpm --filter muya-e2e e2e:chromium
 ```
 
 Inspect failures:
