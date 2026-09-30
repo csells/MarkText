@@ -11,7 +11,10 @@ import {
   createMuyaMarkupView,
   type MuyaMarkdownSegment,
   type MuyaMarkupBinding,
-  type MuyaMarkupView
+  type MuyaMarkupDecoration,
+  type MuyaMarkupState,
+  type MuyaMarkupView,
+  type MuyaSourceStructure
 } from './muyaMarkupView'
 import {
   createMuyaMarkupRootRun,
@@ -19,6 +22,8 @@ import {
   muyaMarkupRootsFor,
   placedMuyaMarkupBinding,
   placedMuyaMarkupDecoration,
+  placedMuyaMarkupItemBinding,
+  placedMuyaMarkupItemDecoration,
   type MuyaMarkupRootRun,
   type MuyaMarkupRoots
 } from './muyaMarkupViewRoots'
@@ -159,6 +164,8 @@ export interface MuyaMarkupViewPatch {
   readonly start: number
   readonly previousEnd: number
   readonly nextEnd: number
+  /** For one list root patched in place, the items replaced in it, as in Muya's reconcile region. */
+  readonly items?: Readonly<{ start: number; previousEnd: number; nextEnd: number }>
 }
 const patches = new WeakMap<MuyaMarkupView, MuyaMarkupViewPatch>()
 
@@ -229,6 +236,236 @@ const regionSource = (replacement: MarkupRegionReplacement): string | undefined 
     : undefined
 }
 
+const listStates = new Set(['bullet-list', 'order-list', 'task-list'])
+
+/** The item a binding of a list root belongs to, by its place in the root. */
+const itemOf = (binding: MuyaMarkupBinding): number | undefined =>
+  binding.path[1] === 'children' && typeof binding.path[2] === 'number' ? binding.path[2] : undefined
+
+/**
+ * A list root with items `[itemsBefore, itemsBefore + previousItems)` replaced
+ * by the region's items, whose bindings stand at root `root` of the previous
+ * view. The list keeps its reading and its items outside the region, so only
+ * the region's items are built; the root's first binding carries the whole
+ * list's source again. Items with suggestions stay on the whole-view path.
+ */
+function listItemsPatch(
+  previous: MuyaMarkupView,
+  roots: MuyaMarkupRoots,
+  replacement: MarkupRegionReplacement
+): Readonly<{
+  root: number
+  state: MuyaMarkupState
+  bindings: readonly MuyaMarkupBinding[]
+  decorations: readonly MuyaMarkupDecoration[]
+  local: MuyaMarkupView
+}> | undefined {
+  const items = replacement.listItems
+  const first = replacement.syntaxBlocks[0]
+  const last = replacement.syntaxBlocks.at(-1)
+  if (items === undefined || first === undefined || last === undefined) return undefined
+  const root = firstBindingReaching(roots, replacement.previous.syntax.start)?.path[0]
+  if (typeof root !== 'number') return undefined
+  const listState = previous.state[root]
+  const children = listState?.children
+  const rootItems = roots.items(root)
+  if (
+    listState === undefined || children === undefined || !listStates.has(listState.name) ||
+    items.itemsBefore + items.previousItems > children.length ||
+    rootItems.comments.length > 0
+  ) {
+    return undefined
+  }
+  // A suggestion reaching past the region's bounds reads with text the
+  // region's view does not hold.
+  for (const boundary of [replacement.previous.source.start, replacement.previous.source.end]) {
+    if (rootItems.decorations.some(({ mark: { annotationRange: range } }) => range.start < boundary && range.end > boundary)) {
+      return undefined
+    }
+  }
+  const canonicalSource = ' '.repeat(replacement.next.source.start) + items.source
+  const local = createMuyaMarkupView({
+    kind: 'markup',
+    name: 'markup',
+    events: replacement.events,
+    syntax: {
+      ast: {
+        root: {
+          kind: 'document',
+          range: replacement.next.syntax,
+          attributes: {},
+          children: [{
+            ...items.list,
+            range: { start: first.range.start, end: last.range.end },
+            children: replacement.syntaxBlocks
+          }]
+        }
+      },
+      coordinates: markupRegionCoordinates(replacement)
+    }
+  }, replacement.annotations, canonicalSource, undefined, replacement.precedingEvents, replacement.following)
+  const localItems = local.state[0]?.children
+  if (
+    local.state.length !== 1 || localItems === undefined || localItems.length !== replacement.syntaxBlocks.length ||
+    local.comments.length > 0
+  ) {
+    return undefined
+  }
+  const sourceDelta = replacement.next.source.end - replacement.previous.source.end
+  const syntaxDelta = replacement.next.syntax.end - replacement.previous.syntax.end
+  const itemDelta = localItems.length - items.previousItems
+  const after = items.itemsBefore + items.previousItems
+  const atLastItem = after === children.length
+  const atDocumentEnd = atLastItem && root === previous.state.length - 1
+  // A suggestion ending past its last text is shown on the next block's
+  // start, which the whole view reaches and the region's view does not.
+  if (!atDocumentEnd && local.decorations.some((decoration) => decoration.exteriorEnd !== undefined)) return undefined
+  const decorations: MuyaMarkupDecoration[] = []
+  for (const decoration of rootItems.decorations) {
+    const item = decoration.path[1] === 'children' && typeof decoration.path[2] === 'number' ? decoration.path[2] : undefined
+    if (item === undefined) return undefined
+    if (item < items.itemsBefore) decorations.push(decoration)
+  }
+  decorations.push(...local.decorations.map((decoration) =>
+    placedMuyaMarkupItemDecoration(decoration, root, items.itemsBefore, 0)))
+  for (const decoration of rootItems.decorations) {
+    const item = decoration.path[2]
+    if (typeof item === 'number' && item >= items.itemsBefore + items.previousItems) {
+      decorations.push(placedMuyaMarkupItemDecoration(decoration, 0, localItems.length - items.previousItems,
+        replacement.next.source.end - replacement.previous.source.end))
+    }
+  }
+  const before: MuyaMarkupBinding[] = []
+  const later: MuyaMarkupBinding[] = []
+  for (const binding of rootItems.bindings) {
+    const item = itemOf(binding)
+    if (item === undefined) return undefined
+    if (item < items.itemsBefore) before.push(binding)
+    else if (item >= after) later.push(placedMuyaMarkupItemBinding(binding, 0, itemDelta, sourceDelta, syntaxDelta))
+    else if (
+      binding.syntax.range.start < replacement.previous.syntax.start ||
+      binding.syntax.range.end > replacement.previous.syntax.end
+    ) {
+      return undefined
+    }
+  }
+  // The region's own view reads its items as a list of their own: a lone
+  // item's marker line and prefix, the list's outer block and source, and
+  // a region end that is not the document's are the whole list's to give.
+  const placed = local.bindings.map((binding) => {
+    const {
+      outerBlock: _outerBlock,
+      sourceStructure: _sourceStructure,
+      containerPrefix: _containerPrefix,
+      documentEnd,
+      markerLine,
+      trailingLinePosition,
+      ...rest
+    } = placedMuyaMarkupItemBinding(binding, root, items.itemsBefore, 0, 0)
+    return {
+      ...rest,
+      ...(markerLine === undefined || markerLine.statePath.length === 1 ? {} : { markerLine }),
+      ...(atDocumentEnd && documentEnd !== undefined ? { documentEnd } : {}),
+      ...(trailingLinePosition === undefined ||
+      (!atDocumentEnd && trailingLinePosition === replacement.next.source.end)
+        ? {}
+        : { trailingLinePosition })
+    }
+  })
+  const bindings = [...before, ...placed, ...later]
+  // The list's first binding carries its outer block and source structure.
+  const owner = rootItems.bindings[0]
+  const ownerIndex = bindings.findIndex((binding) => itemOf(binding) !== undefined)
+  if (owner === undefined || ownerIndex !== 0) return undefined
+  const text = (start: number, end: number, whole: Readonly<{ range: SourceRange; source: string }>): string | undefined => {
+    let result = ''
+    for (let offset = start; offset < end;) {
+      if (offset < replacement.next.source.start) {
+        const to = Math.min(end, replacement.next.source.start)
+        if (offset < whole.range.start || to > whole.range.end) return undefined
+        result += whole.source.slice(offset - whole.range.start, to - whole.range.start)
+        offset = to
+      } else if (offset < replacement.next.source.end) {
+        const to = Math.min(end, replacement.next.source.end)
+        result += canonicalSource.slice(offset, to)
+        offset = to
+      } else {
+        const from = offset - sourceDelta
+        const to = end - sourceDelta
+        if (from < whole.range.start || to > whole.range.end) return undefined
+        result += whole.source.slice(from - whole.range.start, to - whole.range.start)
+        offset = end
+      }
+    }
+    return result
+  }
+  const localOwner = local.bindings[0]
+  const range = (previousRange: SourceRange, localRange: SourceRange | undefined): SourceRange | undefined => {
+    const start = items.itemsBefore === 0 ? localRange?.start : previousRange.start
+    const end = atLastItem ? localRange?.end : previousRange.end + sourceDelta
+    return start === undefined || end === undefined ? undefined : { start, end }
+  }
+  const ownerPatch: { outerBlock?: MuyaMarkupBinding['outerBlock']; sourceStructure?: MuyaSourceStructure } = {}
+  // The whole view gives a root its outer block only while no suggestion
+  // shows in it; one whose last suggestion went has it again, whole.
+  if (owner.outerBlock === undefined && decorations.length === 0 && rootItems.decorations.length > 0) return undefined
+  if (owner.outerBlock !== undefined && decorations.length === 0) {
+    const next = range(owner.outerBlock.range, localOwner?.outerBlock?.range)
+    const source = next === undefined ? undefined : text(next.start, next.end, owner.outerBlock)
+    if (next === undefined || source === undefined) return undefined
+    const followingSource = atLastItem ? localOwner?.outerBlock?.followingSource : owner.outerBlock.followingSource
+    ownerPatch.outerBlock = { range: next, source, ...(followingSource === undefined ? {} : { followingSource }) }
+  }
+  if (owner.sourceStructure !== undefined) {
+    const structure = owner.sourceStructure
+    const next = range(structure.range, localOwner?.sourceStructure?.range)
+    const source = next === undefined ? undefined : text(next.start, next.end, structure)
+    const localNodes = localOwner?.sourceStructure?.nodes
+    if (next === undefined || source === undefined || localNodes === undefined) return undefined
+    const shift = (value: SourceRange): SourceRange => ({ start: value.start + sourceDelta, end: value.end + sourceDelta })
+    const nodeItem = (path: readonly (string | number)[]): number | undefined =>
+      path[1] === 'children' && typeof path[2] === 'number' ? path[2] : undefined
+    const nodes: MuyaSourceStructure['nodes'][number][] = []
+    for (const node of structure.nodes) {
+      const item = nodeItem(node.path)
+      if (item === undefined) nodes.push({ ...node, range: next })
+      else if (item < items.itemsBefore) nodes.push(node)
+    }
+    for (const node of localNodes) {
+      const item = nodeItem(node.path)
+      if (item !== undefined) nodes.push({ ...node, path: [root, 'children', item + items.itemsBefore, ...node.path.slice(3)] })
+    }
+    for (const node of structure.nodes) {
+      const item = nodeItem(node.path)
+      if (item === undefined || item < after) continue
+      nodes.push({
+        ...node,
+        path: [node.path[0], 'children', item + itemDelta, ...node.path.slice(3)],
+        range: shift(node.range),
+        ...(node.lineStarts === undefined ? {} : { lineStarts: node.lineStarts.map((offset) => offset + sourceDelta) }),
+        ...(node.delimiterRange === undefined ? {} : { delimiterRange: shift(node.delimiterRange) })
+      })
+    }
+    ownerPatch.sourceStructure = { range: next, source, nodes }
+  }
+  const {
+    outerBlock: _ownerOuter,
+    sourceStructure: _ownerStructure,
+    ...ownerRest
+  } = bindings[0] as MuyaMarkupBinding
+  bindings[0] = { ...ownerRest, ...ownerPatch }
+  return {
+    root,
+    state: {
+      ...listState,
+      children: [...children.slice(0, items.itemsBefore), ...localItems, ...children.slice(after)]
+    },
+    bindings,
+    decorations,
+    local
+  }
+}
+
 /**
  * Consume portable Core regions replacing top-level blocks. Untouched block shapes
  * retain their native state and mapped leaves. Missing comment inventory, a
@@ -256,6 +493,7 @@ export function applyMuyaMarkupChanges(
   let previousIndex = 0
   let replacedStart: number | undefined
   let replacedEnd = 0
+  let replacedItems: MuyaMarkupViewPatch['items']
   let markdownIndex = 0
   let sourceDelta = 0
   let syntaxDelta = 0
@@ -298,6 +536,43 @@ export function applyMuyaMarkupChanges(
       !completeSourceCoverage(replacement)
     ) {
       return undefined
+    }
+    if (replacement.listItems !== undefined) {
+      const patched = listItemsPatch(previous, roots, replacement)
+      if (patched === undefined || patched.root < previousIndex) return undefined
+      const from = offset(replacement.previous.syntax.start)
+      const to = offset(replacement.previous.syntax.end)
+      if (from === undefined || to === undefined || from < markdownIndex) return undefined
+      retainUntil(patched.root)
+      const base = state.length
+      state.push(patched.state)
+      const region = createMuyaMarkupRootRun(
+        {
+          bindings: patched.bindings.map((binding) => placedMuyaMarkupBinding(binding, base - patched.root)),
+          decorations: patched.decorations.map((decoration) => placedMuyaMarkupDecoration(decoration, base - patched.root)),
+          comments: []
+        },
+        base,
+        1
+      )
+      if (region === undefined) return undefined
+      runs.push(region)
+      appendMarkdown(previous, markdownIndex, from, syntaxDelta)
+      appendMarkdown(patched.local, 0, patched.local.markdown.length, 0)
+      markdownIndex = to
+      replacedItems = replacedStart === undefined && replacement.listItems !== undefined
+        ? {
+          start: replacement.listItems.itemsBefore,
+          previousEnd: replacement.listItems.itemsBefore + replacement.listItems.previousItems,
+          nextEnd: replacement.listItems.itemsBefore + replacement.syntaxBlocks.length
+        }
+        : undefined
+      replacedStart ??= patched.root
+      replacedEnd = patched.root + 1
+      previousIndex = patched.root + 1
+      sourceDelta = replacement.next.source.end - replacement.previous.source.end
+      syntaxDelta = replacement.next.syntax.end - replacement.previous.syntax.end
+      continue
     }
     const structural = replacement.syntaxBlocks.some((node) =>
       ['table', 'list', 'blockquote'].includes(node.kind))
@@ -393,6 +668,16 @@ export function applyMuyaMarkupChanges(
           return undefined
         }
       }
+    }
+    // The root before the region keeps the text up to the next block's
+    // start as its outer block's following source, which moves with that
+    // start; the region's view cannot give it again.
+    const outer = start > 0 ? roots.items(start - 1).bindings[0]?.outerBlock : undefined
+    const firstBlock = replacement.syntaxBlocks[0]
+    if (outer?.followingSource !== undefined && firstBlock !== undefined &&
+        markupRegionCoordinates(replacement).toSource(firstBlock.range.start, 'previous') !==
+          outer.range.end + outer.followingSource.length) {
+      return undefined
     }
     retainUntil(start)
     const local = createMuyaMarkupView({
@@ -494,7 +779,8 @@ export function applyMuyaMarkupChanges(
   )
   if (replacedStart !== undefined) {
     const nextEnd = replacedEnd + state.length - previous.state.length
-    patches.set(view, { previous, start: replacedStart, previousEnd: replacedEnd, nextEnd })
+    const single = replacedItems !== undefined && replacements.length === 1
+    patches.set(view, { previous, start: replacedStart, previousEnd: replacedEnd, nextEnd, ...(single ? { items: replacedItems } : {}) })
   }
   return view
 }

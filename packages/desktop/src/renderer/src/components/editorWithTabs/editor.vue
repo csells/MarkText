@@ -1586,7 +1586,7 @@ const reconcileCoreHistoryView = (outcome: CoreAppliedReply): MuyaPlainTextBindi
   const patch = muyaMarkupViewPatch(view)
   const change =
     patch !== undefined && patch.previous === previousView
-      ? { start: patch.start, previousEnd: patch.previousEnd, nextEnd: patch.nextEnd }
+      ? { start: patch.start, previousEnd: patch.previousEnd, nextEnd: patch.nextEnd, ...(patch.items === undefined ? {} : { items: patch.items }) }
       : undefined
   if (!coreMuyaReconcilePending) coreMuyaReconcileRegion = change
   else if (view !== previousView) {

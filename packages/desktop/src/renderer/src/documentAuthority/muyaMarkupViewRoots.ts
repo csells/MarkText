@@ -682,6 +682,54 @@ export type { RootRun as MuyaMarkupRootRun }
 export const placedMuyaMarkupBinding = (binding: MuyaMarkupBinding, pathDelta: number): MuyaMarkupBinding =>
   movedBinding(binding, pathDelta, 0, 0)
 
+/** `path` with its item in its root's list moved `itemDelta` items later. */
+const shiftedItemPath = (path: readonly (number | string)[], itemDelta: number): (number | string)[] =>
+  itemDelta !== 0 && path[1] === 'children' && typeof path[2] === 'number'
+    ? [path[0], 'children', path[2] + itemDelta, ...path.slice(3)]
+    : [...path]
+
+/**
+ * `binding` of an item of a list root, placed `rootDelta` roots and
+ * `itemDelta` items later once the text before it changed length by
+ * `sourceDelta` source units (`syntaxDelta` in editing syntax).
+ */
+export function placedMuyaMarkupItemBinding(
+  binding: MuyaMarkupBinding,
+  rootDelta: number,
+  itemDelta: number,
+  sourceDelta: number,
+  syntaxDelta: number
+): MuyaMarkupBinding {
+  const moved: Mutable<MuyaMarkupBinding> = { ...movedBinding(binding, rootDelta, sourceDelta, syntaxDelta) }
+  if (itemDelta === 0) return moved
+  moved.path = shiftedItemPath(moved.path, itemDelta)
+  if (moved.markerLine !== undefined) {
+    moved.markerLine = { ...moved.markerLine, statePath: shiftedItemPath(moved.markerLine.statePath, itemDelta) }
+  }
+  if (moved.sourceStructure !== undefined) {
+    moved.sourceStructure = {
+      ...moved.sourceStructure,
+      nodes: moved.sourceStructure.nodes.map((node) => ({ ...node, path: shiftedItemPath(node.path, itemDelta) }))
+    }
+  }
+  return moved
+}
+
+/**
+ * `decoration` of an item of a list root, placed `rootDelta` roots and
+ * `itemDelta` items later once the text before it changed length by
+ * `sourceDelta` source units.
+ */
+export function placedMuyaMarkupItemDecoration(
+  decoration: MuyaMarkupDecoration,
+  rootDelta: number,
+  itemDelta: number,
+  sourceDelta: number
+): MuyaMarkupDecoration {
+  const moved = movedDecoration(decoration, rootDelta, sourceDelta)
+  return itemDelta === 0 ? moved : { ...moved, path: shiftedItemPath(moved.path, itemDelta) }
+}
+
 /** `decoration` of a view made for other roots, placed `pathDelta` roots later. */
 export const placedMuyaMarkupDecoration = (
   decoration: MuyaMarkupDecoration,

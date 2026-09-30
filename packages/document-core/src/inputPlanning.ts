@@ -294,7 +294,8 @@ function planLineBreak(core: DocumentCore, revision: DocumentRevision, action: D
  * where the window reads as the whole document does.
  */
 function planRegionalLineBreak(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction<SourceRange>, context: RegionalBlockContext): DocumentSourceInputPlan | undefined {
-  const blocks = context.syntax.ast.root.children
+  // A list's items are blocks of the window too: a window of items holds one list.
+  const blocks = context.syntax.ast.root.children.flatMap(child => child.kind === 'list' ? child.children : [child])
   const first = blocks[0]
   const last = blocks.at(-1)
   if (blocks.length < 2 || first === undefined || last === undefined) return undefined

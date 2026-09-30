@@ -51,6 +51,9 @@ import {
   regionalInventoryDefinitions,
   regionalInventoryRootCount,
   regionalInventoryRootRanges,
+  regionalInventoryListRange,
+  regionalInventorySplitsLists,
+  regionalLeafPoints,
   regionalRangeWindow,
   strayMarkersStayLocal,
   referenceDependencyPrefixEnd,
@@ -413,6 +416,23 @@ export interface MarkupRegionReplacement {
   readonly following?: Readonly<{
     blockStart: number,
     events: readonly Extract<MarkupEvent, { kind: 'text' }>[]
+  }>
+  /**
+   * Present when the replaced blocks are items of a list that keeps items
+   * outside them: `syntaxBlocks` are items that replace the list's
+   * `previousItems` items after its first `itemsBefore`. `list` gives the
+   * whole list's attributes, which the replacement leaves as they were; it
+   * lists no children.
+   */
+  readonly listItems?: Readonly<{
+    readonly list: MarkdownAstNode
+    readonly itemsBefore: number
+    readonly previousItems: number
+    /**
+     * The replaced items' canonical source, delimiters included, which the
+     * view reads the list's structure from.
+     */
+    readonly source: string
   }>
 }
 
@@ -1203,6 +1223,27 @@ function shiftRegionalTextEvent(
   })
 }
 
+/**
+ * The list holding a regional replacement's items, as the whole list reads
+ * in place: the window's list reads its own items only, so its looseness,
+ * task reading and start come from the list's key (`listKeyOf`).
+ */
+function regionalListNode(key: string, windowList: MarkdownAstNode, delta: number): MarkdownAstNode {
+  const [ordered, delimiter, tight, taskList, start] = key.split('|')
+  return Object.freeze({
+    kind: windowList.kind,
+    range: Object.freeze({ start: windowList.range.start + delta, end: windowList.range.end + delta }),
+    attributes: Object.freeze({
+      ordered: ordered === 'true',
+      ...(ordered === 'true' ? { start: Number(start) } : {}),
+      tight: tight === 'true',
+      ...(taskList === 'true' ? { taskList: true } : {}),
+      ...(ordered === 'true' && delimiter !== undefined && delimiter !== '' ? { delimiter } : {})
+    }),
+    children: Object.freeze([])
+  })
+}
+
 function shiftRegionalMarkupEvents(
   events: readonly MarkupEvent[],
   sourceDelta: number
@@ -1780,10 +1821,13 @@ function commentCoordinateSegmentsOf(
 function markupProjectionOf(
   products: Profile1DocumentProducts,
   annotationRangeByNodeId: ReadonlyMap<NodeId, SourceRange>,
-  sourceLength: number
+  sourceLength: number,
+  splitLists = products.diagnostics.count === 0
 ): MarkupProjection {
   const publicMarks = new WeakMap<object, MarkupMark>()
-  const safePoints = products.retainedIntrinsic?.safePoints ?? Object.freeze([])
+  // Text runs split where regional leaves meet, so a region replaces whole
+  // runs; a window splits lists as its document does (`splitLists`).
+  const safePoints = regionalLeafPoints(products, sourceLength, splitLists)
   const events: MarkupEvent[] = []
   let safePointIndex = 0
   for (let ordinal = 0; ordinal < products.markup.eventCount; ordinal += 1) {
@@ -2176,7 +2220,8 @@ function contextBlocksKept(
 ): 'kept' | 'changed' | 'unbounded' {
   const { start, end } = range
   // A view elides deleted text, so a block's own range can stop short of an
-  // edit to it; the blank lines around the edit bound the blocks it touches.
+  // edit to it; the blank lines around the edit, and the first lines of the
+  // items of a list, bound the blocks it touches.
   const text = core.sourceSlice(previous, { start: 0, end: limit })
   const blank = /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/gu
   let editedStart = 0
@@ -2189,12 +2234,30 @@ function contextBlocksKept(
       break
     }
   }
+  const lineStart = (offset: number): number => {
+    let at = offset
+    while (at > 0 && text[at - 1] !== '\n' && text[at - 1] !== '\r') at -= 1
+    return at
+  }
+  const markup = core.project(previous, 'markup').syntax
+  for (const list of markup.ast.root.children) {
+    if (list.kind !== 'list') continue
+    for (const item of list.children) {
+      const itemStart = lineStart(Math.min(limit, markup.coordinates.toSource(item.range.start, 'next')))
+      if (itemStart <= start) editedStart = Math.max(editedStart, itemStart)
+      else if (itemStart > end) editedEnd = Math.min(editedEnd, itemStart)
+    }
+  }
+  // A top-level list's items are blocks of their own, each noting whether it
+  // continues the list of the block before it.
   const blocks = (revision: DocumentRevision, view: 'original' | 'revised' | 'markup') => {
     const projection = core.project(revision, view)
     const { ast, coordinates } = projection.kind === 'markup' ? projection.syntax : projection
-    return ast.root.children.map(block => ({
+    return ast.root.children.flatMap(block => block.kind === 'list'
+      ? block.children.map((item, ordinal) => ({ block: item, continues: ordinal > 0 }))
+      : [{ block, continues: false }]).map(({ block, continues }) => ({
       range: { start: coordinates.toSource(block.range.start, 'next'), end: coordinates.toSource(block.range.end, 'previous') },
-      structure: blockStructure(block)
+      structure: `${blockStructure(block)}${continues ? '|continues' : ''}`
     }))
   }
   for (const view of ['original', 'revised', 'markup'] as const) {
@@ -2980,7 +3043,8 @@ function createDocumentCoreWithExecutionBudget(
     const markup = markupProjectionOf(
       admission.nextProducts,
       materialized.rangeByNodeId,
-      admission.nextWindow.length
+      admission.nextWindow.length,
+      !admission.strayMarkers
     )
     // Products parsed with unchanged context contribute only the replaced
     // blocks; their offsets are relative to the whole parsed window.
@@ -2993,15 +3057,40 @@ function createDocumentCoreWithExecutionBudget(
       }
     }
     const { blocks } = window
+    // Items of a list share its text runs, which the replaced items' bounds cut.
+    const listItems = admission.listItems
+    const list = listItems === undefined
+      ? undefined
+      : markup.syntax.ast.root.children.find(child => child.kind === 'list' &&
+        child.range.start <= blocks.syntax.start && blocks.syntax.start < child.range.end)
+    if (listItems !== undefined && list === undefined) {
+      return Object.freeze({ kind: 'fallback', reason: 'structural-region-ineligible' })
+    }
+    const eventsWithin = (start: number, end: number): readonly MarkupEvent[] => markup.events.flatMap((event): MarkupEvent[] => {
+      if (event.kind !== 'text') {
+        return event.mark.annotationRange.start >= start && event.mark.annotationRange.end <= end ? [event] : []
+      }
+      const from = Math.max(start, event.sourceRange.start)
+      const to = Math.min(end, event.sourceRange.end)
+      if (from >= to) return []
+      if (from === event.sourceRange.start && to === event.sourceRange.end) return [event]
+      return [Object.freeze({
+        ...event,
+        text: event.text.slice(from - event.sourceRange.start, to - event.sourceRange.start),
+        sourceRange: Object.freeze({ start: from, end: to })
+      })]
+    })
     const events = shiftRegionalMarkupEvents(
       admission.window === undefined
         ? markup.events
-        : markup.events.filter(event => event.kind === 'text'
-          ? event.sourceRange.start >= blocks.source.start && event.sourceRange.end <= blocks.source.end
-          : event.mark.annotationRange.start >= blocks.source.start && event.mark.annotationRange.end <= blocks.source.end),
+        : list !== undefined
+          ? eventsWithin(blocks.source.start, blocks.source.end)
+          : markup.events.filter(event => event.kind === 'text'
+            ? event.sourceRange.start >= blocks.source.start && event.sourceRange.end <= blocks.source.end
+            : event.mark.annotationRange.start >= blocks.source.start && event.mark.annotationRange.end <= blocks.source.end),
       window.source
     )
-    const syntaxBlocks = Object.freeze(markup.syntax.ast.root.children
+    const syntaxBlocks = Object.freeze((list?.children ?? markup.syntax.ast.root.children)
       .filter(child => admission.window === undefined ||
         (child.range.start >= blocks.syntax.start && child.range.start < blocks.syntax.end) ||
         // An empty paragraph on a whitespace-only last line sits at the
@@ -3055,13 +3144,14 @@ function createDocumentCoreWithExecutionBudget(
           ? {}
           : {
             precedingEvents: shiftRegionalMarkupEvents(
-              markup.events.filter(event => event.kind === 'text' && event.sourceRange.end <= blocks.source.start),
+              (list === undefined ? markup.events : eventsWithin(0, blocks.source.start))
+                .filter(event => event.kind === 'text' && event.sourceRange.end <= blocks.source.start),
               window.source
             ) as readonly Extract<MarkupEvent, { kind: 'text' }>[]
           }),
         ...(() => {
           if (admission.window === undefined) return {}
-          const next = markup.syntax.ast.root.children.find(child => child.range.start >= blocks.syntax.end &&
+          const next = (list?.children ?? markup.syntax.ast.root.children).find(child => child.range.start >= blocks.syntax.end &&
             child.range.start > blocks.syntax.start)
           if (next === undefined) return {}
           const blockStart = markup.syntax.coordinates.toSource(next.range.start, 'previous')
@@ -3069,13 +3159,24 @@ function createDocumentCoreWithExecutionBudget(
             following: Object.freeze({
               blockStart: window.source + blockStart,
               events: shiftRegionalMarkupEvents(
-                markup.events.filter(event => event.kind === 'text' &&
-                  event.sourceRange.start >= blocks.source.end && event.sourceRange.start < blockStart),
+                (list === undefined ? markup.events : eventsWithin(blocks.source.end, blockStart))
+                  .filter(event => event.kind === 'text' &&
+                    event.sourceRange.start >= blocks.source.end && event.sourceRange.start < blockStart),
                 window.source
               ) as readonly Extract<MarkupEvent, { kind: 'text' }>[]
             })
           }
-        })()
+        })(),
+        ...(listItems === undefined || list === undefined
+          ? {}
+          : {
+            listItems: Object.freeze({
+              list: regionalListNode(listItems.key, list, window.syntax),
+              itemsBefore: listItems.itemsBefore,
+              previousItems: listItems.previousItems,
+              source: admission.nextWindow.slice(blocks.source.start, blocks.source.end)
+            })
+          })
       }) satisfies MarkupRegionReplacement
       projections.push(Object.freeze({
         name: 'markup',
@@ -4018,8 +4119,8 @@ function createDocumentCoreWithExecutionBudget(
       }
     }
     const inventoryApplied = (
-      previousState.kind === 'regional' &&
-      previousState.regionalInventory !== undefined
+      previousState.regionalInventory !== undefined &&
+      (previousState.kind === 'regional' || regionalInventorySplitsLists(previousState.regionalInventory))
     ) || (
       requests.comments.length > 0
     ) || (
@@ -6057,7 +6158,12 @@ function createDocumentCoreWithExecutionBudget(
         end: Math.min(state.source.length, Math.max(widened.end, last.end) + 1)
       }, widenings + 1)
     }
-    if (kept !== 'kept') return undefined
+    // An edit that splits or joins the list it is in changes the items
+    // after it, in the window as in the document; the document preview
+    // below then shows whether the result reads as the window compiled it.
+    const splitsList = kept === 'changed' &&
+      windowCore.project(opened, 'markup').syntax.ast.root.children.some(block => block.kind === 'list')
+    if (kept !== 'kept' && !splitsList) return undefined
     // The document preview is the parse apply() publishes for these edits.
     const whole = previewSourceEdits(previous, planned)
     const readsBack = <T extends { range: SourceRange }>(
@@ -6074,6 +6180,26 @@ function createDocumentCoreWithExecutionBudget(
       readsBack(whole.diagnostics, previous.diagnostics, expected.diagnostics, sameDiagnostics)
       ? { edits: planned }
       : undefined
+  }
+
+  /**
+   * Whether a tracked edit in an item of a list the inventory splits reads
+   * past the item: one at the item's marker can join or split the list, and
+   * backtick and dollar runs pair with runs in other items. The document
+   * compile decides those.
+   */
+  const listSensitiveEdit = (state: RevisionState, edit: DocumentSourceEdit): boolean => {
+    const inventory = state.regionalInventory
+    if (inventory === undefined || !regionalInventorySplitsLists(inventory) ||
+        regionalInventoryListRange(inventory, edit.start) === undefined) return false
+    const from = Math.max(0, edit.start - 512)
+    const to = Math.min(state.source.length, edit.end + 512)
+    const text = state.source.slice(from, to)
+    const lineStart = from + Math.max(text.lastIndexOf('\n', edit.start - from - 1), text.lastIndexOf('\r', edit.start - from - 1)) + 1
+    const lineEndAt = text.slice(edit.end - from).search(/[\r\n]/u)
+    const line = state.source.slice(lineStart, lineEndAt === -1 ? to : edit.end + lineEndAt)
+    const marker = /^[ \t]*(?:[-+*]|\d{1,9}[.)])(?:[ \t]+|$)/u.exec(line)
+    return /[`$]/u.test(line + edit.insert) || (marker !== null && edit.start <= lineStart + marker[0].length)
   }
 
   /** Tracked compilation of an edit that changes no deleted text or annotation syntax. */
@@ -6097,6 +6223,23 @@ function createDocumentCoreWithExecutionBudget(
         cursor = part.end
       }
       return Object.freeze({ start: first.start, end: last.end, insert })
+    }
+    if (listSensitiveEdit(state, edit)) {
+      // The whole list is the window then, as for a list that does not split.
+      const list = state.regionalInventory === undefined
+        ? undefined
+        : regionalInventoryListRange(state.regionalInventory, edit.start)
+      const windowed = list === undefined
+        ? undefined
+        : windowedGeneralEdits(state, previous, [edit], (windowCore, revision, [local], windowPreview) => {
+          const planned = local === undefined ? undefined : generalTrackedEdit(windowCore, revision, local, windowPreview)
+          return planned === undefined ? undefined : [planned]
+        }, { start: Math.min(list.start, edit.start), end: Math.max(list.end, edit.end) })
+      const planned = windowed?.edits?.[0]
+      if (windowed !== undefined) {
+        return planned === undefined ? undefined : Object.freeze({ start: planned.start, end: planned.end, insert: planned.insert })
+      }
+      return generalTrackedEdit(core, previous, edit, preview)
     }
     const regional = regionalPayloadEdit(state, edit, true) ?? regionalTrackedInsertion(state, previous, edit) ??
       regionalTrackedArmEdge(state, previous, edit) ?? regionalTrackedBesideDeletion(state, previous, edit) ??
@@ -6549,11 +6692,43 @@ function createDocumentCoreWithExecutionBudget(
       action = commentedSpanSafeInput(previous, action, at => rootsAround(previous, at))
       if ('inputType' in action) preflightSourceEdits(state.source.length, stableSourceEdits([{ ...inputSourceRange(core, previous, action.range), insert: action.data ?? '' }]))
       preflightSourceEdits(state.source.length, stableSourceEdits([{ ...inputSourceRange(core, previous, action.selection), insert: '' }]))
-      const plan = planInput(core, previous, action, range => state.productStore.withProduct(products =>
+      // A plan read from a window may write only between the window's first
+      // and last blocks, which read there as in the document; one that
+      // writes beyond them, as a list rewritten as a whole, is planned
+      // again from the document.
+      const interiors: SourceRange[] = []
+      const interiorOf = (syntax: MarkupSyntax): void => {
+        const blocks = syntax.ast.root.children.flatMap(child => child.kind === 'list' ? child.children : [child])
+        const first = blocks[0]
+        const last = blocks.at(-1)
+        // The window's own bounds include markers its projection elides.
+        const start = syntax.coordinates.toSource(syntax.ast.root.range.start, 'previous')
+        const end = syntax.coordinates.toSource(syntax.ast.root.range.end, 'next')
+        // A window of one block is that block alone, proven as it reads in place.
+        const alone = blocks.length < 2
+        interiors.push({
+          start: start === 0 || first === undefined ? 0 : alone ? start : syntax.coordinates.toSource(first.range.end, 'previous'),
+          end: end === state.source.length || last === undefined ? state.source.length : alone ? end : syntax.coordinates.toSource(last.range.start, 'next')
+        })
+      }
+      const planned = (regional: boolean) => planInput(core, previous, action, range => state.productStore.withProduct(products =>
         paragraphEnterConversion(products.editing().source, range.start, range.end, state.markdownOptions.texMathDollars)),
       () => state.productStore.withProduct(products => products.editing().markdown.lines),
-      range => regionalInputSyntax(state, range), options?.tracked === false, edits => tablePreview(previous, edits),
-      position => regionalBlockContext(state, position))
+      range => {
+        if (!regional) return undefined
+        const syntax = regionalInputSyntax(state, range)
+        if (syntax !== undefined) interiorOf(syntax)
+        return syntax
+      }, options?.tracked === false, edits => tablePreview(previous, edits),
+      position => {
+        if (!regional) return undefined
+        const context = regionalBlockContext(state, position)
+        if (context !== undefined) interiorOf(context.syntax)
+        return context
+      })
+      let plan = planned(true)
+      if ([...plan.edits, ...plan.reconciliation].some(edit =>
+        interiors.some(interior => edit.start < interior.start || edit.end > interior.end))) plan = planned(false)
       return options?.tracked === true ? trackedInputPlan(previous, action, plan) : plan
     },
     reconcileInput(previous: DocumentRevision, policy: DocumentInputPlan, commit: DocumentCommit | null, action: DocumentInputAction) {

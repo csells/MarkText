@@ -29,6 +29,12 @@ export interface IReconcileRegion {
     readonly start: number;
     readonly previousEnd: number;
     readonly nextEnd: number;
+    /**
+     * With one root replaced in place, the only children of it that changed:
+     * children `[start, previousEnd)` of the presented root are children
+     * `[start, nextEnd)` of its new state, and its own state is as it was.
+     */
+    readonly items?: Readonly<{ start: number; previousEnd: number; nextEnd: number }>;
 }
 
 const debug = logger('editor:');
@@ -595,7 +601,7 @@ export class Editor {
         ) {
             const roots = deepClone(content.slice(region.start, region.nextEnd));
             this.jsonState.replaceRoots(region.start, region.previousEnd, roots);
-            const changed = this.scrollPage!.reconcileStateRegion(roots, region.start, region.previousEnd);
+            const changed = this.scrollPage!.reconcileStateRegion(roots, region.start, region.previousEnd, region.items);
             if (changed) {
                 this.history.clear();
                 this.searchModule.reset();

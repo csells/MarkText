@@ -166,7 +166,97 @@ export class ScrollPage extends Parent {
             leaf.presentStateText(text);
             return true;
         }
+        if (this._reconcileChildren(root, state, before))
+            return true;
         root.replaceWith(ScrollPage.loadBlock(state.name).create(this.muya, state), 'api');
+        return true;
+    }
+
+    /**
+     * Present root `index` as `state` where only its children `items` changed,
+     * reading no other child: a long list keeps every other item as it is.
+     */
+    private _reconcileItems(
+        next: readonly TState[],
+        index: number,
+        previousEnd: number,
+        items?: Readonly<{ start: number; previousEnd: number; nextEnd: number }>,
+    ): boolean {
+        const state = next[0];
+        if (items === undefined || previousEnd !== index + 1 || next.length !== 1 || state === undefined)
+            return false;
+        const root = this.find(index) as Nullable<Parent>;
+        const nextChildren = (state as { children?: unknown }).children;
+        if (root == null || !root.isParent() || root.blockName !== state.name || !ScrollPage._itemContainers.has(state.name)
+            || !Array.isArray(nextChildren)) {
+            return false;
+        }
+        const blocks = [...root.children.iterator()];
+        if (
+            items.previousEnd > blocks.length || items.nextEnd > nextChildren.length
+            || nextChildren.length - items.nextEnd !== blocks.length - items.previousEnd
+        ) {
+            return false;
+        }
+        const changed = blocks.slice(items.start, items.previousEnd) as Parent[];
+        const replacing = nextChildren.slice(items.start, items.nextEnd) as TState[];
+        if (changed.some(block => !block.isParent()))
+            return false;
+        if (changed.length === replacing.length) {
+            changed.forEach((block, offset) => this._reconcileRoot(block, replacing[offset]));
+        }
+        else {
+            const insertion = (blocks[items.previousEnd] ?? null) as Nullable<Parent>;
+            for (const block of changed)
+                block.remove('api');
+            for (const child of replacing)
+                root.insertBefore(ScrollPage.loadBlock(child.name).create(this.muya, child), insertion, 'api');
+        }
+        this.muya.editor.inlineRenderer.flushPendingPresentation();
+        return true;
+    }
+
+    /**
+     * Present `state` in place of `parent` by its children alone, when the
+     * parent's own state is unchanged: a long list whose items changed keeps
+     * every other item's blocks and DOM, as the editor keeps them while typing.
+     */
+    /** Containers whose children a view replaces one by one: lists and their items. */
+    private static _itemContainers = new Set(['bullet-list', 'order-list', 'task-list', 'list-item', 'task-list-item']);
+
+    private _reconcileChildren(parent: Parent, state: TState, before: TState): boolean {
+        const nextChildren = (state as { children?: unknown }).children;
+        const beforeChildren = (before as { children?: unknown }).children;
+        if (!ScrollPage._itemContainers.has(state.name) || !Array.isArray(nextChildren) || !Array.isArray(beforeChildren)
+            || !isEqual({ ...before, children: undefined }, { ...state, children: undefined })) {
+            return false;
+        }
+        const blocks = [...parent.children.iterator()];
+        if (blocks.length !== beforeChildren.length || blocks.some(block => !block.isParent()))
+            return false;
+        let head = 0;
+        while (head < blocks.length && head < nextChildren.length && isEqual(beforeChildren[head], nextChildren[head]))
+            head++;
+        let tail = 0;
+        while (
+            tail < blocks.length - head
+            && tail < nextChildren.length - head
+            && isEqual(beforeChildren[blocks.length - tail - 1], nextChildren[nextChildren.length - tail - 1])
+        ) {
+            tail++;
+        }
+        const changed = blocks.slice(head, blocks.length - tail) as Parent[];
+        const next = nextChildren.slice(head, nextChildren.length - tail) as TState[];
+        if (changed.length === next.length) {
+            changed.forEach((block, index) =>
+                this._reconcileRoot(block, next[index], beforeChildren[head + index] as TState));
+            return true;
+        }
+        const insertion = (blocks[blocks.length - tail] ?? null) as Nullable<Parent>;
+        for (const block of changed)
+            block.remove('api');
+        for (const child of next)
+            parent.insertBefore(ScrollPage.loadBlock(child.name).create(this.muya, child), insertion, 'api');
         return true;
     }
 
@@ -175,7 +265,14 @@ export class ScrollPage extends Parent {
      * vouches that every other root already presents its state, so only this
      * range is read.
      */
-    reconcileStateRegion(next: readonly TState[], start: number, previousEnd: number): boolean {
+    reconcileStateRegion(
+        next: readonly TState[],
+        start: number,
+        previousEnd: number,
+        items?: Readonly<{ start: number; previousEnd: number; nextEnd: number }>,
+    ): boolean {
+        if (this._reconcileItems(next, start, previousEnd, items))
+            return true;
         const roots: Parent[] = [];
         let root = this.find(start) as Nullable<Parent>;
         for (let index = start; index < previousEnd; index++) {

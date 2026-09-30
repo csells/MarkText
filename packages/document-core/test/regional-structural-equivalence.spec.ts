@@ -79,17 +79,56 @@ function applyReplacement(previous: readonly MarkupEvent[], replacement: MarkupR
   ]
 }
 
+// A list also lists its items, which a region may replace on their own.
 const blockShape = (projection: MarkupProjection) => projection.syntax.ast.root.children
-  .map(node => ({ kind: node.kind, start: node.range.start, end: node.range.end }))
+  .map(node => ({
+    kind: node.kind,
+    start: node.range.start,
+    end: node.range.end,
+    ...(node.kind === 'list' ? { children: node.children.map(item => ({ kind: item.kind, start: item.range.start, end: item.range.end })) } : {})
+  }))
+
+type BlockShape = ReturnType<typeof blockShape>[number]
+const shifted = (node: BlockShape, delta: number): BlockShape => ({
+  ...node,
+  start: node.start + delta,
+  end: node.end + delta,
+  ...(node.children === undefined ? {} : { children: node.children.map(item => ({ ...item, start: item.start + delta, end: item.end + delta })) })
+})
 
 /** The previous view with the replaced region spliced in, as the desktop composes it. */
 function composedShape(previous: MarkupProjection, replacement: MarkupRegionReplacement) {
   const delta = replacement.next.syntax.end - replacement.previous.syntax.end
+  const items = replacement.listItems
+  if (items !== undefined) {
+    // Items replaced inside a list: the list's other items stay, its span
+    // runs from its first item to its last, and later blocks shift.
+    const list = previous.syntax.ast.root.children.find(node => node.kind === 'list' &&
+      node.range.start <= replacement.previous.syntax.start && replacement.previous.syntax.start < node.range.end)
+    if (list === undefined) throw new Error('A list replacement has no list')
+    const shape = (node: { kind: string, range: SourceRange }, shift = 0) =>
+      ({ kind: node.kind, start: node.range.start + shift, end: node.range.end + shift })
+    const children = [
+      ...list.children.slice(0, items.itemsBefore).map(node => shape(node)),
+      ...replacement.syntaxBlocks.map(node => shape(node)),
+      ...list.children.slice(items.itemsBefore + items.previousItems).map(node => shape(node, delta))
+    ]
+    return blockShape(previous).map(node => node.end < replacement.previous.syntax.start
+      ? node
+      : node.start > replacement.previous.syntax.start
+        ? shifted(node, delta)
+        : { kind: node.kind, start: children[0]?.start ?? node.start, end: children.at(-1)?.end ?? node.end, children })
+  }
   return [
     ...blockShape(previous).filter(node => node.start < replacement.previous.syntax.start),
-    ...replacement.syntaxBlocks.map(node => ({ kind: node.kind, start: node.range.start, end: node.range.end })),
+    ...replacement.syntaxBlocks.map(node => ({
+      kind: node.kind,
+      start: node.range.start,
+      end: node.range.end,
+      ...(node.kind === 'list' ? { children: node.children.map(item => ({ kind: item.kind, start: item.range.start, end: item.range.end })) } : {})
+    })),
     ...blockShape(previous).filter(node => node.start >= replacement.previous.syntax.end)
-      .map(node => ({ ...node, start: node.start + delta, end: node.end + delta }))
+      .map(node => shifted(node, delta))
   ]
 }
 
@@ -173,15 +212,21 @@ describe('structural regional edits read as a fresh open', () => {
   })
 
   // Histories a longer fuzz found diverging: a `$$` line in the window pairing
-  // with one after it, and a line that only a comment's hidden text leaves
-  // blank read as an empty paragraph at another offset in a lone region.
+  // with one after it, a line that only a comment's hidden text leaves blank
+  // read as an empty paragraph at another offset in a lone region, and a
+  // block after a list read alone although the list took it in.
   it.each([
     ['a dollar run pairing past the window',
       '> quoted line\n\n1. one {~~a~>b~~}\n2. two\n\n$$\nx {++y++}\n$$\n\nMath $a$ and `x {++b++}` y.\n\nMulti\nline\nparagraph.\n\n- item one\n- item two\n\nPlain words here.\n\n```\ncode\n\nmore\n```\n\nMulti\nline\nparagraph.\n\n\n\n$$\nx {++y++}\n$$\n\nPlain words here.\n',
       [[175, 175, '<!--'], [225, 225, '[^1]'], [40, 44, ''], [90, 93, 'Z']]],
     ['a line left blank by a comment',
       '    indented {++x++}\n\n$$\nx {++y++}\n$$\n\nAnother ordinary sentence with more words.\n\n \t \n\n\n\nMulti\nline\nparagraph.\n\n   \n\n{++Whole paragraph addition.++}\n\nPara *em* and `code` here.\n\nAnother ordinary sentence with more words.\n\n| a | b |\n| --- | --- |\n| {++c++} | d |\n\n\n\n> quoted line',
-      [[63, 63, '*'], [235, 239, ''], [206, 206, '\n   \n'], [110, 111, ''], [210, 210, 'x'], [113, 113, '{>>c<<}'], [89, 89, '\n'], [118, 118, '[^1]']]]
+      [[63, 63, '*'], [235, 239, ''], [206, 206, '\n   \n'], [110, 111, ''], [210, 210, 'x'], [113, 113, '{>>c<<}'], [89, 89, '\n'], [118, 118, '[^1]']]],
+    // A paragraph after a list whose first line an opener hides spaces
+    // after, which then continues the list's last item.
+    ['a block a list takes in',
+      'Plain words here.\n\n\n\nLazy\n- item\ncontinued {>>c<<}\n\n{++Whole paragraph addition.++}\n\n1. first step\n2. second step\n3. third\n\n{++Whole paragraph addition.++}\n\n- [ ] task one\n- [x] task two\n\nPara *em* and `code` here.\n\n- [ ] task one\n- [x] task two',
+      [[188, 190, ''], [181, 182, ''], [127, 127, '   ']]]
   ] as const)('replays %s', (_name, initial, edits) => {
     const core = createDocumentCore()
     const revision = core.open(initial)
