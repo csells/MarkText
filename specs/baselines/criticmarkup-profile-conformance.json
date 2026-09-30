@@ -1,5 +1,5 @@
 {
-  "schema": "marktext-criticmarkup-profile-conformance-v1",
+  "schema": "marktext-criticmarkup-profile-conformance-v2",
   "status": "structural-draft-unratified",
   "profile": {
     "path": "specs/language/marktext-markdown-profile-1.md",
@@ -413,6 +413,274 @@
       "expectedObservable": { "outcome": "unsupported-profile", "revisionPublished": false },
       "provenance": "Profile 1 Y1",
       "status": "proposed-unreviewed"
+    }
+  ],
+  "profile2": [
+    {
+      "path": "specs/language/marktext-criticmarkup-profile-2.md",
+      "sha256": "86bda2b02c1aa47761b520b4519ffa31a04cba4793825fe815954d3801f602ab",
+      "rules": [
+        {
+          "id": "L2c",
+          "tests": [
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "closes the annotation for $name"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "ends the in-arm fence so following Markdown is not code"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "accepts the closer after the $name container prefix"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "keeps an indented or mid-line closer inside the in-arm literal"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "never ends the literal at an escaped boundary token"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "ends the literal only at the innermost annotation's own boundary token"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "keeps L1 for a literal opened outside any arm: %j"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "reaches the same revision incrementally as a full parse"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "lets Track Changes record an edit inside an EOF-terminated literal"
+            }
+          ]
+        },
+        {
+          "id": "L1f",
+          "tests": [
+            {
+              "file": "packages/document-core/test/criticmarkup-footnote-bodies.spec.ts",
+              "name": "marks footnote body text with its annotation in the Markup view"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-footnote-bodies.spec.ts",
+              "name": "reads a code span and an annotation side by side in a footnote body"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-footnote-bodies.spec.ts",
+              "name": "keeps markers inside the footnote label literal"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-footnote-bodies.spec.ts",
+              "name": "lets an annotation span from one footnote definition into the next, as it spans list items"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-footnote-bodies.spec.ts",
+              "name": "lets an annotation opened in a footnote close in a following paragraph, as in a list item"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-footnote-bodies.spec.ts",
+              "name": "tracks typing in a footnote body as an Addition inside the footnote"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-footnote-bodies.spec.ts",
+              "name": "accepts and rejects a suggestion in a footnote body"
+            }
+          ]
+        },
+        {
+          "id": "L2b",
+          "tests": [
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "forms $source with the unfinished definition as text"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "ends the definition at the closer in %j"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "keeps definition precedence for a Comment closer (L1)"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "keeps an escaped closer inside the definition destination"
+            }
+          ]
+        },
+        {
+          "id": "C3",
+          "tests": [
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "resolves an Addition definition in Revised exactly like the untracked document"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "resolves a Deletion definition only in Original"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "resolves each Substitution arm definition in its own view"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "keeps Highlight definitions arm-local"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "keeps Comment payload definitions isolated in every view"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "applies first-definition-wins across the whole view"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "resolves an Addition footnote definition in Revised"
+            }
+          ]
+        },
+        {
+          "id": "V6",
+          "tests": [
+            {
+              "file": "packages/document-core/test/commented-span-edges.spec.ts",
+              "name": "typing at $name keeps the commented span intact"
+            },
+            {
+              "file": "packages/document-core/test/commented-span-edges.spec.ts",
+              "name": "paste at %i lands after the comment"
+            },
+            {
+              "file": "packages/document-core/test/commented-span-edges.spec.ts",
+              "name": "a drop into the gap lands after the comment"
+            },
+            {
+              "file": "packages/document-core/test/commented-span-edges.spec.ts",
+              "name": "Source edits keep the bytes the author typed (ADR 0015)"
+            },
+            {
+              "file": "packages/document-core/test/commented-span-edges.spec.ts",
+              "name": "resolving the only text of commented passage $text ($decision) leaves a standalone comment"
+            },
+            {
+              "file": "packages/document-core/test/commented-span-edges.spec.ts",
+              "name": "resolving $text ($decision) does not pair a highlight with a comment it was not paired with"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "path": "specs/language/marktext-markdown-profile-2.md",
+      "sha256": "44038936d2a00e134e1c935dccd74869ffcc6e97b32bb519c1cbf4343df761be",
+      "rules": [
+        {
+          "id": "IL1",
+          "tests": [
+            {
+              "file": "packages/document-core/test/markdown-profile-2-image-layout.spec.ts",
+              "name": "reads %j"
+            },
+            {
+              "file": "packages/document-core/test/markdown-profile-2-image-layout.spec.ts",
+              "name": "attaches to a reference image: %j"
+            },
+            {
+              "file": "packages/document-core/test/markdown-image-size.spec.ts",
+              "name": "owns a Markdown image size suffix beside an independently annotated label"
+            }
+          ]
+        },
+        {
+          "id": "IL2",
+          "tests": [
+            {
+              "file": "packages/document-core/test/markdown-profile-2-image-layout.spec.ts",
+              "name": "leaves %j as an image followed by text"
+            },
+            {
+              "file": "packages/document-core/test/markdown-profile-2-image-layout.spec.ts",
+              "name": "does not attach to %j"
+            },
+            {
+              "file": "packages/document-core/test/markdown-profile-2-image-layout.spec.ts",
+              "name": "keeps a suffix that would leave its annotation arm as text"
+            }
+          ]
+        },
+        {
+          "id": "IL3",
+          "tests": [
+            {
+              "file": "packages/document-core/test/markdown-profile-2-image-layout.spec.ts",
+              "name": "owns the suffix in the image node and never rewrites its source"
+            },
+            {
+              "file": "packages/document-core/test/markdown-image-size.spec.ts",
+              "name": "preserves parser-owned source ranges across earlier edits and a title inserted before the suffix"
+            },
+            {
+              "file": "packages/desktop/test/unit/specs/core-projection-image-layout.spec.ts",
+              "name": "preserves dimensions and the %s label through the existing media pipeline"
+            },
+            {
+              "file": "packages/desktop/test/unit/specs/pandoc-export-ast.spec.ts",
+              "name": "writes an image's layout suffix as its size"
+            }
+          ]
+        },
+        {
+          "id": "IL4",
+          "tests": [
+            {
+              "file": "packages/document-core/test/markdown-image-size.spec.ts",
+              "name": "preserves layout when changing a reference image destination or title: %s"
+            },
+            {
+              "file": "packages/document-core/test/markdown-image-size.spec.ts",
+              "name": "updates a pending width repeatedly and removes a newly added width without touching label review"
+            },
+            {
+              "file": "packages/document-core/test/markdown-image-size.spec.ts",
+              "name": "restores the complete deleted width field while retaining image height (tracked=%s)"
+            },
+            {
+              "file": "packages/document-core/test/html-image-properties.spec.ts",
+              "name": "edits quoted, unquoted and missing properties without rewriting other HTML attributes"
+            }
+          ]
+        },
+        {
+          "id": "IL5",
+          "tests": [
+            {
+              "file": "packages/document-core/test/markdown-image-size.spec.ts",
+              "name": "tracks a changed width separately from label suggestions and renders the revised size in Markup"
+            },
+            {
+              "file": "packages/document-core/test/image-dimensions.spec.ts",
+              "name": "tracks layout independently of the image label through the existing compiler"
+            },
+            {
+              "file": "packages/document-core/test/markdown-image-size.spec.ts",
+              "name": "compiles a resized scalar that spans a partial suggestion (tracked=%s)"
+            },
+            {
+              "file": "packages/desktop/test/unit/specs/core-projection-image-layout.spec.ts",
+              "name": "renders the %s dimension of a tracked resize without combining its numeric arms"
+            }
+          ]
+        }
+      ]
     }
   ]
 }
