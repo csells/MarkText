@@ -454,6 +454,41 @@ function createRootBase(lists: ItemLists, first: number, count: number): RootBas
   }
 }
 
+/**
+ * `base` moved like `movedBinding` moves one binding. Each kind moves when it
+ * is first read, so checking a long list's decorations or comments does not
+ * move its bindings.
+ */
+function movedRootItems(
+  base: MuyaMarkupRootItems,
+  pathDelta: number,
+  sourceDelta: number,
+  syntaxDelta: number
+): MuyaMarkupRootItems {
+  const positioned = pathDelta !== 0 || sourceDelta !== 0
+  let bindings: readonly MuyaMarkupBinding[] | undefined
+  let decorations: readonly MuyaMarkupDecoration[] | undefined
+  let comments: readonly MuyaMarkupComment[] | undefined
+  return {
+    get bindings() {
+      bindings ??= base.bindings.map((binding) => movedBinding(binding, pathDelta, sourceDelta, syntaxDelta))
+      return bindings
+    },
+    get decorations() {
+      decorations ??= positioned
+        ? base.decorations.map((decoration) => movedDecoration(decoration, pathDelta, sourceDelta))
+        : base.decorations
+      return decorations
+    },
+    get comments() {
+      comments ??= positioned
+        ? base.comments.map((comment) => movedComment(comment, pathDelta, sourceDelta))
+        : base.comments
+      return comments
+    }
+  }
+}
+
 /** Roots `[start, end)` of a view: base roots from `baseStart` on, moved. */
 interface RootRun {
   readonly start: number
@@ -471,6 +506,11 @@ interface RootRun {
 export interface MuyaMarkupRoots {
   readonly count: number
   items(root: number): MuyaMarkupRootItems
+  /**
+   * Binding `index` of `root`, moved on its own: equal to, but not the same
+   * object as, that entry of `items(root).bindings`.
+   */
+  bindingAt(root: number, index: number): MuyaMarkupBinding | undefined
   /**
    * Roots, ascending, that can hold an item at a source position in
    * `[low, high]`; every other root holds none.
@@ -525,24 +565,19 @@ function createRoots(runs: readonly RootRun[], count: number): MuyaMarkupRoots {
         items =
           pathDelta === 0 && sourceDelta === 0 && syntaxDelta === 0
             ? base
-            : {
-              bindings: base.bindings.map((binding) =>
-                movedBinding(binding, pathDelta, sourceDelta, syntaxDelta)
-              ),
-              decorations:
-                pathDelta === 0 && sourceDelta === 0
-                  ? base.decorations
-                  : base.decorations.map((decoration) =>
-                    movedDecoration(decoration, pathDelta, sourceDelta)
-                  ),
-              comments:
-                pathDelta === 0 && sourceDelta === 0
-                  ? base.comments
-                  : base.comments.map((comment) => movedComment(comment, pathDelta, sourceDelta))
-            }
+            : movedRootItems(base, pathDelta, sourceDelta, syntaxDelta)
         run.made.set(root, items)
       }
       return items
+    },
+    bindingAt(root, index) {
+      if (!Number.isSafeInteger(root) || root < 0 || root >= count) return undefined
+      const run = runAt(root)
+      const binding = run.base.roots[run.baseStart + root - run.start].bindings[index]
+      const pathDelta = run.start - run.base.first - run.baseStart
+      return binding === undefined || (pathDelta === 0 && run.sourceDelta === 0 && run.syntaxDelta === 0)
+        ? binding
+        : movedBinding(binding, pathDelta, run.sourceDelta, run.syntaxDelta)
     },
     * sourceRoots(low, high) {
       for (const run of runs) {
