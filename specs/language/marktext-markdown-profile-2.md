@@ -13,6 +13,8 @@
 
 ## Image layout suffix
 
+### IL1 — the suffix and its fields
+
 A resolved Markdown image may have an immediately adjacent layout suffix:
 
 ```markdown
@@ -41,10 +43,16 @@ case-sensitive. Each key occurs at most once. One or more ASCII spaces or tabs
 separate fields; optional ASCII spaces or tabs may appear inside the braces at
 either end. No whitespace separates the image from its suffix. Values are
 unquoted, with no whitespace around `=`; line endings are not allowed inside
-the suffix. Unknown keys, duplicate keys, invalid values, an empty suffix or an
-unclosed suffix leave the entire candidate suffix as ordinary Markdown text.
-An escaped opening brace likewise remains text. This syntax does not attach to
-links, unresolved image references, code, raw HTML or other literal content.
+the suffix.
+
+### IL2 — what is not a suffix
+
+Unknown keys, duplicate keys, invalid values, an empty suffix or an unclosed
+suffix leave the entire candidate suffix as ordinary Markdown text. An escaped
+opening brace likewise remains text. This syntax does not attach to links,
+unresolved image references, code, raw HTML or other literal content.
+
+### IL3 — one syntax node
 
 The image and its valid suffix are one syntax node with parser-owned layout
 values and source positions. The label remains ordinary image-label syntax,
@@ -54,11 +62,15 @@ same node. Reading or rendering it does not rewrite its source.
 
 ## Editing and review
 
+### IL4 — editing layout
+
 The existing image controls author or update the suffix for Markdown images.
 Existing HTML images retain their HTML representation. Updating one layout
 field preserves other fields and the image's label, destination, title and
 reference spelling. Clearing a field removes it; removing the final field
 removes the suffix.
+
+### IL5 — reviewing layout
 
 Resizing without Track Changes does not merge label suggestions or turn the
 image into a replacement suggestion. For the first example above, accepting

@@ -11,8 +11,11 @@
   `criticMarkupProfile: 'marktext-profile-2'`.
 - **Base:** [Profile 1](marktext-markdown-profile-1.md) with
   [Markdown Profile 2](marktext-markdown-profile-2.md). This document adds rules
-  **L1f** and **L2c** and replaces rules **L2b** and **C3**. Every other rule,
-  including L1, L2 and L2a, is unchanged.
+  **L1f**, **L2c** and **V6** and replaces rules **L2b** and **C3**. Every other
+  rule, including L1, L2 and L2a, is unchanged.
+- **Conformance:** `specs/baselines/criticmarkup-profile-conformance.json` maps
+  every rule of this document and of Markdown Profile 2 to the tests that
+  execute it.
 
 ## Why
 
@@ -124,7 +127,7 @@ Comment payloads remain isolated subdocuments (R5); inside a Comment Display the
 same rule applies to its nested annotations. The Markup view keeps definitions
 arm-local.
 
-## Editing around commented spans (plan 0012 G39)
+## V6 — editing around commented spans (plan 0012 G39)
 
 This section governs MarkText's editing and review operations, not
 recognition: it changes how no existing source parses, so it needs no profile

@@ -1,8 +1,14 @@
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { isAbsolute, relative, resolve } from 'node:path'
 
 const PROFILE_PATH = 'specs/language/marktext-markdown-profile-1.md'
+const PROFILE_2_PATHS = [
+  'specs/language/marktext-criticmarkup-profile-2.md',
+  'specs/language/marktext-markdown-profile-2.md'
+] as const
+// A test that executes a Profile 2 rule is a unit spec a gate runs.
+const PROFILE_2_TEST_FILE = /^packages\/(?:document-core\/test|desktop\/test\/unit\/specs)\/[\w.-]+\.spec\.ts$/u
 const GOVERNANCE_ONLY_RULES = new Set(['P5', 'E3', 'Y2', 'Y3'])
 const CASE_OPERATIONS = new Set([
   'parse',
@@ -86,6 +92,75 @@ export const extractCriticMarkupProfileRuleIds = (profile: string): string[] => 
   return [...ids].sort((left, right) => left.localeCompare(right, 'en', { numeric: true }))
 }
 
+/** Profile 2 documents name each rule in a heading: `## L2c — …` or `### IL1 — …`. */
+export const extractProfile2RuleIds = (document: string): string[] => {
+  const ids: string[] = []
+  for (const line of document.split(/\r?\n/u)) {
+    const id = line.match(/^#{2,3} ([A-Z]+[0-9]+[a-z]?) — /u)?.[1]
+    if (id === undefined) continue
+    if (ids.includes(id)) throw new Error(`Profile 2 document has duplicate rule ID ${id}`)
+    ids.push(id)
+  }
+  return ids
+}
+
+const quotedTitles = (source: string): Set<string> => {
+  const titles = new Set<string>()
+  for (const match of source.matchAll(/(['"`])((?:\\.|(?!\1)[^\\\n])*)\1/gu)) {
+    titles.add((match[2] ?? '').replace(/\\(.)/gu, '$1'))
+  }
+  return titles
+}
+
+function validateProfile2Documents(repoRoot: string, value: unknown): void {
+  if (!Array.isArray(value)) throw new Error('Profile 2 documents must be an array')
+  const documents = value.map((item, index) => recordOf(item, `Profile 2 document ${index}`))
+  const paths = documents.map((document, index) => nonEmptyString(document.path, `Profile 2 document ${index} path`))
+  if (paths.length !== PROFILE_2_PATHS.length || PROFILE_2_PATHS.some(path => !paths.includes(path))) {
+    throw new Error(`Profile 2 documents must be exactly ${PROFILE_2_PATHS.join(' and ')}`)
+  }
+  const titlesByFile = new Map<string, Set<string>>()
+  for (const [index, document] of documents.entries()) {
+    const path = nonEmptyString(document.path, `Profile 2 document ${index} path`)
+    const text = readFileSync(resolve(repoRoot, path), 'utf8')
+    if (document.sha256 !== createHash('sha256').update(text).digest('hex')) {
+      throw new Error(`Profile conformance map targets a different revision of ${path}`)
+    }
+    const expectedIds = extractProfile2RuleIds(text)
+    if (expectedIds.length === 0) throw new Error(`${path} names no rules`)
+    if (!Array.isArray(document.rules)) throw new Error(`${path} rule mappings must be an array`)
+    const rules = document.rules.map((value, ruleIndex) => {
+      const rule = recordOf(value, `${path} rule mapping ${ruleIndex}`)
+      return { id: nonEmptyString(rule.id, `${path} rule mapping ${ruleIndex} id`), rule }
+    })
+    const mappedIds = rules.map(({ id }) => id)
+    if (new Set(mappedIds).size !== mappedIds.length) throw new Error(`${path} rule mappings contain duplicates`)
+    const missing = expectedIds.filter(id => !mappedIds.includes(id))
+    if (missing.length > 0) throw new Error(`${missing.length} missing ${path} rule mappings: ${missing.join(', ')}`)
+    const stale = mappedIds.filter(id => !expectedIds.includes(id))
+    if (stale.length > 0) throw new Error(`${stale.length} stale ${path} rule mappings: ${stale.join(', ')}`)
+    for (const { id, rule } of rules) {
+      if (!Array.isArray(rule.tests) || rule.tests.length === 0) {
+        throw new Error(`${path} rule ${id} requires a test that executes it`)
+      }
+      for (const [testIndex, testValue] of rule.tests.entries()) {
+        const test = recordOf(testValue, `${path} rule ${id} test ${testIndex}`)
+        const file = nonEmptyString(test.file, `${path} rule ${id} test file`)
+        const name = nonEmptyString(test.name, `${path} rule ${id} test name`)
+        if (!PROFILE_2_TEST_FILE.test(file) || !existsSync(resolve(repoRoot, file))) {
+          throw new Error(`${path} rule ${id} test file ${file} is not a gated unit spec`)
+        }
+        let titles = titlesByFile.get(file)
+        if (titles === undefined) {
+          titles = quotedTitles(readFileSync(resolve(repoRoot, file), 'utf8'))
+          titlesByFile.set(file, titles)
+        }
+        if (!titles.has(name)) throw new Error(`${path} rule ${id} names a test ${file} does not define: ${name}`)
+      }
+    }
+  }
+}
+
 /**
  * Validate only the pinned draft map's structure and evidence links.
  * This function neither reviews expected results nor executes conformance cases.
@@ -96,7 +171,7 @@ export function validateCriticMarkupProfileConformance(
   value: unknown
 ): void {
   const manifest = recordOf(value, 'Profile conformance map')
-  if (manifest.schema !== 'marktext-criticmarkup-profile-conformance-v1') {
+  if (manifest.schema !== 'marktext-criticmarkup-profile-conformance-v2') {
     throw new Error('Profile conformance map schema is unsupported')
   }
   if (manifest.status !== 'structural-draft-unratified') {
@@ -217,4 +292,5 @@ export function validateCriticMarkupProfileConformance(
   if (unreferenced.length > 0) {
     throw new Error(`Unreferenced Profile cases: ${unreferenced.join(', ')}`)
   }
+  validateProfile2Documents(repoRoot, manifest.profile2)
 }
