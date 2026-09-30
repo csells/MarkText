@@ -4493,7 +4493,12 @@ function createDocumentCoreWithExecutionBudget(
     const window = regionalRangeWindow(inventory, state.source, range, executionBudget,
       state.markdownOptions, regionalPhysicalRecorder)
     if (window?.labelsOnly !== true) return undefined
-    return Object.freeze({ sourceStart: window.sourceStart, nextProducts: window.nextProducts, nextWindow: window.nextWindow })
+    return Object.freeze({
+      sourceStart: window.sourceStart,
+      nextProducts: window.nextProducts,
+      nextWindow: window.nextWindow,
+      ...(window.cleanStart === true ? { cleanStart: true as const } : {})
+    })
   }
 
   const windowAnnotations = new WeakMap<Profile1DocumentProducts, MaterializedAnnotations>()
@@ -4923,7 +4928,9 @@ function createDocumentCoreWithExecutionBudget(
     const candidate = regionalCandidate(state, { start: range.start, end: range.start, insert: '' }) ??
       regionalPlanningWindow(state, range)
     if (candidate === undefined || range.end > candidate.sourceStart + candidate.nextWindow.length) return undefined
-    return windowSyntax(candidate.sourceStart, candidate.nextProducts, candidate.nextWindow.length)
+    const syntax = windowSyntax(candidate.sourceStart, candidate.nextProducts, candidate.nextWindow.length)
+    if ('cleanStart' in candidate && candidate.cleanStart === true) cleanStartSyntaxes.add(syntax)
+    return syntax
   }
 
   /**
@@ -4947,9 +4954,13 @@ function createDocumentCoreWithExecutionBudget(
       lines: editing.markdown.lines,
       enterConversion: (range: SourceRange) =>
         paragraphEnterConversion(editing.source, range.start, range.end, state.markdownOptions.texMathDollars),
-      source: Object.freeze({ start: candidate.sourceStart, end: candidate.sourceStart + candidate.nextWindow.length })
+      source: Object.freeze({ start: candidate.sourceStart, end: candidate.sourceStart + candidate.nextWindow.length }),
+      ...(candidate.cleanStart === true ? { cleanStart: true as const } : {})
     })
   }
+
+  /** Window syntaxes whose windows begin at a clean block start (see RegionalBlockContext.cleanStart). */
+  const cleanStartSyntaxes = new WeakSet<MarkupSyntax>()
 
   /** A window's syntax, in its own projected coordinates, mapped to document source offsets. */
   const windowSyntax = (sourceStart: number, products: Profile1DocumentProducts, windowLength: number): MarkupSyntax => {
@@ -6707,7 +6718,7 @@ function createDocumentCoreWithExecutionBudget(
         // A window of one block is that block alone, proven as it reads in place.
         const alone = blocks.length < 2
         interiors.push({
-          start: start === 0 || first === undefined ? 0 : alone ? start : syntax.coordinates.toSource(first.range.end, 'previous'),
+          start: start === 0 || first === undefined ? 0 : alone || cleanStartSyntaxes.has(syntax) ? start : syntax.coordinates.toSource(first.range.end, 'previous'),
           end: end === state.source.length || last === undefined ? state.source.length : alone ? end : syntax.coordinates.toSource(last.range.start, 'next')
         })
       }
@@ -6723,6 +6734,7 @@ function createDocumentCoreWithExecutionBudget(
       position => {
         if (!regional) return undefined
         const context = regionalBlockContext(state, position)
+        if (context?.cleanStart === true) cleanStartSyntaxes.add(context.syntax)
         if (context !== undefined) interiorOf(context.syntax)
         return context
       })
