@@ -109,4 +109,35 @@ describe('Presenting a regional Markup reply', () => {
     expect(regional.muya.getState()).toEqual(structuredClone([...viewOf(core, commit.revision).state]))
     expect(regional.muya.domNode.innerHTML).toBe(whole.muya.domNode.innerHTML)
   })
+
+  it.each([
+    { name: 'a fence', block: ['```js', ...Array.from({ length: 40 }, (_, index) => `const value${index} = ${index}`), '```'].join('\n') },
+    { name: 'indented code', block: Array.from({ length: 40 }, (_, index) => `    const value${index} = ${index}`).join('\n') },
+    { name: 'an HTML block', block: ['<div>', ...Array.from({ length: 40 }, (_, index) => `line ${index}`), '</div>'].join('\n') }
+  ])('keeps the block of $name whose text a key changes', ({ block }) => {
+    const source = `Intro paragraph.\n\n${block}\n\nAfter paragraph.\n`
+    const at = source.indexOf('20') + 1
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const before = viewOf(core, revision)
+    const commit = core.apply(revision, [{ start: at, end: at, insert: 'x' }], { projections: ['markup'] })
+    const change = commit.change.projections[0]
+    if (change?.name !== 'markup' || change.scope !== 'regions') throw new Error('Expected a regional reply')
+    const next = applyMuyaMarkupChanges(before, change)
+    if (next === undefined) throw new Error('Expected a patched view')
+
+    const regional = mount(before)
+    const blocksBefore = roots(regional.muya)
+    const contentOf = () => regional.muya.editor.scrollPage?.queryBlock([1, 'text'])
+    const contentBefore = contentOf()
+    expect(contentBefore?.isContent()).toBe(true)
+    expect(regional.present(next, true)).toBe(true)
+    expect(roots(regional.muya)).toEqual(blocksBefore)
+    expect(contentOf()).toBe(contentBefore)
+
+    const whole = mount(before)
+    whole.present(next, false)
+    expect(regional.muya.getState()).toEqual(structuredClone([...viewOf(core, commit.revision).state]))
+    expect(regional.muya.domNode.innerHTML).toBe(whole.muya.domNode.innerHTML)
+  })
 })
