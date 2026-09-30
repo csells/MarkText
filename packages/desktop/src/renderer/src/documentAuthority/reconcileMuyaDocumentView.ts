@@ -340,7 +340,11 @@ export function reconcileMuyaDocumentView({
   view: MuyaMarkupView
   outcome: CoreAppliedReply
   dirtyPaths: Iterable<readonly (string | number)[]>
-  applyEditability: (view: MuyaMarkupView, roots?: readonly [number, number]) => void
+  applyEditability: (
+    view: MuyaMarkupView,
+    roots?: readonly [number, number],
+    items?: readonly [number, number]
+  ) => void
   /**
    * The only roots whose presentation can differ from `view` since the
    * editor last presented a view; other roots are neither read nor replaced.
@@ -383,7 +387,11 @@ export function reconcileMuyaDocumentView({
     asMuyaStates(view.state),
     regional ? region : undefined
   )
-  applyEditability(view, regional ? [region.start, region.nextEnd] : undefined)
+  applyEditability(
+    view,
+    regional ? [region.start, region.nextEnd] : undefined,
+    regional && region.items !== undefined ? [region.items.start, region.items.nextEnd] : undefined
+  )
   // A retained root can have changed inline meaning without changed native
   // state, such as a reference resolved by an edited definition elsewhere.
   // Native composition can also mutate DOM without changing the view state.
