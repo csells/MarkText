@@ -105,3 +105,24 @@ it('asks a path source only for the roots a regional update changes', () => {
         muya.destroy();
     }
 });
+
+it('asks a path source only for the items of one list a regional update changes', () => {
+    const muya = boot('- one\n- two\n- three\n- four\n');
+    try {
+        const asked: unknown[] = [];
+        muya.setEditablePaths([]);
+        const contents = () => [...muya.domNode.querySelectorAll<HTMLElement>('span.mu-paragraph-content')]
+            .map(content => content.getAttribute('contenteditable'));
+        expect(contents()).toEqual(['false', 'false', 'false', 'false']);
+        // The source's answer for items [1, 3) only: the other items keep their policy.
+        muya.setEditablePaths((roots, items) => {
+            asked.push([roots, items]);
+            return [[0, 'children', 0, 'children', 0, 'text'], [0, 'children', 2, 'children', 0, 'text']];
+        }, [0, 1], [1, 3]);
+        expect(asked).toEqual([[[0, 1], [1, 3]]]);
+        expect(contents()).toEqual(['false', 'false', 'true', 'false']);
+    }
+    finally {
+        muya.destroy();
+    }
+});

@@ -586,6 +586,30 @@ export class Editor {
     }
 
     /**
+     * With one root replaced in place and only its children `region.items`
+     * changed, that root as retained with only those children copied from
+     * `content`: typing in a long list copies one item, not the list.
+     */
+    private _replaceRootItems(content: readonly TState[], region: IReconcileRegion): TState[] | undefined {
+        const { items } = region;
+        const next = content[region.start] as (TState & { children?: TState[] }) | undefined;
+        const retained = this.jsonState.getRoot(region.start) as (TState & { children?: TState[] }) | undefined;
+        if (
+            items === undefined || region.previousEnd !== region.start + 1 || region.nextEnd !== region.start + 1
+            || next === undefined || retained === undefined || next.name !== retained.name
+            || !Array.isArray(next.children) || !Array.isArray(retained.children)
+            || next.children.length - items.nextEnd !== retained.children.length - items.previousEnd
+        ) {
+            return undefined;
+        }
+        const children = deepClone(next.children.slice(items.start, items.nextEnd));
+        return [{
+            ...retained,
+            children: [...retained.children.slice(0, items.start), ...children, ...retained.children.slice(items.previousEnd)],
+        } as TState];
+    }
+
+    /**
      * Install an owned view projection; this does not dispatch an editing operation.
      * With `region`, only roots `[start, previousEnd)` of the presented document
      * can differ from `content`, where they are `[start, nextEnd)`.
@@ -599,7 +623,7 @@ export class Editor {
             && region.nextEnd <= content.length
             && this.scrollPage!.length() === content.length - region.nextEnd + region.previousEnd
         ) {
-            const roots = deepClone(content.slice(region.start, region.nextEnd));
+            const roots = this._replaceRootItems(content, region) ?? deepClone(content.slice(region.start, region.nextEnd));
             this.jsonState.replaceRoots(region.start, region.previousEnd, roots);
             const changed = this.scrollPage!.reconcileStateRegion(roots, region.start, region.previousEnd, region.items);
             if (changed) {

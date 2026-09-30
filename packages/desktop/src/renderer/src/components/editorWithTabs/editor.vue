@@ -1425,17 +1425,26 @@ const replaceMisspelling = (payload: unknown) => {
 
 const applyCorePlainTextEditability = (
   view: MuyaMarkupView,
-  roots?: readonly [number, number]
+  roots?: readonly [number, number],
+  items?: readonly [number, number]
 ): void => {
   const muya = editor.value
   coreEditableBindingCount.value = muyaViewEditableCount(view)
   if (muya === null) return
   muya.setEditablePaths(
-    (scope) =>
+    (scope, itemScope) =>
       (scope === undefined ? view.bindings : muyaViewBindingsInRoots(view, scope[0], scope[1]))
-        .filter((binding) => binding.editable !== false)
+        .filter(
+          (binding) =>
+            binding.editable !== false &&
+            (itemScope === undefined ||
+              (typeof binding.path[2] === 'number' &&
+                binding.path[2] >= itemScope[0] &&
+                binding.path[2] < itemScope[1]))
+        )
         .map((binding) => binding.path),
-    roots
+    roots,
+    items
   )
 }
 

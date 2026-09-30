@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createMuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
 import { renderMuyaMarkupBinding } from '@/documentAuthority/muyaMarkupPresentation'
 import { createMuyaMarkupPresentationIndex } from '@/documentAuthority/muyaMarkupPresentationIndex'
+import { applyMuyaMarkupChanges, muyaMarkupViewPatch } from '@/documentAuthority/muyaMarkupChanges'
 import { createEditorCoreBinding } from '@/documentAuthority/editorCoreBinding'
 import { createLocalCoreOwner } from '@/documentAuthority/localCoreOwner'
 
@@ -196,6 +197,47 @@ describe('Muya Markup presentation index', () => {
     expect(updated.changedPaths).toContainEqual([1, 'text'])
     expect(updated.render([0, 'text'], 'same')).toContain('data-critic-kind="deletion"')
     expect(updated.render([1, 'text'], '[link][ref]')).toContain('https://new.test')
+  })
+
+  it('indexes only the typed item of a long list and renders every item as a whole index does', () => {
+    const items = Array.from({ length: 60 }, (_, index) =>
+      index % 7 === 3 ? `- item ${index} {++added++} **bold**` : `- item ${index} with *words*`
+    )
+    const source = ['Opening paragraph.', items.join('\n\n')].join('\n\n') + '\n'
+    const core = createDocumentCore()
+    let revision = core.open(source)
+    let view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, revision.source)
+    const renderer = vi.fn(renderMuyaMarkupBinding)
+    let index = createMuyaMarkupPresentationIndex(view, undefined, renderer)
+    for (const binding of view.bindings) index.render(binding.path, binding.text)
+    for (const [key, item] of [3, 3, 40, 10, 59].entries()) {
+      const text = revision.source
+      const typed = new RegExp(`item ${item}x* `, 'u').exec(text)
+      if (typed === null) throw new Error(`Item ${item} is missing`)
+      const at = typed.index + typed[0].length - 1
+      const commit = core.apply(revision, [{ start: at, end: at, insert: 'x' }], { projections: ['markup'] })
+      const change = commit.change.projections[0]
+      if (change?.name !== 'markup' || change.scope !== 'regions') {
+        throw new Error('Expected a real regional Core reply')
+      }
+      const next = applyMuyaMarkupChanges(view, change)
+      if (next === undefined) throw new Error('Expected a patched view')
+      const patch = muyaMarkupViewPatch(next)
+      expect(patch?.items, `key ${key}`).toBeDefined()
+      const updated = createMuyaMarkupPresentationIndex(next, index, renderer, undefined, patch)
+      const whole = createMuyaMarkupPresentationIndex(next, index, renderer)
+      expect(updated.changedPaths, `key ${key}`).toEqual(whole.changedPaths)
+      renderer.mockClear()
+      const rendered = next.bindings.map((binding) => updated.render(binding.path, binding.text))
+      // Only the typed item's leaf is rendered again.
+      expect(renderer.mock.calls.length, `key ${key}`).toBe(updated.changedPaths.length)
+      expect(rendered, `key ${key}`).toEqual(
+        next.bindings.map((binding) => whole.render(binding.path, binding.text))
+      )
+      view = next
+      index = updated
+      revision = commit.revision
+    }
   })
 
   it('marks a previously rendered speculative draft dirty when authority retains the original text', () => {

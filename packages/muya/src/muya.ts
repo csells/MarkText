@@ -150,10 +150,12 @@ function endpointPair(
 
 /**
  * Editable content-block paths, read when the policy is applied. Given
- * `roots`, the paths under roots `[start, end)` suffice.
+ * `roots`, the paths under roots `[start, end)` suffice; given `items` as
+ * well, the paths under children `[start, end)` of that one root.
  */
 export type TEditablePathSource = (
     roots?: readonly [number, number],
+    items?: readonly [number, number],
 ) => readonly (readonly (string | number)[])[];
 
 export class Muya {
@@ -327,16 +329,19 @@ export class Muya {
      * function is read only when the policy is applied; `roots` limits this
      * update to the blocks under roots `[start, end)`, whose policy is the
      * only one that changed, and is passed to the function, which then need
-     * list only the paths under those roots.
+     * list only the paths under those roots. With one root, `items` limits it
+     * further to that root's children `[start, end)`: a long list keeps every
+     * other item's policy.
      */
     setEditablePaths(
         paths: readonly (readonly (string | number)[])[] | TEditablePathSource | null,
         roots?: readonly [number, number],
+        items?: readonly [number, number],
     ) {
         this._editablePaths = paths === null || typeof paths === 'function'
             ? paths
             : Object.freeze(paths.map(path => Object.freeze([...path])));
-        this._applyEditablePaths(roots);
+        this._applyEditablePaths(roots, roots !== undefined && roots[1] === roots[0] + 1 ? items : undefined);
     }
 
     /**
@@ -349,14 +354,16 @@ export class Muya {
         this.editor.inlineRenderer.presentation = renderer;
     }
 
-    private _applyEditablePaths(roots?: readonly [number, number]) {
+    private _applyEditablePaths(roots?: readonly [number, number], items?: readonly [number, number]) {
         const source = this._editablePaths;
         const scrollPage = this.editor.scrollPage;
         if (!scrollPage)
             return;
-        const paths = typeof source === 'function' ? source(roots) : source;
+        const paths = typeof source === 'function' ? source(roots, items) : source;
         const inRoots = (path: readonly (string | number)[]) =>
-            roots === undefined || (typeof path[0] === 'number' && path[0] >= roots[0] && path[0] < roots[1]);
+            roots === undefined || (typeof path[0] === 'number' && path[0] >= roots[0] && path[0] < roots[1]
+                && (items === undefined || (path[1] === 'children' && typeof path[2] === 'number'
+                    && path[2] >= items[0] && path[2] < items[1])));
         const editable = new Set<Content>();
         if (paths !== null) {
             for (const path of paths) {
@@ -381,6 +388,12 @@ export class Muya {
             return;
         }
         let root = scrollPage.find(roots[0]);
+        if (items !== undefined && root?.isParent()) {
+            const first = items[1] > items[0] ? root.children.find(items[0]) : null;
+            for (const item of first == null ? [] : root.children.iterator(first, items[1] - items[0]))
+                item.domNode?.querySelectorAll<HTMLElement>('.mu-content').forEach(apply);
+            return;
+        }
         for (let index = roots[0]; index < roots[1] && root != null; index++, root = root.next as typeof root) {
             root.domNode?.querySelectorAll<HTMLElement>('.mu-content').forEach(apply);
         }
