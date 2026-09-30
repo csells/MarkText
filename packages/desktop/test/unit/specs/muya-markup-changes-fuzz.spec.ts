@@ -43,7 +43,12 @@ const blocks = [
   '<div>\nhtml text\n</div>',
   '    indented code',
   'Some *emphasis* and **strong** words.',
-  '---'
+  '---',
+  '- alpha one\n- beta two\n- gamma three\n- delta four',
+  '- loose a\n\n- loose b\n\n- loose c',
+  '1. one\n2. two\n3. three',
+  '- [ ] task a\n- [x] task b\n- [ ] task c',
+  '- outer\n  - inner a\n  - inner b\n- outer two'
 ]
 const insertions = ['x', ' ', '\n', '\n\n', '\n\n\n\n', '   ', '{++n++}', '# ', '- ', '++}', '{==', '`', '$', '[', ']', '|', '> ', '1. ', '```']
 
@@ -51,7 +56,9 @@ const seeds = Number(process.env.MARKTEXT_VIEW_FUZZ_SEEDS ?? 40)
 const first = Number(process.env.MARKTEXT_VIEW_FUZZ_FIRST ?? 1)
 
 describe('Patched Markup views read as the whole view', () => {
-  it.each(Array.from({ length: seeds }, (_, index) => first + index))('seed %i', (seed) => {
+  // Seed 325 once patched a view whose root before the region kept the text
+  // up to a block start the edit had moved.
+  it.each([...Array.from({ length: seeds }, (_, index) => first + index), 325])('seed %i', (seed) => {
     const random = lcg(seed * 7919)
     for (let documentIndex = 0; documentIndex < 6; documentIndex += 1) {
       const count = 3 + Math.floor(random() * 8)

@@ -322,6 +322,9 @@ export const createReviewOverviewTracker = (): ReviewOverviewTracker => {
 
   const replace = (replacement: MarkupRegionReplacement, next: DocumentRevision, offset: number): boolean => {
     if (tracked === undefined) return false
+    // Suggestions in items replaced inside a list read with the whole list
+    // around them, which the region does not hold.
+    if (replacement.listItems !== undefined && replacement.annotations.length > 0) return false
     const { slots } = tracked
     const start = replacement.previous.source.start + offset
     const end = replacement.previous.source.end + offset
