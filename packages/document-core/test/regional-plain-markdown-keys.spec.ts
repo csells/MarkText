@@ -198,3 +198,35 @@ describe('keys in an item of a long list', () => {
     }
   }, 120_000)
 })
+
+describe('keys beside a long fence or list', () => {
+  // Plan 0012 G35: a key in the paragraph before or after a long block reads
+  // that block only as far as the paragraph's reading needs it: a fence
+  // closed before the paragraph not at all, and a block after it to its
+  // first line, as upstream edits the paragraph alone.
+  const fence = ['```js', ...Array.from({ length: 600 }, (_, index) => `const value${index} = ${index}`), '```'].join('\n')
+  const list = Array.from({ length: 600 }, (_, index) => `- List item ${index + 1} with a few words.`).join('\n\n')
+  it.each([['fence', fence], ['list', list]])('%s', (_name, block) => {
+    const source = `Warm editing paragraph.\n\n${block}\n\nAfter paragraph here.\n`
+    for (const where of ['Warm editing paragraph', 'After paragraph here']) {
+      for (const tracked of [false, true]) {
+        for (const key of keys) {
+          const core = createDocumentCore()
+          const revision = regional(core, source)
+          const caret = revision.source.indexOf(where.slice(1)) + where.length - 1
+          const before = inspectDocumentCore(core)
+          const outcome = press(core, revision, caret, key, tracked)
+          const after = inspectDocumentCore(core)
+          const label = `${where} ${key} tracked=${String(tracked)}`
+          expect(after.documentParses - before.documentParses, label).toBe(0)
+          // The windows read no more than a few lines of the long block.
+          expect(after.regionalInventoryCandidateRegionParseSourceUnits - before.regionalInventoryCandidateRegionParseSourceUnits,
+            label).toBeLessThan(block.length / 2)
+          const control = createDocumentCore()
+          planFromDocumentParse(control)
+          expect(outcome, label).toEqual(press(control, regional(control, source), caret, key, tracked))
+        }
+      }
+    }
+  }, 120_000)
+})
