@@ -167,6 +167,80 @@ describe('Root queries of a regionally patched Markup view', () => {
     }
   })
 
+  // Long lists are patched item by item and read one item at a time.
+  it.each(Array.from({ length: 16 }, (_, index) => index + 1))('long list seed %i', (seed) => {
+    const random = lcg(seed * 7919)
+    const itemTexts = ['item words', 'item **bold** text', 'item `code` span', 'item [link](http://x.test)', 'item']
+    const count = 20 + Math.floor(random() * 30)
+    const loose = random() < 0.5
+    const list = Array.from({ length: count }, (_, index) =>
+      `${random() < 0.2 ? '1.' : '-'} ${itemTexts[index % itemTexts.length]} ${index}`)
+    const ordered = list.map((line) => line.replace(/^1\./u, '-'))
+    const source = ['Intro paragraph.', ordered.join(loose ? '\n\n' : '\n'), 'Closing paragraph.'].join('\n\n') + '\n'
+    const core = createDocumentCore()
+    let revision = core.open(source)
+    let view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, revision.source)
+    const edits = ['x', ' ', 'y', '', '*']
+    for (let edit = 0; edit < 12; edit += 1) {
+      const text = revision.source
+      const lines = [...text.matchAll(/^- .*$/gmu)]
+      const line = lines[Math.floor(random() * lines.length)]
+      if (line?.index === undefined) break
+      const start = line.index + 2 + Math.floor(random() * (line[0].length - 1))
+      const insert = edits[Math.floor(random() * edits.length)]
+      const end = insert === '' ? Math.min(line.index + line[0].length, start + 1) : start
+      const label = `${JSON.stringify(text)} [${start}, ${end}) ${JSON.stringify(insert)}`
+      const commit = core.apply(revision, [{ start, end, insert }], { projections: ['markup'] })
+      const expected = createMuyaMarkupView(
+        core.project(commit.revision, 'markup'),
+        commit.revision.annotations,
+        commit.revision.source
+      )
+      const change = commit.change.projections[0]
+      const patched =
+        change?.name === 'markup' && change.scope === 'regions'
+          ? applyMuyaMarkupChanges(view, structuredClone(change))
+          : undefined
+      if (patched !== undefined) expectSameQueries(patched, expected, label)
+      view = patched ?? expected
+      revision = commit.revision
+    }
+  }, 60_000)
+
+  it('answers after many unread item patches as the new revision does', () => {
+    const source =
+      ['Opening paragraph.', Array.from({ length: 120 }, (_, index) => `- item ${index}`).join('\n\n')].join('\n\n') + '\n'
+    const core = createDocumentCore()
+    let revision = core.open(source)
+    let view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, revision.source)
+    const random = lcg(4099)
+    let patchedKeys = 0
+    // More patches than are kept unlisted, read by nothing between keys.
+    for (let key = 0; key < 70; key += 1) {
+      const item = Math.floor(random() * 120)
+      const found = new RegExp(`item ${item}x*\n`, 'u').exec(revision.source)
+      if (found === null) throw new Error(`Item ${item} is missing`)
+      const at = found.index + found[0].length - 1
+      const commit = core.apply(revision, [{ start: at, end: at, insert: 'x' }], { projections: ['markup'] })
+      const change = commit.change.projections[0]
+      const patched =
+        change?.name === 'markup' && change.scope === 'regions'
+          ? applyMuyaMarkupChanges(view, change)
+          : undefined
+      if (patched !== undefined) patchedKeys += 1
+      view =
+        patched ??
+        createMuyaMarkupView(core.project(commit.revision, 'markup'), commit.revision.annotations, commit.revision.source)
+      revision = commit.revision
+    }
+    expect(patchedKeys).toBe(70)
+    expectSameQueries(
+      view,
+      createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, revision.source),
+      'after 70 keys'
+    )
+  }, 60_000)
+
   it('patches and answers a key without listing either view', () => {
     const paragraph =
       'Review {++new evidence++} alongside {--obsolete details--}, {~~old wording~>better wording~~}, and {==a claim==}{>>Check this source.<<}.'
@@ -209,6 +283,58 @@ describe('Root queries of a regionally patched Markup view', () => {
       view = next
       revision = commit.revision
     }
+  }, 30_000)
+
+  it('moves only the typed item of a long list and the items read near the caret', () => {
+    const count = 300
+    const source =
+      ['Opening paragraph.', Array.from({ length: count }, (_, index) => `- item ${index}`).join('\n\n')].join('\n\n') + '\n'
+    const core = createDocumentCore()
+    let revision = core.open(source)
+    let view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, revision.source)
+    muyaMarkupRootsFor(view)
+    const listRoot = view.state.findIndex((state) => state.name === 'bullet-list')
+    expect(listRoot).toBeGreaterThanOrEqual(0)
+    const typed = 150
+    // Moving a binding copies its segments.
+    let moved = 0
+    for (const binding of view.bindings) {
+      if (binding.path[0] !== listRoot || Number(binding.path[2]) <= typed + 2) continue
+      const segments = binding.segments
+      Object.defineProperty(binding, 'segments', {
+        enumerable: true,
+        get() {
+          moved += 1
+          return segments
+        }
+      })
+    }
+    const keys = 3
+    const at = source.indexOf(`item ${typed}\n`) + `item ${typed}`.length
+    for (let key = 0; key < keys; key += 1) {
+      const commit = core.apply(revision, [{ start: at + key, end: at + key, insert: 'x' }], {
+        projections: ['markup']
+      })
+      const change = commit.change.projections[0]
+      if (change?.name !== 'markup' || change.scope !== 'regions') {
+        throw new Error('Expected a real regional Core reply')
+      }
+      const next = applyMuyaMarkupChanges(view, change)
+      if (next === undefined) throw new Error('Expected a patched view')
+      // What the editor reads for the key: the typed text and the caret's neighbourhood.
+      const path = [listRoot, 'children', typed, 'children', 0, 'text']
+      expect(muyaViewItemAtPath(next, 'bindings', path)?.text).toBe(`item ${typed}${'x'.repeat(key + 1)}`)
+      expect([...muyaViewBindingsNear(next, at + key + 1)].map((binding) => binding.path)).toContainEqual(path)
+      view = next
+      revision = commit.revision
+    }
+    // Searches read a few items each; a whole move would read every later one.
+    expect(moved).toBeLessThanOrEqual(keys * 2 * Math.ceil(Math.log2(count)))
+    expectSameQueries(
+      view,
+      createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, revision.source),
+      'after three keys in one item'
+    )
   }, 30_000)
 
   it.each([
