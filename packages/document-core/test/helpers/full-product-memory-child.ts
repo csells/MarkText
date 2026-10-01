@@ -35,8 +35,10 @@ const collect = (): number => {
   return process.memoryUsage().heapUsed
 }
 
+// The historical forest follows a paragraph of its own, so no regional
+// inventory reads its annotations and they are materialized from a parse.
 const source = mode === 'historical-annotations'
-  ? `{>>${'{++'.repeat(regions)}x${'++}'.repeat(regions)}<<}\n\ntail\n`
+  ? `lead\n\n{>>${'{++'.repeat(regions)}x${'++}'.repeat(regions)}<<}\n\ntail\n`
   : [
     'a {++one++}\n\n',
     'b {--two--}\n\n',

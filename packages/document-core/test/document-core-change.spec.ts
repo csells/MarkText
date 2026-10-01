@@ -523,7 +523,9 @@ describe('document-core semantic changes', () => {
     expect(afterCachedReads.fullProductStoresStrongCurrent).toBe(1)
   })
   it('materializes unread historical annotations ephemerally and caches identity', () => {
-    const source = '{>>note<<}\n\ntail\n'
+    // A paragraph before the Comment leaves the document without a regional
+    // inventory, so its annotations are materialized from a parse.
+    const source = 'lead\n\n{>>note<<}\n\ntail\n'
     const core = createDocumentCore()
     const opened = core.open(source)
     const editAt = source.lastIndexOf('tail')
