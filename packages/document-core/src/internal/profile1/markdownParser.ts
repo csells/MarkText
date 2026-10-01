@@ -7714,7 +7714,21 @@ function checkpointIsForkReconvergence(
   )
 }
 
+/** A fork lane's safe points, which every projection pass over the lane reads. */
+const forkSafeSourcePoints = new WeakMap<IntrinsicProfile1ForkLane, readonly number[]>()
+
 export function intrinsicForkSafeSourcePoints(
+  lane: IntrinsicProfile1ForkLane
+): readonly number[] {
+  let known = forkSafeSourcePoints.get(lane)
+  if (known === undefined) {
+    known = forkLaneSafeSourcePoints(lane)
+    forkSafeSourcePoints.set(lane, known)
+  }
+  return known
+}
+
+function forkLaneSafeSourcePoints(
   lane: IntrinsicProfile1ForkLane
 ): readonly number[] {
   const points = new Set<number>()
@@ -8730,6 +8744,76 @@ export function createProfile1MarkdownForkParser(
   const emittedRegionCache = reuseCache.astRegions
   const admittedRegionFactsCache = reuseCache.admittedRegionFacts
   const canonicalFactIndex = createIntrinsicCanonicalFactIndex(forkGraph)
+  // A projection's regions are read for planning, for its literals and for
+  // its AST, the same region text each time unless planning respells it, so
+  // each region's block facts are parsed once while the revision is parsed.
+  // A parse that met no container-depth limit reads alike under any higher
+  // one.
+  const regionFactsMemo = new Map<string, Readonly<{
+    limit: number
+    emitted: ReturnType<typeof parseIntrinsicForkRegionFacts>
+  }>>()
+  // Definitions read alike share one short identity, found once per lookup.
+  const definitionIds = new WeakMap<MarkdownReferenceDefinitionLookup, number>()
+  const definitionIdsByKey = new Map<string, number>()
+  const definitionId = (definitions: MarkdownReferenceDefinitionLookup): number | undefined => {
+    if (definitions.cacheKey === undefined) return undefined
+    let id = definitionIds.get(definitions)
+    if (id === undefined) {
+      id = definitionIdsByKey.get(definitions.cacheKey)
+      if (id === undefined) {
+        id = definitionIdsByKey.size
+        definitionIdsByKey.set(definitions.cacheKey, id)
+      }
+      definitionIds.set(definitions, id)
+    }
+    return id
+  }
+  const regionFacts = (
+    lane: MappedMarkdownLane,
+    selectionReferenceDefinitions: MarkdownReferenceDefinitionLookup,
+    selectionOffset: number,
+    containerDepthLimit: number,
+    trace?: Profile1ProjectionPlanningTraceV1
+  ): ReturnType<typeof parseIntrinsicForkRegionFacts> => {
+    const parse = (): ReturnType<typeof parseIntrinsicForkRegionFacts> => parseIntrinsicForkRegionFacts(
+      canonicalFactIndex,
+      lane,
+      selectionReferenceDefinitions,
+      selectionOffset,
+      containerDepthLimit,
+      admittedRegionFactsCache,
+      trace,
+      physicalRecorder
+    )
+    const definitions = definitionId(selectionReferenceDefinitions)
+    if (trace !== undefined || definitions === undefined) return parse()
+    const key = JSON.stringify([
+      lane.source,
+      lane.forkView ?? null,
+      lane.frontMatterEnabled ?? true,
+      lane.gfmEnabled ?? true,
+      lane.gfmAutolinksEnabled ?? true,
+      lane.gfmTagFilterEnabled ?? true,
+      lane.mathEnabled ?? true,
+      lane.texMathGfmEnabled ?? true,
+      lane.texMathSingleBackslashEnabled ?? false,
+      lane.texMathDoubleBackslashEnabled ?? false,
+      lane.footnotesEnabled ?? true,
+      lane.subscriptAndSuperscriptEnabled ?? false,
+      (lane.matchingScopes ?? []).map(scope => [scope.id, scope.start, scope.end, scope.depth]),
+      lane.canonicalIdentityRuns ?? null,
+      lane.armTerminationEdits === undefined || lane.armTerminationEdits.length === 0 ? null : lane.armTerminationEdits,
+      selectionOffset,
+      definitions
+    ])
+    const known = regionFactsMemo.get(key)
+    if (known !== undefined && (known.limit === containerDepthLimit ||
+      known.limit <= containerDepthLimit && known.emitted.facts.containerDepthFailure === undefined)) return known.emitted
+    const emitted = parse()
+    regionFactsMemo.set(key, Object.freeze({ limit: containerDepthLimit, emitted }))
+    return emitted
+  }
   const requireForkLane = (lane: IntrinsicProfile1ForkLane): void => {
     if (forkGraph.lanes[lane.id] !== lane) {
       throw new Error('Markdown fork read is detached from the intrinsic parser graph')
@@ -8762,15 +8846,12 @@ export function createProfile1MarkdownForkParser(
         )
       const literals: MarkdownLiteralRange[] = []
       for (const region of intrinsicForkRegionLanes(forkLane, lane)) {
-        const emitted = parseIntrinsicForkRegionFacts(
-          canonicalFactIndex,
+        const emitted = regionFacts(
           region.lane,
           selectionReferenceDefinitions,
           region.start,
           containerDepthLimit,
-          admittedRegionFactsCache,
-          projectionPlanningTraceAt(trace, region.start),
-          physicalRecorder
+          projectionPlanningTraceAt(trace, region.start)
         )
         literals.push(...emitted.facts.literals.map(
           (literal): MarkdownLiteralRange => Object.freeze({
@@ -8865,15 +8946,11 @@ export function createProfile1MarkdownForkParser(
           })
           : undefined
         for (const region of regionLanes) {
-          const emitted = parseIntrinsicForkRegionFacts(
-            canonicalFactIndex,
+          const emitted = regionFacts(
             region.lane,
             selectionReferenceDefinitions,
             region.start,
-            Number.POSITIVE_INFINITY,
-            admittedRegionFactsCache,
-            undefined,
-            physicalRecorder
+            Number.POSITIVE_INFINITY
           )
           const localNodes = emitIntrinsicForkRegionNodes(
             region.lane,
@@ -8945,6 +9022,8 @@ export function createProfile1MarkdownForkParser(
       for (const request of requestByKey.values()) {
         emitRequest(request)
       }
+      // The revision's passes have read their regions; its products keep none.
+      regionFactsMemo.clear()
       return Object.freeze({
         read: Object.freeze((key: string): Profile1MarkdownParse => {
           const parsed = parseByKey.get(key)
@@ -9015,15 +9094,12 @@ export function createProfile1MarkdownForkParser(
           ...region.lane,
           armTerminationEdits: terminationEdits
         })
-        const emitted = parseIntrinsicForkRegionFacts(
-          canonicalFactIndex,
+        const emitted = regionFacts(
           localLane,
           selectionReferenceDefinitions,
           region.start,
           containerDepthLimit,
-          admittedRegionFactsCache,
-          regionTrace,
-          physicalRecorder
+          regionTrace
         )
         const planningBoundaryPolicy = emitted.boundaryPolicy === undefined
           ? undefined
@@ -9031,14 +9107,22 @@ export function createProfile1MarkdownForkParser(
             ...emitted.boundaryPolicy,
             projectionSafetyFlanking: true
           })
-        const regionNodes = emitIntrinsicForkRegionNodes(
-          localLane,
-          emitted.facts,
-          emittedRegionCache,
-          planningBoundaryPolicy,
-          execution,
-          physicalRecorder
-        )
+        // Planning reads an editing table's scope and footnote labels from
+        // the region's nodes, and emitting them records the delimiters that
+        // would pair across arms and the references a scope rejects. A
+        // region of plain prose, with no extended autolink, spells none of
+        // these, so its nodes are emitted once, by the AST pass.
+        const readsNodes = !/^[\p{L}\p{N}\s.,;:'"?()-]*$/u.test(localLane.source) || /www\./iu.test(localLane.source)
+        const regionNodes = readsNodes
+          ? emitIntrinsicForkRegionNodes(
+            localLane,
+            emitted.facts,
+            emittedRegionCache,
+            planningBoundaryPolicy,
+            execution,
+            physicalRecorder
+          )
+          : []
         const tableBoundaryEdits: MarkdownArmBoundaryProjectionEdit[] = []
         const pendingNodes = [...regionNodes]
         while (pendingNodes.length > 0) {
