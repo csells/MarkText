@@ -12,6 +12,7 @@ import { DOCUMENT_RESOURCE_POLICY_V1 } from '../../resourcePolicy.js'
 import {
   parseProfile1Window,
   windowsBeforeDocumentEnd,
+  windowsEndingAtBlockStart,
   windowsNotAfterOneEmptyLine,
   type Profile1DocumentProducts,
   type RetainedPassSourceEdit
@@ -158,6 +159,11 @@ export interface RegionalInventoryPreview {
    * reads the same whatever that block becomes (see `contextBefore`).
    */
   readonly cleanStart?: true
+  /**
+   * The window ends with the last edited block, whose block after it reads
+   * the same whatever that block becomes (see `contextAfter`).
+   */
+  readonly cleanEnd?: true
   /**
    * The window is one leaf read alone, bounded by safe points, so the whole
    * of it reads as the document does (see `evaluateSameShape`).
@@ -1595,6 +1601,9 @@ function listSplitOf(
   // A window's first line follows the empty lines before it in the document.
   const startClean = !windowsNotAfterOneEmptyLine.has(products)
   const oneEmptyLine = (line: number): boolean => line === 0 ? startClean : afterEmptyLine(editing.source, line)
+  // A window ending where the document's next block starts parts its last
+  // block from that block by its own trailing empty lines.
+  const endsAtBlock = windowsEndingAtBlockStart.has(products)
   const segments = editing.mappedTape
   // The spans no boundary may cut, merged in order for lookup.
   const spans: Array<{ start: number, end: number }> = []
@@ -1639,7 +1648,8 @@ function listSplitOf(
     const nextStart = next === undefined ? undefined : boundaryAt(next.range.start)
     if (listStart === undefined || !afterEmptyLine(editing.source, listStart.line) ||
         (next !== undefined && (nextStart === undefined || next.range.start === next.range.end ||
-          !afterEmptyLine(editing.source, nextStart.line)))) continue
+          !afterEmptyLine(editing.source, nextStart.line))) ||
+        next === undefined && endsAtBlock && !afterEmptyLine(editing.source, editing.source.length)) continue
     const lineStarts: number[] = [listStart.line]
     const listPoints: number[] = [listStart.source]
     // An item whose first line an annotation spans shares a leaf with the
@@ -1669,9 +1679,10 @@ function listSplitOf(
     const blockStart = boundaryAt(block.range.start)
     const next = ordinal + 1 < root.childCount ? root.childAt(ordinal + 1) : undefined
     // A window's last block may yet be followed by more than one empty line.
-    if (next === undefined && endOpen) continue
+    if (next === undefined && endOpen && !endsAtBlock) continue
     const nextStart = next === undefined ? undefined : boundaryAt(next.range.start)
     if (blockStart === undefined || !oneEmptyLine(blockStart.line) ||
+        next === undefined && endsAtBlock && !oneEmptyLine(editing.source.length) ||
         (next !== undefined && (nextStart === undefined || next.range.start === next.range.end ||
           !oneEmptyLine(nextStart.line)))) continue
     literals.set(block, literal)
@@ -1917,6 +1928,26 @@ function plainGapLeaf(
     eventCount: points.length + 1,
     plain: createPlainParagraphRetainedIndex(points, sourceLength, 0, recorder)
   })
+}
+
+/**
+ * Whether the inventory parts its blocks at source offset `source`: a leaf
+ * starts there, or a plain gap holds a block start there.
+ */
+function inventoryPointAt(inventory: InventoryValue, source: number): boolean {
+  const located = locateBySource(inventory, source)
+  if (located === undefined || located.sourceStart === source) return located !== undefined || source === inventory.root.sourceLength
+  const plain = located.leaf.kind === 'gap' ? located.leaf.plain : undefined
+  if (plain === undefined) return false
+  const local = source - located.sourceStart
+  let low = 0
+  let high = plain.safePointCount
+  while (low < high) {
+    const middle = (low + high) >> 1
+    if (plain.coordinateAt(middle) < local) low = middle + 1
+    else high = middle
+  }
+  return low < plain.safePointCount && plain.coordinateAt(low) === local
 }
 
 function locateBySource(
@@ -2278,6 +2309,7 @@ export function previewRegionalRange(
   nextProducts: Profile1DocumentProducts
   nextWindow: string
   cleanStart?: true
+  cleanEnd?: true
   wholeLeaf?: true
   literal?: RegionalInventoryPreview['literal']
 }> | undefined {
@@ -2288,6 +2320,7 @@ export function previewRegionalRange(
       nextProducts: window.nextProducts,
       nextWindow: window.nextWindow,
       ...(window.cleanStart === true ? { cleanStart: true as const } : {}),
+      ...(window.cleanEnd === true ? { cleanEnd: true as const } : {}),
       ...(window.wholeLeaf === true ? { wholeLeaf: true as const } : {}),
       ...(window.literal === undefined ? {} : { literal: window.literal })
     })
@@ -2318,6 +2351,7 @@ export function regionalRangeWindow(
   validated: boolean
   labelsOnly: boolean
   cleanStart?: true
+  cleanEnd?: true
   wholeLeaf?: true
   literal?: RegionalInventoryPreview['literal']
 }> | undefined {
@@ -2373,8 +2407,9 @@ export function regionalRangeWindow(
     })
   }
   for (let widening = 0; ; widening += 1) {
-    const before = contextBefore(source, edited.source > 0 ? windowEdge(value, edited.source - 1, 'start') : edited, edited)
-    const after = contextAfter(source, editedEnd.source < length ? windowEdge(value, editedEnd.source, 'end') : editedEnd, editedEnd)
+    const before = contextBefore(source, edited.source > 0 ? windowEdge(value, edited.source - 1, 'start') : edited, edited, true,
+      indentedLineAt(source, edited.source))
+    const after = contextAfter(source, editedEnd.source < length ? windowEdge(value, editedEnd.source, 'end') : editedEnd, editedEnd, true)
     // A reader of the document's own text reads a literal block around it whole.
     const first = before === undefined || literalLines || before === edited ? before : literalContextStart(value, before)
     const last = after === undefined || literalLines || after === editedEnd ? after : literalContextEnd(value, after)
@@ -2389,10 +2424,13 @@ export function regionalRangeWindow(
       physicalRecorder,
       last.source === length,
       false,
-      startsAfterOneEmptyLine(source, first.source)
+      startsAfterOneEmptyLine(source, first.source),
+      last === editedEnd && last.source < length
     )
     if (result.kind !== 'complete') return undefined
+    if (last === editedEnd && last.source < length && !lastBlockEndsBefore(result)) return undefined
     const cleanStart = first.source === edited.source && edited.source > 0
+    const cleanEnd = last.source === editedEnd.source && editedEnd.source < length
     const read = (validated: boolean) => {
       const labels = referenced(first.source, last.source)
       validated &&= !frontMatterReach(markdownOptions, first.source, range.start, window) &&
@@ -2403,7 +2441,8 @@ export function regionalRangeWindow(
         nextWindow: window,
         validated: validated && !labels,
         labelsOnly: validated && labels,
-        ...(cleanStart ? { cleanStart: true as const } : {})
+        ...(cleanStart ? { cleanStart: true as const } : {}),
+        ...(cleanEnd ? { cleanEnd: true as const } : {})
       })
     }
     const leafPoints = leafPointsOf(result, window.length, !value.strayMarkers)
@@ -3083,6 +3122,39 @@ function closedFenceRun(run: LiteralRun): boolean {
     !run.key.includes('indented-code') && !run.key.endsWith('""')
 }
 
+/**
+ * Whether a literal run ends at its closer whatever follows it, with a block
+ * after it: a closed fence; a closed math block while the edit pairs no
+ * dollars anew, so none after the block can pair with its own; an HTML
+ * block, which a block after it has ended; or indented code while the block
+ * after it is not indented, which it would go on into.
+ */
+function closedLiteralRun(run: LiteralRun, dollarsStay: boolean, indentedAfter: boolean): boolean {
+  return closedFenceRun(run) ||
+    dollarsStay && run.key.startsWith('math-block') && !run.key.endsWith('""') ||
+    run.key.startsWith('html-block') ||
+    !indentedAfter && run.key.startsWith('code-block') && run.key.includes('indented-code')
+}
+
+/**
+ * Whether a window's last block ends before the empty line ending the
+ * window: a block left open there, as a fence that lost its closer, would
+ * go on into the block after the window in the document.
+ */
+function lastBlockEndsBefore(products: Profile1DocumentProducts): boolean {
+  const editing = products.editing()
+  const root = editing.markdown.root
+  const last = root.childCount === 0 ? undefined : root.childAt(root.childCount - 1)
+  return last !== undefined && /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)[ \t\r\n]*$/u.test(editing.source.slice(last.range.end)) &&
+    /^[ \t\r\n]*$/u.test(editing.source.slice(last.range.end))
+}
+
+/** Whether the first line holding text at or after `offset` is indented as code. */
+function indentedLineAt(text: CanonicalSourceView, offset: number): boolean {
+  const line = firstTextLine(text, offset)
+  return /^(?: {4}| {0,3}\t)/u.test(text.slice(line, Math.min(text.length, line + 4)))
+}
+
 /** Whether `text` is one fenced code block, closed by its last line that is not blank. */
 function closedFence(text: string): boolean {
   const lines = text.split(/\r\n|\r|\n/u)
@@ -3106,13 +3178,16 @@ function closedFence(text: string): boolean {
 function contextBefore(
   source: CanonicalSourceView,
   first: WindowEdge | undefined,
-  edited: WindowEdge
+  edited: WindowEdge,
+  dollarsStay: boolean,
+  indentedAfter: boolean
 ): WindowEdge | undefined {
   if (first === undefined || first === edited) return first
   // A literal block's last line ends it at the safe point the edited
   // blocks start at, and its line read alone would not end it; indented
   // code alone goes on into an indented line after blank lines.
-  if (first.leaf.kind === 'region' && first.leaf.literalRun?.last === true && closedFenceRun(first.leaf.literalRun)) return edited
+  if (first.leaf.kind === 'region' && first.leaf.literalRun?.last === true &&
+    closedLiteralRun(first.leaf.literalRun, dollarsStay, indentedAfter)) return edited
   if (edited.source - first.source <= CONTEXT_REACH || !quietLeaf(first.leaf)) return first
   return closedFence(source.slice(first.source, edited.source)) ? edited : first
 }
@@ -3124,8 +3199,18 @@ function contextBefore(
  * edit. A run or marker the edited blocks would pair past the cut is left
  * unpaired in the window, which refuses it.
  */
-function contextAfter(source: CanonicalSourceView, last: WindowEdge | undefined, editedEnd: WindowEdge): WindowEdge | undefined {
-  if (last === undefined || last === editedEnd || last.source - editedEnd.source <= CONTEXT_REACH || !quietLeaf(last.leaf)) return last
+function contextAfter(
+  source: CanonicalSourceView,
+  last: WindowEdge | undefined,
+  editedEnd: WindowEdge,
+  dollarsStay: boolean
+): WindowEdge | undefined {
+  if (last === undefined || last === editedEnd) return last
+  // A closed math block after the edited blocks starts at its own opener,
+  // which its first line read alone would leave unpaired.
+  const run = last.leaf.kind === 'region' ? last.leaf.literalRun : undefined
+  if (run?.first === true && run.key.startsWith('math-block') && closedLiteralRun(run, dollarsStay, false)) return editedEnd
+  if (last.source - editedEnd.source <= CONTEXT_REACH || !quietLeaf(last.leaf)) return last
   const text = source.slice(editedEnd.source, editedEnd.source + CONTEXT_REACH)
   const lineEnd = text.search(/\r\n|\r|\n/u)
   if (lineEnd < 0) return last
@@ -3164,7 +3249,13 @@ function blockWindowFacts(
   }
   const editing = products.editing()
   if (editing.markdown.root.childCount === 0) return undefined
-  if (!strayMarkers && editing.mappedTape.some(segment => segment.kind !== 'canonical')) return undefined
+  // Text the projection generates bounds no block of the window when it only
+  // parts the blocks of a suggestion, inside it, which no leaf boundary cuts,
+  // as between a Substitution's blocks; other generated text, as protection,
+  // reads with the document.
+  if (!strayMarkers && editing.mappedTape.some(segment => segment.kind !== 'canonical' &&
+    (/\S/u.test(editing.source.slice(segment.projectedStart, segment.projectedEnd)) ||
+      !retained.roots.some(root => root.range.start < segment.sourcePosition && segment.sourcePosition < root.range.end)))) return undefined
   if (!strayMarkers && !markersPaired(retained.markerDecisions)) return undefined
   const boundaries = Object.freeze([0, ...leafPointsOf(products, window.length, !strayMarkers), window.length])
   // The window's start is its projection's start even when an elided
@@ -3385,7 +3476,8 @@ function evaluateBlockWindow(
   let wholeLiteralAfter = false
   for (let widening = 0; ; widening += 1) {
     const before = edited.source > 0 ? windowEdge(inventory, edited.source - 1, 'start') : edited
-    const clean = contextBefore(previousSource, before, edited)
+    const indentedAfter = indentedLineAt(previousSource, edited.source) || indentedLineAt(nextSource, edited.source)
+    const clean = contextBefore(previousSource, before, edited, !pairingChanged, indentedAfter)
     // A clean start stays one only while the edited blocks start with text:
     // a blank line typed there joins the blocks before them.
     // The block before is then read whole: a literal block's line alone reads otherwise.
@@ -3450,7 +3542,7 @@ function evaluateBlockWindow(
     }
     // A literal block's later line read as context reads otherwise alone, so its whole block is.
     const first = context === undefined || context === edited ? context : literalContextStart(inventory, context)
-    const last = contextAfter(previousSource, after, editedEnd)
+    const last = contextAfter(previousSource, after, editedEnd, !pairingChanged)
     if (first === undefined || last === undefined) return undefined
     const nextWindow = nextSource.slice(first.source, last.source + delta)
     const atDocumentEnd = last.source + delta === nextSource.length
@@ -3463,16 +3555,18 @@ function evaluateBlockWindow(
       physicalRecorder,
       atDocumentEnd,
       rootsOutside(inventory, first.ordinal, last.ordinal) > 0,
-      startsAfterOneEmptyLine(nextSource, first.source)
+      startsAfterOneEmptyLine(nextSource, first.source),
+      last === editedEnd && !atDocumentEnd
     )
     // The document parse reports a window's resource failure authoritatively.
     if (result.kind !== 'complete' || !viewBlocksAgree(result) || unpairedLiteralRuns(result, nextWindow)) return undefined
+    if (last === editedEnd && !atDocumentEnd && !lastBlockEndsBefore(result)) return undefined
     // A suggestion spanning a blank line can take the safe point before its
     // block away, and an HTML block reads the blank line before it as an
     // empty paragraph, which only the block before shows.
     // A closed fence ends where it closes, whatever follows it.
     const afterClosedFence = before !== undefined && before.leaf.kind === 'region' &&
-      before.leaf.literalRun?.last === true && closedFenceRun(before.leaf.literalRun)
+      before.leaf.literalRun?.last === true && closedLiteralRun(before.leaf.literalRun, !pairingChanged, indentedAfter)
     if (first === edited && before !== edited && !readBefore && ((!afterClosedFence &&
       (result.retainedIntrinsic?.roots ?? []).some(root =>
         /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/u.test(nextWindow.slice(root.range.start, root.range.end)))) ||
@@ -3529,9 +3623,16 @@ function evaluateBlockWindow(
       physicalRecorder,
       last.source === length,
       rootsOutside(inventory, first.ordinal, last.ordinal) > 0,
-      startsAfterOneEmptyLine(previousSource, first.source)
+      startsAfterOneEmptyLine(previousSource, first.source),
+      last === editedEnd && last.source < length
     )
     if (previousResult.kind !== 'complete') return undefined
+    // The window reads its unchanged text as the document does only where
+    // it finds no block boundary the document lacks: a dollar or backtick
+    // run left open before the window keeps the document from parting
+    // blocks the window parts.
+    if (leafPointsOf(previousResult, previousWindow.length, !inventory.strayMarkers)
+      .some(point => !inventoryPointAt(inventory, first.source + point))) return undefined
     if (!referencesStayLocal(inventory, previousSource, first.source, last.source, previousWindow, nextWindow)) return undefined
     const admitted = admitBlockWindow(
       inventory, edit, delta, edited, editedEnd, first, last,
@@ -4137,6 +4238,7 @@ function admitBlockWindow(
       nextProducts: result,
       nextWindow,
       ...(first.source === edited.source && edited.source > 0 ? { cleanStart: true as const } : {}),
+      ...(last.source === editedEnd.source && editedEnd.source < inventory.root.sourceLength ? { cleanEnd: true as const } : {}),
       structural: Object.freeze({
         touchesAnnotation,
         markerDelta: (result.retainedIntrinsic?.markerDecisions.length ?? 0) - previousMarkers

@@ -159,6 +159,8 @@ export interface RegionalBlockContext {
   readonly source: SourceRange
   /** The window begins at a block that no block before it reads differently. */
   readonly cleanStart?: true
+  /** The window ends with a block that no block after it reads differently. */
+  readonly cleanEnd?: true
   /** The window is one leaf read alone, which reads as the document does throughout. */
   readonly wholeLeaf?: true
 }
@@ -308,7 +310,7 @@ function planRegionalLineBreak(core: DocumentCore, revision: DocumentRevision, a
   const from = context.source.start === 0 || context.cleanStart === true || context.wholeLeaf === true
     ? context.source.start
     : context.syntax.coordinates.toSource(first.range.end, 'previous')
-  const to = context.source.end === revision.sourceLength || context.wholeLeaf === true
+  const to = context.source.end === revision.sourceLength || context.cleanEnd === true || context.wholeLeaf === true
     ? context.source.end
     : context.syntax.coordinates.toSource(last.range.start, 'next')
   let planned: ReturnType<typeof planLineBreak>
