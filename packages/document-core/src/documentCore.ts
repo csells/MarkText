@@ -4555,6 +4555,7 @@ function createDocumentCoreWithExecutionBudget(
       nextProducts: window.nextProducts,
       nextWindow: window.nextWindow,
       ...(window.cleanStart === true ? { cleanStart: true as const } : {}),
+      ...(window.cleanEnd === true ? { cleanEnd: true as const } : {}),
       ...(window.wholeLeaf === true ? { wholeLeaf: true as const } : {}),
       ...(window.literal === undefined ? {} : { literal: window.literal })
     })
@@ -4990,6 +4991,7 @@ function createDocumentCoreWithExecutionBudget(
     const literal = 'literal' in candidate ? candidate.literal : undefined
     const syntax = windowSyntax(candidate.sourceStart, candidate.nextProducts, candidate.nextWindow.length, literal)
     if ('cleanStart' in candidate && candidate.cleanStart === true) cleanStartSyntaxes.add(syntax)
+    if ('cleanEnd' in candidate && candidate.cleanEnd === true) cleanEndSyntaxes.add(syntax)
     if (('wholeLeaf' in candidate && candidate.wholeLeaf === true) || literal !== undefined) wholeLeafSyntaxes.add(syntax)
     return syntax
   }
@@ -5022,12 +5024,15 @@ function createDocumentCoreWithExecutionBudget(
         ? Object.freeze({ start: candidate.sourceStart, end: candidate.sourceStart + candidate.nextWindow.length })
         : Object.freeze({ start: candidate.sourceStart + literal.lines.start, end: candidate.sourceStart + literal.lines.end }),
       ...(candidate.cleanStart === true ? { cleanStart: true as const } : {}),
+      ...(candidate.cleanEnd === true ? { cleanEnd: true as const } : {}),
       ...(candidate.wholeLeaf === true || literal !== undefined ? { wholeLeaf: true as const } : {})
     })
   }
 
   /** Window syntaxes whose windows begin at a clean block start (see RegionalBlockContext.cleanStart). */
   const cleanStartSyntaxes = new WeakSet<MarkupSyntax>()
+  /** Window syntaxes whose windows end at a clean block end (see RegionalBlockContext.cleanEnd). */
+  const cleanEndSyntaxes = new WeakSet<MarkupSyntax>()
   /** Window syntaxes of one leaf read alone, which reads as the document does throughout. */
   const wholeLeafSyntaxes = new WeakSet<MarkupSyntax>()
 
@@ -5355,6 +5360,106 @@ function createDocumentCoreWithExecutionBudget(
     const roots = candidate.nextProducts.retainedIntrinsic?.roots ?? []
     return expected.every(({ kind, start, end }) => roots.some(node => node.kind === kind &&
       node.range.start === start - shift && node.range.end === end - shift && node.arms.every(arm => arm.children.length === 0)))
+      ? planned
+      : undefined
+  }
+
+  /**
+   * A tracked key on an inner line of a long literal block, which suggests
+   * replacing the whole block. The compiler reads only a short block of the
+   * same delimiters, its edited line and the text after it, and its
+   * Substitution's spelling is applied to the whole block; one window over
+   * the block then proves the result. A key that could change the block's
+   * delimiters, indentation or termination is compiled as usual.
+   */
+  const regionalTrackedLiteralBlock = (
+    state: RevisionState,
+    previous: DocumentRevision,
+    edit: DocumentSourceEdit
+  ): DocumentSourceEdit | undefined => {
+    if (plansFromDocumentParse(core) || trackedPartsSeparate(core) || edit.start !== edit.end ||
+        state.regionalInventory === undefined || !/^[\p{L}\p{N} .,;:'"?!()=+*/%&|^@#_-]+$/u.test(edit.insert)) return undefined
+    const leaves = regionalInventoryLiteralRange(state.regionalInventory, edit.start)
+    if (leaves === undefined) return undefined
+    const source = state.source
+    const text = source.slice(leaves.start, leaves.end)
+    const blockStart = leaves.start
+    const blockEnd = blockStart + text.replace(/(?:\r\n|\r|\n)[ \t\r\n]*$/u, '').length
+    // An HTML block may take a suggestion in its text, as its kind of HTML
+    // decides, so a key there is compiled with the document.
+    if (edit.start <= blockStart || edit.start >= blockEnd || /^ {0,3}</u.test(text)) return undefined
+    const lineEnd = (offset: number): number => {
+      const match = /\r\n|\r|\n/u.exec(source.slice(offset, blockEnd))
+      return match === null ? blockEnd : offset + match.index + match[0].length
+    }
+    const lineStartAt = (offset: number): number => {
+      let at = offset
+      while (at > blockStart && !/[\r\n]/u.test(source.slice(at - 1, at))) at -= 1
+      return at
+    }
+    const firstLineEnd = lineEnd(blockStart)
+    const editedStart = lineStartAt(edit.start)
+    const editedEnd = lineEnd(edit.start)
+    const lastStart = lineStartAt(blockEnd)
+    // The block's first and last lines hold its delimiters; indented code's
+    // indentation is its delimiter.
+    if (editedStart < firstLineEnd || editedEnd > lastStart || editedEnd >= blockEnd ||
+        /^(?: {4}|\t)/u.test(text) && !/^(?: {4}|\t)/u.test(source.slice(editedStart, edit.start)) ||
+        !/\S/u.test(source.slice(editedStart, editedEnd) + edit.insert)) return undefined
+    // The text after the block to the end of its next line with text.
+    let afterEnd = blockEnd
+    while (afterEnd < source.length) {
+      const next = /\r\n|\r|\n/u.exec(source.slice(afterEnd, Math.min(source.length, afterEnd + 4096)))
+      const end = next === null ? source.length : afterEnd + next.index + next[0].length
+      const blank = !/\S/u.test(source.slice(afterEnd, end))
+      afterEnd = end
+      if (!blank || next === null) break
+    }
+    const before = blockStart === 0 ? '' : 'P.\n\n'
+    const block = source.slice(blockStart, firstLineEnd) + source.slice(editedStart, editedEnd) + source.slice(lastStart, blockEnd)
+    const shortBlockEnd = before.length + block.length
+    const short = before + block + source.slice(blockEnd, afterEnd)
+    const shortEdit = Object.freeze({
+      start: before.length + firstLineEnd - blockStart + edit.start - editedStart,
+      end: before.length + firstLineEnd - blockStart + edit.start - editedStart,
+      insert: edit.insert
+    })
+    const shortCore = createDocumentCoreWithExecutionBudget(executionBudget)
+    windowCores.add(shortCore)
+    if (equivalenceDeferred(core)) deferEquivalence(shortCore)
+    const { schema: _schema, ...options } = state.markdownOptions
+    const opened = shortCore.open(short, blockStart === 0 ? options : { ...options, frontMatter: false })
+    const shortPreview = sourceEditPreviews.get(shortCore)
+    if (opened.annotations.length !== 0 || opened.diagnostics.length !== 0 || shortPreview === undefined) return undefined
+    const compiled = generalTrackedEdit(shortCore, opened, shortEdit, candidate => shortPreview(opened, candidate))
+    if (compiled === undefined) return undefined
+    // The compiled Substitution spells the short block's text as its struck
+    // block and the edited text as its proposed one, between its markers.
+    const lead = compiled.start - before.length
+    const trail = compiled.end - shortBlockEnd
+    if (lead < 0 || lead > firstLineEnd - blockStart || trail < 0 || blockEnd + trail > source.length ||
+        short.slice(shortBlockEnd, shortBlockEnd + trail) !== source.slice(blockEnd, blockEnd + trail)) return undefined
+    const shortOld = short.slice(compiled.start, shortBlockEnd)
+    const shortNew = shortOld.slice(0, shortEdit.start - compiled.start) + edit.insert + shortOld.slice(shortEdit.start - compiled.start)
+    const opener = `{~~${shortOld}`
+    const separator = compiled.insert.indexOf(`~>${shortNew}`, opener.length)
+    if (!compiled.insert.startsWith(opener) || separator < 0 || !compiled.insert.endsWith('~~}')) return undefined
+    const between = compiled.insert.slice(opener.length, separator)
+    const closing = compiled.insert.slice(separator + 2 + shortNew.length, -3)
+    if (/\S/u.test(between + closing)) return undefined
+    const start = blockStart + lead
+    const old = source.slice(start, blockEnd)
+    const proposed = old.slice(0, edit.start - start) + edit.insert + old.slice(edit.start - start)
+    const planned = Object.freeze({
+      start,
+      end: blockEnd + trail,
+      insert: `{~~${old}${between}~>${proposed}${closing}~~}`
+    })
+    const candidate = regionalCandidate(state, planned)
+    if (candidate?.structural === undefined) return undefined
+    const shift = candidate.sourceStart
+    return (candidate.nextProducts.retainedIntrinsic?.roots ?? []).some(node => node.kind === 'substitution' &&
+      node.range.start === start - shift && node.range.end === start + planned.insert.length - shift)
       ? planned
       : undefined
   }
@@ -6357,7 +6462,8 @@ function createDocumentCoreWithExecutionBudget(
       }
       return generalTrackedEdit(core, previous, edit, preview)
     }
-    const regional = regionalPayloadEdit(state, edit, true) ?? regionalTrackedInsertion(state, previous, edit) ??
+    const regional = regionalPayloadEdit(state, edit, true) ?? regionalTrackedLiteralBlock(state, previous, edit) ??
+      regionalTrackedInsertion(state, previous, edit) ??
       regionalTrackedArmEdge(state, previous, edit) ?? regionalTrackedBesideDeletion(state, previous, edit) ??
       regionalTrackedInsideDeletion(state, previous, edit) ?? regionalTrackedInSubstitution(state, previous, edit) ??
       regionalTrackedBreak(state, previous, edit) ?? regionalTrackedJoin(state, previous, edit) ??
@@ -6865,7 +6971,9 @@ function createDocumentCoreWithExecutionBudget(
         const alone = blocks.length < 2 || wholeLeafSyntaxes.has(syntax)
         interiors.push({
           start: start === 0 || first === undefined ? 0 : alone || cleanStartSyntaxes.has(syntax) ? start : syntax.coordinates.toSource(first.range.end, 'previous'),
-          end: end === state.source.length || last === undefined ? state.source.length : alone ? end : syntax.coordinates.toSource(last.range.start, 'next')
+          end: end === state.source.length || last === undefined
+            ? state.source.length
+            : alone || cleanEndSyntaxes.has(syntax) ? end : syntax.coordinates.toSource(last.range.start, 'next')
         })
       }
       const planned = (regional: boolean) => planInput(core, previous, action, range => state.productStore.withProduct(products =>
@@ -6881,6 +6989,7 @@ function createDocumentCoreWithExecutionBudget(
         if (!regional) return undefined
         const context = regionalBlockContext(state, position)
         if (context?.cleanStart === true) cleanStartSyntaxes.add(context.syntax)
+        if (context?.cleanEnd === true) cleanEndSyntaxes.add(context.syntax)
         if (context?.wholeLeaf === true) wholeLeafSyntaxes.add(context.syntax)
         if (context !== undefined) interiorOf(context.syntax)
         return context
