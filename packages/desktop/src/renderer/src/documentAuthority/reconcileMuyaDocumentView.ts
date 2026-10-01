@@ -45,7 +45,7 @@ function replaceState(
  */
 function presentUnownedLines(muya: Muya, view: MuyaMarkupView, points: readonly number[]): void {
   const { modelPointToDOM, snapCaret } = createMuyaModelSelection(muya, view)
-  const missing = points.filter((point) => modelPointToDOM(point) === undefined)
+  const missing = [...new Set(points)].filter((point) => modelPointToDOM(point) === undefined)
   const unowned = missing.map((point) => snapCaret(point) ?? point)
   if (unowned.length === 0) return
   // Only bindings of roots around the points can own their lines.
@@ -272,7 +272,8 @@ export function restoreMuyaDocumentSelection(
     }
     if (cellSelection !== undefined) presentCellPadding(muya, view, cellSelection)
     let anchor = domPoint('anchor')
-    let focus = domPoint('focus')
+    // A caret's two ends are one point.
+    let focus = collapsed ? anchor : domPoint('focus')
     const insideImage = (point: typeof anchor) => {
       const element = point?.node instanceof Element ? point.node : point?.node.parentElement
       return element?.closest('.mu-inline-image[contenteditable="false"]') != null
@@ -351,7 +352,6 @@ export function reconcileMuyaDocumentView({
    */
   region?: IReconcileRegion
 }): void {
-  const selection = muya.getSelection()
   const clipboardSelection = outcome.clipboardResult?.selection
   const formatSelection = outcome.formatResult?.selection
   const documentSelection =
@@ -367,6 +367,8 @@ export function reconcileMuyaDocumentView({
     (primaryRange === undefined
       ? undefined
       : { start: primaryRange.anchor, end: primaryRange.focus }) ?? outcome.authorResult?.selection
+  // The native selection is kept only where the outcome selects nothing.
+  const selection = documentSelection === undefined && inputSelection === undefined ? muya.getSelection() : null
   // A native structural command may differ only in container metadata (for
   // example a one-item list's loose flag). Replacing that presentation must
   // retain the native caret when both endpoint leaves still have the same text.
