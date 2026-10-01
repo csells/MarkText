@@ -4874,12 +4874,33 @@ interface WindowParse {
   readonly physicalRecorder: Profile1PhysicalTraversalRecorderV1
   readonly endsAtDocumentEnd: boolean
   readonly documentHasAnnotations: boolean
+  readonly startsAfterOneEmptyLine: boolean
   readonly result: Profile1DocumentResult
 }
+
+/**
+ * Window parses that start where the document has no line or more than one
+ * empty line before them. A block starting a window reads as starting after
+ * one empty line, as the start of a document does, unless listed here: a
+ * list or literal block splits into leaves only after one empty line.
+ */
+export const windowsNotAfterOneEmptyLine = new WeakSet<Profile1DocumentProducts>()
+
+/**
+ * Window parses that end before the document does. How the blank text after
+ * a window's last block reads depends on the block after it, so that block
+ * does not split into leaves there.
+ */
+export const windowsBeforeDocumentEnd = new WeakSet<Profile1DocumentProducts>()
 
 const WINDOW_PARSES_RETAINED = 8
 const WINDOW_PARSE_RETAINED_UNITS = 1 << 16
 const windowParses: WindowParse[] = []
+/**
+ * The last window parse longer than the others kept, as the window of a
+ * document-long block: a key plans, previews and applies against it.
+ */
+let largeWindowParse: WindowParse | undefined
 
 function sameMarkdownOptions(left: MarkdownOptionsV1, right: MarkdownOptionsV1): boolean {
   if (left === right) return true
@@ -4900,15 +4921,17 @@ export function parseProfile1Window(
   captureAccountingTrace: boolean,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1,
   endsAtDocumentEnd: boolean,
-  documentHasAnnotations: boolean = false
+  documentHasAnnotations: boolean = false,
+  startsAfterOneEmptyLine: boolean = true
 ): Profile1DocumentResult {
-  const retained = windowParses.find(parse =>
+  const retained = [...windowParses, ...(largeWindowParse === undefined ? [] : [largeWindowParse])].find(parse =>
     parse.source === source &&
     parse.executionBudget === executionBudget &&
     parse.captureAccountingTrace === captureAccountingTrace &&
     parse.physicalRecorder === physicalRecorder &&
     parse.endsAtDocumentEnd === endsAtDocumentEnd &&
     parse.documentHasAnnotations === documentHasAnnotations &&
+    parse.startsAfterOneEmptyLine === startsAfterOneEmptyLine &&
     sameMarkdownOptions(parse.markdownOptions, markdownOptions))
   if (retained !== undefined) return retained.result
   const result = parseProfile1Document(
@@ -4916,7 +4939,21 @@ export function parseProfile1Window(
     createProfile1DocumentReuseCache(), physicalRecorder, undefined, endsAtDocumentEnd,
     documentHasAnnotations
   )
-  if (source.length <= WINDOW_PARSE_RETAINED_UNITS) {
+  if (!startsAfterOneEmptyLine && result.kind === 'complete') windowsNotAfterOneEmptyLine.add(result)
+  if (!endsAtDocumentEnd && result.kind === 'complete') windowsBeforeDocumentEnd.add(result)
+  if (source.length > WINDOW_PARSE_RETAINED_UNITS) {
+    largeWindowParse = Object.freeze({
+      source,
+      executionBudget,
+      markdownOptions,
+      captureAccountingTrace,
+      physicalRecorder,
+      endsAtDocumentEnd,
+      documentHasAnnotations,
+      startsAfterOneEmptyLine,
+      result
+    })
+  } else {
     windowParses.unshift(Object.freeze({
       source,
       executionBudget,
@@ -4925,6 +4962,7 @@ export function parseProfile1Window(
       physicalRecorder,
       endsAtDocumentEnd,
       documentHasAnnotations,
+      startsAfterOneEmptyLine,
       result
     }))
     windowParses.length = Math.min(windowParses.length, WINDOW_PARSES_RETAINED)

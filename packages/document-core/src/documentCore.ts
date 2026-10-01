@@ -15,7 +15,7 @@ import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit } from './trackedHistoryEditing.js'
-import { deferEquivalence, equivalenceDeferred, projectionSignature, trackedMarkdownSignatures, trackedOperationEquivalent, trackedPreviewFacts, withDeferredEquivalence } from './trackedExtent.js'
+import { deferEquivalence, equivalenceDeferred, literalHistoryInsertionPoint, projectionSignature, trackedMarkdownSignatures, trackedOperationEquivalent, trackedPreviewFacts, withDeferredEquivalence } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import {
@@ -52,12 +52,14 @@ import {
   regionalInventoryRootCount,
   regionalInventoryRootRanges,
   regionalInventoryListRange,
+  regionalInventoryLiteralRange,
   regionalInventorySplitsLists,
   regionalLeafPoints,
   regionalRangeWindow,
   strayMarkersStayLocal,
   referenceDependencyPrefixEnd,
   type RegionalInventory,
+  type RegionalInventoryPreview,
   type RegionalInventoryRecorder
 } from './internal/profile1/regionalInventory.js'
 import {
@@ -432,6 +434,24 @@ export interface MarkupRegionReplacement {
      * The replaced items' canonical source, delimiters included, which the
      * view reads the list's structure from.
      */
+    readonly source: string
+  }>
+  /**
+   * Present when the replaced blocks are lines of one literal block (code,
+   * math, HTML or a diagram) that keeps lines outside them: `syntaxBlocks`
+   * are the block's children for its lines replacing its `previousLines`
+   * lines, of `previousChildren` children, after its first `linesBefore`
+   * lines, of `childrenBefore` children. `block` gives the whole block's
+   * kind and attributes, other than its offsets and text, which the
+   * replacement leaves as they were; it lists no children.
+   */
+  readonly literalLines?: Readonly<{
+    readonly block: MarkdownAstNode
+    readonly linesBefore: number
+    readonly childrenBefore: number
+    readonly previousLines: number
+    readonly previousChildren: number
+    /** The replaced lines' canonical source. */
     readonly source: string
   }>
 }
@@ -3066,6 +3086,12 @@ function createDocumentCoreWithExecutionBudget(
     if (listItems !== undefined && list === undefined) {
       return Object.freeze({ kind: 'fallback', reason: 'structural-region-ineligible' })
     }
+    // Lines of a literal block: its window's one block stands for the whole.
+    const literalLines = admission.literalLines
+    const literalBlock = literalLines === undefined ? undefined : markup.syntax.ast.root.children[0]
+    if (literalLines !== undefined && literalBlock === undefined) {
+      return Object.freeze({ kind: 'fallback', reason: 'structural-region-ineligible' })
+    }
     const eventsWithin = (start: number, end: number): readonly MarkupEvent[] => markup.events.flatMap((event): MarkupEvent[] => {
       if (event.kind !== 'text') {
         return event.mark.annotationRange.start >= start && event.mark.annotationRange.end <= end ? [event] : []
@@ -3083,14 +3109,14 @@ function createDocumentCoreWithExecutionBudget(
     const events = shiftRegionalMarkupEvents(
       admission.window === undefined
         ? markup.events
-        : list !== undefined
+        : list !== undefined || literalBlock !== undefined
           ? eventsWithin(blocks.source.start, blocks.source.end)
           : markup.events.filter(event => event.kind === 'text'
             ? event.sourceRange.start >= blocks.source.start && event.sourceRange.end <= blocks.source.end
             : event.mark.annotationRange.start >= blocks.source.start && event.mark.annotationRange.end <= blocks.source.end),
       window.source
     )
-    const syntaxBlocks = Object.freeze((list?.children ?? markup.syntax.ast.root.children)
+    const syntaxBlocks = Object.freeze((literalBlock?.children ?? list?.children ?? markup.syntax.ast.root.children)
       .filter(child => admission.window === undefined ||
         (child.range.start >= blocks.syntax.start && child.range.start < blocks.syntax.end) ||
         // An empty paragraph on a whitespace-only last line sits at the
@@ -3099,9 +3125,20 @@ function createDocumentCoreWithExecutionBudget(
           admission.next.source.end === source.length))
       .map(child => shiftMarkdownAstNode(child, window.syntax)))
     const markupCoordinates: MarkupCoordinateSegment[] = []
-    for (const segment of admission.nextProducts.editing().mappedTape) {
+    // A reply's coordinates omit generated text, which a view reads as
+    // generated at the source where the next canonical run starts; text
+    // generated there, as the blank line parting a Substitution's old block
+    // from its new one, needs no run of its own.
+    const tape = admission.nextProducts.editing().mappedTape
+    const readsAsGap = (ordinal: number): boolean => {
+      const segment = tape[ordinal]
+      const next = tape.slice(ordinal + 1).find(candidate => candidate.kind === 'canonical')
+      return segment?.kind === 'generated' && segment.affinity === 'next' && next?.kind === 'canonical' &&
+        next.sourceStart === segment.sourcePosition
+    }
+    for (const [ordinal, segment] of tape.entries()) {
       if (segment.kind !== 'canonical') {
-        if (admission.strayMarkers) continue
+        if (admission.strayMarkers || readsAsGap(ordinal)) continue
         return Object.freeze({
           kind: 'fallback',
           reason: 'structural-region-ineligible'
@@ -3140,7 +3177,7 @@ function createDocumentCoreWithExecutionBudget(
         annotations: regionalAnnotations(
           materialized.annotations, window.source, blocks.source.start, blocks.source.end
         ),
-        ...(admission.window === undefined || blocks.source.start === 0
+        ...(admission.window === undefined || blocks.source.start === 0 || literalBlock !== undefined
           ? {}
           : {
             precedingEvents: shiftRegionalMarkupEvents(
@@ -3150,7 +3187,7 @@ function createDocumentCoreWithExecutionBudget(
             ) as readonly Extract<MarkupEvent, { kind: 'text' }>[]
           }),
         ...(() => {
-          if (admission.window === undefined) return {}
+          if (admission.window === undefined || literalBlock !== undefined) return {}
           const next = (list?.children ?? markup.syntax.ast.root.children).find(child => child.range.start >= blocks.syntax.end &&
             child.range.start > blocks.syntax.start)
           if (next === undefined) return {}
@@ -3167,6 +3204,24 @@ function createDocumentCoreWithExecutionBudget(
             })
           }
         })(),
+        ...(literalLines === undefined || literalBlock === undefined
+          ? {}
+          : {
+            literalLines: Object.freeze({
+              block: Object.freeze({
+                kind: literalBlock.kind,
+                range: Object.freeze({ start: blocks.syntax.start + window.syntax, end: blocks.syntax.end + window.syntax }),
+                attributes: Object.freeze(Object.fromEntries(Object.entries(literalBlock.attributes).filter(([name, value]) =>
+                  name !== 'content' && !(typeof value === 'number' && /(?:Start|End)$/u.test(name))))),
+                children: Object.freeze([])
+              }),
+              linesBefore: literalLines.linesBefore,
+              childrenBefore: literalLines.childrenBefore,
+              previousLines: literalLines.previousLines,
+              previousChildren: literalLines.previousChildren,
+              source: admission.nextWindow.slice(blocks.source.start, blocks.source.end)
+            })
+          }),
         ...(listItems === undefined || list === undefined
           ? {}
           : {
@@ -3974,7 +4029,8 @@ function createDocumentCoreWithExecutionBudget(
       ...change,
       replacements: Object.freeze(change.replacements.map(replacement => {
         const end = replacement.previous.source.start
-        if (replacement.precedingEvents !== undefined || end === 0) return replacement
+        // Lines of a literal block are read with their block, which stays.
+        if (replacement.literalLines !== undefined || replacement.precedingEvents !== undefined || end === 0) return replacement
         let from = Math.max(0, end - PRECEDING_LINES_SPAN)
         // Only the text after the last annotation before the region reads
         // as its source.
@@ -4002,7 +4058,8 @@ function createDocumentCoreWithExecutionBudget(
       }).map(replacement => {
         // The first block after the region, read from the blocks there.
         const end = replacement.previous.source.end
-        if (replacement.following !== undefined || end >= previousState.source.length) return replacement
+        if (replacement.literalLines !== undefined || replacement.following !== undefined ||
+            end >= previousState.source.length) return replacement
         if (inventory === undefined) return replacement
         // A block on a line of its own at the first line after blank lines
         // starts there; an indented one is read from the blocks there.
@@ -4018,7 +4075,7 @@ function createDocumentCoreWithExecutionBudget(
         if (!/[ \t]/u.test(text.charAt(line))) blockStart = end + line
         else {
           const window = regionalRangeWindow(inventory, previousState.source, { start: end, end }, executionBudget,
-            previousState.markdownOptions, regionalPhysicalRecorder)
+            previousState.markdownOptions, regionalPhysicalRecorder, false)
           if (window?.validated !== true) return replacement
           const editing = window.nextProducts.editing()
           const coordinates = projectionCoordinatesOf(editing, window.nextWindow.length)
@@ -4497,7 +4554,9 @@ function createDocumentCoreWithExecutionBudget(
       sourceStart: window.sourceStart,
       nextProducts: window.nextProducts,
       nextWindow: window.nextWindow,
-      ...(window.cleanStart === true ? { cleanStart: true as const } : {})
+      ...(window.cleanStart === true ? { cleanStart: true as const } : {}),
+      ...(window.wholeLeaf === true ? { wholeLeaf: true as const } : {}),
+      ...(window.literal === undefined ? {} : { literal: window.literal })
     })
   }
 
@@ -4928,8 +4987,10 @@ function createDocumentCoreWithExecutionBudget(
     const candidate = regionalCandidate(state, { start: range.start, end: range.start, insert: '' }) ??
       regionalPlanningWindow(state, range)
     if (candidate === undefined || range.end > candidate.sourceStart + candidate.nextWindow.length) return undefined
-    const syntax = windowSyntax(candidate.sourceStart, candidate.nextProducts, candidate.nextWindow.length)
+    const literal = 'literal' in candidate ? candidate.literal : undefined
+    const syntax = windowSyntax(candidate.sourceStart, candidate.nextProducts, candidate.nextWindow.length, literal)
     if ('cleanStart' in candidate && candidate.cleanStart === true) cleanStartSyntaxes.add(syntax)
+    if (('wholeLeaf' in candidate && candidate.wholeLeaf === true) || literal !== undefined) wholeLeafSyntaxes.add(syntax)
     return syntax
   }
 
@@ -4949,38 +5010,81 @@ function createDocumentCoreWithExecutionBudget(
       regionalPlanningWindow(state, { start: position, end: position })
     if (candidate === undefined) return undefined
     const editing = candidate.nextProducts.editing()
+    const literal = candidate.literal
     return Object.freeze({
-      syntax: windowSyntax(candidate.sourceStart, candidate.nextProducts, candidate.nextWindow.length),
+      syntax: windowSyntax(candidate.sourceStart, candidate.nextProducts, candidate.nextWindow.length, literal),
       lines: editing.markdown.lines,
       enterConversion: (range: SourceRange) =>
         paragraphEnterConversion(editing.source, range.start, range.end, state.markdownOptions.texMathDollars),
-      source: Object.freeze({ start: candidate.sourceStart, end: candidate.sourceStart + candidate.nextWindow.length }),
-      ...(candidate.cleanStart === true ? { cleanStart: true as const } : {})
+      // A literal window's own lines are the document's; its opener and
+      // closer stand for the block's lines beyond them.
+      source: literal === undefined
+        ? Object.freeze({ start: candidate.sourceStart, end: candidate.sourceStart + candidate.nextWindow.length })
+        : Object.freeze({ start: candidate.sourceStart + literal.lines.start, end: candidate.sourceStart + literal.lines.end }),
+      ...(candidate.cleanStart === true ? { cleanStart: true as const } : {}),
+      ...(candidate.wholeLeaf === true || literal !== undefined ? { wholeLeaf: true as const } : {})
     })
   }
 
   /** Window syntaxes whose windows begin at a clean block start (see RegionalBlockContext.cleanStart). */
   const cleanStartSyntaxes = new WeakSet<MarkupSyntax>()
+  /** Window syntaxes of one leaf read alone, which reads as the document does throughout. */
+  const wholeLeafSyntaxes = new WeakSet<MarkupSyntax>()
 
-  /** A window's syntax, in its own projected coordinates, mapped to document source offsets. */
-  const windowSyntax = (sourceStart: number, products: Profile1DocumentProducts, windowLength: number): MarkupSyntax => {
+  /**
+   * A window's syntax, in its own projected coordinates, mapped to document
+   * source offsets. A literal window's opener and closer map to where the
+   * document spells them (see RegionalInventoryPreview.literal).
+   */
+  const windowSyntax = (
+    sourceStart: number,
+    products: Profile1DocumentProducts,
+    windowLength: number,
+    literal?: RegionalInventoryPreview['literal']
+  ): MarkupSyntax => {
     const editing = products.editing()
     const local = projectionCoordinatesOf(editing, windowLength)
-    const shift = sourceStart
+    // The document offset of window source offset `offset`, and back.
+    const shiftOf = (offset: number): number => literal === undefined || (offset >= literal.lines.start && offset < literal.lines.end)
+      ? sourceStart
+      : offset < literal.lines.start ? literal.opener : literal.closer - literal.lines.end
+    const toDocument = (offset: number): number =>
+      literal !== undefined && offset === literal.lines.end ? sourceStart + offset : offset + shiftOf(offset)
+    const toWindow = (offset: number): number => {
+      if (literal === undefined) return offset - sourceStart
+      const lines = offset - sourceStart
+      if (lines >= literal.lines.start && lines <= literal.lines.end) return lines
+      if (offset >= literal.opener && offset < literal.opener + literal.lines.start) return offset - literal.opener
+      if (offset >= literal.closer && offset <= literal.closer + windowLength - literal.lines.end) {
+        return offset - literal.closer + literal.lines.end
+      }
+      return offset < sourceStart + literal.lines.start ? 0 : windowLength
+    }
     const coordinates = Object.freeze<ProjectionCoordinateMap>({
       originAt(offset) {
         const origin = local.originAt(offset)
         return origin.kind === 'source'
-          ? Object.freeze({ ...origin, sourceOffset: origin.sourceOffset + shift })
-          : Object.freeze({ ...origin, sourcePosition: origin.sourcePosition + shift })
+          ? Object.freeze({ ...origin, sourceOffset: toDocument(origin.sourceOffset) })
+          : Object.freeze({ ...origin, sourcePosition: toDocument(origin.sourcePosition) })
       },
-      toSource: (offset, affinity) => local.toSource(offset, affinity) + shift,
-      toProjected: (offset, affinity) => local.toProjected(offset - shift, affinity),
-      intersectsSource: range => local.intersectsSource({ start: range.start - shift, end: range.end - shift }),
-      sourceSegments: Object.freeze((local.sourceSegments ?? []).map(segment => Object.freeze({
-        projected: segment.projected,
-        source: Object.freeze({ start: segment.source.start + shift, end: segment.source.end + shift })
-      })))
+      toSource: (offset, affinity) => toDocument(local.toSource(offset, affinity)),
+      toProjected: (offset, affinity) => local.toProjected(toWindow(offset), affinity),
+      intersectsSource: range => local.intersectsSource({ start: toWindow(range.start), end: toWindow(range.end) }),
+      // A segment is cut where the window's pieces meet.
+      sourceSegments: Object.freeze((local.sourceSegments ?? []).flatMap(segment => {
+        const cuts = literal === undefined
+          ? []
+          : [literal.lines.start, literal.lines.end].filter(cut => segment.source.start < cut && cut < segment.source.end)
+        const bounds = [segment.source.start, ...cuts, segment.source.end]
+        return bounds.slice(1).map((end, index) => {
+          const start = bounds[index] ?? segment.source.start
+          const projected = segment.projected.start + start - segment.source.start
+          return Object.freeze({
+            projected: Object.freeze({ start: projected, end: projected + end - start }),
+            source: Object.freeze({ start: start + shiftOf(start), end: start + shiftOf(start) + end - start })
+          })
+        })
+      }))
     })
     return Object.freeze({ ast: markdownAstOf(editing), coordinates })
   }
@@ -5990,8 +6094,9 @@ function createDocumentCoreWithExecutionBudget(
   }> | undefined => {
     const inventory = state.regionalInventory ?? convertedRegionalInventory(state)
     if (inventory !== undefined) {
+      // The general compiler reads the document's own text, a literal block whole.
       const context = regionalRangeWindow(inventory, state.source, reach, executionBudget,
-        state.markdownOptions, regionalPhysicalRecorder)
+        state.markdownOptions, regionalPhysicalRecorder, false)
       if (context === undefined) return undefined
       const start = context.sourceStart
       const end = start + context.nextWindow.length
@@ -6261,7 +6366,7 @@ function createDocumentCoreWithExecutionBudget(
     const windowed = windowedGeneralEdits(state, previous, [edit], (windowCore, revision, [local], windowPreview) => {
       const planned = local === undefined ? undefined : generalTrackedEdit(windowCore, revision, local, windowPreview)
       return planned === undefined ? undefined : [planned]
-    })
+    }, literalCompileReach(state, edit))
     if (windowed !== undefined) {
       const planned = windowed.edits?.[0]
       return planned === undefined
@@ -6269,6 +6374,28 @@ function createDocumentCoreWithExecutionBudget(
         : Object.freeze({ start: planned.start, end: planned.end, insert: planned.insert })
     }
     return generalTrackedEdit(core, previous, edit, preview)
+  }
+
+  /**
+   * The text the general compiler may suggest replacing for an edit in a
+   * literal block: the block and the blocks after it that a literal can
+   * absorb (see `widenedTrackedSourceEdit`), so a window compile reads what
+   * the document compile would.
+   */
+  const literalCompileReach = (state: RevisionState, edit: DocumentSourceEdit): SourceRange | undefined => {
+    const block = state.regionalInventory === undefined
+      ? undefined
+      : regionalInventoryLiteralRange(state.regionalInventory, edit.start)
+    if (block === undefined) return undefined
+    const text = state.source.slice(block.end, Math.min(state.source.length, block.end + 4096))
+    let end = 0
+    for (let run = 0; run < 4 && end < text.length; run += 1) {
+      const blank = /^(?:[ \t]*(?:\r\n|\r|\n))*/u.exec(text.slice(end))?.[0].length ?? 0
+      const lines = /^(?:[^\r\n]*\S[^\r\n]*(?:\r\n|\r|\n|$))*/u.exec(text.slice(end + blank))?.[0].length ?? 0
+      if (blank + lines === 0) break
+      end += blank + lines
+    }
+    return Object.freeze({ start: Math.min(block.start, edit.start), end: Math.max(edit.end, block.end + end) })
   }
 
   /**
@@ -6335,10 +6462,28 @@ function createDocumentCoreWithExecutionBudget(
         reconciliation: Object.freeze([...plan.edits].reverse().map(edit => Object.freeze({ start: edit.start, end: edit.start, insert: core.sourceSlice(previous, edit) })))
       })
     }
+    const edit = plan.edits[0]
+    // Typing in a literal block's struck old arm edits its proposed block,
+    // the caret following the typed text there.
+    if (plan.edits.length === 1 && edit !== undefined && edit.start === edit.end && edit.insert.length > 0) {
+      let owner: CriticMarkupAnnotation | undefined
+      for (const annotation of markupAnnotations(rootsAround(previous, edit.start))) {
+        if (annotation.kind === 'substitution' && annotation.range.start < edit.start && edit.start < annotation.range.end &&
+            (owner === undefined || annotation.range.end - annotation.range.start < owner.range.end - owner.range.start)) owner = annotation
+      }
+      const target = owner === undefined ? undefined : literalHistoryInsertionPoint(core, previous, owner, edit.start)
+      if (target !== undefined) {
+        return Object.freeze({
+          edits: Object.freeze([Object.freeze({ start: target, end: target, insert: edit.insert })]),
+          selection: collapsed(target + edit.insert.length),
+          reconciliation: Object.freeze([]),
+          trackedCaret: Object.freeze({ at: target, side: 'after' as const })
+        })
+      }
+    }
     // Where the compiler's spelling has no proven mapping, the caret follows
     // the same source position past the suggestion that now holds it.
     const fallback = Object.freeze({ at: positionBefore(plan.edits, planned.focus), side: 'after' as const, fallback: true })
-    const edit = plan.edits[0]
     if (plan.edits.length !== 1 || edit === undefined) return Object.freeze({ ...plan, trackedCaret: fallback })
     const deletion = edit.insert.length === 0 && edit.start < edit.end
     // A deleted selection keeps the caret after the struck text.
@@ -6715,8 +6860,9 @@ function createDocumentCoreWithExecutionBudget(
         // The window's own bounds include markers its projection elides.
         const start = syntax.coordinates.toSource(syntax.ast.root.range.start, 'previous')
         const end = syntax.coordinates.toSource(syntax.ast.root.range.end, 'next')
-        // A window of one block is that block alone, proven as it reads in place.
-        const alone = blocks.length < 2
+        // A window of one block is that block alone, proven as it reads in
+        // place, as is a leaf read alone.
+        const alone = blocks.length < 2 || wholeLeafSyntaxes.has(syntax)
         interiors.push({
           start: start === 0 || first === undefined ? 0 : alone || cleanStartSyntaxes.has(syntax) ? start : syntax.coordinates.toSource(first.range.end, 'previous'),
           end: end === state.source.length || last === undefined ? state.source.length : alone ? end : syntax.coordinates.toSource(last.range.start, 'next')
@@ -6735,6 +6881,7 @@ function createDocumentCoreWithExecutionBudget(
         if (!regional) return undefined
         const context = regionalBlockContext(state, position)
         if (context?.cleanStart === true) cleanStartSyntaxes.add(context.syntax)
+        if (context?.wholeLeaf === true) wholeLeafSyntaxes.add(context.syntax)
         if (context !== undefined) interiorOf(context.syntax)
         return context
       })
