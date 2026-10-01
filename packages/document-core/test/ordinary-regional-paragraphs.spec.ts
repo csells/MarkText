@@ -89,6 +89,30 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     }
   })
 
+  // Plan 0012 G35: a Substitution of a whole fenced code or math block pairs
+  // its delimiter runs with each other alone, as the struck block's paired in
+  // place, so it is read from its blocks beside the document's suggestions.
+  it.each([
+    { label: 'fenced code', block: '```js\nconst a = 1\nconst b = 2\n```', typed: 'const ab = 2' },
+    { label: 'display math', block: '$$\nx + y\nz\n$$', typed: 'x + yz' }
+  ])('reads a Substitution of a whole $label block from its blocks', ({ block, typed }) => {
+    const source = 'ordinary target\n\n' + block + '\n\n' + suffix + block + '\n'
+    const start = source.lastIndexOf(block)
+    const lines = block.split('\n')
+    const proposed = [lines[0], typed, ...lines.slice(2)].join('\n')
+    const insert = `{~~${block}~>${proposed}~~}`
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const before = inspectDocumentCore(core)
+    const result = core.apply(revision, [{ start, end: start + block.length, insert }], { projections: ['markup'] })
+    expect(result.change.projections[0]?.scope).toBe('regions')
+    expect(inspectDocumentCore(core).documentParses - before.documentParses).toBe(0)
+    const oracle = createDocumentCore()
+    const expected = oracle.open(source.slice(0, start) + insert + source.slice(start + block.length))
+    expect(result.revision.annotations).toEqual(expected.annotations)
+    expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
+  })
+
   // Plan 0012 G35: a tracked key whose window compile reaches the window's
   // context is compiled again in a window wider than that context, so the
   // key costs the one parse apply() publishes, not the document compile's.
