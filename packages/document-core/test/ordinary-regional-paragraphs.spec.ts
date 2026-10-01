@@ -113,6 +113,23 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
   })
 
+  // Plan 0012 G35: a fence's backtick runs pair with each other alone, so a
+  // paragraph beside it that splits or joins is read from its blocks.
+  it('reads a paragraph split beside a fence from its blocks', () => {
+    const source = 'ordinary target\n\n```js\nconst a = 1\n```\n\n' + suffix
+    const start = source.indexOf('target') + 3
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const before = inspectDocumentCore(core)
+    const result = core.apply(revision, [{ start, end: start, insert: '\n\n' }], { projections: ['markup'] })
+    expect(result.change.projections[0]?.scope).toBe('regions')
+    expect(inspectDocumentCore(core).documentParses - before.documentParses).toBe(0)
+    const oracle = createDocumentCore()
+    const expected = oracle.open(source.slice(0, start) + '\n\n' + source.slice(start))
+    expect(result.revision.annotations).toEqual(expected.annotations)
+    expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
+  })
+
   // Plan 0012 G35: a tracked key whose window compile reaches the window's
   // context is compiled again in a window wider than that context, so the
   // key costs the one parse apply() publishes, not the document compile's.
