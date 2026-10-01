@@ -6402,11 +6402,13 @@ function createDocumentCoreWithExecutionBudget(
       { start: sourceStart === 0, end: windowEnd === state.source.length })
     // A result reaching the window's context, as a join of two blocks,
     // is compiled again with the blocks around it as context.
+    // The window grows past its own context, whose last block may be one
+    // the views read as no block at all, as a line of spaces.
     if (kept === 'unbounded' && widenings < 3) {
       const widened = reach ?? span
       return windowedGeneralEdits(state, previous, edits, compile, {
-        start: Math.max(0, Math.min(widened.start, first.start) - 1),
-        end: Math.min(state.source.length, Math.max(widened.end, last.end) + 1)
+        start: Math.max(0, Math.min(widened.start, first.start, sourceStart) - 1),
+        end: Math.min(state.source.length, Math.max(widened.end, last.end, windowEnd) + 1)
       }, widenings + 1)
     }
     // An edit that splits or joins the list it is in changes the items

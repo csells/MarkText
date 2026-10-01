@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore } from '../src/index.js'
-import { inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
+import { inspectDocumentCore, planFromDocumentParse } from '../src/internal/documentCoreInspection.js'
 
 const suffix = Array.from({ length: 80 }, (_, index) =>
   `Block ${index}: {++added++} {--removed--} {~~old~>new~~} {==marked==}{>>note<<}.\n\n`
@@ -64,6 +64,48 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     const expected = oracle.open(source.slice(0, start) + insert + source.slice(start))
     expect(result.revision.annotations).toEqual(expected.annotations)
     expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
+  })
+
+  // Plan 0012 G35: a document's start and end read at its projection's start
+  // and end, also beside markers the projection omits there.
+  it.each([
+    { label: 'begins with a Highlight', text: '{==outer {==inner==}{>>nested<<} text==}{>>outer comment<<}\n\n' + suffix, at: 'Block 40' },
+    { label: 'ends with a Comment and no line ending', text: suffix + 'Last words {>>c<<}', at: 'Last' }
+  ])('reads an edit in a document that $label from its blocks', ({ text, at }) => {
+    const core = createDocumentCore()
+    const opened = core.open(text)
+    const start = text.indexOf(at) + 2
+    const before = inspectDocumentCore(core).documentParses
+    const result = core.apply(opened, [{ start, end: start, insert: 'x' }], { projections: ['markup'] })
+    expect(result.change.projections[0]?.scope).toBe('regions')
+    expect(inspectDocumentCore(core).documentParses - before).toBe(0)
+    const oracle = createDocumentCore()
+    const expected = oracle.open(text.slice(0, start) + 'x' + text.slice(start))
+    expect(result.revision.annotations).toEqual(expected.annotations)
+    expect(result.revision.diagnostics).toEqual(expected.diagnostics)
+    expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
+    for (const name of ['original', 'revised'] as const) {
+      expect(core.project(result.revision, name).markdown).toBe(oracle.project(expected, name).markdown)
+    }
+  })
+
+  // Plan 0012 G35: a tracked key whose window compile reaches the window's
+  // context is compiled again in a window wider than that context, so the
+  // key costs the one parse apply() publishes, not the document compile's.
+  it('widens a tracked key\'s window past its context', () => {
+    const text = 'Plain words here.\n\n' + ['    indented 0', '    indented 1', '{++\\{--d\\--}++}'].join('\n') +
+      '\n$$\nx_{0} + y\nx_{1} + y\n$$\n\n> quoted {~~a~>b~~} line\n\nPlain words here.'
+    const start = text.indexOf('x_{1} + y') + 5
+    const regional = (core: ReturnType<typeof createDocumentCore>) =>
+      core.apply(core.open(text), [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
+    const core = createDocumentCore()
+    const revision = regional(core)
+    const before = inspectDocumentCore(core).documentParses
+    const actual = core.trackedEdit(revision, { start: start + 1, end: start + 1, insert: '\n' })
+    expect(inspectDocumentCore(core).documentParses - before).toBeLessThanOrEqual(1)
+    const control = createDocumentCore()
+    planFromDocumentParse(control)
+    expect(actual).toEqual(control.trackedEdit(regional(control), { start: start + 1, end: start + 1, insert: '\n' }))
   })
 
   // Plan 0012 G35: a heading or a label naming no definition is read in the

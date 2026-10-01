@@ -455,6 +455,12 @@ function exactSyntaxBoundaries(
       }
       segmentIndex += 1
     }
+    // The end of the text reads at the end of its projected text, also
+    // after markers the projection omits there.
+    if (found === undefined && boundary === boundaries.at(-1) && segmentIndex === segments.length) {
+      found = 0
+      for (const segment of segments) if (segment.kind === 'canonical') found = segment.projectedEnd
+    }
     if (found === undefined) return undefined
     result.push(found)
   }
@@ -1222,8 +1228,11 @@ export function createRegionalInventory(
     (ordinal === 0 || value !== values[ordinal - 1])
   ))
   if (boundaries.length < 2) return undefined
-  const syntaxBoundaries = exactSyntaxBoundaries(products, boundaries, recorder)
-  if (syntaxBoundaries === undefined) return undefined
+  // The document's start is its projection's start even when an elided
+  // CriticMarkup opener begins it.
+  const laterSyntax = exactSyntaxBoundaries(products, boundaries.slice(1), recorder)
+  if (laterSyntax === undefined) return undefined
+  const syntaxBoundaries = Object.freeze([0, ...laterSyntax])
   const counts = eventCounts(products, boundaries, recorder)
   const leaves: RegionLeaf[] = []
   let rootCursor = 0
