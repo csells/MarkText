@@ -227,7 +227,7 @@ describe('keys the general compiler plans in a long document', () => {
     { name: 'Enter that turns the paragraph after into a list', block: 'Emph *a {++b++} c* and {--d--} e.', text: '* and', offset: 0, key: 'insertParagraph', parses: 0 },
     { name: 'typing in a paragraph holding a link', block: 'See [a link](http://x.y) and {++added++} text.', text: 'See', offset: 2, key: 'insertText', parses: 0 },
     { name: 'Enter in a list item', block: '- item {++one++}\n- item {--two--} end', text: 'item {++', offset: 2, key: 'insertParagraph', parses: 0 },
-    { name: 'typing in a fenced code block', block: '```\ncode {++x++} here\n```', text: 'code', offset: 2, key: 'insertText', parses: 1 }
+    { name: 'typing in a fenced code block', block: '```\ncode {++x++} here\n```', text: 'code', offset: 2, key: 'insertText', parses: 0 }
   ] as const
   it.each(shapes)('$name', ({ block, text, offset, key, parses }) => {
     const paragraphs = ['Warm editing paragraph.', ...Array.from({ length: 300 }, () => dense)]

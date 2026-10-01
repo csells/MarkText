@@ -3388,6 +3388,80 @@ function frontMatterReach(markdownOptions: MarkdownOptionsV1, start: number, edi
   })
 }
 
+/** The kind of a closed fenced code or display math block `text` spells whole, read alone. */
+function closedLiteralBlock(text: string): 'fenced-code' | 'math' | undefined {
+  if (closedFence(text)) return 'fenced-code'
+  const lines = text.split(/\r\n|\r|\n/u)
+  return lines.length > 1 && /^\$\$[^$]*$/u.test(lines[0] ?? '') && /^\$\$[ \t]*$/u.test(lines.at(-1) ?? '') &&
+    !lines.slice(1, -1).some(line => line.includes('$'))
+    ? 'math'
+    : undefined
+}
+
+/**
+ * An edit that replaces one closed fenced code or display math block whole:
+ * with a closed block of the same kind, as a key in a Substitution's
+ * proposed block does, or with a Substitution of the block by one, as a
+ * tracked key in the block suggests. Offsets are in the source after the
+ * edit; `struck` is the Substitution's copy of the block.
+ */
+export interface LiteralBlockReplacement {
+  readonly kind: 'fenced-code' | 'math'
+  readonly struck?: Readonly<{ start: number, end: number }>
+  readonly proposed: Readonly<{ start: number, end: number }>
+}
+
+export function literalBlockReplacement(
+  previousSource: CanonicalSourceView,
+  edit: RetainedPassSourceEdit
+): LiteralBlockReplacement | undefined {
+  // A backslash before the edit would protect what it begins with.
+  if (previousSource.slice(Math.max(0, edit.start - 1), edit.start) === '\\') return undefined
+  const removed = previousSource.slice(edit.start, edit.end)
+  const block = removed.replace(/[ \t\r\n]+$/u, '')
+  const kind = closedLiteralBlock(block)
+  if (kind === undefined) return undefined
+  const opener = `{~~${removed}`
+  if (!edit.insert.startsWith(opener)) {
+    const replacement = edit.insert.replace(/[ \t\r\n]+$/u, '')
+    return closedLiteralBlock(replacement) === kind && edit.insert.slice(replacement.length) === removed.slice(block.length)
+      ? Object.freeze({ kind, proposed: Object.freeze({ start: edit.start, end: edit.start + replacement.length }) })
+      : undefined
+  }
+  const separator = edit.insert.indexOf('~>', opener.length)
+  if (!edit.insert.endsWith('~~}') || separator < 0 || /[^ \t\r\n]/u.test(edit.insert.slice(opener.length, separator))) return undefined
+  const proposed = edit.insert.slice(separator + 2, -3).replace(/[ \t\r\n]+$/u, '')
+  if (closedLiteralBlock(proposed) !== kind) return undefined
+  return Object.freeze({
+    kind,
+    struck: Object.freeze({ start: edit.start + 3, end: edit.start + 3 + block.length }),
+    proposed: Object.freeze({ start: edit.start + separator + 2, end: edit.start + separator + 2 + proposed.length })
+  })
+}
+
+/**
+ * Whether `products` read each of `blocks` (window offsets) as one literal
+ * of `kind` from its first character, ending within the block's trailing
+ * whitespace, and read no other literal across `extent`.
+ */
+function readsLiteralBlocks(
+  products: Profile1DocumentProducts,
+  text: string,
+  kind: LiteralBlockReplacement['kind'],
+  blocks: readonly Readonly<{ start: number, end: number }>[],
+  extent: Readonly<{ start: number, end: number }>
+): boolean {
+  const literals = (products.retainedIntrinsic?.markdownLiterals ?? [])
+    .filter(literal => literal.start < extent.end && literal.end > extent.start)
+  if (literals.length !== blocks.length) return false
+  return blocks.every((block, ordinal) => {
+    const literal = literals[ordinal]
+    const trailing = /^[ \t\r\n]*/u.exec(text.slice(block.end))?.[0].length ?? 0
+    return literal !== undefined && literal.kind === kind && literal.start === block.start &&
+      literal.end >= block.end && literal.end <= block.end + trailing
+  })
+}
+
 const MARKER_CLOSER: Readonly<Record<string, string>> = Object.freeze({
   '{++': '++}', '{--': '--}', '{~~': '~~}', '{==': '==}', '{>>': '<<}'
 })
@@ -3512,8 +3586,14 @@ function evaluateBlockWindow(
       executionBudget, markdownOptions, physicalRecorder, previewOnly)
     if (lines !== undefined) return lines
   }
+  // A whole literal block replaced, or struck and proposed again, pairs its
+  // delimiter runs with each other alone (checked once both windows are
+  // parsed): the replaced block's runs paired so in place, so no run outside
+  // the window could reach them, and each new block repeats such runs with
+  // literal text between them.
+  const replacement = inventory.strayMarkers ? undefined : literalBlockReplacement(previousSource, edit)
   const pairingChanged = editChangesLiteralPairing(previousSource, edit)
-  if (pairingChanged && !inventory.markerFree) return undefined
+  if (pairingChanged && !inventory.markerFree && replacement === undefined) return undefined
   // Markers pair as one nested stack across the document, and backtick and
   // dollar runs pair beyond their paragraphs. A window proves changed markers
   // only where nothing outside it can reach them: in a document spelling no
@@ -3525,6 +3605,9 @@ function evaluateBlockWindow(
   // having a closer form the edit adds (checked once the window is parsed).
   const touchesMarkers = /[{}]/u.test(edit.insert + previousSource.slice(edit.start, edit.end))
   const markersProvable = inventory.markerFree || touchesMarkers && (() => {
+    // Its markers pair with each other around the blocks, which read their
+    // spellings literally.
+    if (replacement !== undefined) return true
     const previousText = previousSource.slice(0, previousSource.length)
     if (/[`$]/u.test(edit.insert)) return false
     // A whole new suggestion pairs only with itself where every other marker
@@ -3675,7 +3758,7 @@ function evaluateBlockWindow(
       : !strayMarkersUnchanged(previousWindow, nextWindow))) return undefined
     // Splitting or joining paragraphs moves the bound that stops a backtick
     // run pairing with a later one.
-    if (!inventory.markerFree && /[\r\n]/u.test(edit.insert + previousSource.slice(edit.start, edit.end)) &&
+    if (!inventory.markerFree && replacement === undefined && /[\r\n]/u.test(edit.insert + previousSource.slice(edit.start, edit.end)) &&
         (nextWindow.includes('`') || previousWindow.includes('`'))) return undefined
     const leafPoints = leafPointsOf(result, nextWindow.length, !inventory.strayMarkers)
     const startStands = edited.source === first.source || leafPoints.includes(edited.source - first.source)
@@ -3719,6 +3802,16 @@ function evaluateBlockWindow(
       last === editedEnd && last.source < length
     )
     if (previousResult.kind !== 'complete') return undefined
+    if (replacement !== undefined) {
+      const shift = (range: Readonly<{ start: number, end: number }>): Readonly<{ start: number, end: number }> =>
+        ({ start: range.start - first.source, end: range.end - first.source })
+      const insertExtent = shift({ start: edit.start, end: edit.start + edit.insert.length })
+      const replaced = { start: edit.start, end: edit.start + previousSource.slice(edit.start, edit.end).replace(/[ \t\r\n]+$/u, '').length }
+      if (!readsLiteralBlocks(result, nextWindow, replacement.kind,
+        [...replacement.struck === undefined ? [] : [shift(replacement.struck)], shift(replacement.proposed)], insertExtent) ||
+          !readsLiteralBlocks(previousResult, previousWindow, replacement.kind, [shift(replaced)],
+            shift({ start: edit.start, end: edit.end }))) return undefined
+    }
     // The window reads its unchanged text as the document does only where
     // it finds no block boundary the document lacks: a dollar or backtick
     // run left open before the window keeps the document from parting
