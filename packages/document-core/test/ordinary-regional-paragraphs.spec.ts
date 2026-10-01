@@ -129,10 +129,13 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
   })
 
   // A whole new suggestion pairs only with itself, so backtick runs elsewhere
-  // keep their pairing; a lone spelling there could pair with any marker.
+  // keep their pairing, and a spelling a backslash protects reads as text
+  // anywhere; a lone spelling there could pair with any marker.
   it.each([
     { label: 'a new annotation beside a code span', insert: '{++new++}', tail: 'A `code` span.\n', scope: 'regions', parses: 0 },
-    { label: 'a lone opener beside a code span', insert: '{++new', tail: 'A `code` span.\n', scope: 'document', parses: 1 }
+    { label: 'a lone opener beside a code span', insert: '{++new', tail: 'A `code` span.\n', scope: 'document', parses: 1 },
+    { label: 'a suggestion of protected spellings', insert: '{++\\{--d\\--}++}', tail: 'A `code` span.\n', scope: 'regions', parses: 0 },
+    { label: 'a protected spelling beside a code span', insert: '\\{++new', tail: 'A `code` span.\n', scope: 'regions', parses: 0 }
   ])('reads $label as the whole document does', ({ insert, tail, scope, parses }) => {
     const source = 'ordinary target\n\n' + suffix + tail
     const start = source.indexOf('target') + 2
