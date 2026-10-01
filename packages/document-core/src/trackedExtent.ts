@@ -130,7 +130,6 @@ export function createTrackedOracle(
     const facts = trackedPreviewFacts.get(candidate)
     if (facts === undefined) return false
     const authored = authoredAnnotations(edits, candidate)
-    if (!partiallyResolvable(edits, candidate, authored, cachedPreview)) return false
     // Resolution splices arm bytes, while a projection may also materialize the
     // closing fence of a literal an arm boundary ended (L2c). That projection
     // must still read as the untracked result.
@@ -141,7 +140,11 @@ export function createTrackedOracle(
     // Equal materialized text can still mean something else inside an arm
     // (an arm-local literal or definition): the Revised view must agree too.
     if (facts.revisedView() !== targetView) return false
-    return equivalence === 'exact' || signature(facts.original) === signature(original)
+    if (equivalence === 'rendering' && signature(facts.original) !== signature(original)) return false
+    // Resolving each authored suggestion alone is a whole preview apiece,
+    // several per candidate, so a candidate is resolved only once every
+    // check above has accepted it.
+    return partiallyResolvable(edits, candidate, authored, cachedPreview)
   }
   return Object.freeze({
     untracked,
