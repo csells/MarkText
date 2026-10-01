@@ -3105,7 +3105,15 @@ function blockLiteralNode(
   if (literal.provider === 'html-block') {
     if (lines === undefined || fromLineIndex === undefined) throw new Error('HTML block requires its owned physical lines')
     const layout = htmlBlockLayout(source, literal, lines, fromLineIndex)
-    return createNode('html-block', start, literal.end, literalBlockPayloadNodes(source, layout), layout.attributes)
+    const payload = literalBlockPayloadNodes(source, layout)
+    // In a container, indentation past the container's own is the block's
+    // text, so the block starts where its payload does.
+    const payloadStart = payload[0]?.range.start
+    if (payloadStart !== undefined && payloadStart < start) {
+      return createNode('html-block', payloadStart, literal.end, payload,
+        Object.freeze({ ...layout.attributes, contentStart: payloadStart }))
+    }
+    return createNode('html-block', start, literal.end, payload, layout.attributes)
   }
   if (literal.provider === 'front-matter') {
     if (lines === undefined || fromLineIndex === undefined) throw new Error('Front matter requires its owned physical lines')
