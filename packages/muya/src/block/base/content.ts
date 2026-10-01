@@ -347,8 +347,20 @@ class Content extends TreeNode {
      */
     presentStateText(text: string) {
         this._text = text;
-        this.update();
+        this.presentingState = true;
+        try {
+            this.update();
+        }
+        finally {
+            this.presentingState = false;
+        }
     }
+
+    /**
+     * While state text is presented: the host places the selection after it
+     * reconciles, so the block need not keep the one it had.
+     */
+    protected presentingState = false;
 
     getAnchor(): Nullable<Parent> {
         return null;

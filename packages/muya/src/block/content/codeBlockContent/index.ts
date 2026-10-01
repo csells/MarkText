@@ -35,6 +35,34 @@ function replaceIfChanged(domNode: HTMLElement, html: string) {
         domNode.innerHTML = html;
 }
 
+/**
+ * Make `domNode`'s children those of `drawn`, moving over only the nodes
+ * between the unchanged ones at either end. A key in a long block changes a
+ * token or two, so the rest of its nodes, and their layout, stay.
+ */
+function patchChildren(domNode: HTMLElement, drawn: HTMLElement) {
+    const previous = domNode.childNodes;
+    const next = drawn.childNodes;
+    let start = 0;
+    while (start < previous.length && start < next.length && previous[start].isEqualNode(next[start]))
+        start += 1;
+    let previousEnd = previous.length;
+    let nextEnd = next.length;
+    while (previousEnd > start && nextEnd > start && previous[previousEnd - 1].isEqualNode(next[nextEnd - 1])) {
+        previousEnd -= 1;
+        nextEnd -= 1;
+    }
+    if (start === previousEnd && start === nextEnd)
+        return;
+    const before = previous[previousEnd] ?? null;
+    for (let index = previousEnd - 1; index >= start; index -= 1)
+        previous[index].remove();
+    const inserted = document.createDocumentFragment();
+    for (let index = start; index < nextEnd; index += 1)
+        inserted.appendChild(next[start]);
+    domNode.insertBefore(inserted, before);
+}
+
 const LANG_HASH = {
     'html-block': 'html',
     'math-block': 'latex',
@@ -146,7 +174,7 @@ class CodeBlockContent extends Content {
         }
         // Language loading and gutter initialization can refresh this DOM after
         // the host restored a caret, or while a cross-block selection is active.
-        const selection = this.selection.getSelection();
+        const selection = this.presentingState ? null : this.selection.getSelection();
         const code = escapeHTML(getHighlightHtml(text, highlights, true))
             .replace(new RegExp(MARKER_HASH['<'], 'g'), '<')
             .replace(new RegExp(MARKER_HASH['>'], 'g'), '>')
@@ -168,7 +196,9 @@ class CodeBlockContent extends Content {
             wrapper.classList.add(`language-${fullLengthLang}`);
             wrapper.innerHTML = code;
             prism.highlightElement(wrapper, false, function (this: HTMLElement) {
-                replaceIfChanged(domNode, this.innerHTML + trailingBreak);
+                if (trailingBreak)
+                    this.insertAdjacentHTML('beforeend', trailingBreak);
+                patchChildren(domNode, this);
             });
         }
         else {

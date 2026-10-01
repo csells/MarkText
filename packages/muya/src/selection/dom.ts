@@ -201,18 +201,50 @@ export function getTextContent(node: Node, blackList: string[] = []) {
     return text;
 }
 
+/**
+ * The last offset read in each long paragraph, with an observer of its DOM:
+ * one key reads the same caret several times, and a long code block's text
+ * before it is long. Any change to the paragraph's DOM makes the offset stale.
+ */
+const lastParagraphOffsets = new WeakMap<HTMLElement, {
+    observer: MutationObserver;
+    node: Node;
+    nodeOffset: number;
+    offset: number;
+}>();
+
+/** Children from which a paragraph's last read offset is kept. */
+const LONG_PARAGRAPH_CHILDREN = 64;
+
+/** The text offset of a DOM point in a paragraph whose offsets are its DOM text. */
+function plainOffsetOfParagraph(node: Node, paragraph: HTMLElement, nodeOffset: number): number {
+    const last = lastParagraphOffsets.get(paragraph);
+    const unchanged = last !== undefined && last.observer.takeRecords().length === 0;
+    if (unchanged && last.node === node && last.nodeOffset === nodeOffset)
+        return last.offset;
+    const range = (paragraph.ownerDocument ?? document).createRange();
+    range.setStart(paragraph, 0);
+    if (node.nodeType === Node.TEXT_NODE)
+        range.setEnd(node, 0);
+    else
+        range.setEnd(node, Math.min(nodeOffset, node.childNodes.length));
+    const offset = range.toString().length + (node.nodeType === Node.TEXT_NODE ? nodeOffset : 0);
+    if (paragraph.childNodes.length >= LONG_PARAGRAPH_CHILDREN) {
+        let observer = last?.observer;
+        if (observer === undefined) {
+            observer = new MutationObserver(() => {});
+            observer.observe(paragraph, { childList: true, characterData: true, subtree: true });
+        }
+        lastParagraphOffsets.set(paragraph, { observer, node, nodeOffset, offset });
+    }
+    return offset;
+}
+
 export function getOffsetOfParagraph(node: Node, paragraph: HTMLElement, nodeOffset = 0): number {
     // The text before `node` in document order, read natively when every
     // offset of the paragraph is its DOM text, as in a long code block.
     if (paragraph.contains(node) && plainOffsets(paragraph, [CLASS_NAMES.MU_MATH_RENDER, CLASS_NAMES.MU_RUBY_RENDER])) {
-        const range = (paragraph.ownerDocument ?? document).createRange();
-        range.setStart(paragraph, 0);
-        if (node.nodeType === Node.TEXT_NODE) {
-            range.setEnd(node, 0);
-            return range.toString().length + nodeOffset;
-        }
-        range.setEnd(node, Math.min(nodeOffset, node.childNodes.length));
-        return range.toString().length;
+        return plainOffsetOfParagraph(node, paragraph, nodeOffset);
     }
     // DOM element offsets count children; text-node offsets count UTF-16 units.
     // Convert at the DOM boundary before adding preceding paragraph content.
@@ -248,6 +280,9 @@ export function getOffsetOfParagraph(node: Node, paragraph: HTMLElement, nodeOff
 export function getNodeAndOffset(
     node: Node,
     offset: number,
+    // Every offset in a plain element is its DOM text, as in a long code
+    // block, so its children's text is read natively, not walked.
+    plain = isElement(node) && plainOffsets(node, [CLASS_NAMES.MU_MATH_RENDER, CLASS_NAMES.MU_RUBY_RENDER]),
 ): { node: Node; offset: number } {
     if (node.nodeType === Node.TEXT_NODE) {
         return {
@@ -263,10 +298,12 @@ export function getNodeAndOffset(
 
     for (i = 0; i < len; i++) {
         const child = childNodes[i];
-        const textContent = getTextContent(child, [
-            CLASS_NAMES.MU_MATH_RENDER,
-            CLASS_NAMES.MU_RUBY_RENDER,
-        ]);
+        const textContent = plain
+            ? child.textContent ?? ''
+            : getTextContent(child, [
+                    CLASS_NAMES.MU_MATH_RENDER,
+                    CLASS_NAMES.MU_RUBY_RENDER,
+                ]);
         const textLength = textContent.length;
 
         // Fix #1460 - put the cursor at the next text node or element if it can be put at the last of /^\n$/ or the next text node/element.
@@ -290,7 +327,7 @@ export function getNodeAndOffset(
                 return { node: child, offset: 0 };
             }
             else {
-                return getNodeAndOffset(child, offset - count);
+                return getNodeAndOffset(child, offset - count, plain);
             }
         }
         else {
