@@ -2366,6 +2366,34 @@ function createDocumentCoreWithExecutionBudget(
     // Without a `$` before the edit, every `$$` is in the edited text.
     return options.texMathDollars && !dollarFree && editsMayRepairDollarMath(previous, next, edits)
   }
+  /**
+   * Whether the edits suggest replacing one closed math block whole, as a
+   * tracked key in it does: the struck block is the block itself, whose
+   * dollar lines the inventory reads as pairing each other, and the proposed
+   * block repeats them, so each block's dollars pair with each other alone
+   * and no dollars outside them pair otherwise.
+   */
+  const mathBlockSubstitution = (
+    previous: CanonicalSourceView,
+    edits: readonly DocumentSourceEdit[],
+    inventory: RegionalInventory | undefined
+  ): boolean => {
+    const edit = edits.length === 1 ? edits[0] : undefined
+    if (edit === undefined || inventory === undefined) return false
+    const leaves = regionalInventoryLiteralRange(inventory, edit.start)
+    if (leaves === undefined || leaves.start !== edit.start || edit.end > leaves.end) return false
+    const removed = previous.slice(edit.start, edit.end)
+    const block = removed.replace(/(?:\r\n|\r|\n)[ \t\r\n]*$/u, '')
+    const mathBlock = (text: string): boolean =>
+      /^\$\$[^$\r\n]*(?:\r\n|\r|\n)[^$]*(?:\r\n|\r|\n)\$\$[ \t]*$/u.test(text)
+    if (!mathBlock(block) || /[^ \t\r\n]/u.test(removed.slice(block.length))) return false
+    const opener = `{~~${block}`
+    const separator = edit.insert.indexOf('~>', opener.length)
+    if (!edit.insert.startsWith(opener) || separator < 0 || !edit.insert.endsWith('~~}') ||
+        /[^ \t\r\n]/u.test(edit.insert.slice(opener.length, separator))) return false
+    const proposed = edit.insert.slice(separator + 2, -3).replace(/[ \t\r\n]+$/u, '')
+    return mathBlock(proposed)
+  }
   const physicalRecorder = createPhysicalTraversalRecorderV1()
   const regionalPhysicalRecorder = createPhysicalTraversalRecorderV1()
   const inspection: MutableDocumentCoreInspection = {
@@ -4135,7 +4163,8 @@ function createDocumentCoreWithExecutionBudget(
       fallbackReason = 'markdown-options-changed'
     } else if (source.requiresFragmentationRebase) {
       fallbackReason = 'source-fragmentation-rebase'
-    } else if (editsMayRepairMath(previousState.source, source, stableEdits, resolvedOptions)) {
+    } else if (editsMayRepairMath(previousState.source, source, stableEdits, resolvedOptions) &&
+      !mathBlockSubstitution(previousState.source, stableEdits, previousState.regionalInventory)) {
       fallbackReason = 'structural-region-ineligible'
     }
     if (fallbackReason !== undefined) {
@@ -4931,7 +4960,8 @@ function createDocumentCoreWithExecutionBudget(
   }> | undefined => {
     const edits = Object.freeze([edit])
     const source = state.source.applyExact(edits, 'Authoring regional candidate')
-    if (editsMayRepairMath(state.source, source, edits, state.markdownOptions)) {
+    if (editsMayRepairMath(state.source, source, edits, state.markdownOptions) &&
+        !mathBlockSubstitution(state.source, edits, state.regionalInventory)) {
       return undefined
     }
     if (state.regionalInventory !== undefined) {

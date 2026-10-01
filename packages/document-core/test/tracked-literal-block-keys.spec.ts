@@ -91,9 +91,9 @@ describe('tracked keys in a literal block', () => {
     expect(session.revision.source.slice(next.range.start, next.range.end)).toBe('```js\nconst a = 1\nconst x\nb = 2\n```\n')
   })
 
-  // Math blocks' dollars pair across the document, which a window cannot
-  // prove, and an HTML block's text may take a suggestion of its own.
-  it.each([['fence', blocks.fence], ['indented', blocks.indented]])('suggests replacing a long %s without a document parse', (_name, block) => {
+  // An HTML block's text may take a suggestion of its own, which the
+  // document's compile decides.
+  it.each([['fence', blocks.fence], ['math', blocks.math], ['indented', blocks.indented]])('suggests replacing a long %s without a document parse', (_name, block) => {
     const lines = Array.from({ length: 400 }, (_, index) => `const value${index} = compute(${index})`)
     const opening = 'Opening paragraph.\n\n' + Array.from({ length: 200 }, (_, index) => `Paragraph ${index} of the long document.`).join('\n\n')
     const source = `${opening}\n\n${block(lines)}\n\nClosing paragraph.\n`
