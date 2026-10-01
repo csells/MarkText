@@ -3360,6 +3360,29 @@ function frontMatterReach(markdownOptions: MarkdownOptionsV1, start: number, edi
   })
 }
 
+const MARKER_CLOSER: Readonly<Record<string, string>> = Object.freeze({
+  '{++': '++}', '{--': '--}', '{~~': '~~}', '{==': '==}', '{>>': '<<}'
+})
+
+/**
+ * Whether `edit` removes no marker spelling and inserts only whole
+ * suggestions: openers and closers that pair with each other in order, with
+ * a Substitution's divider inside it, and no spellings that overlap.
+ */
+function balancedInsertion(previousSource: CanonicalSourceView, edit: RetainedPassSourceEdit): boolean {
+  if (markerSpellings(previousSource.slice(edit.start, edit.end)) !== 0 || overlappingSpellings(edit.insert)) return false
+  const open: string[] = []
+  for (const match of edit.insert.matchAll(MARKER_SPELLING)) {
+    const spelling = match[1] ?? ''
+    const closer = MARKER_CLOSER[spelling]
+    if (closer !== undefined) open.push(closer)
+    else if (spelling === '~>') {
+      if (open.at(-1) !== '~~}') return false
+    } else if (open.pop() !== spelling) return false
+  }
+  return open.length === 0
+}
+
 /** Positions where a CriticMarkup marker is spelled, overlapping spellings each counted. */
 function markerSpellings(text: string): number {
   return [...text.matchAll(/(?=\{\+\+|\{--|\{~~|\{==|\{>>|~>|\+\+\}|--\}|~~\}|==\}|<<\})/gu)].length
@@ -3442,7 +3465,12 @@ function evaluateBlockWindow(
   const touchesMarkers = /[{}]/u.test(edit.insert + previousSource.slice(edit.start, edit.end))
   const markersProvable = inventory.markerFree || touchesMarkers && (() => {
     const previousText = previousSource.slice(0, previousSource.length)
-    if (/[`$\\]/u.test(previousText) || /[`$\\]/u.test(edit.insert)) return false
+    if (/[`$\\]/u.test(edit.insert)) return false
+    // A whole new suggestion pairs only with itself where every other marker
+    // pairs or reads literally: backtick and dollar runs elsewhere keep their
+    // pairing, and the window must read every spelling it holds as a marker
+    // (checked once it is parsed).
+    if (/[`$\\]/u.test(previousText)) return !inventory.strayMarkers && balancedInsertion(previousSource, edit)
     if (inventory.strayMarkers) return true
     let recognized = 0
     for (const leaf of leavesOf(inventory.root)) if (leaf.kind === 'region') recognized += leaf.markers.length
