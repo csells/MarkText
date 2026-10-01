@@ -2169,6 +2169,17 @@ function addedCloserForms(previousWindow: string, nextWindow: string): number {
   return forms
 }
 
+/** Forms whose closer, or a Substitution's divider, `text` spells. */
+function spelledCloserForms(text: string): number {
+  let forms = 0
+  for (const match of text.matchAll(MARKER_SPELLING)) {
+    const spelling = match[1] ?? ''
+    const form = spelling === '~>' ? 'substitution' : CLOSER_FORM[spelling]
+    if (form !== undefined) forms |= FORM_BIT[form]
+  }
+  return forms
+}
+
 /** Forms with an unfinished opener in the leaves before `ordinal`. */
 function unterminatedFormsBefore(node: RegionTree, ordinal: number): number {
   if (ordinal <= 0) return 0
@@ -2570,8 +2581,13 @@ export function strayMarkersStayLocal(
   const last = end > start ? windowEdge(value, end - 1, 'end') : undefined
   if (first === undefined || last === undefined || first.source !== start || last.source !== end) return false
   const previousWindow = source.slice(start, end)
+  // A candidate the compile weighs, as a Substitution spelling a block twice,
+  // can repeat any closer or divider the window spells, and in the document
+  // one after an unfinished opener of its form changes how that opener
+  // reads; the window, which holds no such opener, cannot weigh it.
+  const before = unterminatedFormsBefore(value.root, first.ordinal)
   if (previousWindow.includes('|') || nextWindow.includes('|') || overlappingSpellings(nextWindow) ||
-      (unterminatedFormsBefore(value.root, first.ordinal) & addedCloserForms(previousWindow, nextWindow)) !== 0) return false
+      (before & (addedCloserForms(previousWindow, nextWindow) | spelledCloserForms(previousWindow + nextWindow))) !== 0) return false
   let replacedRoots = 0
   for (const located of leafRange(value.root, first.ordinal, last.ordinal)) replacedRoots += rootCountIn(located.leaf)
   const documentRoots = rootCountIn(value.root)
