@@ -693,6 +693,40 @@ function literalContents(products: Profile1DocumentProducts): Readonly<{
  * The values of runs in order, with the runs inside one literal block's text
  * read as one `literal` run: its lines split them however many there are.
  */
+const orderedLiterals = new WeakMap<readonly LiteralContent[], boolean>()
+
+/**
+ * The first of `literals` holding `[start, end)`. Literal blocks follow one
+ * another, so their starts and ends both ascend: the first whose end reaches
+ * `end` is the only one that can hold it.
+ */
+export function literalHolding(literals: readonly LiteralContent[], start: number, end: number): LiteralContent | undefined {
+  let ordered = orderedLiterals.get(literals)
+  if (ordered === undefined) {
+    let previous: LiteralContent | undefined
+    ordered = literals.every(content => {
+      const follows = previous === undefined || (previous.start <= content.start && previous.end <= content.end)
+      previous = content
+      return follows
+    })
+    orderedLiterals.set(literals, ordered)
+  }
+  if (!ordered) return literals.find(content => content.start <= start && end <= content.end)
+  let low = 0
+  let high = literals.length
+  while (low < high) {
+    const middle = (low + high) >>> 1
+    if ((literals[middle]?.end ?? end) < end) low = middle + 1
+    else high = middle
+  }
+  for (let index = low; index < literals.length; index += 1) {
+    const content = literals[index]
+    if (content === undefined || content.start > start) break
+    if (end <= content.end) return content
+  }
+  return undefined
+}
+
 function literalRuns(
   runs: readonly Readonly<{ value: string, start: number, end: number }>[],
   literals: readonly LiteralContent[]
@@ -702,7 +736,7 @@ function literalRuns(
   for (const run of runs) {
     // Only text and line breaks fold: generated text and markers stay seen.
     const plain = run.value === 'canonical' || run.value === 'text' || run.value.startsWith('eol')
-    const literal = plain ? literals.find(content => content.start <= run.start && run.end <= content.end) : undefined
+    const literal = plain ? literalHolding(literals, run.start, run.end) : undefined
     if (literal !== undefined) {
       if (literal !== inside) values.push('literal')
     } else values.push(run.value)
