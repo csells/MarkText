@@ -67,8 +67,13 @@ function press(core: DocumentCore, revision: DocumentRevision, caret: number, ke
 const seeds = Number(process.env.MARKTEXT_STRAY_KEY_SEEDS ?? 12)
 const first = Number(process.env.MARKTEXT_STRAY_KEY_FIRST ?? 1)
 
+// Seed 187: a Substitution the window compile weighed repeated the window's
+// divider, which in the document an unfinished Substitution opener before
+// the window reads; the window, without that opener, chose another edit.
+const regressionSeeds = [187].filter(seed => seed < first || seed >= first + seeds)
+
 describe('keys in a document with stray markers read as the document parse', () => {
-  it.each(Array.from({ length: seeds }, (_, index) => first + index))('seed %i', seed => {
+  it.each([...Array.from({ length: seeds }, (_, index) => first + index), ...regressionSeeds])('seed %i', seed => {
     const random = lcg(seed * 6781)
     let regionalKeys = 0
     for (let documentIndex = 0; documentIndex < 4; documentIndex += 1) {
