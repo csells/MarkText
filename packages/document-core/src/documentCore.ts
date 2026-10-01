@@ -15,7 +15,7 @@ import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit } from './trackedHistoryEditing.js'
-import { deferEquivalence, equivalenceDeferred, literalHistoryInsertionPoint, projectionSignature, trackedMarkdownSignatures, trackedOperationEquivalent, trackedPreviewFacts, withDeferredEquivalence } from './trackedExtent.js'
+import { deferEquivalence, equivalenceDeferred, literalHistoryInsertionPoint, projectionSignature, trackedMarkdownSignatures, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import {
@@ -2928,13 +2928,17 @@ function createDocumentCoreWithExecutionBudget(
     return revision
   }
 
-  const publishInventoryRegional = (
+  /**
+   * A revision of `source` read through `inventory`, registered for reads
+   * but not published: the current revision and its products stay as they
+   * are, so it can stand for one of several candidates of the same edit.
+   */
+  const inventoryRevision = (
     source: PersistentCanonicalSource,
     resolvedOptions: MarkdownOptionsV1,
     inventory: RegionalInventory,
     regionalComments: RegionalRevisionState['regionalComments'] = Object.freeze([])
   ): DocumentRevision => {
-    demoteCurrentProductStore()
     let annotations: readonly CriticMarkupAnnotation[] | undefined
     const inventoryAnnotations = Object.freeze(
       (): readonly CriticMarkupAnnotation[] => {
@@ -2980,6 +2984,17 @@ function createDocumentCoreWithExecutionBudget(
       productStore,
       annotations: inventoryAnnotations
     }))
+    return revision
+  }
+
+  const publishInventoryRegional = (
+    source: PersistentCanonicalSource,
+    resolvedOptions: MarkdownOptionsV1,
+    inventory: RegionalInventory,
+    regionalComments: RegionalRevisionState['regionalComments'] = Object.freeze([])
+  ): DocumentRevision => {
+    demoteCurrentProductStore()
+    const revision = inventoryRevision(source, resolvedOptions, inventory, regionalComments)
     currentRevision = revision
     previewedCandidates = undefined
     inspection.sourceRopeRootsCommitted += 1
@@ -3045,11 +3060,14 @@ function createDocumentCoreWithExecutionBudget(
     stableEdits: readonly DocumentSourceEdit[],
     resolvedOptions: MarkdownOptionsV1,
     requests: NormalizedProjectionRequests,
-    inventory: RegionalInventory | undefined = previousState.regionalInventory
+    inventory: RegionalInventory | undefined = previousState.regionalInventory,
+    preview = false
   ): Readonly<{
     readonly kind: 'applied'
     readonly revision: DocumentRevision
     readonly projections: readonly DocumentProjectionChange[]
+    /** A preview's: the source the edit replaced, in the previous revision, and where it ends after. */
+    readonly replaced?: Readonly<{ start: number, end: number, nextEnd: number }>
   }> | Readonly<{
     readonly kind: 'fallback'
     readonly reason: DocumentProjectionFallbackReason
@@ -3355,6 +3373,19 @@ function createDocumentCoreWithExecutionBudget(
         scope: 'regions',
         replacements: Object.freeze(commentReplacements)
       }))
+    }
+    // A preview reads as the revision apply() would publish, unpublished.
+    if (preview) {
+      return Object.freeze({
+        kind: 'applied',
+        revision: inventoryRevision(source, resolvedOptions, admission.nextInventory, Object.freeze(regionalComments)),
+        projections: Object.freeze(projections),
+        replaced: Object.freeze({
+          start: admission.previous.source.start,
+          end: admission.previous.source.end,
+          nextEnd: admission.next.source.end
+        })
+      })
     }
     const revision = publishInventoryRegional(
       source,
@@ -4727,6 +4758,66 @@ function createDocumentCoreWithExecutionBudget(
     })
   }
 
+  // Authoring compares sibling candidates around the same ranges repeatedly.
+  const trackedReadingCache = new WeakMap<DocumentRevision, Map<string, TrackedRegionalReading | null>>()
+  const trackedRegionalReading = (
+    revision: DocumentRevision,
+    range: SourceRange
+  ): TrackedRegionalReading | undefined => {
+    const state = stateByRevision.get(revision)
+    if (state === undefined || range.start < 0 || range.end < range.start || range.end > state.source.length) return undefined
+    let cache = trackedReadingCache.get(revision)
+    if (cache === undefined) {
+      cache = new Map()
+      trackedReadingCache.set(revision, cache)
+    }
+    const key = `${range.start}:${range.end}`
+    const cached = cache.get(key)
+    if (cached !== undefined) return cached ?? undefined
+    const spanned = (
+      projected: { readonly source: string },
+      coordinates: MarkdownProjection['coordinates']
+    ): string => projected.source.slice(
+      coordinates.toProjected(range.start, 'next'),
+      coordinates.toProjected(range.end, 'next')
+    )
+    let reading: TrackedRegionalReading | undefined
+    // A revision holding its parse answers from its whole projections.
+    if (state.productStore.withRetained(() => true) === true) {
+      const original = projectRevision(revision, 'original')
+      const revised = projectRevision(revision, 'revised')
+      let view: string | undefined
+      reading = Object.freeze({
+        original: spanned({ source: original.markdown }, original.coordinates),
+        revised: spanned({ source: revised.markdown }, revised.coordinates),
+        window: Object.freeze({ start: 0, end: state.source.length }),
+        view: () => {
+          view ??= projectionSignature(revised.ast.root)
+          return view
+        }
+      })
+    } else {
+      const window = regionalReadWindow(state, range)
+      if (window !== undefined) {
+        const { original, revised } = window.nextProducts
+        const coordinatesOf = (projected: typeof original): MarkdownProjection['coordinates'] =>
+          shiftedRegionalProjectionCoordinatesOf(projected, window.nextWindow.length, window.sourceStart, state.source.length)
+        let view: string | undefined
+        reading = Object.freeze({
+          original: spanned(original, coordinatesOf(original)),
+          revised: spanned(revised, coordinatesOf(revised)),
+          window: Object.freeze({ start: window.sourceStart, end: window.sourceStart + window.nextWindow.length }),
+          view: () => {
+            view ??= projectionSignature(markdownAstOf(revised).root)
+            return view
+          }
+        })
+      }
+    }
+    cache.set(key, reading ?? null)
+    return reading
+  }
+
   function projectCommentView(
     revision: DocumentRevision,
     comment: CriticMarkupAnnotation
@@ -4940,8 +5031,100 @@ function createDocumentCoreWithExecutionBudget(
     return inspect(products, source)
   }
 
-  const previewSourceEdits = (previous: DocumentRevision, edits: readonly DocumentSourceEdit[]): DocumentRevision =>
-    withSourceEditPreview(previous, edits, (products, source) => {
+  // A full revision's inventory is built from the parse it holds, once.
+  const convertedInventories = new WeakMap<RevisionState, RegionalInventory | null>()
+
+  /**
+   * The revision `edits` make of `previous`, read regionally as apply()
+   * reads it, but not published; undefined where apply() would parse the
+   * document instead. Candidates of one edit are previewed as siblings of
+   * `previous`, which stays the current revision.
+   */
+  const regionalPreview = (
+    previous: DocumentRevision,
+    edits: readonly DocumentSourceEdit[]
+  ): Readonly<{ revision: DocumentRevision, replaced: Readonly<{ start: number, end: number, nextEnd: number }> }> | undefined => {
+    const state = stateByRevision.get(previous)
+    if (state === undefined || plansFromDocumentParse(core)) return undefined
+    let inventory = state.regionalInventory
+    if (inventory === undefined) {
+      let converted = convertedInventories.get(state)
+      if (converted === undefined) {
+        converted = convertedRegionalInventory(state) ?? null
+        convertedInventories.set(state, converted)
+      }
+      inventory = converted ?? undefined
+    }
+    if (inventory === undefined) return undefined
+    const stable = stableSourceEdits(edits)
+    preflightSourceEdits(state.source.length, stable)
+    const first = stable[0]
+    const last = stable.at(-1)
+    if (first === undefined || last === undefined) return undefined
+    const source = state.source.applyExact(stable, 'Authoring regional preview')
+    // The inventory window proves a whole math block's replacement (see
+    // `literalBlockReplacement`).
+    if (source.requiresFragmentationRebase || editsMayRepairMath(state.source, source, stable, state.markdownOptions) &&
+        !mathBlockSubstitution(state.source, stable, inventory) &&
+        !(stable.length === 1 && stable[0] !== undefined && literalBlockReplacement(state.source, stable[0])?.kind === 'math')) {
+      return undefined
+    }
+    // Nearby edits are one replacement of the text they span, as apply() reads them.
+    let replacement = stable
+    if (stable.length > 1) {
+      if (last.end - first.start > COMBINED_EDIT_SPAN) return undefined
+      let insert = ''
+      let cursor = first.start
+      for (const edit of stable) {
+        insert += state.source.slice(cursor, edit.start) + edit.insert
+        cursor = edit.end
+      }
+      replacement = Object.freeze([Object.freeze({ start: first.start, end: last.end, insert })])
+    }
+    const requests = normalizeProjectionRequests([])
+    if (requests === undefined) return undefined
+    const result = tryInventoryRegionalApply(state, source, replacement, state.markdownOptions, requests, inventory, true)
+    return result?.kind === 'applied' && result.replaced !== undefined
+      ? Object.freeze({ revision: result.revision, replaced: result.replaced })
+      : undefined
+  }
+
+  const previewSourceEdits = (previous: DocumentRevision, edits: readonly DocumentSourceEdit[]): DocumentRevision => {
+    const regional = regionalPreview(previous, edits)
+    if (regional !== undefined) {
+      const { revision, replaced } = regional
+      // The candidate reads as `previous` outside the source it replaced, so
+      // its whole projection is `previous`'s with that source's reading in it;
+      // `previous`'s, read once, serves all of its candidates.
+      const whole = (name: MarkdownProjectionName): string => {
+        const reading = trackedRegionalReading(revision, { start: replaced.start, end: replaced.nextEnd })
+        if (reading === undefined) return projectRevision(revision, name).markdown
+        const base = projectRevision(previous, name)
+        return base.markdown.slice(0, base.coordinates.toProjected(replaced.start, 'next')) + reading[name] +
+          base.markdown.slice(base.coordinates.toProjected(replaced.end, 'next'))
+      }
+      let original: string | undefined
+      let revised: string | undefined
+      let revisedView: string | undefined
+      trackedPreviewFacts.set(revision, Object.freeze({
+        // The oracle compares candidates around `region` without these.
+        get original(): string {
+          original ??= whole('original')
+          return original
+        },
+        get revised(): string {
+          revised ??= whole('revised')
+          return revised
+        },
+        revisedView: () => {
+          revisedView ??= projectionSignature(projectRevision(revision, 'revised').ast.root)
+          return revisedView
+        },
+        region: Object.freeze({ base: previous, revision, ...replaced })
+      }))
+      return revision
+    }
+    return withSourceEditPreview(previous, edits, (products, source) => {
       const preview: DocumentRevision = Object.freeze({
         source,
         sourceLength: source.length,
@@ -4959,6 +5142,7 @@ function createDocumentCoreWithExecutionBudget(
       }))
       return preview
     })
+  }
 
   // Use the canonical region and the same admission parser as apply(). This
   // does not publish a revision or materialize a whole-document projection.
@@ -7323,6 +7507,7 @@ function createDocumentCoreWithExecutionBudget(
         documentPhysical.retainedFactOutputStructuralUnits
     })
   })
+  trackedRegionalReadings.set(core, trackedRegionalReading)
   // Projection text is not a revision of this core, so it reads on its own.
   trackedMarkdownSignatures.set(core, markdown => {
     const products = isolatedProducts(markdown, markdownOptions())
