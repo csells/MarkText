@@ -113,6 +113,30 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
   })
 
+  // Plan 0012 G35: an edit across the divider of a Substitution of one such
+  // block by another rewrites both blocks whole, which pair as before.
+  it.each([
+    { label: 'fenced code', substitution: '{~~```js\nconst a = 1\n```\n~>```js\nconst a = 2\n```\n~~}', from: '1\n```', to: 'const a = 2' },
+    { label: 'display math', substitution: '{~~$$\nx + y\n$$~>$$\nx + z\n$$~~}', from: 'y\n$$', to: 'x + z' }
+  ])('reads an edit across the divider of a Substitution of $label from its blocks', ({ substitution, from, to }) => {
+    const source = 'ordinary target\n\n' + substitution + '\n\n' + suffix + substitution + '\n'
+    const start = source.indexOf(from)
+    const end = source.indexOf(to, start) + to.length
+    const insert = source.slice(start, end).replace(/(.)$/u, 'q$1')
+    const core = createDocumentCore()
+    const revision = core.apply(core.open(source), [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
+    const shifted = { start: start + 1, end: end + 1 }
+    const before = inspectDocumentCore(core)
+    const result = core.apply(revision, [{ ...shifted, insert }], { projections: ['markup'] })
+    expect(result.change.projections[0]?.scope).toBe('regions')
+    expect(inspectDocumentCore(core).documentParses - before.documentParses).toBe(0)
+    const text = revision.source.slice(0, shifted.start) + insert + revision.source.slice(shifted.end)
+    const oracle = createDocumentCore()
+    const expected = oracle.open(text)
+    expect(result.revision.annotations).toEqual(expected.annotations)
+    expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
+  })
+
   // Plan 0012 G35: a fence's backtick runs pair with each other alone, so a
   // paragraph beside it that splits or joins is read from its blocks.
   it('reads a paragraph split beside a fence from its blocks', () => {

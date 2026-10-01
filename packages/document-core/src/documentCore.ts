@@ -2404,7 +2404,7 @@ function createDocumentCoreWithExecutionBudget(
   const inventoryMathReplacement = (state: RevisionState, edits: readonly DocumentSourceEdit[]): boolean => {
     const edit = edits.length === 1 ? edits[0] : undefined
     return edit !== undefined && state.kind === 'regional' && state.regionalInventory !== undefined &&
-      literalBlockReplacement(state.source, edit)?.kind === 'math'
+      literalBlockReplacement(state.source, edit, state.regionalInventory)?.kind === 'math'
   }
   const physicalRecorder = createPhysicalTraversalRecorderV1()
   const regionalPhysicalRecorder = createPhysicalTraversalRecorderV1()
@@ -5066,7 +5066,7 @@ function createDocumentCoreWithExecutionBudget(
     // `literalBlockReplacement`).
     if (source.requiresFragmentationRebase || editsMayRepairMath(state.source, source, stable, state.markdownOptions) &&
         !mathBlockSubstitution(state.source, stable, inventory) &&
-        !(stable.length === 1 && stable[0] !== undefined && literalBlockReplacement(state.source, stable[0])?.kind === 'math')) {
+        !(stable.length === 1 && stable[0] !== undefined && literalBlockReplacement(state.source, stable[0], inventory)?.kind === 'math')) {
       return undefined
     }
     // Nearby edits are one replacement of the text they span, as apply() reads them.
