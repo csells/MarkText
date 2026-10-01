@@ -41,6 +41,7 @@ import {
   applyRegionalInventory,
   createPlainRegionalInventory,
   createRegionalInventory,
+  literalBlockReplacement,
   materializeRegionalInventoryAnnotations,
   materializeRegionalInventoryAnnotationsAround,
   materializeRegionalInventoryAnnotationsIn,
@@ -2394,6 +2395,17 @@ function createDocumentCoreWithExecutionBudget(
     const proposed = edit.insert.slice(separator + 2, -3).replace(/[ \t\r\n]+$/u, '')
     return mathBlock(proposed)
   }
+  /**
+   * Whether the edits replace one closed math block whole in a revision
+   * only its inventory edits regionally: the inventory window that reads the
+   * edit proves its dollars pair within the blocks it writes (see
+   * `literalBlockReplacement`).
+   */
+  const inventoryMathReplacement = (state: RevisionState, edits: readonly DocumentSourceEdit[]): boolean => {
+    const edit = edits.length === 1 ? edits[0] : undefined
+    return edit !== undefined && state.kind === 'regional' && state.regionalInventory !== undefined &&
+      literalBlockReplacement(state.source, edit)?.kind === 'math'
+  }
   const physicalRecorder = createPhysicalTraversalRecorderV1()
   const regionalPhysicalRecorder = createPhysicalTraversalRecorderV1()
   const inspection: MutableDocumentCoreInspection = {
@@ -4164,7 +4176,8 @@ function createDocumentCoreWithExecutionBudget(
     } else if (source.requiresFragmentationRebase) {
       fallbackReason = 'source-fragmentation-rebase'
     } else if (editsMayRepairMath(previousState.source, source, stableEdits, resolvedOptions) &&
-      !mathBlockSubstitution(previousState.source, stableEdits, previousState.regionalInventory)) {
+      !mathBlockSubstitution(previousState.source, stableEdits, previousState.regionalInventory) &&
+      !inventoryMathReplacement(previousState, stableEdits)) {
       fallbackReason = 'structural-region-ineligible'
     }
     if (fallbackReason !== undefined) {
@@ -4960,10 +4973,9 @@ function createDocumentCoreWithExecutionBudget(
   }> | undefined => {
     const edits = Object.freeze([edit])
     const source = state.source.applyExact(edits, 'Authoring regional candidate')
-    if (editsMayRepairMath(state.source, source, edits, state.markdownOptions) &&
-        !mathBlockSubstitution(state.source, edits, state.regionalInventory)) {
-      return undefined
-    }
+    const repairsMath = editsMayRepairMath(state.source, source, edits, state.markdownOptions)
+    if (repairsMath && !mathBlockSubstitution(state.source, edits, state.regionalInventory) &&
+        !inventoryMathReplacement(state, edits)) return undefined
     if (state.regionalInventory !== undefined) {
       const candidate = previewRegionalInventory(
         state.regionalInventory, state.source, source, edits, [], executionBudget,
@@ -4972,6 +4984,8 @@ function createDocumentCoreWithExecutionBudget(
       if (candidate.kind === 'resource-failure') throw documentCoreError(candidate.fatalDiagnostic)
       if (candidate.kind === 'validated') return candidate
     }
+    // Only the inventory window proves where a math block's dollars pair.
+    if (repairsMath) return undefined
     if (state.criticMarkupIndex !== undefined) {
       const candidate = admitCriticMarkupRegionalChange(
         state.source, source, state.criticMarkupIndex, edits, executionBudget,
