@@ -91,6 +91,23 @@ describe('tracked keys in a literal block', () => {
     expect(session.revision.source.slice(next.range.start, next.range.end)).toBe('```js\nconst a = 1\nconst x\nb = 2\n```\n')
   })
 
+  // Math blocks' dollars pair across the document, which a window cannot
+  // prove, and an HTML block's text may take a suggestion of its own.
+  it.each([['fence', blocks.fence], ['indented', blocks.indented]])('suggests replacing a long %s without a document parse', (_name, block) => {
+    const lines = Array.from({ length: 400 }, (_, index) => `const value${index} = compute(${index})`)
+    const opening = 'Opening paragraph.\n\n' + Array.from({ length: 200 }, (_, index) => `Paragraph ${index} of the long document.`).join('\n\n')
+    const source = `${opening}\n\n${block(lines)}\n\nClosing paragraph.\n`
+    const core = createDocumentCore()
+    const session: Session = { core, revision: core.open(source), caret: source.indexOf('value200 =') }
+    const first = press(session, { inputType: 'insertText', data: 'x' })
+    expect(first.parses).toBe(0)
+    expect(first.scope).toBe('regions')
+    const substitution = session.revision.annotations[0]
+    if (substitution?.kind !== 'substitution') throw new Error('Expected a Substitution')
+    // The Substitution's two blocks, and none of the paragraphs before them.
+    expect(first.regionUnits).toBeLessThanOrEqual(4 * (substitution.range.end - substitution.range.start))
+  })
+
   it.each(Object.entries(blocks))('reparses only the Substitution of a long %s for each later key', (_name, block) => {
     const lines = Array.from({ length: 400 }, (_, index) => `const value${index} = compute(${index})`)
     const opening = 'Opening paragraph.\n\n' + Array.from({ length: 200 }, (_, index) => `Paragraph ${index} of the long document.`).join('\n\n')

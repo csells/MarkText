@@ -129,8 +129,9 @@ function composedShape(previous: MarkupProjection, replacement: MarkupRegionRepl
   if (lines !== undefined) {
     // Lines replaced inside a literal block: its other lines stay, its end
     // moves with the edit, and later blocks shift.
+    // Lines holding the opener start at its line, before an indented opener.
     const block = previous.syntax.ast.root.children.find(node => literalKinds.has(node.kind) &&
-      node.range.start <= replacement.previous.syntax.start && replacement.previous.syntax.start < node.range.end)
+      node.range.start < replacement.previous.syntax.end && replacement.previous.syntax.start < node.range.end)
     if (block === undefined) throw new Error('A literal lines replacement has no block')
     const shape = (node: { kind: string, range: SourceRange }, shift = 0) =>
       ({ kind: node.kind, start: node.range.start + shift, end: node.range.end + shift })
@@ -139,11 +140,9 @@ function composedShape(previous: MarkupProjection, replacement: MarkupRegionRepl
       ...replacement.syntaxBlocks.map(node => shape(node)),
       ...block.children.slice(lines.childrenBefore + lines.previousChildren).map(node => shape(node, delta))
     ]
-    return blockShape(previous).map(node => node.end < replacement.previous.syntax.start
-      ? node
-      : node.start > replacement.previous.syntax.start
-        ? shifted(node, delta)
-        : { kind: node.kind, start: node.start, end: node.end + delta, children })
+    return blockShape(previous).map(node => node.start === block.range.start
+      ? { kind: node.kind, start: node.start, end: node.end + delta, children }
+      : node.start < block.range.start ? node : shifted(node, delta))
   }
   const items = replacement.listItems
   if (items !== undefined) {
@@ -258,7 +257,10 @@ describe('structural regional edits read as a fresh open', () => {
   it.each([...Array.from({ length: 16 }, (_, seed) => seed + 1), 18, 20, 35, 315])('wide seed %i', seed => {
     fuzz(seed, wideBlocks, wideInsertions)
   })
-  it.each(Array.from({ length: 24 }, (_, seed) => seed + 1))('literal seed %i', seed => {
+  // MARKTEXT_LITERAL_FUZZ_SEEDS and _FIRST run a longer stretch, as 720 seeds.
+  const literalSeeds = Number(process.env.MARKTEXT_LITERAL_FUZZ_SEEDS ?? 24)
+  const firstLiteralSeed = Number(process.env.MARKTEXT_LITERAL_FUZZ_FIRST ?? 1)
+  it.each(Array.from({ length: literalSeeds }, (_, index) => firstLiteralSeed + index))('literal seed %i', seed => {
     fuzz(seed, literalBlocks, literalInsertions)
   })
 

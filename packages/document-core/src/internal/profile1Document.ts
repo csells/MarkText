@@ -4875,6 +4875,7 @@ interface WindowParse {
   readonly endsAtDocumentEnd: boolean
   readonly documentHasAnnotations: boolean
   readonly startsAfterOneEmptyLine: boolean
+  readonly endsAtBlockStart: boolean
   readonly result: Profile1DocumentResult
 }
 
@@ -4892,6 +4893,13 @@ export const windowsNotAfterOneEmptyLine = new WeakSet<Profile1DocumentProducts>
  * does not split into leaves there.
  */
 export const windowsBeforeDocumentEnd = new WeakSet<Profile1DocumentProducts>()
+
+/**
+ * Window parses that end where a block starts in the document, other than
+ * an empty paragraph, so the blank text ending the window parts its last
+ * block from that one.
+ */
+export const windowsEndingAtBlockStart = new WeakSet<Profile1DocumentProducts>()
 
 const WINDOW_PARSES_RETAINED = 8
 const WINDOW_PARSE_RETAINED_UNITS = 1 << 16
@@ -4922,7 +4930,8 @@ export function parseProfile1Window(
   physicalRecorder: Profile1PhysicalTraversalRecorderV1,
   endsAtDocumentEnd: boolean,
   documentHasAnnotations: boolean = false,
-  startsAfterOneEmptyLine: boolean = true
+  startsAfterOneEmptyLine: boolean = true,
+  endsAtBlockStart: boolean = false
 ): Profile1DocumentResult {
   const retained = [...windowParses, ...(largeWindowParse === undefined ? [] : [largeWindowParse])].find(parse =>
     parse.source === source &&
@@ -4932,6 +4941,7 @@ export function parseProfile1Window(
     parse.endsAtDocumentEnd === endsAtDocumentEnd &&
     parse.documentHasAnnotations === documentHasAnnotations &&
     parse.startsAfterOneEmptyLine === startsAfterOneEmptyLine &&
+    parse.endsAtBlockStart === endsAtBlockStart &&
     sameMarkdownOptions(parse.markdownOptions, markdownOptions))
   if (retained !== undefined) return retained.result
   const result = parseProfile1Document(
@@ -4941,6 +4951,7 @@ export function parseProfile1Window(
   )
   if (!startsAfterOneEmptyLine && result.kind === 'complete') windowsNotAfterOneEmptyLine.add(result)
   if (!endsAtDocumentEnd && result.kind === 'complete') windowsBeforeDocumentEnd.add(result)
+  if (endsAtBlockStart && result.kind === 'complete') windowsEndingAtBlockStart.add(result)
   if (source.length > WINDOW_PARSE_RETAINED_UNITS) {
     largeWindowParse = Object.freeze({
       source,
@@ -4951,6 +4962,7 @@ export function parseProfile1Window(
       endsAtDocumentEnd,
       documentHasAnnotations,
       startsAfterOneEmptyLine,
+      endsAtBlockStart,
       result
     })
   } else {
@@ -4963,6 +4975,7 @@ export function parseProfile1Window(
       endsAtDocumentEnd,
       documentHasAnnotations,
       startsAfterOneEmptyLine,
+      endsAtBlockStart,
       result
     }))
     windowParses.length = Math.min(windowParses.length, WINDOW_PARSES_RETAINED)
