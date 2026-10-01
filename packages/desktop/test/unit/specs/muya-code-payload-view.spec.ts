@@ -82,3 +82,37 @@ for (const eol of ['\n', '\r\n', '\r']) {
     })
   })
 }
+
+// An HTML block indented past its list item or quote once opened with its
+// text outside the block's range, which no view could map.
+it('opens literal blocks indented past their container', () => {
+  const blocks: Record<string, readonly string[]> = {
+    html: ['<div>', 'html 0', 'html 1', '</div>'],
+    comment: ['<!--', 'comment 0', '-->'],
+    fence: ['```js', 'code 0', '```'],
+    math: ['$$', 'x 0', '$$']
+  }
+  const containers: readonly ((lines: readonly string[], pad: string) => string)[] = [
+    (lines, pad) => '- item\n' + lines.map((line) => `  ${pad}${line}`).join('\n'),
+    (lines, pad) => '- item\n' + lines.map((line, index) => `${index === 0 ? '  ' : ''}${pad}${line}`).join('\n'),
+    (lines, pad) => '1. item\n' + lines.map((line) => `   ${pad}${line}`).join('\n'),
+    (lines, pad) => lines.map((line) => `>${pad}${line}`).join('\n'),
+    (lines, pad) => '- item\n' + lines.map((line) => `  > ${pad}${line}`).join('\n'),
+    (lines, pad) => '- a\n  - b\n' + lines.map((line) => `    ${pad}${line}`).join('\n')
+  ]
+  for (const lines of Object.values(blocks)) {
+    for (const container of containers) {
+      for (const pad of ['', ' ', '  ', '   ', '\t', ' \t']) {
+        const source = `Intro.\n\n${container(lines, pad)}\n\nAfter.\n`
+        const core = createDocumentCore()
+        const revision = core.open(source)
+        expect(() => createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, source), source)
+          .not.toThrow()
+      }
+    }
+  }
+  const source = '- alpha one\n- beta tw\no\n- gamma three\n- delta four\n   <div>\nhtml 0\nhtml 1\nhtml 2\nhtml 3\nhtml 4\n</div>\n\n    indented code\n'
+  const core = createDocumentCore()
+  const revision = core.open(source)
+  expect(() => createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, source)).not.toThrow()
+})
