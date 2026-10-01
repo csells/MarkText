@@ -105,3 +105,54 @@ describe('HTML blocks opened on a list item marker line (CommonMark 0.31.2 §4.6
     expect(commit.revision.annotations).toEqual(fresh.revision.annotations)
   })
 })
+
+describe('HTML blocks indented past their container', () => {
+  // CommonMark 0.31.2 §4.6: an HTML block's lines keep their indentation
+  // past the container's, so its first line's text starts at that
+  // indentation, and the block starts with its text.
+  it('starts the block at its first line\'s indentation in a list item', () => {
+    const core = createDocumentCore()
+    const revision = core.open('- delta four\n   <div>\nhtml 0\n</div>\n')
+    const item = core.project(revision, 'markup').syntax.ast.root.children[0]?.children[0] as Node | undefined
+    const html = item?.children[1]
+    expect(html?.kind).toBe('html-block')
+    expect(html?.range.start).toBe(15)
+    expect(html?.children[0]?.range).toEqual({ start: 15, end: 21 })
+  })
+
+  const literal: Record<string, readonly string[]> = {
+    html: ['<div>', 'html 0', '</div>'],
+    comment: ['<!--', 'comment 0', '-->'],
+    fence: ['```js', 'code 0', '```'],
+    math: ['$$', 'x 0', '$$']
+  }
+  const containers: Record<string, (lines: readonly string[], pad: string) => string> = {
+    'list item': (lines, pad) => '- item\n' + lines.map(line => `  ${pad}${line}`).join('\n'),
+    'lazy list item': (lines, pad) => '- item\n' + lines.map((line, index) => `${index === 0 ? '  ' : ''}${pad}${line}`).join('\n'),
+    'ordered item': (lines, pad) => '1. item\n' + lines.map(line => `   ${pad}${line}`).join('\n'),
+    quote: (lines, pad) => lines.map(line => `>${pad}${line}`).join('\n'),
+    'list item in a quote': (lines, pad) => '> - item\n' + lines.map(line => `>   ${pad}${line}`).join('\n'),
+    'quote in a list item': (lines, pad) => '- item\n' + lines.map(line => `  > ${pad}${line}`).join('\n'),
+    'nested list item': (lines, pad) => '- a\n  - b\n' + lines.map(line => `    ${pad}${line}`).join('\n')
+  }
+  const within = (node: Node, label: string): void => {
+    for (const child of node.children) {
+      expect(child.range.start, label).toBeGreaterThanOrEqual(node.range.start)
+      expect(child.range.end, label).toBeLessThanOrEqual(node.range.end)
+      within(child, label)
+    }
+  }
+  it.each(Object.keys(containers))('keeps every literal block\'s text within it in a %s', container => {
+    for (const [kind, lines] of Object.entries(literal)) {
+      for (const pad of ['', ' ', '  ', '   ', '\t', ' \t']) {
+        const source = `Intro.\n\n${containers[container]!(lines, pad)}\n\nAfter.\n`
+        const core = createDocumentCore()
+        const revision = core.open(source)
+        const label = `${kind} ${JSON.stringify(source)}`
+        within(core.project(revision, 'markup').syntax.ast.root as Node, label)
+        within(core.project(revision, 'revised').ast.root as Node, label)
+        within(core.project(revision, 'original').ast.root as Node, label)
+      }
+    }
+  })
+})
