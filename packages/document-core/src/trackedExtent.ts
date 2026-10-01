@@ -13,10 +13,42 @@ export interface TrackedProjectionFacts {
   readonly revised: string
   /** Revised view identity of the candidate itself, read from the same parse. */
   readonly revisedView: () => string
+  /**
+   * For a candidate read regionally from `base`: it replaced `base`'s source
+   * `[start, end)` with its own `[start, nextEnd)`, and reads as `base` does
+   * everywhere else, so the oracle compares candidates there alone.
+   */
+  readonly region?: TrackedPreviewRegion
+}
+
+export interface TrackedPreviewRegion {
+  readonly base: DocumentRevision
+  readonly revision: DocumentRevision
+  readonly start: number
+  readonly end: number
+  readonly nextEnd: number
 }
 
 /** The document core registers the projection facts of each authoring preview. */
 export const trackedPreviewFacts = new WeakMap<DocumentRevision, TrackedProjectionFacts>()
+
+/**
+ * A revision's reading of a source range without a document parse: the text
+ * the range projects to in Original and Revised, as `projectAround` spans it,
+ * and the Revised view identity of the blocks read for it with their source.
+ */
+export interface TrackedRegionalReading {
+  readonly original: string
+  readonly revised: string
+  readonly window: SourceRange
+  readonly view: () => string
+}
+
+/** The document core reads ranges of its revisions regionally, or not at all (undefined). */
+export const trackedRegionalReadings = new WeakMap<
+  DocumentCore,
+  (revision: DocumentRevision, range: SourceRange) => TrackedRegionalReading | undefined
+>()
 
 /** Revised view identity of Markdown text such as a projection: its tree without spelling or offsets. */
 export const trackedMarkdownSignatures = new WeakMap<DocumentCore, (markdown: string) => string>()
@@ -111,7 +143,11 @@ export function createTrackedOracle(
   const target = cachedPreview(untracked)
   const targetFacts = trackedPreviewFacts.get(revisedTarget === untracked ? target : cachedPreview(revisedTarget))
   if (targetFacts === undefined) return undefined
-  const original = core.project(previous, 'original').markdown
+  let originalMarkdown: string | undefined
+  const original = (): string => {
+    originalMarkdown ??= core.project(previous, 'original').markdown
+    return originalMarkdown
+  }
   const parse = trackedMarkdownSignatures.get(core)
   const signatures = new Map<string, string>()
   const signature = (markdown: string): string | undefined => {
@@ -123,8 +159,17 @@ export function createTrackedOracle(
     }
     return result
   }
+  const regional = regionalComparisons(core, previous)
   const previousSource = core.sourceSlice(previous, { start: 0, end: previous.sourceLength })
-  const targetView = trackedPreviewFacts.get(target)?.revisedView()
+  const viewFacts = trackedPreviewFacts.get(target)
+  let targetView: string | undefined
+  const sameView = (facts: TrackedProjectionFacts): boolean => {
+    if (viewFacts === undefined) return false
+    const compared = regional.sameView(facts, viewFacts)
+    if (compared !== undefined) return compared
+    targetView ??= viewFacts.revisedView()
+    return facts.revisedView() === targetView
+  }
   const accepts = (edits: readonly DocumentSourceEdit[], equivalence: TrackedEquivalence): boolean => {
     const candidate = cachedPreview(edits)
     const facts = trackedPreviewFacts.get(candidate)
@@ -133,14 +178,19 @@ export function createTrackedOracle(
     // Resolution splices arm bytes, while a projection may also materialize the
     // closing fence of a literal an arm boundary ended (L2c). That projection
     // must still read as the untracked result.
-    if (equivalence === 'exact' && (facts.revised !== targetFacts.revised || facts.original !== original) &&
-        !(authored.length > 0 && resolveAuthored(candidate.source, authored, 'accept') === target.source &&
+    if (equivalence === 'exact' &&
+        !(regional.same(facts, targetFacts, 'revised') ?? facts.revised === targetFacts.revised) ||
+        equivalence === 'exact' &&
+        !(regional.sameAsPrevious(facts, 'original') ?? facts.original === original())) {
+      if (!(authored.length > 0 && resolveAuthored(candidate.source, authored, 'accept') === target.source &&
           resolveAuthored(candidate.source, authored, 'reject') === previousSource &&
-          signature(facts.revised) === targetView && signature(facts.original) === signature(original))) return false
+          viewFacts !== undefined && signature(facts.revised) === (targetView ??= viewFacts.revisedView()) &&
+          signature(facts.original) === signature(original()))) return false
+    }
     // Equal materialized text can still mean something else inside an arm
     // (an arm-local literal or definition): the Revised view must agree too.
-    if (facts.revisedView() !== targetView) return false
-    if (equivalence === 'rendering' && signature(facts.original) !== signature(original)) return false
+    if (!sameView(facts)) return false
+    if (equivalence === 'rendering' && signature(facts.original) !== signature(original())) return false
     // Resolving each authored suggestion alone is a whole preview apiece,
     // several per candidate, so a candidate is resolved only once every
     // check above has accepted it.
@@ -149,9 +199,71 @@ export function createTrackedOracle(
   return Object.freeze({
     untracked,
     untrackedSource: target.source,
-    revisesVisibleText: targetFacts.revised !== core.project(previous, 'revised').markdown,
+    revisesVisibleText: !(regional.sameAsPrevious(targetFacts, 'revised') ??
+      targetFacts.revised === core.project(previous, 'revised').markdown),
     accepts,
     preview: cachedPreview
+  })
+}
+
+/**
+ * Projections of candidates read regionally from one revision, compared
+ * where they can differ: each reads as that revision outside the source it
+ * replaced, so two read alike where their readings of the source either
+ * replaced agree. Undefined where a reading needs the whole projection.
+ */
+function regionalComparisons(core: DocumentCore, previous: DocumentRevision): Readonly<{
+  same: (left: TrackedProjectionFacts, right: TrackedProjectionFacts, name: 'original' | 'revised') => boolean | undefined
+  sameAsPrevious: (facts: TrackedProjectionFacts, name: 'original' | 'revised') => boolean | undefined
+  sameView: (left: TrackedProjectionFacts, right: TrackedProjectionFacts) => boolean | undefined
+}> {
+  const read = trackedRegionalReadings.get(core)
+  // `span` in the base revision's source, read in the candidate's.
+  const readIn = (region: TrackedPreviewRegion, span: SourceRange): TrackedRegionalReading | undefined =>
+    read?.(region.revision, { start: span.start, end: span.end + region.nextEnd - region.end })
+  const pair = (left: TrackedProjectionFacts, right: TrackedProjectionFacts): readonly [TrackedPreviewRegion, TrackedPreviewRegion] | undefined => {
+    const a = left.region
+    const b = right.region
+    return a === undefined || b === undefined || a.base !== previous || b.base !== previous ? undefined : [a, b]
+  }
+  const union = (a: SourceRange, b: SourceRange): SourceRange => ({ start: Math.min(a.start, b.start), end: Math.max(a.end, b.end) })
+  return Object.freeze({
+    same: (left, right, name) => {
+      const regions = pair(left, right)
+      if (regions === undefined) return undefined
+      if (regions[0].revision === regions[1].revision) return true
+      const span = union(regions[0], regions[1])
+      const a = readIn(regions[0], span)
+      const b = a === undefined ? undefined : readIn(regions[1], span)
+      return a === undefined || b === undefined ? undefined : a[name] === b[name]
+    },
+    sameAsPrevious: (facts, name) => {
+      const region = facts.region
+      if (region === undefined || region.base !== previous || read === undefined) return undefined
+      const a = readIn(region, region)
+      const b = a === undefined ? undefined : read(previous, region)
+      return a === undefined || b === undefined ? undefined : a[name] === b[name]
+    },
+    // The blocks read for each candidate stand for its whole view where both
+    // were read from the same source of the base revision.
+    sameView: (left, right) => {
+      const regions = pair(left, right)
+      if (regions === undefined) return undefined
+      if (regions[0].revision === regions[1].revision) return true
+      let span = union(regions[0], regions[1])
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const a = readIn(regions[0], span)
+        const b = a === undefined ? undefined : readIn(regions[1], span)
+        if (a === undefined || b === undefined) return undefined
+        const inBase = (window: SourceRange, region: TrackedPreviewRegion): SourceRange =>
+          ({ start: window.start, end: window.end - region.nextEnd + region.end })
+        const windowA = inBase(a.window, regions[0])
+        const windowB = inBase(b.window, regions[1])
+        if (windowA.start === windowB.start && windowA.end === windowB.end) return a.view() === b.view()
+        span = union(windowA, windowB)
+      }
+      return undefined
+    }
   })
 }
 
