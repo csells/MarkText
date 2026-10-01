@@ -3319,7 +3319,10 @@ function leafRange(
  * so such an edit stays regional there but no longer proves later markers.
  */
 function editChangesLiteralPairing(source: CanonicalSourceView, edit: RetainedPassSourceEdit): boolean {
-  return /[`$\\]/u.test(edit.insert) ||
+  // A backslash the edit inserts escapes only the character after it: one of
+  // the insert's, which spells no run, or the one after the edit, which the
+  // source test covers.
+  return /[`$]/u.test(edit.insert) ||
     /[`$\\]/u.test(source.slice(Math.max(0, edit.start - 1), Math.min(source.length, edit.end + 1)))
 }
 
@@ -3396,8 +3399,16 @@ const MARKER_CLOSER: Readonly<Record<string, string>> = Object.freeze({
  */
 function balancedInsertion(previousSource: CanonicalSourceView, edit: RetainedPassSourceEdit): boolean {
   if (markerSpellings(previousSource.slice(edit.start, edit.end)) !== 0 || overlappingSpellings(edit.insert)) return false
+  // Nothing outside the insert spells a marker with it or protects one of
+  // its spellings, and it protects none after it.
+  const before = previousSource.slice(Math.max(0, edit.start - 2), edit.start)
+  const after = previousSource.slice(edit.end, Math.min(previousSource.length, edit.end + 2))
+  const joined = before + edit.insert + after
+  if (before.endsWith('\\') || protectedSpelling(joined, joined.length - after.length) ||
+      markerSpellings(joined) !== markerSpellings(before) + markerSpellings(edit.insert) + markerSpellings(after)) return false
   const open: string[] = []
   for (const match of edit.insert.matchAll(MARKER_SPELLING)) {
+    if (protectedSpelling(edit.insert, match.index)) continue
     const spelling = match[1] ?? ''
     const closer = MARKER_CLOSER[spelling]
     if (closer !== undefined) open.push(closer)
@@ -3406,6 +3417,31 @@ function balancedInsertion(previousSource: CanonicalSourceView, edit: RetainedPa
     } else if (open.pop() !== spelling) return false
   }
   return open.length === 0
+}
+
+/**
+ * Whether `products` read every spelling of `text` no backslash protects as
+ * a marker, but for those inside a literal, which read as its text, and
+ * read no other marker.
+ */
+function spellingsDecided(products: Profile1DocumentProducts, text: string): boolean {
+  const decided = new Set((products.retainedIntrinsic?.markerDecisions ?? []).map(decision => Number(decision.range.start)))
+  const literals = products.retainedIntrinsic?.markdownLiterals ?? []
+  const spellings = unprotectedSpellings(text)
+  return [...decided].every(offset => spellings.includes(offset)) && spellings.every(offset => decided.has(offset) ||
+    literals.some(literal => literal.start <= offset && offset < literal.end))
+}
+
+/** Whether an odd run of backslashes ends at `offset`, protecting a spelling there as text. */
+function protectedSpelling(text: string, offset: number): boolean {
+  let backslashes = 0
+  while (offset - backslashes > 0 && text.charCodeAt(offset - backslashes - 1) === 92) backslashes += 1
+  return backslashes % 2 === 1
+}
+
+/** Positions of the spellings of `text` no backslash protects. */
+function unprotectedSpellings(text: string): number[] {
+  return [...text.matchAll(MARKER_SPELLING)].map(match => match.index).filter(offset => !protectedSpelling(text, offset))
 }
 
 /** Positions where a CriticMarkup marker is spelled, overlapping spellings each counted. */
@@ -3490,12 +3526,15 @@ function evaluateBlockWindow(
   const touchesMarkers = /[{}]/u.test(edit.insert + previousSource.slice(edit.start, edit.end))
   const markersProvable = inventory.markerFree || touchesMarkers && (() => {
     const previousText = previousSource.slice(0, previousSource.length)
-    if (/[`$\\]/u.test(edit.insert)) return false
+    if (/[`$]/u.test(edit.insert)) return false
     // A whole new suggestion pairs only with itself where every other marker
     // pairs or reads literally: backtick and dollar runs elsewhere keep their
-    // pairing, and the window must read every spelling it holds as a marker
+    // pairing, spellings a backslash protects read as text wherever they are,
+    // and the window must read every other spelling it holds as a marker
     // (checked once it is parsed).
-    if (/[`$\\]/u.test(previousText)) return !inventory.strayMarkers && balancedInsertion(previousSource, edit)
+    if (/[`$\\]/u.test(previousText) || edit.insert.includes('\\')) {
+      return !inventory.strayMarkers && balancedInsertion(previousSource, edit)
+    }
     if (inventory.strayMarkers) return true
     let recognized = 0
     for (const leaf of leavesOf(inventory.root)) if (leaf.kind === 'region') recognized += leaf.markers.length
@@ -4154,7 +4193,7 @@ function admitBlockWindow(
   const facts = blockWindowFacts(result, nextWindow, inventory.recorder, inventory.strayMarkers, true)
   if (facts === undefined) return undefined
   if (markersProvable && !inventory.markerFree && !inventory.strayMarkers &&
-      markerSpellings(nextWindow) !== (result.retainedIntrinsic?.markerDecisions.length ?? 0)) return undefined
+      !spellingsDecided(result, nextWindow)) return undefined
   if (inventory.strayMarkers) {
     const previousDiagnostics: DiagnosticCapsule[] = []
     for (const located of leafRange(inventory.root, first.ordinal, last.ordinal)) {
