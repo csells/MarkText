@@ -1298,8 +1298,10 @@ describe('document-core semantic changes', () => {
       }
     ])
     expect(commit.revision.diagnostics.length).toBeGreaterThan(0)
+    // The typed opener is a marker spelling, which can pair beyond its
+    // leaf, so the leaf is not even parsed alone.
     expect(delta(after, before, 'regionalInventoryCandidateRegionParses'))
-      .toBe(1)
+      .toBe(0)
     expect(delta(after, before, 'regionalInventoryRootsAttempted')).toBe(0)
     expect(delta(after, before, 'regionalInventoryRootsCommitted')).toBe(0)
   })

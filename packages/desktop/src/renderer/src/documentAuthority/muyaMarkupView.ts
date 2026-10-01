@@ -1029,17 +1029,6 @@ export function createMuyaMarkupView(
     }
     return path[0] === projection.syntax.ast.root ? path : []
   }
-  /** The first of `nodes`, in source order, that ends after `position`. */
-  const firstEndingAfter = (nodes: readonly MarkdownAstNode[], position: number): number => {
-    let low = 0
-    let high = nodes.length
-    while (low < high) {
-      const middle = (low + high) >> 1
-      if (nodes[middle].range.end > position) high = middle
-      else low = middle + 1
-    }
-    return low
-  }
   /**
    * Whether the parser gives the source line only to the block's own
    * containers — their quote and list markers — and to no other block.
@@ -1054,7 +1043,7 @@ export function createMuyaMarkupView(
     const occupiedByOther = (node: MarkdownAstNode): boolean => {
       if (!ancestors.has(node)) return onLine(node)
       // Children are in source order; an empty child at `from` ends there.
-      for (let index = firstEndingAfter(node.children, from - 1); index < node.children.length; index += 1) {
+      for (let index = firstNodeEndingAfter(node.children, from - 1); index < node.children.length; index += 1) {
         const child = node.children[index]
         if (child.range.start > to) break
         if (occupiedByOther(child)) return true
@@ -1259,74 +1248,9 @@ export function createMuyaMarkupView(
       }
     })
   )
-  const whitespaceBefore = (position: number): MuyaCaretSnap | undefined => {
-    let from = position
-    while (from > 0 && (sourceCharacter(from - 1) === ' ' || sourceCharacter(from - 1) === '\t')) {
-      from -= 1
-    }
-    return from < position ? { from, to: position, at: position } : undefined
-  }
-  /**
-   * A later line's container prefix, shown at that line's start: the source
-   * the parser leaves between the line break and the block's next inline node.
-   */
   const leavesOf = new Map<MarkdownAstNode, readonly MarkdownAstNode[]>()
-  const prefixAfter = (block: MarkdownAstNode, lineStart: number): MuyaCaretSnap | undefined => {
-    let leaves = leavesOf.get(block)
-    if (leaves === undefined) {
-      const collected: MarkdownAstNode[] = []
-      const collect = (node: MarkdownAstNode) => {
-        if (node.children.length === 0) collected.push(node)
-        else node.children.forEach(collect)
-      }
-      block.children.forEach(collect)
-      leaves = collected
-      leavesOf.set(block, leaves)
-    }
-    const projected = projection.syntax.coordinates.toProjected(lineStart, 'next')
-    // An empty text node marks where an empty line's text would begin.
-    let index = firstEndingAfter(leaves, projected - 1)
-    while (index < leaves.length && leaves[index].range.start < projected && leaves[index].range.end === projected) {
-      index += 1
-    }
-    const next = leaves[index]
-    const textStart = Math.min(next?.range.start ?? block.range.end, block.range.end)
-    let end = projection.syntax.coordinates.toSource(Math.max(projected, textStart), 'previous')
-    // A prefix never continues past its own line.
-    for (let position = lineStart; position < end; position += 1) {
-      if (sourceCharacter(position) === '\n' || sourceCharacter(position) === '\r') end = position
-    }
-    return end > lineStart ? { from: lineStart + 1, to: end + 1, at: lineStart } : undefined
-  }
   const bindings = unsnappedBindings.map((binding): MuyaMarkupBinding => {
-    const lineBreaks = [...binding.text.matchAll(/\r\n|\r|\n/gu)]
-    // Each later line's text starts after its container continuation.
-    const lineStarts = lineBreaks.flatMap((match) => {
-      const offset = match.index + match[0].length
-      const segment = segmentHolding(binding.segments, offset, false)
-      return segment === undefined ? [] : [segment.source.start + offset - segment.text.start]
-    })
-    // The source just after each line break, before that line's prefix.
-    const lineBreakEnds = lineBreaks.flatMap((match) => {
-      const offset = match.index + match[0].length
-      const segment = segmentHolding(binding.segments, offset, true)
-      return segment === undefined ||
-        segment.source.end - segment.source.start !== segment.text.end - segment.text.start
-        ? []
-        : [segment.source.start + offset - segment.text.start]
-    })
-    const inSegment = sourceCover(binding.segments)
-    const snaps = [
-      ...[
-        binding.sourceRange.start,
-        ...lineStarts,
-        binding.trailingLinePosition,
-        binding.leadingLinePosition
-      ].flatMap((position) => (position === undefined ? [] : [whitespaceBefore(position)])),
-      ...lineBreakEnds
-        .filter((position) => !inSegment(position))
-        .map((position) => prefixAfter(binding.syntax, position))
-    ].filter((snap): snap is MuyaCaretSnap => snap !== undefined)
+    const snaps = muyaCaretSnaps(binding, sourceCharacter, projection.syntax.coordinates, leavesOf)
     return snaps.length === 0 ? binding : { ...binding, caretSnaps: snaps }
   })
   // Each editable widget field is a typed binding to its parser-owned value.
@@ -1582,4 +1506,96 @@ export function createMuyaMarkupView(
     decorations,
     comments
   }
+}
+
+/** The first of `nodes`, in source order, that ends after `position`. */
+function firstNodeEndingAfter(nodes: readonly MarkdownAstNode[], position: number): number {
+  let low = 0
+  let high = nodes.length
+  while (low < high) {
+    const middle = (low + high) >> 1
+    if (nodes[middle].range.end > position) high = middle
+    else low = middle + 1
+  }
+  return low
+}
+
+/**
+ * A binding's caret snaps (see `MuyaMarkupBinding.caretSnaps`), read from the
+ * source by `sourceCharacter`. With `lineStarts`, only the lines starting at
+ * those text offsets are read, which is all a patch of some lines of a
+ * literal block needs; `leavesOf` caches each block's leaves.
+ */
+export function muyaCaretSnaps(
+  binding: MuyaMarkupBinding,
+  sourceCharacter: (offset: number) => string,
+  coordinates: MarkupProjection['syntax']['coordinates'],
+  leavesOf: Map<MarkdownAstNode, readonly MarkdownAstNode[]>,
+  lineStartsWithin?: SourceRange
+): MuyaCaretSnap[] {
+  const whitespaceBefore = (position: number): MuyaCaretSnap | undefined => {
+    let from = position
+    while (from > 0 && (sourceCharacter(from - 1) === ' ' || sourceCharacter(from - 1) === '\t')) {
+      from -= 1
+    }
+    return from < position ? { from, to: position, at: position } : undefined
+  }
+  /**
+   * A later line's container prefix, shown at that line's start: the source
+   * the parser leaves between the line break and the block's next inline node.
+   */
+  const prefixAfter = (block: MarkdownAstNode, lineStart: number): MuyaCaretSnap | undefined => {
+    let leaves = leavesOf.get(block)
+    if (leaves === undefined) {
+      const collected: MarkdownAstNode[] = []
+      const collect = (node: MarkdownAstNode) => {
+        if (node.children.length === 0) collected.push(node)
+        else node.children.forEach(collect)
+      }
+      block.children.forEach(collect)
+      leaves = collected
+      leavesOf.set(block, leaves)
+    }
+    const projected = coordinates.toProjected(lineStart, 'next')
+    // An empty text node marks where an empty line's text would begin.
+    let index = firstNodeEndingAfter(leaves, projected - 1)
+    while (index < leaves.length && leaves[index].range.start < projected && leaves[index].range.end === projected) {
+      index += 1
+    }
+    const next = leaves[index]
+    const textStart = Math.min(next?.range.start ?? block.range.end, block.range.end)
+    let end = coordinates.toSource(Math.max(projected, textStart), 'previous')
+    // A prefix never continues past its own line.
+    for (let position = lineStart; position < end; position += 1) {
+      if (sourceCharacter(position) === '\n' || sourceCharacter(position) === '\r') end = position
+    }
+    return end > lineStart ? { from: lineStart + 1, to: end + 1, at: lineStart } : undefined
+  }
+  const lineBreaks = [...binding.text.matchAll(/\r\n|\r|\n/gu)].filter((match) => lineStartsWithin === undefined ||
+    match.index + match[0].length >= lineStartsWithin.start && match.index + match[0].length < lineStartsWithin.end)
+  // Each later line's text starts after its container continuation.
+  const lineStarts = lineBreaks.flatMap((match) => {
+    const offset = match.index + match[0].length
+    const segment = segmentHolding(binding.segments, offset, false)
+    return segment === undefined ? [] : [segment.source.start + offset - segment.text.start]
+  })
+  // The source just after each line break, before that line's prefix.
+  const lineBreakEnds = lineBreaks.flatMap((match) => {
+    const offset = match.index + match[0].length
+    const segment = segmentHolding(binding.segments, offset, true)
+    return segment === undefined ||
+      segment.source.end - segment.source.start !== segment.text.end - segment.text.start
+      ? []
+      : [segment.source.start + offset - segment.text.start]
+  })
+  const inSegment = sourceCover(binding.segments)
+  const bounds = lineStartsWithin === undefined
+    ? [binding.sourceRange.start, ...lineStarts, binding.trailingLinePosition, binding.leadingLinePosition]
+    : lineStartsWithin.start === 0 ? [binding.sourceRange.start, ...lineStarts] : lineStarts
+  return [
+    ...bounds.flatMap((position) => (position === undefined ? [] : [whitespaceBefore(position)])),
+    ...lineBreakEnds
+      .filter((position) => !inSegment(position))
+      .map((position) => prefixAfter(binding.syntax, position))
+  ].filter((snap): snap is MuyaCaretSnap => snap !== undefined)
 }

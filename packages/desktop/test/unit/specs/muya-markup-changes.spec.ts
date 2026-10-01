@@ -296,6 +296,22 @@ describe('Regional Markup view patches', () => {
     expect(actual).toEqual(expected)
   })
 
+  it.each([
+    ['fence', (lines: string) => `\`\`\`js\n${lines}\n\`\`\``],
+    ['math', (lines: string) => `$$\n${lines}\n$$`],
+    ['HTML', (lines: string) => `<div>\n${lines}\n</div>`],
+    ['indented', (lines: string) => lines.split('\n').map((line) => `    ${line}`).join('\n')]
+  ])('replaces only the edited lines of a long %s block', async(_name, block) => {
+    const { muyaMarkupViewPatch } = await import('@/documentAuthority/muyaMarkupChanges')
+    const lines = Array.from({ length: 40 }, (_, index) => `const value${index} = ${index}`).join('\n')
+    const source = `Intro.\n\n${block(lines)}\n\nAfter.\n`
+    const start = source.indexOf('value20') + 5
+    const { actual, expected, previous, change } = fixture(source, { start, end: start, insert: 'x' })
+    expect(change.replacements[0]?.literalLines).toBeDefined()
+    expect(actual).toEqual(expected)
+    expect(muyaMarkupViewPatch(actual!)).toEqual({ previous, start: 1, previousEnd: 2, nextEnd: 2 })
+  })
+
   it('records the roots a regional change replaced', async() => {
     const { muyaMarkupViewPatch } = await import('@/documentAuthority/muyaMarkupChanges')
     const source = 'one\n\ntwo\n\nthree\n\nfour\n'

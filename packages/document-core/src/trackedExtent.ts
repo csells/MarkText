@@ -471,6 +471,44 @@ export function widenedTrackedSourceEdit(
   return undefined
 }
 
+/** Whether `text` is one block whose content is literal: a fence, a math block, indented code or an HTML block. */
+function literalBlockText(text: string): boolean {
+  const lines = text.split(/\r\n|\r|\n/u)
+  while (lines.length > 1 && lines.at(-1)?.trim() === '') lines.pop()
+  const first = lines[0] ?? ''
+  if (/^ {0,3}(?:`{3,}|~{3,}|\$\$)/u.test(first) || /^ {0,3}</u.test(first)) return true
+  return lines.every(line => line.trim() === '' || /^(?: {4}|\t)/u.test(line)) && first.trim() !== ''
+}
+
+/**
+ * Where text typed at `offset`, inside the old arm of a Substitution of a
+ * literal block, goes in its new arm. A literal block's text reads literally,
+ * so the old arm cannot split around a new Addition; the typing edits the
+ * proposed block instead, at the place the old block's text there kept.
+ */
+export function literalHistoryInsertionPoint(
+  core: DocumentCore,
+  previous: DocumentRevision,
+  owner: CriticMarkupAnnotation,
+  offset: number
+): number | undefined {
+  if (owner.kind !== 'substitution') return undefined
+  const old = owner.arms.find(arm => arm.name === 'old')
+  const next = owner.arms.find(arm => arm.name === 'new')
+  if (old === undefined || next === undefined || !(old.range.start < offset && offset < old.range.end)) return undefined
+  const oldText = core.sourceSlice(previous, old.range)
+  const nextText = core.sourceSlice(previous, next.range)
+  if (!literalBlockText(oldText) || !literalBlockText(nextText)) return undefined
+  const at = offset - old.range.start
+  const limit = Math.min(oldText.length, nextText.length)
+  let prefix = 0
+  while (prefix < limit && oldText[prefix] === nextText[prefix]) prefix += 1
+  if (at <= prefix) return next.range.start + at
+  let suffix = 0
+  while (suffix < limit - prefix && oldText[oldText.length - 1 - suffix] === nextText[nextText.length - 1 - suffix]) suffix += 1
+  return oldText.length - at <= suffix ? next.range.end - (oldText.length - at) : next.range.start + prefix
+}
+
 /**
  * Typing inside history splits it at the caret: the retained left and right
  * history keep their arms while the typed text becomes a new Addition.

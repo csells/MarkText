@@ -160,6 +160,12 @@ export function containerContinuationPrefix(core: DocumentCore, previous: Docume
     }
   }
   let continuation = core.sourceSlice(previous, { start: firstLineStart, end: prefixEnd })
+  // Outside any container, a line continues only the block's indentation:
+  // text before it on its line, as a suggestion's markers and the old block
+  // a Substitution's new one follows, is no prefix.
+  if (!containers.some(node => node.kind === 'list-item' || node.kind === 'blockquote' || node.kind === 'footnote-definition')) {
+    return /^[ \t]*/u.exec(continuation)?.[0] ?? ''
+  }
   for (const item of containers.filter(node => node.kind === 'list-item')) {
     const markerStart = current.coordinates.toSource(item.range.start, 'next') - firstLineStart
     if (markerStart < 0 || markerStart >= continuation.length) continue
@@ -182,5 +188,7 @@ export function containerContinuationPrefix(core: DocumentCore, previous: Docume
     const labelEnd = current.coordinates.toSource(firstChild.range.start, 'previous') - firstLineStart
     continuation = continuation.slice(0, labelStart) + '    ' + continuation.slice(labelEnd)
   }
-  return continuation
+  // A suggestion's markers on the line, as the `~>` before a Substitution's
+  // new block, are no container: the parser reads the line without them.
+  return continuation.replace(/\{\+\+|\{--|\{~~|~>|\{==|\{>>|\+\+\}|--\}|~~\}|==\}|<<\}/gu, '')
 }

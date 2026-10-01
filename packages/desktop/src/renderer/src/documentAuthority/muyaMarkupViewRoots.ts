@@ -50,7 +50,8 @@ const shiftAttributes = (
   return (shifted ?? attributes) as MarkdownAstNode['attributes']
 }
 
-const shiftSyntax = (node: MarkdownAstNode, delta: number): MarkdownAstNode =>
+/** `node` with its offsets and its descendants' moved by `delta`. */
+export const shiftSyntax = (node: MarkdownAstNode, delta: number): MarkdownAstNode =>
   delta === 0
     ? node
     : {

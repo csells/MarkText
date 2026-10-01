@@ -30,7 +30,12 @@ const blocks = [
   '- item {++one++}\n- # item heading',
   'Line one {++x++}\nline two {--y--}.',
   '',
-  '   '
+  '   ',
+  // Long literal blocks, whose lines a regional reply replaces on their own.
+  '```js\n' + Array.from({ length: 8 }, (_, index) => `const value${index} = ${index}`).join('\n') + '\n```',
+  '$$\n' + Array.from({ length: 5 }, (_, index) => `x_{${index}} + y`).join('\n') + '\n$$',
+  '<div>\n' + Array.from({ length: 5 }, (_, index) => `html ${index}`).join('\n') + '\n</div>',
+  Array.from({ length: 6 }, (_, index) => `    indented ${index}`).join('\n')
 ]
 const insertions = ['x', 'word', ' ', '\n', '\n\n', '# ', '{++n++}', '{--d--}', '{==h==}{>>c<<}']
 

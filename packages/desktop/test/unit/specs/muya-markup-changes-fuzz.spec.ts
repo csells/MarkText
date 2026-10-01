@@ -48,7 +48,14 @@ const blocks = [
   '- loose a\n\n- loose b\n\n- loose c',
   '1. one\n2. two\n3. three',
   '- [ ] task a\n- [x] task b\n- [ ] task c',
-  '- outer\n  - inner a\n  - inner b\n- outer two'
+  '- outer\n  - inner a\n  - inner b\n- outer two',
+  // Long literal blocks, whose lines a regional reply replaces on their own.
+  '```js\n' + Array.from({ length: 10 }, (_, index) => `const value${index} = compute(${index})`).join('\n') + '\n```',
+  '~~~\n' + Array.from({ length: 6 }, (_, index) => `\tline ${index} {x}`).join('\n') + '\n~~~',
+  Array.from({ length: 6 }, (_, index) => `    indented ${index}`).join('\n'),
+  '$$\n' + Array.from({ length: 5 }, (_, index) => `x_{${index}} + y`).join('\n') + '\n$$',
+  '<div>\n' + Array.from({ length: 5 }, (_, index) => `html ${index}`).join('\n') + '\n</div>',
+  '```mermaid\n' + Array.from({ length: 4 }, (_, index) => `a${index} --> b${index}`).join('\n') + '\n```'
 ]
 const insertions = ['x', ' ', '\n', '\n\n', '\n\n\n\n', '   ', '{++n++}', '# ', '- ', '++}', '{==', '`', '$', '[', ']', '|', '> ', '1. ', '```']
 

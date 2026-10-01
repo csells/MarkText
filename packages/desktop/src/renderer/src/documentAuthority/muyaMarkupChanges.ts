@@ -1,4 +1,5 @@
 import type {
+  MarkdownAstNode,
   MarkupCoordinateSegment,
   MarkupRegionProjectionChange,
   MarkupRegionReplacement,
@@ -9,9 +10,12 @@ import type {
 import {
   appendMuyaMarkdownSegment,
   createMuyaMarkupView,
+  muyaCaretSnaps,
+  type MuyaCaretSnap,
   type MuyaMarkdownSegment,
   type MuyaMarkupBinding,
   type MuyaMarkupDecoration,
+  type MuyaMarkupSourceSegment,
   type MuyaMarkupState,
   type MuyaMarkupView,
   type MuyaSourceStructure
@@ -33,6 +37,7 @@ import {
   placedMuyaMarkupDecoration,
   placedMuyaMarkupItemBinding,
   placedMuyaMarkupItemDecoration,
+  shiftSyntax,
   type MuyaMarkupItemBindings,
   type MuyaMarkupItemGroups,
   type MuyaMarkupRootExtent,
@@ -550,6 +555,213 @@ function listItemsPatch(
 }
 
 /**
+ * The compatibility text of a region's events and its runs located in
+ * editing syntax, as the whole view reads them (see `createMuyaMarkupView`).
+ */
+function regionMarkdown(replacement: MarkupRegionReplacement): Pick<MuyaMarkupView, 'markdown' | 'markdownSegments'> {
+  const markdownSegments: MuyaMarkdownSegment[] = []
+  let markdown = ''
+  let run = 0
+  const runs = replacement.coordinates
+  for (const event of replacement.events) {
+    if (event.kind !== 'text') continue
+    while (run < runs.length && runs[run].source.end <= event.sourceRange.start) run += 1
+    for (let index = run; index < runs.length; index += 1) {
+      const segment = runs[index]
+      if (segment.source.start >= event.sourceRange.end) break
+      const start = Math.max(segment.source.start, event.sourceRange.start)
+      const end = Math.min(segment.source.end, event.sourceRange.end)
+      if (start >= end) continue
+      appendMuyaMarkdownSegment(markdownSegments, {
+        syntax: {
+          start: segment.projected.start + start - segment.source.start,
+          end: segment.projected.start + end - segment.source.start
+        },
+        text: {
+          start: markdown.length + start - event.sourceRange.start,
+          end: markdown.length + end - event.sourceRange.start
+        }
+      })
+    }
+    markdown += event.text
+  }
+  return { markdown, markdownSegments }
+}
+
+const literalStates = new Set(['code-block', 'math-block', 'html-block', 'diagram'])
+
+/** A literal block child's text in its binding: a line's text, or the break ending it. */
+const literalChildText = (child: MarkdownAstNode): string =>
+  child.kind === 'soft-break' ? '\n' : String(child.attributes.semanticText ?? '')
+
+/**
+ * A literal block root with lines `[linesBefore, linesBefore + previousLines)`
+ * replaced by the region's lines, whose binding stands at root `root` of the
+ * previous view. The block keeps its reading and its other lines, so only
+ * the region's lines are read: its text, segments and children are the
+ * previous ones with the region's spliced in, later ones moved by the edit.
+ * Lines holding the block's first or last line, or suggestions, stay on the
+ * whole-view path.
+ */
+function literalLinesPatch(
+  previous: MuyaMarkupView,
+  roots: MuyaMarkupRoots,
+  replacement: MarkupRegionReplacement
+): Readonly<{ root: number; state: MuyaMarkupState; bindings: readonly MuyaMarkupBinding[] }> | undefined {
+  const lines = replacement.literalLines
+  if (lines === undefined || replacement.annotations.length > 0) return undefined
+  const root = firstBindingReaching(roots, replacement.previous.syntax.start)?.path[0]
+  if (typeof root !== 'number') return undefined
+  const rootState = previous.state[root]
+  const rootItems = roots.items(root)
+  if (rootState === undefined || !literalStates.has(rootState.name) || typeof rootState.text !== 'string' ||
+      rootItems.decorations.length > 0 || rootItems.comments.length > 0) return undefined
+  const content = rootItems.bindings.find((binding) => binding.path.length === 2 && binding.path[1] === 'text')
+  const block = content?.syntax
+  if (content === undefined || block === undefined || block.kind !== lines.block.kind || content.text !== rootState.text ||
+      content.sourceStructure !== undefined || content.markerLine !== undefined || content.containerPrefix !== undefined ||
+      content.paragraphPrefixPosition !== undefined) return undefined
+  const { contentStart, contentEnd } = block.attributes
+  const children = block.children
+  const replacedEnd = lines.childrenBefore + lines.previousChildren
+  // The region may hold the block's opener or closer, which stay, and the
+  // empty lines after it, which reach no later block.
+  const nextBlock = root + 1 < previous.state.length ? roots.items(root + 1).bindings[0]?.syntax : undefined
+  if (typeof contentStart !== 'number' || typeof contentEnd !== 'number' || typeof block.attributes.content !== 'string' ||
+      replacedEnd > children.length || replacement.previous.syntax.start < block.range.start ||
+      (nextBlock !== undefined && replacement.previous.syntax.end > nextBlock.range.start) ||
+      content.emptyLiteralLineEnding !== undefined ||
+      (content.trailingLinePosition !== undefined && content.trailingLinePosition < replacement.previous.source.end) ||
+      content.leadingLinePosition !== undefined ||
+      // The document's trailing line endings are read with its last block.
+      rootItems.bindings.some((binding) => binding.documentEnd !== undefined && replacement.previous.source.end >=
+        binding.documentEnd.offset - binding.documentEnd.trailingLineEndings.length) ||
+      (content.outerBlock !== undefined && (replacement.previous.source.start < content.outerBlock.range.start ||
+        replacement.previous.source.end > content.outerBlock.range.end))) return undefined
+  const sourceDelta = replacement.next.source.end - replacement.previous.source.end
+  const syntaxDelta = replacement.next.syntax.end - replacement.previous.syntax.end
+  let textStart = 0
+  for (let child = 0; child < lines.childrenBefore; child += 1) textStart += literalChildText(children[child]).length
+  let textEnd = textStart
+  for (let child = lines.childrenBefore; child < replacedEnd; child += 1) textEnd += literalChildText(children[child]).length
+  const inserted = replacement.syntaxBlocks.map(literalChildText).join('')
+  const text = content.text.slice(0, textStart) + inserted + content.text.slice(textEnd)
+  const textDelta = inserted.length - (textEnd - textStart)
+  if (text.length === 0) return undefined
+  // Each nonempty child is one segment, its text mapped to its source.
+  const coordinates = markupRegionCoordinates(replacement)
+  const segments: MuyaMarkupSourceSegment[] = content.segments.filter((segment) => segment.text.end <= textStart)
+  let offset = textStart
+  for (const child of replacement.syntaxBlocks) {
+    const length = literalChildText(child).length
+    if (child.range.start !== child.range.end) {
+      segments.push({
+        text: { start: offset, end: offset + length },
+        source: {
+          start: coordinates.toSource(child.range.start, 'next'),
+          end: coordinates.toSource(child.range.end, 'previous')
+        },
+        syntax: { start: child.range.start, end: child.range.end }
+      })
+    }
+    offset += length
+  }
+  for (const segment of content.segments) {
+    if (segment.text.start < textEnd) continue
+    segments.push({
+      text: { start: segment.text.start + textDelta, end: segment.text.end + textDelta },
+      source: { start: segment.source.start + sourceDelta, end: segment.source.end + sourceDelta },
+      syntax: { start: segment.syntax.start + syntaxDelta, end: segment.syntax.end + syntaxDelta }
+    })
+  }
+  // The block's content reads its lines as its text does, tabs expanded.
+  const contentText = block.attributes.content
+  if (!contentText.startsWith(content.text)) return undefined
+  // The content spans its lines, which move where the region's do.
+  const firstChild = lines.childrenBefore === 0 ? replacement.syntaxBlocks[0] : children[0]
+  const lastChild = replacedEnd === children.length ? replacement.syntaxBlocks.at(-1) : children.at(-1)
+  if (firstChild === undefined || lastChild === undefined || children.length === 0) return undefined
+  const lastChildEnd = replacedEnd === children.length ? lastChild.range.end : lastChild.range.end + syntaxDelta
+  const syntax: MarkdownAstNode = {
+    ...block,
+    range: { start: block.range.start, end: block.range.end + syntaxDelta },
+    attributes: {
+      ...block.attributes,
+      contentStart: contentStart + firstChild.range.start - children[0].range.start,
+      contentEnd: contentEnd + lastChildEnd - children[children.length - 1].range.end,
+      content: text + contentText.slice(content.text.length)
+    },
+    children: [
+      ...children.slice(0, lines.childrenBefore),
+      ...replacement.syntaxBlocks,
+      ...children.slice(replacedEnd).map((child) => shiftSyntax(child, syntaxDelta))
+    ]
+  }
+  const after = (position: number): number => position >= replacement.previous.source.end ? position + sourceDelta : position
+  // A moved root's bindings hold copies of their block, not the one node.
+  const sameNode = (node: MarkdownAstNode, other: MarkdownAstNode): boolean => node === other ||
+    node.kind === other.kind && node.range.start === other.range.start && node.range.end === other.range.end
+  const bindings = rootItems.bindings.map((binding): MuyaMarkupBinding => {
+    if (binding !== content) {
+      // The fence's info field holds no line; it keeps its place, and the
+      // document end it may carry moves with the edit.
+      return {
+        ...binding,
+        ...(sameNode(binding.syntax, block) ? { syntax } : {}),
+        ...(binding.documentEnd === undefined
+          ? {}
+          : { documentEnd: { ...binding.documentEnd, offset: after(binding.documentEnd.offset) } })
+      }
+    }
+    const patched: MuyaMarkupBinding = {
+      ...binding,
+      text,
+      segments,
+      syntax,
+      sourceRange: {
+        start: lines.childrenBefore === 0 ? segments[0]?.source.start ?? binding.sourceRange.start : binding.sourceRange.start,
+        end: replacedEnd === children.length ? segments.at(-1)?.source.end ?? after(binding.sourceRange.end) : after(binding.sourceRange.end)
+      },
+      ...(binding.trailingLinePosition === undefined ? {} : { trailingLinePosition: after(binding.trailingLinePosition) }),
+      ...(binding.leadingLinePosition === undefined ? {} : { leadingLinePosition: after(binding.leadingLinePosition) }),
+      ...(binding.documentEnd === undefined
+        ? {}
+        : { documentEnd: { ...binding.documentEnd, offset: after(binding.documentEnd.offset) } }),
+      ...(binding.outerBlock === undefined
+        ? {}
+        : {
+          outerBlock: {
+            ...binding.outerBlock,
+            range: { start: binding.outerBlock.range.start, end: after(binding.outerBlock.range.end) },
+            source: binding.outerBlock.source.slice(0, replacement.previous.source.start - binding.outerBlock.range.start) +
+              lines.source + binding.outerBlock.source.slice(replacement.previous.source.end - binding.outerBlock.range.start)
+          }
+        })
+    }
+    // The region's lines' snaps are read from its source; the others move.
+    // Whitespace before a line's text comes before every container prefix.
+    const regionStart = replacement.next.source.start
+    const character = (position: number): string => lines.source.charAt(position - regionStart)
+    const { caretSnaps: _previousSnaps, ...unsnapped } = patched
+    const snaps = muyaCaretSnaps(unsnapped, character, coordinates, new Map(), {
+      start: textStart,
+      end: textStart + inserted.length
+    })
+    const kept = (binding.caretSnaps ?? [])
+      .filter((snap) => snap.at < replacement.previous.source.start || snap.at >= replacement.previous.source.end)
+      .map((snap) => ({ from: after(snap.from), to: after(snap.to), at: after(snap.at) }))
+    const whitespace = (snap: MuyaCaretSnap): boolean => snap.at === snap.to
+    const ordered = [false, true].flatMap((prefix) => {
+      const keptOnes = kept.filter((snap) => whitespace(snap) !== prefix)
+      const before = keptOnes.filter((snap) => snap.at < regionStart)
+      return [...before, ...snaps.filter((snap) => whitespace(snap) !== prefix), ...keptOnes.slice(before.length)]
+    })
+    return ordered.length === 0 ? unsnapped : { ...unsnapped, caretSnaps: ordered }
+  })
+  return { root, state: { ...rootState, text }, bindings }
+}
+
+/**
  * Consume portable Core regions replacing top-level blocks. Untouched block shapes
  * retain their native state and mapped leaves. Missing comment inventory, a
  * replaced block without text, or ambiguous ranges request the full-view fallback.
@@ -582,7 +794,7 @@ export function applyMuyaMarkupChanges(
   let syntaxDelta = 0
   let markdownLength = 0
   const appendMarkdown = (
-    view: MuyaMarkupView,
+    view: Pick<MuyaMarkupView, 'markdown' | 'markdownSegments'>,
     start: number,
     end: number,
     shift: number
@@ -634,6 +846,38 @@ export function applyMuyaMarkupChanges(
       !completeSourceCoverage(replacement)
     ) {
       return undefined
+    }
+    if (replacement.literalLines !== undefined) {
+      const patched = literalLinesPatch(previous, roots, replacement)
+      const from = offset(replacement.previous.syntax.start)
+      const to = offset(replacement.previous.syntax.end)
+      if (patched === undefined || patched.root < previousIndex || from === undefined || to === undefined ||
+          from < markdownIndex) return undefined
+      retainUntil(patched.root)
+      const base = state.length
+      state.push(patched.state)
+      const region = createMuyaMarkupRootRun(
+        {
+          bindings: patched.bindings.map((binding) => placedMuyaMarkupBinding(binding, base - patched.root)),
+          decorations: [],
+          comments: []
+        },
+        base,
+        1
+      )
+      if (region === undefined) return undefined
+      runs.push(region)
+      appendMarkdown(previous, markdownIndex, from, syntaxDelta)
+      const local = regionMarkdown(replacement)
+      appendMarkdown(local, 0, local.markdown.length, 0)
+      markdownIndex = to
+      replacedItems = undefined
+      replacedStart ??= patched.root
+      replacedEnd = patched.root + 1
+      previousIndex = patched.root + 1
+      sourceDelta = replacement.next.source.end - replacement.previous.source.end
+      syntaxDelta = replacement.next.syntax.end - replacement.previous.syntax.end
+      continue
     }
     if (replacement.listItems !== undefined) {
       const patched = listItemsPatch(previous, roots, replacement)
