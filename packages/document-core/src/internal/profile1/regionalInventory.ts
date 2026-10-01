@@ -3462,6 +3462,15 @@ function readsLiteralBlocks(
   })
 }
 
+/** Whether every backtick run of `text` lies in a fenced code block `products` read there. */
+function backtickRunsFenced(products: Profile1DocumentProducts, text: string): boolean {
+  const literals = (products.retainedIntrinsic?.markdownLiterals ?? []).filter(literal => literal.kind === 'fenced-code')
+  for (const run of text.matchAll(/`+/gu)) {
+    if (!literals.some(literal => literal.start <= run.index && run.index + run[0].length <= literal.end)) return false
+  }
+  return true
+}
+
 const MARKER_CLOSER: Readonly<Record<string, string>> = Object.freeze({
   '{++': '++}', '{--': '--}', '{~~': '~~}', '{==': '==}', '{>>': '<<}'
 })
@@ -3757,9 +3766,11 @@ function evaluateBlockWindow(
         (unterminatedFormsBefore(inventory.root, first.ordinal) & addedCloserForms(previousWindow, nextWindow)) !== 0
       : !strayMarkersUnchanged(previousWindow, nextWindow))) return undefined
     // Splitting or joining paragraphs moves the bound that stops a backtick
-    // run pairing with a later one.
-    if (!inventory.markerFree && replacement === undefined && /[\r\n]/u.test(edit.insert + previousSource.slice(edit.start, edit.end)) &&
-        (nextWindow.includes('`') || previousWindow.includes('`'))) return undefined
+    // run pairing with a later one, except for runs that fence code blocks
+    // in both windows (checked once the previous one is parsed).
+    const runsNearSplit = !inventory.markerFree && replacement === undefined &&
+      /[\r\n]/u.test(edit.insert + previousSource.slice(edit.start, edit.end)) &&
+      (nextWindow.includes('`') || previousWindow.includes('`'))
     const leafPoints = leafPointsOf(result, nextWindow.length, !inventory.strayMarkers)
     const startStands = edited.source === first.source || leafPoints.includes(edited.source - first.source)
     const endStands = editedEnd.source === last.source || leafPoints.includes(editedEnd.source + delta - first.source)
@@ -3802,6 +3813,7 @@ function evaluateBlockWindow(
       last === editedEnd && last.source < length
     )
     if (previousResult.kind !== 'complete') return undefined
+    if (runsNearSplit && (!backtickRunsFenced(result, nextWindow) || !backtickRunsFenced(previousResult, previousWindow))) return undefined
     if (replacement !== undefined) {
       const shift = (range: Readonly<{ start: number, end: number }>): Readonly<{ start: number, end: number }> =>
         ({ start: range.start - first.source, end: range.end - first.source })
