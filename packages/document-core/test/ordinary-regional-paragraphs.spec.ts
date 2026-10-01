@@ -86,9 +86,12 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
   })
 
+  // A whole new suggestion pairs only with itself, so backtick runs elsewhere
+  // keep their pairing; a lone spelling there could pair with any marker.
   it.each([
-    { label: 'new annotation beside a code span', insert: '{++new++}', tail: 'A `code` span.\n' }
-  ])('uses a full parse when an ordinary edit introduces $label', ({ insert, tail }) => {
+    { label: 'a new annotation beside a code span', insert: '{++new++}', tail: 'A `code` span.\n', scope: 'regions', parses: 0 },
+    { label: 'a lone opener beside a code span', insert: '{++new', tail: 'A `code` span.\n', scope: 'document', parses: 1 }
+  ])('reads $label as the whole document does', ({ insert, tail, scope, parses }) => {
     const source = 'ordinary target\n\n' + suffix + tail
     const start = source.indexOf('target') + 2
     const core = createDocumentCore()
@@ -96,9 +99,8 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     const before = inspectDocumentCore(core)
     const result = core.apply(revision, [{ start, end: start, insert }], { projections: ['markup'] })
     const after = inspectDocumentCore(core)
-    expect(result.change.projections[0]?.scope).toBe('document')
-    expect(after.documentParses - before.documentParses).toBe(1)
-    expect(after.regionalInventoryRootsCommitted - before.regionalInventoryRootsCommitted).toBe(0)
+    expect(result.change.projections[0]?.scope).toBe(scope)
+    expect(after.documentParses - before.documentParses).toBe(parses)
     const oracle = createDocumentCore()
     const expected = oracle.open(source.slice(0, start) + insert + source.slice(start))
     expect(result.revision.annotations).toEqual(expected.annotations)
