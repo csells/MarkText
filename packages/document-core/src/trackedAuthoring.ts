@@ -6,7 +6,7 @@ import { createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations as annotationTree, markupReplacementRange } from './markupEditOwnership.js'
 import { historyInsertionPoint, substitutionBeforeDeletion, substitutionDraftInsertionPoint, trackedEditableSpans, trackedPartsSeparate, withinHistory } from './trackedHistoryEditing.js'
 import { annotationsAround, annotationsOverlapping } from './internal/annotationsAround.js'
-import { createTrackedOracle, draftTrackedSourceEdit, equivalenceDeferred, memoizedPreview, rejoinedTrackedHistoryEdit, splitTrackedHistoryEdit, trackedPreviewFacts, widenedTrackedSourceEdit } from './trackedExtent.js'
+import { createTrackedOracle, draftTrackedSourceEdit, equivalenceDeferred, literalHistoryInsertionPoint, memoizedPreview, rejoinedTrackedHistoryEdit, splitTrackedHistoryEdit, trackedPreviewFacts, widenedTrackedSourceEdit } from './trackedExtent.js'
 
 /** Protective spelling retains exactly where the language compiler inserts escapes. */
 export const nativeCriticSpelling = (value: string): Readonly<{ text: string, escapes: readonly number[] }> => {
@@ -259,6 +259,21 @@ export const createTrackedSourceEdit = (
     }
     const history = deepest?.arms.find(arm => arm.name === (deepest.kind === 'deletion' ? 'content' : deepest.kind === 'substitution' ? 'old' : ''))
     if (history !== undefined && history.range.start < start && start < history.range.end) {
+      const target = deepest === undefined ? undefined : literalHistoryInsertionPoint(activeCore, activeRevision, deepest, start)
+      if (target !== undefined) {
+        const planned = createTrackedSourceEdit(activeCore, activeRevision, { start: target, end: target, insert: request.text },
+          preview, preserveCanonicalMarkup, scope)
+        if (planned === undefined) return undefined
+        // The caret domain holds the typing's own place as well.
+        const from = Math.min(planned.start, start)
+        const to = Math.max(planned.end, start)
+        return Object.freeze({
+          start: from,
+          end: to,
+          insert: activeCore.sourceSlice(activeRevision, { start: from, end: planned.start }) + planned.insert +
+            activeCore.sourceSlice(activeRevision, { start: planned.end, end: to })
+        })
+      }
       return splitTrackedHistoryEdit(activeCore, activeRevision, start,
         preserveCanonicalMarkup ? request.text : protectNativeCriticText(request.text), preview)
     }

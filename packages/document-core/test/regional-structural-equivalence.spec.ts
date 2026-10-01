@@ -57,6 +57,28 @@ const wideBlocks = [
 ]
 const wideInsertions = ['$', '`', '``', '> ', '1. ', '|', '<!--', '-->', '{~~', '~>', '~~}', '{>>c<<}', '{==', '==}', '\\', '[^1]', ...insertions]
 
+// Long literal blocks, whose lines a key reparses in a window of those lines
+// (see `admitLiteralLines`), beside the blocks that end or continue them.
+const literalLines = (count: number, line: (index: number) => string): string =>
+  Array.from({ length: count }, (_, index) => line(index)).join('\n')
+const literalBlocks = [
+  'Plain words here.',
+  'Para *em* and `code` here.',
+  '```js\n' + literalLines(10, index => `const value${index} = compute(${index})`) + '\n```',
+  '~~~\n' + literalLines(6, index => `\tline ${index} {x}`) + '\n~~~',
+  '```\nunclosed\nfence',
+  literalLines(8, index => `    indented ${index}`),
+  '    a\n\n    b\n\n\n    c',
+  '$$\n' + literalLines(5, index => `x_{${index}} + y`) + '\n$$',
+  '<div>\n' + literalLines(5, index => `html ${index}`) + '\n</div>',
+  '<!--\n' + literalLines(4, index => `comment ${index}`) + '\n-->',
+  '```mermaid\n' + literalLines(4, index => `a${index} --> b${index}`) + '\n```',
+  '- item one\n- item two',
+  '> quote',
+  '{~~```\nold\n```\n~>```\nnew\nmore\n```\n~~}'
+]
+const literalInsertions = ['x', ' ', '\n', '\n\n', '```', '~~~', '    ', '\t', '$$', '</div>', '-->', '{', '}', '{++n++}', '`', '# ', '- ', '<div>', '\n```\n', '\n    ']
+
 function applyReplacement(previous: readonly MarkupEvent[], replacement: MarkupRegionReplacement): readonly MarkupEvent[] {
   const delta = replacement.next.source.end - replacement.previous.source.end
   const shift = (range: SourceRange): SourceRange => range.end <= replacement.previous.source.end
@@ -79,13 +101,17 @@ function applyReplacement(previous: readonly MarkupEvent[], replacement: MarkupR
   ]
 }
 
-// A list also lists its items, which a region may replace on their own.
+// A list also lists its items, and a literal block its lines' children,
+// which a region may replace on their own.
+const literalKinds = new Set(['code-block', 'math-block', 'html-block', 'diagram'])
 const blockShape = (projection: MarkupProjection) => projection.syntax.ast.root.children
   .map(node => ({
     kind: node.kind,
     start: node.range.start,
     end: node.range.end,
-    ...(node.kind === 'list' ? { children: node.children.map(item => ({ kind: item.kind, start: item.range.start, end: item.range.end })) } : {})
+    ...(node.kind === 'list' || literalKinds.has(node.kind)
+      ? { children: node.children.map(item => ({ kind: item.kind, start: item.range.start, end: item.range.end })) }
+      : {})
   }))
 
 type BlockShape = ReturnType<typeof blockShape>[number]
@@ -99,6 +125,26 @@ const shifted = (node: BlockShape, delta: number): BlockShape => ({
 /** The previous view with the replaced region spliced in, as the desktop composes it. */
 function composedShape(previous: MarkupProjection, replacement: MarkupRegionReplacement) {
   const delta = replacement.next.syntax.end - replacement.previous.syntax.end
+  const lines = replacement.literalLines
+  if (lines !== undefined) {
+    // Lines replaced inside a literal block: its other lines stay, its end
+    // moves with the edit, and later blocks shift.
+    const block = previous.syntax.ast.root.children.find(node => literalKinds.has(node.kind) &&
+      node.range.start <= replacement.previous.syntax.start && replacement.previous.syntax.start < node.range.end)
+    if (block === undefined) throw new Error('A literal lines replacement has no block')
+    const shape = (node: { kind: string, range: SourceRange }, shift = 0) =>
+      ({ kind: node.kind, start: node.range.start + shift, end: node.range.end + shift })
+    const children = [
+      ...block.children.slice(0, lines.childrenBefore).map(node => shape(node)),
+      ...replacement.syntaxBlocks.map(node => shape(node)),
+      ...block.children.slice(lines.childrenBefore + lines.previousChildren).map(node => shape(node, delta))
+    ]
+    return blockShape(previous).map(node => node.end < replacement.previous.syntax.start
+      ? node
+      : node.start > replacement.previous.syntax.start
+        ? shifted(node, delta)
+        : { kind: node.kind, start: node.start, end: node.end + delta, children })
+  }
   const items = replacement.listItems
   if (items !== undefined) {
     // Items replaced inside a list: the list's other items stay, its span
@@ -125,7 +171,9 @@ function composedShape(previous: MarkupProjection, replacement: MarkupRegionRepl
       kind: node.kind,
       start: node.range.start,
       end: node.range.end,
-      ...(node.kind === 'list' ? { children: node.children.map(item => ({ kind: item.kind, start: item.range.start, end: item.range.end })) } : {})
+      ...(node.kind === 'list' || literalKinds.has(node.kind)
+        ? { children: node.children.map(item => ({ kind: item.kind, start: item.range.start, end: item.range.end })) }
+        : {})
     })),
     ...blockShape(previous).filter(node => node.start >= replacement.previous.syntax.end)
       .map(node => shifted(node, delta))
@@ -209,6 +257,9 @@ describe('structural regional edits read as a fresh open', () => {
   // read with two extents, and a block start moved inside a window.
   it.each([...Array.from({ length: 16 }, (_, seed) => seed + 1), 18, 20, 35, 315])('wide seed %i', seed => {
     fuzz(seed, wideBlocks, wideInsertions)
+  })
+  it.each(Array.from({ length: 24 }, (_, seed) => seed + 1))('literal seed %i', seed => {
+    fuzz(seed, literalBlocks, literalInsertions)
   })
 
   // Histories a longer fuzz found diverging: a `$$` line in the window pairing
