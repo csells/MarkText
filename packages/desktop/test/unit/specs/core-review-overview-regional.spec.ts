@@ -25,7 +25,12 @@ const blocks = [
   '# Heading {++added++}',
   'Line one {++x++}\nline two {--y--}.',
   '',
-  '   '
+  '   ',
+  // Long literal blocks, whose lines a regional reply replaces on their own.
+  '```js\n' + Array.from({ length: 8 }, (_, index) => `const value${index} = ${index}`).join('\n') + '\n```',
+  '$$\n' + Array.from({ length: 5 }, (_, index) => `x_{${index}} + y`).join('\n') + '\n$$',
+  '<div>\n' + Array.from({ length: 5 }, (_, index) => `html ${index}`).join('\n') + '\n</div>',
+  Array.from({ length: 6 }, (_, index) => `    indented ${index}`).join('\n')
 ]
 // The words, breaks and suggestions typing makes, which Core applies
 // regionally. Stray delimiters make a document's edits whole-document ones.
