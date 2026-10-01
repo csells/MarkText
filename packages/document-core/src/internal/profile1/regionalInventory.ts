@@ -3398,45 +3398,108 @@ function closedLiteralBlock(text: string): 'fenced-code' | 'math' | undefined {
     : undefined
 }
 
+type SourceSpan = Readonly<{ start: number, end: number }>
+
 /**
- * An edit that replaces one closed fenced code or display math block whole:
- * with a closed block of the same kind, as a key in a Substitution's
- * proposed block does, or with a Substitution of the block by one, as a
- * tracked key in the block suggests. Offsets are in the source after the
- * edit; `struck` is the Substitution's copy of the block.
+ * An edit that replaces closed fenced code or display math blocks whole:
+ * one block by a closed block of the same kind, as a key in a
+ * Substitution's proposed block does; one block by a Substitution of it by
+ * such a block, as a tracked key in the block suggests; or, inside a
+ * Substitution of one such block by another, its two blocks by two such
+ * blocks, as a key across its divider does. `previous` and `next` are the
+ * blocks before and after the edit, each in its own source, and the extents
+ * the edit's text covers there.
  */
 export interface LiteralBlockReplacement {
   readonly kind: 'fenced-code' | 'math'
-  readonly struck?: Readonly<{ start: number, end: number }>
-  readonly proposed: Readonly<{ start: number, end: number }>
+  readonly previous: readonly SourceSpan[]
+  readonly previousExtent: SourceSpan
+  readonly next: readonly SourceSpan[]
+  readonly nextExtent: SourceSpan
 }
 
-export function literalBlockReplacement(
+/** The two blocks, offsets in `text`, of a Substitution `text` spells whole of one closed literal block by another. */
+function literalBlockSubstitution(text: string): Readonly<{ kind: LiteralBlockReplacement['kind'], blocks: readonly SourceSpan[] }> | undefined {
+  if (!text.startsWith('{~~') || !text.endsWith('~~}')) return undefined
+  const separators = [...text.matchAll(/~>/gu)]
+  if (separators.length !== 1) return undefined
+  const separator = separators[0]?.index ?? -1
+  const struck = text.slice(3, separator).replace(/[ \t\r\n]+$/u, '')
+  const proposed = text.slice(separator + 2, -3).replace(/[ \t\r\n]+$/u, '')
+  const kind = closedLiteralBlock(struck)
+  if (kind === undefined || closedLiteralBlock(proposed) !== kind) return undefined
+  return Object.freeze({
+    kind,
+    blocks: Object.freeze([
+      Object.freeze({ start: 3, end: 3 + struck.length }),
+      Object.freeze({ start: separator + 2, end: separator + 2 + proposed.length })
+    ])
+  })
+}
+
+function literalReplacementIn(
+  value: InventoryValue | undefined,
   previousSource: CanonicalSourceView,
   edit: RetainedPassSourceEdit
 ): LiteralBlockReplacement | undefined {
   // A backslash before the edit would protect what it begins with.
   if (previousSource.slice(Math.max(0, edit.start - 1), edit.start) === '\\') return undefined
+  const shifted = (spans: readonly SourceSpan[], by: number): readonly SourceSpan[] =>
+    Object.freeze(spans.map(span => Object.freeze({ start: span.start + by, end: span.end + by })))
   const removed = previousSource.slice(edit.start, edit.end)
   const block = removed.replace(/[ \t\r\n]+$/u, '')
   const kind = closedLiteralBlock(block)
-  if (kind === undefined) return undefined
-  const opener = `{~~${removed}`
-  if (!edit.insert.startsWith(opener)) {
+  if (kind !== undefined) {
+    const previous = Object.freeze([Object.freeze({ start: edit.start, end: edit.start + block.length })])
+    const previousExtent = Object.freeze({ start: edit.start, end: edit.end })
+    const nextExtent = Object.freeze({ start: edit.start, end: edit.start + edit.insert.length })
+    const substitution = edit.insert.startsWith(`{~~${removed}`) ? literalBlockSubstitution(edit.insert) : undefined
+    if (substitution?.kind === kind) {
+      return Object.freeze({ kind, previous, previousExtent, next: shifted(substitution.blocks, edit.start), nextExtent })
+    }
     const replacement = edit.insert.replace(/[ \t\r\n]+$/u, '')
     return closedLiteralBlock(replacement) === kind && edit.insert.slice(replacement.length) === removed.slice(block.length)
-      ? Object.freeze({ kind, proposed: Object.freeze({ start: edit.start, end: edit.start + replacement.length }) })
+      ? Object.freeze({
+        kind,
+        previous,
+        previousExtent,
+        next: Object.freeze([Object.freeze({ start: edit.start, end: edit.start + replacement.length })]),
+        nextExtent
+      })
       : undefined
   }
-  const separator = edit.insert.indexOf('~>', opener.length)
-  if (!edit.insert.endsWith('~~}') || separator < 0 || /[^ \t\r\n]/u.test(edit.insert.slice(opener.length, separator))) return undefined
-  const proposed = edit.insert.slice(separator + 2, -3).replace(/[ \t\r\n]+$/u, '')
-  if (closedLiteralBlock(proposed) !== kind) return undefined
-  return Object.freeze({
-    kind,
-    struck: Object.freeze({ start: edit.start + 3, end: edit.start + 3 + block.length }),
-    proposed: Object.freeze({ start: edit.start + separator + 2, end: edit.start + separator + 2 + proposed.length })
-  })
+  // An edit inside a Substitution of one literal block by another rewrites it whole.
+  if (value === undefined) return undefined
+  const located = locateBySource(value, Math.min(edit.start, Math.max(0, value.root.sourceLength - 1)))
+  if (located === undefined || located.leaf.kind !== 'region') return undefined
+  const { nodes, roots } = located.leaf.annotations
+  for (const ordinal of roots) {
+    const node = nodes[ordinal]
+    if (node === undefined) continue
+    const start = located.sourceStart + node.start
+    const end = located.sourceStart + node.end
+    if (start > edit.start || edit.end > end) continue
+    const before = literalBlockSubstitution(previousSource.slice(start, end))
+    const text = previousSource.slice(start, edit.start) + edit.insert + previousSource.slice(edit.end, end)
+    const after = literalBlockSubstitution(text)
+    if (before === undefined || after?.kind !== before.kind) return undefined
+    return Object.freeze({
+      kind: before.kind,
+      previous: shifted(before.blocks, start),
+      previousExtent: Object.freeze({ start, end }),
+      next: shifted(after.blocks, start),
+      nextExtent: Object.freeze({ start, end: start + text.length })
+    })
+  }
+  return undefined
+}
+
+export function literalBlockReplacement(
+  previousSource: CanonicalSourceView,
+  edit: RetainedPassSourceEdit,
+  inventory?: RegionalInventory
+): LiteralBlockReplacement | undefined {
+  return literalReplacementIn(inventory === undefined ? undefined : inventoryValue(inventory), previousSource, edit)
 }
 
 /**
@@ -3600,7 +3663,7 @@ function evaluateBlockWindow(
   // parsed): the replaced block's runs paired so in place, so no run outside
   // the window could reach them, and each new block repeats such runs with
   // literal text between them.
-  const replacement = inventory.strayMarkers ? undefined : literalBlockReplacement(previousSource, edit)
+  const replacement = inventory.strayMarkers ? undefined : literalReplacementIn(inventory, previousSource, edit)
   const pairingChanged = editChangesLiteralPairing(previousSource, edit)
   if (pairingChanged && !inventory.markerFree && replacement === undefined) return undefined
   // Markers pair as one nested stack across the document, and backtick and
@@ -3645,8 +3708,10 @@ function evaluateBlockWindow(
   const blockEnd = literal ? literalBlockEdge(inventory, editedEndEdge, 'end') : editedEndEdge
   if (blockStart === undefined || blockEnd === undefined) return undefined
   // Text the projection generates, as between a Substitution's blocks, maps
-  // to no source a window's blocks can be bounded by (see blockWindowFacts).
-  if (!inventory.strayMarkers && leafRange(inventory.root, blockStart.ordinal, blockEnd.ordinal)
+  // to no source a window's blocks can be bounded by (see blockWindowFacts),
+  // but for the blank line parting the blocks a literal block replacement
+  // writes, which both windows must read as those blocks.
+  if (!inventory.strayMarkers && replacement === undefined && leafRange(inventory.root, blockStart.ordinal, blockEnd.ordinal)
     .some(({ leaf }) => leaf.kind === 'region' && leaf.mappedKinds.some(kind => kind.startsWith('generated')))) return undefined
   let edited: WindowEdge = blockStart
   let editedEnd: WindowEdge = blockEnd
@@ -3815,14 +3880,10 @@ function evaluateBlockWindow(
     if (previousResult.kind !== 'complete') return undefined
     if (runsNearSplit && (!backtickRunsFenced(result, nextWindow) || !backtickRunsFenced(previousResult, previousWindow))) return undefined
     if (replacement !== undefined) {
-      const shift = (range: Readonly<{ start: number, end: number }>): Readonly<{ start: number, end: number }> =>
-        ({ start: range.start - first.source, end: range.end - first.source })
-      const insertExtent = shift({ start: edit.start, end: edit.start + edit.insert.length })
-      const replaced = { start: edit.start, end: edit.start + previousSource.slice(edit.start, edit.end).replace(/[ \t\r\n]+$/u, '').length }
-      if (!readsLiteralBlocks(result, nextWindow, replacement.kind,
-        [...replacement.struck === undefined ? [] : [shift(replacement.struck)], shift(replacement.proposed)], insertExtent) ||
-          !readsLiteralBlocks(previousResult, previousWindow, replacement.kind, [shift(replaced)],
-            shift({ start: edit.start, end: edit.end }))) return undefined
+      const shift = (range: SourceSpan): SourceSpan => ({ start: range.start - first.source, end: range.end - first.source })
+      if (!readsLiteralBlocks(result, nextWindow, replacement.kind, replacement.next.map(shift), shift(replacement.nextExtent)) ||
+          !readsLiteralBlocks(previousResult, previousWindow, replacement.kind, replacement.previous.map(shift),
+            shift(replacement.previousExtent))) return undefined
     }
     // The window reads its unchanged text as the document does only where
     // it finds no block boundary the document lacks: a dollar or backtick
