@@ -7330,7 +7330,8 @@ function createDocumentCoreWithExecutionBudget(
       // Only literals the suggestions reach can gain their lines; one
       // elsewhere in the document reads as it did.
       const editedStart = result[0]?.start ?? 0
-      const editedEnd = result.reduce((end, edit) => edit.start + (shifts.get(edit) ?? 0) + edit.insert.length, editedStart)
+      const lastEdit = result.at(-1)
+      const editedEnd = lastEdit === undefined ? editedStart : lastEdit.start + (shifts.get(lastEdit) ?? 0) + lastEdit.insert.length
       const pending = [ast.root]
       while (pending.length > 0) {
         const node = pending.pop()!
