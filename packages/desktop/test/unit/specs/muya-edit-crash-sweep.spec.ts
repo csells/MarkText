@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { bootBoundMuya } from '../helpers/boundMuyaDocument'
+import { bootBoundMuya, yieldToEventLoop } from '../helpers/boundMuyaDocument'
 import type { MaybeContent } from '../helpers/muyaTypes'
 import { separateUndoSteps } from '../helpers/separateUndoSteps'
 
@@ -273,6 +273,7 @@ describe('editing edge documents with real key events', () => {
           } finally {
             window.removeEventListener('error', onError)
             app.dispose()
+            await yieldToEventLoop()
           }
         }
       }
@@ -447,6 +448,7 @@ describe('editing table documents with real events', () => {
           } finally {
             window.removeEventListener('error', onError)
             app.dispose()
+            await yieldToEventLoop()
           }
         }
       }
