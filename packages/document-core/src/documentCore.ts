@@ -5971,7 +5971,10 @@ function createDocumentCoreWithExecutionBudget(
     const lead = compiled.start - before.length
     const trail = compiled.end - shortBlockEnd
     if (lead < 0 || lead > firstLineEnd - blockStart || trail < 0 || blockEnd + trail > source.length ||
-        short.slice(shortBlockEnd, shortBlockEnd + trail) !== source.slice(blockEnd, blockEnd + trail)) return undefined
+        short.slice(shortBlockEnd, shortBlockEnd + trail) !== source.slice(blockEnd, blockEnd + trail) ||
+        // An edit ending inside a CRLF splits the line ending the short block
+        // read, which the whole block need not end the same way.
+        source.slice(blockEnd + trail - 1, Math.min(source.length, blockEnd + trail + 1)) === '\r\n') return undefined
     const shortOld = short.slice(compiled.start, shortBlockEnd)
     const shortNew = shortOld.slice(0, shortEdit.start - compiled.start) + edit.insert + shortOld.slice(shortEdit.start - compiled.start)
     const opener = `{~~${shortOld}`
