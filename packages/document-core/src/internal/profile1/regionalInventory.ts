@@ -3769,12 +3769,6 @@ function evaluateBlockWindow(
   const blockStart = literal ? literalBlockEdge(inventory, editedStartEdge, 'start') : editedStartEdge
   const blockEnd = literal ? literalBlockEdge(inventory, editedEndEdge, 'end') : editedEndEdge
   if (blockStart === undefined || blockEnd === undefined) return undefined
-  // Text the projection generates, as between a Substitution's blocks, maps
-  // to no source a window's blocks can be bounded by (see blockWindowFacts),
-  // but for the blank line parting the blocks a literal block replacement
-  // writes, which both windows must read as those blocks.
-  if (!inventory.strayMarkers && replacement === undefined && leafRange(inventory.root, blockStart.ordinal, blockEnd.ordinal)
-    .some(({ leaf }) => leaf.kind === 'region' && leaf.mappedKinds.some(kind => kind.startsWith('generated')))) return undefined
   let edited: WindowEdge = blockStart
   let editedEnd: WindowEdge = blockEnd
   let wholeList = false
