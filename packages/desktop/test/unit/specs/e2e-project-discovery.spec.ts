@@ -17,6 +17,10 @@ const artifactSpecs = [
   'installed-core-performance.spec.ts'
 ]
 
+// Listing loads every spec, which can take longer than a test's default
+// 5 s on a loaded machine; each test waits as long as its listing may.
+const LIST_TIMEOUT = 15_000
+
 const discover = (script: string): string => {
   const [executable, ...args] = scripts[script].split(' ')
   expect(executable).toBe('playwright')
@@ -27,7 +31,7 @@ const discover = (script: string): string => {
     cwd: desktop,
     env,
     encoding: 'utf8',
-    timeout: 15_000
+    timeout: LIST_TIMEOUT
   })
 }
 
@@ -37,7 +41,7 @@ describe('public E2E project discovery', () => {
     expect(output).toContain('[unpacked]')
     expect(output).toContain('criticmarkup-draft-recovery.spec.ts')
     for (const spec of artifactSpecs) expect(output).not.toContain(spec)
-  })
+  }, LIST_TIMEOUT + 5_000)
 
   it('retains artifact-required consumers in the installed command', () => {
     const output = discover('test:e2e:installed')
@@ -45,5 +49,5 @@ describe('public E2E project discovery', () => {
     for (const spec of artifactSpecs) expect(output).toContain(spec)
     expect(output).toContain('criticmarkup-orphaned-recovery.spec.ts')
     expect(output).not.toContain('criticmarkup-draft-recovery.spec.ts')
-  })
+  }, LIST_TIMEOUT + 5_000)
 })
