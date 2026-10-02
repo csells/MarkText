@@ -5612,7 +5612,6 @@ function createDocumentCoreWithExecutionBudget(
    */
   const regionalTrackedLiteralBlock = (
     state: RevisionState,
-    previous: DocumentRevision,
     edit: DocumentSourceEdit
   ): DocumentSourceEdit | undefined => {
     if (plansFromDocumentParse(core) || trackedPartsSeparate(core) || edit.start !== edit.end ||
@@ -6702,7 +6701,7 @@ function createDocumentCoreWithExecutionBudget(
       }
       return generalTrackedEdit(core, previous, edit, preview)
     }
-    const regional = regionalPayloadEdit(state, edit, true) ?? regionalTrackedLiteralBlock(state, previous, edit) ??
+    const regional = regionalPayloadEdit(state, edit, true) ?? regionalTrackedLiteralBlock(state, edit) ??
       regionalTrackedInsertion(state, previous, edit) ??
       regionalTrackedArmEdge(state, previous, edit) ?? regionalTrackedBesideDeletion(state, previous, edit) ??
       regionalTrackedInsideDeletion(state, previous, edit) ?? regionalTrackedInSubstitution(state, previous, edit) ??
