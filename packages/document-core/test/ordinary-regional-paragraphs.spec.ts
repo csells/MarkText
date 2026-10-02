@@ -126,10 +126,14 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     const core = createDocumentCore()
     const revision = core.apply(core.open(source), [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
     const result = core.apply(revision, [{ start: start + 1, end: start + 1 + block.length, insert }], { projections: ['markup'] })
-    expect(result.change.projections[0]?.scope).toBe('document')
+    expect(result.change.projections[0]?.scope).toBe('regions')
     const fresh = createDocumentCore()
     const expected = fresh.open(result.revision.source)
-    expect(core.project(result.revision, 'revised').markdown).toBe(fresh.project(expected, 'revised').markdown)
+    expect(result.revision.annotations).toEqual(expected.annotations)
+    expect(core.project(result.revision, 'markup').syntax.ast).toEqual(fresh.project(expected, 'markup').syntax.ast)
+    for (const name of ['original', 'revised'] as const) {
+      expect(core.project(result.revision, name).markdown).toBe(fresh.project(expected, name).markdown)
+    }
   })
 
   // Plan 0012 G35: an edit across the divider of a Substitution of one such
