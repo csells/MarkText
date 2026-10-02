@@ -323,6 +323,8 @@ interface ArmLiteral {
   readonly before: Readonly<{ lines: number, children: number }>
   /** The lines' Markdown children, which must stay many enough to split. */
   readonly children: number
+  /** The block's closer line also holds the marker after the arm, as `$$~>` does. */
+  readonly marked?: true
 }
 
 /**
@@ -1005,6 +1007,8 @@ function armLiteralsOf(
     // The event holds the lines alone, with at most their line break after them.
     if (index === undefined || event === undefined || event.start !== start || event.end < end || event.end > end + 1 ||
         arm.range.start !== event.start || arm.range.end !== event.end) return
+    // A marker on the block's closer line, as `$$~>`, reads with that line.
+    const marked = editing.source.charAt(projectedAt(event.end - 1) ?? -1) !== '\n'
     let local = 0
     for (let earlier = index - 1; earlier >= 0; earlier -= 1) {
       const span = spans[earlier]
@@ -1026,7 +1030,8 @@ function armLiteralsOf(
       arm: arm.name,
       block: block.range.start - syntaxStart,
       before,
-      children
+      children,
+      ...(marked ? { marked: true as const } : {})
     }))
   }
   for (let ordinal = 0; ordinal < root.childCount; ordinal += 1) {
@@ -4420,6 +4425,9 @@ function literalBlockEdge(
  * the leaf but those lines is read again. Undefined leaves the edit to the
  * other windows.
  */
+/** A line a Markdown block can start with, interrupting a paragraph. */
+const BLOCK_START_LINE = /(?:^|\n) {0,3}(?:#{1,6}(?:[ \t]|\n|$)|>|[-+*](?:[ \t]|\n|$)|\d{1,9}[.)](?:[ \t]|\n|$)|`{3,}|~{3,}|<|(?:[-*_][ \t]*){3,}(?:\n|$)|=+[ \t]*(?:\n|$))/u
+
 function admitArmLiteralLines(
   inventory: InventoryValue,
   previousSource: CanonicalSourceView,
@@ -4492,7 +4500,11 @@ function admitArmLiteralLines(
       // across the suggestion's markers, which no window of its lines reads.
       /[`$]/u.test(edit.insert + previousSource.slice(Math.max(0, edit.start - 1), edit.end + 1)) ||
       // A blank line in a math block parts the dollar runs read after it.
-      (arm.key.startsWith('math-block') && [previousLines, nextLines].some(lines => /(?:^|\n)[ \t]*\n/u.test(lines)))) return undefined
+      (arm.key.startsWith('math-block') && [previousLines, nextLines].some(lines => /(?:^|\n)[ \t]*\n/u.test(lines))) ||
+      // A marker on the closer line pairs as the block's lines are read
+      // outside a math block too, where a line that starts a block parts
+      // them; other blocks read so are left to the windows of the block.
+      (arm.marked === true && (!arm.key.startsWith('math-block') || BLOCK_START_LINE.test(nextLines)))) return undefined
   const previousWindow = opener + previousLines + closer
   const nextWindow = opener + nextLines + closer
   const options = Object.freeze({ ...markdownOptions, frontMatter: false })

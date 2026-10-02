@@ -318,14 +318,20 @@ function armLinesPassage(
   // The lines' own start stays, as the block's content start may be.
   const shifted = shiftedNode({ ...block, children: [] }, at + 1, delta)
   const moved = (position: number): number => position > at ? position + delta : position
+  // Replaced lines that begin the block begin its content, after any
+  // indentation of its first line.
+  const contentStart = holds && first === 0 && typeof block.attributes['contentStart'] === 'number'
+    ? inserted[0]?.range.start
+    : undefined
   const patched: MarkdownAstNode = Object.freeze({
     ...shifted,
-    attributes: typeof content === 'string'
-      ? Object.freeze({
-        ...shifted.attributes,
-        content: content.slice(0, textStart) + inserted.map(literalChildText).join('') + content.slice(textEnd)
-      })
-      : shifted.attributes,
+    attributes: Object.freeze({
+      ...shifted.attributes,
+      ...(typeof content === 'string'
+        ? { content: content.slice(0, textStart) + inserted.map(literalChildText).join('') + content.slice(textEnd) }
+        : {}),
+      ...(contentStart === undefined ? {} : { contentStart })
+    }),
     children: Object.freeze([
       ...block.children.slice(0, first),
       ...(holds ? inserted : []),
