@@ -94,6 +94,10 @@ const expectSameQueries = (actual: MuyaMarkupView, expected: MuyaMarkupView, lab
   expect(muyaViewFirstBinding(actual), label).toEqual(expected.bindings[0])
   expect(muyaViewLastBinding(actual), label).toEqual(expected.bindings.at(-1))
   const bindings = expected.bindings
+  // Each binding's place in list order, by path: a search near a list's
+  // position reads every item of it, so finding each one again by a scan
+  // made this check quadratic in the list's length.
+  const indexByPath = new Map(bindings.map((binding, index) => [JSON.stringify(binding.path), index]))
   for (const [index, binding] of bindings.entries()) {
     const found = muyaViewItemAtPath(actual, 'bindings', binding.path)
     expect(found, label).toEqual(binding)
@@ -115,9 +119,7 @@ const expectSameQueries = (actual: MuyaMarkupView, expected: MuyaMarkupView, lab
       expect(near.map((item) => JSON.stringify(item.path)), label).toContain(
         JSON.stringify(binding.path)
       )
-      const order = near.map((item) =>
-        bindings.findIndex((other) => JSON.stringify(other.path) === JSON.stringify(item.path))
-      )
+      const order = near.map((item) => indexByPath.get(JSON.stringify(item.path)) ?? -1)
       expect(order, label).toEqual([...order].sort((left, right) => left - right))
     }
   }
