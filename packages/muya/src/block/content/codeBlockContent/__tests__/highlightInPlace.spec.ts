@@ -3,6 +3,7 @@
 import type Content from '../../../base/content';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Muya } from '../../../../muya';
+import { getNodeAndOffset } from '../../../../selection/dom';
 
 // A key in a long highlighted block redraws only the children its change
 // reaches, with the DOM a whole redraw would leave: highlighting the block
@@ -54,6 +55,14 @@ function codeContent(muya: Muya): Content {
     return target;
 }
 
+/** A DOM point as the child indices down to its node, then its offset. */
+function pathOf(root: Node, point: { node: Node; offset: number }): number[] {
+    const path = [point.offset];
+    for (let node = point.node; node !== root; node = node.parentNode!)
+        path.unshift(Array.prototype.indexOf.call(node.parentNode!.childNodes, node));
+    return path;
+}
+
 const fence = (text: string, lang = 'js') => `\`\`\`${lang}\n${text}\n\`\`\`\n`;
 /** The children a whole redraw of `text` leaves. */
 const drawnAlone = (text: string, lang = 'js') => codeContent(bootMuya(fence(text, lang))).domNode!.innerHTML;
@@ -71,6 +80,23 @@ describe('codeBlockContent highlight in place', () => {
         expect(content.domNode!.innerHTML).toBe(drawnAlone(content.text));
         expect(after[0]).toBe(before[0]);
         expect(after[after.length - 1]).toBe(before[before.length - 1]);
+    });
+
+    it('keeps the text node a key changes the text of', () => {
+        const content = codeContent(bootMuya(fence(lines)));
+        const walker = document.createTreeWalker(content.domNode!, NodeFilter.SHOW_TEXT);
+        let text: Text | null = null;
+        for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+            if (node.textContent === '// note 30')
+                text = node as Text;
+        }
+        expect(text).not.toBeNull();
+        content.text = lines.replace('// note 30\n', '// note 30x\n');
+        content.update();
+
+        expect(text!.isConnected).toBe(true);
+        expect(text!.data).toBe('// note 30x');
+        expect(content.domNode!.innerHTML).toBe(drawnAlone(content.text));
     });
 
     it('keeps the child native input already wrote the key into', () => {
@@ -115,6 +141,14 @@ describe('codeBlockContent highlight in place', () => {
             whole.text = text;
             whole.update();
             expect(content.domNode!.innerHTML, JSON.stringify(text)).toBe(whole.domNode!.innerHTML);
+            // A point found from the drawing's text lengths is the one a walk
+            // over a copy of its DOM finds.
+            const copy = content.domNode!.cloneNode(true) as HTMLElement;
+            for (let read = 0; read < 8; read += 1) {
+                const offset = Math.floor(random() * (text.length + 1));
+                expect(pathOf(content.domNode!, getNodeAndOffset(content.domNode!, offset)), `${offset}`)
+                    .toEqual(pathOf(copy, getNodeAndOffset(copy, offset)));
+            }
         }
         expect(whole.domNode!.innerHTML).toBe(drawnAlone(text, lang));
         expect(kept).toBeGreaterThan(60);
