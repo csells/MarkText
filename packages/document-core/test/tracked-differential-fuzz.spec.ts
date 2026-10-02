@@ -125,6 +125,13 @@ describe('tracked edits match untracked editing of the visible text', () => {
         expect(result.selection, `no caret: ${label}`).toBeDefined()
 
         expect(core.project(next, 'original').markdown, `Original changed: ${label}`).toBe(core.project(revision, 'original').markdown)
+        // A tracked edit spells only whole suggestions, so it leaves no marker
+        // unpaired or unterminated beyond those the same edit untracked does.
+        let untrackedDiagnostics = revision.diagnostics.length
+        try {
+          untrackedDiagnostics = Math.max(untrackedDiagnostics, createDocumentCore().open(untrackedInPlace(revision.source, action)).diagnostics.length)
+        } catch { /* the untracked action is refused */ }
+        expect(next.diagnostics.length, `diagnostic added: ${label} ${JSON.stringify(edits)}`).toBeLessThanOrEqual(untrackedDiagnostics)
         // Where the edit touches no suggestion, the untracked result is the
         // same action untracked in the same document. Over suggestions it is
         // the action on the Accepted document at the same visible places;

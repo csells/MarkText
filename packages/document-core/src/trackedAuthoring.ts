@@ -305,11 +305,16 @@ export const createTrackedSourceEdit = (
   if (untracked === undefined) return direct
   const oracle = createTrackedOracle(activeCore, activeRevision, untracked, preview)
   if (oracle === undefined) return direct
-  if (direct !== undefined && oracle.accepts([direct], 'exact')) return direct
+  // A tracked edit spells only whole suggestions, so one that leaves a marker
+  // unpaired beyond those the untracked edit leaves spells the change
+  // otherwise.
+  const allowed = Math.max(activeRevision.diagnostics.length, preview(untracked).diagnostics.length)
+  const clean = (edit: DocumentSourceEdit): boolean => preview([edit]).diagnostics.length <= allowed
+  if (direct !== undefined && oracle.accepts([direct], 'exact') && clean(direct)) return direct
   const literal = createTrackedLiteralSourceEdit(activeCore, activeRevision, raw, preview)
   if (literal !== undefined) return literal
   return widenedTrackedSourceEdit(activeCore, activeRevision, oracle) ??
-    (direct !== undefined && oracle.accepts([direct], 'rendering') ? direct : undefined)
+    (direct !== undefined && oracle.accepts([direct], 'rendering') && clean(direct) ? direct : undefined)
 }
 
 /**

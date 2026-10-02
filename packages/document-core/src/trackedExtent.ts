@@ -511,6 +511,9 @@ export function widenedTrackedSourceEdit(
     const edit = Object.freeze({ start, end, insert })
     if (!oracle.accepts([edit], equivalence)) return undefined
     const candidate = oracle.preview([edit])
+    // A tracked edit spells only whole suggestions; one that leaves a marker
+    // unpaired beyond those the untracked edit leaves is no spelling of it.
+    if (candidate.diagnostics.length > Math.max(previous.diagnostics.length, oracle.preview(untracked).diagnostics.length)) return undefined
     const authored = markupAnnotations(candidate.annotations).find(annotation =>
       annotation.range.end === start + insert.length && annotation.range.start >= start)
     return authored === undefined ? undefined : edit
@@ -749,10 +752,19 @@ export function draftTrackedSourceEdit(
   if (markupAnnotations(arm.annotations).some(annotation => annotation.range.start < edit.end && edit.start < annotation.range.end)) return undefined
   const tail = core.sourceSlice(previous, { start: edit.end, end: arm.range.end })
   const content = core.sourceSlice(previous, { start: arm.range.start, end: edit.start }) + edit.insert + tail
+  preview = memoizedPreview(preview)
   // Accepting the draft is the untracked result of the same operation.
   const accepted = [Object.freeze({ ...owner.range, insert: content })]
-  const oracle = createTrackedOracle(core, previous, accepted, memoizedPreview(preview))
+  const oracle = createTrackedOracle(core, previous, accepted, preview)
   if (oracle === undefined) return undefined
+  // Text before the suggestion on its line joins the arm's first line once
+  // the draft is accepted, so a fence the arm opens there reads otherwise
+  // accepted than the author sees it; the author's edit is the edit in the
+  // arm, as typed.
+  const before = core.sourceSlice(previous, { start: Math.max(0, owner.range.start - 512), end: owner.range.start })
+  if (before.slice(lineStart(before, before.length)).trim() !== '' &&
+      /^ {0,3}(?:`{3,}|~{3,}|\$\$)/u.test(core.sourceSlice(previous, arm.range)) &&
+      preview([edit]).diagnostics.length <= previous.diagnostics.length) return Object.freeze({ ...edit })
   const eol = (content.match(EOL) ?? core.sourceSlice(previous, { start: 0, end: previous.sourceLength }).match(EOL))?.[0] ?? '\n'
   const suffixes: string[] = []
   if (trailingBackslashes(content) % 2 === 1) suffixes.push('\\')
