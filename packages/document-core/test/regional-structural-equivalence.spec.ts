@@ -9,6 +9,7 @@ import {
   type MarkupRegionReplacement,
   type SourceRange
 } from '../src/index.js'
+import { inspectRegionalLeaves } from '../src/internal/documentCoreInspection.js'
 
 // Plan 0012 G35: a regional apply that splits, joins or annotates blocks is an
 // optimization of one parse. Its annotations and its projection replacement,
@@ -77,6 +78,23 @@ const literalBlocks = [
   '> quote',
   '{~~```\nold\n```\n~>```\nnew\nmore\n```\n~~}'
 ]
+// Suggestion arms each holding a whole long literal block, whose inner lines
+// a key reparses in a window of those lines (see `admitArmLiteralLines`).
+const armBody = (count: number, line: (index: number) => string): string => literalLines(count, line)
+const armBlocks = [
+  'Plain words here.',
+  '{~~```js\n' + armBody(6, index => `old ${index}`) + '\n```\n~>```js\n' + armBody(7, index => `new ${index} {x}`) + '\n```\n~~}',
+  '{~~$$\n' + armBody(5, index => `x_{${index}}`) + '\n$$\n~>$$\n' + armBody(6, index => `y_{${index}} + 1`) + '\n$$\n~~}',
+  '{~~<div>\n' + armBody(5, index => `old html ${index}`) + '\n</div>\n~><div>\n' + armBody(5, index => `new html ${index}`) + '\n</div>\n~~}',
+  '{++~~~\n' + armBody(6, index => `added ${index}`) + '\n~~~\n++}',
+  '{--```\n' + armBody(5, index => `gone ${index}`) + '\n```\n--}',
+  '{~~' + armBody(5, index => `    old indented ${index}`) + '\n~>' + armBody(5, index => `    new indented ${index}`) + '\n~~}',
+  '{==```\n' + armBody(5, index => `marked ${index}`) + '\n```\n==}{>>a comment<<}',
+  'Para *em* and `code` here.',
+  '- item one\n- item two'
+]
+const armInsertions = ['x', ' ', '\n', '\n\n', '```', '~~~', '$$', '</div>', '    ', '{', '}', '~>', '~~}', '{++n++}', '`', '# ', '<div>', '\n```\n']
+
 const literalInsertions = ['x', ' ', '\n', '\n\n', '```', '~~~', '    ', '\t', '$$', '</div>', '-->', '{', '}', '{++n++}', '`', '# ', '- ', '<div>', '\n```\n', '\n    ']
 
 function applyReplacement(previous: readonly MarkupEvent[], replacement: MarkupRegionReplacement): readonly MarkupEvent[] {
@@ -84,16 +102,24 @@ function applyReplacement(previous: readonly MarkupEvent[], replacement: MarkupR
   const shift = (range: SourceRange): SourceRange => range.end <= replacement.previous.source.end
     ? range
     : { start: range.start + delta, end: range.end + delta }
+  // An annotation holding the replaced lines keeps its start and moves its end.
+  const enclosing = replacement.enclosing ?? []
+  const shiftAnnotation = (range: SourceRange): SourceRange =>
+    enclosing.some(held => held.start === range.start && held.end === range.end)
+      ? { start: range.start, end: range.end + delta }
+      : shift(range)
   const marks = new Map<MarkupMark, MarkupMark>()
   const shiftMark = (mark: MarkupMark): MarkupMark => {
     const cached = marks.get(mark)
     if (cached !== undefined) return cached
-    const shifted = { ...mark, annotationRange: shift(mark.annotationRange) } as MarkupMark
+    const shifted = { ...mark, annotationRange: shiftAnnotation(mark.annotationRange) } as MarkupMark
     marks.set(mark, shifted)
     return shifted
   }
   return [
-    ...previous.slice(0, replacement.previous.events.start),
+    ...previous.slice(0, replacement.previous.events.start).map(event => event.kind === 'text'
+      ? event
+      : { ...event, mark: shiftMark(event.mark) }),
     ...replacement.events,
     ...previous.slice(replacement.previous.events.end).map(event => event.kind === 'text'
       ? { ...event, sourceRange: shift(event.sourceRange) }
@@ -184,6 +210,8 @@ interface Session {
   revision: DocumentRevision
   markup: MarkupProjection
   regional: number
+  /** Replacements of lines inside a suggestion arm's literal block. */
+  arm?: number
 }
 
 function step(session: Session, start: number, end: number, insert: string, label: string): void {
@@ -203,6 +231,32 @@ function step(session: Session, start: number, end: number, insert: string, labe
     if (replacement === undefined) throw new Error('Expected a replacement')
     expect(applyReplacement(session.markup.events, replacement), label).toEqual(freshMarkup.events)
     expect(composedShape(session.markup, replacement), label).toEqual(blockShape(freshMarkup))
+    if (replacement.enclosing !== undefined) {
+      session.arm = (session.arm ?? 0) + 1
+      // Later edits read the arm's lines from the inventory leaves this
+      // replacement left, so they must be the ones a fresh open builds.
+      // Earlier regional edits may leave the leaves partitioned unlike a
+      // fresh open's, so compare the arm blocks by document position, and
+      // the edited leaf where a fresh open has the same one.
+      const leaves = (owner: DocumentCore, at: DocumentRevision) => {
+        let offset = 0
+        return (inspectRegionalLeaves(owner, at) ?? []).map(value => {
+          const leaf = JSON.parse(JSON.stringify(value)) as { sourceLength: number, armLiterals?: Array<Record<string, unknown> & { start: number, end: number }> }
+          const placed = { start: offset, leaf }
+          offset += leaf.sourceLength
+          return placed
+        })
+      }
+      const arms = (placed: ReturnType<typeof leaves>) => placed.flatMap(({ start, leaf }) =>
+        (leaf.armLiterals ?? []).map(({ node: _node, event: _event, eventStart, eventEnd, syntaxStart: _syntax, ...arm }) =>
+          ({ ...arm, start: start + arm.start, end: start + arm.end, eventStart: start + Number(eventStart), eventEnd: start + Number(eventEnd) })))
+      const ours = leaves(core, commit.revision)
+      const theirs = leaves(oracle, fresh)
+      expect(arms(ours), label).toEqual(arms(theirs))
+      const edited = ours.find(({ start: leafStart, leaf }) => leafStart <= start && start <= leafStart + leaf.sourceLength)
+      const same = theirs.find(placed => placed.start === edited?.start && placed.leaf.sourceLength === edited.leaf.sourceLength)
+      if (edited !== undefined && same !== undefined) expect(edited.leaf, label).toEqual(same.leaf)
+    }
   }
   session.revision = commit.revision
   session.markup = freshMarkup
@@ -223,8 +277,11 @@ function documentFrom(random: () => number, pool: readonly string[] = blocks): s
 describe('structural regional edits read as a fresh open', () => {
   // Seeds past the first 24 are ones a 4,000-seed run once found diverging.
   const regressionSeeds = [1012, 1063, 1107, 1139, 1152, 1225, 1261, 1274, 1296]
-  const fuzz = (seed: number, pool: readonly string[], pieces: readonly string[]): void => {
+  // `focus` names lines whose text edits favour, returning the arm line
+  // replacements the edits took.
+  const fuzz = (seed: number, pool: readonly string[], pieces: readonly string[], focus?: RegExp): number => {
     const random = lcg(seed * 7919)
+    let arm = 0
     for (let documentIndex = 0; documentIndex < 20; documentIndex += 1) {
       const source = documentFrom(random, pool)
       const core = createDocumentCore()
@@ -232,7 +289,13 @@ describe('structural regional edits read as a fresh open', () => {
       const session: Session = { core, revision, markup: core.project(revision, 'markup'), regional: 0 }
       for (let edit = 0; edit < 8; edit += 1) {
         const length = session.revision.sourceLength
-        const start = Math.floor(random() * (length + 1))
+        const focused = focus === undefined
+          ? []
+          : [...session.revision.source.matchAll(new RegExp(focus.source, 'gmu'))]
+        const line = focused.length > 0 && random() < 0.75 ? focused[Math.floor(random() * focused.length)] : undefined
+        const start = line === undefined
+          ? Math.floor(random() * (length + 1))
+          : line.index + Math.floor(random() * (line[0].length + 1))
         const choice = random()
         let end = start
         let insert = ''
@@ -247,7 +310,9 @@ describe('structural regional edits read as a fresh open', () => {
         const label = `${JSON.stringify(session.revision.source)} [${start}, ${end}) ${JSON.stringify(insert)}`
         step(session, start, end, insert, label)
       }
+      arm += session.arm ?? 0
     }
+    return arm
   }
   it.each([...Array.from({ length: 24 }, (_, seed) => seed + 1), ...regressionSeeds])('seed %i', seed => {
     fuzz(seed, blocks, insertions)
@@ -263,6 +328,12 @@ describe('structural regional edits read as a fresh open', () => {
   it.each(Array.from({ length: literalSeeds }, (_, index) => firstLiteralSeed + index))('literal seed %i', seed => {
     fuzz(seed, literalBlocks, literalInsertions)
   })
+  // MARKTEXT_ARM_FUZZ_SEEDS and _FIRST run a longer stretch.
+  const armSeeds = Number(process.env.MARKTEXT_ARM_FUZZ_SEEDS ?? 24)
+  const firstArmSeed = Number(process.env.MARKTEXT_ARM_FUZZ_FIRST ?? 1)
+  it.each(Array.from({ length: armSeeds }, (_, index) => firstArmSeed + index))('arm literal seed %i', seed => {
+    expect(fuzz(seed, armBlocks, armInsertions, /^ *(?:old|new|added|gone|marked|x_|y_).*$/)).toBeGreaterThan(0)
+  }, 60_000)
 
   // Histories a longer fuzz found diverging: a `$$` line in the window pairing
   // with one after it, a line that only a comment's hidden text leaves blank

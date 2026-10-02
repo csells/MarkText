@@ -54,6 +54,24 @@ const literals = [
     selector: '.mu-codeblock-content',
     offset: 2,
     expected: '{~~~~~js\nword\n~~~\n~>~~~js\nwoXYrd\n~~~\n~~}'
+  },
+  // Inner lines of longer blocks, which a later key reads alone in the
+  // proposed block (Core's arm line windows).
+  {
+    name: 'an inner line of fenced code',
+    source: '~~~js\none\nword\nthree\nfour\n~~~\n',
+    selector: '.mu-codeblock-content',
+    clickAt: { text: 'word', offset: 2 },
+    offset: 0,
+    expected: '{~~~~~js\none\nword\nthree\nfour\n~~~\n~>~~~js\none\nwoXYrd\nthree\nfour\n~~~\n~~}'
+  },
+  {
+    name: 'an inner line of indented code',
+    source: '    one\n    word\n    three\n    four\n',
+    selector: '.mu-codeblock-content',
+    clickAt: { text: 'word', offset: 2 },
+    offset: 0,
+    expected: '{~~    one\n    word\n    three\n    four\n~>    one\n    woXYrd\n    three\n    four\n~~}'
   }
 ]
 for (const literal of literals) {
@@ -77,8 +95,28 @@ for (const literal of literals) {
         ) {
           await page.locator(literal.activate).first().click({ timeout: 5000 })
         }
-        await page.locator(literal.selector).first().click()
-        await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowLeft' : 'Home')
+        if (literal.clickAt === undefined) {
+          await page.locator(literal.selector).first().click()
+          await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowLeft' : 'Home')
+        } else {
+          // Click inside an inner line at the character the key goes before.
+          const { text, offset } = literal.clickAt
+          const point = await page.locator(literal.selector).first().evaluate((element, target) => {
+            const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+            for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+              const at = node.textContent?.indexOf(target.text) ?? -1
+              if (at < 0) continue
+              const range = document.createRange()
+              range.setStart(node, at + target.offset)
+              range.setEnd(node, at + target.offset + 1)
+              const rect = range.getBoundingClientRect()
+              return { x: rect.left + 1, y: rect.top + rect.height / 2 }
+            }
+            return undefined
+          }, { text, offset })
+          if (point === undefined) throw new Error(`No ${text} to click`)
+          await page.mouse.click(point.x, point.y)
+        }
         for (let offset = 0; offset < literal.offset; offset++) {
           await page.keyboard.press('ArrowRight')
         }

@@ -788,6 +788,12 @@ export interface MuyaMarkupRoots {
   /** Roots, ascending, whose bindings can reach editing-syntax `[low, high]`. */
   syntaxRoots(low: number, high: number): Iterable<number>
   editableCount(): number
+  /**
+   * Whether the view lists root `root`'s decorations out of root order with
+   * another root's, as a suggestion whose arms are blocks can: a run of that
+   * root on its own would list them in another order.
+   */
+  interleaved(root: number): boolean
   /** The view's whole list of one kind, made on first request. */
   list<Kind extends keyof MuyaMarkupRootItems>(kind: Kind): MuyaMarkupRootItems[Kind]
   /**
@@ -801,6 +807,38 @@ export interface MuyaMarkupRoots {
     sourceDelta: number,
     syntaxDelta: number
   ): RootRun[]
+}
+
+const interleavedByBase = new WeakMap<RootBase, readonly (readonly [number, number])[]>()
+
+/**
+ * The base's root ranges, as base indexes, whose decorations its order lists
+ * out of root order: each item listed after one of a later root ties every
+ * root between them together.
+ */
+function interleavedRanges(base: RootBase): readonly (readonly [number, number])[] {
+  let ranges = interleavedByBase.get(base)
+  if (ranges === undefined) {
+    const found: Array<[number, number]> = []
+    const order = base.decorationOrder
+    let highest = -Infinity
+    for (const item of order?.list ?? []) {
+      const root = rootOf(item) - base.first
+      if (root < highest) {
+        const last = found.at(-1)
+        if (last !== undefined && last[0] <= highest && root <= last[1]) {
+          last[0] = Math.min(last[0], root)
+          last[1] = Math.max(last[1], highest)
+        } else {
+          found.push([root, highest])
+        }
+      }
+      highest = Math.max(highest, root)
+    }
+    ranges = found
+    interleavedByBase.set(base, ranges)
+  }
+  return ranges
 }
 
 // More runs than this are folded into one base, so that searches stay short
@@ -884,6 +922,12 @@ function createRoots(runs: readonly RootRun[], count: number): MuyaMarkupRoots {
           yield index + shift
         }
       }
+    },
+    interleaved(root) {
+      if (!Number.isSafeInteger(root) || root < 0 || root >= count) return false
+      const run = runAt(root)
+      const index = run.baseStart + root - run.start
+      return interleavedRanges(run.base).some(([low, high]) => low <= index && index <= high)
     },
     editableCount() {
       let editable = 0
@@ -1016,6 +1060,54 @@ export function createMuyaMarkupListRootRun(
     roots: [items],
     source: createRootIntervals([extent.source[0]], [extent.source[1]]),
     syntax: createRootIntervals([extent.syntax[0]], [extent.syntax[1]]),
+    editableBefore: [0, extent.editable]
+  }
+  return { start: first, end: first + 1, base, baseStart: 0, sourceDelta: 0, syntaxDelta: 0, made: new Map() }
+}
+
+/**
+ * A run of root `root` of `roots` placed at root `first`, its bindings and
+ * comments moved by the deltas when first read, with `decorations` in place
+ * of its own: the marks of a suggestion whose arm changed length keep their
+ * start and move their end, which no single delta does.
+ */
+export function createMuyaMarkupRetouchedRootRun(
+  roots: MuyaMarkupRoots,
+  root: number,
+  first: number,
+  sourceDelta: number,
+  syntaxDelta: number,
+  decorations: readonly MuyaMarkupDecoration[]
+): RootRun {
+  const moved = movedRootItems(roots.items(root), first - root, sourceDelta, syntaxDelta)
+  const items: MuyaMarkupRootItems = {
+    get bindings() {
+      return moved.bindings
+    },
+    decorations,
+    get comments() {
+      return moved.comments
+    }
+  }
+  const groups = itemGroupsByRoot.get(moved)
+  if (groups !== undefined) itemGroupsByRoot.set(items, groups)
+  // The root's own hull, moved, widened to the marks' positions.
+  const extent = roots.extent(root)
+  let low = extent.source[0] + sourceDelta
+  let high = extent.source[1] + sourceDelta
+  for (const decoration of decorations) {
+    for (const position of [decoration.mark.annotationRange.start, decoration.mark.annotationRange.end,
+      decoration.sourcePosition, decoration.exteriorEnd]) {
+      if (position === undefined) continue
+      low = Math.min(low, position)
+      high = Math.max(high, position)
+    }
+  }
+  const base: RootBase = {
+    first,
+    roots: [items],
+    source: createRootIntervals([low], [high]),
+    syntax: createRootIntervals([extent.syntax[0] + syntaxDelta], [extent.syntax[1] + syntaxDelta]),
     editableBefore: [0, extent.editable]
   }
   return { start: first, end: first + 1, base, baseStart: 0, sourceDelta: 0, syntaxDelta: 0, made: new Map() }

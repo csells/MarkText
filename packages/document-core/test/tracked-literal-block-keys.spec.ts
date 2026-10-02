@@ -91,9 +91,7 @@ describe('tracked keys in a literal block', () => {
     expect(session.revision.source.slice(next.range.start, next.range.end)).toBe('```js\nconst a = 1\nconst x\nb = 2\n```\n')
   })
 
-  // An HTML block's text may take a suggestion of its own, which the
-  // document's compile decides.
-  it.each([['fence', blocks.fence], ['math', blocks.math], ['indented', blocks.indented]])('suggests replacing a long %s without a document parse', (_name, block) => {
+  it.each(Object.entries(blocks))('suggests replacing a long %s without a document parse', (_name, block) => {
     const lines = Array.from({ length: 400 }, (_, index) => `const value${index} = compute(${index})`)
     const opening = 'Opening paragraph.\n\n' + Array.from({ length: 200 }, (_, index) => `Paragraph ${index} of the long document.`).join('\n\n')
     const source = `${opening}\n\n${block(lines)}\n\nClosing paragraph.\n`
@@ -107,6 +105,29 @@ describe('tracked keys in a literal block', () => {
     // The Substitution's two blocks, and none of the paragraphs before them.
     expect(first.regionUnits).toBeLessThanOrEqual(4 * (substitution.range.end - substitution.range.start))
   })
+
+  it.each(Object.entries(blocks))('reads each later key in a 2,000-line %s from the lines around it', (_name, block) => {
+    const lines = Array.from({ length: 2000 }, (_, index) => `const value${index} = compute(${index})`)
+    const source = documentWith(block(lines))
+    const core = createDocumentCore()
+    const session: Session = { core, revision: core.open(source), caret: source.indexOf('value1000 =') }
+    press(session, { inputType: 'insertText', data: 'x' })
+    const keys: Key[] = [
+      { inputType: 'insertText', data: 'y' },
+      { inputType: 'insertText', data: 'z' },
+      { inputType: 'insertParagraph' },
+      { inputType: 'insertText', data: 'w' },
+      { inputType: 'deleteContentBackward' },
+      { inputType: 'insertText', data: 'v' }
+    ]
+    for (const key of keys) {
+      const cost = press(session, key)
+      expect(cost.parses).toBe(0)
+      expect(cost.scope).toBe('regions')
+      // A few lines of the block, not the Substitution's 4,000.
+      expect(cost.regionUnits).toBeLessThan(1000)
+    }
+  }, 60_000)
 
   it.each(Object.entries(blocks))('reparses only the Substitution of a long %s for each later key', (_name, block) => {
     const lines = Array.from({ length: 400 }, (_, index) => `const value${index} = compute(${index})`)
