@@ -57,3 +57,24 @@ describe('tracked keys at a window edge without a blank line', () => {
     expect(plan(core, revision)).toEqual(plan(control, controlRevision))
   })
 })
+
+// A suggestion never ends between a CR and its LF, so a key in a long
+// literal block of a CRLF document is spelled alike from the regional core
+// and from the document parse.
+describe('tracked keys in a CRLF document', () => {
+  it('spells typing in a math block the way the document parse does', () => {
+    const source = '{q~~<div>\r\nh\r\n</div>~><div>\r\nhz\r\n</div>~~}\r\n\r\n    indented 0\r\n    indented 1\r\n    indented 2\r\n    indented 3\r\n    indented 4\r\n    indented 5\r\n    indented 6\r\n    indented 7\r\n\r\n- item {--one--}\r\n- item two\r\n\r\n<div>\r\nhtml 0\r\nhtml 1\r\nhtml 2\r\nhtml 3\r\nhtml 4\r\n</div>\r\n\r\n$$\r\nx_{0} + y\r\nx_{1} + y\r\nx_{2} + y\r\nx_{3} + y\r\nx_{4} + y\r\n$$\r\n'
+    const [core, control] = cores()
+    const revision = core.apply(core.open(source), [{ start: 0, end: 0, insert: '' }], { projections: ['markup'] }).revision
+    const controlRevision = control.apply(control.open(source), [{ start: 0, end: 0, insert: '' }], { projections: ['markup'] }).revision
+    const input = {
+      range: { start: 312, end: 312 },
+      selection: { ranges: [{ anchor: 312, focus: 312 }], primary: 0 },
+      inputType: 'insertText',
+      data: 'x',
+      options: { autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true }
+    } as DocumentInputAction
+    const plan = (target: DocumentCore, at: DocumentRevision) => target.inputEdits(at, input, target.planInput(at, input, { tracked: true }), true)
+    expect(plan(core, revision)).toEqual(plan(control, controlRevision))
+  })
+})
