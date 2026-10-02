@@ -79,7 +79,7 @@ import {
   type PersistentCanonicalSourceRecorder
 } from './internal/persistentCanonicalSource.js'
 import { plansFromDocumentParse, registerDocumentCoreInspection, registerRegionalLeaves } from './internal/documentCoreInspection.js'
-import { registerAnnotationsAround } from './internal/annotationsAround.js'
+import { annotationsOverlapping, registerAnnotationsAround } from './internal/annotationsAround.js'
 import {
   createRevisionProductStore,
   type RevisionProductStore
@@ -2328,6 +2328,121 @@ const nativeEditPlanners = new WeakMap<DocumentCore, (
   typed: boolean
 ) => readonly DocumentSourceEdit[] | undefined>()
 const windowCores = new WeakSet<DocumentCore>()
+
+/**
+ * The text Accept All leaves of the source `text` starting at `offset`, which
+ * holds `annotations` whole: every Deletion and old arm dropped, every other
+ * arm kept as written.
+ */
+function acceptedText(text: string, offset: number, annotations: readonly CriticMarkupAnnotation[]): string {
+  const resolve = (from: number, to: number, level: readonly CriticMarkupAnnotation[]): string => {
+    let accepted = ''
+    let cursor = from
+    for (const annotation of level) {
+      accepted += text.slice(cursor - offset, annotation.range.start - offset)
+      const name = annotation.kind === 'addition' || annotation.kind === 'highlight'
+        ? 'content'
+        : annotation.kind === 'substitution' ? 'new' : undefined
+      const kept = name === undefined ? undefined : annotation.arms.find(arm => arm.name === name)
+      if (kept !== undefined) accepted += resolve(kept.range.start, kept.range.end, kept.annotations)
+      cursor = annotation.range.end
+    }
+    return accepted + text.slice(cursor - offset, to - offset)
+  }
+  return resolve(offset, offset + text.length, annotations)
+}
+
+/** Whether `after` is `before` with `typed` inserted at one place. */
+function keepsTyping(after: string, before: string, typed: string): boolean {
+  if (after.length !== before.length + typed.length) return false
+  let prefix = 0
+  while (prefix < before.length && after.charCodeAt(prefix) === before.charCodeAt(prefix)) prefix += 1
+  let suffix = 0
+  while (suffix < before.length && after.charCodeAt(after.length - 1 - suffix) === before.charCodeAt(before.length - 1 - suffix)) suffix += 1
+  // The typing sits where the shared prefix and the shared suffix meet.
+  for (let at = Math.max(0, before.length - suffix); at <= prefix; at += 1) {
+    if (after.startsWith(typed, at)) return true
+  }
+  return false
+}
+
+/**
+ * The outermost suggestion whose deleted or replaced text (a Deletion's, or a
+ * Substitution's old arm) holds a range, with that arm.
+ */
+function historyHolder(
+  annotations: readonly CriticMarkupAnnotation[],
+  start: number,
+  end: number
+): Readonly<{ annotation: CriticMarkupAnnotation, arm: CriticMarkupArm }> | undefined {
+  for (let level = annotations; ;) {
+    const annotation = level.find(candidate => candidate.range.start < start && end < candidate.range.end)
+    const arm = annotation?.arms.find(candidate => candidate.range.start <= start && end <= candidate.range.end)
+    if (annotation === undefined || arm === undefined) return undefined
+    if (annotation.kind === 'deletion' || (annotation.kind === 'substitution' && arm.name === 'old')) return { annotation, arm }
+    level = arm.annotations
+  }
+}
+
+/**
+ * The respelling of the outermost suggestion whose deleted or replaced text
+ * holds every edit that types something, split where each edit types: the
+ * text before and after each split point stays deleted (the last part of a
+ * Substitution's old arm keeps its new arm) and the typed text is added
+ * between. A split at the caret, at the start of its line, or before or
+ * after the whole suggestion: a literal block's text can end an arm only at
+ * a line start (Profile 2 L2c), and typing that starts a block can change
+ * how the suggestion after it reads. With `arm`, the one suggestion replaces
+ * the deleted text with the typing ahead of any proposed text. Undefined
+ * where no such suggestion holds the edits.
+ */
+function historySplit(
+  annotations: readonly CriticMarkupAnnotation[],
+  source: string,
+  edits: readonly DocumentSourceEdit[],
+  at: 'caret' | 'line' | 'arm' | 'before' | 'after'
+): Readonly<{ range: SourceRange, insert: string, typed: string }> | undefined {
+  if (!edits.some(edit => edit.insert.length > 0)) return undefined
+  const held = edits.map(edit => historyHolder(annotations, edit.start, edit.end))
+  const outer = held[0]
+  if (outer === undefined || held.some(entry => entry?.annotation !== outer.annotation)) return undefined
+  const { annotation, arm } = outer
+  const typed = edits.map(edit => edit.insert).join('')
+  const replacement = annotation.arms.find(candidate => candidate.name === 'new')
+  const proposed = replacement === undefined ? '' : source.slice(replacement.range.start, replacement.range.end)
+  // The typing may also lead the proposed text of the one suggestion: its
+  // closer then follows that text, not the typing, which can end inside a
+  // literal block's line.
+  if (at === 'arm') {
+    return { range: annotation.range, insert: `{~~${source.slice(arm.range.start, arm.range.end)}~>${typed}${proposed}~~}`, typed }
+  }
+  if (at === 'after') {
+    return { range: { start: annotation.range.end, end: annotation.range.end }, insert: `{++${typed}++}`, typed }
+  }
+  // A split point never cuts a suggestion nested in the arm: the typing goes
+  // before the one holding the caret.
+  const lineStart = (offset: number): number => Math.max(source.lastIndexOf('\n', offset - 1), source.lastIndexOf('\r', offset - 1)) + 1
+  const points = edits.map(edit => {
+    const point = at === 'caret' ? edit.start : at === 'line' ? Math.max(arm.range.start, lineStart(edit.start)) : arm.range.start
+    return arm.annotations.find(nested => nested.range.start < point && point < nested.range.end)?.range.start ?? point
+  })
+  if (points.some((point, index) => index > 0 && point < (points[index - 1] ?? 0))) return undefined
+  let insert = ''
+  let cursor = arm.range.start
+  edits.forEach((edit, index) => {
+    const point = points[index] ?? edit.start
+    if (point > cursor) insert += `{--${source.slice(cursor, point)}--}`
+    if (edit.insert.length > 0) insert += `{++${edit.insert}++}`
+    cursor = point
+  })
+  const rest = source.slice(cursor, arm.range.end)
+  if (annotation.kind === 'deletion') {
+    if (rest.length > 0) insert += `{--${rest}--}`
+  } else {
+    insert += rest.length === 0 ? (proposed.length === 0 ? '' : `{++${proposed}++}`) : `{~~${rest}~>${proposed}~~}`
+  }
+  return { range: annotation.range, insert, typed }
+}
 
 /** The general tracked compiler for one edit, on any core. */
 function generalTrackedEdit(
@@ -7184,7 +7299,233 @@ function createDocumentCoreWithExecutionBudget(
     })
   }
 
+  // A source with every annotation accepted or rejected, read on a core of
+  // its own so this core's current revision stays.
+  const resolvedSource = (source: string, decision: 'accept' | 'reject', options: MarkdownOptionsV1): string => {
+    const resolver = createDocumentCoreWithExecutionBudget(executionBudget)
+    windowCores.add(resolver)
+    const { schema: _schema, ...open } = options
+    let revision = resolver.open(source, open)
+    for (let pass = 0; pass < 64 && revision.annotations.length > 0; pass += 1) {
+      const current = revision
+      revision = resolver.apply(current, current.annotations.map(annotation => {
+        const name = annotation.kind === 'addition'
+          ? decision === 'accept' ? 'content' : undefined
+          : annotation.kind === 'deletion'
+            ? decision === 'accept' ? undefined : 'content'
+            : annotation.kind === 'substitution'
+              ? decision === 'accept' ? 'new' : 'old'
+              : annotation.kind === 'highlight' ? 'content' : undefined
+        const kept = name === undefined ? undefined : annotation.arms.find(arm => arm.name === name)
+        return { ...annotation.range, insert: kept === undefined ? '' : current.source.slice(kept.range.start, kept.range.end) }
+      })).revision
+    }
+    return revision.source
+  }
+
+  /**
+   * Tracked mode accepts every edit untracked mode accepts. Where no spelling
+   * the compile weighs reads as the untracked result in every view, the
+   * change is proposed as one suggestion over the blocks it touches and read
+   * for its review alone: accepting it gives the untracked result's accepted
+   * source, rejecting it the previous one's, and it leaves no marker unpaired
+   * beyond those the untracked edit leaves.
+   */
+  const trackedFallback = (
+    previous: DocumentRevision,
+    untracked: readonly DocumentSourceEdit[]
+  ): readonly DocumentSourceEdit[] | undefined => {
+    const first = untracked[0]
+    const last = untracked.at(-1)
+    if (first === undefined || last === undefined) return undefined
+    const source = core.sourceSlice(previous, { start: 0, end: previous.sourceLength })
+    let next = source
+    for (const edit of [...untracked].reverse()) next = next.slice(0, edit.start) + edit.insert + next.slice(edit.end)
+    const delta = next.length - source.length
+    const preview = (candidate: readonly DocumentSourceEdit[]) => previewSourceEdits(previous, candidate)
+    const untrackedNext = preview(untracked)
+    const allowed = Math.max(previous.diagnostics.length, untrackedNext.diagnostics.length)
+    const options = currentStateOf(previous).markdownOptions
+    const accepted = resolvedSource(next, 'accept', options)
+    const rejected = resolvedSource(source, 'reject', options)
+    const authors = (annotations: readonly CriticMarkupAnnotation[], at: number): boolean =>
+      annotations.some(({ range, arms }) => range.start === at || arms.some(arm => authors(arm.annotations, at)))
+    const nested: CriticMarkupAnnotation[] = []
+    const gather = (annotations: readonly CriticMarkupAnnotation[]): void => {
+      for (const annotation of annotations) {
+        nested.push(annotation)
+        for (const arm of annotation.arms) gather(arm.annotations)
+      }
+    }
+    gather(previous.annotations)
+    // A span holds whole every annotation it cuts: one it meets that neither
+    // holds it within one arm nor lies within it.
+    const widen = (start: number, end: number): Readonly<{ start: number, end: number }> => {
+      let from = start
+      let to = end
+      for (let changed = true; changed;) {
+        changed = false
+        for (const { range, arms } of nested) {
+          if (to <= range.start || range.end <= from || (from <= range.start && range.end <= to)) continue
+          if (arms.some(arm => arm.range.start <= from && to <= arm.range.end)) continue
+          from = Math.min(from, range.start)
+          to = Math.max(to, range.end)
+          changed = true
+        }
+      }
+      return { start: from, end: to }
+    }
+    const blockStart = (at: number): number => {
+      const before = source.slice(0, at)
+      let index = before.length
+      while (index > 0) {
+        const lineStart = Math.max(before.lastIndexOf('\n', index - 1), before.lastIndexOf('\r', index - 1))
+        if (lineStart < 0) return 0
+        const previousLineStart = Math.max(before.lastIndexOf('\n', lineStart - 1), before.lastIndexOf('\r', lineStart - 1)) + 1
+        if (source.slice(previousLineStart, lineStart).trim() === '') return lineStart + 1
+        index = lineStart
+      }
+      return 0
+    }
+    const blockEnd = (at: number): number => {
+      const blank = /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/gu
+      blank.lastIndex = at
+      const found = blank.exec(source)
+      return found === null ? source.length : found.index + 1
+    }
+    const validated = (edits: readonly DocumentSourceEdit[]): readonly DocumentSourceEdit[] | undefined => {
+      const read = preview(edits)
+      if (read.diagnostics.length > allowed) return undefined
+      return edits.every(edit => authors(read.annotations, edit.start)) &&
+        resolvedSource(read.source, 'reject', options) === rejected
+        ? Object.freeze(edits)
+        : undefined
+    }
+    if (historySplit(previous.annotations, source, untracked, 'before') !== undefined) {
+      // Owner ruling G34: text typed into deleted or replaced text splits that
+      // suggestion at the caret, so the typing survives Accept All while
+      // Reject All restores the original. A spelling that drops it is no
+      // spelling of the key, so none is weighed below.
+      const acceptedBefore = resolvedSource(source, 'accept', options)
+      for (const at of ['caret', 'line', 'arm', 'before', 'after'] as const) {
+        const history = historySplit(previous.annotations, source, untracked, at)
+        if (history === undefined) continue
+        const spelled = validated([Object.freeze({ start: history.range.start, end: history.range.end, insert: history.insert })])
+        if (spelled !== undefined &&
+            keepsTyping(resolvedSource(preview(spelled).source, 'accept', options), acceptedBefore, history.typed)) return spelled
+      }
+      return undefined
+    }
+    // The edit itself is tried first, then each suggestion holding it from
+    // the innermost out, then the blocks around it, parted at blank lines.
+    const edited = widen(first.start, last.end)
+    const holders = nested
+      .filter(({ range }) => range.start <= edited.start && edited.end <= range.end)
+      .sort((left, right) => (left.range.end - left.range.start) - (right.range.end - right.range.start))
+      .map(({ range }) => widen(range.start, range.end))
+    const rungs = [edited, ...holders]
+    let span = edited
+    for (let attempt = 0; attempt < 8 + holders.length; attempt += 1) {
+      const old = source.slice(span.start, span.end)
+      const proposed = next.slice(span.start, span.end + delta)
+      const spellings = old === ''
+        ? [`{++${proposed}++}`]
+        : proposed === ''
+          ? [`{--${old}--}`, `{~~${old}~>~~}`]
+          : [`{~~${old}~>${proposed}~~}`, `{--${old}--}{++${proposed}++}`]
+      for (const insert of spellings) {
+        const candidate = Object.freeze({ start: span.start, end: span.end, insert })
+        const read = preview([candidate])
+        if (read.diagnostics.length > allowed) continue
+        if (!authors(read.annotations, span.start)) continue
+        if (resolvedSource(read.source, 'reject', options) !== rejected || resolvedSource(read.source, 'accept', options) !== accepted) continue
+        return Object.freeze([candidate])
+      }
+      const holder = rungs[attempt + 1]
+      if (holder !== undefined) {
+        span = holder
+        continue
+      }
+      const wider = widen(blockStart(span.start), blockEnd(span.end))
+      if (wider.start === span.start && wider.end === span.end) {
+        if (span.start === 0 && span.end === source.length) return undefined
+        span = { start: 0, end: source.length }
+      } else span = wider
+    }
+    return undefined
+  }
+
+  /**
+   * Whether a plan's Accept All is the previous one's with the typing
+   * inserted at one place, read over the suggestions around the edits only,
+   * so a large document's annotations stay unread.
+   */
+  const plannedKeepsTyping = (
+    previous: DocumentRevision,
+    input: readonly DocumentSourceEdit[],
+    planned: readonly DocumentSourceEdit[],
+    typing: string
+  ): boolean => {
+    const read = previewSourceEdits(previous, planned)
+    const delta = planned.reduce((sum, edit) => sum + edit.insert.length - (edit.end - edit.start), 0)
+    let start = Math.min(...input.map(edit => edit.start), ...planned.map(edit => edit.start))
+    let end = Math.max(...input.map(edit => edit.end), ...planned.map(edit => edit.end))
+    let before = annotationsOverlapping(core, previous, { start, end })
+    let after = annotationsOverlapping(core, read, { start, end: end + delta })
+    // Grow the span until it holds every suggestion it meets, before and after.
+    for (let pass = 0; pass < 8; pass += 1) {
+      const from = Math.min(start, ...before.map(annotation => annotation.range.start), ...after.map(annotation => annotation.range.start))
+      const to = Math.max(end, ...before.map(annotation => annotation.range.end), ...after.map(annotation => annotation.range.end - delta))
+      if (from === start && to === end) break
+      start = from
+      end = to
+      before = annotationsOverlapping(core, previous, { start, end })
+      after = annotationsOverlapping(core, read, { start, end: end + delta })
+    }
+    return keepsTyping(acceptedText(read.source.slice(start, end + delta), start, after),
+      acceptedText(core.sourceSlice(previous, { start, end }), start, before), typing)
+  }
+
   const planNativeEdits = (
+    previous: DocumentRevision,
+    input: readonly DocumentSourceEdit[],
+    tracked: boolean,
+    typed = false
+  ): readonly DocumentSourceEdit[] | undefined => {
+    const planned = planNativeEditsCompiled(previous, input, tracked, typed)
+    if (!tracked || windowCores.has(core)) return planned
+    // Typing into deleted or replaced text must survive Accept All as typed
+    // (G34): a plan that writes it inside deleted or replaced text, or adds
+    // to it, is no spelling of the key.
+    const typing = input.map(edit => edit.insert).join('')
+    if (planned !== undefined && planned.length > 0 && typing.length > 0 &&
+        input.some(edit => historyHolder(annotationsOverlapping(core, previous, edit), edit.start, edit.end) !== undefined) &&
+        !plannedKeepsTyping(previous, input, planned, typing)) {
+      const untracked = planNativeEditsCompiled(previous, input, false, typed)
+      return untracked === undefined || untracked.length === 0 ? undefined : trackedFallback(previous, untracked)
+    }
+    // A spelling across lines or many characters is weighed against the
+    // untracked result: it may leave no marker unpaired beyond those that
+    // leaves, as a local one cannot.
+    const source = currentStateOf(previous).source
+    const wide = planned?.some(edit => edit.end - edit.start + edit.insert.length > 80 || /[\r\n]/u.test(edit.insert)) ||
+      input.some(edit => /[`$~]/u.test(edit.insert + source.slice(edit.start, edit.end)))
+    if (planned !== undefined && planned.length > 0 && !wide) return planned
+    if (planned !== undefined && planned.length === 0) return planned
+    const preview = (candidate: readonly DocumentSourceEdit[]) => previewSourceEdits(previous, candidate)
+    if (planned !== undefined && preview(planned).diagnostics.length <= previous.diagnostics.length) return planned
+    const untracked = planNativeEditsCompiled(previous, input, false, typed)
+    if (untracked === undefined || untracked.length === 0) {
+      // An edit the untracked compiler refuses is refused tracked too where
+      // its spelling would leave a marker unpaired.
+      return planned !== undefined && preview(planned).diagnostics.length <= previous.diagnostics.length ? planned : undefined
+    }
+    if (planned !== undefined &&
+        preview(planned).diagnostics.length <= Math.max(previous.diagnostics.length, preview(untracked).diagnostics.length)) return planned
+    return trackedFallback(previous, untracked) ?? planned
+  }
+
+  const planNativeEditsCompiled = (
     previous: DocumentRevision,
     input: readonly DocumentSourceEdit[],
     tracked: boolean,
