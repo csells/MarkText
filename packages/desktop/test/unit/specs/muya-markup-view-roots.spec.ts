@@ -121,6 +121,12 @@ const expectSameQueries = (actual: MuyaMarkupView, expected: MuyaMarkupView, lab
       )
       const order = near.map((item) => indexByPath.get(JSON.stringify(item.path)) ?? -1)
       expect(order, label).toEqual([...order].sort((left, right) => left - right))
+      // Every binding that holds the position, as a search for one finds.
+      const holds = (item: MuyaMarkupBinding): boolean =>
+        item.sourceRange.start <= position && position <= item.sourceRange.end
+      const reached = new Set(order)
+      expect(bindings.flatMap((item, at) => holds(item) && !reached.has(at) ? [at] : []), label).toEqual([])
+      expect(muyaViewFindNear(actual, 'bindings', position, position, holds), label).toEqual(bindings.find(holds))
     }
   }
   for (const comment of expected.comments) {
@@ -207,6 +213,28 @@ describe('Root queries of a regionally patched Markup view', () => {
       view = patched ?? expected
       revision = commit.revision
     }
+  }, 60_000)
+
+  // A list no key has patched yet is grouped by item on its first search.
+  it.each([false, true])('searches a fully listed list item by item (loose %s)', (loose) => {
+    const items = Array.from({ length: 300 }, (_, index) =>
+      index % 7 === 3 ? `- item ${index}\n\n  more of ${index}` : `- item **${index}** text`)
+    const source = ['Opening paragraph.', items.join(loose ? '\n\n' : '\n'), 'Closing paragraph.'].join('\n\n') + '\n'
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const fresh = () => createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, revision.source)
+    const view = fresh()
+    const expected = fresh()
+    if (muyaMarkupRootsFor(view) === undefined) throw new Error('The view has no roots')
+    expectSameQueries(view, expected, 'listed')
+    let widest = 0
+    for (const binding of expected.bindings) {
+      for (const position of positionsOf(expected, binding)) {
+        widest = Math.max(widest, [...muyaViewBindingsNear(view, position)].length)
+      }
+    }
+    // The list's first item and a few around the position, not its 300.
+    expect(widest).toBeLessThan(20)
   }, 60_000)
 
   it('answers after many unread item patches as the new revision does', () => {

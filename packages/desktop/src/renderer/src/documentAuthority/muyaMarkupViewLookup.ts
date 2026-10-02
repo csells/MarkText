@@ -1,5 +1,6 @@
 import type { MuyaMarkupBinding, MuyaMarkupPath, MuyaMarkupView } from './muyaMarkupView'
 import {
+  createListItemBindings,
   muyaMarkupItemGroups,
   muyaMarkupRootsOf,
   type MuyaMarkupItemBindings,
@@ -160,6 +161,43 @@ function itemsNear(groups: MuyaMarkupItemBindings, low: number, high: number): n
   return items
 }
 
+const listStates = new Set(['bullet-list', 'order-list', 'task-list'])
+
+/** The item groups of fully listed list roots, made by their first search. */
+const listedItemGroups = new WeakMap<MuyaMarkupRootItems, MuyaMarkupItemBindings | null>()
+
+/**
+ * The bindings of root `root` that can hold a source position in `[low,
+ * high]`, in list order: of a list root, those of the items around it.
+ */
+function * rootBindingsNear(
+  roots: MuyaMarkupRoots,
+  state: MuyaMarkupView['state'] | undefined,
+  root: number,
+  low: number,
+  high: number
+): Generator<MuyaMarkupBinding> {
+  const items = roots.items(root)
+  // A suggestion or comment can reach from one item into others.
+  if (items.decorations.length > 0 || items.comments.length > 0) {
+    yield * items.bindings
+    return
+  }
+  let groups = muyaMarkupItemGroups(items)
+  if (groups === undefined && listStates.has(state?.[root]?.name ?? '')) {
+    // Grouping reads the whole root once; each search then reads its items.
+    let listed = listedItemGroups.get(items)
+    if (listed === undefined) {
+      listed = createListItemBindings(items.bindings) ?? null
+      listedItemGroups.set(items, listed)
+    }
+    groups = listed ?? undefined
+  }
+  const near = groups === undefined ? undefined : itemsNear(groups, low, high)
+  if (groups === undefined || near === undefined) yield * items.bindings
+  else for (const item of near) yield * groups.group(item)
+}
+
 /** The view's items of one kind at root `root`, in list order. */
 export function muyaViewItemsAtRoot<Kind extends keyof MuyaMarkupRootItems>(
   view: Pick<MuyaMarkupRootItems, Kind>,
@@ -223,7 +261,7 @@ export function muyaViewBindingsInRoots(
  * so a search for one may read only these.
  */
 export function * muyaViewBindingsNear(
-  view: Pick<ViewLists, 'bindings'>,
+  view: Pick<ViewLists, 'bindings'> & Partial<Pick<MuyaMarkupView, 'state'>>,
   low: number,
   high = low
 ): Generator<MuyaMarkupBinding> {
@@ -232,16 +270,7 @@ export function * muyaViewBindingsNear(
     yield * view.bindings
     return
   }
-  for (const root of roots.sourceRoots(low, high)) {
-    const items = roots.items(root)
-    // A suggestion or comment can reach from one item into others.
-    const groups = items.decorations.length === 0 && items.comments.length === 0
-      ? muyaMarkupItemGroups(items)
-      : undefined
-    const near = groups === undefined ? undefined : itemsNear(groups, low, high)
-    if (groups === undefined || near === undefined) yield * items.bindings
-    else for (const item of near) yield * groups.group(item)
-  }
+  for (const root of roots.sourceRoots(low, high)) yield * rootBindingsNear(roots, view.state, root, low, high)
 }
 
 /** The view's bindings under children `[start, end)` of root `root`, in list order. */
@@ -356,7 +385,7 @@ export function muyaViewEditableCount(view: Pick<ViewLists, 'bindings'>): number
  * accept only items that hold or compare with such a position.
  */
 export function muyaViewFindNear<Kind extends keyof MuyaMarkupRootItems>(
-  view: Pick<MuyaMarkupRootItems, Kind>,
+  view: Pick<MuyaMarkupRootItems, Kind> & Partial<Pick<MuyaMarkupView, 'state'>>,
   kind: Kind,
   low: number,
   high: number,
@@ -365,8 +394,10 @@ export function muyaViewFindNear<Kind extends keyof MuyaMarkupRootItems>(
   const roots = muyaMarkupRootsOf(view)
   if (roots === undefined) return (view[kind] as readonly ViewItem<Kind>[]).find(predicate)
   for (const root of roots.sourceRoots(low, high)) {
-    const item = (roots.items(root)[kind] as readonly ViewItem<Kind>[]).find(predicate)
-    if (item !== undefined) return item
+    const items: Iterable<ViewItem<Kind>> = kind === 'bindings'
+      ? rootBindingsNear(roots, view.state, root, low, high) as Iterable<ViewItem<Kind>>
+      : roots.items(root)[kind] as readonly ViewItem<Kind>[]
+    for (const item of items) if (predicate(item)) return item
   }
   return undefined
 }
