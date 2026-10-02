@@ -3552,10 +3552,18 @@ function balancedInsertion(previousSource: CanonicalSourceView, edit: RetainedPa
   const joined = before + edit.insert + after
   if (before.endsWith('\\') || protectedSpelling(joined, joined.length - after.length) ||
       markerSpellings(joined) !== markerSpellings(before) + markerSpellings(edit.insert) + markerSpellings(after)) return false
+  const spellings = [...edit.insert.matchAll(MARKER_SPELLING)]
+    .filter(match => !protectedSpelling(edit.insert, match.index)).map(match => match[1] ?? '')
+  // Splitting a suggestion closes it before the insert and opens it again
+  // after it, as typing in a Deletion does: the window, which holds the
+  // whole suggestion, must read both spellings as its markers (checked
+  // once it is parsed).
+  const first = spellings[0]
+  const last = spellings.at(-1)
+  const split = spellings.length > 1 && first !== undefined && last !== undefined && first !== '~~}' &&
+    Object.values(MARKER_CLOSER).includes(first) && MARKER_CLOSER[last] === first
   const open: string[] = []
-  for (const match of edit.insert.matchAll(MARKER_SPELLING)) {
-    if (protectedSpelling(edit.insert, match.index)) continue
-    const spelling = match[1] ?? ''
+  for (const spelling of split ? spellings.slice(1, -1) : spellings) {
     const closer = MARKER_CLOSER[spelling]
     if (closer !== undefined) open.push(closer)
     else if (spelling === '~>') {
