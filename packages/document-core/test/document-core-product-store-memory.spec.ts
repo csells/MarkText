@@ -31,6 +31,8 @@ describe('document-core full-product retention', () => {
     ))
     const result = spawnSync(process.execPath, [
       '--expose-gc',
+      // Collection finishes before measuring, however busy the machine is.
+      '--single-threaded-gc',
       '--max-old-space-size=512',
       '--import',
       'tsx',
