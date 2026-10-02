@@ -301,6 +301,7 @@ const copySubmitInput = (input: EditorCoreSubmitInput): EditorCoreSubmitInput =>
             range: Object.freeze({ ...input.annotation.range })
           }),
       decision: input.decision,
+      ...(input.selection === undefined ? {} : { selection: input.selection }),
       projections
     })
   }
@@ -323,7 +324,12 @@ const copySubmitInput = (input: EditorCoreSubmitInput): EditorCoreSubmitInput =>
     })
   }
   if (!('edits' in input) && input.kind === 'resolve-all') {
-    return Object.freeze({ kind: input.kind, decision: input.decision, projections })
+    return Object.freeze({
+      kind: input.kind,
+      decision: input.decision,
+      ...(input.selection === undefined ? {} : { selection: input.selection }),
+      projections
+    })
   }
   if (!('edits' in input) && input.kind === 'edit-comment') {
     return Object.freeze({
@@ -342,6 +348,7 @@ const copySubmitInput = (input: EditorCoreSubmitInput): EditorCoreSubmitInput =>
             range: Object.freeze({ ...input.annotation.range })
           }),
       text: input.text,
+      ...(input.selection === undefined ? {} : { selection: input.selection }),
       projections
     })
   }

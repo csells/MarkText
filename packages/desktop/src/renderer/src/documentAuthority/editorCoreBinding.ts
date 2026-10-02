@@ -146,11 +146,15 @@ export type EditorCoreSubmitInput =
     readonly authoredRevision: number
     readonly annotation: CoreReviewItemLocator
     readonly decision: CoreReviewDecision
+    /** The selection when the command ran, which its undo restores. */
+    readonly selection?: DocumentSelection
     readonly projections: readonly DocumentProjectionRequest[]
   }>
   | Readonly<{
     readonly kind: 'resolve-all'
     readonly decision: 'accept' | 'reject'
+    /** The selection when the command ran, which its undo restores. */
+    readonly selection?: DocumentSelection
     readonly projections: readonly DocumentProjectionRequest[]
   }>
   | Readonly<{
@@ -165,8 +169,17 @@ export type EditorCoreSubmitInput =
     readonly authoredRevision: number
     readonly annotation: CoreReviewItemLocator
     readonly text: string
+    /** The selection when the command ran, which its undo restores. */
+    readonly selection?: DocumentSelection
     readonly projections: readonly DocumentProjectionRequest[]
   }>
+
+const commandSelection = (
+  selection: DocumentSelection | undefined
+): { selection?: DocumentSelection } =>
+  selection === undefined
+    ? {}
+    : { selection: copyDocumentSelection(selection, Number.MAX_SAFE_INTEGER) }
 
 export interface EditorCoreTransactionIdentity {
   readonly documentId: string
@@ -631,6 +644,7 @@ export function createEditorCoreBinding(port: CoreModelOwner): EditorCoreBinding
                                       range: Object.freeze({ ...input.annotation.range })
                                     }),
                               decision: input.decision,
+                              ...commandSelection(input.selection),
                               projections
                             })
                             : input.kind === 'resolve-all'
@@ -640,6 +654,7 @@ export function createEditorCoreBinding(port: CoreModelOwner): EditorCoreBinding
                                 sequence: transactionId,
                                 baseRevision: revision,
                                 decision: input.decision,
+                                ...commandSelection(input.selection),
                                 projections
                               })
                               : input.kind === 'edit-comment'
@@ -664,6 +679,7 @@ export function createEditorCoreBinding(port: CoreModelOwner): EditorCoreBinding
                                           kind: input.annotation.kind,
                                           range: Object.freeze({ ...input.annotation.range })
                                         }),
+                                  ...commandSelection(input.selection),
                                   text: input.text,
                                   projections
                                 })
