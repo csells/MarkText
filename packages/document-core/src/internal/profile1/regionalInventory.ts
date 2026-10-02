@@ -3586,7 +3586,8 @@ const MARKER_CLOSER: Readonly<Record<string, string>> = Object.freeze({
  * a Substitution's divider inside it, and no spellings that overlap.
  */
 function balancedInsertion(previousSource: CanonicalSourceView, edit: RetainedPassSourceEdit): boolean {
-  if (markerSpellings(previousSource.slice(edit.start, edit.end)) !== 0 || overlappingSpellings(edit.insert)) return false
+  const removed = previousSource.slice(edit.start, edit.end)
+  if (overlappingSpellings(removed) || overlappingSpellings(edit.insert)) return false
   // Nothing outside the insert spells a marker with it or protects one of
   // its spellings, and it protects none after it.
   const before = previousSource.slice(Math.max(0, edit.start - 2), edit.start)
@@ -3594,8 +3595,19 @@ function balancedInsertion(previousSource: CanonicalSourceView, edit: RetainedPa
   const joined = before + edit.insert + after
   if (before.endsWith('\\') || protectedSpelling(joined, joined.length - after.length) ||
       markerSpellings(joined) !== markerSpellings(before) + markerSpellings(edit.insert) + markerSpellings(after)) return false
-  const spellings = [...edit.insert.matchAll(MARKER_SPELLING)]
-    .filter(match => !protectedSpelling(edit.insert, match.index)).map(match => match[1] ?? '')
+  const spelled = (text: string): string[] => [...text.matchAll(MARKER_SPELLING)]
+    .filter(match => !protectedSpelling(text, match.index)).map(match => match[1] ?? '')
+  // Markers the edit removes it must spell again, together at its start or
+  // its end, as typing at the start of a Substitution's struck text rewrites
+  // its opener after the new suggestions.
+  const removedSpellings = spelled(removed).join(' ')
+  let spellings = spelled(edit.insert)
+  if (removedSpellings !== '') {
+    const count = removedSpellings.split(' ').length
+    if (spellings.slice(-count).join(' ') === removedSpellings) spellings = spellings.slice(0, -count)
+    else if (spellings.slice(0, count).join(' ') === removedSpellings) spellings = spellings.slice(count)
+    else return false
+  }
   // Splitting a suggestion closes it before the insert and opens it again
   // after it, as typing in a Deletion does: the window, which holds the
   // whole suggestion, must read both spellings as its markers (checked
