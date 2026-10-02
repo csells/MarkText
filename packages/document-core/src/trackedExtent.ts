@@ -449,8 +449,13 @@ export function widenedTrackedSourceEdit(
   spans.push({ start: lineAligned(base).start, end: source.length }, { start: 0, end: source.length })
   const seen = new Set<string>()
   const candidates: SourceRange[] = []
+  // A span never ends between the CR and LF of one line ending.
+  const whole = (span: SourceRange): SourceRange => ({
+    start: span.start > 0 && source[span.start - 1] === '\r' && source[span.start] === '\n' ? span.start + 1 : span.start,
+    end: span.end > 0 && source[span.end - 1] === '\r' && source[span.end] === '\n' ? span.end + 1 : span.end
+  })
   for (const span of spans) {
-    const safe = annotationSafe(annotations, span)
+    const safe = annotationSafe(annotations, whole(span))
     if (insideHistory(annotations, safe)) continue
     const key = `${safe.start}:${safe.end}`
     if (seen.has(key)) continue
