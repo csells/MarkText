@@ -3540,6 +3540,33 @@ function readsLiteralBlocks(
   })
 }
 
+/**
+ * Whether `next` reads the literals `previous` reads, moved by an edit of
+ * `[start, end)` that changed the text's length by `delta`: those before it
+ * where they were, those after it moved, and those holding it ending moved.
+ */
+function literalsKept(
+  previous: Profile1DocumentProducts,
+  next: Profile1DocumentProducts,
+  start: number,
+  end: number,
+  delta: number
+): boolean {
+  const before = previous.retainedIntrinsic?.markdownLiterals ?? []
+  const after = next.retainedIntrinsic?.markdownLiterals ?? []
+  if (before.length !== after.length) return false
+  return before.every((literal, ordinal) => {
+    const moved = after[ordinal]
+    const expected = literal.end <= start
+      ? literal
+      : literal.start >= end
+        ? { start: literal.start + delta, end: literal.end + delta }
+        : literal.start <= start && literal.end >= end ? { start: literal.start, end: literal.end + delta } : undefined
+    return moved !== undefined && expected !== undefined && moved.kind === literal.kind &&
+      moved.start === expected.start && moved.end === expected.end
+  })
+}
+
 /** Whether every backtick run of `text` lies in a fenced code block `products` read there. */
 function backtickRunsFenced(products: Profile1DocumentProducts, text: string): boolean {
   const literals = (products.retainedIntrinsic?.markdownLiterals ?? []).filter(literal => literal.kind === 'fenced-code')
@@ -3688,7 +3715,14 @@ function evaluateBlockWindow(
   // literal text between them.
   const replacement = inventory.strayMarkers ? undefined : literalReplacementIn(inventory, previousSource, edit)
   const pairingChanged = editChangesLiteralPairing(previousSource, edit)
-  if (pairingChanged && !inventory.markerFree && replacement === undefined) return undefined
+  // An edit beside backtick or dollar runs that writes and removes none, nor
+  // a backslash, keeps their pairing where both windows read the same
+  // literals around it (checked once both are parsed): it moves no run.
+  const runsBeside = pairingChanged && !inventory.markerFree && replacement === undefined &&
+    !/[`$\\]/u.test(edit.insert) &&
+    !/\\/u.test(previousSource.slice(Math.max(0, edit.start - 1), Math.min(previousSource.length, edit.end + 1))) &&
+    !/[`$]/u.test(previousSource.slice(edit.start, edit.end))
+  if (pairingChanged && !inventory.markerFree && replacement === undefined && !runsBeside) return undefined
   // Markers pair as one nested stack across the document, and backtick and
   // dollar runs pair beyond their paragraphs. A window proves changed markers
   // only where nothing outside it can reach them: in a document spelling no
@@ -3902,6 +3936,8 @@ function evaluateBlockWindow(
     )
     if (previousResult.kind !== 'complete') return undefined
     if (runsNearSplit && (!backtickRunsFenced(result, nextWindow) || !backtickRunsFenced(previousResult, previousWindow))) return undefined
+    if (runsBeside && (unpairedLiteralRuns(previousResult, previousWindow) ||
+        !literalsKept(previousResult, result, edit.start - first.source, edit.end - first.source, delta))) return undefined
     if (replacement !== undefined) {
       const shift = (range: SourceSpan): SourceSpan => ({ start: range.start - first.source, end: range.end - first.source })
       if (!readsLiteralBlocks(result, nextWindow, replacement.kind, replacement.next.map(shift), shift(replacement.nextExtent)) ||
