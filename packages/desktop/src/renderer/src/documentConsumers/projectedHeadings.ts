@@ -55,7 +55,9 @@ export function projectedHeadingNodes(
   }
   const headings: ProjectedHeadingNode[] = []
   const visit = (node: MarkdownAstNode): void => {
-    if (node.kind === 'heading') {
+    // A block can run past the span, as a list whose later items another
+    // span reads: each heading belongs to the span it starts in.
+    if (node.kind === 'heading' && (span === undefined || (span.start <= node.range.start && node.range.start < span.end))) {
       const { contentStart, contentEnd, style } = node.attributes
       const source =
         style !== 'setext' && typeof contentStart === 'number' && typeof contentEnd === 'number'
@@ -78,7 +80,7 @@ export function projectedHeadingNodes(
   let high = roots.length
   while (low < high) {
     const middle = (low + high) >> 1
-    if ((roots[middle]?.range.start ?? 0) < span.start) low = middle + 1
+    if ((roots[middle]?.range.end ?? 0) <= span.start) low = middle + 1
     else high = middle
   }
   for (let root = roots[low]; root !== undefined && root.range.start < span.end; root = roots[++low]) {
