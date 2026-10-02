@@ -1,4 +1,4 @@
-import { createDocumentCore } from '@marktext/document-core'
+import { createDocumentCore, type DocumentInputAction } from '@marktext/document-core'
 import { describe, expect, it } from 'vitest'
 import { applyMuyaMarkupChanges } from '@/documentAuthority/muyaMarkupChanges'
 import { createMuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
@@ -171,4 +171,50 @@ describe('Patched Markup views of suggestion arms\' lines read as the whole view
     }
     expect(armPatches).toBeGreaterThan(0)
   })
+})
+
+// A first tracked key in a long literal block suggests replacing it whole,
+// which Core reads with the block's lines far from the key left out; the
+// reply patches the view as the whole view reads.
+describe('Patched Markup views of a first tracked key in a long literal block', () => {
+  const lines = (count: number, line: (index: number) => string): string =>
+    Array.from({ length: count }, (_, index) => line(index)).join('\n')
+  const longBlocks = {
+    fence: '```js\n' + lines(200, (index) => `const value${index} = compute(${index})`) + '\n```',
+    math: '$$\n' + lines(200, (index) => `x_{${index}} + y`) + '\n$$',
+    html: '<div>\n' + lines(200, (index) => `html line ${index}`) + '\n</div>',
+    indented: lines(200, (index) => (index % 11 === 5 ? '' : `    indented line ${index}`))
+  }
+  const options = { autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true }
+  it.each(Object.entries(longBlocks).flatMap(([name, block]) => [0, 1, 100, 198, 199].map((line) => [name, block, line] as const)))(
+    '%s, line %i', (_name, block, line) => {
+      const source = `Opening paragraph.\n\n${block}\n\nClosing paragraph.\n`
+      const core = createDocumentCore()
+      let revision = core.apply(core.open(source), [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
+      let view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, revision.source)
+      const caret = [...revision.source.matchAll(/^.*(?:value|x_|html line|indented line)[^\n]*$/gmu)][line]?.index ?? 0
+      for (const data of ['z', 'y']) {
+        const at = data === 'z' ? caret + 2 : revision.source.indexOf('z', caret) + 1
+        const input = {
+          range: { start: at, end: at },
+          selection: { ranges: [{ anchor: at, focus: at }], primary: 0 },
+          inputType: 'insertText',
+          data,
+          options
+        } as DocumentInputAction
+        const plan = core.planInput(revision, input, { tracked: true })
+        const edits = core.inputEdits(revision, input, plan, true)
+        if (edits === undefined) throw new Error('Expected the key to be planned')
+        const commit = core.apply(revision, edits, { projections: ['markup'] })
+        const expected = createMuyaMarkupView(core.project(commit.revision, 'markup'), commit.revision.annotations, commit.revision.source)
+        const change = commit.change.projections[0]
+        expect(change).toMatchObject({ name: 'markup', scope: 'regions' })
+        const patched = change?.name === 'markup' && change.scope === 'regions'
+          ? applyMuyaMarkupChanges(view, structuredClone(change))
+          : undefined
+        if (patched !== undefined) expect(patched).toEqual(expected)
+        view = patched ?? expected
+        revision = commit.revision
+      }
+    })
 })
