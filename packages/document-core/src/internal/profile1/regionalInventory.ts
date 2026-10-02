@@ -3442,6 +3442,21 @@ function literalReplacementIn(
   previousSource: CanonicalSourceView,
   edit: RetainedPassSourceEdit
 ): LiteralBlockReplacement | undefined {
+  const replacement = literalReplacementShape(value, previousSource, edit)
+  // A display math block in a Substitution is parted from the blocks after
+  // it by text the projections generate, which a `$$` line anywhere later in
+  // the document changes; no window holds that far.
+  return replacement?.kind === 'math' &&
+    previousSource.slice(replacement.previousExtent.end, previousSource.length).includes('$$')
+    ? undefined
+    : replacement
+}
+
+function literalReplacementShape(
+  value: InventoryValue | undefined,
+  previousSource: CanonicalSourceView,
+  edit: RetainedPassSourceEdit
+): LiteralBlockReplacement | undefined {
   // A backslash before the edit would protect what it begins with.
   if (previousSource.slice(Math.max(0, edit.start - 1), edit.start) === '\\') return undefined
   const shifted = (spans: readonly SourceSpan[], by: number): readonly SourceSpan[] =>

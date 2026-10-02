@@ -185,7 +185,11 @@ for (const example of [
     markdown: '**bold**',
     plainText: '{++raw++}',
     inserted: '{++raw++}',
-    text: 'seed{++raw++}'
+    text: 'seed{++raw++}',
+    // Marker spellings inside a closed fence read as its text, which the
+    // fence's own regional parse proves: every projection, the annotations
+    // and the Markup events match a fresh open (plan 0012 G35).
+    scope: 'regions'
   },
   {
     name: 'new Markdown structure',
