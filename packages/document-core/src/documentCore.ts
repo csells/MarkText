@@ -2406,6 +2406,15 @@ function createDocumentCoreWithExecutionBudget(
     return edit !== undefined && state.kind === 'regional' && state.regionalInventory !== undefined &&
       literalBlockReplacement(state.source, edit, state.regionalInventory)?.kind === 'math'
   }
+  /**
+   * Whether the edits write and remove no dollar or backslash in a revision
+   * only its inventory edits regionally: the inventory window that reads them
+   * proves the dollar runs beside them keep their pairing.
+   */
+  const inventoryDollarsKept = (state: RevisionState, edits: readonly DocumentSourceEdit[]): boolean =>
+    state.kind === 'regional' && state.regionalInventory !== undefined && dollarsKept(state.source, edits)
+  const dollarsKept = (source: CanonicalSourceView, edits: readonly DocumentSourceEdit[]): boolean =>
+    edits.every(edit => !/[$\\]/u.test(edit.insert + source.slice(edit.start, edit.end)))
   const physicalRecorder = createPhysicalTraversalRecorderV1()
   const regionalPhysicalRecorder = createPhysicalTraversalRecorderV1()
   const inspection: MutableDocumentCoreInspection = {
@@ -4208,7 +4217,7 @@ function createDocumentCoreWithExecutionBudget(
       fallbackReason = 'source-fragmentation-rebase'
     } else if (editsMayRepairMath(previousState.source, source, stableEdits, resolvedOptions) &&
       !mathBlockSubstitution(previousState.source, stableEdits, previousState.regionalInventory) &&
-      !inventoryMathReplacement(previousState, stableEdits)) {
+      !inventoryMathReplacement(previousState, stableEdits) && !inventoryDollarsKept(previousState, stableEdits)) {
       fallbackReason = 'structural-region-ineligible'
     }
     if (fallbackReason !== undefined) {
@@ -5066,7 +5075,8 @@ function createDocumentCoreWithExecutionBudget(
     // `literalBlockReplacement`).
     if (source.requiresFragmentationRebase || editsMayRepairMath(state.source, source, stable, state.markdownOptions) &&
         !mathBlockSubstitution(state.source, stable, inventory) &&
-        !(stable.length === 1 && stable[0] !== undefined && literalBlockReplacement(state.source, stable[0], inventory)?.kind === 'math')) {
+        !(stable.length === 1 && stable[0] !== undefined && literalBlockReplacement(state.source, stable[0], inventory)?.kind === 'math') &&
+        !dollarsKept(state.source, stable)) {
       return undefined
     }
     // Nearby edits are one replacement of the text they span, as apply() reads them.
@@ -5159,7 +5169,7 @@ function createDocumentCoreWithExecutionBudget(
     const source = state.source.applyExact(edits, 'Authoring regional candidate')
     const repairsMath = editsMayRepairMath(state.source, source, edits, state.markdownOptions)
     if (repairsMath && !mathBlockSubstitution(state.source, edits, state.regionalInventory) &&
-        !inventoryMathReplacement(state, edits)) return undefined
+        !inventoryMathReplacement(state, edits) && !inventoryDollarsKept(state, edits)) return undefined
     if (state.regionalInventory !== undefined) {
       const candidate = previewRegionalInventory(
         state.regionalInventory, state.source, source, edits, [], executionBudget,
