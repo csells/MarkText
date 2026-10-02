@@ -200,10 +200,12 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     { label: 'a new annotation beside a code span', insert: '{++new++}', tail: 'A `code` span.\n', scope: 'regions', parses: 0 },
     { label: 'a lone opener beside a code span', insert: '{++new', tail: 'A `code` span.\n', scope: 'document', parses: 1 },
     { label: 'a suggestion of protected spellings', insert: '{++\\{--d\\--}++}', tail: 'A `code` span.\n', scope: 'regions', parses: 0 },
-    { label: 'a protected spelling beside a code span', insert: '\\{++new', tail: 'A `code` span.\n', scope: 'regions', parses: 0 }
-  ])('reads $label as the whole document does', ({ insert, tail, scope, parses }) => {
+    { label: 'a protected spelling beside a code span', insert: '\\{++new', tail: 'A `code` span.\n', scope: 'regions', parses: 0 },
+    { label: 'a Deletion split by an Addition', insert: '--}{++new++}{--', tail: 'A {--struck words--} and a `code` span.\n', at: 'struck', scope: 'regions', parses: 0 },
+    { label: 'a lone closer beside a code span', insert: '--}{--', tail: 'A `code` span.\n', scope: 'document', parses: 1 }
+  ])('reads $label as the whole document does', ({ insert, tail, scope, parses, ...where }) => {
     const source = 'ordinary target\n\n' + suffix + tail
-    const start = source.indexOf('target') + 2
+    const start = 'at' in where ? source.indexOf(where.at) + 3 : source.indexOf('target') + 2
     const core = createDocumentCore()
     const revision = core.open(source)
     const before = inspectDocumentCore(core)
