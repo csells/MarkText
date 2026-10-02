@@ -372,9 +372,68 @@ export function getNodeAndOffset(
         return childNodeAndOffset(node, offset, plain);
     const changes = paragraphChanges(node);
     const last = lastParagraphPoints.get(node);
-    if (last === undefined || last.changes !== changes || last.offset !== offset)
-        lastParagraphPoints.set(node, { changes, offset, point: childNodeAndOffset(node, offset, plain) });
+    if (last === undefined || last.changes !== changes || last.offset !== offset) {
+        const point = drawnChildPoint(node, offset, changes) ?? childNodeAndOffset(node, offset, plain);
+        lastParagraphPoints.set(node, { changes, offset, point });
+    }
     return { ...lastParagraphPoints.get(node)!.point };
+}
+
+/**
+ * Each long paragraph's children's text lengths as their owner last drew
+ * them, as running totals, with which of them are a lone line break, and
+ * its DOM's change count then.
+ */
+const drawnChildTexts = new WeakMap<Node, { changes: number; ends: readonly number[]; breaks: readonly boolean[] }>();
+
+/**
+ * Note that `paragraph`'s children hold texts of `lengths`, `breaks` those
+ * that are a lone line break, as its owner just drew them, so a DOM point
+ * in it is found by search until its DOM changes. Returns its DOM's change
+ * count, which `paragraphChangedSince` compares with.
+ */
+export function rememberDrawnChildTexts(paragraph: HTMLElement, lengths: readonly number[], breaks: readonly boolean[]): number {
+    const changes = paragraphChanges(paragraph);
+    const ends: number[] = [];
+    let end = 0;
+    for (const length of lengths) {
+        end += length;
+        ends.push(end);
+    }
+    drawnChildTexts.set(paragraph, { changes, ends, breaks });
+    return changes;
+}
+
+/** Whether `paragraph`'s DOM has changed since its change count was `changes`. */
+export function paragraphChangedSince(paragraph: HTMLElement, changes: number): boolean {
+    return paragraphChanges(paragraph) !== changes;
+}
+
+/** `childNodeAndOffset` of a plain paragraph whose children are as drawn, by search. */
+function drawnChildPoint(node: Node, offset: number, changes: number): { node: Node; offset: number } | undefined {
+    const drawn = drawnChildTexts.get(node);
+    const children = node.childNodes;
+    if (drawn === undefined || drawn.changes !== changes || drawn.ends.length !== children.length)
+        return undefined;
+    const { ends, breaks } = drawn;
+    // The first child whose text reaches `offset`, as the walk finds it.
+    let low = 0;
+    let high = ends.length;
+    while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (ends[middle]! >= offset)
+            high = middle;
+        else
+            low = middle + 1;
+    }
+    if (low < ends.length && breaks[low] && low !== ends.length - 1 && ends[low] === offset)
+        low += 1;
+    if (low >= ends.length)
+        return { node, offset };
+    const child = children[low]!;
+    if (isElement(child) && child.classList.contains(CLASS_NAMES.MU_INLINE_IMAGE))
+        return undefined;
+    return getNodeAndOffset(child, offset - (low === 0 ? 0 : ends[low - 1]!), true);
 }
 
 /** The DOM point at text `offset` among `node`'s children. */

@@ -14,6 +14,7 @@ import { adjustOffset, escapeHTML, firstGraphemeLength, firstWordOfInfo, lastGra
 import { codeEnter, codeTabExpansion } from '@marktext/input-policy';
 import { CLASS_NAMES, EVENT_KEYS } from '../../../config';
 import { dispatchDocumentBlock, dispatchDocumentTab } from '../../../editor/documentEditing';
+import { paragraphChangedSince, rememberDrawnChildTexts } from '../../../selection/dom';
 import { adjustOffset, escapeHTML, firstGraphemeLength, firstWordOfInfo, isKeyboardEvent, lastGraphemeLength } from '../../../utils';
 import { computeLineCount, repositionLineNumberSpans, syncLineNumbersSpans } from '../../../utils/codeBlockLineNumbers';
 import { getHighlightHtml, MARKER_HASH } from '../../../utils/highlightHTML';
@@ -140,6 +141,15 @@ function sameContent(left: TokenContent, right: TokenContent): boolean {
         && sameContent(left.content, right.content);
 }
 
+/** The source text a token stream holds. */
+function streamText(stream: TokenContent): string {
+    if (typeof stream === 'string')
+        return stream;
+    if (Array.isArray(stream))
+        return stream.map(streamText).join('');
+    return streamText(stream.content);
+}
+
 /** The HTML `highlightElement` draws for `slot`. */
 function slotHtml(slot: HighlightSlot, language: string): string {
     return typeof slot === 'string'
@@ -181,14 +191,78 @@ function changedText(previous: string, text: string): [number, number] {
     ];
 }
 
-/** Whether `children` from `start` are the nodes `drawn`, one for one. */
-function sameNodes(children: NodeListOf<ChildNode>, start: number, end: number, drawn: NodeListOf<ChildNode>): boolean {
-    if (end - start !== drawn.length)
+/** Whether `node` and `drawn` are elements of one tag with the same attributes. */
+function sameElement(node: Element, drawn: Element): boolean {
+    if (node.tagName !== drawn.tagName || node.attributes.length !== drawn.attributes.length)
         return false;
-    for (let index = 0; index < drawn.length; index += 1) {
-        if (!children[start + index]!.isEqualNode(drawn[index]!))
+    for (const attribute of drawn.attributes) {
+        if (node.getAttribute(attribute.name) !== attribute.value)
             return false;
     }
+    return true;
+}
+
+/**
+ * Make `node` the node `drawn` is, keeping it and its children where they
+ * have the same tags and attributes and only text differs: a kept text node
+ * keeps the native selection and the layout made for it. Returns whether
+ * anything changed.
+ */
+function redrawNode(node: ChildNode, drawn: ChildNode): boolean {
+    if (node.nodeType === Node.TEXT_NODE && drawn.nodeType === Node.TEXT_NODE) {
+        if ((node as Text).data === (drawn as Text).data)
+            return false;
+        (node as Text).data = (drawn as Text).data;
+        return true;
+    }
+    if (node instanceof Element && drawn instanceof Element && sameElement(node, drawn)
+        && node.childNodes.length === drawn.childNodes.length) {
+        let changed = false;
+        const drawnChildren = [...drawn.childNodes];
+        for (const [index, child] of [...node.childNodes].entries())
+            changed = redrawNode(child, drawnChildren[index]!) || changed;
+        return changed;
+    }
+    node.replaceWith(drawn);
+    return true;
+}
+
+/**
+ * The slots a redraw from `before` (drawn from `previous`) to `next` (of
+ * `text`) replaces, as `[start, previousEnd, nextEnd)`: those whose
+ * highlight differs, and those around the changed text, where native input
+ * may already have written it.
+ */
+function redrawnSlots(before: IHighlightSlots, next: IHighlightSlots, previous: string, text: string): [number, number, number] {
+    let [start, previousEnd] = sharedEnds(before.slots, next.slots);
+    const [changedStart, changedEnd] = changedText(previous, text);
+    let offset = 0;
+    for (let slot = 0; slot < before.slots.length && offset <= changedEnd; slot += 1) {
+        const end = offset + before.lengths[slot]!;
+        if (end >= changedStart) {
+            start = Math.min(start, slot);
+            previousEnd = Math.max(previousEnd, slot + 1);
+        }
+        offset = end;
+    }
+    return [start, previousEnd, next.slots.length - (before.slots.length - previousEnd)];
+}
+
+/** Make children `[start, end)` of `domNode` the nodes of `drawn`. Returns whether any changed. */
+function redrawChildren(domNode: HTMLElement, start: number, end: number, drawn: DocumentFragment): boolean {
+    const children = domNode.childNodes;
+    const drawnNodes = [...drawn.childNodes];
+    if (drawnNodes.length === end - start) {
+        let changed = false;
+        const kept = Array.from({ length: end - start }, (_, index) => children[start + index]!);
+        for (const [index, node] of kept.entries())
+            changed = redrawNode(node, drawnNodes[index]!) || changed;
+        return changed;
+    }
+    const after = children[end] ?? null;
+    for (let index = end - 1; index >= start; index -= 1)
+        children[index]!.remove();
+    domNode.insertBefore(drawn, after);
     return true;
 }
 
@@ -296,6 +370,9 @@ class CodeBlockContent extends Content {
      */
     private _drawnSlots: { slots: IHighlightSlots | null; trailing: boolean } | null = null;
 
+    /** The DOM's change count when a redraw last left it as `_drawnSlots`. */
+    private _drawnChanges: number | undefined;
+
     /**
      * Redraw a highlighted block whose last drawing `_drawnSlots` holds,
      * replacing only the children the change from `previous` to `text` can
@@ -309,36 +386,20 @@ class CodeBlockContent extends Content {
         const domNode = this.domNode!;
         if (drawn === null)
             return undefined;
+        // Whether anything but these redraws wrote the DOM since the last.
+        const foreign = this._drawnChanges === undefined || paragraphChangedSince(domNode, this._drawnChanges);
         const before = drawn.slots ?? highlightSlots(previous, lang);
         if (domNode.childNodes.length !== before.slots.length + (drawn.trailing ? 1 : 0))
             return undefined;
         const next = highlightSlots(text, lang, before.fragments);
-        let [start, previousEnd] = sharedEnds(before.slots, next.slots);
-        const [changedStart, changedEnd] = changedText(previous, text);
-        let offset = 0;
-        for (let slot = 0; slot < before.slots.length && offset <= changedEnd; slot += 1) {
-            const end = offset + before.lengths[slot]!;
-            if (end >= changedStart) {
-                start = Math.min(start, slot);
-                previousEnd = Math.max(previousEnd, slot + 1);
-            }
-            offset = end;
-        }
-        const nextEnd = next.slots.length - (before.slots.length - previousEnd);
+        const [start, previousEnd, nextEnd] = redrawnSlots(before, next, previous, text);
         if (nextEnd < start)
             return undefined;
         const template = document.createElement('template');
         template.innerHTML = next.slots.slice(start, nextEnd).map(slot => slotHtml(slot, next.language)).join('');
         if (template.content.childNodes.length !== nextEnd - start)
             return undefined;
-        const children = domNode.childNodes;
-        const same = sameNodes(children, start, previousEnd, template.content.childNodes);
-        if (!same) {
-            const after = children[previousEnd] ?? null;
-            for (let index = previousEnd - 1; index >= start; index -= 1)
-                children[index]!.remove();
-            domNode.insertBefore(template.content, after);
-        }
+        const same = !redrawChildren(domNode, start, previousEnd, template.content);
         if (trailing !== drawn.trailing) {
             if (trailing)
                 domNode.insertAdjacentHTML('beforeend', `<span class="${CLASS_NAMES.MU_TRAILING_BREAK}"><br></span>`);
@@ -348,10 +409,16 @@ class CodeBlockContent extends Content {
         this._drawnSlots = { slots: next, trailing };
         // Children elsewhere hold what was drawn there, unless something but
         // the change wrote into them; the whole drawing then reads again.
-        if (domNode.textContent !== text) {
+        if (foreign && domNode.textContent !== text) {
             this._drawnSlots = null;
+            this._drawnChanges = undefined;
             return undefined;
         }
+        this._drawnChanges = rememberDrawnChildTexts(
+            domNode,
+            trailing ? [...next.lengths, 0] : next.lengths,
+            next.slots.map((slot, index) => next.lengths[index] === 1 && streamText(slot) === '\n').concat(trailing ? [false] : []),
+        );
         return !same || trailing !== drawn.trailing;
     }
 
@@ -426,9 +493,11 @@ class CodeBlockContent extends Content {
                 patchChildren(domNode, this);
             });
             this._drawnSlots = plain ? { slots: null, trailing: trailingBreak !== '' } : null;
+            this._drawnChanges = undefined;
             return true;
         }
         this._drawnSlots = null;
+        this._drawnChanges = undefined;
         replaceIfChanged(domNode, code + trailingBreak);
         return true;
     }

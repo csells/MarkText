@@ -252,12 +252,23 @@ const readingEntries = (reading: ReviewReading): CoreReviewOverviewEntry[] => {
 const shiftedRange = (range: SourceRange, delta: number): SourceRange =>
   Object.freeze({ start: range.start + delta, end: range.end + delta })
 
+const positionAttributes = new Map<string, boolean>()
+/** Whether an attribute named `key` holds a source position. */
+const isPositionAttribute = (key: string): boolean => {
+  let position = positionAttributes.get(key)
+  if (position === undefined) {
+    position = /(?:Start|End)$/u.test(key)
+    positionAttributes.set(key, position)
+  }
+  return position
+}
+
 const shiftedNode = (node: MarkdownAstNode, at: number, delta: number): MarkdownAstNode => {
   const moved = (position: number): number => position >= at ? position + delta : position
   let attributes: Record<string, MarkdownAstNode['attributes'][string]> | undefined
   for (const key in node.attributes) {
     const value = node.attributes[key]
-    if (typeof value !== 'number' || !/(?:Start|End)$/u.test(key) || moved(value) === value) continue
+    if (typeof value !== 'number' || !isPositionAttribute(key) || moved(value) === value) continue
     attributes ??= { ...node.attributes }
     attributes[key] = moved(value)
   }
@@ -271,7 +282,10 @@ const shiftedNode = (node: MarkdownAstNode, at: number, delta: number): Markdown
         semanticTextSegments: Object.freeze(node.semanticTextSegments.map((segment) =>
           Object.freeze({ ...segment, range: Object.freeze({ start: moved(segment.range.start), end: moved(segment.range.end) }) })))
       }),
-    children: Object.freeze(node.children.map((child) => shiftedNode(child, at, delta)))
+    // A long literal block's lines are leaves: no children to move.
+    children: node.children.length === 0
+      ? node.children
+      : Object.freeze(node.children.map((child) => shiftedNode(child, at, delta)))
   })
 }
 
