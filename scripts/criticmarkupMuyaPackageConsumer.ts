@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync
@@ -70,20 +71,30 @@ const writeJson = (path: string, value: unknown): void => {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
 }
 
-const resolvePinnedPnpm = (repoRoot: string): string => {
+/**
+ * The leading Node arguments that run the repository's pinned pnpm through
+ * npm's npx, which fetches that exact release on demand. A clean checkout has
+ * no Corepack cache, and the pnpm on PATH may be another release.
+ */
+const pinnedPnpmArguments = (repoRoot: string): string[] => {
   const rootManifest = readJson<{ packageManager?: string }>(resolve(repoRoot, 'package.json'))
   const match = rootManifest.packageManager?.match(/^pnpm@(\d+\.\d+\.\d+)$/)
   if (!match?.[1]) throw new Error('Repository packageManager must pin an exact pnpm version')
-  const pnpm = resolve(
-    repoRoot,
-    'node_modules/.cache/corepack/v1/pnpm',
-    match[1],
-    'bin/pnpm.cjs'
-  )
-  if (!existsSync(pnpm)) {
-    throw new Error(`Pinned pnpm ${match[1]} is unavailable from the repository Corepack cache`)
-  }
-  return pnpm
+  const nodeBin = dirname(process.execPath)
+  // npm ships beside Node: in node_modules on Windows, and on POSIX behind the
+  // bin/npx symlink (into lib/node_modules, or Homebrew's shared prefix).
+  const npx = [
+    process.env.npm_execpath?.endsWith('npm-cli.js')
+      ? resolve(dirname(process.env.npm_execpath), 'npx-cli.js')
+      : undefined,
+    resolve(nodeBin, 'node_modules/npm/bin/npx-cli.js'),
+    existsSync(resolve(nodeBin, 'npx')) ? realpathSync(resolve(nodeBin, 'npx')) : undefined,
+    resolve(nodeBin, '../lib/node_modules/npm/bin/npx-cli.js')
+  ].find((candidate): candidate is string => (
+    candidate?.endsWith('npx-cli.js') === true && existsSync(candidate)
+  ))
+  if (npx === undefined) throw new Error(`npm's npx-cli.js was not found beside ${process.execPath}`)
+  return [npx, '--yes', `pnpm@${match[1]}`]
 }
 
 export const verifyMuyaPackedTypeScriptConsumer = async(
@@ -92,7 +103,7 @@ export const verifyMuyaPackedTypeScriptConsumer = async(
   const muyaRoot = resolve(repoRoot, 'packages/muya')
   const sourceManifest = readJson<PackageManifest>(resolve(muyaRoot, 'package.json'))
   const temporaryRoot = mkdtempSync(join(tmpdir(), 'marktext-muya-package-'))
-  const pnpm = resolvePinnedPnpm(repoRoot)
+  const pnpm = pinnedPnpmArguments(repoRoot)
   const require = createRequire(resolve(muyaRoot, 'package.json'))
   const compiler = require.resolve('typescript/bin/tsc')
   const vite = resolve(dirname(require.resolve('vite/package.json')), 'bin/vite.js')
@@ -116,7 +127,7 @@ export const verifyMuyaPackedTypeScriptConsumer = async(
     const packRoot = resolve(temporaryRoot, 'packed')
     mkdirSync(packRoot, { recursive: true })
     run(process.execPath, [
-      pnpm,
+      ...pnpm,
       'pack',
       '--pack-destination',
       packRoot
@@ -157,7 +168,7 @@ export const verifyMuyaPackedTypeScriptConsumer = async(
     run(process.execPath, [resolve(policyBuildRoot, 'scripts/finalize-build.cjs')], policyBuildRoot)
     const policyPackRoot = resolve(temporaryRoot, 'packed-policy')
     mkdirSync(policyPackRoot)
-    run(process.execPath, [pnpm, 'pack', '--pack-destination', policyPackRoot], policyBuildRoot)
+    run(process.execPath, [...pnpm, 'pack', '--pack-destination', policyPackRoot], policyBuildRoot)
     const policyTarballs = readdirSync(policyPackRoot).filter(name => name.endsWith('.tgz'))
     const policyFilename = policyTarballs[0]
     if (policyTarballs.length !== 1 || policyFilename === undefined) throw new Error('pnpm pack did not produce exactly one input-policy tarball')
@@ -180,7 +191,7 @@ export const verifyMuyaPackedTypeScriptConsumer = async(
     if (typeof policyTypes !== 'string' || typeof policyImport !== 'string' || typeof policyRequire !== 'string') throw new Error('Packed input-policy requires typed import and require exports')
     // Resolve the tarball's declared runtime dependencies as an actual consumer
     // would; extracted files alone are not an installed package.
-    run(process.execPath, [pnpm, 'install', '--prod', '--prefer-offline', '--ignore-scripts', '--no-frozen-lockfile'], policyPackageRoot)
+    run(process.execPath, [...pnpm, 'install', '--prod', '--prefer-offline', '--ignore-scripts', '--no-frozen-lockfile'], policyPackageRoot)
     // Exercise both advertised module formats from the packed artifact. A valid
     // declaration file alone cannot prove that its runtime export is loadable.
     const policyAssertion = "if (policy.tableCellPaste('a\\nb') !== 'a<br/>b' || policy.codeTabExpansion('div', 3, 3, 'html')?.insert !== '<div></div>') throw new Error('Packed policy did not execute')"
@@ -222,7 +233,7 @@ export const verifyMuyaPackedTypeScriptConsumer = async(
     ].join('\n'), 'utf8')
 
     run(process.execPath, [
-      pnpm,
+      ...pnpm,
       'install',
       '--prefer-offline',
       '--ignore-scripts',
