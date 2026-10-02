@@ -6,6 +6,7 @@ import type {
     IDiagramState,
     IFrontmatterState,
 } from '../../../state/types';
+import type { TokenizedFragments } from '../../../utils/prism/tokenizeReusing';
 import type Code from '../../commonMark/codeBlock/code';
 import type HTMLPreview from '../../commonMark/html/htmlPreview';
 import { CLASS_NAMES, HTML_TAGS, VOID_HTML_TAGS } from '../../../config';
@@ -17,6 +18,7 @@ import { adjustOffset, escapeHTML, firstGraphemeLength, firstWordOfInfo, isKeybo
 import { computeLineCount, repositionLineNumberSpans, syncLineNumbersSpans } from '../../../utils/codeBlockLineNumbers';
 import { getHighlightHtml, MARKER_HASH } from '../../../utils/highlightHTML';
 import prism, { loadedLanguages, transformAliasToOrigin, walkTokens } from '../../../utils/prism/index';
+import { tokenizeReusing } from '../../../utils/prism/tokenizeReusing';
 import Content from '../../base/content';
 import { ScrollPage } from '../../scrollPage';
 
@@ -61,6 +63,133 @@ function patchChildren(domNode: HTMLElement, drawn: HTMLElement) {
     for (let index = start; index < nextEnd; index += 1)
         inserted.appendChild(next[start]);
     domNode.insertBefore(inserted, before);
+}
+
+/**
+ * A DOM child a highlight draws: a token's element, or the source text of a
+ * run of untokenized strings between them.
+ */
+type HighlightSlot = string | Prism.Token;
+
+/** The children a highlight draws, with the source text length each holds. */
+interface IHighlightSlots {
+    readonly slots: readonly HighlightSlot[];
+    readonly lengths: readonly number[];
+    readonly language: string;
+    /** The tokens of the text's runs, which the next key's tokenize reuses. */
+    readonly fragments: TokenizedFragments;
+}
+
+/**
+ * The children Prism's highlight of `text` draws, as `highlightElement`
+ * draws them with no markup to keep: the same hooks and tokens.
+ */
+function highlightSlots(text: string, lang: string, previous?: TokenizedFragments): IHighlightSlots {
+    const env: { code: string; grammar: Prism.Grammar; language: string; tokens?: Array<string | Prism.Token> } = {
+        code: text,
+        grammar: prism.languages[lang]!,
+        language: lang,
+    };
+    prism.hooks.run('before-tokenize', env);
+    const { tokens, fragments } = tokenizeReusing(env.code, env.grammar, previous);
+    env.tokens = tokens;
+    prism.hooks.run('after-tokenize', env);
+    const slots: HighlightSlot[] = [];
+    const lengths: number[] = [];
+    let run: string | null = null;
+    for (const token of env.tokens) {
+        if (typeof token === 'string') {
+            if (token.length > 0)
+                run = run === null ? token : run + token;
+            continue;
+        }
+        if (run !== null) {
+            slots.push(run);
+            lengths.push(run.length);
+            run = null;
+        }
+        slots.push(token);
+        lengths.push(token.length);
+    }
+    if (run !== null) {
+        slots.push(run);
+        lengths.push(run.length);
+    }
+    return { slots, lengths, language: env.language, fragments };
+}
+
+type TokenContent = Prism.TokenStream | Prism.Token;
+
+/** Whether two tokens' streams draw the same HTML: what `Token.stringify` reads is equal. */
+function sameContent(left: TokenContent, right: TokenContent): boolean {
+    if (left === right)
+        return true;
+    if (typeof left === 'string' || typeof right === 'string')
+        return left === right;
+    if (Array.isArray(left) || Array.isArray(right)) {
+        if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length)
+            return false;
+        return left.every((entry, index) => sameContent(entry, right[index]!));
+    }
+    const leftAlias = left.alias ?? [];
+    const rightAlias = right.alias ?? [];
+    return left.type === right.type
+        && (typeof leftAlias === 'string' || typeof rightAlias === 'string'
+            ? leftAlias === rightAlias
+            : leftAlias.length === rightAlias.length && leftAlias.every((alias, index) => alias === rightAlias[index]))
+        && sameContent(left.content, right.content);
+}
+
+/** The HTML `highlightElement` draws for `slot`. */
+function slotHtml(slot: HighlightSlot, language: string): string {
+    return typeof slot === 'string'
+        ? prism.util.encode(slot) as string
+        : prism.Token.stringify(prism.util.encode(slot) as Prism.Token, language);
+}
+
+/** The slots at either end that two drawings share, as `[start, previousEnd, nextEnd)`. */
+function sharedEnds(before: readonly HighlightSlot[], next: readonly HighlightSlot[]): [number, number, number] {
+    let start = 0;
+    while (start < before.length && start < next.length && sameContent(before[start]!, next[start]!))
+        start += 1;
+    let previousEnd = before.length;
+    let nextEnd = next.length;
+    while (previousEnd > start && nextEnd > start && sameContent(before[previousEnd - 1]!, next[nextEnd - 1]!)) {
+        previousEnd -= 1;
+        nextEnd -= 1;
+    }
+    return [start, previousEnd, nextEnd];
+}
+
+/**
+ * Where `text` differs from `previous`, in `previous`, as far as a run of
+ * the same characters lets the change sit, and a character either side:
+ * native input wrote the change somewhere there.
+ */
+function changedText(previous: string, text: string): [number, number] {
+    let prefix = 0;
+    while (prefix < previous.length && prefix < text.length && previous[prefix] === text[prefix])
+        prefix += 1;
+    let suffix = 0;
+    while (suffix < previous.length - prefix && suffix < text.length - prefix
+        && previous[previous.length - 1 - suffix] === text[text.length - 1 - suffix]) {
+        suffix += 1;
+    }
+    return [
+        Math.max(0, Math.min(prefix, previous.length - suffix) - 1),
+        Math.min(previous.length, Math.max(prefix, previous.length - suffix) + 1),
+    ];
+}
+
+/** Whether `children` from `start` are the nodes `drawn`, one for one. */
+function sameNodes(children: NodeListOf<ChildNode>, start: number, end: number, drawn: NodeListOf<ChildNode>): boolean {
+    if (end - start !== drawn.length)
+        return false;
+    for (let index = 0; index < drawn.length; index += 1) {
+        if (!children[start + index]!.isEqualNode(drawn[index]!))
+            return false;
+    }
+    return true;
 }
 
 const LANG_HASH = {
@@ -159,6 +288,73 @@ class CodeBlockContent extends Content {
      */
     private _drawn: { text: string; grammar: string | undefined } | null = null;
 
+    /**
+     * The children the last highlight drew from `_drawn`, and whether a
+     * trailing break followed them, for redrawing only those a key changes.
+     * A whole drawing leaves `slots` to the first key, so that a block no
+     * key reaches is tokenized once.
+     */
+    private _drawnSlots: { slots: IHighlightSlots | null; trailing: boolean } | null = null;
+
+    /**
+     * Redraw a highlighted block whose last drawing `_drawnSlots` holds,
+     * replacing only the children the change from `previous` to `text` can
+     * reach: those whose highlight differs, and those around the changed
+     * text, where native input may already have written it. Returns whether
+     * a child changed, or undefined, drawing nothing, when the DOM no longer
+     * holds that drawing.
+     */
+    private _patchHighlight(previous: string, text: string, lang: string, trailing: boolean): boolean | undefined {
+        const drawn = this._drawnSlots;
+        const domNode = this.domNode!;
+        if (drawn === null)
+            return undefined;
+        const before = drawn.slots ?? highlightSlots(previous, lang);
+        if (domNode.childNodes.length !== before.slots.length + (drawn.trailing ? 1 : 0))
+            return undefined;
+        const next = highlightSlots(text, lang, before.fragments);
+        let [start, previousEnd] = sharedEnds(before.slots, next.slots);
+        const [changedStart, changedEnd] = changedText(previous, text);
+        let offset = 0;
+        for (let slot = 0; slot < before.slots.length && offset <= changedEnd; slot += 1) {
+            const end = offset + before.lengths[slot]!;
+            if (end >= changedStart) {
+                start = Math.min(start, slot);
+                previousEnd = Math.max(previousEnd, slot + 1);
+            }
+            offset = end;
+        }
+        const nextEnd = next.slots.length - (before.slots.length - previousEnd);
+        if (nextEnd < start)
+            return undefined;
+        const template = document.createElement('template');
+        template.innerHTML = next.slots.slice(start, nextEnd).map(slot => slotHtml(slot, next.language)).join('');
+        if (template.content.childNodes.length !== nextEnd - start)
+            return undefined;
+        const children = domNode.childNodes;
+        const same = sameNodes(children, start, previousEnd, template.content.childNodes);
+        if (!same) {
+            const after = children[previousEnd] ?? null;
+            for (let index = previousEnd - 1; index >= start; index -= 1)
+                children[index]!.remove();
+            domNode.insertBefore(template.content, after);
+        }
+        if (trailing !== drawn.trailing) {
+            if (trailing)
+                domNode.insertAdjacentHTML('beforeend', `<span class="${CLASS_NAMES.MU_TRAILING_BREAK}"><br></span>`);
+            else
+                domNode.lastChild?.remove();
+        }
+        this._drawnSlots = { slots: next, trailing };
+        // Children elsewhere hold what was drawn there, unless something but
+        // the change wrote into them; the whole drawing then reads again.
+        if (domNode.textContent !== text) {
+            this._drawnSlots = null;
+            return undefined;
+        }
+        return !same || trailing !== drawn.trailing;
+    }
+
     override update(_cursor?: IRenderCursor, highlights = []) {
         const { _lang: lang, text } = this;
         // transform alias to original language
@@ -191,21 +387,8 @@ class CodeBlockContent extends Content {
             ? `<span class="${CLASS_NAMES.MU_TRAILING_BREAK}"><br></span>`
             : '';
 
-        if (grammar && /\S/.test(code)) {
-            const wrapper = document.createElement('div');
-            wrapper.classList.add(`language-${fullLengthLang}`);
-            wrapper.innerHTML = code;
-            prism.highlightElement(wrapper, false, function (this: HTMLElement) {
-                if (trailingBreak)
-                    this.insertAdjacentHTML('beforeend', trailingBreak);
-                patchChildren(domNode, this);
-            });
-        }
-        else {
-            replaceIfChanged(domNode, code + trailingBreak);
-        }
-
-        if (selection && (selection.anchor.block === this || selection.focus.block === this)) {
+        const drawn = this._draw(text, grammar, code, trailingBreak, highlights.length === 0);
+        if (drawn && selection && (selection.anchor.block === this || selection.focus.block === this)) {
             const endpoint = (point: typeof selection.anchor) => point.block === this
                 ? { ...point, offset: Math.min(point.offset, text.length) }
                 : point;
@@ -217,6 +400,37 @@ class CodeBlockContent extends Content {
         // Re-render the math/diagram/html preview too; undo/redo reaches this
         // block only through update(), not inputHandler (#1632).
         this._updatePreviewIfHave(text);
+    }
+
+    /**
+     * Draw `text`, highlighted when `grammar` is loaded, from its escaped
+     * `code`; `plain` is a drawing without search highlights, which a key's
+     * change redraws in place. Returns whether any child changed, which
+     * moves a selection inside them.
+     */
+    private _draw(text: string, grammar: string | undefined, code: string, trailingBreak: string, plain: boolean): boolean {
+        const domNode = this.domNode!;
+        const previous = this._drawn?.grammar === grammar ? this._drawn?.text : undefined;
+        if (grammar && /\S/.test(code) && plain && previous !== undefined) {
+            const patched = this._patchHighlight(previous, text, grammar, trailingBreak !== '');
+            if (patched !== undefined)
+                return patched;
+        }
+        if (grammar && /\S/.test(code)) {
+            const wrapper = document.createElement('div');
+            wrapper.classList.add(`language-${grammar}`);
+            wrapper.innerHTML = code;
+            prism.highlightElement(wrapper, false, function (this: HTMLElement) {
+                if (trailingBreak)
+                    this.insertAdjacentHTML('beforeend', trailingBreak);
+                patchChildren(domNode, this);
+            });
+            this._drawnSlots = plain ? { slots: null, trailing: trailingBreak !== '' } : null;
+            return true;
+        }
+        this._drawnSlots = null;
+        replaceIfChanged(domNode, code + trailingBreak);
+        return true;
     }
 
     private _lastLineCount = -1;

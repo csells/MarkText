@@ -1697,12 +1697,11 @@ const clearCoreReviewTarget = (): void => {
   coreReviewLocatedNode?.classList.remove('core-review-current-block')
   coreReviewLocatedNode = undefined
 }
-const revealCoreReviewItem = (scroll = true): void => {
-  coreReviewLocatedNode?.classList.remove('core-review-current-block')
-  coreReviewLocatedNode = undefined
+/** The element that shows the current review item in the Markup view. */
+const coreReviewItemNode = (): HTMLElement | undefined => {
   const item = coreReviewItem.value
   const view = coreAcknowledgedMarkupView
-  if (!item || !view || coreDisplayMode.value !== 'markup') return
+  if (!item || !view || coreDisplayMode.value !== 'markup') return undefined
   const range = item.kind === 'commented-span' ? item.highlightRange : item.range
   const comment = muyaViewFindNear(
     view,
@@ -1722,14 +1721,21 @@ const revealCoreReviewItem = (scroll = true): void => {
   const block: HTMLElement | undefined =
     (path && editor.value?.editor.scrollPage?.queryBlock([...path])?.domNode) ?? undefined
   const origin = binding?.sourceRange.start ?? 0
-  const node =
+  return (
     block?.querySelector<HTMLElement>(
       `[data-critic-start="${range.start - origin}"][data-critic-end="${range.end - origin}"]`
     ) ?? block
-  if (!node) return
+  )
+}
+const revealCoreReviewItem = (scroll = true): void => {
+  const node = coreReviewItemNode()
+  // A class change restyles everything inside the element, which in a long
+  // code block is thousands of tokens, so the node keeping the item keeps it.
+  if (node !== coreReviewLocatedNode) coreReviewLocatedNode?.classList.remove('core-review-current-block')
   coreReviewLocatedNode = node
+  if (!node) return
   coreReviewTargeted.value = true
-  node.classList.add('core-review-current-block')
+  if (!node.classList.contains('core-review-current-block')) node.classList.add('core-review-current-block')
   if (scroll) node.scrollIntoView({ block: 'center', behavior: 'instant' })
 }
 /** The source position of the Markup caret, or of a selection's focus. */

@@ -307,10 +307,18 @@ function armLinesPassage(
   let textStart = 0
   let textEnd = 0
   if (typeof content === 'string') {
-    const breaks = [0, ...[...content.matchAll(/\n/gu)].map((match) => match.index + 1)]
-    const line = Math.floor(lines.childrenBefore / 2)
-    textStart = breaks[line] ?? content.length
-    textEnd = breaks[line + lines.previousLines] ?? content.length
+    // Where the text `count` lines after position `from` starts.
+    const linesAfter = (from: number, count: number): number => {
+      let at = from
+      for (let line = 0; line < count; line += 1) {
+        const next = content.indexOf('\n', at)
+        if (next < 0) return content.length
+        at = next + 1
+      }
+      return at
+    }
+    textStart = linesAfter(0, Math.floor(lines.childrenBefore / 2))
+    textEnd = linesAfter(textStart, lines.previousLines)
     // Lines ending the block, the last without a break child, keep the
     // line break the block's text ends with.
     if (lines.previousChildren % 2 === 1 && content.charAt(textEnd - 1) === '\n') textEnd -= 1

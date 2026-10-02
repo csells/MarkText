@@ -90,6 +90,16 @@ const looseList = insideOrAfter(inside => repeated(2000, index =>
   inside && index === 1000 ? `- ${WARM_EDITING_PARAGRAPH}` : looseListItem(index)).join('\n\n'))
 const fence = insideOrAfter(inside => fenceOf(index => inside && index === 1000 ? WARM_EDITING_PARAGRAPH : fenceLine(index)))
 
+/**
+ * A 2,000-line fence proposed again in a Substitution, the warm editing
+ * text in its proposed block's middle line: where tracked keys land after a
+ * first tracked key in the fence. Keys typed there are the proposal's own
+ * text, so the source takes them as typed.
+ */
+export const FENCE_2000_ARM_SOURCE = ['Opening paragraph.',
+  `{~~${fenceOf(fenceLine)}\n~>${fenceOf(index => index === 1000 ? WARM_EDITING_PARAGRAPH : fenceLine(index))}\n~~}`
+].join('\n\n') + '\n'
+
 export const ORDINARY_MARKDOWN_WORKLOADS: readonly OrdinaryMarkdownWorkload[] = Object.freeze([
   { name: 'plain-80', source: documentOf(repeated(80, () => plainParagraph)) },
   { name: 'plain-1000', source: documentOf(repeated(1000, () => plainParagraph)) },

@@ -205,11 +205,18 @@ export function createMuyaMarkupPresentationIndex(
   const reusesComments = previousStore?.commentLabel === commentLabel
   const changedPaths: MuyaMarkupPath[] = []
   const entryFor = (binding: MuyaMarkupBinding, retained: Entry | undefined): Entry => {
+    const { syntax } = binding
+    let widget: boolean | undefined
     const entry: Entry = {
       binding,
       decorations: muyaViewItemsAtPath(view, 'decorations', binding.path),
       comments: muyaViewItemsAtPath(view, 'comments', binding.path),
-      hasNativeWidget: hasNativeWidget(binding.syntax),
+      // Read only when the leaf renders: a long code block's syntax holds
+      // thousands of nodes, and Muya highlights it without this index.
+      get hasNativeWidget() {
+        widget ??= hasNativeWidget(syntax)
+        return widget
+      },
       view
     }
     if (

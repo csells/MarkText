@@ -124,18 +124,86 @@ export function compareParagraphsOrder(paragraph1: HTMLElement, paragraph2: HTML
     );
 }
 
+/** Children from which a paragraph's last read offset is kept. */
+const LONG_PARAGRAPH_CHILDREN = 64;
+
+/**
+ * An observer of each long paragraph's DOM, counting the changes it has
+ * seen: one key reads the same caret several times, and a long code block's
+ * text before it is long, so the last read is kept until the DOM changes.
+ * Records delivered to the observer between reads count as well as those
+ * still queued.
+ */
+const paragraphWatches = new WeakMap<Node, { observer: MutationObserver; changes: number }>();
+
+/** How many times `paragraph`'s DOM has changed since it was first watched. */
+function paragraphChanges(paragraph: Node): number {
+    let watch = paragraphWatches.get(paragraph);
+    if (watch === undefined) {
+        const created = {
+            observer: new MutationObserver(() => {
+                created.changes += 1;
+            }),
+            changes: 0,
+        };
+        created.observer.observe(paragraph, {
+            childList: true,
+            characterData: true,
+            subtree: true,
+            // Which children read as text depends on their classes.
+            attributes: true,
+            attributeFilter: ['class'],
+        });
+        paragraphWatches.set(paragraph, created);
+        watch = created;
+    }
+    if (watch.observer.takeRecords().length > 0)
+        watch.changes += 1;
+    return watch.changes;
+}
+
+/** The last offset read in each long paragraph, and its DOM's change count then. */
+const lastParagraphOffsets = new WeakMap<HTMLElement, {
+    changes: number;
+    node: Node;
+    nodeOffset: number;
+    offset: number;
+}>();
+
+/** The last DOM point read in each long plain paragraph, and its DOM's change count then. */
+const lastParagraphPoints = new WeakMap<Node, {
+    changes: number;
+    offset: number;
+    point: { node: Node; offset: number };
+}>();
+
+/** Whether each long paragraph's offsets were its DOM text when last asked, and its DOM's change count then. */
+const lastPlainOffsets = new WeakMap<Element, { changes: number; key: string; plain: boolean }>();
+
 /**
  * Whether `element`'s offsets are its DOM text: neither it nor any element
  * in it is a rendered preview an offset skips (`blackList`) or an image,
  * which stands for its source. Live collections keep this cheap to ask
- * again while the element is unchanged.
+ * again of a short element while it is unchanged.
  */
 function plainOffsets(element: Element, blackList: readonly string[]): boolean {
     const exceptions = [...blackList, CLASS_NAMES.MU_INLINE_IMAGE];
-    return element.tagName !== 'IMG'
-        && !exceptions.some(className => element.classList.contains(className))
-        && element.getElementsByTagName('img').length === 0
-        && exceptions.every(className => element.getElementsByClassName(className).length === 0);
+    if (element.tagName === 'IMG' || exceptions.some(className => element.classList.contains(className)))
+        return false;
+    if (element.childNodes.length < LONG_PARAGRAPH_CHILDREN || !(element instanceof HTMLElement && isContentDOM(element))) {
+        return element.getElementsByTagName('img').length === 0
+            && exceptions.every(className => element.getElementsByClassName(className).length === 0);
+    }
+    // A long paragraph's collections are all read again after each change to
+    // it, so it is searched once for any of them and the answer kept.
+    const key = exceptions.join(' ');
+    const changes = paragraphChanges(element);
+    const last = lastPlainOffsets.get(element);
+    if (last !== undefined && last.changes === changes && last.key === key)
+        return last.plain;
+    const plain = element.querySelector(['img', ...exceptions.map(className => `.${className}`)].join(', ')) === null;
+    lastPlainOffsets.set(element, { changes, key, plain });
+    return plain;
 }
 
 /** Whether `node`'s offsets read as its DOM text, which is far cheaper to read than a walk over a long block. */
@@ -202,32 +270,18 @@ export function getTextContent(node: Node, blackList: string[] = []) {
 }
 
 /**
- * The last offset read in each long paragraph, with an observer of its DOM:
- * one key reads the same caret several times, and a long code block's text
- * before it is long. Any change to the paragraph's DOM makes the offset stale.
- */
-const lastParagraphOffsets = new WeakMap<HTMLElement, {
-    observer: MutationObserver;
-    node: Node;
-    nodeOffset: number;
-    offset: number;
-}>();
-
-/**
  * One Range per document for every offset read. The DOM keeps each live Range
  * it has not yet garbage collected up to date on every mutation, so a fresh
  * Range per read makes later edits slower until collection catches up.
  */
 const offsetRanges = new WeakMap<Document, Range>();
 
-/** Children from which a paragraph's last read offset is kept. */
-const LONG_PARAGRAPH_CHILDREN = 64;
-
 /** The text offset of a DOM point in a paragraph whose offsets are its DOM text. */
 function plainOffsetOfParagraph(node: Node, paragraph: HTMLElement, nodeOffset: number): number {
-    const last = lastParagraphOffsets.get(paragraph);
-    const unchanged = last !== undefined && last.observer.takeRecords().length === 0;
-    if (unchanged && last.node === node && last.nodeOffset === nodeOffset)
+    const long = paragraph.childNodes.length >= LONG_PARAGRAPH_CHILDREN;
+    const changes = long ? paragraphChanges(paragraph) : 0;
+    const last = long ? lastParagraphOffsets.get(paragraph) : undefined;
+    if (last !== undefined && last.changes === changes && last.node === node && last.nodeOffset === nodeOffset)
         return last.offset;
     const doc = paragraph.ownerDocument ?? document;
     let range = offsetRanges.get(doc);
@@ -244,14 +298,8 @@ function plainOffsetOfParagraph(node: Node, paragraph: HTMLElement, nodeOffset: 
     // Release the paragraph, which may later leave the document.
     range.setStart(doc, 0);
     range.collapse(true);
-    if (paragraph.childNodes.length >= LONG_PARAGRAPH_CHILDREN) {
-        let observer = last?.observer;
-        if (observer === undefined) {
-            observer = new MutationObserver(() => {});
-            observer.observe(paragraph, { childList: true, characterData: true, subtree: true });
-        }
-        lastParagraphOffsets.set(paragraph, { observer, node, nodeOffset, offset });
-    }
+    if (long)
+        lastParagraphOffsets.set(paragraph, { changes, node, nodeOffset, offset });
     return offset;
 }
 
@@ -292,6 +340,20 @@ export function getOffsetOfParagraph(node: Node, paragraph: HTMLElement, nodeOff
         : offset + getOffsetOfParagraph(node.parentNode!, paragraph);
 }
 
+/**
+ * The length of `node`'s `textContent`, read without building it for a text
+ * node or an element holding one, as a highlighted code block's thousands of
+ * children are.
+ */
+function domTextLength(node: Node): number {
+    if (node.nodeType === Node.TEXT_NODE)
+        return (node as Text).length;
+    const only = node.firstChild;
+    if (only !== null && only === node.lastChild && only.nodeType === Node.TEXT_NODE && isElement(node))
+        return (only as Text).length;
+    return node.textContent?.length ?? 0;
+}
+
 export function getNodeAndOffset(
     node: Node,
     offset: number,
@@ -306,6 +368,17 @@ export function getNodeAndOffset(
         };
     }
 
+    if (!plain || node.childNodes.length < LONG_PARAGRAPH_CHILDREN || !(node instanceof HTMLElement && isContentDOM(node)))
+        return childNodeAndOffset(node, offset, plain);
+    const changes = paragraphChanges(node);
+    const last = lastParagraphPoints.get(node);
+    if (last === undefined || last.changes !== changes || last.offset !== offset)
+        lastParagraphPoints.set(node, { changes, offset, point: childNodeAndOffset(node, offset, plain) });
+    return { ...lastParagraphPoints.get(node)!.point };
+}
+
+/** The DOM point at text `offset` among `node`'s children. */
+function childNodeAndOffset(node: Node, offset: number, plain: boolean): { node: Node; offset: number } {
     const childNodes = node.childNodes;
     const len = childNodes.length;
     let i;
@@ -314,16 +387,16 @@ export function getNodeAndOffset(
     for (i = 0; i < len; i++) {
         const child = childNodes[i];
         const textContent = plain
-            ? child.textContent ?? ''
+            ? undefined
             : getTextContent(child, [
                     CLASS_NAMES.MU_MATH_RENDER,
                     CLASS_NAMES.MU_RUBY_RENDER,
                 ]);
-        const textLength = textContent.length;
+        const textLength = textContent === undefined ? domTextLength(child) : textContent.length;
 
         // Fix #1460 - put the cursor at the next text node or element if it can be put at the last of /^\n$/ or the next text node/element.
         if (
-            /^\n$/.test(textContent) && i !== len - 1
+            textLength === 1 && (textContent ?? child.textContent) === '\n' && i !== len - 1
                 ? count + textLength > offset
                 : count + textLength >= offset
         ) {

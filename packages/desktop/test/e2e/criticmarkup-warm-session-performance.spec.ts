@@ -16,7 +16,7 @@ import {
 } from './helpers/inputLatencyTrace'
 import type { CoreAuthorityPerformanceEvent } from '../../src/renderer/src/documentAuthority/coreAuthorityPerformanceTrace'
 import { pairAppendedInputs } from './helpers/warmInputPairing'
-import { ORDINARY_MARKDOWN_WORKLOADS, placeCaretAfterWarmEditingText } from './helpers/ordinaryMarkdownWorkloads'
+import { FENCE_2000_ARM_SOURCE, ORDINARY_MARKDOWN_WORKLOADS, placeCaretAfterWarmEditingText } from './helpers/ordinaryMarkdownWorkloads'
 
 const enabled = process.env.MARKTEXT_WARM_PERFORMANCE === '1'
 const repo = path.resolve(__dirname, '../../../..')
@@ -26,7 +26,7 @@ const paragraphCount = Number(process.env.MARKTEXT_WARM_PARAGRAPHS ?? 80)
 const interval = Number(process.env.MARKTEXT_WARM_INTERVAL_MS ?? 80)
 const denseParagraph = 'Review {++new evidence++} alongside {--obsolete details--}, {~~old wording~>better wording~~}, and {==a claim==}{>>Check this source.<<}.'
 const plainParagraph = 'Writing a useful document takes careful editing and a clear view of the text.'
-const workloads: ReadonlyArray<{ name: string, paragraph: string, tracking: boolean, input?: string, media?: boolean, paragraphs?: number, interval?: number, source?: string }> = [
+const workloads: ReadonlyArray<{ name: string, paragraph: string, tracking: boolean, input?: string, media?: boolean, paragraphs?: number, interval?: number, source?: string, ownText?: boolean }> = [
   { name: 'plain', paragraph: plainParagraph, tracking: false },
   // Plan 0012 G35: the first suggestion in a long plain document, then
   // typing that extends it, with no later suggestion to bound a region.
@@ -60,6 +60,11 @@ const workloads: ReadonlyArray<{ name: string, paragraph: string, tracking: bool
   // echo comparison with upstream MarkText.
   ...(process.env.MARKTEXT_WARM_ORDINARY === '1'
     ? ORDINARY_MARKDOWN_WORKLOADS.map(({ name, source }) => ({ name, paragraph: '', tracking: false, source }))
+    : []),
+  // Tracked keys in a 2,000-line fence's proposed block, which take the
+  // keys as the proposal's own text.
+  ...(process.env.MARKTEXT_WARM_ARMS === '1'
+    ? [{ name: 'fence-2000-arm-tracked', paragraph: '', tracking: true, source: FENCE_2000_ARM_SOURCE, ownText: true }]
     : [])
 ]
 
@@ -283,7 +288,7 @@ test.describe('warm native-keyboard performance', () => {
         ]))
         const inserted = character.repeat(warmup + measured)
         const expectedSource = source.replace('Warm editing paragraph.',
-          'Warm editing paragraph.' + (workload.tracking ? `{++${inserted}++}` : inserted))
+          'Warm editing paragraph.' + (workload.tracking && workload.ownText !== true ? `{++${inserted}++}` : inserted))
         await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
         await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(expectedSource)
         const arrival = (index: number): number | undefined => arrivals?.[index]
