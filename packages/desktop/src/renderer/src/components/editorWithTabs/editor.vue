@@ -1880,7 +1880,7 @@ const editCoreReviewComment = async (): Promise<void> => {
     revision: authoredRevision,
     text: coreReviewCommentText.value ?? '',
     item,
-    entryStart: item.range.start
+    entry: item
   }
   coreCommentError.value = ''
   coreCommentOpen.value = true
@@ -2123,6 +2123,18 @@ const authorCoreReview = async (
       discloseCoreAuthorEscapes(outcome)
       coreAuthorSelection.value = undefined
       await refreshCoreReviewItem('next', 0)
+      // As in Google Docs, the item just made holds the selection, so its card
+      // is the active one until the caret leaves it (G13).
+      const authored = outcome.authorResult?.selection.start
+      const entry = authored === undefined
+        ? undefined
+        : coreReviewOverview.value.find(({ item }) => item.range.start <= authored && authored <= item.range.end)
+      if (entry !== undefined) {
+        if (coreReviewItem.value?.range.start !== entry.item.range.start) {
+          await refreshCoreReviewItem('next', entry.item.range.start)
+        }
+        revealCoreReviewItem(false)
+      }
     }
   } catch (error) {
     emit('core-fault', error)
