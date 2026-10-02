@@ -181,7 +181,14 @@ const installedBinary = (): string => {
   return binary
 }
 
-const machineEnvironment = (): Readonly<Record<string, string>> => {
+/**
+ * `pinned` must equal the performance targets' environment; `recorded` adds the
+ * macOS version as raw-run evidence, which never gates a run.
+ */
+const machineEnvironment = (): Readonly<{
+  readonly pinned: Readonly<Record<string, string>>
+  readonly recorded: Readonly<Record<string, string>>
+}> => {
   const hardware = JSON.parse(execFileSync(
     'system_profiler',
     ['SPHardwareDataType', '-json'],
@@ -201,15 +208,22 @@ const machineEnvironment = (): Readonly<Record<string, string>> => {
   const buildVersion = execFileSync('sw_vers', ['-buildVersion'], {
     encoding: 'utf8'
   }).trim()
-  return Object.freeze({
+  const pinned = Object.freeze({
     hardware: formatMacHardwareFingerprint({
       machineName: item?.machine_name,
       machineModel: item?.machine_model,
       chipType: item?.chip_type,
       physicalMemory: item?.physical_memory
     }),
-    os: `macOS ${productVersion} (${buildVersion}), ${process.arch}`,
+    architecture: process.arch,
     build: 'MarkText production Electron bundle'
+  })
+  return Object.freeze({
+    pinned,
+    recorded: Object.freeze({
+      ...pinned,
+      os: `macOS ${productVersion} (${buildVersion})`
+    })
   })
 }
 
@@ -547,7 +561,8 @@ test.describe('installed Core authority raw performance producer', () => {
       displaySleepPolicy: PERFORMANCE_DISPLAY_SLEEP_POLICY,
       scenarios: expect.any(String)
     })
-    expect(machineEnvironment()).toEqual(targets.environment)
+    const environment = machineEnvironment()
+    expect(environment.pinned).toEqual(targets.environment)
     expect(requiredValue('MARKTEXT_PERFORMANCE_DISPLAY_SLEEP_POLICY'))
       .toBe(PERFORMANCE_DISPLAY_SLEEP_POLICY)
 
@@ -742,7 +757,7 @@ test.describe('installed Core authority raw performance producer', () => {
         baselineCommit: measurements.baselineCommit,
         buildCommit,
         measuredAt: new Date().toISOString(),
-        environment: targets.environment,
+        environment: environment.recorded,
         sampling,
         provenance: {
           checkoutHead: requiredValue('MARKTEXT_CORE_CHECKOUT_HEAD'),

@@ -672,7 +672,7 @@ test.describe('pinned upstream baseline raw performance producer', () => {
     expect(measurements.baselineCommit).toBe(PINNED_BASELINE)
     if (classification === 'ratification') {
       expect(sampling).toEqual({ warmupSamples: 20, measuredSamples: 200 })
-      expect(environment).toEqual(targets.environment)
+      expect(environment.pinned).toEqual(targets.environment)
     }
 
     const totalSamples = representatives.documents.length *
@@ -788,7 +788,7 @@ test.describe('pinned upstream baseline raw performance producer', () => {
         baselineCommit: measurements.baselineCommit,
         buildCommit: requiredValue('MARKTEXT_UPSTREAM_BUILD_COMMIT'),
         measuredAt: new Date().toISOString(),
-        environment,
+        environment: environment.recorded,
         sampling,
         documents: representatives.documents.map(document => ({
           id: document.id,

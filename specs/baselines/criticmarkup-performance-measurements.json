@@ -4,7 +4,7 @@
   "baselineCommit": "e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c",
   "targetManifest": {
     "path": "specs/baselines/criticmarkup-performance-targets.json",
-    "sha256": "3c5cecdc2f9f9efa58af0a01b9fe0c81db0c0f02eba6d4d43068207166af614a"
+    "sha256": "3a8d78fc12384f652904d70e836f12cddf1e0d74d7b5b78444420d4fdb0e13a2"
   },
   "representativeDocuments": {
     "path": "specs/baselines/criticmarkup-representative-documents.json",

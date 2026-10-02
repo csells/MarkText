@@ -12,13 +12,35 @@ const manifestPath = resolve(
 )
 
 describe('CriticMarkup performance target protocol', () => {
+  it('pins the measurement host without pinning any OS version', () => {
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      environment: Record<string, string>
+    }
+
+    expect(manifest.environment).toEqual({
+      hardware: 'MacBook Pro Mac17,6, Apple M5 Max, 128 GB',
+      architecture: 'arm64',
+      build: 'MarkText production Electron bundle'
+    })
+
+    const versionPinned = structuredClone(manifest)
+    versionPinned.environment.os = 'macOS 26.5.1 (25F80)'
+    expect(() => validateCriticMarkupPerformanceTargets(versionPinned))
+      .toThrow(/must not pin os/i)
+
+    const unpinnedArchitecture = structuredClone(manifest)
+    delete unpinnedArchitecture.environment.architecture
+    expect(() => validateCriticMarkupPerformanceTargets(unpinnedArchitecture))
+      .toThrow(/Measurement architecture must be a non-empty string/)
+  })
+
   it('keeps presentation explicitly calibration-required and the protocol unratified', () => {
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as unknown
 
     expect(() => validateCriticMarkupPerformanceTargets(manifest)).not.toThrow()
     expect(manifest).toMatchObject({ status: 'proposed-unratified' })
     expect(manifest).toMatchObject({
-      schema: 'marktext-criticmarkup-performance-targets-v10',
+      schema: 'marktext-criticmarkup-performance-targets-v11',
       sampling: {
         sampleLifecycle: 'fresh-application-profile-per-observation-v1',
         observationSchedule: 'warmup-then-measured-rotating-round-robin-v1',
@@ -38,7 +60,7 @@ describe('CriticMarkup performance target protocol', () => {
     })
 
     const staleSchema = structuredClone(manifest) as { schema: string }
-    staleSchema.schema = 'marktext-criticmarkup-performance-targets-v9'
+    staleSchema.schema = 'marktext-criticmarkup-performance-targets-v10'
     expect(() => validateCriticMarkupPerformanceTargets(staleSchema))
       .toThrow(/schema is unsupported/i)
 
@@ -97,7 +119,7 @@ describe('CriticMarkup performance target protocol', () => {
     expect((manifest as { metrics: { t_event: object } }).metrics.t_event)
       .not.toHaveProperty('targetP95Ms')
     expect(manifest).toMatchObject({
-      schema: 'marktext-criticmarkup-performance-targets-v10',
+      schema: 'marktext-criticmarkup-performance-targets-v11',
       metrics: {
         t_present: {
           definition: expect.stringMatching(
