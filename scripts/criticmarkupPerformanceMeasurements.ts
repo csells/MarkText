@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import {
   PERFORMANCE_DISPLAY_SLEEP_POLICY,
   PERFORMANCE_OBSERVATION_SCHEDULE,
+  PERFORMANCE_PINNED_ENVIRONMENT_KEYS,
   PERFORMANCE_SAMPLE_LIFECYCLE,
   validateCriticMarkupPerformanceTargets
 } from './criticmarkupPerformanceTargets'
@@ -216,7 +217,7 @@ export type CriticMarkupRawPerformanceRun =
   | CriticMarkupCoreRawPerformanceRunV14
 
 interface PerformanceTargets {
-  schema: 'marktext-criticmarkup-performance-targets-v10'
+  schema: 'marktext-criticmarkup-performance-targets-v11'
   status: 'proposed-unratified' | 'ratified'
   representativeDocuments: { schema: string, path: string }
   environment: Record<string, string>
@@ -876,7 +877,11 @@ const validateRawRun = (
   if (Number.isNaN(Date.parse(measuredAt))) {
     throw new Error(`Raw performance run ${ref.id} timestamp is invalid`)
   }
-  if (JSON.stringify(raw.environment) !== JSON.stringify(targets.environment)) {
+  const environment = requireRecord(raw.environment, `Raw performance run ${ref.id} environment`)
+  for (const [key, value] of Object.entries(environment)) {
+    requireNonEmpty(value, `Raw performance run ${ref.id} environment ${key}`)
+  }
+  if (PERFORMANCE_PINNED_ENVIRONMENT_KEYS.some(key => environment[key] !== targets.environment[key])) {
     throw new Error(`Raw performance run ${ref.id} environment differs from the target protocol`)
   }
   const sampling = requireRecord(raw.sampling, `Raw performance run ${ref.id} sampling`)

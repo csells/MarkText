@@ -27,25 +27,38 @@ export const formatUpstreamBaselineHardware = (
   return `${product} ${model}, ${chip}, ${memory}`
 }
 
-export const readUpstreamBaselineMachineEnvironment = (): Readonly<
-  Record<string, string>
-> => {
-  const hardware = JSON.parse(execFileSync(
-    'system_profiler',
-    ['SPHardwareDataType', '-json'],
-    { encoding: 'utf8' }
-  )) as { readonly SPHardwareDataType?: readonly MacHardwareProfile[] }
-  const item = hardware.SPHardwareDataType?.[0]
-  if (item === undefined) throw new Error('macOS hardware profile is unavailable')
-  const productVersion = execFileSync('sw_vers', ['-productVersion'], {
-    encoding: 'utf8'
-  }).trim()
-  const buildVersion = execFileSync('sw_vers', ['-buildVersion'], {
-    encoding: 'utf8'
-  }).trim()
-  return Object.freeze({
-    hardware: formatUpstreamBaselineHardware(item),
-    os: `macOS ${productVersion} (${buildVersion}), ${process.arch}`,
-    build: 'MarkText production Electron bundle'
-  })
+export interface UpstreamBaselineMachineEnvironment {
+  /** The host properties a ratification run must share with the performance targets. */
+  readonly pinned: Readonly<Record<string, string>>
+  /** The raw-run evidence: the pinned properties plus the macOS version, which never gates a run. */
+  readonly recorded: Readonly<Record<string, string>>
 }
+
+export const readUpstreamBaselineMachineEnvironment =
+  (): UpstreamBaselineMachineEnvironment => {
+    const hardware = JSON.parse(execFileSync(
+      'system_profiler',
+      ['SPHardwareDataType', '-json'],
+      { encoding: 'utf8' }
+    )) as { readonly SPHardwareDataType?: readonly MacHardwareProfile[] }
+    const item = hardware.SPHardwareDataType?.[0]
+    if (item === undefined) throw new Error('macOS hardware profile is unavailable')
+    const productVersion = execFileSync('sw_vers', ['-productVersion'], {
+      encoding: 'utf8'
+    }).trim()
+    const buildVersion = execFileSync('sw_vers', ['-buildVersion'], {
+      encoding: 'utf8'
+    }).trim()
+    const pinned = Object.freeze({
+      hardware: formatUpstreamBaselineHardware(item),
+      architecture: process.arch,
+      build: 'MarkText production Electron bundle'
+    })
+    return Object.freeze({
+      pinned,
+      recorded: Object.freeze({
+        ...pinned,
+        os: `macOS ${productVersion} (${buildVersion})`
+      })
+    })
+  }
