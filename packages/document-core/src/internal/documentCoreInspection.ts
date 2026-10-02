@@ -124,3 +124,14 @@ export function inspectDocumentCore(core: object): DocumentCoreInspection {
   }
   return Object.freeze({ ...reader() })
 }
+
+const LEAF_READERS = new WeakMap<object, (revision: object) => readonly unknown[] | undefined>()
+
+/** Package-private: a revision's regional inventory leaves, for equivalence tests. */
+export function registerRegionalLeaves(core: object, reader: (revision: object) => readonly unknown[] | undefined): void {
+  LEAF_READERS.set(core, reader)
+}
+
+export function inspectRegionalLeaves(core: object, revision: object): readonly unknown[] | undefined {
+  return LEAF_READERS.get(core)?.(revision)
+}

@@ -886,7 +886,11 @@ export function createMuyaMarkupView(
       continue
     }
     let desired = ''
-    const retained: Array<SourceRange & { normalizedText?: string }> = []
+    const retained: Array<SourceRange & {
+      normalizedText?: string
+      /** Text the projection generates, as between an indented code block's arms. */
+      generated?: Readonly<{ source: number; syntax: SourceRange }>
+    }> = []
     let emptyPosition: number | undefined
     // Literal payload spelling and indentation belong to the common parser.
     // Adapt its literal children to the existing widget's source segments.
@@ -911,6 +915,21 @@ export function createMuyaMarkupView(
       const last = builder.segments.find(
         (segment) => segment.syntax.start < child.range.end && child.range.end <= segment.syntax.end
       )
+      if ((first === undefined || last === undefined) &&
+          !builder.segments.some((segment) =>
+            segment.syntax.start < child.range.end && child.range.start < segment.syntax.end)) {
+        // Text the projection generates, such as an indented code block's line
+        // break between a Substitution's arms, reads at the source where the
+        // text before it ends.
+        const after = builder.segments.find((segment) => segment.syntax.start >= child.range.end)
+        let before: (typeof builder.segments)[number] | undefined
+        for (const segment of builder.segments) if (segment.syntax.end <= child.range.start) before = segment
+        const at = after?.text.start ?? before?.text.end
+        const source = before?.source.end ?? after?.source.start
+        if (at === undefined || source === undefined) throw new Error('Core literal payload source mapping is incomplete')
+        retained.push({ start: at, end: at, normalizedText: text, generated: { source, syntax: child.range } })
+        continue
+      }
       if (first === undefined || last === undefined) {
         throw new Error('Core literal payload source mapping is incomplete')
       }
@@ -925,6 +944,15 @@ export function createMuyaMarkupView(
     const segments: typeof builder.segments = []
     let textOffset = 0
     for (const range of retained) {
+      if (range.generated !== undefined && range.normalizedText !== undefined) {
+        segments.push({
+          text: { start: textOffset, end: textOffset + range.normalizedText.length },
+          source: { start: range.generated.source, end: range.generated.source },
+          syntax: { ...range.generated.syntax }
+        })
+        textOffset += range.normalizedText.length
+        continue
+      }
       if (range.normalizedText !== undefined) {
         const first = builder.segments.find(
           (segment) => segment.text.start <= range.start && segment.text.end > range.start

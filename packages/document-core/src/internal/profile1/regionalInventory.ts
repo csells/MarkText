@@ -110,6 +110,20 @@ export interface RegionalInventoryAdmission {
    */
   readonly literalLines?: LiteralLines
   /**
+   * Present when the replaced lines are lines of a literal block that is
+   * the whole text of a suggestion's arm (see `admitArmLiteralLines`): the
+   * replaced span is the Markup text event holding the block, which keeps
+   * its other lines; `lines` is the replaced lines' range in the window
+   * and in the document's next source and projection; the suggestions
+   * holding the block keep their starts and move their ends with the edit.
+   */
+  readonly armLines?: Readonly<{
+    readonly lines: Readonly<{ readonly start: number; readonly end: number }>
+    readonly source: number
+    readonly syntax: number
+    readonly enclosing: readonly Readonly<{ readonly start: number; readonly end: number }>[]
+  }>
+  /**
    * The document has stray markers, whose escapes in the Markup view are
    * generated text: they claim no source, so the replacement's coordinates
    * leave them out, as the document's own do.
@@ -180,6 +194,17 @@ export interface RegionalInventoryPreview {
     readonly lines: Readonly<{ readonly start: number; readonly end: number }>
     readonly opener: number
     readonly closer: number
+  }>
+  /**
+   * Present for a window of lines of a literal block that is the whole
+   * text of a suggestion's arm: the suggestion and the arm, in the
+   * document's next source, which the window itself does not spell.
+   */
+  readonly arm?: Readonly<{
+    readonly kind: CriticMarkupNode['kind']
+    readonly name: CapsuleArm['name']
+    readonly range: Readonly<{ readonly start: number; readonly end: number }>
+    readonly annotation: Readonly<{ readonly start: number; readonly end: number }>
   }>
 }
 
@@ -264,6 +289,40 @@ interface MeasuredRegionLeaf {
   readonly listRun?: ListRun
   /** Present on a leaf holding lines of one split literal block. */
   readonly literalRun?: LiteralRun
+  /** The long literal blocks the leaf's suggestions hold in their text (see `ArmLiteral`). */
+  readonly armLiterals?: readonly ArmLiteral[]
+}
+
+/**
+ * A literal block that is the whole text of a suggestion's arm, which a
+ * key in its lines reads in a window of those lines alone (see
+ * `admitArmLiteralLines`): its text is canonical and holds no marker, and
+ * one Markup text event holds it. Offsets are local to the leaf.
+ */
+interface ArmLiteral {
+  readonly key: string
+  readonly opener: string
+  readonly closer: string
+  /** The block's source range, and its projection start. */
+  readonly start: number
+  readonly end: number
+  readonly syntaxStart: number
+  /** The Markup text event holding the block: its ordinal in the leaf and its source range. */
+  readonly event: number
+  readonly eventStart: number
+  readonly eventEnd: number
+  /** The arm's annotation, as its preorder ordinal in the leaf's capsule, and the arm. */
+  readonly node: number
+  readonly arm: CapsuleArm['name']
+  /**
+   * The projection start of the block holding the lines, and its lines and
+   * children before them: an indented code block reads the lines of every
+   * arm beside it as its own.
+   */
+  readonly block: number
+  readonly before: Readonly<{ lines: number, children: number }>
+  /** The lines' Markdown children, which must stay many enough to split. */
+  readonly children: number
 }
 
 /**
@@ -802,6 +861,226 @@ function createLeaf(
   )
 }
 
+/**
+ * The fewest content lines an arm's literal block holds for a key there to
+ * read its lines alone, and the Markdown children they make (a text and a
+ * break a line, the last without a break).
+ */
+const ARM_LITERAL_LINES = 3
+const ARM_LITERAL_CHILDREN = 2 * ARM_LITERAL_LINES - 1
+
+/** Each Markup event's source range, or its annotation's start for a mark, per products. */
+const eventStartsByProducts = new WeakMap<Profile1DocumentProducts, readonly Readonly<{ start: number, end: number, text: boolean }>[]>()
+
+function eventSpans(products: Profile1DocumentProducts): readonly Readonly<{ start: number, end: number, text: boolean }>[] {
+  let spans = eventStartsByProducts.get(products)
+  if (spans === undefined) {
+    const ranges = new Map<NodeId, SourceRange>()
+    const pending = [...(products.retainedIntrinsic?.roots ?? [])]
+    while (pending.length > 0) {
+      const node = pending.pop()
+      if (node === undefined) break
+      ranges.set(node.nodeId, node.range)
+      for (const arm of node.arms) pending.push(...arm.children)
+    }
+    const found: Array<Readonly<{ start: number, end: number, text: boolean }>> = []
+    for (let ordinal = 0; ordinal < products.markup.eventCount; ordinal += 1) {
+      const event = products.markup.eventAt(ordinal)
+      if (event.kind === 'text') {
+        found.push(Object.freeze({ start: event.sourceRange.start, end: event.sourceRange.end, text: true }))
+      } else {
+        const range = ranges.get(event.mark.nodeId)
+        const at = range === undefined ? -1 : event.kind === 'enter' ? range.start : range.end
+        found.push(Object.freeze({ start: at, end: at, text: false }))
+      }
+    }
+    spans = Object.freeze(found)
+    eventStartsByProducts.set(products, spans)
+  }
+  return spans
+}
+
+/** The ordinals of each products' Markup text events, in order. */
+const textEventIndexesByProducts = new WeakMap<Profile1DocumentProducts, readonly number[]>()
+
+function textEventIndexes(products: Profile1DocumentProducts): readonly number[] {
+  let indexes = textEventIndexesByProducts.get(products)
+  if (indexes === undefined) {
+    indexes = Object.freeze(eventSpans(products).flatMap((span, index) => span.text ? [index] : []))
+    textEventIndexesByProducts.set(products, indexes)
+  }
+  return indexes
+}
+
+/**
+ * The long literal blocks that are the whole text of an arm of the leaf's
+ * suggestions, other than a Comment's, whose text the projection reads as
+ * the block's own (see `ArmLiteral`).
+ */
+function armLiteralsOf(
+  products: Profile1DocumentProducts,
+  sourceStart: number,
+  syntaxStart: number,
+  syntaxEnd: number,
+  roots: readonly CriticMarkupNode[],
+  leaf: MeasuredRegionLeaf
+): ArmLiteral[] {
+  const editing = products.editing()
+  const tape = editing.mappedTape
+  const markers = products.retainedIntrinsic?.markerDecisions ?? []
+  const nodes: CriticMarkupNode[] = []
+  const pending = [...roots].reverse()
+  while (pending.length > 0) {
+    const node = pending.pop()
+    if (node === undefined) continue
+    nodes.push(node)
+    for (let arm = node.arms.length - 1; arm >= 0; arm -= 1) {
+      const children = node.arms[arm]?.children ?? []
+      for (let child = children.length - 1; child >= 0; child -= 1) {
+        const value = children[child]
+        if (value !== undefined) pending.push(value)
+      }
+    }
+  }
+  const spans = eventSpans(products)
+  const found: ArmLiteral[] = []
+  const root = editing.markdown.root
+  const texts = textEventIndexes(products)
+  // The first text event ending after source offset `at`.
+  const textEventAfter = (at: number): number => {
+    let low = 0
+    let high = texts.length
+    while (low < high) {
+      const middle = (low + high) >> 1
+      if ((spans[texts[middle] ?? 0]?.end ?? Infinity) <= at) low = middle + 1
+      else high = middle
+    }
+    return low
+  }
+  // Canonical source and projection offsets, each found in the canonical
+  // segment holding it: a block opening an arm starts after the arm's
+  // elided opener, which a generated segment holds.
+  const projectedAt = (at: number): number | undefined => {
+    for (const segment of tape) {
+      if (segment.kind === 'canonical' && segment.sourceStart <= at &&
+          at < segment.sourceStart + segment.projectedEnd - segment.projectedStart) {
+        return segment.projectedStart + at - segment.sourceStart
+      }
+    }
+    return undefined
+  }
+  const sourceAt = (projected: number): number | undefined => {
+    for (const segment of tape) {
+      if (segment.kind === 'canonical' && segment.projectedStart <= projected && projected < segment.projectedEnd) {
+        return segment.sourceStart + projected - segment.projectedStart
+      }
+    }
+    return undefined
+  }
+  const add = (
+    block: MarkdownNode,
+    reading: Readonly<{ key: string, opener: string, closer: string }>,
+    start: number,
+    end: number,
+    projected: number,
+    before: Readonly<{ lines: number, children: number }>,
+    children: number
+  ): void => {
+    const owner = nodes.findIndex(node => node.kind !== 'comment' && node.arms.some(arm =>
+      arm.range.start <= start && end <= arm.range.end && arm.children.length === 0))
+    const node = nodes[owner]
+    const arm = node?.arms.find(candidate => candidate.range.start <= start && end <= candidate.range.end)
+    // A suggestion nested in another, as in a Deletion's text, takes a
+    // tracked key as its holder's text does, which the document decides.
+    if (node === undefined || arm === undefined || !roots.includes(node) ||
+        nodes.some(other => other.range.start < end && start < other.range.end && other.range.start >= start) ||
+        markers.some(marker => marker.range.start < end && start < marker.range.end) ||
+        // A marker's spelling read as text there may pair once a line
+        // break or blank line changes where the block's lines end.
+        // The text is canonical, so its projection spells it.
+        markerSpellings(editing.source.slice(projected, projected + end - start)) !== 0) return
+    // The text event holding the lines, counted as the leaf counts its events.
+    const index = texts[textEventAfter(start)]
+    const event = index === undefined ? undefined : spans[index]
+    // The event holds the lines alone, with at most their line break after them.
+    if (index === undefined || event === undefined || event.start !== start || event.end < end || event.end > end + 1 ||
+        arm.range.start !== event.start || arm.range.end !== event.end) return
+    let local = 0
+    for (let earlier = index - 1; earlier >= 0; earlier -= 1) {
+      const span = spans[earlier]
+      if (span === undefined || (span.text ? span.end <= sourceStart : span.start < sourceStart)) break
+      local += 1
+    }
+    if (local >= leaf.eventCount) return
+    found.push(Object.freeze({
+      key: reading.key,
+      opener: reading.opener,
+      closer: reading.closer,
+      start: start - sourceStart,
+      end: end - sourceStart,
+      syntaxStart: projected - syntaxStart,
+      event: local,
+      eventStart: event.start - sourceStart,
+      eventEnd: event.end - sourceStart,
+      node: leafNodeOrdinal(leaf.annotations, node.range.start - sourceStart, node.range.end - sourceStart, node.kind),
+      arm: arm.name,
+      block: block.range.start - syntaxStart,
+      before,
+      children
+    }))
+  }
+  for (let ordinal = 0; ordinal < root.childCount; ordinal += 1) {
+    const block = root.childAt(ordinal)
+    if (!LITERAL_SPLIT_KINDS.has(block.kind) || block.childCount < ARM_LITERAL_CHILDREN ||
+        block.range.start < syntaxStart || block.range.end > syntaxEnd) continue
+    const reading = literalBlockReading(editing, block)
+    if (reading === undefined) continue
+    if (block.kind === 'code-block' && reading.opener === '') {
+      // An indented code block reads every arm's lines as its own, so each
+      // arm whose text is whole lines of it is one.
+      const blockSource = sourceAt(block.range.start)
+      if (blockSource === undefined) continue
+      let child = 0
+      let lines = 0
+      for (let text = textEventAfter(blockSource); text < texts.length; text += 1) {
+        const event = spans[texts[text] ?? -1]
+        const projected = event === undefined ? undefined : projectedAt(event.start)
+        if (event === undefined || projected === undefined || projected >= block.range.end) break
+        // The arm's text, with the line break ending it, lies in the block
+        // and reads canonically.
+        const length = event.end - event.start
+        if (length === 0 || projected < block.range.start || projected + length > block.range.end ||
+            projectedAt(event.end - 1) !== projected + length - 1) continue
+        const end = editing.source.charAt(projected + length - 1) === '\n' ? event.end - 1 : event.end
+        const text_ = editing.source.slice(projected, projected + end - event.start)
+        if (/\r/u.test(text_) || (projected !== block.range.start && editing.source.charAt(projected - 1) !== '\n') ||
+            (end === event.end && projected + length !== block.range.end)) continue
+        // The block's children and lines before the arm's first line.
+        while (child < block.childCount && block.childAt(child).range.start < projected) {
+          if (block.childAt(child).kind === 'soft-break') lines += 1
+          child += 1
+        }
+        const armLines = text_.split('\n').length
+        if (armLines < ARM_LITERAL_LINES) continue
+        add(block, { ...reading, closer: '' }, event.start, end, projected, Object.freeze({ lines, children: child }), 2 * armLines - 1)
+      }
+      continue
+    }
+    // One canonical segment holds the whole block.
+    const start = sourceAt(block.range.start)
+    const end = start === undefined ? undefined : start + block.range.end - block.range.start
+    if (start === undefined || end === undefined || sourceAt(block.range.end - 1) !== end - 1 ||
+        projectedAt(start) !== block.range.start || projectedAt(end - 1) !== block.range.end - 1) continue
+    add(block, reading, start, end, block.range.start, Object.freeze({ lines: 0, children: 0 }), block.childCount)
+  }
+  return found
+}
+
+/** The preorder ordinal of the capsule node spanning `[start, end)` of kind `kind`. */
+function leafNodeOrdinal(capsule: AnnotationCapsule, start: number, end: number, kind: CriticMarkupNode['kind']): number {
+  return capsule.nodes.findIndex(node => node.start === start && node.end === end && node.kind === kind)
+}
+
 function diagnosticsWithin(
   products: Profile1DocumentProducts,
   sourceStart: number,
@@ -923,7 +1202,7 @@ function createLeafFromParts(
 ): MeasuredRegionLeaf {
   const positions: number[] = []
   const topology = markdownTopology(markdownRoots, syntaxStart, recorder, positions)
-  return Object.freeze({
+  const leaf: MeasuredRegionLeaf = Object.freeze({
     kind: 'region',
     sourceLength: sourceEnd - sourceStart,
     syntaxLength: syntaxEnd - syntaxStart,
@@ -943,6 +1222,8 @@ function createLeafFromParts(
     ...(listRun === undefined ? {} : { listRun }),
     ...(literalRun === undefined ? {} : { literalRun })
   })
+  const armLiterals = roots.length === 0 ? [] : armLiteralsOf(products, sourceStart, syntaxStart, syntaxEnd, roots, leaf)
+  return armLiterals.length === 0 ? leaf : Object.freeze({ ...leaf, armLiterals: Object.freeze(armLiterals) })
 }
 
 function branch(
@@ -2303,8 +2584,12 @@ export function previewRegionalContext(
   physicalRecorder: Profile1PhysicalTraversalRecorderV1
 ): RegionalInventoryPreview | undefined {
   const edit = Object.freeze({ start: position, end: position, insert: '' })
+  const value = inventoryValue(inventory)
+  // A suggestion arm's literal lines read alone, as an edit there reads them.
+  const arm = admitArmLiteralLines(value, source, source, edit, executionBudget, markdownOptions, physicalRecorder, true)
+  if (arm?.kind === 'validated') return arm
   const result = evaluateBlockWindow(
-    inventoryValue(inventory), source, source, edit, executionBudget, markdownOptions, physicalRecorder, true
+    value, source, source, edit, executionBudget, markdownOptions, physicalRecorder, true
   )
   return result?.kind === 'validated' ? result : undefined
 }
@@ -2315,7 +2600,9 @@ export function previewRegionalContext(
  * revision without its document parse. Nothing is replaced, so any block
  * kind reads there; the window's safe points and marker readings must still
  * match the document's for its blocks to read as they do in the whole
- * document.
+ * document. `armLines` admits the lines of a suggestion arm's literal block
+ * read alone, whose blocks read as the document's but which hold none of
+ * its suggestions.
  */
 export function previewRegionalRange(
   inventory: RegionalInventory,
@@ -2323,7 +2610,8 @@ export function previewRegionalRange(
   range: Readonly<{ readonly start: number; readonly end: number }>,
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptionsV1,
-  physicalRecorder: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  armLines = false
 ): Readonly<{
   sourceStart: number
   nextProducts: Profile1DocumentProducts
@@ -2333,7 +2621,8 @@ export function previewRegionalRange(
   wholeLeaf?: true
   literal?: RegionalInventoryPreview['literal']
 }> | undefined {
-  const window = regionalRangeWindow(inventory, source, range, executionBudget, markdownOptions, physicalRecorder)
+  const window = regionalRangeWindow(inventory, source, range, executionBudget, markdownOptions, physicalRecorder,
+    true, armLines)
   return window?.validated === true
     ? Object.freeze({
       sourceStart: window.sourceStart,
@@ -2363,7 +2652,8 @@ export function regionalRangeWindow(
   executionBudget: ExecutionBudgetId,
   markdownOptions: MarkdownOptionsV1,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1,
-  literalLines = true
+  literalLines = true,
+  armLines = false
 ): Readonly<{
   sourceStart: number
   nextProducts: Profile1DocumentProducts
@@ -2414,6 +2704,25 @@ export function regionalRangeWindow(
         validated: !labels,
         labelsOnly: labels,
         literal: lines.literal
+      })
+    }
+  }
+  // Lines of a suggestion arm's literal block read in the window of those
+  // lines too, as an edit there does (see `admitArmLiteralLines`), for a
+  // reader of their blocks alone: the window holds no suggestion, so its
+  // Original and Revised text are not the document's.
+  if (literalLines && armLines) {
+    const arm = admitArmLiteralLines(value, source, source, Object.freeze({ start: range.start, end: range.start, insert: '' }),
+      executionBudget, markdownOptions, physicalRecorder, true)
+    if (arm?.kind === 'validated' && arm.literal !== undefined && range.end <= arm.sourceStart + arm.literal.lines.end) {
+      const labels = referenced(arm.sourceStart + arm.literal.lines.start, arm.sourceStart + arm.literal.lines.end)
+      return Object.freeze({
+        sourceStart: arm.sourceStart,
+        nextProducts: arm.nextProducts,
+        nextWindow: arm.nextWindow,
+        validated: !labels,
+        labelsOnly: labels,
+        literal: arm.literal
       })
     }
   }
@@ -2666,6 +2975,11 @@ export function regionalInventoryLiteralRange(
   return start === undefined || end === undefined ? undefined : Object.freeze({ start: start.source, end: end.source })
 }
 
+/** The inventory's leaves in order, for package-private equivalence tests. */
+export function regionalInventoryLeaves(inventory: RegionalInventory): readonly unknown[] {
+  return leavesOf(inventoryValue(inventory).root)
+}
+
 /** How many root annotations the document holds. */
 export function regionalInventoryRootCount(inventory: RegionalInventory): number {
   return rootCountIn(inventoryValue(inventory).root)
@@ -2695,6 +3009,11 @@ function evaluateRegionalInventory(
   physicalRecorder: Profile1PhysicalTraversalRecorderV1,
   previewOnly: boolean
 ): RegionalInventoryApplyResult | RegionalInventoryPreviewResult {
+  if (edits.length === 1 && edits[0] !== undefined && !subscriptions.some(subscription => subscription.name === 'comment')) {
+    const arm = admitArmLiteralLines(inventoryValue(previousInventory), previousSource, nextSource, edits[0],
+      executionBudget, markdownOptions, physicalRecorder, previewOnly)
+    if (arm !== undefined) return arm
+  }
   const sameShape = evaluateSameShape(
     previousInventory, previousSource, nextSource, edits, subscriptions,
     executionBudget, markdownOptions, physicalRecorder, previewOnly
@@ -4088,6 +4407,321 @@ function literalBlockEdge(
   for (let ordinal = edge.ordinal; ordinal <= extent.last; ordinal += 1) source += leaves[ordinal]?.sourceLength ?? 0
   const found = windowEdge(inventory, source - 1, 'end')
   return found?.ordinal === extent.last ? found : undefined
+}
+
+/**
+ * An edit of inner lines of a literal block that is the whole text of a
+ * suggestion's arm, as a key typed in a Substitution's proposed code block.
+ * Its lines read literally there as they do alone, so a window of the
+ * block's opener line, the edited lines with a line of context on each
+ * side, and its closer line reads them, before and after the edit; the
+ * block keeps its delimiters and its other lines. The suggestion's leaf is
+ * then the same leaf with what follows the edit moved by it: no part of
+ * the leaf but those lines is read again. Undefined leaves the edit to the
+ * other windows.
+ */
+function admitArmLiteralLines(
+  inventory: InventoryValue,
+  previousSource: CanonicalSourceView,
+  nextSource: CanonicalSourceView,
+  edit: RetainedPassSourceEdit,
+  executionBudget: ExecutionBudgetId,
+  markdownOptions: MarkdownOptionsV1,
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  previewOnly: boolean
+): RegionalInventoryAdmission | RegionalInventoryPreview | undefined {
+  if (inventory.strayMarkers || previousSource.length !== inventory.root.sourceLength) return undefined
+  const located = locateBySource(inventory, edit.start)
+  const leaf = located?.leaf
+  if (located === undefined || leaf?.kind !== 'region' || leaf.armLiterals === undefined) return undefined
+  const localStart = edit.start - located.sourceStart
+  const localEnd = edit.end - located.sourceStart
+  // An indented code block's last line ends its lines, where a key may type.
+  const armIndex = leaf.armLiterals.findIndex(arm => arm.start < localStart &&
+    (localEnd < arm.end || (arm.closer === '' && localEnd === arm.end)))
+  const arm = leaf.armLiterals[armIndex]
+  if (arm === undefined) return undefined
+  const delta = nextSource.length - previousSource.length
+  // The block's lines, in document source.
+  const blockStart = located.sourceStart + arm.start
+  const blockEnd = located.sourceStart + arm.end
+  const text = previousSource.slice(blockStart, blockEnd)
+  const starts = [0]
+  for (const match of text.matchAll(/\r\n|\r|\n/gu)) {
+    const next = match.index + match[0].length
+    if (next < text.length) starts.push(next)
+  }
+  const lineOf = (offset: number): number => {
+    let low = 0
+    let high = starts.length
+    while (low < high) {
+      const middle = (low + high) >> 1
+      if ((starts[middle] ?? 0) <= offset) low = middle + 1
+      else high = middle
+    }
+    return low - 1
+  }
+  const last = starts.length - 1
+  const firstEdited = lineOf(edit.start - blockStart)
+  // A deletion ending at a line start joins that line to the edited one.
+  const lastEdited = lineOf(edit.end - blockStart)
+  // The lines holding the block's delimiters, which an indented code block
+  // lacks, stand for the lines beyond the window.
+  const first = arm.opener === '' ? 0 : 1
+  const lastContent = arm.closer === '' ? last : last - 1
+  if (/\r/u.test(text) || firstEdited < first || lastEdited > lastContent) return undefined
+  const lineStart = (line: number): number => blockStart + (starts[line] ?? text.length)
+  let before = firstEdited > first ? firstEdited - 1 : undefined
+  let after = lastEdited < lastContent ? lastEdited + 1 : undefined
+  // Indented code reads a blank line only between lines with text, so its
+  // context reaches past blank lines to one.
+  if (arm.opener === '') {
+    const blank = (line: number): boolean => !/\S/u.test(text.slice(starts[line] ?? text.length, starts[line + 1] ?? text.length))
+    while (before !== undefined && before > first && blank(before)) before -= 1
+    while (after !== undefined && after < lastContent && blank(after)) after += 1
+  }
+  const contextStart = lineStart(before ?? firstEdited)
+  const contextEnd = lineStart((after ?? lastEdited) + 1)
+  const opener = previousSource.slice(blockStart, lineStart(first))
+  const closer = previousSource.slice(lineStart(lastContent + 1), blockEnd)
+  const previousLines = previousSource.slice(contextStart, contextEnd)
+  const nextLines = nextSource.slice(contextStart, contextEnd + delta)
+  if (markerSpellings(opener + previousLines + closer) !== 0 || markerSpellings(nextLines) !== 0 ||
+      /[{}]/u.test(edit.insert) ||
+      // A backtick or dollar run in the arm may pair with one outside it,
+      // across the suggestion's markers, which no window of its lines reads.
+      /[`$]/u.test(edit.insert + previousSource.slice(Math.max(0, edit.start - 1), edit.end + 1)) ||
+      // A blank line in a math block parts the dollar runs read after it.
+      (arm.key.startsWith('math-block') && [previousLines, nextLines].some(lines => /(?:^|\n)[ \t]*\n/u.test(lines)))) return undefined
+  const previousWindow = opener + previousLines + closer
+  const nextWindow = opener + nextLines + closer
+  const options = Object.freeze({ ...markdownOptions, frontMatter: false })
+  const parse = (window: string): Profile1DocumentProducts | undefined => {
+    inventory.recorder.recordCandidateRegionParse(window.length)
+    const result = parseProfile1Window(window, executionBudget, options, false, physicalRecorder, true, false)
+    return result.kind === 'complete' && result.diagnostics.count === 0 &&
+      (result.retainedIntrinsic?.markerDecisions.length ?? 1) === 0 && !unpairedLiteralRuns(result, window)
+      ? result
+      : undefined
+  }
+  const previousResult = parse(previousWindow)
+  const nextResult = parse(nextWindow)
+  if (previousResult === undefined || nextResult === undefined) return undefined
+  const blockOf = (products: Profile1DocumentProducts) => {
+    const root = products.editing().markdown.root
+    return root.childCount === 1 ? root.childAt(0) : undefined
+  }
+  const previousBlock = blockOf(previousResult)
+  const nextBlock = blockOf(nextResult)
+  if (previousBlock === undefined || nextBlock === undefined ||
+      literalBlockReading(previousResult.editing(), previousBlock)?.key !== arm.key ||
+      literalBlockReading(nextResult.editing(), nextBlock)?.key !== arm.key ||
+      previousBlock.range.start !== 0 || nextBlock.range.start !== 0 ||
+      previousBlock.range.end + delta !== nextBlock.range.end ||
+      previousResult.editing().source !== previousWindow || nextResult.editing().source !== nextWindow ||
+      // The block's text, which its tape reads as one literal run, keeps its
+      // start and moves its end with the edit.
+      previousBlock.childCount === 0 || nextBlock.childCount === 0 ||
+      previousBlock.childAt(0).range.start !== nextBlock.childAt(0).range.start ||
+      previousBlock.childAt(previousBlock.childCount - 1).range.end + delta !==
+        nextBlock.childAt(nextBlock.childCount - 1).range.end) return undefined
+  // The lines around the edited ones read as they did.
+  const lineStarts = (products: Profile1DocumentProducts, block: MarkdownNode): number[] => {
+    const window = products.editing().source
+    const found: number[] = []
+    let lineStarted = true
+    for (let child = 0; child < block.childCount; child += 1) {
+      const node = block.childAt(child)
+      if (lineStarted) found.push(markerLineStart(window, node.range.start) ?? -1)
+      lineStarted = node.kind === 'soft-break'
+    }
+    return found
+  }
+  const editedStart = opener.length + lineStart(firstEdited) - contextStart
+  const previousStop = opener.length + lineStart(lastEdited + 1) - contextStart
+  const nextStop = previousStop + delta
+  const previousStarts = lineStarts(previousResult, previousBlock)
+  const nextStarts = lineStarts(nextResult, nextBlock)
+  if ((before !== undefined && !nextStarts.includes(opener.length)) || !nextStarts.includes(editedStart) ||
+      (after !== undefined && !nextStarts.includes(nextStop)) ||
+      !sameArray(previousStarts.filter(start => start < editedStart), nextStarts.filter(start => start < editedStart)) ||
+      !sameArray(previousStarts.filter(start => start > previousStop).map(start => start + delta),
+        nextStarts.filter(start => start > nextStop))) return undefined
+  // A key in the indentation a line's text starts after leaves that start
+  // in place, where the leaf's moved offsets would not.
+  const editStart = opener.length + edit.start - contextStart
+  for (let child = 0; child < previousBlock.childCount; child += 1) {
+    const node = previousBlock.childAt(child)
+    if (node.range.start < editedStart) continue
+    if (node.range.start > editStart) return undefined
+    break
+  }
+  const childrenIn = (block: MarkdownNode, from: number, to: number): number => {
+    let count = 0
+    for (let child = 0; child < block.childCount; child += 1) {
+      const start = block.childAt(child).range.start
+      if (start >= from && (start < to || (start === to && block.childAt(child).range.end === to && to === from))) count += 1
+    }
+    return count
+  }
+  const childrenBeforeWindow = childrenIn(previousBlock, 0, editedStart)
+  const previousChildren = childrenIn(previousBlock, editedStart, previousStop)
+  const linesBeforeWindow = previousStarts.filter(start => start < editedStart).length
+  const omitted = (before ?? firstEdited) - first
+  const linesBefore = arm.before.lines + linesBeforeWindow + omitted
+  const childrenBefore = arm.before.children + childrenBeforeWindow + 2 * omitted
+  // The suggestion's leaf, moved past the edit; the suggestions holding the
+  // block keep their starts.
+  const children = arm.children + nextBlock.childCount - previousBlock.childCount
+  if (children < ARM_LITERAL_CHILDREN) return undefined
+  const nextLeaf = movedLeaf(leaf, armIndex, localStart, localEnd, delta, children)
+  if (nextLeaf === undefined) return undefined
+  const enclosing = leaf.annotations.nodes
+    .filter(node => node.start < localStart && localEnd < node.end)
+    .map(node => range(located.sourceStart + node.start, located.sourceStart + node.end))
+  const owner = leaf.annotations.nodes[arm.node]
+  const ownerArm = owner?.arms.find(candidate => candidate.start <= arm.start && arm.end <= candidate.end)
+  if (owner === undefined || ownerArm === undefined) return undefined
+  const moved = (position: number): number => position >= localEnd ? position + delta : position
+  const windowStart = contextStart - opener.length
+  if (previewOnly) {
+    return Object.freeze({
+      kind: 'validated',
+      sourceStart: windowStart,
+      nextProducts: nextResult,
+      nextWindow,
+      literal: Object.freeze({
+        lines: Object.freeze({ start: opener.length, end: nextWindow.length - closer.length }),
+        opener: blockStart,
+        closer: lineStart(last) + delta
+      }),
+      arm: Object.freeze({
+        kind: owner.kind,
+        name: ownerArm.name,
+        range: range(located.sourceStart + ownerArm.start, located.sourceStart + moved(ownerArm.end)),
+        annotation: range(located.sourceStart + owner.start, located.sourceStart + moved(owner.end))
+      })
+    })
+  }
+  inventory.recorder.recordRootAttempted()
+  const nextRoot = replaceLeaf(inventory.root, located.ordinal, nextLeaf, inventory.recorder)
+  const eventSource = located.sourceStart + arm.eventStart
+  const eventSyntax = located.syntaxStart + arm.syntaxStart - (arm.start - arm.eventStart)
+  const eventLength = arm.eventEnd - arm.eventStart
+  const event = located.eventStart + arm.event
+  return Object.freeze({
+    kind: 'admitted',
+    nextInventory: Object.freeze({
+      [inventoryBrand]: true as const,
+      root: nextRoot,
+      accountingUpperBound: inventory.accountingUpperBound,
+      logicalNodeLimit: inventory.logicalNodeLimit,
+      markerFree: inventory.markerFree,
+      strayMarkers: inventory.strayMarkers,
+      ...shiftedReferenceFacts(inventory, edit, delta),
+      recorder: inventory.recorder,
+      ...(inventory.plainRecorder === undefined ? {} : { plainRecorder: inventory.plainRecorder }),
+      ...(inventory.splitsLists === true ? { splitsLists: true } : {})
+    }),
+    previous: Object.freeze({
+      source: range(eventSource, eventSource + eventLength),
+      syntax: range(eventSyntax, eventSyntax + eventLength),
+      events: range(event, event + 1)
+    }),
+    next: Object.freeze({
+      source: range(eventSource, eventSource + eventLength + delta),
+      syntax: range(eventSyntax, eventSyntax + eventLength + delta),
+      events: range(event, event + 1)
+    }),
+    nextProducts: nextResult,
+    nextWindow,
+    commentImpacts: Object.freeze([]),
+    literalLines: Object.freeze({
+      key: arm.key,
+      linesBefore,
+      childrenBefore,
+      previousLines: lastEdited - firstEdited + 1,
+      previousChildren
+    }),
+    armLines: Object.freeze({
+      lines: range(editedStart, nextStop),
+      source: lineStart(firstEdited),
+      syntax: eventSyntax + lineStart(firstEdited) - eventSource,
+      enclosing: Object.freeze(enclosing)
+    }),
+    strayMarkers: inventory.strayMarkers
+  })
+}
+
+/**
+ * `leaf` with an edit of `[start, end)` inside arm literal `armIndex`'s
+ * lines, which reads only those lines anew: every offset at or after the
+ * edit's end moves by `delta`, every one at or before its start stays.
+ */
+function movedLeaf(
+  leaf: MeasuredRegionLeaf,
+  armIndex: number,
+  start: number,
+  end: number,
+  delta: number,
+  children: number
+): MeasuredRegionLeaf | undefined {
+  const arm = leaf.armLiterals?.[armIndex]
+  if (arm === undefined) return undefined
+  const syntaxShift = arm.syntaxStart - arm.start
+  let inside = false
+  const moved = (position: number): number => {
+    if (position <= start) return position
+    if (position >= end) return position + delta
+    inside = true
+    return position
+  }
+  const movedSyntax = (position: number): number => {
+    if (position <= start + syntaxShift) return position
+    if (position >= end + syntaxShift) return position + delta
+    inside = true
+    return position
+  }
+  const next: MeasuredRegionLeaf = Object.freeze({
+    ...leaf,
+    sourceLength: leaf.sourceLength + delta,
+    syntaxLength: leaf.syntaxLength + delta,
+    annotations: Object.freeze({
+      roots: leaf.annotations.roots,
+      nodes: Object.freeze(leaf.annotations.nodes.map(node => Object.freeze({
+        ...node,
+        start: moved(node.start),
+        end: moved(node.end),
+        arms: Object.freeze(node.arms.map(candidate => Object.freeze({
+          ...candidate,
+          start: moved(candidate.start),
+          end: moved(candidate.end)
+        })))
+      })))
+    }),
+    markers: Object.freeze(leaf.markers.map(marker => Object.freeze({ ...marker, start: moved(marker.start), end: moved(marker.end) }))),
+    diagnostics: Object.freeze(leaf.diagnostics.map(diagnostic =>
+      Object.freeze({ ...diagnostic, start: moved(diagnostic.start), end: moved(diagnostic.end) }))),
+    markdownPositions: Object.freeze(leaf.markdownPositions.map(movedSyntax)),
+    armLiterals: Object.freeze((leaf.armLiterals ?? []).map((candidate, index) => Object.freeze({
+      ...candidate,
+      start: index === armIndex ? candidate.start : moved(candidate.start),
+      end: index === armIndex ? candidate.end + delta : moved(candidate.end),
+      syntaxStart: index === armIndex ? candidate.syntaxStart : movedSyntax(candidate.syntaxStart),
+      eventStart: index === armIndex ? candidate.eventStart : moved(candidate.eventStart),
+      eventEnd: index === armIndex ? candidate.eventEnd + delta : moved(candidate.eventEnd),
+      block: index === armIndex ? candidate.block : movedSyntax(candidate.block),
+      // Later arms' lines in the same indented code block follow the edited ones.
+      before: candidate.block === arm.block && candidate.start > arm.start
+        ? Object.freeze({
+          lines: candidate.before.lines + (children - arm.children) / 2,
+          children: candidate.before.children + children - arm.children
+        })
+        : candidate.before,
+      children: index === armIndex ? children : candidate.children
+    })))
+  })
+  return inside ? undefined : next
 }
 
 /**

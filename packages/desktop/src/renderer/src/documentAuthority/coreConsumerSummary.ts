@@ -3,6 +3,7 @@ import type {
   DocumentCore,
   DocumentRevision,
   MarkdownProjection,
+  MarkupRegionReplacement,
   SourceRange
 } from '@marktext/document-core'
 import {
@@ -37,6 +38,18 @@ type SummaryPiece =
   | {
     readonly kind: 'region'
     readonly revision: DocumentRevision
+    readonly start: number
+    readonly end: number
+    delta: number
+  }
+  | {
+    /**
+     * Lines of a suggestion arm's literal block, whose Revised text is their
+     * source where the arm shows there and nothing where it does not.
+     */
+    readonly kind: 'text'
+    readonly shown: boolean
+    readonly markdown: string
     readonly start: number
     readonly end: number
     delta: number
@@ -93,8 +106,8 @@ export const createConsumerSummaryTracker = (): ConsumerSummaryTracker => {
     }
     | undefined
 
-  const read = (core: DocumentCore, piece: SummaryPiece): Extract<SummaryPiece, { kind: 'read' }> =>
-    piece.kind === 'read'
+  const read = (core: DocumentCore, piece: SummaryPiece): Exclude<SummaryPiece, { kind: 'region' }> =>
+    piece.kind !== 'region'
       ? piece
       : {
         kind: 'read',
@@ -110,10 +123,53 @@ export const createConsumerSummaryTracker = (): ConsumerSummaryTracker => {
     const end = Math.min(piece.end, to - piece.delta)
     if (start >= end) return undefined
     if (start === piece.start && end === piece.end) return piece
+    if (piece.kind === 'text') {
+      return { ...piece, markdown: piece.shown ? piece.markdown.slice(start - piece.start, end - piece.start) : '', start, end }
+    }
     // A region not yet read is read before a part of it is kept.
     const source = tracked === undefined || piece.kind === 'read' ? piece : read(tracked.core, piece)
     if (source.kind !== 'read') return undefined
     return { kind: 'read', projection: source.projection, start, end, delta: piece.delta }
+  }
+
+  /**
+   * Follows lines replaced inside a suggestion arm's literal block, whose
+   * Revised text, when the arm shows there, is their source: the pieces
+   * around them keep their text, the lines read anew from the reply.
+   */
+  const armLines = (replacement: MarkupRegionReplacement): boolean => {
+    const lines = replacement.literalLines
+    if (tracked === undefined || lines?.sourceStart === undefined) return false
+    const shift = replacement.next.source.end - replacement.previous.source.end
+    const from = lines.sourceStart
+    const to = from + lines.source.length - shift
+    const index = tracked.pieces.findIndex((piece) => piece.start + piece.delta <= from && to <= piece.end + piece.delta)
+    const found = tracked.pieces[index]
+    if (found === undefined) return false
+    const piece = read(tracked.core, found)
+    let shown = piece.kind !== 'text' || piece.shown
+    if (piece.kind === 'read') {
+      const { coordinates } = piece.projection
+      const start = coordinates.toProjected(from - piece.delta, 'next')
+      const end = coordinates.toProjected(to - piece.delta, 'next')
+      // Hidden lines read as nothing; shown ones read as their source.
+      if (end !== start && end - start !== to - from) return false
+      shown = end !== start
+    }
+    const pieceEnd = piece.end + piece.delta
+    const head = trimmed(piece, piece.start + piece.delta, from)
+    const tail = trimmed(piece, to, pieceEnd)
+    const placed: SummaryPiece[] = [
+      ...(head === undefined ? [] : [head]),
+      { kind: 'text' as const, shown, markdown: shown ? lines.source : '', start: from, end: from + lines.source.length, delta: 0 },
+      ...(tail === undefined ? [] : [{ ...tail, delta: tail.delta + shift }])
+    ]
+    tracked.pieces.splice(index, 1, ...placed)
+    for (let later = index + placed.length; later < tracked.pieces.length; later += 1) {
+      const moved = tracked.pieces[later]
+      if (moved !== undefined) moved.delta += shift
+    }
+    return true
   }
 
   return {
@@ -136,7 +192,7 @@ export const createConsumerSummaryTracker = (): ConsumerSummaryTracker => {
         const headings: ProjectedHeadingNode[] = []
         tracked.pieces = tracked.pieces.map((piece) => {
           const current = read(core, piece)
-          const reading = readingOf(current)
+          const reading = current.kind === 'text' ? { markdown: current.markdown, headings: [] } : readingOf(current)
           markdown += reading.markdown
           for (const heading of reading.headings) headings.push(movedHeading(heading, current.delta))
           return current
@@ -160,6 +216,7 @@ export const createConsumerSummaryTracker = (): ConsumerSummaryTracker => {
       )
       let offset = 0
       for (const replacement of replacements) {
+        if (replacements.length === 1 && armLines(replacement)) continue
         const from = replacement.previous.source.start + offset
         const to = replacement.previous.source.end + offset
         const { start: nextStart, end: nextEnd } = replacement.next.source
