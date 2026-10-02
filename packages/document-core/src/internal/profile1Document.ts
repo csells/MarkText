@@ -4905,8 +4905,9 @@ export const windowsBeforeDocumentEnd = new WeakSet<Profile1DocumentProducts>()
  */
 export const windowsEndingAtBlockStart = new WeakSet<Profile1DocumentProducts>()
 
-const WINDOW_PARSES_RETAINED = 8
+const WINDOW_PARSES_RETAINED = 32
 const WINDOW_PARSE_RETAINED_UNITS = 1 << 16
+const WINDOW_PARSE_RETAINED_TOTAL_UNITS = 1 << 17
 const windowParses: WindowParse[] = []
 /**
  * The last window parse longer than the others kept, as the window of a
@@ -4937,6 +4938,19 @@ export function parseProfile1Window(
   startsAfterOneEmptyLine: boolean = true,
   endsAtBlockStart: boolean = false
 ): Profile1DocumentResult {
+  const retainedAt = windowParses.findIndex(parse =>
+    parse.source === source &&
+    parse.executionBudget === executionBudget &&
+    parse.captureAccountingTrace === captureAccountingTrace &&
+    parse.physicalRecorder === physicalRecorder &&
+    parse.endsAtDocumentEnd === endsAtDocumentEnd &&
+    parse.documentHasAnnotations === documentHasAnnotations &&
+    parse.startsAfterOneEmptyLine === startsAfterOneEmptyLine &&
+    parse.endsAtBlockStart === endsAtBlockStart &&
+    sameMarkdownOptions(parse.markdownOptions, markdownOptions))
+  // A key's candidates read the same few windows again, so the most recently
+  // read stay first.
+  if (retainedAt > 0) windowParses.unshift(...windowParses.splice(retainedAt, 1))
   const retained = [...windowParses, ...(largeWindowParse === undefined ? [] : [largeWindowParse])].find(parse =>
     parse.source === source &&
     parse.executionBudget === executionBudget &&
@@ -4983,6 +4997,10 @@ export function parseProfile1Window(
       result
     }))
     windowParses.length = Math.min(windowParses.length, WINDOW_PARSES_RETAINED)
+    // Products cost memory in proportion to their text.
+    let retainedUnits = 0
+    const kept = windowParses.findIndex(parse => (retainedUnits += parse.source.length) > WINDOW_PARSE_RETAINED_TOTAL_UNITS)
+    if (kept > 0) windowParses.length = kept
   }
   return result
 }
