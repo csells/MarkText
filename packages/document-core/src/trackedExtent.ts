@@ -52,6 +52,16 @@ export const trackedRegionalReadings = new WeakMap<
 
 /** Revised view identity of Markdown text such as a projection: its tree without spelling or offsets. */
 export const trackedMarkdownSignatures = new WeakMap<DocumentCore, (markdown: string) => string>()
+/**
+ * A source's Original and Revised views as a document holding annotations
+ * reads them: whether an unfinished opener is escaped in the views depends
+ * on whether the document has any annotation at all, which no edit means.
+ */
+export const trackedAnnotatedViews = new WeakMap<DocumentCore, (source: string) => Readonly<{
+  original: string
+  revised: string
+  revisedView: string
+}>>()
 
 export function projectionSignature(root: MarkdownAstNode): string {
   const parts: string[] = []
@@ -170,11 +180,44 @@ export function createTrackedOracle(
     targetView ??= viewFacts.revisedView()
     return facts.revisedView() === targetView
   }
+  const annotatedViews = trackedAnnotatedViews.get(core)
+  const annotatedBySource = new Map<string, ReturnType<NonNullable<typeof annotatedViews>>>()
+  const annotated = (source: string) => {
+    let views = annotatedBySource.get(source)
+    if (views === undefined && annotatedViews !== undefined) {
+      views = annotatedViews(source)
+      annotatedBySource.set(source, views)
+    }
+    return views
+  }
+  // A candidate that gives the document its first annotation, or takes its
+  // last away, changes how every unfinished opener outside the edit is
+  // escaped in the views; it is weighed as if the document's annotation
+  // presence were unchanged, all three read as a document with annotations.
+  const acceptsAcrossPresence = (candidate: DocumentRevision, edits: readonly DocumentSourceEdit[],
+    authored: AuthoredAnnotation[], equivalence: TrackedEquivalence): boolean => {
+    const present = (revision: DocumentRevision): boolean => revision.annotations.length > 0
+    if (present(candidate) === present(previous) && present(candidate) === present(target)) return false
+    const candidateViews = annotated(candidate.source)
+    const previousViews = annotated(previousSource)
+    const targetViews = annotated(target.source)
+    if (candidateViews === undefined || previousViews === undefined || targetViews === undefined) return false
+    if (candidateViews.revisedView !== targetViews.revisedView) return false
+    if (equivalence === 'exact'
+      ? candidateViews.revised !== targetViews.revised || candidateViews.original !== previousViews.original
+      : signature(candidateViews.original) !== signature(previousViews.original)) return false
+    return partiallyResolvable(edits, candidate, authored, cachedPreview)
+  }
   const accepts = (edits: readonly DocumentSourceEdit[], equivalence: TrackedEquivalence): boolean => {
     const candidate = cachedPreview(edits)
     const facts = trackedPreviewFacts.get(candidate)
     if (facts === undefined) return false
     const authored = authoredAnnotations(edits, candidate)
+    return acceptsInPresence(candidate, facts, edits, authored, equivalence) ||
+      acceptsAcrossPresence(candidate, edits, authored, equivalence)
+  }
+  const acceptsInPresence = (candidate: DocumentRevision, facts: TrackedProjectionFacts, edits: readonly DocumentSourceEdit[],
+    authored: AuthoredAnnotation[], equivalence: TrackedEquivalence): boolean => {
     // Resolution splices arm bytes, while a projection may also materialize the
     // closing fence of a literal an arm boundary ended (L2c). That projection
     // must still read as the untracked result.

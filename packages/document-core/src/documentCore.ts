@@ -15,7 +15,7 @@ import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit } from './trackedHistoryEditing.js'
-import { deferEquivalence, equivalenceDeferred, literalHistoryInsertionPoint, projectionSignature, trackedMarkdownSignatures, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
+import { deferEquivalence, equivalenceDeferred, literalHistoryInsertionPoint, projectionSignature, trackedAnnotatedViews, trackedMarkdownSignatures, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import {
@@ -7854,6 +7854,19 @@ function createDocumentCoreWithExecutionBudget(
   trackedMarkdownSignatures.set(core, markdown => {
     const products = isolatedProducts(markdown, markdownOptions())
     return projectionSignature(markdownAstOf(products.revised).root)
+  })
+  trackedAnnotatedViews.set(core, source => {
+    inspection.documentParses += 1
+    inspection.documentParseSourceUnits += source.length
+    inspection.documentProjectionPreparationUnits += source.length
+    const products = parseProfile1Document(source, executionBudget, undefined, markdownOptions(), false, undefined,
+      createProfile1DocumentReuseCache(), physicalRecorder, undefined, true, true)
+    if (products.kind !== 'complete') throw documentCoreError(products.fatalDiagnostic)
+    return Object.freeze({
+      original: products.original.source,
+      revised: products.revised.source,
+      revisedView: projectionSignature(markdownAstOf(products.revised).root)
+    })
   })
   return core
 }
