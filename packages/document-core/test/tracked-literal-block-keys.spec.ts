@@ -106,12 +106,17 @@ describe('tracked keys in a literal block', () => {
     expect(first.regionUnits).toBeLessThanOrEqual(4 * (substitution.range.end - substitution.range.start))
   })
 
-  it.each(Object.entries(blocks))('reads each later key in a 2,000-line %s from the lines around it', (_name, block) => {
+  it.each(Object.entries(blocks))('reads each key in a 2,000-line %s from the lines around it', (_name, block) => {
     const lines = Array.from({ length: 2000 }, (_, index) => `const value${index} = compute(${index})`)
     const source = documentWith(block(lines))
     const core = createDocumentCore()
     const session: Session = { core, revision: core.open(source), caret: source.indexOf('value1000 =') }
-    press(session, { inputType: 'insertText', data: 'x' })
+    // The first key suggests replacing the block whole, read with its lines
+    // far from the key left out.
+    const first = press(session, { inputType: 'insertText', data: 'x' })
+    expect(first.parses).toBe(0)
+    expect(first.scope).toBe('regions')
+    expect(first.regionUnits).toBeLessThan(4000)
     const keys: Key[] = [
       { inputType: 'insertText', data: 'y' },
       { inputType: 'insertText', data: 'z' },

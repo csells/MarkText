@@ -124,11 +124,35 @@ export interface RegionalInventoryAdmission {
     readonly enclosing: readonly Readonly<{ readonly start: number; readonly end: number }>[]
   }>
   /**
+   * Present when the edit struck a long literal block and proposed it again
+   * with lines near a key changed, as a first tracked key there does (see
+   * `admitArmCreation`): the products, window and these spans read the
+   * edit with the block's lines far from the key left out, which each of
+   * `previous` and `next` puts back where its points say.
+   */
+  readonly armCreation?: ArmCreation
+  /**
    * The document has stray markers, whose escapes in the Markup view are
    * generated text: they claim no source, so the replacement's coordinates
    * leave them out, as the document's own do.
    */
   readonly strayMarkers: boolean
+}
+
+/**
+ * Whole lines left out of a literal block, each with its line break: put
+ * back at `at`, the start of the kept line they stood before, which every
+ * position from `at` on moves past.
+ */
+export interface LeftOutLines {
+  readonly at: number
+  readonly length: number
+  readonly text: string
+}
+
+export interface ArmCreation {
+  readonly previous: Readonly<{ span: RegionalInventorySpan, lines: readonly LeftOutLines[] }>
+  readonly next: Readonly<{ span: RegionalInventorySpan, lines: readonly LeftOutLines[] }>
 }
 
 export interface LiteralLines {
@@ -168,6 +192,12 @@ export interface RegionalInventoryPreview {
    * annotation, and how many CriticMarkup markers the window gains.
    */
   readonly structural?: Readonly<{ touchesAnnotation: boolean, markerDelta: number }>
+  /**
+   * Present when the window reads a long literal block struck and proposed
+   * again with lines far from a key left out (see `admitArmCreation`): its
+   * products then read the edit's blocks but not their source extents.
+   */
+  readonly armCreation?: true
   /**
    * The window begins at the first edited block, whose block before it
    * reads the same whatever that block becomes (see `contextBefore`).
@@ -3016,7 +3046,9 @@ function evaluateRegionalInventory(
 ): RegionalInventoryApplyResult | RegionalInventoryPreviewResult {
   if (edits.length === 1 && edits[0] !== undefined && !subscriptions.some(subscription => subscription.name === 'comment')) {
     const arm = admitArmLiteralLines(inventoryValue(previousInventory), previousSource, nextSource, edits[0],
-      executionBudget, markdownOptions, physicalRecorder, previewOnly)
+      executionBudget, markdownOptions, physicalRecorder, previewOnly) ??
+      admitArmCreation(inventoryValue(previousInventory), previousSource, nextSource, edits[0],
+        executionBudget, markdownOptions, physicalRecorder, previewOnly)
     if (arm !== undefined) return arm
   }
   const sameShape = evaluateSameShape(
@@ -4662,6 +4694,299 @@ function admitArmLiteralLines(
       enclosing: Object.freeze(enclosing)
     }),
     strayMarkers: inventory.strayMarkers
+  })
+}
+
+/** The fewest units of a block's lines worth leaving out of a first key's read. */
+const ARM_CREATION_LEFT_OUT = 2048
+/** Lines kept around a first key's changed lines, to read them in their block. */
+const ARM_CREATION_CONTEXT = 2
+
+/** `source` with `[start, end)` ranges, sorted and apart, left out. */
+function sourceWithout(source: CanonicalSourceView, ranges: readonly SourceSpan[]): CanonicalSourceView {
+  const removed = ranges.reduce((total, gap) => total + gap.end - gap.start, 0)
+  return Object.freeze({
+    length: source.length - removed,
+    slice: (start: number, end: number): string => {
+      let text = ''
+      let at = 0
+      let cursor = 0
+      for (const gap of [...ranges, { start: source.length, end: source.length }]) {
+        // `[cursor, gap.start)` of the source is `[at, at + gap.start - cursor)` here.
+        const from = Math.max(start, at)
+        const to = Math.min(end, at + gap.start - cursor)
+        if (from < to) text += source.slice(cursor + from - at, cursor + to - at)
+        at += gap.start - cursor
+        cursor = gap.end
+        if (at >= end) break
+      }
+      return text
+    }
+  })
+}
+
+/** A position once `lines` are put back (see `LeftOutLines`). */
+export const withLinesBack = (lines: readonly LeftOutLines[]) => (position: number): number => {
+  let moved = position
+  for (const left of lines) if (position >= left.at) moved += left.length
+  return moved
+}
+
+/**
+ * A first tracked key in a long literal block: the block struck and
+ * proposed again, the key's lines changed. Its lines read literally, so the
+ * edit reads as it does with the lines far from the key left out of both
+ * blocks, kept alike in each: that shorter document's inventory holds the
+ * block's leaves but those lines', and the edit is evaluated there. The
+ * leaves that reads are the edit's own, with the lines put back; the
+ * products and spans, which the Markup reply is read from, carry where they
+ * go. Undefined leaves the edit to the other windows.
+ */
+function admitArmCreation(
+  inventory: InventoryValue,
+  previousSource: CanonicalSourceView,
+  nextSource: CanonicalSourceView,
+  edit: RetainedPassSourceEdit,
+  executionBudget: ExecutionBudgetId,
+  markdownOptions: MarkdownOptionsV1,
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  previewOnly: boolean
+): RegionalInventoryAdmission | RegionalInventoryPreview | undefined {
+  if (inventory.strayMarkers || inventory.dependencyPrefixEnd > edit.start || !edit.insert.startsWith('{~~') ||
+      !edit.insert.endsWith('~~}') || edit.insert.length < 2 * ARM_CREATION_LEFT_OUT ||
+      previousSource.length !== inventory.root.sourceLength) return undefined
+  const located = locateBySource(inventory, edit.start)
+  const run = literalRunIn(located?.leaf)
+  if (located === undefined || run === undefined || !run.first || located.sourceStart !== edit.start) return undefined
+  // The struck block is the replaced text, and the proposed one follows the divider.
+  const removed = previousSource.slice(edit.start, edit.end)
+  const block = removed.replace(/[ \t\r\n]+$/u, '')
+  if (/\r/u.test(removed) || !edit.insert.startsWith(`{~~${block}`)) return undefined
+  const divider = /^[ \t\n]*~>/u.exec(edit.insert.slice(3 + block.length))
+  if (divider === null) return undefined
+  const proposedStart = 3 + block.length + divider[0].length
+  const proposedRest = edit.insert.slice(proposedStart, -3)
+  const proposed = proposedRest.replace(/[ \t\n]+$/u, '')
+  if (/\r|~>|~~\}/u.test(proposed)) return undefined
+  const struckLines = block.split('\n')
+  const proposedLines = proposed.split('\n')
+  // The delimiter lines stay; an indented code block has none.
+  const first = run.opener === '' ? 0 : 1
+  const struckLast = run.closer === '' ? struckLines.length - 1 : struckLines.length - 2
+  const proposedLast = run.closer === '' ? proposedLines.length - 1 : proposedLines.length - 2
+  let prefix = 0
+  while (prefix < Math.min(struckLines.length, proposedLines.length) && struckLines[prefix] === proposedLines[prefix]) prefix += 1
+  let suffix = 0
+  while (suffix < Math.min(struckLines.length, proposedLines.length) - prefix &&
+    struckLines[struckLines.length - 1 - suffix] === proposedLines[proposedLines.length - 1 - suffix]) suffix += 1
+  // Lines `(first, before)` and `(after, last)` of each block are left out:
+  // the first and last of its lines stay, so the block's text starts and
+  // ends where it does.
+  const before = prefix - ARM_CREATION_CONTEXT
+  const struckAfter = struckLines.length - suffix + ARM_CREATION_CONTEXT - 1
+  const proposedAfter = proposedLines.length - suffix + ARM_CREATION_CONTEXT - 1
+  const lineStarts = (lines: readonly string[]): number[] => {
+    const starts = [0]
+    for (const line of lines) starts.push((starts.at(-1) ?? 0) + line.length + 1)
+    return starts
+  }
+  const struckStarts = lineStarts(struckLines)
+  const proposedStarts = lineStarts(proposedLines)
+  const leftOut = (starts: readonly number[], after: number, last: number): SourceSpan[] => {
+    const spans: SourceSpan[] = []
+    if (before > first + 1) spans.push({ start: starts[first + 1] ?? 0, end: starts[before] ?? 0 })
+    if (last > after + 1) spans.push({ start: starts[after + 1] ?? 0, end: starts[last] ?? 0 })
+    return spans
+  }
+  const struckOut = leftOut(struckStarts, struckAfter, struckLast)
+  const proposedOut = leftOut(proposedStarts, proposedAfter, proposedLast)
+  const struckText = struckOut.map(span => block.slice(span.start, span.end))
+  if (struckOut.length !== proposedOut.length ||
+      proposedOut.some((span, index) => proposed.slice(span.start, span.end) !== struckText[index])) return undefined
+  const leftOutUnits = struckText.reduce((total, text) => total + text.length, 0)
+  if (leftOutUnits < ARM_CREATION_LEFT_OUT) return undefined
+  // The lines left out read as text alone: no tab or line of spaces, and
+  // for indented code each line indented as a code line or empty.
+  const kind = run.key.slice(0, run.key.indexOf('['))
+  if (struckText.some(text => /\t|(?:^|\n) +(?:\n|$)/u.test(text) ||
+      (run.opener === '' && text.split('\n').some(line => line !== '' && !/^ {4}/u.test(line))) ||
+      (kind === 'math-block' && text.split('\n').some(line => /^[ \t]/u.test(line))))) return undefined
+  const previousOut = struckOut.map(span => ({ start: edit.start + span.start, end: edit.start + span.end }))
+  const shortPrevious = sourceWithout(previousSource, previousOut)
+  // The block's leaves without the lines: each line of a long literal block
+  // is a leaf of its own, so those lines' leaves are left out.
+  const leaves = leavesOf(inventory.root)
+  const extent = literalExtentOrdinals(leaves, located.ordinal, located.ordinal)
+  if (extent === undefined || extent.first !== located.ordinal) return undefined
+  const kept: RegionLeaf[] = leaves.slice(0, extent.first)
+  let leafStart = located.sourceStart
+  let covered = 0
+  for (let ordinal = extent.first; ordinal <= extent.last; ordinal += 1) {
+    const leaf = leaves[ordinal]
+    if (leaf === undefined) return undefined
+    const leafEnd = leafStart + leaf.sourceLength
+    const out = previousOut.find(span => span.start <= leafStart && leafStart < span.end)
+    if (out === undefined) kept.push(leaf)
+    else if (leafEnd > out.end) return undefined
+    else covered += leaf.sourceLength
+    leafStart = leafEnd
+  }
+  if (covered !== leftOutUnits) return undefined
+  kept.push(...leaves.slice(extent.last + 1))
+  const shortInventory: RegionalInventory = Object.freeze({
+    ...inventory,
+    root: buildTree(kept, 0, kept.length, inventory.recorder)
+  })
+  const insertOut = [
+    ...struckOut.map(span => ({ start: 3 + span.start, end: 3 + span.end })),
+    ...proposedOut.map(span => ({ start: proposedStart + span.start, end: proposedStart + span.end }))
+  ]
+  const insertText: CanonicalSourceView = Object.freeze({
+    length: edit.insert.length,
+    slice: (start: number, end: number) => edit.insert.slice(start, end)
+  })
+  const shortInsert = sourceWithout(insertText, insertOut)
+  const shortEdit = Object.freeze({
+    start: edit.start,
+    end: edit.end - leftOutUnits,
+    insert: shortInsert.slice(0, shortInsert.length)
+  })
+  const nextOut = insertOut.map(span => ({ start: edit.start + span.start, end: edit.start + span.end }))
+  const shortNext = sourceWithout(nextSource, nextOut)
+  const result: RegionalInventoryApplyResult | RegionalInventoryPreviewResult = previewOnly
+    ? evaluateRegionalInventory(shortInventory, shortPrevious, shortNext, [shortEdit], [], executionBudget,
+      markdownOptions, physicalRecorder, true)
+    : evaluateRegionalInventory(shortInventory, shortPrevious, shortNext, [shortEdit], [], executionBudget,
+      markdownOptions, physicalRecorder, false)
+  if (result.kind !== 'validated' && result.kind !== 'admitted') return undefined
+  // The edit reads as one Substitution of the two blocks.
+  const windowStart = result.kind === 'validated' ? result.sourceStart : result.window?.source ?? result.next.source.start
+  if (!(result.nextProducts.retainedIntrinsic?.roots ?? []).some(node => node.kind === 'substitution' &&
+      node.range.start === shortEdit.start - windowStart && node.range.end === shortEdit.start + shortEdit.insert.length - windowStart &&
+      node.arms.every(arm => arm.children.length === 0))) return undefined
+  if (result.kind === 'validated') return Object.freeze({ ...result, armCreation: true as const })
+  if (result.armLines !== undefined || result.literalLines !== undefined ||
+      result.listItems !== undefined || result.armCreation !== undefined) return undefined
+  // Where the lines go back: in the previous source, after the edit's start;
+  // in the next, inside each of the two blocks.
+  const back = (spans: readonly SourceSpan[], texts: readonly string[], base: number): LeftOutLines[] => {
+    let removedBefore = 0
+    return spans.map((span, index) => {
+      const lines = Object.freeze({
+        at: base + span.start - removedBefore,
+        length: span.end - span.start,
+        text: texts[index] ?? ''
+      })
+      removedBefore += span.end - span.start
+      return lines
+    })
+  }
+  const previousLines = back(struckOut, struckText, edit.start)
+  const nextLines = back(insertOut, [...struckText, ...struckText], edit.start)
+  const toNext = withLinesBack(nextLines)
+  // The leaves the edit read, with the lines put back in their blocks.
+  const value = inventoryValue(result.nextInventory)
+  let root = value.root
+  let held = locateBySource(value, result.next.source.start)
+  while (held !== undefined && held.sourceStart < result.next.source.end) {
+    const leafStart = held.sourceStart
+    const leafEnd = leafStart + held.leaf.sourceLength
+    const inside = nextLines.filter(lines => leafStart < lines.at && lines.at < leafEnd)
+    if (inside.length > 0) {
+      if (held.leaf.kind !== 'region') return undefined
+      const expanded = leafWithLinesBack(held.leaf, inside.map(lines => ({ ...lines, at: lines.at - leafStart })))
+      if (expanded === undefined) return undefined
+      root = replaceLeaf(root, held.ordinal, expanded, value.recorder)
+    }
+    if (leafEnd >= value.root.sourceLength) break
+    held = locateBySource(value, leafEnd)
+  }
+  const previousRoot = inventory.root
+  const shortRoot = inventoryValue(shortInventory).root
+  return Object.freeze({
+    ...result,
+    nextInventory: Object.freeze({ ...value, root }),
+    previous: Object.freeze({
+      source: range(result.previous.source.start, result.previous.source.end + leftOutUnits),
+      syntax: range(result.previous.syntax.start,
+        result.previous.syntax.end + previousRoot.syntaxLength - shortRoot.syntaxLength),
+      events: range(result.previous.events.start,
+        result.previous.events.end + previousRoot.eventCount - shortRoot.eventCount)
+    }),
+    next: Object.freeze({
+      source: range(result.next.source.start, toNext(result.next.source.end)),
+      syntax: range(result.next.syntax.start, result.next.syntax.end + 2 * leftOutUnits),
+      events: result.next.events
+    }),
+    armCreation: Object.freeze({
+      previous: Object.freeze({ span: result.previous, lines: Object.freeze(previousLines) }),
+      next: Object.freeze({ span: result.next, lines: Object.freeze(nextLines) })
+    })
+  })
+}
+
+/**
+ * `leaf` with literal lines put back at leaf offsets `lines`: its offsets
+ * past them move, and the arm literals holding them gain their children.
+ * The leaf reads every block of `products`' projection that it holds, whose
+ * source and projection offsets differ by the elided markers before them.
+ */
+function leafWithLinesBack(
+  leaf: MeasuredRegionLeaf,
+  lines: readonly LeftOutLines[],
+): MeasuredRegionLeaf | undefined {
+  const source = withLinesBack(lines)
+  // Each point's projection offset, in the leaf: the lines go back inside
+  // arm literals, whose text the projection spells as the source does.
+  const syntaxLines: LeftOutLines[] = []
+  for (const left of lines) {
+    const arm = (leaf.armLiterals ?? []).find(candidate => candidate.start <= left.at && left.at <= candidate.end)
+    if (arm === undefined) return undefined
+    syntaxLines.push(Object.freeze({ ...left, at: arm.syntaxStart + left.at - arm.start }))
+  }
+  const syntax = withLinesBack(syntaxLines)
+  const total = lines.reduce((sum, left) => sum + left.length, 0)
+  const breaks = (text: string): number => text.split('\n').length - 1
+  return Object.freeze({
+    ...leaf,
+    sourceLength: leaf.sourceLength + total,
+    syntaxLength: leaf.syntaxLength + total,
+    annotations: Object.freeze({
+      roots: leaf.annotations.roots,
+      nodes: Object.freeze(leaf.annotations.nodes.map(node => Object.freeze({
+        ...node,
+        start: source(node.start),
+        end: source(node.end),
+        arms: Object.freeze(node.arms.map(arm => Object.freeze({ ...arm, start: source(arm.start), end: source(arm.end) })))
+      })))
+    }),
+    markers: Object.freeze(leaf.markers.map(marker => Object.freeze({ ...marker, start: source(marker.start), end: source(marker.end) }))),
+    diagnostics: Object.freeze(leaf.diagnostics.map(diagnostic =>
+      Object.freeze({ ...diagnostic, start: source(diagnostic.start), end: source(diagnostic.end) }))),
+    markdownPositions: Object.freeze(leaf.markdownPositions.map(syntax)),
+    ...(leaf.armLiterals === undefined
+      ? {}
+      : {
+        armLiterals: Object.freeze(leaf.armLiterals.map(arm => {
+          const own = lines.filter(left => arm.start <= left.at && left.at <= arm.end)
+          const earlier = lines.filter(left => left.at < arm.start)
+          const ownLines = own.reduce((sum, left) => sum + breaks(left.text), 0)
+          const earlierLines = arm.block === arm.syntaxStart ? 0 : earlier.reduce((sum, left) => sum + breaks(left.text), 0)
+          return Object.freeze({
+            ...arm,
+            start: source(arm.start),
+            end: source(arm.end),
+            syntaxStart: syntax(arm.syntaxStart),
+            block: syntax(arm.block),
+            eventStart: source(arm.eventStart),
+            eventEnd: source(arm.eventEnd),
+            before: earlierLines === 0
+              ? arm.before
+              : Object.freeze({ lines: arm.before.lines + earlierLines, children: arm.before.children + 2 * earlierLines }),
+            children: arm.children + 2 * ownLines
+          })
+        }))
+      })
   })
 }
 
