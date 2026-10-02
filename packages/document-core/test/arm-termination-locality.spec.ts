@@ -22,3 +22,20 @@ describe('the parting after an arm', () => {
     expect(revisedOf(head + tail).slice(0, 30)).toBe(revisedOf(head + 'Plain words.\n').slice(0, 30))
   })
 })
+
+// ADR-0014 and Profile rule L2c: a boundary token of the innermost annotation
+// that begins a line ends a block literal its arm opened. `$$` math pairs its
+// runs across container ends, so a math block read lazily after a list item
+// is ended there too, whatever `$$` lines come later.
+describe('an arm closer at the start of a line after arm math', () => {
+  it.each([
+    { label: 'no later math block', tail: 'Plain words.\n' },
+    { label: 'a later math block', tail: '$$\nz\n$$\n' }
+  ])('stands with $label', ({ tail }) => {
+    const core = createDocumentCore()
+    const revision = core.open('{++$$\ny\n+ 1\n$$\n++}\n\n' + tail)
+    expect(revision.annotations.map(annotation => [annotation.kind, annotation.range.start, annotation.range.end]))
+      .toEqual([['addition', 0, 18]])
+    expect(revision.diagnostics).toEqual([])
+  })
+})

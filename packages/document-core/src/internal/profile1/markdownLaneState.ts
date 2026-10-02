@@ -421,9 +421,9 @@ export interface MarkdownLaneState {
   readonly markerIsProtected: (checkpoint: MarkdownCheckpoint) => boolean
   readonly markerIsLiteralOwned: (checkpoint: MarkdownCheckpoint) => boolean
   /**
-   * Unfinished inline code, single-dollar math and bare autolinks yield to
-   * their owning annotation's compatible closer. Completed literal
-   * owners, including double-dollar math blocks, still win.
+   * Unfinished inline code, inline math and bare autolinks yield to their
+   * owning annotation's compatible closer (Profile rule L2a). Completed
+   * literal owners, including `$$` math blocks, still win.
    */
   readonly compatibleCloserStandsAgainstLiteral: (
     checkpoint: MarkdownCheckpoint
@@ -5044,12 +5044,16 @@ export function createMarkdownLaneState(
       true
     )
     const container = 'container' in literal ? literal.container : undefined
+    // `$$` math pairs its runs across container ends, so it goes on into a
+    // line no container continues, and a boundary token beginning that line
+    // ends it there too.
     return (
       lineState.contentOffset === prefix.length &&
       lineState.indentation === 0 &&
       (
         container === undefined
-          ? lineState.continuedContainerDepth === checkpoint.activeContainers.length
+          ? literal === checkpoint.math ||
+            lineState.continuedContainerDepth === checkpoint.activeContainers.length
           : continuesBlockContainer(lineState, container)
       )
     )
@@ -5231,7 +5235,7 @@ export function createMarkdownLaneState(
     compatibleCloserStandsAgainstLiteral: Object.freeze(
       (checkpoint: MarkdownCheckpoint): boolean =>
         checkpoint.inlineCode !== undefined ||
-        (checkpoint.math?.delimiterLength === 1 || checkpoint.math?.form !== undefined) ||
+        (checkpoint.math !== undefined && checkpoint.math.block !== true) ||
         checkpoint.fixedInline?.extendedAutolink === true
     ),
     lineStartBoundaryStandsAgainstLiteral: Object.freeze(
