@@ -6850,6 +6850,8 @@ function createDocumentCoreWithExecutionBudget(
     roots: number
     definitions: readonly SourceRange[] | undefined
     strayLocal: (nextWindow: string, nextRoots: number, nextUnfinished: boolean, escapingSeen: boolean) => boolean
+    cleanStart?: true
+    cleanEnd?: true
   }> | undefined => {
     const inventory = state.regionalInventory ?? convertedRegionalInventory(state)
     if (inventory !== undefined) {
@@ -6863,6 +6865,8 @@ function createDocumentCoreWithExecutionBudget(
         sourceStart: start,
         window: context.nextWindow,
         ...(context.validated ? { inPlace: context.nextProducts } : {}),
+        ...(context.cleanStart === true ? { cleanStart: true as const } : {}),
+        ...(context.cleanEnd === true ? { cleanEnd: true as const } : {}),
         roots: regionalInventoryRootCount(inventory),
         definitions: regionalInventoryDefinitions(inventory),
         strayLocal: (nextWindow: string, nextRoots: number, nextUnfinished: boolean, escapingSeen: boolean) =>
@@ -7044,7 +7048,9 @@ function createDocumentCoreWithExecutionBudget(
       true)) return undefined
     const kept = contextBlocksKept(windowCore, opened, windowCore.apply(opened, compiled).revision,
       { start: first.start - sourceStart, end: last.end - sourceStart }, delta, window.length,
-      { start: sourceStart === 0, end: windowEnd === state.source.length })
+      // A window starting or ending at a clean block boundary, as beside a
+      // closed fence, needs no block of context there.
+      { start: sourceStart === 0 || context.cleanStart === true, end: windowEnd === state.source.length || context.cleanEnd === true })
     // A result reaching the window's context, as a join of two blocks,
     // is compiled again with the blocks around it as context.
     // The window grows past its own context, whose last block may be one
