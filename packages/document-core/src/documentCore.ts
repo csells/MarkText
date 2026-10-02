@@ -6572,7 +6572,28 @@ function createDocumentCoreWithExecutionBudget(
       cursor = part.end
     }
     const combined = Object.freeze({ start: first.start, end: last.end, insert })
-    const candidate = regionalCandidate(state, combined)
+    // The window's blocks read the untracked edit as the document does only
+    // where blank lines part them from the blocks around it: a block the
+    // document runs straight into after the window could take in what the
+    // edit writes at its edge.
+    const lineBlank = (at: number): boolean => {
+      const rest = state.source.slice(at, Math.min(state.source.length, at + 256))
+      return /^[ \t]*(?:\r\n|\r|\n|$)/u.test(rest)
+    }
+    const lineStartOf = (at: number): number => {
+      const before = state.source.slice(Math.max(0, at - 256), at)
+      const newline = Math.max(before.lastIndexOf('\n'), before.lastIndexOf('\r'))
+      return newline === -1 ? (at - 256 <= 0 ? 0 : -1) : at - before.length + newline + 1
+    }
+    const parted = (at: number): boolean => {
+      if (at === 0 || at === state.source.length) return true
+      const start = lineStartOf(at)
+      if (start === -1) return false
+      if (start !== at) return lineBlank(start)
+      const previousStart = lineStartOf(at - 1 - (state.source.slice(at - 2, at) === '\r\n' ? 1 : 0))
+      return lineBlank(at) || (previousStart !== -1 && previousStart < at && lineBlank(previousStart))
+    }
+    const candidate = parted(sourceStart) && parted(windowEnd) ? regionalCandidate(state, combined) : undefined
     if (candidate !== undefined) {
       // Both parses must cover the edited text with a block to spare, and
       // agree on every suggestion and diagnostic in the text they share.
