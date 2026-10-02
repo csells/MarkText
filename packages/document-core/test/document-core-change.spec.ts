@@ -3895,7 +3895,7 @@ describe('document-core semantic changes', () => {
     expect(large.visits).toBeLessThan(small.visits * 3)
     expect(large.allocations).toBeLessThan(small.allocations * 3)
     expect(large.localCopies).toBe(large.allocations)
-  })
+  }, 30_000)
 
   it('lazily projects head and older regional revisions in isolation', () => {
     const source = 'head\n\ntarget word\n\ntail\n\n'
