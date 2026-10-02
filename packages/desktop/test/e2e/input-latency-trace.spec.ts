@@ -3,6 +3,7 @@ import type { ElectronApplication, Page } from 'playwright'
 import { readFileSync } from 'node:fs'
 
 import {
+  captureInputLatencyPresentation,
   readInputLatencyTrace,
   readInputLatencyTraceStatus,
   startInputLatencyTrace,
@@ -166,5 +167,67 @@ test.describe('upstream editor input-to-render-opportunity trace', () => {
       sampleCount: 2,
       stopReason: 'capacity'
     })
+  })
+})
+
+// The installed performance gate reads each key's presented text again after
+// a compositor capture. A long code block before the measured leaf must not
+// change which leaf that read finds, and nothing may redraw a leaf's text once
+// its echo is acknowledged.
+test.describe('presented text after the echo beside a long code block', () => {
+  let app: ElectronApplication
+  let page: Page
+
+  const codeLines = Array.from({ length: 400 }, (_, index) =>
+    index === 200 ? '// warm line here' : `const value${index} = compute(${index}) // note ${index}`)
+  const markdown = ['Opening paragraph.', '```js', ...codeLines, '```', '', 'After paragraph.', ''].join('\n')
+
+  test.beforeEach(async() => {
+    const launched = await launchWithMarkdown(markdown)
+    app = launched.app
+    page = launched.page
+    await expect(page.locator('.mu-codeblock-content .token.comment', { hasText: 'warm line here' })).toHaveCount(1)
+  })
+
+  test.afterEach(async() => {
+    if (app) await app.close()
+  })
+
+  const capture = async() => app.evaluate(async({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed())
+    if (window === undefined) throw new Error('No editor window to capture')
+    const image = await window.webContents.capturePage(undefined, { stayHidden: true, stayAwake: true })
+    return { empty: image.isEmpty() }
+  })
+
+  /** Clicks just inside the end of `locator`'s text, as a reader placing the caret there does. */
+  const clickAtEnd = async(locator: ReturnType<Page['locator']>) => {
+    await locator.scrollIntoViewIfNeeded()
+    const box = await locator.boundingBox()
+    if (box === null) throw new Error('The target text has no box')
+    await page.mouse.click(box.x + box.width - 1, box.y + box.height / 2)
+  }
+
+  const typeAndCheckPresented = async(keys: string) => {
+    // As the installed gate does, each key is captured before the next.
+    for (const key of keys) {
+      await startInputLatencyTrace(page)
+      await page.keyboard.type(key, { delay: 0 })
+      await waitForInputLatencyTrace(page, 1)
+      await captureInputLatencyPresentation(page, capture, 0, 30_000)
+      await stopInputLatencyTrace(page)
+    }
+  }
+
+  test('keeps a key inside the code block presented as echoed', async() => {
+    await clickAtEnd(page.locator('.mu-codeblock-content .token.comment', { hasText: 'warm line here' }))
+    await typeAndCheckPresented('xyz')
+    await expect(page.locator('.mu-codeblock-content')).toContainText('// warm line herexyz')
+  })
+
+  test('keeps a key in a paragraph after the code block presented as echoed', async() => {
+    await clickAtEnd(page.locator('span.mu-paragraph-content', { hasText: 'After paragraph.' }))
+    await typeAndCheckPresented('xyz')
+    await expect(page.locator('span.mu-paragraph-content', { hasText: 'After paragraph.xyz' })).toHaveCount(1)
   })
 })
