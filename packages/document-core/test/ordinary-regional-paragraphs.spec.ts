@@ -159,6 +159,32 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     }
   })
 
+  // Plan 0012 G35: an edit beside dollar runs that writes and removes none
+  // moves no run, so where both windows read the same literals around it the
+  // runs pair as before, even in a document with display math.
+  it.each([
+    { label: 'typing on a line holding inline math', at: 'costs', insert: 'q' },
+    { label: 'a suggestion after a display math closer', at: '$$\n\nTail', insert: '{++q++}' }
+  ])('reads $label as the whole document does', ({ at, insert }) => {
+    const source = 'ordinary target\n\n$$\nx + y\n$$\n\nTail costs $x$ here.\n\n' + suffix + '$$\nz\n$$\n'
+    const start = source.indexOf(at) + 2
+    const core = createDocumentCore()
+    const revision = core.apply(core.open(source), [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
+    const before = inspectDocumentCore(core)
+    const result = core.apply(revision, [{ start: start + 1, end: start + 1, insert }], { projections: ['markup'] })
+    if (insert === 'q') {
+      expect(result.change.projections[0]?.scope).toBe('regions')
+      expect(inspectDocumentCore(core).documentParses - before.documentParses).toBe(0)
+    }
+    const oracle = createDocumentCore()
+    const expected = oracle.open(revision.source.slice(0, start + 1) + insert + revision.source.slice(start + 1))
+    expect(result.revision.annotations).toEqual(expected.annotations)
+    expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
+    for (const name of ['original', 'revised'] as const) {
+      expect(core.project(result.revision, name).markdown).toBe(oracle.project(expected, name).markdown)
+    }
+  })
+
   // Plan 0012 G35: a fence's backtick runs pair with each other alone, so a
   // paragraph beside it that splits or joins is read from its blocks.
   it('reads a paragraph split beside a fence from its blocks', () => {
