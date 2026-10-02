@@ -707,6 +707,11 @@ test.describe('installed Core Review authority', () => {
         await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
         await expect.poll(() => fs.readFileSync(filePath, 'utf8'))
           .toBe(bulkResolutionSource)
+        // Undo returns the caret to where it was before the command, outside
+        // every item, so no card is active (plan 0012 G13, owner decision on
+        // review-command undo); Next selects the first item (G37).
+        await expect(page.getByTestId('critic-review-kind')).toHaveCount(0)
+        await page.getByTestId('critic-review-next').click()
         await expect(page.getByTestId('critic-review-kind')).toHaveAttribute('data-kind', 'addition')
 
         await sendIpcToRenderer(app, 'mt::editor-edit-action', 'redo')

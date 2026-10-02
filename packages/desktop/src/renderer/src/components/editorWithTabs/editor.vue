@@ -2016,7 +2016,8 @@ const submitCoreComment = async (draft: { targetId: string; text: string }): Pro
           target.item,
           target.revision,
           draft.text,
-          reconcileCoreHistoryView
+          reconcileCoreHistoryView,
+          coreCommandSelection()
         )
         : target.selection !== undefined
           ? await adapter.author(
@@ -2069,7 +2070,8 @@ const resolveCoreReviewItem = async (decision: CoreReviewDecision): Promise<void
       item,
       authoredRevision,
       decision,
-      reconcileCoreHistoryView
+      reconcileCoreHistoryView,
+      coreCommandSelection()
     )
     if (outcome === undefined) {
       await refreshCoreReviewItem('next', 0)
@@ -2083,12 +2085,23 @@ const resolveCoreReviewItem = async (decision: CoreReviewDecision): Promise<void
   }
 }
 
+/** The document selection a review command runs with, which its undo restores. */
+const coreCommandSelection = (): MuyaPlainTextAuthorSelection | undefined => {
+  const selection = coreDisplayMode.value === 'markup' ? editor.value?.getSelection() : undefined
+  return selection == null
+    ? undefined
+    : Object.freeze({
+      anchor: Object.freeze({ path: Object.freeze([...selection.anchor.path]), offset: selection.anchor.offset }),
+      focus: Object.freeze({ path: Object.freeze([...selection.focus.path]), offset: selection.focus.offset })
+    })
+}
+
 const resolveAllCoreReviewItems = async (decision: 'accept' | 'reject'): Promise<void> => {
   const adapter = corePlainTextAdapter
   if (adapter === undefined || coreReviewResolving.value) return
   coreReviewResolving.value = true
   try {
-    const outcome = await adapter.resolveAll(decision, reconcileCoreHistoryView)
+    const outcome = await adapter.resolveAll(decision, reconcileCoreHistoryView, coreCommandSelection())
     latestCorePlainTextChange = Object.freeze({
       result: 'resolve-all',
       decision,

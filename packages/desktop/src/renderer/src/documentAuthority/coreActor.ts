@@ -468,8 +468,12 @@ export function createCoreActor(
       const entry = value as Partial<HistoryEntry>
       if (!Array.isArray(entry.undo) || !Array.isArray(entry.redo)) return false
       if (entry.undo.length === 0 || entry.redo.length === 0) return false
+      // A review command's entry keeps only the selection its undo restores.
       if (entry.beforeSelection !== undefined || entry.afterSelection !== undefined) {
-        if (!validSelection(entry.beforeSelection) || !validSelection(entry.afterSelection)) {
+        if (
+          !validSelection(entry.beforeSelection) ||
+          (entry.afterSelection !== undefined && !validSelection(entry.afterSelection))
+        ) {
           return false
         }
       }
@@ -2098,6 +2102,12 @@ export function createCoreActor(
             ...(request.type === 'author'
               ? { beforeSelection: singleSelection(request.range) }
               : {}),
+            ...((request.type === 'resolve' ||
+              request.type === 'resolve-all' ||
+              request.type === 'edit-comment') &&
+            request.selection !== undefined
+              ? { beforeSelection: copySelection(request.selection) }
+              : {}),
             ...(request.type === 'input' ||
             request.type === 'format' ||
             request.type === 'clipboard'
@@ -2199,13 +2209,24 @@ export function createCoreActor(
       if (prospectiveEntry !== undefined) {
         // A grouped transaction retains the first actual selection and the last
         // model-planned selection. Unmigrated commands never invent endpoints.
+        // Review commands plan no selection: their undo returns to where the
+        // caret was, as upstream undo and Google Docs do, and their redo
+        // places the caret as the command did.
         const beforeSelection = prospectiveEntry.beforeSelection
+        const reviewCommand =
+          request.type === 'resolve' ||
+          request.type === 'resolve-all' ||
+          request.type === 'edit-comment'
         prospectiveEntry = Object.freeze({
           undo: prospectiveEntry.undo,
           redo: prospectiveEntry.redo,
-          ...(beforeSelection === undefined || afterSelection === undefined
+          ...(beforeSelection === undefined
             ? {}
-            : { beforeSelection, afterSelection: copySelection(afterSelection) })
+            : afterSelection !== undefined
+              ? { beforeSelection, afterSelection: copySelection(afterSelection) }
+              : reviewCommand
+                ? { beforeSelection }
+                : {})
         })
       }
       for (const target of retainedSelections.values()) {
