@@ -111,6 +111,25 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     const expected = oracle.open(source.slice(0, start) + insert + source.slice(start + block.length))
     expect(result.revision.annotations).toEqual(expected.annotations)
     expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
+    for (const name of ['original', 'revised'] as const) {
+      expect(core.project(result.revision, name).markdown).toBe(oracle.project(expected, name).markdown)
+    }
+  })
+
+  // A display math block in a Substitution is parted from the blocks after it
+  // by text a `$$` line anywhere later changes, so the document reads it.
+  it('parses the document for a math Substitution before a later display math block', () => {
+    const block = '$$\nx + y\n$$'
+    const source = 'ordinary target\n\n' + block + '\n\n    indented\n\n' + suffix + '$$\nz\n$$\n'
+    const start = source.indexOf(block)
+    const insert = `{~~${block}~>$$\nx + yz\n$$~~}`
+    const core = createDocumentCore()
+    const revision = core.apply(core.open(source), [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
+    const result = core.apply(revision, [{ start: start + 1, end: start + 1 + block.length, insert }], { projections: ['markup'] })
+    expect(result.change.projections[0]?.scope).toBe('document')
+    const fresh = createDocumentCore()
+    const expected = fresh.open(result.revision.source)
+    expect(core.project(result.revision, 'revised').markdown).toBe(fresh.project(expected, 'revised').markdown)
   })
 
   // Plan 0012 G35: an edit across the divider of a Substitution of one such
@@ -120,7 +139,7 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     { label: 'display math', substitution: '{~~$$\nx + y\n$$~>$$\nx + z\n$$~~}', from: 'y\n$$', to: 'x + z' }
   ])('reads an edit across the divider of a Substitution of $label from its blocks', ({ substitution, from, to }) => {
     const source = 'ordinary target\n\n' + substitution + '\n\n' + suffix + substitution + '\n'
-    const start = source.indexOf(from)
+    const start = source.lastIndexOf(from)
     const end = source.indexOf(to, start) + to.length
     const insert = source.slice(start, end).replace(/(.)$/u, 'q$1')
     const core = createDocumentCore()
@@ -135,6 +154,9 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     const expected = oracle.open(text)
     expect(result.revision.annotations).toEqual(expected.annotations)
     expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
+    for (const name of ['original', 'revised'] as const) {
+      expect(core.project(result.revision, name).markdown).toBe(oracle.project(expected, name).markdown)
+    }
   })
 
   // Plan 0012 G35: a fence's backtick runs pair with each other alone, so a
