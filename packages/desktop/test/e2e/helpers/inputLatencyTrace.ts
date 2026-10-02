@@ -66,6 +66,12 @@ type TracedWindow = Window & {
 
 const DEFAULT_MAX_SAMPLES = 256
 
+/**
+ * The leaves a key's echo is read from. The presented read after a capture
+ * must count leaves the same way, or it reads another leaf by that index.
+ */
+const INPUT_TARGET_SELECTOR = '.mu-paragraph-content, .mu-codeblock-content'
+
 export const startInputLatencyTrace = async(
   page: Page,
   options: InputLatencyTraceOptions = {}
@@ -75,7 +81,7 @@ export const startInputLatencyTrace = async(
     throw new Error('Input latency trace maxSamples must be a positive integer')
   }
 
-  await page.evaluate((capacity) => {
+  await page.evaluate(({ capacity, targetSelector }) => {
     const tracedWindow = window as TracedWindow
     tracedWindow.__marktextInputLatencyProbe?.disconnect()
 
@@ -84,7 +90,6 @@ export const startInputLatencyTrace = async(
       throw new Error('MarkText editor is unavailable')
     }
 
-    const targetSelector = '.mu-paragraph-content, .mu-codeblock-content'
     const samples: MutableInputLatencySample[] = []
     const pending: MutableInputLatencySample[] = []
     let accepting = true
@@ -317,7 +322,7 @@ export const startInputLatencyTrace = async(
       },
       stop: () => stopAccepting('explicit', false)
     }
-  }, maxSamples)
+  }, { capacity: maxSamples, targetSelector: INPUT_TARGET_SELECTOR })
 }
 
 export const stopInputLatencyTrace = async(page: Page): Promise<void> => {
@@ -396,12 +401,12 @@ export const captureInputLatencyPresentation = async(
           })
         }, sampleIndex),
       readPresented: () =>
-        page.evaluate((index) => {
+        page.evaluate(({ index, targetSelector }) => {
           const probe = (window as TracedWindow).__marktextInputLatencyProbe
           const sample = probe?.samples[index]
           if (sample === undefined) throw new Error('Input latency trace sample is missing')
           const editor = document.querySelector('.editor-component')
-          const target = editor?.querySelectorAll('.mu-paragraph-content').item(sample.targetIndex)
+          const target = editor?.querySelectorAll(targetSelector).item(sample.targetIndex)
           const text = target?.textContent ?? ''
           let hash = 0x811c9dc5
           for (let offset = 0; offset < text.length; offset += 1) {
@@ -416,7 +421,7 @@ export const captureInputLatencyPresentation = async(
               textHash: (hash >>> 0).toString(16).padStart(8, '0')
             })
           })
-        }, sampleIndex)
+        }, { index: sampleIndex, targetSelector: INPUT_TARGET_SELECTOR })
     },
     timeout
   )
