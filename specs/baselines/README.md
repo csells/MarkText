@@ -66,7 +66,9 @@ The runner prints the repository-relative path and SHA-256 pin. Missing, duplica
 or non-passing rows prevent materialization; an existing destination is never overwritten.
 
 `criticmarkup-performance-targets.json` freezes the proposed measurement protocol and candidate
-p95 thresholds on the recorded reference host. Its status remains `proposed-unratified` until the
+p95 thresholds on the recorded reference host. It pins that host's hardware, architecture, and
+build kind but no OS version: producers record the measured macOS version in each raw run as
+evidence, and it never gates a run. Its status remains `proposed-unratified` until the
 upstream shell and Core candidates have been measured under that protocol and the owner approves
 the targets; numeric proposals are not evidence that either implementation meets them.
 

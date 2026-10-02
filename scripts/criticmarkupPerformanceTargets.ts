@@ -16,6 +16,16 @@ export const PERFORMANCE_OBSERVATION_SCHEDULE =
 export const PERFORMANCE_DISPLAY_SLEEP_POLICY =
   'runner-owned-caffeinate-display-sleep-prevention-v1' as const
 
+/**
+ * The host properties a measurement run must match. The owner ruled that no OS
+ * version is pinned: producers may record it as evidence, but it never gates a run.
+ */
+export const PERFORMANCE_PINNED_ENVIRONMENT_KEYS = Object.freeze([
+  'hardware',
+  'architecture',
+  'build'
+] as const)
+
 type RequiredMetric = typeof REQUIRED_METRICS[number]
 
 const recordOf = (value: unknown, label: string): Record<string, unknown> => {
@@ -40,7 +50,7 @@ const positiveInteger = (value: unknown, label: string): void => {
 /** Validates the human-owned Phase 0 measurement protocol and target record. */
 export function validateCriticMarkupPerformanceTargets(value: unknown): void {
   const manifest = recordOf(value, 'Performance target manifest')
-  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v10') {
+  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v11') {
     throw new Error('Performance target manifest schema is unsupported')
   }
   if (manifest.status !== 'proposed-unratified' && manifest.status !== 'ratified') {
@@ -54,9 +64,17 @@ export function validateCriticMarkupPerformanceTargets(value: unknown): void {
   nonEmptyString(documents.path, 'Representative document manifest path')
 
   const environment = recordOf(manifest.environment, 'Measurement environment')
-  nonEmptyString(environment.hardware, 'Measurement hardware')
-  nonEmptyString(environment.os, 'Measurement OS')
-  nonEmptyString(environment.build, 'Measurement build')
+  for (const key of PERFORMANCE_PINNED_ENVIRONMENT_KEYS) {
+    nonEmptyString(environment[key], `Measurement ${key}`)
+  }
+  const unpinnable = Object.keys(environment).filter(key => (
+    !(PERFORMANCE_PINNED_ENVIRONMENT_KEYS as readonly string[]).includes(key)
+  ))
+  if (unpinnable.length > 0) {
+    throw new Error(
+      `Measurement environment must not pin ${unpinnable[0]}; only hardware, architecture, and build are pinned`
+    )
+  }
 
   const sampling = recordOf(manifest.sampling, 'Sampling protocol')
   positiveInteger(sampling.warmupSamples, 'Warmup sample count')

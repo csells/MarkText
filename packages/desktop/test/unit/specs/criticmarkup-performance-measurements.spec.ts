@@ -169,7 +169,7 @@ const rawRun = (
     ? manifest.baselineCommit
     : 'a'.repeat(40),
   measuredAt: '2026-08-13T00:00:00.000Z',
-  environment: targets.environment,
+  environment: { ...targets.environment, os: 'macOS 26.6.2 (25G83)' },
   sampling: {
     warmupSamples: targets.sampling.warmupSamples,
     measuredSamples: targets.sampling.measuredSamples
@@ -1220,6 +1220,46 @@ describe('CriticMarkup raw performance evidence', () => {
       firstRun.sha256 = sha256(source)
       expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
         .toThrow(/t_echo .*measured sample count must be 200/)
+    })
+  })
+
+  it('records the measured OS version without gating on it', () => {
+    const rewriteEnvironment = (
+      root: string,
+      measured: CriticMarkupPerformanceMeasurementManifest,
+      environment: Record<string, string>
+    ): void => {
+      const firstRun = first(measured.runs)
+      const raw = JSON.parse(
+        readFileSync(resolve(root, firstRun.path), 'utf8')
+      ) as CriticMarkupRawPerformanceRun
+      raw.environment = environment
+      const source = `${JSON.stringify(raw, null, 2)}\n`
+      writeFileSync(resolve(root, firstRun.path), source)
+      firstRun.sha256 = sha256(source)
+    }
+
+    for (const os of ['macOS 26.5.1 (25F80)', 'macOS 27.0 (26A1)']) {
+      withSyntheticRuns((root, measured) => {
+        rewriteEnvironment(root, measured, { ...targets.environment, os })
+        expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+          .not.toThrow()
+      })
+    }
+
+    withSyntheticRuns((root, measured) => {
+      rewriteEnvironment(root, measured, {
+        ...targets.environment,
+        hardware: 'MacBook Air Mac16,12, Apple M4, 16 GB'
+      })
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .toThrow(/environment differs from the target protocol/)
+    })
+
+    withSyntheticRuns((root, measured) => {
+      rewriteEnvironment(root, measured, { ...targets.environment, architecture: 'x64' })
+      expect(() => validateCriticMarkupPerformanceMeasurements(root, measured))
+        .toThrow(/environment differs from the target protocol/)
     })
   })
 
