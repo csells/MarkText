@@ -3491,24 +3491,26 @@ const ARM_TERMINATION_FENCE_INDEX = new WeakMap<
   readonly number[]
 >()
 
+const FENCE_OPENER = /^(?:`{3}|~{3})/u
+
 function armTerminationFenceOpens(
-  parentLane: IntrinsicProfile1ForkLane
+  parentLane: IntrinsicProfile1ForkLane,
+  source: string
 ): readonly number[] {
   const cached = ARM_TERMINATION_FENCE_INDEX.get(parentLane)
   if (cached !== undefined) {
     return cached
   }
+  // Every fenced block the lane completes, whether or not the intrinsic pass
+  // split the lane inside it: a projection may not depend on that split.
   const opens: number[] = []
   for (const transition of parentLane.transitions) {
     const fence = transition.entryCheckpoint.fence
-    if (
-      fence !== undefined &&
-      transition.emittedFacts.literals.some((literal) =>
-        literal.kind === fence.provider &&
-        literal.start === fence.openStart
-      )
-    ) {
-      opens.push(fence.openStart)
+    for (const literal of transition.emittedFacts.literals) {
+      if ((literal.kind === 'fenced-code' || literal.kind === 'math' || literal.kind === 'diagram') &&
+          (fence?.openStart === literal.start || FENCE_OPENER.test(source.slice(literal.start, literal.start + 3)))) {
+        opens.push(literal.start)
+      }
     }
   }
   opens.sort((left, right) => left - right)
@@ -3529,7 +3531,7 @@ function followingFencedBlockLineEnding(
   source: string,
   probe?: (start: number, end: number) => void
 ): ProjectionLineEnding | undefined {
-  const opens = armTerminationFenceOpens(parentLane)
+  const opens = armTerminationFenceOpens(parentLane, source)
   let low = 0
   let high = opens.length
   while (low < high) {
@@ -3655,15 +3657,17 @@ function followingCanonicalLineMergingParagraph(
   )) {
     return undefined
   }
+  // Only the line right after the arm's line ending can continue its
+  // paragraph (ADR-0010): a later line's continuation belongs to its own
+  // paragraph, wherever the intrinsic pass happened to split the lane.
   for (const transition of parentLane.transitions) {
+    if (!transition.consumed.some((slice) => slice.range.end > suffixStart)) continue
     const pendingLine = transition.emittedFacts.block.pendingLine
-    if (
-      transition.exitCheckpoint.lineStart >= suffixStart &&
+    return transition.exitCheckpoint.lineStart >= suffixStart &&
       pendingLine?.continuesExistingParagraph === true &&
-      transition.consumed.some((slice) => slice.range.end > suffixStart)
-    ) {
-      return pendingLine
-    }
+      transition.consumed.some((slice) => slice.range.start <= suffixStart && suffixStart < slice.range.end)
+      ? pendingLine
+      : undefined
   }
   return undefined
 }
