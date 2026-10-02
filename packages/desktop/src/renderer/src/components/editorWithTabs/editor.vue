@@ -150,8 +150,8 @@
             :reveal-request="coreReviewRevealRequest"
             :busy="coreReviewResolving"
             :composing="coreCommentOpen && coreCommentTarget !== undefined"
-            :composer-start="coreCommentTarget?.entryStart"
-            :draft-start="coreCommentTarget?.draftStart"
+            :composer-start="coreComposerPlacement.composerStart"
+            :draft-start="coreComposerPlacement.draftStart"
             @select="selectCoreReviewEntry"
           >
             <template #composer>
@@ -390,6 +390,7 @@ import {
 import CoreReviewList from './CoreReviewList.vue'
 import {
   coreReviewComposerEscapes,
+  coreReviewComposerPlacement,
   createCoreReviewComposer,
   type CoreReviewComposerState
 } from './coreReviewComposer'
@@ -707,6 +708,9 @@ const coreCommentOpen = toRef(coreCommentComposer, 'open')
 const coreCommentDraft = toRef(coreCommentComposer, 'draft')
 const coreCommentError = toRef(coreCommentComposer, 'error')
 const coreCommentTarget = toRef(coreCommentComposer, 'target')
+const coreComposerPlacement = computed(() =>
+  coreReviewComposerPlacement(coreCommentTarget.value, coreReviewOverview.value)
+)
 const coreCommentEscapeNotice = computed(() =>
   coreReviewComposerEscapes(coreCommentComposer, coreMarkdownOptionsFromPreferences(preferencesStore))
     ? t('editor.coreReview.commentEscapeNotice')
@@ -2237,7 +2241,7 @@ const commentOnCoreHighlight = async (
     text: '',
     form: 'comment',
     selection: Object.freeze({ start: item.range.start + 3, end: item.range.end - 3 }),
-    entryStart: item.range.start
+    entry: item
   }
   coreCommentError.value = ''
   coreCommentOpen.value = true
@@ -2532,7 +2536,7 @@ const handleCoreContextAction = (value: unknown): void => {
       revision: initial.revision,
       text: target.comment.commentText ?? '',
       item: target.comment.item,
-      entryStart: target.comment.item.range.start
+      entry: target.comment.item
     }
     coreCommentError.value = ''
     coreCommentOpen.value = true
