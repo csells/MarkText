@@ -85,6 +85,8 @@ const armBlocks = [
   'Plain words here.',
   '{~~```js\n' + armBody(6, index => `old ${index}`) + '\n```\n~>```js\n' + armBody(7, index => `new ${index} {x}`) + '\n```\n~~}',
   '{~~$$\n' + armBody(5, index => `x_{${index}}`) + '\n$$\n~>$$\n' + armBody(6, index => `y_{${index}} + 1`) + '\n$$\n~~}',
+  // A first tracked key's math Substitution, whose closer lines hold its markers.
+  '{~~$$\n' + armBody(5, index => `x_{${index}} + y`) + '\n$$~>$$\n' + armBody(5, index => `y_{${index}} - y`) + '\n$$~~}',
   '{~~<div>\n' + armBody(5, index => `old html ${index}`) + '\n</div>\n~><div>\n' + armBody(5, index => `new html ${index}`) + '\n</div>\n~~}',
   '{++~~~\n' + armBody(6, index => `added ${index}`) + '\n~~~\n++}',
   '{--```\n' + armBody(5, index => `gone ${index}`) + '\n```\n--}',
@@ -93,7 +95,7 @@ const armBlocks = [
   'Para *em* and `code` here.',
   '- item one\n- item two'
 ]
-const armInsertions = ['x', ' ', '\n', '\n\n', '```', '~~~', '$$', '</div>', '    ', '{', '}', '~>', '~~}', '{++n++}', '`', '# ', '<div>', '\n```\n']
+const armInsertions = ['x', ' ', '\n', '\n\n', '```', '~~~', '$$', '</div>', '    ', '{', '}', '~>', '~~}', '{++n++}', '`', '# ', '<div>', '\n```\n', '- ', '> ', '1. ', '***']
 
 const literalInsertions = ['x', ' ', '\n', '\n\n', '```', '~~~', '    ', '\t', '$$', '</div>', '-->', '{', '}', '{++n++}', '`', '# ', '- ', '<div>', '\n```\n', '\n    ']
 
