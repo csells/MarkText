@@ -55,6 +55,7 @@ import {
   regionalInventoryListRange,
   regionalInventoryLiteralRange,
   regionalInventoryLeaves,
+  withLinesBack,
   regionalInventorySplitsLists,
   regionalLeafPoints,
   regionalRangeWindow,
@@ -3140,6 +3141,180 @@ function createDocumentCoreWithExecutionBudget(
     })
   }
 
+  /**
+   * The Markup reply for a long literal block struck and proposed again,
+   * read with lines far from the key left out of both blocks (see
+   * `RegionalInventoryAdmission.armCreation`): `replacement` as read there,
+   * with the lines put back in each block, as text the source spells and
+   * children each line makes, and the document's spans.
+   */
+  const armCreationReplacement = (
+    replacement: MarkupRegionReplacement,
+    admission: RegionalInventoryAdmission,
+    source: PersistentCanonicalSource
+  ): MarkupRegionReplacement | undefined => {
+    const lines = admission.armCreation?.next.lines
+    if (lines === undefined) return undefined
+    const toSource = withLinesBack(lines)
+    // Inside the blocks the projection spells the source, so each point's
+    // projection offset is the coordinate run's that holds it.
+    const syntaxLines: Array<(typeof lines)[number]> = []
+    for (const left of lines) {
+      const run = replacement.coordinates.find(segment => segment.source.start <= left.at && left.at <= segment.source.end &&
+        segment.source.end - segment.source.start === segment.projected.end - segment.projected.start)
+      if (run === undefined) return undefined
+      syntaxLines.push(Object.freeze({ ...left, at: run.projected.start + left.at - run.source.start }))
+    }
+    const toSyntax = withLinesBack(syntaxLines)
+    const marks = new Map<MarkupMark, MarkupMark>()
+    const events = replacement.events.map((event): MarkupEvent => {
+      if (event.kind === 'text') {
+        const start = toSource(event.sourceRange.start)
+        const end = toSource(event.sourceRange.end)
+        return start === event.sourceRange.start && end === event.sourceRange.end
+          ? event
+          : Object.freeze({ ...event, text: source.slice(start, end), sourceRange: Object.freeze({ start, end }) })
+      }
+      let mark = marks.get(event.mark)
+      if (mark === undefined) {
+        const range = event.mark.annotationRange
+        mark = Object.freeze({
+          ...event.mark,
+          annotationRange: Object.freeze({ start: toSource(range.start), end: toSource(range.end) })
+        }) as MarkupMark
+        marks.set(event.mark, mark)
+      }
+      return Object.freeze({ ...event, mark })
+    })
+    const moved = (node: MarkdownAstNode): MarkdownAstNode => {
+      const attributes: Record<string, MarkdownAttribute> = { ...node.attributes }
+      for (const [name, value] of Object.entries(attributes)) {
+        if (typeof value === 'number' && (name.endsWith('Start') || name.endsWith('End'))) attributes[name] = toSyntax(value)
+      }
+      return Object.freeze({
+        ...node,
+        range: Object.freeze({ start: toSyntax(node.range.start), end: toSyntax(node.range.end) }),
+        attributes: Object.freeze(attributes),
+        children: Object.freeze(node.children.map(moved))
+      })
+    }
+    // A node or run that no point falls inside moves as its start does.
+    const shifted = (node: MarkdownAstNode): MarkdownAstNode => {
+      const delta = toSyntax(node.range.start) - node.range.start
+      return delta === 0 ? node : shiftMarkdownAstNode(node, delta)
+    }
+    const lineText = (child: MarkdownAstNode): string =>
+      child.kind === 'soft-break' ? '\n' : String(child.attributes['semanticText'] ?? '')
+    const syntaxBlocks: MarkdownAstNode[] = []
+    for (const block of replacement.syntaxBlocks) {
+      const own = syntaxLines.filter(left => block.range.start < left.at && left.at < block.range.end)
+      if (own.length === 0) {
+        syntaxBlocks.push(shifted(block))
+        continue
+      }
+      // The lines' children, from the shape of a line of the block.
+      const text = block.children.find(child => child.kind === 'text' && child.range.end > child.range.start &&
+        child.semanticTextSegments === undefined)
+      const lineBreak = block.children.find(child => child.kind === 'soft-break')
+      if (text === undefined || lineBreak === undefined || block.kind === 'html-block' && own.length === 0) return undefined
+      const indent = block.attributes['provider'] === 'indented-code' ? 4 : 0
+      const children: MarkdownAstNode[] = []
+      let content = typeof block.attributes['content'] === 'string' ? block.attributes['content'] : undefined
+      let contentAdded = 0
+      let child = 0
+      for (const left of own) {
+        while (child < block.children.length && (block.children[child]?.range.start ?? 0) < left.at) {
+          const kept = block.children[child]
+          if (kept !== undefined) children.push(shifted(kept))
+          child += 1
+        }
+        let at = toSyntax(left.at) - left.length
+        let added = ''
+        for (const line of left.text.split('\n').slice(0, -1)) {
+          const textStart = line === '' ? at : at + indent
+          const semanticText = line.slice(line === '' ? 0 : indent)
+          children.push(Object.freeze({
+            ...text,
+            range: Object.freeze({ start: textStart, end: at + line.length }),
+            attributes: Object.freeze({ ...text.attributes, semanticText })
+          }))
+          children.push(Object.freeze({
+            ...lineBreak,
+            range: Object.freeze({ start: at + line.length, end: at + line.length + 1 })
+          }))
+          added += `${semanticText}\n`
+          at += line.length + 1
+        }
+        if (content !== undefined) {
+          let offset = contentAdded
+          for (let before = 0; before < child; before += 1) {
+            const kept = block.children[before]
+            if (kept !== undefined) offset += lineText(kept).length
+          }
+          content = content.slice(0, offset) + added + content.slice(offset)
+          contentAdded += added.length
+        }
+      }
+      for (; child < block.children.length; child += 1) {
+        const kept = block.children[child]
+        if (kept !== undefined) children.push(shifted(kept))
+      }
+      const shell = moved({ ...block, children: [] })
+      syntaxBlocks.push(Object.freeze({
+        ...shell,
+        attributes: content === undefined ? shell.attributes : Object.freeze({ ...shell.attributes, content }),
+        children: Object.freeze(children)
+      }))
+    }
+    // Each line's runs, from the runs of the kept line the lines go before.
+    const coordinates: MarkupCoordinateSegment[] = []
+    let point = 0
+    for (const segment of replacement.coordinates) {
+      while (point < lines.length && (lines[point]?.at ?? 0) <= segment.source.start) {
+        const left = lines[point]
+        const syntaxLeft = syntaxLines[point]
+        point += 1
+        if (left === undefined || syntaxLeft === undefined) return undefined
+        const indent = segment.source.start - left.at
+        if (indent !== 0 && indent !== 4) return undefined
+        let sourceAt = toSource(left.at) - left.length
+        let syntaxAt = toSyntax(syntaxLeft.at) - left.length
+        for (const line of left.text.split('\n').slice(0, -1)) {
+          const from = line === '' ? 0 : indent
+          if (line.length > from) {
+            coordinates.push(Object.freeze({
+              projected: Object.freeze({ start: syntaxAt + from, end: syntaxAt + line.length }),
+              source: Object.freeze({ start: sourceAt + from, end: sourceAt + line.length })
+            }))
+          }
+          coordinates.push(Object.freeze({
+            projected: Object.freeze({ start: syntaxAt + line.length, end: syntaxAt + line.length + 1 }),
+            source: Object.freeze({ start: sourceAt + line.length, end: sourceAt + line.length + 1 })
+          }))
+          sourceAt += line.length + 1
+          syntaxAt += line.length + 1
+        }
+      }
+      const sourceDelta = toSource(segment.source.start) - segment.source.start
+      const syntaxDelta = toSyntax(segment.projected.start) - segment.projected.start
+      coordinates.push(sourceDelta === 0 && syntaxDelta === 0
+        ? segment
+        : Object.freeze({
+          projected: Object.freeze({ start: segment.projected.start + syntaxDelta, end: segment.projected.end + syntaxDelta }),
+          source: Object.freeze({ start: segment.source.start + sourceDelta, end: segment.source.end + sourceDelta })
+        }))
+    }
+    if (point !== lines.length) return undefined
+    return Object.freeze({
+      ...replacement,
+      previous: admission.previous,
+      next: admission.next,
+      events: Object.freeze(events),
+      syntaxBlocks: Object.freeze(syntaxBlocks),
+      coordinates: Object.freeze(coordinates)
+    })
+  }
+
   const tryInventoryRegionalApply = (
     previousState: RevisionState,
     source: PersistentCanonicalSource,
@@ -3209,6 +3384,10 @@ function createDocumentCoreWithExecutionBudget(
       blocks: readonly MarkdownAstNode[]
       coordinates: readonly MarkupCoordinateSegment[]
     }> = { events: [], blocks: [], coordinates: [] }
+    // A Substitution read with lines left out builds its reply from that read.
+    const read: RegionalInventoryAdmission = admission.armCreation === undefined
+      ? admission
+      : Object.freeze({ ...admission, previous: admission.armCreation.previous.span, next: admission.armCreation.next.span })
     if (admission.armLines !== undefined) {
       const change = armLinesChange(admission, source)
       const replacement = change.name === 'markup' && change.scope === 'regions' ? change.replacements[0] : undefined
@@ -3227,8 +3406,8 @@ function createDocumentCoreWithExecutionBudget(
       // Products parsed with unchanged context contribute only the replaced
       // blocks; their offsets are relative to the whole parsed window.
       const window = admission.window ?? {
-        source: admission.next.source.start,
-        syntax: admission.next.syntax.start,
+        source: read.next.source.start,
+        syntax: read.next.syntax.start,
         blocks: {
           source: { start: 0, end: admission.nextWindow.length },
           syntax: { start: 0, end: Number.POSITIVE_INFINITY }
@@ -3280,7 +3459,7 @@ function createDocumentCoreWithExecutionBudget(
           // An empty paragraph on a whitespace-only last line sits at the
           // document's end, which is also the end of blocks reaching it.
           (child.range.start === blocks.syntax.end && child.range.end === child.range.start &&
-            admission.next.source.end === source.length))
+            read.next.source.end === source.length))
         .map(child => shiftMarkdownAstNode(child, window.syntax)))
       const markupCoordinates: MarkupCoordinateSegment[] = []
       // A reply's coordinates omit generated text, which a view reads as
@@ -3319,13 +3498,13 @@ function createDocumentCoreWithExecutionBudget(
       }
       if (requests.markup) {
         const replacement = Object.freeze({
-          previous: admission.previous,
+          previous: read.previous,
           next: Object.freeze({
-            source: admission.next.source,
-            syntax: admission.next.syntax,
+            source: read.next.source,
+            syntax: read.next.syntax,
             events: Object.freeze({
-              start: admission.previous.events.start,
-              end: admission.previous.events.start + events.length
+              start: read.previous.events.start,
+              end: read.previous.events.start + events.length
             })
           }),
           events,
@@ -3398,6 +3577,18 @@ function createDocumentCoreWithExecutionBudget(
       }
 
       counted = { events, blocks: syntaxBlocks, coordinates: markupCoordinates }
+      if (admission.armCreation !== undefined && requests.markup) {
+        const change = projections.at(-1)
+        const short = change?.name === 'markup' && change.scope === 'regions' ? change.replacements[0] : undefined
+        const replacement = short === undefined ? undefined : armCreationReplacement(short, admission, source)
+        if (replacement === undefined) return Object.freeze({ kind: 'fallback', reason: 'structural-region-ineligible' })
+        projections[projections.length - 1] = Object.freeze({
+          name: 'markup',
+          scope: 'regions',
+          replacements: Object.freeze([replacement])
+        })
+        counted = { events: replacement.events, blocks: replacement.syntaxBlocks, coordinates: replacement.coordinates }
+      }
     }
     const regionalComments: Array<
       RegionalRevisionState['regionalComments'][number]
@@ -5260,6 +5451,7 @@ function createDocumentCoreWithExecutionBudget(
     nextWindow: string
     structural?: Readonly<{ touchesAnnotation: boolean, markerDelta: number }>
     arm?: RegionalInventoryPreview['arm']
+    armCreation?: true
   }> | undefined => {
     const edits = Object.freeze([edit])
     const source = state.source.applyExact(edits, 'Authoring regional candidate')
@@ -5736,14 +5928,16 @@ function createDocumentCoreWithExecutionBudget(
       while (at > blockStart && !/[\r\n]/u.test(source.slice(at - 1, at))) at -= 1
       return at
     }
-    const firstLineEnd = lineEnd(blockStart)
     const editedStart = lineStartAt(edit.start)
     const editedEnd = lineEnd(edit.start)
-    const lastStart = lineStartAt(blockEnd)
-    // The block's first and last lines hold its delimiters; indented code's
-    // indentation is its delimiter.
-    if (editedStart < firstLineEnd || editedEnd > lastStart || editedEnd >= blockEnd ||
-        /^(?: {4}|\t)/u.test(text) && !/^(?: {4}|\t)/u.test(source.slice(editedStart, edit.start)) ||
+    // The block's first and last lines hold its delimiters, which stand for
+    // the lines between them and the edited one; indented code has none,
+    // its indentation is its delimiter, and its edited line may be either.
+    const indented = /^(?: {4}|\t)/u.test(text)
+    const firstLineEnd = indented && editedStart === blockStart ? blockStart : lineEnd(blockStart)
+    const lastStart = indented && editedEnd >= blockEnd ? blockEnd : lineStartAt(blockEnd)
+    if (editedStart < firstLineEnd || editedEnd > lastStart || (!indented && editedEnd >= blockEnd) ||
+        indented && !/^(?: {4}|\t)/u.test(source.slice(editedStart, edit.start)) ||
         !/\S/u.test(source.slice(editedStart, editedEnd) + edit.insert)) return undefined
     // The text after the block to the end of its next line with text.
     let afterEnd = blockEnd
@@ -5796,6 +5990,9 @@ function createDocumentCoreWithExecutionBudget(
     })
     const candidate = regionalCandidate(state, planned)
     if (candidate?.structural === undefined) return undefined
+    // A long block's Substitution reads with lines far from the key left out
+    // of both its blocks, which that read proves it holds.
+    if (candidate.armCreation === true) return planned
     const shift = candidate.sourceStart
     return (candidate.nextProducts.retainedIntrinsic?.roots ?? []).some(node => node.kind === 'substitution' &&
       node.range.start === start - shift && node.range.end === start + planned.insert.length - shift)

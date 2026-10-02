@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createDocumentCore,
   type DocumentCore,
+  type DocumentInputAction,
   type DocumentRevision,
   type MarkupEvent,
   type MarkupMark,
@@ -233,28 +234,28 @@ function step(session: Session, start: number, end: number, insert: string, labe
     if (replacement === undefined) throw new Error('Expected a replacement')
     expect(applyReplacement(session.markup.events, replacement), label).toEqual(freshMarkup.events)
     expect(composedShape(session.markup, replacement), label).toEqual(blockShape(freshMarkup))
+    // Later edits read an arm's lines from the inventory leaves a reply
+    // left, so their arm blocks must be the ones a fresh open finds. Earlier
+    // regional edits may leave the leaves partitioned unlike a fresh open's,
+    // so the arm blocks compare by document position, and the edited leaf
+    // where a fresh open has the same one.
+    const leaves = (owner: DocumentCore, at: DocumentRevision) => {
+      let offset = 0
+      return (inspectRegionalLeaves(owner, at) ?? []).map(value => {
+        const leaf = JSON.parse(JSON.stringify(value)) as { sourceLength: number, armLiterals?: Array<Record<string, unknown> & { start: number, end: number }> }
+        const placed = { start: offset, leaf }
+        offset += leaf.sourceLength
+        return placed
+      })
+    }
+    const arms = (placed: ReturnType<typeof leaves>) => placed.flatMap(({ start, leaf }) =>
+      (leaf.armLiterals ?? []).map(({ node: _node, event: _event, eventStart, eventEnd, syntaxStart: _syntax, block: _block, ...arm }) =>
+        ({ ...arm, start: start + arm.start, end: start + arm.end, eventStart: start + Number(eventStart), eventEnd: start + Number(eventEnd) })))
+    const ours = leaves(core, commit.revision)
+    const theirs = leaves(oracle, fresh)
+    expect(arms(ours), label).toEqual(arms(theirs))
     if (replacement.enclosing !== undefined) {
       session.arm = (session.arm ?? 0) + 1
-      // Later edits read the arm's lines from the inventory leaves this
-      // replacement left, so they must be the ones a fresh open builds.
-      // Earlier regional edits may leave the leaves partitioned unlike a
-      // fresh open's, so compare the arm blocks by document position, and
-      // the edited leaf where a fresh open has the same one.
-      const leaves = (owner: DocumentCore, at: DocumentRevision) => {
-        let offset = 0
-        return (inspectRegionalLeaves(owner, at) ?? []).map(value => {
-          const leaf = JSON.parse(JSON.stringify(value)) as { sourceLength: number, armLiterals?: Array<Record<string, unknown> & { start: number, end: number }> }
-          const placed = { start: offset, leaf }
-          offset += leaf.sourceLength
-          return placed
-        })
-      }
-      const arms = (placed: ReturnType<typeof leaves>) => placed.flatMap(({ start, leaf }) =>
-        (leaf.armLiterals ?? []).map(({ node: _node, event: _event, eventStart, eventEnd, syntaxStart: _syntax, ...arm }) =>
-          ({ ...arm, start: start + arm.start, end: start + arm.end, eventStart: start + Number(eventStart), eventEnd: start + Number(eventEnd) })))
-      const ours = leaves(core, commit.revision)
-      const theirs = leaves(oracle, fresh)
-      expect(arms(ours), label).toEqual(arms(theirs))
       const edited = ours.find(({ start: leafStart, leaf }) => leafStart <= start && start <= leafStart + leaf.sourceLength)
       const same = theirs.find(placed => placed.start === edited?.start && placed.leaf.sourceLength === edited.leaf.sourceLength)
       if (edited !== undefined && same !== undefined) expect(edited.leaf, label).toEqual(same.leaf)
@@ -336,6 +337,56 @@ describe('structural regional edits read as a fresh open', () => {
   it.each(Array.from({ length: armSeeds }, (_, index) => firstArmSeed + index))('arm literal seed %i', seed => {
     expect(fuzz(seed, armBlocks, armInsertions, /^ *(?:old|new|added|gone|marked|x_|y_).*$/)).toBeGreaterThan(0)
   }, 60_000)
+
+  // A first tracked key in a long literal block suggests replacing it whole,
+  // read with the block's lines far from the key left out (see
+  // `admitArmCreation`), then keys in its lines read them alone.
+  const longLines = (count: number, line: (index: number) => string): string =>
+    Array.from({ length: count }, (_, index) => line(index)).join('\n')
+  const longBlocks = [
+    '```js\n' + longLines(160, index => `const value${index} = compute(${index})`) + '\n```',
+    '~~~\n' + longLines(160, index => index % 7 === 3 ? '' : `line ${index} of text`) + '\n~~~',
+    '$$\n' + longLines(160, index => `x_{${index}} + y_{${index}}`) + '\n$$',
+    '<div>\n' + longLines(160, index => `html line ${index}`) + '\n</div>',
+    longLines(160, index => index % 9 === 4 ? '' : `    indented line ${index}`),
+    longLines(160, index => `\tindented by tab ${index}`)
+  ]
+  const longSeeds = Number(process.env.MARKTEXT_FIRST_KEY_SEEDS ?? 24)
+  const firstLongSeed = Number(process.env.MARKTEXT_FIRST_KEY_FIRST ?? 1)
+  it.each(Array.from({ length: longSeeds }, (_, index) => firstLongSeed + index))('first tracked key seed %i', seed => {
+    const random = lcg(seed * 4253)
+    const options = { autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true }
+    const block = longBlocks[Math.floor(random() * longBlocks.length)] ?? ''
+    const source = ['Opening paragraph.', ...(random() < 0.5 ? ['Text {++added++} here.'] : []), block,
+      'Closing paragraph.'].join('\n\n') + (random() < 0.8 ? '\n' : '')
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const regional = core.apply(opened, [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
+    const oracle = createDocumentCore()
+    const session: Session = { core, revision: regional, markup: oracle.project(oracle.open(regional.source), 'markup'), regional: 0 }
+    let created = 0
+    for (let key = 0; key < 4; key += 1) {
+      const lines = [...session.revision.source.matchAll(/^.*(?:value|line|x_|html|by tab)[^\n]*$/gmu)]
+      const line = lines[Math.floor(random() * lines.length)]
+      if (line === undefined) break
+      const caret = line.index + Math.floor(random() * (line[0].length + 1))
+      const inputType = random() < 0.8 ? 'insertText' : random() < 0.5 ? 'insertParagraph' : 'deleteContentBackward'
+      const input = {
+        range: inputType === 'deleteContentBackward' ? { start: caret - 1, end: caret } : { start: caret, end: caret },
+        selection: { ranges: [{ anchor: caret, focus: caret }], primary: 0 },
+        inputType,
+        data: inputType === 'insertText' ? 'z' : null,
+        options
+      } as DocumentInputAction
+      const plan = core.planInput(session.revision, input, { tracked: true })
+      const edits = core.inputEdits(session.revision, input, plan, true)
+      if (edits === undefined || edits.length !== 1 || edits[0] === undefined) break
+      const [edit] = edits
+      if (edit.insert.startsWith('{~~')) created += 1
+      step(session, edit.start, edit.end, edit.insert, `${JSON.stringify(session.revision.source.slice(0, 80))} @${caret} ${inputType}`)
+    }
+    expect(created).toBeLessThanOrEqual(4)
+  })
 
   // Histories a longer fuzz found diverging: a `$$` line in the window pairing
   // with one after it, a line that only a comment's hidden text leaves blank
