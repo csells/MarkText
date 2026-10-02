@@ -7324,13 +7324,18 @@ function createDocumentCoreWithExecutionBudget(
         })) return compoundSuggestion()
       }
       const { ast, coordinates } = candidateCore.project(candidate, 'markup').syntax
+      // Only literals the suggestions reach can gain their lines; one
+      // elsewhere in the document reads as it did.
+      const editedStart = result[0]?.start ?? 0
+      const editedEnd = result.reduce((end, edit) => edit.start + (shifts.get(edit) ?? 0) + edit.insert.length, editedStart)
       const pending = [ast.root]
       while (pending.length > 0) {
         const node = pending.pop()!
         const start = node.attributes.contentStart
         const end = node.attributes.contentEnd
         if (['code-block', 'math-block', 'diagram', 'html-block', 'front-matter'].includes(node.kind) &&
-            typeof start === 'number' && typeof end === 'number') {
+            typeof start === 'number' && typeof end === 'number' &&
+            coordinates.toSource(node.range.start, 'next') <= editedEnd && coordinates.toSource(node.range.end, 'previous') >= editedStart) {
           let covered = start
           for (const segment of coordinates.sourceSegments ?? []) {
             const from = Math.max(start, segment.projected.start)
