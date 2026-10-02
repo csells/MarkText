@@ -31,8 +31,10 @@ describe('document-core full-product retention', () => {
     ))
     const result = spawnSync(process.execPath, [
       '--expose-gc',
-      // Collection finishes before measuring, however busy the machine is.
-      '--single-threaded-gc',
+      // No background thread collects or compiles while the child measures,
+      // so the heap it reads depends on its own work alone, however busy the
+      // machine is.
+      '--single-threaded',
       '--max-old-space-size=512',
       '--import',
       'tsx',
@@ -94,5 +96,5 @@ describe('document-core full-product retention', () => {
     expect(measurement.currentStrongStores).toBe(0)
     expect(measurement.peakStrongStores).toBe(1)
     expect(measurement.intrinsicSourceUnits).toBeGreaterThan(54_000)
-  }, 15_000)
+  }, 60_000)
 })

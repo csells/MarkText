@@ -11,8 +11,10 @@ describe('document-core logical-node resource policy', () => {
     ))
     const result = spawnSync(process.execPath, [
       '--expose-gc',
-      // Collection finishes before measuring, however busy the machine is.
-      '--single-threaded-gc',
+      // No background thread collects or compiles while the child measures,
+      // so the heap it reads depends on its own work alone, however busy the
+      // machine is.
+      '--single-threaded',
       '--max-old-space-size=2048',
       '--import',
       'tsx',
