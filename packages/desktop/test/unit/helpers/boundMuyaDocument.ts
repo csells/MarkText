@@ -22,7 +22,46 @@ import { reconcileMuyaDocumentView } from '@/documentAuthority/reconcileMuyaDocu
 import type { CoreAppliedReply } from '@/documentAuthority/coreProtocol'
 import { asMuyaStates } from './muyaTypes'
 
+/**
+ * Ends the current macrotask. V8 keeps every WeakRef target alive until the
+ * task that created it ends, and jsdom registers each Range it creates by
+ * WeakRef on the range's boundary nodes. A loop that boots, edits and disposes
+ * editors inside one task therefore keeps every Range alive on document.body,
+ * where jsdom walks them all on each later DOM mutation, so each iteration
+ * runs slower than the last. Await this between iterations.
+ */
+export const yieldToEventLoop = (): Promise<void> =>
+  new Promise((resolve) => setImmediate(resolve))
+
+type EventListenerArguments = Parameters<EventTarget['addEventListener']>
+type WindowListener = { target: EventTarget, listener: EventListenerArguments }
+
+/** Window listeners added while each live editor was booted and running. */
+const editorWindowListeners = new Set<WindowListener[]>()
+
+// jsdom gives every Document its own selector engine, which adds capture
+// listeners to the one shared window and never removes them. Muya parses each
+// HTML preview into a fresh Document and queries it, so in jsdom every preview
+// leaves listeners, and the Document they hold, on the window, and every later
+// key or focus event walks them all. A browser has no such listeners. The main
+// document's engine is created first so that its listeners stay; a disposed
+// editor removes every window listener added during its lifetime.
+document.documentElement.matches('*')
+{
+  // The engine holds jsdom's own window object, which is not the test
+  // global's window, so listeners are caught where every window inherits them.
+  const addEventListener = EventTarget.prototype.addEventListener
+  EventTarget.prototype.addEventListener = function(this: EventTarget, ...listener: EventListenerArguments) {
+    if (!(this instanceof Node) && (this as Partial<Window>).document === document) {
+      for (const listeners of editorWindowListeners) listeners.push({ target: this, listener })
+    }
+    return addEventListener.apply(this, listener)
+  }
+}
+
 export const bootBoundMuya = (source: string, options?: EditorCoreOpenInput['options']) => {
+  const windowListeners: WindowListener[] = []
+  editorWindowListeners.add(windowListeners)
   ;(window as Window & { MUYA_VERSION?: string }).MUYA_VERSION = 'test'
   const binding = createEditorCoreBinding(createLocalCoreOwner())
   binding.open({ documentId: 'bound-editor.md', source, options })
@@ -163,6 +202,8 @@ export const bootBoundMuya = (source: string, options?: EditorCoreOpenInput['opt
       muya.destroy()
       host.remove()
       document.getSelection()?.removeAllRanges()
+      editorWindowListeners.delete(windowListeners)
+      for (const { target, listener } of windowListeners) target.removeEventListener(...listener)
     }
   }
 }

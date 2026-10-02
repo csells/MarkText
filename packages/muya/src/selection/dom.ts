@@ -213,6 +213,13 @@ const lastParagraphOffsets = new WeakMap<HTMLElement, {
     offset: number;
 }>();
 
+/**
+ * One Range per document for every offset read. The DOM keeps each live Range
+ * it has not yet garbage collected up to date on every mutation, so a fresh
+ * Range per read makes later edits slower until collection catches up.
+ */
+const offsetRanges = new WeakMap<Document, Range>();
+
 /** Children from which a paragraph's last read offset is kept. */
 const LONG_PARAGRAPH_CHILDREN = 64;
 
@@ -222,13 +229,21 @@ function plainOffsetOfParagraph(node: Node, paragraph: HTMLElement, nodeOffset: 
     const unchanged = last !== undefined && last.observer.takeRecords().length === 0;
     if (unchanged && last.node === node && last.nodeOffset === nodeOffset)
         return last.offset;
-    const range = (paragraph.ownerDocument ?? document).createRange();
+    const doc = paragraph.ownerDocument ?? document;
+    let range = offsetRanges.get(doc);
+    if (range === undefined) {
+        range = doc.createRange();
+        offsetRanges.set(doc, range);
+    }
     range.setStart(paragraph, 0);
     if (node.nodeType === Node.TEXT_NODE)
         range.setEnd(node, 0);
     else
         range.setEnd(node, Math.min(nodeOffset, node.childNodes.length));
     const offset = range.toString().length + (node.nodeType === Node.TEXT_NODE ? nodeOffset : 0);
+    // Release the paragraph, which may later leave the document.
+    range.setStart(doc, 0);
+    range.collapse(true);
     if (paragraph.childNodes.length >= LONG_PARAGRAPH_CHILDREN) {
         let observer = last?.observer;
         if (observer === undefined) {
