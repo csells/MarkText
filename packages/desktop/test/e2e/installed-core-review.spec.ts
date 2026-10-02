@@ -436,6 +436,11 @@ test.describe('installed Core Review authority', () => {
         if (testCase.reviewKind === null) await expect(kind).toHaveCount(0)
         else await expect(kind).toHaveAttribute('data-kind', testCase.reviewKind)
       }
+      // Plan 0012 G13: returning from Source leaves the caret in plain text,
+      // so no card is active until the user selects one; G37: Next does that.
+      const selectAfterSource = async(page: Page): Promise<void> => {
+        if (testCase.reviewKind !== null) await page.getByTestId('critic-review-next').click()
+      }
       try {
         launched = await launchInstalled(binary, userDataDir, filePath)
         await expectEditorWindowHidden(launched.app)
@@ -445,6 +450,7 @@ test.describe('installed Core Review authority', () => {
         )).toBeUndefined()
         await expectReviewKind(launched.page)
         expect(await getMarkdownContent(launched.page, launched.app)).toBe(row.source)
+        await selectAfterSource(launched.page)
         await expectReviewKind(launched.page)
         await sendIpcToRenderer(launched.app, 'mt::editor-ask-file-save')
         await expect.poll(() => fs.readFileSync(filePath, 'utf8'))
@@ -457,6 +463,7 @@ test.describe('installed Core Review authority', () => {
         expectEditorNotFrontmost(launched.app)
         expect(await getMarkdownContent(launched.page, launched.app))
           .toBe(row.expectedSource)
+        await selectAfterSource(launched.page)
         await expectReviewKind(launched.page)
         expect(fs.readFileSync(filePath, 'utf8')).toBe(row.expectedSource)
       } finally {
