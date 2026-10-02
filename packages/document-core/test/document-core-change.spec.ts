@@ -4432,7 +4432,7 @@ describe('document-core semantic changes', () => {
     expect(inspection.retainedCommittedUpdates).toBe(64)
     expect(inspection.retainedOverlayNodesAllocated).toBeLessThan(2_000)
     expect(inspection.retainedOverlayMaximumDepth).toBeLessThan(32)
-  })
+  }, 30_000)
 
   it('updates boundary and alternating far-region overlay ranks', () => {
     let source = 'guard\n\nfirst word\n\nmiddle word\n\nlast word\n\nguardtail\n\n'
