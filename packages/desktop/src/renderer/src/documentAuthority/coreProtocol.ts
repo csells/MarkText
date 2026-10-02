@@ -290,6 +290,8 @@ export type CoreRequest =
     readonly baseRevision: number
     readonly annotation: CoreReviewItemLocator
     readonly decision: CoreReviewDecision
+    /** The selection when the command ran, which its undo restores. */
+    readonly selection?: DocumentSelection
     readonly projections: readonly DocumentProjectionRequest[]
   }>
   | Readonly<{
@@ -298,6 +300,8 @@ export type CoreRequest =
     readonly sequence: number
     readonly baseRevision: number
     readonly decision: DocumentResolutionDecision
+    /** The selection when the command ran, which its undo restores. */
+    readonly selection?: DocumentSelection
     readonly projections: readonly DocumentProjectionRequest[]
   }>
   | Readonly<{
@@ -317,6 +321,8 @@ export type CoreRequest =
     readonly baseRevision: number
     readonly annotation: CoreReviewItemLocator
     readonly text: string
+    /** The selection when the command ran, which its undo restores. */
+    readonly selection?: DocumentSelection
     readonly projections: readonly DocumentProjectionRequest[]
   }>
 

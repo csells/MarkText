@@ -238,21 +238,25 @@ export interface MuyaPlainTextCoreAdapter {
     command: 'undo' | 'redo',
     reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
   ): Promise<CoreAppliedReply | undefined>
+  /** `selection` is the native selection when the command ran, which its undo restores. */
   resolve(
     annotation: CoreReviewItemLocator,
     authoredRevision: number,
     decision: CoreReviewDecision,
-    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
+    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
+    selection?: MuyaPlainTextAuthorSelection
   ): Promise<CoreAppliedReply | undefined>
   resolveAll(
     decision: 'accept' | 'reject',
-    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
+    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
+    selection?: MuyaPlainTextAuthorSelection
   ): Promise<CoreAppliedReply | undefined>
   editComment(
     annotation: CoreReviewItemLocator,
     authoredRevision: number,
     text: string,
-    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
+    reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
+    selection?: MuyaPlainTextAuthorSelection
   ): Promise<CoreAppliedReply | undefined>
   author(
     form: CoreAuthorForm,
@@ -322,6 +326,7 @@ type PendingCommand =
     readonly annotation: CoreReviewItemLocator
     readonly authoredRevision: number
     readonly decision: CoreReviewDecision
+    readonly selection?: MuyaPlainTextAuthorSelection
     readonly reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
     readonly resolve: (outcome: CoreAppliedReply | undefined) => void
     readonly reject: (error: Error) => void
@@ -340,6 +345,7 @@ type PendingCommand =
     readonly annotation: CoreReviewItemLocator
     readonly authoredRevision: number
     readonly text: string
+    readonly selection?: MuyaPlainTextAuthorSelection
     readonly reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
     readonly resolve: (outcome: CoreAppliedReply | undefined) => void
     readonly reject: (error: Error) => void
@@ -347,6 +353,7 @@ type PendingCommand =
   | Readonly<{
     readonly kind: 'resolve-all'
     readonly decision: 'accept' | 'reject'
+    readonly selection?: MuyaPlainTextAuthorSelection
     readonly reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
     readonly resolve: (outcome: CoreAppliedReply | undefined) => void
     readonly reject: (error: Error) => void
@@ -493,6 +500,17 @@ export function createMuyaPlainTextCoreAdapter(
   }
   installBindings(bindings)
 
+  /** A native selection in source positions, each endpoint kept on its side. */
+  const sourceSelectionOf = (selection: MuyaPlainTextAuthorSelection): DocumentSelection | undefined => {
+    const anchor = sourceRangeForSelection({ anchor: selection.anchor, focus: selection.anchor }, true)
+    const focus = sourceRangeForSelection({ anchor: selection.focus, focus: selection.focus }, true)
+    return anchor === undefined || focus === undefined
+      ? undefined
+      : Object.freeze({
+        ranges: Object.freeze([Object.freeze({ anchor: anchor.start, focus: focus.start })]),
+        primary: 0
+      })
+  }
   const authorSourceRange = (
     target: MuyaPlainTextAuthorTarget
   ): Readonly<{ readonly start: number; readonly end: number }> | undefined =>
@@ -645,6 +663,12 @@ export function createMuyaPlainTextCoreAdapter(
       pump()
       return
     }
+    // Undo of a review command returns to the selection it ran with.
+    const reviewSelection =
+      (command.kind === 'resolve' || command.kind === 'resolve-all' || command.kind === 'edit-comment') &&
+      command.selection !== undefined
+        ? sourceSelectionOf(command.selection)
+        : undefined
     let inputAction: DocumentInputAction | undefined
     if (command.kind === 'track') {
       const { historyGroup: _historyGroup, ...action } = command.input
@@ -717,6 +741,7 @@ export function createMuyaPlainTextCoreAdapter(
                       authoredRevision: command.authoredRevision,
                       annotation: command.annotation,
                       decision: command.decision,
+                      ...(reviewSelection === undefined ? {} : { selection: reviewSelection }),
                       projections: regionalMarkup
                         ? Object.freeze(['markup'] as const)
                         : Object.freeze([])
@@ -725,6 +750,7 @@ export function createMuyaPlainTextCoreAdapter(
                       ? Object.freeze({
                         kind: 'resolve-all' as const,
                         decision: command.decision,
+                        ...(reviewSelection === undefined ? {} : { selection: reviewSelection }),
                         projections: Object.freeze([])
                       })
                       : command.kind === 'edit-comment'
@@ -733,6 +759,7 @@ export function createMuyaPlainTextCoreAdapter(
                           authoredRevision: command.authoredRevision,
                           annotation: command.annotation,
                           text: command.text,
+                          ...(reviewSelection === undefined ? {} : { selection: reviewSelection }),
                           projections: Object.freeze([])
                         })
                         : Object.freeze({
@@ -1448,7 +1475,8 @@ export function createMuyaPlainTextCoreAdapter(
       annotation: CoreReviewItemLocator,
       authoredRevision: number,
       decision: CoreReviewDecision,
-      reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
+      reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
+      selection?: MuyaPlainTextAuthorSelection
     ): Promise<CoreAppliedReply | undefined> {
       if (disposed) return Promise.reject(new Error('Core Muya adapter is disposed'))
       if (terminalError !== undefined) return Promise.reject(terminalError)
@@ -1479,6 +1507,7 @@ export function createMuyaPlainTextCoreAdapter(
             annotation: captured,
             authoredRevision,
             decision,
+            ...(selection === undefined ? {} : { selection }),
             reconcile,
             resolve,
             reject
@@ -1489,7 +1518,8 @@ export function createMuyaPlainTextCoreAdapter(
     },
     resolveAll(
       decision: 'accept' | 'reject',
-      reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
+      reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
+      selection?: MuyaPlainTextAuthorSelection
     ): Promise<CoreAppliedReply | undefined> {
       if (disposed) return Promise.reject(new Error('Core Muya adapter is disposed'))
       if (terminalError !== undefined) return Promise.reject(terminalError)
@@ -1506,6 +1536,7 @@ export function createMuyaPlainTextCoreAdapter(
           Object.freeze({
             kind: 'resolve-all',
             decision,
+            ...(selection === undefined ? {} : { selection }),
             reconcile,
             resolve,
             reject
@@ -1518,7 +1549,8 @@ export function createMuyaPlainTextCoreAdapter(
       annotation: CoreReviewItemLocator,
       authoredRevision: number,
       text: string,
-      reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings
+      reconcile: (outcome: CoreAppliedReply) => MuyaPlainTextBindings,
+      selection?: MuyaPlainTextAuthorSelection
     ): Promise<CoreAppliedReply | undefined> {
       if (disposed) return Promise.reject(new Error('Core Muya adapter is disposed'))
       if (terminalError !== undefined) return Promise.reject(terminalError)
@@ -1552,6 +1584,7 @@ export function createMuyaPlainTextCoreAdapter(
             annotation: captured,
             authoredRevision,
             text,
+            ...(selection === undefined ? {} : { selection }),
             reconcile,
             resolve,
             reject

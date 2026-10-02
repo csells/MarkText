@@ -187,7 +187,9 @@ describe('canonical transaction history selection', () => {
   it.each([
     { beforeSelection: selectionSet(0, 4), afterSelection: selectionSet(1, 1) },
     { beforeSelection: selectionSet(0, 3), afterSelection: selectionSet(2, 2) },
-    { beforeSelection: selectionSet(0, 3) },
+    // A review command keeps only the selection its undo restores; a redo
+    // selection without one is not a transaction Core records.
+    { afterSelection: selectionSet(1, 1) },
     { beforeSelection: selectionSet(Number.NaN, 3), afterSelection: selectionSet(1, 1) }
   ])('rejects invalid checkpoint transaction selection $beforeSelection', (selection) => {
     const binding = createEditorCoreBinding(createLocalCoreOwner())
