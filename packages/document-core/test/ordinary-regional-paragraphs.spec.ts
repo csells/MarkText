@@ -295,4 +295,46 @@ describe('Ordinary paragraphs in the regional annotation inventory', () => {
     expect(core.project(result.revision, 'markup').events).toEqual(oracle.project(expected, 'markup').events)
     expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
   })
+  // A Substitution of a whole block before a block it runs into, a literal
+  // block read whole as the context after it, and a suggestion typed over a
+  // selected one all read from their blocks.
+  const html = '<div>\n' + Array.from({ length: 5 }, (_, index) => `html ${index}`).join('\n') + '\n</div>'
+  const math = '$$\n' + Array.from({ length: 5 }, (_, index) => `x_{${index}} + y`).join('\n') + '\n$$'
+  it.each([
+    {
+      label: 'a fenced code block before an HTML block and a math block',
+      blocks: '```js\nconst a = 1\nconst b = 2\n```\n\n' + html + '\n\n' + math + '\n\n',
+      old: '```js\nconst a = 1\nconst b = 2\n```\n',
+      insert: '{~~```js\nconst a = 1\nconst b = 2\n```\n~>```js\nconst a = 1\nconst {--d--}b = 2\n```\n~~}'
+    },
+    {
+      label: 'an HTML block before an HTML block and a math block',
+      blocks: html + '\n\n' + html + '\n\n' + math + '\n\n',
+      old: html + '\n',
+      insert: '{~~' + html + '\n~>' + html.replace('html 0', 'html word0') + '\n~~}'
+    },
+    {
+      label: 'a Deletion typed over in a document with code spans',
+      blocks: 'Code `x` here.\n\n- item {++one++}\n- item {--two--}\n\n',
+      old: '{--two--}',
+      insert: '{~~two~>q~~}'
+    }
+  ])('reads $label from its blocks', ({ blocks, old, insert }) => {
+    const source = 'ordinary target\n\n' + blocks + suffix
+    const core = createDocumentCore()
+    const revision = core.apply(core.open(source), [{ start: 1, end: 1, insert: 'q' }], { projections: ['markup'] }).revision
+    const start = revision.source.indexOf(old)
+    const before = inspectDocumentCore(core)
+    const result = core.apply(revision, [{ start, end: start + old.length, insert }], { projections: ['markup'] })
+    expect(result.change.projections[0]?.scope).toBe('regions')
+    expect(inspectDocumentCore(core).documentParses - before.documentParses).toBe(0)
+    const oracle = createDocumentCore()
+    const expected = oracle.open(result.revision.source)
+    expect(result.revision.annotations).toEqual(expected.annotations)
+    expect(result.revision.diagnostics).toEqual(expected.diagnostics)
+    expect(core.project(result.revision, 'markup').syntax.ast).toEqual(oracle.project(expected, 'markup').syntax.ast)
+    for (const name of ['original', 'revised'] as const) {
+      expect(core.project(result.revision, name).markdown).toBe(oracle.project(expected, name).markdown)
+    }
+  })
 })

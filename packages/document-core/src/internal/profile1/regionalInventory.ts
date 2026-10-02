@@ -3170,8 +3170,18 @@ function lastBlockEndsBefore(products: Profile1DocumentProducts): boolean {
   const editing = products.editing()
   const root = editing.markdown.root
   const last = root.childCount === 0 ? undefined : root.childAt(root.childCount - 1)
-  return last !== undefined && /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)[ \t\r\n]*$/u.test(editing.source.slice(last.range.end)) &&
-    /^[ \t\r\n]*$/u.test(editing.source.slice(last.range.end))
+  if (last === undefined) return false
+  // An HTML block of the kinds a blank line ends holds its last line ending,
+  // so the blank line after that ends it. A comment, a processing
+  // instruction, a declaration, CDATA or a raw-text element reads on past a
+  // blank line to its own end, as an indented code block does.
+  const text = editing.source.slice(last.range.start, last.range.end)
+  const ending = last.kind === 'html-block' &&
+    !/^ {0,3}<(?:(?:script|pre|style|textarea)(?:[ \t>]|$)|!--|\?|![A-Za-z]|!\[CDATA\[)/iu.test(text)
+    ? /(?:\r\n|\r|\n)$/u.exec(text)?.[0] ?? ''
+    : ''
+  const after = ending + editing.source.slice(last.range.end)
+  return /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)[ \t\r\n]*$/u.test(after) && /^[ \t\r\n]*$/u.test(after)
 }
 
 /** Whether the first line holding text at or after `offset` is indented as code. */
@@ -3574,9 +3584,10 @@ const MARKER_CLOSER: Readonly<Record<string, string>> = Object.freeze({
 })
 
 /**
- * Whether `edit` removes no marker spelling and inserts only whole
- * suggestions: openers and closers that pair with each other in order, with
- * a Substitution's divider inside it, and no spellings that overlap.
+ * Whether `edit` removes only whole suggestions, or markers it spells again,
+ * and inserts only whole suggestions: openers and closers that pair with each
+ * other in order, with a Substitution's divider inside it, and no spellings
+ * that overlap.
  */
 function balancedInsertion(previousSource: CanonicalSourceView, edit: RetainedPassSourceEdit): boolean {
   const removed = previousSource.slice(edit.start, edit.end)
@@ -3595,7 +3606,9 @@ function balancedInsertion(previousSource: CanonicalSourceView, edit: RetainedPa
   // its opener after the new suggestions.
   const removedSpellings = spelled(removed).join(' ')
   let spellings = spelled(edit.insert)
-  if (removedSpellings !== '') {
+  // Whole suggestions the edit removes paired only with each other, as one
+  // a selection typed over replaces.
+  if (removedSpellings !== '' && !wholeSuggestions(spelled(removed))) {
     const count = removedSpellings.split(' ').length
     if (spellings.slice(-count).join(' ') === removedSpellings) spellings = spellings.slice(0, -count)
     else if (spellings.slice(0, count).join(' ') === removedSpellings) spellings = spellings.slice(count)
@@ -3609,8 +3622,13 @@ function balancedInsertion(previousSource: CanonicalSourceView, edit: RetainedPa
   const last = spellings.at(-1)
   const split = spellings.length > 1 && first !== undefined && last !== undefined && first !== '~~}' &&
     Object.values(MARKER_CLOSER).includes(first) && MARKER_CLOSER[last] === first
+  return wholeSuggestions(split ? spellings.slice(1, -1) : spellings)
+}
+
+/** Whether marker `spellings` open and close in order, with each divider inside a Substitution. */
+function wholeSuggestions(spellings: readonly string[]): boolean {
   const open: string[] = []
-  for (const spelling of split ? spellings.slice(1, -1) : spellings) {
+  for (const spelling of spellings) {
     const closer = MARKER_CLOSER[spelling]
     if (closer !== undefined) open.push(closer)
     else if (spelling === '~>') {
@@ -3847,7 +3865,12 @@ function evaluateBlockWindow(
     }
     // A literal block's later line read as context reads otherwise alone, so its whole block is.
     const first = context === undefined || context === edited ? context : literalContextStart(inventory, context)
-    const last = contextAfter(previousSource, after, editedEnd, !pairingChanged)
+    const cleanAfter = contextAfter(previousSource, after, editedEnd, !pairingChanged)
+    // So does a literal block's first line read as context after them, but
+    // for a long one, whose first line is read alone.
+    const last = cleanAfter === undefined || cleanAfter === editedEnd
+      ? cleanAfter
+      : literalContextEnd(inventory, cleanAfter) ?? cleanAfter
     if (first === undefined || last === undefined) return undefined
     const nextWindow = nextSource.slice(first.source, last.source + delta)
     const atDocumentEnd = last.source + delta === nextSource.length
