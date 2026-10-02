@@ -11,7 +11,8 @@ import type {
 } from '@marktext/document-core'
 import type { CoreReviewItemLocator, CoreReviewOverviewEntry } from './coreProtocol'
 import { commentPassage, documentArmPassage } from '../documentConsumers/markupPassage'
-import { markupRegionCoordinates } from './muyaMarkupChanges'
+import { literalChildText, markupRegionCoordinates } from './muyaMarkupChanges'
+import type { MarkupPassage } from '../documentConsumers/markupPassage'
 
 /**
  * What the Review overview reads of a revision: its whole document, or the
@@ -251,6 +252,98 @@ const readingEntries = (reading: ReviewReading): CoreReviewOverviewEntry[] => {
 const shiftedRange = (range: SourceRange, delta: number): SourceRange =>
   Object.freeze({ start: range.start + delta, end: range.end + delta })
 
+const shiftedNode = (node: MarkdownAstNode, at: number, delta: number): MarkdownAstNode => {
+  const moved = (position: number): number => position >= at ? position + delta : position
+  let attributes: Record<string, MarkdownAstNode['attributes'][string]> | undefined
+  for (const key in node.attributes) {
+    const value = node.attributes[key]
+    if (typeof value !== 'number' || !/(?:Start|End)$/u.test(key) || moved(value) === value) continue
+    attributes ??= { ...node.attributes }
+    attributes[key] = moved(value)
+  }
+  return Object.freeze({
+    ...node,
+    range: Object.freeze({ start: moved(node.range.start), end: moved(node.range.end) }),
+    attributes: attributes === undefined ? node.attributes : Object.freeze(attributes),
+    ...(node.semanticTextSegments === undefined
+      ? {}
+      : {
+        semanticTextSegments: Object.freeze(node.semanticTextSegments.map((segment) =>
+          Object.freeze({ ...segment, range: Object.freeze({ start: moved(segment.range.start), end: moved(segment.range.end) }) })))
+      }),
+    children: Object.freeze(node.children.map((child) => shiftedNode(child, at, delta)))
+  })
+}
+
+/**
+ * An arm's passage after a literal lines replacement inside the arm's one
+ * block: its other lines stay, the replaced ones read from the reply, and
+ * the block and marks end later. Undefined when the passage holds more than
+ * that block.
+ */
+function armLinesPassage(
+  passage: MarkupPassage,
+  replacement: MarkupRegionReplacement,
+  base: number
+): MarkupPassage | undefined {
+  const lines = replacement.literalLines
+  const block = passage.ast.root.children[0]
+  if (lines?.sourceStart === undefined || passage.range === undefined || block === undefined ||
+      passage.ast.root.children.length !== 1) return undefined
+  const at = replacement.previous.syntax.start + lines.sourceStart - replacement.previous.source.start - base
+  const delta = replacement.next.syntax.end - replacement.previous.syntax.end
+  const inserted = replacement.syntaxBlocks.map((child) => shiftedNode(child, -Infinity, -base))
+  // The passage holds the children of its own arm's lines, which an indented
+  // code block shared by both arms may not count the replaced lines among.
+  const previousEnd = at + lines.source.length - delta
+  let first = 0
+  while (first < block.children.length && (block.children[first]?.range.start ?? at) < at) first += 1
+  const holds = block.children.some((child) => child.range.start >= at && child.range.start < previousEnd)
+  const last = holds ? first + lines.previousChildren : first
+  if (last > block.children.length) return undefined
+  // The block's text holds every line, two children each, a line break
+  // after each but the last.
+  const content = block.attributes['content']
+  let textStart = 0
+  let textEnd = 0
+  if (typeof content === 'string') {
+    const breaks = [0, ...[...content.matchAll(/\n/gu)].map((match) => match.index + 1)]
+    const line = Math.floor(lines.childrenBefore / 2)
+    textStart = breaks[line] ?? content.length
+    textEnd = breaks[line + lines.previousLines] ?? content.length
+    // Lines ending the block, the last without a break child, keep the
+    // line break the block's text ends with.
+    if (lines.previousChildren % 2 === 1 && content.charAt(textEnd - 1) === '\n') textEnd -= 1
+  }
+  // The lines' own start stays, as the block's content start may be.
+  const shifted = shiftedNode({ ...block, children: [] }, at + 1, delta)
+  const moved = (position: number): number => position > at ? position + delta : position
+  const patched: MarkdownAstNode = Object.freeze({
+    ...shifted,
+    attributes: typeof content === 'string'
+      ? Object.freeze({
+        ...shifted.attributes,
+        content: content.slice(0, textStart) + inserted.map(literalChildText).join('') + content.slice(textEnd)
+      })
+      : shifted.attributes,
+    children: Object.freeze([
+      ...block.children.slice(0, first),
+      ...(holds ? inserted : []),
+      ...block.children.slice(last).map((child) => shiftedNode(child, -Infinity, delta))
+    ])
+  })
+  const end = passage.ast.root.range.end + delta
+  return Object.freeze({
+    ast: Object.freeze({
+      root: Object.freeze({ ...passage.ast.root, range: Object.freeze({ start: 0, end }), children: Object.freeze([patched]) })
+    }),
+    marks: Object.freeze(passage.marks.map((mark) => mark.end > at
+      ? Object.freeze({ ...mark, start: moved(mark.start), end: moved(mark.end) })
+      : mark)),
+    range: Object.freeze({ start: moved(passage.range.start), end: moved(passage.range.end) })
+  })
+}
+
 const shiftedEntry = (entry: CoreReviewOverviewEntry, delta: number): CoreReviewOverviewEntry => {
   if (delta === 0) return entry
   const { item } = entry
@@ -320,8 +413,81 @@ export const createReviewOverviewTracker = (): ReviewOverviewTracker => {
     slot: Extract<OverviewSlot, { kind: 'region' }>
   ): CoreReviewOverviewEntry[] => readingEntries(regionReading(core, slot.revision, slot.replacement))
 
+  /**
+   * Follows lines replaced inside a suggestion arm's literal block: the
+   * suggestion's entry keeps its place and its arm's passage takes the lines.
+   */
+  const replaceArmLines = (replacement: MarkupRegionReplacement, next: DocumentRevision): boolean => {
+    const lines = replacement.literalLines
+    if (tracked === undefined || lines?.sourceStart === undefined) return false
+    const { slots } = tracked
+    const shift = replacement.next.source.end - replacement.previous.source.end
+    const from = lines.sourceStart
+    const to = from + lines.source.length - shift
+    const index = slots.findIndex((slot) => slotRange(slot).start <= from && to <= slotRange(slot).end)
+    const slot = slots[index]
+    if (slot === undefined) return false
+    if (slot.kind === 'region') {
+      slots.splice(index, 1, ...entrySlots(regionEntries(tracked.core, slot), slot.delta))
+      return replaceArmLines(replacement, next)
+    }
+    // The suggestion holding the lines, and the arm they are in.
+    const annotation = next.annotations.find((candidate) => candidate.range.start <= from && to + shift <= candidate.range.end)
+    const arm = annotation?.arms.find((candidate) => candidate.range.start <= from && to + shift <= candidate.range.end)
+    if (annotation === undefined || arm === undefined) return false
+    const { entry } = slot
+    const key = arm.name === 'new' ? 'replacementExcerpt' : 'excerpt'
+    const other = arm.name === 'new' ? 'excerpt' : 'replacementExcerpt'
+    const passage = entry[key]
+    if (passage?.range === undefined) return false
+    // Positions are relative to the arm's first block; the arm starts the event.
+    const base = replacement.previous.syntax.start - passage.range.start
+    const patched = armLinesPassage(passage, replacement, base)
+    if (patched === undefined) return false
+    // An indented code block reads both arms of a Substitution as one, so
+    // the other arm's passage holds the lines too.
+    const otherPassage = entry[other]
+    const shared = otherPassage?.range !== undefined &&
+      (otherPassage.range.end <= passage.range.start || passage.range.end <= otherPassage.range.start)
+    const otherPatched = shared && otherPassage !== undefined ? armLinesPassage(otherPassage, replacement, base) : otherPassage
+    if (shared && otherPatched === undefined) return false
+    // A block that other suggestions' passages also read, as an indented
+    // code block holding several, would change in their entries too.
+    const block = passage.ast.root.children[0]
+    const ranges = [passage.range, ...(shared && otherPassage?.range !== undefined ? [otherPassage.range] : [])]
+    if (block === undefined || Math.min(...ranges.map((range) => range.start)) !== 0 ||
+        Math.max(...ranges.map((range) => range.end)) < block.range.end - 1) return false
+    // The suggestion holding the lines keeps its start and moves its end.
+    const moved = (range: SourceRange): SourceRange =>
+      Object.freeze({ start: range.start, end: range.end >= to ? range.end + shift : range.end })
+    const item = entry.item
+    slots[index] = {
+      kind: 'entry',
+      delta: 0,
+      entry: Object.freeze({
+        ...shiftedEntry(entry, slot.delta),
+        [key]: patched,
+        ...(otherPatched === undefined ? {} : { [other]: otherPatched }),
+        item: Object.freeze(item.kind === 'commented-span'
+          ? {
+            ...item,
+            range: moved(shiftedRange(item.range, slot.delta)),
+            highlightRange: moved(shiftedRange(item.highlightRange, slot.delta)),
+            commentRange: shiftedRange(item.commentRange, slot.delta + shift)
+          }
+          : { ...item, range: moved(shiftedRange(item.range, slot.delta)) })
+      })
+    }
+    for (let later = index + 1; later < slots.length; later += 1) {
+      const moving = slots[later]
+      if (moving !== undefined) moving.delta += shift
+    }
+    return true
+  }
+
   const replace = (replacement: MarkupRegionReplacement, next: DocumentRevision, offset: number): boolean => {
     if (tracked === undefined) return false
+    if (replacement.literalLines?.sourceStart !== undefined) return offset === 0 && replaceArmLines(replacement, next)
     // Suggestions in items replaced inside a list read with the whole list
     // around them, which the region does not hold.
     if (replacement.listItems !== undefined && replacement.annotations.length > 0) return false

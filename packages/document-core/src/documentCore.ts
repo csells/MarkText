@@ -54,12 +54,14 @@ import {
   regionalInventoryRootRanges,
   regionalInventoryListRange,
   regionalInventoryLiteralRange,
+  regionalInventoryLeaves,
   regionalInventorySplitsLists,
   regionalLeafPoints,
   regionalRangeWindow,
   strayMarkersStayLocal,
   referenceDependencyPrefixEnd,
   type RegionalInventory,
+  type RegionalInventoryAdmission,
   type RegionalInventoryPreview,
   type RegionalInventoryRecorder
 } from './internal/profile1/regionalInventory.js'
@@ -75,7 +77,7 @@ import {
   type PersistentCanonicalSource,
   type PersistentCanonicalSourceRecorder
 } from './internal/persistentCanonicalSource.js'
-import { plansFromDocumentParse, registerDocumentCoreInspection } from './internal/documentCoreInspection.js'
+import { plansFromDocumentParse, registerDocumentCoreInspection, registerRegionalLeaves } from './internal/documentCoreInspection.js'
 import { registerAnnotationsAround } from './internal/annotationsAround.js'
 import {
   createRevisionProductStore,
@@ -454,7 +456,21 @@ export interface MarkupRegionReplacement {
     readonly previousChildren: number
     /** The replaced lines' canonical source. */
     readonly source: string
+    /**
+     * Where the replaced lines start in the source, when the replaced span
+     * holds more than those lines (see `enclosing`).
+     */
+    readonly sourceStart?: number
   }>
+  /**
+   * Present when the replaced lines are lines of a literal block that is
+   * the whole text of a suggestion's arm: the replaced span is the text
+   * event holding the block, and these are the previous source ranges of
+   * the suggestions holding it, which keep their starts and whose ends move
+   * with the edit; the Markup marks of those suggestions outside the
+   * replaced span read their ranges so.
+   */
+  readonly enclosing?: readonly SourceRange[]
 }
 
 export interface MarkupRegionProjectionChange {
@@ -3063,6 +3079,67 @@ function createDocumentCoreWithExecutionBudget(
     return undefined
   }
 
+  /**
+   * The Markup reply for lines of a literal block that is the whole text of
+   * a suggestion's arm (see `RegionalInventoryAdmission.armLines`): the text
+   * event holding the block, its replaced lines' nodes from the window of
+   * those lines, and the suggestions holding it.
+   */
+  const armLinesChange = (
+    admission: RegionalInventoryAdmission,
+    source: PersistentCanonicalSource
+  ): DocumentProjectionChange => {
+    const arm = admission.armLines
+    const lines = admission.literalLines
+    const block = admission.nextProducts.editing().markdown.root.childAt(0)
+    if (arm === undefined || lines === undefined) throw new Error('Arm lines need their lines')
+    const ast = markdownAstOf(admission.nextProducts.editing()).root.children[0]
+    if (ast === undefined || block === undefined) throw new Error('Arm lines need their block')
+    const shift = arm.syntax - arm.lines.start
+    const syntaxBlocks = Object.freeze(ast.children
+      .filter(child => child.range.start >= arm.lines.start &&
+        (child.range.start < arm.lines.end || (child.range.start === arm.lines.end && child.range.end === arm.lines.end &&
+          arm.lines.start === arm.lines.end)))
+      .map(child => shiftMarkdownAstNode(child, shift)))
+    const next = admission.next
+    const text = source.slice(next.source.start, next.source.end)
+    return Object.freeze({
+      name: 'markup' as const,
+      scope: 'regions' as const,
+      replacements: Object.freeze([Object.freeze({
+        previous: admission.previous,
+        next: admission.next,
+        events: Object.freeze([Object.freeze({
+          kind: 'text' as const,
+          text,
+          sourceRange: Object.freeze({ start: next.source.start, end: next.source.end })
+        })]),
+        syntaxBlocks,
+        coordinates: Object.freeze([Object.freeze({
+          projected: Object.freeze({ start: next.syntax.start, end: next.syntax.end }),
+          source: Object.freeze({ start: next.source.start, end: next.source.end })
+        })]),
+        annotations: Object.freeze([]),
+        literalLines: Object.freeze({
+          block: Object.freeze({
+            kind: ast.kind,
+            range: Object.freeze({ start: next.syntax.start, end: next.syntax.end }),
+            attributes: Object.freeze(Object.fromEntries(Object.entries(ast.attributes).filter(([name, value]) =>
+              name !== 'content' && !(typeof value === 'number' && /(?:Start|End)$/u.test(name))))),
+            children: Object.freeze([])
+          }),
+          linesBefore: lines.linesBefore,
+          childrenBefore: lines.childrenBefore,
+          previousLines: lines.previousLines,
+          previousChildren: lines.previousChildren,
+          source: admission.nextWindow.slice(arm.lines.start, arm.lines.end),
+          sourceStart: arm.source
+        }),
+        enclosing: arm.enclosing
+      }) satisfies MarkupRegionReplacement])
+    })
+  }
+
   const tryInventoryRegionalApply = (
     previousState: RevisionState,
     source: PersistentCanonicalSource,
@@ -3126,187 +3203,202 @@ function createDocumentCoreWithExecutionBudget(
         countCriticMarkupAnnotationNodes(value.annotations)
       return value
     }
-    const materialized = materializedFor(admission.nextProducts)
-    const markup = markupProjectionOf(
-      admission.nextProducts,
-      materialized.rangeByNodeId,
-      admission.nextWindow.length,
-      !admission.strayMarkers
-    )
-    // Products parsed with unchanged context contribute only the replaced
-    // blocks; their offsets are relative to the whole parsed window.
-    const window = admission.window ?? {
-      source: admission.next.source.start,
-      syntax: admission.next.syntax.start,
-      blocks: {
-        source: { start: 0, end: admission.nextWindow.length },
-        syntax: { start: 0, end: Number.POSITIVE_INFINITY }
-      }
-    }
-    const { blocks } = window
-    // Items of a list share its text runs, which the replaced items' bounds cut.
-    const listItems = admission.listItems
-    const list = listItems === undefined
-      ? undefined
-      : markup.syntax.ast.root.children.find(child => child.kind === 'list' &&
-        child.range.start <= blocks.syntax.start && blocks.syntax.start < child.range.end)
-    if (listItems !== undefined && list === undefined) {
-      return Object.freeze({ kind: 'fallback', reason: 'structural-region-ineligible' })
-    }
-    // Lines of a literal block: its window's one block stands for the whole.
-    const literalLines = admission.literalLines
-    const literalBlock = literalLines === undefined ? undefined : markup.syntax.ast.root.children[0]
-    if (literalLines !== undefined && literalBlock === undefined) {
-      return Object.freeze({ kind: 'fallback', reason: 'structural-region-ineligible' })
-    }
-    const eventsWithin = (start: number, end: number): readonly MarkupEvent[] => markup.events.flatMap((event): MarkupEvent[] => {
-      if (event.kind !== 'text') {
-        return event.mark.annotationRange.start >= start && event.mark.annotationRange.end <= end ? [event] : []
-      }
-      const from = Math.max(start, event.sourceRange.start)
-      const to = Math.min(end, event.sourceRange.end)
-      if (from >= to) return []
-      if (from === event.sourceRange.start && to === event.sourceRange.end) return [event]
-      return [Object.freeze({
-        ...event,
-        text: event.text.slice(from - event.sourceRange.start, to - event.sourceRange.start),
-        sourceRange: Object.freeze({ start: from, end: to })
-      })]
-    })
-    const events = shiftRegionalMarkupEvents(
-      admission.window === undefined
-        ? markup.events
-        : list !== undefined || literalBlock !== undefined
-          ? eventsWithin(blocks.source.start, blocks.source.end)
-          : markup.events.filter(event => event.kind === 'text'
-            ? event.sourceRange.start >= blocks.source.start && event.sourceRange.end <= blocks.source.end
-            : event.mark.annotationRange.start >= blocks.source.start && event.mark.annotationRange.end <= blocks.source.end),
-      window.source
-    )
-    const syntaxBlocks = Object.freeze((literalBlock?.children ?? list?.children ?? markup.syntax.ast.root.children)
-      .filter(child => admission.window === undefined ||
-        (child.range.start >= blocks.syntax.start && child.range.start < blocks.syntax.end) ||
-        // An empty paragraph on a whitespace-only last line sits at the
-        // document's end, which is also the end of blocks reaching it.
-        (child.range.start === blocks.syntax.end && child.range.end === child.range.start &&
-          admission.next.source.end === source.length))
-      .map(child => shiftMarkdownAstNode(child, window.syntax)))
-    const markupCoordinates: MarkupCoordinateSegment[] = []
-    // A reply's coordinates omit generated text, which a view reads as
-    // generated at the source where the next canonical run starts; text
-    // generated there, as the blank line parting a Substitution's old block
-    // from its new one, needs no run of its own.
-    const tape = admission.nextProducts.editing().mappedTape
-    const readsAsGap = (ordinal: number): boolean => {
-      const segment = tape[ordinal]
-      const next = tape.slice(ordinal + 1).find(candidate => candidate.kind === 'canonical')
-      return segment?.kind === 'generated' && segment.affinity === 'next' && next?.kind === 'canonical' &&
-        next.sourceStart === segment.sourcePosition
-    }
-    for (const [ordinal, segment] of tape.entries()) {
-      if (segment.kind !== 'canonical') {
-        if (admission.strayMarkers || readsAsGap(ordinal)) continue
-        return Object.freeze({
-          kind: 'fallback',
-          reason: 'structural-region-ineligible'
-        })
-      }
-      const projectedStart = Math.max(segment.projectedStart, blocks.syntax.start)
-      const projectedEnd = Math.min(segment.projectedEnd, blocks.syntax.end)
-      if (projectedEnd <= projectedStart && admission.window !== undefined) continue
-      const sourceStart = segment.sourceStart + projectedStart - segment.projectedStart
-      markupCoordinates.push(Object.freeze({
-        projected: Object.freeze({
-          start: window.syntax + projectedStart,
-          end: window.syntax + projectedEnd
-        }),
-        source: Object.freeze({
-          start: window.source + sourceStart,
-          end: window.source + sourceStart + projectedEnd - projectedStart
-        })
-      }))
-    }
     const projections: DocumentProjectionChange[] = []
-    if (requests.markup) {
-      const replacement = Object.freeze({
-        previous: admission.previous,
-        next: Object.freeze({
-          source: admission.next.source,
-          syntax: admission.next.syntax,
-          events: Object.freeze({
-            start: admission.previous.events.start,
-            end: admission.previous.events.start + events.length
+    let counted: Readonly<{
+      events: readonly MarkupEvent[]
+      blocks: readonly MarkdownAstNode[]
+      coordinates: readonly MarkupCoordinateSegment[]
+    }> = { events: [], blocks: [], coordinates: [] }
+    if (admission.armLines !== undefined) {
+      const change = armLinesChange(admission, source)
+      const replacement = change.name === 'markup' && change.scope === 'regions' ? change.replacements[0] : undefined
+      if (replacement !== undefined) {
+        counted = { events: replacement.events, blocks: replacement.syntaxBlocks, coordinates: replacement.coordinates }
+      }
+      if (requests.markup) projections.push(change)
+    } else {
+      const materialized = materializedFor(admission.nextProducts)
+      const markup = markupProjectionOf(
+        admission.nextProducts,
+        materialized.rangeByNodeId,
+        admission.nextWindow.length,
+        !admission.strayMarkers
+      )
+      // Products parsed with unchanged context contribute only the replaced
+      // blocks; their offsets are relative to the whole parsed window.
+      const window = admission.window ?? {
+        source: admission.next.source.start,
+        syntax: admission.next.syntax.start,
+        blocks: {
+          source: { start: 0, end: admission.nextWindow.length },
+          syntax: { start: 0, end: Number.POSITIVE_INFINITY }
+        }
+      }
+      const { blocks } = window
+      // Items of a list share its text runs, which the replaced items' bounds cut.
+      const listItems = admission.listItems
+      const list = listItems === undefined
+        ? undefined
+        : markup.syntax.ast.root.children.find(child => child.kind === 'list' &&
+          child.range.start <= blocks.syntax.start && blocks.syntax.start < child.range.end)
+      if (listItems !== undefined && list === undefined) {
+        return Object.freeze({ kind: 'fallback', reason: 'structural-region-ineligible' })
+      }
+      // Lines of a literal block: its window's one block stands for the whole.
+      const literalLines = admission.literalLines
+      const literalBlock = literalLines === undefined ? undefined : markup.syntax.ast.root.children[0]
+      if (literalLines !== undefined && literalBlock === undefined) {
+        return Object.freeze({ kind: 'fallback', reason: 'structural-region-ineligible' })
+      }
+      const eventsWithin = (start: number, end: number): readonly MarkupEvent[] => markup.events.flatMap((event): MarkupEvent[] => {
+        if (event.kind !== 'text') {
+          return event.mark.annotationRange.start >= start && event.mark.annotationRange.end <= end ? [event] : []
+        }
+        const from = Math.max(start, event.sourceRange.start)
+        const to = Math.min(end, event.sourceRange.end)
+        if (from >= to) return []
+        if (from === event.sourceRange.start && to === event.sourceRange.end) return [event]
+        return [Object.freeze({
+          ...event,
+          text: event.text.slice(from - event.sourceRange.start, to - event.sourceRange.start),
+          sourceRange: Object.freeze({ start: from, end: to })
+        })]
+      })
+      const events = shiftRegionalMarkupEvents(
+        admission.window === undefined
+          ? markup.events
+          : list !== undefined || literalBlock !== undefined
+            ? eventsWithin(blocks.source.start, blocks.source.end)
+            : markup.events.filter(event => event.kind === 'text'
+              ? event.sourceRange.start >= blocks.source.start && event.sourceRange.end <= blocks.source.end
+              : event.mark.annotationRange.start >= blocks.source.start && event.mark.annotationRange.end <= blocks.source.end),
+        window.source
+      )
+      const syntaxBlocks = Object.freeze((literalBlock?.children ?? list?.children ?? markup.syntax.ast.root.children)
+        .filter(child => admission.window === undefined ||
+          (child.range.start >= blocks.syntax.start && child.range.start < blocks.syntax.end) ||
+          // An empty paragraph on a whitespace-only last line sits at the
+          // document's end, which is also the end of blocks reaching it.
+          (child.range.start === blocks.syntax.end && child.range.end === child.range.start &&
+            admission.next.source.end === source.length))
+        .map(child => shiftMarkdownAstNode(child, window.syntax)))
+      const markupCoordinates: MarkupCoordinateSegment[] = []
+      // A reply's coordinates omit generated text, which a view reads as
+      // generated at the source where the next canonical run starts; text
+      // generated there, as the blank line parting a Substitution's old block
+      // from its new one, needs no run of its own.
+      const tape = admission.nextProducts.editing().mappedTape
+      const readsAsGap = (ordinal: number): boolean => {
+        const segment = tape[ordinal]
+        const next = tape.slice(ordinal + 1).find(candidate => candidate.kind === 'canonical')
+        return segment?.kind === 'generated' && segment.affinity === 'next' && next?.kind === 'canonical' &&
+          next.sourceStart === segment.sourcePosition
+      }
+      for (const [ordinal, segment] of tape.entries()) {
+        if (segment.kind !== 'canonical') {
+          if (admission.strayMarkers || readsAsGap(ordinal)) continue
+          return Object.freeze({
+            kind: 'fallback',
+            reason: 'structural-region-ineligible'
           })
-        }),
-        events,
-        syntaxBlocks,
-        coordinates: Object.freeze(markupCoordinates),
-        annotations: regionalAnnotations(
-          materialized.annotations, window.source, blocks.source.start, blocks.source.end
-        ),
-        ...(admission.window === undefined || blocks.source.start === 0 || literalBlock !== undefined
-          ? {}
-          : {
-            precedingEvents: shiftRegionalMarkupEvents(
-              (list === undefined ? markup.events : eventsWithin(0, blocks.source.start))
-                .filter(event => event.kind === 'text' && event.sourceRange.end <= blocks.source.start),
-              window.source
-            ) as readonly Extract<MarkupEvent, { kind: 'text' }>[]
+        }
+        const projectedStart = Math.max(segment.projectedStart, blocks.syntax.start)
+        const projectedEnd = Math.min(segment.projectedEnd, blocks.syntax.end)
+        if (projectedEnd <= projectedStart && admission.window !== undefined) continue
+        const sourceStart = segment.sourceStart + projectedStart - segment.projectedStart
+        markupCoordinates.push(Object.freeze({
+          projected: Object.freeze({
+            start: window.syntax + projectedStart,
+            end: window.syntax + projectedEnd
           }),
-        ...(() => {
-          if (admission.window === undefined || literalBlock !== undefined) return {}
-          const next = (list?.children ?? markup.syntax.ast.root.children).find(child => child.range.start >= blocks.syntax.end &&
-            child.range.start > blocks.syntax.start)
-          if (next === undefined) return {}
-          const blockStart = markup.syntax.coordinates.toSource(next.range.start, 'previous')
-          return {
-            following: Object.freeze({
-              blockStart: window.source + blockStart,
-              events: shiftRegionalMarkupEvents(
-                (list === undefined ? markup.events : eventsWithin(blocks.source.end, blockStart))
-                  .filter(event => event.kind === 'text' &&
-                    event.sourceRange.start >= blocks.source.end && event.sourceRange.start < blockStart),
+          source: Object.freeze({
+            start: window.source + sourceStart,
+            end: window.source + sourceStart + projectedEnd - projectedStart
+          })
+        }))
+      }
+      if (requests.markup) {
+        const replacement = Object.freeze({
+          previous: admission.previous,
+          next: Object.freeze({
+            source: admission.next.source,
+            syntax: admission.next.syntax,
+            events: Object.freeze({
+              start: admission.previous.events.start,
+              end: admission.previous.events.start + events.length
+            })
+          }),
+          events,
+          syntaxBlocks,
+          coordinates: Object.freeze(markupCoordinates),
+          annotations: regionalAnnotations(
+            materialized.annotations, window.source, blocks.source.start, blocks.source.end
+          ),
+          ...(admission.window === undefined || blocks.source.start === 0 || literalBlock !== undefined
+            ? {}
+            : {
+              precedingEvents: shiftRegionalMarkupEvents(
+                (list === undefined ? markup.events : eventsWithin(0, blocks.source.start))
+                  .filter(event => event.kind === 'text' && event.sourceRange.end <= blocks.source.start),
                 window.source
               ) as readonly Extract<MarkupEvent, { kind: 'text' }>[]
+            }),
+          ...(() => {
+            if (admission.window === undefined || literalBlock !== undefined) return {}
+            const next = (list?.children ?? markup.syntax.ast.root.children).find(child => child.range.start >= blocks.syntax.end &&
+              child.range.start > blocks.syntax.start)
+            if (next === undefined) return {}
+            const blockStart = markup.syntax.coordinates.toSource(next.range.start, 'previous')
+            return {
+              following: Object.freeze({
+                blockStart: window.source + blockStart,
+                events: shiftRegionalMarkupEvents(
+                  (list === undefined ? markup.events : eventsWithin(blocks.source.end, blockStart))
+                    .filter(event => event.kind === 'text' &&
+                      event.sourceRange.start >= blocks.source.end && event.sourceRange.start < blockStart),
+                  window.source
+                ) as readonly Extract<MarkupEvent, { kind: 'text' }>[]
+              })
+            }
+          })(),
+          ...(literalLines === undefined || literalBlock === undefined
+            ? {}
+            : {
+              literalLines: Object.freeze({
+                block: Object.freeze({
+                  kind: literalBlock.kind,
+                  range: Object.freeze({ start: blocks.syntax.start + window.syntax, end: blocks.syntax.end + window.syntax }),
+                  attributes: Object.freeze(Object.fromEntries(Object.entries(literalBlock.attributes).filter(([name, value]) =>
+                    name !== 'content' && !(typeof value === 'number' && /(?:Start|End)$/u.test(name))))),
+                  children: Object.freeze([])
+                }),
+                linesBefore: literalLines.linesBefore,
+                childrenBefore: literalLines.childrenBefore,
+                previousLines: literalLines.previousLines,
+                previousChildren: literalLines.previousChildren,
+                source: admission.nextWindow.slice(blocks.source.start, blocks.source.end)
+              })
+            }),
+          ...(listItems === undefined || list === undefined
+            ? {}
+            : {
+              listItems: Object.freeze({
+                list: regionalListNode(listItems.key, list, window.syntax),
+                itemsBefore: listItems.itemsBefore,
+                previousItems: listItems.previousItems,
+                source: admission.nextWindow.slice(blocks.source.start, blocks.source.end)
+              })
             })
-          }
-        })(),
-        ...(literalLines === undefined || literalBlock === undefined
-          ? {}
-          : {
-            literalLines: Object.freeze({
-              block: Object.freeze({
-                kind: literalBlock.kind,
-                range: Object.freeze({ start: blocks.syntax.start + window.syntax, end: blocks.syntax.end + window.syntax }),
-                attributes: Object.freeze(Object.fromEntries(Object.entries(literalBlock.attributes).filter(([name, value]) =>
-                  name !== 'content' && !(typeof value === 'number' && /(?:Start|End)$/u.test(name))))),
-                children: Object.freeze([])
-              }),
-              linesBefore: literalLines.linesBefore,
-              childrenBefore: literalLines.childrenBefore,
-              previousLines: literalLines.previousLines,
-              previousChildren: literalLines.previousChildren,
-              source: admission.nextWindow.slice(blocks.source.start, blocks.source.end)
-            })
-          }),
-        ...(listItems === undefined || list === undefined
-          ? {}
-          : {
-            listItems: Object.freeze({
-              list: regionalListNode(listItems.key, list, window.syntax),
-              itemsBefore: listItems.itemsBefore,
-              previousItems: listItems.previousItems,
-              source: admission.nextWindow.slice(blocks.source.start, blocks.source.end)
-            })
-          })
-      }) satisfies MarkupRegionReplacement
-      projections.push(Object.freeze({
-        name: 'markup',
-        scope: 'regions',
-        replacements: Object.freeze([replacement])
-      }))
-    }
+        }) satisfies MarkupRegionReplacement
+        projections.push(Object.freeze({
+          name: 'markup',
+          scope: 'regions',
+          replacements: Object.freeze([replacement])
+        }))
+      }
 
+      counted = { events, blocks: syntaxBlocks, coordinates: markupCoordinates }
+    }
     const regionalComments: Array<
       RegionalRevisionState['regionalComments'][number]
     > = []
@@ -3418,15 +3510,15 @@ function createDocumentCoreWithExecutionBudget(
       recordPrepared(impact.nextProducts, impact.nextWindow.length)
     }
     inspection.regionalProjectionPreparationUnits += preparedSourceUnits
-    inspection.regionalMarkupEventUnits += events.reduce(
+    inspection.regionalMarkupEventUnits += counted.events.reduce(
       (total, event) => total + (event.kind === 'text' ? event.text.length : 1),
       0
     )
-    inspection.regionalAstMaterializedNodes += syntaxBlocks.reduce(
+    inspection.regionalAstMaterializedNodes += counted.blocks.reduce(
       (total, block) => total + countMarkdownAstNodes(block),
       0
     )
-    inspection.regionalCoordinateSegments += markupCoordinates.length
+    inspection.regionalCoordinateSegments += counted.coordinates.length
     return Object.freeze({
       kind: 'applied',
       revision,
@@ -4625,10 +4717,13 @@ function createDocumentCoreWithExecutionBudget(
     state: RevisionState,
     range: SourceRange
   ): ReturnType<typeof previewRegionalRange> => {
-    const validated = regionalReadWindow(state, range)
-    if (validated !== undefined || state.productStore.withRetained(() => true) === true) return validated
+    if (state.productStore.withRetained(() => true) === true) return undefined
     const inventory = state.regionalInventory ?? convertedRegionalInventory(state)
     if (inventory === undefined) return undefined
+    // Planning reads blocks alone, as a suggestion arm's lines read in place.
+    const validated = previewRegionalRange(inventory, state.source, range, executionBudget,
+      state.markdownOptions, regionalPhysicalRecorder, true)
+    if (validated !== undefined) return validated
     const window = regionalRangeWindow(inventory, state.source, range, executionBudget,
       state.markdownOptions, regionalPhysicalRecorder)
     if (window?.labelsOnly !== true) return undefined
@@ -5164,6 +5259,7 @@ function createDocumentCoreWithExecutionBudget(
     nextProducts: Profile1DocumentProducts
     nextWindow: string
     structural?: Readonly<{ touchesAnnotation: boolean, markerDelta: number }>
+    arm?: RegionalInventoryPreview['arm']
   }> | undefined => {
     const edits = Object.freeze([edit])
     const source = state.source.applyExact(edits, 'Authoring regional candidate')
@@ -5349,6 +5445,14 @@ function createDocumentCoreWithExecutionBudget(
     // needs the draft ownership checked below.
     if (candidate.structural !== undefined && (candidate.structural.markerDelta !== 0 ||
         (!tracked && candidate.structural.touchesAnnotation))) return undefined
+    // Lines of a literal block that is an arm's whole text: the window
+    // spells no suggestion, so the arm it reads them in is the inventory's.
+    const arm = candidate.arm
+    if (arm !== undefined) {
+      if (!tracked) return edit
+      const owned = arm.kind === 'addition' ? arm.name === 'content' : arm.kind === 'substitution' && arm.name === 'new'
+      return owned && arm.range.start < edit.start && edit.start + edit.insert.length < arm.range.end ? edit : undefined
+    }
     const start = edit.start - candidate.sourceStart
     const end = start + edit.insert.length
     let visible = false
@@ -5622,9 +5726,7 @@ function createDocumentCoreWithExecutionBudget(
     const text = source.slice(leaves.start, leaves.end)
     const blockStart = leaves.start
     const blockEnd = blockStart + text.replace(/(?:\r\n|\r|\n)[ \t\r\n]*$/u, '').length
-    // An HTML block may take a suggestion in its text, as its kind of HTML
-    // decides, so a key there is compiled with the document.
-    if (edit.start <= blockStart || edit.start >= blockEnd || /^ {0,3}</u.test(text)) return undefined
+    if (edit.start <= blockStart || edit.start >= blockEnd) return undefined
     const lineEnd = (offset: number): number => {
       const match = /\r\n|\r|\n/u.exec(source.slice(offset, blockEnd))
       return match === null ? blockEnd : offset + match.index + match[0].length
@@ -7511,6 +7613,11 @@ function createDocumentCoreWithExecutionBudget(
   registerAnnotationsAround(core, { around: rootsAround, overlapping: rootsOverlapping })
   sourceEditPreviews.set(core, previewSourceEdits)
   nativeEditPlanners.set(core, planNativeEdits)
+  registerRegionalLeaves(core, revision => {
+    const state = stateByRevision.get(revision as DocumentRevision)
+    const inventory = state === undefined ? undefined : state.regionalInventory ?? convertedRegionalInventory(state)
+    return inventory === undefined ? undefined : regionalInventoryLeaves(inventory)
+  })
   registerDocumentCoreInspection(core, () => {
     const documentPhysical = physicalRecorder.counts()
     const regionalPhysical = regionalPhysicalRecorder.counts()

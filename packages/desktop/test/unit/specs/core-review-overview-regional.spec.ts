@@ -116,4 +116,66 @@ describe('Review overview after regional edits', () => {
     expect(overview[opened.length].excerpt).toBe(opened[opened.length - 1].excerpt)
     expect(overview).toEqual(freshOverview(revision.source))
   })
+
+  // Lines typed in a suggestion arm's long literal block: the suggestion's
+  // entry takes them in its arm's passage, reading none of the block again.
+  const armLines = (count: number, line: (index: number) => string): string =>
+    Array.from({ length: count }, (_, index) => line(index)).join('\n')
+  const armBlocks = [
+    'Plain words here.',
+    '{~~```js\n' + armLines(6, (index) => `old ${index}`) + '\n```\n~>```js\n' + armLines(7, (index) => `new ${index}`) + '\n```\n~~}',
+    '{~~$$\n' + armLines(5, (index) => `x_${index}`) + '\n$$\n~>$$\n' + armLines(6, (index) => `y_${index} + 1`) + '\n$$\n~~}',
+    '{~~<div>\n' + armLines(5, (index) => `old html ${index}`) + '\n</div>\n~><div>\n' + armLines(5, (index) => `new html ${index}`) + '\n</div>\n~~}',
+    '{++~~~\n' + armLines(6, (index) => `added ${index}`) + '\n~~~\n++}',
+    '{--```\n' + armLines(5, (index) => `gone ${index}`) + '\n```\n--}',
+    '{~~' + armLines(5, (index) => `    old indented ${index}`) + '\n~>' + armLines(5, (index) => `    new indented ${index}`) + '\n~~}',
+    '{==```\n' + armLines(5, (index) => `marked ${index}`) + '\n```\n==}{>>a comment<<}'
+  ]
+  it.each(Array.from({ length: seeds }, (_, index) => first + index))('reads lines typed in suggestion arms as a fresh overview, seed %i', (seed) => {
+    const random = lcg(seed * 2203)
+    const count = 2 + Math.floor(random() * 5)
+    const source = Array.from({ length: count }, () => armBlocks[Math.floor(random() * armBlocks.length)]).join('\n\n') + '\n'
+    const core = createDocumentCore()
+    let revision: DocumentRevision = core.open(source)
+    const tracker = createReviewOverviewTracker()
+    tracker.overview(core, revision)
+    for (let step = 0; step < 12; step += 1) {
+      const text = revision.source
+      const inner = [...text.matchAll(/^ *(?:old|new|added|gone|marked|x_|y_)[^\n]*$/gmu)]
+      const line = inner[Math.floor(random() * inner.length)]
+      const start = line === undefined ? Math.floor(random() * (text.length + 1)) : line.index + Math.floor(random() * (line[0].length + 1))
+      const end = random() < 0.2 ? Math.min(text.length, start + 1 + Math.floor(random() * 3)) : start
+      const insert = end > start && random() < 0.5 ? '' : ['x', 'word', ' ', '\n', '\n\n'][Math.floor(random() * 5)]
+      const commit = core.apply(revision, [{ start, end, insert }], { projections: ['markup'] })
+      tracker.committed(revision, commit.revision, commit.change)
+      revision = commit.revision
+      if (random() < 0.5 || step === 11) {
+        expect(tracker.overview(core, revision), `${JSON.stringify(text)} [${start}, ${end}) ${JSON.stringify(insert)}`)
+          .toEqual(freshOverview(revision.source))
+      }
+    }
+  })
+
+  it.each([['proposed', 'new'], ['struck', 'old']])('reads lines typed in a long %s block without reading the block', (_name, arm) => {
+    const block = (word: string) => '```js\n' + armLines(2000, (index) => `const ${word}${index} = ${index}`) + '\n```'
+    const source = `Opening.\n\n{~~${block('old')}\n~>${block('new')}\n~~}\n\nAfter {++x++}.\n`
+    const core = createDocumentCore()
+    let revision = core.apply(core.open(source), [{ start: 2, end: 2, insert: 'q' }], { projections: ['markup'] }).revision
+    const tracker = createReviewOverviewTracker()
+    tracker.overview(core, revision)
+    let at = revision.source.indexOf(`${arm}1000 =`) + 3
+    for (const insert of ['x', 'y', '\n', 'z']) {
+      const commit = core.apply(revision, [{ start: at, end: at, insert }], { projections: ['markup'] })
+      expect(commit.change.projections[0]).toMatchObject({ scope: 'regions', replacements: [{ enclosing: [expect.anything()] }] })
+      tracker.committed(revision, commit.revision, commit.change)
+      revision = commit.revision
+      at += insert.length
+      const before = inspectDocumentCore(core)
+      const overview = tracker.overview(core, revision)
+      const after = inspectDocumentCore(core)
+      expect(after.documentParses - before.documentParses).toBe(0)
+      expect(after.regionalIntrinsicSourceUnits - before.regionalIntrinsicSourceUnits).toBe(0)
+      expect(overview).toEqual(freshOverview(revision.source))
+    }
+  }, 60_000)
 })

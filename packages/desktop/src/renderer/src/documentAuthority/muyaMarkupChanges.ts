@@ -25,6 +25,7 @@ import {
   groupListItems,
   listedItemGroups,
   createMuyaMarkupListRootRun,
+  createMuyaMarkupRetouchedRootRun,
   createMuyaMarkupRootRun,
   createRunMuyaMarkupView,
   muyaMarkupItemGroups,
@@ -363,6 +364,12 @@ function listItemsPatch(
   const after = items.itemsBefore + items.previousItems
   const atLastItem = after === children.length
   const atDocumentEnd = atLastItem && root === previous.state.length - 1
+  // The document's end reads where the whole view reads it, which a
+  // suggestion closing after the region's last text moves past that text.
+  const expectedEnd = atDocumentEnd ? lastBinding(roots)?.documentEnd : undefined
+  const localEnd = local.bindings.at(-1)?.documentEnd
+  if (expectedEnd !== undefined && (localEnd?.offset !== expectedEnd.offset + replacement.next.source.end -
+    replacement.previous.source.end || localEnd.trailingLineEndings !== expectedEnd.trailingLineEndings)) return undefined
   // A suggestion ending past its last text is shown on the next block's
   // start, which the whole view reaches and the region's view does not.
   if (!atDocumentEnd && local.decorations.some((decoration) => decoration.exteriorEnd !== undefined)) return undefined
@@ -590,8 +597,67 @@ function regionMarkdown(replacement: MarkupRegionReplacement): Pick<MuyaMarkupVi
 
 const literalStates = new Set(['code-block', 'math-block', 'html-block', 'diagram'])
 
+/**
+ * A source position of the previous view once a suggestion arm's lines
+ * (see `replacedLines`) changed length: one at or after them moves, one at
+ * or before their start stays, and one inside them has no place.
+ */
+const armSourcePosition = (replacement: MarkupRegionReplacement) => {
+  const { start, end } = replacedLines(replacement)
+  const delta = replacement.next.source.end - replacement.previous.source.end
+  return (position: number): number | undefined =>
+    position >= end ? position + delta : position <= start ? position : undefined
+}
+
+/**
+ * The previous source of a literal lines replacement's lines: its region,
+ * or the lines inside the suggestion arm's text event it replaces.
+ */
+function replacedLines(replacement: MarkupRegionReplacement): SourceRange {
+  const lines = replacement.literalLines
+  if (lines?.sourceStart === undefined) return replacement.previous.source
+  const delta = replacement.next.source.end - replacement.previous.source.end
+  return { start: lines.sourceStart, end: lines.sourceStart + lines.source.length - delta }
+}
+
+/**
+ * A mark of the previous view once a suggestion arm's lines changed length,
+ * placed at root `placed`: the annotations holding the lines
+ * keep their starts and move their ends. `text` maps the root's text offsets
+ * where its text changed too.
+ */
+function armDecoration(
+  decoration: MuyaMarkupDecoration,
+  placed: number,
+  source: (position: number) => number | undefined,
+  text?: (offset: number) => number | undefined
+): MuyaMarkupDecoration | undefined {
+  const { annotationRange } = decoration.mark
+  const annotationStart = source(annotationRange.start)
+  const annotationEnd = source(annotationRange.end)
+  const sourcePosition = decoration.sourcePosition === undefined ? undefined : source(decoration.sourcePosition)
+  const exteriorEnd = decoration.exteriorEnd === undefined ? undefined : source(decoration.exteriorEnd)
+  const rangeStart = text === undefined ? decoration.range.start : text(decoration.range.start)
+  const rangeEnd = text === undefined ? decoration.range.end : text(decoration.range.end)
+  if (annotationStart === undefined || annotationEnd === undefined || rangeStart === undefined || rangeEnd === undefined ||
+      (decoration.sourcePosition !== undefined && sourcePosition === undefined) ||
+      (decoration.exteriorEnd !== undefined && exteriorEnd === undefined)) return undefined
+  return {
+    ...decoration,
+    path: [placed, ...decoration.path.slice(1)],
+    range: rangeStart === decoration.range.start && rangeEnd === decoration.range.end
+      ? decoration.range
+      : { start: rangeStart, end: rangeEnd },
+    mark: annotationStart === annotationRange.start && annotationEnd === annotationRange.end
+      ? decoration.mark
+      : { ...decoration.mark, annotationRange: { start: annotationStart, end: annotationEnd } },
+    ...(sourcePosition === undefined ? {} : { sourcePosition }),
+    ...(exteriorEnd === undefined ? {} : { exteriorEnd })
+  }
+}
+
 /** A literal block child's text in its binding: a line's text, or the break ending it. */
-const literalChildText = (child: MarkdownAstNode): string =>
+export const literalChildText = (child: MarkdownAstNode): string =>
   child.kind === 'soft-break' ? '\n' : String(child.attributes.semanticText ?? '')
 
 /**
@@ -607,21 +673,28 @@ function literalLinesPatch(
   previous: MuyaMarkupView,
   roots: MuyaMarkupRoots,
   replacement: MarkupRegionReplacement
-): Readonly<{ root: number; state: MuyaMarkupState; bindings: readonly MuyaMarkupBinding[] }> | undefined {
+): Readonly<{
+  root: number
+  state: MuyaMarkupState
+  bindings: readonly MuyaMarkupBinding[]
+  decorations: readonly MuyaMarkupDecoration[]
+}> | undefined {
   const lines = replacement.literalLines
   if (lines === undefined || replacement.annotations.length > 0) return undefined
   const root = firstBindingReaching(roots, replacement.previous.syntax.start)?.path[0]
   if (typeof root !== 'number') return undefined
   const rootState = previous.state[root]
   const rootItems = roots.items(root)
+  // Lines of a suggestion's arm carry its marks along.
   if (rootState === undefined || !literalStates.has(rootState.name) || typeof rootState.text !== 'string' ||
-      rootItems.decorations.length > 0 || rootItems.comments.length > 0) return undefined
+      (replacement.enclosing === undefined && rootItems.decorations.length > 0) || rootItems.comments.length > 0) return undefined
   const content = rootItems.bindings.find((binding) => binding.path.length === 2 && binding.path[1] === 'text')
   const block = content?.syntax
   if (content === undefined || block === undefined || block.kind !== lines.block.kind || content.text !== rootState.text ||
       content.sourceStructure !== undefined || content.markerLine !== undefined || content.containerPrefix !== undefined ||
       content.paragraphPrefixPosition !== undefined) return undefined
   const { contentStart, contentEnd } = block.attributes
+  const span = replacedLines(replacement)
   const children = block.children
   const replacedEnd = lines.childrenBefore + lines.previousChildren
   // The region may hold the block's opener or closer, which stay, and the
@@ -631,13 +704,13 @@ function literalLinesPatch(
       replacedEnd > children.length || replacement.previous.syntax.start < block.range.start ||
       (nextBlock !== undefined && replacement.previous.syntax.end > nextBlock.range.start) ||
       content.emptyLiteralLineEnding !== undefined ||
-      (content.trailingLinePosition !== undefined && content.trailingLinePosition < replacement.previous.source.end) ||
+      (content.trailingLinePosition !== undefined && content.trailingLinePosition < span.end) ||
       content.leadingLinePosition !== undefined ||
       // The document's trailing line endings are read with its last block.
-      rootItems.bindings.some((binding) => binding.documentEnd !== undefined && replacement.previous.source.end >=
+      rootItems.bindings.some((binding) => binding.documentEnd !== undefined && span.end >=
         binding.documentEnd.offset - binding.documentEnd.trailingLineEndings.length) ||
-      (content.outerBlock !== undefined && (replacement.previous.source.start < content.outerBlock.range.start ||
-        replacement.previous.source.end > content.outerBlock.range.end))) return undefined
+      (content.outerBlock !== undefined && (span.start < content.outerBlock.range.start ||
+        span.end > content.outerBlock.range.end))) return undefined
   const sourceDelta = replacement.next.source.end - replacement.previous.source.end
   const syntaxDelta = replacement.next.syntax.end - replacement.previous.syntax.end
   let textStart = 0
@@ -697,7 +770,7 @@ function literalLinesPatch(
       ...children.slice(replacedEnd).map((child) => shiftSyntax(child, syntaxDelta))
     ]
   }
-  const after = (position: number): number => position >= replacement.previous.source.end ? position + sourceDelta : position
+  const after = (position: number): number => position >= span.end ? position + sourceDelta : position
   // A moved root's bindings hold copies of their block, not the one node.
   const sameNode = (node: MarkdownAstNode, other: MarkdownAstNode): boolean => node === other ||
     node.kind === other.kind && node.range.start === other.range.start && node.range.end === other.range.end
@@ -733,23 +806,27 @@ function literalLinesPatch(
           outerBlock: {
             ...binding.outerBlock,
             range: { start: binding.outerBlock.range.start, end: after(binding.outerBlock.range.end) },
-            source: binding.outerBlock.source.slice(0, replacement.previous.source.start - binding.outerBlock.range.start) +
-              lines.source + binding.outerBlock.source.slice(replacement.previous.source.end - binding.outerBlock.range.start)
+            source: binding.outerBlock.source.slice(0, span.start - binding.outerBlock.range.start) +
+              lines.source + binding.outerBlock.source.slice(span.end - binding.outerBlock.range.start)
           }
         })
     }
     // The region's lines' snaps are read from its source; the others move.
     // Whitespace before a line's text comes before every container prefix.
-    const regionStart = replacement.next.source.start
+    const regionStart = span.start
     const character = (position: number): string => lines.source.charAt(position - regionStart)
     const { caretSnaps: _previousSnaps, ...unsnapped } = patched
     const snaps = muyaCaretSnaps(unsnapped, character, coordinates, new Map(), {
       start: textStart,
       end: textStart + inserted.length
     })
+    // A suggestion arm's first line starts before its text, after the
+    // arm's opener, so the region reads that line's snap again.
+    const read = new Set(snaps.map((snap) => `${snap.at}:${snap.from}:${snap.to}`))
     const kept = (binding.caretSnaps ?? [])
-      .filter((snap) => snap.at < replacement.previous.source.start || snap.at >= replacement.previous.source.end)
+      .filter((snap) => snap.at < span.start || snap.at >= span.end)
       .map((snap) => ({ from: after(snap.from), to: after(snap.to), at: after(snap.at) }))
+      .filter((snap) => !read.has(`${snap.at}:${snap.from}:${snap.to}`))
     const whitespace = (snap: MuyaCaretSnap): boolean => snap.at === snap.to
     const ordered = [false, true].flatMap((prefix) => {
       const keptOnes = kept.filter((snap) => whitespace(snap) !== prefix)
@@ -758,7 +835,49 @@ function literalLinesPatch(
     })
     return ordered.length === 0 ? unsnapped : { ...unsnapped, caretSnaps: ordered }
   })
-  return { root, state: { ...rootState, text }, bindings }
+  // The marks on the block's text keep their offsets before the region's
+  // lines and move with the text after them.
+  const source = armSourcePosition(replacement)
+  const textOffset = (offset: number): number | undefined =>
+    offset <= textStart ? offset : offset >= textEnd ? offset + textDelta : undefined
+  const decorations: MuyaMarkupDecoration[] = []
+  for (const decoration of rootItems.decorations) {
+    const moved = armDecoration(decoration, root, source,
+      decoration.path.length === 2 && decoration.path[1] === 'text' ? textOffset : undefined)
+    if (moved === undefined) return undefined
+    decorations.push(moved)
+  }
+  return { root, state: { ...rootState, text }, bindings, decorations }
+}
+
+/**
+ * The roots around root `root`, which holds a suggestion arm's lines, that
+ * mark the suggestions holding those lines: the other arm's root and the
+ * root after the suggestion, which shows its end. Undefined when they reach
+ * a root before `from`, or more roots than a suggestion of two literal
+ * blocks has.
+ */
+function enclosingRoots(
+  roots: MuyaMarkupRoots,
+  root: number,
+  from: number,
+  enclosing: readonly SourceRange[]
+): Readonly<{ first: number; last: number }> | undefined {
+  let first = root
+  let last = root
+  for (const held of enclosing) {
+    for (const index of roots.sourceRoots(held.start, held.end)) {
+      if (!roots.items(index).decorations.some(({ mark: { annotationRange: range } }) =>
+        range.start === held.start && range.end === held.end)) continue
+      first = Math.min(first, index)
+      last = Math.max(last, index)
+    }
+  }
+  if (first < from || last - first > 4) return undefined
+  // Each of these roots is listed anew on its own, so none may share its
+  // place in the view's list of marks with another.
+  for (let index = first; index <= last; index += 1) if (roots.interleaved(index)) return undefined
+  return { first, last }
 }
 
 /**
@@ -853,13 +972,37 @@ export function applyMuyaMarkupChanges(
       const to = offset(replacement.previous.syntax.end)
       if (patched === undefined || patched.root < previousIndex || from === undefined || to === undefined ||
           from < markdownIndex) return undefined
-      retainUntil(patched.root)
+      // The suggestion holding an arm's lines also marks the roots of its
+      // other arm and the root after it, whose marks move their ends.
+      const neighbours = replacement.enclosing === undefined
+        ? { first: patched.root, last: patched.root }
+        : enclosingRoots(roots, patched.root, previousIndex, replacement.enclosing)
+      if (neighbours === undefined || (replacement.enclosing !== undefined && (sourceDelta !== 0 || syntaxDelta !== 0))) {
+        return undefined
+      }
+      const source = armSourcePosition(replacement)
+      const retouched = (root: number, nextSource: number, nextSyntax: number): boolean => {
+        const placed = state.length
+        const decorations: MuyaMarkupDecoration[] = []
+        for (const decoration of roots.items(root).decorations) {
+          const moved = armDecoration(decoration, placed, source)
+          if (moved === undefined) return false
+          decorations.push(moved)
+        }
+        runs.push(createMuyaMarkupRetouchedRootRun(roots, root, placed, nextSource, nextSyntax, decorations))
+        state.push(previous.state[root])
+        return true
+      }
+      retainUntil(neighbours.first)
+      for (let root = neighbours.first; root < patched.root; root += 1) {
+        if (!retouched(root, sourceDelta, syntaxDelta)) return undefined
+      }
       const base = state.length
       state.push(patched.state)
       const region = createMuyaMarkupRootRun(
         {
           bindings: patched.bindings.map((binding) => placedMuyaMarkupBinding(binding, base - patched.root)),
-          decorations: [],
+          decorations: patched.decorations.map((decoration) => placedMuyaMarkupDecoration(decoration, base - patched.root)),
           comments: []
         },
         base,
@@ -872,11 +1015,14 @@ export function applyMuyaMarkupChanges(
       appendMarkdown(local, 0, local.markdown.length, 0)
       markdownIndex = to
       replacedItems = undefined
-      replacedStart ??= patched.root
-      replacedEnd = patched.root + 1
-      previousIndex = patched.root + 1
       sourceDelta = replacement.next.source.end - replacement.previous.source.end
       syntaxDelta = replacement.next.syntax.end - replacement.previous.syntax.end
+      for (let root = patched.root + 1; root <= neighbours.last; root += 1) {
+        if (!retouched(root, sourceDelta, syntaxDelta)) return undefined
+      }
+      replacedStart ??= neighbours.first
+      replacedEnd = neighbours.last + 1
+      previousIndex = neighbours.last + 1
       continue
     }
     if (replacement.listItems !== undefined) {
@@ -1047,6 +1193,20 @@ export function applyMuyaMarkupChanges(
     ) {
       return undefined
     }
+    // A suggestion before the region ending past its last text is shown at
+    // the region's first block start, which the region's view does not reach;
+    // that mark stays where it was.
+    const carried: MuyaMarkupDecoration[] = []
+    for (let root = start; root < end; root += 1) {
+      for (const decoration of roots.items(root).decorations) {
+        if (decoration.mark.annotationRange.end > source.start) continue
+        if (root !== start || decoration.exteriorEnd === undefined || decoration.range.start !== 0 ||
+            decoration.range.end !== 0 || !local.bindings.some((binding) => Number(binding.path[0]) === 0 &&
+              binding.path.length === decoration.path.length &&
+              binding.path.every((part, index) => index === 0 || part === decoration.path[index]))) return undefined
+        carried.push(decoration)
+      }
+    }
     const base = state.length
     state.push(...local.state.slice(0, localLength))
     const expectedEnd = end === previous.state.length ? lastBinding(roots)?.documentEnd : undefined
@@ -1072,8 +1232,12 @@ export function applyMuyaMarkupChanges(
           .map((binding, index) => {
             const { documentEnd, trailingLinePosition, ...rest } = placedMuyaMarkupBinding(binding, base)
             const atDocumentEnd = end === previous.state.length
+            const marked = Number(binding.path[0]) === 0 && carried.some((decoration) =>
+              decoration.path.length === binding.path.length &&
+              decoration.path.every((part, at) => at === 0 || part === binding.path[at]))
             return {
               ...rest,
+              ...(marked ? { annotationContext: true as const } : {}),
               ...(index === 0 &&
               binding.leadingLinePosition === undefined &&
               binding.text !== '' &&
@@ -1089,9 +1253,12 @@ export function applyMuyaMarkupChanges(
                 : { trailingLinePosition })
             }
           }),
-        decorations: local.decorations
-          .filter((decoration) => Number(decoration.path[0]) < localLength)
-          .map((decoration) => placedMuyaMarkupDecoration(decoration, base)),
+        decorations: [
+          ...carried.map((decoration) => placedMuyaMarkupDecoration(decoration, base - start)),
+          ...local.decorations
+            .filter((decoration) => Number(decoration.path[0]) < localLength)
+            .map((decoration) => placedMuyaMarkupDecoration(decoration, base))
+        ],
         comments: []
       },
       base,

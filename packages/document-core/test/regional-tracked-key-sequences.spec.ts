@@ -144,6 +144,68 @@ describe('key sequences read as the document parse', () => {
   }, 180_000)
 })
 
+// Keys in the lines of a suggestion arm's literal block read only the lines
+// around them (see `admitArmLiteralLines`), tracked or not; first tracked
+// keys in a plain literal block make such arms.
+const armLines = (count: number, line: (index: number) => string): string =>
+  Array.from({ length: count }, (_, index) => line(index)).join('\n')
+const armBlocks = [
+  'Plain words here.',
+  '{~~```js\n' + armLines(6, index => `old ${index}`) + '\n```\n~>```js\n' + armLines(7, index => `new ${index} = x`) + '\n```\n~~}',
+  '{~~$$\n' + armLines(5, index => `x_${index}`) + '\n$$\n~>$$\n' + armLines(6, index => `y_${index} + 1`) + '\n$$\n~~}',
+  '{~~<div>\n' + armLines(5, index => `old html ${index}`) + '\n</div>\n~><div>\n' + armLines(5, index => `new html ${index}`) + '\n</div>\n~~}',
+  '{++~~~\n' + armLines(6, index => `added ${index}`) + '\n~~~\n++}',
+  '{--```\n' + armLines(5, index => `gone ${index}`) + '\n```\n--}',
+  '{~~' + armLines(5, index => `    old indented ${index}`) + '\n~>' + armLines(5, index => `    new indented ${index}`) + '\n~~}',
+  '```\n' + armLines(5, index => `plain code ${index}`) + '\n```',
+  armLines(5, index => `    plain indented ${index}`),
+  '$$\n' + armLines(4, index => `z_${index}`) + '\n$$'
+]
+const armSeeds = Number(process.env.MARKTEXT_ARM_KEY_SEEDS ?? 10)
+const firstArmSeed = Number(process.env.MARKTEXT_ARM_KEY_FIRST ?? 1)
+
+describe('key sequences in suggestion arms\' literal blocks read as the document parse', () => {
+  it.each(Array.from({ length: armSeeds }, (_, index) => firstArmSeed + index))('seed %i', seed => {
+    const random = lcg(seed * 7307)
+    let regionalKeys = 0
+    for (let documentIndex = 0; documentIndex < 3; documentIndex += 1) {
+      const count = 2 + Math.floor(random() * 4)
+      const source = Array.from({ length: count }, () => armBlocks[Math.floor(random() * armBlocks.length)] ?? '').join('\n\n') + '\n'
+      for (let trial = 0; trial < 5; trial += 1) {
+        const core = createDocumentCore()
+        const control = createDocumentCore()
+        planFromDocumentParse(control)
+        let revision = regional(core, source)
+        let controlRevision = regional(control, source)
+        // Carets favour the inner lines of literal blocks.
+        const inner = [...revision.source.matchAll(/^ *(?:old|new|added|gone|x_|y_|z_|plain code|plain indented)[^\n]*$/gmu)]
+        const line = inner[Math.floor(random() * inner.length)]
+        let caret = line === undefined
+          ? 2 + Math.floor(random() * (revision.sourceLength - 2))
+          : line.index + Math.floor(random() * (line[0].length + 1))
+        const length = 2 + Math.floor(random() * 5)
+        const tracked = random() < 0.7
+        for (let press_ = 0; press_ < length; press_ += 1) {
+          const key = keys[Math.floor(random() * keys.length)] ?? 'insertText'
+          const label = `${JSON.stringify(revision.source)} @${caret} ${key} tracked=${tracked}`
+          const before = inspectDocumentCore(core).documentParses
+          const actual = press(core, revision, caret, key, tracked)
+          if (inspectDocumentCore(core).documentParses === before) regionalKeys += 1
+          const expected = press(control, controlRevision, caret, key, tracked)
+          expect(actual.outcome, label).toEqual(expected.outcome)
+          if (actual.revision === undefined || expected.revision === undefined || actual.caret === undefined) break
+          const fresh = createDocumentCore().open(actual.revision.source)
+          expect(actual.revision.annotations, label).toEqual(fresh.annotations)
+          revision = actual.revision
+          controlRevision = expected.revision
+          caret = actual.caret
+        }
+      }
+    }
+    expect(regionalKeys).toBeGreaterThan(0)
+  }, 180_000)
+})
+
 describe('key sequences in a long document cost no document parse', () => {
   const dense = 'Review {++new evidence++} alongside {--obsolete details--}, {~~old wording~>better wording~~}, and {==a claim==}{>>Check this source.<<}.'
   const source = ['Warm editing paragraph.', ...Array.from({ length: 300 }, () => dense)].join('\n\n') + '\n'

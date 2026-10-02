@@ -130,4 +130,66 @@ describe('Counts and outline after regional edits', () => {
     expect(readable(summary)).toEqual(freshSummary(revision.source))
     expect(summary.headings.map((heading) => tocEntryOf(heading).content)).toContain('Section 150 new')
   })
+
+  // Lines typed in a suggestion arm's long literal block: the Revised text
+  // takes them where the arm shows there, and reads none of the block again.
+  const armLines = (count: number, line: (index: number) => string): string =>
+    Array.from({ length: count }, (_, index) => line(index)).join('\n')
+  const armBlocks = [
+    '# Title',
+    '{~~```js\n' + armLines(6, (index) => `old ${index}`) + '\n```\n~>```js\n' + armLines(7, (index) => `new ${index}`) + '\n```\n~~}',
+    '{~~$$\n' + armLines(5, (index) => `x_${index}`) + '\n$$\n~>$$\n' + armLines(6, (index) => `y_${index} + 1`) + '\n$$\n~~}',
+    '{++~~~\n' + armLines(6, (index) => `added ${index}`) + '\n~~~\n++}',
+    '{--```\n' + armLines(5, (index) => `gone ${index}`) + '\n```\n--}',
+    '{~~' + armLines(5, (index) => `    old indented ${index}`) + '\n~>' + armLines(5, (index) => `    new indented ${index}`) + '\n~~}',
+    '{==```\n' + armLines(5, (index) => `marked ${index}`) + '\n```\n==}{>>a comment<<}',
+    'Plain words here.'
+  ]
+  it.each(Array.from({ length: seeds }, (_, index) => first + index))('reads lines typed in suggestion arms as a fresh Revised projection, seed %i', (seed) => {
+    const random = lcg(seed * 3571)
+    const count = 2 + Math.floor(random() * 5)
+    const source = Array.from({ length: count }, () => armBlocks[Math.floor(random() * armBlocks.length)]).join('\n\n') + '\n'
+    const core = createDocumentCore()
+    let revision: DocumentRevision = core.open(source)
+    const tracker = createConsumerSummaryTracker()
+    tracker.summary(core, revision)
+    for (let step = 0; step < 12; step += 1) {
+      const text = revision.source
+      const inner = [...text.matchAll(/^ *(?:old|new|added|gone|marked|x_|y_)[^\n]*$/gmu)]
+      const line = inner[Math.floor(random() * inner.length)]
+      const start = line === undefined ? Math.floor(random() * (text.length + 1)) : line.index + Math.floor(random() * (line[0].length + 1))
+      const end = random() < 0.2 ? Math.min(text.length, start + 1 + Math.floor(random() * 3)) : start
+      const insert = end > start && random() < 0.5 ? '' : ['x', 'word', ' ', '\n', '\n\n'][Math.floor(random() * 5)]
+      const commit = core.apply(revision, [{ start, end, insert }], { projections: ['markup'] })
+      tracker.committed(revision, commit.revision, commit.change)
+      revision = commit.revision
+      if (random() < 0.5 || step === 11) {
+        expect(readable(tracker.summary(core, revision)), `${JSON.stringify(text)} [${start}, ${end}) ${JSON.stringify(insert)}`)
+          .toEqual(freshSummary(revision.source))
+      }
+    }
+  })
+
+  it.each([['proposed', 'new'], ['struck', 'old']])('reads lines typed in a long %s block without reading the block', (_name, arm) => {
+    const block = (word: string) => '```js\n' + armLines(2000, (index) => `const ${word}${index} = ${index}`) + '\n```'
+    const source = `# Title\n\n{~~${block('old')}\n~>${block('new')}\n~~}\n\nAfter.\n`
+    const core = createDocumentCore()
+    let revision = core.apply(core.open(source), [{ start: 2, end: 2, insert: 'q' }], { projections: ['markup'] }).revision
+    const tracker = createConsumerSummaryTracker()
+    tracker.summary(core, revision)
+    let at = revision.source.indexOf(`${arm}1000 =`) + 3
+    for (const insert of ['x', 'y', '\n', 'z']) {
+      const commit = core.apply(revision, [{ start: at, end: at, insert }], { projections: ['markup'] })
+      tracker.committed(revision, commit.revision, commit.change)
+      revision = commit.revision
+      at += insert.length
+      expect(commit.change.projections[0]).toMatchObject({ scope: 'regions', replacements: [{ enclosing: [expect.anything()] }] })
+      const before = inspectDocumentCore(core)
+      const summary = tracker.summary(core, revision)
+      const after = inspectDocumentCore(core)
+      expect(after.documentParses - before.documentParses).toBe(0)
+      expect(after.regionalIntrinsicSourceUnits - before.regionalIntrinsicSourceUnits).toBe(0)
+      expect(readable(summary)).toEqual(freshSummary(revision.source))
+    }
+  }, 60_000)
 })

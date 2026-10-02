@@ -105,3 +105,70 @@ describe('Patched Markup views read as the whole view', () => {
     }
   })
 })
+
+// Suggestion arms each holding a whole long literal block, whose lines a
+// regional reply replaces on their own (Core's `admitArmLiteralLines`): the
+// arm's root takes the lines, and the roots of the suggestion's other arm
+// and after it move the suggestion's end.
+const armLines = (count: number, line: (index: number) => string): string =>
+  Array.from({ length: count }, (_, index) => line(index)).join('\n')
+const armBlocks = [
+  'Plain words here.',
+  '{~~```js\n' + armLines(6, (index) => `old ${index}`) + '\n```\n~>```js\n' + armLines(7, (index) => `new ${index} {x}`) + '\n```\n~~}',
+  '{~~$$\n' + armLines(5, (index) => `x_{${index}}`) + '\n$$\n~>$$\n' + armLines(6, (index) => `y_{${index}} + 1`) + '\n$$\n~~}',
+  '{~~<div>\n' + armLines(5, (index) => `old html ${index}`) + '\n</div>\n~><div>\n' + armLines(5, (index) => `new html ${index}`) + '\n</div>\n~~}',
+  '{++~~~\n' + armLines(6, (index) => `added ${index}`) + '\n~~~\n++}',
+  '{--```\n' + armLines(5, (index) => `gone ${index}`) + '\n```\n--}',
+  '{~~' + armLines(5, (index) => `    old indented ${index}`) + '\n~>' + armLines(5, (index) => `    new indented ${index}`) + '\n~~}',
+  '{==```\n' + armLines(5, (index) => `marked ${index}`) + '\n```\n==}{>>a comment<<}',
+  '- item one\n- item two',
+  'Text {--deleted--} and {~~old~>new~~} too.'
+]
+const armInsertions = ['x', ' ', '\n', '\n\n', '    ', 'ab', '# ', '{++n++}', '`', '$']
+const armSeeds = Number(process.env.MARKTEXT_ARM_VIEW_FUZZ_SEEDS ?? 40)
+const firstArm = Number(process.env.MARKTEXT_ARM_VIEW_FUZZ_FIRST ?? 1)
+
+describe('Patched Markup views of suggestion arms\' lines read as the whole view', () => {
+  it.each(Array.from({ length: armSeeds }, (_, index) => firstArm + index))('seed %i', (seed) => {
+    const random = lcg(seed * 6151)
+    let armPatches = 0
+    for (let documentIndex = 0; documentIndex < 5; documentIndex += 1) {
+      const count = 2 + Math.floor(random() * 5)
+      const source =
+        Array.from({ length: count }, () => armBlocks[Math.floor(random() * armBlocks.length)]).join('\n\n') +
+        (random() < 0.8 ? '\n' : '')
+      const core = createDocumentCore()
+      let revision = core.open(source)
+      let view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, revision.source)
+      for (let edit = 0; edit < 8; edit += 1) {
+        const text = revision.source
+        // Favour the inner lines of the arms' blocks.
+        const inner = [...text.matchAll(/^ *(?:old|new|added|gone|marked|x_|y_)[^\n]*$/gmu)]
+        const line = random() < 0.85 ? inner[Math.floor(random() * inner.length)] : undefined
+        const start = line === undefined
+          ? Math.floor(random() * (text.length + 1))
+          : line.index + Math.floor(random() * (line[0].length + 1))
+        const end = random() < 0.25 ? Math.min(text.length, start + 1 + Math.floor(random() * 3)) : start
+        const insert = end > start && random() < 0.5 ? '' : armInsertions[Math.floor(random() * armInsertions.length)]
+        const label = `${JSON.stringify(text)} [${start}, ${end}) ${JSON.stringify(insert)}`
+        const commit = core.apply(revision, [{ start, end, insert }], { projections: ['markup'] })
+        const expected = createMuyaMarkupView(
+          core.project(commit.revision, 'markup'),
+          commit.revision.annotations,
+          commit.revision.source
+        )
+        const change = commit.change.projections[0]
+        const patched =
+          change?.name === 'markup' && change.scope === 'regions'
+            ? applyMuyaMarkupChanges(view, structuredClone(change))
+            : undefined
+        if (patched !== undefined) expect(patched, label).toEqual(expected)
+        if (patched !== undefined && change?.name === 'markup' && change.scope === 'regions' &&
+            change.replacements[0]?.enclosing !== undefined) armPatches += 1
+        view = patched ?? expected
+        revision = commit.revision
+      }
+    }
+    expect(armPatches).toBeGreaterThan(0)
+  })
+})
