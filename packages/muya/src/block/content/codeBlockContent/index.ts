@@ -19,6 +19,7 @@ import { adjustOffset, escapeHTML, firstGraphemeLength, firstWordOfInfo, isKeybo
 import { computeLineCount, repositionLineNumberSpans, syncLineNumbersSpans } from '../../../utils/codeBlockLineNumbers';
 import { getHighlightHtml, MARKER_HASH } from '../../../utils/highlightHTML';
 import prism, { loadedLanguages, transformAliasToOrigin, walkTokens } from '../../../utils/prism/index';
+import { prefilteredGrammar } from '../../../utils/prism/prefilteredGrammar';
 import { tokenizeReusing } from '../../../utils/prism/tokenizeReusing';
 import Content from '../../base/content';
 import { ScrollPage } from '../../scrollPage';
@@ -88,7 +89,7 @@ interface IHighlightSlots {
 function highlightSlots(text: string, lang: string, previous?: TokenizedFragments): IHighlightSlots {
     const env: { code: string; grammar: Prism.Grammar; language: string; tokens?: Array<string | Prism.Token> } = {
         code: text,
-        grammar: prism.languages[lang]!,
+        grammar: prefilteredGrammar(prism.languages[lang]!),
         language: lang,
     };
     prism.hooks.run('before-tokenize', env);
