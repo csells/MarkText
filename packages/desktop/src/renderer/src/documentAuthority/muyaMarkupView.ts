@@ -154,6 +154,17 @@ export interface MuyaMarkupDecoration {
   readonly mark: MarkupMark
 }
 
+/**
+ * Boundary decorations a view placed on its last block because their
+ * position lies after it. In a view of a region, the whole document's view
+ * places these on the next block, which the region does not hold.
+ */
+const decorationsAfterLastBlock = new WeakSet<MuyaMarkupDecoration>()
+
+/** Whether `decoration` was placed on its view's last block for lack of a later one. */
+export const muyaDecorationAfterLastBlock = (decoration: MuyaMarkupDecoration): boolean =>
+  decorationsAfterLastBlock.has(decoration)
+
 export interface MuyaMarkupComment {
   readonly annotationRange: SourceRange
   readonly path: MuyaMarkupPath
@@ -1337,9 +1348,10 @@ export function createMuyaMarkupView(
       for (const arm of annotation.arms) annotationQueue.push(...[...arm.annotations].reverse())
     }
   }
-  const visiblePoint = (source: number): { binding: MuyaMarkupBinding; offset: number } => {
+  const visiblePoint = (source: number): { binding: MuyaMarkupBinding; offset: number; afterLast: boolean } => {
     const position = projection.syntax.coordinates.toProjected(source, 'previous')
     let index = builders.findIndex((builder) => position <= builder.range.end)
+    const afterLast = index === -1
     if (index === -1) index = builders.length - 1
     const binding = bindings[index]
     let offset = 0
@@ -1349,7 +1361,7 @@ export function createMuyaMarkupView(
         segment.text.start +
         Math.min(segment.text.end - segment.text.start, source - segment.source.start)
     }
-    return { binding, offset }
+    return { binding, offset, afterLast }
   }
   const decorations: MuyaMarkupDecoration[] = marksInOrder.flatMap((mark) => {
     const ranges = builders.flatMap((builder) => {
@@ -1383,17 +1395,19 @@ export function createMuyaMarkupView(
       ) {
         return []
       }
-      const { binding, offset } = visiblePoint(sourcePosition)
+      const { binding, offset, afterLast } = visiblePoint(sourcePosition)
       const final =
         sourcePosition === arm.range.end &&
         annotation?.arms.every((other) => other.range.end <= arm.range.end) === true
-      return [{
+      const decoration: MuyaMarkupDecoration = {
         path: binding.path,
         range: { start: offset, end: offset },
         mark,
         sourcePosition,
         ...(final ? { exteriorEnd: mark.annotationRange.end } : {})
-      }]
+      }
+      if (afterLast) decorationsAfterLastBlock.add(decoration)
+      return [decoration]
     })
     return [...ranges, ...boundaries]
   })

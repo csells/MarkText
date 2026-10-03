@@ -11,6 +11,7 @@ import {
   appendMuyaMarkdownSegment,
   createMuyaMarkupView,
   muyaCaretSnaps,
+  muyaDecorationAfterLastBlock,
   type MuyaCaretSnap,
   type MuyaMarkdownSegment,
   type MuyaMarkupBinding,
@@ -1183,12 +1184,14 @@ export function applyMuyaMarkupChanges(
     const localLength =
       end === previous.state.length ? local.state.length : replacement.syntaxBlocks.length
     if (local.state.length < localLength) return undefined
-    // A suggestion ending past its last text is shown on the next block's
-    // start, which the whole view reaches and the region's view does not.
+    // A suggestion ending past the region's last block is shown on the next
+    // block's start, which the whole view reaches and the region's view does
+    // not. One ending inside that block is shown there by both.
     if (
       end < previous.state.length &&
       local.decorations.some(
-        (decoration) => decoration.exteriorEnd !== undefined && Number(decoration.path[0]) === localLength - 1
+        (decoration) => decoration.exteriorEnd !== undefined && Number(decoration.path[0]) === localLength - 1 &&
+          muyaDecorationAfterLastBlock(decoration)
       )
     ) {
       return undefined
