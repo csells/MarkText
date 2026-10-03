@@ -264,15 +264,22 @@ export const createTrackedSourceEdit = (
         const planned = createTrackedSourceEdit(activeCore, activeRevision, { start: target, end: target, insert: request.text },
           preview, preserveCanonicalMarkup, scope)
         if (planned === undefined) return undefined
-        // The caret domain holds the typing's own place as well.
-        const from = Math.min(planned.start, start)
-        const to = Math.max(planned.end, start)
-        return Object.freeze({
-          start: from,
-          end: to,
-          insert: activeCore.sourceSlice(activeRevision, { start: from, end: planned.start }) + planned.insert +
-            activeCore.sourceSlice(activeRevision, { start: planned.end, end: to })
-        })
+        // The proposed block takes the typing only where it stays within the
+        // Substitution; typing that breaks the paragraph the Substitution
+        // lives in splits its old arm instead (G34).
+        if (deepest !== undefined && deepest.range.start <= planned.start && planned.end <= deepest.range.end) {
+          // The caret domain holds the typing's own place as well.
+          const from = Math.min(planned.start, start)
+          const to = Math.max(planned.end, start)
+          return Object.freeze({
+            start: from,
+            end: to,
+            insert: activeCore.sourceSlice(activeRevision, { start: from, end: planned.start }) + planned.insert +
+              activeCore.sourceSlice(activeRevision, { start: planned.end, end: to })
+          })
+        }
+        return splitTrackedHistoryEdit(activeCore, activeRevision, start,
+          preserveCanonicalMarkup ? request.text : protectNativeCriticText(request.text), preview, true)
       }
       return splitTrackedHistoryEdit(activeCore, activeRevision, start,
         preserveCanonicalMarkup ? request.text : protectNativeCriticText(request.text), preview)
