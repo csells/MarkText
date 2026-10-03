@@ -360,6 +360,51 @@ function resolveAuthored(source: string, authored: readonly AuthoredAnnotation[]
 }
 
 /**
+ * The text Accept All or Reject All leaves of the source `text` starting at
+ * `offset`, which holds `annotations` whole: each suggestion resolved to the
+ * arm the decision keeps, nested ones within it, Comments dropped.
+ */
+export function resolvedSuggestions(
+  text: string,
+  annotations: readonly CriticMarkupAnnotation[],
+  decision: 'accept' | 'reject',
+  offset = 0
+): string {
+  const resolve = (from: number, to: number, level: readonly CriticMarkupAnnotation[]): string => {
+    let resolved = ''
+    let cursor = from
+    for (const annotation of level) {
+      resolved += text.slice(cursor - offset, annotation.range.start - offset)
+      const name = resolvedArm(annotation, decision)
+      const kept = name === undefined ? undefined : annotation.arms.find(arm => arm.name === name)
+      if (kept !== undefined) resolved += resolve(kept.range.start, kept.range.end, kept.annotations)
+      cursor = annotation.range.end
+    }
+    return resolved + text.slice(cursor - offset, to - offset)
+  }
+  return resolve(offset, offset + text.length, annotations)
+}
+
+/** Whether a suggestion, at any depth, starts at an offset. */
+function startsSuggestion(annotations: readonly CriticMarkupAnnotation[], at: number): boolean {
+  return annotations.some(({ range, arms }) => range.start === at || arms.some(arm => startsSuggestion(arm.annotations, at)))
+}
+
+/** Whether `after` is `before` with `typed` inserted at one place. */
+export function keepsTyping(after: string, before: string, typed: string): boolean {
+  if (after.length !== before.length + typed.length) return false
+  let prefix = 0
+  while (prefix < before.length && after.charCodeAt(prefix) === before.charCodeAt(prefix)) prefix += 1
+  let suffix = 0
+  while (suffix < before.length && after.charCodeAt(after.length - 1 - suffix) === before.charCodeAt(before.length - 1 - suffix)) suffix += 1
+  // The typing sits where the shared prefix and the shared suffix meet.
+  for (let at = Math.max(0, before.length - suffix); at <= prefix; at += 1) {
+    if (after.startsWith(typed, at)) return true
+  }
+  return false
+}
+
+/**
  * Suggestions one edit authors together (a Deletion beside an Addition) are
  * reviewed one at a time: resolving either must leave the other formed.
  * Separate edits of one operation, such as a list marker and its continuation
@@ -685,7 +730,10 @@ export function splitTrackedHistoryEdit(
   previous: DocumentRevision,
   offset: number,
   text: string,
-  preview: Preview
+  preview: Preview,
+  // Weigh a split by what Accept All and Reject All leave (G34) rather than
+  // by the Original view, which a split block literal reads as two blocks.
+  byResolution = false
 ): DocumentSourceEdit | undefined {
   const annotations = markupAnnotations(previous.annotations)
   let owner: CriticMarkupAnnotation | undefined
@@ -728,6 +776,17 @@ export function splitTrackedHistoryEdit(
     .sort((left, right) => Math.abs(left - offset) - Math.abs(right - offset) || left - right).slice(0, 12)
     .filter(point => !withinLiteralLine(point))
   const original = core.project(previous, 'original').markdown
+  const previousSource = source({ start: 0, end: previous.sourceLength })
+  let rejectedBefore: string | undefined
+  let acceptedBefore: string | undefined
+  const rejected = (): string => {
+    rejectedBefore ??= resolvedSuggestions(previousSource, previous.annotations, 'reject')
+    return rejectedBefore
+  }
+  const accepted = (): string => {
+    acceptedBefore ??= resolvedSuggestions(previousSource, previous.annotations, 'accept')
+    return acceptedBefore
+  }
   // A final backslash would escape the Addition's closer; its completed
   // escape renders the same single backslash.
   const payload = trailingBackslashes(text) % 2 === 1 ? `${text}\\` : text
@@ -754,8 +813,40 @@ export function splitTrackedHistoryEdit(
     if (facts === undefined || expectedFacts === undefined) return undefined
     const added = markupAnnotations(candidate.annotations).some(annotation => annotation.kind === 'addition' &&
       annotation.arms.some(arm => candidate.source.slice(arm.range.start, arm.range.end) === payload))
+    if (byResolution) {
+      if (added && payload === text && candidate.diagnostics.length <= previous.diagnostics.length &&
+          resolvedSuggestions(candidate.source, candidate.annotations, 'reject') === rejected() &&
+          keepsTyping(resolvedSuggestions(candidate.source, candidate.annotations, 'accept'), accepted(), text)) return widen(edit)
+      continue
+    }
     if (added && candidate.diagnostics.length === previous.diagnostics.length && facts.original === original &&
         (payload !== text || facts.revised === expectedFacts.revised)) return widen(edit)
+  }
+  if (!byResolution || payload !== text) return undefined
+  // No split spells it: the Substitution proposes the typing ahead of its
+  // text, or a Deletion becomes a Substitution by it, or the typing is added
+  // just before or after the suggestion.
+  const kept = source(history.range)
+  const proposal = owner.kind === 'substitution'
+    ? source(owner.arms.find(arm => arm.name === 'new')?.range ?? { start: owner.range.end, end: owner.range.end })
+    : ''
+  for (const edit of [
+    { start: owner.range.start, end: owner.range.end, insert: `{~~${kept}~>${text}${proposal}~~}` },
+    { start: owner.range.start, end: owner.range.start, insert: `{++${text}++}` },
+    { start: owner.range.end, end: owner.range.end, insert: `{++${text}++}` }
+  ]) {
+    const from = Math.min(edit.start, offset)
+    const to = Math.max(edit.end, offset)
+    const widened = Object.freeze({
+      start: from,
+      end: to,
+      insert: source({ start: from, end: edit.start }) + edit.insert + source({ start: edit.end, end: to })
+    })
+    const candidate = preview([widened])
+    if (candidate.diagnostics.length <= previous.diagnostics.length &&
+        startsSuggestion(candidate.annotations, edit.start) &&
+        resolvedSuggestions(candidate.source, candidate.annotations, 'reject') === rejected() &&
+        keepsTyping(resolvedSuggestions(candidate.source, candidate.annotations, 'accept'), accepted(), text)) return widened
   }
   return undefined
 }
