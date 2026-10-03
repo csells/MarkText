@@ -227,7 +227,7 @@ export function createTrackedOracle(
         !(regional.sameAsPrevious(facts, 'original') ?? facts.original === original())) {
       if (!(authored.length > 0 && resolveAuthored(candidate.source, authored, 'accept') === target.source &&
           resolveAuthored(candidate.source, authored, 'reject') === previousSource &&
-          viewFacts !== undefined && signature(facts.revised) === (targetView ??= viewFacts.revisedView()) &&
+          viewFacts !== undefined && facts.revisedView() === (targetView ??= viewFacts.revisedView()) &&
           signature(facts.original) === signature(original()))) return false
     }
     // Equal materialized text can still mean something else inside an arm
