@@ -289,6 +289,57 @@ describe('Shifting soft-break line positions through a regional reply', () => {
 })
 
 describe('Regional Markup view patches', () => {
+  // Tracked Enter inside a paragraph ends the Addition at the start of the
+  // paragraph it splits off. The region holds that paragraph, so its view
+  // shows the Addition's end where the whole view does, and the key is
+  // patched rather than projected again with a document parse.
+  it.each([
+    ['inside a paragraph', 'Warm '.length],
+    ['at a paragraph end', 'Warm editing paragraph.'.length]
+  ])('patches tracked Enter and typing %s as a fresh view reads them', (_, at) => {
+    const plain = 'Writing a useful document takes careful editing and a clear view of the text.'
+    const source = ['Warm editing paragraph.', ...Array.from({ length: 30 }, () => plain)].join('\n\n') + '\n'
+    const options = { autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true }
+    const core = createDocumentCore()
+    let revision = core.open(source)
+    let view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, revision.source)
+    let caret = at
+    let patchedEnters = 0
+    for (let key = 0; key < 8; key += 1) {
+      const enter = key % 2 === 0
+      const input = {
+        range: { start: caret, end: caret },
+        selection: { ranges: [{ anchor: caret, focus: caret }], primary: 0 },
+        inputType: enter ? 'insertParagraph' : 'insertText',
+        data: enter ? null : 'x',
+        options
+      } as const
+      const plan = core.planInput(revision, input, { tracked: true })
+      const edits = core.inputEdits(revision, input, plan, true)
+      if (edits === undefined) throw new Error('The key planned no edit')
+      const commit = core.apply(revision, edits, { projections: ['markup'] })
+      const selection = core.reconcileInput(revision, plan, commit, input).selection
+      const change = commit.change.projections[0]
+      const expected = createMuyaMarkupView(
+        core.project(commit.revision, 'markup'),
+        commit.revision.annotations,
+        commit.revision.source
+      )
+      const patched = change?.name === 'markup' && change.scope === 'regions'
+        ? applyMuyaMarkupChanges(view, structuredClone(change))
+        : undefined
+      if (patched !== undefined) {
+        expect(patched).toEqual(expected)
+        if (enter) patchedEnters += 1
+      }
+      view = patched ?? expected
+      revision = commit.revision
+      if (selection === undefined || !('ranges' in selection)) throw new Error('The key left no caret')
+      caret = selection.ranges[selection.primary]!.focus as number
+    }
+    if (at === 'Warm '.length) expect(patchedEnters).toBe(4)
+  })
+
   it('moves a later paragraph’s payload-boundary positions with its source', () => {
     const source = 'first paragraph\n\n{++- item++}\n\nlast\n'
     const { actual, expected, previous } = fixture(source, { start: 5, end: 5, insert: 'XYZ' })
