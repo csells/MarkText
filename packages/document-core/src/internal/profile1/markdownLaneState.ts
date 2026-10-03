@@ -601,7 +601,8 @@ type NextMathRunStart = (
   delimiterLength: number,
   openerStart: number,
   after: number,
-  laneEnd: number
+  laneEnd: number,
+  reaches?: (closeStart: number) => boolean
 ) => number | undefined
 
 const EMPTY_MARKDOWN_CHECKPOINT: MarkdownCheckpoint = Object.freeze({
@@ -2646,7 +2647,11 @@ function createNextMathRunStart(
     delimiterLength: number,
     openerStart: number,
     after: number,
-    laneEnd: number
+    laneEnd: number,
+    // Whether a closer at a start would complete the opener's span, as the
+    // paragraph it opens in allows; a run it could not reach is no match to
+    // reject.
+    reaches: (closeStart: number) => boolean = () => true
   ): number | undefined => {
     if (delimiterLength > 2) return undefined
     if (matchingPolicy === undefined || scopedStarts === undefined) {
@@ -2666,7 +2671,8 @@ function createNextMathRunStart(
       globalNext !== undefined &&
       globalNext < laneEnd &&
       globalNext !== closer &&
-      closes(delimiterLength, after, globalNext)
+      closes(delimiterLength, after, globalNext) &&
+      reaches(globalNext)
     ) {
       matchingPolicy.rejectCrossScopeMatch(openerStart, globalNext)
     }
@@ -3175,7 +3181,9 @@ export function createMarkdownLaneState(
     if (rawLineStartAt(closeStart) === openerLineStart) return true
     if (tableRow) return false
     if (doubleDollar) {
-      // A `$$` alone on its line opens a math block, which spans blank lines.
+      // A `$$` alone on a line that starts a block opens a math block, which
+      // spans blank lines; one continuing a paragraph is paragraph text, since
+      // a math block cannot interrupt a paragraph.
       const text = source.slice(
         openerLineStart,
         sourceLineContentEnd(source, openerLineStart, source.length, execution)
@@ -3186,7 +3194,7 @@ export function createMarkdownLaneState(
         containers,
         paragraphWasOpen
       )
-      if (text.slice(state.contentOffset).trim() === '$$') return true
+      if (!state.paragraphContinues && text.slice(state.contentOffset).trim() === '$$') return true
     }
     return closeStart < inlineLiteralParagraphEnd(
       openerOffset,
@@ -3976,7 +3984,8 @@ export function createMarkdownLaneState(
                       : 0
                 const closeStart = delimiterLength === 0
                   ? undefined
-                  : nextMathRunStart(delimiterLength, opener, opener + delimiterLength, laneEnd)
+                  : nextMathRunStart(delimiterLength, opener, opener + delimiterLength, laneEnd, start =>
+                    inlineLiteralCloserInParagraph(opener, start, laneEnd, activeContainers, paragraphOpen, tableOpen, delimiterLength === 2))
                 if (
                   closeStart !== undefined &&
                   inlineLiteralCloserInParagraph(
