@@ -385,6 +385,7 @@ function partiallyResolvable(
 const EOL = /\r\n|\r|\n/u
 
 const LITERAL_KINDS = new Set(['inline-code', 'code-block', 'inline-math', 'math-block', 'inline-html', 'html-block', 'front-matter', 'diagram', 'autolink'])
+const BLOCK_LITERAL_KINDS = new Set(['code-block', 'math-block', 'diagram'])
 
 function lineStart(source: string, offset: number): number {
   let start = offset
@@ -703,15 +704,29 @@ export function splitTrackedHistoryEdit(
     !nested.some(annotation => annotation.range.start < position && position < annotation.range.end)
   const syntax = core.project(previous, 'markup').syntax
   const points = new Set<number>([offset])
+  const literalBlocks: SourceRange[] = []
   const visit = (node: MarkdownAstNode): void => {
-    for (const edge of [syntax.coordinates.toSource(node.range.start, 'next'), syntax.coordinates.toSource(node.range.end, 'previous')]) {
+    const start = syntax.coordinates.toSource(node.range.start, 'next')
+    const end = syntax.coordinates.toSource(node.range.end, 'previous')
+    for (const edge of [start, end]) {
       if (history.range.start < edge && edge < history.range.end) points.add(edge)
     }
+    if (BLOCK_LITERAL_KINDS.has(node.kind)) literalBlocks.push({ start, end })
     for (const child of node.children) visit(child)
   }
   visit(syntax.ast.root)
-  const ordered = [...points].filter(splittable).sort((left, right) => Math.abs(left - offset) - Math.abs(right - offset) || left - right).slice(0, 12)
   const source = (range: SourceRange): string => core.sourceSlice(previous, range)
+  // A marker in a block literal the arm opens is literal text unless only
+  // indentation comes before it on its line or in the arm (Profile 2 L2c ends
+  // an arm-opened literal only at a line start), so a split after other text
+  // there never spells a suggestion and is not weighed.
+  const withinLiteralLine = (position: number): boolean =>
+    literalBlocks.some(block => history.range.start <= block.start && block.end <= history.range.end &&
+      block.start < position && position < block.end) &&
+    !/(?:^|[\n\r])[ \t]*$/u.test(source({ start: Math.max(history.range.start, position - 256), end: position }))
+  const ordered = [...points].filter(splittable)
+    .sort((left, right) => Math.abs(left - offset) - Math.abs(right - offset) || left - right).slice(0, 12)
+    .filter(point => !withinLiteralLine(point))
   const original = core.project(previous, 'original').markdown
   // A final backslash would escape the Addition's closer; its completed
   // escape renders the same single backslash.
