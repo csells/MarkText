@@ -15,7 +15,7 @@ import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit } from './trackedHistoryEditing.js'
-import { deferEquivalence, equivalenceDeferred, literalHistoryInsertionPoint, projectionSignature, trackedAnnotatedViews, trackedMarkdownSignatures, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
+import { deferEquivalence, equivalenceDeferred, keepsTyping, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import {
@@ -2328,43 +2328,6 @@ const nativeEditPlanners = new WeakMap<DocumentCore, (
   typed: boolean
 ) => readonly DocumentSourceEdit[] | undefined>()
 const windowCores = new WeakSet<DocumentCore>()
-
-/**
- * The text Accept All leaves of the source `text` starting at `offset`, which
- * holds `annotations` whole: every Deletion and old arm dropped, every other
- * arm kept as written.
- */
-function acceptedText(text: string, offset: number, annotations: readonly CriticMarkupAnnotation[]): string {
-  const resolve = (from: number, to: number, level: readonly CriticMarkupAnnotation[]): string => {
-    let accepted = ''
-    let cursor = from
-    for (const annotation of level) {
-      accepted += text.slice(cursor - offset, annotation.range.start - offset)
-      const name = annotation.kind === 'addition' || annotation.kind === 'highlight'
-        ? 'content'
-        : annotation.kind === 'substitution' ? 'new' : undefined
-      const kept = name === undefined ? undefined : annotation.arms.find(arm => arm.name === name)
-      if (kept !== undefined) accepted += resolve(kept.range.start, kept.range.end, kept.annotations)
-      cursor = annotation.range.end
-    }
-    return accepted + text.slice(cursor - offset, to - offset)
-  }
-  return resolve(offset, offset + text.length, annotations)
-}
-
-/** Whether `after` is `before` with `typed` inserted at one place. */
-function keepsTyping(after: string, before: string, typed: string): boolean {
-  if (after.length !== before.length + typed.length) return false
-  let prefix = 0
-  while (prefix < before.length && after.charCodeAt(prefix) === before.charCodeAt(prefix)) prefix += 1
-  let suffix = 0
-  while (suffix < before.length && after.charCodeAt(after.length - 1 - suffix) === before.charCodeAt(before.length - 1 - suffix)) suffix += 1
-  // The typing sits where the shared prefix and the shared suffix meet.
-  for (let at = Math.max(0, before.length - suffix); at <= prefix; at += 1) {
-    if (after.startsWith(typed, at)) return true
-  }
-  return false
-}
 
 /**
  * The outermost suggestion whose deleted or replaced text (a Deletion's, or a
@@ -7488,8 +7451,8 @@ function createDocumentCoreWithExecutionBudget(
       before = annotationsOverlapping(core, previous, { start, end })
       after = annotationsOverlapping(core, read, { start, end: end + delta })
     }
-    return keepsTyping(acceptedText(read.source.slice(start, end + delta), start, after),
-      acceptedText(core.sourceSlice(previous, { start, end }), start, before), typing)
+    return keepsTyping(resolvedSuggestions(read.source.slice(start, end + delta), after, 'accept', start),
+      resolvedSuggestions(core.sourceSlice(previous, { start, end }), before, 'accept', start), typing)
   }
 
   const planNativeEdits = (
