@@ -801,18 +801,40 @@ export function draftTrackedSourceEdit(
   const tail = core.sourceSlice(previous, { start: edit.end, end: arm.range.end })
   const content = core.sourceSlice(previous, { start: arm.range.start, end: edit.start }) + edit.insert + tail
   preview = memoizedPreview(preview)
+  // A delimiter typed inside one's own suggestion pairs as it would untracked,
+  // so the Revised view shows the accepted reading (see below). Where the edit
+  // is on a line that is or becomes a fence or `$$` line, or text before the
+  // suggestion joins the arm's opening fence line once accepted, keeping that
+  // reading would re-spell every later block up to where the fences agree
+  // again. An arm boundary ends a block literal its arm opened (Profile 2 L2c,
+  // ADR-0016), so the edit is then the edit in the arm, as typed, as in Google
+  // Docs: Accept gives the untracked source byte for byte, Reject leaves the
+  // Original. One that ends the suggestion elsewhere is spelled otherwise.
+  const armText = core.sourceSlice(previous, arm.range)
+  const local = { start: edit.start - arm.range.start, end: edit.end - arm.range.start }
+  const editedLines = (text: string, start: number, end: number): string[] => {
+    let from = start
+    while (from > 0 && text[from - 1] !== '\n' && text[from - 1] !== '\r') from -= 1
+    let to = end
+    while (to < text.length && text[to] !== '\n' && text[to] !== '\r') to += 1
+    return text.slice(from, to).split(/\r\n|\r|\n/u)
+  }
+  const delimiterLine = (line: string): boolean => /^ {0,3}(?:`{3,}|~{3,}|\$\$)/u.test(line)
+  const typedArm = armText.slice(0, local.start) + edit.insert + armText.slice(local.end)
+  const onDelimiterLine = editedLines(armText, local.start, local.end).some(delimiterLine) ||
+    editedLines(typedArm, local.start, local.start + edit.insert.length).some(delimiterLine)
+  const before = core.sourceSlice(previous, { start: Math.max(0, owner.range.start - 512), end: owner.range.start })
+  const joinsFenceLine = before.slice(lineStart(before, before.length)).trim() !== '' && delimiterLine(armText)
+  if (onDelimiterLine || joinsFenceLine) {
+    const extended = preview([edit])
+    const grown = edit.insert.length - (edit.end - edit.start)
+    if (markupAnnotations(extended.annotations).some(annotation => annotation.kind === owner.kind &&
+      annotation.range.start === owner.range.start && annotation.range.end === owner.range.end + grown)) return Object.freeze({ ...edit })
+  }
   // Accepting the draft is the untracked result of the same operation.
   const accepted = [Object.freeze({ ...owner.range, insert: content })]
   const oracle = createTrackedOracle(core, previous, accepted, preview)
   if (oracle === undefined) return undefined
-  // Text before the suggestion on its line joins the arm's first line once
-  // the draft is accepted, so a fence the arm opens there reads otherwise
-  // accepted than the author sees it; the author's edit is the edit in the
-  // arm, as typed.
-  const before = core.sourceSlice(previous, { start: Math.max(0, owner.range.start - 512), end: owner.range.start })
-  if (before.slice(lineStart(before, before.length)).trim() !== '' &&
-      /^ {0,3}(?:`{3,}|~{3,}|\$\$)/u.test(core.sourceSlice(previous, arm.range)) &&
-      preview([edit]).diagnostics.length <= previous.diagnostics.length) return Object.freeze({ ...edit })
   const eol = (content.match(EOL) ?? core.sourceSlice(previous, { start: 0, end: previous.sourceLength }).match(EOL))?.[0] ?? '\n'
   const suffixes: string[] = []
   if (trailingBackslashes(content) % 2 === 1) suffixes.push('\\')
