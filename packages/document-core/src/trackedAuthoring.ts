@@ -103,6 +103,36 @@ export function createTrackedPendingArmEdits(
   return planned
 }
 
+/**
+ * Whether an edit lies where a block literal no suggestion overlaps reads
+ * every marker as its text: on an inner line of a fenced code or math block,
+ * between its delimiter lines, or within one line of indented code past its
+ * four columns of indentation, which a marker there leaves intact.
+ */
+function withinBlockLiteral(core: DocumentCore, revision: DocumentRevision, edit: DocumentSourceEdit): boolean {
+  const { ast, coordinates } = core.project(revision, 'markup').syntax
+  const block = ast.root.children.find(node => ['code-block', 'math-block', 'diagram'].includes(node.kind) &&
+    coordinates.toSource(node.range.start, 'next') < edit.start && edit.end < coordinates.toSource(node.range.end, 'previous'))
+  if (block === undefined) return false
+  const start = coordinates.toSource(block.range.start, 'next')
+  const end = coordinates.toSource(block.range.end, 'previous')
+  if (annotationsOverlapping(core, revision, { start, end }).some(annotation => annotation.range.start < end && start < annotation.range.end)) {
+    return false
+  }
+  const text = core.sourceSlice(revision, { start, end })
+  const delimiter = /^ {0,3}(?:`{3,}|~{3,}|\$\$)/u
+  if (delimiter.test(text)) {
+    const firstLineEnd = text.search(/\r\n|\r|\n/u)
+    const lastLineStart = Math.max(text.trimEnd().lastIndexOf('\n'), text.trimEnd().lastIndexOf('\r')) + 1
+    return firstLineEnd >= 0 && start + firstLineEnd < edit.start && edit.end < start + lastLineStart &&
+      delimiter.test(text.slice(lastLineStart))
+  }
+  const local = { start: edit.start - start, end: edit.end - start }
+  const lineStart = Math.max(text.lastIndexOf('\n', local.start - 1), text.lastIndexOf('\r', local.start - 1)) + 1
+  return block.kind === 'code-block' && !/[\r\n]/u.test(edit.insert + text.slice(local.start, local.end)) &&
+    text.startsWith('    ', lineStart) && local.start - lineStart >= 4
+}
+
 /** Literal payloads cannot contain active CM; suggest a replacement of their owned syntax. */
 export function createTrackedLiteralSourceEdit(
   core: DocumentCore,
@@ -285,13 +315,23 @@ export const createTrackedSourceEdit = (
         preserveCanonicalMarkup ? request.text : protectNativeCriticText(request.text), preview)
     }
   }
-  const direct = inlineTrackedSourceEdit(activeCore, activeRevision, request, preview, preserveCanonicalMarkup)
   const raw = { start, end, insert: request.text }
   // The untracked compilation of the same operation defines its Revised result;
   // an operation the untracked compiler refuses has no tracked meaning either.
-  const compileUntracked = (): readonly DocumentSourceEdit[] | undefined => createMarkupCompoundSourceEdits(
-    activeCore, activeRevision, [raw], preview, preserveCanonicalMarkup, preserveCanonicalMarkup ? scope : 'visible',
-    raw.insert.length > 0 ? 'admit-typed' : 'refuse')
+  let untrackedCompiled: { readonly edits: readonly DocumentSourceEdit[] | undefined } | undefined
+  const compileUntracked = (): readonly DocumentSourceEdit[] | undefined => {
+    untrackedCompiled ??= {
+      edits: createMarkupCompoundSourceEdits(
+        activeCore, activeRevision, [raw], preview, preserveCanonicalMarkup, preserveCanonicalMarkup ? scope : 'visible',
+        raw.insert.length > 0 ? 'admit-typed' : 'refuse')
+    }
+    return untrackedCompiled.edits
+  }
+  // Markers inside a block literal read as its text, so no inline spelling
+  // of an edit within one reads as the edit: none is weighed there.
+  const direct = !equivalenceDeferred(activeCore) && withinBlockLiteral(activeCore, activeRevision, { start, end, insert: request.text })
+    ? undefined
+    : inlineTrackedSourceEdit(activeCore, activeRevision, request, preview, preserveCanonicalMarkup)
   if (direct === undefined) {
     if (compileUntracked() === undefined) return undefined
     const draft = draftTrackedSourceEdit(activeCore, activeRevision,
