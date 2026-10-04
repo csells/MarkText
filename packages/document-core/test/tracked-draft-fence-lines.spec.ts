@@ -18,6 +18,18 @@ describe('tracked edits in a suggestion whose arm opens a fence', () => {
     expect(core.apply(revision, [edit!]).revision.diagnostics).toEqual(revision.diagnostics)
   })
 
+  it('adds no diagnostic for text typed after the closing fence of an Addition', () => {
+    const block = '{++```js\nconst added = 1\n```\n++}'
+    const source = 'Plain words here.\n\n' + block + '\n\n- item {++one++}\n- item {--two--}\n\nLine one {++x++}\nline two {--y--}.\n\n   \n\n' +
+      block + '\n\n{~~```js\nconst value0 = 0\nconst value1 = 1\n```\n~>```js\nconst value0 = 0\nconst {--d--}value1 = 1\n```\n~~}\n'
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const at = source.indexOf('```\n++}') + 3
+    const edit = core.trackedEdit(revision, { start: at, end: at, insert: 'x' })
+    expect(edit).toBeDefined()
+    expect(core.apply(revision, [edit!]).revision.diagnostics).toEqual(revision.diagnostics)
+  })
+
   // A plan of several edits is spelled from the literals its suggestions
   // reach, so Enter writes the same suggestions whatever literal blocks the
   // document holds elsewhere.
