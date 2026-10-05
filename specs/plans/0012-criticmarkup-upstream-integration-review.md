@@ -555,7 +555,7 @@ Opens at 271 KB dense-2000 take 922–974 ms (96fe7821).
 
 **Still open — not accepted**
 
-- **fence-2000-inside and links-code-2000 are bimodal.** At unchanged loads
+- **fence-2000-inside and links-code-2000 are bimodal** (explained on 4 October as a slowed CPU; see "4 October performance-run validity rule"). At unchanged loads
   of 2.7–5.3, some runs measure p95 13.0–14.9 ms and others 17.2–21.5 ms.
   On 2 October, 5 of 10 fence-2000-inside runs of this source were over
   16.7 ms, and 3 of 5 links-code-2000 runs. In one slow run another agent's
@@ -583,6 +583,82 @@ Opens at 271 KB dense-2000 take 922–974 ms (96fe7821).
   would improve the echo metric without improving input-to-paint.
 - **Final verification** of every number above is pending the frozen
   candidate.
+
+### 4 October performance-run validity rule (owner decision) — pending the frozen candidate
+
+The owner decided on 2026-10-04 that a performance run measured on a slowed
+CPU is invalid evidence, neither a pass nor a fail. The rule lives in the
+target manifest's `calibration` record
+(`specs/baselines/criticmarkup-performance-targets.json`, schema v12,
+validated by `scripts/criticmarkupPerformanceTargets.ts`).
+
+**The rule.**
+
+- Every warm session, ours and upstream's, times a fixed loop after each
+  measured key: 300,000 iterations of `(value * 31 + index) | 0` at keyup
+  (`warmSessionDiagnostics`, `helpers/performanceCalibration.ts`). The run
+  records the loop's p50 and p90 with its results.
+- A run whose loop p50 exceeds the pinned reference, 1.20 ms on the reference
+  host, by more than 15% (above 1.38 ms) is invalid. It is reported with its
+  loop numbers, counted neither as a pass nor a fail, and run again, up to
+  three attempts.
+- A workload with no valid attempt is inconclusive and the gate does not
+  pass.
+- Valid runs are judged against the unchanged thresholds and workloads.
+
+**Evidence for the decision** (2–4 October, the reference host).
+
+- _The same build has two modes._ At `e8789f2d`, links-code-2000 and
+  fence-2000-inside measured echo p95 of about 14.3 and 13 ms in about 85% of
+  roughly 90 runs, and 17–21.5 ms in the rest, at the same 1-minute load.
+- _Every phase slows by one factor._ In the slow runs, the probe's dispatch,
+  ack and reconcile medians each rose by about 1.33× (1.1 → 1.5, 2.0 → 2.8,
+  13.5 → 18.0 ms). Extra work such as a GC, timer or periodic task would add
+  time to some keys or phases; a slower CPU stretches all of them.
+- _The fixed loop slows with them._ It measured p50 1.20 ms (p10 1.1–1.2,
+  p90 1.3) in every fast run, about 60 runs of our build and upstream. Every
+  slow run measured 1.5–1.8 ms.
+- _Not ours._ Packaged upstream (`0c33241b`) showed the same signature on the
+  same document after a controlled heat soak: echo p95 19.9 ms with loop
+  p50 1.50. A plain Node loop on the command line slowed from 1.26 to 1.48 ms
+  at the same moment.
+- _Not visible scheduling demotion._ The renderer's main thread stayed at
+  priority 47T in both modes, and 12 busy loops at load 11 did not cause the
+  slow mode.
+- _When it happens._ The slow runs coincide with DarkWake after the lid closed
+  (2 October, followed by a thermal-emergency sleep), the minutes after waking
+  (4 October), and heat.
+
+**The cost the slow mode exposes** is Chromium's, and this rule does not
+change it.
+
+- Any DOM change under the editing host makes the next `TextInputInfo()`
+  re-walk the host's whole plain text with a `TextIterator`, because any
+  layout clears `CachedTextInputInfo`. That walk runs during input in
+  `DidChangeSelection` → `UpdateTextInputState`/`SyncSelectionIfRequired`
+  (`render_frame_impl.cc`), or otherwise at the next frame's
+  `DidBeginMainFrame` (`widget_base.cc`).
+- On links-code-2000 the walk measured 7.5–8.2 ms per frame for a pure text
+  mutation with no selection write, and 0.01–0.03 ms for a selection write
+  alone.
+- Making the caret's block its own editing host removed it: links-code-2000
+  measured 4.7 / 5.0 ms.
+- Switching hosts per gesture would restyle every element in the document:
+
+  | Document                          | Cost per switch |
+  | --------------------------------- | --------------- |
+  | links-code-2000 (34,003 elements) | 13.7–13.9 ms    |
+  | mixed-blocks-2000                 | 37.3–37.4 ms    |
+  | loose-list-2000                   | 22.2–22.3 ms    |
+  | plain-1000                        | 5.6–5.7 ms      |
+  | fence-2000-inside                 | 0.4–0.5 ms      |
+
+  That is a navigation and click-to-type regression, so host switching was
+  not adopted.
+
+**Still open.** links-code-2000 and fence-2000-inside stay open until a
+valid-state verification on the frozen candidate passes their 16.7 ms echo
+limit.
 
 ### 24–25 September rebase onto upstream develop — locally verified
 
