@@ -7036,11 +7036,31 @@ function createDocumentCoreWithExecutionBudget(
       // last annotation, which changes how every unfinished opener is
       // escaped, reads right there.
       true)) return undefined
-    const kept = contextBlocksKept(windowCore, opened, windowCore.apply(opened, compiled).revision,
-      { start: first.start - sourceStart, end: last.end - sourceStart }, delta, window.length,
-      // A window starting or ending at a clean block boundary, as beside a
-      // closed fence, needs no block of context there.
-      { start: sourceStart === 0 || context.cleanStart === true, end: windowEnd === state.source.length || context.cleanEnd === true })
+    // A result reaching a clean edge the window has no context beyond is one
+    // the window's own extent chose, as a span to the window's start or end:
+    // it is compiled again with the blocks beyond.
+    // A result replacing one block whole is that block's, whatever window
+    // reads it.
+    const wholeBlockResult = (): boolean => {
+      if (compiled.length !== 1) return false
+      const part = compiled[0]
+      if (part === undefined) return false
+      const { ast, coordinates } = windowCore.project(opened, 'markup').syntax
+      return ast.root.children.some(block => {
+        const start = coordinates.toSource(block.range.start, 'next')
+        const end = coordinates.toSource(block.range.end, 'previous')
+        return part.start === start && (part.end === end || /^(?:\r\n|\r|\n)$/u.test(window.slice(end, part.end)))
+      })
+    }
+    const reachesCleanEdge = ((context.cleanStart === true && sourceStart > 0 && first.start === sourceStart) ||
+      (context.cleanEnd === true && windowEnd < state.source.length && last.end === windowEnd)) && !wholeBlockResult()
+    const kept = reachesCleanEdge
+      ? 'unbounded'
+      : contextBlocksKept(windowCore, opened, windowCore.apply(opened, compiled).revision,
+        { start: first.start - sourceStart, end: last.end - sourceStart }, delta, window.length,
+        // A window starting or ending at a clean block boundary, as beside a
+        // closed fence, needs no block of context there.
+        { start: sourceStart === 0 || context.cleanStart === true, end: windowEnd === state.source.length || context.cleanEnd === true })
     // A result reaching the window's context, as a join of two blocks,
     // is compiled again with the blocks around it as context.
     // The window grows past its own context, whose last block may be one
