@@ -484,12 +484,13 @@ function createNode(
   children: readonly MarkdownNode[] = Object.freeze([]),
   attributes: Readonly<Record<string, string | number | boolean>> = EMPTY_ATTRIBUTES
 ): MarkdownNode {
-  const stableChildren = Object.freeze([...children])
+  // A frozen list or attribute record cannot change, so it needs no copy.
+  const stableChildren = Object.isFrozen(children) ? children : Object.freeze([...children])
   const identity = activeMarkdownSyntaxIdentity
   if (identity === undefined) {
     throw new Error('Markdown syntax node was created outside a parser identity scope')
   }
-  const stableAttributes = Object.freeze({ ...attributes })
+  const stableAttributes = Object.isFrozen(attributes) ? attributes : Object.freeze({ ...attributes })
   const sourceIdentity = identity.sourceAt(start, end)
   // A text node's trimmed extent is a fact of its own view: the same source
   // text ends its line in one view and not in another. Relative to the node,
@@ -500,12 +501,11 @@ function createNode(
     typeof semanticStart === 'number' && typeof semanticEnd === 'number'
       ? `semantic=${String(semanticStart - start)},${String(semanticEnd - end)}`
       : ''
-  const semanticKey = [
-    sourceIdentity.key,
-    stableAttributesKey(stableAttributes),
-    semanticExtentKey,
-    ...stableChildren.map((child) => child.nodeId)
-  ].join('\u0000')
+  // The same key as joining these parts with NUL, built without the arrays.
+  let semanticKey = sourceIdentity.key + '\u0000' +
+    (stableAttributes === EMPTY_ATTRIBUTES ? '' : stableAttributesKey(stableAttributes)) + '\u0000' +
+    semanticExtentKey
+  for (const child of stableChildren) semanticKey += '\u0000' + child.nodeId
   const nodeId = identity.registry.emitNode(
     kind,
     sourceIdentity,
@@ -8749,10 +8749,12 @@ export function createProfile1MarkdownForkParser(
   // each region's block facts are parsed once while the revision is parsed.
   // A parse that met no container-depth limit reads alike under any higher
   // one.
-  const regionFactsMemo = new Map<string, Readonly<{
+  // Keyed by the region's text, then by its other inputs, so the text is
+  // hashed as it stands rather than escaped into one long key.
+  const regionFactsMemo = new Map<string, Map<string, Readonly<{
     limit: number
     emitted: ReturnType<typeof parseIntrinsicForkRegionFacts>
-  }>>()
+  }>>>()
   // Definitions read alike share one short identity, found once per lookup.
   const definitionIds = new WeakMap<MarkdownReferenceDefinitionLookup, number>()
   const definitionIdsByKey = new Map<string, number>()
@@ -8789,7 +8791,6 @@ export function createProfile1MarkdownForkParser(
     const definitions = definitionId(selectionReferenceDefinitions)
     if (trace !== undefined || definitions === undefined) return parse()
     const key = JSON.stringify([
-      lane.source,
       lane.forkView ?? null,
       lane.frontMatterEnabled ?? true,
       lane.gfmEnabled ?? true,
@@ -8807,11 +8808,16 @@ export function createProfile1MarkdownForkParser(
       selectionOffset,
       definitions
     ])
-    const known = regionFactsMemo.get(key)
+    let ofSource = regionFactsMemo.get(lane.source)
+    if (ofSource === undefined) {
+      ofSource = new Map()
+      regionFactsMemo.set(lane.source, ofSource)
+    }
+    const known = ofSource.get(key)
     if (known !== undefined && (known.limit === containerDepthLimit ||
       known.limit <= containerDepthLimit && known.emitted.facts.containerDepthFailure === undefined)) return known.emitted
     const emitted = parse()
-    regionFactsMemo.set(key, Object.freeze({ limit: containerDepthLimit, emitted }))
+    ofSource.set(key, Object.freeze({ limit: containerDepthLimit, emitted }))
     return emitted
   }
   const requireForkLane = (lane: IntrinsicProfile1ForkLane): void => {
