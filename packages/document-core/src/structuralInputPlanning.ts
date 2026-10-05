@@ -203,6 +203,22 @@ function softBreakBeforeBlankLine(core: DocumentCore, revision: DocumentRevision
 }
 
 /** `syntax`, when given, is the revision's syntax or a regional window of it that `physicalLines` and `enterConversion` also read. */
+/**
+ * The canonical source of a literal block's content. An empty projected
+ * content beside elided markers maps its start forward and its end back
+ * across them, past each other; its source is then the empty range at its
+ * start.
+ */
+function literalContentSource(
+  projection: MarkupSyntax,
+  sourceAt: (offset: number) => number,
+  literal: MarkdownAstNode
+): Readonly<{ from: number, to: number }> {
+  const from = sourceAt(Number(literal.attributes.contentStart))
+  const to = projection.coordinates.toSource(Number(literal.attributes.contentEnd), 'previous')
+  return { from, to: Math.max(from, to) }
+}
+
 export function planStructuralInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction<SourceRange>, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, selectedCell?: ReturnType<typeof resolveTableCell>, syntax?: MarkupSyntax): DocumentSourceInputPlan {
   const inputType = 'inputType' in action ? action.inputType : undefined
   const projection = syntax ?? core.project(revision, 'markup').syntax
@@ -530,8 +546,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
       case 'tab': {
         const literal = ancestors.find(node => ['code-block', 'diagram', 'math-block', 'html-block', 'front-matter'].includes(node.kind))
         if (literal !== undefined && typeof literal.attributes.contentStart === 'number') {
-          const from = sourceAt(literal.attributes.contentStart)
-          const to = projection.coordinates.toSource(Number(literal.attributes.contentEnd), 'previous')
+          const { from, to } = literalContentSource(projection, sourceAt, literal)
           const body = core.sourceSlice(revision, { start: from, end: to })
           const language = literal.kind === 'html-block' ? 'html' : String(literal.attributes.semanticInfo ?? literal.attributes.info ?? '').trim().split(/\s+/u)[0] ?? ''
           const expansion = codeTabExpansion(body, start - from, end - from, language)
@@ -1061,8 +1076,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     return result([{ start, end, insert }], { start: start + lineEnding.length, end: start + lineEnding.length })
   }
   if (fence !== undefined && typeof fence.attributes.contentStart === 'number' && inputType === 'insertParagraph') {
-    const from = sourceAt(fence.attributes.contentStart)
-    const to = projection.coordinates.toSource(Number(fence.attributes.contentEnd), 'previous')
+    const { from, to } = literalContentSource(projection, sourceAt, fence)
     const body = core.sourceSlice(revision, { start: from, end: to })
     if (fence.attributes.provider === 'indented-code') {
       // Each line of indented code repeats its line's indentation and containers.
