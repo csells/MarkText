@@ -6379,12 +6379,26 @@ function createDocumentCoreWithExecutionBudget(
     return opens && closes
   }
 
-  const regionalTrackedBreak = (
+  /**
+   * Where a paragraph break typed at `edit` goes and what it extends: Enter
+   * before an Addition's opener begins its text and Enter after its closer
+   * continues it where its text reaches the closer, so either extends the
+   * Addition; elsewhere the break stands where it was typed. Undefined where
+   * the break meets suggestions the tracked planners spell otherwise.
+   */
+  const trackedBreakTarget = (
     state: RevisionState,
     previous: DocumentRevision,
     edit: DocumentSourceEdit
-  ): DocumentSourceEdit | undefined => {
-    if (plansFromDocumentParse(core) || edit.start !== edit.end || !/^(?:\r\n|\r|\n)+$/u.test(edit.insert)) return undefined
+  ): Readonly<{
+    at: number
+    owner: CriticMarkupAnnotation | undefined
+    arm: CriticMarkupArm | undefined
+    around: readonly CriticMarkupAnnotation[]
+    beside: readonly CriticMarkupAnnotation[]
+    placement: ReturnType<typeof newAdditionPlacement>
+    opened: CriticMarkupAnnotation | undefined
+  }> | undefined => {
     const around = markupAnnotations(rootsAround(previous, edit.start)).filter(annotation =>
       annotation.range.start <= edit.start && edit.start <= annotation.range.end)
     // A break at a Highlight's text start is an Addition before it.
@@ -6392,9 +6406,7 @@ function createDocumentCoreWithExecutionBudget(
       around[0].arms[0]?.range.start === edit.start
       ? around[0]
       : undefined
-    if (opened !== undefined) {
-      return regionalTrackedBreak(state, previous, Object.freeze({ ...edit, start: opened.range.start, end: opened.range.start }))
-    }
+    if (opened !== undefined) return { at: edit.start, owner: undefined, arm: undefined, around, beside: [], placement: undefined, opened }
     // A break beside a Deletion is an Addition of its own, as away from
     // every suggestion.
     const besideDeletions = around.filter(annotation => annotation.kind === 'deletion' &&
@@ -6443,6 +6455,21 @@ function createDocumentCoreWithExecutionBudget(
       } else if (at < arm.range.start || at > arm.range.end) {
         return undefined
       }
+    }
+    return { at, owner, arm, around, beside, placement, opened: undefined }
+  }
+
+  const regionalTrackedBreak = (
+    state: RevisionState,
+    previous: DocumentRevision,
+    edit: DocumentSourceEdit
+  ): DocumentSourceEdit | undefined => {
+    if (plansFromDocumentParse(core) || edit.start !== edit.end || !/^(?:\r\n|\r|\n)+$/u.test(edit.insert)) return undefined
+    const target = trackedBreakTarget(state, previous, edit)
+    if (target === undefined) return undefined
+    const { at, owner, arm, around, beside, placement, opened } = target
+    if (opened !== undefined) {
+      return regionalTrackedBreak(state, previous, Object.freeze({ ...edit, start: opened.range.start, end: opened.range.start }))
     }
     if (!plainParagraphAround(previous, at)) return undefined
     const planned = Object.freeze({ start: at, end: at, insert: owner === undefined ? `{++${edit.insert}++}` : edit.insert })
@@ -7115,6 +7142,14 @@ function createDocumentCoreWithExecutionBudget(
       regionalTrackedBreak(state, previous, edit) ?? regionalTrackedJoin(state, previous, edit) ??
       regionalTrackedDeletion(state, previous, edit)
     if (regional !== undefined) return regional
+    // Enter at an Addition's edge extends it, as the regional planner spells
+    // it, whichever compile reads the key.
+    const breakTarget = edit.start === edit.end && /^(?:\r\n|\r|\n)+$/u.test(edit.insert)
+      ? trackedBreakTarget(state, previous, edit)
+      : undefined
+    if (breakTarget?.owner !== undefined && breakTarget.at !== edit.start && plainParagraphAround(previous, breakTarget.at)) {
+      edit = Object.freeze({ start: breakTarget.at, end: breakTarget.at, insert: edit.insert })
+    }
     const windowed = windowedGeneralEdits(state, previous, [edit], (windowCore, revision, [local], windowPreview) => {
       const planned = local === undefined ? undefined : generalTrackedEdit(windowCore, revision, local, windowPreview)
       return planned === undefined ? undefined : [planned]
