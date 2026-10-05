@@ -79,6 +79,11 @@ fast-state reference (1.20 ms on the reference host) by more than 15% measured a
 the editor: it is invalid, reported with its loop numbers, judged neither pass nor fail, and run
 again, up to three attempts. A workload with no valid attempt is inconclusive and does not pass.
 Valid runs are judged against the unchanged thresholds, for our build and upstream alike.
+Installed-core and upstream raw runs, smoke or ratification, open a fresh application for each
+one-key observation, so each observation probes the same loop eight times, 40 ms apart, right
+after its key. An invalid observation is run again in a fresh profile, never scored, and listed
+in the raw run's `calibration.invalidObservations`; its launch, profile, close and cleanup count
+in the lifecycle totals, and an observation with no valid attempt leaves the run inconclusive.
 
 `criticmarkup-performance-measurements.json` pins four common product-boundary timings for both
 implementations and three additional authority timings for Core. The current `awaiting-raw-runs`
