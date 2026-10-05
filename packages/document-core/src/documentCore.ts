@@ -2295,6 +2295,18 @@ function contextBlocksKept(
   }
   // A top-level list's items are blocks of their own, each noting whether it
   // continues the list of the block before it.
+  // An empty paragraph a view reads for a line of spaces has no extent of
+  // its own: beside an elided closer its offset maps past the hidden
+  // marker, so it moves by more than the edit. Such a line keeps its place
+  // with the blocks around it, which are compared, and is left out.
+  const blankLineAt = (revision: DocumentRevision, offset: number): boolean => {
+    const source = core.sourceSlice(revision, { start: 0, end: revision.sourceLength })
+    let start = offset
+    while (start > 0 && source[start - 1] !== '\n' && source[start - 1] !== '\r') start -= 1
+    let end = offset
+    while (end < source.length && source[end] !== '\n' && source[end] !== '\r') end += 1
+    return /^[ \t]*$/u.test(source.slice(start, end))
+  }
   const blocks = (revision: DocumentRevision, view: 'original' | 'revised' | 'markup') => {
     const projection = core.project(revision, view)
     const { ast, coordinates } = projection.kind === 'markup' ? projection.syntax : projection
@@ -2303,7 +2315,8 @@ function contextBlocksKept(
       : [{ block, continues: false }]).map(({ block, continues }) => ({
       range: { start: coordinates.toSource(block.range.start, 'next'), end: coordinates.toSource(block.range.end, 'previous') },
       structure: `${blockStructure(block)}${continues ? '|continues' : ''}`
-    }))
+    })).filter(({ range, structure }) =>
+      !(structure === '(paragraph[])' && range.start === range.end && blankLineAt(revision, range.start)))
   }
   for (const view of ['original', 'revised', 'markup'] as const) {
     const before = blocks(previous, view)
