@@ -734,6 +734,12 @@ now information only, and every run is scored.
     parsed once, at the parser's rate of about 160 characters per ms. This
     key stays open: it needs a math-pairing-aware incremental parse or a
     faster parser.
+- Key 117/9 of the input sweep threw a RangeError while planning Enter.
+  The fence's projected content was empty beside elided markers. Its
+  content start mapped forward and its end mapped back across them, so the
+  start passed the end and slicing that range threw. The Enter and Tab
+  planners now read such content as the empty range at its start.
+  `literal-content-source.spec.ts` minimizes the document from that key.
 
 ### 24–25 September rebase onto upstream develop — locally verified
 
