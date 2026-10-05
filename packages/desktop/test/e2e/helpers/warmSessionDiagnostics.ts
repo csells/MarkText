@@ -49,11 +49,12 @@ export const startWarmRendererRecording = async(
 }
 
 /**
- * Times a fixed, already optimized loop at every `keydown` or `keyup`, as
- * MARKTEXT_UPSTREAM_WARM_CALIBRATE asks. Its duration shows how fast the
- * renderer's core runs at that moment, which differs between apps that idle
- * between keys and apps that keep working. At keydown the loop is short so
- * that it barely warms the core for the key it precedes.
+ * Times a fixed, already optimized loop at every `keydown` or `keyup`. Its
+ * duration shows how fast the renderer's core runs at that moment, which
+ * differs between apps that idle between keys and apps that keep working. At
+ * keydown the loop is short so that it barely warms the core for the key it
+ * precedes. The keyup loop is the calibration every performance run records
+ * (`performanceCalibration.ts`).
  */
 export const installKeyCalibration = async(page: Page, event: 'keydown' | 'keyup'): Promise<void> => {
   await page.evaluate((type) => {

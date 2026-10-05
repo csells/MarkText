@@ -79,11 +79,16 @@ import {
 } from './helpers/ordinaryMarkdownWorkloads'
 import {
   captureEditorDom,
-  installKeyCalibration,
   probeForcedLayout,
-  readKeyCalibration,
   startWarmRendererRecording
 } from './helpers/warmSessionDiagnostics'
+import {
+  describePerformanceCalibration,
+  loadPerformanceCalibration,
+  readPerformanceCalibration,
+  startPerformanceCalibration,
+  type PerformanceCalibrationVerdict
+} from './helpers/performanceCalibration'
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..')
 const PINNED_BASELINE = 'e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c'
@@ -854,14 +859,18 @@ test.describe('pinned upstream baseline raw performance producer', () => {
 // each run. The producer checks the window server, so keep the display lit
 // for the run (`caffeinate -d -u`, stopped afterwards).
 //
+// Every run times the target manifest's fixed calibration loop after each
+// measured key and records its p50 and p90 in `<workload>.json`. A run whose
+// loop shows a slowed CPU is invalid: it is kept as
+// `<workload>.attempt-<n>.json`, judged neither pass nor fail, and run again,
+// up to the manifest's maximumAttempts; a workload with no valid attempt is
+// recorded as inconclusive and fails.
+//
 // Opt-in diagnostics, off by default, written beside `<workload>.json`:
 // - MARKTEXT_UPSTREAM_WARM_PROFILE=1: `<workload>.cpuprofile`, the renderer's
 //   CPU profile over the measured keys.
 // - MARKTEXT_UPSTREAM_WARM_TRACE=1: `<workload>.trace.json`, a Chromium
 //   timeline trace over the measured keys.
-// - MARKTEXT_UPSTREAM_WARM_CALIBRATE=keydown or keyup:
-//   `<workload>.calibration.json`, a fixed loop's time at each measured key,
-//   which shows the renderer core's speed at that moment.
 // - MARKTEXT_UPSTREAM_WARM_DOM=1: `<workload>.dom.json`, the editor's DOM
 //   before the keys and a forced-layout probe after them.
 test.describe('upstream warm-session echo on ordinary Markdown', () => {
@@ -872,74 +881,76 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
   const warmup = 8
   const measured = Number(process.env.MARKTEXT_UPSTREAM_WARM_SAMPLES ?? 40)
   const interval = Number(process.env.MARKTEXT_UPSTREAM_WARM_INTERVAL_MS ?? 80)
-  const calibration = process.env.MARKTEXT_UPSTREAM_WARM_CALIBRATE
-  if (calibration !== undefined && calibration !== 'keydown' && calibration !== 'keyup') {
-    throw new Error('MARKTEXT_UPSTREAM_WARM_CALIBRATE must be keydown or keyup')
-  }
   const diagnostics = Object.freeze({
     profile: process.env.MARKTEXT_UPSTREAM_WARM_PROFILE === '1',
     trace: process.env.MARKTEXT_UPSTREAM_WARM_TRACE === '1',
-    calibration: calibration ?? null,
     dom: process.env.MARKTEXT_UPSTREAM_WARM_DOM === '1'
   })
+  const reference = loadPerformanceCalibration()
 
-  for (const workload of ORDINARY_MARKDOWN_WORKLOADS) {
-    test(workload.name, async() => {
-      if (process.platform !== 'darwin') throw new Error('Upstream warm sessions require macOS')
-      test.setTimeout(Math.max(300_000, (warmup + measured) * (interval + 150) + 120_000))
-      const outputDirectory = requiredPath('MARKTEXT_UPSTREAM_WARM_OUTPUT')
-      const outputPath = path.join(outputDirectory, `${workload.name}.json`)
-      const appBundle = requiredPath('MARKTEXT_UPSTREAM_WARM_APP')
-      const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-upstream-performance-'))
+  /**
+   * One warm session of `workload` in a fresh profile: the record its
+   * `<workload>.json` holds, with the calibration verdict that decides
+   * whether it counts.
+   */
+  const measureUpstreamWarmAttempt = async(
+    workload: typeof ORDINARY_MARKDOWN_WORKLOADS[number],
+    appBundle: string,
+    outputDirectory: string,
+    attempt: number
+  ): Promise<{ record: Record<string, unknown>, calibration: PerformanceCalibrationVerdict }> => {
+    const artifact = attempt === 1 ? workload.name : `${workload.name}.attempt-${String(attempt)}`
+    const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-upstream-performance-'))
+    try {
+      const bootstrapFile = await createUpstreamPerformanceBlankBootstrapFile(runRoot)
+      const isolation = await createUpstreamPerformanceObservationIsolation(runRoot, 0)
+      const documentPath = path.join(isolation.root, `${workload.name}.md`)
+      fs.writeFileSync(documentPath, workload.source, { flag: 'wx' })
+      const loadBefore = os.loadavg()
+      const app = await launchRenderActiveUpstreamApplication(appBundle, isolation.profile, bootstrapFile)
       try {
-        const bootstrapFile = await createUpstreamPerformanceBlankBootstrapFile(runRoot)
-        const isolation = await createUpstreamPerformanceObservationIsolation(runRoot, 0)
-        const documentPath = path.join(isolation.root, `${workload.name}.md`)
-        fs.writeFileSync(documentPath, workload.source, { flag: 'wx' })
-        const loadBefore = os.loadavg()
-        const app = await launchRenderActiveUpstreamApplication(appBundle, isolation.profile, bootstrapFile)
-        try {
-          const { page } = app
-          await expectRenderActiveInactive(app)
-          await closeActiveTab(page)
-          await awaitRenderActiveInactiveConvergence(app)
-          const opened = await openSample(page, documentPath)
-          // Both harnesses type at the end of the warm editing text.
-          const target = await placeCaretAfterWarmEditingText(page)
-          const dom = diagnostics.dom ? await captureEditorDom(page) : undefined
-          for (let index = 0; index < warmup; index += 1) {
-            await page.keyboard.type('x', { delay: 0 })
-            await page.waitForTimeout(interval)
-          }
-          await startInputLatencyTrace(page, { maxSamples: measured })
-          if (diagnostics.calibration !== null) await installKeyCalibration(page, diagnostics.calibration)
-          const stopRecording = diagnostics.profile || diagnostics.trace
-            ? await startWarmRendererRecording(page, diagnostics)
-            : undefined
-          for (let index = 0; index < measured; index += 1) {
-            await page.keyboard.type('x', { delay: 0 })
-            await page.waitForTimeout(interval)
-          }
-          await waitForInputLatencyEcho(page, measured, 30_000)
-          await stopRecording?.(outputDirectory, workload.name)
-          const input = await readInputLatencyTrace(page)
-          if (diagnostics.calibration !== null) {
-            fs.writeFileSync(path.join(outputDirectory, `${workload.name}.calibration.json`),
-              JSON.stringify({ event: diagnostics.calibration, loopMs: await readKeyCalibration(page) }), { flag: 'wx' })
-          }
-          expect(await target.textContent()).toContain(WARM_EDITING_PARAGRAPH + 'x'.repeat(warmup + measured))
-          if (dom !== undefined) {
-            fs.writeFileSync(path.join(outputDirectory, `${workload.name}.dom.json`),
-              JSON.stringify({ before: dom, forcedLayoutMs: await probeForcedLayout(page) }, null, 2), { flag: 'wx' })
-          }
-          await expectRenderActiveInactive(app, true)
-          const echoes = input.flatMap(sample => sample.tEcho === undefined ? [] : [sample.tEcho - sample.tEvent])
-          const sorted = [...echoes].sort((left, right) => left - right)
-          const percentile = (value: number): number | null => sorted.length === 0
-            ? null
-            : sorted[Math.min(sorted.length - 1, Math.ceil(value * sorted.length) - 1)] ?? null
-          fs.writeFileSync(outputPath, JSON.stringify({
+        const { page } = app
+        await expectRenderActiveInactive(app)
+        await closeActiveTab(page)
+        await awaitRenderActiveInactiveConvergence(app)
+        const opened = await openSample(page, documentPath)
+        // Both harnesses type at the end of the warm editing text.
+        const target = await placeCaretAfterWarmEditingText(page)
+        const dom = diagnostics.dom ? await captureEditorDom(page) : undefined
+        for (let index = 0; index < warmup; index += 1) {
+          await page.keyboard.type('x', { delay: 0 })
+          await page.waitForTimeout(interval)
+        }
+        await startInputLatencyTrace(page, { maxSamples: measured })
+        await startPerformanceCalibration(page)
+        const stopRecording = diagnostics.profile || diagnostics.trace
+          ? await startWarmRendererRecording(page, diagnostics)
+          : undefined
+        for (let index = 0; index < measured; index += 1) {
+          await page.keyboard.type('x', { delay: 0 })
+          await page.waitForTimeout(interval)
+        }
+        await waitForInputLatencyEcho(page, measured, 30_000)
+        await stopRecording?.(outputDirectory, artifact)
+        const input = await readInputLatencyTrace(page)
+        const calibration = await readPerformanceCalibration(page, reference)
+        expect(await target.textContent()).toContain(WARM_EDITING_PARAGRAPH + 'x'.repeat(warmup + measured))
+        if (dom !== undefined) {
+          fs.writeFileSync(path.join(outputDirectory, `${artifact}.dom.json`),
+            JSON.stringify({ before: dom, forcedLayoutMs: await probeForcedLayout(page) }, null, 2), { flag: 'wx' })
+        }
+        await expectRenderActiveInactive(app, true)
+        const echoes = input.flatMap(sample => sample.tEcho === undefined ? [] : [sample.tEcho - sample.tEvent])
+        const sorted = [...echoes].sort((left, right) => left - right)
+        const percentile = (value: number): number | null => sorted.length === 0
+          ? null
+          : sorted[Math.min(sorted.length - 1, Math.ceil(value * sorted.length) - 1)] ?? null
+        expect(sorted).toHaveLength(measured)
+        return {
+          calibration,
+          record: {
             workload: workload.name,
+            attempt,
             sourceSha256: sha256(workload.source),
             sourceUnits: workload.source.length,
             upstreamBuildCommit: process.env.MARKTEXT_UPSTREAM_BUILD_COMMIT ?? null,
@@ -948,6 +959,7 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
             loadAverage: { before: loadBefore, after: os.loadavg() },
             protocol: { warmup, measured, intervalMs: interval, boundary: 'beforeinput-to-exact-dom-echo' },
             diagnostics,
+            calibration,
             open: opened,
             echoMs: {
               count: sorted.length,
@@ -956,14 +968,41 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
               max: sorted.at(-1) ?? null
             },
             samples: input
-          }, null, 2), { flag: 'wx' })
-          expect(sorted).toHaveLength(measured)
-        } finally {
-          await closeRenderActiveUpstreamApplication(app)
+          }
         }
       } finally {
-        await removeUpstreamPerformanceRunRoot(runRoot)
+        await closeRenderActiveUpstreamApplication(app)
       }
+    } finally {
+      await removeUpstreamPerformanceRunRoot(runRoot)
+    }
+  }
+
+  for (const workload of ORDINARY_MARKDOWN_WORKLOADS) {
+    test(workload.name, async() => {
+      if (process.platform !== 'darwin') throw new Error('Upstream warm sessions require macOS')
+      test.setTimeout(reference.maximumAttempts * Math.max(300_000, (warmup + measured) * (interval + 150) + 120_000))
+      const outputDirectory = requiredPath('MARKTEXT_UPSTREAM_WARM_OUTPUT')
+      const appBundle = requiredPath('MARKTEXT_UPSTREAM_WARM_APP')
+      const attempts: Array<Record<string, unknown>> = []
+      for (let attempt = 1; attempt <= reference.maximumAttempts; attempt += 1) {
+        const result = await measureUpstreamWarmAttempt(workload, appBundle, outputDirectory, attempt)
+        console.log(describePerformanceCalibration(workload.name, attempt, result.calibration))
+        attempts.push(result.record)
+        if (result.calibration.validity === 'valid') {
+          fs.writeFileSync(path.join(outputDirectory, `${workload.name}.json`),
+            JSON.stringify({ ...result.record, validity: 'valid', attempts: attempts.length }, null, 2), { flag: 'wx' })
+          return
+        }
+        fs.writeFileSync(path.join(outputDirectory, `${workload.name}.attempt-${String(attempt)}.json`),
+          JSON.stringify({ ...result.record, validity: 'invalid' }, null, 2), { flag: 'wx' })
+      }
+      fs.writeFileSync(path.join(outputDirectory, `${workload.name}.json`), JSON.stringify({
+        workload: workload.name,
+        validity: 'inconclusive',
+        attempts: attempts.map(record => ({ calibration: record.calibration, echoMs: record.echoMs }))
+      }, null, 2), { flag: 'wx' })
+      throw new Error(`${workload.name} is inconclusive: all ${String(attempts.length)} attempts ran on a slowed CPU`)
     })
   }
 })
