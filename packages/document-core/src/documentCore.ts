@@ -6753,6 +6753,9 @@ function createDocumentCoreWithExecutionBudget(
     if (opening === undefined && at > reach || closing < 0 && previous.sourceLength - at > reach) return false
     const text = before.slice(opening === undefined ? 0 : opening.index + opening[0].length) +
       after.slice(0, closing < 0 ? after.length : closing)
+    // Lines indented four columns or more that open a block are indented
+    // code, not a paragraph.
+    if (/^(?: {4}|\t| {0,3}\t)/u.test(text)) return false
     return /^[\p{L}\p{N} \t\r\n.,;:'"?!()]*$/u.test(text.replace(/\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\}/gu, '')) &&
       (!breaking || /^[ \t]*(?:\+\+\}|~~\})?(?:\{(?:\+\+|--|==)\p{L}[^{}\r\n]*(?:\+\+|--|==)\}|\{~~\p{L}[^{}\r\n]*~~\}|\{>>[^{}\r\n]*<<\})*[ \t]*(?:\p{L}|[.,;:'"?!()]|\r|\n|$)/u.test(after))
   }
