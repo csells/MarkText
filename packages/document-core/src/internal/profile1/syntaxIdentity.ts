@@ -189,11 +189,14 @@ export function createProfile1SyntaxIdentityRegistry(
   accounting?: Profile1SyntaxAccountingRecorderV1
 ): Profile1SyntaxIdentityRegistry {
   const nodes: Profile1SyntaxNode[] = []
-  const nodeBySemanticKey = new Map<string, Profile1SyntaxNode>()
+  // Keyed by kind first, so a lookup hashes the semantic key as the caller
+  // built it rather than a fresh concatenation of it.
+  const nodeBySemanticKey = new Map<Profile1SyntaxNodeKind, Map<string, Profile1SyntaxNode>>()
   const nodeById = new Map<NodeId, Profile1SyntaxNode>()
   const edges: Profile1SyntaxEdge[] = []
-  const edgeKeys = new Set<string>()
-  const internedObjects = new Map<string, object>()
+  // Edge kind and role spellings already emitted from one node to another.
+  const edgeTags = new Map<Profile1SyntaxNode, Map<Profile1SyntaxNode, string[]>>()
+  const internedObjects = new Map<Profile1SyntaxNode, Map<string, object>>()
   const ownershipFacts: Array<Readonly<{
     readonly range: SourceRange
     readonly owner: SourceOwner
@@ -225,8 +228,12 @@ export function createProfile1SyntaxIdentityRegistry(
     ) {
       throw new Error('Profile 1 syntax identity is outside canonical source')
     }
-    const key = `${kind}\u0000${semanticKey}`
-    const existing = nodeBySemanticKey.get(key)
+    let ofKind = nodeBySemanticKey.get(kind)
+    if (ofKind === undefined) {
+      ofKind = new Map()
+      nodeBySemanticKey.set(kind, ofKind)
+    }
+    const existing = ofKind.get(semanticKey)
     if (existing !== undefined) {
       if (existing.kind !== kind || !sameRange(existing.range, source.range)) {
         throw new Error('Profile 1 semantic identity mapped to different syntax')
@@ -240,7 +247,7 @@ export function createProfile1SyntaxIdentityRegistry(
       range: source.range
     })
     nodes.push(node)
-    nodeBySemanticKey.set(key, node)
+    ofKind.set(semanticKey, node)
     nodeById.set(nodeId, node)
     const accountingKind: Profile1SyntaxAccountingEventKindV1 =
       kind === 'addition' ||
@@ -276,14 +283,26 @@ export function createProfile1SyntaxIdentityRegistry(
     if (finished !== undefined) {
       throw new Error('Profile 1 syntax edge was emitted after finalization')
     }
-    if (!nodeById.has(from) || !nodeById.has(to)) {
+    const fromNode = nodeById.get(from)
+    const toNode = nodeById.get(to)
+    if (fromNode === undefined || toNode === undefined) {
       throw new Error('Profile 1 syntax edge references an unemitted node')
     }
-    const key = `${kind}\u0000${from}\u0000${to}\u0000${role ?? ''}`
-    if (edgeKeys.has(key)) {
-      return
+    // An absent role and an empty one are the same edge.
+    const tag = role === undefined || role === '' ? kind : `${kind}\u0000${role}`
+    let targets = edgeTags.get(fromNode)
+    if (targets === undefined) {
+      targets = new Map()
+      edgeTags.set(fromNode, targets)
     }
-    edgeKeys.add(key)
+    const tags = targets.get(toNode)
+    if (tags === undefined) {
+      targets.set(toNode, [tag])
+    } else if (tags.includes(tag)) {
+      return
+    } else {
+      tags.push(tag)
+    }
     edges.push(Object.freeze({
       kind,
       from,
@@ -297,16 +316,21 @@ export function createProfile1SyntaxIdentityRegistry(
     objectKey: string,
     create: () => Value
   ): Value => {
-    if (!nodeById.has(nodeId)) {
+    const node = nodeById.get(nodeId)
+    if (node === undefined) {
       throw new Error('Cannot intern an object for an unemitted syntax node')
     }
-    const key = `${nodeId}\u0000${objectKey}`
-    const existing = internedObjects.get(key)
+    let ofNode = internedObjects.get(node)
+    if (ofNode === undefined) {
+      ofNode = new Map()
+      internedObjects.set(node, ofNode)
+    }
+    const existing = ofNode.get(objectKey)
     if (existing !== undefined) {
       return existing as Value
     }
     const value = create()
-    internedObjects.set(key, value)
+    ofNode.set(objectKey, value)
     return value
   }
 
