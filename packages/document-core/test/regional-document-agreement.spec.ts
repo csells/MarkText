@@ -159,6 +159,10 @@ describe('a tracked key reads as the whole document plans it', () => {
     expect(inputKeyDisagreements(298)).toEqual([])
   }, 120_000)
 
+  it('splits replaced math in one window as the document does', () => {
+    expect(trackedKeyDisagreements(13, 0, 16)).toEqual([])
+  }, 120_000)
+
   it('spells a key beside a closed fence as the document does', () => {
     expect(inputKeyDisagreements(86)).toEqual([])
   }, 120_000)
