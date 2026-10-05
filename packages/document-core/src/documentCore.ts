@@ -7054,13 +7054,67 @@ function createDocumentCoreWithExecutionBudget(
     }
     const reachesCleanEdge = ((context.cleanStart === true && sourceStart > 0 && first.start === sourceStart) ||
       (context.cleanEnd === true && windowEnd < state.source.length && last.end === windowEnd)) && !wholeBlockResult()
-    const kept = reachesCleanEdge
+    let kept = reachesCleanEdge
       ? 'unbounded'
       : contextBlocksKept(windowCore, opened, windowCore.apply(opened, compiled).revision,
         { start: first.start - sourceStart, end: last.end - sourceStart }, delta, window.length,
         // A window starting or ending at a clean block boundary, as beside a
         // closed fence, needs no block of context there.
         { start: sourceStart === 0 || context.cleanStart === true, end: windowEnd === state.source.length || context.cleanEnd === true })
+    // A result splitting the deleted or replaced text that holds the edit
+    // (G34) is that suggestion's, read and weighed within it whatever window
+    // holds it. Where the window has no block of context beyond a blank line,
+    // it is read again with the blocks the document has there: where they
+    // keep their structure under the edit and under the result, the result
+    // stands as compiled, and the document preview below decides the rest.
+    const historyOwner = historyHolder(opened.annotations, local[0]?.start ?? -1, local.at(-1)?.end ?? -1)
+    if (kept === 'unbounded' && !reachesCleanEdge && windowSource === window && parted(sourceStart) && parted(windowEnd) &&
+        historyOwner !== undefined && local.some(part => part.insert.length > 0) &&
+        compiled.every(part => historyOwner.annotation.range.start <= part.start && part.end <= historyOwner.annotation.range.end)) {
+      const blockBefore = (at: number): number => {
+        let cursor = at
+        while (cursor > 0 && /[\r\n \t]/u.test(state.source.slice(cursor - 1, cursor))) cursor -= 1
+        const before = state.source.slice(Math.max(0, cursor - 4096), cursor)
+        const found = [...before.matchAll(/(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/gu)].at(-1)
+        return found === undefined ? (cursor - 4096 <= 0 ? 0 : -1) : cursor - before.length + found.index + found[0].length
+      }
+      const blockAfter = (at: number): number => {
+        const after = state.source.slice(at, Math.min(state.source.length, at + 4096))
+        const content = after.search(/[^\r\n \t]/u)
+        if (content < 0) return at + after.length === state.source.length ? state.source.length : -1
+        const blank = /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/gu
+        blank.lastIndex = content
+        const found = blank.exec(after)
+        return found === null ? (at + after.length === state.source.length ? state.source.length : -1) : at + found.index
+      }
+      const from = sourceStart === 0 ? 0 : blockBefore(sourceStart)
+      const to = windowEnd === state.source.length ? windowEnd : blockAfter(windowEnd)
+      if (from >= 0 && to >= 0) {
+        const wideCore = createDocumentCoreWithExecutionBudget(executionBudget)
+        windowCores.add(wideCore)
+        const prefix = sourceStart - from
+        const wide = wideCore.open(state.source.slice(from, to), from === 0 ? options : { ...options, frontMatter: false })
+        const shift = (parts: readonly DocumentSourceEdit[]) =>
+          parts.map(part => Object.freeze({ start: part.start + prefix, end: part.end + prefix, insert: part.insert }))
+        const edges = { start: from === 0, end: to === state.source.length }
+        // The edit itself must leave those blocks as they read too: a fence
+        // it leaves open would take them in, which the result alone hides.
+        const plainDelta = local.reduce((sum, part) => sum + part.insert.length - (part.end - part.start), 0)
+        const plainFirst = local[0]
+        const plainLast = local.at(-1)
+        kept = plainFirst === undefined || plainLast === undefined ||
+          contextBlocksKept(wideCore, wide, wideCore.apply(wide, shift(local)).revision,
+            { start: plainFirst.start + prefix, end: plainLast.end + prefix }, plainDelta, to - from, edges) !== 'kept'
+          ? 'unbounded'
+          : (() => {
+            const resultCore = createDocumentCoreWithExecutionBudget(executionBudget)
+            windowCores.add(resultCore)
+            const opened = resultCore.open(state.source.slice(from, to), from === 0 ? options : { ...options, frontMatter: false })
+            return contextBlocksKept(resultCore, opened, resultCore.apply(opened, shift(compiled)).revision,
+              { start: first.start - from, end: last.end - from }, delta, to - from, edges)
+          })()
+      }
+    }
     // A result reaching the window's context, as a join of two blocks,
     // is compiled again with the blocks around it as context.
     // The window grows past its own context, whose last block may be one
