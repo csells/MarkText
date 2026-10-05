@@ -21,6 +21,20 @@ import {
   performanceObservationScheduleSha256
 } from '../../e2e/helpers/performanceObservationSchedule'
 import { runIsolatedPerformanceObservations } from '../../e2e/helpers/performanceSampleLifecycle'
+import { PERFORMANCE_CALIBRATION_LOOP } from '../../../../../scripts/criticmarkupPerformanceTargets'
+
+const CALIBRATION_REFERENCE = Object.freeze({
+  loop: PERFORMANCE_CALIBRATION_LOOP,
+  referenceP50Ms: 1.2,
+  maximumExcess: 0.15,
+  maximumAttempts: 3
+})
+const RUN_CALIBRATION = Object.freeze({
+  reference: CALIBRATION_REFERENCE,
+  invalidObservations: Object.freeze([])
+})
+/** A probe's loop times on a CPU in its fast state, or slowed when `p50` is above 1.38 ms. */
+const probe = (p50 = 1.2) => Object.freeze({ count: 8, p50, p90: p50 + 0.05 })
 
 const report = (
   value: number,
@@ -69,7 +83,7 @@ const scheduledSamples = (
       if (payloadIndex < 0) return []
       const [payload] = remaining.splice(payloadIndex, 1)
       if (payload === undefined) return []
-      return [{ ...entry, ...payload }]
+      return [{ ...entry, calibration: probe(), ...payload }]
     }
   )
 }
@@ -367,20 +381,23 @@ describe('Core authority raw performance producer', () => {
       ...authenticatedProvenance(schedule)
     }
     const samples: CoreAuthorityPerformanceRawSample[] = [
-      { ...schedule[0]!, surface: 'source', report: report(1) },
+      { ...schedule[0]!, surface: 'source', report: report(1), calibration: probe(1.1) },
       {
         ...schedule[1]!,
         surface: 'source',
-        report: report(2, 3, 1)
+        report: report(2, 3, 1),
+        calibration: probe(1.2)
       },
       {
         ...schedule[2]!,
         surface: 'source',
-        report: report(3, 2, 0)
+        report: report(3, 2, 0),
+        calibration: probe(1.3)
       }
     ]
 
     expect(createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       runId: 'core-2026-08-13',
       evidenceClass: 'smoke-non-ratifying',
       baselineCommit: '1'.repeat(40),
@@ -392,7 +409,7 @@ describe('Core authority raw performance producer', () => {
       documents: [{ id: 'doc', sourceSha256: digest }],
       samples
     })).toEqual({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v14',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v15',
       evidenceClass: 'smoke-non-ratifying',
       runId: 'core-2026-08-13',
       implementation: 'core-candidate',
@@ -403,6 +420,11 @@ describe('Core authority raw performance producer', () => {
       environment: { build: 'packaged' },
       sampling: { warmupSamples: 1, measuredSamples: 2 },
       provenance,
+      calibration: {
+        reference: CALIBRATION_REFERENCE,
+        probe: 'integer-spin-300000-probe-8x40ms-v1',
+        invalidObservations: []
+      },
       observationOrder: schedule,
       documents: [{
         id: 'doc',
@@ -425,6 +447,10 @@ describe('Core authority raw performance producer', () => {
           t_present: [4.5, 5.5],
           open: [5, 6],
           first_viewport: [6, 7]
+        },
+        calibration: {
+          warmup: { p50: [1.1], p90: [1.1 + 0.05] },
+          measured: { p50: [1.2, 1.3], p90: [1.2 + 0.05, 1.3 + 0.05] }
         },
         authorityEvidence: {
           warmup: {
@@ -450,7 +476,8 @@ describe('Core authority raw performance producer', () => {
       (entry, index) => ({
         ...entry,
         surface: 'source',
-        report: report(index + 1)
+        report: report(index + 1),
+        calibration: probe()
       })
     )
     const input = {
@@ -468,18 +495,22 @@ describe('Core authority raw performance producer', () => {
     }
 
     expect(() => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       ...input,
       samples: [samples[1]!, samples[0]!, samples[2]!]
     })).toThrow(/observation schedule.*ordinal 1/i)
     expect(() => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       ...input,
       samples: [samples[0]!, samples[0]!, samples[2]!]
     })).toThrow(/observation schedule.*ordinal 2/i)
     expect(() => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       ...input,
       samples: samples.slice(0, 2)
     })).toThrow(/observation schedule.*3.*2/i)
     expect(() => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       ...input,
       samples: [
         samples[0]!,
@@ -488,6 +519,7 @@ describe('Core authority raw performance producer', () => {
       ]
     })).toThrow(/observation schedule.*ordinal 2/i)
     expect(() => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       ...input,
       samples: [
         samples[0]!,
@@ -496,6 +528,7 @@ describe('Core authority raw performance producer', () => {
       ]
     })).toThrow(/observation schedule.*ordinal 3/i)
     expect(() => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       ...input,
       samples: [
         samples[0]!,
@@ -504,6 +537,7 @@ describe('Core authority raw performance producer', () => {
       ]
     })).toThrow(/observation schedule.*ordinal 3/i)
     expect(() => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       ...input,
       samples: [
         samples[0]!,
@@ -531,6 +565,7 @@ describe('Core authority raw performance producer', () => {
     }
 
     expect(() => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       ...input,
       provenance: {
         ...authenticatedProvenance(schedule),
@@ -538,6 +573,7 @@ describe('Core authority raw performance producer', () => {
       }
     } as never)).toThrow(/observation schedule policy/i)
     expect(() => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       ...input,
       provenance: {
         ...authenticatedProvenance(schedule),
@@ -545,6 +581,7 @@ describe('Core authority raw performance producer', () => {
       }
     })).toThrow(/observation schedule digest.*invalid/i)
     expect(() => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       ...input,
       provenance: {
         ...authenticatedProvenance(schedule),
@@ -555,6 +592,7 @@ describe('Core authority raw performance producer', () => {
 
   it('keeps short Core smoke output structurally non-ratifying', () => {
     const smoke = createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       runId: 'core-smoke',
       evidenceClass: 'smoke-non-ratifying',
       baselineCommit: '1'.repeat(40),
@@ -570,21 +608,23 @@ describe('Core authority raw performance producer', () => {
       ])
     })
     expect(smoke).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v14',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v15',
       evidenceClass: 'smoke-non-ratifying'
     })
   })
 
-  it('emits v14 only for the fixed 20/200 ratification protocol', () => {
+  it('emits v15 only for the fixed 20/200 ratification protocol', () => {
     const ratificationSchedule = scheduleFor(20, 200)
     const ratificationSamples: CoreAuthorityPerformanceRawSample[] = ratificationSchedule.map(
       (entry, index) => ({
         ...entry,
         surface: 'source' as const,
-        report: report(entry.phase === 'warmup' ? index + 1 : index + 81)
+        report: report(entry.phase === 'warmup' ? index + 1 : index + 81),
+        calibration: probe()
       })
     )
     const ratification = createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       runId: 'core-ratification',
       evidenceClass: 'ratification',
       baselineCommit: '1'.repeat(40),
@@ -598,9 +638,10 @@ describe('Core authority raw performance producer', () => {
     })
 
     expect(ratification.schema).toBe(
-      'marktext-criticmarkup-raw-performance-run-v14'
+      'marktext-criticmarkup-raw-performance-run-v15'
     )
     expect(() => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       runId: 'core',
       evidenceClass: 'ratification',
       baselineCommit: '1'.repeat(40),
@@ -631,6 +672,7 @@ describe('Core authority raw performance producer', () => {
     } as const
 
     expect(() => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       ...input,
       samples: scheduledSamples([{
         documentId: 'doc',
@@ -640,6 +682,7 @@ describe('Core authority raw performance producer', () => {
       }])
     })).toThrow(/observation schedule.*2.*1/i)
     expect(() => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       ...input,
       samples: scheduledSamples([
         {
@@ -661,6 +704,7 @@ describe('Core authority raw performance producer', () => {
     staleReport.t_frame = staleReport.t_present
     delete staleReport.t_present
     expect(() => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       ...input,
       samples: scheduledSamples([
         {
@@ -681,6 +725,7 @@ describe('Core authority raw performance producer', () => {
 
   it('rejects mixed editor surfaces within one document distribution', () => {
     expect(() => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       runId: 'core',
       evidenceClass: 'smoke-non-ratifying',
       baselineCommit: '1'.repeat(40),
@@ -709,6 +754,7 @@ describe('Core authority raw performance producer', () => {
 
   it('rejects evidence produced from a dirty checkout', () => {
     expect(() => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       runId: 'core',
       evidenceClass: 'smoke-non-ratifying',
       baselineCommit: '1'.repeat(40),
@@ -737,6 +783,7 @@ describe('Core authority raw performance producer', () => {
 
   it('rejects evidence whose checkout does not authenticate the build commit', () => {
     expect(() => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       runId: 'core',
       evidenceClass: 'smoke-non-ratifying',
       baselineCommit: '1'.repeat(40),
@@ -769,6 +816,7 @@ describe('Core authority raw performance producer', () => {
     } as Record<string, unknown>
     delete absent.chromiumSchedulingPolicy
     const run = (provenance: unknown) => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       runId: 'core',
       evidenceClass: 'smoke-non-ratifying',
       baselineCommit: '1'.repeat(40),
@@ -803,6 +851,7 @@ describe('Core authority raw performance producer', () => {
 
   it('rejects pooled or incomplete fresh-observation lifecycle provenance', () => {
     const run = (provenance: unknown) => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       runId: 'core',
       evidenceClass: 'smoke-non-ratifying',
       baselineCommit: '1'.repeat(40),
@@ -847,6 +896,7 @@ describe('Core authority raw performance producer', () => {
     'launcherSha256'
   ] as const)('rejects an invalid %s provenance digest', field => {
     expect(() => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       runId: 'core',
       evidenceClass: 'smoke-non-ratifying',
       baselineCommit: '1'.repeat(40),
@@ -889,6 +939,7 @@ describe('Core authority raw performance producer', () => {
       [field]: value
     } as unknown as CoreAuthorityPerformanceBuildProvenance
     expect(() => createCoreAuthorityPerformanceRawRun({
+      calibration: RUN_CALIBRATION,
       runId: 'core',
       evidenceClass: 'smoke-non-ratifying',
       baselineCommit: '1'.repeat(40),
@@ -913,5 +964,134 @@ describe('Core authority raw performance producer', () => {
         }
       ])
     })).toThrow(/provenance/i)
+  })
+
+  // Owner decision 2026-10-04 (plan 0012): an observation whose calibration
+  // probe shows a slowed CPU is invalid, never scored, and run again.
+  describe('calibration validity', () => {
+    const schedule = scheduleFor(1, 2)
+    const counted = (attempts: number) => ({
+      ...authenticatedProvenance(schedule),
+      applicationLaunchCount: attempts,
+      uniqueProfileCount: attempts,
+      applicationCloseCount: attempts,
+      profileCleanupCount: attempts
+    })
+    const slowed = (attempt: number, entry = schedule[1]!) => ({
+      ordinal: entry.ordinal,
+      documentId: entry.documentId,
+      phase: entry.phase,
+      attempt,
+      calibration: { p50: 1.6, p90: 1.7 }
+    })
+    const input = (overrides: Record<string, unknown> = {}) => ({
+      runId: 'core-calibrated',
+      evidenceClass: 'smoke-non-ratifying' as const,
+      baselineCommit: '1'.repeat(40),
+      buildCommit: '2'.repeat(40),
+      measuredAt: '2026-10-04T12:00:00.000Z',
+      environment: { build: 'packaged' },
+      sampling: { warmupSamples: 1, measuredSamples: 2 },
+      provenance: counted(schedule.length),
+      calibration: RUN_CALIBRATION,
+      documents: [{ id: 'doc', sourceSha256: 'a'.repeat(64) }],
+      samples: schedule.map((entry, index) => ({
+        ...entry,
+        surface: 'source' as const,
+        report: report(index + 1),
+        calibration: probe()
+      })),
+      ...overrides
+    })
+
+    it('records each attempt run again and counts its application and profile', () => {
+      const run = createCoreAuthorityPerformanceRawRun(input({
+        provenance: counted(schedule.length + 1),
+        calibration: { reference: CALIBRATION_REFERENCE, invalidObservations: [slowed(1)] }
+      }))
+      expect(run.calibration.invalidObservations).toEqual([slowed(1)])
+      expect(run.documents[0]!.calibration.measured.p50).toEqual([1.2, 1.2])
+      expect(() => createCoreAuthorityPerformanceRawRun(input({
+        calibration: { reference: CALIBRATION_REFERENCE, invalidObservations: [slowed(1)] }
+      }))).toThrow(/applicationLaunchCount must equal observation count 4, one per attempt/)
+    })
+
+    it('never keeps an observation measured on a slowed CPU', () => {
+      const samples = input().samples
+      samples[2] = { ...samples[2]!, calibration: probe(1.4) }
+      expect(() => createCoreAuthorityPerformanceRawRun(input({ samples })))
+        .toThrow(/observation 2 is not valid by its calibration/)
+      samples[2] = { ...samples[2], calibration: { count: 0, p50: null, p90: null } } as never
+      expect(() => createCoreAuthorityPerformanceRawRun(input({ samples })))
+        .toThrow(/not valid by its calibration/)
+    })
+
+    it('rejects a rerun attempt that was not invalid, out of order, or past the limit', () => {
+      const rerun = (invalidObservations: unknown[]) => () => createCoreAuthorityPerformanceRawRun(input({
+        provenance: counted(schedule.length + invalidObservations.length),
+        calibration: { reference: CALIBRATION_REFERENCE, invalidObservations }
+      }))
+      expect(rerun([{ ...slowed(1), calibration: { p50: 1.3, p90: 1.4 } }]))
+        .toThrow(/was not invalid: its loop p50 is within the limit/)
+      expect(rerun([slowed(2)])).toThrow(/out of order or beyond the maximum/)
+      expect(rerun([slowed(1), slowed(2), slowed(3)])).toThrow(/out of order or beyond the maximum/)
+      expect(rerun([{ ...slowed(1), documentId: 'other' }])).toThrow(/does not name a scheduled observation/)
+      expect(rerun([slowed(1), slowed(2)])()).toMatchObject({
+        calibration: { invalidObservations: [slowed(1), slowed(2)] }
+      })
+    })
+  })
+
+  describe('isolated observation reattempts', () => {
+    const lifecycle = (judgeLog: string[]) => {
+      const attempts = new Map<string, number>()
+      const isolations: number[] = []
+      return {
+        isolations,
+        lifecycle: {
+          createIsolation: async(declaration: string, index: number) => {
+            isolations.push(index)
+            return { profile: `profile-${String(index)}-${declaration}` }
+          },
+          launchAndPrepare: async() => 'application',
+          measure: async(_application: string, declaration: string) => {
+            const attempt = (attempts.get(declaration) ?? 0) + 1
+            attempts.set(declaration, attempt)
+            return `${declaration}#${String(attempt)}`
+          },
+          close: async() => { judgeLog.push('close') },
+          cleanup: async() => { judgeLog.push('cleanup') }
+        }
+      }
+    }
+
+    it('runs an invalid observation again in a fresh profile and counts every attempt', async() => {
+      const log: string[] = []
+      const { isolations, lifecycle: steps } = lifecycle(log)
+      const result = await runIsolatedPerformanceObservations(['a', 'b'], steps, {
+        maximumAttempts: 3,
+        judge: measurement => measurement === 'a#1' ? 'invalid' : 'valid'
+      })
+      expect(result.measurements).toEqual(['a#2', 'b#1'])
+      expect(result.invalidAttempts).toEqual([{ index: 0, attempt: 1, measurement: 'a#1' }])
+      expect(isolations).toEqual([0, 2, 1])
+      expect(result.counts).toEqual({
+        applicationLaunchCount: 3,
+        uniqueProfileCount: 3,
+        applicationCloseCount: 3,
+        profileCleanupCount: 3
+      })
+    })
+
+    it('leaves an observation inconclusive when every attempt is invalid', async() => {
+      const log: string[] = []
+      const { lifecycle: steps } = lifecycle(log)
+      await expect(runIsolatedPerformanceObservations(['a'], steps, {
+        maximumAttempts: 3,
+        judge: () => 'invalid'
+      })).rejects.toThrow(/observation 1 is inconclusive: all 3 attempts ran on a slowed CPU/)
+      // Each attempt still closed its application and removed its profile.
+      expect(log).toEqual(['close', 'cleanup', 'close', 'cleanup', 'close', 'cleanup'])
+    })
   })
 })

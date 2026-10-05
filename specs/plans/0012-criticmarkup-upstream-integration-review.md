@@ -605,6 +605,20 @@ validated by `scripts/criticmarkupPerformanceTargets.ts`).
 - A workload with no valid attempt is inconclusive and the gate does not
   pass.
 - Valid runs are judged against the unchanged thresholds and workloads.
+- Installed-core and upstream raw runs (smoke and ratification) launch a
+  fresh application for each one-key observation, too few keys to time at
+  keyup. Each observation instead probes the same loop eight times, 40 ms
+  apart, right after its key (`integer-spin-300000-probe-8x40ms-v1`), and is
+  judged by the same reference and limit.
+  - An invalid observation is run again in a fresh profile and never scored.
+  - Raw schemas core v15 and upstream v13 list each such attempt in
+    `calibration.invalidObservations`, keep every observation's loop p50 and
+    p90 per document, and count every attempt's launch, profile, close and
+    cleanup.
+  - An observation with no valid attempt in three makes the run
+    inconclusive. The producer writes no evidence for that run.
+  - `validateRawRun` and the producers' builders reject a kept observation
+    above the limit and a rerun attempt that was not invalid.
 
 **Evidence for the decision** (2–4 October, the reference host).
 

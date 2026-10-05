@@ -180,6 +180,8 @@ SAMPLE_LIFECYCLE_FILE="${SCRIPT_DIR}/helpers/performanceSampleLifecycle.ts"
 OBSERVATION_SCHEDULE_FILE="${SCRIPT_DIR}/helpers/performanceObservationSchedule.ts"
 CHROMIUM_POLICY_FILE="${SCRIPT_DIR}/helpers/performanceChromiumLaunchPolicy.ts"
 PRESENTATION_CHECKPOINT_FILE="${SCRIPT_DIR}/helpers/performancePresentationCheckpoint.ts"
+CALIBRATION_FILE="${SCRIPT_DIR}/helpers/performanceCalibration.ts"
+CALIBRATION_RULE_FILE="${REPO_ROOT}/scripts/criticmarkupPerformanceTargets.ts"
 PRODUCER_SHA256="$(
   {
     for producer_part in \
@@ -187,7 +189,8 @@ PRODUCER_SHA256="$(
       "${CONFIG_FILE}" "${HIDDEN_POLICY_FILE}" "${LIFECYCLE_CLEANUP_FILE}" \
       "${SAMPLE_LIFECYCLE_FILE}" "${OBSERVATION_SCHEDULE_FILE}" \
       "${CHROMIUM_POLICY_FILE}" \
-      "${PRESENTATION_CHECKPOINT_FILE}"; do
+      "${PRESENTATION_CHECKPOINT_FILE}" \
+      "${CALIBRATION_FILE}" "${CALIBRATION_RULE_FILE}"; do
       shasum -a 256 "${producer_part}" | awk '{print $1}'
     done
   } | shasum -a 256 | awk '{print $1}'

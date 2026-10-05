@@ -85,10 +85,15 @@ import {
 import {
   describePerformanceCalibration,
   loadPerformanceCalibration,
+  probePerformanceCalibration,
   readPerformanceCalibration,
   startPerformanceCalibration,
   type PerformanceCalibrationVerdict
 } from './helpers/performanceCalibration'
+import {
+  performanceRunCalibrationReference,
+  performanceRunValidity
+} from '../../../../scripts/criticmarkupPerformanceTargets'
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..')
 const PINNED_BASELINE = 'e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c'
@@ -682,7 +687,14 @@ test.describe('pinned upstream baseline raw performance producer', () => {
 
     const totalSamples = representatives.documents.length *
       (sampling.warmupSamples + sampling.measuredSamples)
-    test.setTimeout(upstreamPerformanceOrchestrationTimeoutMs(totalSamples))
+    const calibrationReference = performanceRunCalibrationReference(
+      loadPerformanceCalibration()
+    )
+    // Each observation may run up to the calibration's attempt limit.
+    test.setTimeout(upstreamPerformanceOrchestrationTimeoutMs(
+      totalSamples * calibrationReference.maximumAttempts
+    ))
+    const attemptsByOrdinal = new Map<number, number>()
     const samples: UpstreamBaselinePerformanceRawSample[] = []
     const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-upstream-performance-'))
     let completed = 0
@@ -754,6 +766,17 @@ test.describe('pinned upstream baseline raw performance producer', () => {
             const opened = await openSample(app.page, observation.filePath)
             const edit = await measureInput(app.page, capturePage)
             await expectRenderActiveInactive(app, true)
+            const calibration = await probePerformanceCalibration(
+              app.page,
+              calibrationReference
+            )
+            const attempt = (attemptsByOrdinal.get(observation.ordinal) ?? 0) + 1
+            attemptsByOrdinal.set(observation.ordinal, attempt)
+            process.stdout.write(`${describePerformanceCalibration(
+              `${observation.documentId} ${observation.phase} round ${String(observation.phaseRound)}`,
+              attempt,
+              calibration
+            )}\n`)
             return Object.freeze({
               ordinal: observation.ordinal,
               documentId: observation.documentId,
@@ -764,7 +787,8 @@ test.describe('pinned upstream baseline raw performance producer', () => {
                 ...edit,
                 open: opened.open,
                 first_viewport: opened.first_viewport
-              })
+              }),
+              calibration: calibration.summary
             })
           },
           close: closeRenderActiveUpstreamApplication,
@@ -782,11 +806,18 @@ test.describe('pinned upstream baseline raw performance producer', () => {
               'external-browser-compositor-v4\n'
             )
           }
+        },
+        {
+          maximumAttempts: calibrationReference.maximumAttempts,
+          judge: sample => performanceRunValidity(
+            sample.calibration,
+            calibrationReference
+          )
         }
       )
       samples.push(...lifecycle.measurements)
 
-      expect(completed).toBe(totalSamples)
+      expect(completed).toBe(totalSamples + lifecycle.invalidAttempts.length)
       const run = createUpstreamBaselinePerformanceRawRun({
         evidenceClass: classification,
         runId: requiredValue('MARKTEXT_UPSTREAM_RUN_ID'),
@@ -830,6 +861,21 @@ test.describe('pinned upstream baseline raw performance producer', () => {
           observationScheduleSha256:
             performanceObservationScheduleSha256(observationOrder),
           ...lifecycle.counts
+        },
+        calibration: {
+          reference: calibrationReference,
+          invalidObservations: lifecycle.invalidAttempts.map(
+            ({ attempt, measurement }) => ({
+              ordinal: measurement.ordinal,
+              documentId: measurement.documentId,
+              phase: measurement.phase,
+              attempt,
+              calibration: {
+                p50: measurement.calibration.p50,
+                p90: measurement.calibration.p90
+              }
+            })
+          )
         },
         samples
       })

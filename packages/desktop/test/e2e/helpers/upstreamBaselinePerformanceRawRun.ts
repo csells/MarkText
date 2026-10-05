@@ -18,6 +18,17 @@ import {
   performanceObservationScheduleSha256,
   type PerformanceObservationScheduleEntry
 } from './performanceObservationSchedule'
+import {
+  PERFORMANCE_CALIBRATION_PROBE,
+  performanceDocumentCalibration,
+  performanceRunCalibrationReference,
+  validatePerformanceRunCalibration,
+  type PerformanceDocumentCalibration,
+  type PerformanceCalibrationSummary,
+  type PerformanceInvalidObservation,
+  type PerformanceRunCalibration,
+  type PerformanceRunCalibrationReference
+} from '../../../../../scripts/criticmarkupPerformanceTargets'
 
 const PINNED_UPSTREAM_BASELINE =
   'e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c'
@@ -40,6 +51,8 @@ export interface UpstreamBaselinePerformanceReport {
 export interface UpstreamBaselinePerformanceRawSample
   extends PerformanceObservationScheduleEntry {
   readonly report: UpstreamBaselinePerformanceReport
+  /** The calibration probe's loop times for this observation. */
+  readonly calibration: PerformanceCalibrationSummary
 }
 
 export interface UpstreamBaselineBuildProvenance {
@@ -88,6 +101,11 @@ export interface UpstreamBaselinePerformanceRawRunInput {
     readonly sourceSha256: string
   }>[]
   readonly provenance: UpstreamBaselineBuildProvenance
+  /** The target manifest's calibration and every attempt judged invalid and run again. */
+  readonly calibration: Readonly<{
+    readonly reference: PerformanceRunCalibrationReference
+    readonly invalidObservations: readonly PerformanceInvalidObservation[]
+  }>
   readonly samples: readonly UpstreamBaselinePerformanceRawSample[]
 }
 
@@ -99,6 +117,7 @@ interface UpstreamBaselinePerformanceDocumentRun {
   readonly sourceSha256: string
   readonly warmup: Distribution
   readonly measured: Distribution
+  readonly calibration: PerformanceDocumentCalibration
 }
 
 interface UpstreamBaselinePerformanceRawRunBase {
@@ -114,18 +133,19 @@ interface UpstreamBaselinePerformanceRawRunBase {
   }>
   readonly provenance: Readonly<UpstreamBaselineBuildProvenance>
   readonly metricDefinitions: Readonly<Record<Metric, string>>
+  readonly calibration: PerformanceRunCalibration
   readonly observationOrder: readonly Readonly<PerformanceObservationScheduleEntry>[]
   readonly documents: readonly UpstreamBaselinePerformanceDocumentRun[]
 }
 
 export interface UpstreamBaselinePerformanceRatificationRun
   extends UpstreamBaselinePerformanceRawRunBase {
-  readonly schema: 'marktext-criticmarkup-raw-performance-run-v12'
+  readonly schema: 'marktext-criticmarkup-raw-performance-run-v13'
 }
 
 export interface UpstreamBaselinePerformanceSmokeRun
   extends UpstreamBaselinePerformanceRawRunBase {
-  readonly schema: 'marktext-criticmarkup-raw-performance-smoke-v12'
+  readonly schema: 'marktext-criticmarkup-raw-performance-smoke-v13'
   readonly evidenceClass: 'smoke-non-ratifying'
 }
 
@@ -261,9 +281,12 @@ const validateProvenance = (
     64,
     'Upstream observation schedule digest'
   )
-  const expectedObservationCount = input.documents.length * (
-    input.sampling.warmupSamples + input.sampling.measuredSamples
-  )
+}
+
+const validateLifecycleCounts = (
+  input: UpstreamBaselinePerformanceRawRunInput,
+  expectedAttemptCount: number
+): void => {
   const lifecycleCounts = [
     [
       input.provenance.applicationLaunchCount,
@@ -274,9 +297,9 @@ const validateProvenance = (
     [input.provenance.profileCleanupCount, 'profile cleanup count']
   ] as const
   for (const [actual, label] of lifecycleCounts) {
-    if (!Number.isSafeInteger(actual) || actual !== expectedObservationCount) {
+    if (!Number.isSafeInteger(actual) || actual !== expectedAttemptCount) {
       throw new Error(
-        `Upstream ${label} must equal ${String(expectedObservationCount)}`
+        `Upstream ${label} must equal ${String(expectedAttemptCount)}`
       )
     }
   }
@@ -396,9 +419,30 @@ export const createUpstreamBaselinePerformanceRawRun = (
       id: document.id,
       sourceSha256: document.sourceSha256,
       warmup: freezeDistribution(warmup),
-      measured: freezeDistribution(measured)
+      measured: freezeDistribution(measured),
+      calibration: performanceDocumentCalibration(
+        samplesByDocument.get(document.id) ?? []
+      )
     })
   })
+  const calibration: PerformanceRunCalibration = Object.freeze({
+    reference: performanceRunCalibrationReference(input.calibration.reference),
+    probe: PERFORMANCE_CALIBRATION_PROBE,
+    invalidObservations: Object.freeze(input.calibration.invalidObservations.map(
+      observation => Object.freeze({
+        ...observation,
+        calibration: Object.freeze({ ...observation.calibration })
+      })
+    ))
+  })
+  const invalidCount = validatePerformanceRunCalibration({
+    calibration,
+    documents,
+    observationOrder: expectedObservationOrder,
+    ...input.sampling
+  }, input.calibration.reference, 'Upstream raw performance run')
+  // Every attempt, valid or not, launched, closed and cleaned up its own profile.
+  validateLifecycleCounts(input, expectedObservationOrder.length + invalidCount)
 
   const base: UpstreamBaselinePerformanceRawRunBase = Object.freeze({
     runId: input.runId,
@@ -410,16 +454,17 @@ export const createUpstreamBaselinePerformanceRawRun = (
     sampling: Object.freeze({ ...input.sampling }),
     provenance: Object.freeze({ ...input.provenance }),
     metricDefinitions: METRIC_DEFINITIONS,
+    calibration,
     observationOrder: expectedObservationOrder,
     documents: Object.freeze(documents)
   })
   return input.evidenceClass === 'ratification'
     ? Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-run-v12' as const,
+      schema: 'marktext-criticmarkup-raw-performance-run-v13' as const,
       ...base
     })
     : Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v12' as const,
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v13' as const,
       evidenceClass: 'smoke-non-ratifying' as const,
       ...base
     })
@@ -440,7 +485,7 @@ export const writeUpstreamBaselinePerformanceRawRun = (
   run: UpstreamBaselinePerformanceRawRun
 ): void => {
   if (
-    run.schema === 'marktext-criticmarkup-raw-performance-smoke-v12' &&
+    run.schema === 'marktext-criticmarkup-raw-performance-smoke-v13' &&
     isRatificationDirectory(outputPath)
   ) {
     throw new Error('Smoke output cannot be written to the ratification directory')
