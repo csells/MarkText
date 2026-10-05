@@ -53,6 +53,15 @@ import {
   runIsolatedPerformanceObservations
 } from './helpers/performanceSampleLifecycle'
 import {
+  describePerformanceCalibration,
+  loadPerformanceCalibration,
+  probePerformanceCalibration
+} from './helpers/performanceCalibration'
+import {
+  performanceRunCalibrationReference,
+  performanceRunValidity
+} from '../../../../scripts/criticmarkupPerformanceTargets'
+import {
   createPerformanceObservationSchedule,
   PERFORMANCE_OBSERVATION_SCHEDULE,
   performanceObservationScheduleSha256,
@@ -551,7 +560,13 @@ test.describe('installed Core authority raw performance producer', () => {
     expect(representatives.documents).toHaveLength(5)
     const totalSamples = representatives.documents.length *
       (sampling.warmupSamples + sampling.measuredSamples)
-    test.setTimeout(coreAuthorityPerformanceOrchestrationTimeoutMs(totalSamples))
+    const calibrationReference = performanceRunCalibrationReference(
+      loadPerformanceCalibration()
+    )
+    // Each observation may run up to the calibration's attempt limit.
+    test.setTimeout(coreAuthorityPerformanceOrchestrationTimeoutMs(
+      totalSamples * calibrationReference.maximumAttempts
+    ))
     expect(targets.sampling).toEqual({
       warmupSamples: 20,
       measuredSamples: 200,
@@ -568,6 +583,7 @@ test.describe('installed Core authority raw performance producer', () => {
 
     const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-core-performance-'))
     let completed = 0
+    const attemptsByOrdinal = new Map<number, number>()
     let finalizationCompleted = false
     try {
       const sampleFilesByDocument = new Map<string, readonly string[]>()
@@ -706,6 +722,17 @@ test.describe('installed Core authority raw performance producer', () => {
               application.capturePage,
               opened
             )
+            const calibration = await probePerformanceCalibration(
+              application.page,
+              calibrationReference
+            )
+            const attempt = (attemptsByOrdinal.get(declaration.ordinal) ?? 0) + 1
+            attemptsByOrdinal.set(declaration.ordinal, attempt)
+            process.stdout.write(`${describePerformanceCalibration(
+              `${declaration.documentId} ${declaration.phase} round-${String(declaration.phaseRound)}`,
+              attempt,
+              calibration
+            )}\n`)
             const finalWindowState = await inspectInstalledPerformanceWindow(
               application.app,
               application.targetId
@@ -722,7 +749,8 @@ test.describe('installed Core authority raw performance producer', () => {
               phaseRound: declaration.phaseRound,
               roundPosition: declaration.roundPosition,
               surface: measurement.surface,
-              report: measurement.report
+              report: measurement.report,
+              calibration: calibration.summary
             }) satisfies CoreAuthorityPerformanceRawSample
           },
           close: async application => closeCorePerformanceApplication(
@@ -744,6 +772,13 @@ test.describe('installed Core authority raw performance producer', () => {
               'fresh-profile-complete\n'
             )
           }
+        },
+        {
+          maximumAttempts: calibrationReference.maximumAttempts,
+          judge: sample => performanceRunValidity(
+            sample.calibration,
+            calibrationReference
+          )
         }
       )
       if (observationRun.measurements.length !== totalSamples) {
@@ -789,13 +824,28 @@ test.describe('installed Core authority raw performance producer', () => {
           ),
           ...observationRun.counts
         },
+        calibration: {
+          reference: calibrationReference,
+          invalidObservations: observationRun.invalidAttempts.map(
+            ({ attempt, measurement }) => ({
+              ordinal: measurement.ordinal,
+              documentId: measurement.documentId,
+              phase: measurement.phase,
+              attempt,
+              calibration: {
+                p50: measurement.calibration.p50,
+                p90: measurement.calibration.p90
+              }
+            })
+          )
+        },
         documents: representatives.documents.map(document => ({
           id: document.id,
           sourceSha256: document.sha256
         })),
         samples: observationRun.measurements
       })
-      expect(completed).toBe(totalSamples)
+      expect(completed).toBe(totalSamples + observationRun.invalidAttempts.length)
       await finalizeCoreAuthorityPerformanceRawOutput({
         runRoot,
         outputPath,

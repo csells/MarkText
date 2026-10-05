@@ -8,6 +8,7 @@ import {
   summarizePerformanceCalibration,
   type PerformanceCalibrationReference,
   type PerformanceCalibrationSummary,
+  type PerformanceRunCalibrationReference,
   type PerformanceRunValidity
 } from '../../../../../scripts/criticmarkupPerformanceTargets'
 import { installKeyCalibration, readKeyCalibration } from './warmSessionDiagnostics'
@@ -43,6 +44,43 @@ export const readPerformanceCalibration = async(
   reference: PerformanceCalibrationReference
 ): Promise<PerformanceCalibrationVerdict> => {
   const summary = summarizePerformanceCalibration(await readKeyCalibration(page))
+  return Object.freeze({
+    loop: reference.loop,
+    referenceP50Ms: reference.referenceP50Ms,
+    maximumP50Ms: reference.referenceP50Ms * (1 + reference.maximumExcess),
+    summary,
+    validity: performanceRunValidity(summary, reference)
+  })
+}
+
+/**
+ * Times the manifest's loop eight times, 40 ms apart, after the keyup
+ * timing's warmup (`PERFORMANCE_CALIBRATION_PROBE`). A fresh-application
+ * observation has one key, too few to time at keyup, so it probes right
+ * after its measurement instead.
+ */
+export const probePerformanceCalibration = async(
+  page: Page,
+  reference: PerformanceRunCalibrationReference
+): Promise<PerformanceCalibrationVerdict> => {
+  const times = await page.evaluate(async() => {
+    const spin = (count: number): number => {
+      let value = 0
+      for (let index = 0; index < count; index += 1) value = (value * 31 + index) | 0
+      return value
+    }
+    for (let index = 0; index < 400; index += 1) spin(3000)
+    const loopTimes: number[] = []
+    for (let index = 0; index < 8; index += 1) {
+      await new Promise(resolve => setTimeout(resolve, 40))
+      const start = performance.now()
+      const value = spin(300_000)
+      // Using the value keeps the loop from being optimized away.
+      loopTimes.push(performance.now() - start + (value === 0.5 ? 1 : 0))
+    }
+    return loopTimes
+  })
+  const summary = summarizePerformanceCalibration(times)
   return Object.freeze({
     loop: reference.loop,
     referenceP50Ms: reference.referenceP50Ms,

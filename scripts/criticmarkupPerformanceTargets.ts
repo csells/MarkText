@@ -135,6 +135,182 @@ export function performanceCalibrationReference(value: unknown): PerformanceCali
   return calibration as unknown as PerformanceCalibrationReference
 }
 
+/** The calibration fields a raw performance run copies from its target manifest. */
+export type PerformanceRunCalibrationReference = Pick<
+  PerformanceCalibrationReference,
+  'loop' | 'referenceP50Ms' | 'maximumExcess' | 'maximumAttempts'
+>
+
+/** One observation attempt judged invalid and run again. */
+export interface PerformanceInvalidObservation {
+  readonly ordinal: number
+  readonly documentId: string
+  readonly phase: 'warmup' | 'measured'
+  readonly attempt: number
+  readonly calibration: Readonly<{ p50: number | null, p90: number | null }>
+}
+
+/**
+ * How a fresh-application observation times the loop: it has a single key,
+ * so it runs the loop eight times, 40 ms apart, after the same warmup as the
+ * keyup timing, right after its measurement.
+ */
+export const PERFORMANCE_CALIBRATION_PROBE = 'integer-spin-300000-probe-8x40ms-v1' as const
+
+/** A raw run's calibration: its reference, its probe and the attempts it ran again. */
+export interface PerformanceRunCalibration {
+  readonly reference: PerformanceRunCalibrationReference
+  readonly probe: typeof PERFORMANCE_CALIBRATION_PROBE
+  readonly invalidObservations: readonly PerformanceInvalidObservation[]
+}
+
+/** A document's kept observations' loop p50 and p90, in schedule order per phase. */
+export interface PerformanceDocumentCalibration {
+  readonly warmup: Readonly<{ p50: readonly number[], p90: readonly number[] }>
+  readonly measured: Readonly<{ p50: readonly number[], p90: readonly number[] }>
+}
+
+/** The calibration fields of a target manifest that a raw run must repeat. */
+export function performanceRunCalibrationReference(
+  reference: PerformanceRunCalibrationReference
+): PerformanceRunCalibrationReference {
+  return Object.freeze({
+    loop: reference.loop,
+    referenceP50Ms: reference.referenceP50Ms,
+    maximumExcess: reference.maximumExcess,
+    maximumAttempts: reference.maximumAttempts
+  })
+}
+
+/** Gathers kept observations' loop p50 and p90 per phase, in the order given. */
+export function performanceDocumentCalibration(
+  observations: readonly Readonly<{
+    phase: 'warmup' | 'measured'
+    calibration: Readonly<{ p50: number | null, p90: number | null }>
+  }>[]
+): PerformanceDocumentCalibration {
+  const phases = {
+    warmup: { p50: [] as (number | null)[], p90: [] as (number | null)[] },
+    measured: { p50: [] as (number | null)[], p90: [] as (number | null)[] }
+  }
+  for (const observation of observations) {
+    phases[observation.phase].p50.push(observation.calibration.p50)
+    phases[observation.phase].p90.push(observation.calibration.p90)
+  }
+  // A null here fails validatePerformanceRunCalibration, which every builder runs.
+  return Object.freeze({
+    warmup: Object.freeze({
+      p50: Object.freeze(phases.warmup.p50) as readonly number[],
+      p90: Object.freeze(phases.warmup.p90) as readonly number[]
+    }),
+    measured: Object.freeze({
+      p50: Object.freeze(phases.measured.p50) as readonly number[],
+      p90: Object.freeze(phases.measured.p90) as readonly number[]
+    })
+  })
+}
+
+/**
+ * Validates a raw run's calibration against its target manifest: every kept
+ * observation is valid, every attempt it ran again was invalid, and no
+ * observation took more attempts than allowed. Returns how many attempts
+ * were run again, which the run's application launches, profiles, closes and
+ * cleanups count on top of its observations.
+ */
+export function validatePerformanceRunCalibration(
+  input: Readonly<{
+    calibration: unknown
+    documents: readonly Readonly<{ id: string, calibration: unknown }>[]
+    observationOrder: readonly Readonly<{ ordinal: number, documentId: string, phase: string }>[]
+    warmupSamples: number
+    measuredSamples: number
+  }>,
+  reference: PerformanceRunCalibrationReference,
+  label: string
+): number {
+  const calibration = recordOf(input.calibration, `${label} calibration`)
+  if (
+    JSON.stringify(Object.keys(calibration).sort()) !==
+      JSON.stringify(['invalidObservations', 'probe', 'reference'])
+  ) {
+    throw new Error(`${label} calibration must hold exactly reference, probe and invalidObservations`)
+  }
+  if (calibration.probe !== PERFORMANCE_CALIBRATION_PROBE) {
+    throw new Error(`${label} calibration probe must be ${PERFORMANCE_CALIBRATION_PROBE}`)
+  }
+  const runReference = recordOf(calibration.reference, `${label} calibration reference`)
+  const expected = performanceRunCalibrationReference(reference)
+  for (const key of Object.keys(expected) as (keyof PerformanceRunCalibrationReference)[]) {
+    if (runReference[key] !== expected[key]) {
+      throw new Error(`${label} calibration reference ${key} differs from the target manifest`)
+    }
+  }
+  if (Object.keys(runReference).length !== Object.keys(expected).length) {
+    throw new Error(`${label} calibration reference must hold exactly the target manifest's fields`)
+  }
+  const limit = reference.referenceP50Ms * (1 + reference.maximumExcess)
+  if (!Array.isArray(calibration.invalidObservations)) {
+    throw new Error(`${label} calibration invalidObservations must be an array`)
+  }
+  const byOrdinal = new Map(input.observationOrder.map(entry => [entry.ordinal, entry]))
+  const attemptsByOrdinal = new Map<number, number[]>()
+  for (const [index, candidate] of calibration.invalidObservations.entries()) {
+    const entryLabel = `${label} invalid observation ${String(index + 1)}`
+    const invalid = recordOf(candidate, entryLabel)
+    const scheduled = byOrdinal.get(invalid.ordinal as number)
+    if (
+      scheduled === undefined || invalid.documentId !== scheduled.documentId ||
+      invalid.phase !== scheduled.phase
+    ) {
+      throw new Error(`${entryLabel} does not name a scheduled observation`)
+    }
+    positiveInteger(invalid.attempt, `${entryLabel} attempt`)
+    const loop = recordOf(invalid.calibration, `${entryLabel} calibration`)
+    const p50 = loop.p50
+    if (p50 !== null && (typeof p50 !== 'number' || !Number.isFinite(p50) || p50 <= limit)) {
+      throw new Error(`${entryLabel} was not invalid: its loop p50 is within the limit`)
+    }
+    if (loop.p90 !== null && (typeof loop.p90 !== 'number' || !Number.isFinite(loop.p90))) {
+      throw new Error(`${entryLabel} loop p90 must be a number or null`)
+    }
+    const attempts = attemptsByOrdinal.get(scheduled.ordinal) ?? []
+    attempts.push(invalid.attempt as number)
+    attemptsByOrdinal.set(scheduled.ordinal, attempts)
+  }
+  for (const [ordinal, attempts] of attemptsByOrdinal) {
+    // A kept observation is its last attempt, so the invalid ones before it
+    // are attempts 1..n, fewer than the maximum.
+    const sorted = [...attempts].sort((left, right) => left - right)
+    if (
+      sorted.length >= reference.maximumAttempts ||
+      sorted.some((attempt, index) => attempt !== index + 1)
+    ) {
+      throw new Error(`${label} observation ${String(ordinal)} has invalid attempts out of order or beyond the maximum`)
+    }
+  }
+  for (const document of input.documents) {
+    const record = recordOf(document.calibration, `${label} ${document.id} calibration`)
+    for (const [phase, count] of [['warmup', input.warmupSamples], ['measured', input.measuredSamples]] as const) {
+      const loops = recordOf(record[phase], `${label} ${document.id} ${phase} calibration`)
+      const p50 = loops.p50
+      const p90 = loops.p90
+      if (!Array.isArray(p50) || !Array.isArray(p90) || p50.length !== count || p90.length !== count) {
+        throw new Error(`${label} ${document.id} ${phase} calibration must hold ${String(count)} p50 and p90 values`)
+      }
+      for (const [index, value] of p50.entries()) {
+        const high = p90[index]
+        if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > limit) {
+          throw new Error(`${label} ${document.id} ${phase} observation ${String(index + 1)} is not valid by its calibration`)
+        }
+        if (typeof high !== 'number' || !Number.isFinite(high) || high < value) {
+          throw new Error(`${label} ${document.id} ${phase} observation ${String(index + 1)} calibration p90 is invalid`)
+        }
+      }
+    }
+  }
+  return calibration.invalidObservations.length
+}
+
 /** Validates the human-owned Phase 0 measurement protocol and target record. */
 export function validateCriticMarkupPerformanceTargets(value: unknown): void {
   const manifest = recordOf(value, 'Performance target manifest')
