@@ -217,7 +217,7 @@ export type CriticMarkupRawPerformanceRun =
   | CriticMarkupCoreRawPerformanceRunV14
 
 interface PerformanceTargets {
-  schema: 'marktext-criticmarkup-performance-targets-v11'
+  schema: 'marktext-criticmarkup-performance-targets-v12'
   status: 'proposed-unratified' | 'ratified'
   representativeDocuments: { schema: string, path: string }
   environment: Record<string, string>

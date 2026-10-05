@@ -47,10 +47,98 @@ const positiveInteger = (value: unknown, label: string): void => {
   }
 }
 
+/**
+ * The fixed loop every performance run times beside its input, as
+ * `warmSessionDiagnostics` installs it: 300,000 iterations of
+ * `(value * 31 + index) | 0`, once after each measured key. It never touches
+ * the editor, so its time shows only how fast the renderer's CPU runs.
+ */
+export const PERFORMANCE_CALIBRATION_LOOP = 'integer-spin-300000-at-keyup-v1' as const
+
+/** The calibration record a target manifest pins for its hardware. */
+export interface PerformanceCalibrationReference {
+  readonly loop: typeof PERFORMANCE_CALIBRATION_LOOP
+  readonly referenceP50Ms: number
+  readonly maximumExcess: number
+  readonly maximumAttempts: number
+  readonly basis: string
+  readonly rule: string
+}
+
+/** A run's calibration loop times, as p50 and p90 of every measured key's loop. */
+export interface PerformanceCalibrationSummary {
+  readonly count: number
+  readonly p50: number | null
+  readonly p90: number | null
+}
+
+export type PerformanceRunValidity = 'valid' | 'invalid'
+
+/** A workload's verdict over its attempts: judged on a valid run, or inconclusive. */
+export type PerformanceWorkloadValidity = 'valid' | 'inconclusive'
+
+const nearestRank = (sorted: readonly number[], fraction: number): number | null =>
+  sorted.length === 0 ? null : sorted[Math.max(0, Math.ceil(sorted.length * fraction) - 1)] ?? null
+
+/** p50 and p90 of a run's calibration loop times. */
+export function summarizePerformanceCalibration(
+  loopMs: readonly number[]
+): PerformanceCalibrationSummary {
+  const sorted = loopMs.filter(value => Number.isFinite(value)).sort((left, right) => left - right)
+  return Object.freeze({ count: sorted.length, p50: nearestRank(sorted, 0.5), p90: nearestRank(sorted, 0.9) })
+}
+
+/**
+ * Whether a run measured the editor or the CPU's state. A run whose loop p50
+ * exceeds the reference by more than the allowed excess ran on a slowed CPU
+ * (thermal, power or wake state), and one with no loop times proves nothing:
+ * either is invalid, judged neither pass nor fail, and run again.
+ */
+export function performanceRunValidity(
+  summary: PerformanceCalibrationSummary,
+  reference: Pick<PerformanceCalibrationReference, 'referenceP50Ms' | 'maximumExcess'>
+): PerformanceRunValidity {
+  return summary.p50 !== null && summary.p50 <= reference.referenceP50Ms * (1 + reference.maximumExcess)
+    ? 'valid'
+    : 'invalid'
+}
+
+/** A workload is judged on its first valid attempt; with none it is inconclusive. */
+export function performanceWorkloadValidity(
+  attempts: readonly PerformanceRunValidity[]
+): PerformanceWorkloadValidity {
+  return attempts.includes('valid') ? 'valid' : 'inconclusive'
+}
+
+/** Validates a manifest's calibration record and returns it. */
+export function performanceCalibrationReference(value: unknown): PerformanceCalibrationReference {
+  const calibration = recordOf(value, 'Performance calibration')
+  if (calibration.loop !== PERFORMANCE_CALIBRATION_LOOP) {
+    throw new Error(`Performance calibration loop must be ${PERFORMANCE_CALIBRATION_LOOP}`)
+  }
+  const reference = calibration.referenceP50Ms
+  if (typeof reference !== 'number' || !Number.isFinite(reference) || reference <= 0) {
+    throw new Error('Performance calibration referenceP50Ms must be a finite positive number')
+  }
+  const excess = calibration.maximumExcess
+  if (typeof excess !== 'number' || !Number.isFinite(excess) || excess <= 0 || excess >= 1) {
+    throw new Error('Performance calibration maximumExcess must be a fraction between 0 and 1')
+  }
+  positiveInteger(calibration.maximumAttempts, 'Performance calibration maximumAttempts')
+  nonEmptyString(calibration.basis, 'Performance calibration basis')
+  nonEmptyString(calibration.rule, 'Performance calibration rule')
+  if (!/invalid.*neither.*pass.*fail.*run again.*inconclusive.*does not pass/isu.test(calibration.rule as string)) {
+    throw new Error(
+      'Performance calibration rule must make a slowed run invalid, neither pass nor fail, rerun it, and leave a workload with no valid run inconclusive and not passing'
+    )
+  }
+  return calibration as unknown as PerformanceCalibrationReference
+}
+
 /** Validates the human-owned Phase 0 measurement protocol and target record. */
 export function validateCriticMarkupPerformanceTargets(value: unknown): void {
   const manifest = recordOf(value, 'Performance target manifest')
-  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v11') {
+  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v12') {
     throw new Error('Performance target manifest schema is unsupported')
   }
   if (manifest.status !== 'proposed-unratified' && manifest.status !== 'ratified') {
@@ -75,6 +163,8 @@ export function validateCriticMarkupPerformanceTargets(value: unknown): void {
       `Measurement environment must not pin ${unpinnable[0]}; only hardware, architecture, and build are pinned`
     )
   }
+
+  performanceCalibrationReference(manifest.calibration)
 
   const sampling = recordOf(manifest.sampling, 'Sampling protocol')
   positiveInteger(sampling.warmupSamples, 'Warmup sample count')

@@ -72,6 +72,14 @@ evidence, and it never gates a run. Its status remains `proposed-unratified` unt
 upstream shell and Core candidates have been measured under that protocol and the owner approves
 the targets; numeric proposals are not evidence that either implementation meets them.
 
+Its `calibration` record is the owner's validity rule of 2026-10-04 (plan 0012). Every warm
+session, ours and upstream's, times a fixed loop after each measured key and records the loop's
+p50 and p90. A run whose loop p50 exceeds the pinned
+fast-state reference (1.20 ms on the reference host) by more than 15% measured a slowed CPU, not
+the editor: it is invalid, reported with its loop numbers, judged neither pass nor fail, and run
+again, up to three attempts. A workload with no valid attempt is inconclusive and does not pass.
+Valid runs are judged against the unchanged thresholds, for our build and upstream alike.
+
 `criticmarkup-performance-measurements.json` pins four common product-boundary timings for both
 implementations and three additional authority timings for Core. The current `awaiting-raw-runs`
 record is intentionally empty:
