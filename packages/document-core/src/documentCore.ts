@@ -4571,6 +4571,29 @@ function createDocumentCoreWithExecutionBudget(
   // Source units between the first and last of several edits one regional
   // replacement may cover.
   const COMBINED_EDIT_SPAN = 4096
+  /**
+   * Edits spread over one list, as the ordinals of a list renumbered after an
+   * edit, written as one replacement of the text they span: the source and
+   * its regions then take one edit instead of many. Callers still see the
+   * edits as given.
+   */
+  const editsWithinOneList = (state: RevisionState, edits: readonly DocumentSourceEdit[]): readonly DocumentSourceEdit[] => {
+    const first = edits[0]
+    const last = edits.at(-1)
+    if (edits.length < 2 || first === undefined || last === undefined || last.end - first.start <= COMBINED_EDIT_SPAN) return edits
+    // Only a revision already read by regions has an inventory to consult;
+    // converting one here would cost what the combined edit saves.
+    const inventory = state.regionalInventory
+    const list = inventory === undefined ? undefined : regionalInventoryListRange(inventory, first.start)
+    if (list === undefined || first.start < list.start || last.end > list.end) return edits
+    let insert = ''
+    let cursor = first.start
+    for (const edit of edits) {
+      insert += state.source.slice(cursor, edit.start) + edit.insert
+      cursor = edit.end
+    }
+    return Object.freeze([Object.freeze({ start: first.start, end: last.end, insert })])
+  }
   const tryRegionalApply = (
     previousState: RevisionState,
     source: PersistentCanonicalSource,
@@ -5448,8 +5471,9 @@ function createDocumentCoreWithExecutionBudget(
       inventory = converted ?? undefined
     }
     if (inventory === undefined) return undefined
-    const stable = stableSourceEdits(edits)
-    preflightSourceEdits(state.source.length, stable)
+    const given = stableSourceEdits(edits)
+    preflightSourceEdits(state.source.length, given)
+    const stable = editsWithinOneList(state, given)
     const first = stable[0]
     const last = stable.at(-1)
     if (first === undefined || last === undefined) return undefined
@@ -7836,7 +7860,18 @@ function createDocumentCoreWithExecutionBudget(
       syntax: range => regionalInputSyntax(state, range),
       literalBlockRange: position => state.regionalInventory === undefined
         ? undefined
-        : regionalInventoryLiteralRange(state.regionalInventory, position)
+        : regionalInventoryLiteralRange(state.regionalInventory, position),
+      parseWindow: (source, atDocumentStart) => {
+        const windowCore = createDocumentCoreWithExecutionBudget(executionBudget)
+        windowCores.add(windowCore)
+        const { schema: _schema, ...options } = state.markdownOptions
+        return windowCore.project(windowCore.open(source, atDocumentStart ? options : { ...options, frontMatter: false }), 'markup').syntax
+      },
+      // Only a revision already read by regions has an inventory; otherwise
+      // the document's parse reads the lists around the edit.
+      listRange: position => state.regionalInventory === undefined
+        ? undefined
+        : regionalInventoryListRange(state.regionalInventory, position)
     }
   }
 
@@ -8122,10 +8157,11 @@ function createDocumentCoreWithExecutionBudget(
         options?.projections
       )
       rejectSurrogateSplits(previousState.source, stableEdits)
+      const writtenEdits = editsWithinOneList(previousState, stableEdits)
       let source: PersistentCanonicalSource
       try {
         source = previousState.source.applyExact(
-          stableEdits,
+          writtenEdits,
           'Document core source edit'
         )
       } catch (error) {
@@ -8137,7 +8173,7 @@ function createDocumentCoreWithExecutionBudget(
       const regional = tryRegionalApply(
         previousState,
         source,
-        stableEdits,
+        writtenEdits,
         options,
         projectionRequests
       )
