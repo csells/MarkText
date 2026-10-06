@@ -512,8 +512,18 @@ They do not change Profile 1 language meaning.
   new escape rules, changed rulings — is a new Profile (`…-profile-2`), never a silent revision
   of Profile 1. Bug fixes that make an implementation conform to _this document_ are not
   version changes.
+  - **Upstream alignment.** Profile 1 tracks upstream MarkText's ordinary Markdown behavior.
+    A change that aligns a ruling with upstream MarkText updates Profile 1 in place, with a
+    dated entry in the changelog below that cites the upstream pull request. Any other
+    changed ruling still creates a new profile.
 - **Y3.** `markdownProfile` and `criticMarkupProfile` version two aspects of one grammar; they
   MUST NOT select peer language interpretations.
+
+### Upstream-alignment changelog
+
+- **2026-10-06, upstream MarkText #5597 (ordered task lists).** An ordered item's task marker
+  is a task's, as a bullet item's is, and an ordered item holding only a task marker and a
+  space is an empty task (§3, D13). D14 is retired.
 
 ## 15. Conformance
 
