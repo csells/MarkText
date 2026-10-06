@@ -27,7 +27,10 @@ import {
   type BufferedSnapshot,
   type ResolvedSources
 } from './bufferedState'
-import { coreDocumentSaveAuthority } from '../documentAuthority/coreDocumentSaveAuthority'
+import {
+  coreDocumentSaveAuthority,
+  type CoreDocumentSaveOptions
+} from '../documentAuthority/coreDocumentSaveAuthority'
 import { coreMarkdownOptionsFromPreferences } from '../documentAuthority/coreMarkdownPreferences'
 import { projectPandocExport } from '../documentConsumers/pandocExportProjection'
 import { recommendedDocumentTitle } from '../documentConsumers/documentProjectionConsumers'
@@ -142,9 +145,13 @@ const saveIdentityOf = (
 const withAuthoritativeSaveSource = (
   documentId: string,
   loadedSource: string,
-  persist: (source: string, identity: DocumentSaveIdentity | null) => void
+  persist: (source: string, identity: DocumentSaveIdentity | null) => void,
+  // A file save writes the document's end in the file's trailing-newline mode.
+  saveOptions?: CoreDocumentSaveOptions
 ): void | Promise<void> => {
-  const sources = coreDocumentSaveAuthority.resolve([{ documentId, loadedSource }])
+  const sources = coreDocumentSaveAuthority.resolve([
+    { documentId, loadedSource, ...(saveOptions === undefined ? {} : { options: saveOptions }) }
+  ])
   if (sources instanceof Promise) {
     return sources.then(([result]) =>
       persist(result!.source, saveIdentityOf(documentId, result!.identity))
@@ -158,13 +165,18 @@ const withAuthoritativeFileSources = <
     id: string
     markdown: string
     saveIdentity?: DocumentSaveIdentity
+    options?: { trimTrailingNewline?: number }
   }
 >(
   files: readonly T[],
   persist: (files: T[]) => void
 ): void | Promise<void> => {
   const resolved = coreDocumentSaveAuthority.resolve(
-    files.map((file) => ({ documentId: file.id, loadedSource: file.markdown }))
+    files.map((file) => ({
+      documentId: file.id,
+      loadedSource: file.markdown,
+      options: { trailingNewlineMode: file.options?.trimTrailingNewline }
+    }))
   )
   const consume = (
     sources: readonly { source: string; identity: DocumentSaveIdentity | null }[]
@@ -721,7 +733,7 @@ export const useEditorStore = defineStore('editor', {
           recommendedTitleOf(id)
         )
       }
-      return withAuthoritativeSaveSource(id, markdown, send)
+      return withAuthoritativeSaveSource(id, markdown, send, { trailingNewlineMode: options.trimTrailingNewline })
     },
 
     // need pass some data to main process when `save` menu item clicked
@@ -755,7 +767,7 @@ export const useEditorStore = defineStore('editor', {
             identity,
             recommendedTitleOf(id)
           )
-        })
+        }, { trailingNewlineMode: options.trimTrailingNewline })
       }
     },
 
@@ -1037,7 +1049,7 @@ export const useEditorStore = defineStore('editor', {
             identity,
             recommendedTitleOf(id)
           )
-        })
+        }, { trailingNewlineMode: options.trimTrailingNewline })
       } else {
         // if not, move to a new(maybe) folder
         window.electron.ipcRenderer.send('mt::response-file-move-to', { id, pathname })
@@ -1084,7 +1096,7 @@ export const useEditorStore = defineStore('editor', {
             identity,
             recommendedTitleOf(id)
           )
-        })
+        }, { trailingNewlineMode: options.trimTrailingNewline })
       } else {
         bus.emit('rename')
       }
@@ -1393,7 +1405,7 @@ export const useEditorStore = defineStore('editor', {
             ...(identity === null ? {} : { saveIdentity: identity })
           })
         ])
-      })
+      }, { trailingNewlineMode: options.trimTrailingNewline })
     },
 
     CLOSE_TABS_THROUGH_AUTHORITY(
@@ -1880,7 +1892,7 @@ export const useEditorStore = defineStore('editor', {
               identity,
               recommendedTitleOf(id)
             )
-          })
+          }, { trailingNewlineMode: tab.trimTrailingNewline })
           if (persist !== undefined) {
             persist.catch((error) => {
               console.error('Core document autosave barrier failed', error)

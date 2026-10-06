@@ -197,3 +197,4 @@ export { frontMatterPolicy, type FrontMatterPolicy } from './frontMatter.js'
 
 export { default as emojis, type Emoji } from './emojis.js'
 export { emojiPattern, emojiAt, validEmoji } from './emoji.js'
+export { finalNewlineEdit, type FinalNewlineEdit, type TrailingNewlineMode } from './finalNewline.js'

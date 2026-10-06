@@ -603,6 +603,10 @@ onMounted(() => {
   }
   codeMirrorInstance.on('change', coreSettlementCheck)
   updateSourceToc()
+  props.coreLease.reconcileExternal(async (outcome) => {
+    if (coreAdapter === undefined) throw new Error('Source view has no document owner')
+    await coreAdapter.reconcileApplied(outcome)
+  })
   props.coreLease.settleView(
     async () => {
       try {

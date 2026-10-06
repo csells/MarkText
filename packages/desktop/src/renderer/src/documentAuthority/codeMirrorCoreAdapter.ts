@@ -26,6 +26,8 @@ export interface CodeMirrorCoreAdapter {
   settled(): Promise<CoreAppliedReply | undefined>
   configure(options: Readonly<Partial<MarkdownOptions>>): Promise<CoreAppliedReply | undefined>
   history(command: 'undo' | 'redo'): Promise<CoreAppliedReply | undefined>
+  /** Paints a change the document owner applied while this view was settled. */
+  reconcileApplied(outcome: CoreAppliedReply): Promise<void>
   resolve(
     annotation: Readonly<{
       readonly kind: CriticMarkupKind
@@ -968,6 +970,20 @@ function createAdapterWithIndex(
       await nextMacrotask()
       await adapter.settled()
       return enqueueHistory('configure', Object.freeze({ ...options }))
+    },
+    async reconcileApplied(outcome: CoreAppliedReply): Promise<void> {
+      if (disposed) throw new Error('CodeMirror Core adapter is disposed')
+      if (terminalError !== undefined) throw terminalError
+      if (composing || active || queue.length > 0 || hasUnsubmittedNativeChanges() ||
+          outcome.revision !== lastAcceptedRevision + 1) {
+        throw new Error('CodeMirror Core external reconciliation is stale')
+      }
+      // The change lies outside the caret's text; keep the caret where it is.
+      const selections = doc.listSelections()
+      await applyHistoryToView(outcome.change.appliedEdits)
+      doc.setSelections(selections)
+      lastAcceptedRevision = outcome.revision
+      latestReply = outcome
     },
     async history(command: 'undo' | 'redo'): Promise<CoreAppliedReply | undefined> {
       // Native edits enter the model before history does. An operation still in

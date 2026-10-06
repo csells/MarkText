@@ -6,7 +6,16 @@ export interface CoreDocumentSaveSnapshot {
   readonly source: string
 }
 
-export type CoreDocumentSaveBarrier = () => Promise<CoreDocumentSaveSnapshot>
+/** What a file save asks of the document before reading its source. */
+export interface CoreDocumentSaveOptions {
+  /**
+   * The file's "Trailing newline" mode, which a file save applies to the
+   * document's end first, as upstream writes it (see finalNewlineEdit).
+   */
+  readonly trailingNewlineMode?: number
+}
+
+export type CoreDocumentSaveBarrier = (options?: CoreDocumentSaveOptions) => Promise<CoreDocumentSaveSnapshot>
 
 export interface CoreDocumentSourceRequest {
   readonly documentId: string
@@ -16,6 +25,7 @@ export interface CoreDocumentSourceRequest {
    * shown); an open document always answers from its Core save barrier.
    */
   readonly loadedSource: string
+  readonly options?: CoreDocumentSaveOptions
 }
 
 export interface CoreDocumentResolvedSource {
@@ -55,7 +65,7 @@ export interface CoreDocumentSaveAuthority {
     barrier: CoreDocumentSaveBarrier,
     isCurrent?: (identity: DocumentSaveIdentity) => boolean
   ): () => void
-  request(documentId: string): Promise<CoreDocumentSaveSnapshot> | undefined
+  request(documentId: string, options?: CoreDocumentSaveOptions): Promise<CoreDocumentSaveSnapshot> | undefined
   isCurrent(sources: readonly CoreDocumentResolvedSource[]): boolean
   resolve(
     requests: readonly CoreDocumentSourceRequest[]
@@ -70,13 +80,13 @@ const createCoreDocumentSaveAuthority = (): CoreDocumentSaveAuthority => {
   const barriers = new Map<string, CoreDocumentSaveBarrier>()
   const currentChecks = new Map<string, (identity: DocumentSaveIdentity) => boolean>()
 
-  const request = (documentId: string): Promise<CoreDocumentSaveSnapshot> | undefined => {
+  const request = (documentId: string, options?: CoreDocumentSaveOptions): Promise<CoreDocumentSaveSnapshot> | undefined => {
     const barrier = barriers.get(documentId)
     if (barrier === undefined) return undefined
 
     let pending: Promise<CoreDocumentSaveSnapshot>
     try {
-      pending = Promise.resolve(barrier()).then((snapshot) => {
+      pending = Promise.resolve(barrier(options)).then((snapshot) => {
         if (snapshot.documentId !== documentId) {
           throw new Error('Core document save barrier returned the wrong document identity')
         }
@@ -171,8 +181,8 @@ const createCoreDocumentSaveAuthority = (): CoreDocumentSaveAuthority => {
         return source.identity !== null && check(source.identity)
       })
     },
-    request(documentId: string): Promise<CoreDocumentSaveSnapshot> | undefined {
-      return request(documentId)
+    request(documentId: string, options?: CoreDocumentSaveOptions): Promise<CoreDocumentSaveSnapshot> | undefined {
+      return request(documentId, options)
     },
     resolve(
       requests: readonly CoreDocumentSourceRequest[]
@@ -184,7 +194,7 @@ const createCoreDocumentSaveAuthority = (): CoreDocumentSaveAuthority => {
       >((item) => {
         const source = batch.has(item.documentId)
           ? batch.get(item.documentId)
-          : request(item.documentId)
+          : request(item.documentId, item.options)
         batch.set(item.documentId, source)
         if (source === undefined) {
           return Object.freeze({

@@ -711,11 +711,11 @@ watch(
       let settledTransition: Promise<void> | undefined
       const unregister = coreDocumentSaveAuthority.register(
         target.id,
-        async () => {
+        async (options) => {
           await coreDocumentRecoveryAuthority.settled(target.id)
           const transition = coreTransition
           await transition
-          const snapshot = await coreManager.saveBarrier(target.id)
+          const snapshot = await coreManager.saveBarrier(target.id, options)
           settledTransition = transition
           return snapshot
         },
