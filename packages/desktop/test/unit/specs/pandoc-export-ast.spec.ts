@@ -221,6 +221,19 @@ describe('Pandoc AST from Core for ordinary Markdown (G40)', () => {
     ])
   })
 
+  // #5566: the export reads exactly the math delimiters the Markdown preferences enable.
+  it('writes math for each delimiter the math preferences enable, and text otherwise', () => {
+    const inlineMath = { t: 'Math', c: [{ t: 'InlineMath' }, 'x'] }
+    expect(inlines('a $x$\n', { texMathDollars: false })).toEqual([str('a'), space, str('$x$')])
+    expect(inlines('a \\(x\\)\n', { texMathSingleBackslash: true })).toEqual([str('a'), space, inlineMath])
+    expect(inlines('a \\(x\\)\n', { texMathSingleBackslash: false })).toEqual([str('a'), space, str('(x)')])
+    expect(inlines('a \\\\(x\\\\)\n', { texMathDoubleBackslash: true })).toEqual([str('a'), space, inlineMath])
+    expect(inlines('a $`x`$\n', { texMathGfm: true })).toEqual([str('a'), space, inlineMath])
+    expect(blocks('\\[x\\]\n', { texMathSingleBackslash: true })).toEqual([
+      para({ t: 'Math', c: [{ t: 'DisplayMath' }, 'x'] })
+    ])
+  })
+
   it('writes superscript and subscript only when the preference enables them', () => {
     expect(inlines('H~2~O x^2^\n', { subscriptAndSuperscript: true })).toEqual([
       str('H'),
