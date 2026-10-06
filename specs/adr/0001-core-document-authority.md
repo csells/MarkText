@@ -4,8 +4,8 @@ status: accepted
 
 # Keep one durable document authority
 
-Accepted as the architecture under [archived plan 0011](../plans/archive/0011-criticmarkup-editable-review.md),
-retained by [plan 0012](../plans/0012-criticmarkup-upstream-integration-review.md)
+Accepted as the architecture under archived plan 0011,
+retained by plan 0012
 and the [native integration architecture](../architecture/criticmarkup-native-integration.md).
 Implementation and installed verification remain incomplete; acceptance is not a
 claim that the product passes every rule below.
@@ -45,7 +45,7 @@ arrived. That design is superseded at this boundary. The current migration moves
 the same actor into synchronous session ownership; it must prove the unchanged
 latency, composition, history, save and recovery requirements before release.
 This ADR does not claim that migration or its verification is complete; see the
-[CURRENT blockers](../plans/0012-criticmarkup-upstream-integration-review.md#current-completion-blockers).
+CURRENT blockers.
 
 ## Session rules
 

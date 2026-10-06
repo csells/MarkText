@@ -2,7 +2,7 @@
 
 > **Status:** Non-normative evidence. Profile 1 owns ratified language meaning;
 > [native integration architecture](criticmarkup-native-integration.md), active ADRs and
-> [plan 0012](../plans/0012-criticmarkup-upstream-integration-review.md) own integration decisions and delivery.
+> plan 0012 own integration decisions and delivery.
 
 ## Question
 
