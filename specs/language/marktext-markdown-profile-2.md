@@ -2,7 +2,7 @@
 
 - **Status:** Owner-authorized on 20 September 2026 by choosing independent
   image-label suggestions after resizing (option 1). Implementation and
-  verification are tracked in [plan 0012](../plans/0012-criticmarkup-upstream-integration-review.md).
+  verification are tracked in plan 0012.
 - **Identifiers:** `markdownProfile: 'markdown-profile-2'` ·
   `criticMarkupProfile: 'marktext-profile-1'`; superseded for CriticMarkup by
   [CriticMarkup Profile 2](marktext-criticmarkup-profile-2.md)

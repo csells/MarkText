@@ -16,7 +16,7 @@
 - **Audience:** the document-core parser, its test corpus, adapters, and any future
   reimplementation (including a port). This document defines the candidate _language_;
   [native integration architecture](../architecture/criticmarkup-native-integration.md) owns integration boundaries;
-  [plan 0012](../plans/0012-criticmarkup-upstream-integration-review.md) owns migration, performance, and acceptance. Where implementation status lags this document,
+  plan 0012 owns migration, performance, and acceptance. Where implementation status lags this document,
   established rulings remain the language target. Plan 0011 supersedes blanket packet
   ratification as an implementation prerequisite; genuinely disputed semantics require
   a focused decision and are not silently accepted from current parser behavior.

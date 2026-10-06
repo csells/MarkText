@@ -1,7 +1,7 @@
 # Markdown and CriticMarkup have one interpretation; views do not re-recognize source
 
 - **Status:** Accepted semantic boundary; parse-count and safe-point mechanics superseded by
-  [archived plan 0011](../../specs/plans/archive/0011-criticmarkup-editable-review.md) and implementation
+  archived plan 0011 and implementation
   baselines.
 
 The engine owns one lossless interpretation of Markdown and CriticMarkup for a document revision.

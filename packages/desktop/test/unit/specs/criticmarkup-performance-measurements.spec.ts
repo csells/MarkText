@@ -528,7 +528,6 @@ describe('CriticMarkup raw performance evidence', () => {
   it('preserves historical deterministic schedule scope and its unresolved drift limit', () => {
     for (const path of [
       'specs/baselines/criticmarkup-phase0-review.md',
-      'specs/plans/archive/0010-marktext-criticmarkup-core-integration.md',
       'specs/baselines/criticmarkup-upstream-oracles.md'
     ]) {
       const source = readFileSync(resolve(repoRoot, path), 'utf8')
