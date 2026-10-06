@@ -94,6 +94,17 @@ Two things keep "100% CriticMarkup" honest against the canonical toolkit:
    only affected presentation, and are measured from browser input through visible paint
    and authoritative acknowledgement.
 
+7. **Typing is never blocked.** Every keystroke the user makes is applied — with Track
+   Changes on or off — and nothing interrupts typing: no refusals, no dialogs, no popups,
+   no notices. Any edit that can be made untracked can be made tracked. Where CriticMarkup
+   itself cannot spell a tracked edit faithfully, MarkText applies the keystroke with the
+   closest spelling it has and parses the result as it parses any other text. One known
+   case: typing inside an unclosed code fence at the end of a document whose text already
+   contains a closer such as `~~}`. CriticMarkup has no escape, and every reference tool
+   ends a suggestion at its first closer. That edit is recorded so that Accept All and
+   Reject All are exact, while accepting or rejecting only one of its parts may not
+   round-trip.
+
 ## What native integration means
 
 “Native” means part of MarkText's existing product experience, including its macOS
