@@ -79,7 +79,7 @@ import {
   type PersistentCanonicalSource,
   type PersistentCanonicalSourceRecorder
 } from './internal/persistentCanonicalSource.js'
-import { plansFromDocumentParse, plansFromGeneralCompile, registerDocumentCoreInspection, registerRegionalLeaves } from './internal/documentCoreInspection.js'
+import { planFromGeneralCompile, plansFromDocumentParse, plansFromGeneralCompile, registerDocumentCoreInspection, registerRegionalLeaves } from './internal/documentCoreInspection.js'
 import { annotationsOverlapping, registerAnnotationsAround } from './internal/annotationsAround.js'
 import {
   createRevisionProductStore,
@@ -2815,9 +2815,10 @@ function createDocumentCoreWithExecutionBudget(
         resolvedOptions,
         false,
         undefined,
-        reuseCache,
+        // The general-compile reference reads every source whole.
+        plansFromGeneralCompile(core) ? createProfile1DocumentReuseCache() : reuseCache,
         physicalRecorder,
-        previousPass
+        plansFromGeneralCompile(core) ? undefined : previousPass
       )
     } catch (error) {
       reuseCache = createProfile1DocumentReuseCache()
@@ -4610,7 +4611,7 @@ function createDocumentCoreWithExecutionBudget(
     readonly reason: DocumentProjectionFallbackReason
     readonly projections: readonly DocumentProjectionChange[]
   }> | undefined => {
-    if (requests === undefined) return undefined
+    if (requests === undefined || plansFromGeneralCompile(core)) return undefined
     const resolvedOptions = options?.markdown === undefined
       ? previousState.markdownOptions
       : markdownOptions(options.markdown, previousState.markdownOptions)
@@ -5433,17 +5434,18 @@ function createDocumentCoreWithExecutionBudget(
     const state = currentStateOf(previous)
     const stableEdits = stableSourceEdits(edits)
     preflightSourceEdits(state.source.length, stableEdits)
-    const cached = previewedCandidate(previous, stableEdits)
+    const whole = plansFromGeneralCompile(core)
+    const cached = whole ? undefined : previewedCandidate(previous, stableEdits)
     if (cached !== undefined) return inspect(cached.products, cached.source)
     const source = state.source.applyExact(stableEdits, 'Authoring candidate')
       .materialize('fallback')
     const reusable = !editsMayRepairMath(state.source, { length: source.length, slice: (start: number, end: number) => source.slice(start, end) }, stableEdits, state.markdownOptions)
     // A revision holding its parse lends it to the candidate's; one edited
     // regionally is not parsed for that, as the candidate's parse is whole.
-    const retained = reusable ? state.productStore.withRetained(products => products.retainedIntrinsic) : undefined
+    const retained = reusable && !whole ? state.productStore.withRetained(products => products.retainedIntrinsic) : undefined
     const products = isolatedProducts(source, state.markdownOptions,
       retained === undefined ? undefined : { retained, edits: stableEdits })
-    rememberPreviewedCandidate(previous, stableEdits, source, products)
+    if (!whole) rememberPreviewedCandidate(previous, stableEdits, source, products)
     return inspect(products, source)
   }
 
@@ -5575,6 +5577,7 @@ function createDocumentCoreWithExecutionBudget(
     arm?: RegionalInventoryPreview['arm']
     armCreation?: true
   }> | undefined => {
+    if (plansFromGeneralCompile(core)) return undefined
     const edits = Object.freeze([edit])
     const source = state.source.applyExact(edits, 'Authoring regional candidate')
     const repairsMath = editsMayRepairMath(state.source, source, edits, state.markdownOptions)
@@ -5631,6 +5634,7 @@ function createDocumentCoreWithExecutionBudget(
   }
 
   const regionalInputSyntax = (state: RevisionState, range: SourceRange): MarkupSyntax | undefined => {
+    if (plansFromGeneralCompile(core)) return undefined
     // A caret inside a marker's spelling splits it, which no edit window
     // admits; the blocks around it still read as they do in place.
     const candidate = regionalCandidate(state, { start: range.start, end: range.start, insert: '' }) ??
@@ -7787,6 +7791,7 @@ function createDocumentCoreWithExecutionBudget(
     // Descending source order retains the original coordinates of earlier edits.
     const candidateCore = createDocumentCoreWithExecutionBudget(executionBudget)
     if (tracked) deferEquivalence(candidateCore)
+    if (plansFromGeneralCompile(core)) planFromGeneralCompile(candidateCore)
     const { schema: _schema, ...options } = state.markdownOptions
     let candidate = candidateCore.open(previous.source, options)
     const result: DocumentSourceEdit[] = []
