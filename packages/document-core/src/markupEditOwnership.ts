@@ -54,6 +54,27 @@ export function markupEditOwnership(
     }
     return false
   }
+  // Visible text by start, with the furthest end reached so far, so each
+  // suggestion finds the text overlapping it without scanning all of it.
+  const byStart = [...visible].sort((left, right) => left.start - right.start)
+  const furthestEnd: number[] = []
+  for (const range of byStart) furthestEnd.push(Math.max(furthestEnd.at(-1) ?? -Infinity, range.end))
+  const overlapping = (target: SourceRange): SourceRange[] => {
+    let low = 0
+    let high = byStart.length
+    while (low < high) {
+      const middle = (low + high) >> 1
+      if ((furthestEnd[middle] ?? -Infinity) > target.start) high = middle
+      else low = middle + 1
+    }
+    const found: SourceRange[] = []
+    for (let index = low; index < byStart.length; index += 1) {
+      const range = byStart[index]
+      if (range === undefined || range.start >= target.end) break
+      if (range.end > target.start) found.push(range)
+    }
+    return found
+  }
   const removed = new Set<CriticMarkupAnnotation>()
   for (const annotation of annotations) {
     if (scope === 'structure' && covered(annotation.range)) {
@@ -67,9 +88,7 @@ export function markupEditOwnership(
     if (scope === 'visible' && edits.some(edit => edit.insert.length > 0 && annotation.arms.some(arm =>
       arm.range.start <= edit.start && edit.end <= arm.range.end
     ))) continue
-    const contributions = visible.filter(range =>
-      range.start < annotation.range.end && range.end > annotation.range.start
-    )
+    const contributions = overlapping(annotation.range)
     if (contributions.length === 0 || !contributions.every(covered)) continue
     removed.add(annotation)
     let start = annotation.range.start
