@@ -124,6 +124,11 @@
     "type": "boolean",
     "default": true
   },
+  "trimUnnecessaryCodeBlockEmptyLines": {
+    "description": "Editor--Trim the beginning and ending empty lines in code block",
+    "type": "boolean",
+    "default": true
+  },
   "autoPairBracket": {
     "description": "Editor--Automatically brackets when editing",
     "type": "boolean",

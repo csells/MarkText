@@ -607,6 +607,7 @@ const {
   codeFontSize,
   codeFontFamily,
   codeBlockLineNumbers,
+  trimUnnecessaryCodeBlockEmptyLines,
   editorFontFamily,
   hideQuickInsertHint,
   hideLinkPopup,
@@ -1092,6 +1093,12 @@ watch(autoPairMarkdownSyntax, (value, oldValue) => {
 watch(autoPairQuote, (value, oldValue) => {
   if (value !== oldValue && editor.value) {
     editor.value.setOptions({ autoPairQuote: value })
+  }
+})
+
+watch(trimUnnecessaryCodeBlockEmptyLines, (value, oldValue) => {
+  if (value !== oldValue && editor.value) {
+    editor.value.setOptions({ trimUnnecessaryCodeBlockEmptyLines: value })
   }
 })
 
@@ -3495,6 +3502,7 @@ onMounted(() => {
     preferLooseListItem: preferLooseListItem.value,
     autoPairBracket: autoPairBracket.value,
     autoPairMarkdownSyntax: autoPairMarkdownSyntax.value,
+    trimUnnecessaryCodeBlockEmptyLines: trimUnnecessaryCodeBlockEmptyLines.value,
     autoPairQuote: autoPairQuote.value,
     bulletListMarker: bulletListMarker.value,
     orderListDelimiter: orderListDelimiter.value,

@@ -7996,7 +7996,9 @@ function createDocumentCoreWithExecutionBudget(
         if (context?.wholeLeaf === true) wholeLeafSyntaxes.add(context.syntax)
         if (context !== undefined) interiorOf(context.syntax)
         return context
-      })
+      }, position => regional && state.regionalInventory !== undefined
+        ? regionalInventoryLiteralRange(state.regionalInventory, position)
+        : undefined)
       let plan = planned(true)
       if ([...plan.edits, ...plan.reconciliation].some(edit =>
         interiors.some(interior => edit.start < interior.start || edit.end > interior.end))) plan = planned(false)

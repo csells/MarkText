@@ -17,6 +17,7 @@ import type { ParagraphEnterConversion } from './internal/profile1/markdownParse
 import type { DocumentCore, DocumentCommit, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
 import { applyInputPairing, type IInputPairingOptions, type IInputPairingSyntaxContext } from './inputPolicy.js'
 import { planStructuralInput } from './structuralInputPlanning.js'
+import { trimEditedCodeBlock } from './codeBlockEdgeTrimming.js'
 import { planInlineUpdate, planTypedIndentedCode } from './typedLineBlockPlanning.js'
 import { editedSourceReader, planDemotedRuleSeparation, planEmptiedParagraph } from './emptiedParagraphPlanning.js'
 import { composeSourceEdits } from './sourceEditComposition.js'
@@ -35,7 +36,11 @@ export interface DocumentBrowserInputAction<Selection extends DocumentInputSelec
   readonly selection: Selection
   readonly inputType: string
   readonly data: string | null
-  readonly options: Readonly<IInputPairingOptions & { readonly tabSize?: number }>
+  readonly options: Readonly<IInputPairingOptions & {
+    readonly tabSize?: number
+    /** Upstream's preference; see `trimEditedCodeBlock`. */
+    readonly trimUnnecessaryCodeBlockEmptyLines?: boolean
+  }>
 }
 
 export type DocumentCommandInputAction<Selection extends DocumentInputSelection | SourceRange = DocumentInputSelection> = {
@@ -166,9 +171,15 @@ export interface RegionalBlockContext {
 }
 
 /** Normalize current model addresses only; physical cell materialization is an edit. */
-export function planInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, regionalSyntax?: (range: SourceRange) => MarkupSyntax | undefined, untracked = false, preview?: TablePreview, regionalContext?: (position: number) => RegionalBlockContext | undefined): DocumentInputPlan {
+export function planInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, regionalSyntax?: (range: SourceRange) => MarkupSyntax | undefined, untracked = false, preview?: TablePreview, regionalContext?: (position: number) => RegionalBlockContext | undefined, literalBlockRange?: (position: number) => SourceRange | undefined): DocumentInputPlan {
   const plan = planUnspelledInput(core, revision, action, enterConversion, physicalLines, regionalSyntax, untracked, regionalContext)
-  if (!untracked || preview === undefined) return plan
+  if (!untracked) return plan
+  // The trim is spelling, like table padding, so a suggestion never carries it.
+  const trimmed = trimEditedCodeBlock(core, revision, action, plan, regionalSyntax, literalBlockRange)
+  return preview === undefined ? trimmed : respellInput(core, revision, action, trimmed, preview, regionalSyntax)
+}
+
+function respellInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, preview: TablePreview, regionalSyntax?: (range: SourceRange) => MarkupSyntax | undefined): DocumentInputPlan {
   // Typing, Enter, deletion and drops inside a table change only their own
   // bytes (ADR 0007; owner decision 25 Sep, plan 0012 G24). The line a
   // paragraph's Enter turns into a table is the typed line's conversion.
