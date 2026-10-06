@@ -80,3 +80,41 @@ describe('Picking a fence opener\'s language (upstream #5600)', () => {
     expect(pick(source, source.length - 1, language)).toEqual({ source: expected, caret })
   })
 })
+
+describe('A diagram fence read from a file (upstream #5600)', () => {
+  // Upstream's markdownToState makes a diagram of a fence only when its info
+  // string's first word is exactly a diagram type; any other spelling is code.
+  const blockKinds = (source: string) => {
+    const core = createDocumentCore()
+    const syntax = core.project(core.open(source), 'markup').syntax
+    return syntax.ast.root.children.map(node => [node.kind, node.attributes.language ?? node.attributes.info])
+  }
+
+  it.each([
+    ['```mermaid\ngraph TD\n```\n', 'diagram', 'mermaid'],
+    ['~~~vega-lite\n{}\n~~~\n', 'diagram', 'vega-lite'],
+    ['```sequence extra\nA->B: x\n```\n', 'diagram', 'sequence'],
+    ['```Mermaid\ngraph TD\n```\n', 'code-block', 'Mermaid'],
+    ['~~~MERMAID\ngraph TD\n~~~\n', 'code-block', 'MERMAID'],
+    ['```PlantUML\n@startuml\n```\n', 'code-block', 'PlantUML']
+  ])('%j is read as a %s', (source, kind, language) => {
+    expect(blockKinds(source)).toEqual([[kind, language]])
+  })
+
+  it('reads a misspelled diagram opener typed and entered as code', () => {
+    expect(enter('~~~Mermaid\n', 10)).toEqual({ source: '~~~Mermaid\n\n~~~\n', caret: 11 })
+  })
+})
+
+describe('Picking a language for a long or spaced fence opener (upstream #5600)', () => {
+  // Upstream's picker makes a new code block without a fence length, which its
+  // serializer writes as three fence characters directly before the language.
+  it.each([
+    ['````j\n', 'javascript', '```javascript\n\n```\n', 14],
+    ['~~~~~j\n', 'javascript', '~~~javascript\n\n~~~\n', 14],
+    ['``` j\n', 'javascript', '```javascript\n\n```\n', 14],
+    ['- ````j\n', 'javascript', '- ```javascript\n  \n  ```\n', 18]
+  ])('%j picked as %s', (source, language, expected, caret) => {
+    expect(pick(source, source.length - 1, language)).toEqual({ source: expected, caret })
+  })
+})

@@ -30,3 +30,25 @@ for (const { typed, saved } of [
     }
   })
 }
+
+// Upstream reads a fence as a diagram only when its language is a diagram
+// type exactly, so a file's ```Mermaid opens as a code block and saves as is.
+test('a file\'s ```Mermaid fence opens as a code block', async() => {
+  const source = '```Mermaid\ngraph TD\n```\n\n```mermaid\ngraph TD\n```\n'
+  const { app, page, filePath } = await launchWithMarkdown(source)
+  try {
+    const code = page.locator('.editor-component pre.mu-code-block.mu-fenced-code')
+    await expect(code).toHaveCount(1)
+    await expect(page.locator('.editor-component .mu-diagram-block')).toHaveCount(1)
+    await expect(code).toContainText('graph TD')
+    // An edit undone by hand still saves the file through the editor.
+    await code.locator('.mu-codeblock-content').first().click()
+    await page.keyboard.type('x', { delay: 30 })
+    await page.keyboard.press('Backspace')
+    await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+    await expect.poll(() => readFileSync(filePath, 'utf8')).toBe(source)
+    await expectNoRendererErrors(app)
+  } finally {
+    await app.close()
+  }
+})

@@ -4,7 +4,7 @@ import { codeTabExpansion, frontMatterPolicy } from '@marktext/input-policy'
 import { planListChange } from './listInputPlanning.js'
 import { planTaskChecked } from './taskInputPlanning.js'
 import { containerContinuationPrefix } from './clipboardMarkdown.js'
-import { fenceDiagramType, fenceOpenerOwnIndent } from './fenceOpener.js'
+import { fenceOpenerOwnIndent } from './fenceOpener.js'
 import { DOCUMENT_RESOURCE_POLICY_V1 } from './resourcePolicy.js'
 import type { MarkdownLineIndex } from './revision.js'
 import { normalizeTableDimensions, tableToMarkdownWithPositions, codeEnter, fencedCodeMarkdown, htmlBlockTemplate, htmlBlockTemplateTag, emptyTableColumn, emptyTableRow, toggleTableAlignment, tableDelimiterMarkers } from '@marktext/input-policy'
@@ -1075,20 +1075,18 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
   const openerOwnIndent = (node: MarkdownAstNode, openerStart: number): number =>
     fenceOpenerOwnIndent(core, revision, projection, ancestors.slice(0, ancestors.indexOf(node)), openerStart)
   if (fence?.kind === 'diagram' && inputType === 'insertParagraph' && start === end && fence.attributes.content === '' &&
-      typeof fence.attributes.contentStart === 'number' && fence.range.end <= fence.attributes.contentStart) {
+      typeof fence.attributes.contentStart === 'number' && fence.range.end <= fence.attributes.contentStart &&
+      typeof fence.attributes.language === 'string') {
     // A diagram fence becomes a diagram block, which upstream writes with
     // backticks and its diagram type, whatever fence character was typed.
-    // Upstream matches the type exactly; another spelling is a code fence.
     const openerStart = sourceAt(fence.range.start)
     const indent = openerOwnIndent(fence, openerStart)
     const rest = core.sourceSlice(revision, { start: openerStart, end: Math.min(revision.sourceLength, openerStart + 1024) })
     const lineEnd = openerStart + (rest.search(/[\r\n]/u) < 0 ? rest.length : rest.search(/[\r\n]/u))
-    const [, run = '```', word = ''] = /^(`+|~+)[ \t]*(\S*)/u.exec(rest) ?? []
-    const fenceText = fenceDiagramType(word) === undefined ? run.slice(0, 1).repeat(3) : '```'
     const prefix = containerContinuationPrefix(core, revision, projection, fence, ancestors.slice(0, ancestors.indexOf(fence)))
     const continuation = prefix.slice(0, prefix.length - indent)
-    const opener = fenceText + word
-    const insert = opener + lineEnding + continuation + lineEnding + continuation + fenceText
+    const opener = '```' + fence.attributes.language
+    const insert = opener + lineEnding + continuation + lineEnding + continuation + '```'
     const caret = openerStart - indent + opener.length + lineEnding.length + continuation.length
     return result([{ start: openerStart - indent, end: lineEnd, insert }], { start: caret, end: caret })
   }
