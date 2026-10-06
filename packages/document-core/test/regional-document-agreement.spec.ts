@@ -137,6 +137,18 @@ function inputKeyDisagreements(seed: number): string[] {
   return differing
 }
 
+/** Whether one tracked key on a document reads the same regionally and from the whole document. */
+function keyAgrees(source: string, edit: DocumentSourceEdit): boolean {
+  const read = (target: DocumentCore): string => {
+    try {
+      return JSON.stringify(target.trackedEdit(target.open(source), edit) ?? null)
+    } catch (error) {
+      return `throws ${String(error)}`
+    }
+  }
+  return read(createDocumentCore()) === read(control())
+}
+
 const range = (count: number, first: number): number[] => Array.from({ length: count }, (_, index) => first + index)
 
 describe('a tracked key reads as the whole document plans it', () => {
@@ -166,4 +178,16 @@ describe('a tracked key reads as the whole document plans it', () => {
   it('spells a key beside a closed fence as the document does', () => {
     expect(inputKeyDisagreements(86)).toEqual([])
   }, 120_000)
+
+  it('reads a separator typed into a proposed fence line as the document does', () => {
+    expect(keyAgrees('<div>\nhtml\n</div>\n\n{~~```js  $$  \nconst closed = 1\n```\n~>\\{++n\\++}```js  $$  \nconst c\ned = 1\n```\n~~}\n{--$$<div>\nol--}{++\\~~}<div>++}{--d html\n--}\n', { start: 71, end: 71, insert: '~>' })).toBe(true)
+  })
+
+  it('reads a fence typed over replaced text as the document does', () => {
+    expect(keyAgrees('{~~```\nold\n```\n~>```\nnew\n~~}\n\n- item one\n- item two\n\n{~~```\nold\n```\n~>~~}```\nnew\n~~}\n\nPara *em* and `cod` here.\n', { start: 73, end: 77, insert: '```' })).toBe(true)
+  })
+
+  it('reads a key in replaced fenced text beside an unclosed comment as the document does', () => {
+    expect(keyAgrees('x{~~```\nold\n```\n~>```\nnq\nqw\n```\n~~}\n\n\n\n{~~```js\nconst a = 0\n```\n~>```js\nconst a = 1\n``    `\n~~}\n\n{++~>++}{--<div>\nold html\n--}\n\nPlain words here.\n\n{++    indented in an arm\n++}\n\n{~~<div>\nold\n~><!--\nnew\n~~} ', { start: 58, end: 58, insert: '$$' })).toBe(true)
+  })
 })
