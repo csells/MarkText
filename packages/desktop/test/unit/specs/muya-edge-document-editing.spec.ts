@@ -370,22 +370,22 @@ const cases = [
     typed: '    z\n'
   },
   {
-    name: 'Typing before an ordered empty task marker',
+    name: 'Typing in an ordered empty task paragraph',
     initial: '3) [ ] \n\n   b\n',
     leaf: 0,
     at: 0,
     key: 'x',
-    changed: '3) x[ ] \n\n   b\n',
-    typed: '3) xz[ ] \n\n   b\n'
+    changed: '3) [ ] x\n\n   b\n',
+    typed: '3) [ ] xz\n\n   b\n'
   },
   {
-    name: 'Backspace after an ordered empty task marker',
+    name: 'Backspace in an ordered empty task paragraph',
     initial: '3) [ ] \n\n   b\n',
     leaf: 0,
-    at: 4,
+    at: 0,
     key: 'Backspace',
-    changed: '3) [ ]\n\n   b\n',
-    typed: '3) [ ]z\n\n   b\n'
+    changed: '\n\nb\n',
+    typed: 'z\n\nb\n'
   },
   {
     name: 'Delete of an empty task paragraph before a later one',

@@ -33,7 +33,8 @@ export function planTaskChecked(core: DocumentCore, revision: DocumentRevision, 
   }
   edits.sort((left, right) => left.start - right.start)
   const list = parents.get(target)
-  if (autoMoveCheckedToEnd && list?.kind === 'list') {
+  // An ordered task list keeps its source order, as upstream's does.
+  if (autoMoveCheckedToEnd && list?.kind === 'list' && list.attributes.ordered !== true) {
     const group = siblings(target)
     const ordered = taskListOrder(group, node => changes.get(node) ?? node.attributes.checked === true)
     if (ordered.some((node, index) => node !== group[index])) {

@@ -1237,8 +1237,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     }
   }
   // The marker line of an item split after `item`, continuing its containers.
-  // Upstream continues only bullet task items, unchecked; an ordered item's
-  // task marker is not part of its native editing model.
+  // Upstream continues a task item, bullet or ordered, as an unchecked one.
   const siblingMarker = (item: MarkdownAstNode): string => {
     const itemStart = sourceAt(item.range.start)
     const markerLineEnd = lineEndOf(itemStart)
@@ -1248,7 +1247,7 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
     // A marker whose content begins on a later line is written as upstream
     // writes an empty item's: followed by one space.
     if (!task && firstStart > markerLineEnd) marker = marker.trimEnd() + ' '
-    if (task && list?.attributes.ordered !== true) marker += '[ ] '
+    if (task) marker += '[ ] '
     if (list?.attributes.ordered === true) marker = marker.replace(/\d+/u, number => String(Number(number) + 1))
     return containerContinuationPrefix(core, revision, projection, item, ancestors.slice(0, ancestors.indexOf(item))) + marker
   }

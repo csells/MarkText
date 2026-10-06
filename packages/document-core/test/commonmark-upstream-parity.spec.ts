@@ -185,10 +185,11 @@ describe('CommonMark and upstream agree', () => {
     ['| a | b |\n|---|---|\n***\n', '<table><thead><tr><th>a</th><th>b</th></tr></thead></table><hr />'],
     // A task marker begins a paragraph; an underlined one is heading text.
     ['- [ ] t\n  =\n', '<ul><li><h1>[ ] t</h1></li></ul>'],
-    // An ordered item's `[ ]` with nothing after it is the item's text.
-    ['3) [ ] \n', '<ol start="3"><li>[ ]</li></ol>'],
-    ['1. a\n2. [ ] \n', '<ol><li>a</li><li>[ ]</li></ol>'],
-    ['1. [ ] \n   x\n', '<ol><li>[ ]\nx</li></ol>'],
+    // An ordered item holding only its task marker is an empty task, as a
+    // bullet item is (upstream #5597); a line after it is the task's text.
+    ['3) [ ] \n', '<ol start="3"><li><input disabled="" type="checkbox"></li></ol>'],
+    ['1. a\n2. [ ] \n', '<ol><li>a</li><li><input disabled="" type="checkbox"></li></ol>'],
+    ['1. [ ] \n   x\n', '<ol><li><input disabled="" type="checkbox">x</li></ol>'],
     // With text after it the marker is a task's, as GFM reads it.
     ['1. [ ] x\n', '<ol><li><input disabled="" type="checkbox"> x</li></ol>'],
     ['x|y\n-|-\n> 3)\n', '<table><thead><tr><th>x</th><th>y</th></tr></thead></table><blockquote><ol start="3"><li></li></ol></blockquote>'],
