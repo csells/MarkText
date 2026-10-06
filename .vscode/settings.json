@@ -1,0 +1,33 @@
+{
+  "editor.formatOnSave": false,
+  "editor.defaultFormatter": "dbaeumer.vscode-eslint",
+  "eslint.format.enable": true,
+  "[javascript][typescript][vue]": {
+    "editor.defaultFormatter": "dbaeumer.vscode-eslint"
+  },
+  "cSpell.words": [
+    "commonmark",
+    "contenteditable",
+    "eslintcache",
+    "execall",
+    "frontmatter",
+    "Häusler",
+    "hfelix",
+    "Jocs",
+    "katex",
+    "laynezh",
+    "marktext",
+    "mathblock",
+    "muya",
+    "pinia",
+    "ranluo",
+    "retarget",
+    "Setext",
+    "snabbdom",
+    "snapsvg",
+    "Tkaixiang",
+    "TOGGLEABLE",
+    "trae",
+    "webfontloader"
+  ]
+}
