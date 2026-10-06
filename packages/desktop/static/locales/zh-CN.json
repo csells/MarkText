@@ -395,6 +395,7 @@
         "codeFontFamily": "代码块中使用的字体系列",
         "codeBlockLineNumbers": "是否显示行号",
         "sourceCodeLineNumbers": "在源码模式中显示行号",
+        "trimUnnecessaryCodeBlockEmptyLines": "修剪代码块开头和结尾的空行",
         "autoPairBracket": "编辑时自动配对括号",
         "autoPairMarkdownSyntax": "自动完成 Markdown 语法",
         "autoPairQuote": "自动完成引号",
@@ -546,7 +547,8 @@
         "title": "代码块",
         "fontSize": "字体大小",
         "fontFamily": "字体系列",
-        "showLineNumbers": "显示行号"
+        "showLineNumbers": "显示行号",
+        "removeEmptyLines": "删除空行"
       },
       "writingBehavior": {
         "title": "写作行为",

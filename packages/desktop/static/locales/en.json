@@ -394,6 +394,7 @@
         "codeFontFamily": "Font family used in code block",
         "codeBlockLineNumbers": "Whether to show the line numbers",
         "sourceCodeLineNumbers": "Show line numbers in source code mode",
+        "trimUnnecessaryCodeBlockEmptyLines": "Trim the beginning and ending empty lines in code block",
         "autoPairBracket": "Automatically brackets when editing",
         "autoPairMarkdownSyntax": "Autocomplete markdown syntax",
         "autoPairQuote": "Automatic completion of quotes",
@@ -546,7 +547,8 @@
         "title": "Code Block",
         "fontSize": "Font size",
         "fontFamily": "Font family",
-        "showLineNumbers": "Show line numbers"
+        "showLineNumbers": "Show line numbers",
+        "removeEmptyLines": "Remove empty lines"
       },
       "writingBehavior": {
         "title": "Writing Behavior",

@@ -424,6 +424,7 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
                 autoPairQuote: muya.options.autoPairQuote,
                 autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
                 tabSize: muya.options.tabSize,
+                trimUnnecessaryCodeBlockEmptyLines: muya.options.trimUnnecessaryCodeBlockEmptyLines,
             },
         };
         // Upstream's Enter handlers mark a word boundary only on some paths;
@@ -586,6 +587,7 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
                     autoPairQuote: muya.options.autoPairQuote,
                     autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
                     tabSize: muya.options.tabSize,
+                    trimUnnecessaryCodeBlockEmptyLines: muya.options.trimUnnecessaryCodeBlockEmptyLines,
                 },
             }, draft));
             return;
@@ -636,6 +638,7 @@ export function dispatchDocumentTableCommand(muya: Muya, operation: Pick<IDocume
             autoPairQuote: muya.options.autoPairQuote,
             autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
             tabSize: muya.options.tabSize,
+            trimUnnecessaryCodeBlockEmptyLines: muya.options.trimUnnecessaryCodeBlockEmptyLines,
         },
     }, () => {}));
     return true;
@@ -876,6 +879,7 @@ export function dispatchDocumentTab(muya: Muya, shift: boolean, selection: IDocu
             autoPairQuote: muya.options.autoPairQuote,
             autoPairMarkdownSyntax: muya.options.autoPairMarkdownSyntax,
             tabSize: muya.options.tabSize,
+            trimUnnecessaryCodeBlockEmptyLines: muya.options.trimUnnecessaryCodeBlockEmptyLines,
         },
     }, () => {}));
 }

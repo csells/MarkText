@@ -35,7 +35,11 @@ export interface IDocumentTextInput {
     };
     readonly inputType: string;
     readonly data: string | null;
-    readonly options: Readonly<IInputPairingOptions & { readonly tabSize?: number }>;
+    readonly options: Readonly<IInputPairingOptions & {
+        readonly tabSize?: number;
+        /** Upstream's preference, applied by Core to the code block an input edits. */
+        readonly trimUnnecessaryCodeBlockEmptyLines?: boolean;
+    }>;
     readonly historyGroup?: number;
 }
 
