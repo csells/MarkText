@@ -6,7 +6,7 @@ import { createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations as annotationTree, markupReplacementRange } from './markupEditOwnership.js'
 import { historyInsertionPoint, substitutionBeforeDeletion, substitutionDraftInsertionPoint, trackedEditableSpans, trackedPartsSeparate, withinHistory } from './trackedHistoryEditing.js'
 import { annotationsAround, annotationsOverlapping } from './internal/annotationsAround.js'
-import { createTrackedOracle, draftTrackedSourceEdit, equivalenceDeferred, literalHistoryInsertionPoint, memoizedPreview, rejoinedTrackedHistoryEdit, splitTrackedHistoryEdit, trackedPreviewFacts, widenedTrackedSourceEdit } from './trackedExtent.js'
+import { createTrackedOracle, draftTrackedSourceEdit, equivalenceDeferred, isWindowCompileCore, markUnresolvedDraft, literalHistoryInsertionPoint, memoizedPreview, rejoinedTrackedHistoryEdit, splitTrackedHistoryEdit, trackedPreviewFacts, widenedTrackedSourceEdit } from './trackedExtent.js'
 
 /** Protective spelling retains exactly where the language compiler inserts escapes. */
 export const nativeCriticSpelling = (value: string): Readonly<{ text: string, escapes: readonly number[] }> => {
@@ -350,7 +350,11 @@ export const createTrackedSourceEdit = (
   // the draft accepted with the same edit: delimiters typed there can pair
   // differently once the arm boundary is gone.
   if (direct !== undefined && direct.start === raw.start && direct.end === raw.end && direct.insert === raw.insert) {
-    return draftTrackedSourceEdit(activeCore, activeRevision, direct, preview) ?? direct
+    const drafted = draftTrackedSourceEdit(activeCore, activeRevision, direct, preview)
+    // A window that finds no valid spelling leaves the key to the document,
+    // whose compile can reach past it.
+    if (drafted === undefined && isWindowCompileCore(activeCore)) markUnresolvedDraft(activeCore)
+    return drafted ?? direct
   }
   const untracked = compileUntracked()
   if (untracked === undefined) return direct

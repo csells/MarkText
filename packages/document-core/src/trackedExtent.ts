@@ -97,6 +97,22 @@ export function withDeferredEquivalence<T>(core: DocumentCore, compile: () => T)
 
 export const equivalenceDeferred = (core: DocumentCore): boolean => deferredCores.has(core)
 
+/**
+ * Window cores, and those of them where an own-draft edit found no spelling
+ * the window can show valid: the edit then stands as typed only on the whole
+ * document, whose compile may need text the window does not hold.
+ */
+const windowCompileCores = new WeakSet<DocumentCore>()
+const unresolvedDraftCores = new WeakSet<DocumentCore>()
+export const markWindowCompileCore = (core: DocumentCore): void => {
+  windowCompileCores.add(core)
+}
+export const isWindowCompileCore = (core: DocumentCore): boolean => windowCompileCores.has(core)
+export const markUnresolvedDraft = (core: DocumentCore): void => {
+  unresolvedDraftCores.add(core)
+}
+export const draftUnresolved = (core: DocumentCore): boolean => unresolvedDraftCores.has(core)
+
 export function deferEquivalence(core: DocumentCore): void {
   deferredCores.add(core)
 }

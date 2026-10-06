@@ -16,7 +16,7 @@ import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit } from './trackedHistoryEditing.js'
-import { deferEquivalence, equivalenceDeferred, keepsTyping, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
+import { deferEquivalence, draftUnresolved, equivalenceDeferred, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import {
@@ -6982,6 +6982,7 @@ function createDocumentCoreWithExecutionBudget(
     if (span.start < sourceStart || span.end > windowEnd) return undefined
     const windowCore = createDocumentCoreWithExecutionBudget(executionBudget)
     windowCores.add(windowCore)
+    markWindowCompileCore(windowCore)
     if (equivalenceDeferred(core)) deferEquivalence(windowCore)
     const { schema: _schema, ...options } = state.markdownOptions
     const opened = windowCore.open(windowSource, sourceStart === 0 ? options : { ...options, frontMatter: false })
@@ -7011,7 +7012,17 @@ function createDocumentCoreWithExecutionBudget(
     })))
     const run = () => compile(windowCore, opened, local, candidate => windowPreview(opened, candidate))
     const compiled = trackedPartsSeparate(core) ? separateTrackedParts(windowCore, run) : run()
-    if (compiled === undefined) return context.inPlace !== undefined ? { edits: undefined } : undefined
+    // A key the window could only take as typed is the document's to spell.
+    if (draftUnresolved(windowCore)) return undefined
+    // A window's refusal of an edit that writes or removes a line break or a
+    // delimiter a block can open with is not the document's: the document
+    // compile may spell it with text beyond the window, which such an edit
+    // can reach. Any other refusal in a window proven to read as the
+    // document stands.
+    if (compiled === undefined) {
+      const reaches = edits.some(edit => /[`~$<>\r\n]/u.test(edit.insert + state.source.slice(edit.start, edit.end)))
+      return context.inPlace !== undefined && !reaches ? { edits: undefined } : undefined
+    }
     if (compiled.length === 0) return { edits: Object.freeze([]) }
     if (compiled.some(part => part.end > window.length)) return undefined
     const planned = Object.freeze(compiled.map(part => Object.freeze({
