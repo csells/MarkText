@@ -1063,15 +1063,20 @@ export function muyaClipboardToModel(
   if (selection === undefined) {
     throw new Error('The current model has no position for the clipboard selection')
   }
+  // Upstream's preference, which Core applies to a code block the edit changes.
+  const trim = muya.options.trimUnnecessaryCodeBlockEmptyLines === true
+    ? { trimUnnecessaryCodeBlockEmptyLines: true }
+    : {}
   return input.kind === 'paste'
     ? {
       kind: 'paste',
       markdown: input.markdown,
       pasteAsPlainText: input.pasteAsPlainText,
       selection,
-      tracked
+      tracked,
+      ...trim
     }
-    : { kind: 'cut', selection, tracked }
+    : { kind: 'cut', selection, tracked, ...trim }
 }
 
 /** The picker consumes intrinsic authoring facts in the same syntax used to render. */

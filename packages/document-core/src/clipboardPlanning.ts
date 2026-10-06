@@ -24,6 +24,8 @@ export type DocumentClipboardContent = Readonly<{ markdown: string, plainText?: 
 export type DocumentTextClipboardAction = Readonly<{
   selection: DocumentInputSelection
   tracked: boolean
+  /** Upstream's preference; see `withCodeBlockEdgeTrims`. */
+  trimUnnecessaryCodeBlockEmptyLines?: boolean
 } & ({ kind: 'cut' } | ({ kind: 'paste' } & DocumentClipboardContent))>
 
 export type DocumentTableClipboardAction = Readonly<{

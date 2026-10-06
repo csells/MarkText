@@ -51,12 +51,13 @@ Preferences can be controlled and modified in the settings window or via the `pr
 | autoCheck                          | Boolean | `false`            | Whether to automatically check related task items when one is toggled.                              |
 | autoNormalizeLineEndings           | Boolean | `false`            | Automatically normalize line endings when opening files. When disabled, files are opened as-is.     |
 
-`trimUnnecessaryCodeBlockEmptyLines` applies to the code block an edit
-changes, as part of that edit: typing, deleting or pressing Enter inside a
-fenced code block also removes the block's leading and trailing empty lines,
-and undoing the edit restores them. Lines the edit touches stay, so a line you
-just opened with Enter keeps your cursor. Code blocks you do not edit, Source
-view edits, tracked changes and saving leave a document's bytes as they are.
+`trimUnnecessaryCodeBlockEmptyLines` applies to the code blocks an edit
+changes, as part of that edit: any edit inside a fenced code block, whether
+typing, deleting, Enter, paste, cut, drag and drop or a Find replacement, also
+removes that block's leading and trailing empty lines, and undoing the edit
+restores them. Lines the edit touches stay, so a line you just opened with
+Enter keeps your cursor. Code blocks you do not edit, Source view edits,
+tracked changes and saving leave a document's bytes as they are.
 
 #### Markdown
 

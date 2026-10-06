@@ -67,7 +67,9 @@ export interface CoreDocumentViewLease {
   authorFormsAtBarrier(range: SourceRange): Promise<readonly CoreAuthorForm[] | undefined>
   replaceConsumerSearchAtBarrier(
     identity: DocumentSaveIdentity,
-    replacements: readonly CoreConsumerSearchReplacement[]
+    replacements: readonly CoreConsumerSearchReplacement[],
+    /** Upstream's preference: trim the empty edge lines of each code block replaced into. */
+    trimUnnecessaryCodeBlockEmptyLines?: boolean
   ): Promise<EditorCoreApplyOutcome>
   projectAcknowledgedSourceSyntax(revision: number): CoreSourceSyntaxReply
   projectAcknowledgedPlainTextView(revision: number): CorePlainTextViewReply
@@ -878,7 +880,8 @@ export function createCoreDocumentSessionManager(
         },
         async replaceConsumerSearchAtBarrier(
           identity: DocumentSaveIdentity,
-          replacements: readonly CoreConsumerSearchReplacement[]
+          replacements: readonly CoreConsumerSearchReplacement[],
+          trimUnnecessaryCodeBlockEmptyLines?: boolean
         ): Promise<EditorCoreApplyOutcome> {
           if (released) throw new Error('Core document view lease is released')
           if (session.recovery !== undefined || session.terminalFault !== undefined) {
@@ -900,6 +903,7 @@ export function createCoreDocumentSessionManager(
             kind: 'replace-consumer-search',
             authoredRevision: identity.revision,
             replacements,
+            ...(trimUnnecessaryCodeBlockEmptyLines === true ? { trimUnnecessaryCodeBlockEmptyLines } : {}),
             projections: []
           }).acknowledged
         },

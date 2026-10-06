@@ -1201,6 +1201,10 @@ export function createMuyaPlainTextCoreAdapter(
                   ? { kind: 'table' as const, operation: 'paste' as const }
                   : { kind: 'paste' as const }),
                 tracked: captured.tracked,
+                ...('trimUnnecessaryCodeBlockEmptyLines' in captured &&
+                  captured.trimUnnecessaryCodeBlockEmptyLines === true
+                  ? { trimUnnecessaryCodeBlockEmptyLines: true }
+                  : {}),
                 ...value,
                 ...(captured.blockPlacement === undefined
                   ? {}

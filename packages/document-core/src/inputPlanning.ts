@@ -175,7 +175,7 @@ export function planInput(core: DocumentCore, revision: DocumentRevision, action
   const plan = planUnspelledInput(core, revision, action, enterConversion, physicalLines, regionalSyntax, untracked, regionalContext)
   if (!untracked) return plan
   // The trim is spelling, like table padding, so a suggestion never carries it.
-  const trimmed = trimEditedCodeBlock(core, revision, action, plan, regionalSyntax, literalBlockRange)
+  const trimmed = trimEditedCodeBlock(core, revision, action, plan, { syntax: regionalSyntax, literalBlockRange })
   return preview === undefined ? trimmed : respellInput(core, revision, action, trimmed, preview, regionalSyntax)
 }
 

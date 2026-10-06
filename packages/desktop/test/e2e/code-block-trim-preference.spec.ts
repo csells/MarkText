@@ -23,8 +23,8 @@ const launch = () => launchWithMarkdown(source, {
   env: { MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined, MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
 })
 
-/** Puts the caret after `text` in the first code block and types `key`. */
-const typeAfter = async(page: Page, text: string, key: string): Promise<void> => {
+/** Puts the caret after `text` in the first code block. */
+const caretAfter = async(page: Page, text: string): Promise<void> => {
   const point = await page.locator('.mu-codeblock-content').first().evaluate((element, target) => {
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
     for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
@@ -42,8 +42,14 @@ const typeAfter = async(page: Page, text: string, key: string): Promise<void> =>
   // A click before the text's last character, then a step past it.
   await page.mouse.click(point.x, point.y)
   await page.keyboard.press('ArrowRight')
+}
+
+const typeAfter = async(page: Page, text: string, key: string): Promise<void> => {
+  await caretAfter(page, text)
   await page.keyboard.type(key)
 }
+
+const command = (key: string) => `${process.platform === 'darwin' ? 'Meta' : 'Control'}+${key}`
 
 const save = async(app: ElectronApplication, filePath: string, expected: string): Promise<void> => {
   await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
@@ -87,6 +93,30 @@ test('typing in a code block trims only that block, in one undoable edit', async
     await save(app, filePath, trimmed)
     await expectEditorWindowHidden(app)
     expectEditorNotFrontmost(app)
+    await expectNoRendererErrors(app)
+  } finally {
+    await app.close()
+  }
+})
+
+test('pasting and cutting in a code block trim it in one undoable edit', async() => {
+  const { app, page, filePath } = await launch()
+  try {
+    await caretAfter(page, 'alpha')
+    await app.evaluate(({ clipboard }) => clipboard.writeText('ZZ'))
+    await page.keyboard.press(command('V'))
+    await save(app, filePath, trimmed.replace('alphaX', 'alphaZZ'))
+    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+    await save(app, filePath, source)
+
+    await caretAfter(page, 'alpha')
+    await page.keyboard.press('Shift+ArrowLeft')
+    await page.keyboard.press('Shift+ArrowLeft')
+    await page.keyboard.press(command('X'))
+    await save(app, filePath, trimmed.replace('alphaX', 'alp'))
+    expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toBe('ha')
+    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+    await save(app, filePath, source)
     await expectNoRendererErrors(app)
   } finally {
     await app.close()

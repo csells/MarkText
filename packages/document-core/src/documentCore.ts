@@ -9,6 +9,7 @@ import { planClipboard, type DocumentClipboardAction, type DocumentClipboardPlan
 import { planFormat, type DocumentFormatAction, type DocumentFormatPlan } from './formatPlanning.js'
 import { planInput, positionBefore, reconcileInput, inputSourceRange, type DocumentInputAction, type DocumentInputPlan, type DocumentInputResult, type RegionalBlockContext } from './inputPlanning.js'
 import { editingReconciliation } from './editingReconciliation.js'
+import { selectionAfterTrims, withCodeBlockEdgeTrims, type CodeBlockTrimReaders } from './codeBlockEdgeTrimming.js'
 import { paragraphBackwardStructuralTarget } from './paragraphJoinPlanning.js'
 import { isLiteralBlock } from './literalBlock.js'
 import { syntaxPathAt } from './syntaxPath.js'
@@ -672,6 +673,13 @@ export interface DocumentCore {
    */
   planCommentEdit(previous: DocumentRevision, action: DocumentCommentAction): DocumentCommentPlan | undefined
   planClipboard(previous: DocumentRevision, action: DocumentClipboardAction): DocumentClipboardPlan
+  /**
+   * Upstream's code block empty-line trim for an untracked edit that no input
+   * planner made, such as a Find replacement: `edits` with the leading and
+   * trailing empty lines of each code block they change removed in the same
+   * operation (see `withCodeBlockEdgeTrims`).
+   */
+  trimCodeBlockEdges(previous: DocumentRevision, edits: readonly DocumentSourceEdit[]): readonly DocumentSourceEdit[]
   /** Plans a native inline-format action using owned syntax and exact source positions. */
   planSourceInput(previous: DocumentRevision, action: DocumentSourceInputAction): DocumentSourceInputAction
   planFormat(previous: DocumentRevision, action: DocumentFormatAction): DocumentFormatPlan
@@ -7821,6 +7829,17 @@ function createDocumentCoreWithExecutionBudget(
     })
   }
 
+  /** Windows for reading the code blocks an edit of `previous` changes (see `withCodeBlockEdgeTrims`). */
+  const trimReaders = (previous: DocumentRevision): CodeBlockTrimReaders => {
+    const state = currentStateOf(previous)
+    return {
+      syntax: range => regionalInputSyntax(state, range),
+      literalBlockRange: position => state.regionalInventory === undefined
+        ? undefined
+        : regionalInventoryLiteralRange(state.regionalInventory, position)
+    }
+  }
+
   const tablePreview = (previous: DocumentRevision, edits: readonly DocumentSourceEdit[]) =>
     withSourceEditPreview(previous, edits, (products, source) =>
       ({ syntax: markupProjectionOf(products, annotationsOf(products).rangeByNodeId, source.length).syntax, source }))
@@ -7841,7 +7860,17 @@ function createDocumentCoreWithExecutionBudget(
     planClipboard(previous: DocumentRevision, action: DocumentClipboardAction) {
       // Cut and paste change only their own bytes, in a table too (ADR 0007;
       // owner decision 25 Sep, plan 0012 G24).
-      return planUnspelledClipboard(previous, commentedSpanSafeClipboard(previous, action, at => rootsAround(previous, at)))
+      const plan = planUnspelledClipboard(previous, commentedSpanSafeClipboard(previous, action, at => rootsAround(previous, at)))
+      if (action.kind === 'table' || action.tracked || action.trimUnnecessaryCodeBlockEmptyLines !== true) return plan
+      const trimmed = withCodeBlockEdgeTrims(core, previous, plan.edits, trimReaders(previous))
+      return trimmed === undefined
+        ? plan
+        : Object.freeze({ edits: trimmed.edits, selection: selectionAfterTrims(plan.selection, trimmed.trims) })
+    },
+    trimCodeBlockEdges(previous: DocumentRevision, edits: readonly DocumentSourceEdit[]) {
+      const stable = stableSourceEdits(edits)
+      preflightSourceEdits(currentStateOf(previous).source.length, stable)
+      return withCodeBlockEdgeTrims(core, previous, stable, trimReaders(previous))?.edits ?? stable
     },
     planSourceInput(previous: DocumentRevision, action: DocumentSourceInputAction) {
       currentStateOf(previous)

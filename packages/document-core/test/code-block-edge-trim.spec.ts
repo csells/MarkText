@@ -114,6 +114,48 @@ describe('edit-scoped code block edge trimming', () => {
     expect(next.source).toBe(revision.source.replace('```\n\n\nline 0', '```\nline 0').replace('line 200', 'line 200y').replace('line 399\n\n\n```', 'line 399\n```'))
   })
 
+  it.each([
+    { kind: 'paste' as const, select: 'pha', markdown: 'zz', expected: '```\nalzz\n```\n\n```\n\nkeep\n\n```\n' },
+    { kind: 'cut' as const, select: 'pha', markdown: '', expected: '```\nal\n```\n\n```\n\nkeep\n\n```\n' }
+  ])('trims the code block a $kind changes, and only that one', ({ kind, select, markdown, expected }) => {
+    const source = '```\n\nalpha\n\n```\n\n```\n\nkeep\n\n```\n'
+    const start = source.indexOf(select)
+    const selection = { ranges: [{ anchor: start, focus: start + select.length }], primary: 0 }
+    for (const trim of [true, false]) {
+      const core = createDocumentCore()
+      const revision = core.open(source)
+      const action = kind === 'cut'
+        ? { kind, selection, tracked: false, trimUnnecessaryCodeBlockEmptyLines: trim }
+        : { kind, selection, markdown, tracked: false, trimUnnecessaryCodeBlockEmptyLines: trim }
+      const plan = core.planClipboard(revision, action)
+      const result = core.apply(revision, plan.edits).revision.source
+      const typed = source.slice(0, start) + markdown + source.slice(start + select.length)
+      expect(result).toBe(trim ? expected : typed)
+      const caret = (trim ? expected : typed).indexOf('al') + 2 + markdown.length
+      expect(plan.selection).toEqual({ ranges: [{ anchor: caret, focus: caret }], primary: 0 })
+    }
+  })
+
+  it('leaves a tracked paste untrimmed', () => {
+    const source = '```\n\nalpha\n\n```\n'
+    const at = source.indexOf('pha')
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const plan = core.planClipboard(revision, { kind: 'paste', selection: { ranges: [{ anchor: at, focus: at }], primary: 0 }, markdown: 'zz', tracked: true, trimUnnecessaryCodeBlockEmptyLines: true })
+    expect(core.apply(revision, plan.edits).revision.source).toContain('```\n\nal')
+  })
+
+  it('trims every code block an edit set such as a Find replacement changes', () => {
+    const source = '```\n\nfoo\n\n```\n\nfoo outside\n\n~~~\n\nfoo\n~~~\n\n```\n\nbar\n\n```\n'
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const edits = [...source.matchAll(/foo/gu)].map(match => ({ start: match.index, end: match.index + 3, insert: 'baz' }))
+    expect(core.trimCodeBlockEdges(revision, [])).toEqual([])
+    const trimmed = core.trimCodeBlockEdges(revision, edits)
+    expect(core.apply(revision, trimmed).revision.source)
+      .toBe('```\nbaz\n```\n\nbaz outside\n\n~~~\nbaz\n~~~\n\n```\n\nbar\n\n```\n')
+  })
+
   it('opens and leaves an unedited document byte for byte', () => {
     const source = '```\n\n\nx\n\n```\n'
     const core = createDocumentCore()

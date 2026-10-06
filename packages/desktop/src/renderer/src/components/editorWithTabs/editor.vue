@@ -2796,7 +2796,11 @@ const replaceCoreSearch = async (payload: unknown): Promise<void> => {
       settle: () => adapter.settled(),
       isCurrent: () => inputEpoch === coreConsumerInputEpoch && coreSearchSnapshot === snapshot,
       replace: (identity, replacements) =>
-        lease.replaceConsumerSearchAtBarrier(identity, replacements)
+        lease.replaceConsumerSearchAtBarrier(
+          identity,
+          replacements,
+          trimUnnecessaryCodeBlockEmptyLines.value === true
+        )
     })
     if (outcome === undefined) return
     if (outcome.type !== 'applied') {

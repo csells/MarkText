@@ -5,6 +5,7 @@ import { rebaseModelTextPoint } from './modelText.js'
 import { composeSourceEdits } from './sourceEditComposition.js'
 import { positionAfter } from './sourcePosition.js'
 import { syntaxPathAt } from './syntaxPath.js'
+import type { DocumentSelection } from './sourceInputPlanning.js'
 
 const trimmedBlocks = new Set(['code-block', 'diagram'])
 
@@ -21,47 +22,127 @@ const EDGE_LINE_READS = 256
 
 type SyntaxReader = (range: SourceRange) => MarkupSyntax | undefined
 
+/** How a planner reads the revision it trims: a window reader and the document's literal extents. */
+export interface CodeBlockTrimReaders {
+  readonly syntax?: SyntaxReader | undefined
+  readonly literalBlockRange?: ((position: number) => SourceRange | undefined) | undefined
+}
+
 /**
  * Upstream's `trimUnnecessaryCodeBlockEmptyLines` drops the empty lines at a
  * fenced code block's edges whenever it reads a document. Here the trim is
- * edit-scoped: an untracked input inside one closed fenced code block also
- * removes that block's leading and trailing empty lines, in the same
- * operation, so it is undone with the input. Lines the input touches stay,
- * so a line just opened with Enter keeps its caret; every other block and an
+ * edit-scoped: an untracked edit inside a closed fenced code block or diagram
+ * also removes that block's leading and trailing empty lines, in the same
+ * operation, so it is undone with the edit. Lines an edit touches stay, so a
+ * line just opened with Enter keeps its caret; every other block and an
  * unedited save keep their bytes (ADR 0007).
+ *
+ * Returns `edits` with the trims composed in, and the trims as the edited
+ * source reads them for mapping a planner's selection; undefined when no
+ * block needs trimming.
  */
+export function withCodeBlockEdgeTrims(
+  core: DocumentCore,
+  revision: DocumentRevision,
+  edits: readonly DocumentSourceEdit[],
+  readers: CodeBlockTrimReaders = {}
+): { readonly edits: readonly DocumentSourceEdit[], readonly trims: readonly DocumentSourceEdit[] } | undefined {
+  const trims = codeBlockEdgeTrims(core, revision, edits, readers)
+  if (trims.length === 0) return undefined
+  // The trimmed lines are untouched, so they map through the edits exactly.
+  const trimmed = trims.map(trim => ({ start: positionAfter(edits, trim.start, false), end: positionAfter(edits, trim.end, false), insert: '' }))
+  const result = editedSourceReader(core, revision, edits)
+  return { edits: Object.freeze(composeSourceEdits(edits, trimmed, result).map(edit => Object.freeze(edit))), trims: trimmed }
+}
+
+/** A planned selection carried past `trims`, which delete untouched lines only. */
+export function selectionAfterTrims<Selection extends DocumentInputPlan['selection'] | DocumentSelection | SourceRange>(selection: Selection, trims: readonly DocumentSourceEdit[]): Selection {
+  const point = (at: number) => positionAfter(trims, at, false)
+  const value = selection as DocumentInputPlan['selection'] | DocumentSelection | SourceRange
+  const moved = 'ranges' in value
+    ? { ...value, ranges: value.ranges.map(range => ({ anchor: point(range.anchor), focus: point(range.focus) })) }
+    : 'start' in value
+      ? { start: point(value.start), end: point(value.end) }
+      : value.kind === 'model-text'
+        ? { ...value, anchor: rebaseModelTextPoint(value.anchor, trims), focus: rebaseModelTextPoint(value.focus, trims) }
+        : value
+  return Object.freeze(moved) as Selection
+}
+
+/** The input plan, trimmed when its action asks for upstream's preference. */
 export function trimEditedCodeBlock(
   core: DocumentCore,
   revision: DocumentRevision,
   action: DocumentInputAction,
   plan: DocumentInputPlan,
-  regionalSyntax?: SyntaxReader,
-  literalBlockRange?: (position: number) => SourceRange | undefined
+  readers: CodeBlockTrimReaders = {}
 ): DocumentInputPlan {
-  if (action.options.trimUnnecessaryCodeBlockEmptyLines !== true || plan.edits.length === 0) return plan
-  const position = Math.min(...plan.edits.map(edit => edit.start))
-  // Without a window the revision holds its parse, which the projection reads.
-  const read: SyntaxReader = regionalSyntax ?? (() => core.project(revision, 'markup').syntax)
+  if (action.options.trimUnnecessaryCodeBlockEmptyLines !== true) return plan
+  const trimmed = withCodeBlockEdgeTrims(core, revision, plan.edits, readers)
+  if (trimmed === undefined) return plan
+  return Object.freeze({
+    ...plan,
+    edits: trimmed.edits,
+    selection: selectionAfterTrims(plan.selection, trimmed.trims),
+    // A native echo of the input lacks the trim, which the plan's own
+    // operation carries.
+    ...('kind' in action
+      ? {}
+      : { reconciliation: Object.freeze(composeSourceEdits(plan.reconciliation, trimmed.trims, editedSourceReader(core, revision, plan.edits)).map(edit => Object.freeze(edit))) })
+  })
+}
+
+interface EditedBlock {
+  readonly contentStart: number
+  readonly contentEnd: number
+  readonly view: CodeBlockView
+  readonly edits: DocumentSourceEdit[]
+  /** An edit crosses the block's content edge, so the block is left alone. */
+  crossed: boolean
+}
+
+/** Each edited block's trims, in the previous source, disjoint from `edits`. */
+function codeBlockEdgeTrims(core: DocumentCore, revision: DocumentRevision, edits: readonly DocumentSourceEdit[], readers: CodeBlockTrimReaders): DocumentSourceEdit[] {
+  if (edits.length === 0) return []
+  // Where no window reads a position, the document's own parse does.
+  const read: SyntaxReader = range => readers.syntax?.(range) ?? core.project(revision, 'markup').syntax
   const lineEnd = (at: number) => at + (/^(?:\r\n?|\n)/u.exec(core.sourceSlice(revision, { start: at, end: Math.min(at + 2, revision.sourceLength) }))?.[0].length ?? 0)
   const codeBlockAt = (at: number) => codeBlock(read, lineEnd, at)
-  const edited = codeBlockAt(position)
-  if (edited === undefined) return plan
-  // A window around a literal holds only the lines near the edit, its fences
-  // standing for the rest; the whole block's extent comes from the document.
-  const bounds = edited.whole ? edited : wholeBlockContent(core, revision, edited, literalBlockRange?.(position))
-  if (bounds === undefined) return regionalSyntax === undefined ? plan : trimEditedCodeBlock(core, revision, action, plan)
-  const { contentStart, contentEnd } = bounds
-  if (plan.edits.some(edit => edit.start < contentStart || edit.start >= contentEnd || edit.end > contentEnd)) return plan
+  const blocks: EditedBlock[] = []
+  for (const edit of [...edits].sort((left, right) => left.start - right.start)) {
+    let block = blocks.find(candidate => candidate.contentStart <= edit.start && edit.start < candidate.contentEnd)
+    if (block === undefined) {
+      const view = codeBlockAt(edit.start)
+      if (view === undefined) continue
+      // A window around a literal holds only the lines near the edit, its
+      // fences standing for the rest; the whole block's extent comes from the
+      // document. A block too long for a window without one reads the document.
+      const bounds = view.whole ? view : wholeBlockContent(core, revision, view, readers.literalBlockRange?.(edit.start))
+      if (bounds === undefined) {
+        if (readers.syntax === undefined) continue
+        return codeBlockEdgeTrims(core, revision, edits, {})
+      }
+      if (edit.start < bounds.contentStart || edit.start >= bounds.contentEnd) continue
+      block = { contentStart: bounds.contentStart, contentEnd: bounds.contentEnd, view, edits: [], crossed: false }
+      blocks.push(block)
+    }
+    if (edit.end > block.contentEnd) block.crossed = true
+    block.edits.push(edit)
+  }
+  return blocks.filter(block => !block.crossed).flatMap(block => blockTrims(core, revision, block, codeBlockAt))
+}
 
+function blockTrims(core: DocumentCore, revision: DocumentRevision, block: EditedBlock, codeBlockAt: (position: number) => CodeBlockView | undefined): DocumentSourceEdit[] {
+  const { contentStart, contentEnd, view, edits } = block
   // An edit at a line's start belongs to that line; one ending at a line's
   // start joins it to the line before.
-  const trimmable = (line: CodeLine) => line.empty && !plan.edits.some(edit => edit.start < line.end && edit.end >= line.start)
+  const trimmable = (line: CodeLine) => line.empty && !edits.some(edit => edit.start < line.end && edit.end >= line.start)
   // A window around a long literal holds only some of its lines, so the
   // lines at each edge are read from windows there until a kept line ends
   // the edge's run of empty lines; a run that cannot be read is left alone.
   const known = new Map<number, CodeLine>()
   const learn = (lines: readonly CodeLine[] | undefined) => { for (const line of lines ?? []) known.set(line.start, line) }
-  learn(edited.lines)
+  learn(view.lines)
   const lineFrom = (at: number) => known.get(at) ?? (learn(codeBlockAt(at)?.lines), known.get(at))
   const lineTo = (at: number) => {
     const find = () => [...known.values()].find(line => line.end === at)
@@ -77,8 +158,8 @@ export function trimEditedCodeBlock(
   }
   // A top-level block's line with visible text is code, so an edge spelled
   // that way ends its run without reading a window there.
-  const firstSpelled = !edited.whole && /^[^\r\n]*\S/u.test(core.sourceSlice(revision, { start: contentStart, end: Math.min(contentEnd, contentStart + 256) }))
-  const lastSpelled = !edited.whole && /\S[^\r\n]*(?:\r\n|\r|\n)$/u.test(core.sourceSlice(revision, { start: Math.max(contentStart, contentEnd - 256), end: contentEnd }))
+  const firstSpelled = !view.whole && /^[^\r\n]*\S/u.test(core.sourceSlice(revision, { start: contentStart, end: Math.min(contentEnd, contentStart + 256) }))
+  const lastSpelled = !view.whole && /\S[^\r\n]*(?:\r\n|\r|\n)$/u.test(core.sourceSlice(revision, { start: Math.max(contentStart, contentEnd - 256), end: contentEnd }))
   const leadingKept = firstSpelled ? undefined : kept(lineFrom, contentStart, line => line.end)
   const trailingKept = lastSpelled ? undefined : kept(lineTo, contentEnd, line => line.start)
   const trims: DocumentSourceEdit[] = []
@@ -87,30 +168,7 @@ export function trimEditedCodeBlock(
   if (trailingFrom !== undefined && trailingFrom < contentEnd && trailingFrom >= (trims[0]?.end ?? contentStart)) {
     trims.push({ start: trailingFrom, end: contentEnd, insert: '' })
   }
-  if (trims.length === 0) return plan
-
-  // The trimmed lines are untouched, so they map through the input exactly.
-  const trimmed = trims.map(trim => ({ start: positionAfter(plan.edits, trim.start, false), end: positionAfter(plan.edits, trim.end, false), insert: '' }))
-  const result = editedSourceReader(core, revision, plan.edits)
-  const point = (at: number) => positionAfter(trimmed, at, false)
-  const selection = plan.selection as DocumentInputPlan['selection'] | SourceRange
-  const moved = 'ranges' in selection
-    ? { ...selection, ranges: selection.ranges.map(range => ({ anchor: point(range.anchor), focus: point(range.focus) })) }
-    : 'start' in selection
-      ? { start: point(selection.start), end: point(selection.end) }
-      : selection.kind === 'model-text'
-        ? { ...selection, anchor: rebaseModelTextPoint(selection.anchor, trimmed), focus: rebaseModelTextPoint(selection.focus, trimmed) }
-        : selection
-  return Object.freeze({
-    ...plan,
-    edits: Object.freeze(composeSourceEdits(plan.edits, trimmed, result).map(edit => Object.freeze(edit))),
-    selection: Object.freeze(moved) as DocumentInputPlan['selection'],
-    // A native echo of the input lacks the trim, which the plan's own
-    // operation carries.
-    ...('kind' in action
-      ? {}
-      : { reconciliation: Object.freeze(composeSourceEdits(plan.reconciliation, trimmed, result).map(edit => Object.freeze(edit))) })
-  })
+  return trims
 }
 
 /**
