@@ -6,6 +6,7 @@ import {
   expectEditorWindowHidden,
   expectNoRendererErrors,
   launchWithMarkdown,
+  launchWithReviewMarkdown,
   sendIpcToRenderer
 } from './helpers'
 
@@ -147,3 +148,58 @@ test('turning the preference off in Preferences writes only the typed text', asy
     await app.close()
   }
 })
+
+// With Track Changes on the trim is part of the suggestion: accepting it gives
+// the untracked edit's bytes, rejecting it the original block.
+const tracked = [
+  { name: 'typing', act: async(page: Page) => typeAfter(page, 'alpha', 'X'), accepted: trimmed },
+  {
+    name: 'a paste',
+    act: async(page: Page, app: ElectronApplication) => {
+      await caretAfter(page, 'alpha')
+      await app.evaluate(({ clipboard }) => clipboard.writeText('ZZ'))
+      await page.keyboard.press(command('V'))
+    },
+    accepted: trimmed.replace('alphaX', 'alphaZZ')
+  },
+  {
+    name: 'a cut',
+    act: async(page: Page) => {
+      await caretAfter(page, 'alpha')
+      await page.keyboard.press('Shift+ArrowLeft')
+      await page.keyboard.press('Shift+ArrowLeft')
+      await page.keyboard.press(command('X'))
+    },
+    accepted: trimmed.replace('alphaX', 'alp')
+  }
+]
+for (const edit of tracked) {
+  for (const decision of [
+    { name: 'Accept All', testId: 'critic-review-accept-all', expected: edit.accepted },
+    { name: 'Reject All', testId: 'critic-review-reject-all', expected: source }
+  ]) {
+    test(`tracked ${edit.name} in a code block suggests the trim; ${decision.name} gives the ${decision.name === 'Accept All' ? 'untracked' : 'original'} bytes`, async() => {
+      const { app, page, filePath } = await launchWithReviewMarkdown(source, {
+        suppressErrorDialog: true,
+        env: { MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined, MARKTEXT_E2E_HIDDEN_WINDOW: '1' }
+      })
+      try {
+        await page.getByTestId('critic-review-track-changes').click()
+        await edit.act(page, app)
+        await sendIpcToRenderer(app, 'mt::editor-ask-file-save')
+        await expect.poll(() => readFileSync(filePath, 'utf8')).toContain('{~~```js\n\n\nalpha\n\n```\n~>')
+        const suggested = readFileSync(filePath, 'utf8')
+        await page.getByTestId('critic-review-entry').first().locator(':scope > button').click()
+        await page.getByTestId(decision.testId).click()
+        await save(app, filePath, decision.expected)
+        await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+        await save(app, filePath, suggested)
+        await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+        await save(app, filePath, source)
+        await expectNoRendererErrors(app)
+      } finally {
+        await app.close()
+      }
+    })
+  }
+}

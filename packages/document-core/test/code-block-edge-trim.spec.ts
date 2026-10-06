@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentInputAction, type DocumentRevision, type DocumentSourceEdit } from '../src/index.js'
 
 // Upstream's trimUnnecessaryCodeBlockEmptyLines, edit-scoped: only the code
-// block an untracked input edits loses its edge empty lines, in that input's
-// own operation.
+// block an edit changes loses its edge empty lines, in that edit's own
+// operation; a tracked edit suggests the trim with it.
 
 const options = (trim: boolean) => ({ autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true, trimUnnecessaryCodeBlockEmptyLines: trim })
 
@@ -81,11 +81,25 @@ describe('edit-scoped code block edge trimming', () => {
     expect(run(source, typing(at, 'y')).commit.revision.source).toBe('```\n  \nxy\n```\n')
   })
 
-  it('does not trim for a tracked input', () => {
-    const source = '```\n\nx\n\n```\n'
-    const at = source.indexOf('x') + 1
-    const { commit } = run(source, typing(at, 'y'), true)
-    expect(commit.revision.source).not.toContain('```\nxy\n```')
+  it.each([
+    { name: 'typing', source: '```js\n\n\nx\n\n```\n\nafter\n', act: (source: string) => typing(source.indexOf('x') + 1, 'y') },
+    { name: 'Enter', source: '```\n\nx\n\n```\n', act: (source: string) => enter(source.indexOf('x') + 1) },
+    {
+      name: 'deletion',
+      source: '```\n\nalpha\n\n```\n',
+      act: (source: string) => {
+        const at = source.indexOf('alpha') + 5
+        return { selection: { ranges: [{ anchor: at, focus: at }], primary: 0 }, range: { start: at - 1, end: at }, inputType: 'deleteContentBackward', data: null, options: options(true) } as DocumentInputAction
+      }
+    }
+  ])('suggests the trim with tracked $name, so Accept All equals the untracked edit', ({ source, act }) => {
+    const untracked = run(source, act(source)).commit.revision.source
+    const { core, commit } = run(source, act(source), true)
+    expect(commit.revision.source).not.toBe(untracked)
+    expect(core.project(commit.revision, 'revised').markdown).toBe(untracked)
+    expect(core.project(commit.revision, 'original').markdown).toBe(source)
+    const undone = core.apply(commit.revision, inverse(source, commit.change.appliedEdits))
+    expect(undone.revision.source).toBe(source)
   })
 
   it('is one operation that a single inverse restores', () => {
@@ -136,13 +150,25 @@ describe('edit-scoped code block edge trimming', () => {
     }
   })
 
-  it('leaves a tracked paste untrimmed', () => {
-    const source = '```\n\nalpha\n\n```\n'
-    const at = source.indexOf('pha')
+  it.each([
+    { kind: 'paste' as const, markdown: 'zz' },
+    { kind: 'cut' as const, markdown: '' }
+  ])('suggests the trim with a tracked $kind, so Accept All equals the untracked $kind', ({ kind, markdown }) => {
+    const source = '```\n\nalpha\n\n```\n\nafter\n'
+    const start = source.indexOf('pha')
+    const selection = { ranges: [{ anchor: start, focus: start + 3 }], primary: 0 }
+    const plan = (core: ReturnType<typeof createDocumentCore>, revision: DocumentRevision, tracked: boolean) => core.planClipboard(revision, kind === 'cut'
+      ? { kind, selection, tracked, trimUnnecessaryCodeBlockEmptyLines: true }
+      : { kind, selection, markdown, tracked, trimUnnecessaryCodeBlockEmptyLines: true })
+    const plain = createDocumentCore()
+    const plainRevision = plain.open(source)
+    const untracked = plain.apply(plainRevision, plan(plain, plainRevision, false).edits).revision.source
     const core = createDocumentCore()
     const revision = core.open(source)
-    const plan = core.planClipboard(revision, { kind: 'paste', selection: { ranges: [{ anchor: at, focus: at }], primary: 0 }, markdown: 'zz', tracked: true, trimUnnecessaryCodeBlockEmptyLines: true })
-    expect(core.apply(revision, plan.edits).revision.source).toContain('```\n\nal')
+    const commit = core.apply(revision, plan(core, revision, true).edits)
+    expect(core.project(commit.revision, 'revised').markdown).toBe(untracked)
+    expect(core.project(commit.revision, 'original').markdown).toBe(source)
+    expect(core.apply(commit.revision, inverse(source, commit.change.appliedEdits)).revision.source).toBe(source)
   })
 
   it('trims every code block an edit set such as a Find replacement changes', () => {
@@ -150,8 +176,10 @@ describe('edit-scoped code block edge trimming', () => {
     const core = createDocumentCore()
     const revision = core.open(source)
     const edits = [...source.matchAll(/foo/gu)].map(match => ({ start: match.index, end: match.index + 3, insert: 'baz' }))
-    expect(core.trimCodeBlockEdges(revision, [])).toEqual([])
-    const trimmed = core.trimCodeBlockEdges(revision, edits)
+    const trim = { trimUnnecessaryCodeBlockEmptyLines: true }
+    expect(core.normalizeEdits(revision, [], trim)).toEqual([])
+    expect(core.normalizeEdits(revision, edits, {})).toEqual(edits)
+    const trimmed = core.normalizeEdits(revision, edits, trim)
     expect(core.apply(revision, trimmed).revision.source)
       .toBe('```\nbaz\n```\n\nbaz outside\n\n~~~\nbaz\n~~~\n\n```\n\nbar\n\n```\n')
   })

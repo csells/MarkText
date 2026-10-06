@@ -12,6 +12,7 @@ import { positionAfter } from './sourcePosition.js'
 import { prepareBlockClipboardMarkdown, prepareClipboardMarkdown } from './clipboardMarkdown.js'
 import { createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { createTrackedSourceEdit, prepareTrackedBlockEdit } from './trackedAuthoring.js'
+import { joinedEdit, normalizeEdits, type EditNormalizationReaders } from './editNormalization.js'
 import { joinedTrackedEdit, trackedEditableEdits, trackedEditableSpans, unchangedTrackedEdit } from './trackedHistoryEditing.js'
 import type { MarkdownLineIndex } from './revision.js'
 import { planEmptiedParagraph } from './emptiedParagraphPlanning.js'
@@ -24,7 +25,7 @@ export type DocumentClipboardContent = Readonly<{ markdown: string, plainText?: 
 export type DocumentTextClipboardAction = Readonly<{
   selection: DocumentInputSelection
   tracked: boolean
-  /** Upstream's preference; see `withCodeBlockEdgeTrims`. */
+  /** Upstream's preference; see `normalizeEdits`. */
   trimUnnecessaryCodeBlockEmptyLines?: boolean
 } & ({ kind: 'cut' } | ({ kind: 'paste' } & DocumentClipboardContent))>
 
@@ -80,6 +81,8 @@ export interface DocumentClipboardPlan {
 /** Optional proofs from the current canonical region, using apply's parser. */
 interface RegionalClipboardPlanning {
   syntax(range: SourceRange): MarkupSyntax | undefined
+  /** Readers for the edit normalizations a tracked edit suggests with it. */
+  readonly normalization?: EditNormalizationReaders
   compile(edits: readonly DocumentSourceEdit[]): readonly DocumentSourceEdit[] | undefined
 }
 
@@ -170,7 +173,14 @@ export function planClipboard(
     ? prepareClipboardMarkdown(core, previous, { start, end, insert }, action.selection, importSyntax, action.kind === 'paste' && action.pasteAsPlainText === true, ownedSyntax)
     : prepareBlockClipboardMarkdown(core, previous, { start, end, insert }, blockPlacement, physicalLines())
   const input = prepared.edit
-  const inputs = [input, ...(prepared.after ?? [])]
+  let inputs = [input, ...(prepared.after ?? [])]
+  // A suggestion carries the edit's normalizations, joined into the one
+  // replacement it proposes, so accepting it gives the untracked result.
+  // Untracked, the document core normalizes the finished plan instead.
+  if (action.tracked) {
+    const normalized = normalizeEdits(core, previous, inputs, action, regional?.normalization)
+    if (normalized !== undefined) inputs = [joinedEdit(core, previous, normalized.edits)]
+  }
   const compileTracked = (edit: DocumentSourceEdit): DocumentSourceEdit | undefined => {
     // Widening reproduces the untracked paste exactly; terminating an
     // enclosed block literal with blank lines is the fallback spelling.

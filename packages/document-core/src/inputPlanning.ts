@@ -17,7 +17,6 @@ import type { ParagraphEnterConversion } from './internal/profile1/markdownParse
 import type { DocumentCore, DocumentCommit, DocumentRevision, DocumentSourceEdit, MarkdownAstNode, MarkupSyntax, SourceRange } from './documentCore.js'
 import { applyInputPairing, type IInputPairingOptions, type IInputPairingSyntaxContext } from './inputPolicy.js'
 import { planStructuralInput } from './structuralInputPlanning.js'
-import { trimEditedCodeBlock } from './codeBlockEdgeTrimming.js'
 import { planInlineUpdate, planTypedIndentedCode } from './typedLineBlockPlanning.js'
 import { editedSourceReader, planDemotedRuleSeparation, planEmptiedParagraph } from './emptiedParagraphPlanning.js'
 import { composeSourceEdits } from './sourceEditComposition.js'
@@ -38,7 +37,7 @@ export interface DocumentBrowserInputAction<Selection extends DocumentInputSelec
   readonly data: string | null
   readonly options: Readonly<IInputPairingOptions & {
     readonly tabSize?: number
-    /** Upstream's preference; see `trimEditedCodeBlock`. */
+    /** Upstream's preference; see `normalizeEdits`. */
     readonly trimUnnecessaryCodeBlockEmptyLines?: boolean
   }>
 }
@@ -171,12 +170,12 @@ export interface RegionalBlockContext {
 }
 
 /** Normalize current model addresses only; physical cell materialization is an edit. */
-export function planInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, regionalSyntax?: (range: SourceRange) => MarkupSyntax | undefined, untracked = false, preview?: TablePreview, regionalContext?: (position: number) => RegionalBlockContext | undefined, literalBlockRange?: (position: number) => SourceRange | undefined): DocumentInputPlan {
+export function planInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, enterConversion: (range: SourceRange) => ParagraphEnterConversion | undefined, physicalLines: () => MarkdownLineIndex, regionalSyntax?: (range: SourceRange) => MarkupSyntax | undefined, untracked = false, preview?: TablePreview, regionalContext?: (position: number) => RegionalBlockContext | undefined): DocumentInputPlan {
   const plan = planUnspelledInput(core, revision, action, enterConversion, physicalLines, regionalSyntax, untracked, regionalContext)
-  if (!untracked) return plan
-  // The trim is spelling, like table padding, so a suggestion never carries it.
-  const trimmed = trimEditedCodeBlock(core, revision, action, plan, { syntax: regionalSyntax, literalBlockRange })
-  return preview === undefined ? trimmed : respellInput(core, revision, action, trimmed, preview, regionalSyntax)
+  // Table padding is spelling, written only untracked; the document core
+  // normalizes the finished plan in both modes (see normalizeInputPlan).
+  if (!untracked || preview === undefined) return plan
+  return respellInput(core, revision, action, plan, preview, regionalSyntax)
 }
 
 function respellInput(core: DocumentCore, revision: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, preview: TablePreview, regionalSyntax?: (range: SourceRange) => MarkupSyntax | undefined): DocumentInputPlan {

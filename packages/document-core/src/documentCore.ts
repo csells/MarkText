@@ -9,7 +9,7 @@ import { planClipboard, type DocumentClipboardAction, type DocumentClipboardPlan
 import { planFormat, type DocumentFormatAction, type DocumentFormatPlan } from './formatPlanning.js'
 import { planInput, positionBefore, reconcileInput, inputSourceRange, type DocumentInputAction, type DocumentInputPlan, type DocumentInputResult, type RegionalBlockContext } from './inputPlanning.js'
 import { editingReconciliation } from './editingReconciliation.js'
-import { selectionAfterTrims, withCodeBlockEdgeTrims, type CodeBlockTrimReaders } from './codeBlockEdgeTrimming.js'
+import { normalizeEdits, normalizeInputPlan, selectionAfterNormalization, type EditNormalizationOptions, type EditNormalizationReaders } from './editNormalization.js'
 import { paragraphBackwardStructuralTarget } from './paragraphJoinPlanning.js'
 import { isLiteralBlock } from './literalBlock.js'
 import { syntaxPathAt } from './syntaxPath.js'
@@ -674,12 +674,11 @@ export interface DocumentCore {
   planCommentEdit(previous: DocumentRevision, action: DocumentCommentAction): DocumentCommentPlan | undefined
   planClipboard(previous: DocumentRevision, action: DocumentClipboardAction): DocumentClipboardPlan
   /**
-   * Upstream's code block empty-line trim for an untracked edit that no input
-   * planner made, such as a Find replacement: `edits` with the leading and
-   * trailing empty lines of each code block they change removed in the same
-   * operation (see `withCodeBlockEdgeTrims`).
+   * `edits`, which no edit planner made (such as a Find replacement), with the
+   * normalizations `options` ask for composed into the same operation (see
+   * `normalizeEdits`).
    */
-  trimCodeBlockEdges(previous: DocumentRevision, edits: readonly DocumentSourceEdit[]): readonly DocumentSourceEdit[]
+  normalizeEdits(previous: DocumentRevision, edits: readonly DocumentSourceEdit[], options: EditNormalizationOptions): readonly DocumentSourceEdit[]
   /** Plans a native inline-format action using owned syntax and exact source positions. */
   planSourceInput(previous: DocumentRevision, action: DocumentSourceInputAction): DocumentSourceInputAction
   planFormat(previous: DocumentRevision, action: DocumentFormatAction): DocumentFormatPlan
@@ -7817,6 +7816,7 @@ function createDocumentCoreWithExecutionBudget(
       createMarkupCompoundSourceEdits(core, previous, edits, candidate => previewSourceEdits(previous, candidate), false, 'structure'),
     () => state.productStore.withProduct(products => products.editing().markdown.lines), {
       syntax: range => regionalInputSyntax(state, range),
+      normalization: normalizationReaders(previous),
       compile: inputs => {
         if (inputs.length !== 1) return undefined
         const edits = stableSourceEdits(inputs)
@@ -7829,8 +7829,8 @@ function createDocumentCoreWithExecutionBudget(
     })
   }
 
-  /** Windows for reading the code blocks an edit of `previous` changes (see `withCodeBlockEdgeTrims`). */
-  const trimReaders = (previous: DocumentRevision): CodeBlockTrimReaders => {
+  /** Windows for reading the blocks an edit of `previous` changes (see `normalizeEdits`). */
+  const normalizationReaders = (previous: DocumentRevision): EditNormalizationReaders => {
     const state = currentStateOf(previous)
     return {
       syntax: range => regionalInputSyntax(state, range),
@@ -7861,16 +7861,17 @@ function createDocumentCoreWithExecutionBudget(
       // Cut and paste change only their own bytes, in a table too (ADR 0007;
       // owner decision 25 Sep, plan 0012 G24).
       const plan = planUnspelledClipboard(previous, commentedSpanSafeClipboard(previous, action, at => rootsAround(previous, at)))
-      if (action.kind === 'table' || action.tracked || action.trimUnnecessaryCodeBlockEmptyLines !== true) return plan
-      const trimmed = withCodeBlockEdgeTrims(core, previous, plan.edits, trimReaders(previous))
-      return trimmed === undefined
+      // A tracked plan was normalized before its suggestions were spelled.
+      if (action.kind === 'table' || action.tracked) return plan
+      const normalized = normalizeEdits(core, previous, plan.edits, action, normalizationReaders(previous))
+      return normalized === undefined
         ? plan
-        : Object.freeze({ edits: trimmed.edits, selection: selectionAfterTrims(plan.selection, trimmed.trims) })
+        : Object.freeze({ edits: normalized.edits, selection: selectionAfterNormalization(plan.selection, normalized.normalized) })
     },
-    trimCodeBlockEdges(previous: DocumentRevision, edits: readonly DocumentSourceEdit[]) {
+    normalizeEdits(previous: DocumentRevision, edits: readonly DocumentSourceEdit[], options: EditNormalizationOptions) {
       const stable = stableSourceEdits(edits)
       preflightSourceEdits(currentStateOf(previous).source.length, stable)
-      return withCodeBlockEdgeTrims(core, previous, stable, trimReaders(previous))?.edits ?? stable
+      return normalizeEdits(core, previous, stable, options, normalizationReaders(previous))?.edits ?? stable
     },
     planSourceInput(previous: DocumentRevision, action: DocumentSourceInputAction) {
       currentStateOf(previous)
@@ -8025,12 +8026,14 @@ function createDocumentCoreWithExecutionBudget(
         if (context?.wholeLeaf === true) wholeLeafSyntaxes.add(context.syntax)
         if (context !== undefined) interiorOf(context.syntax)
         return context
-      }, position => regional && state.regionalInventory !== undefined
-        ? regionalInventoryLiteralRange(state.regionalInventory, position)
-        : undefined)
+      })
       let plan = planned(true)
       if ([...plan.edits, ...plan.reconciliation].some(edit =>
         interiors.some(interior => edit.start < interior.start || edit.end > interior.end))) plan = planned(false)
+      // Normalizations read whole blocks and lists through their own readers,
+      // so they follow the window check and never send a key to the document
+      // parse; a tracked input suggests them with the edit.
+      plan = normalizeInputPlan(core, previous, action, plan, normalizationReaders(previous))
       return options?.tracked === true ? trackedInputPlan(previous, action, plan) : plan
     },
     reconcileInput(previous: DocumentRevision, policy: DocumentInputPlan, commit: DocumentCommit | null, action: DocumentInputAction) {
