@@ -609,7 +609,6 @@ export function createMuyaMarkupView(
         const start = projection.syntax.coordinates.toSource(syntax.range.start, 'next')
         const contentStart = childNodes[0].children[0]?.range.start ?? childNodes[0].range.start
         let end = projection.syntax.coordinates.toSource(contentStart, 'next')
-        const first = childNodes[0]
         if (
           syntax.attributes.task === true &&
           (sourceCharacter(end) === ' ' || sourceCharacter(end) === '\t')
