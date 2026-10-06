@@ -808,11 +808,16 @@ export function createMuyaMarkupView(
             end: Number(attrs.infoEnd)
           })
         }
+        const fenced = attrs.provider === 'fenced-code'
+        const fenceStart = projection.syntax.coordinates.toSource(syntax.range.start, 'next')
+        const fenceChar = sourceCharacter(fenceStart) === '~' ? '~' : '`'
         return leaf(
           'code-block',
           {
-            type: attrs.provider === 'fenced-code' ? 'fenced' : 'indented',
-            lang: String(attrs.infoInputValue ?? attrs.semanticInfo ?? attrs.info ?? '')
+            type: fenced ? 'fenced' : 'indented',
+            lang: String(attrs.infoInputValue ?? attrs.semanticInfo ?? attrs.info ?? ''),
+            // Muya draws a tilde fence's own marker (upstream #5600).
+            ...(fenced ? { fenceChar } : {})
           },
           contentRange()
         )

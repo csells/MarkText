@@ -8,7 +8,7 @@ it('renders partially consumed tab indentation from the literal model and preser
   const revision = core.open(source)
   const view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations, source)
   expect(view.state).toEqual([
-    { name: 'code-block', meta: { type: 'fenced', lang: '' }, text: '  body' }
+    { name: 'code-block', meta: { type: 'fenced', lang: '', fenceChar: '`' }, text: '  body' }
   ])
   const binding = view.bindings[0]
   expect(binding.segments).toEqual([

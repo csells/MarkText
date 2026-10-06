@@ -1071,7 +1071,24 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
   if (fence !== undefined && inputType === 'insertParagraph' && fence.attributes.content === '' &&
       typeof fence.attributes.contentStart === 'number' && fence.range.end <= fence.attributes.contentStart &&
       typeof fence.attributes.infoStart === 'number') {
-    const marker = core.sourceSlice(revision, { start: sourceAt(fence.range.start), end: sourceAt(fence.attributes.infoStart) })
+    const openerStart = sourceAt(fence.range.start)
+    const marker = core.sourceSlice(revision, { start: openerStart, end: sourceAt(fence.attributes.infoStart) })
+    if (fence.kind === 'code-block' && start === end && typeof fence.attributes.infoEnd === 'number') {
+      // Upstream (#5600) turns the whole opener line into a fenced block, as
+      // it serializes one: the opener's fence character three times, the
+      // info string's first word, an empty body line and a closer like the
+      // opener. The caret's place on the line does not matter.
+      const infoEnd = sourceAt(fence.attributes.infoEnd)
+      const info = core.sourceSlice(revision, { start: sourceAt(fence.attributes.infoStart), end: infoEnd })
+      const trailing = /^[ \t]*/u.exec(core.sourceSlice(revision, { start: infoEnd, end: Math.min(revision.sourceLength, infoEnd + 256) }))?.[0].length ?? 0
+      const language = /^\S*/u.exec(info.trimStart())?.[0] ?? ''
+      const fenceText = (marker.trimStart().startsWith('~') || language.includes('`') ? '~' : '`').repeat(3)
+      const prefix = containerContinuationPrefix(core, revision, projection, fence, ancestors.slice(0, ancestors.indexOf(fence)))
+      const opener = fenceText + language
+      const insert = opener + lineEnding + prefix + lineEnding + prefix + fenceText
+      const caret = openerStart + opener.length + lineEnding.length + prefix.length
+      return result([{ start: openerStart, end: infoEnd + trailing, insert }], { start: caret, end: caret })
+    }
     const insert = lineEnding + lineEnding + marker
     return result([{ start, end, insert }], { start: start + lineEnding.length, end: start + lineEnding.length })
   }
