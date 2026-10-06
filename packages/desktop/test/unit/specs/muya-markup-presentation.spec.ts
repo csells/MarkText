@@ -269,4 +269,81 @@ describe('Muya Core Markup presentation', () => {
     expect(host.querySelector('[data-critic-arm="old"] em')?.textContent).toBe('old')
     expect(host.querySelector('[data-critic-arm="new"] strong')?.textContent).toBe('new')
   })
+
+  describe('ATX heading markers, as upstream presents them', () => {
+    const caretAt = (offset: number): IInlinePresentationContext => ({
+      renderImage: () => undefined,
+      cursor: { anchor: offset, focus: offset }
+    })
+    // Each element's classes and text, in document order.
+    const shape = (host: HTMLElement): string[] =>
+      [...host.querySelectorAll('span')].map((span) => `${span.className}|${span.textContent}`)
+
+    it('hides the opening marker and pulls its spaces tight at every level', () => {
+      for (let level = 1; level <= 6; level += 1) {
+        const marker = '#'.repeat(level)
+        const host = rendered(`${marker} Heading text\n\nBody paragraph.\n`)
+        expect(shape(host)).toEqual([
+          `mu-hide mu-remove|${marker}`,
+          'mu-header-tight-space mu-remove| '
+        ])
+        expect(host.textContent).toBe(`${marker} Heading text`)
+      }
+    })
+
+    it('shows the opening marker in gray only while the caret is on it', () => {
+      const source = '## Heading text'
+      const gray = ['mu-gray mu-remove|##', 'mu-gray mu-remove| ']
+      const hidden = ['mu-hide mu-remove|##', 'mu-header-tight-space mu-remove| ']
+      expect(shape(rendered(source, undefined, caretAt(0)))).toEqual(gray)
+      expect(shape(rendered(source, undefined, caretAt(2)))).toEqual(gray)
+      expect(shape(rendered(source, undefined, caretAt(3)))).toEqual(hidden)
+      expect(shape(rendered(source, undefined, caretAt(source.length)))).toEqual(hidden)
+      expect(
+        shape(rendered(source, undefined, { renderImage: () => undefined, cursor: { anchor: 9, focus: 1 } }))
+      ).toEqual(gray)
+    })
+
+    it('hides indentation, extra spaces and a closing sequence unless the caret is in them', () => {
+      const source = '  ###   Hi ##  '
+      expect(shape(rendered(source))).toEqual([
+        'mu-hide mu-remove|  ###',
+        'mu-header-tight-space mu-remove|   ',
+        'mu-hide| ##'
+      ])
+      expect(shape(rendered(source, undefined, caretAt(10)))).toEqual([
+        'mu-hide mu-remove|  ###',
+        'mu-header-tight-space mu-remove|   ',
+        'mu-gray| ##'
+      ])
+      expect(rendered(source).textContent).toBe(source)
+      // Upstream reads `##` with no space before it as the heading's text.
+      expect(shape(rendered('# ##'))).toEqual(['mu-hide mu-remove|#', 'mu-header-tight-space mu-remove| '])
+      expect(shape(rendered('#'))).toEqual(['mu-hide mu-remove|#'])
+      expect(shape(rendered('#', undefined, caretAt(1)))).toEqual(['mu-gray mu-remove|#'])
+    })
+
+    it('presents headings inside containers by their own text', () => {
+      for (const source of ['> ## In quote', '- ## In list', '> - ## Nested']) {
+        expect(shape(rendered(source))).toEqual([
+          'mu-hide mu-remove|##',
+          'mu-header-tight-space mu-remove| '
+        ])
+      }
+    })
+
+    it('leaves a setext heading without markers', () => {
+      expect(shape(rendered('Setext text\n===\n'))).toEqual([])
+      expect(shape(rendered('Setext text\n---\n', undefined, caretAt(0)))).toEqual([])
+    })
+
+    it('keeps annotations and inline syntax inside a heading', () => {
+      const host = rendered('# {++added++} **bold** ##')
+      expect(host.textContent).toBe('# added **bold** ##')
+      expect(shape(host).slice(0, 2)).toEqual(['mu-hide mu-remove|#', 'mu-header-tight-space mu-remove| '])
+      expect(host.querySelector('[data-critic-kind="addition"]')?.textContent).toBe('added')
+      expect(host.querySelector('strong')?.textContent).toBe('bold')
+      expect(shape(host).at(-1)).toBe('mu-hide| ##')
+    })
+  })
 })

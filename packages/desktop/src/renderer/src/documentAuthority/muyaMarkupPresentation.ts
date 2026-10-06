@@ -93,6 +93,39 @@ const syntaxSpans = (
   }
   const hide = (range: SourceRange): void =>
     add(range, '<span class="mu-hide mu-remove">', '</span>')
+  const addNative = (range: SourceRange, open: string): void => {
+    if (range.end > range.start) spans.push({ range, open, close: '</span>' })
+  }
+  // Upstream presents an ATX heading's opening `#`s, with any indentation,
+  // as hidden syntax and the spaces after them pulled tight against the
+  // text; both are gray while the caret is on the `#`s. A closing sequence,
+  // with the spaces before it, is hidden unless the caret is in it.
+  const atxHeadingMarkers = (heading: MarkdownAstNode): void => {
+    const opening = nativeRange({
+      start: heading.range.start,
+      end: Number(heading.attributes.contentStart)
+    })
+    if (opening !== undefined) {
+      const hashes = binding.text.slice(opening.start, opening.end).lastIndexOf('#') + 1
+      const marker = { start: opening.start, end: opening.start + hashes }
+      const gray = revealed(marker)
+      addNative(marker, `<span class="${gray ? 'mu-gray' : 'mu-hide'} mu-remove">`)
+      addNative(
+        { start: marker.end, end: opening.end },
+        `<span class="${gray ? 'mu-gray' : 'mu-header-tight-space'} mu-remove">`
+      )
+    }
+    const after = nativeRange({
+      start: Number(heading.attributes.contentEnd),
+      end: heading.range.end
+    })
+    const closing =
+      after === undefined ? null : /^\s+#+/u.exec(binding.text.slice(after.start, after.end))
+    if (after !== undefined && closing !== null) {
+      const sequence = { start: after.start, end: after.start + closing[0].length }
+      addNative(sequence, `<span class="${revealed(sequence) ? 'mu-gray' : 'mu-hide'}">`)
+    }
+  }
   // Upstream draws a display formula (`$$`, `\[`, `\\[`) in display mode
   // only in a paragraph holding nothing else (#4904, #5446).
   const displayMarker = (node: MarkdownAstNode): boolean =>
@@ -109,6 +142,7 @@ const syntaxSpans = (
         binding.text.slice(nativeRange(child.range)?.start ?? 0, nativeRange(child.range)?.end ?? 0).trim() === '')
     )
   const visit = (node: MarkdownAstNode): void => {
+    if (node.kind === 'heading' && node.attributes.style !== 'setext') atxHeadingMarkers(node)
     if (node.kind === 'inline-math') {
       const range = nativeRange(node.range)
       if (range !== undefined && typeof node.attributes.content === 'string') {
