@@ -211,7 +211,8 @@ test('Core WYSIWYG cancels added text with one tracked backspace', async() => {
 
 test('Core WYSIWYG removes an Addition when its final character is deleted', async() => {
   const source = '{++x++}\n'
-  const tracked = '\n'
+  // As upstream, a document of only a line break saves as an empty file.
+  const tracked = ''
   const { app, page, filePath } = await launchWithMarkdown(source, {
     suppressErrorDialog: true,
     env: {
