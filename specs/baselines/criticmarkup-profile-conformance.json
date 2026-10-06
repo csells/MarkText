@@ -3,7 +3,7 @@
   "status": "structural-draft-unratified",
   "profile": {
     "path": "specs/language/marktext-markdown-profile-1.md",
-    "sha256": "d29f38611b5151a98c88b151bdbe3c912819e7c4e54d90c1c4e2117b55474393"
+    "sha256": "2c272a98a286386c715fc41506fda19f4ab21b1ee82096366ba110e900242d1c"
   },
   "rules": [
     { "id": "P1", "cases": ["case-P1"] },
