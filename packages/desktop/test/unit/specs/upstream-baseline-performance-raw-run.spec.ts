@@ -19,9 +19,7 @@ import { PERFORMANCE_CALIBRATION_LOOP } from '../../../../../scripts/criticmarku
 const PINNED_BASELINE = 'e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c'
 const CALIBRATION_REFERENCE = Object.freeze({
   loop: PERFORMANCE_CALIBRATION_LOOP,
-  referenceP50Ms: 1.2,
-  maximumExcess: 0.15,
-  maximumAttempts: 3
+  referenceP50Ms: 1.2
 })
 
 const sample = (
@@ -57,16 +55,7 @@ const input = (
     environment: { build: 'MarkText production Electron bundle' },
     sampling: { warmupSamples, measuredSamples },
     documents: [{ id: 'doc', sourceSha256: 'a'.repeat(64) }],
-    calibration: {
-      reference: CALIBRATION_REFERENCE,
-      invalidObservations: [] as {
-        ordinal: number
-        documentId: string
-        phase: 'warmup' | 'measured'
-        attempt: number
-        calibration: { p50: number | null, p90: number | null }
-      }[]
-    },
+    calibration: { reference: CALIBRATION_REFERENCE },
     provenance: {
       detachedWorktreeHead: PINNED_BASELINE,
       detachedWorktreeClean: true,
@@ -130,13 +119,13 @@ const twoDocumentInput = () => {
 }
 
 describe('upstream baseline raw performance producer', () => {
-  it('creates an accepted v13 shape only for pinned isolated scheduled 20/200 ratification evidence', () => {
+  it('creates an accepted v14 shape only for pinned isolated scheduled 20/200 ratification evidence', () => {
     const run = createUpstreamBaselinePerformanceRawRun(
       input('ratification', 20, 200)
     )
 
     expect(run).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-run-v13',
+      schema: 'marktext-criticmarkup-raw-performance-run-v14',
       runId: 'upstream-ratification',
       implementation: 'upstream-baseline',
       baselineCommit: PINNED_BASELINE,
@@ -195,7 +184,7 @@ describe('upstream baseline raw performance producer', () => {
     )
 
     expect(smoke).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v13',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v14',
       evidenceClass: 'smoke-non-ratifying',
       sampling: { warmupSamples: 1, measuredSamples: 2 }
     })
@@ -410,46 +399,29 @@ describe('upstream baseline raw performance producer', () => {
     }
   })
 
-  // Owner decision 2026-10-04 (plan 0012): the calibration rule applies to
-  // upstream exactly as to MarkText.
-  it('records upstream attempts run again on a slowed CPU and never keeps one', () => {
+  // Owner decision 2026-10-06 (plan 0012): upstream records the calibration
+  // probe as information exactly as MarkText does, and keeps every observation.
+  it('records upstream loop times as information and keeps every observation', () => {
     const base = input('smoke-non-ratifying', 1, 2)
-    const entry = base.samples[1]!
-    const slowed = {
-      ordinal: entry.ordinal,
-      documentId: entry.documentId,
-      phase: entry.phase,
-      attempt: 1,
-      calibration: { p50: 1.7, p90: 1.8 }
-    }
-    const recounted = {
-      ...base.provenance,
-      applicationLaunchCount: 4,
-      uniqueProfileCount: 4,
-      applicationCloseCount: 4,
-      profileCleanupCount: 4
-    }
-    const run = createUpstreamBaselinePerformanceRawRun({
-      ...base,
-      provenance: recounted,
-      calibration: { reference: CALIBRATION_REFERENCE, invalidObservations: [slowed] }
-    })
+    const samples = [...base.samples]
+    samples[1] = { ...samples[1]!, calibration: { count: 8, p50: 1.9, p90: 2.0 } }
+    const run = createUpstreamBaselinePerformanceRawRun({ ...base, samples })
     expect(run.calibration).toEqual({
       reference: CALIBRATION_REFERENCE,
-      probe: 'integer-spin-300000-probe-8x40ms-v1',
-      invalidObservations: [slowed]
+      probe: 'integer-spin-300000-probe-8x40ms-v1'
     })
     expect(run.documents[0]!.calibration).toEqual({
       warmup: { p50: [1.2], p90: [1.25] },
-      measured: { p50: [1.2, 1.2], p90: [1.25, 1.25] }
+      measured: { p50: [1.9, 1.2], p90: [2.0, 1.25] }
     })
     expect(() => createUpstreamBaselinePerformanceRawRun({
       ...base,
-      calibration: { reference: CALIBRATION_REFERENCE, invalidObservations: [slowed] }
-    })).toThrow(/application launch count must equal 4/)
-    const samples = [...base.samples]
-    samples[1] = { ...samples[1]!, calibration: { count: 8, p50: 1.5, p90: 1.6 } }
-    expect(() => createUpstreamBaselinePerformanceRawRun({ ...base, samples }))
-      .toThrow(/not valid by its calibration/)
+      provenance: { ...base.provenance, applicationLaunchCount: 4 }
+    })).toThrow(/application launch count must equal 3/)
+    // A retired field the caller passes never reaches the raw run.
+    expect(createUpstreamBaselinePerformanceRawRun({
+      ...base,
+      calibration: { reference: CALIBRATION_REFERENCE, invalidObservations: [] } as never
+    }).calibration).toEqual({ reference: CALIBRATION_REFERENCE, probe: 'integer-spin-300000-probe-8x40ms-v1' })
   })
 })

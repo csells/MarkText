@@ -584,7 +584,42 @@ Opens at 271 KB dense-2000 take 922–974 ms (96fe7821).
 - **Final verification** of every number above is pending the frozen
   candidate.
 
-### 4 October performance-run validity rule (owner decision) — pending the frozen candidate
+### 6 October performance-run rule: the natural idle state (owner decision) — pending the frozen candidate
+
+On 2026-10-06 the owner replaced the 4 October validity rule. Performance
+gates measure the machine's natural idle state.
+
+**The rule.**
+
+- Every warm, upstream and installed run still records the calibration
+  loop's p50 and p90 as information beside its results: the keyup loop in
+  warm sessions, and the probe after each fresh-application observation.
+- The loop never makes a run invalid, never reruns it and never leaves it
+  inconclusive for a slow CPU. Every run is scored against the unchanged
+  thresholds, for our build and upstream alike.
+- Runs still require AC power, an open lid, nice 0 and a 1-minute load
+  below 6.
+- The target manifest (schema v13) keeps the loop and its 1.20 ms fast-state
+  reference as context. `maximumExcess` and `maximumAttempts` are gone.
+- The raw schemas (core v16, upstream v14) keep the reference, the probe and
+  every observation's loop p50 and p90. They drop `invalidObservations`,
+  and lifecycle counts are one launch, profile, close and cleanup per
+  observation.
+- The warm producers write one run per workload, with no attempt files and
+  no inconclusive result.
+
+**Evidence for the decision.**
+
+- On a quiet, cool Mac on AC, V's probe read 1.45–2.05 ms with nothing else
+  running and 1.16–1.22 ms with one other core busy. The CPU stays clocked
+  down for bursty work, so the slow loop is the idle state a user meets.
+- Under the old rule, N's warm run was invalid on 45 of 45 attempts at a
+  1-minute load of 1.3–3.8.
+
+**Still open.** links-code-2000 and fence-2000-inside stay open if they miss
+their 16.7 ms echo limit at the natural idle state on the frozen candidate.
+
+### 4 October performance-run validity rule (owner decision, superseded 6 October)
 
 The owner decided on 2026-10-04 that a performance run measured on a slowed
 CPU is invalid evidence, neither a pass nor a fail. The rule lives in the
@@ -670,9 +705,8 @@ change it.
   That is a navigation and click-to-type regression, so host switching was
   not adopted.
 
-**Still open.** links-code-2000 and fence-2000-inside stay open until a
-valid-state verification on the frozen candidate passes their 16.7 ms echo
-limit.
+**Superseded.** The 6 October decision above replaced this rule: the loop is
+now information only, and every run is scored.
 
 ### 24–25 September rebase onto upstream develop — locally verified
 
