@@ -23,6 +23,12 @@ export interface IInlinePresentationImage {
 
 export interface IInlinePresentationContext {
     readonly highlights?: readonly Readonly<IHighlight>[];
+    /**
+     * The selection's anchor and focus offsets when both are in this block.
+     * Muya shows the markers of syntax holding either offset, so a host
+     * presentation must render again when this changes which syntax it holds.
+     */
+    readonly cursor?: Readonly<{ anchor: number; focus: number }>;
     /** Native image wrapper around the caller's escaped raw editing text. */
     renderImage: (image: IInlinePresentationImage) => { open: string; close: string } | undefined;
     /** Native formula preview around exact raw text owned by the document parser. */

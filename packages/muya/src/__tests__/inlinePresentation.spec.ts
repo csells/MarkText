@@ -55,6 +55,24 @@ describe('host inline presentation', () => {
         expect(provider.mock.calls[provider.mock.calls.length - 1]?.[2].highlights).toEqual(ranges);
     });
 
+    it('forwards the caret only to the presentation of the block holding it', () => {
+        const muya = boot();
+        const provider = vi.fn((_path, text, _context) => text);
+        muya.setInlinePresentation(provider);
+        muya.setContent([{ name: 'paragraph', text: 'word' }, { name: 'paragraph', text: 'other' }]);
+        const block = muya.editor.scrollPage?.queryBlock([0, 'text']);
+        const other = muya.editor.scrollPage?.queryBlock([1, 'text']);
+        if (!block?.isContent() || !other?.isContent())
+            throw new Error('Missing content');
+        const lastContext = () => provider.mock.calls[provider.mock.calls.length - 1]?.[2];
+        block.update({ block, anchor: { offset: 1 }, focus: { offset: 3 } });
+        expect(lastContext()?.cursor).toEqual({ anchor: 1, focus: 3 });
+        block.update({ block: other, anchor: { offset: 1 }, focus: { offset: 1 } });
+        expect(lastContext()?.cursor).toBeUndefined();
+        block.update();
+        expect(lastContext()?.cursor).toBeUndefined();
+    });
+
     it('rejects unsafe host image destinations before starting the native loader', () => {
         const muya = boot();
         const load = vi.spyOn(muya.editor.inlineRenderer.renderer, 'loadImageAsync');

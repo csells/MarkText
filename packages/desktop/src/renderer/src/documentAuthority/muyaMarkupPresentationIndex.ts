@@ -1,6 +1,11 @@
-import type { MarkdownAstNode } from '@marktext/document-core'
+import type { MarkdownAstNode, SourceRange } from '@marktext/document-core'
 import type { IInlinePresentationContext } from '@muyajs/core'
-import { escapeHtml, isMuyaImageSyntax, renderMuyaMarkupBinding } from './muyaMarkupPresentation'
+import {
+  caretReveals,
+  escapeHtml,
+  isMuyaImageSyntax,
+  renderMuyaMarkupBinding
+} from './muyaMarkupPresentation'
 import {
   muyaViewBindingsInItems,
   muyaViewBindingsInRoots,
@@ -30,7 +35,14 @@ interface Entry {
   readonly hasNativeWidget: boolean
   /** The view whose coordinates `binding`, `decorations` and `comments` use. */
   view: Pick<MuyaMarkupView, 'bindings' | 'decorations' | 'comments'>
-  rendered?: { readonly text: string; readonly html: string; readonly highlights: Highlights }
+  rendered?: {
+    readonly text: string
+    readonly html: string
+    readonly highlights: Highlights
+    readonly cursor: IInlinePresentationContext['cursor']
+    /** Text ranges of the syntax whose markers the caret could show. */
+    readonly revealRanges: readonly SourceRange[]
+  }
 }
 /** Entries of each root block, keyed by the rest of their path. */
 type RootEntries = ReadonlyMap<string, Entry>
@@ -369,21 +381,32 @@ export function createMuyaMarkupPresentationIndex(
             previous.start === highlights[index].start &&
             previous.end === highlights[index].end &&
             previous.active === highlights[index].active
+        ) &&
+        cached.revealRanges.every(
+          (range) => caretReveals(range, cached.cursor) === caretReveals(range, context?.cursor)
         )
       ) {
         return cached.html
       }
       const current = refreshed(entry, path)
       if (current === undefined) return escapeHtml(text)
+      const revealRanges: SourceRange[] = []
       const html = renderer(
         current.binding,
         current.decorations,
         text,
         context,
         current.comments,
-        commentLabel
+        commentLabel,
+        revealRanges
       )
-      entry.rendered = { text, html, highlights: highlights.map((highlight) => ({ ...highlight })) }
+      entry.rendered = {
+        text,
+        html,
+        highlights: highlights.map((highlight) => ({ ...highlight })),
+        cursor: context?.cursor,
+        revealRanges
+      }
       return html
     }
   }

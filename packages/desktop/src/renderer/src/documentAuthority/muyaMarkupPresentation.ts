@@ -41,9 +41,21 @@ export const escapeHtml = (value: string): string =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
 
+type Caret = NonNullable<IInlinePresentationContext['cursor']>
+
+/**
+ * Whether the caret's anchor or focus lies in `range`, ends included. Upstream
+ * Muya shows a syntax's markers in gray then, and hides them otherwise.
+ */
+export const caretReveals = (range: SourceRange, caret: Caret | undefined): boolean =>
+  caret !== undefined &&
+  [caret.anchor, caret.focus].some((offset) => range.start <= offset && offset <= range.end)
+
 const syntaxSpans = (
   binding: MuyaMarkupBinding,
-  context?: IInlinePresentationContext
+  context: IInlinePresentationContext | undefined,
+  /** Whether the caret shows the markers of the syntax at this text range. */
+  revealed: (range: SourceRange) => boolean
 ): readonly PresentationSpan[] => {
   const spans: PresentationSpan[] = []
   const nativeRange = (syntax: SourceRange): SourceRange | undefined => {
@@ -369,7 +381,12 @@ export function renderMuyaMarkupBinding(
   currentText: string,
   context?: IInlinePresentationContext,
   comments: readonly MuyaMarkupComment[] = [],
-  commentLabel = 'Comment'
+  commentLabel = 'Comment',
+  /**
+   * Receives the text range of each syntax whose markers the caret can show,
+   * so a cached rendering is reused only while the caret shows the same ones.
+   */
+  revealRanges?: SourceRange[]
 ): string {
   const spans: PresentationSpan[] = []
   for (const highlight of context?.highlights ?? []) {
@@ -461,11 +478,16 @@ export function renderMuyaMarkupBinding(
       close: '</span>'
     })
   }
+  const revealed = (shift: number) => (range: SourceRange): boolean => {
+    const shown = { start: range.start + shift, end: range.end + shift }
+    revealRanges?.push(shown)
+    return caretReveals(shown, context?.cursor)
+  }
   if (acknowledged) {
-    spans.push(...syntaxSpans(binding, context))
+    spans.push(...syntaxSpans(binding, context, revealed(0)))
   } else if (leadingLine) {
     spans.push(
-      ...syntaxSpans(binding, context).map((span) => ({
+      ...syntaxSpans(binding, context, revealed(1)).map((span) => ({
         ...span,
         range: { start: span.range.start + 1, end: span.range.end + 1 }
       }))

@@ -278,12 +278,21 @@ export function restoreMuyaDocumentSelection(
       const element = point?.node instanceof Element ? point.node : point?.node.parentElement
       return element?.closest('.mu-inline-image[contenteditable="false"]') != null
     }
-    // Source history can select the interior of an atomic widget. Present its
-    // owned editing text using the existing active-syntax cursor before placing
-    // the browser selection; hidden widget source cannot receive native keys.
-    if (insideImage(anchor) || insideImage(focus)) {
-      const anchorText = textPoint('anchor')
-      const focusText = textPoint('focus')
+    const anchorText = textPoint('anchor')
+    const focusText = collapsed ? anchorText : textPoint('focus')
+    // As after Muya's own edits, a caret within one leaf shows the markers of
+    // the syntax it is in, so present that leaf with it before placing the
+    // browser selection. Source history can also select the interior of an
+    // atomic widget, whose hidden source cannot receive native keys.
+    const caretLeaf =
+      anchorText !== undefined && focusText !== undefined && isEqual(anchorText.path, focusText.path)
+        ? muya.editor.scrollPage?.queryBlock([...anchorText.path])
+        : undefined
+    if (
+      insideImage(anchor) ||
+      insideImage(focus) ||
+      caretLeaf?.domNode?.querySelector('.mu-hide, .mu-gray, .mu-inline-image') != null
+    ) {
       const paths = [anchorText?.path, focusText?.path].filter(
         (path): path is NonNullable<typeof path> => path !== undefined
       )
