@@ -17,17 +17,11 @@ export function planListChange(core: DocumentCore, revision: DocumentRevision, s
   let targets: readonly MarkdownAstNode[]
   let unwrap = false
   let boundaryItem: MarkdownAstNode | undefined
-  let taskText = false
   if (change.type === 'backspace') {
     const list = lists.at(-1)
     const item = [...ancestors].reverse().find(node => node.kind === 'list-item')
     const paragraph = item?.children[0]
-    // An ordered item's task marker without text is that item's text.
-    const markerText = list?.attributes.ordered === true && paragraph?.range.start === paragraph?.range.end &&
-      typeof item?.attributes.taskMarkerStart === 'number'
-    const boundary = markerText
-      ? Number(item.attributes.taskMarkerStart)
-      : typeof item?.attributes.taskMarkerEnd === 'number' ? item.attributes.taskMarkerEnd + 1 : paragraph?.range.start
+    const boundary = typeof item?.attributes.taskMarkerEnd === 'number' ? item.attributes.taskMarkerEnd + 1 : paragraph?.range.start
     // The marker line before an item's paragraph is that paragraph's leading line.
     const leading = paragraph === undefined || selection.start !== selection.end ? undefined : paragraphLeadingLine(core, revision, syntax, selection.start)
     const atLeadingLine = leading !== undefined && item !== undefined && leading.paragraph === paragraph &&
@@ -39,7 +33,6 @@ export function planListChange(core: DocumentCore, revision: DocumentRevision, s
     }
     targets = [list]
     boundaryItem = item
-    taskText = markerText
     unwrap = true
   } else if (change.type === 'reset' || change.type === 'toggle-tight' || change.type === 'front') {
     targets = outermost === undefined ? [] : [outermost]
@@ -112,7 +105,7 @@ export function planListChange(core: DocumentCore, revision: DocumentRevision, s
         const bullet = change.type === 'front' && !marker.ordered ? String.fromCharCode(marker.delimiterCodeUnit) : options.bulletListMarker
         const spelling = listItemMarker({ bullet: desired === 'ordered' ? undefined : bullet, ordinal: desired === 'ordered' ? index + 1 : undefined, delimiter: options.orderListDelimiter, checked: desired === 'task' ? false : undefined })
         const taskEnd = item.attributes.taskMarkerEnd
-        const contentStart = typeof taskEnd === 'number' && !taskText ? taskEnd + 1 : marker.contentOffset
+        const contentStart = typeof taskEnd === 'number' ? taskEnd + 1 : marker.contentOffset
         const previousMarker = boundaryIndex > 0 ? markers.get(list.children[boundaryIndex - 1]!.range.start) : undefined
         const mergedWidth = previousMarker === undefined ? 0 : previousMarker.contentOffset - previousMarker.start
         edits.push({ start: sourceAt(marker.start), end: sourceEnd(contentStart), insert: unwrap ? ' '.repeat(mergedWidth) : spelling.text })

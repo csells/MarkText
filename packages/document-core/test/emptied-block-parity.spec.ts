@@ -123,14 +123,13 @@ describe('task items', () => {
     expect(editingBlocks(source)).toEqual(blocks)
   })
 
-  // Upstream MarkText 0c33241b reads an ordered item's `[ ]` with nothing
-  // after it as the item's text (Profile 1 D14): its markdownToState gives
-  // `3) [ ] ` an order-list item whose paragraph is "[ ]", and its marked
-  // export renders `<li>[ ]</li>`.
+  // Upstream MarkText reads an ordered item's task marker as a task, bullet
+  // or ordered alike (#5597): `3) [ ] ` is an empty task, whose marker line
+  // begins with its empty paragraph, as `- [ ] ` does.
   it.each([
-    ['3) [ ] \n\n   b\n', ['list@0', 'list-item@0', 'paragraph@3', 'paragraph@12']],
-    ['3) [ ] \n\n   \n\n   b\n', ['list@0', 'list-item@0', 'paragraph@3', 'paragraph@12', 'paragraph@17']]
-  ])('%j is an ordered item whose text is its `[ ]`', (source, blocks) => {
+    ['3) [ ] \n\n   b\n', ['list@0', 'list-item@0', 'paragraph@7', 'paragraph@12']],
+    ['3) [ ] \n\n   \n\n   b\n', ['list@0', 'list-item@0', 'paragraph@7', 'paragraph@12', 'paragraph@17']]
+  ])('%j is an empty ordered task', (source, blocks) => {
     expect(editingBlocks(source)).toEqual(blocks)
   })
 
@@ -139,9 +138,9 @@ describe('task items', () => {
     expect(apply('- [x] \n  - [ ] c\n', backspaceAtStart)).toEqual({ source: '\n\n- [ ] c\n', caret: 0 })
   })
 
-  it('keeps an ordered item\'s task marker without text as paragraph text on Backspace', () => {
-    const backspaceAtStart = command(3, { command: 'changeList', change: { type: 'backspace' }, listOptions: { bulletListMarker: '-', orderListDelimiter: '.' } })
-    expect(apply('3) [x] \n\n   b\n', backspaceAtStart)).toEqual({ source: '[x] \n\nb\n', caret: 0 })
+  it('unwraps an empty ordered task on Backspace at its start, as a bullet task', () => {
+    const backspaceAtStart = command(7, { command: 'changeList', change: { type: 'backspace' }, listOptions: { bulletListMarker: '-', orderListDelimiter: '.' } })
+    expect(apply('3) [x] \n\n   b\n', backspaceAtStart)).toEqual({ source: '\n\nb\n', caret: 0 })
   })
 })
 

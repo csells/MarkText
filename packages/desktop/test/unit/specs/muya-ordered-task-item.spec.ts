@@ -48,54 +48,70 @@ const endOfLast = (app: BoundMuya) => {
   app.muya.flush()
 }
 
-// Upstream (8d6c198c) renders an ordered item's task marker as neither text
-// nor checkbox, and continues the list with a plain ordered item. MarkText
-// keeps the marker's bytes, which upstream drops when it writes the list.
+// Upstream (#5597) renders an ordered item's task marker as a checkbox in an
+// ordered task list that draws no numbers, and continues it with the next
+// number and an unchecked task.
 describe('ordered task items', () => {
+  it('renders an ordered task list with its start and a checkbox per item', () => {
+    const app = bootBoundMuya('5. [x] a\n6. [ ] b\n')
+    try {
+      const root = app.muya.editor.scrollPage?.domNode
+      if (!(root instanceof HTMLElement)) throw new Error('Expected rendered document')
+      const list = root.querySelector('ol.mu-task-list')
+      expect(list?.getAttribute('start')).toBe('5')
+      expect(root.querySelectorAll('.mu-task-list-checkbox')).toHaveLength(2)
+      expect(root.querySelectorAll('.mu-checkbox-checked')).toHaveLength(1)
+      expect(leaves(app).map((leaf) => leaf.text)).toEqual(['a', 'b'])
+    } finally {
+      app.dispose()
+    }
+  })
+
   it.each([
     {
       initial: '1. [ ] c\n',
       typed: '1. [ ] cx\n',
-      broken: '1. [ ] cx\n2. \n',
-      last: '1. [ ] cx\n2. y\n'
+      broken: '1. [ ] cx\n2. [ ] \n',
+      last: '1. [ ] cx\n2. [ ] y\n'
     },
     {
       initial: '2) [x] c\n',
       typed: '2) [x] cx\n',
-      broken: '2) [x] cx\n3) \n',
-      last: '2) [x] cx\n3) y\n'
+      broken: '2) [x] cx\n3) [ ] \n',
+      last: '2) [x] cx\n3) [ ] y\n'
     },
     {
       initial: '- a\n  1. [ ] c\n',
       typed: '- a\n  1. [ ] cx\n',
-      broken: '- a\n  1. [ ] cx\n  2. \n',
-      last: '- a\n  1. [ ] cx\n  2. y\n'
+      broken: '- a\n  1. [ ] cx\n  2. [ ] \n',
+      last: '- a\n  1. [ ] cx\n  2. [ ] y\n'
     },
     {
       initial: '> 1. [ ] c\n',
       typed: '> 1. [ ] cx\n',
-      broken: '> 1. [ ] cx\n> 2. \n',
-      last: '> 1. [ ] cx\n> 2. y\n'
+      broken: '> 1. [ ] cx\n> 2. [ ] \n',
+      last: '> 1. [ ] cx\n> 2. [ ] y\n'
     },
     {
       initial: '1. [ ] c\r\n',
       typed: '1. [ ] cx\r\n',
-      broken: '1. [ ] cx\r\n2. \r\n',
-      last: '1. [ ] cx\r\n2. y\r\n'
+      broken: '1. [ ] cx\r\n2. [ ] \r\n',
+      last: '1. [ ] cx\r\n2. [ ] y\r\n'
     }
   ])('loads, renders and edits $initial', async({ initial, typed, broken, last }) => {
     const app = bootBoundMuya(initial)
     try {
       const root = app.muya.editor.scrollPage?.domNode
       if (!(root instanceof HTMLElement)) throw new Error('Expected rendered document')
-      expect(root.querySelector('ol')).not.toBeNull()
-      expect(root.querySelector('input[type="checkbox"]')).toBeNull()
+      expect(root.querySelector('ol.mu-task-list')).not.toBeNull()
+      expect(root.querySelectorAll('.mu-task-list-checkbox')).toHaveLength(1)
       expect(leaves(app).at(-1)?.text).toBe('c')
       endOfLast(app)
       await input(app, 'insertText', 'x')
       expect(source(app)).toBe(typed)
       await input(app, 'insertParagraph')
       expect(source(app)).toBe(broken)
+      expect(root.querySelectorAll('.mu-task-list-checkbox')).toHaveLength(2)
       await input(app, 'insertText', 'y')
       expect(source(app)).toBe(last)
       for (let undo = 0; undo < 3; undo += 1) await app.adapter.history('undo', app.reconcile)
@@ -111,20 +127,20 @@ describe('ordered task items', () => {
       expect(leaves(app).map((leaf) => leaf.text)).toEqual(['c'])
       endOfLast(app)
       await input(app, 'insertParagraph')
-      expect(source(app)).toBe('1. [ ] {++c++}\n2. \n')
+      expect(source(app)).toBe('1. [ ] {++c++}\n2. [ ] \n')
       await input(app, 'insertText', 'y')
-      expect(source(app)).toBe('1. [ ] {++c++}\n2. y\n')
+      expect(source(app)).toBe('1. [ ] {++c++}\n2. [ ] y\n')
     } finally {
       app.dispose()
     }
   })
 
-  it('keeps bullet task items as checkboxes beside an ordered task list', async() => {
+  it('renders bullet and ordered task items beside each other with checkboxes', async() => {
     const app = bootBoundMuya('- [x] a\n\n1. [ ] b\n')
     try {
       const root = app.muya.editor.scrollPage?.domNode
       if (!(root instanceof HTMLElement)) throw new Error('Expected rendered document')
-      expect(root.querySelectorAll('input[type="checkbox"]')).toHaveLength(1)
+      expect(root.querySelectorAll('.mu-task-list-checkbox')).toHaveLength(2)
       expect(leaves(app).map((leaf) => leaf.text)).toEqual(['a', 'b'])
     } finally {
       app.dispose()

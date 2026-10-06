@@ -569,7 +569,6 @@ export function createMuyaMarkupView(
   const containers: MarkdownAstNode[] = []
   // Equal empty AST nodes may be shared; each occurrence still owns a distinct cell.
   const tableCells = new Map<string, DocumentTableCellAddress>()
-  const orderedItems = new WeakSet<MarkdownAstNode>()
   const sourceNodes: MuyaSourceStructure['nodes'][number][] = []
   const typedState = (syntax: MarkdownAstNode, path: MuyaMarkupPath): MuyaMarkupState => {
     const attrs = syntax.attributes
@@ -612,17 +611,6 @@ export function createMuyaMarkupView(
         let end = projection.syntax.coordinates.toSource(contentStart, 'next')
         const first = childNodes[0]
         if (
-          syntax.attributes.task === true &&
-          orderedItems.has(syntax) &&
-          first.range.start === first.range.end
-        ) {
-          // Upstream reads an ordered item's task marker without text as
-          // the item's paragraph text.
-          taskContentStarts.set(
-            JSON.stringify([...path, 'children', 0]),
-            Number(syntax.attributes.taskMarkerStart)
-          )
-        } else if (
           syntax.attributes.task === true &&
           (sourceCharacter(end) === ' ' || sourceCharacter(end) === '\t')
         ) {
@@ -767,18 +755,19 @@ export function createMuyaMarkupView(
             /^(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/u
           )
         }
-        // Upstream renders only bullet task items with checkboxes; an ordered
-        // item's task marker stays source syntax before its paragraph text.
-        if (attrs.ordered) for (const item of syntax.children) orderedItems.add(item)
+        // Upstream renders bullet and ordered task items with checkboxes; an
+        // ordered task list draws no numbers and keeps its start.
         return {
-          name: attrs.ordered ? 'order-list' : attrs.taskList ? 'task-list' : 'bullet-list',
-          meta: attrs.ordered
-            ? { start: Number(attrs.start ?? 1), loose: !attrs.tight, delimiter: '.' }
-            : { marker: '-', loose: !attrs.tight },
+          name: attrs.taskList ? 'task-list' : attrs.ordered ? 'order-list' : 'bullet-list',
+          meta: attrs.ordered && attrs.taskList
+            ? { ordered: true, start: Number(attrs.start ?? 1), loose: !attrs.tight, delimiter: String(attrs.delimiter ?? '.') }
+            : attrs.ordered
+              ? { start: Number(attrs.start ?? 1), loose: !attrs.tight, delimiter: '.' }
+              : { marker: '-', loose: !attrs.tight },
           children: children()
         }
       case 'list-item': {
-        const task = attrs.task === true && !orderedItems.has(syntax)
+        const task = attrs.task === true
         return {
           name: task ? 'task-list-item' : 'list-item',
           ...(task ? { meta: { checked: Boolean(attrs.checked) } } : {}),

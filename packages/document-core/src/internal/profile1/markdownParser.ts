@@ -4073,14 +4073,9 @@ function parseOrderedContainerSequence(
       paragraph === undefined
         ? taskListItemMarker(source, line, boundaryPolicy)
         : undefined
-    // Upstream MarkText, marked and GFM read an ordered item's `[ ]` with
-    // nothing after it as the item's text; only a bullet item holds an empty
-    // task (Profile 1 D13, D14).
-    const itemDescriptor = stack.at(-1)?.descriptor
-    const taskMarker = taskCandidate !== undefined && itemDescriptor?.kind === 'list-item' &&
-      itemDescriptor.ordered === true && source.slice(taskCandidate.end, line.contentEnd).trim() === ''
-      ? undefined
-      : taskCandidate
+    // A bullet or an ordered item holding only a task marker is an empty
+    // task, as upstream MarkText reads it (Profile 1 D13).
+    const taskMarker = taskCandidate
     if (taskMarker !== undefined) {
       parent.attributes = Object.freeze({
         ...parent.attributes,
