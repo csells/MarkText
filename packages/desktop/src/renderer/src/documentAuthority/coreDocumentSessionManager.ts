@@ -180,7 +180,8 @@ const conformFinalNewline = (session: Session, mode: number | undefined): Promis
   const edit = finalNewlineEdit(source.slice(tailStart), tailStart, mode)
   if (edit === undefined) return undefined
   const { submit, reconcile } = session.viewChange
-  const outcome = submit({ edits: [edit], projections: [] }).acknowledged
+  // Saving is not an editing step: undo reverts the newline with the last edit.
+  const outcome = submit({ edits: [edit], joinPreviousHistory: true, projections: [] }).acknowledged
   if (outcome.type !== 'applied') throw new Error('Core document trailing newline was rejected')
   return reconcile(outcome)
 }
@@ -410,6 +411,7 @@ const copySubmitInput = (input: EditorCoreSubmitInput): EditorCoreSubmitInput =>
     ...(input.nativeHistoryGroup === undefined
       ? {}
       : { nativeHistoryGroup: input.nativeHistoryGroup }),
+    ...(input.joinPreviousHistory === true ? { joinPreviousHistory: true } : {}),
     edits: Object.freeze(input.edits.map((edit) => Object.freeze({ ...edit }))),
     projections
   })
