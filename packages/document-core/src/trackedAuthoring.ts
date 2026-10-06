@@ -298,6 +298,12 @@ export const createTrackedSourceEdit = (
         const planned = createTrackedSourceEdit(activeCore, activeRevision, { start: target, end: target, insert: request.text },
           preview, preserveCanonicalMarkup, scope)
         if (planned === undefined) return undefined
+        // A window cannot tell whether a placement reaching its edge stays
+        // within the Substitution in the document: the document decides.
+        if (isWindowCompileCore(activeCore) && (planned.start === 0 || planned.end === activeRevision.sourceLength) &&
+            !(deepest !== undefined && deepest.range.start <= planned.start && planned.end <= deepest.range.end)) {
+          markUnresolvedDraft(activeCore)
+        }
         // The proposed block takes the typing only where it stays within the
         // Substitution; typing that breaks the paragraph the Substitution
         // lives in splits its old arm instead (G34).
