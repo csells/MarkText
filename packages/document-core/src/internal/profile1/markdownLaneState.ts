@@ -2351,7 +2351,11 @@ function isFenceCloserLine(
   )
 }
 
-const DIAGRAM_FENCE_LANGUAGES: ReadonlySet<string> = new Set([
+/**
+ * Upstream's diagram types (`diagramTypeOfLang`). A fence is a diagram only
+ * when its info string's first word is one of them exactly; `Mermaid` is code.
+ */
+export const DIAGRAM_FENCE_LANGUAGES: ReadonlySet<string> = new Set([
   'flowchart',
   'mermaid',
   'plantuml',
@@ -2364,9 +2368,9 @@ function fencedLiteralProvider(
   openerEnd: number,
   texMathGfmEnabled: boolean = true
 ): MarkdownFenceState['provider'] {
-  const info = lineText.slice(openerEnd).trim().toLowerCase()
+  const info = lineText.slice(openerEnd).trim()
   // The fence rides tex_math_gfm alone, without the dollar extension (#5446).
-  if (info === 'math' && texMathGfmEnabled) {
+  if (info.toLowerCase() === 'math' && texMathGfmEnabled) {
     return 'math'
   }
   const language = info.split(/[\t ]/, 1)[0] ?? ''

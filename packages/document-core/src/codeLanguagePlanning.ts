@@ -28,14 +28,16 @@ export function planCodeLanguage(core: DocumentCore, revision: DocumentRevision,
   const start = syntax.coordinates.toSource(infoStart, 'next')
   const end = syntax.coordinates.toSource(infoEnd, 'previous')
   if (fence.attributes.content === '' && fence.range.end <= contentStart) {
-    // Upstream's picker replaces the opener line with the block it chose:
-    // without the opener's own indentation, and, for a diagram language
-    // typed or picked, as a diagram block written with backticks.
+    // Upstream's picker replaces the opener line with the block it chose,
+    // written without the opener's own indentation and with a fence of three:
+    // backticks and the type for a diagram language typed or picked, else the
+    // opener's fence character.
     const markerStart = syntax.coordinates.toSource(fence.range.start, 'next')
     const indent = fenceOpenerOwnIndent(core, revision, syntax, ancestors.slice(0, ancestors.indexOf(fence)), markerStart)
     const typed = /^\S*/u.exec(core.sourceSlice(revision, { start, end }).trimStart())?.[0] ?? ''
     const diagram = fenceDiagramType(typed) ?? fenceDiagramType(language)
-    const marker = diagram === undefined ? core.sourceSlice(revision, { start: markerStart, end: start }) : '```'
+    const fenceChar = core.sourceSlice(revision, { start: markerStart, end: start }).trimStart().startsWith('~') ? '~' : '`'
+    const marker = diagram === undefined ? fenceChar.repeat(3) : '```'
     const info = diagram ?? language
     const lineEnding = core.sourceSlice(revision, { start: end, end: revision.sourceLength }).match(/\r\n|\r|\n/u)?.[0] ?? '\n'
     const prefix = containerContinuationPrefix(core, revision, syntax, fence, ancestors)

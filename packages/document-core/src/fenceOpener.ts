@@ -1,11 +1,9 @@
 import type { DocumentCore, DocumentRevision, MarkdownAstNode, MarkupSyntax } from './documentCore.js'
-
-// Upstream's diagram fence languages (`diagramTypeOfLang`), matched exactly.
-const DIAGRAM_TYPES: ReadonlySet<string> = new Set(['mermaid', 'plantuml', 'vega-lite', 'flowchart', 'sequence'])
+import { DIAGRAM_FENCE_LANGUAGES } from './internal/profile1/markdownLaneState.js'
 
 /** The diagram type upstream makes of a fence language, if any. */
 export function fenceDiagramType(language: string): string | undefined {
-  return DIAGRAM_TYPES.has(language) ? language : undefined
+  return DIAGRAM_FENCE_LANGUAGES.has(language) ? language : undefined
 }
 
 /**

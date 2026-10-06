@@ -2771,7 +2771,7 @@ function diagramLayout(
       contentEnd: typeof fenced['contentEnd'] === 'number'
         ? fenced['contentEnd']
         : literal.start,
-      language: info.split(/[\t ]/, 1)[0]?.toLowerCase() ?? ''
+      language: info.split(/[\t ]/, 1)[0] ?? ''
     })
   })
 }
