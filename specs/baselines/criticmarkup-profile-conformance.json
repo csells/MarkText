@@ -3,7 +3,7 @@
   "status": "structural-draft-unratified",
   "profile": {
     "path": "specs/language/marktext-markdown-profile-1.md",
-    "sha256": "1285d142fc98eea3407c81b0127e1761aa7fdd828efe333c53ba7fea9ed06e25"
+    "sha256": "d29f38611b5151a98c88b151bdbe3c912819e7c4e54d90c1c4e2117b55474393"
   },
   "rules": [
     { "id": "P1", "cases": ["case-P1"] },
@@ -581,7 +581,7 @@
     },
     {
       "path": "specs/language/marktext-markdown-profile-2.md",
-      "sha256": "44038936d2a00e134e1c935dccd74869ffcc6e97b32bb519c1cbf4343df761be",
+      "sha256": "e4bf747c828d3a2d77e9e1a064d0b6fb635bd2a7c5073f5efce312b43e90bd55",
       "rules": [
         {
           "id": "IL1",
