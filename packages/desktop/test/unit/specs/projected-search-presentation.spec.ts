@@ -109,7 +109,7 @@ describe('projected search presentation', () => {
     expect(first.focusHandler).toHaveBeenCalledOnce()
   })
 
-  it('wraps navigation and clears prior projection highlights', () => {
+  it('wraps navigation and repaints the previous active block inactive', () => {
     const blocks = [0, 1].map(() => ({
       update: vi.fn(),
       focusHandler: vi.fn(),
@@ -143,7 +143,9 @@ describe('projected search presentation', () => {
     presentation.present(result)
 
     expect(presentation.navigate('next').index).toBe(1)
-    expect(blocks[0]?.update).toHaveBeenCalledWith(undefined, [])
+    expect(blocks[0]?.update).toHaveBeenLastCalledWith(undefined, [
+      { start: 0, end: 1, active: false }
+    ])
     expect(blocks[1]?.update).toHaveBeenLastCalledWith(undefined, [
       { start: 0, end: 1, active: true }
     ])

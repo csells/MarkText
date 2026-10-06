@@ -54,6 +54,10 @@ export function createProjectedSearchPresentation(
   let current = emptyResult()
   let painted = new Set<ProjectedSearchPresentationBlock>()
   let activeSelection: MuyaPlainTextAuthorSelection | undefined
+  // The matches the last present() resolved, and the bindings they were
+  // resolved through, so stepping can repaint only the blocks it changes.
+  let resolvedCurrent: readonly ResolvedMatch[] = []
+  let resolvedBindings: readonly MuyaPlainTextSourceBinding[] | undefined
 
   const clearPaint = (): void => {
     for (const block of painted) block.update(undefined, [])
@@ -63,15 +67,19 @@ export function createProjectedSearchPresentation(
     clearPaint()
     current = emptyResult()
     activeSelection = undefined
+    resolvedCurrent = []
+    resolvedBindings = undefined
     return false
   }
 
-  const present = (result: ProjectedSearchResult): boolean => {
+  const resolve = (
+    result: ProjectedSearchResult,
+    bindings: readonly MuyaPlainTextSourceBinding[] | undefined
+  ): ResolvedMatch[] | undefined => {
     const resolved: ResolvedMatch[] = []
-    const bindings = host.bindings?.()
     for (const [matchIndex, match] of result.matches.entries()) {
       if (bindings !== undefined) {
-        if (match.sourceRanges === undefined || match.sourceRanges.length === 0) return failClosed()
+        if (match.sourceRanges === undefined || match.sourceRanges.length === 0) return undefined
         for (const range of match.sourceRanges) {
           let cursor = range.start
           for (const binding of bindings) {
@@ -79,10 +87,10 @@ export function createProjectedSearchPresentation(
               { source: binding.sourceRange, text: { start: 0, end: binding.text.length } }
             ]) {
               if (segment.source.end <= cursor || segment.source.start >= range.end) continue
-              if (segment.source.start > cursor) return failClosed()
+              if (segment.source.start > cursor) return undefined
               const end = Math.min(range.end, segment.source.end)
               const block = host.blockAtPath(binding.path)
-              if (block === undefined) return failClosed()
+              if (block === undefined) return undefined
               const presentation = {
                 path: binding.path,
                 start: segment.text.start + cursor - segment.source.start,
@@ -104,7 +112,7 @@ export function createProjectedSearchPresentation(
             }
             if (cursor === range.end) break
           }
-          if (cursor !== range.end) return failClosed()
+          if (cursor !== range.end) return undefined
         }
         continue
       }
@@ -124,14 +132,25 @@ export function createProjectedSearchPresentation(
         presentation.start < 0 ||
         presentation.end <= presentation.start
       ) {
-        return failClosed()
+        return undefined
       }
       const block = host.blockAtPath(presentation.path)
-      if (block === undefined) return failClosed()
+      if (block === undefined) return undefined
       resolved.push(Object.freeze({ matchIndex, match, block, presentation }))
     }
+    return resolved
+  }
 
-    clearPaint()
+  /**
+   * Paints `result`'s highlights on the blocks in `only`, or on every block
+   * holding a match. A block's update replaces all of its highlights, so a
+   * repainted block needs no clearing first.
+   */
+  const paint = (
+    result: ProjectedSearchResult,
+    resolved: readonly ResolvedMatch[],
+    only?: ReadonlySet<ProjectedSearchPresentationBlock>
+  ): void => {
     current = result
     const active = resolved.filter((item) => item.matchIndex === result.index)
     const first = active[0]?.presentation
@@ -148,6 +167,7 @@ export function createProjectedSearchPresentation(
       Array<Readonly<{ start: number; end: number; active: boolean }>>
     >()
     for (const item of resolved) {
+      if (only !== undefined && !only.has(item.block)) continue
       const list = highlights.get(item.block) ?? []
       list.push(
         Object.freeze({
@@ -167,7 +187,37 @@ export function createProjectedSearchPresentation(
       }
       painted.add(block)
     }
+  }
+
+  const present = (result: ProjectedSearchResult): boolean => {
+    const bindings = host.bindings?.()
+    const resolved = resolve(result, bindings)
+    if (resolved === undefined) return failClosed()
+    clearPaint()
+    resolvedCurrent = resolved
+    resolvedBindings = bindings
+    paint(result, resolved)
     return true
+  }
+
+  /**
+   * Moving the active match changes only the blocks holding the old and the
+   * new one (upstream #5580), so only those repaint. Anything that may have
+   * moved a match since present(), such as new bindings or a re-created
+   * block, falls back to presenting the result whole.
+   */
+  const step = (result: ProjectedSearchResult): void => {
+    const previousIndex = current.index
+    const moved = resolvedCurrent.filter((item) =>
+      item.matchIndex === previousIndex || item.matchIndex === result.index)
+    if (
+      host.bindings?.() !== resolvedBindings ||
+      moved.some((item) => host.blockAtPath(item.presentation.path) !== item.block)
+    ) {
+      present(result)
+      return
+    }
+    paint(result, resolvedCurrent, new Set(moved.map((item) => item.block)))
   }
 
   return Object.freeze({
@@ -179,13 +229,15 @@ export function createProjectedSearchPresentation(
       const delta = action === 'next' ? 1 : -1
       const index = (current.index + delta + length) % length
       const result = Object.freeze({ ...current, index })
-      present(result)
+      step(result)
       return result
     },
     clear(): void {
       clearPaint()
       current = emptyResult()
       activeSelection = undefined
+      resolvedCurrent = []
+      resolvedBindings = undefined
     }
   })
 }
