@@ -42,7 +42,9 @@ The PR keeps upstream's workflows except for these deliberate changes:
   document stay identical. After such a save, a trailing empty line or
   paragraph the save removed is gone from the live view as well; upstream
   keeps showing it until the file is reopened. Upstream's
-  `/[\r?\n]+$/` also strips a final `?`; ours trims line breaks only.
+  `/[\r?\n]+$/` also strips a final `?`; ours trims line breaks only. The
+  save's change joins the latest undo step, so Undo after such a save
+  reverts the last edit with it, as upstream's Undo ignores the save.
 - Trailing newline with tracked changes: the save adjusts the document's own
   final line breaks, which always lie outside any suggestion. A suggestion
   whose arm itself ends with line breaks at the very end keeps them, so its
