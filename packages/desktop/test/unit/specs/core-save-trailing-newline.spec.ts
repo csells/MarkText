@@ -54,6 +54,41 @@ describe('save-time trailing newline mode', () => {
     }
   })
 
+  it('joins the newline to the last undo step, which typing after the save continues', async() => {
+    const { manager, lease } = await managerWithView('undo.md', 'Alpha.\n')
+    const type = (start: number, insert: string) => lease.binding.submit({
+      edits: [{ start, end: start, insert }], nativeHistoryGroup: 'typing', projections: []
+    }).acknowledged
+    await type(7, '\nSource')
+    expect((await manager.saveBarrier('undo.md', { trailingNewlineMode: 1 })).source).toBe('Alpha.\n\nSource\n')
+    await type(14, ' line.')
+    expect(await lease.sourceAtBarrier()).toBe('Alpha.\n\nSource line.\n')
+    const undone = await lease.binding.submit({ kind: 'undo', projections: [] }).acknowledged
+    expect(undone.type).toBe('applied')
+    expect(await lease.sourceAtBarrier()).toBe('Alpha.\n')
+    expect((await lease.binding.submit({ kind: 'undo', projections: [] }).acknowledged).type).toBe('rejected')
+    await manager.handoff(lease)
+    await manager.close('undo.md')
+  })
+
+  it('drops an undo step that the saved newline cancels', async() => {
+    const { manager, lease } = await managerWithView('cancel.md', 'Alpha.\n')
+    await lease.binding.submit({ edits: [{ start: 7, end: 7, insert: '\n' }], projections: [] }).acknowledged
+    expect((await manager.saveBarrier('cancel.md', { trailingNewlineMode: 1 })).source).toBe('Alpha.\n')
+    expect((await lease.binding.submit({ kind: 'undo', projections: [] }).acknowledged).type).toBe('rejected')
+    await manager.handoff(lease)
+    await manager.close('cancel.md')
+  })
+
+  it('keeps a final question mark and reads CRLF line breaks as line breaks', async() => {
+    for (const [source, mode, saved] of [['Why?', 0, 'Why?'], ['Why?', 1, 'Why?\n'], ['Alpha.\r\n\r\n', 1, 'Alpha.\r\n'], ['Alpha.\r\n', 0, 'Alpha.']] as const) {
+      const { manager, lease } = await managerWithView('ends.md', source)
+      expect((await manager.saveBarrier('ends.md', { trailingNewlineMode: mode })).source).toBe(saved)
+      await manager.handoff(lease)
+      await manager.close('ends.md')
+    }
+  })
+
   it('leaves the end alone for a read that is not a file save', async() => {
     const { manager, lease } = await managerWithView('read.md', 'Alpha.')
     expect((await manager.saveBarrier('read.md')).source).toBe('Alpha.')

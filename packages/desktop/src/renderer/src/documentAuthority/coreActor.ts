@@ -2081,6 +2081,8 @@ export function createCoreActor(
         })
       }
       let mergedEntry: HistoryEntry | null | undefined
+      const joinedHistory = request.type === 'apply' && request.joinPreviousHistory === true
+      let continuedGroup: string | undefined
       let commit
       try {
         inverse =
@@ -2126,18 +2128,21 @@ export function createCoreActor(
               }
               : {})
           })
-          if (
-            requestedGroup !== undefined &&
-            nativeHistoryGroup?.id === requestedGroup &&
-            undoStack.at(-1) === nativeHistoryGroup.entry
-          ) {
-            mergedEntry = mergeNativeHistory(
-              nativeHistoryGroup.entry,
-              prospectiveEntry,
-              core,
-              revision
-            )
+          const joinTarget =
+            joinedHistory
+              ? undoStack.at(-1)
+              : requestedGroup !== undefined &&
+                  nativeHistoryGroup?.id === requestedGroup &&
+                  undoStack.at(-1) === nativeHistoryGroup.entry
+                ? nativeHistoryGroup.entry
+                : undefined
+          if (joinTarget !== undefined) {
+            mergedEntry = mergeNativeHistory(joinTarget, prospectiveEntry, core, revision)
             if (mergedEntry !== undefined && mergedEntry !== null) prospectiveEntry = mergedEntry
+          }
+          // A joined change keeps the step it joined open to further typing.
+          if (joinedHistory && mergedEntry !== undefined && nativeHistoryGroup?.entry === joinTarget) {
+            continuedGroup = nativeHistoryGroup?.id
           }
           if (
             prospectiveEntry.undo.length > maximumHistoryEditsPerEntry ||
@@ -2298,10 +2303,11 @@ export function createCoreActor(
           undoUnits += historyUnits(entry)
           undoEditRecords += historyEditRecords(entry)
         }
+        const group = continuedGroup ?? requestedGroup
         nativeHistoryGroup =
-          requestedGroup === undefined || mergedEntry === null
+          group === undefined || mergedEntry === null
             ? undefined
-            : { id: requestedGroup, entry }
+            : { id: group, entry }
         trimUndoHistory()
       } else if (request.type === 'undo') {
         nativeHistoryGroup = undefined

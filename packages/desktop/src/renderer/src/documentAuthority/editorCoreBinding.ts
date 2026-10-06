@@ -128,6 +128,8 @@ export type EditorCoreSubmitInput =
   | Readonly<{
     readonly kind?: 'source-edits'
     readonly nativeHistoryGroup?: string
+    /** Joins the change into the latest undo step instead of adding one. */
+    readonly joinPreviousHistory?: true
     readonly edits: readonly DocumentSourceEdit[]
     readonly projections: readonly DocumentProjectionRequest[]
   }>
@@ -602,6 +604,7 @@ export function createEditorCoreBinding(port: CoreModelOwner): EditorCoreBinding
                         ...(input.nativeHistoryGroup === undefined
                           ? {}
                           : { nativeHistoryGroup: input.nativeHistoryGroup }),
+                        ...(input.joinPreviousHistory === true ? { joinPreviousHistory: true } : {}),
                         projections
                       })
                       : input.kind === 'configure'

@@ -195,6 +195,7 @@ export type CoreRequest =
   | Readonly<{
     readonly type: 'apply'
     readonly nativeHistoryGroup?: string
+    readonly joinPreviousHistory?: true
     readonly session: number
     readonly sequence: number
     readonly baseRevision: number

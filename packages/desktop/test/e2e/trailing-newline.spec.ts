@@ -6,9 +6,10 @@ import {
   exitSourceMode,
   expectNoRendererErrors,
   launchWithMarkdown,
+  launchWithReviewMarkdown,
   sendIpcToRenderer
 } from './helpers'
-import { textPoint } from './reviewGestures'
+import { openPaletteAt, textPoint } from './reviewGestures'
 
 // Upstream MarkText detects each file's trailing-newline mode when it opens
 // (one final newline: "Ensure single newline"; none: "Trim all trailing
@@ -86,23 +87,88 @@ test('an unedited save keeps the file\'s bytes whatever its final newlines', asy
   }
 })
 
+const chooseTrailingNewline = async(app: ElectronApplication, page: Page, choice: string): Promise<void> => {
+  await openPaletteAt(app, page, 'Trailing Newline')
+  await page.keyboard.press('Enter')
+  const options = page.locator('.command-palette li')
+  await expect(options.first()).toContainText('Trim all trailing newlines')
+  await page.locator('.command-palette input.search').pressSequentially(choice)
+  await expect(options).toHaveCount(1)
+  await expect(options.first()).toContainText(choice)
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.command-palette input.search')).toBeHidden()
+}
+
 test('the command palette\'s Trailing Newline choice applies at the next save', async() => {
   const { app, page, filePath } = await launchWithMarkdown('Alpha beta gamma.\n', { suppressErrorDialog: true, env })
   try {
-    await sendIpcToRenderer(app, 'mt::show-command-palette')
-    const search = page.locator('.search-wrapper input.search, input.search').first()
-    await expect(search).toBeVisible()
-    await search.fill('Trailing Newline')
-    await page.keyboard.press('Enter')
-    await search.fill('Trim all trailing newlines')
-    await page.keyboard.press('Enter')
-    await expect(search).toBeHidden()
-
+    await chooseTrailingNewline(app, page, 'Trim all')
     await save(app, filePath, 'Alpha beta gamma.')
     await typeAtEndOf(page, 'gamma.', ' Delta.')
     await save(app, filePath, 'Alpha beta gamma. Delta.')
+    await chooseTrailingNewline(app, page, 'Ensure single')
+    await save(app, filePath, 'Alpha beta gamma. Delta.\n')
     await expectNoRendererErrors(app)
   } finally {
     await app.close()
   }
 })
+
+test('undo after a save that wrote the final newline reverts the last edit, not the newline', async() => {
+  const source = 'Alpha beta gamma.\n'
+  const { app, page, filePath } = await launchWithMarkdown(source, { suppressErrorDialog: true, env })
+  try {
+    await enterSourceMode(page, app)
+    await page.locator('.source-code .CodeMirror').click()
+    await page.keyboard.press(command('ArrowDown'))
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('Source line.')
+    await save(app, filePath, 'Alpha beta gamma.\n\nSource line.\n')
+    await sendIpcToRenderer(app, 'mt::editor-edit-action', 'undo')
+    await save(app, filePath, source)
+    await exitSourceMode(page, app)
+    await save(app, filePath, source)
+    await expectNoRendererErrors(app)
+  } finally {
+    await app.close()
+  }
+})
+
+test('a CRLF file keeps CRLF line breaks, its final one included', async() => {
+  const { app, page, filePath } = await launchWithMarkdown('Alpha beta gamma.\r\n', { suppressErrorDialog: true, env })
+  try {
+    await enterSourceMode(page, app)
+    await page.locator('.source-code .CodeMirror').click()
+    await page.keyboard.press(command('ArrowDown'))
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('Source line.')
+    await exitSourceMode(page, app)
+    await save(app, filePath, 'Alpha beta gamma.\r\n\r\nSource line.\r\n')
+    await expectNoRendererErrors(app)
+  } finally {
+    await app.close()
+  }
+})
+
+// The final newline is the file's form, not a suggestion: a tracked edit saves
+// with the same end, so Accept All gives the untracked edit's bytes.
+for (const decision of [
+  { name: 'Accept All', testId: 'critic-review-accept-all', expected: 'Alpha beta gamma. Delta.' },
+  { name: 'Reject All', testId: 'critic-review-reject-all', expected: 'Alpha beta gamma.' }
+]) {
+  test(`a tracked edit saves in the file's trailing-newline mode; ${decision.name} keeps it`, async() => {
+    const { app, page, filePath } = await launchWithReviewMarkdown('Alpha beta gamma.\n', { suppressErrorDialog: true, env })
+    try {
+      await page.getByTestId('critic-review-track-changes').click()
+      await chooseTrailingNewline(app, page, 'Trim all')
+      await typeAtEndOf(page, 'gamma.', ' Delta.')
+      await save(app, filePath, 'Alpha beta gamma.{++ Delta.++}')
+      await page.getByTestId('critic-review-entry').first().locator(':scope > button').click()
+      await page.getByTestId(decision.testId).click()
+      await save(app, filePath, decision.expected)
+      await expectNoRendererErrors(app)
+    } finally {
+      await app.close()
+    }
+  })
+}
