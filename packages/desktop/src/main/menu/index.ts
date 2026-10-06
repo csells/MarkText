@@ -297,7 +297,7 @@ class AppMenu {
     // application menu each time.
 
     // rebuild all window menus
-    this.windowMenus.forEach((value) => {
+    this.windowMenus.forEach((value, key) => {
       const { menu: oldMenu, type } = value
       if (type !== MenuType.EDITOR || !oldMenu) return
 
@@ -326,7 +326,7 @@ class AppMenu {
    */
   updateKeybindings(): void {
     const recentUsedDocuments = this.getRecentlyUsedDocuments()
-    this.windowMenus.forEach((value) => {
+    this.windowMenus.forEach((value, key) => {
       const { menu: oldMenu, type } = value
 
       let newMenu: Menu | null
