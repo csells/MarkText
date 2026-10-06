@@ -10,8 +10,10 @@ import type {
 import {
   appendMuyaMarkdownSegment,
   createMuyaMarkupView,
+  isMuyaSplitListRoot,
   muyaCaretSnaps,
   muyaDecorationAfterLastBlock,
+  muyaRootsOfBlocks,
   type MuyaCaretSnap,
   type MuyaMarkdownSegment,
   type MuyaMarkupBinding,
@@ -320,6 +322,7 @@ function listItemsPatch(
   const rootItems = roots.items(root)
   if (
     listState === undefined || children === undefined || !listStates.has(listState.name) ||
+    isMuyaSplitListRoot(listState) ||
     items.itemsBefore + items.previousItems > children.length ||
     rootItems.comments.length > 0
   ) {
@@ -354,8 +357,11 @@ function listItemsPatch(
     }
   }, replacement.annotations, canonicalSource, undefined, replacement.precedingEvents, replacement.following)
   const localItems = local.state[0]?.children
+  // Items of another kind than the list's would split it into a list per run.
+  const tasks = listState.name === 'task-list'
   if (
     local.state.length !== 1 || localItems === undefined || localItems.length !== replacement.syntaxBlocks.length ||
+    localItems.some((item) => (item.name === 'task-list-item') !== tasks) ||
     local.comments.length > 0
   ) {
     return undefined
@@ -1182,7 +1188,9 @@ export function applyMuyaMarkupChanges(
       }
     }, replacement.annotations, canonicalSource, undefined, replacement.precedingEvents, replacement.following)
     const localLength =
-      end === previous.state.length ? local.state.length : replacement.syntaxBlocks.length
+      end === previous.state.length
+        ? local.state.length
+        : muyaRootsOfBlocks(local, replacement.syntaxBlocks.length) ?? replacement.syntaxBlocks.length
     if (local.state.length < localLength) return undefined
     // A suggestion ending past the region's last block is shown on the next
     // block's start, which the whole view reaches and the region's view does
