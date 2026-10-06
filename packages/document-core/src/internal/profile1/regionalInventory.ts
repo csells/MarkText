@@ -3530,14 +3530,26 @@ function lastBlockEndsBefore(products: Profile1DocumentProducts): boolean {
   // An HTML block of the kinds a blank line ends holds its last line ending,
   // so the blank line after that ends it. A comment, a processing
   // instruction, a declaration, CDATA or a raw-text element reads on past a
-  // blank line to its own end, as an indented code block does.
+  // blank line to its own end, as an indented code block does. A fenced code
+  // or math block that its own closer ends holds that closer's line ending
+  // too; one left open runs on to the window's end.
   const text = editing.source.slice(last.range.start, last.range.end)
   const ending = last.kind === 'html-block' &&
-    !/^ {0,3}<(?:(?:script|pre|style|textarea)(?:[ \t>]|$)|!--|\?|![A-Za-z]|!\[CDATA\[)/iu.test(text)
+    !/^ {0,3}<(?:(?:script|pre|style|textarea)(?:[ \t>]|$)|!--|\?|![A-Za-z]|!\[CDATA\[)/iu.test(text) ||
+    ['code-block', 'math-block', 'diagram'].includes(last.kind) && closedByOwnFence(text)
     ? /(?:\r\n|\r|\n)$/u.exec(text)?.[0] ?? ''
     : ''
   const after = ending + editing.source.slice(last.range.end)
   return /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)[ \t\r\n]*$/u.test(after) && /^[ \t\r\n]*$/u.test(after)
+}
+
+/** Whether `text`, a fenced code or math block, ends with a closer of its opener's kind and length. */
+function closedByOwnFence(text: string): boolean {
+  const lines = text.replace(/(?:\r\n|\r|\n)$/u, '').split(/\r\n|\r|\n/u)
+  if (lines.length < 2) return false
+  const opener = /^ {0,3}(`{3,}|~{3,}|\$\$)/u.exec(lines[0] ?? '')?.[1]
+  const closer = /^ {0,3}(`{3,}|~{3,}|\$\$)[ \t]*$/u.exec(lines.at(-1) ?? '')?.[1]
+  return opener !== undefined && closer !== undefined && closer[0] === opener[0] && closer.length >= opener.length
 }
 
 /** Whether the first line holding text at or after `offset` is indented as code. */

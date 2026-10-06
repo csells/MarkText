@@ -725,7 +725,18 @@ now information only, and every run is scored.
     suggestion's visible text found by filtering every text event. Both
     now search only what they need, which halves the key to about 800 ms
     with byte-identical outputs. The rest was the key's fall from its
-    window to the document compile (see below).
+    window to the document compile, a whole parse of the 113 KB document.
+    The key's window held the HTML block and the four blocks after it,
+    ending at a closed fenced code block before a closed math block. A
+    fenced block's range holds its closer's line ending, so the window's
+    check that its last block ends before the empty line ending it read
+    the fence as left open. A fence or math block that its own closer ends
+    now reads as ended there, as an HTML block does. The key now plans in
+    its window with no document parse, in about 31 ms, and one key of the
+    small sweep (8/8) falls from 3 parses to none. Outputs are
+    byte-identical and agreement stays 0.
+    `literal-window-closed-fence.spec.ts` covers fenced, tilde, math and
+    HTML blocks before closed and open fences.
   - Key 5/14 types a blank line inside a `$$` math block and takes about
     700 ms. It is the one bounded parse: the split leaves `$$` runs
     unpaired in any window, which could pair with text beyond it, so no
