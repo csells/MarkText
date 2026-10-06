@@ -214,6 +214,54 @@ test.describe('Find bar — find next / previous navigation (items 152, 181)', (
   })
 })
 
+// Upstream #5580: stepping moves the active match by repainting only the
+// blocks holding the old and the new active match. Every other block keeps its
+// inactive highlight, and the active one lands in the right paragraph.
+test.describe('Find bar — stepping across blocks with the keyboard (upstream #5580)', () => {
+  let app: ElectronApplication
+  let page: Page
+
+  test.beforeAll(async() => {
+    const paragraphs = Array.from({ length: 6 }, (_, index) => `para ${String(index)} needle`)
+    const launched = await launchWithMarkdown(`${paragraphs.join('\n\n')}\n`)
+    app = launched.app
+    page = launched.page
+    await focusEditor(page)
+  })
+
+  test.afterAll(async() => {
+    if (app) await app.close()
+  })
+
+  const activeParagraph = (): Promise<string | null> => page.locator('.mu-highlight')
+    .evaluate(element => element.closest('.mu-paragraph-content')?.textContent ?? null)
+
+  test('Enter in the query steps forward and wraps; the previous button steps back', async() => {
+    await openFind(app, page)
+    await page.locator(FIND_INPUT).click()
+    // The bar may open prefilled from the editor's selection.
+    await page.keyboard.press('Meta+A')
+    await page.keyboard.type('needle')
+    await expect.poll(() => counterText(page)).toContain('1 / 6')
+    await expect.poll(activeParagraph).toBe('para 0 needle')
+
+    for (let step = 1; step <= 6; step += 1) {
+      await page.keyboard.press('Enter')
+      const expected = step % 6
+      await expect.poll(() => counterText(page)).toContain(`${String(expected + 1)} / 6`)
+      await expect.poll(activeParagraph).toBe(`para ${String(expected)} needle`)
+      await expect.poll(() => page.locator('.mu-highlight').count()).toBe(1)
+      await expect.poll(() => page.locator('.mu-selection').count()).toBe(5)
+    }
+
+    await page.locator('.search-bar .button-group .button.right').first().click()
+    await expect.poll(() => counterText(page)).toContain('6 / 6')
+    await expect.poll(activeParagraph).toBe('para 5 needle')
+    await expect.poll(() => page.locator('.mu-selection').count()).toBe(5)
+    await expectNoRendererErrors(app)
+  })
+})
+
 test.describe('Find bar — option toggles re-run the search (items 185, 186, 187)', () => {
   let app: ElectronApplication
   let page: Page
