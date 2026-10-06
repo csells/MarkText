@@ -26,8 +26,9 @@ The PR keeps upstream's workflows except for these deliberate changes:
 - `mermaid` is `^11.16.1` in the desktop and Muya.
   `criticmarkup-rendering-security.spec.ts` opens a hostile
   `architecture-beta` diagram and requires the editor to stay responsive
-  without prototype pollution; with 11.15 the editor never became ready
-  (fork commit a6cb4a29).
+  without prototype pollution. Re-verified 2026-10-06 on the PR tree pinned
+  to Mermaid 11.15.0: that case fails (`Object.prototype` gains the
+  diagram's group name) while the normal-document cases pass.
 - `turndown`, `joplin-turndown-plugin-gfm`, `html-tags` and `underscore` are
   removed: their only callers were the Markdown paths Core replaced.
 - New: `@marktext/document-core` and `@marktext/input-policy` (workspace),
