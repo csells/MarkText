@@ -211,12 +211,16 @@ function trackedRequest(
   const insertion = request.range.start === request.range.end && request.text.length > 0
   if (insertion) {
     // Suggestions inside deleted text are history too: typing beside them
-    // splits the deletion instead of extending them.
-    const annotations = annotationTree(activeRevision.annotations)
-      .filter(annotation => !withinHistory(activeRevision.annotations, annotation.range))
-    const deletionEdge = annotations.find(annotation => annotation.kind === 'deletion' &&
+    // splits the deletion instead of extending them. Only those touching the
+    // caret are asked whether they lie in history: asking it of every
+    // suggestion scanned them all once each.
+    const tree = annotationTree(activeRevision.annotations)
+    const outsideHistory = (annotation: CriticMarkupAnnotation): boolean =>
+      !withinHistory(activeRevision.annotations, annotation.range)
+    const deletionEdge = tree.find(annotation => annotation.kind === 'deletion' &&
       annotation.arms.some(arm => arm.name === 'content' &&
-        (arm.range.start === request.range.start || arm.range.end === request.range.start)))
+        (arm.range.start === request.range.start || arm.range.end === request.range.start)) &&
+      outsideHistory(annotation))
     if (deletionEdge !== undefined) {
       const content = deletionEdge.arms.find(arm => arm.name === 'content')!
       const offset = request.range.start === content.range.end ? deletionEdge.range.end : deletionEdge.range.start
@@ -224,12 +228,12 @@ function trackedRequest(
       // a new suggestion outside it, preserving the original deleted payload.
       request.range = { start: offset, end: offset }
     }
-    const adjacent = annotations.find(annotation =>
+    const adjacent = tree.find(annotation =>
       (annotation.kind === 'addition' || annotation.kind === 'substitution') &&
-      annotation.range.end === request.range.start
-    ) ?? annotations.find(annotation =>
+      annotation.range.end === request.range.start && outsideHistory(annotation)
+    ) ?? tree.find(annotation =>
       (annotation.kind === 'addition' || annotation.kind === 'substitution') &&
-      annotation.range.start === request.range.start
+      annotation.range.start === request.range.start && outsideHistory(annotation)
     )
     const arm = adjacent?.arms.find(arm =>
       arm.name === (adjacent.kind === 'addition' ? 'content' : 'new')

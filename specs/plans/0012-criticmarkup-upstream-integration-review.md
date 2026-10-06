@@ -708,6 +708,33 @@ change it.
 **Superseded.** The 6 October decision above replaced this rule: the loop is
 now information only, and every run is scored.
 
+### 5 October tracked-key and parser work — pending the frozen candidate
+
+- Watch in the freeze run:
+  - `core-review-overview-regional.spec.ts`, "reads as a fresh overview,
+    seed 11". It failed once at 6,131 ms in a full desktop unit run under
+    load (about 5–8) and passed rerun alone.
+  - `regional-suggestion-safe-points.spec.ts`, open-arm seed 150. It timed
+    out at 6.5 s under load and agrees on replay.
+  - If either fails again, it is a failure to fix, by timeout headroom or
+    by cost, not a flake.
+- The 2,000-block sweep had two keys over 100 ms, on base as well.
+  - Key 2/15 typed `{==h==}{>>c<<}` into an HTML block and took about
+    1,600 ms. Two quadratic scans in the document compile took half of
+    that: a history check asked of every suggestion, and each
+    suggestion's visible text found by filtering every text event. Both
+    now search only what they need, which halves the key to about 800 ms
+    with byte-identical outputs. The rest was the key's fall from its
+    window to the document compile (see below).
+  - Key 5/14 types a blank line inside a `$$` math block and takes about
+    700 ms. It is the one bounded parse: the split leaves `$$` runs
+    unpaired in any window, which could pair with text beyond it, so no
+    region admits the edit. The parse reuse is withheld from edits that
+    may repair math (editsMayRepairMath). The whole 113 KB document is
+    parsed once, at the parser's rate of about 160 characters per ms. This
+    key stays open: it needs a math-pairing-aware incremental parse or a
+    faster parser.
+
 ### 24–25 September rebase onto upstream develop — locally verified
 
 Scope (owner): US English macOS, verified locally on the owner's Mac; hosted CI,
