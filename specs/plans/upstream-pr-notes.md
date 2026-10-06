@@ -35,6 +35,19 @@ The PR keeps upstream's workflows except for these deliberate changes:
   `@tanstack/vue-virtual`, `yaml`, and the root dev dependency
   `@electron/asar` (packaged-app verification).
 
+## Known differences from upstream
+
+- Trailing newline: a file save writes the document's final line breaks in
+  the file's mode by changing the document, so the saved bytes and the
+  document stay identical. After such a save, a trailing empty line or
+  paragraph the save removed is gone from the live view as well; upstream
+  keeps showing it until the file is reopened. Upstream's
+  `/[\r?\n]+$/` also strips a final `?`; ours trims line breaks only.
+- Trailing newline with tracked changes: the save adjusts the document's own
+  final line breaks, which always lie outside any suggestion. A suggestion
+  whose arm itself ends with line breaks at the very end keeps them, so its
+  Accept All may end with more than one newline until the next save.
+
 ## Separate PRs
 
 - `fix/packaging-native-modules`: packages native-keymap and ced explicitly
