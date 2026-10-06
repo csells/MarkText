@@ -136,8 +136,13 @@ class InlineRenderer {
             return;
         }
         this._pendingPresentation.delete(block);
+        const anchor = cursor?.anchor ?? cursor?.start;
+        const focus = cursor?.focus ?? cursor?.end;
         const presentation = this.presentation?.(block.path, block.text, {
             highlights,
+            ...(cursor?.block === block && anchor && focus
+                ? { cursor: { anchor: anchor.offset, focus: focus.offset } }
+                : {}),
             renderHtmlTag: tag => htmlTagPresentation(this.renderer, h, block, cursor ?? {}, {
                 type: 'html_tag',
                 raw: tag.raw,

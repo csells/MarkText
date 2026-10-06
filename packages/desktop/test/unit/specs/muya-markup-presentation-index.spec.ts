@@ -9,6 +9,38 @@ import { createEditorCoreBinding } from '@/documentAuthority/editorCoreBinding'
 import { createLocalCoreOwner } from '@/documentAuthority/localCoreOwner'
 
 describe('Muya Markup presentation index', () => {
+  it('renders a leaf again only when the caret changes which markers it shows', () => {
+    const core = createDocumentCore()
+    const revision = core.open('plain **bold** tail')
+    const view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations)
+    const renderer = vi.fn(
+      (...args: Parameters<typeof renderMuyaMarkupBinding>): string => {
+        // The bold syntax spans text offsets 6..14.
+        args[6]?.push({ start: 6, end: 14 })
+        return renderMuyaMarkupBinding(...args)
+      }
+    )
+    const index = createMuyaMarkupPresentationIndex(view, undefined, renderer)
+    const text = view.bindings[0].text
+    const at = (offset: number) => ({
+      renderImage: () => undefined,
+      cursor: { anchor: offset, focus: offset }
+    })
+    index.render([0, 'text'], text)
+    expect(renderer).toHaveBeenCalledTimes(1)
+    index.render([0, 'text'], text, at(2))
+    expect(renderer).toHaveBeenCalledTimes(1)
+    index.render([0, 'text'], text, at(6))
+    expect(renderer).toHaveBeenCalledTimes(2)
+    index.render([0, 'text'], text, at(10))
+    index.render([0, 'text'], text, at(14))
+    expect(renderer).toHaveBeenCalledTimes(2)
+    index.render([0, 'text'], text, at(15))
+    expect(renderer).toHaveBeenCalledTimes(3)
+    index.render([0, 'text'], text)
+    expect(renderer).toHaveBeenCalledTimes(3)
+  })
+
   it('names each comment marker by its comment text, as the Review card shows it', () => {
     const binding = createEditorCoreBinding(createLocalCoreOwner())
     binding.open({
