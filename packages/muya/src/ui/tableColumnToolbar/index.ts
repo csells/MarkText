@@ -50,6 +50,15 @@ export class TableColumnToolbar extends BaseFloat {
             if (!isMouseEvent(event))
                 return;
 
+            // Never show (or keep) the column tools while the inline format
+            // picker is up — check before the hover guards below, which would
+            // otherwise keep them alive behind the picker.
+            const { ui } = this.muya;
+            for (const { name, status } of ui.shownFloat) {
+                if (name === 'mu-format-picker' && status)
+                    return this.hide();
+            }
+
             // Commands keep the column selected by the latest pointer event.
             // Moving across the toolbar's own buttons must not retarget it.
             if (event.target instanceof Node && this.floatBox?.contains(event.target))
@@ -57,15 +66,6 @@ export class TableColumnToolbar extends BaseFloat {
 
             const { x, y } = event;
             const eles = [...document.elementsFromPoint(x, y)];
-
-            // Never show (or keep) the column tools while the inline format
-            // picker is up — check before the hover guard below, which would
-            // otherwise keep them alive behind the picker.
-            const { ui } = this.muya;
-            for (const { name, status } of ui.shownFloat) {
-                if (name === 'mu-format-picker' && status)
-                    return this.hide();
-            }
 
             // The toolbar overhangs narrow columns, so (x, y + OFFSET) can
             // land on a neighbour while the pointer is on the toolbar. Keep
