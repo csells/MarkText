@@ -1,3 +1,4 @@
+import { plansFromGeneralCompile } from './internal/documentCoreInspection.js'
 import type {
   CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit,
   MarkdownAstNode, SourceRange
@@ -542,7 +543,7 @@ export function widenedTrackedSourceEdit(
     widenedSpellings.set(previous, found)
   }
   const key = (BEST_EFFORT.has(core) ? 'whole ' : '') + JSON.stringify(oracle.untracked)
-  const known = found.get(key)
+  const known = plansFromGeneralCompile(core) ? undefined : found.get(key)
   if (known !== undefined) return known ?? undefined
   const spelled = searchWidenedSpelling(core, previous, oracle)
   found.set(key, spelled ?? null)
