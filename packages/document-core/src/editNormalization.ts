@@ -2,6 +2,7 @@ import type { DocumentCore, DocumentRevision, DocumentSourceEdit, MarkupSyntax, 
 import type { DocumentInputAction, DocumentInputPlan } from './inputPlanning.js'
 import type { DocumentSelection } from './sourceInputPlanning.js'
 import { codeBlockEdgeTrims } from './codeBlockEdgeTrimming.js'
+import { orderedListRenumbering } from './orderedListRenumbering.js'
 import { editedSourceReader } from './emptiedParagraphPlanning.js'
 import { rebaseModelTextPoint } from './modelText.js'
 import { composeSourceEdits } from './sourceEditComposition.js'
@@ -18,6 +19,14 @@ export interface EditNormalizationReaders {
   readonly syntax?: ((range: SourceRange) => MarkupSyntax | undefined) | undefined
   /** The whole source extent of the literal block holding a position, from the regional inventory. */
   readonly literalBlockRange?: ((position: number) => SourceRange | undefined) | undefined
+  /**
+   * Parses a source standalone with the revision's Markdown options, as a
+   * window of the document reads (`atDocumentStart` false reads no front
+   * matter). Normalizations that read the edited result parse it so.
+   */
+  readonly parseWindow?: ((source: string, atDocumentStart: boolean) => MarkupSyntax) | undefined
+  /** The whole source extent of the split list holding a position, from the regional inventory. */
+  readonly listRange?: ((position: number) => SourceRange | undefined) | undefined
 }
 
 export interface EditNormalizationContext extends EditNormalizationReaders {
@@ -39,7 +48,7 @@ export interface EditNormalizationContext extends EditNormalizationReaders {
  */
 export type EditNormalization = (context: EditNormalizationContext) => readonly DocumentSourceEdit[]
 
-const normalizations: readonly EditNormalization[] = [codeBlockEdgeTrims]
+const normalizations: readonly EditNormalization[] = [codeBlockEdgeTrims, orderedListRenumbering]
 
 /**
  * The one hook every edit planner passes its edits through, untracked or
@@ -110,15 +119,43 @@ export function normalizeInputPlan(
 }
 
 /**
- * A normalized edit set as one replacement, from its first edit's start to its
- * last's end. A tracked planner spells each of its edits as its own
- * suggestion; joined, a normalization inside a literal block becomes part of
- * the same proposed block as the edit that caused it.
+ * A normalized edit set for a tracked planner, which spells each of its edits
+ * as its own suggestion. Edits inside one literal block are joined into one
+ * replacement, so a normalization there becomes part of the same proposed
+ * block as the edit that caused it; every other edit, such as a list's
+ * renumbered ordinal, stays its own suggestion.
  */
+export function joinedEdits(core: DocumentCore, revision: DocumentRevision, edits: readonly DocumentSourceEdit[], readers: EditNormalizationReaders = {}): readonly DocumentSourceEdit[] {
+  const literalAt = (position: number): SourceRange | undefined => {
+    const window = readers.literalBlockRange?.(position)
+    if (window !== undefined) return window
+    const syntax = readers.syntax?.({ start: position, end: position }) ?? core.project(revision, 'markup').syntax
+    const block = syntax.ast.root.children.find(node => ['code-block', 'diagram', 'math-block', 'html-block'].includes(node.kind) &&
+      syntax.coordinates.toSource(node.range.start, 'previous') <= position && position <= syntax.coordinates.toSource(node.range.end, 'next'))
+    return block === undefined
+      ? undefined
+      : { start: syntax.coordinates.toSource(block.range.start, 'previous'), end: syntax.coordinates.toSource(block.range.end, 'next') }
+  }
+  const groups: { literal: SourceRange | undefined, edits: DocumentSourceEdit[] }[] = []
+  for (const edit of edits) {
+    const literal = literalAt(edit.start)
+    const current = groups.at(-1)
+    if (current?.literal !== undefined && literal !== undefined && current.literal.start === literal.start) current.edits.push(edit)
+    else groups.push({ literal, edits: [edit] })
+  }
+  return Object.freeze(groups.map(group => group.edits.length === 1 ? group.edits[0]! : joinedEdit(core, revision, group.edits)))
+}
+
+/** Edits as one replacement, from the first's start to the last's end. */
 export function joinedEdit(core: DocumentCore, revision: DocumentRevision, edits: readonly DocumentSourceEdit[]): DocumentSourceEdit {
   const first = edits[0]
   const last = edits.at(-1)
   if (first === undefined || last === undefined) throw new RangeError('Joining requires an edit')
-  const delta = edits.reduce((sum, edit) => sum + edit.insert.length - (edit.end - edit.start), 0)
-  return Object.freeze({ start: first.start, end: last.end, insert: editedSourceReader(core, revision, edits)(first.start, last.end + delta) })
+  let insert = ''
+  let cursor = first.start
+  for (const edit of edits) {
+    insert += core.sourceSlice(revision, { start: cursor, end: edit.start }) + edit.insert
+    cursor = edit.end
+  }
+  return Object.freeze({ start: first.start, end: last.end, insert })
 }
