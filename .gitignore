@@ -22,3 +22,4 @@ playwright-report/
 .codex/
 .agents/
 .agent/
+.scratch/
