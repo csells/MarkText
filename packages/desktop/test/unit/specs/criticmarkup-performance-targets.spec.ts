@@ -5,8 +5,6 @@ import { describe, expect, it } from 'vitest'
 import {
   PERFORMANCE_CALIBRATION_LOOP,
   performanceCalibrationReference,
-  performanceRunValidity,
-  performanceWorkloadValidity,
   summarizePerformanceCalibration,
   validateCriticMarkupPerformanceTargets
 } from '../../../../../scripts/criticmarkupPerformanceTargets'
@@ -45,7 +43,7 @@ describe('CriticMarkup performance target protocol', () => {
     expect(() => validateCriticMarkupPerformanceTargets(manifest)).not.toThrow()
     expect(manifest).toMatchObject({ status: 'proposed-unratified' })
     expect(manifest).toMatchObject({
-      schema: 'marktext-criticmarkup-performance-targets-v12',
+      schema: 'marktext-criticmarkup-performance-targets-v13',
       sampling: {
         sampleLifecycle: 'fresh-application-profile-per-observation-v1',
         observationSchedule: 'warmup-then-measured-rotating-round-robin-v1',
@@ -65,7 +63,7 @@ describe('CriticMarkup performance target protocol', () => {
     })
 
     const staleSchema = structuredClone(manifest) as { schema: string }
-    staleSchema.schema = 'marktext-criticmarkup-performance-targets-v11'
+    staleSchema.schema = 'marktext-criticmarkup-performance-targets-v12'
     expect(() => validateCriticMarkupPerformanceTargets(staleSchema))
       .toThrow(/schema is unsupported/i)
 
@@ -124,7 +122,7 @@ describe('CriticMarkup performance target protocol', () => {
     expect((manifest as { metrics: { t_event: object } }).metrics.t_event)
       .not.toHaveProperty('targetP95Ms')
     expect(manifest).toMatchObject({
-      schema: 'marktext-criticmarkup-performance-targets-v12',
+      schema: 'marktext-criticmarkup-performance-targets-v13',
       metrics: {
         t_present: {
           definition: expect.stringMatching(
@@ -179,21 +177,25 @@ describe('CriticMarkup performance target protocol', () => {
       .toThrow(/t_present.*frozen positive target/i)
   })
 
-  // Owner decision 2026-10-04 (plan 0012): a run whose fixed calibration
-  // loop shows a slowed CPU is invalid, neither pass nor fail, and run again.
-  describe('calibration validity', () => {
+  // Owner decision 2026-10-06 (plan 0012), replacing the 2026-10-04 rule:
+  // the calibration loop is information beside a run's results and never
+  // invalidates, reruns or leaves a run inconclusive.
+  describe('calibration as information', () => {
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
       calibration: Record<string, unknown>
     }
 
-    it('pins the fast-state loop reference for the pinned hardware', () => {
-      expect(manifest.calibration).toMatchObject({
+    it('pins the loop and its fast-state reference, with no validity limit or attempts', () => {
+      expect(manifest.calibration).toEqual({
         loop: PERFORMANCE_CALIBRATION_LOOP,
         referenceP50Ms: 1.2,
-        maximumExcess: 0.15,
-        maximumAttempts: 3
+        basis: expect.any(String),
+        rule: expect.any(String)
       })
-      expect(performanceCalibrationReference(manifest.calibration).basis).toMatch(/1\.20.*1\.5-1\.8.*upstream/su)
+      const reference = performanceCalibrationReference(manifest.calibration)
+      expect(reference.basis).toMatch(/2026-10-06.*natural idle state.*1\.45-2\.05.*1\.16-1\.22.*45 of 45/su)
+      expect(reference.rule).toMatch(/information.*never.*invalid.*every run is scored against the unchanged thresholds/su)
+      expect(reference.rule).toMatch(/AC power.*open lid.*nice 0.*load below 6/su)
     })
 
     it('rejects a manifest without a sound calibration record', () => {
@@ -203,9 +205,12 @@ describe('CriticMarkup performance target protocol', () => {
       for (const [field, value, error] of [
         ['loop', 'some-other-loop', /loop must be/],
         ['referenceP50Ms', 0, /referenceP50Ms must be a finite positive number/],
-        ['maximumExcess', 1.5, /maximumExcess must be a fraction/],
-        ['maximumAttempts', 0, /maximumAttempts must be a positive integer/],
-        ['rule', 'Slow runs count as failures.', /calibration rule must make a slowed run invalid/]
+        ['rule', 'A slowed run is invalid and runs again.', /calibration rule must record the loop as information/],
+        [
+          'rule',
+          'The loop is information and never invalidates a run, but slowed runs are not scored.',
+          /score every run against the unchanged thresholds/
+        ]
       ] as const) {
         const broken = structuredClone(manifest)
         broken.calibration[field] = value
@@ -213,28 +218,19 @@ describe('CriticMarkup performance target protocol', () => {
       }
     })
 
+    it('rejects the retired validity fields', () => {
+      for (const [field, value] of [['maximumExcess', 0.15], ['maximumAttempts', 3]] as const) {
+        const stale = structuredClone(manifest)
+        stale.calibration[field] = value
+        expect(() => validateCriticMarkupPerformanceTargets(stale), field)
+          .toThrow(/calibration must hold exactly loop, referenceP50Ms, basis and rule/)
+      }
+    })
+
     it('summarizes a run\'s loop times as nearest-rank p50 and p90', () => {
       expect(summarizePerformanceCalibration([1.3, 1.2, 1.1, 1.2, 1.2, 1.2, 1.3, 1.2, 1.2, 1.4]))
         .toEqual({ count: 10, p50: 1.2, p90: 1.3 })
       expect(summarizePerformanceCalibration([])).toEqual({ count: 0, p50: null, p90: null })
-    })
-
-    it('judges a run by its loop p50 against the reference and allowed excess', () => {
-      const reference = { referenceP50Ms: 1.2, maximumExcess: 0.15 }
-      // Fast-state runs measured 1.20; slowed ones 1.5-1.8.
-      expect(performanceRunValidity({ count: 40, p50: 1.2, p90: 1.3 }, reference)).toBe('valid')
-      expect(performanceRunValidity({ count: 40, p50: 1.38, p90: 1.5 }, reference)).toBe('valid')
-      expect(performanceRunValidity({ count: 40, p50: 1.4, p90: 1.5 }, reference)).toBe('invalid')
-      expect(performanceRunValidity({ count: 40, p50: 1.8, p90: 1.9 }, reference)).toBe('invalid')
-      // No loop times prove nothing about the CPU.
-      expect(performanceRunValidity({ count: 0, p50: null, p90: null }, reference)).toBe('invalid')
-    })
-
-    it('judges a workload on any valid attempt and leaves it inconclusive without one', () => {
-      expect(performanceWorkloadValidity(['valid'])).toBe('valid')
-      expect(performanceWorkloadValidity(['invalid', 'invalid', 'valid'])).toBe('valid')
-      expect(performanceWorkloadValidity(['invalid', 'invalid', 'invalid'])).toBe('inconclusive')
-      expect(performanceWorkloadValidity([])).toBe('inconclusive')
     })
   })
 })
