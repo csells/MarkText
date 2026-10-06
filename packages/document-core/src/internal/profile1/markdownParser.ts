@@ -372,6 +372,13 @@ export type MarkdownArmBoundaryProjectionEdit =
     readonly kind: 'protect-delimiter'
     readonly candidateOffset: number
   }>
+  // A block opener the arm's own parse read as text, escaped in the view's
+  // structure as well as its spelling (see `armStartLiteralProtection`).
+  | Readonly<{
+    readonly kind: 'escape-block-opener'
+    readonly candidateOffset: number
+    readonly sourcePosition: number
+  }>
   | Readonly<{
     readonly kind: 'respell-enclosing-emphasis-delimiters'
     readonly openerStart: number
@@ -8528,6 +8535,7 @@ function markdownBoundaryEditCandidateRange(
 ): Readonly<{ readonly start: number; readonly end: number }> {
   if (
     edit.kind === 'protect-delimiter' ||
+    edit.kind === 'escape-block-opener' ||
     edit.kind === 'terminate-fenced-block-fragment' ||
     edit.kind === 'separate-following-block'
   ) {
@@ -8585,7 +8593,7 @@ function rebaseMarkdownBoundaryEdit(
       closerEnd: edit.closerEnd + offset
     })
   }
-  if (edit.kind === 'terminate-fenced-block-fragment') {
+  if (edit.kind === 'terminate-fenced-block-fragment' || edit.kind === 'escape-block-opener') {
     return Object.freeze({
       ...edit,
       candidateOffset: edit.candidateOffset + offset

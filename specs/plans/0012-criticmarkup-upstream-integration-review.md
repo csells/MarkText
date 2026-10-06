@@ -740,6 +740,35 @@ now information only, and every run is scored.
   start passed the end and slicing that range threw. The Enter and Tab
   planners now read such content as the empty range at its start.
   `literal-content-source.spec.ts` minimizes the document from that key.
+- Arm-literal leak in the editing view (L2c). Take a Substitution that
+  begins mid-line, whose first arm ends a line:
+  `x{~~```\nold\n```\n~>```\nnew\n```\n~~}`.
+  - In the editing (markup) view, its second arm then starts a line,
+    though the arm reads as its own fragment from the Substitution's place
+    (ADR-0010). Read as text by the arm, its leading `opened a fence in
+that view and its last` closed it. The closer materialized for the
+    arm's own fence then opened a fence that ran on past the Substitution,
+    to the end of its parse region.
+  - The editing view now escapes the first marker of a fence, math or HTML
+    opener at a second arm's line start when the arm reads from mid-line.
+    This is a structural projection edit mapped to canonical source;
+    source bytes are untouched.
+  - `arm-literal-termination.spec.ts` covers 1,536 sources: Substitutions
+    at the top level and inside lists and quotes, and Additions, Deletions
+    and Highlights whose closer begins a line, before a paragraph, a
+    suggestion, a block-level suggestion or the document's end. No block
+    literal opened in an arm may run past its closer's line in any view.
+  - On the parent, 228 of those checks leaked, all in the markup view.
+    Sources whose closer a block literal holds as text form no suggestion,
+    so they have nothing to check.
+  - The small and 2,000-block sweeps and the 3,578 captured window parses
+    are byte-identical. The input sweep differs at 35 seeds, each holding
+    the shape: Enter in such an arm's text now adds a paragraph where it
+    added a line inside a code block. In 25 of the 35 first changed keys
+    Accept of the tracked plan equals the untracked plan, before and
+    after. In the other 10 it differs on the parent too: untracked plans
+    nothing in 7, and in 3 (117/11, 278/7, 88/7) both plan but Accept
+    differs. Those 3 stay open.
 
 ### 24–25 September rebase onto upstream develop — locally verified
 
