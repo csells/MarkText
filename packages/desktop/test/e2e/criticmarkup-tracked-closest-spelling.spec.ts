@@ -52,8 +52,9 @@ const shapes = [
   {
     name: 'an unclosed fence ending the document with its own closer',
     source: '```\nconst value2 = 2\n~~}\n',
-    // A Deletion and an Addition, alike while pending.
-    tracked: '{--```\nconst value2 = 2\n~~}\n--}{++```\nconst que2 = 2\n~~}\n++}'
+    // A Deletion and an Addition, alike while pending; the save writes the
+    // file's final newline after them.
+    tracked: '{--```\nconst value2 = 2\n~~}\n--}{++```\nconst que2 = 2\n~~}\n++}\n'
   },
   {
     name: 'the same fence without a final line break',
@@ -170,11 +171,12 @@ test('records typing into replaced text that no split there holds', async() => {
     // Accept All keeps the typing before the proposed text; Reject All drops it.
     await reviewEntries(page).first().locator(':scope > button').click()
     await page.getByTestId('critic-review-accept-all').click()
-    await expectSaved(app, filePath, 'Intro.\n\nx  new\n\n')
+    // The save keeps the file's one final newline.
+    await expectSaved(app, filePath, 'Intro.\n\nx  new\n')
     await undo(app)
     await expectSaved(app, filePath, tracked)
     await page.getByTestId('critic-review-reject-all').click()
-    await expectSaved(app, filePath, 'Intro.\n\n    indented 5\n\n')
+    await expectSaved(app, filePath, 'Intro.\n\n    indented 5\n')
     await undo(app)
     await expectSaved(app, filePath, tracked)
     await expectHealthy(app, page)

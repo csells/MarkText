@@ -38,7 +38,7 @@ const literals = [
     source: '---\ntitle: word\n---\n',
     selector: '.mu-frontmatter .mu-codeblock-content',
     offset: 9,
-    expected: '{~~---\ntitle: word\n---\n~>---\ntitle: woXYrd\n---\n~~}'
+    expected: '{~~---\ntitle: word\n---\n~>---\ntitle: woXYrd\n---\n~~}\n'
   },
   {
     name: 'terminated HTML',
@@ -46,14 +46,14 @@ const literals = [
     source: '<script>word</script>\n',
     selector: '.mu-html-block .mu-codeblock-content',
     offset: 10,
-    expected: '{~~<script>word</script>\n~><script>woXYrd</script>\n~~}'
+    expected: '{~~<script>word</script>\n~><script>woXYrd</script>\n~~}\n'
   },
   {
     name: 'fenced code',
     source: '~~~js\nword\n~~~\n',
     selector: '.mu-codeblock-content',
     offset: 2,
-    expected: '{~~~~~js\nword\n~~~\n~>~~~js\nwoXYrd\n~~~\n~~}'
+    expected: '{~~~~~js\nword\n~~~\n~>~~~js\nwoXYrd\n~~~\n~~}\n'
   },
   // Inner lines of longer blocks, which a later key reads alone in the
   // proposed block (Core's arm line windows).
@@ -63,7 +63,7 @@ const literals = [
     selector: '.mu-codeblock-content',
     clickAt: { text: 'word', offset: 2 },
     offset: 0,
-    expected: '{~~~~~js\none\nword\nthree\nfour\n~~~\n~>~~~js\none\nwoXYrd\nthree\nfour\n~~~\n~~}'
+    expected: '{~~~~~js\none\nword\nthree\nfour\n~~~\n~>~~~js\none\nwoXYrd\nthree\nfour\n~~~\n~~}\n'
   },
   {
     name: 'an inner line of indented code',
@@ -71,9 +71,11 @@ const literals = [
     selector: '.mu-codeblock-content',
     clickAt: { text: 'word', offset: 2 },
     offset: 0,
-    expected: '{~~    one\n    word\n    three\n    four\n~>    one\n    woXYrd\n    three\n    four\n~~}'
+    expected: '{~~    one\n    word\n    three\n    four\n~>    one\n    woXYrd\n    three\n    four\n~~}\n'
   }
 ]
+// A suggestion that holds a block's final line break ends the document with
+// its closer, so the save writes the file's one final newline after it.
 for (const literal of literals) {
   // Core acknowledges each native operation synchronously; 'consecutive' types
   // the next key without first waiting for the editor to settle.
