@@ -377,6 +377,18 @@ export function createCoreActor(
         ranges: Object.freeze([Object.freeze({ anchor: selection.start, focus: selection.end })]),
         primary: 0
       })
+  /** A joined step's redo caret, unless the joined change ended the text before it. */
+  const joinedAfterSelection = (
+    selection: DocumentSelection | undefined,
+    sourceLength: number
+  ): Readonly<{ afterSelection?: DocumentSelection }> => {
+    if (selection === undefined) return {}
+    try {
+      return { afterSelection: copyDocumentSelection(selection, sourceLength) }
+    } catch {
+      return {}
+    }
+  }
   const copyEntry = (entry: HistoryEntry): HistoryEntry =>
     Object.freeze({
       undo: copyEdits(entry.undo),
@@ -2083,6 +2095,7 @@ export function createCoreActor(
       let mergedEntry: HistoryEntry | null | undefined
       const joinedHistory = request.type === 'apply' && request.joinPreviousHistory === true
       let continuedGroup: string | undefined
+      let joinedSelections: Pick<HistoryEntry, 'beforeSelection' | 'afterSelection'> | undefined
       let commit
       try {
         inverse =
@@ -2140,9 +2153,11 @@ export function createCoreActor(
             mergedEntry = mergeNativeHistory(joinTarget, prospectiveEntry, core, revision)
             if (mergedEntry !== undefined && mergedEntry !== null) prospectiveEntry = mergedEntry
           }
-          // A joined change keeps the step it joined open to further typing.
-          if (joinedHistory && mergedEntry !== undefined && nativeHistoryGroup?.entry === joinTarget) {
-            continuedGroup = nativeHistoryGroup?.id
+          if (joinedHistory && mergedEntry !== undefined && joinTarget !== undefined) {
+            // A joined change keeps the step it joined open to further typing,
+            // and that step's carets: it changes no text the caret is in.
+            if (nativeHistoryGroup?.entry === joinTarget) continuedGroup = nativeHistoryGroup.id
+            joinedSelections = joinTarget
           }
           if (
             prospectiveEntry.undo.length > maximumHistoryEditsPerEntry ||
@@ -2229,13 +2244,19 @@ export function createCoreActor(
         prospectiveEntry = Object.freeze({
           undo: prospectiveEntry.undo,
           redo: prospectiveEntry.redo,
-          ...(beforeSelection === undefined
-            ? {}
-            : afterSelection !== undefined
-              ? { beforeSelection, afterSelection: copySelection(afterSelection) }
-              : reviewCommand
-                ? { beforeSelection }
-                : {})
+          ...(joinedSelections !== undefined
+            ? {
+              ...(joinedSelections.beforeSelection === undefined ? {} : { beforeSelection: joinedSelections.beforeSelection }),
+              ...(joinedAfterSelection(joinedSelections.afterSelection, revision.sourceLength +
+                edits!.reduce((sum, edit) => sum + edit.insert.length - edit.end + edit.start, 0)))
+            }
+            : beforeSelection === undefined
+              ? {}
+              : afterSelection !== undefined
+                ? { beforeSelection, afterSelection: copySelection(afterSelection) }
+                : reviewCommand
+                  ? { beforeSelection }
+                  : {})
         })
       }
       for (const target of retainedSelections.values()) {
