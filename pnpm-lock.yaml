@@ -266,7 +266,7 @@ importers:
         specifier: ~42.1.0
         version: 42.1.0
       electron-builder:
-        specifier: ^26.15.7
+        specifier: ^26.15.3
         version: 26.17.0(electron-builder-squirrel-windows@26.17.0)
       electron-vite:
         specifier: ^5.0.0
