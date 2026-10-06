@@ -25,8 +25,8 @@
     {
       "id": "long-markdown-guide",
       "path": "packages/website/content/docs/end-user/MARKDOWN_SYNTAX.md",
-      "sha256": "e1934c20fed2947d00be0b2806ad64881ad145a593c4b252521f84719b41b1df",
-      "sourceUnits": 22350,
+      "sha256": "37ab60fd4358bfcac86159101accff7761036badaf8b9abed6a7dfc3ce5de6b3",
+      "sourceUnits": 23109,
       "coverage": ["long-document", "plain-prose"],
       "evidence": [
         { "coverage": "long-document", "anchor": "## Table of contents" },
