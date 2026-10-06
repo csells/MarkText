@@ -1,4 +1,4 @@
-import type { BrowserWindow, MenuItem, MenuItemConstructorOptions } from 'electron'
+import type { BrowserWindow, MenuItemConstructorOptions } from 'electron'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({
@@ -33,12 +33,14 @@ const submenu = editMenu({
   getAccelerator: () => undefined
 } as never).submenu as MenuItemConstructorOptions[]
 
+// Cut, Copy and Paste are Electron menu roles (#5582): Electron performs a
+// role by calling the focused window's `webContents.cut()`, which this models.
 const clickEditMenu = (label: string): void => {
   const item = submenu.find(candidate => candidate.label === label)
-  if (typeof item?.click !== 'function') {
-    throw new Error(`Edit menu item ${label} requires a click callback`)
+  if (item?.role !== 'cut' || item.click !== undefined) {
+    throw new Error(`Edit menu item ${label} must be Electron's native cut role`)
   }
-  item.click({} as MenuItem, fakeWindow, {} as KeyboardEvent)
+  fakeWindow.webContents.cut()
 }
 
 describe('CriticMarkup projected-cut production surfaces', () => {
