@@ -16,14 +16,14 @@ performance and release-candidate executions must use the current checkpoint.
 
 ## Runnable upstream suites
 
-| Surface | Command | What it establishes |
-| --- | --- | --- |
-| Muya unit tests | `pnpm -C packages/muya test` | Editor model, parsing, editing, clipboard, presentation helpers, and plugin behavior. |
-| Muya specification tests | `pnpm -C packages/muya test:spec` | The package's Markdown specification cases. |
-| Desktop unit tests | `pnpm -C packages/desktop test:unit` | Renderer/main integration, preferences, file lifecycle, commands, and component behavior. |
-| Muya browser tests | `pnpm -C packages/muya/e2e exec playwright test --project=chromium` | Browser editing and plugin behavior through the Muya host. |
-| Desktop build | `pnpm build` | The normal desktop production bundle compiles. |
-| Desktop Electron tests | `pnpm test:e2e` | The built project runs in Electron and exercises the application shell. |
+| Surface                  | Command                                                             | What it establishes                                                                       |
+| ------------------------ | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Muya unit tests          | `pnpm -C packages/muya test`                                        | Editor model, parsing, editing, clipboard, presentation helpers, and plugin behavior.     |
+| Muya specification tests | `pnpm -C packages/muya test:spec`                                   | The package's Markdown specification cases.                                               |
+| Desktop unit tests       | `pnpm -C packages/desktop test:unit`                                | Renderer/main integration, preferences, file lifecycle, commands, and component behavior. |
+| Muya browser tests       | `pnpm -C packages/muya/e2e exec playwright test --project=chromium` | Browser editing and plugin behavior through the Muya host.                                |
+| Desktop build            | `pnpm build`                                                        | The normal desktop production bundle compiles.                                            |
+| Desktop Electron tests   | `pnpm test:e2e`                                                     | The built project runs in Electron and exercises the application shell.                   |
 
 The root `pnpm test` command covers the desktop package only; it is not a monorepo test command.
 Focused commands may speed iteration, but the Phase 0 result must retain the complete suite outcome.
