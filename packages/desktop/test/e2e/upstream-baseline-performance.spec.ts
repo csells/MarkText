@@ -87,13 +87,9 @@ import {
   loadPerformanceCalibration,
   probePerformanceCalibration,
   readPerformanceCalibration,
-  startPerformanceCalibration,
-  type PerformanceCalibrationVerdict
+  startPerformanceCalibration
 } from './helpers/performanceCalibration'
-import {
-  performanceRunCalibrationReference,
-  performanceRunValidity
-} from '../../../../scripts/criticmarkupPerformanceTargets'
+import { performanceRunCalibrationReference } from '../../../../scripts/criticmarkupPerformanceTargets'
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..')
 const PINNED_BASELINE = 'e52106fd1cdcbd33c1258b7b0cdc7013c4c5d86c'
@@ -690,11 +686,7 @@ test.describe('pinned upstream baseline raw performance producer', () => {
     const calibrationReference = performanceRunCalibrationReference(
       loadPerformanceCalibration()
     )
-    // Each observation may run up to the calibration's attempt limit.
-    test.setTimeout(upstreamPerformanceOrchestrationTimeoutMs(
-      totalSamples * calibrationReference.maximumAttempts
-    ))
-    const attemptsByOrdinal = new Map<number, number>()
+    test.setTimeout(upstreamPerformanceOrchestrationTimeoutMs(totalSamples))
     const samples: UpstreamBaselinePerformanceRawSample[] = []
     const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-upstream-performance-'))
     let completed = 0
@@ -770,11 +762,8 @@ test.describe('pinned upstream baseline raw performance producer', () => {
               app.page,
               calibrationReference
             )
-            const attempt = (attemptsByOrdinal.get(observation.ordinal) ?? 0) + 1
-            attemptsByOrdinal.set(observation.ordinal, attempt)
             process.stdout.write(`${describePerformanceCalibration(
               `${observation.documentId} ${observation.phase} round ${String(observation.phaseRound)}`,
-              attempt,
               calibration
             )}\n`)
             return Object.freeze({
@@ -806,18 +795,11 @@ test.describe('pinned upstream baseline raw performance producer', () => {
               'external-browser-compositor-v4\n'
             )
           }
-        },
-        {
-          maximumAttempts: calibrationReference.maximumAttempts,
-          judge: sample => performanceRunValidity(
-            sample.calibration,
-            calibrationReference
-          )
         }
       )
       samples.push(...lifecycle.measurements)
 
-      expect(completed).toBe(totalSamples + lifecycle.invalidAttempts.length)
+      expect(completed).toBe(totalSamples)
       const run = createUpstreamBaselinePerformanceRawRun({
         evidenceClass: classification,
         runId: requiredValue('MARKTEXT_UPSTREAM_RUN_ID'),
@@ -862,21 +844,7 @@ test.describe('pinned upstream baseline raw performance producer', () => {
             performanceObservationScheduleSha256(observationOrder),
           ...lifecycle.counts
         },
-        calibration: {
-          reference: calibrationReference,
-          invalidObservations: lifecycle.invalidAttempts.map(
-            ({ attempt, measurement }) => ({
-              ordinal: measurement.ordinal,
-              documentId: measurement.documentId,
-              phase: measurement.phase,
-              attempt,
-              calibration: {
-                p50: measurement.calibration.p50,
-                p90: measurement.calibration.p90
-              }
-            })
-          )
-        },
+        calibration: { reference: calibrationReference },
         samples
       })
       finalizationStarted = true
@@ -906,11 +874,9 @@ test.describe('pinned upstream baseline raw performance producer', () => {
 // for the run (`caffeinate -d -u`, stopped afterwards).
 //
 // Every run times the target manifest's fixed calibration loop after each
-// measured key and records its p50 and p90 in `<workload>.json`. A run whose
-// loop shows a slowed CPU is invalid: it is kept as
-// `<workload>.attempt-<n>.json`, judged neither pass nor fail, and run again,
-// up to the manifest's maximumAttempts; a workload with no valid attempt is
-// recorded as inconclusive and fails.
+// measured key and records its p50 and p90 in `<workload>.json` as
+// information. The loop never invalidates or reruns a run: every run is
+// scored against the unchanged thresholds (owner decision 2026-10-06).
 //
 // Opt-in diagnostics, off by default, written beside `<workload>.json`:
 // - MARKTEXT_UPSTREAM_WARM_PROFILE=1: `<workload>.cpuprofile`, the renderer's
@@ -932,20 +898,15 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
     trace: process.env.MARKTEXT_UPSTREAM_WARM_TRACE === '1',
     dom: process.env.MARKTEXT_UPSTREAM_WARM_DOM === '1'
   })
-  const reference = loadPerformanceCalibration()
+  const reference = performanceRunCalibrationReference(loadPerformanceCalibration())
 
-  /**
-   * One warm session of `workload` in a fresh profile: the record its
-   * `<workload>.json` holds, with the calibration verdict that decides
-   * whether it counts.
-   */
-  const measureUpstreamWarmAttempt = async(
+  /** One warm session of `workload` in a fresh profile: the record its `<workload>.json` holds. */
+  const measureUpstreamWarmSession = async(
     workload: typeof ORDINARY_MARKDOWN_WORKLOADS[number],
     appBundle: string,
-    outputDirectory: string,
-    attempt: number
-  ): Promise<{ record: Record<string, unknown>, calibration: PerformanceCalibrationVerdict }> => {
-    const artifact = attempt === 1 ? workload.name : `${workload.name}.attempt-${String(attempt)}`
+    outputDirectory: string
+  ): Promise<Record<string, unknown>> => {
+    const artifact = workload.name
     const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-upstream-performance-'))
     try {
       const bootstrapFile = await createUpstreamPerformanceBlankBootstrapFile(runRoot)
@@ -992,29 +953,26 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
           ? null
           : sorted[Math.min(sorted.length - 1, Math.ceil(value * sorted.length) - 1)] ?? null
         expect(sorted).toHaveLength(measured)
+        console.log(describePerformanceCalibration(workload.name, calibration))
         return {
+          workload: workload.name,
+          sourceSha256: sha256(workload.source),
+          sourceUnits: workload.source.length,
+          upstreamBuildCommit: process.env.MARKTEXT_UPSTREAM_BUILD_COMMIT ?? null,
+          harnessCommit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim(),
+          measuredAt: new Date().toISOString(),
+          loadAverage: { before: loadBefore, after: os.loadavg() },
+          protocol: { warmup, measured, intervalMs: interval, boundary: 'beforeinput-to-exact-dom-echo' },
+          diagnostics,
           calibration,
-          record: {
-            workload: workload.name,
-            attempt,
-            sourceSha256: sha256(workload.source),
-            sourceUnits: workload.source.length,
-            upstreamBuildCommit: process.env.MARKTEXT_UPSTREAM_BUILD_COMMIT ?? null,
-            harnessCommit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim(),
-            measuredAt: new Date().toISOString(),
-            loadAverage: { before: loadBefore, after: os.loadavg() },
-            protocol: { warmup, measured, intervalMs: interval, boundary: 'beforeinput-to-exact-dom-echo' },
-            diagnostics,
-            calibration,
-            open: opened,
-            echoMs: {
-              count: sorted.length,
-              p50: percentile(0.5),
-              p95: percentile(0.95),
-              max: sorted.at(-1) ?? null
-            },
-            samples: input
-          }
+          open: opened,
+          echoMs: {
+            count: sorted.length,
+            p50: percentile(0.5),
+            p95: percentile(0.95),
+            max: sorted.at(-1) ?? null
+          },
+          samples: input
         }
       } finally {
         await closeRenderActiveUpstreamApplication(app)
@@ -1027,28 +985,12 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
   for (const workload of ORDINARY_MARKDOWN_WORKLOADS) {
     test(workload.name, async() => {
       if (process.platform !== 'darwin') throw new Error('Upstream warm sessions require macOS')
-      test.setTimeout(reference.maximumAttempts * Math.max(300_000, (warmup + measured) * (interval + 150) + 120_000))
+      test.setTimeout(Math.max(300_000, (warmup + measured) * (interval + 150) + 120_000))
       const outputDirectory = requiredPath('MARKTEXT_UPSTREAM_WARM_OUTPUT')
       const appBundle = requiredPath('MARKTEXT_UPSTREAM_WARM_APP')
-      const attempts: Array<Record<string, unknown>> = []
-      for (let attempt = 1; attempt <= reference.maximumAttempts; attempt += 1) {
-        const result = await measureUpstreamWarmAttempt(workload, appBundle, outputDirectory, attempt)
-        console.log(describePerformanceCalibration(workload.name, attempt, result.calibration))
-        attempts.push(result.record)
-        if (result.calibration.validity === 'valid') {
-          fs.writeFileSync(path.join(outputDirectory, `${workload.name}.json`),
-            JSON.stringify({ ...result.record, validity: 'valid', attempts: attempts.length }, null, 2), { flag: 'wx' })
-          return
-        }
-        fs.writeFileSync(path.join(outputDirectory, `${workload.name}.attempt-${String(attempt)}.json`),
-          JSON.stringify({ ...result.record, validity: 'invalid' }, null, 2), { flag: 'wx' })
-      }
-      fs.writeFileSync(path.join(outputDirectory, `${workload.name}.json`), JSON.stringify({
-        workload: workload.name,
-        validity: 'inconclusive',
-        attempts: attempts.map(record => ({ calibration: record.calibration, echoMs: record.echoMs }))
-      }, null, 2), { flag: 'wx' })
-      throw new Error(`${workload.name} is inconclusive: all ${String(attempts.length)} attempts ran on a slowed CPU`)
+      const record = await measureUpstreamWarmSession(workload, appBundle, outputDirectory)
+      fs.writeFileSync(path.join(outputDirectory, `${workload.name}.json`),
+        JSON.stringify(record, null, 2), { flag: 'wx' })
     })
   }
 })

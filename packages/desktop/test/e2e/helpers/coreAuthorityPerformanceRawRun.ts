@@ -29,7 +29,6 @@ import {
   performanceRunCalibrationReference,
   validatePerformanceRunCalibration,
   type PerformanceCalibrationSummary,
-  type PerformanceInvalidObservation,
   type PerformanceRunCalibrationReference
 } from '../../../../../scripts/criticmarkupPerformanceTargets'
 
@@ -339,10 +338,9 @@ export interface CoreAuthorityPerformanceRawRunInput {
     readonly measuredSamples: number
   }>
   readonly provenance: CoreAuthorityPerformanceBuildProvenance
-  /** The target manifest's calibration and every attempt judged invalid and run again. */
+  /** The target manifest's calibration reference, recorded as information. */
   readonly calibration: Readonly<{
     readonly reference: PerformanceRunCalibrationReference
-    readonly invalidObservations: readonly PerformanceInvalidObservation[]
   }>
   readonly documents: readonly Readonly<{
     readonly id: string
@@ -677,32 +675,23 @@ export function createCoreAuthorityPerformanceRawRun(
 
   const calibration = Object.freeze({
     reference: performanceRunCalibrationReference(input.calibration.reference),
-    probe: PERFORMANCE_CALIBRATION_PROBE,
-    invalidObservations: Object.freeze(input.calibration.invalidObservations.map(
-      observation => Object.freeze({
-        ...observation,
-        calibration: Object.freeze({ ...observation.calibration })
-      })
-    ))
+    probe: PERFORMANCE_CALIBRATION_PROBE
   })
-  const invalidCount = validatePerformanceRunCalibration({
+  validatePerformanceRunCalibration({
     calibration,
     documents,
-    observationOrder,
     ...input.sampling
   }, input.calibration.reference, 'Raw performance run')
-  // Every attempt, valid or not, launched, closed and cleaned up its own profile.
-  const attemptCount = observationOrder.length + invalidCount
   for (const field of [
     'applicationLaunchCount',
     'uniqueProfileCount',
     'applicationCloseCount',
     'profileCleanupCount'
   ] as const) {
-    if (input.provenance[field] !== attemptCount) {
+    if (input.provenance[field] !== observationOrder.length) {
       throw new Error(
         `Raw performance ${field} must equal observation count ` +
-        `${String(attemptCount)}, one per attempt`
+        String(observationOrder.length)
       )
     }
   }
@@ -725,11 +714,11 @@ export function createCoreAuthorityPerformanceRawRun(
   })
   return input.evidenceClass === 'ratification'
     ? Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-run-v15' as const,
+      schema: 'marktext-criticmarkup-raw-performance-run-v16' as const,
       ...base
     })
     : Object.freeze({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v15' as const,
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v16' as const,
       evidenceClass: 'smoke-non-ratifying' as const,
       ...base
     })

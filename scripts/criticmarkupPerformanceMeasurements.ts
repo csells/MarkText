@@ -129,18 +129,18 @@ interface CriticMarkupRawPerformanceRunBase {
   }>
 }
 
-export interface CriticMarkupUpstreamRawPerformanceRunV13
+export interface CriticMarkupUpstreamRawPerformanceRunV14
   extends CriticMarkupRawPerformanceRunBase {
-  schema: 'marktext-criticmarkup-raw-performance-run-v13'
+  schema: 'marktext-criticmarkup-raw-performance-run-v14'
   provenance: CriticMarkupUpstreamPerformanceProvenance
   metricDefinitions: Record<CommonMetric, string>
 }
 
 export type CriticMarkupPerformanceSurface = 'wysiwyg' | 'source'
 
-export interface CriticMarkupCoreRawPerformanceRunV15
+export interface CriticMarkupCoreRawPerformanceRunV16
   extends Omit<CriticMarkupRawPerformanceRunBase, 'implementation' | 'documents'> {
-  schema: 'marktext-criticmarkup-raw-performance-run-v15'
+  schema: 'marktext-criticmarkup-raw-performance-run-v16'
   implementation: 'core-candidate'
   surfaces: CriticMarkupPerformanceSurface[]
   provenance: CriticMarkupCorePerformanceProvenance
@@ -224,11 +224,11 @@ export interface CriticMarkupPerformanceAuthoritySamples {
 }
 
 export type CriticMarkupRawPerformanceRun =
-  | CriticMarkupUpstreamRawPerformanceRunV13
-  | CriticMarkupCoreRawPerformanceRunV15
+  | CriticMarkupUpstreamRawPerformanceRunV14
+  | CriticMarkupCoreRawPerformanceRunV16
 
 interface PerformanceTargets {
-  schema: 'marktext-criticmarkup-performance-targets-v12'
+  schema: 'marktext-criticmarkup-performance-targets-v13'
   status: 'proposed-unratified' | 'ratified'
   representativeDocuments: { schema: string, path: string }
   environment: Record<string, string>
@@ -531,7 +531,7 @@ const validateSampleSet = (
 
 const validateObservationLifecycle = (
   provenance: Record<string, unknown>,
-  expectedAttemptCount: number,
+  expectedObservationCount: number,
   label: string
 ): void => {
   if (provenance.sampleLifecycle !== PERFORMANCE_SAMPLE_LIFECYCLE) {
@@ -547,10 +547,10 @@ const validateObservationLifecycle = (
   ] as const) {
     if (
       !Number.isSafeInteger(provenance[field]) ||
-      provenance[field] !== expectedAttemptCount
+      provenance[field] !== expectedObservationCount
     ) {
       throw new Error(
-        `${label} provenance ${field} must equal ${expectedAttemptCount} observation attempts`
+        `${label} provenance ${field} must equal ${expectedObservationCount} observations`
       )
     }
   }
@@ -636,7 +636,7 @@ const validateObservationSchedule = (
 const validateUpstreamProvenance = (
   value: unknown,
   buildCommit: string,
-  expectedAttemptCount: number,
+  expectedObservationCount: number,
   label: string
 ): void => {
   const provenance = requireRecord(value, `${label} provenance`)
@@ -723,7 +723,7 @@ const validateUpstreamProvenance = (
   if (provenance.displaySleepPolicy !== PERFORMANCE_DISPLAY_SLEEP_POLICY) {
     throw new Error(`${label} provenance display sleep policy is invalid`)
   }
-  validateObservationLifecycle(provenance, expectedAttemptCount, label)
+  validateObservationLifecycle(provenance, expectedObservationCount, label)
 }
 
 const validateAuthoritySamples = (
@@ -758,7 +758,7 @@ const validateAuthoritySamples = (
 const validateCoreProvenance = (
   value: unknown,
   buildCommit: string,
-  expectedAttemptCount: number,
+  expectedObservationCount: number,
   label: string
 ): void => {
   const provenance = requireRecord(value, `${label} provenance`)
@@ -852,7 +852,7 @@ const validateCoreProvenance = (
   if (provenance.displaySleepPolicy !== PERFORMANCE_DISPLAY_SLEEP_POLICY) {
     throw new Error(`${label} provenance display sleep policy is invalid`)
   }
-  validateObservationLifecycle(provenance, expectedAttemptCount, label)
+  validateObservationLifecycle(provenance, expectedObservationCount, label)
 }
 
 const validateRawRun = (
@@ -865,8 +865,8 @@ const validateRawRun = (
 ): void => {
   const raw = requireRecord(value, `Raw performance run ${ref.id}`)
   const expectedSchema = ref.implementation === 'core-candidate'
-    ? 'marktext-criticmarkup-raw-performance-run-v15'
-    : 'marktext-criticmarkup-raw-performance-run-v13'
+    ? 'marktext-criticmarkup-raw-performance-run-v16'
+    : 'marktext-criticmarkup-raw-performance-run-v14'
   if (raw.schema !== expectedSchema) {
     throw new Error(`Raw performance run ${ref.id} schema is invalid`)
   }
@@ -927,25 +927,21 @@ const validateRawRun = (
     expectedObservationOrder,
     `Raw performance run ${ref.id}`
   )
-  // Attempts judged invalid on their calibration were run again in fresh
-  // profiles, so each one adds a launch, profile, close and cleanup.
-  const invalidAttemptCount = validatePerformanceRunCalibration({
+  validatePerformanceRunCalibration({
     calibration: raw.calibration,
     documents: raw.documents.map(candidate => {
       const document = requireRecord(candidate, `Raw performance run ${ref.id} document`)
       return { id: String(document.id), calibration: document.calibration }
     }),
-    observationOrder: expectedObservationOrder,
     warmupSamples: targets.sampling.warmupSamples,
     measuredSamples: targets.sampling.measuredSamples
   }, performanceCalibrationReference(targets.calibration), `Raw performance run ${ref.id}`)
-  const expectedAttemptCount = expectedObservationCount + invalidAttemptCount
   const declaredSurfaces = new Set<CriticMarkupPerformanceSurface>()
-  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v15') {
+  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v16') {
     validateCoreProvenance(
       raw.provenance,
       raw.buildCommit as string,
-      expectedAttemptCount,
+      expectedObservationCount,
       `Raw performance run ${ref.id}`
     )
     validateHarnessDigests(
@@ -971,7 +967,7 @@ const validateRawRun = (
     validateUpstreamProvenance(
       raw.provenance,
       raw.buildCommit as string,
-      expectedAttemptCount,
+      expectedObservationCount,
       `Raw performance run ${ref.id}`
     )
     validateHarnessDigests(
@@ -1012,7 +1008,7 @@ const validateRawRun = (
     if (document.sourceSha256 !== expected.sha256) {
       throw new Error(`Raw performance run ${ref.id} document digest is stale: ${id}`)
     }
-    if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v15') {
+    if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v16') {
       const surface = document.surface
       if (
         (surface !== 'wysiwyg' && surface !== 'source') ||
@@ -1057,7 +1053,7 @@ const validateRawRun = (
   if (missing.length > 0) {
     throw new Error(`Raw performance run ${ref.id} is missing documents: ${missing.join(', ')}`)
   }
-  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v15') {
+  if (expectedSchema === 'marktext-criticmarkup-raw-performance-run-v16') {
     const usedSurfaces = new Set(raw.documents.map(document => (
       requireRecord(document, `Raw performance run ${ref.id} document`).surface
     )))
@@ -1214,8 +1210,8 @@ export const materializeCriticMarkupMeasuredPerformanceManifest = (
     }
     const typedImplementation = implementation as PerformanceImplementation
     const expectedSchema = typedImplementation === 'upstream-baseline'
-      ? 'marktext-criticmarkup-raw-performance-run-v13'
-      : 'marktext-criticmarkup-raw-performance-run-v15'
+      ? 'marktext-criticmarkup-raw-performance-run-v14'
+      : 'marktext-criticmarkup-raw-performance-run-v16'
     if (raw.schema !== expectedSchema) {
       throw new Error(`Raw performance evidence schema is invalid: ${rawPath}`)
     }

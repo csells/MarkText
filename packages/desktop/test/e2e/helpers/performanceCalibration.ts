@@ -4,12 +4,10 @@ import type { Page } from 'playwright'
 
 import {
   performanceCalibrationReference,
-  performanceRunValidity,
   summarizePerformanceCalibration,
   type PerformanceCalibrationReference,
   type PerformanceCalibrationSummary,
-  type PerformanceRunCalibrationReference,
-  type PerformanceRunValidity
+  type PerformanceRunCalibrationReference
 } from '../../../../../scripts/criticmarkupPerformanceTargets'
 import { installKeyCalibration, readKeyCalibration } from './warmSessionDiagnostics'
 
@@ -21,13 +19,14 @@ export const loadPerformanceCalibration = (): PerformanceCalibrationReference =>
     (JSON.parse(fs.readFileSync(TARGETS, 'utf8')) as { calibration?: unknown }).calibration
   )
 
-/** A run's calibration loop numbers and whether they make the run valid. */
-export interface PerformanceCalibrationVerdict {
+/**
+ * A run's calibration loop numbers, recorded as information beside its
+ * results: they never make a run invalid (owner decision 2026-10-06).
+ */
+export interface PerformanceCalibrationRecord {
   readonly loop: PerformanceCalibrationReference['loop']
   readonly referenceP50Ms: number
-  readonly maximumP50Ms: number
   readonly summary: PerformanceCalibrationSummary
-  readonly validity: PerformanceRunValidity
 }
 
 /**
@@ -38,19 +37,13 @@ export const startPerformanceCalibration = async(page: Page): Promise<void> => {
   await installKeyCalibration(page, 'keyup')
 }
 
-/** Judges the loop times recorded since `startPerformanceCalibration`. */
+/** Summarizes the loop times recorded since `startPerformanceCalibration`. */
 export const readPerformanceCalibration = async(
   page: Page,
-  reference: PerformanceCalibrationReference
-): Promise<PerformanceCalibrationVerdict> => {
+  reference: PerformanceRunCalibrationReference
+): Promise<PerformanceCalibrationRecord> => {
   const summary = summarizePerformanceCalibration(await readKeyCalibration(page))
-  return Object.freeze({
-    loop: reference.loop,
-    referenceP50Ms: reference.referenceP50Ms,
-    maximumP50Ms: reference.referenceP50Ms * (1 + reference.maximumExcess),
-    summary,
-    validity: performanceRunValidity(summary, reference)
-  })
+  return Object.freeze({ loop: reference.loop, referenceP50Ms: reference.referenceP50Ms, summary })
 }
 
 /**
@@ -62,7 +55,7 @@ export const readPerformanceCalibration = async(
 export const probePerformanceCalibration = async(
   page: Page,
   reference: PerformanceRunCalibrationReference
-): Promise<PerformanceCalibrationVerdict> => {
+): Promise<PerformanceCalibrationRecord> => {
   const times = await page.evaluate(async() => {
     const spin = (count: number): number => {
       let value = 0
@@ -80,22 +73,17 @@ export const probePerformanceCalibration = async(
     }
     return loopTimes
   })
-  const summary = summarizePerformanceCalibration(times)
   return Object.freeze({
     loop: reference.loop,
     referenceP50Ms: reference.referenceP50Ms,
-    maximumP50Ms: reference.referenceP50Ms * (1 + reference.maximumExcess),
-    summary,
-    validity: performanceRunValidity(summary, reference)
+    summary: summarizePerformanceCalibration(times)
   })
 }
 
-/** One line naming a run's loop numbers and verdict, for the run's log. */
+/** One line naming a run's loop numbers, for the run's log. */
 export const describePerformanceCalibration = (
   name: string,
-  attempt: number,
-  verdict: PerformanceCalibrationVerdict
+  record: PerformanceCalibrationRecord
 ): string =>
-  `[calibration] ${name} attempt ${String(attempt)}: ${verdict.validity}, loop p50 ` +
-  `${String(verdict.summary.p50)} p90 ${String(verdict.summary.p90)} ms ` +
-  `(reference ${String(verdict.referenceP50Ms)}, limit ${verdict.maximumP50Ms.toFixed(2)})`
+  `[calibration] ${name}: loop p50 ${String(record.summary.p50)} p90 ${String(record.summary.p90)} ms ` +
+  `(reference ${String(record.referenceP50Ms)}, information only)`

@@ -15,7 +15,7 @@ import {
   CORE_PERFORMANCE_PRODUCER_PATHS,
   type CriticMarkupPerformanceMeasurementManifest,
   type CriticMarkupRawPerformanceRun,
-  type CriticMarkupUpstreamRawPerformanceRunV13,
+  type CriticMarkupUpstreamRawPerformanceRunV14,
   materializeCriticMarkupMeasuredPerformanceManifest,
   writeCriticMarkupPerformanceCalibrationReport,
   UPSTREAM_PERFORMANCE_PRODUCER_PATHS,
@@ -52,19 +52,14 @@ const targets = JSON.parse(targetsSource) as {
   calibration: {
     loop: string
     referenceP50Ms: number
-    maximumExcess: number
-    maximumAttempts: number
   }
 }
 const RUN_CALIBRATION = {
   reference: {
     loop: targets.calibration.loop,
-    referenceP50Ms: targets.calibration.referenceP50Ms,
-    maximumExcess: targets.calibration.maximumExcess,
-    maximumAttempts: targets.calibration.maximumAttempts
+    referenceP50Ms: targets.calibration.referenceP50Ms
   },
-  probe: 'integer-spin-300000-probe-8x40ms-v1',
-  invalidObservations: []
+  probe: 'integer-spin-300000-probe-8x40ms-v1'
 }
 const loopRecord = (length: number) => ({
   p50: Array.from({ length }, () => 1.2),
@@ -177,8 +172,8 @@ const rawRun = (
   implementation: 'upstream-baseline' | 'core-candidate'
 ): CriticMarkupRawPerformanceRun => ({
   schema: implementation === 'core-candidate'
-    ? 'marktext-criticmarkup-raw-performance-run-v15'
-    : 'marktext-criticmarkup-raw-performance-run-v13',
+    ? 'marktext-criticmarkup-raw-performance-run-v16'
+    : 'marktext-criticmarkup-raw-performance-run-v14',
   runId: `${implementation}-synthetic-validator-fixture`,
   implementation,
   ...(implementation === 'core-candidate'
@@ -319,7 +314,7 @@ const withGitAuthenticatedUpstreamRun = (
       'shared Chromium scheduling policy\n',
       'shared compositor presentation checkpoint\n',
       'calibration probe helper\n',
-      'calibration validity rule\n'
+      'calibration rule\n'
     ] as const
     const probeSource = 'upstream input probe\n'
     const launcherSource = '#!/bin/sh\necho launch\n'
@@ -357,7 +352,7 @@ const withGitAuthenticatedUpstreamRun = (
     ).trim()
     const upstream = structuredClone(
       rawRun('upstream-baseline')
-    ) as CriticMarkupUpstreamRawPerformanceRunV13
+    ) as CriticMarkupUpstreamRawPerformanceRunV14
     upstream.baselineCommit = harnessCommit
     upstream.buildCommit = harnessCommit
     upstream.provenance = {
@@ -683,7 +678,7 @@ describe('CriticMarkup raw performance evidence', () => {
       const raw = JSON.parse(
         readFileSync(resolve(root, upstreamRef.path), 'utf8')
       ) as unknown as { schema: string }
-      raw.schema = 'marktext-criticmarkup-raw-performance-run-v12'
+      raw.schema = 'marktext-criticmarkup-raw-performance-run-v13'
       const source = `${JSON.stringify(raw, null, 2)}\n`
       writeFileSync(resolve(root, upstreamRef.path), source)
       upstreamRef.sha256 = sha256(source)
@@ -697,7 +692,7 @@ describe('CriticMarkup raw performance evidence', () => {
       const raw = JSON.parse(
         readFileSync(resolve(root, coreRef.path), 'utf8')
       ) as unknown as { schema: string }
-      raw.schema = 'marktext-criticmarkup-raw-performance-run-v14'
+      raw.schema = 'marktext-criticmarkup-raw-performance-run-v15'
       const source = `${JSON.stringify(raw, null, 2)}\n`
       writeFileSync(resolve(root, coreRef.path), source)
       coreRef.sha256 = sha256(source)
@@ -707,8 +702,8 @@ describe('CriticMarkup raw performance evidence', () => {
   })
 
   it.each([
-    ['upstream-baseline', 'marktext-criticmarkup-raw-performance-smoke-v13'],
-    ['core-candidate', 'marktext-criticmarkup-raw-performance-smoke-v15']
+    ['upstream-baseline', 'marktext-criticmarkup-raw-performance-smoke-v14'],
+    ['core-candidate', 'marktext-criticmarkup-raw-performance-smoke-v16']
   ] as const)('rejects current %s smoke output as ratification evidence', (
     implementation,
     smokeSchema
@@ -1296,15 +1291,15 @@ describe('CriticMarkup raw performance evidence', () => {
     })
   })
 
-  // Owner decision 2026-10-04 (plan 0012): an observation measured on a
-  // slowed CPU is invalid, never scored, and run again, for both builds.
+  // Owner decision 2026-10-06 (plan 0012): the calibration probe is
+  // information for both builds; no loop time makes an observation invalid.
   describe.each(['upstream-baseline', 'core-candidate'] as const)('%s calibration', implementation => {
     type CalibratedRaw = {
       provenance: Record<string, unknown>
       calibration: Record<string, unknown> & { reference: Record<string, unknown> }
       documents: Array<{
         id: string
-        calibration?: { measured: { p50: number[] } }
+        calibration?: { measured: { p50: number[], p90: number[] } }
       }>
     }
     const edited = (edit: (raw: CalibratedRaw) => void, check: (validate: () => void) => void) => {
@@ -1319,39 +1314,22 @@ describe('CriticMarkup raw performance evidence', () => {
         check(() => validateCriticMarkupPerformanceMeasurements(root, measured))
       })
     }
-    const rerun = (raw: CalibratedRaw): void => {
-      const entry = first(OBSERVATION_ORDER)
-      raw.calibration.invalidObservations = [{
-        ordinal: entry.ordinal,
-        documentId: entry.documentId,
-        phase: entry.phase,
-        attempt: 1,
-        calibration: { p50: 1.7, p90: 1.8 }
-      }]
-    }
-    const recount = (raw: CalibratedRaw, attempts: number): void => {
-      for (const field of [
-        'applicationLaunchCount',
-        'uniqueProfileCount',
-        'applicationCloseCount',
-        'profileCleanupCount'
-      ]) raw.provenance[field] = attempts
-    }
 
-    it('accepts an observation run again and counts the attempt in its lifecycle', () => {
+    it('accepts an observation measured on a clocked-down CPU', () => {
       edited(raw => {
-        rerun(raw)
-        recount(raw, TOTAL_OBSERVATIONS + 1)
+        const loops = first(raw.documents).calibration!.measured
+        loops.p50[0] = 2.05
+        loops.p90[0] = 2.1
       }, validate => { expect(validate).not.toThrow() })
-      edited(rerun, validate => {
-        expect(validate).toThrow(/applicationLaunchCount must equal 1101 observation attempts/)
-      })
     })
 
-    it('rejects a kept observation measured on a slowed CPU', () => {
+    it('rejects a retired rerun record and lifecycle counts beyond one per observation', () => {
       edited(raw => {
-        first(raw.documents).calibration!.measured.p50[0] = 1.6
-      }, validate => { expect(validate).toThrow(/measured observation 1 is not valid by its calibration/) })
+        raw.calibration.invalidObservations = []
+      }, validate => { expect(validate).toThrow(/calibration must hold exactly reference and probe/) })
+      edited(raw => {
+        raw.provenance.applicationLaunchCount = TOTAL_OBSERVATIONS + 1
+      }, validate => { expect(validate).toThrow(/applicationLaunchCount must equal 1100 observations/) })
     })
 
     it('rejects a run without calibration or with a reference other than the target manifest\'s', () => {

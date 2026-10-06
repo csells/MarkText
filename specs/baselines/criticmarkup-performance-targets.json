@@ -1,5 +1,5 @@
 {
-  "schema": "marktext-criticmarkup-performance-targets-v12",
+  "schema": "marktext-criticmarkup-performance-targets-v13",
   "status": "proposed-unratified",
   "ratificationBasis": null,
   "representativeDocuments": {
@@ -14,10 +14,8 @@
   "calibration": {
     "loop": "integer-spin-300000-at-keyup-v1",
     "referenceP50Ms": 1.2,
-    "maximumExcess": 0.15,
-    "maximumAttempts": 3,
-    "basis": "Owner decision 2026-10-04 (plan 0012). On the pinned hardware the fixed loop (300,000 iterations of (value * 31 + index) | 0, timed after each measured key) measured p50 1.20 ms, p10 1.1-1.2 and p90 1.3, in every fast-state run of 2-4 October: about 60 warm runs of our build and upstream at a 1-minute load of 2.4-5.3, with the review sidebar open, hidden window, unpacked build. Runs whose echo slowed on a slowed CPU (DarkWake, the minutes after wake, after heat) measured a loop p50 of 1.5-1.8 ms, and every phase of their keys slowed by the same factor (dispatch, ack and reconcile each about 1.33x); upstream and a plain Node loop slowed at the same moments. The reference is that fast-state p50; 15% above it (1.38 ms) separates the two states.",
-    "rule": "Every warm session, ours and upstream's, records the loop's p50 and p90 with its results, timed at each measured key; every fresh-application observation of a raw run (installed-core and upstream smoke or ratification) records them from a probe after its one key, the loop eight times 40 ms apart (integer-spin-300000-probe-8x40ms-v1). A run or observation whose loop p50 exceeds referenceP50Ms by more than maximumExcess measured a slowed CPU: it is invalid, reported with its loop numbers, counted neither as a pass nor a fail, and run again, up to maximumAttempts attempts; a raw run records each observation it ran again, never scores it, and counts its application launch, profile, close and cleanup. A workload judged on a valid run meets the unchanged thresholds or fails them; one whose every attempt is invalid is inconclusive, and the gate does not pass. The rule applies to our build and upstream alike."
+    "basis": "Owner decision 2026-10-06 (plan 0012), replacing the 2026-10-04 validity rule. Performance gates measure the machine's natural idle state. On a quiet, cool Mac on AC, the probe read 1.45-2.05 ms with nothing else running and 1.16-1.22 ms with one other core busy: the CPU stays clocked down for bursty work, so a slow loop is the idle state the user meets, not an invalid run. A warm run under the old rule was invalid on 45 of 45 attempts at a 1-minute load of 1.3-3.8. The reference is the fast-state p50 measured 2-4 October (about 60 warm runs of our build and upstream at a load of 2.4-5.3), kept as context for the recorded loop times.",
+    "rule": "Every warm, upstream and installed run records the calibration loop's p50 and p90 (the keyup loop, or the probe for a fresh-application observation) as information beside its results. The loop never makes a run invalid, never reruns it and never leaves it inconclusive for a slow CPU: every run is scored against the unchanged thresholds, for our build and upstream alike. Runs still require AC power, an open lid, nice 0 and a 1-minute load below 6."
   },
   "sampling": {
     "warmupSamples": 20,

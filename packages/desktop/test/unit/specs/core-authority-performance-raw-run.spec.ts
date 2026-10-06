@@ -25,15 +25,10 @@ import { PERFORMANCE_CALIBRATION_LOOP } from '../../../../../scripts/criticmarku
 
 const CALIBRATION_REFERENCE = Object.freeze({
   loop: PERFORMANCE_CALIBRATION_LOOP,
-  referenceP50Ms: 1.2,
-  maximumExcess: 0.15,
-  maximumAttempts: 3
+  referenceP50Ms: 1.2
 })
-const RUN_CALIBRATION = Object.freeze({
-  reference: CALIBRATION_REFERENCE,
-  invalidObservations: Object.freeze([])
-})
-/** A probe's loop times on a CPU in its fast state, or slowed when `p50` is above 1.38 ms. */
+const RUN_CALIBRATION = Object.freeze({ reference: CALIBRATION_REFERENCE })
+/** A probe's loop times: 1.2 ms is the fast-state reference, slower is a clocked-down CPU. */
 const probe = (p50 = 1.2) => Object.freeze({ count: 8, p50, p90: p50 + 0.05 })
 
 const report = (
@@ -409,7 +404,7 @@ describe('Core authority raw performance producer', () => {
       documents: [{ id: 'doc', sourceSha256: digest }],
       samples
     })).toEqual({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v15',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v16',
       evidenceClass: 'smoke-non-ratifying',
       runId: 'core-2026-08-13',
       implementation: 'core-candidate',
@@ -422,8 +417,7 @@ describe('Core authority raw performance producer', () => {
       provenance,
       calibration: {
         reference: CALIBRATION_REFERENCE,
-        probe: 'integer-spin-300000-probe-8x40ms-v1',
-        invalidObservations: []
+        probe: 'integer-spin-300000-probe-8x40ms-v1'
       },
       observationOrder: schedule,
       documents: [{
@@ -608,12 +602,12 @@ describe('Core authority raw performance producer', () => {
       ])
     })
     expect(smoke).toMatchObject({
-      schema: 'marktext-criticmarkup-raw-performance-smoke-v15',
+      schema: 'marktext-criticmarkup-raw-performance-smoke-v16',
       evidenceClass: 'smoke-non-ratifying'
     })
   })
 
-  it('emits v15 only for the fixed 20/200 ratification protocol', () => {
+  it('emits v16 only for the fixed 20/200 ratification protocol', () => {
     const ratificationSchedule = scheduleFor(20, 200)
     const ratificationSamples: CoreAuthorityPerformanceRawSample[] = ratificationSchedule.map(
       (entry, index) => ({
@@ -638,7 +632,7 @@ describe('Core authority raw performance producer', () => {
     })
 
     expect(ratification.schema).toBe(
-      'marktext-criticmarkup-raw-performance-run-v15'
+      'marktext-criticmarkup-raw-performance-run-v16'
     )
     expect(() => createCoreAuthorityPerformanceRawRun({
       calibration: RUN_CALIBRATION,
@@ -966,33 +960,19 @@ describe('Core authority raw performance producer', () => {
     })).toThrow(/provenance/i)
   })
 
-  // Owner decision 2026-10-04 (plan 0012): an observation whose calibration
-  // probe shows a slowed CPU is invalid, never scored, and run again.
-  describe('calibration validity', () => {
+  // Owner decision 2026-10-06 (plan 0012): the calibration probe is
+  // information; a slow loop never invalidates, reruns or drops an observation.
+  describe('calibration as information', () => {
     const schedule = scheduleFor(1, 2)
-    const counted = (attempts: number) => ({
-      ...authenticatedProvenance(schedule),
-      applicationLaunchCount: attempts,
-      uniqueProfileCount: attempts,
-      applicationCloseCount: attempts,
-      profileCleanupCount: attempts
-    })
-    const slowed = (attempt: number, entry = schedule[1]!) => ({
-      ordinal: entry.ordinal,
-      documentId: entry.documentId,
-      phase: entry.phase,
-      attempt,
-      calibration: { p50: 1.6, p90: 1.7 }
-    })
     const input = (overrides: Record<string, unknown> = {}) => ({
       runId: 'core-calibrated',
       evidenceClass: 'smoke-non-ratifying' as const,
       baselineCommit: '1'.repeat(40),
       buildCommit: '2'.repeat(40),
-      measuredAt: '2026-10-04T12:00:00.000Z',
+      measuredAt: '2026-10-06T12:00:00.000Z',
       environment: { build: 'packaged' },
       sampling: { warmupSamples: 1, measuredSamples: 2 },
-      provenance: counted(schedule.length),
+      provenance: authenticatedProvenance(schedule),
       calibration: RUN_CALIBRATION,
       documents: [{ id: 'doc', sourceSha256: 'a'.repeat(64) }],
       samples: schedule.map((entry, index) => ({
@@ -1004,94 +984,57 @@ describe('Core authority raw performance producer', () => {
       ...overrides
     })
 
-    it('records each attempt run again and counts its application and profile', () => {
-      const run = createCoreAuthorityPerformanceRawRun(input({
-        provenance: counted(schedule.length + 1),
-        calibration: { reference: CALIBRATION_REFERENCE, invalidObservations: [slowed(1)] }
-      }))
-      expect(run.calibration.invalidObservations).toEqual([slowed(1)])
-      expect(run.documents[0]!.calibration.measured.p50).toEqual([1.2, 1.2])
-      expect(() => createCoreAuthorityPerformanceRawRun(input({
-        calibration: { reference: CALIBRATION_REFERENCE, invalidObservations: [slowed(1)] }
-      }))).toThrow(/applicationLaunchCount must equal observation count 4, one per attempt/)
-    })
-
-    it('never keeps an observation measured on a slowed CPU', () => {
+    it('keeps and scores an observation whatever its loop time, recording the loop', () => {
       const samples = input().samples
-      samples[2] = { ...samples[2]!, calibration: probe(1.4) }
-      expect(() => createCoreAuthorityPerformanceRawRun(input({ samples })))
-        .toThrow(/observation 2 is not valid by its calibration/)
-      samples[2] = { ...samples[2], calibration: { count: 0, p50: null, p90: null } } as never
-      expect(() => createCoreAuthorityPerformanceRawRun(input({ samples })))
-        .toThrow(/not valid by its calibration/)
+      samples[2] = { ...samples[2]!, calibration: probe(2.05) }
+      const run = createCoreAuthorityPerformanceRawRun(input({ samples }))
+      expect(run.calibration).toEqual({ reference: CALIBRATION_REFERENCE, probe: 'integer-spin-300000-probe-8x40ms-v1' })
+      expect(run.documents[0]!.calibration.measured.p50).toEqual([1.2, 2.05])
+      expect(run.documents[0]!.measured.t_echo).toHaveLength(2)
     })
 
-    it('rejects a rerun attempt that was not invalid, out of order, or past the limit', () => {
-      const rerun = (invalidObservations: unknown[]) => () => createCoreAuthorityPerformanceRawRun(input({
-        provenance: counted(schedule.length + invalidObservations.length),
-        calibration: { reference: CALIBRATION_REFERENCE, invalidObservations }
-      }))
-      expect(rerun([{ ...slowed(1), calibration: { p50: 1.3, p90: 1.4 } }]))
-        .toThrow(/was not invalid: its loop p50 is within the limit/)
-      expect(rerun([slowed(2)])).toThrow(/out of order or beyond the maximum/)
-      expect(rerun([slowed(1), slowed(2), slowed(3)])).toThrow(/out of order or beyond the maximum/)
-      expect(rerun([{ ...slowed(1), documentId: 'other' }])).toThrow(/does not name a scheduled observation/)
-      expect(rerun([slowed(1), slowed(2)])()).toMatchObject({
-        calibration: { invalidObservations: [slowed(1), slowed(2)] }
-      })
+    it('counts one application and profile per observation', () => {
+      expect(() => createCoreAuthorityPerformanceRawRun(input({
+        provenance: { ...authenticatedProvenance(schedule), applicationLaunchCount: schedule.length + 1 }
+      }))).toThrow(/applicationLaunchCount must equal observation count 3/)
+    })
+
+    it('rejects a missing loop time and drops retired fields', () => {
+      const samples = input().samples
+      samples[2] = { ...samples[2]!, calibration: { count: 0, p50: null, p90: null } } as never
+      expect(() => createCoreAuthorityPerformanceRawRun(input({ samples })))
+        .toThrow(/observation 2 calibration p50 is invalid/)
+      // A retired field the caller passes never reaches the raw run.
+      expect(createCoreAuthorityPerformanceRawRun(input({
+        calibration: { reference: { ...CALIBRATION_REFERENCE, maximumAttempts: 3 }, invalidObservations: [] }
+      })).calibration).toEqual({ reference: CALIBRATION_REFERENCE, probe: 'integer-spin-300000-probe-8x40ms-v1' })
     })
   })
 
-  describe('isolated observation reattempts', () => {
-    const lifecycle = (judgeLog: string[]) => {
-      const attempts = new Map<string, number>()
+  describe('isolated observations', () => {
+    it('runs each observation once in its own profile, with no rerun', async() => {
+      const log: string[] = []
       const isolations: number[] = []
-      return {
-        isolations,
-        lifecycle: {
-          createIsolation: async(declaration: string, index: number) => {
-            isolations.push(index)
-            return { profile: `profile-${String(index)}-${declaration}` }
-          },
-          launchAndPrepare: async() => 'application',
-          measure: async(_application: string, declaration: string) => {
-            const attempt = (attempts.get(declaration) ?? 0) + 1
-            attempts.set(declaration, attempt)
-            return `${declaration}#${String(attempt)}`
-          },
-          close: async() => { judgeLog.push('close') },
-          cleanup: async() => { judgeLog.push('cleanup') }
-        }
-      }
-    }
-
-    it('runs an invalid observation again in a fresh profile and counts every attempt', async() => {
-      const log: string[] = []
-      const { isolations, lifecycle: steps } = lifecycle(log)
-      const result = await runIsolatedPerformanceObservations(['a', 'b'], steps, {
-        maximumAttempts: 3,
-        judge: measurement => measurement === 'a#1' ? 'invalid' : 'valid'
+      const result = await runIsolatedPerformanceObservations(['a', 'b'], {
+        createIsolation: async(declaration: string, index: number) => {
+          isolations.push(index)
+          return { profile: `profile-${String(index)}-${declaration}` }
+        },
+        launchAndPrepare: async() => 'application',
+        measure: async(_application: string, declaration: string) => `${declaration}#1`,
+        close: async() => { log.push('close') },
+        cleanup: async() => { log.push('cleanup') }
       })
-      expect(result.measurements).toEqual(['a#2', 'b#1'])
-      expect(result.invalidAttempts).toEqual([{ index: 0, attempt: 1, measurement: 'a#1' }])
-      expect(isolations).toEqual([0, 2, 1])
+      expect(result.measurements).toEqual(['a#1', 'b#1'])
+      expect(result).not.toHaveProperty('invalidAttempts')
+      expect(isolations).toEqual([0, 1])
+      expect(log).toEqual(['close', 'cleanup', 'close', 'cleanup'])
       expect(result.counts).toEqual({
-        applicationLaunchCount: 3,
-        uniqueProfileCount: 3,
-        applicationCloseCount: 3,
-        profileCleanupCount: 3
+        applicationLaunchCount: 2,
+        uniqueProfileCount: 2,
+        applicationCloseCount: 2,
+        profileCleanupCount: 2
       })
-    })
-
-    it('leaves an observation inconclusive when every attempt is invalid', async() => {
-      const log: string[] = []
-      const { lifecycle: steps } = lifecycle(log)
-      await expect(runIsolatedPerformanceObservations(['a'], steps, {
-        maximumAttempts: 3,
-        judge: () => 'invalid'
-      })).rejects.toThrow(/observation 1 is inconclusive: all 3 attempts ran on a slowed CPU/)
-      // Each attempt still closed its application and removed its profile.
-      expect(log).toEqual(['close', 'cleanup', 'close', 'cleanup', 'close', 'cleanup'])
     })
   })
 })

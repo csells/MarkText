@@ -55,12 +55,15 @@ const positiveInteger = (value: unknown, label: string): void => {
  */
 export const PERFORMANCE_CALIBRATION_LOOP = 'integer-spin-300000-at-keyup-v1' as const
 
-/** The calibration record a target manifest pins for its hardware. */
+/**
+ * The calibration record a target manifest pins for its hardware. The loop's
+ * time is information beside a run's results, never a verdict on the run:
+ * every run is scored against the unchanged thresholds (owner decision
+ * 2026-10-06).
+ */
 export interface PerformanceCalibrationReference {
   readonly loop: typeof PERFORMANCE_CALIBRATION_LOOP
   readonly referenceP50Ms: number
-  readonly maximumExcess: number
-  readonly maximumAttempts: number
   readonly basis: string
   readonly rule: string
 }
@@ -71,11 +74,6 @@ export interface PerformanceCalibrationSummary {
   readonly p50: number | null
   readonly p90: number | null
 }
-
-export type PerformanceRunValidity = 'valid' | 'invalid'
-
-/** A workload's verdict over its attempts: judged on a valid run, or inconclusive. */
-export type PerformanceWorkloadValidity = 'valid' | 'inconclusive'
 
 const nearestRank = (sorted: readonly number[], fraction: number): number | null =>
   sorted.length === 0 ? null : sorted[Math.max(0, Math.ceil(sorted.length * fraction) - 1)] ?? null
@@ -88,31 +86,15 @@ export function summarizePerformanceCalibration(
   return Object.freeze({ count: sorted.length, p50: nearestRank(sorted, 0.5), p90: nearestRank(sorted, 0.9) })
 }
 
-/**
- * Whether a run measured the editor or the CPU's state. A run whose loop p50
- * exceeds the reference by more than the allowed excess ran on a slowed CPU
- * (thermal, power or wake state), and one with no loop times proves nothing:
- * either is invalid, judged neither pass nor fail, and run again.
- */
-export function performanceRunValidity(
-  summary: PerformanceCalibrationSummary,
-  reference: Pick<PerformanceCalibrationReference, 'referenceP50Ms' | 'maximumExcess'>
-): PerformanceRunValidity {
-  return summary.p50 !== null && summary.p50 <= reference.referenceP50Ms * (1 + reference.maximumExcess)
-    ? 'valid'
-    : 'invalid'
-}
-
-/** A workload is judged on its first valid attempt; with none it is inconclusive. */
-export function performanceWorkloadValidity(
-  attempts: readonly PerformanceRunValidity[]
-): PerformanceWorkloadValidity {
-  return attempts.includes('valid') ? 'valid' : 'inconclusive'
-}
-
 /** Validates a manifest's calibration record and returns it. */
 export function performanceCalibrationReference(value: unknown): PerformanceCalibrationReference {
   const calibration = recordOf(value, 'Performance calibration')
+  if (
+    JSON.stringify(Object.keys(calibration).sort()) !==
+      JSON.stringify(['basis', 'loop', 'referenceP50Ms', 'rule'])
+  ) {
+    throw new Error('Performance calibration must hold exactly loop, referenceP50Ms, basis and rule')
+  }
   if (calibration.loop !== PERFORMANCE_CALIBRATION_LOOP) {
     throw new Error(`Performance calibration loop must be ${PERFORMANCE_CALIBRATION_LOOP}`)
   }
@@ -120,16 +102,16 @@ export function performanceCalibrationReference(value: unknown): PerformanceCali
   if (typeof reference !== 'number' || !Number.isFinite(reference) || reference <= 0) {
     throw new Error('Performance calibration referenceP50Ms must be a finite positive number')
   }
-  const excess = calibration.maximumExcess
-  if (typeof excess !== 'number' || !Number.isFinite(excess) || excess <= 0 || excess >= 1) {
-    throw new Error('Performance calibration maximumExcess must be a fraction between 0 and 1')
-  }
-  positiveInteger(calibration.maximumAttempts, 'Performance calibration maximumAttempts')
   nonEmptyString(calibration.basis, 'Performance calibration basis')
   nonEmptyString(calibration.rule, 'Performance calibration rule')
-  if (!/invalid.*neither.*pass.*fail.*run again.*inconclusive.*does not pass/isu.test(calibration.rule as string)) {
+  if (
+    !/information/iu.test(calibration.rule as string) ||
+    !/never.*(?:invalid|rerun|run again|inconclusive)/isu.test(calibration.rule as string) ||
+    !/every run.*scored.*unchanged thresholds/isu.test(calibration.rule as string)
+  ) {
     throw new Error(
-      'Performance calibration rule must make a slowed run invalid, neither pass nor fail, rerun it, and leave a workload with no valid run inconclusive and not passing'
+      'Performance calibration rule must record the loop as information, never invalidate, rerun or ' +
+        'leave a run inconclusive for a slow CPU, and score every run against the unchanged thresholds'
     )
   }
   return calibration as unknown as PerformanceCalibrationReference
@@ -138,17 +120,8 @@ export function performanceCalibrationReference(value: unknown): PerformanceCali
 /** The calibration fields a raw performance run copies from its target manifest. */
 export type PerformanceRunCalibrationReference = Pick<
   PerformanceCalibrationReference,
-  'loop' | 'referenceP50Ms' | 'maximumExcess' | 'maximumAttempts'
+  'loop' | 'referenceP50Ms'
 >
-
-/** One observation attempt judged invalid and run again. */
-export interface PerformanceInvalidObservation {
-  readonly ordinal: number
-  readonly documentId: string
-  readonly phase: 'warmup' | 'measured'
-  readonly attempt: number
-  readonly calibration: Readonly<{ p50: number | null, p90: number | null }>
-}
 
 /**
  * How a fresh-application observation times the loop: it has a single key,
@@ -157,14 +130,13 @@ export interface PerformanceInvalidObservation {
  */
 export const PERFORMANCE_CALIBRATION_PROBE = 'integer-spin-300000-probe-8x40ms-v1' as const
 
-/** A raw run's calibration: its reference, its probe and the attempts it ran again. */
+/** A raw run's calibration: the manifest's reference and the probe it ran. */
 export interface PerformanceRunCalibration {
   readonly reference: PerformanceRunCalibrationReference
   readonly probe: typeof PERFORMANCE_CALIBRATION_PROBE
-  readonly invalidObservations: readonly PerformanceInvalidObservation[]
 }
 
-/** A document's kept observations' loop p50 and p90, in schedule order per phase. */
+/** A document's observations' loop p50 and p90, in schedule order per phase. */
 export interface PerformanceDocumentCalibration {
   readonly warmup: Readonly<{ p50: readonly number[], p90: readonly number[] }>
   readonly measured: Readonly<{ p50: readonly number[], p90: readonly number[] }>
@@ -176,13 +148,11 @@ export function performanceRunCalibrationReference(
 ): PerformanceRunCalibrationReference {
   return Object.freeze({
     loop: reference.loop,
-    referenceP50Ms: reference.referenceP50Ms,
-    maximumExcess: reference.maximumExcess,
-    maximumAttempts: reference.maximumAttempts
+    referenceP50Ms: reference.referenceP50Ms
   })
 }
 
-/** Gathers kept observations' loop p50 and p90 per phase, in the order given. */
+/** Gathers observations' loop p50 and p90 per phase, in the order given. */
 export function performanceDocumentCalibration(
   observations: readonly Readonly<{
     phase: 'warmup' | 'measured'
@@ -211,29 +181,23 @@ export function performanceDocumentCalibration(
 }
 
 /**
- * Validates a raw run's calibration against its target manifest: every kept
- * observation is valid, every attempt it ran again was invalid, and no
- * observation took more attempts than allowed. Returns how many attempts
- * were run again, which the run's application launches, profiles, closes and
- * cleanups count on top of its observations.
+ * Validates a raw run's calibration record against its target manifest: the
+ * manifest's reference, the probe, and each observation's loop p50 and p90.
+ * The numbers are information; no value makes an observation invalid.
  */
 export function validatePerformanceRunCalibration(
   input: Readonly<{
     calibration: unknown
     documents: readonly Readonly<{ id: string, calibration: unknown }>[]
-    observationOrder: readonly Readonly<{ ordinal: number, documentId: string, phase: string }>[]
     warmupSamples: number
     measuredSamples: number
   }>,
   reference: PerformanceRunCalibrationReference,
   label: string
-): number {
+): void {
   const calibration = recordOf(input.calibration, `${label} calibration`)
-  if (
-    JSON.stringify(Object.keys(calibration).sort()) !==
-      JSON.stringify(['invalidObservations', 'probe', 'reference'])
-  ) {
-    throw new Error(`${label} calibration must hold exactly reference, probe and invalidObservations`)
+  if (JSON.stringify(Object.keys(calibration).sort()) !== JSON.stringify(['probe', 'reference'])) {
+    throw new Error(`${label} calibration must hold exactly reference and probe`)
   }
   if (calibration.probe !== PERFORMANCE_CALIBRATION_PROBE) {
     throw new Error(`${label} calibration probe must be ${PERFORMANCE_CALIBRATION_PROBE}`)
@@ -248,46 +212,6 @@ export function validatePerformanceRunCalibration(
   if (Object.keys(runReference).length !== Object.keys(expected).length) {
     throw new Error(`${label} calibration reference must hold exactly the target manifest's fields`)
   }
-  const limit = reference.referenceP50Ms * (1 + reference.maximumExcess)
-  if (!Array.isArray(calibration.invalidObservations)) {
-    throw new Error(`${label} calibration invalidObservations must be an array`)
-  }
-  const byOrdinal = new Map(input.observationOrder.map(entry => [entry.ordinal, entry]))
-  const attemptsByOrdinal = new Map<number, number[]>()
-  for (const [index, candidate] of calibration.invalidObservations.entries()) {
-    const entryLabel = `${label} invalid observation ${String(index + 1)}`
-    const invalid = recordOf(candidate, entryLabel)
-    const scheduled = byOrdinal.get(invalid.ordinal as number)
-    if (
-      scheduled === undefined || invalid.documentId !== scheduled.documentId ||
-      invalid.phase !== scheduled.phase
-    ) {
-      throw new Error(`${entryLabel} does not name a scheduled observation`)
-    }
-    positiveInteger(invalid.attempt, `${entryLabel} attempt`)
-    const loop = recordOf(invalid.calibration, `${entryLabel} calibration`)
-    const p50 = loop.p50
-    if (p50 !== null && (typeof p50 !== 'number' || !Number.isFinite(p50) || p50 <= limit)) {
-      throw new Error(`${entryLabel} was not invalid: its loop p50 is within the limit`)
-    }
-    if (loop.p90 !== null && (typeof loop.p90 !== 'number' || !Number.isFinite(loop.p90))) {
-      throw new Error(`${entryLabel} loop p90 must be a number or null`)
-    }
-    const attempts = attemptsByOrdinal.get(scheduled.ordinal) ?? []
-    attempts.push(invalid.attempt as number)
-    attemptsByOrdinal.set(scheduled.ordinal, attempts)
-  }
-  for (const [ordinal, attempts] of attemptsByOrdinal) {
-    // A kept observation is its last attempt, so the invalid ones before it
-    // are attempts 1..n, fewer than the maximum.
-    const sorted = [...attempts].sort((left, right) => left - right)
-    if (
-      sorted.length >= reference.maximumAttempts ||
-      sorted.some((attempt, index) => attempt !== index + 1)
-    ) {
-      throw new Error(`${label} observation ${String(ordinal)} has invalid attempts out of order or beyond the maximum`)
-    }
-  }
   for (const document of input.documents) {
     const record = recordOf(document.calibration, `${label} ${document.id} calibration`)
     for (const [phase, count] of [['warmup', input.warmupSamples], ['measured', input.measuredSamples]] as const) {
@@ -299,8 +223,8 @@ export function validatePerformanceRunCalibration(
       }
       for (const [index, value] of p50.entries()) {
         const high = p90[index]
-        if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > limit) {
-          throw new Error(`${label} ${document.id} ${phase} observation ${String(index + 1)} is not valid by its calibration`)
+        if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+          throw new Error(`${label} ${document.id} ${phase} observation ${String(index + 1)} calibration p50 is invalid`)
         }
         if (typeof high !== 'number' || !Number.isFinite(high) || high < value) {
           throw new Error(`${label} ${document.id} ${phase} observation ${String(index + 1)} calibration p90 is invalid`)
@@ -308,13 +232,12 @@ export function validatePerformanceRunCalibration(
       }
     }
   }
-  return calibration.invalidObservations.length
 }
 
 /** Validates the human-owned Phase 0 measurement protocol and target record. */
 export function validateCriticMarkupPerformanceTargets(value: unknown): void {
   const manifest = recordOf(value, 'Performance target manifest')
-  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v12') {
+  if (manifest.schema !== 'marktext-criticmarkup-performance-targets-v13') {
     throw new Error('Performance target manifest schema is unsupported')
   }
   if (manifest.status !== 'proposed-unratified' && manifest.status !== 'ratified') {
