@@ -4,6 +4,7 @@ import { codeTabExpansion, frontMatterPolicy } from '@marktext/input-policy'
 import { planListChange } from './listInputPlanning.js'
 import { planTaskChecked } from './taskInputPlanning.js'
 import { containerContinuationPrefix } from './clipboardMarkdown.js'
+import { fenceDiagramType, fenceOpenerOwnIndent } from './fenceOpener.js'
 import { DOCUMENT_RESOURCE_POLICY_V1 } from './resourcePolicy.js'
 import type { MarkdownLineIndex } from './revision.js'
 import { normalizeTableDimensions, tableToMarkdownWithPositions, codeEnter, fencedCodeMarkdown, htmlBlockTemplate, htmlBlockTemplateTag, emptyTableColumn, emptyTableRow, toggleTableAlignment, tableDelimiterMarkers } from '@marktext/input-policy'
@@ -1068,6 +1069,29 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
   }
   const fence = ancestors.find(node => node.kind === 'code-block' || node.kind === 'diagram' || node.kind === 'math-block' || node.kind === 'front-matter')
   if (fence !== undefined && inputType === 'insertLineBreak') return moveAfter(fence)
+  // Upstream's paragraph Enter conversion (#5600) turns a whole fence opener
+  // line into a block and writes it as its serializer does. An opener's own
+  // indentation of one to three spaces inside its container is dropped.
+  const openerOwnIndent = (node: MarkdownAstNode, openerStart: number): number =>
+    fenceOpenerOwnIndent(core, revision, projection, ancestors.slice(0, ancestors.indexOf(node)), openerStart)
+  if (fence?.kind === 'diagram' && inputType === 'insertParagraph' && start === end && fence.attributes.content === '' &&
+      typeof fence.attributes.contentStart === 'number' && fence.range.end <= fence.attributes.contentStart) {
+    // A diagram fence becomes a diagram block, which upstream writes with
+    // backticks and its diagram type, whatever fence character was typed.
+    // Upstream matches the type exactly; another spelling is a code fence.
+    const openerStart = sourceAt(fence.range.start)
+    const indent = openerOwnIndent(fence, openerStart)
+    const rest = core.sourceSlice(revision, { start: openerStart, end: Math.min(revision.sourceLength, openerStart + 1024) })
+    const lineEnd = openerStart + (rest.search(/[\r\n]/u) < 0 ? rest.length : rest.search(/[\r\n]/u))
+    const [, run = '```', word = ''] = /^(`+|~+)[ \t]*(\S*)/u.exec(rest) ?? []
+    const fenceText = fenceDiagramType(word) === undefined ? run.slice(0, 1).repeat(3) : '```'
+    const prefix = containerContinuationPrefix(core, revision, projection, fence, ancestors.slice(0, ancestors.indexOf(fence)))
+    const continuation = prefix.slice(0, prefix.length - indent)
+    const opener = fenceText + word
+    const insert = opener + lineEnding + continuation + lineEnding + continuation + fenceText
+    const caret = openerStart - indent + opener.length + lineEnding.length + continuation.length
+    return result([{ start: openerStart - indent, end: lineEnd, insert }], { start: caret, end: caret })
+  }
   if (fence !== undefined && inputType === 'insertParagraph' && fence.attributes.content === '' &&
       typeof fence.attributes.contentStart === 'number' && fence.range.end <= fence.attributes.contentStart &&
       typeof fence.attributes.infoStart === 'number') {
@@ -1083,11 +1107,13 @@ export function planStructuralInput(core: DocumentCore, revision: DocumentRevisi
       const trailing = /^[ \t]*/u.exec(core.sourceSlice(revision, { start: infoEnd, end: Math.min(revision.sourceLength, infoEnd + 256) }))?.[0].length ?? 0
       const language = /^\S*/u.exec(info.trimStart())?.[0] ?? ''
       const fenceText = (marker.trimStart().startsWith('~') || language.includes('`') ? '~' : '`').repeat(3)
+      const indent = openerOwnIndent(fence, openerStart)
       const prefix = containerContinuationPrefix(core, revision, projection, fence, ancestors.slice(0, ancestors.indexOf(fence)))
+      const continuation = prefix.slice(0, prefix.length - indent)
       const opener = fenceText + language
-      const insert = opener + lineEnding + prefix + lineEnding + prefix + fenceText
-      const caret = openerStart + opener.length + lineEnding.length + prefix.length
-      return result([{ start: openerStart, end: infoEnd + trailing, insert }], { start: caret, end: caret })
+      const insert = opener + lineEnding + continuation + lineEnding + continuation + fenceText
+      const caret = openerStart - indent + opener.length + lineEnding.length + continuation.length
+      return result([{ start: openerStart - indent, end: infoEnd + trailing, insert }], { start: caret, end: caret })
     }
     const insert = lineEnding + lineEnding + marker
     return result([{ start, end, insert }], { start: start + lineEnding.length, end: start + lineEnding.length })
