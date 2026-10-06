@@ -235,6 +235,8 @@ interface ArmBoundaryTask {
   readonly parentLane: IntrinsicProfile1ForkLane
   readonly branchEnd: number
   readonly separateEditingArms?: true
+  /** The arm follows another selected arm of its Substitution. */
+  readonly followsArm?: true
 }
 
 type ProjectionTask = LaneTask | AppendTask | ArmBoundaryTask
@@ -2796,6 +2798,7 @@ function mapMarkdownBoundaryEditThrough(
 ): MarkdownArmBoundaryProjectionEdit {
   if (
     edit.kind === 'protect-delimiter' ||
+    edit.kind === 'escape-block-opener' ||
     edit.kind === 'terminate-fenced-block-fragment'
   ) {
     return Object.freeze({
@@ -2988,6 +2991,16 @@ function applyMarkdownArmBoundaryProjectionEdits(
         text: `${edit.needsLeadingLineEnding ? edit.lineEnding : ''}${
           edit.marker.repeat(edit.delimiterLength)
         }${followedByLineEnding ? '' : edit.lineEnding}`,
+        sourcePosition: edit.sourcePosition,
+        affinity: 'next'
+      }))
+      continue
+    }
+
+    if (edit.kind === 'escape-block-opener') {
+      insertions.push(Object.freeze({
+        candidateOffset: edit.candidateOffset,
+        text: '\\',
         sourcePosition: edit.sourcePosition,
         affinity: 'next'
       }))
@@ -3413,6 +3426,56 @@ function lastProjectionLineEnding(
     }
   }
   return '\n'
+}
+
+/**
+ * A Substitution's second arm in the editing view follows the first arm's
+ * text, so where that ends a line the arm starts one there, though the arm
+ * reads as its own fragment from the Substitution's place (ADR-0010). Where
+ * that place is mid-line, the arm reads no block literal on its first line,
+ * but the editing text would open a fence, math or HTML block there: that
+ * block would run on past the arm, and the closer materialized for the
+ * arm's own fence would open another past the Substitution. The opener's
+ * first marker character is escaped instead, in the view's structure as in
+ * its spelling.
+ */
+function armStartLiteralProtection(
+  lane: IntrinsicProfile1ForkLane,
+  source: string,
+  chunks: readonly string[],
+  candidateOffset: number
+): Extract<MarkdownArmBoundaryProjectionEdit, { readonly kind: 'escape-block-opener' }> | undefined {
+  if (lane.range.start === lane.range.end) return undefined
+  // Only an arm that reads from mid-line can read its line's first
+  // characters otherwise than the editing text does.
+  if (lane.entryCheckpoint.linePath === undefined ||
+      inspectMarkdownPendingLineBlock(lane.entryCheckpoint)?.blank === true) return undefined
+  // The editing text of the arm's line so far: only a container prefix may
+  // stand between the arm and that line's start.
+  let line = ''
+  for (let index = chunks.length - 1; index >= 0; index -= 1) {
+    const chunk = chunks[index] ?? ''
+    const lineBreak = Math.max(chunk.lastIndexOf('\n'), chunk.lastIndexOf('\r'))
+    line = chunk.slice(lineBreak + 1) + line
+    if (lineBreak >= 0 || !/^[ \t>]*$/u.test(line)) break
+  }
+  if (!/^[ \t>]*$/u.test(line)) return undefined
+  const lineEnd = source.slice(lane.range.start, lane.range.end).search(/\r\n|\r|\n/u)
+  const firstLine = source.slice(lane.range.start, lineEnd < 0 ? lane.range.end : lane.range.start + lineEnd)
+  const opener = /^( {0,3})(?:`{3,}|~{3,}|\$\$|<[A-Za-z!?/])/u.exec(firstLine)
+  if (opener === null) return undefined
+  const firstLineEnd = lane.range.start + firstLine.length
+  // The parse read a block literal there itself: the arm starts a line.
+  // (Inline code, math and HTML read mid-line leave it reading mid-line.)
+  if (lane.transitions.some(transition => transition.emittedFacts.literals.some(literal =>
+    !literal.kind.startsWith('inline-') && literal.kind !== 'autolink' &&
+    literal.start >= lane.range.start && literal.start <= firstLineEnd))) return undefined
+  const indentation = opener[1]?.length ?? 0
+  return Object.freeze({
+    kind: 'escape-block-opener',
+    candidateOffset: candidateOffset + indentation,
+    sourcePosition: lane.range.start + indentation
+  })
 }
 
 function terminalArmFenceEdit(
@@ -3908,6 +3971,10 @@ function prepareProjection(
             ...(continuationPrefix === '' ? {} : { continuationPrefix })
           }))
         }
+        if (view === 'editing' && task.followsArm === true) {
+          const protection = armStartLiteralProtection(task.lane, source, chunks, projectedLength)
+          if (protection !== undefined) armTerminationEdits.push(protection)
+        }
         if (openMatchingScopes.has(task.laneId)) {
           throw new Error('Projected CriticMarkup arm entered twice')
         }
@@ -4052,7 +4119,8 @@ function prepareProjection(
             lane: arm,
             parentLane: task.lane,
             branchEnd: item.node.range.end,
-            ...(separateEditingArms && armIndex > 0 ? { separateEditingArms: true as const } : {})
+            ...(separateEditingArms && armIndex > 0 ? { separateEditingArms: true as const } : {}),
+            ...(armIndex > 0 ? { followsArm: true as const } : {})
           },
           { kind: 'lane', lane: arm },
           {
@@ -4111,10 +4179,12 @@ function prepareProjection(
         : Object.freeze({ view: traceView, recorder: traceRecorder }))
   const structuralBoundaryEdits = armBoundaryProjectionEdits.filter((edit) =>
     edit.kind === 'terminate-fenced-block-fragment' ||
-    edit.kind === 'separate-following-block')
+    edit.kind === 'separate-following-block' ||
+    edit.kind === 'escape-block-opener')
   const spellingBoundaryEdits = armBoundaryProjectionEdits.filter((edit) =>
     edit.kind !== 'terminate-fenced-block-fragment' &&
-    edit.kind !== 'separate-following-block')
+    edit.kind !== 'separate-following-block' &&
+    edit.kind !== 'escape-block-opener')
   const structuralSafe = applyMarkdownArmBoundaryProjectionEdits(
     projectedSource,
     segments,
