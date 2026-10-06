@@ -850,6 +850,12 @@ interface InlineDelimiterItem {
   start: number
   end: number
   length: number
+  /**
+   * The run's length before any pairing spent it. CommonMark's rule of three
+   * and its openers-bottom classes read the run's original length, not what
+   * is left of it.
+   */
+  readonly originalLength: number
   active: boolean
   readonly matchingScopeId: number
   previous: InlineItem | undefined
@@ -1451,8 +1457,8 @@ function delimiterPairIsAllowed(
   }
   return !(
     (opener.canClose || closer.canOpen) &&
-    (opener.length + closer.length) % 3 === 0 &&
-    (opener.length % 3 !== 0 || closer.length % 3 !== 0)
+    (opener.originalLength + closer.originalLength) % 3 === 0 &&
+    (opener.originalLength % 3 !== 0 || closer.originalLength % 3 !== 0)
   )
 }
 
@@ -1542,7 +1548,7 @@ function resolveInlineDelimiterItems(
   const futureCloserIndexes = new Map<string, number[]>()
   const futureCloserKey = (
     delimiter: InlineDelimiterItem,
-    lengthModulo: number = delimiter.length % 3,
+    lengthModulo: number = delimiter.originalLength % 3,
     canOpen: boolean = delimiter.canOpen
   ): string =>
     `${delimiter.matchingScopeId}:${delimiter.markerCodeUnit}:${lengthModulo}:${canOpen ? 1 : 0}`
@@ -1622,7 +1628,7 @@ function resolveInlineDelimiterItems(
           closer.markerCodeUnit === 126 &&
           !activeMarkdownSubscriptAndSuperscriptEnabled
             ? 'tilde'
-            : `${closer.length % 3}:${closer.canOpen ? 1 : 0}`
+            : `${closer.originalLength % 3}:${closer.canOpen ? 1 : 0}`
         const lowerBound = Math.min(
           bottoms.get(closerClass) ?? 0,
           openers.length
@@ -2237,6 +2243,7 @@ function appendInlineRange(
         start: delimiterRun.start,
         end: delimiterRun.end,
         length: delimiterRun.length,
+        originalLength: delimiterRun.length,
         active: true,
         matchingScopeId: delimiterRun.matchingScopeId,
         previous: undefined,
