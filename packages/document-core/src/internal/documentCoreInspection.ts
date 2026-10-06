@@ -117,6 +117,22 @@ export function plansFromDocumentParse(core: object): boolean {
   return DOCUMENT_PLANNERS.has(core)
 }
 
+const GENERAL_PLANNERS = new WeakSet<object>()
+
+/**
+ * Package-private negative control for the regional planners themselves: the
+ * core plans every key from its document parse with the general compile
+ * alone, so a planner that answers a key another way is caught.
+ */
+export function planFromGeneralCompile(core: object): void {
+  DOCUMENT_PLANNERS.add(core)
+  GENERAL_PLANNERS.add(core)
+}
+
+export function plansFromGeneralCompile(core: object): boolean {
+  return GENERAL_PLANNERS.has(core)
+}
+
 export function inspectDocumentCore(core: object): DocumentCoreInspection {
   const reader = READERS.get(core)
   if (reader === undefined) {

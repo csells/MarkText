@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision, type DocumentSourceEdit } from '../src/index.js'
-import { planFromDocumentParse } from '../src/internal/documentCoreInspection.js'
+import { planFromGeneralCompile } from '../src/internal/documentCoreInspection.js'
 
 // One input gives one output whatever path reads it: every tracked key a
 // core plans regionally, from a window or its regional planners, is the key
-// a core planning from the whole document's parse gives. Keys build on each
+// the general compile alone gives from the whole document's parse. Keys build on each
 // other, as typing nests suggestions, on 1-10 KB documents, on a
 // 2,000-block document, and as input actions on documents of literal blocks
 // and literal suggestions.
@@ -18,7 +18,7 @@ const dense = 'Review {++new evidence++} alongside {--obsolete details--}, {~~ol
 
 function control(): DocumentCore {
   const core = createDocumentCore()
-  planFromDocumentParse(core)
+  planFromGeneralCompile(core)
   return core
 }
 
@@ -189,5 +189,54 @@ describe('a tracked key reads as the whole document plans it', () => {
 
   it('reads a key in replaced fenced text beside an unclosed comment as the document does', () => {
     expect(keyAgrees('x{~~```\nold\n```\n~>```\nnq\nqw\n```\n~~}\n\n\n\n{~~```js\nconst a = 0\n```\n~>```js\nconst a = 1\n``    `\n~~}\n\n{++~>++}{--<div>\nold html\n--}\n\nPlain words here.\n\n{++    indented in an arm\n++}\n\n{~~<div>\nold\n~><!--\nnew\n~~} ', { start: 58, end: 58, insert: '$$' })).toBe(true)
+  })
+})
+
+// The draft's own acceptance can read past the arm before any edit (a block
+// the arm boundary ends absorbs what follows; a paragraph it ends joins the
+// next): an edit in one's own arm is still the edit as typed.
+describe('a plain edit in one\'s own draft reads as typed', () => {
+  it.each([
+    ['in an unclosed fence, by Backspace', 'Text\n\n{~~```js\nconst a = 0\n```\n~>```js\nconst a = 1\n``\n`\n~~}\n\nPlain words here.\n', 'const a = 1', 2, 1, ''],
+    ['in an unclosed fence, by Enter', 'Text\n\n{~~```js\nconst a = 0\n```\n~>```js\nconst a = 1\n`\n``\n~~}\n\nPlain words here.\n', 'const a = 1', 10, 0, '\n'],
+    ['in an HTML block the next suggestion follows', '{~~<div>\nold\n</div>\n~><div>\nnew 1\n</div>\n~~}{~~\n<div>\nold html\n</div>\n~><div>\nnew html\n</div>\n~~}\n', 'new 1\n</div', 9, 1, ''],
+    ['in a $$ block after a paragraph', '{~~a~>x~~}\n{~~$$\nx_0\n$$\n~>$$\ny_0 + 1\n$$\n~~}\n', 'y_0 + 1', 6, 0, '\n'],
+    ['in a paragraph before an HTML block', 'Plain words here.\n\n{~~<div>\nold\n</div>\n~>x<divx>\nml 1\nhtml 2\n</div>\n~~}{++\n++}\n{++```js\nconst added = 1\n```\n++}\n', 'ml 1\nhtml', 4, 1, '']
+  ])('%s', (_name, source, anchor, offset, length, insert) => {
+    const start = source.lastIndexOf(anchor) + offset
+    const edit = { start, end: start + length, insert }
+    const core = control()
+    expect(core.trackedEdit(core.open(source), edit)).toEqual(edit)
+    expect(keyAgrees(source, edit)).toBe(true)
+  })
+
+  // A blank line typed into a `$$` block of one's own arm ends the block in
+  // the arm, so text after it would read as suggestions: not as typed.
+  it('keeps the full compile where the typing ends the arm\'s block', () => {
+    const source = 'Intro.\n\n{~~a~>$$\nx\ny{--d--}\n$$\n~~}\n\nEnd.\n'
+    const at = source.indexOf('x\ny') + 1
+    const edit = { start: at, end: at, insert: '\n\n' }
+    const core = control()
+    const planned = core.trackedEdit(core.open(source), edit)
+    expect(planned).toBeDefined()
+    expect(planned).not.toEqual(edit)
+    expect(keyAgrees(source, edit)).toBe(true)
+  })
+
+  // The changes are compared up to a bound; past it the edit is weighed as
+  // any other, which rewrites the draft here, and a window leaves it so too.
+  it.each([
+    ['within the regional shortcut', 20, 10, true],
+    ['past the regional shortcut', 40, 100, true],
+    ['past the compared change', 300, 1200, false]
+  ])('deletes a paragraph\'s text %s', (_name, words, length, plain) => {
+    const head = 'Plain words here.\n\n{~~<div>\nold\n</div>\n~>x<divx>\n'
+    const source = `${head}${'word '.repeat(words)}\nml 1\nhtml 2\n</div>\n~~}{++\n++}\n{++\`\`\`js\nconst added = 1\n\`\`\`\n++}\n`
+    const edit = { start: head.length + 2, end: head.length + 2 + length, insert: '' }
+    const core = control()
+    const planned = core.trackedEdit(core.open(source), edit)
+    if (plain) expect(planned).toEqual(edit)
+    else expect(planned).toMatchObject({ start: head.indexOf('{~~'), insert: expect.stringMatching(/^\{~~\{~~<div>/u) })
+    expect(keyAgrees(source, edit)).toBe(true)
   })
 })

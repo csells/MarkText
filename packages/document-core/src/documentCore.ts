@@ -16,7 +16,7 @@ import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit } from './trackedHistoryEditing.js'
-import { deferEquivalence, draftUnresolved, equivalenceDeferred, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
+import { OWN_DRAFT_SHORTCUT_UNITS, deferEquivalence, draftUnresolved, equivalenceDeferred, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import {
@@ -79,7 +79,7 @@ import {
   type PersistentCanonicalSource,
   type PersistentCanonicalSourceRecorder
 } from './internal/persistentCanonicalSource.js'
-import { plansFromDocumentParse, registerDocumentCoreInspection, registerRegionalLeaves } from './internal/documentCoreInspection.js'
+import { plansFromDocumentParse, plansFromGeneralCompile, registerDocumentCoreInspection, registerRegionalLeaves } from './internal/documentCoreInspection.js'
 import { annotationsOverlapping, registerAnnotationsAround } from './internal/annotationsAround.js'
 import {
   createRevisionProductStore,
@@ -5749,7 +5749,7 @@ function createDocumentCoreWithExecutionBudget(
     edit: DocumentSourceEdit,
     tracked: boolean
   ): DocumentSourceEdit | undefined => {
-    if (edit.start === edit.end && edit.insert.length === 0) return undefined
+    if (plansFromGeneralCompile(core) || (edit.start === edit.end && edit.insert.length === 0)) return undefined
     const candidate = regionalCandidate(state, edit)
     if (candidate === undefined) return undefined
     // A structural window proves the parse, not that the planner would splice
@@ -5792,6 +5792,7 @@ function createDocumentCoreWithExecutionBudget(
     }
     if (tracked) {
       if (owner?.kind !== 'addition' && owner?.kind !== 'substitution') return undefined
+      if (edit.end - edit.start + edit.insert.length > OWN_DRAFT_SHORTCUT_UNITS) return undefined
       const arm = owner.arms.find(arm => arm.name === (owner.kind === 'addition' ? 'content' : 'new'))
       if (arm === undefined || arm.range.start > start || arm.range.end < end ||
           (edit.start !== edit.end && arm.children.length > 0)) return undefined
