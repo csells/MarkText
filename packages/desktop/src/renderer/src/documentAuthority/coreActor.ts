@@ -1458,9 +1458,10 @@ export function createCoreActor(
         consumerSearchEdits = Object.freeze(
           resolved.filter((edit) => activeCore.sourceSlice(activeRevision, edit) !== edit.insert)
         )
-        if (request.trimUnnecessaryCodeBlockEmptyLines === true && consumerSearchEdits.length > 0) {
-          consumerSearchEdits = activeCore.trimCodeBlockEdges(activeRevision, consumerSearchEdits)
-        }
+        // Replacements change blocks as any edit does (see normalizeEdits).
+        consumerSearchEdits = activeCore.normalizeEdits(activeRevision, consumerSearchEdits, {
+          trimUnnecessaryCodeBlockEmptyLines: request.trimUnnecessaryCodeBlockEmptyLines === true
+        })
         if (consumerSearchEdits.length === 0) {
           return Object.freeze({
             type: 'rejected',

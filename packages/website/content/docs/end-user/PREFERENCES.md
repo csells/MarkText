@@ -55,9 +55,11 @@ Preferences can be controlled and modified in the settings window or via the `pr
 changes, as part of that edit: any edit inside a fenced code block, whether
 typing, deleting, Enter, paste, cut, drag and drop or a Find replacement, also
 removes that block's leading and trailing empty lines, and undoing the edit
-restores them. Lines the edit touches stay, so a line you just opened with
-Enter keeps your cursor. Code blocks you do not edit, Source view edits,
-tracked changes and saving leave a document's bytes as they are.
+restores them. With Track Changes on, the trim is part of the suggested change:
+accepting it gives the same result as the untracked edit, and rejecting it
+keeps the block as it was. Lines the edit touches stay, so a line you just
+opened with Enter keeps your cursor. Code blocks you do not edit, Source view
+edits and saving leave a document's bytes as they are.
 
 #### Markdown
 
