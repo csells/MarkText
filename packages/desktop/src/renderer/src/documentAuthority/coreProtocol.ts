@@ -265,6 +265,8 @@ export type CoreRequest =
     readonly sequence: number
     readonly baseRevision: number
     readonly replacements: readonly CoreConsumerSearchReplacement[]
+    /** Upstream's preference: trim the empty edge lines of each code block replaced into. */
+    readonly trimUnnecessaryCodeBlockEmptyLines?: boolean
     readonly projections: readonly DocumentProjectionRequest[]
   }>
   | Readonly<{

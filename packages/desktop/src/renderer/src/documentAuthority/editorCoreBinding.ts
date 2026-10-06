@@ -135,6 +135,7 @@ export type EditorCoreSubmitInput =
     readonly kind: 'replace-consumer-search'
     readonly authoredRevision: number
     readonly replacements: readonly CoreConsumerSearchReplacement[]
+    readonly trimUnnecessaryCodeBlockEmptyLines?: boolean
     readonly projections: readonly DocumentProjectionRequest[]
   }>
   | Readonly<{
@@ -619,6 +620,9 @@ export function createEditorCoreBinding(port: CoreModelOwner): EditorCoreBinding
                             sequence: transactionId,
                             baseRevision: input.authoredRevision,
                             replacements: copyConsumerSearchReplacements(input.replacements),
+                            ...(input.trimUnnecessaryCodeBlockEmptyLines === true
+                              ? { trimUnnecessaryCodeBlockEmptyLines: true }
+                              : {}),
                             projections
                           })
                           : input.kind === 'resolve'
