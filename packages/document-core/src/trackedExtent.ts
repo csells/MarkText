@@ -499,7 +499,32 @@ type Variant = 'exact' | 'pair' | 'reversed' | 'padded' | 'shifted' | 'escaped'
  * arm is the retained source and its new arm the untracked result, so
  * Accept/Reject reproduce those exact bytes by construction.
  */
+/**
+ * Widened spellings found per revision and untracked edit: one key reaches
+ * the search from several compile paths (the edit, its literal's owner,
+ * structure scope), and each search previews many candidates.
+ */
+const widenedSpellings = new WeakMap<DocumentRevision, Map<string, DocumentSourceEdit | null>>()
+
 export function widenedTrackedSourceEdit(
+  core: DocumentCore,
+  previous: DocumentRevision,
+  oracle: TrackedOracle
+): DocumentSourceEdit | undefined {
+  let found = widenedSpellings.get(previous)
+  if (found === undefined) {
+    found = new Map()
+    widenedSpellings.set(previous, found)
+  }
+  const key = JSON.stringify(oracle.untracked)
+  const known = found.get(key)
+  if (known !== undefined) return known ?? undefined
+  const spelled = searchWidenedSpelling(core, previous, oracle)
+  found.set(key, spelled ?? null)
+  return spelled
+}
+
+function searchWidenedSpelling(
   core: DocumentCore,
   previous: DocumentRevision,
   oracle: TrackedOracle
@@ -539,6 +564,22 @@ export function widenedTrackedSourceEdit(
   spans.push(...nodes)
   spans.push(lineAligned(base))
   for (const node of nodes) spans.push(lineAligned(node))
+  // An opener before a block that interrupts the paragraph above it joins
+  // that paragraph's last line, where backticks before it can pair with the
+  // block's own as inline code: the paragraph is retained with the block.
+  const blocks = syntax.ast.root.children
+  const holder = blocks.findIndex(node => syntax.coordinates.toSource(node.range.start, 'next') <= base.start &&
+    base.end <= syntax.coordinates.toSource(node.range.end, 'previous'))
+  const above = blocks[holder - 1]
+  const held = blocks[holder]
+  if (above?.kind === 'paragraph' && held !== undefined) {
+    const start = syntax.coordinates.toSource(above.range.start, 'next')
+    const heldStart = syntax.coordinates.toSource(held.range.start, 'next')
+    const between = source.slice(syntax.coordinates.toSource(above.range.end, 'previous'), heldStart)
+    if (!/(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/u.test(between)) {
+      spans.push(lineAligned({ start, end: syntax.coordinates.toSource(held.range.end, 'previous') }))
+    }
+  }
   // A block literal can absorb the blocks after it; retain those as well.
   let following = lineAligned(base)
   for (let index = 0; index < 4 && following.end < source.length; index += 1) {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
 import { createDocumentCore, type CriticMarkupAnnotation, type DocumentInputAction, type DocumentRevision, type DocumentSourceEdit } from '../src/index.js'
 import { positionAfter } from '../src/sourcePosition.js'
 import { projectionSignature } from '../src/trackedExtent.js'
@@ -56,6 +57,10 @@ interface Row {
   readonly equivalence?: Equivalence
 }
 
+// A paragraph opening backticks it never closes, then a fence holding `~>`
+// and `{--d--}` as text and a stray closer after it.
+const SEED11 = '{~x~```js\na\n```\n~>x\n{--d--}value\n```\n~~}\n'
+
 const rows: readonly Row[] = [
   // A closer after the opener on its line is info string (L2c needs it to
   // begin a line), so the arm must end with the opener's line break.
@@ -76,6 +81,9 @@ const rows: readonly Row[] = [
   { name: 'trailing backslash before an EOL', source: 'abc\n', at: 3, insert: '\\', tracked: 'abc{~~\n~>\\\n~~}' },
   { name: 'trailing backslash at EOF', source: 'abc', at: 3, insert: '\\', tracked: 'abc{++\\\\++}', equivalence: 'rendering' },
   { name: 'reference definition typed at a line start', source: 'x [a]\n\ny\n', at: 7, insert: '[a]: ' },
+  // An opener at the fence would join the paragraph above, whose backticks
+  // would then pair with the fence's as inline code; the paragraph goes too.
+  { name: 'a fence after a paragraph holding marker text', source: SEED11, at: [SEED11.lastIndexOf('val'), SEED11.lastIndexOf('val') + 3], insert: 'q' },
   { name: 'HTML after a paragraph', source: 'hello', at: 5, insert: '\n\n<p>x</p>', tracked: 'hello{++\n\n<p>x</p>\n++}', equivalence: 'rendering' },
   { name: 'HTML in a list', source: '- a\n- b\n', at: 3, insert: '\n  <div>x</div>', tracked: '- a\n{++  <div>x</div>\n++}- b\n' },
   { name: 'HTML in a blockquote', source: '> a\n\nb\n', at: 3, insert: '\n> <div>x</div>' },
@@ -354,5 +362,16 @@ describe('edits over existing suggestions follow Google Docs (plan 0012 G34)', (
     // Undo restores the exact previous source.
     const undo = { start: planned!.start, end: planned!.start + planned!.insert.length, insert: row.source.slice(planned!.start, planned!.end) }
     expect(core.apply(next, [undo]).revision.source).toBe(row.source)
+  })
+})
+
+describe('a tracked key widened past a block reads few whole documents', () => {
+  it('spells a fence after a paragraph holding marker text in at most two document parses', () => {
+    const core = createDocumentCore()
+    const revision = core.open(SEED11)
+    const before = inspectDocumentCore(core).documentParses
+    const start = SEED11.lastIndexOf('val')
+    expect(core.trackedEdit(revision, { start, end: start + 3, insert: 'q' })).toBeDefined()
+    expect(inspectDocumentCore(core).documentParses - before).toBeLessThanOrEqual(2)
   })
 })
