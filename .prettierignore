@@ -3,6 +3,19 @@
 # style (2-space, no semi). Skip it so `pnpm format` doesn't fight muya's own lint.
 packages/muya/
 
+# Standards corpora preserve upstream bytes (ESLint ignores them too).
+packages/document-core/test/fixtures/*.json
+# Performance inputs: their exact bytes are the measured workload.
+specs/baselines/representative-documents/
+# Recorded run evidence keeps the bytes it was captured with.
+specs/baselines/runs/
+# Written by scripts/criticmarkup*.ts; regenerate them rather than reformat.
+specs/baselines/criticmarkup-interaction-evidence.json
+specs/baselines/criticmarkup-interaction-matrix.json
+specs/baselines/criticmarkup-parity-oracle-proposal.json
+specs/baselines/criticmarkup-parity-proposal.json
+specs/baselines/criticmarkup-salvage-proposal.json
+specs/baselines/criticmarkup-upstream-parity.json
 # pnpm owns this file's formatting; Prettier reformats it wholesale and pnpm
 # rewrites it back on the next install, so the churn is pure noise.
 pnpm-lock.yaml

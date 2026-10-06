@@ -24,9 +24,9 @@ report are still required before that decision is reviewable.
   teardown hang, and reproduced Electron burst-input loss preserved as baseline gaps. Amendment:
 - **Parity manifest** — [ ] Approve the proposed dispositions for all 829 items. Amendment:
   - [ ] Treat the proved objective behavior as sufficient while leaving the subjective
-    clean/simple/distraction-free claim as an approved compatibility decision.
+        clean/simple/distraction-free claim as an approved compatibility decision.
   - [ ] Treat the 87 proved shortcuts as sufficient while leaving the subjective
-    writing-efficiency claim as an approved compatibility decision.
+        writing-efficiency claim as an approved compatibility decision.
   - [ ] Keep unshipped collaborative transport out of the compatibility scope.
 - **Language Profile 1 and ADRs** — [ ] Ratify the pinned Profile 1/conformance map and listed ADR
   set. Amendment:
@@ -138,15 +138,15 @@ That final command is expected to fail while the manifest is `awaiting-raw-runs`
 
 No numbers in the target manifest are measurements. Current proposed p95 limits are:
 
-| Metric | Proposed p95 |
-| --- | ---: |
-| `t_echo` | 16.7 ms |
-| `t_dispatch` | 8 ms |
-| `t_ack` | 50 ms |
-| `t_reconcile` | 50 ms |
-| `t_present` | Calibration required |
-| `open` | 500 ms |
-| `first_viewport` | 1,500 ms |
+| Metric           |         Proposed p95 |
+| ---------------- | -------------------: |
+| `t_echo`         |              16.7 ms |
+| `t_dispatch`     |                 8 ms |
+| `t_ack`          |                50 ms |
+| `t_reconcile`    |                50 ms |
+| `t_present`      | Calibration required |
+| `open`           |               500 ms |
+| `first_viewport` |             1,500 ms |
 
 ## Decisions after raw measurements are checked in
 
