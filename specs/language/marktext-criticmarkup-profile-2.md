@@ -68,6 +68,28 @@ The Addition closes after the list-item prefix; `after` is a paragraph in the
 same item. A fence opened before any arm is unaffected:
 ` ```⏎++}⏎``` ` is one code block containing `++}`.
 
+## T1 — tracked edits the syntax can spell only whole
+
+Track Changes never refuses an edit (plan 0012). A block literal that runs to
+the end of the document can hold a line that a tracked spelling's own arm would
+read as its boundary, as an unclosed fence whose text has a `~~}` line does.
+No spelling of an edit in it both reads as the operation while pending and lets
+each suggestion resolve alone: a Substitution ends at that line, and resolving
+one side of a Deletion and Addition alone restores the unclosed literal, which
+then reads the other suggestion as its text. Such an edit is recorded so that
+Accept All gives the untracked source and Reject All the original, byte for
+byte:
+
+- Where the literal's last line ends with a line break, as a Deletion and an
+  Addition, which read as the operation while pending; accepting or rejecting
+  one of them alone is not guaranteed to.
+- Where the document ends without a line break after that line, an arm cannot
+  hold it without adding one, so the suggestion stops before it. That line then
+  reads outside the literal, as a stray closer with its diagnostic, until the
+  suggestion resolves.
+
+Typing there shows no notice.
+
 ## L1f — footnote bodies are paragraph text
 
 Profile 1 §7 lists footnote-definition tracking ranges among the literal

@@ -375,3 +375,47 @@ describe('a tracked key widened past a block reads few whole documents', () => {
     expect(inspectDocumentCore(core).documentParses - before).toBeLessThanOrEqual(2)
   })
 })
+
+// Profile 2: an end-of-document literal holding a line its arm would read as
+// a boundary has no spelling whose suggestions each resolve alone and read as
+// the operation while pending. Typing is still recorded, and Accept All and
+// Reject All give the operation byte for byte.
+describe('tracked typing a closer-holding literal can spell only whole', () => {
+  it.each([
+    // Read alike while pending; resolving one side alone may not round-trip.
+    ['ending with a line break', '```\nconst value2 = 2\n~~}\n', 0],
+    ['after a paragraph', 'Intro.\n\n```\nconst value2 = 2\n~~}\n', 0],
+    // Its last line stays outside the suggestion, a stray closer until it resolves.
+    ['without a final line break', '```\nconst value2 = 2\n~~}', 1]
+  ])('records an edit in an unclosed fence %s', (_name, source, pendingDiagnostics) => {
+    const start = source.lastIndexOf('val')
+    const edit = { start, end: start + 3, insert: 'q' }
+    const core = createDocumentCore()
+    const planned = core.trackedEdit(core.open(source), edit)
+    expect(planned).toBeDefined()
+    if (planned === undefined) return
+    const next = splice(source, planned)
+    expect(resolveAll(next, 'accept')).toBe(splice(source, edit))
+    expect(resolveAll(next, 'reject')).toBe(source)
+    expect(core.open(next).diagnostics).toHaveLength(pendingDiagnostics)
+  })
+})
+
+// Typing is never refused: text typed into replaced text that no split there
+// holds (the old arm's indentation would no longer read as code) is proposed
+// beside the Substitution, kept by Accept All and dropped by Reject All.
+describe('typing replaced text a split cannot hold', () => {
+  it('proposes the typing beside the Substitution', () => {
+    const source = 'Intro.\n\n{~~    indented 5\n~>  new\n~~}\n'
+    const at = source.indexOf('{~~    ') + 7
+    const core = createDocumentCore()
+    const planned = core.trackedEdit(core.open(source), { start: at, end: at, insert: 'x' })
+    expect(planned).toBeDefined()
+    if (planned === undefined) return
+    const next = splice(source, planned)
+    expect(resolveAll(next, 'reject')).toBe(resolveAll(source, 'reject'))
+    const accepted = resolveAll(source, 'accept')
+    expect(resolveAll(next, 'accept')).toHaveLength(accepted.length + 1)
+    expect(core.open(next).diagnostics).toEqual([])
+  })
+})

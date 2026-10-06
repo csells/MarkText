@@ -203,7 +203,7 @@ describe('CriticMarkup Profile 2 and Markdown Profile 2 conformance mappings', (
   it('accepts the committed map for the current Profile 1 and Profile 2 texts', () => {
     expect(() => validateCriticMarkupProfileConformance(repoRoot, structuralFixture())).not.toThrow()
     const read = (path: string) => readFileSync(resolve(repoRoot, path), 'utf8')
-    expect(extractProfile2RuleIds(read(criticMarkup2))).toEqual(['L2c', 'L1f', 'L2b', 'C3', 'V6'])
+    expect(extractProfile2RuleIds(read(criticMarkup2))).toEqual(['L2c', 'T1', 'L1f', 'L2b', 'C3', 'V6'])
     expect(extractProfile2RuleIds(read(markdown2))).toEqual(['IL1', 'IL2', 'IL3', 'IL4', 'IL5'])
   })
 

@@ -418,7 +418,7 @@
   "profile2": [
     {
       "path": "specs/language/marktext-criticmarkup-profile-2.md",
-      "sha256": "86bda2b02c1aa47761b520b4519ffa31a04cba4793825fe815954d3801f602ab",
+      "sha256": "3cf304cda670b79965c8477eedb66d10936a510face00505cecbd0105172e607",
       "rules": [
         {
           "id": "L2c",
@@ -458,6 +458,19 @@
             {
               "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
               "name": "lets Track Changes record an edit inside an EOF-terminated literal"
+            }
+          ]
+        },
+        {
+          "id": "T1",
+          "tests": [
+            {
+              "file": "packages/document-core/test/tracked-edit-completeness.spec.ts",
+              "name": "records an edit in an unclosed fence %s"
+            },
+            {
+              "file": "packages/document-core/test/tracked-edit-completeness.spec.ts",
+              "name": "proposes the typing beside the Substitution"
             }
           ]
         },

@@ -15,8 +15,8 @@ import { isLiteralBlock } from './literalBlock.js'
 import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
-import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit } from './trackedHistoryEditing.js'
-import { OWN_DRAFT_SHORTCUT_UNITS, deferEquivalence, draftUnresolved, equivalenceDeferred, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
+import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit, withinHistory } from './trackedHistoryEditing.js'
+import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, draftUnresolved, equivalenceDeferred, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import {
@@ -2433,10 +2433,11 @@ function generalTrackedEdit(
   edit: DocumentSourceEdit,
   preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision
 ): DocumentSourceEdit | undefined {
-  const planned = createTrackedSourceEdit(activeCore, previous, edit, preview) ??
+  const compile = (): DocumentSourceEdit | undefined => createTrackedSourceEdit(activeCore, previous, edit, preview) ??
     createTrackedLiteralSourceEdit(activeCore, previous, edit, preview) ??
     // A selection starting or ending between suggestions owns the ones it encloses.
     (edit.start < edit.end ? createTrackedSourceEdit(activeCore, previous, edit, preview, false, 'structure') : undefined)
+  const planned = compile()
   return planned !== undefined && edit.insert.length === 0
     ? mergedTrackedDeletion(activeCore, previous, edit, planned, preview) ?? planned
     : planned
@@ -7358,6 +7359,34 @@ function createDocumentCoreWithExecutionBudget(
   }
 
   /**
+   * Typing is never refused (owner decision, 6 October): an edit no tracked
+   * spelling holds while its untracked edit applies takes the closest one.
+   * Text typed into deleted or replaced text that no split there holds is
+   * proposed beside the outermost suggestion holding it, so Accept All keeps
+   * it and Reject All drops it; any other edit takes the spelling that Accept
+   * All and Reject All read as the untracked edit.
+   */
+  const closestTrackedEdit = (previous: DocumentRevision, edit: DocumentSourceEdit): DocumentSourceEdit | undefined => {
+    const untracked = core.markupEdit(previous, edit)
+    if (untracked === undefined || untracked.length === 0) return undefined
+    const preview = (edits: readonly DocumentSourceEdit[]) => previewSourceEdits(previous, edits)
+    const around = rootsAround(previous, edit.start)
+    if (edit.start === edit.end && edit.insert.length > 0 && withinHistory(around, edit)) {
+      const outer = markupAnnotations(around)
+        .find(annotation => annotation.range.start < edit.start && edit.start < annotation.range.end)
+      for (const at of outer === undefined ? [] : [outer.range.end, outer.range.start]) {
+        const planned = Object.freeze({ start: at, end: at, insert: `{++${protectNativeCriticText(edit.insert)}++}` })
+        const next = preview([planned])
+        if (next.annotations.length === previous.annotations.length + 1 &&
+            next.diagnostics.length <= previous.diagnostics.length) return planned
+      }
+      return undefined
+    }
+    const oracle = createTrackedOracle(core, previous, untracked, preview)
+    return oracle === undefined ? undefined : withBestEffortSpelling(core, () => widenedTrackedSourceEdit(core, previous, oracle))
+  }
+
+  /**
    * Tracked input that deletes or replaces already deleted text follows
    * Google Docs: Backspace or Delete over deleted text only moves the caret
    * across it, and a replacement proposes its text for the rest of the
@@ -7932,102 +7961,118 @@ function createDocumentCoreWithExecutionBudget(
           markupProjectionOf(products, annotationsOf(products).rangeByNodeId, source.length).syntax))
     },
     inputEdits(previous: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, tracked: boolean) {
-      currentStateOf(previous)
-      action = commentedSpanSafeInput(previous, action, at => rootsAround(previous, at))
-      const joinSyntax = 'kind' in action && action.command === 'joinParagraphBackward' ? core.project(previous, 'markup').syntax : undefined
-      const codeJoin = joinSyntax !== undefined && paragraphBackwardStructuralTarget(joinSyntax,
-        joinSyntax.coordinates.toProjected(inputSourceRange(core, previous, action.selection).start, 'next')) !== undefined
-      if ('kind' in action && (action.command === 'moveText' || action.command === 'moveBlock' || action.command === 'moveTableColumn' || action.command === 'moveTableRow')) {
-        if (!tracked) {
-          return createMarkupCompoundSourceEdits(core, previous, plan.edits,
-            edits => previewSourceEdits(previous, edits), true, plan.editScope ?? 'structure')
-        }
-        const edits: DocumentSourceEdit[] = []
-        for (const edit of plan.edits) {
-          const pending = action.command === 'moveText'
-            ? createTrackedPendingArmEdits(core, previous, [edit], edits =>
-              createMarkupCompoundSourceEdits(core, previous, edits,
-                candidate => previewSourceEdits(previous, candidate), true, plan.editScope ?? 'structure'))
-            : undefined
-          if (pending !== undefined) {
-            edits.push(...pending)
-            continue
+      const planned = ((): readonly DocumentSourceEdit[] | undefined => {
+        currentStateOf(previous)
+        action = commentedSpanSafeInput(previous, action, at => rootsAround(previous, at))
+        const joinSyntax = 'kind' in action && action.command === 'joinParagraphBackward' ? core.project(previous, 'markup').syntax : undefined
+        const codeJoin = joinSyntax !== undefined && paragraphBackwardStructuralTarget(joinSyntax,
+          joinSyntax.coordinates.toProjected(inputSourceRange(core, previous, action.selection).start, 'next')) !== undefined
+        if ('kind' in action && (action.command === 'moveText' || action.command === 'moveBlock' || action.command === 'moveTableColumn' || action.command === 'moveTableRow')) {
+          if (!tracked) {
+            return createMarkupCompoundSourceEdits(core, previous, plan.edits,
+              edits => previewSourceEdits(previous, edits), true, plan.editScope ?? 'structure')
           }
-          const compiled = createTrackedSourceEdit(core, previous, edit,
-            edits => previewSourceEdits(previous, edits), true) ??
-            (action.command === 'moveText' ? retainedTrackedHistoryEdit(core, previous, edit) : undefined)
-          if (compiled === undefined) return undefined
-          edits.push(compiled)
-        }
-        return Object.freeze(edits)
-      }
-      const resetSyntax = 'kind' in action && (action.command === 'resetCodeBlock' || action.command === 'changeBlock' && action.change.type === 'reset') ? core.project(previous, 'markup').syntax : undefined
-      const resetTarget = resetSyntax === undefined ? undefined : findBlockCommandTarget(syntaxPathAt(resetSyntax.ast.root, resetSyntax.coordinates.toProjected('kind' in action && action.command === 'changeBlock' ? action.change.at ?? inputSourceRange(core, previous, action.selection).start : inputSourceRange(core, previous, action.selection).start, 'next')), 'kind' in action && action.command === 'changeBlock' ? action.change.scope : 'leaf')
-      if (resetSyntax !== undefined && resetTarget !== undefined && isLiteralBlock(resetTarget.kind)) {
-        const first = plan.edits[0]
-        const last = plan.edits.at(-1)
-        if (first === undefined || last === undefined) return Object.freeze([])
-        // A literal reset is one declared operation. Preserve its exact raw
-        // payload while removing the parser-owned syntax spans atomically;
-        // separate fence suggestions would change the literal context midway.
-        const syntax = resetSyntax
-        const code = resetTarget
-        const start = first.start
-        let end = Math.max(last.end, syntax.coordinates.toSource(code.range.end, 'previous'))
-        for (const annotation of markupAnnotations(rootsOverlapping(previous, { start, end: last.end }))) {
-          for (const arm of annotation.arms) {
-            if (arm.range.start <= start && last.end <= arm.range.end) end = Math.min(end, arm.range.end)
+          const edits: DocumentSourceEdit[] = []
+          for (const edit of plan.edits) {
+            const pending = action.command === 'moveText'
+              ? createTrackedPendingArmEdits(core, previous, [edit], edits =>
+                createMarkupCompoundSourceEdits(core, previous, edits,
+                  candidate => previewSourceEdits(previous, candidate), true, plan.editScope ?? 'structure'))
+              : undefined
+            if (pending !== undefined) {
+              edits.push(...pending)
+              continue
+            }
+            const compiled = createTrackedSourceEdit(core, previous, edit,
+              edits => previewSourceEdits(previous, edits), true) ??
+              (action.command === 'moveText' ? retainedTrackedHistoryEdit(core, previous, edit) : undefined)
+            if (compiled === undefined) return undefined
+            edits.push(compiled)
           }
+          return Object.freeze(edits)
         }
-        let insert = core.sourceSlice(previous, { start, end })
-        for (const edit of [...plan.edits].reverse()) {
-          insert = insert.slice(0, edit.start - start) + edit.insert + insert.slice(edit.end - start)
-        }
-        const replacement = { start, end, insert }
-        if (!tracked) {
-          return createMarkupCompoundSourceEdits(core, previous, [replacement],
+        const resetSyntax = 'kind' in action && (action.command === 'resetCodeBlock' || action.command === 'changeBlock' && action.change.type === 'reset') ? core.project(previous, 'markup').syntax : undefined
+        const resetTarget = resetSyntax === undefined ? undefined : findBlockCommandTarget(syntaxPathAt(resetSyntax.ast.root, resetSyntax.coordinates.toProjected('kind' in action && action.command === 'changeBlock' ? action.change.at ?? inputSourceRange(core, previous, action.selection).start : inputSourceRange(core, previous, action.selection).start, 'next')), 'kind' in action && action.command === 'changeBlock' ? action.change.scope : 'leaf')
+        if (resetSyntax !== undefined && resetTarget !== undefined && isLiteralBlock(resetTarget.kind)) {
+          const first = plan.edits[0]
+          const last = plan.edits.at(-1)
+          if (first === undefined || last === undefined) return Object.freeze([])
+          // A literal reset is one declared operation. Preserve its exact raw
+          // payload while removing the parser-owned syntax spans atomically;
+          // separate fence suggestions would change the literal context midway.
+          const syntax = resetSyntax
+          const code = resetTarget
+          const start = first.start
+          let end = Math.max(last.end, syntax.coordinates.toSource(code.range.end, 'previous'))
+          for (const annotation of markupAnnotations(rootsOverlapping(previous, { start, end: last.end }))) {
+            for (const arm of annotation.arms) {
+              if (arm.range.start <= start && last.end <= arm.range.end) end = Math.min(end, arm.range.end)
+            }
+          }
+          let insert = core.sourceSlice(previous, { start, end })
+          for (const edit of [...plan.edits].reverse()) {
+            insert = insert.slice(0, edit.start - start) + edit.insert + insert.slice(edit.end - start)
+          }
+          const replacement = { start, end, insert }
+          if (!tracked) {
+            return createMarkupCompoundSourceEdits(core, previous, [replacement],
+              edits => previewSourceEdits(previous, edits), true)
+          }
+          const edit = createTrackedSourceEdit(core, previous, replacement,
             edits => previewSourceEdits(previous, edits), true)
-        }
-        const edit = createTrackedSourceEdit(core, previous, replacement,
-          edits => previewSourceEdits(previous, edits), true)
-        return edit === undefined ? undefined : Object.freeze([edit])
-      }
-      if (codeJoin || 'kind' in action && (action.command === 'changeBlock' || action.command === 'createFootnote' || action.command === 'setCodeLanguage' || action.command === 'createTable' || action.command === 'createFrontMatter' || action.command === 'changeThematicBreak' || action.command === 'createMathBlock' || action.command === 'createHtmlBlock' || action.command === 'createCodeBlock' || action.command === 'wrapCodeBlocks' || action.command === 'setTaskChecked' && action.autoMoveCheckedToEnd)) {
-        if (!tracked) {
-          return createMarkupCompoundSourceEdits(core, previous, plan.edits,
-            edits => previewSourceEdits(previous, edits), true, 'structure')
-        }
-        const preview = (edits: readonly DocumentSourceEdit[]) => previewSourceEdits(previous, edits)
-        if (plan.edits.length === 1) {
-          const edit = createTrackedSourceEdit(core, previous, plan.edits[0]!, preview, true, 'structure')
           return edit === undefined ? undefined : Object.freeze([edit])
         }
-        const separate = withDeferredEquivalence(core, () =>
-          plan.edits.map(edit => createTrackedSourceEdit(core, previous, edit, preview, true, 'structure')))
-        if (separate.every(edit => edit !== undefined) &&
-            separate.every((edit, index) => index === 0 || separate[index - 1]!.end <= edit.start) &&
-            trackedOperationEquivalent(core, previous,
-              createMarkupCompoundSourceEdits(core, previous, plan.edits, preview, true, 'structure'), separate, preview)) {
-          return Object.freeze(separate)
+        if (codeJoin || 'kind' in action && (action.command === 'changeBlock' || action.command === 'createFootnote' || action.command === 'setCodeLanguage' || action.command === 'createTable' || action.command === 'createFrontMatter' || action.command === 'changeThematicBreak' || action.command === 'createMathBlock' || action.command === 'createHtmlBlock' || action.command === 'createCodeBlock' || action.command === 'wrapCodeBlocks' || action.command === 'setTaskChecked' && action.autoMoveCheckedToEnd)) {
+          if (!tracked) {
+            return createMarkupCompoundSourceEdits(core, previous, plan.edits,
+              edits => previewSourceEdits(previous, edits), true, 'structure')
+          }
+          const preview = (edits: readonly DocumentSourceEdit[]) => previewSourceEdits(previous, edits)
+          if (plan.edits.length === 1) {
+            const edit = createTrackedSourceEdit(core, previous, plan.edits[0]!, preview, true, 'structure')
+            return edit === undefined ? undefined : Object.freeze([edit])
+          }
+          const separate = withDeferredEquivalence(core, () =>
+            plan.edits.map(edit => createTrackedSourceEdit(core, previous, edit, preview, true, 'structure')))
+          if (separate.every(edit => edit !== undefined) &&
+              separate.every((edit, index) => index === 0 || separate[index - 1]!.end <= edit.start) &&
+              trackedOperationEquivalent(core, previous,
+                createMarkupCompoundSourceEdits(core, previous, plan.edits, preview, true, 'structure'), separate, preview)) {
+            return Object.freeze(separate)
+          }
+          // The command is one operation: its separate suggestions change
+          // meaning, so its complete replacement widens as a single suggestion.
+          const first = plan.edits[0]
+          const last = plan.edits.at(-1)
+          if (first === undefined || last === undefined) return Object.freeze([])
+          let insert = core.sourceSlice(previous, { start: first.start, end: last.end })
+          for (const edit of [...plan.edits].reverse()) {
+            insert = insert.slice(0, edit.start - first.start) + edit.insert + insert.slice(edit.end - first.start)
+          }
+          const joined = createTrackedSourceEdit(core, previous, { start: first.start, end: last.end, insert }, preview, true, 'structure')
+          return joined === undefined ? undefined : Object.freeze([joined])
         }
-        // The command is one operation: its separate suggestions change
-        // meaning, so its complete replacement widens as a single suggestion.
-        const first = plan.edits[0]
-        const last = plan.edits.at(-1)
-        if (first === undefined || last === undefined) return Object.freeze([])
-        let insert = core.sourceSlice(previous, { start: first.start, end: last.end })
-        for (const edit of [...plan.edits].reverse()) {
-          insert = insert.slice(0, edit.start - first.start) + edit.insert + insert.slice(edit.end - first.start)
+        if (!tracked && 'kind' in action && (action.command === 'removeTableRow' || action.command === 'removeTableColumn' || action.command === 'tableBoundaryBackspace' || (action.command === 'changeHeading' || action.command === 'changeBlockquote') && action.change.type === 'quick-insert')) {
+          return createMarkupCompoundSourceEdits(core, previous, plan.edits,
+            edits => previewSourceEdits(previous, edits), false, 'structure')
         }
-        const joined = createTrackedSourceEdit(core, previous, { start: first.start, end: last.end, insert }, preview, true, 'structure')
-        return joined === undefined ? undefined : Object.freeze([joined])
+        return planNativeEdits(previous, plan.edits, tracked,
+          !('kind' in action) && typedInputTypes.has(action.inputType))
+      })()
+      if (planned !== undefined || !tracked || equivalenceDeferred(core)) return planned
+      // Typing is never refused (owner decision, 6 October): an operation no
+      // tracked plan holds takes the closest spelling of its whole edit.
+      const first = plan.edits[0]
+      const last = plan.edits.at(-1)
+      if (first === undefined || last === undefined) return undefined
+      let insert = ''
+      let cursor = first.start
+      for (const edit of plan.edits) {
+        insert += core.sourceSlice(previous, { start: cursor, end: edit.start }) + edit.insert
+        cursor = edit.end
       }
-      if (!tracked && 'kind' in action && (action.command === 'removeTableRow' || action.command === 'removeTableColumn' || action.command === 'tableBoundaryBackspace' || (action.command === 'changeHeading' || action.command === 'changeBlockquote') && action.change.type === 'quick-insert')) {
-        return createMarkupCompoundSourceEdits(core, previous, plan.edits,
-          edits => previewSourceEdits(previous, edits), false, 'structure')
-      }
-      return planNativeEdits(previous, plan.edits, tracked,
-        !('kind' in action) && typedInputTypes.has(action.inputType))
+      const closest = closestTrackedEdit(previous, Object.freeze({ start: first.start, end: last.end, insert }))
+      return closest === undefined ? undefined : Object.freeze([closest])
     },
     planInput(previous: DocumentRevision, action: DocumentInputAction, options?: { readonly tracked?: boolean }) {
       const state = currentStateOf(previous)
@@ -8126,7 +8171,10 @@ function createDocumentCoreWithExecutionBudget(
       edit: DocumentSourceEdit
     ): DocumentSourceEdit | undefined {
       const parts = trackedEditParts(previous, edit)
-      return parts === undefined ? undefined : joinedTrackedEdit(core, previous, edit.start, parts)
+      if (parts !== undefined) return joinedTrackedEdit(core, previous, edit.start, parts)
+      // A detached lineage weighing parts of one operation spells the whole
+      // operation itself when a part has no spelling.
+      return equivalenceDeferred(core) ? undefined : closestTrackedEdit(previous, edit)
     },
 
     track(

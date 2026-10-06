@@ -140,7 +140,10 @@ export interface TrackedOracle {
   readonly untrackedSource: string
   /** An operation on hidden history alone has nothing to suggest. */
   readonly revisesVisibleText: boolean
-  readonly accepts: (edits: readonly DocumentSourceEdit[], equivalence: TrackedEquivalence) => boolean
+  /** `whole`: only Accept All and Reject All need read as the operation, not each suggestion resolved alone. */
+  readonly accepts: (edits: readonly DocumentSourceEdit[], equivalence: TrackedEquivalence, whole?: boolean) => boolean
+  /** Whether Accept All of the suggestions the edits author gives the operation and Reject All the previous source, byte for byte. */
+  readonly resolvesExactly: (edits: readonly DocumentSourceEdit[]) => boolean
   readonly preview: Preview
 }
 
@@ -211,7 +214,7 @@ export function createTrackedOracle(
   // escaped in the views; it is weighed as if the document's annotation
   // presence were unchanged, all three read as a document with annotations.
   const acceptsAcrossPresence = (candidate: DocumentRevision, edits: readonly DocumentSourceEdit[],
-    authored: AuthoredAnnotation[], equivalence: TrackedEquivalence): boolean => {
+    authored: AuthoredAnnotation[], equivalence: TrackedEquivalence, whole: boolean): boolean => {
     const present = (revision: DocumentRevision): boolean => revision.annotations.length > 0
     if (present(candidate) === present(previous) && present(candidate) === present(target)) return false
     const candidateViews = annotated(candidate.source)
@@ -222,18 +225,18 @@ export function createTrackedOracle(
     if (equivalence === 'exact'
       ? candidateViews.revised !== targetViews.revised || candidateViews.original !== previousViews.original
       : signature(candidateViews.original) !== signature(previousViews.original)) return false
-    return partiallyResolvable(edits, candidate, authored, cachedPreview)
+    return whole || partiallyResolvable(edits, candidate, authored, cachedPreview)
   }
-  const accepts = (edits: readonly DocumentSourceEdit[], equivalence: TrackedEquivalence): boolean => {
+  const accepts = (edits: readonly DocumentSourceEdit[], equivalence: TrackedEquivalence, whole = false): boolean => {
     const candidate = cachedPreview(edits)
     const facts = trackedPreviewFacts.get(candidate)
     if (facts === undefined) return false
     const authored = authoredAnnotations(edits, candidate)
-    return acceptsInPresence(candidate, facts, edits, authored, equivalence) ||
-      acceptsAcrossPresence(candidate, edits, authored, equivalence)
+    return acceptsInPresence(candidate, facts, edits, authored, equivalence, whole) ||
+      acceptsAcrossPresence(candidate, edits, authored, equivalence, whole)
   }
   const acceptsInPresence = (candidate: DocumentRevision, facts: TrackedProjectionFacts, edits: readonly DocumentSourceEdit[],
-    authored: AuthoredAnnotation[], equivalence: TrackedEquivalence): boolean => {
+    authored: AuthoredAnnotation[], equivalence: TrackedEquivalence, whole: boolean): boolean => {
     // Resolution splices arm bytes, while a projection may also materialize the
     // closing fence of a literal an arm boundary ended (L2c). That projection
     // must still read as the untracked result.
@@ -253,9 +256,16 @@ export function createTrackedOracle(
     // Resolving each authored suggestion alone is a whole preview apiece,
     // several per candidate, so a candidate is resolved only once every
     // check above has accepted it.
-    return partiallyResolvable(edits, candidate, authored, cachedPreview)
+    return whole || partiallyResolvable(edits, candidate, authored, cachedPreview)
+  }
+  const resolvesExactly = (edits: readonly DocumentSourceEdit[]): boolean => {
+    const candidate = cachedPreview(edits)
+    const authored = authoredAnnotations(edits, candidate)
+    return authored.length > 0 && resolveAuthored(candidate.source, authored, 'accept') === target.source &&
+      resolveAuthored(candidate.source, authored, 'reject') === previousSource
   }
   return Object.freeze({
+    resolvesExactly,
     untracked,
     untrackedSource: target.source,
     revisesVisibleText: !(regional.sameAsPrevious(targetFacts, 'revised') ??
@@ -491,7 +501,7 @@ function trailingBackslashes(value: string): number {
   return count
 }
 
-type Variant = 'exact' | 'pair' | 'reversed' | 'padded' | 'shifted' | 'escaped'
+type Variant = 'exact' | 'pair' | 'reversed' | 'padded' | 'padded-pair' | 'shifted' | 'escaped'
 
 /**
  * Widen an operation whose inline suggestion changes meaning into a
@@ -499,6 +509,21 @@ type Variant = 'exact' | 'pair' | 'reversed' | 'padded' | 'shifted' | 'escaped'
  * arm is the retained source and its new arm the untracked result, so
  * Accept/Reject reproduce those exact bytes by construction.
  */
+const BEST_EFFORT = new WeakSet<DocumentCore>()
+
+/**
+ * Runs a tracked compile that, as a last resort, keeps a spelling only Accept
+ * All and Reject All read as the operation (see `widenedTrackedSourceEdit`).
+ */
+export function withBestEffortSpelling<T>(core: DocumentCore, compile: () => T): T {
+  BEST_EFFORT.add(core)
+  try {
+    return compile()
+  } finally {
+    BEST_EFFORT.delete(core)
+  }
+}
+
 /**
  * Widened spellings found per revision and untracked edit: one key reaches
  * the search from several compile paths (the edit, its literal's owner,
@@ -516,7 +541,7 @@ export function widenedTrackedSourceEdit(
     found = new Map()
     widenedSpellings.set(previous, found)
   }
-  const key = JSON.stringify(oracle.untracked)
+  const key = (BEST_EFFORT.has(core) ? 'whole ' : '') + JSON.stringify(oracle.untracked)
   const known = found.get(key)
   if (known !== undefined) return known ?? undefined
   const spelled = searchWidenedSpelling(core, previous, oracle)
@@ -618,7 +643,7 @@ function searchWidenedSpelling(
       old += oldEscape
       next += nextEscape
     }
-    if (variant === 'padded' || variant === 'shifted') {
+    if (variant === 'padded' || variant === 'padded-pair' || variant === 'shifted') {
       // Block literals complete before the closer and divider when those
       // delimiters start their own lines.
       const eol = (next.match(EOL) ?? old.match(EOL) ?? source.match(EOL))?.[0] ?? '\n'
@@ -636,11 +661,11 @@ function searchWidenedSpelling(
       old = paddedOld
       next = paddedNext
     }
-    if (variant === 'pair' || variant === 'reversed') {
+    if (variant === 'pair' || variant === 'padded-pair' || variant === 'reversed') {
       // A literal opener in one arm could pair across the divider; separate
       // annotations give each side its own closer, in either order.
       if (old.length === 0 || next.length === 0) return undefined
-      return variant === 'pair' ? `{--${old}--}{++${next}++}` : `{++${next}++}{--${old}--}`
+      return variant === 'reversed' ? `{++${next}++}{--${old}--}` : `{--${old}--}{++${next}++}`
     }
     if (old.length === 0) return `{++${next}++}`
     // A retained `--}` would close a Deletion; a Substitution with an empty
@@ -648,29 +673,34 @@ function searchWidenedSpelling(
     if (next.length === 0) return old.includes('--}') ? `{~~${old}~>~~}` : `{--${old}--}`
     return `{~~${old}~>${next}~~}`
   }
-  const attempt = (span: SourceRange, prefix: number, suffix: number, variant: Variant, equivalence: TrackedEquivalence): DocumentSourceEdit | undefined => {
+  // `bytes`: Accept All and Reject All need only splice exactly, however the
+  // pending suggestions read.
+  const attempt = (span: SourceRange, prefix: number, suffix: number, variant: Variant, equivalence: TrackedEquivalence,
+    whole = false, bytes = false): DocumentSourceEdit | undefined => {
     const mapped = toTarget(span)
     const old = source.slice(span.start + prefix, span.end - suffix)
     const next = target.slice(mapped.start + prefix, mapped.end - suffix)
     if (old === next) return undefined
     const start = span.start + prefix
     const end = span.end - suffix
-    if (cuts(start, end)) return undefined
+    // Exact resolution alone may leave a literal's last lines outside.
+    if (!bytes && cuts(start, end)) return undefined
     const atLineEnd = end === source.length || source[end] === '\n' || source[end] === '\r'
     const insert = spell(old, next, variant, atLineEnd)
     if (insert === undefined) return undefined
     const edit = Object.freeze({ start, end, insert })
-    if (!oracle.accepts([edit], equivalence)) return undefined
+    if (bytes ? !oracle.resolvesExactly([edit]) : !oracle.accepts([edit], equivalence, whole)) return undefined
     const candidate = oracle.preview([edit])
     // A tracked edit spells only whole suggestions; one that leaves a marker
     // unpaired beyond those the untracked edit leaves is no spelling of it.
-    if (candidate.diagnostics.length > Math.max(previous.diagnostics.length, oracle.preview(untracked).diagnostics.length)) return undefined
+    if (!bytes && candidate.diagnostics.length > Math.max(previous.diagnostics.length, oracle.preview(untracked).diagnostics.length)) return undefined
     const authored = markupAnnotations(candidate.annotations).find(annotation =>
       annotation.range.end === start + insert.length && annotation.range.start >= start)
     return authored === undefined ? undefined : edit
   }
-  const trimmed = (span: SourceRange, variant: Variant, equivalence: TrackedEquivalence): DocumentSourceEdit | undefined => {
-    const found = attempt(span, 0, 0, variant, equivalence)
+  const trimmed = (span: SourceRange, variant: Variant, equivalence: TrackedEquivalence, whole = false,
+    bytes = false): DocumentSourceEdit | undefined => {
+    const found = attempt(span, 0, 0, variant, equivalence, whole, bytes)
     if (found === undefined) return undefined
     const mapped = toTarget(span)
     const old = source.slice(span.start, span.end)
@@ -709,12 +739,12 @@ function searchWidenedSpelling(
       return best
     }
     const prefixes = boundaries(common, index => old[index], false)
-    const [prefix, afterPrefix] = largest(prefixes, value => value === 0 ? found : attempt(span, value, 0, variant, equivalence), found)
+    const [prefix, afterPrefix] = largest(prefixes, value => value === 0 ? found : attempt(span, value, 0, variant, equivalence, whole, bytes), found)
     const rest = Math.min(old.length, next.length) - prefix
     let suffixCommon = 0
     while (suffixCommon < rest && old[old.length - 1 - suffixCommon] === next[next.length - 1 - suffixCommon]) suffixCommon += 1
     const suffixes = boundaries(suffixCommon, index => old[index], true)
-    return largest(suffixes, value => value === 0 ? afterPrefix : attempt(span, prefix, value, variant, equivalence), afterPrefix)[1]
+    return largest(suffixes, value => value === 0 ? afterPrefix : attempt(span, prefix, value, variant, equivalence, whole, bytes), afterPrefix)[1]
   }
   // A span enclosing an existing annotation repeats it in both arms; prefer
   // spans of plain source even at the cost of a rendering-identical spelling.
@@ -735,6 +765,52 @@ function searchWidenedSpelling(
         const edit = trimmed(span, variant, 'rendering')
         if (edit !== undefined) return edit
       }
+    }
+  }
+  // Typing is never refused. Where no spelling lets each suggestion resolve
+  // alone (an unclosed fence ending the document holds a closer either arm
+  // would read as its own), the spelling Accept All and Reject All read as the
+  // operation is kept, whatever resolving one side alone leaves (Profile 2
+  // syntax limit). Only a compile that found nothing else asks for it.
+  if (!BEST_EFFORT.has(core)) return undefined
+  for (const variant of ['pair', 'reversed', 'exact'] as const) {
+    for (const span of candidates) {
+      const edit = trimmed(span, variant, 'exact', true)
+      if (edit !== undefined) return edit
+    }
+  }
+  // Exact resolution outranks reading alike while pending: a closer left
+  // outside the suggestion (as an unclosed fence's last `~~}` line, which no
+  // arm can hold without a line break of its own) reads as text until the
+  // suggestion resolves.
+  // Whole lines common to both readings at either end may stay outside.
+  const lineTrims = (old: string, next: string, fromEnd: boolean): number[] => {
+    const trims = [0]
+    for (let length = 1; length <= Math.min(old.length, next.length); length += 1) {
+      const a = fromEnd ? old[old.length - length] : old[length - 1]
+      if (a !== (fromEnd ? next[next.length - length] : next[length - 1])) break
+      const boundary = fromEnd ? old[old.length - length - 1] : a
+      if (boundary === '\n' || boundary === '\r') trims.push(length)
+    }
+    return trims.reverse().slice(0, 8)
+  }
+  for (const variant of ['exact', 'pair', 'reversed'] as const) {
+    for (const span of candidates) {
+      const mapped = toTarget(span)
+      const old = source.slice(span.start, span.end)
+      const next = target.slice(mapped.start, mapped.end)
+      for (const suffix of lineTrims(old, next, true)) {
+        for (const prefix of lineTrims(old.slice(0, old.length - suffix), next.slice(0, next.length - suffix), false)) {
+          const edit = attempt(span, prefix, suffix, variant, 'exact', true, true)
+          if (edit !== undefined) return edit
+        }
+      }
+    }
+  }
+  for (const variant of ['pair', 'reversed', 'exact', 'padded-pair', 'padded'] as const) {
+    for (const span of candidates) {
+      const edit = trimmed(span, variant, 'rendering', true)
+      if (edit !== undefined) return edit
     }
   }
   return undefined
