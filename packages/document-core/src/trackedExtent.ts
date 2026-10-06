@@ -1127,6 +1127,20 @@ export function draftTrackedSourceEdit(
     }
   }
   if (changesAcceptanceAlike(owner, armText, edit, accepted, preview)) return Object.freeze({ ...edit })
+  // Typing in one's own draft is the edit in the arm (Google Docs). Words,
+  // spaces and line breaks pair with nothing, so where the arm reads them
+  // into its blocks otherwise than its acceptance does, that reading is the
+  // draft's layout, not a spelling the edit chooses: the edit stays as typed
+  // while the suggestion holds it whole. Typed delimiters keep the compile.
+  if (/^[\p{L}\p{N} \t\r\n]*$/u.test(edit.insert) && /^[\p{L}\p{N} \t\r\n]*$/u.test(core.sourceSlice(previous, edit))) {
+    const typed = preview([edit])
+    const grown = edit.insert.length - (edit.end - edit.start)
+    if (markupAnnotations(typed.annotations).some(annotation => annotation.kind === owner.kind &&
+      annotation.range.start === owner.range.start && annotation.range.end === owner.range.end + grown &&
+      annotation.arms.every((part, index) => part.annotations.length === owner.arms[index]?.annotations.length))) {
+      return Object.freeze({ ...edit })
+    }
+  }
   // Text after the draft that the accepted draft would absorb (an unclosed
   // fence) joins one Substitution whose new arm is that accepted text.
   return widenedTrackedSourceEdit(core, previous, oracle)

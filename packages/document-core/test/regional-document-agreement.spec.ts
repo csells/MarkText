@@ -201,6 +201,9 @@ describe('a plain edit in one\'s own draft reads as typed', () => {
     ['in an unclosed fence, by Enter', 'Text\n\n{~~```js\nconst a = 0\n```\n~>```js\nconst a = 1\n`\n``\n~~}\n\nPlain words here.\n', 'const a = 1', 10, 0, '\n'],
     ['in an HTML block the next suggestion follows', '{~~<div>\nold\n</div>\n~><div>\nnew 1\n</div>\n~~}{~~\n<div>\nold html\n</div>\n~><div>\nnew html\n</div>\n~~}\n', 'new 1\n</div', 9, 1, ''],
     ['in a $$ block after a paragraph', '{~~a~>x~~}\n{~~$$\nx_0\n$$\n~>$$\ny_0 + 1\n$$\n~~}\n', 'y_0 + 1', 6, 0, '\n'],
+    // The arm reads the split-off line as a paragraph until it resolves, its
+    // acceptance as indented code: the draft's layout, not the edit's.
+    ['in lines its arm reads as a paragraph, by Enter', 'Intro.\n\n{~~    indented 0\n~>\n     \n   indented 0\n    indented 1\n    indxnted 2\n~~}\n', '    indxnted', 0, 0, '\n\n'],
     ['in a paragraph before an HTML block', 'Plain words here.\n\n{~~<div>\nold\n</div>\n~>x<divx>\nml 1\nhtml 2\n</div>\n~~}{++\n++}\n{++```js\nconst added = 1\n```\n++}\n', 'ml 1\nhtml', 4, 1, '']
   ])('%s', (_name, source, anchor, offset, length, insert) => {
     const start = source.lastIndexOf(anchor) + offset
@@ -231,7 +234,8 @@ describe('a plain edit in one\'s own draft reads as typed', () => {
     ['past the compared change', 300, 1200, false]
   ])('deletes a paragraph\'s text %s', (_name, words, length, plain) => {
     const head = 'Plain words here.\n\n{~~<div>\nold\n</div>\n~>x<divx>\n'
-    const source = `${head}${'word '.repeat(words)}\nml 1\nhtml 2\n</div>\n~~}{++\n++}\n{++\`\`\`js\nconst added = 1\n\`\`\`\n++}\n`
+    // Underscores keep the text out of plain word typing, which stays as typed.
+    const source = `${head}${'w_rd '.repeat(words)}\nml 1\nhtml 2\n</div>\n~~}{++\n++}\n{++\`\`\`js\nconst added = 1\n\`\`\`\n++}\n`
     const edit = { start: head.length + 2, end: head.length + 2 + length, insert: '' }
     const core = control()
     const planned = core.trackedEdit(core.open(source), edit)
