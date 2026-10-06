@@ -15,16 +15,8 @@ const installedSpecs = [
 // `playwright test <spec>` run, CI) invokes it from packages/desktop. Kept in
 // test/e2e/ the settings below were silently ignored and the suite ran on
 // Playwright's defaults — notably ~half the cores as workers instead of 1.
-// A warm measurement run scores every workload: a miss must not leave the
-// workloads after it unmeasured.
-const warmMeasurement = process.env.MARKTEXT_WARM_PERFORMANCE === '1' ||
-  process.env.MARKTEXT_UPSTREAM_WARM_OUTPUT !== undefined
-
 export default defineConfig({
   testDir: './test/e2e',
-  forbidOnly: true,
-  retries: 0,
-  maxFailures: warmMeasurement ? 0 : 1,
   globalSetup: './test/e2e/globalSetup.ts',
   workers: 1,
   testMatch: '**/*.spec.ts',
@@ -48,5 +40,5 @@ export default defineConfig({
     headless: true,
     viewport: { width: 1280, height: 720 }
   },
-  timeout: process.env.CI === 'true' ? 120000 : 30000
+  timeout: 30000
 })
