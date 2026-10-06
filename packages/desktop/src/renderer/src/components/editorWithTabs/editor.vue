@@ -4020,6 +4020,10 @@ onMounted(() => {
         showCoreProjection(coreDisplayMode.value).catch((error) => emit('core-fault', error))
       }
     })
+    props.coreLease.reconcileExternal(async (outcome) => {
+      if (corePlainTextAdapter === undefined) throw new Error('Editor has no document owner')
+      await corePlainTextAdapter.reconcileApplied(outcome, reconcileCoreHistoryView)
+    })
     props.coreLease.settleView(
       async () => {
         // A barrier can run before native input delivery. Publish the batch while

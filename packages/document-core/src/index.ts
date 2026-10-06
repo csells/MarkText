@@ -88,3 +88,4 @@ export { setextUnderlineStart, setextUnderlineLeadingLine } from './setextTraili
 
 export type { DocumentModelTextPoint, DocumentModelTextSelection } from './sourceInputPlanning.js'
 export { projectModelTextSelection } from './modelTextSelectionProjection.js'
+export { finalNewlineEdit, type TrailingNewlineMode } from '@marktext/input-policy'

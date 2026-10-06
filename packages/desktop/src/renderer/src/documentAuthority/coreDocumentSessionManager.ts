@@ -9,6 +9,7 @@ import type {
 import {
   DOCUMENT_RESOURCE_POLICY_V1,
   copyClipboardAction,
+  finalNewlineEdit,
   copyDocumentSelection,
   type MarkdownOptions,
   type MarkdownProjectionName
@@ -21,6 +22,7 @@ import type {
   EditorCoreSubmitInput
 } from './editorCoreBinding'
 import type { CoreHistorySnapshot } from './coreProtocol'
+import type { CoreDocumentSaveOptions } from './coreDocumentSaveAuthority'
 import type {
   CoreAuthorForm,
   CoreConsumerSearchReplacement,
@@ -75,6 +77,11 @@ export interface CoreDocumentViewLease {
   projectAcknowledgedPlainTextView(revision: number): CorePlainTextViewReply
   faultView(error: unknown): void
   settleView(barrier: () => Promise<unknown>, isSettled?: () => boolean): void
+  /**
+   * Paints a change the document owner made outside this view, such as a
+   * file save's trailing newline, into the view before the next barrier.
+   */
+  reconcileExternal(reconcile: (outcome: Extract<EditorCoreApplyOutcome, { type: 'applied' }>) => Promise<void>): void
   onHandoff(cleanup: () => void): void
   setRecoveryDraftCapture(capture: (error: unknown) => CoreRecoveryDraftInput | undefined): void
   captureRecoveryDraft(error: unknown): CoreRecoveryDraftInput | undefined
@@ -91,7 +98,7 @@ export interface CoreDocumentSessionManager {
   activate(documentId: string): Promise<void>
   handoff(lease: CoreDocumentViewLease): Promise<void>
   isSaveSnapshotCurrent(documentId: string, identity: DocumentSaveIdentity): boolean
-  saveBarrier(documentId: string): Promise<
+  saveBarrier(documentId: string, options?: CoreDocumentSaveOptions): Promise<
     Readonly<{
       readonly documentId: string
       readonly revision: number
@@ -139,11 +146,43 @@ interface Session {
   viewFault?: Error
   settleView?: () => Promise<unknown>
   isViewSettled?: () => boolean
+  /** The live view's submission and painting of an owner-made change. */
+  viewChange?: Readonly<{
+    submit: EditorCoreBinding['submit']
+    reconcile: (outcome: Extract<EditorCoreApplyOutcome, { type: 'applied' }>) => Promise<void>
+  }>
   handoffCleanup?: () => void
   releaseView?: () => void
   sourceBarrier?: Promise<CoreDocumentSaveResult>
   closing?: Promise<void>
   recovery?: Promise<CoreDocumentViewLease>
+}
+
+/** Characters read from a document's end to find its final line breaks. */
+const FINAL_NEWLINE_TAIL = 4096
+
+/**
+ * A file save writes the document's final line breaks in the file's
+ * "Trailing newline" mode, as upstream does, by changing the document first
+ * through its live view, so the saved file and the document stay the same
+ * bytes. Only the final run of line breaks changes; a conforming document
+ * saves untouched.
+ */
+const conformFinalNewline = (session: Session, mode: number | undefined): Promise<void> | undefined => {
+  if ((mode !== 0 && mode !== 1) || session.viewChange === undefined) return undefined
+  const current = session.binding.sourceAtBarrier()
+  if (current.type !== 'source') throw new Error('Core document save barrier is stale')
+  const { source } = current
+  let tailStart = Math.max(0, source.length - FINAL_NEWLINE_TAIL)
+  while (tailStart > 0 && /^(?:\r\n|\r|\n)*$/u.test(source.slice(tailStart))) {
+    tailStart = Math.max(0, tailStart - FINAL_NEWLINE_TAIL)
+  }
+  const edit = finalNewlineEdit(source.slice(tailStart), tailStart, mode)
+  if (edit === undefined) return undefined
+  const { submit, reconcile } = session.viewChange
+  const outcome = submit({ edits: [edit], projections: [] }).acknowledged
+  if (outcome.type !== 'applied') throw new Error('Core document trailing newline was rejected')
+  return reconcile(outcome)
 }
 
 const maximumRecoveryJournalEntries = Math.min(
@@ -977,6 +1016,10 @@ export function createCoreDocumentSessionManager(
           session.settleView = barrier
           session.isViewSettled = isSettled
         },
+        reconcileExternal(reconcile: (outcome: Extract<EditorCoreApplyOutcome, { type: 'applied' }>) => Promise<void>): void {
+          if (released) throw new Error('Core document view lease is released')
+          session.viewChange = Object.freeze({ submit: viewBinding.submit, reconcile })
+        },
         onHandoff(cleanup: () => void): void {
           if (released) throw new Error('Core document view lease is released')
           session.handoffCleanup = cleanup
@@ -1129,6 +1172,7 @@ export function createCoreDocumentSessionManager(
         const cleanup = previous.handoffCleanup
         cleanup?.()
         previous.settleView = undefined
+        previous.viewChange = undefined
         previous.isViewSettled = undefined
         previous.handoffCleanup = undefined
         releaseLease.get(lease)?.()
@@ -1213,6 +1257,7 @@ export function createCoreDocumentSessionManager(
           const cleanup = previous.handoffCleanup
           cleanup?.()
           previous.settleView = undefined
+          previous.viewChange = undefined
           previous.isViewSettled = undefined
           previous.handoffCleanup = undefined
           releaseLease.get(lease)?.()
@@ -1245,6 +1290,7 @@ export function createCoreDocumentSessionManager(
       if (session.barrierFailure !== undefined) throw session.barrierFailure
       const cleanup = session.handoffCleanup
       session.settleView = undefined
+      session.viewChange = undefined
       session.isViewSettled = undefined
       session.handoffCleanup = undefined
       try {
@@ -1268,11 +1314,11 @@ export function createCoreDocumentSessionManager(
         session.currentIdentity.revision === identity.revision
       )
     },
-    async saveBarrier(documentId: string) {
+    async saveBarrier(documentId: string, options?: CoreDocumentSaveOptions) {
       const session = sessionOf(documentId)
       if (session.recovery !== undefined) {
         await session.recovery
-        return manager.saveBarrier(documentId)
+        return manager.saveBarrier(documentId, options)
       }
       if (session.sourceBarrier !== undefined) return session.sourceBarrier
       const journalVersion = session.journalVersion
@@ -1283,9 +1329,16 @@ export function createCoreDocumentSessionManager(
           // A disk reload retires this view mid-wait; its replacement owns the document.
           if (sessions.get(documentId) === session) throw error
         }
-        if (sessions.get(documentId) !== session) return manager.saveBarrier(documentId)
+        if (sessions.get(documentId) !== session) return manager.saveBarrier(documentId, options)
 
         if (session.barrierFailure !== undefined) throw session.barrierFailure
+        // Only a save that changes the end waits, and then reads afresh.
+        const conforming = conformFinalNewline(session, options?.trailingNewlineMode)
+        if (conforming !== undefined) {
+          await conforming
+          if (sessions.get(documentId) !== session) return manager.saveBarrier(documentId, options)
+          if (session.barrierFailure !== undefined) throw session.barrierFailure
+        }
         const result = session.binding.sourceAtBarrier()
         if (result.type !== 'source') {
           throw new Error('Core document save barrier is stale')
@@ -1343,6 +1396,7 @@ export function createCoreDocumentSessionManager(
       consumerProjections.retire(documentId)
       const cleanup = session.handoffCleanup
       session.settleView = undefined
+      session.viewChange = undefined
       session.isViewSettled = undefined
       session.handoffCleanup = undefined
       try {
