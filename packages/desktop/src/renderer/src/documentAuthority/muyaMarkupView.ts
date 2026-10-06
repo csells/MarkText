@@ -155,6 +155,47 @@ export interface MuyaMarkupDecoration {
 }
 
 /**
+ * Root states that render one run of a Core list whose items mix tasks and
+ * plain items. Upstream (#5597) renders such a list as one list per run, so a
+ * Core list can hold several roots of a view.
+ */
+const splitListRoots = new WeakSet<MuyaMarkupState>()
+
+/** Whether `state` is one run of a Core list that renders as several lists. */
+export const isMuyaSplitListRoot = (state: MuyaMarkupState): boolean => splitListRoots.has(state)
+
+/** For each view, the Core root block each of its roots renders. */
+const rootBlocksOfView = new WeakMap<object, readonly number[]>()
+
+/**
+ * How many roots of `view` the first `blocks` Core root blocks render, or
+ * undefined for a view that records no mapping.
+ */
+export function muyaRootsOfBlocks(view: object, blocks: number): number | undefined {
+  const rootBlocks = rootBlocksOfView.get(view)
+  if (rootBlocks === undefined) return undefined
+  let roots = 0
+  while (roots < rootBlocks.length && rootBlocks[roots] < blocks) roots += 1
+  return roots
+}
+
+/**
+ * A list's items split into runs of task items and plain items, as upstream
+ * renders them; each run is shown as its own list. Undefined for a list
+ * that is one run.
+ */
+function listRuns(list: MarkdownAstNode): readonly (readonly MarkdownAstNode[])[] | undefined {
+  if (list.kind !== 'list' || list.attributes.taskList !== true) return undefined
+  const runs: MarkdownAstNode[][] = []
+  for (const item of list.children) {
+    const last = runs.at(-1)
+    if (last !== undefined && (last[0].attributes.task === true) === (item.attributes.task === true)) last.push(item)
+    else runs.push([item])
+  }
+  return runs.length > 1 ? runs : undefined
+}
+
+/**
  * Boundary decorations a view placed on its last block because their
  * position lies after it. In a view of a region, the whole document's view
  * places these on the next block, which the region does not hold.
@@ -570,11 +611,43 @@ export function createMuyaMarkupView(
   // Equal empty AST nodes may be shared; each occurrence still owns a distinct cell.
   const tableCells = new Map<string, DocumentTableCellAddress>()
   const sourceNodes: MuyaSourceStructure['nodes'][number][] = []
-  const typedState = (syntax: MarkdownAstNode, path: MuyaMarkupPath): MuyaMarkupState => {
+  // The Core root block each root renders; a split list renders several.
+  const rootBlocks: number[] = []
+  /**
+   * The states `syntax` renders from `index` among its parent's children:
+   * one for each run of a list that mixes tasks and plain items, otherwise
+   * one.
+   */
+  const typedStates = (
+    syntax: MarkdownAstNode,
+    parentPath: MuyaMarkupPath,
+    index: number,
+    rootBlock?: number
+  ): MuyaMarkupState[] => {
+    const runs = listRuns(syntax)
+    const states: MuyaMarkupState[] = []
+    let start = 0
+    for (const items of runs ?? [undefined]) {
+      if (rootBlock !== undefined) rootBlocks.push(rootBlock)
+      const state = typedState(syntax, [...parentPath, index + states.length],
+        items === undefined ? undefined : { items, offset: start })
+      if (items !== undefined) {
+        if (rootBlock !== undefined) splitListRoots.add(state)
+        start += items.length
+      }
+      states.push(state)
+    }
+    return states
+  }
+  const typedState = (
+    syntax: MarkdownAstNode,
+    path: MuyaMarkupPath,
+    run?: Readonly<{ items: readonly MarkdownAstNode[], offset: number }>
+  ): MuyaMarkupState => {
     const attrs = syntax.attributes
     if (
       canonicalSource !== undefined &&
-      ['table', 'list', 'blockquote'].includes(blocks[Number(path[0])]?.kind)
+      ['table', 'list', 'blockquote'].includes(blocks[rootBlocks[Number(path[0])]]?.kind)
     ) {
       sourceNodes.push({
         path,
@@ -656,7 +729,9 @@ export function createMuyaMarkupView(
       const container = ['list-item', 'blockquote', 'footnote-definition'].includes(syntax.kind)
       if (container) containers.push(syntax)
       try {
-        return childNodes.map((child, index) => typedState(child, [...path, 'children', index]))
+        const states: MuyaMarkupState[] = []
+        for (const child of run?.items ?? childNodes) states.push(...typedStates(child, [...path, 'children'], states.length))
+        return states
       } finally {
         if (container) containers.pop()
       }
@@ -756,14 +831,20 @@ export function createMuyaMarkupView(
         }
         // Upstream renders bullet and ordered task items with checkboxes; an
         // ordered task list draws no numbers and keeps its start.
-        return {
-          name: attrs.taskList ? 'task-list' : attrs.ordered ? 'order-list' : 'bullet-list',
-          meta: attrs.ordered && attrs.taskList
-            ? { ordered: true, start: Number(attrs.start ?? 1), loose: !attrs.tight, delimiter: String(attrs.delimiter ?? '.') }
-            : attrs.ordered
-              ? { start: Number(attrs.start ?? 1), loose: !attrs.tight, delimiter: '.' }
-              : { marker: '-', loose: !attrs.tight },
-          children: children()
+        // A list mixing tasks and plain items renders a list per run, each
+        // numbered from its first item's place in the whole list.
+        {
+          const tasks = run === undefined ? attrs.taskList === true : run.items[0]?.attributes.task === true
+          const start = Number(attrs.start ?? 1) + (run?.offset ?? 0)
+          return {
+            name: tasks ? 'task-list' : attrs.ordered ? 'order-list' : 'bullet-list',
+            meta: attrs.ordered && tasks
+              ? { ordered: true, start, loose: !attrs.tight, delimiter: String(attrs.delimiter ?? '.') }
+              : attrs.ordered
+                ? { start, loose: !attrs.tight, delimiter: '.' }
+                : { marker: '-', loose: !attrs.tight },
+            children: children()
+          }
         }
       case 'list-item': {
         const task = attrs.task === true
@@ -825,7 +906,8 @@ export function createMuyaMarkupView(
         throw new Error(`Core Markup view requires a typed adapter for ${syntax.kind}`)
     }
   }
-  const state = blocks.map((block, index) => typedState(block, [index]))
+  const state: MuyaMarkupState[] = []
+  for (const [index, block] of blocks.entries()) state.push(...typedStates(block, [], state.length, index))
   const activeMarks: MarkupMark[] = []
   const marksInOrder: MarkupMark[] = []
   let blockIndex = 0
@@ -1427,8 +1509,12 @@ export function createMuyaMarkupView(
   >()
   const paragraphPrefixes = new Map<number, number>()
   const containerPrefixes = new Map<number, Readonly<{ range: SourceRange; source: string }>>()
-  for (let index = 0; index < blocks.length; index += 1) {
-    const block = blocks[index]
+  // Items keyed by root. A split list's runs carry neither its outer block nor
+  // its structure, which describe the whole Core list.
+  for (let index = 0; index < state.length; index += 1) {
+    const blockIndex = rootBlocks[index]
+    const block = blocks[blockIndex]
+    if (splitListRoots.has(state[index])) continue
     const range = {
       start: projection.syntax.coordinates.toSource(block.range.start, 'next'),
       end: projection.syntax.coordinates.toSource(block.range.end, 'previous')
@@ -1465,10 +1551,10 @@ export function createMuyaMarkupView(
     const source = sourceText(range.start, range.end)
     if (source.length === range.end - range.start) {
       const followingEnd =
-        blocks[index + 1] === undefined && following !== undefined
+        blocks[blockIndex + 1] === undefined && following !== undefined
           ? following.blockStart
           : projection.syntax.coordinates.toSource(
-            blocks[index + 1]?.range.start ?? projection.syntax.ast.root.range.end,
+            blocks[blockIndex + 1]?.range.start ?? projection.syntax.ast.root.range.end,
             'previous'
           )
       const followingSource = sourceText(range.end, followingEnd)
@@ -1495,8 +1581,9 @@ export function createMuyaMarkupView(
   const documentEnd = { offset: endOffset, trailingLineEndings, lineEnding }
   const sourceStructures = new Map<number, MuyaSourceStructure>()
   if (canonicalSource !== undefined) {
-    for (const [index, block] of blocks.entries()) {
-      if (!['table', 'list', 'blockquote'].includes(block.kind)) continue
+    for (const [index, root] of state.entries()) {
+      const block = blocks[rootBlocks[index]]
+      if (!['table', 'list', 'blockquote'].includes(block.kind) || splitListRoots.has(root)) continue
       const nodes = sourceNodes.filter((node) => node.path[0] === index)
       const range = nodes[0].range
       sourceStructures.set(index, {
@@ -1512,7 +1599,7 @@ export function createMuyaMarkupView(
     return info === undefined ? [body] : [body, info]
   })
   const structuralOwners = new Set<number>()
-  return {
+  const view: MuyaMarkupView = {
     kind: 'view',
     markdown: projection.events
       .flatMap((event) => (event.kind === 'text' ? [event.text] : []))
@@ -1541,6 +1628,8 @@ export function createMuyaMarkupView(
     decorations,
     comments
   }
+  rootBlocksOfView.set(view, rootBlocks)
+  return view
 }
 
 /** The first of `nodes`, in source order, that ends after `position`. */
