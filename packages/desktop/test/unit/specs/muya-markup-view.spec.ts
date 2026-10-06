@@ -174,7 +174,7 @@ describe('Muya Markup editing view', () => {
         meta: { marker: '-', loose: false },
         children: [{ name: 'list-item', children: [{ name: 'paragraph', text: 'old item' }] }]
       },
-      { name: 'code-block', text: '{++literal++}', meta: { type: 'fenced', lang: 'js' } }
+      { name: 'code-block', text: '{++literal++}', meta: { type: 'fenced', lang: 'js', fenceChar: '`' } }
     ])
     expect(view.bindings.map((binding) => binding.path)).toEqual([
       [0, 'text'],
@@ -319,7 +319,7 @@ describe('Muya Markup editing view', () => {
         '> ```js\n> x\n> y\n> ```',
         {
           name: 'block-quote',
-          children: [{ name: 'code-block', text: 'x\ny', meta: { type: 'fenced', lang: 'js' } }]
+          children: [{ name: 'code-block', text: 'x\ny', meta: { type: 'fenced', lang: 'js', fenceChar: '`' } }]
         }
       ]
     ] as const) {
