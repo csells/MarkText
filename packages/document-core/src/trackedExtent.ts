@@ -901,6 +901,22 @@ export function rejoinedTrackedHistoryEdit(
 }
 
 /**
+ * The kind of the top-level block literal starting at an arm's start whose
+ * text reaches `end`, the arm's end before its final line break: the arm's
+ * whole text, which the arm boundary ends if the block does not.
+ */
+function armBlockLiteral(core: DocumentCore, revision: DocumentRevision, start: number, end: number): string | undefined {
+  const { ast, coordinates } = core.project(revision, 'markup').syntax
+  return ast.root.children.find(node => ARM_BLOCK_LITERAL_KINDS.has(node.kind) &&
+    coordinates.toSource(node.range.start, 'next') === start && coordinates.toSource(node.range.end, 'previous') >= end)?.kind
+}
+
+const ARM_BLOCK_LITERAL_KINDS = new Set([...BLOCK_LITERAL_KINDS, 'html-block'])
+
+/** The openers of the HTML blocks a line other than a blank one ends (CommonMark kinds 1-5). */
+const RAW_HTML_OPENER = /^ {0,3}(?:<(?:script|pre|style|textarea)(?:\s|>|$)|<!--|<\?|<![A-Za-z]|<!\[CDATA\[)/iu
+
+/**
  * An edit inside a pending draft arm that the arm cannot close around
  * (a block literal reaching the closer, a final escape) keeps the draft and
  * ends the arm on its own line or completes the escape.
@@ -947,11 +963,32 @@ export function draftTrackedSourceEdit(
     editedLines(typedArm, local.start, local.start + edit.insert.length).some(delimiterLine)
   const before = core.sourceSlice(previous, { start: Math.max(0, owner.range.start - 512), end: owner.range.start })
   const joinsFenceLine = before.slice(lineStart(before, before.length)).trim() !== '' && delimiterLine(armText)
-  if (onDelimiterLine || joinsFenceLine) {
+  // A block literal that is the arm's whole text reads every line after its
+  // first as its text in the Revised view (L2c). Acceptance can read the
+  // block itself otherwise (a `$$` block cannot interrupt a paragraph before
+  // the suggestion, so it reads inline), which no change to the acceptance
+  // matches: an edit there that spells no line ending the block (a fence or
+  // `$$` line; a blank line, for an HTML block that one ends) is the same
+  // edit in the arm.
+  const openerEnd = armText.search(EOL)
+  const opener = openerEnd < 0 ? '' : armText.slice(0, openerEnd)
+  const literal = openerEnd >= 0 && local.start > openerEnd
+    ? armBlockLiteral(core, previous, arm.range.start, arm.range.end - (/(?:\r\n|\r|\n)$/u.exec(armText)?.[0].length ?? 0))
+    : undefined
+  const typedLines = editedLines(typedArm, local.start, local.start + edit.insert.length)
+  const inArmLiteral = literal === 'html-block'
+    ? !RAW_HTML_OPENER.test(opener) && !typedLines.some(line => line.trim() === '')
+    : literal !== undefined && delimiterLine(opener) && !onDelimiterLine
+  if (onDelimiterLine || joinsFenceLine || inArmLiteral) {
     const extended = preview([edit])
     const grown = edit.insert.length - (edit.end - edit.start)
+    // A line the edit spells can still end the block in the arm (a blank
+    // line ends a `$$` block there), making its text read as suggestions.
     if (markupAnnotations(extended.annotations).some(annotation => annotation.kind === owner.kind &&
-      annotation.range.start === owner.range.start && annotation.range.end === owner.range.end + grown)) return Object.freeze({ ...edit })
+      annotation.range.start === owner.range.start && annotation.range.end === owner.range.end + grown &&
+      (!inArmLiteral || annotation.arms.every((arm, index) => arm.annotations.length === owner.arms[index]?.annotations.length)))) {
+      return Object.freeze({ ...edit })
+    }
   }
   // Accepting the draft is the untracked result of the same operation.
   const accepted = [Object.freeze({ ...owner.range, insert: content })]
@@ -971,7 +1008,123 @@ export function draftTrackedSourceEdit(
         annotation.range.start === owner.range.start && annotation.range.end === owner.range.end + shift)) return candidate
     }
   }
+  if (changesAcceptanceAlike(owner, armText, edit, accepted, preview)) return Object.freeze({ ...edit })
   // Text after the draft that the accepted draft would absorb (an unclosed
   // fence) joins one Substitution whose new arm is that accepted text.
   return widenedTrackedSourceEdit(core, previous, oracle)
+}
+
+/**
+ * Whether an edit in one's own draft changes its Revised view as it changes
+ * the draft's untracked acceptance, where that acceptance already reads
+ * otherwise before the edit: text the arm boundary ends, as a paragraph or
+ * block literal closing the arm, joins what follows the suggestion once
+ * accepted. That reading is the draft's, not the edit's, so the edit in the
+ * arm is the same edit; delimiters typed there that pair otherwise once the
+ * boundary is gone change the two readings differently.
+ */
+function changesAcceptanceAlike(
+  owner: CriticMarkupAnnotation,
+  armText: string,
+  edit: DocumentSourceEdit,
+  accepted: readonly DocumentSourceEdit[],
+  preview: Preview
+): boolean {
+  const facts = (edits: readonly DocumentSourceEdit[]) => trackedPreviewFacts.get(preview(edits))
+  const typed = facts([edit])
+  const before = facts([])
+  const acceptedBefore = facts([Object.freeze({ ...owner.range, insert: armText })])
+  const acceptedAfter = facts(accepted)
+  if (typed === undefined || before === undefined || acceptedBefore === undefined || acceptedAfter === undefined ||
+      before.revised === acceptedBefore.revised || typed.original !== before.original) return false
+  const grown = edit.insert.length - (edit.end - edit.start)
+  return markupAnnotations(preview([edit]).annotations).some(annotation => annotation.kind === owner.kind &&
+      annotation.range.start === owner.range.start && annotation.range.end === owner.range.end + grown) &&
+    sameChange(before.revised, typed.revised, acceptedBefore.revised, acceptedAfter.revised) &&
+    sameChange(before.revisedView(), typed.revisedView(), acceptedBefore.revisedView(), acceptedAfter.revisedView())
+}
+
+function sameChange(before: string, after: string, acceptedBefore: string, acceptedAfter: string): boolean {
+  const change = changeBetween(before, after)
+  return change !== undefined && change === changeBetween(acceptedBefore, acceptedAfter)
+}
+
+/**
+ * Source units of an edit in one's own draft that a regional planner may
+ * spell as typed. Each reading compared spells a unit in a few places, a few
+ * characters each, so an edit this size changes it by far fewer than
+ * `COMPARED_CHANGE_LIMIT` characters and the comparison always decides it;
+ * a larger edit is left to the compile, as the document weighs it.
+ */
+export const OWN_DRAFT_SHORTCUT_UNITS = 32
+
+/** Changed characters past which two readings' changes are not compared. */
+const COMPARED_CHANGE_LIMIT = 32 * OWN_DRAFT_SHORTCUT_UNITS
+
+/**
+ * The changes turning `before` into `after`, as the removed and inserted text
+ * of each, in order: one edit can change several readings of the same text
+ * (a block's content and its text nodes). Undefined past
+ * `COMPARED_CHANGE_LIMIT` changed characters, where the edit is weighed as
+ * any other.
+ */
+function changeBetween(before: string, after: string): string | undefined {
+  let start = 0
+  const limit = Math.min(before.length, after.length)
+  while (start < limit && before[start] === after[start]) start += 1
+  let end = 0
+  while (end < limit - start && before[before.length - 1 - end] === after[after.length - 1 - end]) end += 1
+  const a = before.slice(start, before.length - end)
+  const b = after.slice(start, after.length - end)
+  // Myers' shortest edit script, bounded.
+  const max = Math.min(a.length + b.length, COMPARED_CHANGE_LIMIT)
+  const offset = max + 1
+  const trace: Int32Array[] = []
+  const frontier = new Int32Array(2 * max + 3)
+  let found = -1
+  for (let d = 0; d <= max && found < 0; d += 1) {
+    trace.push(frontier.slice())
+    for (let k = -d; k <= d; k += 2) {
+      let x = k === -d || (k !== d && (frontier[offset + k - 1] ?? 0) < (frontier[offset + k + 1] ?? 0))
+        ? frontier[offset + k + 1] ?? 0
+        : (frontier[offset + k - 1] ?? 0) + 1
+      let y = x - k
+      while (x < a.length && y < b.length && a[x] === b[y]) {
+        x += 1
+        y += 1
+      }
+      frontier[offset + k] = x
+      if (x >= a.length && y >= b.length) {
+        found = d
+        break
+      }
+    }
+  }
+  if (found < 0) return undefined
+  // Walk back from the end, collecting each run of removals and insertions.
+  const hunks: Array<[string, string]> = []
+  let x = a.length
+  let y = b.length
+  let removed = ''
+  let inserted = ''
+  for (let d = found; d > 0; d -= 1) {
+    const v = trace[d] ?? frontier
+    const k = x - y
+    const down = k === -d || (k !== d && (v[offset + k - 1] ?? 0) < (v[offset + k + 1] ?? 0))
+    const previousK = down ? k + 1 : k - 1
+    const previousX = v[offset + previousK] ?? 0
+    const previousY = previousX - previousK
+    const snakeX = down ? previousX : previousX + 1
+    if (x > snakeX && (removed !== '' || inserted !== '')) {
+      hunks.push([removed, inserted])
+      removed = ''
+      inserted = ''
+    }
+    if (down) inserted = (b[previousY] ?? '') + inserted
+    else removed = (a[previousX] ?? '') + removed
+    x = previousX
+    y = previousY
+  }
+  if (removed !== '' || inserted !== '') hunks.push([removed, inserted])
+  return JSON.stringify(hunks.reverse())
 }
