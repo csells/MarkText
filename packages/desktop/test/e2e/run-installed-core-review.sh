@@ -73,7 +73,10 @@ rm -f "${DMG}"
 (
   cd "${REPO_ROOT}"
   PATH="/opt/homebrew/opt/node@22/bin:${PATH}" \
-    "${PNPM[@]}" --filter marktext "build:mac:${ARCH}"
+    # Verification builds name their source revision and seal the app ad hoc;
+    # release signing identities stay with electron-builder.yml.
+    MARKTEXT_BUILD_COMMIT="$(git -C "${REPO_ROOT}" rev-parse --verify HEAD)" \
+      "${PNPM[@]}" --filter marktext "build:mac:${ARCH}" -c.mac.identity=-
 )
 if [[ ! -f "${DMG}" ]]; then
   echo "Exact DMG build output is missing: ${DMG}" >&2

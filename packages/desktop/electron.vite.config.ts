@@ -12,16 +12,27 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const repositoryRoot = resolve(__dirname, '../..')
 
+// The source revision a build embeds for installed-package provenance checks.
+// MARKTEXT_BUILD_COMMIT names it explicitly (verification builds must); else the
+// checkout's HEAD; a build outside git, such as from a source tarball, says so.
 const buildCommit = (): string => {
-  const commit = execFileSync(
-    'git',
-    ['rev-parse', '--verify', 'HEAD'],
-    { cwd: repositoryRoot, encoding: 'utf8' }
-  ).trim()
-  if (!/^[0-9a-f]{40}$/.test(commit)) {
-    throw new Error('MarkText builds require one full checked-out Git commit identity')
+  const named = process.env.MARKTEXT_BUILD_COMMIT
+  if (named !== undefined && named !== '') {
+    if (!/^[0-9a-f]{40}$/.test(named)) {
+      throw new Error('MARKTEXT_BUILD_COMMIT must be one full Git commit identity')
+    }
+    return named
   }
-  return commit
+  try {
+    const head = execFileSync('git', ['rev-parse', '--verify', 'HEAD'], {
+      cwd: repositoryRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    }).trim()
+    return /^[0-9a-f]{40}$/.test(head) ? head : 'unknown'
+  } catch {
+    return 'unknown'
+  }
 }
 
 const BUILD_COMMIT = buildCommit()

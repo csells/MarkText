@@ -149,7 +149,10 @@ rm -f "${DMG}"
   echo "phase4 denominator=33 retries=0 workers=1"
   (
     cd "${REPO_ROOT}"
-    "${PNPM[@]}" --filter marktext "build:mac:${ARCH}"
+    # Verification builds name their source revision and seal the app ad hoc;
+    # release signing identities stay with electron-builder.yml.
+    MARKTEXT_BUILD_COMMIT="$(git -C "${REPO_ROOT}" rev-parse --verify HEAD)" \
+      "${PNPM[@]}" --filter marktext "build:mac:${ARCH}" -c.mac.identity=-
   )
 } 2>&1 | tee "${RAW_LOG_PATH}"
 

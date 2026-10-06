@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { createPackageWithOptions } from '@electron/asar'
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { finished } from 'node:stream/promises'
@@ -34,3 +34,15 @@ it.skipIf(process.platform !== 'darwin')('verifies signed native addons against 
   appendFileSync(signedAddon, 'tampered')
   expect(() => verifyPackagedApp(executable)).toThrow()
 }, 15000)
+
+// Release signing stays with upstream's electron-builder.yml; the installed
+// verification scripts seal their own builds ad hoc and name the revision the
+// provenance checks expect.
+it('leaves release signing to the builder config and seals verification builds ad hoc', () => {
+  const desktop = join(import.meta.dirname, '../../..')
+  expect(readFileSync(join(desktop, 'electron-builder.yml'), 'utf8')).not.toMatch(/^\s*identity:/m)
+  for (const script of ['run-installed-core-review.sh', 'run-installed-core-performance.sh', 'run-installed-core-phase4-consumers.sh']) {
+    const source = readFileSync(join(desktop, 'test/e2e', script), 'utf8')
+    expect(source, script).toMatch(/MARKTEXT_BUILD_COMMIT="\$\(git -C "\$\{REPO_ROOT\}" rev-parse --verify HEAD\)" \\\n\s*"\$\{PNPM\[@\]\}" --filter marktext "build:mac:\$\{ARCH\}" -c\.mac\.identity=-/)
+  }
+})
