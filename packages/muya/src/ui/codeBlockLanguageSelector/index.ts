@@ -97,10 +97,12 @@ export class CodeBlockLanguageSelector extends BaseScrollFloat {
                 }
                 lang = language;
             }
-            else if (block.blockName === 'paragraph.content')
+            else if (block.blockName === 'paragraph.content') {
                 lang = typedFence(text).lang;
-            else if (block.blockName === 'language-input')
+            }
+            else if (block.blockName === 'language-input') {
                 lang = text;
+            }
 
             const modes = search(lang);
             if (modes.length) {
