@@ -8083,6 +8083,7 @@ function createDocumentCoreWithExecutionBudget(
       literalBlockRange: position => state.regionalInventory === undefined
         ? undefined
         : regionalInventoryLiteralRange(state.regionalInventory, position),
+      armLiteralRange: position => regionalCandidate(state, { start: position, end: position, insert: '' })?.arm?.range,
       parseWindow: (source, atDocumentStart) => {
         const windowCore = createDocumentCoreWithExecutionBudget(executionBudget)
         windowCores.add(windowCore)
