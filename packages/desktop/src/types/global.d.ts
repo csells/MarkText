@@ -15,10 +15,7 @@ import type {
 import type { MenuTemplate, MenuPopupPosition } from '@shared/types/menu'
 import type { SerializedStat } from '@shared/types/files'
 import type { CoreAuthorityPerformanceEvent } from '@/documentAuthority/coreAuthorityPerformanceTrace'
-import type {
-  CriticMarkupKind,
-  DocumentResolutionDecision
-} from '@marktext/document-core'
+import type { CriticMarkupKind, DocumentResolutionDecision } from '@marktext/document-core'
 
 declare global {
   // ---- Build-time defines (electron-vite `define`) ----
@@ -123,7 +120,11 @@ declare global {
     isFile(p: string): Promise<boolean>
     isDirectory(p: string): Promise<boolean>
     emptyDir(p: string): Promise<void>
-    copy(src: string, dest: string, options?: { overwrite: false; errorOnExist: true }): Promise<void>
+    copy(
+      src: string,
+      dest: string,
+      options?: { overwrite: false; errorOnExist: true }
+    ): Promise<void>
     copyWithContentHash(src: string, outputDir: string): Promise<string>
     ensureDir(p: string): Promise<void>
     outputFile(p: string, data: string | Uint8Array): Promise<void>
@@ -237,10 +238,7 @@ declare global {
         text: string
       ): Promise<void>
       inputPlainText?(blockIndex: number, text: string, cursor: number): void
-      composePlainText?(
-        blockIndex: number,
-        candidates: readonly string[]
-      ): void
+      composePlainText?(blockIndex: number, candidates: readonly string[]): void
       inputMathBlock?(blockIndex: number, formula: string): void
       pasteMarkdownTable?(blockIndex: number, markdown: string): Promise<void>
       replacePlainTextAcrossBlocks?(

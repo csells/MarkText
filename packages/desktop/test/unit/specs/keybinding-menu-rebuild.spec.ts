@@ -6,8 +6,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // templates and assert every window menu (editor + macOS settings) is rebuilt
 // from the current keybindings and the active window's menu is re-applied.
 
-const { buildFromTemplate, setApplicationMenu, configureMenu, configSettingMenu, fromId } = vi.hoisted(
-  () => ({
+const { buildFromTemplate, setApplicationMenu, configureMenu, configSettingMenu, fromId } =
+  vi.hoisted(() => ({
     buildFromTemplate: vi.fn((template: unknown) => ({
       template,
       getMenuItemById: () => ({ checked: false, enabled: true })
@@ -17,8 +17,7 @@ const { buildFromTemplate, setApplicationMenu, configureMenu, configSettingMenu,
     configSettingMenu: vi.fn(() => ['SETTINGS_TEMPLATE']),
     // A rebuilt editor menu looks up its window to restore review state.
     fromId: vi.fn(() => null)
-  })
-)
+  }))
 
 vi.mock('electron', () => ({
   app: { addRecentDocument: vi.fn(), clearRecentDocuments: vi.fn() },

@@ -85,7 +85,7 @@ const keybindings: Map<string, string> = new Map([
   ['format.clear-format', 'Shift+Command+R'],
 
   // Review uses the same command registry as menus and the command palette.
-  ...reviewCommands.map(command => [`review.${command.id}`, ''] as [string, string]),
+  ...reviewCommands.map((command) => [`review.${command.id}`, ''] as [string, string]),
   ['review.add-comment', 'Command+Alt+Shift+M'],
   ['review.track-changes', 'Command+Shift+E'],
   ['review.next', 'Command+Alt+]'],

@@ -80,14 +80,17 @@ describe('pandoc export payload (#5379)', () => {
     store.EXPORT_PANDOC('docx')
 
     expect(sentPayload(sendSpy)).toMatchObject({
-      document: { meta: {}, blocks: [{ t: 'Para', c: [str('hello'), { t: 'Space' }, str('world!')] }] },
+      document: {
+        meta: {},
+        blocks: [{ t: 'Para', c: [str('hello'), { t: 'Space' }, str('world!')] }]
+      },
       pathname: '/tmp/note.md',
       target: 'docx'
     })
   })
 
   // Core reads the document with the editor's own switches, so the export means what it shows.
-  it('parses the document with the editor\'s Markdown preferences', () => {
+  it("parses the document with the editor's Markdown preferences", () => {
     usePreferencesStore().superSubScript = true
     usePreferencesStore().footnote = false
     store.currentFile!.markdown = 'x^2^[^1]\n\n[^1]: n\n'
