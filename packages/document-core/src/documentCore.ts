@@ -7259,9 +7259,11 @@ function createDocumentCoreWithExecutionBudget(
       const ends = documentChange.end < windowEnd || (documentChange.end === windowEnd && windowEnd === state.source.length)
       if (!inside || !ends) {
         if (retried) return undefined
+        // A block of context on either side of the change keeps a result
+        // spelled over it from reaching the window's edges.
         return windowedGeneralEdits(state, previous, edits, compile, {
-          start: Math.min((reach ?? span).start, documentChange.start),
-          end: Math.max((reach ?? span).end, documentChange.end)
+          start: Math.max(0, Math.min((reach ?? span).start, documentChange.start) - 1),
+          end: Math.min(state.source.length, Math.max((reach ?? span).end, documentChange.end) + 1)
         }, widenings, true, spells, documentChange)
       }
       documentReadingChanges.set(windowCore, { start: documentChange.start - sourceStart, end: documentChange.end - sourceStart })
