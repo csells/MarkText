@@ -214,7 +214,11 @@ rendering preference.
   literal range. The language list is normative to Profile 1.
 - **Footnotes.** Footnote references (`[^label]`) and footnote definitions; a footnote
   definition's block is tracked with its own literal/ownership rules. These productions are
-  enabled exactly when `footnotes` is true; otherwise their bytes are ordinary Markdown.
+  enabled exactly when `footnotes` is true; otherwise their bytes are ordinary Markdown. A
+  `[^label]: destination` line is then a link reference definition with the label `^label`,
+  as in CommonMark and upstream MarkText, which `[text][^label]` and `[^label]` resolve to;
+  like any definition it owns its destination's marker-looking text, so
+  `[^a]: {++x++}` reads as `[a]: {++x++}` does.
 - **Subscript and superscript.** A single unescaped `~payload~` or `^payload^` pair with a
   nonempty, whitespace-free payload forms `subscript` or `superscript` when
   `subscriptAndSuperscript` is true. The Layer C production takes precedence over GFM

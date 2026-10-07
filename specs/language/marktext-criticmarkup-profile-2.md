@@ -109,6 +109,12 @@ inside the label is data. Footnote definitions are block structure like list
 items, not containment boundaries: an annotation may begin in one definition
 and end in the next definition or in a following paragraph (R3, C4).
 
+L1f applies only when footnotes are on. With them off, `[^label]:` opens an
+ordinary link reference definition (Profile 1), whose destination owns its
+marker-looking text: `[^a]: {++x++}` forms no Addition, as `[a]: {++x++}`
+forms none, while a line that is no definition, such as `[^a]: one {++two++}`,
+is a paragraph with its Addition.
+
 Why: a footnote's text is prose the author reviews like any other, and with
 Track Changes on every edit must be recordable as a tracked change. Under
 Profile 1 an edit inside a footnote could only be recorded by replacing the
