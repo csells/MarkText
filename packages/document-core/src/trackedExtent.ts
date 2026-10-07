@@ -201,6 +201,13 @@ export const trackedAnnotatedViews = new WeakMap<DocumentCore, (source: string) 
   revisedView: string
 }>>()
 
+/**
+ * The number of annotations at the root of a candidate's parse, where the
+ * core can count them without projecting its views; undefined elsewhere.
+ */
+export const trackedRootCounts = new WeakMap<DocumentCore,
+  (previous: DocumentRevision, edits: readonly DocumentSourceEdit[]) => number | undefined>()
+
 export function projectionSignature(root: MarkdownAstNode): string {
   const parts: string[] = []
   const visit = (node: MarkdownAstNode): void => {
@@ -357,6 +364,9 @@ export function createTrackedOracle(
     return result
   }
   const regional = regionalComparisons(core, previous)
+  const countRoots = trackedRootCounts.get(core)
+  const rootCount = (edits: readonly DocumentSourceEdit[]): number =>
+    countRoots?.(previous, edits) ?? cachedPreview(edits).annotations.length
   const previousSource = core.sourceSlice(previous, { start: 0, end: previous.sourceLength })
   const viewFacts = trackedPreviewFacts.get(target)
   let targetView: string | undefined
@@ -393,7 +403,7 @@ export function createTrackedOracle(
     if (equivalence === 'exact'
       ? candidateViews.revised !== targetViews.revised || candidateViews.original !== previousViews.original
       : signature(candidateViews.original) !== signature(previousViews.original)) return false
-    return whole || partiallyResolvable(edits, candidate, authored, cachedPreview)
+    return whole || partiallyResolvable(edits, candidate, authored, rootCount)
   }
   const accepts = (edits: readonly DocumentSourceEdit[], equivalence: TrackedEquivalence, whole = false): boolean => {
     const candidate = cachedPreview(edits)
@@ -424,7 +434,7 @@ export function createTrackedOracle(
     // Resolving each authored suggestion alone is a whole preview apiece,
     // several per candidate, so a candidate is resolved only once every
     // check above has accepted it.
-    return whole || partiallyResolvable(edits, candidate, authored, cachedPreview)
+    return whole || partiallyResolvable(edits, candidate, authored, rootCount)
   }
   const resolvesExactly = (edits: readonly DocumentSourceEdit[]): boolean => {
     const candidate = cachedPreview(edits)
@@ -608,16 +618,16 @@ function partiallyResolvable(
   edits: readonly DocumentSourceEdit[],
   candidate: DocumentRevision,
   authored: readonly AuthoredAnnotation[],
-  preview: Preview
+  rootCount: (edits: readonly DocumentSourceEdit[]) => number
 ): boolean {
   const shared = authored.filter(item => authored.some(other => other !== item && other.edit === item.edit))
   return shared.every(({ annotation, edit, offset }) => (['accept', 'reject'] as const).every(decision => {
     const owner = edits[edit]!
     const length = annotation.range.end - annotation.range.start
     const insert = owner.insert.slice(0, offset) + resolvedText(candidate.source, annotation, decision) + owner.insert.slice(offset + length)
-    const partial = preview(edits.map((item, index) => index === edit ? Object.freeze({ ...item, insert }) : item))
+    const partial = rootCount(edits.map((item, index) => index === edit ? Object.freeze({ ...item, insert }) : item))
     const kept = annotation.arms.find(arm => arm.name === resolvedArm(annotation, decision))
-    return partial.annotations.length === candidate.annotations.length - 1 + (kept?.annotations.length ?? 0)
+    return partial === candidate.annotations.length - 1 + (kept?.annotations.length ?? 0)
   }))
 }
 
