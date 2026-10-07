@@ -3727,13 +3727,60 @@ function editChangesLiteralPairing(source: CanonicalSourceView, edit: RetainedPa
  * differently than the window does.
  */
 function unpairedLiteralRuns(products: Profile1DocumentProducts, window: string): boolean {
+  return unpairedRunsOf(products, window).length !== 0
+}
+
+function unpairedRunsOf(products: Profile1DocumentProducts, window: string): SourceSpan[] {
   const literals = products.retainedIntrinsic?.markdownLiterals ?? []
+  const unpaired: SourceSpan[] = []
   for (const run of window.matchAll(/`+|\$+/gu)) {
     const start = run.index
     const end = start + run[0].length
-    if (!literals.some(literal => literal.start <= start && end <= literal.end)) return true
+    if (!literals.some(literal => literal.start <= start && end <= literal.end)) unpaired.push({ start, end })
   }
-  return false
+  return unpaired
+}
+
+/**
+ * Whether the dollar runs a window's parse pairs with no other read so in
+ * the document too, where text follows the window. A `$` run, or a `$$`
+ * run continuing a paragraph, pairs only within its paragraph, which the
+ * window holds whole. A `$$` alone on its line opens display math up to the
+ * first `$$` after it, wherever that is: a `$$` after it in the window, and
+ * outside every suggestion so that it also bounds a search kept to the
+ * suggestion-free text, decides it as in the document; without one, no
+ * `$$` may follow the window. Runs before the window are the caller's to
+ * keep from reaching into it. Backtick runs are not bounded so.
+ */
+function unpairedRunsStayInWindow(
+  products: Profile1DocumentProducts,
+  window: string,
+  dollarsFollow: () => boolean
+): boolean {
+  const unpaired = unpairedRunsOf(products, window)
+  if (unpaired.length === 0) return true
+  if (unpaired.some(run => window.charCodeAt(run.start) !== 36)) return false
+  const display = unpaired.filter(run => run.end - run.start >= 2 && opensDisplayMath(window, run.start)).at(-1)
+  if (display === undefined) return true
+  const roots = products.retainedIntrinsic?.roots ?? []
+  for (let at = window.indexOf('$$', display.end); at !== -1; at = window.indexOf('$$', at + 1)) {
+    if (!protectedSpelling(window, at) &&
+        !roots.some(root => Number(root.range.start) <= at && at < Number(root.range.end))) return true
+  }
+  return !dollarsFollow()
+}
+
+/**
+ * Whether the line holding offset `at` of `text` may read as a `$$` line
+ * opening display math: what is left of it without marker spellings and
+ * container prefixes is dollars alone.
+ */
+function opensDisplayMath(text: string, at: number): boolean {
+  const lineStart = Math.max(text.lastIndexOf('\n', at - 1), text.lastIndexOf('\r', at - 1)) + 1
+  const lineEnd = text.slice(at).search(/[\r\n]/u)
+  const line = text.slice(lineStart, lineEnd === -1 ? text.length : at + lineEnd)
+    .replace(/\{\+\+|\{--|\{~~|\{==|\{>>|~>|\+\+\}|--\}|~~\}|==\}|<<\}/gu, '')
+  return /^(?:[ \t]*(?:>|[-+*](?=[ \t]|$)|\d{1,9}[.)](?=[ \t]|$)))*[ \t]*\$+[ \t]*$/u.test(line)
 }
 
 function viewBlocksAgree(products: Profile1DocumentProducts): boolean {
@@ -3910,13 +3957,21 @@ function readsLiteralBlocks(
 ): boolean {
   const literals = (products.retainedIntrinsic?.markdownLiterals ?? [])
     .filter(literal => literal.start < extent.end && literal.end > extent.start)
-  if (literals.length !== blocks.length) return false
-  return blocks.every((block, ordinal) => {
-    const literal = literals[ordinal]
+  let read = 0
+  return blocks.every(block => {
+    const literal = literals[read]
     const trailing = /^[ \t\r\n]*/u.exec(text.slice(block.end))?.[0].length ?? 0
-    return literal !== undefined && literal.kind === kind && literal.start === block.start &&
-      literal.end >= block.end && literal.end <= block.end + trailing
-  })
+    if (literal !== undefined && literal.kind === kind && literal.start === block.start &&
+        literal.end >= block.end && literal.end <= block.end + trailing) {
+      read += 1
+      return true
+    }
+    // A blank line parts the `$$` lines of a math block that does not start
+    // its line, as one after a Substitution's divider, so they read as text;
+    // they must then spell no marker either.
+    return kind === 'math' && (literal === undefined || literal.start >= block.end) &&
+      markerSpellings(text.slice(block.start, block.end)) === 0
+  }) && read === literals.length
 }
 
 /**
@@ -4173,6 +4228,7 @@ function evaluateBlockWindow(
   let readBefore = false
   let wholeLiteralBefore = false
   let wholeLiteralAfter = false
+  let dollarsReached = false
   for (let widening = 0; ; widening += 1) {
     const before = edited.source > 0 ? windowEdge(inventory, edited.source - 1, 'start') : edited
     const indentedAfter = indentedLineAt(previousSource, edited.source) || indentedLineAt(nextSource, edited.source)
@@ -4263,7 +4319,22 @@ function evaluateBlockWindow(
       last === editedEnd && !atDocumentEnd
     )
     // The document parse reports a window's resource failure authoritatively.
-    if (result.kind !== 'complete' || !viewBlocksAgree(result) || unpairedLiteralRuns(result, nextWindow)) return undefined
+    if (result.kind !== 'complete' || !viewBlocksAgree(result)) return undefined
+    const windowEnd = last.source + delta
+    if (!unpairedRunsStayInWindow(result, nextWindow, () => nextSource.slice(windowEnd, nextSource.length).includes('$$'))) {
+      // A `$$` line the window leaves open reads on to the next `$$` after
+      // it, which the window then takes in with its block, once.
+      const reach = dollarsReached || !unpairedRunsStayInWindow(result, nextWindow, () => false)
+        ? -1
+        : nextSource.slice(windowEnd, Math.min(nextSource.length, windowEnd + DOLLAR_REACH)).indexOf('$$')
+      const found = reach === -1 ? undefined : windowEdge(inventory, windowEnd - delta + reach, 'end')
+      const end = found === undefined ? undefined : literalBlockEdge(inventory, found, 'end')
+      if (end === undefined || end.source <= editedEnd.source) return undefined
+      editedEnd = end
+      dollarsReached = true
+      widening -= 1
+      continue
+    }
     if (last === editedEnd && !atDocumentEnd && !lastBlockEndsBefore(result)) return undefined
     // A suggestion spanning a blank line can take the safe point before its
     // block away, and an HTML block reads the blank line before it as an
@@ -4340,7 +4411,8 @@ function evaluateBlockWindow(
       const shift = (range: SourceSpan): SourceSpan => ({ start: range.start - first.source, end: range.end - first.source })
       if (!readsLiteralBlocks(result, nextWindow, replacement.kind, replacement.next.map(shift), shift(replacement.nextExtent)) ||
           !readsLiteralBlocks(previousResult, previousWindow, replacement.kind, replacement.previous.map(shift),
-            shift(replacement.previousExtent))) return undefined
+            shift(replacement.previousExtent)) ||
+          !unpairedRunsStayInWindow(previousResult, previousWindow, () => previousSource.slice(last.source, length).includes('$$'))) return undefined
     }
     // The window reads its unchanged text as the document does only where
     // it finds no block boundary the document lacks: a dollar or backtick
@@ -4445,6 +4517,9 @@ function literalContextEnd(inventory: InventoryValue, context: WindowEdge): Wind
 
 /** The most text of a literal block a window reads as context around its edit. */
 const LITERAL_CONTEXT_UNITS = 4096
+
+/** The most text after a window that it reads on to the `$$` a line it leaves open pairs with. */
+const DOLLAR_REACH = 8192
 
 function literalBlockEdge(
   inventory: InventoryValue,
