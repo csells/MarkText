@@ -16,7 +16,7 @@ import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit, withinHistory } from './trackedHistoryEditing.js'
-import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, draftUnresolved, equivalenceDeferred, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
+import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedStructure, type TrackedStructure, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import {
@@ -2537,7 +2537,13 @@ function generalTrackedEdit(
     createTrackedLiteralSourceEdit(activeCore, previous, edit, preview) ??
     // A selection starting or ending between suggestions owns the ones it encloses.
     (edit.start < edit.end ? createTrackedSourceEdit(activeCore, previous, edit, preview, false, 'structure') : undefined)
-  const planned = compile()
+  typedKeys.set(activeCore, Object.freeze({ previous, edit }))
+  let planned: DocumentSourceEdit | undefined
+  try {
+    planned = compile()
+  } finally {
+    typedKeys.delete(activeCore)
+  }
   return planned !== undefined && edit.insert.length === 0
     ? mergedTrackedDeletion(activeCore, previous, edit, planned, preview) ?? planned
     : planned
@@ -5501,6 +5507,9 @@ function createDocumentCoreWithExecutionBudget(
   // a key may preview one edit several times, and the edit it settles on is
   // applied next, which publishes the same parse instead of repeating it.
   const PREVIEWED_CANDIDATES_RETAINED = 2
+  // A window core's document is a few blocks, and its spelling search
+  // previews the same candidate text again from several planners.
+  const WINDOW_PREVIEWED_CANDIDATES_RETAINED = 16
   let previewedCandidates: {
     revision: DocumentRevision
     entries: Array<Readonly<{ key: string, source: string, products: Profile1DocumentProducts }>>
@@ -5520,7 +5529,8 @@ function createDocumentCoreWithExecutionBudget(
     if (revision !== currentRevision) return
     if (previewedCandidates?.revision !== revision) previewedCandidates = { revision, entries: [] }
     previewedCandidates.entries.unshift(Object.freeze({ key: candidateKey(edits), source, products }))
-    previewedCandidates.entries.length = Math.min(previewedCandidates.entries.length, PREVIEWED_CANDIDATES_RETAINED)
+    previewedCandidates.entries.length = Math.min(previewedCandidates.entries.length,
+      windowCores.has(core) ? WINDOW_PREVIEWED_CANDIDATES_RETAINED : PREVIEWED_CANDIDATES_RETAINED)
   }
 
   // Authoring validates the complete candidate in the acknowledged parser
@@ -5654,6 +5664,13 @@ function createDocumentCoreWithExecutionBudget(
           revisedView ??= projectionSignature(projectRevision(revision, 'revised').ast.root)
           return revisedView
         },
+        // Read from a whole parse of the candidate, which leaves the core's
+        // revisions and the parses they hold as they are.
+        structure: () => {
+          const source = revision.source
+          const editing = isolatedProducts(source, stateByRevision.get(previous)?.markdownOptions ?? markdownOptions()).editing()
+          return trackedStructure(markdownAstOf(editing).root, projectionCoordinatesOf(editing, source.length))
+        },
         region: Object.freeze({ base: previous, revision, ...replaced })
       }))
       return revision
@@ -5666,9 +5683,15 @@ function createDocumentCoreWithExecutionBudget(
         diagnostics: diagnosticsOf(products)
       })
       let revisedView: string | undefined
+      let structure: TrackedStructure | undefined
       trackedPreviewFacts.set(preview, Object.freeze({
         original: products.original.source,
         revised: products.revised.source,
+        structure: () => {
+          const editing = products.editing()
+          structure ??= trackedStructure(markdownAstOf(editing).root, projectionCoordinatesOf(editing, source.length))
+          return structure
+        },
         revisedView: () => {
           revisedView ??= projectionSignature(markdownAstOf(products.revised).root)
           return revisedView
@@ -7113,7 +7136,13 @@ function createDocumentCoreWithExecutionBudget(
       preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision
     ) => readonly DocumentSourceEdit[] | undefined,
     reach?: SourceRange,
-    widenings = 0
+    widenings = 0,
+    retried = false,
+    // The compile spells tracked keys, which a window may leave to another.
+    spells = false,
+    // The source range of the document a tracked key changes the reading of,
+    // where its spelling derives from it (see derivesSpelling).
+    documentChange?: SourceRange
   ): { readonly edits: readonly DocumentSourceEdit[] | undefined } | undefined => {
     const firstEdit = edits[0]
     const lastEdit = edits.at(-1)
@@ -7140,7 +7169,7 @@ function createDocumentCoreWithExecutionBudget(
     if (span.start < sourceStart || span.end > windowEnd) return undefined
     const windowCore = createDocumentCoreWithExecutionBudget(executionBudget)
     windowCores.add(windowCore)
-    markWindowCompileCore(windowCore)
+    markWindowCompileCore(windowCore, { startsDocument: sourceStart === 0, endsDocument: windowEnd === state.source.length })
     if (equivalenceDeferred(core)) deferEquivalence(windowCore)
     const { schema: _schema, ...options } = state.markdownOptions
     const opened = windowCore.open(windowSource, sourceStart === 0 ? options : { ...options, frontMatter: false })
@@ -7203,15 +7232,44 @@ function createDocumentCoreWithExecutionBudget(
       return windowedGeneralEdits(state, previous, edits, compile, {
         start: Math.max(0, Math.min((reach ?? span).start, sourceStart) - 1),
         end: Math.min(state.source.length, Math.max((reach ?? span).end, windowEnd) + 1)
-      }, widenings + 1)
+      }, widenings + 1, retried, spells, documentChange)
     }
     const local = Object.freeze(edits.map(edit => Object.freeze({
       start: edit.start - sourceStart, end: edit.end - sourceStart, insert: edit.insert
     })))
+    // A key the window could only take as typed is the document's to spell.
+    // A spelling reaching an edge of the window the document goes on past
+    // is compiled once more in a window past that edge: a block more before
+    // its start, and at its end the rest of the document, as a fence the key
+    // breaks reads to the document's end. Where that rest is most of the
+    // document, the document compile reads it for no more.
+    const beyond = (edges: Readonly<{ start: boolean, end: boolean }>) => {
+      const rest = state.source.length - sourceStart
+      if (retried || (edges.end && rest * 5 > state.source.length * 3)) return undefined
+      return windowedGeneralEdits(state, previous, edits, compile, {
+        start: edges.start ? Math.max(0, Math.min((reach ?? span).start, sourceStart) - 1) : Math.min((reach ?? span).start, sourceStart),
+        end: edges.end ? state.source.length : Math.max((reach ?? span).end, windowEnd)
+      }, widenings, true, spells, documentChange)
+    }
+    // A key whose reading change the document reads beyond this window, as
+    // typing that breaks a fence reads on to the document's end, is spelled
+    // in a window holding that change, without compiling in this one.
+    if (documentChange !== undefined) {
+      const inside = documentChange.start > sourceStart || (documentChange.start === sourceStart && sourceStart === 0)
+      const ends = documentChange.end < windowEnd || (documentChange.end === windowEnd && windowEnd === state.source.length)
+      if (!inside || !ends) {
+        if (retried) return undefined
+        return windowedGeneralEdits(state, previous, edits, compile, {
+          start: Math.min((reach ?? span).start, documentChange.start),
+          end: Math.max((reach ?? span).end, documentChange.end)
+        }, widenings, true, spells, documentChange)
+      }
+      documentReadingChanges.set(windowCore, { start: documentChange.start - sourceStart, end: documentChange.end - sourceStart })
+    }
     const run = () => compile(windowCore, opened, local, candidate => windowPreview(opened, candidate))
     const compiled = trackedPartsSeparate(core) ? separateTrackedParts(windowCore, run) : run()
-    // A key the window could only take as typed is the document's to spell.
-    if (draftUnresolved(windowCore)) return undefined
+    const unresolved = unresolvedDraftEdges(windowCore)
+    if (unresolved !== undefined) return beyond(unresolved)
     // A window's refusal of an edit that writes or removes a line break or a
     // delimiter a block can open with is not the document's: the document
     // compile may spell it with text beyond the window, which such an edit
@@ -7361,7 +7419,7 @@ function createDocumentCoreWithExecutionBudget(
       return windowedGeneralEdits(state, previous, edits, compile, {
         start: Math.max(0, Math.min(widened.start, first.start, sourceStart) - 1),
         end: Math.min(state.source.length, Math.max(widened.end, last.end, windowEnd) + 1)
-      }, widenings + 1)
+      }, widenings + 1, retried, spells, documentChange)
     }
     // An edit that splits or joins the list it is in changes the items
     // after it, in the window as in the document; the document preview
@@ -7407,6 +7465,21 @@ function createDocumentCoreWithExecutionBudget(
     return /[`$]/u.test(line + edit.insert) || (marker !== null && edit.start <= lineStart + marker[0].length)
   }
 
+  /**
+   * The source range whose reading a tracked key that derives its spelling
+   * changes, read off the document's parses before and after it: the
+   * windows compiling the key spell it over the span the document would.
+   */
+  const documentReadingChange = (state: RevisionState, previous: DocumentRevision, edit: DocumentSourceEdit): SourceRange | undefined => {
+    if (plansFromDocumentParse(core) || state.source.length > DERIVED_SPELLING_UNITS) return undefined
+    const source = state.source.slice(0, state.source.length)
+    if (!derivesSpelling(source, edit, edit.insert)) return undefined
+    const structure = trackedPreviewFacts.get(previewSourceEdits(previous, [edit]))?.structure
+    if (structure === undefined) return undefined
+    const { ast, coordinates } = core.project(previous, 'markup').syntax
+    return readingChange(trackedStructure(ast.root, coordinates), structure(), edit, edit.insert.length - (edit.end - edit.start))
+  }
+
   /** Tracked compilation of an edit that changes no deleted text or annotation syntax. */
   const ownedTrackedEdit = (
     state: RevisionState,
@@ -7439,7 +7512,8 @@ function createDocumentCoreWithExecutionBudget(
         : windowedGeneralEdits(state, previous, [edit], (windowCore, revision, [local], windowPreview) => {
           const planned = local === undefined ? undefined : generalTrackedEdit(windowCore, revision, local, windowPreview)
           return planned === undefined ? undefined : [planned]
-        }, { start: Math.min(list.start, edit.start), end: Math.max(list.end, edit.end) })
+        }, { start: Math.min(list.start, edit.start), end: Math.max(list.end, edit.end) }, 0, false, true,
+        list === undefined ? undefined : documentReadingChange(state, previous, edit))
       const planned = windowed?.edits?.[0]
       if (windowed !== undefined) {
         return planned === undefined ? undefined : Object.freeze({ start: planned.start, end: planned.end, insert: planned.insert })
@@ -7466,7 +7540,7 @@ function createDocumentCoreWithExecutionBudget(
     const windowed = windowedGeneralEdits(state, previous, [edit], (windowCore, revision, [local], windowPreview) => {
       const planned = local === undefined ? undefined : generalTrackedEdit(windowCore, revision, local, windowPreview)
       return planned === undefined ? undefined : [planned]
-    }, literalCompileReach(state, edit))
+    }, literalCompileReach(state, edit), 0, false, true, documentReadingChange(state, previous, edit))
     if (windowed !== undefined) {
       const planned = windowed.edits?.[0]
       return planned === undefined

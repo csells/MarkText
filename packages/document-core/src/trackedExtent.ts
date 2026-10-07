@@ -20,6 +20,103 @@ export interface TrackedProjectionFacts {
    * everywhere else, so the oracle compares candidates there alone.
    */
   readonly region?: TrackedPreviewRegion
+  /** For a candidate parsed whole: its blocks and literals, as `trackedStructure` reads them. */
+  readonly structure?: () => TrackedStructure
+}
+
+/** A block or literal of a Markdown reading: what it is, and its source range. */
+export interface TrackedPart {
+  readonly kind: string
+  readonly start: number
+  readonly end: number
+}
+
+/**
+ * The top-level blocks of a reading, with the items of a list as blocks of
+ * their own, and the literals it reads, each in source order.
+ */
+export interface TrackedStructure {
+  readonly blocks: readonly TrackedPart[]
+  readonly literals: readonly TrackedPart[]
+}
+
+interface SourceCoordinates {
+  readonly toSource: (offset: number, affinity: 'next' | 'previous') => number
+}
+
+/**
+ * A reading's blocks and literals. A block's kind holds its own attributes
+ * other than positions and text, so a list item that leaves its list, or a
+ * fence that loses its info string, reads as another block.
+ */
+export function trackedStructure(root: MarkdownAstNode, coordinates: SourceCoordinates): TrackedStructure {
+  const range = (node: MarkdownAstNode) => ({
+    start: coordinates.toSource(node.range.start, 'next'),
+    end: coordinates.toSource(node.range.end, 'previous')
+  })
+  const shape = (node: MarkdownAstNode): string => JSON.stringify(Object.entries(node.attributes)
+    .filter(([name, value]) => !(typeof value === 'number' && /(?:Start|End)$/u.test(name)) &&
+      name !== 'content' && name !== 'semanticText' && name !== 'semanticStart' && name !== 'semanticEnd')
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0))
+  const blocks: TrackedPart[] = []
+  for (const block of root.children) {
+    if (block.kind === 'list') {
+      for (const item of block.children) blocks.push({ kind: `item ${shape(block)} ${shape(item)}`, ...range(item) })
+    } else {
+      blocks.push({ kind: `${block.kind} ${shape(block)} ${block.kind === 'table' ? block.children.length : ''}`, ...range(block) })
+    }
+  }
+  const literals: TrackedPart[] = []
+  const visit = (node: MarkdownAstNode): void => {
+    if (LITERAL_KINDS.has(node.kind)) literals.push({ kind: node.kind, ...range(node) })
+    for (const child of node.children) visit(child)
+  }
+  visit(root)
+  return { blocks, literals }
+}
+
+/**
+ * The source range of `previous` whose reading the edit of `edited` changes,
+ * where `next` is that edit's reading and the edit changed the length by
+ * `delta`: the blocks and literals from the first that reads otherwise to
+ * the last, the parts before and after reading alike (moved by `delta` after
+ * it). A block that only holds the edit, keeping its kind, changes no block
+ * structure. A position `next` wrote maps to the edited range.
+ */
+export function readingChange(previous: TrackedStructure, next: TrackedStructure, edited: SourceRange, delta: number): SourceRange {
+  const back = (position: number, side: 'start' | 'end'): number =>
+    position <= edited.start ? position : position >= edited.end + delta ? position - delta : side === 'start' ? edited.start : edited.end
+  let start = edited.start
+  let end = edited.end
+  const span = (before: readonly TrackedPart[], after: readonly TrackedPart[], holdsOnly: boolean): void => {
+    const alike = (left: TrackedPart | undefined, right: TrackedPart | undefined, shift: number): boolean =>
+      left !== undefined && right !== undefined && left.kind === right.kind &&
+      left.start + shift === right.start && left.end + shift === right.end
+    let first = 0
+    while (first < before.length && first < after.length && (before[first]?.end ?? Infinity) <= edited.start &&
+      alike(before[first], after[first], 0)) first += 1
+    let last = 0
+    while (last < before.length - first && last < after.length - first && (before[before.length - 1 - last]?.start ?? -1) >= edited.end &&
+      alike(before[before.length - 1 - last], after[after.length - 1 - last], delta)) last += 1
+    const changedBefore = before.slice(first, before.length - last)
+    const changedAfter = after.slice(first, after.length - last)
+    if (holdsOnly && changedBefore.length === changedAfter.length && changedBefore.every((part, ordinal) => {
+      const other = changedAfter[ordinal]
+      return other !== undefined && other.kind === part.kind && other.start === part.start && other.end === part.end + delta &&
+        part.start <= edited.start && edited.end <= part.end
+    })) return
+    for (const part of changedBefore) {
+      start = Math.min(start, part.start)
+      end = Math.max(end, part.end)
+    }
+    for (const part of changedAfter) {
+      start = Math.min(start, back(part.start, 'start'))
+      end = Math.max(end, back(part.end, 'end'))
+    }
+  }
+  span(previous.blocks, next.blocks, true)
+  span(previous.literals, next.literals, false)
+  return { start, end }
 }
 
 export interface TrackedPreviewRegion {
@@ -50,6 +147,46 @@ export const trackedRegionalReadings = new WeakMap<
   DocumentCore,
   (revision: DocumentRevision, range: SourceRange) => TrackedRegionalReading | undefined
 >()
+
+/**
+ * Source units up to which a document's tracked keys are spelled over the
+ * span their reading change derives: the change is read off whole parses
+ * of the document before and after the key.
+ */
+export const DERIVED_SPELLING_UNITS = 8192
+
+/**
+ * Whether a key, as the untracked edit `edited` writing `insert`, is one
+ * whose reading can change far beyond its own lines: it is typed on a
+ * fence or math delimiter line, or it writes or removes a delimiter run
+ * such a line opens with. Other keys read locally enough for the search.
+ */
+export function derivesSpelling(source: string, edited: SourceRange, insert: string): boolean {
+  if (/`{2,}|~{3,}|\$\$/u.test(insert + source.slice(edited.start, edited.end))) return true
+  // Typed within or at either end of the delimiter run a line opens with;
+  // an info string after it leaves the block as it reads.
+  const start = lineStart(source, edited.start)
+  const run = /^( {0,3})(`{2,}|~{2,}|\$\$)/u.exec(source.slice(start, lineEnd(source, edited.start)))
+  if (run !== null && edited.start <= start + run[0].length && edited.end >= start + (run[1]?.length ?? 0)) return true
+  // Punctuation typed where a line starts, below a line of text, can join
+  // the line to the block above or end that block.
+  return edited.start === start && start > 0 && /^[^\p{L}\p{N}\s]/u.test(insert) &&
+    /\S/u.test(source.slice(lineStart(source, start - 1), start))
+}
+
+/**
+ * For a window core compiling such a key: the range of the window the key
+ * changes the document's reading of, read off the whole document, so the
+ * window spells the key over the span the document would.
+ */
+export const documentReadingChanges = new WeakMap<DocumentCore, SourceRange>()
+
+/**
+ * The key a core's general tracked compile is spelling, as typed: its
+ * reading change, read the same way by a window and the document, is
+ * what a spelling derives from.
+ */
+export const typedKeys = new WeakMap<DocumentCore, Readonly<{ previous: DocumentRevision, edit: DocumentSourceEdit }>>()
 
 /** Revised view identity of Markdown text such as a projection: its tree without spelling or offsets. */
 export const trackedMarkdownSignatures = new WeakMap<DocumentCore, (markdown: string) => string>()
@@ -103,16 +240,46 @@ export const equivalenceDeferred = (core: DocumentCore): boolean => deferredCore
  * the window can show valid: the edit then stands as typed only on the whole
  * document, whose compile may need text the window does not hold.
  */
-const windowCompileCores = new WeakSet<DocumentCore>()
-const unresolvedDraftCores = new WeakSet<DocumentCore>()
-export const markWindowCompileCore = (core: DocumentCore): void => {
-  windowCompileCores.add(core)
+const windowCompileCores = new WeakMap<DocumentCore, Readonly<{ startsDocument: boolean, endsDocument: boolean }>>()
+const unresolvedDraftCores = new WeakMap<DocumentCore, { start: boolean, end: boolean }>()
+/** A window core, and whether its window starts and ends where the document does. */
+export const markWindowCompileCore = (core: DocumentCore, edges: Readonly<{ startsDocument: boolean, endsDocument: boolean }>): void => {
+  windowCompileCores.set(core, edges)
 }
 export const isWindowCompileCore = (core: DocumentCore): boolean => windowCompileCores.has(core)
-export const markUnresolvedDraft = (core: DocumentCore): void => {
-  unresolvedDraftCores.add(core)
+/**
+ * Whether a range of a window core's document reaches an edge of the window
+ * that the document goes on past, where text beyond the window could read it
+ * otherwise.
+ */
+/** Whether a range of a window core's document reaches an edge of the window, which ones. */
+export const reachesWindowEdge = (core: DocumentCore, range: SourceRange, length: number): Readonly<{ start: boolean, end: boolean }> | undefined => {
+  const start = windowCompileCores.has(core) && range.start === 0
+  const end = windowCompileCores.has(core) && range.end === length
+  return start || end ? { start, end } : undefined
+}
+/** Spellings derived from the document's reading change (see searchWidenedSpelling). */
+const derivedSpellings = new WeakSet<DocumentSourceEdit>()
+export const reachesOpenWindowEdge = (core: DocumentCore, range: SourceRange, length: number): Readonly<{ start: boolean, end: boolean }> | undefined => {
+  const edges = windowCompileCores.get(core)
+  const start = edges !== undefined && range.start === 0 && !edges.startsDocument
+  const end = edges !== undefined && range.end === length && !edges.endsDocument
+  return start || end ? { start, end } : undefined
+}
+/**
+ * Marks a window core's draft as one the document must settle, and which
+ * edges of the window it reaches: both, where the window found no spelling.
+ */
+export const markUnresolvedDraft = (core: DocumentCore, reaches: Readonly<{ start: boolean, end: boolean }> = { start: true, end: true }): void => {
+  const marked = unresolvedDraftCores.get(core) ?? { start: false, end: false }
+  marked.start ||= reaches.start
+  marked.end ||= reaches.end
+  unresolvedDraftCores.set(core, marked)
 }
 export const draftUnresolved = (core: DocumentCore): boolean => unresolvedDraftCores.has(core)
+/** The window edges an unresolved draft reaches. */
+export const unresolvedDraftEdges = (core: DocumentCore): Readonly<{ start: boolean, end: boolean }> | undefined =>
+  unresolvedDraftCores.get(core)
 
 export function deferEquivalence(core: DocumentCore): void {
   deferredCores.add(core)
@@ -548,8 +715,16 @@ export function widenedTrackedSourceEdit(
   if (known === undefined) found.set(key, spelled ?? null)
   // A widened spelling reaching a window's edge may need text beyond it,
   // which the whole document's readings decide.
-  if (spelled !== undefined && isWindowCompileCore(core) && (spelled.start === 0 || spelled.end === previous.sourceLength)) {
-    markUnresolvedDraft(core)
+  // The span the document's reading change derives is the document's own,
+  // which a window holding that change spells as the document would;
+  // any other spelling reaching a window edge may need text beyond it.
+  const reached = spelled === undefined
+    ? undefined
+    : derivedSpellings.has(spelled)
+      ? reachesOpenWindowEdge(core, spelled, previous.sourceLength)
+      : reachesWindowEdge(core, spelled, previous.sourceLength)
+  if (reached !== undefined) {
+    markUnresolvedDraft(core, reached)
   }
   return spelled
 }
@@ -639,6 +814,37 @@ function searchWidenedSpelling(
     candidates.push(safe)
   }
   candidates.sort((left, right) => (left.end - left.start) - (right.end - right.start) || left.start - right.start)
+  // The change a key makes to the document's reading: a window is given the
+  // document's own; a document reads it off its parses before and after.
+  const typed = typedKeys.get(core)
+  const changed = typed?.previous !== previous
+    ? undefined
+    : isWindowCompileCore(core)
+      ? documentReadingChanges.get(core)
+      : source.length <= DERIVED_SPELLING_UNITS && derivesSpelling(source, typed.edit, typed.edit.insert)
+        ? (() => {
+          const structure = trackedPreviewFacts.get(oracle.preview([typed.edit]))?.structure
+          return structure === undefined
+            ? undefined
+            : readingChange(trackedStructure(syntax.ast.root, syntax.coordinates), structure(), typed.edit,
+              typed.edit.insert.length - (typed.edit.end - typed.edit.start))
+        })()
+        : undefined
+  // A change within the lines the edit touches is the search's to spell
+  // narrowly; one reaching other lines, as a fence it breaks, is spelled
+  // over those lines whole.
+  const derivedSpan = (): SourceRange | undefined => {
+    const touched = lineAligned(base)
+    if (changed === undefined || (touched.start <= changed.start && changed.end <= touched.end)) return undefined
+    // Whole lines, but not the line break ending the last: a suggestion's
+    // closer stays on the line it ends, as the search spells it.
+    const lines = lineAligned(changed)
+    const content = lines.end > lines.start && /[\r\n]/u.test(source[lines.end - 1] ?? '') && lines.end - 1 > changed.end
+      ? { start: lines.start, end: lines.end - (source.slice(lines.end - 2, lines.end) === '\r\n' ? 2 : 1) }
+      : lines
+    const safe = annotationSafe(annotations, whole(content))
+    return insideHistory(annotations, safe) || cuts(safe.start, safe.end) ? undefined : safe
+  }
 
   const spell = (old: string, next: string, variant: Variant, atLineEnd: boolean): string | undefined => {
     if (variant === 'escaped') {
@@ -755,6 +961,39 @@ function searchWidenedSpelling(
   // spans of plain source even at the cost of a rendering-identical spelling.
   const encloses = (span: SourceRange): boolean => annotations.some(annotation =>
     span.start <= annotation.range.start && annotation.range.end <= span.end)
+  // The span the edit changes the reading of, as its blocks and literals
+  // show, is spelled before the wider spans are searched shortest first:
+  // one preview usually proves it. The search reaches a short span's other
+  // spellings soon enough itself.
+  const derived = derivedSpan()
+  const spellDerived = (): DocumentSourceEdit | undefined => {
+    if (derived === undefined) return undefined
+    const soon = candidates.slice(0, 3).some(span => span.start === derived.start && span.end === derived.end)
+    for (const variant of soon ? ['exact'] as const : ['exact', 'pair', 'reversed'] as const) {
+      const edit = attempt(derived, 0, 0, variant, 'exact')
+      if (edit !== undefined) {
+        derivedSpellings.add(edit)
+        return edit
+      }
+    }
+    return undefined
+  }
+  // Spans within the lines the edit touches are weighed first, as the
+  // narrowest; then the derived span, before the wider spans.
+  if (derived !== undefined) {
+    const touched = lineAligned(base)
+    const near = candidates.filter(span => touched.start <= span.start && span.end <= touched.end)
+    for (const enclosing of [false, true]) {
+      for (const variant of ['exact', 'pair', 'reversed'] as const) {
+        for (const span of near.filter(candidate => encloses(candidate) === enclosing)) {
+          const edit = trimmed(span, variant, 'exact')
+          if (edit !== undefined) return edit
+        }
+      }
+    }
+    const edit = spellDerived()
+    if (edit !== undefined) return edit
+  }
   for (const enclosing of [false, true]) {
     const spans = candidates.filter(span => encloses(span) === enclosing)
     for (const variant of ['exact', 'pair', 'reversed'] as const) {
