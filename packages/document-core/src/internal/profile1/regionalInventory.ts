@@ -2764,7 +2764,12 @@ export function regionalRangeWindow(
       })
     }
   }
-  const lone = loneLeafRead(value, source, edited, editedEnd, range, executionBudget, markdownOptions, physicalRecorder)
+  // A reader of the document's own text, as the general compiler's frame,
+  // reads the edited blocks with a block of context on each side: a leaf
+  // read alone has none, and an edit there may reach past its bounds.
+  const lone = literalLines
+    ? loneLeafRead(value, source, edited, editedEnd, range, executionBudget, markdownOptions, physicalRecorder)
+    : undefined
   if (lone !== undefined) {
     return Object.freeze({
       ...lone,
