@@ -544,9 +544,13 @@ export function widenedTrackedSourceEdit(
   }
   const key = (BEST_EFFORT.has(core) ? 'whole ' : '') + JSON.stringify(oracle.untracked)
   const known = plansFromGeneralCompile(core) ? undefined : found.get(key)
-  if (known !== undefined) return known ?? undefined
-  const spelled = searchWidenedSpelling(core, previous, oracle)
-  found.set(key, spelled ?? null)
+  const spelled = known !== undefined ? known ?? undefined : searchWidenedSpelling(core, previous, oracle)
+  if (known === undefined) found.set(key, spelled ?? null)
+  // A widened spelling reaching a window's edge may need text beyond it,
+  // which the whole document's readings decide.
+  if (spelled !== undefined && isWindowCompileCore(core) && (spelled.start === 0 || spelled.end === previous.sourceLength)) {
+    markUnresolvedDraft(core)
+  }
   return spelled
 }
 
@@ -1090,13 +1094,18 @@ export function draftTrackedSourceEdit(
   // edit in the arm.
   const openerEnd = armText.search(EOL)
   const opener = openerEnd < 0 ? '' : armText.slice(0, openerEnd)
-  const literal = openerEnd >= 0 && local.start > openerEnd
+  // Indented code has no opener line: every line is its text.
+  const indented = /^(?: {4}|\t)/u.test(armText)
+  const literal = openerEnd >= 0 && (local.start > openerEnd || indented)
     ? armBlockLiteral(core, previous, arm.range.start, arm.range.end - (/(?:\r\n|\r|\n)$/u.exec(armText)?.[0].length ?? 0))
     : undefined
   const typedLines = editedLines(typedArm, local.start, local.start + edit.insert.length)
   const inArmLiteral = literal === 'html-block'
     ? !RAW_HTML_OPENER.test(opener) && !typedLines.some(line => line.trim() === '')
-    : literal !== undefined && delimiterLine(opener) && !onDelimiterLine
+    : literal === 'code-block' && indented
+      // Lines that keep their indentation stay its text; markers there read as markers.
+      ? typedLines.every(line => line.trim() === '' || /^(?: {4}|\t)/u.test(line)) && !/\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\}/u.test(edit.insert)
+      : literal !== undefined && delimiterLine(opener) && !onDelimiterLine
   if (onDelimiterLine || joinsFenceLine || inArmLiteral) {
     const extended = preview([edit])
     const grown = edit.insert.length - (edit.end - edit.start)

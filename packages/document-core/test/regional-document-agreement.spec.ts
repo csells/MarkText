@@ -187,6 +187,20 @@ describe('a tracked key reads as the whole document plans it', () => {
     expect(keyAgrees('{~~```\nold\n```\n~>```\nnew\n~~}\n\n- item one\n- item two\n\n{~~```\nold\n```\n~>~~}```\nnew\n~~}\n\nPara *em* and `cod` here.\n', { start: 73, end: 77, insert: '```' })).toBe(true)
   })
 
+  // A widened spelling is weighed against the whole document's readings.
+  it('leaves a widened spelling to the document', () => {
+    expect(keyAgrees('- item one\n- item two\n\n{++    indented in an ```arm\n++}{++n\n`$$``++}\n\nx{~~```\nold\n```\n~>```\nnq\nqw\n```\n~~}xPara *em* and `code` here.\n\n{--d--}```js\nconst closed = 1\n```\n\n{~~```js{++n++}\nconst a = 0\n```\n~>```const a = 1\n```{--d--}\n~~}\n', { start: 227, end: 227, insert: '\n\n' })).toBe(true)
+  })
+
+  // Typing in one's own Addition of indented code keeps its lines code.
+  it('keeps a replacement in one\'s own indented-code arm as typed', () => {
+    const source = '{~~$$\nx + y\n$$~>$$+ y$$\n$$~~}\n\n{~~```js\nold code\n~>w te    xt\n~~}\n\n> q{++x++}uoted line\n\n{++    indented in an arm\n++}\n\n{++    indented > in an arm\n++}\n\n<div> >\nold html\n--}\n'
+    const edit = { start: 105, end: 109, insert: '> ' }
+    const core = control()
+    expect(core.trackedEdit(core.open(source), edit)).toEqual(edit)
+    expect(keyAgrees(source, edit)).toBe(true)
+  })
+
   it('reads a key in replaced fenced text beside an unclosed comment as the document does', () => {
     expect(keyAgrees('x{~~```\nold\n```\n~>```\nnq\nqw\n```\n~~}\n\n\n\n{~~```js\nconst a = 0\n```\n~>```js\nconst a = 1\n``    `\n~~}\n\n{++~>++}{--<div>\nold html\n--}\n\nPlain words here.\n\n{++    indented in an arm\n++}\n\n{~~<div>\nold\n~><!--\nnew\n~~} ', { start: 58, end: 58, insert: '$$' })).toBe(true)
   })
