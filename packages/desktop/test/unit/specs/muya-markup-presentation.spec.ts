@@ -4,6 +4,9 @@ import type { IInlinePresentationContext } from '@muyajs/core'
 import { createMuyaMarkupView } from '@/documentAuthority/muyaMarkupView'
 import { renderMuyaMarkupBinding } from '@/documentAuthority/muyaMarkupPresentation'
 
+const shapeOf = (host: HTMLElement): string[] =>
+  [...host.querySelectorAll('span')].map((span) => `${span.className}|${span.textContent}`)
+
 const rendered = (
   source: string,
   currentText?: string,
@@ -146,11 +149,12 @@ describe('Muya Core Markup presentation', () => {
         node.getAttribute('data-character')
       ])
     ).toEqual([['&amp;', '&']])
-    // As upstream, a backslash escape hides only its backslash.
+    // As upstream, a backslash escape hides only its backslash, and only
+    // before a character upstream's escape rule lists: `\&` stays text.
     expect([...host.querySelectorAll('.mu-hide.mu-remove')].map((node) => node.textContent)).toEqual([
-      '\\',
       '\\'
     ])
+    expect(shapeOf(rendered('a \\/ b \\* c'))).toEqual(['mu-hide mu-remove|\\'])
   })
 
   it('presents known emoji only inside Core text leaves, never across annotation arms or inside code', () => {

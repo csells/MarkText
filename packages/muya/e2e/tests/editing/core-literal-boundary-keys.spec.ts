@@ -6,8 +6,8 @@ for (const example of [
     { name: 'CM math', source: '{++$$\nbody\n$$++}\n', changed: '{++body++}\n', typed: '{++xbody++}\n' },
     { name: 'CM Setext heading', source: 's{++a++}me{>>keep<<}\n====\n', changed: 's{++a++}me{>>keep<<}\n', typed: 'xs{++a++}me{>>keep<<}\n' },
     { name: 'empty code', source: '```\n\n```\n', changed: '\n', typed: 'x\n' },
-    { name: 'HTML', source: '<div>body</div>\n', changed: '\\<div\\>body\\<\\/div\\>\n', typed: 'x\\<div\\>body\\<\\/div\\>\n', displayed: '\\<div>body</div>' },
-    { name: 'HTML with dormant CM', prefix: 'before{++x++}{>>keep<<}\n\n', source: '<div>{++literal++}</div>\n', changed: '\\<div\\>\\{\\+\\+literal\\+\\+\\}\\<\\/div\\>\n', typed: 'x\\<div\\>\\{\\+\\+literal\\+\\+\\}\\<\\/div\\>\n', displayed: '\\<div>{++literal++}</div>' },
+    { name: 'HTML', source: '<div>body</div>\n', changed: '\\<div\\>body\\<\\/div\\>\n', typed: 'x\\<div\\>body\\<\\/div\\>\n', displayed: '\\<div>body<\\/div>' },
+    { name: 'HTML with dormant CM', prefix: 'before{++x++}{>>keep<<}\n\n', source: '<div>{++literal++}</div>\n', changed: '\\<div\\>\\{\\+\\+literal\\+\\+\\}\\<\\/div\\>\n', typed: 'x\\<div\\>\\{\\+\\+literal\\+\\+\\}\\<\\/div\\>\n', displayed: '\\<div>{++literal++}<\\/div>' },
 ]) {
     test(`actual ${example.name} boundary Backspace resets once before next key`, async ({ page }) => {
         const prefix = example.prefix ?? 'before\n\n';
@@ -32,7 +32,9 @@ for (const example of [
                     const block = window.muya!.editor.selection.getSelection()!.anchor.block;
                     return { kind: block.blockName, text: text(block.domNode!) };
                 });
-                // The caret at the start is on the first escape's backslash.
+                // The caret at the start is on the first escape's backslash; the
+                // backslash before `/`, which upstream's escape rule does not
+                // list, shows as text.
                 expect(displayed).toEqual({ kind: 'paragraph.content', text: example.displayed });
             }
             await page.keyboard.type('x');
