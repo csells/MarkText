@@ -23,6 +23,7 @@ import {
   admitProfile1PlainParagraphRegion,
   createProfile1DocumentReuseCache,
   parseProfile1Document,
+  parseProfile1ReaderViews,
   profile1CriticMarkupRootCount,
   type PreviousIntrinsicPass,
   type Profile1DocumentProducts,
@@ -80,7 +81,7 @@ import {
   type PersistentCanonicalSource,
   type PersistentCanonicalSourceRecorder
 } from './internal/persistentCanonicalSource.js'
-import { planFromGeneralCompile, plansFromDocumentParse, plansFromGeneralCompile, registerDocumentCoreInspection, registerRegionalLeaves } from './internal/documentCoreInspection.js'
+import { checksReaderViews, planFromGeneralCompile, plansFromDocumentParse, plansFromGeneralCompile, registerDocumentCoreInspection, registerRegionalLeaves } from './internal/documentCoreInspection.js'
 import { annotationsOverlapping, registerAnnotationsAround } from './internal/annotationsAround.js'
 import {
   createRevisionProductStore,
@@ -873,8 +874,29 @@ interface MaterializedAnnotations {
   readonly nodeIdByAnnotation: ReadonlyMap<CriticMarkupAnnotation, NodeId>
 }
 
+/** What a candidate's reader views and its whole parse both hold. */
+type ReaderProducts = Pick<Profile1DocumentProducts, 'criticMarkup' | 'diagnostics' | 'original' | 'revised'>
+
+/** Everything a candidate's reader views publish, node identities included. */
+function readerViewsDigest(products: ReaderProducts): string {
+  const nodes = (projection: Profile1DocumentProducts['original']): string => {
+    const parts: string[] = []
+    const visit = (node: MarkdownAstNode): void => {
+      parts.push(`(${String((node as { nodeId?: unknown }).nodeId)} ${node.kind} ${node.range.start}-${node.range.end} ${JSON.stringify(node.attributes)}`)
+      for (const child of node.children) visit(child)
+      parts.push(')')
+    }
+    visit(markdownAstOf(projection).root)
+    return `${JSON.stringify(projection.source)}${parts.join('')}`
+  }
+  const { annotations, rangeByNodeId } = annotationsOf(products)
+  return JSON.stringify([
+    annotations, [...rangeByNodeId], diagnosticsOf(products), nodes(products.original), nodes(products.revised)
+  ])
+}
+
 function annotationsOf(
-  products: Profile1DocumentProducts
+  products: Pick<Profile1DocumentProducts, 'criticMarkup'>
 ): MaterializedAnnotations {
   const roots = Array.from(
     { length: products.criticMarkup.rootCount },
@@ -1963,7 +1985,7 @@ function diagnosticOf(diagnostic: SyntaxDiagnostic): DocumentDiagnostic {
 }
 
 function diagnosticsOf(
-  products: Profile1DocumentProducts
+  products: Pick<Profile1DocumentProducts, 'diagnostics'>
 ): readonly DocumentDiagnostic[] {
   return Object.freeze(Array.from(
     { length: products.diagnostics.count },
@@ -5511,9 +5533,10 @@ function createDocumentCoreWithExecutionBudget(
   // A window core's document is a few blocks, and its spelling search
   // previews the same candidate text again from several planners.
   const WINDOW_PREVIEWED_CANDIDATES_RETAINED = 16
+  // An entry's whole parse may wait until something reads beyond its reader views.
   let previewedCandidates: {
     revision: DocumentRevision
-    entries: Array<Readonly<{ key: string, source: string, products: Profile1DocumentProducts }>>
+    entries: Array<Readonly<{ key: string, source: string, reader: ReaderProducts, products: Profile1DocumentProducts }>>
   } | undefined
   const candidateKey = (edits: readonly DocumentSourceEdit[]): string => JSON.stringify(edits.map(edit => [edit.start, edit.end, edit.insert]))
   const previewedCandidate = (revision: DocumentRevision, edits: readonly DocumentSourceEdit[]) => {
@@ -5525,11 +5548,22 @@ function createDocumentCoreWithExecutionBudget(
     revision: DocumentRevision,
     edits: readonly DocumentSourceEdit[],
     source: string,
-    products: Profile1DocumentProducts
+    products: Profile1DocumentProducts | (() => Profile1DocumentProducts),
+    reader: ReaderProducts | undefined = typeof products === 'function' ? undefined : products
   ): void => {
     if (revision !== currentRevision) return
     if (previewedCandidates?.revision !== revision) previewedCandidates = { revision, entries: [] }
-    previewedCandidates.entries.unshift(Object.freeze({ key: candidateKey(edits), source, products }))
+    let whole = typeof products === 'function' ? undefined : products
+    const parseWhole = typeof products === 'function' ? products : () => products
+    previewedCandidates.entries.unshift(Object.freeze({
+      key: candidateKey(edits),
+      source,
+      reader: reader ?? (whole ??= parseWhole()),
+      get products(): Profile1DocumentProducts {
+        whole ??= parseWhole()
+        return whole
+      }
+    }))
     previewedCandidates.entries.length = Math.min(previewedCandidates.entries.length,
       windowCores.has(core) ? WINDOW_PREVIEWED_CANDIDATES_RETAINED : PREVIEWED_CANDIDATES_RETAINED)
   }
@@ -5570,6 +5604,52 @@ function createDocumentCoreWithExecutionBudget(
       retained === undefined ? undefined : { retained, edits: stableEdits })
     if (!whole) rememberPreviewedCandidate(previous, stableEdits, source, products)
     return inspect(products, source)
+  }
+
+  /**
+   * A window core's candidate, read as `withSourceEditPreview` reads it, from
+   * its reader views alone: the editing projection, which the tracked oracle
+   * does not read, is parsed whole only once something asks for it.
+   */
+  const withSourceEditReaderPreview = <T>(
+    previous: DocumentRevision,
+    edits: readonly DocumentSourceEdit[],
+    inspect: (reader: ReaderProducts, source: string, products: () => Profile1DocumentProducts) => T
+  ): T => {
+    const state = currentStateOf(previous)
+    const stableEdits = stableSourceEdits(edits)
+    preflightSourceEdits(state.source.length, stableEdits)
+    const cached = previewedCandidate(previous, stableEdits)
+    if (cached !== undefined) return inspect(cached.reader, cached.source, () => cached.products)
+    const source = state.source.applyExact(stableEdits, 'Authoring candidate')
+      .materialize('fallback')
+    const held = stableEdits.length === 0 ? state.productStore.withRetained(products => products) : undefined
+    if (held !== undefined) return inspect(held, source, () => held)
+    const written = previewedCandidates?.revision !== previous || previous !== currentRevision
+      ? undefined
+      : previewedCandidates.entries.find(entry => entry.source === source)
+    if (written !== undefined) {
+      rememberPreviewedCandidate(previous, stableEdits, source, () => written.products, written.reader)
+      return inspect(written.reader, source, () => written.products)
+    }
+    const reusable = !editsMayRepairMath(state.source, { length: source.length, slice: (start: number, end: number) => source.slice(start, end) }, stableEdits, state.markdownOptions)
+    const retained = reusable ? state.productStore.withRetained(products => products.retainedIntrinsic) : undefined
+    const previousPass = retained === undefined ? undefined : { retained, edits: stableEdits }
+    inspection.documentParses += 1
+    inspection.documentParseSourceUnits += source.length
+    inspection.documentProjectionPreparationUnits += source.length
+    const reader = parseProfile1ReaderViews(source, executionBudget, state.markdownOptions, physicalRecorder, previousPass)
+    if (reader.kind !== 'reader') throw documentCoreError(reader.fatalDiagnostic)
+    let whole: Profile1DocumentProducts | undefined
+    const products = (): Profile1DocumentProducts => {
+      whole ??= isolatedProducts(source, state.markdownOptions, previousPass)
+      return whole
+    }
+    rememberPreviewedCandidate(previous, stableEdits, source, products, reader)
+    if (checksReaderViews() && readerViewsDigest(reader) !== readerViewsDigest(products())) {
+      throw new Error(`Reader views diverged from the whole parse of ${JSON.stringify(source)}`)
+    }
+    return inspect(reader, source, products)
   }
 
   // A full revision's inventory is built from the parse it holds, once.
@@ -5676,30 +5756,33 @@ function createDocumentCoreWithExecutionBudget(
       }))
       return revision
     }
-    return withSourceEditPreview(previous, edits, (products, source) => {
+    const wholePreview = (reader: ReaderProducts, source: string, products: () => Profile1DocumentProducts): DocumentRevision => {
       const preview: DocumentRevision = Object.freeze({
         source,
         sourceLength: source.length,
-        annotations: annotationsOf(products).annotations,
-        diagnostics: diagnosticsOf(products)
+        annotations: annotationsOf(reader).annotations,
+        diagnostics: diagnosticsOf(reader)
       })
       let revisedView: string | undefined
       let structure: TrackedStructure | undefined
       trackedPreviewFacts.set(preview, Object.freeze({
-        original: products.original.source,
-        revised: products.revised.source,
+        original: reader.original.source,
+        revised: reader.revised.source,
         structure: () => {
-          const editing = products.editing()
+          const editing = products().editing()
           structure ??= trackedStructure(markdownAstOf(editing).root, projectionCoordinatesOf(editing, source.length))
           return structure
         },
         revisedView: () => {
-          revisedView ??= projectionSignature(markdownAstOf(products.revised).root)
+          revisedView ??= projectionSignature(markdownAstOf(reader.revised).root)
           return revisedView
         }
       }))
       return preview
-    })
+    }
+    return windowCores.has(core) && !plansFromGeneralCompile(core)
+      ? withSourceEditReaderPreview(previous, edits, wholePreview)
+      : withSourceEditPreview(previous, edits, (products, source) => wholePreview(products, source, () => products))
   }
 
   // Use the canonical region and the same admission parser as apply(). This
@@ -8689,7 +8772,7 @@ function createDocumentCoreWithExecutionBudget(
     const stableEdits = stableSourceEdits(edits)
     preflightSourceEdits(state.source.length, stableEdits)
     const cached = previewedCandidate(previous, stableEdits)
-    if (cached !== undefined) return cached.products.criticMarkup.rootCount
+    if (cached !== undefined) return cached.reader.criticMarkup.rootCount
     const source = state.source.applyExact(stableEdits, 'Authoring candidate').materialize('fallback')
     const reusable = !editsMayRepairMath(state.source, { length: source.length, slice: (start: number, end: number) => source.slice(start, end) }, stableEdits, state.markdownOptions)
     const retained = reusable ? state.productStore.withRetained(products => products.retainedIntrinsic) : undefined
