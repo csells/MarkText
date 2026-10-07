@@ -131,6 +131,78 @@ const syntaxSpans = (
       addNative(sequence, `<span class="${revealed(sequence) ? 'mu-gray' : 'mu-hide'}">`)
     }
   }
+  // Upstream colours a one-line reference definition that its own pattern
+  // reads: `[`, the label, `]: ` with the destination, the title, and the
+  // rest. Core decides that the line is a definition; this only checks the
+  // spelling upstream's pattern accepts, and leaves any other plain.
+  const referenceDefinition = (definition: MarkdownAstNode): void => {
+    // A definition's range can include its line ending, which no text holds.
+    const range = nativeRange({
+      start: definition.range.start,
+      end: Math.min(definition.range.end, binding.segments.at(-1)?.syntax.end ?? definition.range.end)
+    })
+    const label = definition.attributes.label
+    const target = nativeRange({
+      start: Number(definition.attributes.destinationStart),
+      end: Number(definition.attributes.destinationSyntaxEnd)
+    })
+    if (range === undefined || typeof label !== 'string' || target === undefined) return
+    // The destination's syntax, with an opening `<` where it has one.
+    const destination = binding.text.charAt(target.start - 1) === '<'
+      ? { start: target.start - 1, end: target.end }
+      : target
+    const text = binding.text.slice(range.start, range.end)
+    const at = (offset: number): number => offset - range.start
+    const open = /^ */u.exec(text)?.[0].length ?? 0
+    const close = open + 1 + label.length
+    const backslashes = /\\*$/u.exec(label)?.[0].length ?? 0
+    const titled = definition.attributes.titleStart !== undefined
+    const title = titled
+      ? nativeRange({
+        start: Number(definition.attributes.titleStart),
+        end: Number(definition.attributes.titleEnd)
+      })
+      : undefined
+    if (titled && title === undefined) return
+    const titleText = title === undefined ? '' : text.slice(at(title.start), at(title.end))
+    const delimiter = title === undefined ? '' : text.charAt(at(title.start) - 1)
+    const tail = title === undefined ? at(destination.end) : at(title.end) + 1
+    const accepted =
+      open <= 3 &&
+      !text.includes('\n') &&
+      text.charAt(open) === '[' &&
+      !label.includes(']') &&
+      backslashes % 2 === 0 &&
+      text.slice(close, close + 2) === ']:' &&
+      /^ *$/u.test(text.slice(close + 2, at(destination.start))) &&
+      /^<?[^\s>]+>?$/u.test(text.slice(at(destination.start), at(destination.end))) &&
+      (title === undefined ||
+        (/^["']$/u.test(delimiter) &&
+          text.charAt(at(title.end)) === delimiter &&
+          /^[^\n"'()]+$/u.test(titleText) &&
+          /^ +$/u.test(text.slice(at(destination.end), at(title.start) - 1)))) &&
+      /^ *$/u.test(text.slice(tail))
+    if (!accepted) return
+    const trailing = / *$/u.exec(text)?.[0].length ?? 0
+    const marker = '<span class="mu-reference-marker" spellcheck="false">'
+    addNative({ start: range.start, end: range.start + open + 1 }, '<span class="mu-reference-marker">')
+    addNative(
+      { start: range.start + open + 1, end: range.start + close - backslashes },
+      '<span class="mu-reference-label" spellcheck="false">'
+    )
+    for (let index = 0; index < backslashes; index += 1) {
+      const offset = range.start + close - backslashes + index
+      addNative({ start: offset, end: offset + 1 }, `<span class="${index % 2 === 0 ? 'mu-gray' : 'mu-backlash'}">`)
+    }
+    if (title === undefined) {
+      addNative({ start: range.start + close, end: range.end - trailing }, marker)
+      addNative({ start: range.end - trailing, end: range.end }, marker)
+    } else {
+      addNative({ start: range.start + close, end: title.start }, marker)
+      addNative(title, '<span class="mu-reference-title">')
+      addNative({ start: title.end, end: range.end }, marker)
+    }
+  }
   // Upstream draws a display formula (`$$`, `\[`, `\\[`) in display mode
   // only in a paragraph holding nothing else (#4904, #5446).
   const displayMarker = (node: MarkdownAstNode): boolean =>
@@ -148,6 +220,7 @@ const syntaxSpans = (
     )
   const visit = (node: MarkdownAstNode): void => {
     if (node.kind === 'heading' && node.attributes.style !== 'setext') atxHeadingMarkers(node)
+    if (node.kind === 'definition') referenceDefinition(node)
     if (node.kind === 'inline-math') {
       const range = nativeRange(node.range)
       if (range !== undefined && typeof node.attributes.content === 'string') {

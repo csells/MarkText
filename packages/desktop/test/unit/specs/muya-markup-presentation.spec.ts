@@ -527,9 +527,52 @@ describe('Muya Core Markup presentation', () => {
     })
   })
 
-  describe('character references, as upstream presents them', () => {
+  describe('definitions and character references, as upstream presents them', () => {
     const shape = (host: HTMLElement): string[] =>
       [...host.querySelectorAll('span')].map((span) => `${span.className}|${span.textContent}`)
+
+    it('colours a one-line reference definition by its parts', () => {
+      expect(shape(rendered('[label]: https://example.com "A title"\n\n[x][label]'))).toEqual([
+        'mu-reference-marker|[',
+        'mu-reference-label|label',
+        'mu-reference-marker|]: https://example.com "',
+        'mu-reference-title|A title',
+        'mu-reference-marker|"'
+      ])
+      expect(shape(rendered("   [label]: <https://example.com> 't'  "))).toEqual([
+        'mu-reference-marker|   [',
+        'mu-reference-label|label',
+        "mu-reference-marker|]: <https://example.com> '",
+        'mu-reference-title|t',
+        "mu-reference-marker|'  "
+      ])
+      expect(shape(rendered('[label]: https://example.com  '))).toEqual([
+        'mu-reference-marker|[',
+        'mu-reference-label|label',
+        'mu-reference-marker|]: https://example.com',
+        'mu-reference-marker|  '
+      ])
+      expect(shape(rendered('> [quoted]: https://example.com'))).toEqual([
+        'mu-reference-marker|[',
+        'mu-reference-label|quoted',
+        'mu-reference-marker|]: https://example.com'
+      ])
+      const label = rendered('[label]: https://example.com').querySelector('.mu-reference-label')
+      expect(label?.getAttribute('spellcheck')).toBe('false')
+      expect(rendered('[label]: https://example.com').textContent).toBe('[label]: https://example.com')
+    })
+
+    it('leaves plain the definitions upstream does not colour', () => {
+      for (const source of [
+        '[label]: https://example.com (paren title)',
+        '[label]:\n  https://example.com\n  "title"',
+        '[label]: <a b>',
+        '[label]:\thttps://example.com',
+        '[a\\]b]: https://example.com'
+      ]) {
+        expect(shape(rendered(source))).toEqual([])
+      }
+    })
 
     it('draws only the named character references upstream knows', () => {
       const host = rendered('a &amp; &copy; &#35; &#x1F600; &AMP; b')
