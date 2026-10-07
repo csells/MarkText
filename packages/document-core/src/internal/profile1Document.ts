@@ -5125,19 +5125,28 @@ export function parseProfile1Document(
   }
 }
 
-function parseProfile1DocumentWithExecution(
+/**
+ * The canonical-source stage of a parse: the intrinsic pass that settles the
+ * document's CriticMarkup, before any view is projected. A result here is
+ * what the whole parse would read, or the failure it would end with.
+ */
+function parseIntrinsicStage(
   source: string,
   executionBudget: ExecutionBudgetId,
   traceRecorder: ProfileParseTraceRecorderV1 | undefined,
   markdownOptions: MarkdownOptionsV1,
   captureAccountingTrace: boolean,
   execution: ParseExecutionTracker,
-  reuseCache: Profile1DocumentReuseCache | undefined,
   physicalRecorder: Profile1PhysicalTraversalRecorderV1,
-  previousPass: PreviousIntrinsicPass | undefined,
-  endsAtDocumentEnd: boolean,
-  documentHasAnnotations: boolean
-): Profile1DocumentResult {
+  previousPass: PreviousIntrinsicPass | undefined
+): Profile1SourceOnlyProducts | Readonly<{
+  kind: 'complete'
+  parsed: ParseResult
+  accounting: ReturnType<typeof createProfile1SyntaxAccountingRecorderV1>
+  syntaxIdentity: ReturnType<typeof createProfile1SyntaxIdentityRegistry>
+  usesDesktopLimits: boolean
+  markdownDepthLimit: number
+}> {
   const usesDesktopLimits = executionBudget.limitsProfile === 'desktop-v1'
   let accounting = createProfile1SyntaxAccountingRecorderV1(
     usesDesktopLimits,
@@ -5147,17 +5156,11 @@ function parseProfile1DocumentWithExecution(
       ? DOCUMENT_RESOURCE_POLICY_V1.maximumLogicalNodes
       : Number.POSITIVE_INFINITY
   )
-  const finishResult = <Result extends Profile1DocumentResult>(
-    result: Result
-  ): Result => {
-    execution.finish()
-    return result
-  }
   if (
     usesDesktopLimits &&
     source.length > DOCUMENT_RESOURCE_POLICY_V1.maximumSourceUnits
   ) {
-    return finishResult(Object.freeze({
+    return Object.freeze({
       kind: 'source-only',
       fatalDiagnostic: createResourceDiagnostic(
         'CM_RESOURCE_SOURCE_UNITS_EXCEEDED',
@@ -5168,7 +5171,7 @@ function parseProfile1DocumentWithExecution(
         DOCUMENT_RESOURCE_POLICY_V1.maximumSourceUnits,
         source.length
       )
-    }))
+    })
   }
   let syntaxIdentity = createProfile1SyntaxIdentityRegistry(
     source.length,
@@ -5240,15 +5243,15 @@ function parseProfile1DocumentWithExecution(
     )
   }
   if (parsed.kind === 'resource-failure') {
-    return finishResult(Object.freeze({
+    return Object.freeze({
       kind: 'source-only',
       fatalDiagnostic: parsed.fatalDiagnostic
-    }))
+    })
   }
   const overDepth = collectOverDepthNodes(parsed.roots, cmDepthLimit)
   const firstOverDepth = overDepth[0]
   if (firstOverDepth !== undefined) {
-    return finishResult(Object.freeze({
+    return Object.freeze({
       kind: 'source-only',
       fatalDiagnostic: createResourceDiagnostic(
         'CM_RESOURCE_CM_DEPTH_EXCEEDED',
@@ -5256,7 +5259,7 @@ function parseProfile1DocumentWithExecution(
         cmDepthLimit,
         firstOverDepth.depth
       )
-    }))
+    })
   }
   emitTapeAccounting(accounting, parsed.tape)
   if (usesDesktopLimits) {
@@ -5266,12 +5269,62 @@ function parseProfile1DocumentWithExecution(
       execution
     )
     if (plainParagraphFailure !== undefined) {
-      return finishResult(Object.freeze({
+      return Object.freeze({
         kind: 'source-only',
         fatalDiagnostic: plainParagraphFailure
-      }))
+      })
     }
   }
+  return Object.freeze({ kind: 'complete', parsed, accounting, syntaxIdentity, usesDesktopLimits, markdownDepthLimit })
+}
+
+/**
+ * The number of annotations at the root of `source`'s parse, read off its
+ * intrinsic pass alone; undefined where that pass shows the parse failing.
+ */
+export function profile1CriticMarkupRootCount(
+  source: string,
+  executionBudget: ExecutionBudgetId,
+  markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1 = createPhysicalTraversalRecorderV1(),
+  previousPass?: PreviousIntrinsicPass
+): number | undefined {
+  const execution = createParseExecutionTracker(undefined)
+  try {
+    const stage = parseIntrinsicStage(source, executionBudget, undefined, markdownOptions, false, execution,
+      physicalRecorder, previousPass)
+    return stage.kind === 'complete' ? stage.parsed.roots.length : undefined
+  } catch (error) {
+    if (!(error instanceof Profile1LogicalNodeLimitError)) throw error
+    return undefined
+  } finally {
+    execution.finish()
+  }
+}
+
+function parseProfile1DocumentWithExecution(
+  source: string,
+  executionBudget: ExecutionBudgetId,
+  traceRecorder: ProfileParseTraceRecorderV1 | undefined,
+  markdownOptions: MarkdownOptionsV1,
+  captureAccountingTrace: boolean,
+  execution: ParseExecutionTracker,
+  reuseCache: Profile1DocumentReuseCache | undefined,
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1,
+  previousPass: PreviousIntrinsicPass | undefined,
+  endsAtDocumentEnd: boolean,
+  documentHasAnnotations: boolean
+): Profile1DocumentResult {
+  const finishResult = <Result extends Profile1DocumentResult>(
+    result: Result
+  ): Result => {
+    execution.finish()
+    return result
+  }
+  const stage = parseIntrinsicStage(source, executionBudget, traceRecorder, markdownOptions, captureAccountingTrace,
+    execution, physicalRecorder, previousPass)
+  if (stage.kind === 'source-only') return finishResult(stage)
+  const { parsed, accounting, syntaxIdentity, usesDesktopLimits, markdownDepthLimit } = stage
   const criticMarkupRoots = parsed.roots
   for (const root of criticMarkupRoots) {
     syntaxIdentity.emitEdge('contains', syntaxIdentity.root, root.nodeId, 'critic')
