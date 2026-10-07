@@ -20,6 +20,12 @@ export interface EditNormalizationReaders {
   /** The whole source extent of the literal block holding a position, from the regional inventory. */
   readonly literalBlockRange?: ((position: number) => SourceRange | undefined) | undefined
   /**
+   * The source of the suggestion arm whose whole text is the literal block
+   * holding a position, which the regional inventory reads as an arm rather
+   * than a literal block.
+   */
+  readonly armLiteralRange?: ((position: number) => SourceRange | undefined) | undefined
+  /**
    * Parses a source standalone with the revision's Markdown options, as a
    * window of the document reads (`atDocumentStart` false reads no front
    * matter). Normalizations that read the edited result parse it so.
