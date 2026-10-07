@@ -165,7 +165,7 @@ it('keeps complete canonical rendering when Review resolution and its history re
     expect(resolved?.change.projections).toMatchObject([{ name: 'markup', scope: 'document' }])
     expect(await app.lease.sourceAtBarrier()).toBe(accepted)
     expect(app.muya.domNode.querySelectorAll('[data-critic-kind="addition"]')).toHaveLength(0)
-    expect(app.muya.domNode.querySelector('a.mu-link')?.getAttribute('href')).toBe('/target')
+    expect(app.muya.domNode.querySelector('a.mu-reference-link')?.getAttribute('href')).toBe('/target')
     const undone = await app.adapter.history('undo', app.reconcile)
     expect(undone?.change.projections).toMatchObject([{ name: 'markup', scope: 'document' }])
     expect(await app.lease.sourceAtBarrier()).toBe(source)
@@ -174,7 +174,7 @@ it('keeps complete canonical rendering when Review resolution and its history re
     expect(redone?.change.projections).toMatchObject([{ name: 'markup', scope: 'document' }])
     expect(await app.lease.sourceAtBarrier()).toBe(accepted)
     expect(app.muya.domNode.querySelectorAll('[data-critic-kind="addition"]')).toHaveLength(0)
-    expect(app.muya.domNode.querySelector('a.mu-link')?.getAttribute('href')).toBe('/target')
+    expect(app.muya.domNode.querySelector('a.mu-reference-link')?.getAttribute('href')).toBe('/target')
   } finally {
     await app.dispose()
   }

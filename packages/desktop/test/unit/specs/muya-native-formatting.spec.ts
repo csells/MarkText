@@ -1281,7 +1281,8 @@ it.each(['plain\n', '{++**word**++}\n'])(
     try {
       setup.muya.blur()
       expect(tokenize).not.toHaveBeenCalled()
-      expect(block.domNode.innerHTML).toBe(html)
+      // As upstream, leaving the paragraph hides the markers the caret showed.
+      expect(block.domNode.innerHTML).toBe(html.replaceAll('mu-gray', 'mu-hide'))
       expect(setup.binding.sourceAtBarrier()).toMatchObject({ source })
       expect(setup.legacyChanges).toEqual([])
     } finally {

@@ -4,6 +4,8 @@ import { bootBoundMuya } from '../helpers/boundMuyaDocument'
 
 const displayedText = (node: Node): string => {
   if (node instanceof Element && node.hasAttribute('data-character')) { return node.getAttribute('data-character')! }
+  // The payload, without the backslash escapes' markers.
+  if (node instanceof Element && node.matches('.mu-hide, .mu-gray')) return ''
   return node.nodeType === Node.TEXT_NODE
     ? (node.textContent ?? '')
     : [...node.childNodes].map(displayedText).join('')

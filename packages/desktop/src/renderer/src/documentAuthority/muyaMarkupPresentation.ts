@@ -91,10 +91,13 @@ const syntaxSpans = (
       }
     }
   }
-  const hide = (range: SourceRange): void =>
-    add(range, '<span class="mu-hide mu-remove">', '</span>')
   const addNative = (range: SourceRange, open: string): void => {
     if (range.end > range.start) spans.push({ range, open, close: '</span>' })
+  }
+  /** Upstream's class for a syntax's markers: gray while the caret is in it. */
+  const markerClass = (node: MarkdownAstNode): 'mu-gray' | 'mu-hide' => {
+    const range = nativeRange(node.range)
+    return range !== undefined && revealed(range) ? 'mu-gray' : 'mu-hide'
   }
   // Upstream presents an ATX heading's opening `#`s, with any indentation,
   // as hidden syntax and the spaces after them pulled tight against the
@@ -166,13 +169,14 @@ const syntaxSpans = (
           close: '</sup>',
           atomic: true
         })
-        hide({ start: node.range.start, end: node.range.start + 2 })
+        const marker = `<span class="${markerClass(node)} mu-remove">`
+        add({ start: node.range.start, end: node.range.start + 2 }, marker, '</span>')
         add(
           { start: node.range.start + 2, end: node.range.end - 1 },
           '<a spellcheck="false">',
           '</a>'
         )
-        hide({ start: node.range.end - 1, end: node.range.end })
+        add({ start: node.range.end - 1, end: node.range.end }, marker, '</span>')
       }
       return
     }
@@ -226,9 +230,18 @@ const syntaxSpans = (
     }
     if (node.kind === 'text') {
       for (const spelling of node.semanticTextSegments ?? []) {
+        const range = nativeRange(spelling.range)
+        const raw = range === undefined ? '' : binding.text.slice(range.start, range.end)
+        if (range !== undefined && raw === `\\${spelling.value}`) {
+          // Upstream marks only a backslash escape's backslash as syntax.
+          const backslash = { start: range.start, end: range.start + 1 }
+          addNative(backslash, `<span class="${revealed(backslash) ? 'mu-gray' : 'mu-hide'} mu-remove">`)
+          continue
+        }
+        const shown = range !== undefined && revealed(range) ? 'mu-gray' : 'mu-hide'
         add(
           spelling.range,
-          `<span class="mu-hide mu-html-escape" data-character="${escapeHtml(spelling.value)}"><span class="mu-html-escape-marker">`,
+          `<span class="${shown} mu-html-escape" data-character="${escapeHtml(spelling.value)}"><span class="mu-html-escape-marker">`,
           '</span></span>'
         )
       }
@@ -239,14 +252,26 @@ const syntaxSpans = (
         node.attributes.emojiClosed === true &&
         emojiRange !== undefined
       ) {
-        hide({ start: node.range.start, end: node.range.start + 1 })
+        const shown = markerClass(node)
+        const marker = `<span class="${shown} mu-emoji-marker">`
+        add({ start: node.range.start, end: node.range.start + 1 }, marker, '</span>')
         spans.push({
           range: emojiRange,
-          open: `<span class="mu-hide mu-inline-rule mu-emoji-marked-text" data-emoji="${escapeHtml(emoji)}">`,
+          open: `<span class="${shown === 'mu-hide' ? 'mu-hide ' : ''}mu-inline-rule mu-emoji-marked-text" data-emoji="${escapeHtml(emoji)}">`,
           close: '</span>',
           atomic: true
         })
-        hide({ start: node.range.end - 1, end: node.range.end })
+        add({ start: node.range.end - 1, end: node.range.end }, marker, '</span>')
+      } else if (
+        typeof node.attributes.emojiAlias === 'string' &&
+        node.attributes.emojiClosed === true &&
+        emojiRange !== undefined
+      ) {
+        // Upstream warns of an unknown emoji name wherever the caret is.
+        const marker = '<span class="mu-warn mu-emoji-marker">'
+        add({ start: node.range.start, end: node.range.start + 1 }, marker, '</span>')
+        addNative(emojiRange, '<span class="mu-warn mu-inline-rule mu-emoji-marked-text">')
+        add({ start: node.range.end - 1, end: node.range.end }, marker, '</span>')
       }
     }
     const tags: Partial<Record<MarkdownAstNode['kind'], string>> = {
@@ -259,14 +284,31 @@ const syntaxSpans = (
       link: 'a',
       autolink: 'a'
     }
+    const reference = node.kind === 'link' && typeof node.attributes.referenceLabel === 'string'
     // Muya presents an inline `[text](url)` link as `span.mu-link`, keeping
     // its destination as data rather than a native editable anchor.
-    const tag =
-      node.kind === 'link' &&
-      typeof node.attributes.referenceLabel !== 'string' &&
-      node.attributes.extendedAutolink !== true
-        ? 'span'
-        : tags[node.kind]
+    const inlineLink =
+      node.kind === 'link' && !reference && node.attributes.extendedAutolink !== true
+    const tag = inlineLink ? 'span' : tags[node.kind]
+    if (inlineLink && node.children.length === 0) {
+      // Upstream always shows a link without text as its gray brackets
+      // around a native anchor holding the destination.
+      const range = nativeRange(node.range)
+      const opening = binding.text.slice(range?.start ?? 0, (range?.start ?? 0) + 3)
+      if (range !== undefined && opening === '[](') {
+        const destination = escapeHtml(String(node.attributes.semanticDestination ?? ''))
+        const title = typeof node.attributes.semanticTitle === 'string'
+          ? ` title="${escapeHtml(node.attributes.semanticTitle)}"`
+          : ''
+        addNative({ start: range.start, end: range.start + 3 }, '<span class="mu-gray mu-remove">')
+        spans.push({
+          range: { start: range.start + 3, end: range.end - 1 },
+          open: `<a class="mu-no-text-link mu-inline-rule" href="${destination}" target="_blank"${title}>`,
+          close: '</a>'
+        })
+        addNative({ start: range.end - 1, end: range.end }, '<span class="mu-gray mu-remove">')
+      }
+    }
     const content =
       node.kind === 'inline-code'
         ? { start: Number(node.attributes.contentStart), end: Number(node.attributes.contentEnd) }
@@ -284,7 +326,11 @@ const syntaxSpans = (
       Number.isSafeInteger(content.start) &&
       Number.isSafeInteger(content.end)
     ) {
-      hide({ start: node.range.start, end: content.start })
+      const shown = markerClass(node)
+      // Upstream gives an autolink's and a reference link's markers no
+      // removal class; the others' markers are removed from copied HTML.
+      const marker = `<span class="${shown}${node.kind === 'autolink' || reference ? '' : ' mu-remove'}">`
+      add({ start: node.range.start, end: content.start }, marker, '</span>')
       const destination =
         (node.kind === 'link' || node.kind === 'autolink') &&
         typeof node.attributes.semanticDestination === 'string'
@@ -297,7 +343,9 @@ const syntaxSpans = (
           ? ' mu-auto-link'
           : node.attributes.extendedAutolink === true
             ? ' mu-auto-link-extension'
-            : ' mu-link'
+            : reference
+              ? ' mu-reference-link'
+              : ' mu-link'
       const linkData =
         linkRange === undefined
           ? ''
@@ -307,7 +355,32 @@ const syntaxSpans = (
         `<${tag} class="mu-inline-rule${linkRange === undefined ? '' : linkClass}"${destination}${linkData}>`,
         `</${tag}>`
       )
-      hide({ start: content.end, end: node.range.end })
+      const after = nativeRange({ start: content.end, end: node.range.end })
+      const rest = after === undefined ? '' : binding.text.slice(after.start, after.end)
+      // Upstream splits the rest of a shown link into `](`, its destination
+      // (with any title) and `)`, and the rest of a shown full reference link
+      // into `][`, its label and `]`. Hidden, those parts read alike, so they
+      // stay one element: a long document holds thousands of links.
+      if (shown === 'mu-gray' && inlineLink && rest.startsWith('](') && rest.endsWith(')')) {
+        add({ start: content.end, end: content.end + 2 }, marker, '</span>')
+        add(
+          { start: content.end + 2, end: node.range.end - 1 },
+          '<span class="mu-link-in-bracket mu-remove" spellcheck="false">',
+          '</span>'
+        )
+        add({ start: node.range.end - 1, end: node.range.end }, marker, '</span>')
+      } else if (
+        shown === 'mu-gray' &&
+        reference &&
+        node.attributes.referenceKind === 'full' &&
+        rest.startsWith('][')
+      ) {
+        add({ start: content.end, end: content.end + 2 }, marker, '</span>')
+        add({ start: content.end + 2, end: node.range.end - 1 }, '<span class="mu-reference-label">', '</span>')
+        add({ start: node.range.end - 1, end: node.range.end }, marker, '</span>')
+      } else {
+        add({ start: content.end, end: node.range.end }, marker, '</span>')
+      }
     }
     if (node.kind === 'hard-break') {
       // Core already recognized the break. Only locate its authored newline,
