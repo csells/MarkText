@@ -625,6 +625,12 @@ const EOL = /\r\n|\r|\n/u
 
 const LITERAL_KINDS = new Set(['inline-code', 'code-block', 'inline-math', 'math-block', 'inline-html', 'html-block', 'front-matter', 'diagram', 'autolink'])
 const BLOCK_LITERAL_KINDS = new Set(['code-block', 'math-block', 'diagram'])
+/**
+ * Spellings a widened search weighs before it gives up. Every search that
+ * finds a spelling in the small, 2,000-block, input and delimiter pools
+ * does so within 25; those that find none weigh 44 or more.
+ */
+const WIDENED_SPELLINGS_WEIGHED = 32
 
 function lineStart(source: string, offset: number): number {
   let start = offset
@@ -884,6 +890,7 @@ function searchWidenedSpelling(
     if (next.length === 0) return old.includes('--}') ? `{~~${old}~>~~}` : `{--${old}--}`
     return `{~~${old}~>${next}~~}`
   }
+  let weighed = 0
   // `bytes`: Accept All and Reject All need only splice exactly, however the
   // pending suggestions read.
   const attempt = (span: SourceRange, prefix: number, suffix: number, variant: Variant, equivalence: TrackedEquivalence,
@@ -900,6 +907,10 @@ function searchWidenedSpelling(
     const insert = spell(old, next, variant, atLineEnd)
     if (insert === undefined) return undefined
     const edit = Object.freeze({ start, end, insert })
+    // A search weighs at most so many spellings that read alike while
+    // pending; one finding none by then goes on to the spellings that only
+    // resolve exactly, as one finding none at all does.
+    if (!whole && !bytes && (weighed += 1) > WIDENED_SPELLINGS_WEIGHED) return undefined
     if (bytes ? !oracle.resolvesExactly([edit]) : !oracle.accepts([edit], equivalence, whole)) return undefined
     const candidate = oracle.preview([edit])
     // A tracked edit spells only whole suggestions; one that leaves a marker
