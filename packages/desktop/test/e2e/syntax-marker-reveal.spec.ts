@@ -64,6 +64,15 @@ test('syntax markers follow real caret gestures as upstream shows them', async()
     await expect.poll(() => markers(heading)).toEqual(hiddenHeading)
     await expect.poll(() => markers(body)).toEqual(hiddenBody)
     expect(await markerWidth(heading, '.mu-hide')).toBe(0)
+    // As upstream, the column's 20 px top padding sits above the first block.
+    expect(await page.evaluate(() => {
+      const column = document.querySelector('.editor-component .mu-container')!
+      const first = column.querySelector('h1')!
+      return [
+        getComputedStyle(column).paddingTop,
+        first.getBoundingClientRect().top - column.getBoundingClientRect().top - parseFloat(getComputedStyle(first).marginTop)
+      ]
+    })).toEqual(['20px', 20])
 
     // On the heading's text, the marker stays hidden.
     await heading.click()

@@ -4733,6 +4733,11 @@ onBeforeUnmount(() => {
   overflow-anchor: none !important;
 }
 
+.editor-component .mu-container {
+  padding-top: 20px;
+  padding-bottom: 100vh;
+}
+
 .core-review-panel-content {
   height: 100%;
   min-height: 0;
@@ -4828,10 +4833,6 @@ onBeforeUnmount(() => {
   height: 100%;
   min-height: 0;
   overflow: hidden;
-}
-/* Retain space below the final block for heading jumps and typewriter scrolling. */
-.core-review-enabled .editor-surface .mu-container {
-  padding-bottom: 100vh;
 }
 .core-review-enabled > .editor-surface,
 .core-review-enabled > .core-document-projection {
