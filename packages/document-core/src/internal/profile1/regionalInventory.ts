@@ -453,7 +453,7 @@ interface InventoryValue extends RegionalInventory {
    * across regional revisions. Undefined when a definition could not be
    * placed in source, as one inside a suggestion.
    */
-  readonly definitions?: readonly Readonly<{ readonly start: number; readonly end: number }>[]
+  readonly definitions?: readonly Readonly<{ readonly start: number; readonly end: number; readonly footnote?: true }>[]
   /**
    * The normalized labels of those definitions, read from source once and
    * shared by every inventory derived from this one, as regional edits
@@ -1385,8 +1385,8 @@ export function referenceDependencyPrefixEnd(
  */
 function referenceDefinitionRanges(
   products: Profile1DocumentProducts
-): readonly Readonly<{ start: number, end: number }>[] | undefined {
-  let found: Readonly<{ start: number, end: number }>[] | undefined
+): readonly Readonly<{ start: number, end: number, footnote?: true }>[] | undefined {
+  let found: Readonly<{ start: number, end: number, footnote?: true }>[] | undefined
   for (const view of products.revised === products.original ? [products.original] : [products.original, products.revised]) {
     const segments = view.mappedTape
     // The canonical segment holding `projected`, entered from `side`.
@@ -1404,7 +1404,7 @@ function referenceDefinitionRanges(
           (side === 'start' && segment.projectedStart === segment.projectedEnd)) return undefined
       return segment.sourceStart + projected - segment.projectedStart
     }
-    const ranges: Readonly<{ start: number, end: number }>[] = []
+    const ranges: Readonly<{ start: number, end: number, footnote?: true }>[] = []
     const pending: MarkdownNode[] = [view.markdown.root]
     while (pending.length > 0) {
       const node = pending.pop()
@@ -1413,7 +1413,7 @@ function referenceDefinitionRanges(
         const start = sourceAt(node.range.start, 'start')
         const end = sourceAt(node.range.end, 'end')
         if (start === undefined || end === undefined || end < start) return undefined
-        ranges.push(Object.freeze({ start, end }))
+        ranges.push(Object.freeze({ start, end, ...(node.kind === 'footnote-definition' ? { footnote: true as const } : {}) }))
         continue
       }
       for (let ordinal = 0; ordinal < node.childCount; ordinal += 1) pending.push(node.childAt(ordinal))
@@ -1447,7 +1447,10 @@ function definitionLabelsOf(inventory: InventoryValue, source: CanonicalSourceVi
     let known = inventory.definitions !== undefined
     for (const definition of inventory.definitions ?? []) {
       const text = source.slice(definition.start, definition.end)
-      const label = markdownReferenceDefinitionLabel(text, 0, text.length)
+      // A footnote's label names no link; a reference's may begin with `^`.
+      const label = definition.footnote === true
+        ? undefined
+        : markdownReferenceDefinitionLabel(text, 0, text.length, false)
       if (label === undefined) known = false
       else labels.add(label)
     }
@@ -1506,7 +1509,7 @@ function shiftedReferenceFacts(
       ? {}
       : {
         definitions: Object.freeze(inventory.definitions.map(definition => Object.freeze({
-          start: shift(definition.start), end: shift(definition.end)
+          ...definition, start: shift(definition.start), end: shift(definition.end)
         })))
       }),
     definitionLabels: inventory.definitionLabels

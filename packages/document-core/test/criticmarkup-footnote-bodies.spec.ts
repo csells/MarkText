@@ -175,10 +175,14 @@ describe('CriticMarkup inside footnote definitions', () => {
     expect(core.project(revision, 'original').markdown).toBe('[^a]: one  four\n')
   })
 
-  it('leaves footnote bodies unchanged when footnotes are off', () => {
+  it('reads a footnote-style definition as a reference definition when footnotes are off', () => {
     const core = createDocumentCore()
-    const revision = core.open('[^a]: {++x++}\n')
-    expect(kinds(revision)).toEqual(['addition'])
+    // Without footnotes `[^a]:` is ordinary Markdown, a link reference
+    // definition whose destination owns its marker-looking text, as `[a]:`.
+    expect(kinds(core.open('[^a]: {++x++}\n'))).toEqual(kinds(core.open('[a]: {++x++}\n')))
+    expect(kinds(core.open('[^a]: {++x++}\n'))).toEqual([])
+    // A line that is no definition stays a paragraph with its annotation.
+    expect(kinds(core.open('[^a]: one {++two++}\n'))).toEqual(['addition'])
   })
 
   it('tracks typing in a footnote body as an Addition inside the footnote', () => {

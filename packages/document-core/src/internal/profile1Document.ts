@@ -1155,7 +1155,8 @@ function parseIntrinsicProfile1Pass(
   const sourceProgression = createIntrinsicProfile1SourceProgression(
     source,
     execution,
-    suppressedMarkerRanges
+    suppressedMarkerRanges,
+    markdownOptions.footnotes
   )
   physicalRecorder.recordIntrinsicSourceTraversal(
     sourceProgression.hasCriticMarkupCandidate,
@@ -4774,7 +4775,8 @@ function tryIncrementalIntrinsicParse(
     [],
     [],
     hasDefinitions,
-    spliced.referenceScopeRegions
+    spliced.referenceScopeRegions,
+    markdownOptions.footnotes
   )
   if (hasDefinitions) {
     referenceDefinitions.finalizeAcceptedDefinitions(spliced.markdownLiterals)

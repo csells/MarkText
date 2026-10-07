@@ -1566,8 +1566,10 @@ describe('document-core facade', () => {
       .toBe('[^a]: inside footnote\n')
     const labelled = core.open('[^{++a++}]: body\n', { footnotes: true })
     expect(labelled.annotations).toEqual([])
-    expect(core.open('[^{++a++}]: body\n').annotations.map(annotation => annotation.kind))
-      .toEqual(['addition'])
+    // Without footnotes the line is a reference definition, whose label is
+    // data, as for `[{++a++}]: body`.
+    expect(core.open('[^{++a++}]: body\n').annotations).toEqual([])
+    expect(core.open('[{++a++}]: body\n').annotations).toEqual([])
   })
 
   it('materializes deeply nested annotations without using the call stack', () => {
