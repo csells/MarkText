@@ -58,6 +58,18 @@ The PR keeps upstream's workflows except for these deliberate changes:
 - With footnotes off, `[^label]: destination` is an ordinary reference
   definition, as in CommonMark and upstream (91fa8d9f9).
 
+## Test harness fixes that also apply to upstream
+
+- Muya E2E: a local run on branded Google Chrome can fail after every test
+  passes, because GoogleUpdater (and its crash handlers), started by Chrome,
+  inherit the browser's stdout/stderr pipes and outlive it, so a Playwright
+  worker cannot exit and is force-killed after 300 s. Upstream c054632f shows
+  the same. `packages/muya/e2e/playwright.config.ts` now uses the bundled
+  Chromium whenever it is installed and system Chrome only when it is not.
+- The installed editorial pass performs Edit → Cut/Copy/Paste the way their
+  native roles (upstream #5582) do, on the editor window's contents, because
+  a hidden test window is never focused.
+
 ## Separate PRs
 
 - `fix/packaging-native-modules`: packages native-keymap and ced explicitly
