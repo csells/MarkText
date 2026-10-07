@@ -1,5 +1,12 @@
+import { existsSync } from 'node:fs';
 import process from 'node:process';
-import { defineConfig, devices } from '@playwright/test';
+import { chromium, defineConfig, devices } from '@playwright/test';
+
+// Branded Google Chrome can start GoogleUpdater, which inherits the browser's
+// stdout/stderr pipes and outlives it by minutes; the Playwright worker then
+// cannot exit and is force-killed after 300 s, failing the run. Prefer the
+// bundled Chromium, which has no updater, whenever it is installed.
+const bundledChromiumInstalled = existsSync(chromium.executablePath());
 
 export default defineConfig({
     testDir: './tests',
@@ -24,8 +31,9 @@ export default defineConfig({
                 // Local dev falls back to the system Chrome install to avoid
                 // the ~170 MB Chromium-for-Testing download which is flaky on
                 // some networks. Set PLAYWRIGHT_USE_BUNDLED_CHROMIUM=1 locally
-                // if you actually want the bundled binary.
-                channel: process.env.CI || process.env.PLAYWRIGHT_USE_BUNDLED_CHROMIUM
+                // if you actually want the bundled binary; an installed
+                // bundled binary is used without it (see above).
+                channel: process.env.CI || process.env.PLAYWRIGHT_USE_BUNDLED_CHROMIUM || bundledChromiumInstalled
                     ? undefined
                     : 'chrome',
             },
