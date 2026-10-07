@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { finalizeRenderedDiagram, withMermaidInit } from '../render';
 
 const hosts: HTMLElement[] = [];
@@ -48,9 +48,9 @@ describe('finalizeRenderedDiagram — viewBox', () => {
         const svg = target.querySelector('svg')!;
         svg.setAttribute('width', '300');
         svg.setAttribute('height', '150');
-        await new Promise(resolve => setTimeout(resolve, 0));
-
-        expect(svg.getAttribute('viewBox')).toBe('0 0 300 150');
+        // Waits for the observer rather than one zero-delay timer, which the
+        // full suite on a loaded machine once read before the viewBox was set.
+        await vi.waitFor(() => expect(svg.getAttribute('viewBox')).toBe('0 0 300 150'));
         expect(target.getAttribute('role')).toBe('img');
     });
 });
