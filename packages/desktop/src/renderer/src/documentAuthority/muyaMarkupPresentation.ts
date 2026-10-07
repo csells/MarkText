@@ -43,6 +43,9 @@ export const escapeHtml = (value: string): string =>
 
 type Caret = NonNullable<IInlinePresentationContext['cursor']>
 
+/** The characters upstream Muya's backslash rule escapes. */
+const UPSTREAM_BACKSLASH_ESCAPES = new Set('\\`*{}[]()#+-.!_>~:|<$')
+
 const knownHtmlEscapes = new Set(Object.keys(htmlEscapeCharacters).map((name) => name.toLowerCase()))
 
 /**
@@ -308,7 +311,10 @@ const syntaxSpans = (
         const range = nativeRange(spelling.range)
         const raw = range === undefined ? '' : binding.text.slice(range.start, range.end)
         if (range !== undefined && raw === `\\${spelling.value}`) {
-          // Upstream marks only a backslash escape's backslash as syntax.
+          // Upstream marks only a backslash escape's backslash as syntax, and
+          // only before the characters its escape rule lists; before any
+          // other, such as `/`, the backslash shows as text.
+          if (!UPSTREAM_BACKSLASH_ESCAPES.has(spelling.value)) continue
           const backslash = { start: range.start, end: range.start + 1 }
           addNative(backslash, `<span class="${revealed(backslash) ? 'mu-gray' : 'mu-hide'} mu-remove">`)
           continue

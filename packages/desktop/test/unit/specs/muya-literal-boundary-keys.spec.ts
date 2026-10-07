@@ -13,15 +13,24 @@ const displayedText = (node: Node): string => {
 }
 
 it.each([
-  { prefix: '', body: '<div>body</div>', escaped: '\\<div\\>body\\<\\/div\\>' },
+  // As upstream shows them with the caret at the start: the first escape's
+  // backslash in gray, and the backslashes before `/`, `&` and `;`, which
+  // upstream's escape rule does not list, as text.
+  {
+    prefix: '',
+    body: '<div>body</div>',
+    escaped: '\\<div\\>body\\<\\/div\\>',
+    displayed: '\\<div>body<\\/div>'
+  },
   {
     prefix: 'first{++a++}{>>keep<<}\n\n',
     body: '<div>{++literal++} &amp; *raw*</div>',
-    escaped: '\\<div\\>\\{\\+\\+literal\\+\\+\\} \\&amp\\; \\*raw\\*\\<\\/div\\>'
+    escaped: '\\<div\\>\\{\\+\\+literal\\+\\+\\} \\&amp\\; \\*raw\\*\\<\\/div\\>',
+    displayed: '\\<div>{++literal++} \\&amp\\; *raw*<\\/div>'
   }
 ])(
   'HTML boundary reset preserves its literal displayed payload in $body',
-  async({ prefix, body, escaped }) => {
+  async({ prefix, body, escaped, displayed }) => {
     const source = prefix + body + '\n'
     const app = bootBoundMuya(source)
     try {
@@ -33,7 +42,7 @@ it.each([
       const input = app.muya.editor.selection.getSelection()!.anchor.block
       expect(input.blockName).toBe('paragraph.content')
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: prefix + escaped + '\n' })
-      expect(displayedText(input.domNode!)).toBe(`\\${body}`)
+      expect(displayedText(input.domNode!)).toBe(displayed)
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       input.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
@@ -47,7 +56,7 @@ it.each([
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
       // The caret after the typed character is on the escape's backslash.
       expect(displayedText(app.muya.editor.selection.getSelection()!.anchor.block.domNode!)).toBe(
-        'x\\' + body
+        'x' + displayed
       )
       expect(app.legacyChanges).toEqual([])
       await app.adapter.history('undo', app.reconcile)
@@ -58,9 +67,10 @@ it.each([
       const reopened = bootBoundMuya(typed)
       try {
         expect(reopened.binding.sourceAtBarrier()).toMatchObject({ source: typed })
+        // Without the caret, the first escape's backslash is hidden too.
         expect(
           displayedText(reopened.muya.editor.scrollPage!.lastContentInDescendant()!.domNode!)
-        ).toBe('x' + body)
+        ).toBe('x' + displayed.slice(1))
       } finally {
         reopened.dispose()
       }
