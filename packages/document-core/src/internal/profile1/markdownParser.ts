@@ -56,7 +56,8 @@ import {
 } from './sourceTape.js'
 import type {
   IntrinsicProfile1ForkGraph,
-  IntrinsicProfile1ForkLane
+  IntrinsicProfile1ForkLane,
+  IntrinsicProfile1LaneTransition
 } from './intrinsicProfile1ForkGraph.js'
 import type {
   Profile1PhysicalTraversalRecorderV1
@@ -7740,6 +7741,26 @@ export function intrinsicForkSafeSourcePoints(
   return known
 }
 
+/**
+ * Whether `next` opens a root suggestion's marker at the very start of the
+ * line at `lineStart`, every arm of which has text on that line: an arm
+ * beginning with a line break starts the suggestion's line blank in a view
+ * selecting it, and a run of blank lines may not start a region.
+ */
+function opensRootSuggestion(
+  lane: IntrinsicProfile1ForkLane,
+  next: IntrinsicProfile1LaneTransition | undefined,
+  lineStart: number
+): boolean {
+  if (next?.operation !== 'prepare-for-marker' || next.entryCheckpoint.lineStart !== lineStart ||
+      next.entryCheckpoint.linePath !== undefined) return false
+  const branch = lane.items.find(item => item.kind !== 'source' && item.node.range.start === lineStart)
+  return branch !== undefined && branch.kind !== 'source' && branch.arms.every(arm =>
+    !arm.transitions.some(transition => transition.emittedFacts.lines.some(line =>
+      line.start <= arm.range.start && arm.range.start < line.end &&
+      line.contentEnd <= arm.range.start)))
+}
+
 function forkLaneSafeSourcePoints(
   lane: IntrinsicProfile1ForkLane
 ): readonly number[] {
@@ -7780,7 +7801,7 @@ function forkLaneSafeSourcePoints(
     }
     return low > 0 && (literalMaxEndUpTo[low - 1] ?? start) > start
   }
-  for (const transition of lane.transitions) {
+  for (const [transitionIndex, transition] of lane.transitions.entries()) {
     const sourcePoint = transition.exitCheckpoint.lineStart
     if (
       transition.operation === 'advance' &&
@@ -7803,6 +7824,23 @@ function forkLaneSafeSourcePoints(
         !next.blank &&
         !literalOverlaps(blank.start, blank.end)
       ) {
+        points.add(sourcePoint)
+      } else if (
+        blank !== undefined &&
+        previous?.end === blank.start &&
+        previous.containers.length === 0 &&
+        !literalOverlaps(blank.start, blank.end) &&
+        opensRootSuggestion(lane, lane.transitions[transitionIndex + 1], sourcePoint)
+      ) {
+        // A root suggestion opening a block after a blank line leaves the
+        // root lane no line of its own there: its lines are its arms'. The
+        // point is still a block start the document's state passes cleanly.
+        // Nothing is open before it (no container, no literal across the
+        // blank line), each arm reads as a self-contained fragment from that
+        // same clean state, its own matching state ends at its boundaries
+        // (ADR-0010, ADR-0016 L2c), and after the closer the enclosing state
+        // resumes unchanged; so text before the point and the suggestion
+        // after it read alike in a window starting there and in place.
         points.add(sourcePoint)
       }
     }
