@@ -6,7 +6,7 @@ import { createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations as annotationTree, markupReplacementRange } from './markupEditOwnership.js'
 import { historyInsertionPoint, substitutionBeforeDeletion, substitutionDraftInsertionPoint, trackedEditableSpans, trackedPartsSeparate, withinHistory } from './trackedHistoryEditing.js'
 import { annotationsAround, annotationsOverlapping } from './internal/annotationsAround.js'
-import { createTrackedOracle, draftTrackedSourceEdit, equivalenceDeferred, isWindowCompileCore, markUnresolvedDraft, literalHistoryInsertionPoint, memoizedPreview, rejoinedTrackedHistoryEdit, splitTrackedHistoryEdit, trackedPreviewFacts, widenedTrackedSourceEdit } from './trackedExtent.js'
+import { createTrackedOracle, draftTrackedSourceEdit, equivalenceDeferred, isWindowCompileCore, markUnresolvedDraft, reachesWindowEdge, literalHistoryInsertionPoint, memoizedPreview, rejoinedTrackedHistoryEdit, splitTrackedHistoryEdit, trackedPreviewFacts, widenedTrackedSourceEdit } from './trackedExtent.js'
 
 /** Protective spelling retains exactly where the language compiler inserts escapes. */
 export const nativeCriticSpelling = (value: string): Readonly<{ text: string, escapes: readonly number[] }> => {
@@ -300,9 +300,10 @@ export const createTrackedSourceEdit = (
         if (planned === undefined) return undefined
         // A window cannot tell whether a placement reaching its edge stays
         // within the Substitution in the document: the document decides.
-        if (isWindowCompileCore(activeCore) && (planned.start === 0 || planned.end === activeRevision.sourceLength) &&
+        const reached = reachesWindowEdge(activeCore, planned, activeRevision.sourceLength)
+        if (reached !== undefined &&
             !(deepest !== undefined && deepest.range.start <= planned.start && planned.end <= deepest.range.end)) {
-          markUnresolvedDraft(activeCore)
+          markUnresolvedDraft(activeCore, reached)
         }
         // The proposed block takes the typing only where it stays within the
         // Substitution; typing that breaks the paragraph the Substitution
