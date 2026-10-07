@@ -6765,7 +6765,10 @@ function planBoundaryProjectionEdits(
       continue
     }
     const delimiterLength = opener.end - opener.start
+    // A backtick string closes at the next one of its length in its scope,
+    // as CommonMark pairs them; that closer opens nothing after it.
     let closer: typeof opener | undefined
+    let closerAt = openerIndex
     for (let closerIndex = openerIndex + 1; closerIndex < stableEndpointAtoms.length; closerIndex += 1) {
       const candidate = stableEndpointAtoms[closerIndex]
       if (
@@ -6774,6 +6777,8 @@ function planBoundaryProjectionEdits(
         candidate.scopeId === opener.scopeId
       ) {
         closer = candidate
+        closerAt = closerIndex
+        break
       }
     }
     if (closer === undefined) {
@@ -6786,6 +6791,7 @@ function planBoundaryProjectionEdits(
         atom.scopeId !== opener.scopeId
     )
     if (crossScopeInterior.length === 0) {
+      openerIndex = closerAt
       continue
     }
     inlineCodeLiterals.push(Object.freeze({
