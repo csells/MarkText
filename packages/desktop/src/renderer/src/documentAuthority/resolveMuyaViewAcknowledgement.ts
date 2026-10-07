@@ -27,7 +27,15 @@ export function resolveMuyaViewAcknowledgement(input: {
     regional.scope === 'regions'
       ? applyMuyaMarkupChanges(previousView, regional)
       : undefined
-  const view = patched ?? lease.projectAcknowledgedPlainTextView(outcome.revision).view
+  // An input that only moves the selection is accepted at the same revision,
+  // whose view is the one already presented.
+  const unchanged =
+    previousView !== undefined &&
+    previousRevision === outcome.revision &&
+    outcome.change.appliedEdits.length === 0
+  const view = unchanged
+    ? previousView
+    : (patched ?? lease.projectAcknowledgedPlainTextView(outcome.revision).view)
   // A native view can be destroyed while its lease is draining queued input.
   // Acknowledgement still advances the model; only a surviving view is painted.
   // Read the live view reference only after the owned projection is available.
