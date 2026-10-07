@@ -147,9 +147,12 @@ describe('Muya Core Markup presentation', () => {
       ])
     ).toEqual([
       ['&amp;', '&'],
-      ['\\*', '*'],
-      ['&#x1F600;', '😀'],
-      ['\\&', '&']
+      ['&#x1F600;', '😀']
+    ])
+    // As upstream, a backslash escape hides only its backslash.
+    expect([...host.querySelectorAll('.mu-hide.mu-remove')].map((node) => node.textContent)).toEqual([
+      '\\',
+      '\\'
     ])
   })
 
@@ -180,9 +183,12 @@ describe('Muya Core Markup presentation', () => {
       ['person@example.com', 'mailto:person@example.com'],
       ['https://example.org', 'https://example.org']
     ])
-    expect(
-      [...host.querySelectorAll('.mu-hide.mu-remove')].map((node) => node.textContent)
-    ).toEqual(['<', '>', '<', '>'])
+    expect([...host.querySelectorAll('.mu-hide')].map((node) => node.textContent)).toEqual([
+      '<',
+      '>',
+      '<',
+      '>'
+    ])
   })
 
   it('presents both Core hard-break spellings without altering editing characters', () => {
@@ -344,6 +350,183 @@ describe('Muya Core Markup presentation', () => {
       expect(host.querySelector('[data-critic-kind="addition"]')?.textContent).toBe('added')
       expect(host.querySelector('strong')?.textContent).toBe('bold')
       expect(shape(host).at(-1)).toBe('mu-hide| ##')
+    })
+  })
+
+  describe('inline syntax markers follow the caret as upstream shows them', () => {
+    const renderedWith = (
+      source: string,
+      offset: number | undefined,
+      options?: Parameters<ReturnType<typeof createDocumentCore>['open']>[1]
+    ): HTMLDivElement => {
+      const core = createDocumentCore()
+      const revision = core.open(source, options)
+      const view = createMuyaMarkupView(core.project(revision, 'markup'), revision.annotations)
+      const binding = view.bindings[0]
+      const host = document.createElement('div')
+      host.innerHTML = renderMuyaMarkupBinding(
+        binding,
+        view.decorations,
+        binding.text,
+        {
+          renderImage: () => undefined,
+          ...(offset === undefined ? {} : { cursor: { anchor: offset, focus: offset } })
+        },
+        view.comments
+      )
+      return host
+    }
+    // Each marker-bearing element's classes and text, in document order.
+    const markers = (host: HTMLElement): string[] =>
+      [...host.querySelectorAll('span, a')]
+        .filter(
+          (element) =>
+            element.className !== '' &&
+            (!element.classList.contains('mu-inline-rule') ||
+              element.classList.contains('mu-emoji-marked-text') ||
+              element.classList.contains('mu-no-text-link'))
+        )
+        .map((element) => `${element.className}|${element.textContent}`)
+
+    it.each([
+      ['**bold**', '**', 4],
+      ['__bold__', '__', 4],
+      ['*em*', '*', 2],
+      ['_em_', '_', 2],
+      ['~~del~~', '~~', 3],
+      ['`code`', '`', 3]
+    ])('shows the markers of %s in gray only while the caret is in it', (syntax, marker, inside) => {
+      const source = `a ${syntax} b`
+      const hidden = [`mu-hide mu-remove|${marker}`, `mu-hide mu-remove|${marker}`]
+      const gray = [`mu-gray mu-remove|${marker}`, `mu-gray mu-remove|${marker}`]
+      expect(markers(renderedWith(source, undefined))).toEqual(hidden)
+      expect(markers(renderedWith(source, 1))).toEqual(hidden)
+      expect(markers(renderedWith(source, 2))).toEqual(gray)
+      expect(markers(renderedWith(source, 2 + inside))).toEqual(gray)
+      expect(markers(renderedWith(source, 2 + syntax.length))).toEqual(gray)
+      expect(markers(renderedWith(source, 3 + syntax.length))).toEqual(hidden)
+    })
+
+    it('reveals only the syntax holding the caret among nested syntax', () => {
+      expect(markers(renderedWith('**a *b* c**', 1))).toEqual([
+        'mu-gray mu-remove|**',
+        'mu-hide mu-remove|*',
+        'mu-hide mu-remove|*',
+        'mu-gray mu-remove|**'
+      ])
+      expect(markers(renderedWith('**a *b* c**', 5))).toEqual([
+        'mu-gray mu-remove|**',
+        'mu-gray mu-remove|*',
+        'mu-gray mu-remove|*',
+        'mu-gray mu-remove|**'
+      ])
+    })
+
+    it('shows superscript and subscript markers while the caret is in them', () => {
+      const options = { subscriptAndSuperscript: true }
+      expect(markers(renderedWith('x^2^ H~2~O', 2, options))).toEqual([
+        'mu-gray mu-remove|^',
+        'mu-gray mu-remove|^',
+        'mu-hide mu-remove|~',
+        'mu-hide mu-remove|~'
+      ])
+    })
+
+    it('splits a shown inline link into brackets and destination as upstream does', () => {
+      const source = '[text](https://example.com "title") after'
+      // Hidden, the parts after the text read alike and stay one element.
+      expect(markers(renderedWith(source, undefined))).toEqual([
+        'mu-hide mu-remove|[',
+        'mu-hide mu-remove|](https://example.com "title")'
+      ])
+      expect(markers(renderedWith(source, 3))).toEqual([
+        'mu-gray mu-remove|[',
+        'mu-gray mu-remove|](',
+        'mu-link-in-bracket mu-remove|https://example.com "title"',
+        'mu-gray mu-remove|)'
+      ])
+      expect(renderedWith(source, 3).querySelector('span.mu-link')?.textContent).toBe('text')
+      expect(markers(renderedWith('[](https://example.com)', undefined))).toEqual([
+        'mu-gray mu-remove|[](',
+        'mu-no-text-link mu-inline-rule|https://example.com',
+        'mu-gray mu-remove|)'
+      ])
+    })
+
+    it('presents reference links with their label as upstream does', () => {
+      const source = '[text][label] [label][] [label]\n\n[label]: https://example.com'
+      expect(markers(renderedWith(source, undefined))).toEqual([
+        'mu-hide|[',
+        'mu-hide|][label]',
+        'mu-hide|[',
+        'mu-hide|][]',
+        'mu-hide|[',
+        'mu-hide|]'
+      ])
+      expect(markers(renderedWith(source, 2)).slice(0, 4)).toEqual([
+        'mu-gray|[',
+        'mu-gray|][',
+        'mu-reference-label|label',
+        'mu-gray|]'
+      ])
+      expect(renderedWith(source, 2).querySelector('a.mu-reference-link')?.getAttribute('href')).toBe(
+        'https://example.com'
+      )
+    })
+
+    it('shows autolink, footnote, emoji and escape markers while the caret is in them', () => {
+      expect(markers(renderedWith('<https://a.b> x', 0))).toEqual(['mu-gray|<', 'mu-gray|>'])
+      expect(markers(renderedWith('<https://a.b> x', 14))).toEqual(['mu-hide|<', 'mu-hide|>'])
+      expect(markers(renderedWith('see[^1]\n\n[^1]: note', 4, { footnotes: true }))).toEqual([
+        'mu-gray mu-remove|[^',
+        'mu-gray mu-remove|]'
+      ])
+      expect(markers(renderedWith('see[^1]\n\n[^1]: note', 1, { footnotes: true }))).toEqual([
+        'mu-hide mu-remove|[^',
+        'mu-hide mu-remove|]'
+      ])
+      expect(markers(renderedWith(':smile: x', undefined))).toEqual([
+        'mu-hide mu-emoji-marker|:',
+        'mu-hide mu-inline-rule mu-emoji-marked-text|smile',
+        'mu-hide mu-emoji-marker|:'
+      ])
+      expect(markers(renderedWith(':smile: x', 3))).toEqual([
+        'mu-gray mu-emoji-marker|:',
+        'mu-inline-rule mu-emoji-marked-text|smile',
+        'mu-gray mu-emoji-marker|:'
+      ])
+      expect(markers(renderedWith(':nosuch: x', undefined))).toEqual([
+        'mu-warn mu-emoji-marker|:',
+        'mu-warn mu-inline-rule mu-emoji-marked-text|nosuch',
+        'mu-warn mu-emoji-marker|:'
+      ])
+      const escapes = 'a &amp; \\* b'
+      expect(markers(renderedWith(escapes, undefined))).toEqual([
+        'mu-hide mu-html-escape|&amp;',
+        'mu-html-escape-marker|&amp;',
+        'mu-hide mu-remove|\\'
+      ])
+      expect(markers(renderedWith(escapes, 3))).toEqual([
+        'mu-gray mu-html-escape|&amp;',
+        'mu-html-escape-marker|&amp;',
+        'mu-hide mu-remove|\\'
+      ])
+      expect(markers(renderedWith(escapes, 9))).toEqual([
+        'mu-hide mu-html-escape|&amp;',
+        'mu-html-escape-marker|&amp;',
+        'mu-gray mu-remove|\\'
+      ])
+      expect(renderedWith(escapes, undefined).textContent).toBe('a &amp; \\* b')
+    })
+
+    it('keeps CriticMarkup marks around syntax whose markers the caret shows', () => {
+      const host = renderedWith('a {++**new**++} b', 3)
+      expect(host.textContent).toBe('a **new** b')
+      expect(host.querySelector('[data-critic-kind="addition"]')?.textContent).toBe('**new**')
+      expect(markers(host).filter((marker) => marker.startsWith('mu-'))).toEqual([
+        'mu-gray mu-remove|**',
+        'mu-gray mu-remove|**'
+      ])
     })
   })
 })

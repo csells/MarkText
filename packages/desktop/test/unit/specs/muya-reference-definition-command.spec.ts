@@ -15,7 +15,7 @@ it.each([
   )
   probe.dispose()
   const app = bootBoundMuya(source)
-  const links = () => [...app.muya.editor.scrollPage!.domNode!.querySelectorAll('a.mu-link')]
+  const links = () => [...app.muya.editor.scrollPage!.domNode!.querySelectorAll('a.mu-reference-link')]
   const expectLinks = (href: string) => {
     expect(
       links()
@@ -67,7 +67,7 @@ it.each([
     expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
     const reopened = bootBoundMuya(typed)
     try {
-      const links = [...reopened.muya.editor.scrollPage!.domNode!.querySelectorAll('a.mu-link')]
+      const links = [...reopened.muya.editor.scrollPage!.domNode!.querySelectorAll('a.mu-reference-link')]
       expect(links.map((link) => link.textContent).join('')).toBe('samesame')
       expect(new Set(links.map((link) => link.getAttribute('href')))).toEqual(new Set(['/newx']))
     } finally {
