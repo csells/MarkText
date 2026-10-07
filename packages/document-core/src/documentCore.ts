@@ -2246,53 +2246,46 @@ function blockStructure(root: MarkdownAstNode): string {
 }
 
 /**
- * Whether the blocks of a window document outside the run of lines between
- * blank lines that holds the range `start`..`end` of `previous` keep their
- * places and structure in `next`, which replaced that range and grew by
- * `delta`, in every view: an edit whose effect leaves its blocks, as one
- * splitting a fence, changes a block after them. 'unbounded' when a side has
- * no such block before `limit`, unless the window reaches that edge of its
- * document (`edges`).
+ * The blocks of a window document `previous` around an edit's result, read
+ * once, while `previous` is its core's current revision and holds its
+ * parse: read after another revision is published, it would be parsed again.
  */
-function contextBlocksKept(
-  core: DocumentCore,
-  previous: DocumentRevision,
-  next: DocumentRevision,
-  range: SourceRange,
-  delta: number,
-  limit: number,
-  edges: Readonly<{ start: boolean, end: boolean }>
-): 'kept' | 'changed' | 'unbounded' {
-  const { start, end } = range
-  // A view elides deleted text, so a block's own range can stop short of an
-  // edit to it; the blank lines around the edit, and the first lines of the
-  // items of a list, bound the blocks it touches.
+interface ContextBlocks {
+  /**
+   * Whether the blocks outside the run of lines between blank lines that
+   * holds the range `start`..`end` of `previous` keep their places and
+   * structure in `next`, which replaced that range and grew by `delta`, in
+   * every view: an edit whose effect leaves its blocks, as one splitting a
+   * fence, changes a block after them. 'unbounded' when a side has no such
+   * block before `limit`, unless the window reaches that edge of its
+   * document (`edges`). `next` is published only when compared, as a
+   * revision of the same core.
+   */
+  readonly kept: (
+    next: () => DocumentRevision,
+    range: SourceRange,
+    delta: number,
+    edges: Readonly<{ start: boolean, end: boolean }>
+  ) => 'kept' | 'changed' | 'unbounded'
+  /**
+   * Whether `kept` is 'unbounded' for `range` before it reads any `next`,
+   * as it is for every range holding this one: a wider range leaves fewer
+   * blocks outside it.
+   */
+  readonly unbounded: (range: SourceRange, edges: Readonly<{ start: boolean, end: boolean }>) => boolean
+}
+
+function contextBlocksOf(core: DocumentCore, previous: DocumentRevision, limit: number): ContextBlocks {
   const text = core.sourceSlice(previous, { start: 0, end: limit })
-  const blank = /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/gu
-  let editedStart = 0
-  let editedEnd = limit
-  for (const match of text.matchAll(blank)) {
-    // A blank line the edit reaches no longer separates its neighbours.
-    if (match.index + match[0].length <= start) editedStart = match.index + match[0].length
-    else if (match.index >= end) {
-      editedEnd = match.index
-      break
-    }
-  }
   const lineStart = (offset: number): number => {
     let at = offset
     while (at > 0 && text[at - 1] !== '\n' && text[at - 1] !== '\r') at -= 1
     return at
   }
   const markup = core.project(previous, 'markup').syntax
-  for (const list of markup.ast.root.children) {
-    if (list.kind !== 'list') continue
-    for (const item of list.children) {
-      const itemStart = lineStart(Math.min(limit, markup.coordinates.toSource(item.range.start, 'next')))
-      if (itemStart <= start) editedStart = Math.max(editedStart, itemStart)
-      else if (itemStart > end) editedEnd = Math.min(editedEnd, itemStart)
-    }
-  }
+  const itemStarts = markup.ast.root.children.flatMap(list => list.kind === 'list'
+    ? list.children.map(item => lineStart(Math.min(limit, markup.coordinates.toSource(item.range.start, 'next'))))
+    : [])
   // A top-level list's items are blocks of their own, each noting whether it
   // continues the list of the block before it.
   // An empty paragraph a view reads for a line of spaces has no extent of
@@ -2318,22 +2311,110 @@ function contextBlocksKept(
     })).filter(({ range, structure }) =>
       !(structure === '(paragraph[])' && range.start === range.end && blankLineAt(revision, range.start)))
   }
-  for (const view of ['original', 'revised', 'markup'] as const) {
-    const before = blocks(previous, view)
-    const around = (items: typeof before, shift: number) => items.filter(block =>
-      (block.range.end < editedStart || block.range.start > editedEnd + shift) && block.range.start < limit + shift)
-    const kept = around(before, 0)
-    if ((!edges.start && !kept.some(block => block.range.end < editedStart)) ||
-        (!edges.end && !kept.some(block => block.range.start > editedEnd))) return 'unbounded'
-    const after = around(blocks(next, view), delta)
-    if (after.length !== kept.length || kept.some((block, ordinal) => {
-      const other = after[ordinal]
-      const shift = block.range.start > editedEnd ? delta : 0
-      return other === undefined || other.structure !== block.structure ||
-        other.range.start !== block.range.start + shift || other.range.end !== block.range.end + shift
-    })) return 'changed'
+  let befores: readonly Readonly<{ view: 'original' | 'revised' | 'markup', blocks: ReturnType<typeof blocks> }>[] | undefined
+  const viewsBefore = () => {
+    befores ??= (['original', 'revised', 'markup'] as const).map(view => ({ view, blocks: blocks(previous, view) }))
+    return befores
   }
-  return 'kept'
+  // A view elides deleted text, so a block's own range can stop short of an
+  // edit to it; the blank lines around the edit, and the first lines of the
+  // items of a list, bound the blocks it touches.
+  const edited = ({ start, end }: SourceRange): Readonly<{ start: number, end: number }> => {
+    const blank = /(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/gu
+    let editedStart = 0
+    let editedEnd = limit
+    for (const match of text.matchAll(blank)) {
+      // A blank line the edit reaches no longer separates its neighbours.
+      if (match.index + match[0].length <= start) editedStart = match.index + match[0].length
+      else if (match.index >= end) {
+        editedEnd = match.index
+        break
+      }
+    }
+    for (const itemStart of itemStarts) {
+      if (itemStart <= start) editedStart = Math.max(editedStart, itemStart)
+      else if (itemStart > end) editedEnd = Math.min(editedEnd, itemStart)
+    }
+    return { start: editedStart, end: editedEnd }
+  }
+  type Block = ReturnType<typeof blocks>[number]
+  const around = (items: readonly Block[], bounds: Readonly<{ start: number, end: number }>, shift: number) => items.filter(block =>
+    (block.range.end < bounds.start || block.range.start > bounds.end + shift) && block.range.start < limit + shift)
+  const unboundedIn = (before: readonly Block[], bounds: Readonly<{ start: number, end: number }>,
+    edges: Readonly<{ start: boolean, end: boolean }>): boolean => {
+    const kept = around(before, bounds, 0)
+    return (!edges.start && !kept.some(block => block.range.end < bounds.start)) ||
+      (!edges.end && !kept.some(block => block.range.start > bounds.end))
+  }
+  const read: ContextBlocks = {
+    unbounded: (range, edges) => {
+      const [original] = viewsBefore()
+      return original !== undefined && unboundedIn(original.blocks, edited(range), edges)
+    },
+    kept: (next, range, delta, edges) => {
+      const bounds = edited(range)
+      let published: DocumentRevision | undefined
+      for (const { view, blocks: before } of viewsBefore()) {
+        if (unboundedIn(before, bounds, edges)) return 'unbounded'
+        const kept = around(before, bounds, 0)
+        const revision = published ??= next()
+        const after = around(blocks(revision, view), bounds, delta)
+        if (after.length !== kept.length || kept.some((block, ordinal) => {
+          const other = after[ordinal]
+          const shift = block.range.start > bounds.end ? delta : 0
+          return other === undefined || other.structure !== block.structure ||
+            other.range.start !== block.range.start + shift || other.range.end !== block.range.end + shift
+        })) return 'changed'
+      }
+      return 'kept'
+    }
+  }
+  return Object.freeze(read)
+}
+
+const LITERAL_BLOCK_KINDS = new Set(['code-block', 'math-block', 'diagram'])
+
+/**
+ * The top-level fence or math block of a parse holding `start` to `end`
+ * between its opening and closing lines, with no suggestion overlapping it.
+ * Markers there are the block's text, and a tracked edit there changes the
+ * block itself.
+ */
+function plainLiteralBlockHolding(
+  products: Profile1DocumentProducts,
+  source: string,
+  start: number,
+  end: number
+): SourceRange | undefined {
+  const editing = products.editing()
+  return plainLiteralBlockIn(markdownAstOf(editing), projectionCoordinatesOf(editing, source.length), source,
+    (products.retainedIntrinsic?.roots ?? []).map(root => root.range), start, end)
+}
+
+/** plainLiteralBlockHolding, read from a revision's Markup syntax and suggestions. */
+function plainLiteralBlockOf(core: DocumentCore, revision: DocumentRevision, start: number, end: number): SourceRange | undefined {
+  const { ast, coordinates } = core.project(revision, 'markup').syntax
+  return plainLiteralBlockIn(ast, coordinates, core.sourceSlice(revision, { start: 0, end: revision.sourceLength }),
+    revision.annotations.map(annotation => annotation.range), start, end)
+}
+
+function plainLiteralBlockIn(
+  ast: MarkdownAst,
+  coordinates: ProjectionCoordinateMap,
+  source: string,
+  suggestions: readonly SourceRange[],
+  start: number,
+  end: number
+): SourceRange | undefined {
+  const block = ast.root.children.find(node =>
+    coordinates.toSource(node.range.start, 'next') < start && end < coordinates.toSource(node.range.end, 'previous'))
+  if (block === undefined || !LITERAL_BLOCK_KINDS.has(block.kind)) return undefined
+  const range = { start: coordinates.toSource(block.range.start, 'next'), end: coordinates.toSource(block.range.end, 'previous') }
+  const text = source.slice(range.start, range.end)
+  const openerEnd = range.start + text.search(/[\r\n]/u)
+  const closerStart = range.start + Math.max(text.lastIndexOf('\n'), text.lastIndexOf('\r')) + 1
+  if (openerEnd < range.start || start <= openerEnd || end >= closerStart) return undefined
+  return suggestions.some(suggestion => suggestion.start < range.end && suggestion.end > range.start) ? undefined : range
 }
 
 type SourceEditPreview = (previous: DocumentRevision, edits: readonly DocumentSourceEdit[]) => DocumentRevision
@@ -2348,6 +2429,12 @@ const nativeEditPlanners = new WeakMap<DocumentCore, (
   typed: boolean
 ) => readonly DocumentSourceEdit[] | undefined>()
 const windowCores = new WeakSet<DocumentCore>()
+/**
+ * Source units up to which a window core previews a candidate by parsing
+ * its whole document: a few blocks, which one parse reads for no more than
+ * the regional windows, often several, that would read the candidate.
+ */
+const WINDOW_WHOLE_PREVIEW_UNITS = 2048
 
 /**
  * Typed text as a suggestion's arm holds it: a final odd backslash would
@@ -5452,6 +5539,18 @@ function createDocumentCoreWithExecutionBudget(
     if (cached !== undefined) return inspect(cached.products, cached.source)
     const source = state.source.applyExact(stableEdits, 'Authoring candidate')
       .materialize('fallback')
+    // No edit reads as the revision itself, whose parse it may still hold.
+    const held = stableEdits.length === 0 && !whole ? state.productStore.withRetained(products => products) : undefined
+    if (held !== undefined) return inspect(held, source)
+    // Other edits writing the same text read as the same candidate: the
+    // untracked compile of a key and of the block it rewrites often agree.
+    const written = whole || previewedCandidates?.revision !== previous || previous !== currentRevision
+      ? undefined
+      : previewedCandidates.entries.find(entry => entry.source === source)
+    if (written !== undefined) {
+      rememberPreviewedCandidate(previous, stableEdits, source, written.products)
+      return inspect(written.products, source)
+    }
     const reusable = !editsMayRepairMath(state.source, { length: source.length, slice: (start: number, end: number) => source.slice(start, end) }, stableEdits, state.markdownOptions)
     // A revision holding its parse lends it to the candidate's; one edited
     // regionally is not parsed for that, as the candidate's parse is whole.
@@ -5523,7 +5622,9 @@ function createDocumentCoreWithExecutionBudget(
   }
 
   const previewSourceEdits = (previous: DocumentRevision, edits: readonly DocumentSourceEdit[]): DocumentRevision => {
-    const regional = regionalPreview(previous, edits)
+    const regional = windowCores.has(core) && previous.sourceLength <= WINDOW_WHOLE_PREVIEW_UNITS
+      ? undefined
+      : regionalPreview(previous, edits)
     if (regional !== undefined) {
       const { revision, replaced } = regional
       // The candidate reads as `previous` outside the source it replaced, so
@@ -5759,6 +5860,37 @@ function createDocumentCoreWithExecutionBudget(
     return Object.freeze({ ast: markdownAstOf(editing), coordinates })
   }
 
+  /**
+   * Whether tracked typing that breaks a line lands strictly inside deleted,
+   * struck or comment text of a document with no stray markers, as text that
+   * can neither spell nor hide a marker. Its suggestion then keeps its
+   * markers and holds the typing in that text, which is history the typing
+   * splits; or the typing breaks it, which changes its markers. Either way
+   * no payload splice spells it. Typing within a line is left to the payload
+   * planner, whose window answers it without reading the suggestions around.
+   */
+  const typedInHistory = (previous: DocumentRevision, edit: DocumentSourceEdit): boolean => {
+    if (edit.start !== edit.end || !/^[\p{L}\p{N} \t\r\n.,;:'"?!()]+$/u.test(edit.insert) ||
+        !/[\r\n]/u.test(edit.insert) || previous.diagnostics.length !== 0) return false
+    const pending = [...rootsAround(previous, edit.start)]
+    while (pending.length > 0) {
+      const annotation = pending.pop()
+      if (annotation === undefined) break
+      for (const arm of annotation.arms) {
+        const history = annotation.kind === 'deletion' || arm.name === 'old' || arm.name === 'comment'
+        if (history && arm.range.start < edit.start && edit.start < arm.range.end) return true
+        pending.push(...arm.annotations)
+      }
+    }
+    return false
+  }
+  // The region regionalPayloadEdit last read an edit in, which the tracked
+  // planners after it read for that edit instead of parsing it again.
+  let payloadCandidate: Readonly<{
+    state: RevisionState
+    edit: DocumentSourceEdit
+    candidate: ReturnType<typeof regionalCandidate>
+  }> | undefined
   // A same-shape regional preview proves marker ownership, diagnostics and
   // Markdown context without publishing or opening the revision's full products.
   // The general planners remain responsible for changing suggestion structure.
@@ -5769,6 +5901,7 @@ function createDocumentCoreWithExecutionBudget(
   ): DocumentSourceEdit | undefined => {
     if (plansFromGeneralCompile(core) || (edit.start === edit.end && edit.insert.length === 0)) return undefined
     const candidate = regionalCandidate(state, edit)
+    payloadCandidate = Object.freeze({ state, edit, candidate })
     if (candidate === undefined) return undefined
     // A structural window proves the parse, not that the planner would splice
     // the raw text: an edit spelling new markers, or an untracked edit
@@ -6323,6 +6456,12 @@ function createDocumentCoreWithExecutionBudget(
     // typed are an Addition of their own, as away from every suggestion.
     const placement = around.length === 0 ? { beside: [], host: undefined } : newAdditionPlacement(previous, edit.start, around, false)
     if (placement === undefined) return undefined
+    // Words typed inside a fence or math block are its text, and so are an
+    // Addition's markers there.
+    const typed = payloadCandidate?.state === state && payloadCandidate.edit === edit ? payloadCandidate.candidate : undefined
+    if (typed !== undefined && typed.arm === undefined && !('literal' in typed && typed.literal !== undefined) &&
+        plainLiteralBlockHolding(typed.nextProducts, typed.nextWindow, edit.start - typed.sourceStart,
+          edit.start - typed.sourceStart + edit.insert.length) !== undefined) return undefined
     const insert = `{++${edit.insert}++}`
     const planned = Object.freeze({ start: edit.start, end: edit.start, insert })
     const candidate = regionalCandidate(state, planned)
@@ -7026,6 +7165,46 @@ function createDocumentCoreWithExecutionBudget(
         opened.annotations.length !== context.roots) return undefined
     const windowPreview = sourceEditPreviews.get(windowCore)
     if (windowPreview === undefined) return undefined
+    // The window's blocks read the untracked edit as the document does only
+    // where blank lines part them from the blocks around it: a block the
+    // document runs straight into after the window could take in what the
+    // edit writes at its edge.
+    const lineBlank = (at: number): boolean => {
+      const rest = state.source.slice(at, Math.min(state.source.length, at + 256))
+      return /^[ \t]*(?:\r\n|\r|\n|$)/u.test(rest)
+    }
+    const lineStartOf = (at: number): number => {
+      const before = state.source.slice(Math.max(0, at - 256), at)
+      const newline = Math.max(before.lastIndexOf('\n'), before.lastIndexOf('\r'))
+      return newline === -1 ? (at - 256 <= 0 ? 0 : -1) : at - before.length + newline + 1
+    }
+    const parted = (at: number): boolean => {
+      if (at === 0 || at === state.source.length) return true
+      const start = lineStartOf(at)
+      if (start === -1) return false
+      if (start !== at) return lineBlank(start)
+      const previousStart = lineStartOf(at - 1 - (state.source.slice(at - 2, at) === '\r\n' ? 1 : 0))
+      return lineBlank(at) || (previousStart !== -1 && previousStart < at && lineBlank(previousStart))
+    }
+    const blocksAround = contextBlocksOf(windowCore, opened, window.length)
+    // A window starting or ending at a clean block boundary, as beside a
+    // closed fence, needs no block of context there.
+    const windowEdges = { start: sourceStart === 0 || context.cleanStart === true, end: windowEnd === state.source.length || context.cleanEnd === true }
+    // A result spelling the edit spells the fence or math block it is typed
+    // in whole. Where no blank lines part the window from the blocks beyond
+    // it, no region reads that result, and where the window holds no block
+    // to show the blocks around the literal one keep their place, the
+    // window grows to the reach the result would widen it to, before
+    // compiling in it.
+    const literal = widenings < 3 && !(parted(sourceStart) && parted(windowEnd))
+      ? plainLiteralBlockOf(windowCore, opened, span.start - sourceStart, span.end - sourceStart)
+      : undefined
+    if (literal !== undefined && blocksAround.unbounded(literal, windowEdges)) {
+      return windowedGeneralEdits(state, previous, edits, compile, {
+        start: Math.max(0, Math.min((reach ?? span).start, sourceStart) - 1),
+        end: Math.min(state.source.length, Math.max((reach ?? span).end, windowEnd) + 1)
+      }, widenings + 1)
+    }
     const local = Object.freeze(edits.map(edit => Object.freeze({
       start: edit.start - sourceStart, end: edit.end - sourceStart, insert: edit.insert
     })))
@@ -7059,27 +7238,6 @@ function createDocumentCoreWithExecutionBudget(
       cursor = part.end
     }
     const combined = Object.freeze({ start: first.start, end: last.end, insert })
-    // The window's blocks read the untracked edit as the document does only
-    // where blank lines part them from the blocks around it: a block the
-    // document runs straight into after the window could take in what the
-    // edit writes at its edge.
-    const lineBlank = (at: number): boolean => {
-      const rest = state.source.slice(at, Math.min(state.source.length, at + 256))
-      return /^[ \t]*(?:\r\n|\r|\n|$)/u.test(rest)
-    }
-    const lineStartOf = (at: number): number => {
-      const before = state.source.slice(Math.max(0, at - 256), at)
-      const newline = Math.max(before.lastIndexOf('\n'), before.lastIndexOf('\r'))
-      return newline === -1 ? (at - 256 <= 0 ? 0 : -1) : at - before.length + newline + 1
-    }
-    const parted = (at: number): boolean => {
-      if (at === 0 || at === state.source.length) return true
-      const start = lineStartOf(at)
-      if (start === -1) return false
-      if (start !== at) return lineBlank(start)
-      const previousStart = lineStartOf(at - 1 - (state.source.slice(at - 2, at) === '\r\n' ? 1 : 0))
-      return lineBlank(at) || (previousStart !== -1 && previousStart < at && lineBlank(previousStart))
-    }
     const candidate = parted(sourceStart) && parted(windowEnd) ? regionalCandidate(state, combined) : undefined
     if (candidate !== undefined) {
       // Both parses must cover the edited text with a block to spare, and
@@ -7132,11 +7290,8 @@ function createDocumentCoreWithExecutionBudget(
       (context.cleanEnd === true && windowEnd < state.source.length && last.end === windowEnd)) && !wholeBlockResult()
     let kept = reachesCleanEdge
       ? 'unbounded'
-      : contextBlocksKept(windowCore, opened, windowCore.apply(opened, compiled).revision,
-        { start: first.start - sourceStart, end: last.end - sourceStart }, delta, window.length,
-        // A window starting or ending at a clean block boundary, as beside a
-        // closed fence, needs no block of context there.
-        { start: sourceStart === 0 || context.cleanStart === true, end: windowEnd === state.source.length || context.cleanEnd === true })
+      : blocksAround.kept(() => windowCore.apply(opened, compiled).revision,
+        { start: first.start - sourceStart, end: last.end - sourceStart }, delta, windowEdges)
     // A result splitting the deleted or replaced text that holds the edit
     // (G34) is that suggestion's, read and weighed within it whatever window
     // holds it. Where the window has no block of context beyond a blank line,
@@ -7169,26 +7324,32 @@ function createDocumentCoreWithExecutionBudget(
         const wideCore = createDocumentCoreWithExecutionBudget(executionBudget)
         windowCores.add(wideCore)
         const prefix = sourceStart - from
-        const wide = wideCore.open(state.source.slice(from, to), from === 0 ? options : { ...options, frontMatter: false })
+        const wideSource = state.source.slice(from, to)
+        const wideOptions = from === 0 ? options : { ...options, frontMatter: false }
+        const wide = wideCore.open(wideSource, wideOptions)
         const shift = (parts: readonly DocumentSourceEdit[]) =>
           parts.map(part => Object.freeze({ start: part.start + prefix, end: part.end + prefix, insert: part.insert }))
         const edges = { start: from === 0, end: to === state.source.length }
+        const wideBlocks = contextBlocksOf(wideCore, wide, to - from)
         // The edit itself must leave those blocks as they read too: a fence
         // it leaves open would take them in, which the result alone hides.
         const plainDelta = local.reduce((sum, part) => sum + part.insert.length - (part.end - part.start), 0)
         const plainFirst = local[0]
         const plainLast = local.at(-1)
         kept = plainFirst === undefined || plainLast === undefined ||
-          contextBlocksKept(wideCore, wide, wideCore.apply(wide, shift(local)).revision,
-            { start: plainFirst.start + prefix, end: plainLast.end + prefix }, plainDelta, to - from, edges) !== 'kept'
+          wideBlocks.kept(() => wideCore.apply(wide, shift(local)).revision,
+            { start: plainFirst.start + prefix, end: plainLast.end + prefix }, plainDelta, edges) !== 'kept'
           ? 'unbounded'
-          : (() => {
-            const resultCore = createDocumentCoreWithExecutionBudget(executionBudget)
-            windowCores.add(resultCore)
-            const opened = resultCore.open(state.source.slice(from, to), from === 0 ? options : { ...options, frontMatter: false })
-            return contextBlocksKept(resultCore, opened, resultCore.apply(opened, shift(compiled)).revision,
-              { start: first.start - from, end: last.end - from }, delta, to - from, edges)
-          })()
+          // The result is read as the text it writes there, opened whole.
+          : wideBlocks.kept(() => {
+            let written = ''
+            let cursor = 0
+            for (const part of shift(compiled)) {
+              written += wideSource.slice(cursor, part.start) + part.insert
+              cursor = part.end
+            }
+            return wideCore.open(written + wideSource.slice(cursor), wideOptions)
+          }, { start: first.start - from, end: last.end - from }, delta, edges)
       }
     }
     // A result reaching the window's context, as a join of two blocks,
@@ -7285,12 +7446,14 @@ function createDocumentCoreWithExecutionBudget(
       }
       return generalTrackedEdit(core, previous, edit, preview)
     }
-    const regional = regionalPayloadEdit(state, edit, true) ?? regionalTrackedLiteralBlock(state, edit) ??
+    const regional = (typedInHistory(previous, edit) ? undefined : regionalPayloadEdit(state, edit, true)) ??
+      regionalTrackedLiteralBlock(state, edit) ??
       regionalTrackedInsertion(state, previous, edit) ??
       regionalTrackedArmEdge(state, previous, edit) ?? regionalTrackedBesideDeletion(state, previous, edit) ??
       regionalTrackedInsideDeletion(state, previous, edit) ?? regionalTrackedInSubstitution(state, previous, edit) ??
       regionalTrackedBreak(state, previous, edit) ?? regionalTrackedJoin(state, previous, edit) ??
       regionalTrackedDeletion(state, previous, edit)
+    payloadCandidate = undefined
     if (regional !== undefined) return regional
     // Enter at an Addition's edge extends it, as the regional planner spells
     // it, whichever compile reads the key.

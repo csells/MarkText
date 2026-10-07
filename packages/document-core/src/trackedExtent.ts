@@ -945,10 +945,8 @@ export function splitTrackedHistoryEdit(
       insert: source({ start: from, end: value.start }) + value.insert + source({ start: value.end, end: to })
     })
     const candidate = preview([widen(edit)])
-    const expected = preview([widen(plain)])
     const facts = trackedPreviewFacts.get(candidate)
-    const expectedFacts = trackedPreviewFacts.get(expected)
-    if (facts === undefined || expectedFacts === undefined) return undefined
+    if (facts === undefined) return undefined
     const added = markupAnnotations(candidate.annotations).some(annotation => annotation.kind === 'addition' &&
       annotation.arms.some(arm => candidate.source.slice(arm.range.start, arm.range.end) === payload))
     if (byResolution) {
@@ -957,8 +955,12 @@ export function splitTrackedHistoryEdit(
           keepsTyping(resolvedSuggestions(candidate.source, candidate.annotations, 'accept'), accepted(), text)) return widen(edit)
       continue
     }
-    if (added && candidate.diagnostics.length === previous.diagnostics.length && facts.original === original &&
-        (payload !== text || facts.revised === expectedFacts.revised)) return widen(edit)
+    // Weighing by the views, the plain typing at the split shows the Revised
+    // view the split must keep; weighing by resolution never reads it.
+    if (!added || candidate.diagnostics.length !== previous.diagnostics.length || facts.original !== original) continue
+    const expectedFacts = trackedPreviewFacts.get(preview([widen(plain)]))
+    if (expectedFacts === undefined) return undefined
+    if (payload !== text || facts.revised === expectedFacts.revised) return widen(edit)
   }
   if (!byResolution || payload !== text) return undefined
   // No split spells it: the Substitution proposes the typing ahead of its
