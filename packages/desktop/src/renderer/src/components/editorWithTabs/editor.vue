@@ -1602,10 +1602,14 @@ const reconcileCoreHistoryView = (outcome: CoreAppliedReply): MuyaPlainTextBindi
     return view
   }
   const patch = muyaMarkupViewPatch(view)
+  // The same view, as after an input that only moves the selection, replaces
+  // no root, so presenting it again only places the selection.
   const change =
-    patch !== undefined && patch.previous === previousView
-      ? { start: patch.start, previousEnd: patch.previousEnd, nextEnd: patch.nextEnd, ...(patch.items === undefined ? {} : { items: patch.items }) }
-      : undefined
+    view === previousView
+      ? { start: 0, previousEnd: 0, nextEnd: 0 }
+      : patch !== undefined && patch.previous === previousView
+        ? { start: patch.start, previousEnd: patch.previousEnd, nextEnd: patch.nextEnd, ...(patch.items === undefined ? {} : { items: patch.items }) }
+        : undefined
   if (!coreMuyaReconcilePending) coreMuyaReconcileRegion = change
   else if (view !== previousView) {
     coreMuyaReconcileRegion =
@@ -1614,7 +1618,7 @@ const reconcileCoreHistoryView = (outcome: CoreAppliedReply): MuyaPlainTextBindi
         : composeMuyaReconcileRegion(coreMuyaReconcileRegion, change)
   }
   coreMuyaReconcilePending = true
-  installCoreMarkupPresentation(muya, view)
+  if (view !== previousView) installCoreMarkupPresentation(muya, view)
   // Native input may still be waiting for Muya's animation-frame batch. Admit
   // that draft before deciding whether the acknowledged view can replace DOM.
   muya.flush()
