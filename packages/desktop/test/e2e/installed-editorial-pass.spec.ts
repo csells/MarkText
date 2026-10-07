@@ -240,7 +240,12 @@ async function menu(app: ElectronApplication, ...labels: string[]): Promise<void
     }
     const win = BrowserWindow.getAllWindows().find(win => win.webContents.getURL().includes('type=editor'))
     if (!item?.enabled || !win) throw new Error(`Unavailable menu command: ${labels.join(' → ')}`)
-    item.click(undefined, win, win.webContents)
+    // Edit's Cut, Copy and Paste are native roles (upstream #5582), which act on
+    // the focused window's contents; the hidden test window is never focused,
+    // so perform the role on the editor window as Electron does for its menu.
+    const role = item.role?.toLowerCase()
+    if (role === 'cut' || role === 'copy' || role === 'paste') win.webContents[role]()
+    else item.click(undefined, win, win.webContents)
   }, labels)
 }
 
@@ -1003,6 +1008,9 @@ test.describe('installed editorial pass', () => {
   // 7. Ordinary Markdown in the second tab; tab isolation
 
   test('7a. ordinary Markdown edits save as upstream does, isolated from the annotated tab', async() => {
+    // A fresh session, so the annotated tab's ⌘Z and ⇧⌘Z below meet no history
+    // that earlier steps left there.
+    await retireSession()
     const s = await session()
     const { app, page } = s
     await selectTab(page, s.ordinary)
