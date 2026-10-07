@@ -16,13 +16,14 @@ import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit, withinHistory } from './trackedHistoryEditing.js'
-import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedStructure, type TrackedStructure, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
+import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, trackedStructure, type TrackedStructure, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import {
   admitProfile1PlainParagraphRegion,
   createProfile1DocumentReuseCache,
   parseProfile1Document,
+  profile1CriticMarkupRootCount,
   type PreviousIntrinsicPass,
   type Profile1DocumentProducts,
   type Profile1DocumentReuseCache
@@ -8678,6 +8679,22 @@ function createDocumentCoreWithExecutionBudget(
   trackedMarkdownSignatures.set(core, markdown => {
     const products = isolatedProducts(markdown, markdownOptions())
     return projectionSignature(markdownAstOf(products.revised).root)
+  })
+  // A window core previews a candidate by parsing its whole document, whose
+  // annotations the intrinsic pass settles before any view is projected:
+  // resolving one suggestion of a candidate is weighed by that pass alone.
+  trackedRootCounts.set(core, (previous, edits) => {
+    if (!windowCores.has(core) || previous.sourceLength > WINDOW_WHOLE_PREVIEW_UNITS || plansFromGeneralCompile(core)) return undefined
+    const state = currentStateOf(previous)
+    const stableEdits = stableSourceEdits(edits)
+    preflightSourceEdits(state.source.length, stableEdits)
+    const cached = previewedCandidate(previous, stableEdits)
+    if (cached !== undefined) return cached.products.criticMarkup.rootCount
+    const source = state.source.applyExact(stableEdits, 'Authoring candidate').materialize('fallback')
+    const reusable = !editsMayRepairMath(state.source, { length: source.length, slice: (start: number, end: number) => source.slice(start, end) }, stableEdits, state.markdownOptions)
+    const retained = reusable ? state.productStore.withRetained(products => products.retainedIntrinsic) : undefined
+    return profile1CriticMarkupRootCount(source, executionBudget, state.markdownOptions, physicalRecorder,
+      retained === undefined ? undefined : { retained, edits: stableEdits })
   })
   trackedAnnotatedViews.set(core, source => {
     inspection.documentParses += 1
