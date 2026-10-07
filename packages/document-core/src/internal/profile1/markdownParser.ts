@@ -8,6 +8,7 @@ import type {
   MarkdownNode,
   MarkdownNodeKind,
   MarkdownPhysicalLine,
+  NodeId,
   SourceOffset,
   ViewRange
 } from '../../revision.js'
@@ -475,7 +476,21 @@ let activeMarkdownExecution: ParseExecutionTracker | undefined
 let activeMarkdownLines: readonly PlainMarkdownLine[] = Object.freeze([])
 let activeMarkdownLineCursor = 0
 
+// A frozen record's key is spelled once.
+const stableAttributesKeys = new WeakMap<object, string>()
+
 function stableAttributesKey(
+  attributes: Readonly<Record<string, string | number | boolean>>
+): string {
+  const frozen = Object.isFrozen(attributes)
+  const known = frozen ? stableAttributesKeys.get(attributes) : undefined
+  if (known !== undefined) return known
+  const key = spelledAttributesKey(attributes)
+  if (frozen) stableAttributesKeys.set(attributes, key)
+  return key
+}
+
+function spelledAttributesKey(
   attributes: Readonly<Record<string, string | number | boolean>>
 ): string {
   return Object.keys(attributes)
@@ -566,8 +581,21 @@ function createNode(
       identity.registry.emitReference(nodeId, definitionIdentity.range.start)
     }
   }
+  return internedMarkdownNode(identity.registry, nodeId, kind, start, end, stableChildren, stableAttributes)
+}
+
+/** The one node object of `nodeId` at a view range. */
+function internedMarkdownNode(
+  registry: Profile1SyntaxIdentityRegistry,
+  nodeId: NodeId,
+  kind: MarkdownNodeKind,
+  start: number,
+  end: number,
+  stableChildren: readonly MarkdownNode[],
+  stableAttributes: Readonly<Record<string, string | number | boolean>>
+): MarkdownNode {
   const objectKey = `${String(start)}:${String(end)}`
-  return identity.registry.internObject(nodeId, objectKey, (): MarkdownNode => {
+  return registry.internObject(nodeId, objectKey, (): MarkdownNode => {
     const childAt = Object.freeze((ordinal: number): MarkdownNode => {
       if (
         !Number.isInteger(ordinal) ||
@@ -5144,82 +5172,13 @@ function fragmentSourceCanFit(source: string): boolean {
 }
 
 function retainedValueBytes(value: unknown, seen: Set<object>): number {
-  type RetainedValueTask =
-    | Readonly<{ kind: 'value'; value: unknown }>
-    | Readonly<{
-      kind: 'array'
-      value: readonly unknown[]
-      index: number
-    }>
-    | Readonly<{
-      kind: 'map'
-      iterator: MapIterator<readonly [unknown, unknown]>
-    }>
-    | Readonly<{
-      kind: 'set'
-      iterator: SetIterator<unknown>
-    }>
-    | Readonly<{
-      kind: 'object'
-      entries: readonly (readonly [string, unknown])[]
-      index: number
-    }>
-
+  // Each object is charged once, wherever it is reached, and each string or
+  // scalar each time it is reached, so the sum does not depend on the order
+  // in which values are read: one stack of values reads them all.
   let bytes = 0
-  const pending: RetainedValueTask[] = [{ kind: 'value', value }]
+  const pending: unknown[] = [value]
   while (pending.length > 0) {
-    const task = pending.pop()
-    if (task === undefined) break
-
-    if (task.kind === 'array') {
-      const entry = task.value[task.index]
-      if (task.index + 1 < task.value.length) {
-        pending.push({
-          kind: 'array',
-          value: task.value,
-          index: task.index + 1
-        })
-      }
-      // Array.prototype.reduce skipped sparse holes in the former recursive
-      // implementation; retain the same accounting semantics.
-      if (task.index in task.value) {
-        pending.push({ kind: 'value', value: entry })
-      }
-      continue
-    }
-    if (task.kind === 'map') {
-      const next = task.iterator.next()
-      if (!next.done) {
-        pending.push(task)
-        pending.push({ kind: 'value', value: next.value[1] })
-        pending.push({ kind: 'value', value: next.value[0] })
-      }
-      continue
-    }
-    if (task.kind === 'set') {
-      const next = task.iterator.next()
-      if (!next.done) {
-        pending.push(task)
-        pending.push({ kind: 'value', value: next.value })
-      }
-      continue
-    }
-    if (task.kind === 'object') {
-      const entry = task.entries[task.index]
-      if (entry === undefined) continue
-      bytes += retainedStringBytes(entry[0])
-      if (task.index + 1 < task.entries.length) {
-        pending.push({
-          kind: 'object',
-          entries: task.entries,
-          index: task.index + 1
-        })
-      }
-      pending.push({ kind: 'value', value: entry[1] })
-      continue
-    }
-
-    const current = task.value
+    const current = pending.pop()
     if (typeof current === 'string') {
       bytes += retainedStringBytes(current)
       continue
@@ -5235,32 +5194,30 @@ function retainedValueBytes(value: unknown, seen: Set<object>): number {
     if (Array.isArray(current)) {
       bytes += RETAINED_OBJECT_HEADER_BYTES +
         current.length * RETAINED_REFERENCE_BYTES
-      if (current.length > 0) {
-        pending.push({ kind: 'array', value: current, index: 0 })
+      // A sparse hole is not read, as Array.prototype.reduce skips it.
+      for (let index = 0; index < current.length; index += 1) {
+        if (index in current) pending.push(current[index])
       }
       continue
     }
     if (current instanceof Map) {
       bytes += RETAINED_OBJECT_HEADER_BYTES +
         current.size * 2 * RETAINED_REFERENCE_BYTES
-      if (current.size > 0) {
-        pending.push({ kind: 'map', iterator: current.entries() })
-      }
+      for (const [key, entry] of current) pending.push(key, entry)
       continue
     }
     if (current instanceof Set) {
       bytes += RETAINED_OBJECT_HEADER_BYTES +
         current.size * RETAINED_REFERENCE_BYTES
-      if (current.size > 0) {
-        pending.push({ kind: 'set', iterator: current.values() })
-      }
+      for (const entry of current) pending.push(entry)
       continue
     }
-    const entries = Object.entries(current)
+    const keys = Object.keys(current)
     bytes += RETAINED_OBJECT_HEADER_BYTES +
-      entries.length * RETAINED_REFERENCE_BYTES
-    if (entries.length > 0) {
-      pending.push({ kind: 'object', entries, index: 0 })
+      keys.length * RETAINED_REFERENCE_BYTES
+    for (const key of keys) {
+      bytes += retainedStringBytes(key)
+      pending.push((current as Record<string, unknown>)[key])
     }
   }
   return bytes
@@ -5361,6 +5318,9 @@ function shiftedMarkdownAttributes(
   attributes: Readonly<Record<string, string | number | boolean>>,
   offset: number
 ): Readonly<Record<string, string | number | boolean>> {
+  // A frozen record no shift moves serves as it stands.
+  if (Object.isFrozen(attributes) && (offset === 0 || !Object.keys(attributes).some(key =>
+    isPositionalMarkdownAttribute(key) && typeof attributes[key] === 'number'))) return attributes
   return Object.freeze(Object.fromEntries(
     Object.entries(attributes).map(([key, value]) => [
       key,
@@ -5471,54 +5431,6 @@ function markdownAstNodeFromTemplate(
   }
   if (root === undefined) {
     throw new Error('Markdown AST template root was not restored')
-  }
-  return root
-}
-
-function markdownAstNodeAtOffset(
-  node: MarkdownNode,
-  offset: number
-): MarkdownNode {
-  interface OffsetFrame {
-    readonly node: MarkdownNode
-    readonly attributes: Readonly<Record<string, string | number | boolean>>
-    readonly children: MarkdownNode[]
-    nextChild: number
-  }
-  const frame = (current: MarkdownNode): OffsetFrame => ({
-    node: current,
-    attributes: shiftedMarkdownAttributes(current.attributes, offset),
-    children: [],
-    nextChild: 0
-  })
-  const pending: OffsetFrame[] = [frame(node)]
-  let root: MarkdownNode | undefined
-  while (pending.length > 0) {
-    const current = pending.at(-1)
-    if (current === undefined) break
-    if (current.nextChild < current.node.childCount) {
-      const child = current.node.childAt(current.nextChild)
-      current.nextChild += 1
-      pending.push(frame(child))
-      continue
-    }
-    const shifted = createNode(
-      current.node.kind,
-      current.node.range.start + offset,
-      current.node.range.end + offset,
-      current.children,
-      current.attributes
-    )
-    pending.pop()
-    const parent = pending.at(-1)
-    if (parent === undefined) {
-      root = shifted
-    } else {
-      parent.children.push(shifted)
-    }
-  }
-  if (root === undefined) {
-    throw new Error('Offset Markdown AST root was not materialized')
   }
   return root
 }
@@ -6130,6 +6042,10 @@ function emitMarkdownAstRegions(
   provenanceContext?: AstRegionProvenanceContext
 ): readonly MarkdownNode[] {
   const blocks: MarkdownNode[] = []
+  const identity = activeMarkdownSyntaxIdentity
+  if (identity === undefined) {
+    throw new Error('Markdown AST regions were emitted outside an identity scope')
+  }
   const cache = reuseCache === undefined
     ? undefined
     : astRegionCaches.get(reuseCache) ??
@@ -6269,14 +6185,16 @@ function emitMarkdownAstRegions(
       )
     ) {
       for (const node of localNodes) {
-        blocks.push(markdownAstNodeAtOffset(node, region.start))
+        blocks.push(movedMarkdownNode(identity.registry, node, region.start))
       }
       continue
     }
     const templates = Object.freeze(localNodes.map((node) =>
       markdownAstNodeTemplate(node, 0, true, physicalRecorder)))
-    for (const template of templates) {
-      blocks.push(markdownAstNodeFromTemplate(template, region.start))
+    // The region's nodes were read where each range reads as it does here
+    // moved by the region's start (see `emitMarkdownAstRegion`).
+    for (const node of localNodes) {
+      blocks.push(movedMarkdownNode(identity.registry, node, region.start))
     }
     if (provenanceContext !== undefined) {
       provenanceContext.next.set(
@@ -7214,18 +7132,67 @@ function emitIntrinsicForkRegionNodes(
   }, execution)
 }
 
+/**
+ * A region's nodes, moved into the lane it was sliced from (see
+ * `movedMarkdownNode`): a region lane shares that lane's registry and reads
+ * each source range as that lane reads it moved by the region's start.
+ */
 function materializeIntrinsicForkRegionNodes(
   selectionLane: MappedMarkdownLane,
   localNodes: readonly MarkdownNode[],
   selectionOffset: number
 ): readonly MarkdownNode[] {
-  return withMappedMarkdownIdentity(selectionLane, () =>
-    Object.freeze(localNodes.map((node) =>
-      markdownAstNodeFromTemplate(
-        markdownAstNodeTemplate(node, 0),
-        selectionOffset
-      )
-    )))
+  const registry = selectionLane.syntaxIdentity?.registry
+  if (registry === undefined) {
+    throw new Error('Intrinsic Markdown fork region has no syntax identity')
+  }
+  return Object.freeze(localNodes.map(node => movedMarkdownNode(registry, node, selectionOffset)))
+}
+
+/**
+ * `node`, read where its registry reads each source range as it was read for
+ * `node` moved by `offset`. A node's key spells its source identity, its
+ * attributes other than positions, its extent relative to itself and its
+ * children's identities, so each moved node keeps its identity: only its
+ * object is new, as creating it again under that key would make it.
+ */
+function movedMarkdownNode(
+  registry: Profile1SyntaxIdentityRegistry,
+  root: MarkdownNode,
+  offset: number
+): MarkdownNode {
+  interface MoveFrame {
+    readonly node: MarkdownNode
+    readonly children: MarkdownNode[]
+    nextChild: number
+  }
+  const pending: MoveFrame[] = [{ node: root, children: [], nextChild: 0 }]
+  let moved: MarkdownNode | undefined
+  while (pending.length > 0) {
+    const current = pending.at(-1)
+    if (current === undefined) break
+    if (current.nextChild < current.node.childCount) {
+      const child = current.node.childAt(current.nextChild)
+      current.nextChild += 1
+      pending.push({ node: child, children: [], nextChild: 0 })
+      continue
+    }
+    const node = internedMarkdownNode(
+      registry,
+      current.node.nodeId,
+      current.node.kind,
+      current.node.range.start + offset,
+      current.node.range.end + offset,
+      Object.freeze(current.children),
+      shiftedMarkdownAttributes(current.node.attributes, offset)
+    )
+    pending.pop()
+    const parent = pending.at(-1)
+    if (parent === undefined) moved = node
+    else parent.children.push(node)
+  }
+  if (moved === undefined) throw new Error('Markdown node was not moved')
+  return moved
 }
 
 /**
@@ -7754,13 +7721,13 @@ export function intrinsicForkSafeSourcePoints(
  * selecting it, and a run of blank lines may not start a region.
  */
 function opensRootSuggestion(
-  lane: IntrinsicProfile1ForkLane,
+  branches: ReadonlyMap<number, IntrinsicProfile1ForkLane['items'][number]>,
   next: IntrinsicProfile1LaneTransition | undefined,
   lineStart: number
 ): boolean {
   if (next?.operation !== 'prepare-for-marker' || next.entryCheckpoint.lineStart !== lineStart ||
       next.entryCheckpoint.linePath !== undefined) return false
-  const branch = lane.items.find(item => item.kind !== 'source' && item.node.range.start === lineStart)
+  const branch = branches.get(lineStart)
   return branch !== undefined && branch.kind !== 'source' && branch.arms.every(arm =>
     !arm.transitions.some(transition => transition.emittedFacts.lines.some(line =>
       line.start <= arm.range.start && arm.range.start < line.end &&
@@ -7807,6 +7774,11 @@ function forkLaneSafeSourcePoints(
     }
     return low > 0 && (literalMaxEndUpTo[low - 1] ?? start) > start
   }
+  // The first suggestion starting at each source point, read once.
+  const branches = new Map<number, IntrinsicProfile1ForkLane['items'][number]>()
+  for (const item of lane.items) {
+    if (item.kind !== 'source' && !branches.has(item.node.range.start)) branches.set(item.node.range.start, item)
+  }
   for (const [transitionIndex, transition] of lane.transitions.entries()) {
     const sourcePoint = transition.exitCheckpoint.lineStart
     if (
@@ -7836,7 +7808,7 @@ function forkLaneSafeSourcePoints(
         previous?.end === blank.start &&
         previous.containers.length === 0 &&
         !literalOverlaps(blank.start, blank.end) &&
-        opensRootSuggestion(lane, lane.transitions[transitionIndex + 1], sourcePoint)
+        opensRootSuggestion(branches, lane.transitions[transitionIndex + 1], sourcePoint)
       ) {
         // A root suggestion opening a block after a blank line leaves the
         // root lane no line of its own there: its lines are its arms'. The
