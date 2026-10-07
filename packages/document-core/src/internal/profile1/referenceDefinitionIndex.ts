@@ -255,7 +255,8 @@ export function createStagedProfile1ReferenceDefinitionLookup(
   delimiterCandidates: readonly Profile1ReferenceDelimiterCandidate[],
   physicalStarts: readonly number[],
   hasDefinitionCandidate: boolean,
-  presetScopeRegions?: readonly Profile1ReferenceScopeRegion[]
+  presetScopeRegions?: readonly Profile1ReferenceScopeRegion[],
+  footnotesEnabled: boolean = true
 ): Profile1CanonicalReferenceDefinitionLookup {
   if (!hasDefinitionCandidate) {
     return Object.freeze({
@@ -299,7 +300,8 @@ export function createStagedProfile1ReferenceDefinitionLookup(
         const staged = stagedMarkdownReferenceDefinitionAt(
           source,
           start,
-          innermostLaneEnd(standing.regions, start, source.length)
+          innermostLaneEnd(standing.regions, start, source.length),
+          footnotesEnabled
         )
         if (staged !== undefined) {
           definitions.push(Object.freeze({
@@ -469,13 +471,16 @@ export function createProfile1ReferenceDefinitionIndex(
   const rejectedScopeOwners = new Set<number>()
   let size = 0
   for (const literal of literals) {
-    if (literal.kind !== 'definition') {
+    // A footnote definition's label names no link.
+    if (literal.kind !== 'definition' || literal.blockKind === 'footnote-definition') {
       continue
     }
+    // A reference definition's first bracket opens its label, even `[^`.
     const normalizedLabel = markdownReferenceDefinitionLabel(
       source,
       literal.start,
-      literal.end
+      literal.end,
+      false
     )
     if (normalizedLabel === undefined) {
       continue

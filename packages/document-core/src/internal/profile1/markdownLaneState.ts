@@ -1774,12 +1774,14 @@ export function normalizeMarkdownReferenceLabel(
 export function markdownReferenceDefinitionLabel(
   source: string,
   start: number,
-  end: number
+  end: number,
+  /** Whether a `[^` opens a footnote's label rather than a reference's. */
+  footnotesEnabled: boolean = true
 ): string | undefined {
   for (let opener = start; opener < end; opener += 1) {
     if (
       source.charCodeAt(opener) !== 91 ||
-      source.charCodeAt(opener + 1) === 94 ||
+      (footnotesEnabled && source.charCodeAt(opener + 1) === 94) ||
       !hasEvenBackslashRunBefore(source, opener)
     ) {
       continue
@@ -1823,7 +1825,8 @@ export interface StagedMarkdownReferenceDefinition {
 export function stagedMarkdownReferenceDefinitionAt(
   source: string,
   start: number,
-  laneEnd: number
+  laneEnd: number,
+  footnotesEnabled: boolean = true
 ): StagedMarkdownReferenceDefinition | undefined {
   if (
     !Number.isInteger(start) ||
@@ -1879,11 +1882,8 @@ export function stagedMarkdownReferenceDefinitionAt(
 
   const firstBounds = lineBoundsAt(start)
   const first = lineStateAt(start, firstBounds.contentEnd, false)
-  const opening = definitionOpening(first.text, first.state)
-  if (
-    opening === undefined ||
-    first.text.charCodeAt(first.state.contentOffset + 1) === 94
-  ) {
+  const opening = definitionOpening(first.text, first.state, false, true, footnotesEnabled)
+  if (opening === undefined || opening.phase === 'footnote') {
     return undefined
   }
   let definition: MarkdownDefinitionState = Object.freeze({
@@ -1927,7 +1927,8 @@ export function stagedMarkdownReferenceDefinitionAt(
   const normalizedLabel = markdownReferenceDefinitionLabel(
     source,
     start,
-    definition.lastOwnedEnd
+    definition.lastOwnedEnd,
+    footnotesEnabled
   )
   return normalizedLabel === undefined
     ? undefined
@@ -1969,13 +1970,15 @@ function referenceLabelSuffix(
 
 function definitionColonInLine(
   lineText: string,
-  state: ContainerLineState
+  state: ContainerLineState,
+  footnotesEnabled: boolean
 ): number | 'label-open' | undefined {
   const start = state.contentOffset
   if (state.indentation > 3 || lineText.charCodeAt(start) !== 91) {
     return undefined
   }
-  const footnote = lineText.charCodeAt(start + 1) === 94
+  // Without footnotes, `[^label]:` is an ordinary reference definition.
+  const footnote = footnotesEnabled && lineText.charCodeAt(start + 1) === 94
   const labelStart = footnote ? start + 2 : start + 1
   let hasLabelContent = false
   let sawCloser = false
@@ -2123,7 +2126,7 @@ function definitionOpening(
     // A link reference definition cannot interrupt a paragraph.
     return undefined
   }
-  const colon = definitionColonInLine(lineText, state)
+  const colon = definitionColonInLine(lineText, state, footnotesEnabled)
   if (colon === undefined) {
     return undefined
   }
@@ -2134,11 +2137,8 @@ function definitionOpening(
       ? Object.freeze({ phase: 'reference-label' as const })
       : undefined
   }
-  const isFootnote = lineText.charCodeAt(state.contentOffset + 1) === 94
-  if (isFootnote) {
-    return footnotesEnabled
-      ? Object.freeze({ phase: 'footnote' as const, footnoteBodyOffset: colon + 1 })
-      : undefined
+  if (footnotesEnabled && lineText.charCodeAt(state.contentOffset + 1) === 94) {
+    return Object.freeze({ phase: 'footnote' as const, footnoteBodyOffset: colon + 1 })
   }
   let tailStart = colon + 1
   while (tailStart < lineText.length && isSpaceOrTab(lineText.charCodeAt(tailStart))) {
@@ -5108,7 +5108,8 @@ export function createMarkdownLaneState(
       stagedMarkdownReferenceDefinitionAt(
         source,
         definition.openStart,
-        markerOffset
+        markerOffset,
+        footnotesEnabled
       ) !== undefined
     ) {
       step = Object.freeze({ phase: 'reference' as const })

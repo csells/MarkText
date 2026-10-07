@@ -94,9 +94,15 @@ describe('pandoc export payload (#5379)', () => {
 
     store.EXPORT_PANDOC('docx')
 
+    // Without footnotes, `[^1]: n` is a reference definition and `[^1]` a
+    // link to it, as in CommonMark; it is not a Note.
     expect(sentPayload(sendSpy)?.document.blocks[0]).toEqual({
       t: 'Para',
-      c: [str('x'), { t: 'Superscript', c: [str('2')] }, str('[^1]')]
+      c: [
+        str('x'),
+        { t: 'Superscript', c: [str('2')] },
+        { t: 'Link', c: [['', [], []], [str('^1')], ['n', '']] }
+      ]
     })
   })
 

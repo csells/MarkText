@@ -136,7 +136,8 @@ export function createIntrinsicProfile1SourceProgression(
   suppressedMarkerRanges?: readonly Readonly<{
     start: number
     end: number
-  }>[]
+  }>[],
+  footnotesEnabled: boolean = true
 ): IntrinsicProfile1SourceProgression {
   // Depth degradation (G18): a re-parse suppresses the marker candidates of
   // annotations past the accepted-depth limit, so their bytes flow through
@@ -231,7 +232,9 @@ export function createIntrinsicProfile1SourceProgression(
       source,
       Object.freeze(referenceDelimiterCandidates),
       Object.freeze(physicalLineStarts.filter((start) => start < source.length)),
-      hasDefinitionCandidate
+      hasDefinitionCandidate,
+      undefined,
+      footnotesEnabled
     )
 
   let cursor = 0
