@@ -240,7 +240,12 @@ const matrixGestures: MatrixGesture[] = [
   {
     name: 'drag within a heading',
     selects: 'Heading',
-    async select(page) { await dragText(page, await textPoint(page, 'Heading one', 'start'), await textPoint(page, 'Heading one', 7)) }
+    async select(page) {
+      // As upstream, the heading's text starts at the column's edge, which
+      // its hover button overlaps by a pixel; the drag starts on the text.
+      const start = await textPoint(page, 'Heading one', 'start')
+      await dragText(page, { x: start.x + 2, y: start.y }, await textPoint(page, 'Heading one', 7))
+    }
   },
   {
     name: 'drag within a list item',

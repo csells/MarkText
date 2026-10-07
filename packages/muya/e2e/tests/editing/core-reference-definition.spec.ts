@@ -16,7 +16,7 @@ for (const text of ['same', 's{++am++}e{>>keep<<}']) {
             await page.keyboard.type('new');
             await page.keyboard.type('x');
             expect(await page.evaluate(() => window.coreBoundary.read())).toMatchObject({ source: { source: changed }, legacyCalls: [] });
-            expect(await page.locator('a.mu-link').evaluateAll(links => ({
+            expect(await page.locator('a.mu-reference-link').evaluateAll(links => ({
                 text: links.map(link => link.textContent).join(''),
                 hrefs: [...new Set(links.map(link => link.getAttribute('href')))],
             }))).toEqual({ text: 'samesame', hrefs: ['/newx'] });
