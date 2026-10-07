@@ -5712,7 +5712,9 @@ function createDocumentCoreWithExecutionBudget(
       : undefined
   }
 
-  const previewSourceEdits = (previous: DocumentRevision, edits: readonly DocumentSourceEdit[]): DocumentRevision => {
+  // `readers`: the candidate is one of a spelling search's, read from its
+  // reader views where it is parsed whole (see `withSourceEditReaderPreview`).
+  const previewSourceEdits = (previous: DocumentRevision, edits: readonly DocumentSourceEdit[], readers = false): DocumentRevision => {
     const regional = windowCores.has(core) && previous.sourceLength <= WINDOW_WHOLE_PREVIEW_UNITS
       ? undefined
       : regionalPreview(previous, edits)
@@ -5780,7 +5782,7 @@ function createDocumentCoreWithExecutionBudget(
       }))
       return preview
     }
-    return windowCores.has(core) && !plansFromGeneralCompile(core)
+    return (windowCores.has(core) || readers) && !plansFromDocumentParse(core)
       ? withSourceEditReaderPreview(previous, edits, wholePreview)
       : withSourceEditPreview(previous, edits, (products, source) => wholePreview(products, source, () => products))
   }
@@ -7573,6 +7575,8 @@ function createDocumentCoreWithExecutionBudget(
     edit: DocumentSourceEdit,
     preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision
   ): DocumentSourceEdit | undefined => {
+    // The general compile's spelling search reads its candidates' reader views.
+    const searchPreview = (candidate: readonly DocumentSourceEdit[]) => previewSourceEdits(previous, candidate, true)
     const pending = createTrackedPendingArmEdits(core, previous, [edit])
     if (pending !== undefined && pending.length > 0) {
       const first = pending[0]
@@ -7604,7 +7608,7 @@ function createDocumentCoreWithExecutionBudget(
       if (windowed !== undefined) {
         return planned === undefined ? undefined : Object.freeze({ start: planned.start, end: planned.end, insert: planned.insert })
       }
-      return generalTrackedEdit(core, previous, edit, preview)
+      return generalTrackedEdit(core, previous, edit, searchPreview)
     }
     const regional = (typedInHistory(previous, edit) ? undefined : regionalPayloadEdit(state, edit, true)) ??
       regionalTrackedLiteralBlock(state, edit) ??
@@ -7633,7 +7637,7 @@ function createDocumentCoreWithExecutionBudget(
         ? undefined
         : Object.freeze({ start: planned.start, end: planned.end, insert: planned.insert })
     }
-    return generalTrackedEdit(core, previous, edit, preview)
+    return generalTrackedEdit(core, previous, edit, searchPreview)
   }
 
   /**
