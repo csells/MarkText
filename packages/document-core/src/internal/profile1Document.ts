@@ -71,7 +71,8 @@ import {
 } from './profile1/sourceTape.js'
 import {
   createProfile1SyntaxGraphCore,
-  finalizeProfile1SyntaxGraph
+  finalizeProfile1SyntaxGraph,
+  validateMappedProjection
 } from './profile1/syntaxGraph.js'
 import type {
   Profile1SyntaxGraph,
@@ -5095,7 +5096,7 @@ export function parseProfile1Document(
 ): Profile1DocumentResult {
   const execution = createParseExecutionTracker(executionControl)
   try {
-    return parseProfile1DocumentWithExecution(
+    const result = parseProfile1DocumentWithExecution(
       source,
       executionBudget,
       traceRecorder,
@@ -5108,10 +5109,53 @@ export function parseProfile1Document(
       endsAtDocumentEnd,
       documentHasAnnotations
     )
+    if (result.kind === 'reader') throw new Error('A whole parse read only its reader views')
+    return result
   } catch (error) {
     if (!(error instanceof Profile1LogicalNodeLimitError)) {
       throw error
     }
+    execution.finish()
+    return Object.freeze({
+      kind: 'source-only',
+      fatalDiagnostic: createResourceDiagnostic(
+        'CM_RESOURCE_LOGICAL_NODES_EXCEEDED',
+        sourceRange(error.range.start, error.range.start),
+        error.limit,
+        error.observed
+      )
+    })
+  }
+}
+
+/**
+ * The reader views of a parse: its annotations, diagnostics and Original and
+ * Revised projections, read exactly as its whole parse reads them, before the
+ * editing projection and the comment displays are prepared.
+ */
+export interface Profile1ReaderViews {
+  readonly kind: 'reader'
+  readonly criticMarkup: Profile1DocumentProducts['criticMarkup']
+  readonly diagnostics: Profile1DocumentProducts['diagnostics']
+  readonly original: Profile1DocumentProducts['original']
+  readonly revised: Profile1DocumentProducts['revised']
+}
+
+export function parseProfile1ReaderViews(
+  source: string,
+  executionBudget: ExecutionBudgetId,
+  markdownOptions: MarkdownOptionsV1 = DEFAULT_MARKDOWN_OPTIONS,
+  physicalRecorder: Profile1PhysicalTraversalRecorderV1 = createPhysicalTraversalRecorderV1(),
+  previousPass?: PreviousIntrinsicPass
+): Profile1ReaderViews | Profile1SourceOnlyProducts {
+  const execution = createParseExecutionTracker(undefined)
+  try {
+    const result = parseProfile1DocumentWithExecution(source, executionBudget, undefined, markdownOptions, false,
+      execution, createProfile1DocumentReuseCache(), physicalRecorder, previousPass, true, false, true)
+    if (result.kind === 'complete') throw new Error('Reader views parsed a whole document')
+    return result
+  } catch (error) {
+    if (!(error instanceof Profile1LogicalNodeLimitError)) throw error
     execution.finish()
     return Object.freeze({
       kind: 'source-only',
@@ -5313,9 +5357,10 @@ function parseProfile1DocumentWithExecution(
   physicalRecorder: Profile1PhysicalTraversalRecorderV1,
   previousPass: PreviousIntrinsicPass | undefined,
   endsAtDocumentEnd: boolean,
-  documentHasAnnotations: boolean
-): Profile1DocumentResult {
-  const finishResult = <Result extends Profile1DocumentResult>(
+  documentHasAnnotations: boolean,
+  readerOnly = false
+): Profile1DocumentResult | Profile1ReaderViews {
+  const finishResult = <Result extends Profile1DocumentResult | Profile1ReaderViews>(
     result: Result
   ): Result => {
     execution.finish()
@@ -5434,49 +5479,59 @@ function parseProfile1DocumentWithExecution(
     criticMarkup.roots,
     EDITING_DIFFERS_FROM_ORIGINAL
   )
+  // Reader views leave the editing projection, and the comment displays
+  // emitted after it, unprepared.
   const sharedEditingPrepared =
     editingUsesRevised
       ? revisedPrepared
       : editingUsesOriginal
         ? originalPrepared
-        : prepareProjection(
-          graphCore,
-          'editing',
-          undefined,
-          markdownDepthLimit,
-          undefined,
-          undefined,
-          markdownOptions,
-          forkParser,
-          undefined,
-          documentHasAnnotations
-        )
+        : readerOnly
+          ? undefined
+          : prepareProjection(
+            graphCore,
+            'editing',
+            undefined,
+            markdownDepthLimit,
+            undefined,
+            undefined,
+            markdownOptions,
+            forkParser,
+            undefined,
+            documentHasAnnotations
+          )
   // The editing document shares recognized regions and coordinates with an
   // equivalent reader projection, but retains its own editable blank nodes.
-  const editingPrepared = sharedEditingPrepared.markdownLane.forkView === 'editing'
-    ? sharedEditingPrepared
-    : Object.freeze({
-      ...sharedEditingPrepared,
-      markdownLane: Object.freeze({ ...sharedEditingPrepared.markdownLane, forkView: 'editing' as const }),
-      // The semantic spine is what the Markup view publishes, so it needs the
-      // editable blank nodes too.
-      ...(sharedEditingPrepared.semanticMarkdownLane === undefined
-        ? {}
-        : {
-          semanticMarkdownLane: Object.freeze({
-            ...sharedEditingPrepared.semanticMarkdownLane,
-            forkView: 'editing' as const
-          })
+  const editingPrepared = sharedEditingPrepared === undefined
+    ? undefined
+    : sharedEditingPrepared.markdownLane.forkView === 'editing'
+      ? sharedEditingPrepared
+      : readerOnly
+        ? undefined
+        : Object.freeze({
+          ...sharedEditingPrepared,
+          markdownLane: Object.freeze({ ...sharedEditingPrepared.markdownLane, forkView: 'editing' as const }),
+          // The semantic spine is what the Markup view publishes, so it needs
+          // the editable blank nodes too.
+          ...(sharedEditingPrepared.semanticMarkdownLane === undefined
+            ? {}
+            : {
+              semanticMarkdownLane: Object.freeze({
+                ...sharedEditingPrepared.semanticMarkdownLane,
+                forkView: 'editing' as const
+              })
+            })
         })
-    })
-  const preparedCommentDisplays = prepareCommentDisplayProjections(
-    graphCore,
-    markdownDepthLimit,
-    traceRecorder,
-    markdownOptions,
-    forkParser,
-    physicalRecorder
-  )
+  const preparedCommentDisplays = readerOnly
+    ? []
+    : prepareCommentDisplayProjections(
+      graphCore,
+      markdownDepthLimit,
+      traceRecorder,
+      markdownOptions,
+      forkParser,
+      physicalRecorder
+    )
   const rootOriginalKey = 'root:original'
   const rootRevisedKey = hasDistinctRevised
     ? 'root:revised'
@@ -5525,7 +5580,10 @@ function parseProfile1DocumentWithExecution(
   }
   addRequest(rootOriginalKey, originalPrepared)
   addRequest(rootRevisedKey, revisedPrepared)
-  addRequest(rootEditingKey, editingPrepared)
+  if (!readerOnly) {
+    if (editingPrepared === undefined) throw new Error('The editing projection was not prepared')
+    addRequest(rootEditingKey, editingPrepared)
+  }
   for (const comment of preparedCommentDisplays) {
     addRequest(comment.key, comment.projection)
     addRequest(comment.editingKey, comment.editing)
@@ -5626,6 +5684,7 @@ function parseProfile1DocumentWithExecution(
         ? original
         : undefined
   const editing = (): Profile1ProjectedMarkdown => {
+    if (editingPrepared === undefined) throw new Error('The editing projection was not prepared')
     editingCache ??= materializePreparedProjection(
       graphCore,
       editingPrepared,
@@ -5649,6 +5708,17 @@ function parseProfile1DocumentWithExecution(
     return finishResult(Object.freeze({
       kind: 'source-only',
       fatalDiagnostic: projectedDepthDiagnostic
+    }))
+  }
+  if (readerOnly) {
+    validateMappedProjection(graphCore, original)
+    validateMappedProjection(graphCore, revised)
+    return finishResult(Object.freeze({
+      kind: 'reader',
+      criticMarkup,
+      diagnostics: createDiagnosticIndex(parsed.diagnostics),
+      original,
+      revised
     }))
   }
   const finalized = finalizeProfile1SyntaxGraph(graphCore, {

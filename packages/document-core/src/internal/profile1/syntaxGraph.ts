@@ -268,7 +268,7 @@ function validateProfile1SyntaxGraphCore(core: Profile1SyntaxGraphCore): void {
   }
 }
 
-function validateMappedProjection(
+export function validateMappedProjection(
   core: Profile1SyntaxGraphCore,
   projection: Profile1ProjectedMarkdown
 ): void {

@@ -133,6 +133,20 @@ export function plansFromGeneralCompile(core: object): boolean {
   return GENERAL_PLANNERS.has(core)
 }
 
+let readerViewChecks = false
+
+/**
+ * Package-private check for window previews: each candidate read from its
+ * reader views is parsed whole as well, and the two must agree exactly.
+ */
+export function checkReaderViews(enabled: boolean): void {
+  readerViewChecks = enabled
+}
+
+export function checksReaderViews(): boolean {
+  return readerViewChecks
+}
+
 export function inspectDocumentCore(core: object): DocumentCoreInspection {
   const reader = READERS.get(core)
   if (reader === undefined) {

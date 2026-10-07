@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseProfile1Document, profile1CriticMarkupRootCount } from '../src/internal/profile1Document.js'
+import { parseProfile1Document, parseProfile1ReaderViews, profile1CriticMarkupRootCount } from '../src/internal/profile1Document.js'
 import type { ExecutionBudgetId } from '../src/revision.js'
 
 const budget: ExecutionBudgetId = Object.freeze({
@@ -35,5 +35,27 @@ describe('the intrinsic pass counts a parse\'s root annotations', () => {
     const source = `${'>'.repeat(200)} {++deep++}\n`
     expect(parseProfile1Document(source, budget).kind).toBe('source-only')
     expect(profile1CriticMarkupRootCount(source, budget)).toBeUndefined()
+  })
+})
+
+describe('reader views read a parse as its whole parse does', () => {
+  const projection = (view: { source: string }) => view.source
+  it('in their annotations, diagnostics and Original and Revised projections', () => {
+    for (const source of sources) {
+      const whole = parseProfile1Document(source, budget)
+      const reader = parseProfile1ReaderViews(source, budget)
+      expect(whole.kind, source).toBe('complete')
+      expect(reader.kind, source).toBe('reader')
+      if (whole.kind !== 'complete' || reader.kind !== 'reader') continue
+      expect(reader.criticMarkup.rootCount, source).toBe(whole.criticMarkup.rootCount)
+      expect(reader.diagnostics.count, source).toBe(whole.diagnostics.count)
+      expect(projection(reader.original), source).toBe(projection(whole.original))
+      expect(projection(reader.revised), source).toBe(projection(whole.revised))
+    }
+  })
+
+  it('and fail where the whole parse fails', () => {
+    const source = `${'>'.repeat(200)} {++deep++}\n`
+    expect(parseProfile1ReaderViews(source, budget).kind).toBe('source-only')
   })
 })
