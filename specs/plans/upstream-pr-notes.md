@@ -49,6 +49,14 @@ The PR keeps upstream's workflows except for these deliberate changes:
   final line breaks, which always lie outside any suggestion. A suggestion
   whose arm itself ends with line breaks at the very end keeps them, so its
   Accept All may end with more than one newline until the next save.
+- Reference links re-resolve as soon as a definition changes: editing a
+  definition's destination updates every `[text][label]` that resolves to it
+  at once. Upstream MarkText refreshes those links only when their own
+  paragraphs re-render, so they show the old destination until then. Both
+  reach the same rendering; upstream's delay is staleness, not behavior to
+  copy (the same principle as the mixed-list live number).
+- With footnotes off, `[^label]: destination` is an ordinary reference
+  definition, as in CommonMark and upstream (91fa8d9f9).
 
 ## Separate PRs
 
