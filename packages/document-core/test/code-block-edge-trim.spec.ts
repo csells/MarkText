@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentInputAction, type DocumentRevision, type DocumentSourceEdit } from '../src/index.js'
+import { inspectDocumentCore } from '../src/internal/documentCoreInspection.js'
 
 // Upstream's trimUnnecessaryCodeBlockEmptyLines, edit-scoped: only the code
 // block an edit changes loses its edge empty lines, in that edit's own
@@ -127,6 +128,32 @@ describe('edit-scoped code block edge trimming', () => {
     const next = core.apply(revision, core.inputEdits(revision, action, plan, false) ?? []).revision
     expect(next.source).toBe(revision.source.replace('```\n\n\nline 0', '```\nline 0').replace('line 200', 'line 200y').replace('line 399\n\n\n```', 'line 399\n```'))
   })
+
+  it.each([false, true])('reads a long fence that is a suggestion arm\'s whole text from its arm, without the document parse (tracked %s)', (tracked) => {
+    const fence = (lead: string, trail: string) =>
+      '```js\n' + lead + Array.from({ length: 2000 }, (_, index) => `const value${index} = ${index}`).join('\n') + trail + '\n```'
+    const source = `Opening.\n\n{~~${fence('', '')}\n~>${fence('\n\n', '\n')}\n~~}\n`
+    const core = createDocumentCore()
+    let revision = core.open(source)
+    const type = (at: number) => {
+      const action = typing(at, 'x')
+      const plan = core.planInput(revision, action, { tracked })
+      revision = core.apply(revision, core.inputEdits(revision, action, plan, tracked) ?? [], { projections: ['markup'] }).revision
+    }
+    // Earlier keys leave a revision planned from windows, whose document
+    // parse is no longer retained.
+    for (let key = 0; key < 3; key++) type(revision.source.indexOf('value1000 = 1000', revision.source.indexOf('~>')))
+    const parses = inspectDocumentCore(core).documentParses
+    type(revision.source.indexOf('value1500 = 1500', revision.source.indexOf('~>')))
+    expect(inspectDocumentCore(core).documentParses).toBe(parses)
+    // Typing in the proposed arm's own text trims that arm's block, as the
+    // document's parse reads it.
+    const arm = revision.source.slice(revision.source.indexOf('~>'))
+    expect(arm.startsWith('~>```js\nconst value0 = 0')).toBe(true)
+    expect(arm).toContain('const value1999 = 1999\n```\n~~}')
+    expect(arm).toContain('const xxxvalue1000 = 1000')
+    expect(arm).toContain('const xvalue1500 = 1500')
+  }, 60_000)
 
   it.each([
     { kind: 'paste' as const, select: 'pha', markdown: 'zz', expected: '```\nalzz\n```\n\n```\n\nkeep\n\n```\n' },

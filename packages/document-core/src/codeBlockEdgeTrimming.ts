@@ -63,7 +63,10 @@ function blockEdgeTrims(core: DocumentCore, revision: DocumentRevision, edits: r
       // A window around a literal holds only the lines near the edit, its
       // fences standing for the rest; the whole block's extent comes from the
       // document. A block too long for a window without one reads the document.
-      const bounds = view.whole ? view : wholeBlockContent(core, revision, view, readers.literalBlockRange?.(edit.start))
+      // A block that is an arm's whole text spans the arm.
+      const bounds = view.whole
+        ? view
+        : wholeBlockContent(core, revision, view, readers.literalBlockRange?.(edit.start) ?? readers.armLiteralRange?.(edit.start))
       if (bounds === undefined) {
         if (readers.syntax === undefined) continue
         return blockEdgeTrims(core, revision, edits, {})
