@@ -1,6 +1,6 @@
 import { imageAltText } from '@marktext/document-core'
 import type { MarkdownAstNode, SourceRange } from '@marktext/document-core'
-import type { IInlinePresentationContext } from '@muyajs/core'
+import { htmlEscapeCharacters, type IInlinePresentationContext } from '@muyajs/core'
 import { sanitize, PREVIEW_DOMPURIFY_CONFIG, EXPORT_DOMPURIFY_CONFIG } from '../util/dompurify'
 import type { MuyaMarkupBinding, MuyaMarkupComment, MuyaMarkupDecoration } from './muyaMarkupView'
 
@@ -42,6 +42,8 @@ export const escapeHtml = (value: string): string =>
     .replace(/'/g, '&#39;')
 
 type Caret = NonNullable<IInlinePresentationContext['cursor']>
+
+const knownHtmlEscapes = new Set(Object.keys(htmlEscapeCharacters).map((name) => name.toLowerCase()))
 
 /**
  * Whether the caret's anchor or focus lies in `range`, ends included. Upstream
@@ -238,10 +240,16 @@ const syntaxSpans = (
           addNative(backslash, `<span class="${revealed(backslash) ? 'mu-gray' : 'mu-hide'} mu-remove">`)
           continue
         }
-        const shown = range !== undefined && revealed(range) ? 'mu-gray' : 'mu-hide'
+        // Upstream draws only the named entities it knows as their character;
+        // any other reference, such as `&#35;`, shows as its source text. It
+        // knows names in any case but draws only the listed spelling's
+        // character, so another case shows as nothing while hidden.
+        if (range === undefined || !knownHtmlEscapes.has(raw.toLowerCase())) continue
+        const character = htmlEscapeCharacters[raw] as string | undefined
+        const shown = revealed(range) ? 'mu-gray' : 'mu-hide'
         add(
           spelling.range,
-          `<span class="${shown} mu-html-escape" data-character="${escapeHtml(spelling.value)}"><span class="mu-html-escape-marker">`,
+          `<span class="${shown} mu-html-escape"${character === undefined ? '' : ` data-character="${escapeHtml(character)}"`}><span class="mu-html-escape-marker">`,
           '</span></span>'
         )
       }

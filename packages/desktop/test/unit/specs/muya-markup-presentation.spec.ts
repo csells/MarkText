@@ -145,10 +145,7 @@ describe('Muya Core Markup presentation', () => {
         node.textContent,
         node.getAttribute('data-character')
       ])
-    ).toEqual([
-      ['&amp;', '&'],
-      ['&#x1F600;', '😀']
-    ])
+    ).toEqual([['&amp;', '&']])
     // As upstream, a backslash escape hides only its backslash.
     expect([...host.querySelectorAll('.mu-hide.mu-remove')].map((node) => node.textContent)).toEqual([
       '\\',
@@ -526,6 +523,27 @@ describe('Muya Core Markup presentation', () => {
       expect(markers(host).filter((marker) => marker.startsWith('mu-'))).toEqual([
         'mu-gray mu-remove|**',
         'mu-gray mu-remove|**'
+      ])
+    })
+  })
+
+  describe('character references, as upstream presents them', () => {
+    const shape = (host: HTMLElement): string[] =>
+      [...host.querySelectorAll('span')].map((span) => `${span.className}|${span.textContent}`)
+
+    it('draws only the named character references upstream knows', () => {
+      const host = rendered('a &amp; &copy; &#35; &#x1F600; &AMP; b')
+      expect(host.textContent).toBe('a &amp; &copy; &#35; &#x1F600; &AMP; b')
+      expect(
+        [...host.querySelectorAll('.mu-html-escape')].map((node) => [
+          node.textContent,
+          node.getAttribute('data-character')
+        ])
+      ).toEqual([
+        ['&amp;', '&'],
+        ['&copy;', '©'],
+        // Upstream knows the name in any case but draws only `&amp;`'s character.
+        ['&AMP;', null]
       ])
     })
   })
