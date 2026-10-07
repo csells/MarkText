@@ -4,8 +4,9 @@ import { bootBoundMuya } from '../helpers/boundMuyaDocument'
 
 const displayedText = (node: Node): string => {
   if (node instanceof Element && node.hasAttribute('data-character')) { return node.getAttribute('data-character')! }
-  // The payload, without the backslash escapes' markers.
-  if (node instanceof Element && node.matches('.mu-hide, .mu-gray')) return ''
+  // What shows: hidden syntax markers take no space, and the escape the
+  // caret is on shows its backslash in gray, as upstream.
+  if (node instanceof Element && node.classList.contains('mu-hide')) return ''
   return node.nodeType === Node.TEXT_NODE
     ? (node.textContent ?? '')
     : [...node.childNodes].map(displayedText).join('')
@@ -32,7 +33,7 @@ it.each([
       const input = app.muya.editor.selection.getSelection()!.anchor.block
       expect(input.blockName).toBe('paragraph.content')
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: prefix + escaped + '\n' })
-      expect(displayedText(input.domNode!)).toBe(body)
+      expect(displayedText(input.domNode!)).toBe(`\\${body}`)
       expect(app.muya.getSelection()).toMatchObject({ anchor: { offset: 0 }, focus: { offset: 0 } })
       input.domNode!.dispatchEvent(
         new InputEvent('beforeinput', {
@@ -44,8 +45,9 @@ it.each([
       )
       const typed = prefix + 'x' + escaped + '\n'
       expect(app.binding.sourceAtBarrier()).toMatchObject({ source: typed })
+      // The caret after the typed character is on the escape's backslash.
       expect(displayedText(app.muya.editor.selection.getSelection()!.anchor.block.domNode!)).toBe(
-        'x' + body
+        'x\\' + body
       )
       expect(app.legacyChanges).toEqual([])
       await app.adapter.history('undo', app.reconcile)
