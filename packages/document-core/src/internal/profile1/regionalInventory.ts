@@ -3743,14 +3743,15 @@ function unpairedRunsOf(products: Profile1DocumentProducts, window: string): Sou
 
 /**
  * Whether the dollar runs a window's parse pairs with no other read so in
- * the document too, where text follows the window. A `$` run, or a `$$`
- * run continuing a paragraph, pairs only within its paragraph, which the
- * window holds whole. A `$$` alone on its line opens display math up to the
- * first `$$` after it, wherever that is: a `$$` after it in the window, and
- * outside every suggestion so that it also bounds a search kept to the
- * suggestion-free text, decides it as in the document; without one, no
- * `$$` may follow the window. Runs before the window are the caller's to
- * keep from reaching into it. Backtick runs are not bounded so.
+ * the document too, where text follows the window. The intrinsic pass pairs
+ * a run with the first `$$` (or `$`) after it, wherever that is, but takes
+ * it only within the run's paragraph, which the window holds whole, unless
+ * the run opens display math (see `opensDisplayMath`). A display opener is
+ * decided as in the document by a `$$` after it in the window outside every
+ * suggestion, which also bounds a search kept to the text outside
+ * suggestions; without one, no `$$` may follow the window. Runs before the
+ * window are the caller's to keep from reaching into it. Backtick runs are
+ * not bounded so.
  */
 function unpairedRunsStayInWindow(
   products: Profile1DocumentProducts,
@@ -3771,16 +3772,21 @@ function unpairedRunsStayInWindow(
 }
 
 /**
- * Whether the line holding offset `at` of `text` may read as a `$$` line
- * opening display math: what is left of it without marker spellings and
- * container prefixes is dollars alone.
+ * Whether the dollar run at offset `at` of `text` may open display math,
+ * which takes the first `$$` after it however far: the intrinsic pass reads
+ * a run so only where its raw source line, past its block-quote and list
+ * markers, is `$$` alone (`inlineLiteralCloserInParagraph`). A marker on the
+ * line, as `{++$$`, `$$~>$$` or `$$~~}`, leaves it pairing within its
+ * paragraph; the views read such a line as `$$` alone only in a suggestion's
+ * fork region, which ends where the intrinsic pass ends the suggestion's
+ * blocks. Stripping any prefix those markers could form errs toward
+ * reading a run as an opener.
  */
 function opensDisplayMath(text: string, at: number): boolean {
   const lineStart = Math.max(text.lastIndexOf('\n', at - 1), text.lastIndexOf('\r', at - 1)) + 1
   const lineEnd = text.slice(at).search(/[\r\n]/u)
   const line = text.slice(lineStart, lineEnd === -1 ? text.length : at + lineEnd)
-    .replace(/\{\+\+|\{--|\{~~|\{==|\{>>|~>|\+\+\}|--\}|~~\}|==\}|<<\}/gu, '')
-  return /^(?:[ \t]*(?:>|[-+*](?=[ \t]|$)|\d{1,9}[.)](?=[ \t]|$)))*[ \t]*\$+[ \t]*$/u.test(line)
+  return line.replace(/^\uFEFF?(?:[ \t]*(?:>|[-+*]|\d{1,9}[.)]))*/u, '').trim() === '$$'
 }
 
 function viewBlocksAgree(products: Profile1DocumentProducts): boolean {
@@ -4228,7 +4234,6 @@ function evaluateBlockWindow(
   let readBefore = false
   let wholeLiteralBefore = false
   let wholeLiteralAfter = false
-  let dollarsReached = false
   for (let widening = 0; ; widening += 1) {
     const before = edited.source > 0 ? windowEdge(inventory, edited.source - 1, 'start') : edited
     const indentedAfter = indentedLineAt(previousSource, edited.source) || indentedLineAt(nextSource, edited.source)
@@ -4321,17 +4326,25 @@ function evaluateBlockWindow(
     // The document parse reports a window's resource failure authoritatively.
     if (result.kind !== 'complete' || !viewBlocksAgree(result)) return undefined
     const windowEnd = last.source + delta
-    if (!unpairedRunsStayInWindow(result, nextWindow, () => nextSource.slice(windowEnd, nextSource.length).includes('$$'))) {
-      // A `$$` line the window leaves open reads on to the next `$$` after
-      // it, which the window then takes in with its block, once.
-      const reach = dollarsReached || !unpairedRunsStayInWindow(result, nextWindow, () => false)
-        ? -1
-        : nextSource.slice(windowEnd, Math.min(nextSource.length, windowEnd + DOLLAR_REACH)).indexOf('$$')
-      const found = reach === -1 ? undefined : windowEdge(inventory, windowEnd - delta + reach, 'end')
+    // Every `$$` after the window is a candidate closer, a `$$` in code or
+    // in text the previous parse read as no literal among them, so the
+    // first is found in the source itself.
+    let following: number | undefined
+    const followingDollars = (): number => {
+      following ??= nextSource.slice(windowEnd, nextSource.length).indexOf('$$')
+      return following
+    }
+    if (!unpairedRunsStayInWindow(result, nextWindow, () => followingDollars() !== -1)) {
+      // A `$$` line the window leaves open pairs with the first `$$` after
+      // it, which the window then reads with its block, and so on for a
+      // `$$` line that block leaves open, while the window stays the
+      // smaller part of the document.
+      const found = unpairedRunsStayInWindow(result, nextWindow, () => false)
+        ? windowEdge(inventory, windowEnd - delta + followingDollars(), 'end')
+        : undefined
       const end = found === undefined ? undefined : literalBlockEdge(inventory, found, 'end')
-      if (end === undefined || end.source <= editedEnd.source) return undefined
+      if (end === undefined || end.source <= editedEnd.source || 2 * (end.source - first.source) > length) return undefined
       editedEnd = end
-      dollarsReached = true
       widening -= 1
       continue
     }
@@ -4517,9 +4530,6 @@ function literalContextEnd(inventory: InventoryValue, context: WindowEdge): Wind
 
 /** The most text of a literal block a window reads as context around its edit. */
 const LITERAL_CONTEXT_UNITS = 4096
-
-/** The most text after a window that it reads on to the `$$` a line it leaves open pairs with. */
-const DOLLAR_REACH = 8192
 
 function literalBlockEdge(
   inventory: InventoryValue,
