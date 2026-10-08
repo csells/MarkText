@@ -74,6 +74,7 @@ import {
   waitForInputLatencyEcho
 } from './helpers/inputLatencyTrace'
 import {
+  FENCE_2000_ARM_SOURCE,
   ORDINARY_MARKDOWN_WORKLOADS,
   placeCaretAfterWarmEditingText,
   WARM_EDITING_PARAGRAPH
@@ -920,7 +921,8 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
   const measureUpstreamWarmSession = async(
     workload: typeof ORDINARY_MARKDOWN_WORKLOADS[number],
     appBundle: string,
-    outputDirectory: string
+    outputDirectory: string,
+    tracking = false
   ): Promise<Record<string, unknown>> => {
     const artifact = workload.name
     const runRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mt-upstream-performance-'))
@@ -937,6 +939,11 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
         await closeActiveTab(page)
         await awaitRenderActiveInactiveConvergence(app)
         const opened = await openSample(page, documentPath)
+        if (tracking) {
+          const trackChanges = page.getByTestId('critic-review-track-changes')
+          await trackChanges.click()
+          await expect(trackChanges).toHaveAttribute('aria-pressed', 'true')
+        }
         // Both harnesses type at the end of the warm editing text.
         const target = await placeCaretAfterWarmEditingText(page)
         const dom = diagnostics.dom ? await captureEditorDom(page) : undefined
@@ -978,7 +985,7 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
           harnessCommit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim(),
           measuredAt: new Date().toISOString(),
           loadAverage: { before: loadBefore, after: os.loadavg() },
-          protocol: { warmup, measured, intervalMs: interval, boundary: 'beforeinput-to-exact-dom-echo' },
+          protocol: { warmup, measured, intervalMs: interval, boundary: 'beforeinput-to-exact-dom-echo', tracking },
           diagnostics,
           calibration,
           open: opened,
@@ -988,6 +995,14 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
             p95: percentile(0.95),
             max: sorted.at(-1) ?? null
           },
+          frameMs: (() => {
+            const frames = input.flatMap(sample => sample.tFrame === undefined ? [] : [sample.tFrame - sample.tEvent])
+              .sort((left, right) => left - right)
+            const at = (value: number): number | null => frames.length === 0
+              ? null
+              : frames[Math.min(frames.length - 1, Math.ceil(value * frames.length) - 1)] ?? null
+            return { count: frames.length, p50: at(0.5), p95: at(0.95), max: frames.at(-1) ?? null }
+          })(),
           samples: input
         }
       } finally {
@@ -1009,4 +1024,20 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
         JSON.stringify(record, null, 2), { flag: 'wx' })
     })
   }
+
+  // Plan 0012 B4: the 2,000-line fence's proposed arm. MarkText types there
+  // with Track Changes on (MARKTEXT_UPSTREAM_WARM_TRACK=1); upstream, which has
+  // no tracked mode, reads the same source as ordinary Markdown and types the
+  // same keys at the same caret, untracked.
+  const armWorkload = { name: 'fence-2000-arm-tracked', source: FENCE_2000_ARM_SOURCE }
+  test(armWorkload.name, async() => {
+    if (process.platform !== 'darwin') throw new Error('Upstream warm sessions require macOS')
+    test.setTimeout(Math.max(300_000, (warmup + measured) * (interval + 150) + 120_000))
+    const outputDirectory = requiredPath('MARKTEXT_UPSTREAM_WARM_OUTPUT')
+    const appBundle = requiredPath('MARKTEXT_UPSTREAM_WARM_APP')
+    const tracking = process.env.MARKTEXT_UPSTREAM_WARM_TRACK === '1'
+    const record = await measureUpstreamWarmSession(armWorkload, appBundle, outputDirectory, tracking)
+    fs.writeFileSync(path.join(outputDirectory, `${armWorkload.name}.json`),
+      JSON.stringify(record, null, 2), { flag: 'wx' })
+  })
 })
