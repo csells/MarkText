@@ -99,10 +99,16 @@ function startsWithAt(source: string, marker: string, offset: number): boolean {
   return true
 }
 
+// The code units any marker can start with: no marker starts elsewhere.
+const MARKER_FIRST_UNITS = new Set(FORM_DEFINITIONS.flatMap(definition =>
+  [definition.open, definition.close, definition.separator].flatMap(marker =>
+    marker === undefined || marker.length === 0 ? [] : [marker.charCodeAt(0)])))
+
 export function findMarker(
   source: string,
   offset: number
 ): Readonly<{ definition: FormDefinition; role: MarkerRole; length: number }> | undefined {
+  if (!MARKER_FIRST_UNITS.has(source.charCodeAt(offset))) return undefined
   for (const definition of FORM_DEFINITIONS) {
     if (startsWithAt(source, definition.open, offset)) {
       return Object.freeze({ definition, role: 'open' as const, length: definition.open.length })
