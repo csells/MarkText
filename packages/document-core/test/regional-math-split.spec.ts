@@ -75,9 +75,12 @@ describe('a blank line typed into a long document\'s math block (G45)', () => {
     expect(applied.annotations).toEqual(fresh.annotations)
   })
 
-  it('leaves to the document a math block far after the key', () => {
-    const { revision, edit, planned, applied, fresh } = typeBlankLine(documentOf([500, 800]), 'x_{2}')
+  // The proposed block's `$$` lines hold markers, so they pair within their
+  // paragraphs however near the next `$$` is.
+  it('reads past a math block far after the key', () => {
+    const { revision, edit, planned, planParses, applied, applyParses, fresh } = typeBlankLine(documentOf([500, 800]), 'x_{2}')
     expect(planned).toEqual(generalPlan(revision.source, edit))
+    expect(planParses + applyParses).toBe(0)
     expect(applied.annotations).toEqual(fresh.annotations)
   })
 })
@@ -110,15 +113,20 @@ describe('a `$$` a window leaves unpaired reads as in the document', () => {
 // in with every paragraph between. That block pairing with itself before
 // the key does not keep it from pairing so after.
 describe('a `$$` line a key opens reads on to the first `$$` after it', () => {
-  it.each([20, 120, 400])('past %i paragraphs', count => {
-    const filler = Array.from({ length: count }, (_, index) => `Plain paragraph number ${index} with some ordinary words in it.`).join('\n\n')
-    const source = `Intro {++a++}.\n\nx\n$$\n\n${filler}\n\n$$\nz\n$$\n\nEnd.\n`
+  const paragraphs = (count: number): string =>
+    Array.from({ length: count }, (_, index) => `Plain paragraph number ${index} with some ordinary words in it.`).join('\n\n')
+  it.each([[20, 0], [120, 0], [400, 0], [400, 1000]])('past %i paragraphs, %i more after', (count, more) => {
+    const source = `Intro {++a++}.\n\nx\n$$\n\n${paragraphs(count)}\n\n$$\nz\n$$\n\nEnd.\n` + (more === 0 ? '' : `\n${paragraphs(more)}\n`)
     const core = createDocumentCore()
     const revision = core.apply(core.open(source), [{ start: 0, end: 0, insert: 'q' }], { projections: ['markup'] }).revision
     const at = revision.source.indexOf('x\n$$') + 1
     const edit = { start: at, end: at, insert: '\n\n' }
+    const parses = inspectDocumentCore(core).documentParses
     expect(core.trackedEdit(revision, edit)).toEqual(generalPlan(revision.source, edit))
     const applied = core.apply(revision, [edit], { projections: ['markup'] }).revision
+    // The blocks from the key to the far block are read without the
+    // document where they are its smaller part.
+    if (more !== 0) expect(inspectDocumentCore(core).documentParses).toBe(parses)
     const fresh = createDocumentCore()
     const opened = fresh.open(applied.source)
     const blocks = (target: typeof core, at: DocumentRevision) =>
