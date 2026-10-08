@@ -40,7 +40,8 @@ import {
   removeUpstreamPerformanceRunRoot,
   resolveUpstreamPerformanceProcessIdentity,
   upstreamPerformanceOrchestrationTimeoutMs,
-  type UpstreamPerformanceProcessIdentity
+  type UpstreamPerformanceProcessIdentity,
+  forceKillOwnedProcess
 } from './helpers/upstreamBaselineLifecycleCleanup'
 import {
   PERFORMANCE_SAMPLE_LIFECYCLE,
@@ -244,6 +245,19 @@ const upstreamProcessTable = (): string => execFileSync(
     encoding: 'utf8'
   }
 )
+
+const processGroupOf = (processId: number): number | undefined => {
+  try {
+    const group = Number(execFileSync('/bin/ps', ['-o', 'pgid=', '-p', String(processId)], { encoding: 'utf8' }).trim())
+    return Number.isSafeInteger(group) && group > 0 ? group : undefined
+  } catch {
+    return undefined
+  }
+}
+
+const forceKill = (processId: number): void => {
+  forceKillOwnedProcess(processId, processGroupOf, (target, signal) => process.kill(target, signal))
+}
 
 const processIdForIdentity = (
   identity: Readonly<UpstreamPerformanceProcessIdentity>
@@ -465,6 +479,7 @@ const launchRenderActiveUpstreamApplication = async(
             )) throw terminationError
           }
         },
+        forceKill,
         isRunning: ownedProcessId => {
           try {
             process.kill(ownedProcessId, 0)
@@ -556,6 +571,7 @@ const closeRenderActiveUpstreamApplication = async(
           }
         }
       },
+      forceKill,
       isRunning,
       sleep: () => new Promise(resolve => setTimeout(resolve, 50)),
       now: Date.now
