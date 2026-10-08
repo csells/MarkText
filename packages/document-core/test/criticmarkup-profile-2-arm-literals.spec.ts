@@ -133,6 +133,29 @@ describe('L2c: a line-start arm boundary ends a block literal opened in the arm'
     expect(blockShape(readerAst(core, revision, 'revised'))).toBe(example.shape)
   })
 
+  // A `$$` line an arm opens reads on to the first `$$` after it, wherever
+  // that is; a line-start closer ends it at the arm instead, where it is
+  // text, so it neither takes in what follows the annotation nor pairs with
+  // a math block after it (B15).
+  it.each([
+    { name: 'an Addition', source: 'P\n\n{++x\n\n$$\ny\n\nw\n++}\n\n{++Q++}\n\n$$\nz\n$$\n', kinds: ['addition', 'addition'], view: 'revised' },
+    { name: 'a Deletion', source: 'P\n\n{--x\n\n$$\ny\n--}\n\n{++Q++}\n\n$$\nz\n$$\n', kinds: ['deletion', 'addition'], view: 'original' },
+    { name: 'a Highlight', source: 'P\n\n{==x\n\n$$\ny\n==}{>>c<<}\n\n{++Q++}\n\n$$\nz\n$$\n', kinds: ['highlight', 'comment', 'addition'], view: 'revised' }
+  ] as const)('ends an in-arm math block at a line-start closer of $name', example => {
+    const core = createDocumentCore()
+    const revision = core.open(example.source)
+    expect(revision.annotations.map(annotation => annotation.kind)).toEqual(example.kinds)
+    expect(revision.diagnostics).toEqual([])
+    const math = (root: AstNode) => nodesOf(root).filter(node => node.kind === 'math-block')
+    expect(math(markupAst(core, revision))).toHaveLength(1)
+    expect(math(readerAst(core, revision, example.view))).toHaveLength(1)
+    // The arm's `$$` stays text when the view is read as a document.
+    const projected = core.project(revision, example.view).markdown
+    const reread = core.open(projected)
+    expect(blockShape(readerAst(core, reread, 'revised')))
+      .toBe(blockShape(readerAst(core, revision, example.view)))
+  })
+
   it('keeps an indented or mid-line closer inside the in-arm literal', () => {
     const core = createDocumentCore()
     for (const source of [

@@ -54,7 +54,8 @@ import {
   type IntrinsicProfile1ForkBranch,
   type IntrinsicProfile1ForkGraph,
   type IntrinsicProfile1ForkLane,
-  type IntrinsicProfile1ForkLaneHandle
+  type IntrinsicProfile1ForkLaneHandle,
+  type IntrinsicProfile1LaneTransition
 } from './profile1/intrinsicProfile1ForkGraph.js'
 import {
   assertLosslessTape,
@@ -1697,9 +1698,12 @@ function parseIntrinsicProfile1Pass(
     if (sameKindFrames?.pop() !== frame) {
       throw new Error('CriticMarkup frame index diverged from the parse stack')
     }
+    // A Substitution without its divider forms no annotation, so its text
+    // reads on as the markers' text does.
     const finishedLane = markdownLane.finishLane(
       frame.currentCheckpoint,
-      run.range.start
+      run.range.start,
+      frame.definition.kind !== 'substitution' || frame.separator !== undefined
     )
     forkRecorder.recordTransition(
       frame.currentForkLane,
@@ -3479,6 +3483,28 @@ function armStartLiteralProtection(
   })
 }
 
+/**
+ * Profile rule L2c: a closer that ends a `$$` math block its arm opened
+ * leaves that block's opener as text, as at the end of a document. The
+ * intrinsic pass had read the opener as reaching a `$$` after the arm, so
+ * the projection protects it, keeping the arm's reading wherever text after
+ * the arm would pair with it.
+ */
+function terminalArmMathProtection(
+  lane: IntrinsicProfile1ForkLane,
+  segments: readonly MutableCanonicalProjectionSegment[]
+): Extract<MarkdownArmBoundaryProjectionEdit, { readonly kind: 'protect-delimiter' }> | undefined {
+  let finished: IntrinsicProfile1LaneTransition | undefined
+  for (const transition of lane.transitions) if (transition.operation === 'finish-lane') finished = transition
+  const math = finished?.entryCheckpoint.math
+  if (math?.block !== true || finished?.exitCheckpoint.math !== undefined) return undefined
+  const segment = segments.find(candidate => candidate.sourceStart <= math.openStart &&
+    math.openStart < candidate.sourceStart + candidate.projectedEnd - candidate.projectedStart)
+  return segment === undefined
+    ? undefined
+    : Object.freeze({ kind: 'protect-delimiter', candidateOffset: segment.projectedStart + math.openStart - segment.sourceStart })
+}
+
 function terminalArmFenceEdit(
   lane: IntrinsicProfile1ForkLane,
   candidateOffset: number,
@@ -4054,6 +4080,8 @@ function prepareProjection(
             }
           }
         }
+        const mathProtection = terminalArmMathProtection(task.lane, segments)
+        if (mathProtection !== undefined) armTerminationEdits.push(mathProtection)
         if (open.start < projectedLength) {
           matchingScopes.push(Object.freeze({
             id: task.laneId + 1,
