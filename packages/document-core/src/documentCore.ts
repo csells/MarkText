@@ -7253,6 +7253,22 @@ function createDocumentCoreWithExecutionBudget(
         definitions.map(definition => state.source.slice(definition.start, definition.end)).join('\n\n') + '\n'
     }
     if (span.start < sourceStart || span.end > windowEnd) return undefined
+    // A key whose reading change the document reads beyond this window, as
+    // typing that breaks a fence reads on to the document's end, is spelled
+    // in a window holding that change, without opening this one.
+    if (documentChange !== undefined) {
+      const inside = documentChange.start > sourceStart || (documentChange.start === sourceStart && sourceStart === 0)
+      const ends = documentChange.end < windowEnd || (documentChange.end === windowEnd && windowEnd === state.source.length)
+      if (!inside || !ends) {
+        if (retried) return undefined
+        // A block of context on either side of the change keeps a result
+        // spelled over it from reaching the window's edges.
+        return windowedGeneralEdits(state, previous, edits, compile, {
+          start: Math.max(0, Math.min((reach ?? span).start, documentChange.start) - 1),
+          end: Math.min(state.source.length, Math.max((reach ?? span).end, documentChange.end) + 1)
+        }, widenings, true, spells, documentChange)
+      }
+    }
     const windowCore = createDocumentCoreWithExecutionBudget(executionBudget)
     windowCores.add(windowCore)
     markWindowCompileCore(windowCore, { startsDocument: sourceStart === 0, endsDocument: windowEnd === state.source.length })
@@ -7337,21 +7353,7 @@ function createDocumentCoreWithExecutionBudget(
         end: edges.end ? state.source.length : Math.max((reach ?? span).end, windowEnd)
       }, widenings, true, spells, documentChange)
     }
-    // A key whose reading change the document reads beyond this window, as
-    // typing that breaks a fence reads on to the document's end, is spelled
-    // in a window holding that change, without compiling in this one.
     if (documentChange !== undefined) {
-      const inside = documentChange.start > sourceStart || (documentChange.start === sourceStart && sourceStart === 0)
-      const ends = documentChange.end < windowEnd || (documentChange.end === windowEnd && windowEnd === state.source.length)
-      if (!inside || !ends) {
-        if (retried) return undefined
-        // A block of context on either side of the change keeps a result
-        // spelled over it from reaching the window's edges.
-        return windowedGeneralEdits(state, previous, edits, compile, {
-          start: Math.max(0, Math.min((reach ?? span).start, documentChange.start) - 1),
-          end: Math.min(state.source.length, Math.max((reach ?? span).end, documentChange.end) + 1)
-        }, widenings, true, spells, documentChange)
-      }
       documentReadingChanges.set(windowCore, { start: documentChange.start - sourceStart, end: documentChange.end - sourceStart })
     }
     const run = () => compile(windowCore, opened, local, candidate => windowPreview(opened, candidate))
