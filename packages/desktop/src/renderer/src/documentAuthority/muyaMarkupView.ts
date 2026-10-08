@@ -1742,9 +1742,9 @@ export function muyaCaretSnaps(
   const inSegment =
     lineBreakEnds.length <= FEW_LINE_STARTS
       ? (position: number) =>
-          binding.segments.some(
-            (segment) => segment.source.start <= position && position < segment.source.end
-          )
+        binding.segments.some(
+          (segment) => segment.source.start <= position && position < segment.source.end
+        )
       : sourceCover(binding.segments)
   const bounds = lineStartsWithin === undefined
     ? [binding.sourceRange.start, ...lineStarts, binding.trailingLinePosition, binding.leadingLinePosition]
