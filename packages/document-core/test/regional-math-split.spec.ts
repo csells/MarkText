@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentRevision, type DocumentSourceEdit } from '../src/index.js'
 import { inspectDocumentCore, planFromGeneralCompile } from '../src/internal/documentCoreInspection.js'
 
@@ -13,7 +13,9 @@ import { inspectDocumentCore, planFromGeneralCompile } from '../src/internal/doc
 const paragraph = 'Review {++new evidence++} alongside {--obsolete details--}, and {==a claim==}{>>Check this source.<<}.'
 const math = '$$\n' + Array.from({ length: 5 }, (_, index) => `x_{${index}} + y`).join('\n') + '\n$$'
 
-const documentOf = (mathAt: readonly number[], length = 1000): string => {
+// 240 blocks, 25 KB: the windows read a few blocks of it, and a `$$` 100
+// blocks after the key lies 10 KB past them.
+const documentOf = (mathAt: readonly number[], length = 240): string => {
   const blocks = Array.from({ length }, () => paragraph)
   for (const at of mathAt) blocks[at] = math
   return blocks.join('\n\n') + '\n'
@@ -42,8 +44,13 @@ const typeBlankLine = (source: string, term: string, last = false) => {
 }
 
 describe('a blank line typed into a long document\'s math block (G45)', () => {
+  let typed: ReturnType<typeof typeBlankLine>
+  beforeAll(() => {
+    typed = typeBlankLine(documentOf([100]), 'x_{2}')
+  })
+
   it('is planned and applied without parsing the document', () => {
-    const { revision, edit, planned, planParses, applied, applyParses, fresh } = typeBlankLine(documentOf([500]), 'x_{2}')
+    const { revision, edit, planned, planParses, applied, applyParses, fresh } = typed
     expect(planned.insert).toMatch(/^\{~~\$\$\n[^]*\n\$\$~>\$\$\n[^]*x_\{1\} \+ y\n\n\nx_\{2\}[^]*\n\$\$~~\}$/u)
     expect(planned).toEqual(generalPlan(revision.source, edit))
     expect(planParses).toBe(0)
@@ -53,7 +60,7 @@ describe('a blank line typed into a long document\'s math block (G45)', () => {
   })
 
   it('reads the next key in the proposed block without parsing the document', () => {
-    const { core, applied } = typeBlankLine(documentOf([500]), 'x_{2}')
+    const { core, applied } = typed
     const at = applied.source.lastIndexOf('x_{3}')
     const edit = { start: at, end: at, insert: 'z' }
     const before = inspectDocumentCore(core).documentParses
@@ -62,13 +69,13 @@ describe('a blank line typed into a long document\'s math block (G45)', () => {
   })
 
   it('reads past a math block before the key', () => {
-    const { revision, edit, planned, planParses, applyParses } = typeBlankLine(documentOf([200, 500]), 'x_{2}', true)
+    const { revision, edit, planned, planParses, applyParses } = typeBlankLine(documentOf([40, 100]), 'x_{2}', true)
     expect(planned).toEqual(generalPlan(revision.source, edit))
     expect(planParses + applyParses).toBe(0)
   })
 
   it('reads on to a math block shortly after the key', () => {
-    const source = documentOf([500, 520])
+    const source = documentOf([100, 120])
     const { revision, edit, planned, planParses, applied, applyParses, fresh } = typeBlankLine(source, 'x_{2}')
     expect(planned).toEqual(generalPlan(revision.source, edit))
     expect(planParses + applyParses).toBe(0)
@@ -78,7 +85,7 @@ describe('a blank line typed into a long document\'s math block (G45)', () => {
   // The proposed block's `$$` lines hold markers, so they pair within their
   // paragraphs however near the next `$$` is.
   it('reads past a math block far after the key', () => {
-    const { revision, edit, planned, planParses, applied, applyParses, fresh } = typeBlankLine(documentOf([500, 800]), 'x_{2}')
+    const { revision, edit, planned, planParses, applied, applyParses, fresh } = typeBlankLine(documentOf([100, 200]), 'x_{2}')
     expect(planned).toEqual(generalPlan(revision.source, edit))
     expect(planParses + applyParses).toBe(0)
     expect(applied.annotations).toEqual(fresh.annotations)
@@ -115,7 +122,8 @@ describe('a `$$` a window leaves unpaired reads as in the document', () => {
 describe('a `$$` line a key opens reads on to the first `$$` after it', () => {
   const paragraphs = (count: number): string =>
     Array.from({ length: count }, (_, index) => `Plain paragraph number ${index} with some ordinary words in it.`).join('\n\n')
-  it.each([[20, 0], [120, 0], [400, 0], [400, 1000]])('past %i paragraphs, %i more after', (count, more) => {
+  // 150 paragraphs put the far block 9 KB past the key.
+  it.each([[20, 0], [120, 0], [150, 0], [150, 300]])('past %i paragraphs, %i more after', (count, more) => {
     const source = `Intro {++a++}.\n\nx\n$$\n\n${paragraphs(count)}\n\n$$\nz\n$$\n\nEnd.\n` + (more === 0 ? '' : `\n${paragraphs(more)}\n`)
     const core = createDocumentCore()
     const revision = core.apply(core.open(source), [{ start: 0, end: 0, insert: 'q' }], { projections: ['markup'] }).revision
