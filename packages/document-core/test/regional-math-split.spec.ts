@@ -103,3 +103,29 @@ describe('a `$$` a window leaves unpaired reads as in the document', () => {
     expect(revision.diagnostics).toEqual(fresh.diagnostics)
   })
 })
+
+// A blank line typed before a `$$` that continued a paragraph makes it a
+// line opening display math, which pairs with the first `$$` after it:
+// here the opener of a closed block far down the document, which it takes
+// in with every paragraph between. That block pairing with itself before
+// the key does not keep it from pairing so after.
+describe('a `$$` line a key opens reads on to the first `$$` after it', () => {
+  it.each([20, 120, 400])('past %i paragraphs', count => {
+    const filler = Array.from({ length: count }, (_, index) => `Plain paragraph number ${index} with some ordinary words in it.`).join('\n\n')
+    const source = `Intro {++a++}.\n\nx\n$$\n\n${filler}\n\n$$\nz\n$$\n\nEnd.\n`
+    const core = createDocumentCore()
+    const revision = core.apply(core.open(source), [{ start: 0, end: 0, insert: 'q' }], { projections: ['markup'] }).revision
+    const at = revision.source.indexOf('x\n$$') + 1
+    const edit = { start: at, end: at, insert: '\n\n' }
+    expect(core.trackedEdit(revision, edit)).toEqual(generalPlan(revision.source, edit))
+    const applied = core.apply(revision, [edit], { projections: ['markup'] }).revision
+    const fresh = createDocumentCore()
+    const opened = fresh.open(applied.source)
+    const blocks = (target: typeof core, at: DocumentRevision) =>
+      target.project(at, 'markup').syntax.ast.root.children.map(block => [block.kind, block.range.start, block.range.end])
+    expect(blocks(core, applied)).toEqual(blocks(fresh, opened))
+    expect(blocks(fresh, opened).filter(([kind]) => kind === 'math-block')).toHaveLength(1)
+    expect(applied.annotations).toEqual(opened.annotations)
+    expect(applied.diagnostics).toEqual(opened.diagnostics)
+  })
+})
