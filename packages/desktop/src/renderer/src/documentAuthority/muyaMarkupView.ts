@@ -1644,6 +1644,32 @@ function firstNodeEndingAfter(nodes: readonly MarkdownAstNode[], position: numbe
   return low
 }
 
+const FEW_LINE_STARTS = 8
+
+/**
+ * The line breaks in `text`, as a scan from its start finds them, that end
+ * within `within`. The scan starts just before `within` rather than at the
+ * text's start: a break ending there begins at most two characters earlier,
+ * and breaks are read alike from any position that does not split a CRLF.
+ */
+function lineBreaksEndingWithin(text: string, within: SourceRange | undefined): RegExpExecArray[] {
+  const pattern = /\r\n|\r|\n/gu
+  if (within === undefined) return [...text.matchAll(pattern)]
+  let from = Math.max(0, within.start - 2)
+  if (from > 0 && text[from - 1] === '\r' && text[from] === '\n') from -= 1
+  pattern.lastIndex = from
+  const breaks: RegExpExecArray[] = []
+  for (
+    let match = pattern.exec(text);
+    match !== null && match.index < within.end;
+    match = pattern.exec(text)
+  ) {
+    const end = match.index + match[0].length
+    if (end >= within.start && end < within.end) breaks.push(match)
+  }
+  return breaks
+}
+
 /**
  * A binding's caret snaps (see `MuyaMarkupBinding.caretSnaps`), read from the
  * source by `sourceCharacter`. With `lineStarts`, only the lines starting at
@@ -1695,8 +1721,7 @@ export function muyaCaretSnaps(
     }
     return end > lineStart ? { from: lineStart + 1, to: end + 1, at: lineStart } : undefined
   }
-  const lineBreaks = [...binding.text.matchAll(/\r\n|\r|\n/gu)].filter((match) => lineStartsWithin === undefined ||
-    match.index + match[0].length >= lineStartsWithin.start && match.index + match[0].length < lineStartsWithin.end)
+  const lineBreaks = lineBreaksEndingWithin(binding.text, lineStartsWithin)
   // Each later line's text starts after its container continuation.
   const lineStarts = lineBreaks.flatMap((match) => {
     const offset = match.index + match[0].length
@@ -1712,7 +1737,15 @@ export function muyaCaretSnaps(
       ? []
       : [segment.source.start + offset - segment.text.start]
   })
-  const inSegment = sourceCover(binding.segments)
+  // A few lines' starts are each found faster by a look at every segment
+  // than by sorting them all, as a key in a long literal block needs.
+  const inSegment =
+    lineBreakEnds.length <= FEW_LINE_STARTS
+      ? (position: number) =>
+          binding.segments.some(
+            (segment) => segment.source.start <= position && position < segment.source.end
+          )
+      : sourceCover(binding.segments)
   const bounds = lineStartsWithin === undefined
     ? [binding.sourceRange.start, ...lineStarts, binding.trailingLinePosition, binding.leadingLinePosition]
     : lineStartsWithin.start === 0 ? [binding.sourceRange.start, ...lineStarts] : lineStarts
