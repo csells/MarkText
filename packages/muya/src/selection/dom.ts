@@ -177,6 +177,9 @@ const lastParagraphPoints = new WeakMap<Node, {
     point: { node: Node; offset: number };
 }>();
 
+/** The rendered previews an offset skips, which only inline content draws. */
+const PREVIEW_CLASSES: ReadonlySet<string> = new Set([CLASS_NAMES.MU_MATH_RENDER, CLASS_NAMES.MU_RUBY_RENDER]);
+
 /** Whether each long paragraph's offsets were its DOM text when last asked, and its DOM's change count then. */
 const lastPlainOffsets = new WeakMap<Element, { changes: number; key: string; plain: boolean }>();
 
@@ -194,6 +197,10 @@ function plainOffsets(element: Element, blackList: readonly string[]): boolean {
         return element.getElementsByTagName('img').length === 0
             && exceptions.every(className => element.getElementsByClassName(className).length === 0);
     }
+    // A code block draws only its highlighted text, never a preview or an
+    // image, so a long one is not searched after each key.
+    if (element.classList.contains('mu-codeblock-content') && blackList.every(className => PREVIEW_CLASSES.has(className)))
+        return true;
     // A long paragraph's collections are all read again after each change to
     // it, so it is searched once for any of them and the answer kept.
     const key = exceptions.join(' ');
