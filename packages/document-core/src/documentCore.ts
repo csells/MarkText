@@ -7572,8 +7572,7 @@ function createDocumentCoreWithExecutionBudget(
   const ownedTrackedEdit = (
     state: RevisionState,
     previous: DocumentRevision,
-    edit: DocumentSourceEdit,
-    preview: (edits: readonly DocumentSourceEdit[]) => DocumentRevision
+    edit: DocumentSourceEdit
   ): DocumentSourceEdit | undefined => {
     // The general compile's spelling search reads its candidates' reader views.
     const searchPreview = (candidate: readonly DocumentSourceEdit[]) => previewSourceEdits(previous, candidate, true)
@@ -7672,14 +7671,13 @@ function createDocumentCoreWithExecutionBudget(
     preflightSourceEdits(state.source.length, edits)
     const stableEdit = edits[0]
     if (stableEdit === undefined) throw new Error('Tracked source edit is missing')
-    const preview = (candidateEdits: readonly DocumentSourceEdit[]) => previewSourceEdits(previous, candidateEdits)
     // Typing over the whole of one's own Addition rewrites its text.
     const compile = (part: DocumentSourceEdit) => {
       const content = part.insert.length === 0 || part.start === part.end
         ? undefined
         : markupAnnotations(previous.annotations).find(annotation => annotation.kind === 'addition' &&
           annotation.range.start === part.start && annotation.range.end === part.end)?.arms[0]
-      return ownedTrackedEdit(state, previous, content === undefined ? part : { ...content.range, insert: part.insert }, preview)
+      return ownedTrackedEdit(state, previous, content === undefined ? part : { ...content.range, insert: part.insert })
     }
     const single = (planned: DocumentSourceEdit | undefined) =>
       planned === undefined ? undefined : Object.freeze(unchangedTrackedEdit(planned) ? [] : [planned])
@@ -7693,7 +7691,7 @@ function createDocumentCoreWithExecutionBudget(
     }
     const planned = editable?.history === true
       ? trackedEditableEdits(core, stableEdit, editable, compile)
-      : single(ownedTrackedEdit(state, previous, stableEdit, preview))
+      : single(ownedTrackedEdit(state, previous, stableEdit))
     if (planned !== undefined) return planned
     // An edit reaching past a draft's delimiters, or a replacement whose
     // suggestion cannot enclose the existing ones, changes only the text a
