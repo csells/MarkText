@@ -3772,6 +3772,26 @@ function unpairedRunsStayInWindow(
 }
 
 /**
+ * Whether a parse of `text`, a window of a longer document, leaves a `$$`
+ * line open whose first `$$` may lie past the window, where the document
+ * then pairs it otherwise than the window does (see
+ * `unpairedRunsStayInWindow`).
+ */
+export function displayMathReachesPast(products: Profile1DocumentProducts, text: string): boolean {
+  const literals = products.retainedIntrinsic?.markdownLiterals ?? []
+  const roots = products.retainedIntrinsic?.roots ?? []
+  let open: number | undefined
+  for (const run of text.matchAll(/\$+/gu)) {
+    const start = run.index
+    if (open !== undefined && run[0].length >= 2 && !protectedSpelling(text, start) &&
+        !roots.some(root => Number(root.range.start) <= start && start < Number(root.range.end))) open = undefined
+    if (run[0].length >= 2 && opensDisplayMath(text, start) &&
+        !literals.some(literal => literal.start <= start && start + run[0].length <= literal.end)) open = start
+  }
+  return open !== undefined
+}
+
+/**
  * Whether the dollar run at offset `at` of `text` may open display math,
  * which takes the first `$$` after it however far: the intrinsic pass reads
  * a run so only where its raw source line, past its block-quote and list
@@ -4270,7 +4290,7 @@ function evaluateBlockWindow(
     // Any block after the edited ones whose parting from them changes may
     // start or stop splitting into leaves, so it is replaced too.
     if (!wholeLiteralAfter && after !== undefined && after !== editedEnd && editedEnd.source < length &&
-        oneEmptyLineBefore(previousSource, editedEnd.source) !== oneEmptyLineBefore(nextSource, editedEnd.source + delta)) {
+        partingChanged(previousSource, editedEnd.source, nextSource, editedEnd.source + delta)) {
       const end = after.leaf.kind === 'region' && after.leaf.listRun !== undefined
         ? listExtent(inventory, after.ordinal, after.ordinal)?.end
         : literalBlockEdge(inventory, after, 'end')
@@ -4288,8 +4308,8 @@ function evaluateBlockWindow(
     const splitBefore = before !== undefined && before.leaf.kind === 'region' &&
       (before.leaf.literalRun?.last === true || before.leaf.listRun?.last === true)
     if (!wholeLiteralBefore && before !== undefined && before !== edited &&
-        (oneEmptyLineBefore(previousSource, firstTextLine(previousSource, edited.source)) !==
-          oneEmptyLineBefore(nextSource, firstTextLine(nextSource, edited.source)) ||
+        (partingChanged(previousSource, firstTextLine(previousSource, edited.source),
+          nextSource, firstTextLine(nextSource, edited.source)) ||
           splitBefore && (htmlAt(previousSource, edited.source) || htmlAt(nextSource, edited.source)))) {
       const start = before.leaf.kind === 'region' && before.leaf.listRun !== undefined
         ? listExtent(inventory, before.ordinal, before.ordinal)?.start
@@ -4467,6 +4487,25 @@ function oneEmptyLineBefore(source: CanonicalSourceView, offset: number): boolea
   const start = Math.max(0, offset - 4096)
   const text = source.slice(start, offset).replace(/\{\+\+|\{--|\{~~|\{==|\{>>|~>|\+\+\}|--\}|~~\}|==\}|<<\}/gu, '')
   return start === 0 && text.length === 0 ? true : afterEmptyLine(text, text.length)
+}
+
+/**
+ * Whether the line start at `previousOffset` of `previous` and at
+ * `nextOffset` of `next` parts its block from the text before it differently:
+ * in the projection splits read (see `oneEmptyLineBefore`), or in the source,
+ * where a line holding only a suggestion's markers is text that a paragraph,
+ * and the dollar and backtick runs pairing within it, read on through.
+ */
+function partingChanged(previous: CanonicalSourceView, previousOffset: number, next: CanonicalSourceView, nextOffset: number): boolean {
+  return oneEmptyLineBefore(previous, previousOffset) !== oneEmptyLineBefore(next, nextOffset) ||
+    blankLineBefore(previous, previousOffset) !== blankLineBefore(next, nextOffset)
+}
+
+/** Whether a line of spaces alone ends right before line start `offset` of `source`. */
+function blankLineBefore(source: CanonicalSourceView, offset: number): boolean {
+  if (offset === 0) return true
+  const lines = source.slice(Math.max(0, offset - 4096), offset).split(/\r\n|\r|\n/u)
+  return lines.length >= 2 && /^[ \t]*$/u.test(lines[lines.length - 2] ?? '')
 }
 
 /** Whether a window starting at `offset` of `source` starts it or follows exactly one empty line (see `listSplitOf`). */

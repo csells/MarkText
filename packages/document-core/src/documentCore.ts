@@ -16,7 +16,7 @@ import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit, withinHistory } from './trackedHistoryEditing.js'
-import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, trackedStructure, type TrackedStructure, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
+import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, markUnresolvedDraft, windowEndsDocument, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, trackedStructure, type TrackedStructure, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import {
@@ -58,6 +58,7 @@ import {
   regionalInventoryListRange,
   regionalInventoryLiteralRange,
   regionalInventoryLeaves,
+  displayMathReachesPast,
   withLinesBack,
   regionalInventorySplitsLists,
   regionalLeafPoints,
@@ -2927,6 +2928,17 @@ function createDocumentCoreWithExecutionBudget(
     return state.productStore.demoteStrong(products => select?.(products))
   }
 
+  /**
+   * A window core's reading, of its window or of a candidate there, holds
+   * only while no `$$` line it leaves open takes a `$$` past the window,
+   * which the document would pair it with: the draft is then the document's
+   * to settle (see `displayMathReachesPast`).
+   */
+  const noteWindowDollarReach = (products: Profile1DocumentProducts, source: string, options: MarkdownOptionsV1): void => {
+    if (windowEndsDocument(core) === false && options.texMathDollars && displayMathReachesPast(products, source)) {
+      markUnresolvedDraft(core, { start: false, end: true })
+    }
+  }
   const parse = (
     source: string,
     resolvedOptions: MarkdownOptionsV1,
@@ -2959,6 +2971,7 @@ function createDocumentCoreWithExecutionBudget(
     }
     inspection.canonicalFactIndexUnits +=
       products.retainedIntrinsic?.tape.length ?? 0
+    noteWindowDollarReach(products, source, resolvedOptions)
     return products
   }
 
@@ -2986,6 +2999,7 @@ function createDocumentCoreWithExecutionBudget(
     }
     inspection.canonicalFactIndexUnits +=
       result.retainedIntrinsic?.tape.length ?? 0
+    noteWindowDollarReach(result, source, resolvedOptions)
     return result
   }
 
@@ -7375,6 +7389,12 @@ function createDocumentCoreWithExecutionBudget(
       start: part.start + sourceStart, end: part.end + sourceStart, insert: part.insert
     })))
     const expected = windowPreview(opened, compiled)
+    // Reading the result may show a `$$` line it leaves open past the window,
+    // which the document reads otherwise (see noteWindowDollarReach).
+    const settled = (): { readonly edits: readonly DocumentSourceEdit[] | undefined } | undefined => {
+      const reached = unresolvedDraftEdges(windowCore)
+      return reached === undefined ? { edits: planned } : beyond(reached)
+    }
     const delta = expected.sourceLength - windowSource.length
     const first = planned[0]
     const last = planned.at(-1)
@@ -7407,7 +7427,7 @@ function createDocumentCoreWithExecutionBudget(
             within(inPlace, sharedInPlace.start, sharedInPlace.end), candidate.sourceStart) &&
           sameDiagnostics(within(expected.diagnostics, sharedInWindow.start, sharedInWindow.end), sourceStart,
             within(inPlaceDiagnostics, sharedInPlace.start, sharedInPlace.end), candidate.sourceStart)) {
-        return { edits: planned }
+        return settled()
       }
     }
     const nextEnd = window.length + delta
@@ -7531,7 +7551,7 @@ function createDocumentCoreWithExecutionBudget(
         before.filter(item => item.range.start >= windowEnd), delta)
     return readsBack(whole.annotations, previous.annotations, expected.annotations, sameAnnotations) &&
       readsBack(whole.diagnostics, previous.diagnostics, expected.diagnostics, sameDiagnostics)
-      ? { edits: planned }
+      ? settled()
       : undefined
   }
 
