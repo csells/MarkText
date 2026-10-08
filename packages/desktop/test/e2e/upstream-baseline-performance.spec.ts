@@ -56,7 +56,7 @@ import {
 } from './helpers/performanceObservationSchedule'
 import {
   awaitMacWindowServerPresentationConvergence,
-  assertMacWindowServerPresentation,
+  assertMacWindowServerPresentationSettled,
   PERFORMANCE_CHROMIUM_SCHEDULING_POLICY,
   PERFORMANCE_DISPLAY_SLEEP_POLICY,
   PERFORMANCE_WINDOW_PRESENTATION_POLICY,
@@ -517,7 +517,11 @@ const expectRenderActiveInactive = async(
   )
   expect(frontmostApplicationProcessId()).not.toBe(application.processId)
   if (includeWindowServerEvidence) {
-    assertMacWindowServerPresentation(application.processId, state)
+    let reads = 0
+    await assertMacWindowServerPresentationSettled(application.processId, async() =>
+      reads++ === 0
+        ? state
+        : inspectUpstreamPerformanceWindow(application.inspector, application.targetId))
   }
 }
 
