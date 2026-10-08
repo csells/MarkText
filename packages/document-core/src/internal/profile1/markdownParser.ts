@@ -6948,6 +6948,11 @@ function planBoundaryProjectionEdits(
     }
     protectionOffsets.add(candidateOffset)
   }
+  // An arm's termination may already protect a delimiter (see
+  // `terminalArmMathProtection`); one backslash protects it.
+  for (const edit of armTerminationEdits) {
+    if (edit.kind === 'protect-delimiter') protectionOffsets.delete(edit.candidateOffset)
+  }
   for (const candidateOffset of [...protectionOffsets].sort(
     (left, right) => left - right
   )) {

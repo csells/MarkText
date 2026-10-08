@@ -459,9 +459,16 @@ export interface MarkdownLaneState {
     enclosingLabelPreservedByAllArms: boolean,
     atDocumentRoot: boolean
   ) => MarkdownCheckpoint
+  /**
+   * Ends the lane at `boundary`. An annotation closer that stands ends its
+   * arm (`endsArm`): inline code or math opened in the arm and left pending
+   * past it recovers as text there (Profile rules L2a, L2c, C1) rather than
+   * carrying on to its lookahead closer beyond the annotation.
+   */
   readonly finishLane: (
     checkpoint: MarkdownCheckpoint,
-    boundary: number
+    boundary: number,
+    endsArm?: boolean
   ) => MarkdownLaneAdvance
   readonly releaseAtBoundary: (
     checkpoint: MarkdownCheckpoint,
@@ -4702,7 +4709,8 @@ export function createMarkdownLaneState(
 
   const finishLane = (
     checkpoint: MarkdownCheckpoint,
-    boundary: number
+    boundary: number,
+    endsArm = false
   ): MarkdownLaneAdvance => {
     if (checkpoint.pendingCarriageReturn !== undefined) {
       const pending = checkpoint.pendingCarriageReturn
@@ -4717,7 +4725,7 @@ export function createMarkdownLaneState(
         boundary,
         false
       )
-      const finished = finishLane(flushed.checkpoint, boundary)
+      const finished = finishLane(flushed.checkpoint, boundary, endsArm)
       return Object.freeze({
         checkpoint: finished.checkpoint,
         completedLiterals: Object.freeze([...flushed.completedLiterals, ...finished.completedLiterals]),
@@ -4781,7 +4789,9 @@ export function createMarkdownLaneState(
         Math.min(checkpoint.definition.lastOwnedEnd, boundary)
       ))
     }
+    const pendingInArm = endsArm && (checkpoint.inlineCode !== undefined || checkpoint.math !== undefined)
     const checkpointChanged =
+      pendingInArm ||
       checkpoint.fence !== undefined ||
       checkpoint.frontMatter !== undefined ||
       checkpoint.indentedCode !== undefined ||
@@ -4792,6 +4802,7 @@ export function createMarkdownLaneState(
         checkpointChanged
           ? Object.freeze({
             ...checkpoint,
+            ...(pendingInArm ? { inlineCode: undefined, math: undefined } : {}),
             fence: undefined,
             frontMatter: undefined,
             indentedCode: undefined,

@@ -36,7 +36,7 @@
     { "id": "N3", "cases": ["case-N3"] },
     { "id": "L1", "cases": ["case-L1"] },
     { "id": "L2", "cases": ["case-L2"] },
-    { "id": "L2a", "cases": ["case-L2a"] },
+    { "id": "L2a", "cases": ["case-L2a", "case-L2a-confinement"] },
     { "id": "L2b", "cases": ["case-L2b"] },
     { "id": "L3", "cases": ["case-L3"] },
     { "id": "E1", "cases": ["case-E1"] },
@@ -264,6 +264,14 @@
       "status": "proposed-unreviewed"
     },
     {
+      "id": "case-L2a-confinement",
+      "operation": "parse",
+      "input": "{++a `x++} {++q++} b`",
+      "expectedObservable": { "additionCount": 2, "inlineCode": false },
+      "provenance": "Profile 1 L2a and C1: the unfinished literal exports no state past the closer",
+      "status": "proposed-unreviewed"
+    },
+    {
       "id": "case-L2b",
       "operation": "parse",
       "input": "{>>[x][r]<<}\n\n[r]: /outside",
@@ -438,6 +446,10 @@
             {
               "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
               "name": "keeps an indented or mid-line closer inside the in-arm literal"
+            },
+            {
+              "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",
+              "name": "ends an in-arm math block at a line-start closer of $name"
             },
             {
               "file": "packages/document-core/test/criticmarkup-profile-2-arm-literals.spec.ts",

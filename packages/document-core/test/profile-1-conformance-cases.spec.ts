@@ -187,6 +187,13 @@ const observe = (testCase: ConformanceCase): Record<string, unknown> => {
         unfinishedCodeIsText: first(revised, 'inline-code') === undefined && textOf(revised).startsWith('a `x')
       }
     }
+    case 'case-L2a-confinement': {
+      const revision = core.open(input)
+      return {
+        additionCount: revision.annotations.filter(annotation => annotation.kind === 'addition').length,
+        inlineCode: first(view(core, revision, 'revised'), 'inline-code') !== undefined
+      }
+    }
     case 'case-L2b': {
       const revision = core.open(input)
       const comment = revision.annotations[0]!
@@ -344,8 +351,8 @@ const superseded: Readonly<Record<string, Readonly<{ ruling: string, observed: R
 const knownNonconformance: Readonly<Record<string, Record<string, unknown>>> = {}
 
 describe('CriticMarkup Profile 1 conformance cases executed against document-core', () => {
-  it('has an observer for all 40 baseline cases', () => {
-    expect(baseline.cases).toHaveLength(40)
+  it('has an observer for all 41 baseline cases', () => {
+    expect(baseline.cases).toHaveLength(41)
   })
 
   it.each(baseline.cases.map(testCase => [testCase.id, testCase] as const))('%s', (_id, testCase) => {
