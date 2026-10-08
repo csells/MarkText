@@ -653,6 +653,36 @@ const BLOCK_LITERAL_KINDS = new Set(['code-block', 'math-block', 'diagram'])
  */
 const WIDENED_SPELLINGS_WEIGHED = 32
 
+/**
+ * The parse work a key's document-level spelling search may spend, in
+ * source units of the candidates it reads (each a parse of the document):
+ * about 50 ms on the reference Mac (owner decision, 8 October 2026). Past
+ * it, the search stops weighing spellings and the key takes its closest one,
+ * whose Accept All and Reject All read as the operation, byte for byte.
+ */
+export const DOCUMENT_SEARCH_UNITS = 8192
+
+/** Spans a key past its budget weighs for its closest spelling, and spellings in all. */
+const CLOSEST_SPANS_WEIGHED = 4
+const CLOSEST_SPELLINGS_WEIGHED = 18
+
+const documentSearchBudgets = new WeakMap<DocumentCore, { spent: number }>()
+
+/**
+ * Compiles one key in `core` under one document-level search budget, shared
+ * by every spelling search the key runs there. Window cores and the
+ * reference compiles run without one.
+ */
+export function withDocumentSearchBudget<T>(core: DocumentCore, compile: () => T): T {
+  if (documentSearchBudgets.has(core)) return compile()
+  documentSearchBudgets.set(core, { spent: 0 })
+  try {
+    return compile()
+  } finally {
+    documentSearchBudgets.delete(core)
+  }
+}
+
 function lineStart(source: string, offset: number): number {
   let start = offset
   while (start > 0 && source[start - 1] !== '\n' && source[start - 1] !== '\r') start -= 1
@@ -914,6 +944,10 @@ function searchWidenedSpelling(
     return `{~~${old}~>${next}~~}`
   }
   let weighed = 0
+  const budget = documentSearchBudgets.get(core)
+  let budgetSpent = false
+  let closestOnly = false
+  let weighedClosest = 0
   // `bytes`: Accept All and Reject All need only splice exactly, however the
   // pending suggestions read.
   const attempt = (span: SourceRange, prefix: number, suffix: number, variant: Variant, equivalence: TrackedEquivalence,
@@ -934,6 +968,15 @@ function searchWidenedSpelling(
     // pending; one finding none by then goes on to the spellings that only
     // resolve exactly, as one finding none at all does.
     if (!whole && !bytes && (weighed += 1) > WIDENED_SPELLINGS_WEIGHED) return undefined
+    // A spelling past the key's budget is not weighed; the closest one,
+    // which only needs to resolve exactly, is weighed once the search stops.
+    if (budget !== undefined && !closestOnly) {
+      if (budgetSpent || budget.spent + source.length > DOCUMENT_SEARCH_UNITS) {
+        budgetSpent = true
+        return undefined
+      }
+      budget.spent += source.length
+    }
     if (bytes ? !oracle.resolvesExactly([edit]) : !oracle.accepts([edit], equivalence, whole)) return undefined
     const candidate = oracle.preview([edit])
     // A tracked edit spells only whole suggestions; one that leaves a marker
@@ -1047,12 +1090,39 @@ function searchWidenedSpelling(
       }
     }
   }
+  // A key past its budget takes the closest spelling whose Accept All and
+  // Reject All read as the operation: of the edit itself, of the lines it
+  // touches, of the shortest spans holding those, or at last of the whole
+  // document.
+  const budgetGone = (): boolean => budget !== undefined && (budgetSpent || budget.spent + source.length > DOCUMENT_SEARCH_UNITS)
+  const closestSpelling = (): DocumentSourceEdit | undefined => {
+    closestOnly = true
+    const holding = candidates.filter(span => span.start <= base.start && base.end <= span.end).slice(0, CLOSEST_SPANS_WEIGHED)
+    const closest = [base, lineAligned(base), ...holding, { start: 0, end: source.length }]
+    const tried = new Set<string>()
+    for (const span of closest) {
+      const key = `${span.start}:${span.end}`
+      if (tried.has(key)) continue
+      tried.add(key)
+      // As the search's last stages weigh them: Accept All and Reject All
+      // read as the operation, then resolve to its bytes.
+      for (const bytes of [false, true]) {
+        for (const variant of ['pair', 'reversed', 'exact'] as const) {
+          if ((weighedClosest += 1) > CLOSEST_SPELLINGS_WEIGHED) return undefined
+          const edit = attempt(span, 0, 0, variant, 'exact', true, bytes)
+          if (edit !== undefined) return edit
+        }
+      }
+    }
+    return undefined
+  }
+  if (!BEST_EFFORT.has(core)) return budgetGone() ? closestSpelling() : undefined
+  if (budgetGone()) return closestSpelling()
   // Typing is never refused. Where no spelling lets each suggestion resolve
   // alone (an unclosed fence ending the document holds a closer either arm
   // would read as its own), the spelling Accept All and Reject All read as the
   // operation is kept, whatever resolving one side alone leaves (Profile 2
   // syntax limit). Only a compile that found nothing else asks for it.
-  if (!BEST_EFFORT.has(core)) return undefined
   for (const variant of ['pair', 'reversed', 'exact'] as const) {
     for (const span of candidates) {
       const edit = trimmed(span, variant, 'exact', true)
@@ -1093,7 +1163,7 @@ function searchWidenedSpelling(
       if (edit !== undefined) return edit
     }
   }
-  return undefined
+  return budgetGone() ? closestSpelling() : undefined
 }
 
 /** Whether `text` is one block whose content is literal: a fence, a math block, indented code or an HTML block. */
