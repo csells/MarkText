@@ -288,10 +288,14 @@ export function restoreMuyaDocumentSelection(
       anchorText !== undefined && focusText !== undefined && isEqual(anchorText.path, focusText.path)
         ? muya.editor.scrollPage?.queryBlock([...anchorText.path])
         : undefined
+    // Only inline presentation draws hidden syntax or images. A code block's
+    // highlighting draws neither, and scanning a long one costs every key.
+    const mayHideSyntax = caretLeaf?.blockName !== 'codeblock.content'
     if (
       insideImage(anchor) ||
       insideImage(focus) ||
-      caretLeaf?.domNode?.querySelector('.mu-hide, .mu-gray, .mu-inline-image') != null
+      (mayHideSyntax &&
+        caretLeaf?.domNode?.querySelector('.mu-hide, .mu-gray, .mu-inline-image') != null)
     ) {
       const paths = [anchorText?.path, focusText?.path].filter(
         (path): path is NonNullable<typeof path> => path !== undefined
