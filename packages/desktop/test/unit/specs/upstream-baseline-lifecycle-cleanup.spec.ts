@@ -357,6 +357,32 @@ describe('upstream baseline lifecycle cleanup', () => {
     expect(running).toEqual(new Set())
   })
 
+  it('terminates a failed launch whose executable ps spells in another case', async() => {
+    const profile = '/tmp/mt-upstream-performance-case/profile'
+    const identity = resolveUpstreamPerformanceProcessIdentity('/Apps/MarkText.app', profile, path => path)
+    const running = new Set([48001, 48002])
+    const events: string[] = []
+    await closeFailedUpstreamPerformanceLaunch({
+      closeBrowser: async() => { events.push('browser-close') },
+      launcher: { pid: 48002 },
+      processTable: [
+        ` 48001 /Apps/MarkText.app/Contents/MacOS/MarkText --inspect-brk=1 --user-data-dir ${profile} /tmp/x.md`,
+        ` 48003 /Apps/MarkText.app/Contents/MacOS/MarkTextHelper --user-data-dir ${profile}`
+      ].join('\n'),
+      identity
+    }, {
+      terminate: processId => {
+        events.push(`terminate-${String(processId)}`)
+        running.delete(processId)
+      },
+      isRunning: processId => running.has(processId),
+      sleep: async() => undefined,
+      now: Date.now
+    })
+    expect(events).toEqual(['browser-close', 'terminate-48001', 'terminate-48002'])
+    expect(running).toEqual(new Set())
+  })
+
   it('retries only transient removal races for a run-owned root', async() => {
     const runRoot = await mkdtemp(join(tmpdir(), 'mt-upstream-performance-'))
     const profile = join(runRoot, 'profile-unicode-prose')

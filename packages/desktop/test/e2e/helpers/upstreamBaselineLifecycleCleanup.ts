@@ -115,9 +115,14 @@ const matchingUpstreamPerformanceProcessIds = (
 ): readonly number[] => Object.freeze(processTable.split('\n').flatMap(line => {
   const match = /^\s*(\d+)\s+(.+)$/u.exec(line)
   const command = match?.[2]
+  // macOS volumes are case-insensitive, so `ps` may spell the executable in
+  // a case the identity does not. A case-sensitive miss here leaves a failed
+  // launch's app running; the unique profile argument still proves ownership.
+  const commandExecutable = command?.slice(0, executable.length)
   if (
     command === undefined ||
-    (command !== executable && !command.startsWith(`${executable} `))
+    commandExecutable?.toLowerCase() !== executable.toLowerCase() ||
+    (command.length > executable.length && command[executable.length] !== ' ')
   ) return []
   const profileArguments = [
     `--user-data-dir ${profile}`,
