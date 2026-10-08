@@ -267,12 +267,23 @@ export const reachesWindowEdge = (core: DocumentCore, range: SourceRange, length
 }
 /** Spellings derived from the document's reading change (see searchWidenedSpelling). */
 const derivedSpellings = new WeakSet<DocumentSourceEdit>()
+/**
+ * The span each widened spelling was found in. A span that reaches an edge
+ * of a window the document goes on past, as the rest of the window or the
+ * whole of it does, is the window's extent rather than the document's: the
+ * document compile weighs its own, wider, span there and may settle on
+ * another spelling, however narrowly the window's then trims.
+ */
+const spellingSpans = new WeakMap<DocumentSourceEdit, SourceRange>()
 export const reachesOpenWindowEdge = (core: DocumentCore, range: SourceRange, length: number): Readonly<{ start: boolean, end: boolean }> | undefined => {
   const edges = windowCompileCores.get(core)
   const start = edges !== undefined && range.start === 0 && !edges.startsDocument
   const end = edges !== undefined && range.end === length && !edges.endsDocument
   return start || end ? { start, end } : undefined
 }
+/** Whether a window core's window ends where its document does; undefined for a core reading a document whole. */
+export const windowEndsDocument = (core: DocumentCore): boolean | undefined => windowCompileCores.get(core)?.endsDocument
+
 /**
  * Marks a window core's draft as one the document must settle, and which
  * edges of the window it reaches: both, where the window found no spelling.
@@ -734,11 +745,13 @@ export function widenedTrackedSourceEdit(
   // The span the document's reading change derives is the document's own,
   // which a window holding that change spells as the document would;
   // any other spelling reaching a window edge may need text beyond it.
+  const span = spelled === undefined ? undefined : spellingSpans.get(spelled)
   const reached = spelled === undefined
     ? undefined
     : derivedSpellings.has(spelled)
       ? reachesOpenWindowEdge(core, spelled, previous.sourceLength)
-      : reachesWindowEdge(core, spelled, previous.sourceLength)
+      : reachesWindowEdge(core, spelled, previous.sourceLength) ??
+        (span === undefined ? undefined : reachesOpenWindowEdge(core, span, previous.sourceLength))
   if (reached !== undefined) {
     markUnresolvedDraft(core, reached)
   }
@@ -976,7 +989,9 @@ function searchWidenedSpelling(
     let suffixCommon = 0
     while (suffixCommon < rest && old[old.length - 1 - suffixCommon] === next[next.length - 1 - suffixCommon]) suffixCommon += 1
     const suffixes = boundaries(suffixCommon, index => old[index], true)
-    return largest(suffixes, value => value === 0 ? afterPrefix : attempt(span, prefix, value, variant, equivalence, whole, bytes), afterPrefix)[1]
+    const spelled = largest(suffixes, value => value === 0 ? afterPrefix : attempt(span, prefix, value, variant, equivalence, whole, bytes), afterPrefix)[1]
+    spellingSpans.set(spelled, span)
+    return spelled
   }
   // A span enclosing an existing annotation repeats it in both arms; prefer
   // spans of plain source even at the cost of a rendering-identical spelling.
