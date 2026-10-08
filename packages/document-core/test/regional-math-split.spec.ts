@@ -129,11 +129,13 @@ describe('a `$$` line a key opens reads on to the first `$$` after it', () => {
     const revision = core.apply(core.open(source), [{ start: 0, end: 0, insert: 'q' }], { projections: ['markup'] }).revision
     const at = revision.source.indexOf('x\n$$') + 1
     const edit = { start: at, end: at, insert: '\n\n' }
-    const parses = inspectDocumentCore(core).documentParses
     expect(core.trackedEdit(revision, edit)).toEqual(generalPlan(revision.source, edit))
+    const parses = inspectDocumentCore(core).documentParses
     const applied = core.apply(revision, [edit], { projections: ['markup'] }).revision
     // The blocks from the key to the far block are read without the
-    // document where they are its smaller part.
+    // document where they are its smaller part. (The tracked key's
+    // suggestion leaves its `$$` line open past the window it is spelled in,
+    // so the document spells it.)
     if (more !== 0) expect(inspectDocumentCore(core).documentParses).toBe(parses)
     const fresh = createDocumentCore()
     const opened = fresh.open(applied.source)
@@ -143,5 +145,24 @@ describe('a `$$` line a key opens reads on to the first `$$` after it', () => {
     expect(blocks(fresh, opened).filter(([kind]) => kind === 'math-block')).toHaveLength(1)
     expect(applied.annotations).toEqual(opened.annotations)
     expect(applied.diagnostics).toEqual(opened.diagnostics)
+  })
+})
+
+// A line holding only a suggestion's closer is text to the intrinsic pass,
+// so a paragraph reads on through it into a math block after it, whose `$$`
+// then pairs with one in the paragraph: the window reads the block too (B16).
+describe('a key that joins a paragraph to the math block after it', () => {
+  it('reads the joined block as the document does', () => {
+    const paragraph = 'Review {++new++} and {--old--} text.'
+    const blocks = Array.from({ length: 40 }, () => paragraph)
+    const head = 'costs $$5 and $3\n'
+    const source = `${blocks.slice(0, 20).join('\n\n')}\n\n${head}\n$$\nx_0 + y\nx_1\n$$\n\n${blocks.slice(20).join('\n\n')}\n`
+    const core = createDocumentCore()
+    const revision = core.apply(core.open(source), [{ start: 0, end: 0, insert: 'q' }], { projections: ['markup'] }).revision
+    const at = revision.source.indexOf(head) + head.length
+    const applied = core.apply(revision, [{ start: at, end: at, insert: '{++x\n++}' }], { projections: ['markup'] }).revision
+    const fresh = createDocumentCore().open(applied.source)
+    expect(applied.annotations).toEqual(fresh.annotations)
+    expect(applied.diagnostics).toEqual(fresh.diagnostics)
   })
 })
