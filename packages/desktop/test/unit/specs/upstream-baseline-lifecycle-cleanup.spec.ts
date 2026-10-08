@@ -19,6 +19,7 @@ import {
 import {
   closeFailedUpstreamPerformanceLaunch,
   closeUpstreamPerformanceApplication,
+  forceKillOwnedProcess,
   createUpstreamPerformanceBlankBootstrapFile,
   createUpstreamPerformanceObservationIsolation,
   findUpstreamPerformanceProcessId,
@@ -201,6 +202,7 @@ describe('upstream baseline lifecycle cleanup', () => {
       terminate: processId => {
         events.push(`terminate-${String(processId)}`)
       },
+      forceKill: processId => { events.push(`force-kill-${String(processId)}`) },
       isRunning: processId => processId === 47001
         ? applicationRunning
         : launcherRunning,
@@ -296,6 +298,7 @@ describe('upstream baseline lifecycle cleanup', () => {
       launcher: { pid: 47002 }
     }, {
       terminate: processId => events.push(`terminate-${String(processId)}`),
+      forceKill: processId => { events.push(`force-kill-${String(processId)}`) },
       isRunning: processId => processId === 47001
         ? applicationRunning
         : launcherRunning,
@@ -343,6 +346,7 @@ describe('upstream baseline lifecycle cleanup', () => {
         events.push(`terminate-${String(processId)}`)
         running.delete(processId)
       },
+      forceKill: processId => { events.push(`force-kill-${String(processId)}`) },
       isRunning: processId => running.has(processId),
       sleep: async() => undefined,
       now: Date.now
@@ -375,12 +379,50 @@ describe('upstream baseline lifecycle cleanup', () => {
         events.push(`terminate-${String(processId)}`)
         running.delete(processId)
       },
+      forceKill: processId => { events.push(`force-kill-${String(processId)}`) },
       isRunning: processId => running.has(processId),
       sleep: async() => undefined,
       now: Date.now
     })
     expect(events).toEqual(['browser-close', 'terminate-48001', 'terminate-48002'])
     expect(running).toEqual(new Set())
+  })
+
+  it('force-kills an owned app that SIGTERM leaves running, as at --inspect-brk', async() => {
+    const events: string[] = []
+    const running = new Set([49001, 49002])
+    let now = 0
+    await closeUpstreamPerformanceApplication({
+      closeBrowser: async() => { events.push('browser-close') },
+      processId: 49001,
+      launcher: { pid: 49002 }
+    }, {
+      terminate: processId => {
+        events.push(`terminate-${String(processId)}`)
+        if (processId === 49002) running.delete(processId)
+      },
+      forceKill: processId => {
+        events.push(`force-kill-${String(processId)}`)
+        running.delete(processId)
+      },
+      isRunning: processId => running.has(processId),
+      sleep: async() => { now += 1_000 },
+      now: () => now
+    })
+    expect(events).toEqual(['browser-close', 'terminate-49001', 'force-kill-49001', 'terminate-49002'])
+    expect(running).toEqual(new Set())
+  })
+
+  it('force-kills a group leader with its group and any other process alone', () => {
+    const kills: Array<[number, string]> = []
+    const kill = (target: number, signal: NodeJS.Signals) => { kills.push([target, signal]) }
+    forceKillOwnedProcess(51001, () => 51001, kill)
+    forceKillOwnedProcess(51002, () => 700, kill)
+    forceKillOwnedProcess(51003, () => undefined, kill)
+    expect(kills).toEqual([[-51001, 'SIGKILL'], [51002, 'SIGKILL'], [51003, 'SIGKILL']])
+    expect(() => forceKillOwnedProcess(51004, () => undefined, () => {
+      throw Object.assign(new Error('gone'), { code: 'ESRCH' })
+    })).not.toThrow()
   })
 
   it('retries only transient removal races for a run-owned root', async() => {

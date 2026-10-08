@@ -18,6 +18,11 @@ interface FailedUpstreamPerformanceLaunch {
 
 interface UpstreamProcessLifecycle {
   readonly terminate: (processId: number) => void
+  /**
+   * The last resort for an owned process that outlived `terminate`, such as
+   * an app paused at --inspect-brk, which never handles SIGTERM.
+   */
+  readonly forceKill: (processId: number) => void
   readonly isRunning: (processId: number) => boolean
   readonly sleep: () => Promise<void>
   readonly now: () => number
@@ -79,16 +84,25 @@ export const resolveUpstreamPerformanceProcessIdentity = (
 const waitForExit = async(
   processId: number,
   lifecycle: UpstreamProcessLifecycle
-): Promise<void> => {
+): Promise<boolean> => {
   const deadline = lifecycle.now() + CLEANUP_TIMEOUT_MS
   while (lifecycle.isRunning(processId)) {
-    if (lifecycle.now() >= deadline) {
-      throw new Error(
-        `Upstream performance process ${String(processId)} did not exit`
-      )
-    }
+    if (lifecycle.now() >= deadline) return false
     await lifecycle.sleep()
   }
+  return true
+}
+
+const stopOwnedProcess = async(
+  processId: number,
+  lifecycle: UpstreamProcessLifecycle
+): Promise<void> => {
+  if (!lifecycle.isRunning(processId)) return
+  lifecycle.terminate(processId)
+  if (await waitForExit(processId, lifecycle)) return
+  lifecycle.forceKill(processId)
+  if (await waitForExit(processId, lifecycle)) return
+  throw new Error(`Upstream performance process ${String(processId)} did not exit`)
 }
 
 export const closeUpstreamPerformanceApplication = async(
@@ -97,14 +111,27 @@ export const closeUpstreamPerformanceApplication = async(
 ): Promise<void> => {
   await application.closeBrowser().catch(() => undefined)
   const processId = application.processId
-  if (processId !== undefined && lifecycle.isRunning(processId)) {
-    lifecycle.terminate(processId)
-    await waitForExit(processId, lifecycle)
-  }
+  if (processId !== undefined) await stopOwnedProcess(processId, lifecycle)
   const launcherId = application.launcher.pid
-  if (launcherId !== undefined && lifecycle.isRunning(launcherId)) {
-    lifecycle.terminate(launcherId)
-    await waitForExit(launcherId, lifecycle)
+  if (launcherId !== undefined) await stopOwnedProcess(launcherId, lifecycle)
+}
+
+/**
+ * SIGKILL an owned process, and its whole process group when it leads one:
+ * LaunchServices starts each app as its own group leader, so the group takes
+ * its helpers with it. A process in another's group (the test's own `open`
+ * launcher) is killed alone.
+ */
+export const forceKillOwnedProcess = (
+  processId: number,
+  processGroupOf: (processId: number) => number | undefined,
+  kill: (target: number, signal: NodeJS.Signals) => void
+): void => {
+  const target = processGroupOf(processId) === processId ? -processId : processId
+  try {
+    kill(target, 'SIGKILL')
+  } catch (error) {
+    if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) throw error
   }
 }
 
@@ -173,16 +200,9 @@ export const closeFailedUpstreamPerformanceLaunch = async(
   let cleanupFailure: unknown
   try {
     await application.closeBrowser().catch(() => undefined)
-    for (const processId of processIds) {
-      if (!lifecycle.isRunning(processId)) continue
-      lifecycle.terminate(processId)
-      await waitForExit(processId, lifecycle)
-    }
+    for (const processId of processIds) await stopOwnedProcess(processId, lifecycle)
     const launcherId = application.launcher.pid
-    if (launcherId !== undefined && lifecycle.isRunning(launcherId)) {
-      lifecycle.terminate(launcherId)
-      await waitForExit(launcherId, lifecycle)
-    }
+    if (launcherId !== undefined) await stopOwnedProcess(launcherId, lifecycle)
   } catch (error) {
     cleanupFailure = error
   }
