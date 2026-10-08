@@ -990,7 +990,7 @@ function searchWidenedSpelling(
   const spellDerived = (): DocumentSourceEdit | undefined => {
     if (derived === undefined) return undefined
     const soon = candidates.slice(0, 3).some(span => span.start === derived.start && span.end === derived.end)
-    for (const variant of soon ? ['exact'] as const : ['exact', 'pair', 'reversed'] as const) {
+    for (const variant of soon ? ['pair'] as const : ['pair', 'exact', 'reversed'] as const) {
       const edit = attempt(derived, 0, 0, variant, 'exact')
       if (edit !== undefined) {
         derivedSpellings.add(edit)
@@ -1005,7 +1005,7 @@ function searchWidenedSpelling(
     const touched = lineAligned(base)
     const near = candidates.filter(span => touched.start <= span.start && span.end <= touched.end)
     for (const enclosing of [false, true]) {
-      for (const variant of ['exact', 'pair', 'reversed'] as const) {
+      for (const variant of ['pair', 'exact', 'reversed'] as const) {
         for (const span of near.filter(candidate => encloses(candidate) === enclosing)) {
           const edit = trimmed(span, variant, 'exact')
           if (edit !== undefined) return edit
@@ -1017,7 +1017,7 @@ function searchWidenedSpelling(
   }
   for (const enclosing of [false, true]) {
     const spans = candidates.filter(span => encloses(span) === enclosing)
-    for (const variant of ['exact', 'pair', 'reversed'] as const) {
+    for (const variant of ['pair', 'exact', 'reversed'] as const) {
       for (const span of spans) {
         const edit = trimmed(span, variant, 'exact')
         if (edit !== undefined) return edit
@@ -1025,7 +1025,7 @@ function searchWidenedSpelling(
     }
     // Byte identity is impossible only where a delimiter would join the payload
     // (a final escape) or a block literal must end before its delimiter line.
-    for (const variant of ['exact', 'pair', 'reversed', 'escaped', 'padded', 'shifted'] as const) {
+    for (const variant of ['pair', 'exact', 'reversed', 'escaped', 'padded', 'shifted'] as const) {
       for (const span of spans) {
         const edit = trimmed(span, variant, 'rendering')
         if (edit !== undefined) return edit
@@ -1059,7 +1059,7 @@ function searchWidenedSpelling(
     }
     return trims.reverse().slice(0, 8)
   }
-  for (const variant of ['exact', 'pair', 'reversed'] as const) {
+  for (const variant of ['pair', 'exact', 'reversed'] as const) {
     for (const span of candidates) {
       const mapped = toTarget(span)
       const old = source.slice(span.start, span.end)
