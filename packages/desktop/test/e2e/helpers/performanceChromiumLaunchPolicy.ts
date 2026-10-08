@@ -856,6 +856,65 @@ export const assertMacWindowServerPresentation = (
   )
 }
 
+/**
+ * Whether a failed WindowServer read differs from the window only in position:
+ * the one exact row is transparent, on screen, at the normal layer, with the
+ * expected title and size. A Space transition slides every window, so such a
+ * row can be caught mid-move; nothing a hidden run must prove differs.
+ */
+const isWindowServerPositionOnlyMismatch = (
+  diagnostic: MacWindowServerPresentationDiagnostic
+): boolean => {
+  const [row] = diagnostic.candidateRows
+  const expected = diagnostic.expected
+  return diagnostic.reason === 'exact-window-state' &&
+    diagnostic.exactMatchCount === 1 &&
+    row !== undefined && row.windowNumber === expected.windowNumber &&
+    row.title === expected.title && row.bounds != null &&
+    row.bounds.width === expected.bounds.width &&
+    row.bounds.height === expected.bounds.height &&
+    row.onScreen === true && row.alpha === 0 && row.layer === 0
+}
+
+/**
+ * assertMacWindowServerPresentation, reading WindowServer once more after a
+ * short settle when the first read differs only in the window's position.
+ * Every property a hidden run proves (transparent, on screen, not focused,
+ * the exact window) must still hold in a single read; a second failure
+ * reports both reads.
+ */
+export const assertMacWindowServerPresentationSettled = async(
+  expectedProcessId: number,
+  readExpectedWindow: () => Promise<Pick<
+    PerformanceWindowPresentationState,
+    'bounds' | 'title' | 'windowNumber'
+  >>,
+  options: Readonly<{
+    query?: (processId: number) => readonly MacWindowServerPresentationState[]
+    wait?: (milliseconds: number) => Promise<void>
+    settleMs?: number
+  }> = {}
+): Promise<void> => {
+  const query = options.query ?? queryMacWindowServerPresentation
+  const wait = options.wait ?? (milliseconds => new Promise(resolve => { setTimeout(resolve, milliseconds) }))
+  try {
+    assertMacWindowServerTransparentRenderActive(
+      query(expectedProcessId), expectedProcessId, await readExpectedWindow())
+  } catch (first) {
+    if (!(first instanceof MacWindowServerPresentationInvariantError) ||
+      !isWindowServerPositionOnlyMismatch(first.diagnostic)) throw first
+    await wait(options.settleMs ?? 500)
+    try {
+      assertMacWindowServerTransparentRenderActive(
+        query(expectedProcessId), expectedProcessId, await readExpectedWindow())
+    } catch (second) {
+      throw new AggregateError([first, second],
+        'WindowServer presentation invariant failed on two reads ' +
+        `${String(options.settleMs ?? 500)} ms apart: first=${first.message}; second=${second instanceof Error ? second.message : String(second)}`)
+    }
+  }
+}
+
 const installedPerformanceWindowCommand = async(
   application: ElectronApplication,
   targetId: string,

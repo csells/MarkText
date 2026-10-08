@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   activateInstalledPerformanceWindow,
   awaitMacWindowServerPresentationConvergence,
+  assertMacWindowServerPresentationSettled,
   assertMacWindowServerTransparentRenderActive,
   assertTransparentRenderActiveInactive,
   closeInstalledPerformanceWindow,
@@ -1084,6 +1085,60 @@ describe('hidden performance Chromium launch policy', () => {
       title: 'sample.md — MarkText',
       bounds: { x: 20, y: 30, width: 900, height: 700 }
     })).toThrow(/presentation invariant failed/i)
+  })
+
+  it('reads WindowServer once more when only the window position differs', async() => {
+    const bounds = Object.freeze({ x: 1320, y: 380, width: 1200, height: 800 })
+    const expectedWindow = Object.freeze({ windowNumber: 81, bounds, title: 'arm.md' })
+    const row = (x: number, extra: Record<string, unknown> = {}) => ({
+      windowNumber: 81,
+      ownerProcessId: 1234,
+      title: 'arm.md',
+      bounds: { ...bounds, x },
+      alpha: 0,
+      layer: 0,
+      onScreen: true,
+      ...extra
+    })
+    const waits: number[] = []
+    const reads = [[row(-2574)], [row(1320)]]
+    await expect(assertMacWindowServerPresentationSettled(1234, async() => expectedWindow, {
+      query: () => reads.shift() ?? [],
+      wait: async milliseconds => { waits.push(milliseconds) }
+    })).resolves.toBeUndefined()
+    expect(waits).toEqual([500])
+
+    const twice = [[row(-2574)], [row(-2574)]]
+    await expect(assertMacWindowServerPresentationSettled(1234, async() => expectedWindow, {
+      query: () => twice.shift() ?? [],
+      wait: async() => {}
+    })).rejects.toThrow(/two reads 500 ms apart: first=.*-2574.*second=.*-2574/s)
+  })
+
+  it('never re-reads a WindowServer row that differs in what a hidden run proves', async() => {
+    const bounds = Object.freeze({ x: 20, y: 30, width: 900, height: 700 })
+    const expectedWindow = Object.freeze({ windowNumber: 81, bounds, title: 'arm.md' })
+    for (const invalid of [{ alpha: 1 }, { layer: 3 }, { onScreen: false }, { title: 'other.md' },
+      { bounds: { ...bounds, width: 901 } }]) {
+      let queries = 0
+      await expect(assertMacWindowServerPresentationSettled(1234, async() => expectedWindow, {
+        query: () => {
+          queries += 1
+          return [{
+            windowNumber: 81,
+            ownerProcessId: 1234,
+            title: 'arm.md',
+            bounds: { ...bounds, x: 5 },
+            alpha: 0,
+            layer: 0,
+            onScreen: true,
+            ...invalid
+          }]
+        },
+        wait: async() => {}
+      })).rejects.toThrow(/WindowServer presentation invariant failed/i)
+      expect(queries).toBe(1)
+    }
   })
 
   it('requires one exact on-screen layer-zero alpha-zero WindowServer match', () => {
