@@ -2037,17 +2037,17 @@ function freezeSegment(segment: MutableProjectionSegment): MappedProjectionSegme
 function canonicalIdentityRunsFor(
   segments: readonly MutableProjectionSegment[]
 ): readonly MappedMarkdownCanonicalIdentityRun[] {
-  return Object.freeze(segments.flatMap(
-    (segment): readonly MappedMarkdownCanonicalIdentityRun[] =>
-      segment.kind === 'generated'
-        ? Object.freeze([])
-        : Object.freeze([Object.freeze({
-          candidateStart: segment.projectedStart,
-          candidateEnd: segment.projectedEnd,
-          sourceRunId: segment.sourceRunId,
-          sourceStart: segment.sourceStart
-        })])
-  ))
+  const runs: MappedMarkdownCanonicalIdentityRun[] = []
+  for (const segment of segments) {
+    if (segment.kind === 'generated') continue
+    runs.push(Object.freeze({
+      candidateStart: segment.projectedStart,
+      candidateEnd: segment.projectedEnd,
+      sourceRunId: segment.sourceRunId,
+      sourceStart: segment.sourceStart
+    }))
+  }
+  return Object.freeze(runs)
 }
 
 function createProvenance(
@@ -2055,19 +2055,18 @@ function createProvenance(
   mutableSegments: readonly MutableProjectionSegment[]
 ): ProjectionProvenance {
   const segments = Object.freeze(mutableSegments.map(freezeSegment))
-  const canonicalSegments = Object.freeze(
-    segments.flatMap((segment) =>
-      segment.kind === 'generated'
-        ? Object.freeze([])
-        : Object.freeze([Object.freeze({
-          sourceStart: segment.sourceStart,
-          sourceEnd:
-            segment.sourceStart +
-            segment.projectedEnd -
-            segment.projectedStart
-        })])
-    )
-  )
+  const canonical: Array<Readonly<{ sourceStart: number, sourceEnd: number }>> = []
+  for (const segment of segments) {
+    if (segment.kind === 'generated') continue
+    canonical.push(Object.freeze({
+      sourceStart: segment.sourceStart,
+      sourceEnd:
+        segment.sourceStart +
+        segment.projectedEnd -
+        segment.projectedStart
+    }))
+  }
+  const canonicalSegments = Object.freeze(canonical)
   const originAt = Object.freeze((projectedOffset: number): ProjectedCodeUnitOrigin => {
     if (
       !Number.isInteger(projectedOffset) ||
