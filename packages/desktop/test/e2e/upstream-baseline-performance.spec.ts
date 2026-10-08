@@ -27,7 +27,8 @@ import {
   inspectUpstreamPerformanceWindow,
   installUpstreamExternalHiddenPolicy,
   type UpstreamInspectorChannel,
-  type UpstreamInspectorResponse
+  type UpstreamInspectorResponse,
+  showMarkTextReviewSidebar
 } from './helpers/upstreamBaselineHiddenPolicy'
 import {
   closeFailedUpstreamPerformanceLaunch,
@@ -258,26 +259,6 @@ const processGroupOf = (processId: number): number | undefined => {
 
 const forceKill = (processId: number): void => {
   forceKillOwnedProcess(processId, processGroupOf, (target, signal) => process.kill(target, signal))
-}
-
-/** Click MarkText's View › Comments and Suggestions item for the editor window. */
-const showMarkTextReviewSidebar = async(channel: UpstreamInspectorChannel): Promise<void> => {
-  const response = await channel.send('Runtime.evaluate', {
-    expression: `(() => {
-      const { BrowserWindow, Menu } = require('electron')
-      const item = Menu.getApplicationMenu()?.getMenuItemById('critic-show')
-      if (!item) throw new Error('The critic-show menu item is missing')
-      const win = BrowserWindow.getAllWindows().find(candidate => candidate.webContents.getURL().includes('type=editor'))
-      if (!win) throw new Error('The editor window is missing')
-      item.click(undefined, win, win.webContents)
-      return true
-    })()`,
-    returnByValue: true
-  })
-  const exception = response.result?.exceptionDetails
-  if (exception !== undefined) {
-    throw new Error(exception.exception?.description ?? exception.text ?? 'Showing the Review sidebar failed')
-  }
 }
 
 const processIdForIdentity = (
@@ -962,7 +943,7 @@ test.describe('upstream warm-session echo on ordinary Markdown', () => {
         if (tracking) {
           // Track Changes lives in MarkText's Review sidebar, which a fresh
           // profile keeps closed: open it from its menu item, as a user would.
-          await showMarkTextReviewSidebar(app.inspector)
+          await showMarkTextReviewSidebar(app.inspector, app.targetId)
           const trackChanges = page.getByTestId('critic-review-track-changes')
           await trackChanges.click({ timeout: 30_000 })
           await expect(trackChanges).toHaveAttribute('aria-pressed', 'true')

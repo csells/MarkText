@@ -33,7 +33,8 @@ export interface UpstreamInspectorChannel {
 }
 
 export const upstreamExternalHiddenPolicyExpression = `(() => {
-  const { app, BrowserWindow, webContents } = require('electron')
+  const electron = require('electron')
+  const { app, BrowserWindow, webContents } = electron
   const installPerformanceWindowScheduling = (
     ${PERFORMANCE_WINDOW_SCHEDULING_INSTALLER_SOURCE}
   )
@@ -47,6 +48,19 @@ export const upstreamExternalHiddenPolicyExpression = `(() => {
     activate: targetId => lifecycle.activate(targetId),
     inspect: targetId => lifecycle.inspect(targetId),
     close: targetId => lifecycle.close(targetId),
+    // MarkText's Review sidebar (View menu, critic-show), for its tracked
+    // runs. The main module's require is only in scope here, at the break.
+    showReviewSidebar: targetId => {
+      const contents = webContents.fromDevToolsTargetId(targetId)
+      const window = contents === undefined ? undefined : BrowserWindow.fromWebContents(contents)
+      if (window == null || window.isDestroyed()) {
+        throw new Error('Measured renderer BrowserWindow is unavailable')
+      }
+      const item = electron.Menu.getApplicationMenu()?.getMenuItemById('critic-show')
+      if (item == null) throw new Error('The critic-show menu item is unavailable')
+      item.click(undefined, window, contents)
+      return true
+    },
     capturePage: async targetId => {
       const contents = webContents.fromDevToolsTargetId(targetId)
       if (contents === undefined || contents.isDestroyed()) {
@@ -105,7 +119,7 @@ export const captureUpstreamElectronHiddenPage = async(
 const upstreamPerformanceWindowCommand = async(
   channel: UpstreamInspectorChannel,
   targetId: string,
-  command: 'activate' | 'inspect' | 'close'
+  command: 'activate' | 'inspect' | 'close' | 'showReviewSidebar'
 ): Promise<unknown> => {
   const response = await channel.send('Runtime.evaluate', {
     expression: `globalThis.__marktextUpstreamHiddenLaunch.${command}(` +
@@ -116,6 +130,14 @@ const upstreamPerformanceWindowCommand = async(
   const failure = upstreamInspectorExceptionMessage(response)
   if (failure !== undefined) throw new Error(failure)
   return response.result?.result?.value
+}
+
+/** Open MarkText's Review sidebar in the measured window, for tracked runs. */
+export const showMarkTextReviewSidebar = async(
+  channel: UpstreamInspectorChannel,
+  targetId: string
+): Promise<void> => {
+  await upstreamPerformanceWindowCommand(channel, targetId, 'showReviewSidebar')
 }
 
 export const activateUpstreamPerformanceWindow = async(
