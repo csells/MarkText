@@ -64,7 +64,10 @@ export interface UpstreamPerformanceProcessIdentity {
 export const resolveUpstreamPerformanceProcessIdentity = (
   appBundle: string,
   profile: string,
-  resolveExecutable: (executable: string) => string = realpathSync
+  // The native realpath reports the bundle's on-disk case (`MarkText` in
+  // MarkText's own package), which `ps` prints; the JavaScript one keeps
+  // the case it was given on a case-insensitive volume.
+  resolveExecutable: (executable: string) => string = realpathSync.native
 ): Readonly<UpstreamPerformanceProcessIdentity> => Object.freeze({
   executable: resolveExecutable(join(
     appBundle,
