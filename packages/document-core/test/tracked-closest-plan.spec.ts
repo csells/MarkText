@@ -1,0 +1,56 @@
+import { describe, expect, it } from 'vitest'
+import { createDocumentCore } from '../src/index.js'
+
+// Vision principle 7: any edit that can be made untracked can be made
+// tracked. A `$$` typed in an Addition that pairs with the `$$` opening the
+// document reads as no edit of the markup, and no narrower suggestion spells
+// it: the document's own compile spells it with its closest suggestion, the
+// whole text, which Accept All and Reject All resolve exactly, and leaves the
+// caret after the typed text (B17).
+const source = '$$\n\n{++x\n\nw++}\n\n\ny\n$$~~}\n'
+const typed = source.slice(0, 8) + '$$' + source.slice(8)
+// The text around the key it suggests replacing, whole: a Deletion of it
+// beside an Addition of it as typed.
+const closest = { start: 0, end: 15 }
+const spelled = `{--${source.slice(closest.start, closest.end)}--}{++${typed.slice(closest.start, closest.end + 2)}++}`
+
+describe('a tracked key no narrower suggestion spells', () => {
+  it('is planned by the document with its closest spelling', () => {
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    expect(core.trackedEdit(opened, { start: 8, end: 8, insert: '$$' })).toEqual({ ...closest, insert: spelled })
+  })
+
+  it('resolves exactly under Accept All and Reject All', () => {
+    const deletion = `{--${source.slice(closest.start, closest.end)}--}`
+    expect(spelled.startsWith(deletion) && spelled.endsWith('++}')).toBe(true)
+    const proposed = spelled.slice(deletion.length + 3, -3)
+    expect(source.slice(0, closest.start) + proposed + source.slice(closest.end)).toBe(typed)
+    expect(source.slice(0, closest.start) + source.slice(closest.start, closest.end) + source.slice(closest.end)).toBe(source)
+  })
+
+  it('is typed with the caret after the typed text', () => {
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const action = {
+      range: { start: 8, end: 8 },
+      selection: { ranges: [{ anchor: 8, focus: 8 }], primary: 0 },
+      inputType: 'insertText',
+      data: '$$',
+      options: { autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true }
+    } as const
+    const plan = core.planInput(opened, action, { tracked: true })
+    const edits = core.inputEdits(opened, action, plan, true)
+    const [edit] = edits ?? []
+    if (edit === undefined) throw new Error('Expected a tracked plan')
+    // A Deletion of the text around the key beside an Addition of it as typed.
+    const deletion = `{--${source.slice(edit.start, edit.end)}--}{++`
+    expect(edit.insert).toBe(`${deletion}${typed.slice(edit.start, edit.end + 2)}++}`)
+    const commit = core.apply(opened, [edit])
+    const result = core.reconcileInput(opened, plan, commit, action)
+    const caret = result.selection !== undefined && 'ranges' in result.selection ? result.selection.ranges[0] : undefined
+    // After `$$` in the proposed text.
+    const after = edit.start + deletion.length + (8 - edit.start) + 2
+    expect(caret).toEqual({ anchor: after, focus: after })
+  })
+})

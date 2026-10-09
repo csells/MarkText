@@ -662,9 +662,15 @@ const WIDENED_SPELLINGS_WEIGHED = 32
  */
 export const DOCUMENT_SEARCH_UNITS = 8192
 
-/** Spans a key past its budget weighs for its closest spelling, and spellings in all. */
-const CLOSEST_SPANS_WEIGHED = 4
-const CLOSEST_SPELLINGS_WEIGHED = 18
+/**
+ * Oracles of an edit the markup compile cannot read, spelled as the source
+ * edit it is: its untracked reading may leave markers unpaired, but no
+ * spelling of it may.
+ */
+export const spelledAsSource = new WeakSet<TrackedOracle>()
+
+/** Spellings of each kind a key past its budget weighs for its closest one, besides the whole document's. */
+const CLOSEST_SPELLINGS_WEIGHED = 24
 
 const documentSearchBudgets = new WeakMap<DocumentCore, { spent: number }>()
 
@@ -981,7 +987,11 @@ function searchWidenedSpelling(
     const candidate = oracle.preview([edit])
     // A tracked edit spells only whole suggestions; one that leaves a marker
     // unpaired beyond those the untracked edit leaves is no spelling of it.
-    if (!bytes && candidate.diagnostics.length > Math.max(previous.diagnostics.length, oracle.preview(untracked).diagnostics.length)) return undefined
+    // A key spelled as the source edit it is (see `spelledAsSource`) takes
+    // no spelling that leaves a marker unpaired, however it resolves.
+    if (spelledAsSource.has(oracle)
+      ? candidate.diagnostics.length > previous.diagnostics.length
+      : !bytes && candidate.diagnostics.length > Math.max(previous.diagnostics.length, oracle.preview(untracked).diagnostics.length)) return undefined
     const authored = markupAnnotations(candidate.annotations).find(annotation =>
       annotation.range.end === start + insert.length && annotation.range.start >= start)
     return authored === undefined ? undefined : edit
@@ -1094,24 +1104,61 @@ function searchWidenedSpelling(
   // Reject All read as the operation: of the edit itself, of the lines it
   // touches, of the shortest spans holding those, or at last of the whole
   // document.
+  // Whole lines common to both readings at either end may stay outside.
+  const lineTrims = (old: string, next: string, fromEnd: boolean): number[] => {
+    const trims = [0]
+    for (let length = 1; length <= Math.min(old.length, next.length); length += 1) {
+      const a = fromEnd ? old[old.length - length] : old[length - 1]
+      if (a !== (fromEnd ? next[next.length - length] : next[length - 1])) break
+      const boundary = fromEnd ? old[old.length - length - 1] : a
+      if (boundary === '\n' || boundary === '\r') trims.push(length)
+    }
+    return trims.reverse().slice(0, 8)
+  }
   const budgetGone = (): boolean => budget !== undefined && (budgetSpent || budget.spent + source.length > DOCUMENT_SEARCH_UNITS)
+  // A spelling over `span` that resolves to the operation's bytes, with the
+  // whole lines common to both readings at either end left outside.
+  const exactly = (span: SourceRange, variant: Variant): DocumentSourceEdit | undefined => {
+    const mapped = toTarget(span)
+    const old = source.slice(span.start, span.end)
+    const next = target.slice(mapped.start, mapped.end)
+    for (const suffix of lineTrims(old, next, true)) {
+      for (const prefix of lineTrims(old.slice(0, old.length - suffix), next.slice(0, next.length - suffix), false)) {
+        const edit = attempt(span, prefix, suffix, variant, 'exact', true, true)
+        if (edit !== undefined) return edit
+      }
+    }
+    return undefined
+  }
   const closestSpelling = (): DocumentSourceEdit | undefined => {
     closestOnly = true
-    const holding = candidates.filter(span => span.start <= base.start && base.end <= span.end).slice(0, CLOSEST_SPANS_WEIGHED)
-    const closest = [base, lineAligned(base), ...holding, { start: 0, end: source.length }]
-    const tried = new Set<string>()
-    for (const span of closest) {
+    const whole = { start: 0, end: source.length }
+    const spans: SourceRange[] = []
+    const tried = new Set<string>([`${whole.start}:${whole.end}`])
+    for (const span of [base, lineAligned(base), ...candidates.filter(span => span.start <= base.start && base.end <= span.end)]) {
       const key = `${span.start}:${span.end}`
       if (tried.has(key)) continue
       tried.add(key)
-      // As the search's last stages weigh them: Accept All and Reject All
-      // read as the operation, then resolve to its bytes.
-      for (const bytes of [false, true]) {
+      spans.push(span)
+    }
+    // As the search's last stages weigh them: spellings whose Accept All and
+    // Reject All read as the operation over each span, narrowest first, then
+    // those resolving to the operation's bytes; the whole document is always
+    // weighed, last.
+    for (const bytes of [false, true]) {
+      weighedClosest = 0
+      for (const span of spans) {
         for (const variant of ['pair', 'reversed', 'exact'] as const) {
-          if ((weighedClosest += 1) > CLOSEST_SPELLINGS_WEIGHED) return undefined
-          const edit = attempt(span, 0, 0, variant, 'exact', true, bytes)
+          if ((weighedClosest += 1) > CLOSEST_SPELLINGS_WEIGHED) break
+          const edit = bytes ? exactly(span, variant) : trimmed(span, variant, 'exact', true)
           if (edit !== undefined) return edit
         }
+      }
+    }
+    for (const bytes of [false, true]) {
+      for (const variant of ['pair', 'reversed', 'exact'] as const) {
+        const edit = attempt(whole, 0, 0, variant, 'exact', true, bytes)
+        if (edit !== undefined) return edit
       }
     }
     return undefined
@@ -1133,17 +1180,6 @@ function searchWidenedSpelling(
   // outside the suggestion (as an unclosed fence's last `~~}` line, which no
   // arm can hold without a line break of its own) reads as text until the
   // suggestion resolves.
-  // Whole lines common to both readings at either end may stay outside.
-  const lineTrims = (old: string, next: string, fromEnd: boolean): number[] => {
-    const trims = [0]
-    for (let length = 1; length <= Math.min(old.length, next.length); length += 1) {
-      const a = fromEnd ? old[old.length - length] : old[length - 1]
-      if (a !== (fromEnd ? next[next.length - length] : next[length - 1])) break
-      const boundary = fromEnd ? old[old.length - length - 1] : a
-      if (boundary === '\n' || boundary === '\r') trims.push(length)
-    }
-    return trims.reverse().slice(0, 8)
-  }
   for (const variant of ['exact', 'pair', 'reversed'] as const) {
     for (const span of candidates) {
       const mapped = toTarget(span)
@@ -1163,7 +1199,9 @@ function searchWidenedSpelling(
       if (edit !== undefined) return edit
     }
   }
-  return budgetGone() ? closestSpelling() : undefined
+  // Typing is never refused (vision principle 7): a key no spelling above
+  // holds takes its closest one, at last over the whole document.
+  return closestSpelling()
 }
 
 /** Whether `text` is one block whose content is literal: a fence, a math block, indented code or an HTML block. */
