@@ -744,11 +744,17 @@ export const DOCUMENT_SEARCH_UNITS = 8192
  * spelling of it may.
  */
 export const spelledAsSource = new WeakSet<TrackedOracle>()
+/**
+ * Oracles recording a key no spelling of its markup holds, as one splitting a
+ * marker, the G47 way: only a spelling whose Accept All and Reject All
+ * resolve to the operation's bytes, however it reads while pending.
+ */
+export const recordedExactly = new WeakSet<TrackedOracle>()
 
 /** Spellings of each kind a key past its budget weighs for its closest one, besides the whole document's. */
 const CLOSEST_SPELLINGS_WEIGHED = 24
 
-const documentSearchBudgets = new WeakMap<DocumentCore, { spent: number }>()
+const documentSearchBudgets = new WeakMap<DocumentCore, { spent: number, exhausted?: true }>()
 
 /**
  * Compiles one key in `core` under one document-level search budget, shared
@@ -762,6 +768,23 @@ export function withDocumentSearchBudget<T>(core: DocumentCore, compile: () => T
     return compile()
   } finally {
     documentSearchBudgets.delete(core)
+  }
+}
+
+/** Whether the key compiling in `core` stopped a spelling search at its budget. */
+export function documentSearchExhausted(core: DocumentCore): boolean {
+  return documentSearchBudgets.get(core)?.exhausted === true
+}
+
+/** Compiles within a key's budget as though it had none. */
+export function withoutDocumentSearchBudget<T>(core: DocumentCore, compile: () => T): T {
+  const outer = documentSearchBudgets.get(core)
+  documentSearchBudgets.set(core, { spent: Number.NEGATIVE_INFINITY })
+  try {
+    return compile()
+  } finally {
+    if (outer === undefined) documentSearchBudgets.delete(core)
+    else documentSearchBudgets.set(core, outer)
   }
 }
 
@@ -1059,19 +1082,22 @@ function searchWidenedSpelling(
     if (budget !== undefined && !closestOnly) {
       if (budgetSpent || budget.spent + source.length > DOCUMENT_SEARCH_UNITS) {
         budgetSpent = true
+        budget.exhausted = true
         return undefined
       }
       budget.spent += source.length
     }
+    if (recordedExactly.has(oracle) && !bytes) return undefined
     if (bytes ? !oracle.resolvesExactly([edit]) : !oracle.accepts([edit], equivalence, whole)) return undefined
     const candidate = oracle.preview([edit])
     // A tracked edit spells only whole suggestions; one that leaves a marker
     // unpaired beyond those the untracked edit leaves is no spelling of it.
     // A key spelled as the source edit it is (see `spelledAsSource`) takes
-    // no spelling that leaves a marker unpaired, however it resolves.
-    if (spelledAsSource.has(oracle) || addsNoDiagnostic
+    // no spelling that leaves a marker unpaired, however it resolves, unless
+    // it is recorded exactly (see `recordedExactly`).
+    if (!recordedExactly.has(oracle) && (spelledAsSource.has(oracle) || addsNoDiagnostic
       ? candidate.diagnostics.length > previous.diagnostics.length
-      : !bytes && candidate.diagnostics.length > Math.max(previous.diagnostics.length, oracle.preview(untracked).diagnostics.length)) return undefined
+      : !bytes && candidate.diagnostics.length > Math.max(previous.diagnostics.length, oracle.preview(untracked).diagnostics.length))) return undefined
     const authored = markupAnnotations(candidate.annotations).find(annotation =>
       annotation.range.end === start + insert.length && annotation.range.start >= start)
     return authored === undefined ? undefined : edit
@@ -1195,7 +1221,11 @@ function searchWidenedSpelling(
     }
     return trims.reverse().slice(0, 8)
   }
-  const budgetGone = (): boolean => budget !== undefined && (budgetSpent || budget.spent + source.length > DOCUMENT_SEARCH_UNITS)
+  const budgetGone = (): boolean => {
+    if (budget === undefined || !(budgetSpent || budget.spent + source.length > DOCUMENT_SEARCH_UNITS)) return false
+    budget.exhausted = true
+    return true
+  }
   // A spelling over `span` that resolves to the operation's bytes, with the
   // whole lines common to both readings at either end left outside.
   const exactly = (span: SourceRange, variant: Variant): DocumentSourceEdit | undefined => {

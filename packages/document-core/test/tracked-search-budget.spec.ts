@@ -92,3 +92,38 @@ describe('a pool key whose spelling the budget decides', () => {
     expect(core.project(next, 'original').markdown).toBe(core.project(opened, 'original').markdown)
   })
 })
+
+// A dollar-heavy agreement key (132/3) the budget once decided (coordinator
+// sign-off, 9 October 2026). Since math in a suggestion's arms reads as the
+// document reads it (B19), the budgeted and unbudgeted searches spell it
+// alike, over the suggestions around it whole; its spelling adds no
+// diagnostic and resolves to the operation's bytes.
+describe('the dollar-heavy key 132/3 past its budget', () => {
+  const text = 'q> $$\n> q\n\n{++$\n\n$$\n$\nx\ny\n$$++}\n\n{++x\n\n$$\ny\n\nw++}\n\n{++$$\nx\ny\n$$++}\n\n{++x\n\n$$\ny\n\nw++}\n\n```\ncode $$\n```\n\ncosts $$5 and $3\n\n{++x\n\n$$\ny\n\nw++}\n\ncosts $$5 and $3\n\nReview {++new++} and {--old--} text.\n\ninline \n$a$ math\n\n{++$$\nx\ny\n$$++}\n\nReview {++new++} and {--old--} text.\n\n{~~a~>$$\nx\ny\n$$\n~~}\n\nPlain words here.\n\nReview {++new++} and {--old--} text.\n\n```\ncode $$\n```\n\nz\n$$\n\n$$\n\n{++x\n\n$$\ny\n\nw++}\n\n{~~a~>$$\nx\ny\n$$\n~~}\n\n$$\nx_0 + y\nx_1\n$$\n\n$$\n\n$$\nx_0 + y\nx_1\n$$\n\nReview {++new++} and {--old--} text.\n\nz{++$$++}\n$$\n\n$$\n\n{++$$\nx\ny\n$$++}\n\n- item $$\n- item\n\ncosts $$5 and $3\n\n$$\nx_0 + y\nx_1\n$$\n\nReview {++new++} and {--old--} text.\n\nx\n$$\n\nz\n$$\n\n$$\n\n$$\nx_0 + y\nx_1\n$$\n\n{~~a~>$$\nx\ny\n$$\n~~}\n\nPlain words here.\n\ninline $a$ math\n\n> $$\n> q\n\n$$\n\nPlain words here.\n\n{++$$\nx\ny\n$$++}\n\nReview {++new++} and {--old--} text.\n\ninline $a$ math\n'
+  const key = { start: 562, end: 562, insert: 'x' }
+
+  it('takes a spelling that adds no diagnostic and resolves exactly', () => {
+    const core = createDocumentCore()
+    const opened = core.open(text)
+    const spelled = core.trackedEdit(opened, key)
+    const unbudgeted = createDocumentCore()
+    searchWithoutBudget(unbudgeted)
+    expect(unbudgeted.trackedEdit(unbudgeted.open(text), key)).toEqual(spelled)
+    if (spelled === undefined) throw new Error('Expected a tracked plan')
+    const next = core.apply(opened, [spelled]).revision
+    expect(next.diagnostics.length).toBeLessThanOrEqual(opened.diagnostics.length)
+    const typed = text.slice(0, key.start) + key.insert + text.slice(key.end)
+    // The suggestions it authors resolved, each to the arm the decision keeps
+    // as written, as the oracle resolves them.
+    const authored = next.annotations.filter(annotation => annotation.range.start >= spelled.start &&
+      annotation.range.end <= spelled.start + spelled.insert.length)
+    const kept = { accept: { addition: 'content', substitution: 'new' }, reject: { deletion: 'content', substitution: 'old' } } as const
+    const resolve = (decision: 'accept' | 'reject'): string => [...authored].reverse().reduce((source, annotation) => {
+      const name = (kept[decision] as Record<string, string>)[annotation.kind]
+      const arm = annotation.arms.find(candidate => candidate.name === name)?.range
+      return source.slice(0, annotation.range.start) + (arm === undefined ? '' : next.source.slice(arm.start, arm.end)) + source.slice(annotation.range.end)
+    }, next.source)
+    expect(resolve('accept')).toBe(typed)
+    expect(resolve('reject')).toBe(text)
+  })
+})

@@ -103,7 +103,11 @@ Two things keep "100% CriticMarkup" honest against the canonical toolkit:
    contains a closer such as `~~}`. CriticMarkup has no escape, and every reference tool
    ends a suggestion at its first closer. That edit is recorded so that Accept All and
    Reject All are exact, while accepting or rejecting only one of its parts may not
-   round-trip.
+   round-trip. Where no record can hold a keystroke at all (it re-pairs a math or code
+   delimiter around existing suggestion markers), MarkText applies it as typed; undo
+   restores it exactly, but Reject All cannot remove it. Every keystroke is applied this
+   way, tracked or untracked, including edits that break a suggestion's markers, which
+   then read as plain text.
 
 ## What native integration means
 

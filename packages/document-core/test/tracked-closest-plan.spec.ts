@@ -108,3 +108,27 @@ describe('a tracked key in literal content holding marker spellings', () => {
     expect(resolvedSuggestions(next.source, next.annotations, 'reject')).toBe(resolvedSuggestions(opened.source, opened.annotations, 'reject'))
   })
 })
+
+// Deleting the escape that keeps `{--` literal inside an Addition makes that
+// `{--` an unfinished opener: no record of the deletion leaves the Addition
+// whole, so it is applied as typed, and the parser reports the opener (owner
+// decision, 9 October 2026: always apply). Profile 1 V3 governs render-safe
+// materialization of views, not the user's keystrokes.
+describe('a tracked keystroke no record can hold', () => {
+  it('is applied as typed', () => {
+    const document = 'a{++\\{--x++}b\n'
+    const core = createDocumentCore()
+    const opened = core.open(document)
+    const action = {
+      range: { start: 4, end: 5 },
+      selection: { ranges: [{ anchor: 5, focus: 5 }], primary: 0 },
+      inputType: 'deleteContentBackward',
+      data: null,
+      options: { autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true }
+    } as const
+    const plan = core.planInput(opened, action, { tracked: true })
+    const edits = core.inputEdits(opened, action, plan, true)
+    expect(edits).toEqual([{ start: 4, end: 5, insert: '' }])
+    expect(core.apply(opened, edits ?? []).revision.diagnostics.map(diagnostic => diagnostic.code)).toEqual(['CM_UNTERMINATED_OPENER'])
+  })
+})

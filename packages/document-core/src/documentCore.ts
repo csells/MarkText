@@ -16,7 +16,7 @@ import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit, withinHistory } from './trackedHistoryEditing.js'
-import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, markUnresolvedDraft, windowEndsDocument, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, withDocumentSearchBudget, spelledAsSource, trackedStructure, type TrackedStructure, type TrackedPart, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
+import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, markUnresolvedDraft, windowEndsDocument, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, withDocumentSearchBudget, withoutDocumentSearchBudget, documentSearchExhausted, spelledAsSource, recordedExactly, trackedStructure, type TrackedStructure, type TrackedPart, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import {
@@ -2135,6 +2135,7 @@ interface MutableDocumentCoreInspection {
   fullProductStoresStrongCurrent: number
   fullProductStoresStrongPeak: number
   fullProductStoreReleases: number
+  keystrokesAppliedAsTyped: number
   canonicalFactIndexUnits: number
   regionalProjectionPreparationUnits: number
   regionalMarkupEventUnits: number
@@ -2593,6 +2594,26 @@ function splitsMarker(annotations: readonly CriticMarkupAnnotation[], edit: Docu
   })
 }
 
+/**
+ * Whether an edit cuts a suggestion's CriticMarkup delimiters, at any depth:
+ * writes between a delimiter's characters, or removes any of them without
+ * removing the whole suggestion they delimit.
+ */
+function cutsMarker(annotations: readonly CriticMarkupAnnotation[], edit: DocumentSourceEdit): boolean {
+  const cuts = (start: number, end: number): boolean => start < end && (edit.start === edit.end
+    ? start < edit.start && edit.start < end
+    : edit.start < end && start < edit.end)
+  return annotations.some(annotation => {
+    if (edit.start < edit.end && edit.start <= annotation.range.start && annotation.range.end <= edit.end) return false
+    let cursor = annotation.range.start
+    for (const arm of annotation.arms) {
+      if (cuts(cursor, arm.range.start) || cutsMarker(arm.annotations, edit)) return true
+      cursor = arm.range.end
+    }
+    return cuts(cursor, annotation.range.end)
+  })
+}
+
 function createDocumentCoreWithExecutionBudget(
   executionBudget: ExecutionBudgetId
 ): DocumentCore {
@@ -2732,6 +2753,7 @@ function createDocumentCoreWithExecutionBudget(
     fullProductStoresStrongCurrent: 0,
     fullProductStoresStrongPeak: 0,
     fullProductStoreReleases: 0,
+    keystrokesAppliedAsTyped: 0,
     canonicalFactIndexUnits: 0,
     regionalProjectionPreparationUnits: 0,
     regionalMarkupEventUnits: 0,
@@ -7927,10 +7949,12 @@ function createDocumentCoreWithExecutionBudget(
    * it and Reject All drops it; any other edit takes the spelling that Accept
    * All and Reject All read as the untracked edit.
    */
-  const closestTrackedEdit = (previous: DocumentRevision, edit: DocumentSourceEdit): DocumentSourceEdit | undefined =>
-    keyBudget(previous, () => unbudgetedClosestTrackedEdit(previous, edit))
+  const closestTrackedEdit = (previous: DocumentRevision, edit: DocumentSourceEdit, splitting = false): DocumentSourceEdit | undefined =>
+    keyBudget(previous, () => unbudgetedClosestTrackedEdit(previous, edit, splitting))
 
-  const unbudgetedClosestTrackedEdit = (previous: DocumentRevision, edit: DocumentSourceEdit): DocumentSourceEdit | undefined => {
+  // `splitting`: a key that splits a marker is weighed too, for a spelling
+  // that resolves to its bytes alone (see `recordedExactly`).
+  const unbudgetedClosestTrackedEdit = (previous: DocumentRevision, edit: DocumentSourceEdit, splitting = false): DocumentSourceEdit | undefined => {
     const markup = core.markupEdit(previous, edit)
     // An edit the markup compile cannot read is weighed against whole parses
     // of its candidates, as the reference weighs them.
@@ -7940,7 +7964,7 @@ function createDocumentCoreWithExecutionBudget(
     // in, is spelled as the source edit it is, where it writes no delimiter
     // apart; its spelling may leave no marker unpaired.
     const untracked = markup ??
-      (edit.start === edit.end && edit.insert.length === 0 || splitsMarker(previous.annotations, edit) ? undefined : Object.freeze([edit]))
+      (edit.start === edit.end && edit.insert.length === 0 || !splitting && splitsMarker(previous.annotations, edit) ? undefined : Object.freeze([edit]))
     if (untracked === undefined || untracked.length === 0) return undefined
     const around = rootsAround(previous, edit.start)
     if (edit.start === edit.end && edit.insert.length > 0 && withinHistory(around, edit)) {
@@ -7956,6 +7980,19 @@ function createDocumentCoreWithExecutionBudget(
     }
     const oracle = createTrackedOracle(core, previous, untracked, preview)
     if (oracle !== undefined && markup === undefined) spelledAsSource.add(oracle)
+    if (oracle !== undefined && splitting) {
+      recordedExactly.add(oracle)
+      // The keystroke struck or proposed where it was typed is its closest
+      // record; the search's spans grow to whole suggestions.
+      const old = core.sourceSlice(previous, edit)
+      const spellings = old.length === 0
+        ? [`{++${edit.insert}++}`]
+        : edit.insert.length === 0 ? [`{--${old}--}`] : [`{--${old}--}{++${edit.insert}++}`, `{~~${old}~>${edit.insert}~~}`]
+      for (const insert of spellings) {
+        const spelled = Object.freeze({ start: edit.start, end: edit.end, insert })
+        if (oracle.resolvesExactly([spelled])) return spelled
+      }
+    }
     return oracle === undefined ? undefined : withBestEffortSpelling(core, () => widenedTrackedSourceEdit(core, previous, oracle))
   }
 
@@ -8537,7 +8574,7 @@ function createDocumentCoreWithExecutionBudget(
     },
     inputEdits(previous: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, tracked: boolean) {
       return keyBudget(previous, () => {
-        const planned = ((): readonly DocumentSourceEdit[] | undefined => {
+        const planOnce = (): readonly DocumentSourceEdit[] | undefined => {
           currentStateOf(previous)
           action = commentedSpanSafeInput(previous, action, at => rootsAround(previous, at))
           const joinSyntax = 'kind' in action && action.command === 'joinParagraphBackward' ? core.project(previous, 'markup').syntax : undefined
@@ -8634,13 +8671,53 @@ function createDocumentCoreWithExecutionBudget(
           }
           return planNativeEdits(previous, plan.edits, tracked,
             !('kind' in action) && typedInputTypes.has(action.inputType))
-        })()
-        if (planned !== undefined || !tracked || equivalenceDeferred(core)) return planned
-        // Typing is never refused (owner decision, 6 October): an operation no
-        // tracked plan holds takes the closest spelling of its whole edit.
+        }
+        // Every keystroke is applied, with Track Changes on or off (owner
+        // decision, 9 October 2026: always apply): one no compile reads as an
+        // edit of the markup is applied as typed, breaking a suggestion's
+        // markers into plain text where it must.
+        const keystroke = !('kind' in action)
+        const asTyped = (): readonly DocumentSourceEdit[] | undefined => {
+          if (!keystroke) return undefined
+          inspection.keystrokesAppliedAsTyped += 1
+          return Object.freeze(plan.edits.map(edit => Object.freeze({ ...edit })))
+        }
+        // A keystroke the compile refuses as an invalid edit of the markup is
+        // one no plan holds.
+        const tryPlan = (): readonly DocumentSourceEdit[] | undefined => {
+          try {
+            return planOnce()
+          } catch (error) {
+            if (keystroke && error instanceof RangeError) return undefined
+            throw error
+          }
+        }
+        // A tracked keystroke that cuts a suggestion's marker keeps a plan only
+        // where Reject All still gives the document as it was: one that cuts no
+        // marker itself and holds no whole suggestion in its arms, as one that
+        // moves the typing out of a hidden marker, does; any other is read
+        // whole. Otherwise the keystroke is recorded exactly or applied as
+        // typed, the same way whichever planner reads it (vision principle 7).
+        const cutting = (edits: readonly DocumentSourceEdit[]): boolean => edits.some(edit =>
+          cutsMarker(rootsOverlapping(previous, { start: Math.max(0, edit.start - 3), end: Math.min(previous.sourceLength, edit.end + 3) }), edit))
+        const splitting = tracked && keystroke && cutting(plan.edits)
+        const rejectsExactly = (edits: readonly DocumentSourceEdit[]): boolean => {
+          const holds = edits.some(edit => edit.start < edit.end &&
+            rootsOverlapping(previous, edit).some(root => edit.start <= root.range.start && root.range.end <= edit.end))
+          if (!holds && !cutting(edits)) return true
+          const candidate = previewSourceEdits(previous, edits, false, true)
+          return resolvedSuggestions(candidate.source, candidate.annotations, 'reject') ===
+            resolvedSuggestions(previous.source, previous.annotations, 'reject')
+        }
+        const searched = tryPlan()
+        const planned = splitting && searched !== undefined && searched.length > 0 && !rejectsExactly(searched) ? undefined : searched
+        if (planned !== undefined || equivalenceDeferred(core)) return planned
         // An operation that changes no text, as Backspace the plan reads as
-        // only moving the caret, is planned as no edit, as it is untracked.
+        // only moving the caret, is planned as no edit.
         if (plan.edits.every(edit => core.sourceSlice(previous, edit) === edit.insert)) return Object.freeze([])
+        if (!tracked) return asTyped()
+        // A tracked operation no plan holds takes the closest spelling of its
+        // whole edit.
         const first = plan.edits[0]
         const last = plan.edits.at(-1)
         if (first === undefined || last === undefined) return undefined
@@ -8650,8 +8727,34 @@ function createDocumentCoreWithExecutionBudget(
           insert += core.sourceSlice(previous, { start: cursor, end: edit.start }) + edit.insert
           cursor = edit.end
         }
-        const closest = closestTrackedEdit(previous, Object.freeze({ start: first.start, end: last.end, insert }))
-        return closest === undefined ? undefined : Object.freeze([closest])
+        const whole = Object.freeze({ start: first.start, end: last.end, insert })
+        const closest = splitting ? undefined : closestTrackedEdit(previous, whole)
+        if (closest !== undefined) return Object.freeze([closest])
+        // A search the key's budget stopped is run once more without it, so no
+        // keystroke is applied as typed where a spelling exists.
+        if (!splitting && documentSearchExhausted(core)) {
+          const full = withoutDocumentSearchBudget(core, () => {
+            const replanned = tryPlan()
+            if (replanned !== undefined) return replanned
+            const spelled = closestTrackedEdit(previous, whole)
+            return spelled === undefined ? undefined : Object.freeze([spelled])
+          })
+          if (full !== undefined) return full
+        }
+        let recorded: DocumentSourceEdit | undefined
+        try {
+          // The record is weighed in full, so no keystroke is applied as typed
+          // where one exists.
+          recorded = withoutDocumentSearchBudget(core, () => closestTrackedEdit(previous, whole, true))
+        } catch (error) {
+          if (!keystroke || !(error instanceof RangeError)) throw error
+        }
+        // A record Reject All cannot undo is no record of the keystroke.
+        if (recorded !== undefined && rejectsExactly([recorded])) return Object.freeze([recorded])
+        // No record holds the keystroke at all, as `$$` typed inside an
+        // opener re-pairs the math around a suggestion's markers: it is
+        // applied as typed, which undo restores and Reject All cannot remove.
+        return asTyped()
       })
     },
     planInput(previous: DocumentRevision, action: DocumentInputAction, options?: { readonly tracked?: boolean }) {

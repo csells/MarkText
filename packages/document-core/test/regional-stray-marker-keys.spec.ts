@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
-import { inspectDocumentCore, planFromDocumentParse } from '../src/internal/documentCoreInspection.js'
+import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
 
 // Plan 0012 G35: stray and unfinished CriticMarkup markers are text with a
 // diagnostic, and a document holding them is edited from the paragraphs
@@ -86,6 +86,8 @@ describe('keys in a document with stray markers read as the document parse', () 
         for (const key of ['insertText', 'insertParagraph', 'insertLineBreak', 'deleteContentBackward', 'deleteContentForward'] as const) {
           for (const tracked of [false, true]) {
             const core = createDocumentCore()
+            // Agreement is read without the search budget, as the reference searches.
+            searchWithoutBudget(core)
             const revision = regional(core, source)
             const before = inspectDocumentCore(core).documentParses
             const actual = press(core, revision, caret, key, tracked)

@@ -454,6 +454,8 @@ Nested annotations resolve recursively per the same table.
   but it may not create or revise CriticMarkup recognition. The scoped projection AST remains
   the semantic authority when an isolated result is not safely flattenable; protective Markdown
   spelling is a render-safe materialization, not a contract to recover that AST by reparsing it.
+  V3 governs how views are materialized, not the user's keystrokes: a keystroke that removes a
+  protective byte from source is applied as typed (vision principle 7).
 - **V4 — Accept/Reject semantics.** Accepting or rejecting an annotation produces the canonical
   source that results from removing its markers and the non-selected arm. The table's column is
   applied to that annotation alone; the resulting source is interpreted as a new revision.

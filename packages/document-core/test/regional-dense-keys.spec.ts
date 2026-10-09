@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
-import { inspectDocumentCore, planFromDocumentParse } from '../src/internal/documentCoreInspection.js'
+import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
 
 // Plan 0012 G35: in a document dense with suggestions, typing, Enter,
 // Backspace and Delete are planned and proved from the paragraphs around
@@ -90,6 +90,8 @@ describe('keys in a document dense with suggestions read as the document parse',
         for (const key of ['insertText', 'insertParagraph', 'insertLineBreak', 'deleteContentBackward', 'deleteContentForward'] as const) {
           for (const tracked of [false, true]) {
             const core = createDocumentCore()
+            // Agreement is read without the search budget, as the reference searches.
+            searchWithoutBudget(core)
             const revision = regional(core, source)
             const before = inspectDocumentCore(core).documentParses
             const actual = press(core, revision, caret, key, tracked)
@@ -133,6 +135,8 @@ describe('keys in a long dense document cost no document parse', () => {
   ]
   it.each(cases)('$name', ({ name, at, key, tracked }) => {
     const core = createDocumentCore()
+    // Agreement is read without the search budget, as the reference searches.
+    searchWithoutBudget(core)
     const revision = regional(core, source)
     const before = inspectDocumentCore(core)
     const actual = press(core, revision, at + 1, key, tracked)
