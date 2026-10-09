@@ -187,7 +187,17 @@ export function planClipboard(
     const widened = createTrackedSourceEdit(core, previous, edit, preview, true)
     if (widened !== undefined) return widened
     const enclosed = prepareTrackedBlockEdit(core, previous, edit, previewSyntax([edit]))
-    return enclosed === edit ? undefined : createTrackedSourceEdit(core, previous, enclosed, preview, true)
+    const spelled = enclosed === edit ? undefined : createTrackedSourceEdit(core, previous, enclosed, preview, true)
+    if (spelled !== undefined) return spelled
+    // Core plans every tracked operation (B17): a paste or cut no spelling
+    // holds takes the document's closest one, or is applied as it is untracked
+    // (owner decision, 9 October 2026: always apply).
+    try {
+      return core.trackedEdit(previous, edit) ?? edit
+    } catch (error) {
+      if (error instanceof RangeError) return edit
+      throw error
+    }
   }
   // Paste over deleted text proposes the rest like typing; cutting deleted
   // text again leaves it deleted (Google Docs).
@@ -202,7 +212,7 @@ export function planClipboard(
   const tracked = trackedInputs?.[0]
   let edits = trackedInputs === undefined
     ? (action.kind === 'paste' ? regional?.compile(inputs) : undefined) ?? createMarkupCompoundSourceEdits(core, previous, inputs, preview, true)
-    : trackedInputs.every(edit => edit !== undefined) ? trackedInputs.filter(edit => !unchangedTrackedEdit(edit)) : undefined
+    : trackedInputs.map((edit, index) => edit ?? inputs[index]).filter((edit): edit is DocumentSourceEdit => edit !== undefined && !unchangedTrackedEdit(edit))
   if (edits === undefined) throw new RangeError('Clipboard action has no safe source edit')
   let materializedPrefix = 0
   if (selectedCell !== undefined && selectedCell.slotStart === undefined && insert !== '') {

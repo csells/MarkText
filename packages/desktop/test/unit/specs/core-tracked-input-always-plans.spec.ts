@@ -26,6 +26,14 @@ const recordingCore = (unplanned: string[]) => (): DocumentCore => {
         unplanned.push(`${JSON.stringify(action)} tracked=${String(tracked)}: ${String(error)}`)
         throw error
       }
+    },
+    planClipboard: (...args: Parameters<DocumentCore['planClipboard']>) => {
+      try {
+        return core.planClipboard(...args)
+      } catch (error) {
+        if (args[1].tracked === true) unplanned.push(`${JSON.stringify(args[1])}: ${String(error)}`)
+        throw error
+      }
     }
   })
 }
@@ -216,6 +224,31 @@ describe('tracked typing', () => {
           }
         }
       }
+    }
+    expect(refused).toEqual([])
+  }, 120_000)
+
+  // Cut and paste with Track Changes on are planned too, at every caret of the
+  // document no spelling search holds in.
+  it('plans tracked cut and paste at every caret', async() => {
+    const refused: string[] = []
+    const clipboard = async(action: Record<string, unknown>) => {
+      const unplanned: string[] = []
+      const actor = createCoreActor(recordingCore(unplanned))
+      try {
+        const opened = await actor.handle({ type: 'open', session: 1, sequence: 1, source: unplannable })
+        const result = await actor.handle({ type: 'clipboard', session: 1, sequence: 2, baseRevision: opened.revision, action: { ...action, tracked: true }, projections: [] } as never)
+        if (result.type !== 'applied' || unplanned.length > 0) refused.push(`${JSON.stringify(action)} ${result.type} ${unplanned.join(' ')}`)
+      } finally {
+        actor.dispose()
+      }
+    }
+    for (let caret = 0; caret <= unplannable.length; caret += 1) {
+      for (const markdown of ['x', '$$', '{++']) {
+        await clipboard({ kind: 'paste', selection: { ranges: [{ anchor: caret, focus: caret }], primary: 0 }, markdown })
+      }
+      if (caret > 0) await clipboard({ kind: 'cut', selection: { ranges: [{ anchor: caret - 1, focus: caret }], primary: 0 } })
+      if (caret > 2) await clipboard({ kind: 'cut', selection: { ranges: [{ anchor: caret - 3, focus: caret }], primary: 0 } })
     }
     expect(refused).toEqual([])
   }, 120_000)
