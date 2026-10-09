@@ -179,6 +179,21 @@ export function checksReadingWindows(): boolean {
   return readingWindowChecks
 }
 
+let appliedReadingChecks = false
+
+/**
+ * Package-private check for a preview read from the window its regional apply
+ * parsed: each such reading is read from the whole projections as well, and
+ * the two must agree exactly, as must the views compared through them.
+ */
+export function checkAppliedReadings(enabled: boolean): void {
+  appliedReadingChecks = enabled
+}
+
+export function checksAppliedReadings(): boolean {
+  return appliedReadingChecks
+}
+
 export function inspectDocumentCore(core: object): DocumentCoreInspection {
   const reader = READERS.get(core)
   if (reader === undefined) {

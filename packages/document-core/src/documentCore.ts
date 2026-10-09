@@ -82,7 +82,7 @@ import {
   type PersistentCanonicalSource,
   type PersistentCanonicalSourceRecorder
 } from './internal/persistentCanonicalSource.js'
-import { checksReaderViews, checksReadingWindows, searchesWithoutBudget, planFromGeneralCompile, plansFromDocumentParse, plansFromGeneralCompile, registerDocumentCoreInspection, registerRegionalLeaves } from './internal/documentCoreInspection.js'
+import { checksAppliedReadings, checksReaderViews, checksReadingWindows, searchesWithoutBudget, planFromGeneralCompile, plansFromDocumentParse, plansFromGeneralCompile, registerDocumentCoreInspection, registerRegionalLeaves } from './internal/documentCoreInspection.js'
 import { annotationsOverlapping, registerAnnotationsAround } from './internal/annotationsAround.js'
 import {
   createRevisionProductStore,
@@ -3652,6 +3652,16 @@ function createDocumentCoreWithExecutionBudget(
     })
   }
 
+  /**
+   * A preview's replaced blocks, as the window its regional apply parsed
+   * reads them: the products, the window's source and its document offset.
+   */
+  const appliedWindows = new WeakMap<DocumentRevision, Readonly<{
+    sourceStart: number
+    nextProducts: Profile1DocumentProducts
+    nextWindow: string
+    replaced: SourceRange
+  }>>()
   const tryInventoryRegionalApply = (
     previousState: RevisionState,
     source: PersistentCanonicalSource,
@@ -4005,9 +4015,21 @@ function createDocumentCoreWithExecutionBudget(
     }
     // A preview reads as the revision apply() would publish, unpublished.
     if (preview) {
+      const revision = inventoryRevision(source, resolvedOptions, admission.nextInventory, Object.freeze(regionalComments))
+      // The window this apply parsed reads the replaced blocks as the
+      // revision does, whole blocks and unchanged context alone.
+      if (admission.armCreation === undefined && admission.armLines === undefined &&
+          admission.listItems === undefined && admission.literalLines === undefined) {
+        appliedWindows.set(revision, Object.freeze({
+          sourceStart: admission.window?.source ?? admission.next.source.start,
+          nextProducts: admission.nextProducts,
+          nextWindow: admission.nextWindow,
+          replaced: Object.freeze({ start: admission.next.source.start, end: admission.next.source.end })
+        }))
+      }
       return Object.freeze({
         kind: 'applied',
-        revision: inventoryRevision(source, resolvedOptions, admission.nextInventory, Object.freeze(regionalComments)),
+        revision,
         projections: Object.freeze(projections),
         replaced: Object.freeze({
           start: admission.previous.source.start,
@@ -5452,7 +5474,11 @@ function createDocumentCoreWithExecutionBudget(
         }
       })
     } else {
-      const window = regionalReadWindow(state, range)
+      // A preview's replaced blocks read from the window its apply parsed,
+      // where no window of the inventory proves a reading of them.
+      const applied = appliedWindows.get(revision)
+      const window = regionalReadWindow(state, range) ??
+        (applied !== undefined && applied.replaced.start <= range.start && range.end <= applied.replaced.end ? applied : undefined)
       if (window !== undefined) {
         const { original, revised } = window.nextProducts
         const coordinatesOf = (projected: typeof original): MarkdownProjection['coordinates'] =>
@@ -5467,6 +5493,15 @@ function createDocumentCoreWithExecutionBudget(
             return view
           }
         })
+      }
+    }
+    if (reading !== undefined && checksAppliedReadings() && state.productStore.withRetained(() => true) !== true &&
+        regionalReadWindow(state, range) === undefined) {
+      const original = projectRevision(revision, 'original')
+      const revised = projectRevision(revision, 'revised')
+      if (spanned({ source: original.markdown }, original.coordinates) !== reading.original ||
+          spanned({ source: revised.markdown }, revised.coordinates) !== reading.revised) {
+        throw new Error(`An applied window's reading diverged from the whole projection of ${JSON.stringify(revision.source)}`)
       }
     }
     cache.set(key, reading ?? null)
