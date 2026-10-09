@@ -416,13 +416,21 @@ export function createTrackedOracle(
       : signature(candidateViews.original) !== signature(previousViews.original)) return false
     return whole || partiallyResolvable(edits, candidate, authored, rootCount)
   }
+  // A spelling that escapes a marker spelling inside literal content is no
+  // spelling of the key (see escapesLiteralContent).
+  let targetLiterals: SourceRange[] | undefined
+  const literals = (): SourceRange[] => {
+    targetLiterals ??= literalRanges(core, target)
+    return targetLiterals
+  }
   const accepts = (edits: readonly DocumentSourceEdit[], equivalence: TrackedEquivalence, whole = false): boolean => {
     const candidate = cachedPreview(edits)
     const facts = trackedPreviewFacts.get(candidate)
     if (facts === undefined) return false
     const authored = authoredAnnotations(edits, candidate)
-    return acceptsInPresence(candidate, facts, edits, authored, equivalence, whole) ||
-      acceptsAcrossPresence(candidate, edits, authored, equivalence, whole)
+    return (acceptsInPresence(candidate, facts, edits, authored, equivalence, whole) ||
+      acceptsAcrossPresence(candidate, edits, authored, equivalence, whole)) &&
+      !escapesLiteralContent(edits, candidate, target.source, literals)
   }
   const acceptsInPresence = (candidate: DocumentRevision, facts: TrackedProjectionFacts, edits: readonly DocumentSourceEdit[],
     authored: AuthoredAnnotation[], equivalence: TrackedEquivalence, whole: boolean): boolean => {
@@ -563,6 +571,74 @@ function resolvedText(source: string, annotation: CriticMarkupAnnotation, decisi
   const name = resolvedArm(annotation, decision)
   const range = name === undefined ? undefined : annotation.arms.find(arm => arm.name === name)?.range
   return range === undefined ? '' : source.slice(range.start, range.end)
+}
+
+const MARKER_TOKEN = /^(?:\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\})/u
+/**
+ * Offsets in `typed` before which `accepted` adds a backslash escaping a
+ * marker spelling, where the two texts differ only so far; the texts are
+ * compared past their common prefix and suffix.
+ */
+function addedMarkerEscapes(accepted: string, typed: string): number[] {
+  let prefix = 0
+  const shorter = Math.min(accepted.length, typed.length)
+  while (prefix < shorter && accepted.charCodeAt(prefix) === typed.charCodeAt(prefix)) prefix += 1
+  let suffix = 0
+  while (suffix < shorter - prefix &&
+    accepted.charCodeAt(accepted.length - 1 - suffix) === typed.charCodeAt(typed.length - 1 - suffix)) suffix += 1
+  const escapes: number[] = []
+  // An escape added at the start of a run of equal text may be read at either
+  // end of it, so the walk backs up to the start of that run.
+  let at = prefix
+  while (at > 0 && accepted.charCodeAt(at - 1) === 92 && typed.charCodeAt(at - 1) === 92) at -= 1
+  for (let index = at, cursor = at; index < accepted.length - suffix || cursor < typed.length - suffix;) {
+    if (accepted.charCodeAt(index) === typed.charCodeAt(cursor) && index < accepted.length && cursor < typed.length) {
+      index += 1
+      cursor += 1
+    } else if (accepted.charCodeAt(index) === 92 && MARKER_TOKEN.test(typed.slice(cursor, cursor + 3)) &&
+      accepted.startsWith(typed.slice(cursor, cursor + 3), index + 1)) {
+      escapes.push(cursor)
+      index += 1
+    } else break
+  }
+  return escapes
+}
+
+/**
+ * Whether Accept All of the suggestions a candidate's edits author escapes a
+ * marker spelling the typed text holds inside literal content, which reads
+ * every byte as its text: the escape then changes the code or math, though
+ * the views may read the two alike.
+ */
+export function escapesLiteralContent(
+  edits: readonly DocumentSourceEdit[],
+  candidate: DocumentRevision,
+  typed: string,
+  literals: () => readonly SourceRange[]
+): boolean {
+  const authored = authoredAnnotations(edits, candidate)
+  if (authored.length === 0) return false
+  const accepted = resolveAuthored(candidate.source, authored, 'accept')
+  if (accepted === typed) return false
+  const escapes = addedMarkerEscapes(accepted, typed)
+  if (escapes.length === 0) return false
+  const ranges = literals()
+  return escapes.some(at => ranges.some(range => range.start <= at && at < range.end))
+}
+
+/** The source ranges of a revision's literal syntax, whose text is its content byte for byte. */
+function literalRanges(core: DocumentCore, revision: DocumentRevision): SourceRange[] {
+  const { ast, coordinates } = core.project(revision, 'markup').syntax
+  const ranges: SourceRange[] = []
+  const visit = (node: MarkdownAstNode): void => {
+    if (LITERAL_KINDS.has(node.kind)) {
+      ranges.push({ start: coordinates.toSource(node.range.start, 'next'), end: coordinates.toSource(node.range.end, 'previous') })
+      return
+    }
+    for (const child of node.children) visit(child)
+  }
+  visit(ast.root)
+  return ranges
 }
 
 /** The source after resolving the authored annotations as review resolution does. */
