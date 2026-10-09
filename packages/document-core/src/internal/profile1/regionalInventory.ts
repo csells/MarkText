@@ -5535,6 +5535,55 @@ function editedShapeOf(blocks: readonly LeafBlock[], start: number, end: number)
     : undefined
 }
 
+const MARKER_FORM_SPELLING: Readonly<Record<CriticMarkupNode['kind'], Readonly<{ open: string, close: string }>>> = Object.freeze({
+  addition: Object.freeze({ open: '{++', close: '++}' }),
+  deletion: Object.freeze({ open: '{--', close: '--}' }),
+  substitution: Object.freeze({ open: '{~~', close: '~~}' }),
+  highlight: Object.freeze({ open: '{==', close: '==}' }),
+  comment: Object.freeze({ open: '{>>', close: '<<}' })
+})
+
+/**
+ * Whether the window's markers are those it held before but for whole
+ * suggestions, which now read as literal text, as a `$$` line the edit opens
+ * takes them into its math. In a document whose every marker pairs, every
+ * window starts and ends outside any suggestion, so the markers outside it
+ * pair among themselves; taking whole suggestions out of the window, which
+ * must still pair all of its own, leaves their reading as it was. Markers
+ * are matched by where they stand, the edit moving those after it; one the
+ * edit writes, or one reading otherwise, is no such removal.
+ */
+function wholeSuggestionsRemoved(
+  inventory: InventoryValue,
+  result: Profile1DocumentProducts,
+  previous: readonly MarkerCapsule[],
+  previousStarts: readonly number[],
+  next: readonly MarkerCapsule[],
+  windowStart: number,
+  edit: RetainedPassSourceEdit,
+  delta: number
+): boolean {
+  if (inventory.strayMarkers || result.diagnostics.count !== 0 || next.length >= previous.length) return false
+  const byStart = new Map<number, number>()
+  previousStarts.forEach((start, ordinal) => byStart.set(start, ordinal))
+  const kept = new Set<number>()
+  for (const marker of next) {
+    const at = windowStart + marker.start
+    if (at >= edit.start && at < edit.start + edit.insert.length) return false
+    const ordinal = byStart.get(at < edit.start ? at : at - delta)
+    const before = ordinal === undefined ? undefined : previous[ordinal]
+    if (ordinal === undefined || before === undefined || before.kind !== marker.kind || before.role !== marker.role ||
+        before.action !== marker.action) return false
+    kept.add(ordinal)
+  }
+  const removed = previous.flatMap((marker, ordinal) => {
+    if (kept.has(ordinal)) return []
+    if (marker.role === 'separator') return ['~>']
+    return [MARKER_FORM_SPELLING[marker.kind][marker.role === 'open' ? 'open' : 'close']]
+  })
+  return wholeSuggestions(removed)
+}
+
 function admitBlockWindow(
   inventory: InventoryValue,
   edit: RetainedPassSourceEdit,
@@ -5576,15 +5625,18 @@ function admitBlockWindow(
     // Elsewhere-spelled markers keep their reading only if the window spells
     // exactly the markers it spelled before.
     const previousMarkers: MarkerCapsule[] = []
+    const previousStarts: number[] = []
     for (const located of leafRange(inventory.root, first.ordinal, last.ordinal)) {
-      if (located.leaf.kind === 'region') previousMarkers.push(...located.leaf.markers)
-      else if (located.leaf.plain === undefined) return undefined
+      if (located.leaf.kind === 'region') {
+        previousMarkers.push(...located.leaf.markers)
+        previousStarts.push(...located.leaf.markers.map(marker => located.sourceStart + marker.start))
+      } else if (located.leaf.plain === undefined) return undefined
     }
     const nextMarkers = markerCapsules(result.retainedIntrinsic?.markerDecisions ?? [], 0)
-    if (nextMarkers.length !== previousMarkers.length || nextMarkers.some((marker, ordinal) => {
+    if ((nextMarkers.length !== previousMarkers.length || nextMarkers.some((marker, ordinal) => {
       const before = previousMarkers[ordinal]
       return before === undefined || marker.kind !== before.kind || marker.role !== before.role || marker.action !== before.action
-    })) {
+    })) && !wholeSuggestionsRemoved(inventory, result, previousMarkers, previousStarts, nextMarkers, first.source, edit, delta)) {
       return undefined
     }
   }

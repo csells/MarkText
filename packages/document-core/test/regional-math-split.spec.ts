@@ -166,3 +166,29 @@ describe('a key that joins a paragraph to the math block after it', () => {
     expect(applied.diagnostics).toEqual(fresh.diagnostics)
   })
 })
+
+// Where the `$$` line a key opens takes whole suggestions into its math, as
+// in a document dense with them, those suggestions read as text and every
+// other marker pairs as before, so the blocks to the far `$$` are read
+// without the document (B3b). One it takes only part of is the document's.
+describe('a `$$` line a key opens over whole suggestions', () => {
+  const dense = (count: number): string =>
+    Array.from({ length: count }, () => 'Review {++new evidence++} alongside {--obsolete details--}, and {==a claim==}{>>Check this source.<<}.').join('\n\n')
+  it.each([
+    ['past whole suggestions', `${dense(10)}\n\nx\n$$\n\n${dense(20)}\n\n$$\nz\n$$\n\n${dense(80)}\n`, true],
+    ['into a suggestion it takes only part of', `${dense(10)}\n\nx\n$$\n\n${dense(20)}\n\n{++a\n\n$$\nz\n$$\n\nb++}\n\n${dense(80)}\n`, false]
+  ] as const)('%s', (_name, source, regional) => {
+    const core = createDocumentCore()
+    const revision = core.apply(core.open(source), [{ start: 0, end: 0, insert: 'q' }], { projections: ['markup'] }).revision
+    const at = revision.source.indexOf('x\n$$') + 1
+    const parses = inspectDocumentCore(core).documentParses
+    const applied = core.apply(revision, [{ start: at, end: at, insert: '\n\n' }], { projections: ['markup'] }).revision
+    if (regional) expect(inspectDocumentCore(core).documentParses).toBe(parses)
+    const fresh = createDocumentCore()
+    const opened = fresh.open(applied.source)
+    expect(applied.annotations).toEqual(opened.annotations)
+    expect(applied.diagnostics).toEqual(opened.diagnostics)
+    expect(fresh.project(opened, 'markup').syntax.ast.root.children.map(block => block.kind))
+      .toEqual(core.project(applied, 'markup').syntax.ast.root.children.map(block => block.kind))
+  })
+})
