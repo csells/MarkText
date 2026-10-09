@@ -16,7 +16,7 @@ import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit, withinHistory } from './trackedHistoryEditing.js'
-import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, markUnresolvedDraft, windowEndsDocument, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, withDocumentSearchBudget, spelledAsSource, trackedStructure, type TrackedStructure, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
+import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, markUnresolvedDraft, windowEndsDocument, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, withDocumentSearchBudget, spelledAsSource, trackedStructure, type TrackedStructure, type TrackedPart, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import {
@@ -82,7 +82,7 @@ import {
   type PersistentCanonicalSource,
   type PersistentCanonicalSourceRecorder
 } from './internal/persistentCanonicalSource.js'
-import { checksReaderViews, searchesWithoutBudget, planFromGeneralCompile, plansFromDocumentParse, plansFromGeneralCompile, registerDocumentCoreInspection, registerRegionalLeaves } from './internal/documentCoreInspection.js'
+import { checksReaderViews, checksReadingWindows, searchesWithoutBudget, planFromGeneralCompile, plansFromDocumentParse, plansFromGeneralCompile, registerDocumentCoreInspection, registerRegionalLeaves } from './internal/documentCoreInspection.js'
 import { annotationsOverlapping, registerAnnotationsAround } from './internal/annotationsAround.js'
 import {
   createRevisionProductStore,
@@ -7621,10 +7621,93 @@ function createDocumentCoreWithExecutionBudget(
     if (plansFromDocumentParse(core) || state.source.length > DERIVED_SPELLING_UNITS) return undefined
     const source = state.source.slice(0, state.source.length)
     if (!derivesSpelling(source, edit, edit.insert)) return undefined
+    const { ast, coordinates } = core.project(previous, 'markup').syntax
+    const before = trackedStructure(ast.root, coordinates)
+    const delta = edit.insert.length - (edit.end - edit.start)
+    const read = readingAfterBlock(state, previous, source, edit, before)
+    const windowed = read === undefined ? undefined : readingChange(before, read, edit, delta)
+    if (windowed !== undefined && !checksReadingWindows()) return windowed
     const structure = trackedPreviewFacts.get(previewSourceEdits(previous, [edit]))?.structure
     if (structure === undefined) return undefined
-    const { ast, coordinates } = core.project(previous, 'markup').syntax
-    return readingChange(trackedStructure(ast.root, coordinates), structure(), edit, edit.insert.length - (edit.end - edit.start))
+    const whole = readingChange(before, structure(), edit, delta)
+    if (windowed !== undefined && (windowed.start !== whole.start || windowed.end !== whole.end)) {
+      throw new Error(`Window reading change ${JSON.stringify(windowed)} is not the document's ${JSON.stringify(whole)}`)
+    }
+    return whole
+  }
+
+  /**
+   * The edited document's blocks and literals, as `trackedStructure` reads
+   * them, from a parse of it from a top-level block before the key's line to
+   * its end, or undefined where that parse may read otherwise than the whole
+   * document's.
+   *
+   * The block (`first`) is not a list item, and the parse reads it as
+   * `before` does. Its first line is the document's before the key, read in
+   * the same parse state, so every container before it closes there in both
+   * documents, and from that line on the parse and the edited document read
+   * the same lines from the same state. Blocks before it read lines only up
+   * to its first, which the key leaves alone. A `$$` line pairs with a closer
+   * anywhere later, so one before the block that no math block holds, or a
+   * key that may pair one otherwise, leaves the reading to the whole
+   * document, as does a suggestion spanning the block's start or a stray
+   * marker in the document, which could pair across it; with every marker
+   * before the block paired before it, the markers after it pair as the
+   * parse pairs them. Links, which
+   * resolve labels across the document, are no part of the structure, and
+   * code spans, math, autolinks and raw HTML bind before them.
+   */
+  const readingAfterBlock = (
+    state: RevisionState,
+    previous: DocumentRevision,
+    source: string,
+    edit: DocumentSourceEdit,
+    before: TrackedStructure
+  ): TrackedStructure | undefined => {
+    if (previous.diagnostics.length !== 0) return undefined
+    const next = source.slice(0, edit.start) + edit.insert + source.slice(edit.end)
+    if (editsMayRepairMath(state.source, { length: next.length, slice: (from: number, to: number) => next.slice(from, to) },
+      [edit], state.markdownOptions)) return undefined
+    const lineStartOf = (at: number): number => Math.max(source.lastIndexOf('\n', at - 1), source.lastIndexOf('\r', at - 1)) + 1
+    const keyLine = lineStartOf(edit.start)
+    let candidate = before.blocks.findIndex(block => block.end >= keyLine)
+    if (candidate === -1) candidate = before.blocks.length
+    let roots: readonly CriticMarkupAnnotation[] | undefined
+    let first: TrackedPart | undefined
+    let start = 0
+    for (candidate -= 1; candidate >= 0; candidate -= 1) {
+      const block = before.blocks[candidate]
+      // A block the key's line directly follows can take that line in.
+      if (block === undefined || block.kind.startsWith('item ') ||
+          !/(?:\r\n|\r|\n)[ \t]*(?:\r\n|\r|\n)/u.test(source.slice(block.end, keyLine))) continue
+      start = lineStartOf(block.start)
+      if (start === 0) return undefined
+      const straddles = (part: Readonly<{ start: number, end: number }>): boolean => part.start < start && part.end > start
+      roots ??= rootsOverlapping(previous, { start: 0, end: keyLine })
+      if (before.blocks.some(straddles) || before.literals.some(straddles) || roots.some(root => straddles(root.range))) continue
+      first = block
+      break
+    }
+    if (first === undefined) return undefined
+    if (state.markdownOptions.texMathDollars) {
+      for (let at = source.indexOf('$$'); at !== -1 && at < start; at = source.indexOf('$$', at + 2)) {
+        if (!before.literals.some(part => part.kind === 'math-block' && part.start <= at && at < part.end)) return undefined
+      }
+    }
+    const products = isolatedProducts(next.slice(start), Object.freeze({ ...state.markdownOptions, frontMatter: false }))
+    // An unfinished opener reads otherwise in a document without annotations.
+    if (diagnosticsOf(products).some(diagnostic => diagnostic.code === 'CM_UNTERMINATED_OPENER') &&
+        annotationsOf(products).annotations.length === 0 && roots?.some(root => root.range.end <= start) === true) return undefined
+    const editing = products.editing()
+    const read = trackedStructure(markdownAstOf(editing).root, projectionCoordinatesOf(editing, next.length - start))
+    const opening = read.blocks[0]
+    if (opening === undefined || opening.kind !== first.kind || opening.start + start !== first.start ||
+        opening.end + start !== first.end) return undefined
+    const shift = (part: TrackedPart): TrackedPart => ({ kind: part.kind, start: part.start + start, end: part.end + start })
+    return {
+      blocks: [...before.blocks.filter(part => part.start < start), ...read.blocks.map(shift)],
+      literals: [...before.literals.filter(part => part.start < start), ...read.literals.map(shift)]
+    }
   }
 
   /** Tracked compilation of an edit that changes no deleted text or annotation syntax. */
