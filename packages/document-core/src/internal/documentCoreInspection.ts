@@ -162,6 +162,21 @@ export function checksReaderViews(): boolean {
   return readerViewChecks
 }
 
+let readingWindowChecks = false
+
+/**
+ * Package-private check for a key's reading change read off a window of the
+ * edited document: the document is parsed whole as well, and the two
+ * changes must agree exactly.
+ */
+export function checkReadingWindows(enabled: boolean): void {
+  readingWindowChecks = enabled
+}
+
+export function checksReadingWindows(): boolean {
+  return readingWindowChecks
+}
+
 export function inspectDocumentCore(core: object): DocumentCoreInspection {
   const reader = READERS.get(core)
   if (reader === undefined) {
