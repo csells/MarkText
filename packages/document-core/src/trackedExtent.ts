@@ -1,4 +1,4 @@
-import { plansFromGeneralCompile } from './internal/documentCoreInspection.js'
+import { checksAppliedReadings, plansFromGeneralCompile } from './internal/documentCoreInspection.js'
 import type {
   CriticMarkupAnnotation, DocumentCore, DocumentRevision, DocumentSourceEdit,
   MarkdownAstNode, SourceRange
@@ -441,10 +441,13 @@ export function createTrackedOracle(
         !(regional.same(facts, targetFacts, 'revised') ?? facts.revised === targetFacts.revised) ||
         equivalence === 'exact' &&
         !(regional.sameAsPrevious(facts, 'original') ?? facts.original === original())) {
+      // The Original views are weighed before the Revised views: their
+      // signatures parse the Original text alone, while a candidate read
+      // regionally may need a whole parse for its Revised view.
       if (!(authored.length > 0 && resolveAuthored(candidate.source, authored, 'accept') === target.source &&
           resolveAuthored(candidate.source, authored, 'reject') === previousSource &&
-          viewFacts !== undefined && facts.revisedView() === (targetView ??= viewFacts.revisedView()) &&
-          signature(facts.original) === signature(original()))) return false
+          signature(facts.original) === signature(original()) &&
+          viewFacts !== undefined && facts.revisedView() === (targetView ??= viewFacts.revisedView()))) return false
     }
     // Equal materialized text can still mean something else inside an arm
     // (an arm-local literal or definition): the Revised view must agree too.
@@ -525,7 +528,13 @@ function regionalComparisons(core: DocumentCore, previous: DocumentRevision): Re
           ({ start: window.start, end: window.end - region.nextEnd + region.end })
         const windowA = inBase(a.window, regions[0])
         const windowB = inBase(b.window, regions[1])
-        if (windowA.start === windowB.start && windowA.end === windowB.end) return a.view() === b.view()
+        if (windowA.start === windowB.start && windowA.end === windowB.end) {
+          const same = a.view() === b.view()
+          if (checksAppliedReadings() && same !== (left.revisedView() === right.revisedView())) {
+            throw new Error('Views compared through regional readings diverged from the whole views')
+          }
+          return same
+        }
         span = union(windowA, windowB)
       }
       return undefined
