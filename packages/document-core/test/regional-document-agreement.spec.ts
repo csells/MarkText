@@ -268,9 +268,11 @@ describe('a structural key reads as the whole document plans it', () => {
 })
 
 describe('a dollar-heavy key reads as the whole document plans it', () => {
+  // Key 4/5 compiles its whole document unbudgeted (about 1.7 s at idle),
+  // which outlasts the default 5 s under a loaded lane.
   it.each(dollarWindowKeys)('fuzz key %s', (_key, source, edit) => {
     expect(keyAgrees(source, edit)).toBe(true)
-  })
+  }, 30_000)
 })
 
 // The draft's own acceptance can read past the arm before any edit (a block
