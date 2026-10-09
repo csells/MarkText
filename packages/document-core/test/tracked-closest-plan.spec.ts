@@ -9,10 +9,11 @@ import { createDocumentCore } from '../src/index.js'
 // caret after the typed text (B17).
 const source = '$$\n\n{++x\n\nw++}\n\n\ny\n$$~~}\n'
 const typed = source.slice(0, 8) + '$$' + source.slice(8)
-// The text around the key it suggests replacing, whole: a Deletion of it
-// beside an Addition of it as typed.
+// The text around the key it suggests replacing, whole, by the text typed.
 const closest = { start: 0, end: 15 }
-const spelled = `{--${source.slice(closest.start, closest.end)}--}{++${typed.slice(closest.start, closest.end + 2)}++}`
+const old = source.slice(closest.start, closest.end)
+const proposed = typed.slice(closest.start, closest.end + 2)
+const spelled = `{~~${old}~>${proposed}~~}`
 
 describe('a tracked key no narrower suggestion spells', () => {
   it('is planned by the document with its closest spelling', () => {
@@ -22,11 +23,9 @@ describe('a tracked key no narrower suggestion spells', () => {
   })
 
   it('resolves exactly under Accept All and Reject All', () => {
-    const deletion = `{--${source.slice(closest.start, closest.end)}--}`
-    expect(spelled.startsWith(deletion) && spelled.endsWith('++}')).toBe(true)
-    const proposed = spelled.slice(deletion.length + 3, -3)
+    // Accept All keeps the new arm and Reject All the old one, byte for byte.
     expect(source.slice(0, closest.start) + proposed + source.slice(closest.end)).toBe(typed)
-    expect(source.slice(0, closest.start) + source.slice(closest.start, closest.end) + source.slice(closest.end)).toBe(source)
+    expect(source.slice(0, closest.start) + old + source.slice(closest.end)).toBe(source)
   })
 
   it('is typed with the caret after the typed text', () => {
@@ -43,9 +42,10 @@ describe('a tracked key no narrower suggestion spells', () => {
     const edits = core.inputEdits(opened, action, plan, true)
     const [edit] = edits ?? []
     if (edit === undefined) throw new Error('Expected a tracked plan')
-    // A Deletion of the text around the key beside an Addition of it as typed.
-    const deletion = `{--${source.slice(edit.start, edit.end)}--}{++`
-    expect(edit.insert).toBe(`${deletion}${typed.slice(edit.start, edit.end + 2)}++}`)
+    // The text around the key, suggested replaced by the text as typed.
+    const around = source.slice(edit.start, edit.end)
+    const deletion = edit.insert.startsWith('{~~') ? `{~~${around}~>` : `{--${around}--}{++`
+    expect(edit.insert).toBe(`${deletion}${typed.slice(edit.start, edit.end + 2)}${edit.insert.startsWith('{~~') ? '~~}' : '++}'}`)
     const commit = core.apply(opened, [edit])
     const result = core.reconcileInput(opened, plan, commit, action)
     const caret = result.selection !== undefined && 'ranges' in result.selection ? result.selection.ranges[0] : undefined

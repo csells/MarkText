@@ -82,7 +82,7 @@ import {
   type PersistentCanonicalSource,
   type PersistentCanonicalSourceRecorder
 } from './internal/persistentCanonicalSource.js'
-import { checksReaderViews, planFromGeneralCompile, plansFromDocumentParse, plansFromGeneralCompile, registerDocumentCoreInspection, registerRegionalLeaves } from './internal/documentCoreInspection.js'
+import { checksReaderViews, searchesWithoutBudget, planFromGeneralCompile, plansFromDocumentParse, plansFromGeneralCompile, registerDocumentCoreInspection, registerRegionalLeaves } from './internal/documentCoreInspection.js'
 import { annotationsOverlapping, registerAnnotationsAround } from './internal/annotationsAround.js'
 import {
   createRevisionProductStore,
@@ -7709,7 +7709,7 @@ function createDocumentCoreWithExecutionBudget(
   // A key compiled in this document spends one spelling-search budget (owner
   // decision, 8 October 2026); window cores and the reference compiles none.
   const keyBudget = <T>(compile: () => T): T =>
-    windowCores.has(core) || plansFromDocumentParse(core) ? compile() : withDocumentSearchBudget(core, compile)
+    windowCores.has(core) || plansFromDocumentParse(core) || searchesWithoutBudget(core) ? compile() : withDocumentSearchBudget(core, compile)
 
   const trackedEditParts = (previous: DocumentRevision, edit: DocumentSourceEdit): readonly DocumentSourceEdit[] | undefined =>
     keyBudget(() => unbudgetedTrackedEditParts(previous, edit))

@@ -133,6 +133,21 @@ export function plansFromGeneralCompile(core: object): boolean {
   return GENERAL_PLANNERS.has(core)
 }
 
+const UNBUDGETED_SEARCHES = new WeakSet<object>()
+
+/**
+ * Package-private switch for planner agreement tests: the core's spelling
+ * searches run without the document-level search budget, as the references
+ * do, so a planner is compared with them on its own.
+ */
+export function searchWithoutBudget(core: object): void {
+  UNBUDGETED_SEARCHES.add(core)
+}
+
+export function searchesWithoutBudget(core: object): boolean {
+  return UNBUDGETED_SEARCHES.has(core)
+}
+
 let readerViewChecks = false
 
 /**
