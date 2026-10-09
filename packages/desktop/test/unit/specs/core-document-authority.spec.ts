@@ -3433,7 +3433,12 @@ describe('Core actor protocol', () => {
     ).toMatchObject({ type: 'source', source: '{++see++}\n' })
   })
 
-  it('leaves a protective byte inside an Addition unchanged under tracked deletion', () => {
+  // Every keystroke is applied (owner decision, 9 October 2026: always
+  // apply). Deleting the escape that keeps `{--` literal inside an Addition
+  // makes that `{--` an unfinished opener, which the parser reports; undo
+  // restores the escape. Profile 1 V3 governs render-safe materialization of
+  // views, not the user's keystrokes.
+  it('applies a tracked deletion of a protective byte inside an Addition as typed', () => {
     const actor = createCoreActor()
     const source = 'a{++\\{--x++}b\n'
     expect(
@@ -3455,30 +3460,36 @@ describe('Core actor protocol', () => {
       })
     ).toMatchObject({
       type: 'applied',
-      revision: 1,
-      change: { appliedEdits: [] }
+      revision: 2,
+      diagnosticCount: 1,
+      diagnostics: [{ code: 'CM_UNTERMINATED_OPENER' }],
+      change: { appliedEdits: [{ start: 4, end: 5, insert: '' }] }
     })
     expect(
       actor.handle({
         type: 'source-at-barrier',
         session: 786,
         sequence: 3,
-        baseRevision: 1
+        baseRevision: 2
       })
-    ).toMatchObject({ type: 'source', source })
+    ).toMatchObject({ type: 'source', source: 'a{++{--x++}b\n' })
     expect(
       actor.handle({
         type: 'undo',
         session: 786,
         sequence: 4,
-        baseRevision: 1,
+        baseRevision: 2,
         projections: []
       })
-    ).toMatchObject({
-      type: 'rejected',
-      reason: 'history-empty',
-      revision: 1
-    })
+    ).toMatchObject({ type: 'applied', revision: 3 })
+    expect(
+      actor.handle({
+        type: 'source-at-barrier',
+        session: 786,
+        sequence: 5,
+        baseRevision: 3
+      })
+    ).toMatchObject({ type: 'source', source })
   })
 
   it('removes an Addition when Track Changes deletes its final character', () => {

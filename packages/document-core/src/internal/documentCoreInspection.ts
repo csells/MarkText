@@ -17,6 +17,8 @@ export interface DocumentCoreInspection {
   readonly fullProductStoresStrongPeak: number
   /** Strong revision-owned parser product release operations. */
   readonly fullProductStoreReleases: number
+  /** Keystrokes applied as typed because no plan or record holds them (always apply). */
+  readonly keystrokesAppliedAsTyped: number
   readonly documentRetainedFactOutputStructuralUnits: number
   readonly canonicalFactIndexUnits: number
   readonly regionalProjectionPreparationUnits: number

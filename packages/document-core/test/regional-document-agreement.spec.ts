@@ -102,6 +102,8 @@ function inputKeyDisagreements(seed: number): string[] {
   const source = Array.from({ length: 3 + Math.floor(random() * 5) }, () => inputBlocks[Math.floor(random() * inputBlocks.length)] ?? '')
     .join('\n\n') + '\n'
   const core = createDocumentCore()
+  // Agreement is read without the search budget, as the reference searches.
+  searchWithoutBudget(core)
   let revision: DocumentRevision = core.open(source)
   const differing: string[] = []
   for (let press = 0; press < 12; press += 1) {
