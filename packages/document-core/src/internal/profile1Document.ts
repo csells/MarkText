@@ -4132,7 +4132,10 @@ function prepareProjection(
           }
           enterSourcePosition = enter.sourcePosition
           exitSourcePosition = exit.sourcePosition
-          planArmTermination = true
+          // Only the last selected arm runs on into the text after the
+          // Substitution; an arm another follows, as the old arm in the
+          // editing view, does not.
+          planArmTermination = armIndex === selectedArms.length - 1
         } else if (boundaries.length === 0) {
           // Unary forms publish no intrinsic Substitution boundary events.
         } else {

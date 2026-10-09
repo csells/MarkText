@@ -157,6 +157,8 @@ function delimiterCellCount(source: string, span: RowSpan): number | undefined {
 
 const BLOCK_START = /^[ \t]{0,3}(?:#{1,6}(?:[ \t]|$)|(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$|`{3,}|~{3,}|<[A-Za-z/!?])/u
 const FENCE = /^[ \t>]*(`{3,}|~{3,})/u
+// An arm boundary token beginning a line ends a fence its arm opened (L2c).
+const ARM_BOUNDARY_LINE = /^(?:[ \t]{0,3}>)*[ \t]*(?:~>|\+\+\}|--\}|~~\}|==\}|<<\})/u
 
 export function createTableCellContainment(
   source: string,
@@ -197,10 +199,17 @@ export function createTableCellContainment(
     const text = source.slice(line.start, line.end)
     const fenceMatch = FENCE.exec(text)
     if (fence !== undefined) {
-      if (fenceMatch?.[1] !== undefined && fenceMatch[1][0] === fence[0] && fenceMatch[1].length >= fence.length) fence = undefined
-      continue
+      // A closing fence is the run alone on its line (CommonMark 4.5).
+      if (fenceMatch?.[1] !== undefined && fenceMatch[1][0] === fence[0] && fenceMatch[1].length >= fence.length &&
+          /^[ \t]*$/u.test(text.slice(fenceMatch[0].length))) {
+        fence = undefined
+        continue
+      }
+      if (!ARM_BOUNDARY_LINE.test(text)) continue
+      fence = undefined
     }
-    if (fenceMatch?.[1] !== undefined) {
+    // A backtick fence's info string holds no backtick (CommonMark 4.5).
+    if (fenceMatch?.[1] !== undefined && !(fenceMatch[1][0] === '`' && text.slice(fenceMatch[0].length).includes('`'))) {
       fence = fenceMatch[1]
       continue
     }

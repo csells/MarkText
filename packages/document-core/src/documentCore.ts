@@ -2550,6 +2550,9 @@ function historySplit(
   return { range: annotation.range, insert, typed }
 }
 
+/** A line opening a block other than a paragraph, or indented as code. */
+const OPENS_BLOCK_LINE = /^(?: {4}|\t| {0,3}(?:#{1,6}(?:[ \t]|$)|>|[-+*](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|`{3,}|~{3,}|<|\$\$|(?:[-*_][ \t]*){3,}(?:[\r\n]|$)|=+[ \t]*(?:[\r\n]|$)|\|))/u
+
 /** The general tracked compiler for one edit, on any core. */
 function generalTrackedEdit(
   activeCore: DocumentCore,
@@ -6104,6 +6107,13 @@ function createDocumentCoreWithExecutionBudget(
     if (tracked) {
       if (owner?.kind !== 'addition' && owner?.kind !== 'substitution') return undefined
       if (edit.end - edit.start + edit.insert.length > OWN_DRAFT_SHORTCUT_UNITS) return undefined
+      // Typing that begins a line with block syntax, as `<div>` opening an
+      // HTML block, can end at the arm's closer where the accepted draft reads
+      // on (Profile 2 L2c): the compile weighs the draft's acceptance there.
+      const window = candidate.nextWindow
+      const lineStarts = [...edit.insert.matchAll(/\r\n|\r|\n/gu)].map(match => start + match.index + match[0].length)
+      if (start === 0 || /[\r\n]/u.test(window[start - 1] ?? '')) lineStarts.unshift(start)
+      if (lineStarts.some(at => OPENS_BLOCK_LINE.test(window.slice(at, at + 16)))) return undefined
       const arm = owner.arms.find(arm => arm.name === (owner.kind === 'addition' ? 'content' : 'new'))
       if (arm === undefined || arm.range.start > start || arm.range.end < end ||
           (edit.start !== edit.end && arm.children.length > 0)) return undefined
@@ -7307,6 +7317,13 @@ function createDocumentCoreWithExecutionBudget(
         definitions.map(definition => state.source.slice(definition.start, definition.end)).join('\n\n') + '\n'
     }
     if (span.start < sourceStart || span.end > windowEnd) return undefined
+    // A `$$` line before the window pairs with the first `$$` after it,
+    // which a key that writes, removes or reshapes a dollar run may move
+    // into or out of the window: the document then reads the key.
+    if (sourceStart > 0) {
+      const edited = state.source.applyExact(stableSourceEdits(edits), 'Window math reach')
+      if (editsMayRepairMath(state.source, edited, stableSourceEdits(edits), state.markdownOptions)) return undefined
+    }
     // A key whose reading change the document reads beyond this window, as
     // typing that breaks a fence reads on to the document's end, is spelled
     // in a window holding that change, without opening this one.
