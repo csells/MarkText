@@ -6,7 +6,7 @@ import { createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations as annotationTree, markupReplacementRange } from './markupEditOwnership.js'
 import { historyInsertionPoint, substitutionBeforeDeletion, substitutionDraftInsertionPoint, trackedEditableSpans, trackedPartsSeparate, withinHistory } from './trackedHistoryEditing.js'
 import { annotationsAround, annotationsOverlapping } from './internal/annotationsAround.js'
-import { createTrackedOracle, draftTrackedSourceEdit, equivalenceDeferred, isWindowCompileCore, markUnresolvedDraft, reachesWindowEdge, literalHistoryInsertionPoint, memoizedPreview, rejoinedTrackedHistoryEdit, splitTrackedHistoryEdit, trackedPreviewFacts, widenedTrackedSourceEdit } from './trackedExtent.js'
+import { createTrackedOracle, draftTrackedSourceEdit, equivalenceDeferred, escapesLiteralContent, isWindowCompileCore, markUnresolvedDraft, reachesWindowEdge, literalHistoryInsertionPoint, memoizedPreview, rejoinedTrackedHistoryEdit, splitTrackedHistoryEdit, trackedPreviewFacts, widenedTrackedSourceEdit } from './trackedExtent.js'
 
 /** Protective spelling retains exactly where the language compiler inserts escapes. */
 export const nativeCriticSpelling = (value: string): Readonly<{ text: string, escapes: readonly number[] }> => {
@@ -133,6 +133,8 @@ function withinBlockLiteral(core: DocumentCore, revision: DocumentRevision, edit
     text.startsWith('    ', lineStart) && local.start - lineStart >= 4
 }
 
+const ESCAPED_MARKER = /\\(?:\{\+\+|\+\+\}|\{--|--\}|\{~~|~>|~~\}|\{==|==\}|\{>>|<<\})/u
+
 /** Literal payloads cannot contain active CM; suggest a replacement of their owned syntax. */
 export function createTrackedLiteralSourceEdit(
   core: DocumentCore,
@@ -165,7 +167,16 @@ export function createTrackedLiteralSourceEdit(
   const original = core.sourceSlice(revision, owner)
   const insert = original.slice(0, edit.start - owner.start) + edit.insert + original.slice(edit.end - owner.start)
   if (insert === original) return undefined
-  return createTrackedSourceEdit(core, revision, { ...owner, insert }, preview)
+  // The compile of the whole literal reads its own text as the typed result,
+  // marker spellings escaped included; a literal's text is its content byte
+  // for byte, so the spelling is checked against the key as typed, and one
+  // that escapes a marker spelling in it is left to the search for another.
+  const planned = createTrackedSourceEdit(core, revision, { ...owner, insert }, preview)
+  if (planned === undefined || !ESCAPED_MARKER.test(planned.insert)) return planned
+  const source = core.sourceSlice(revision, { start: 0, end: revision.sourceLength })
+  const typed = source.slice(0, owner.start) + insert + source.slice(owner.end)
+  const literal = { start: owner.start, end: owner.start + insert.length }
+  return escapesLiteralContent([planned], preview([planned]), typed, () => [literal]) ? undefined : planned
 }
 
 /** Exterior typing may extend an inline draft, but cannot acquire container syntax. */
