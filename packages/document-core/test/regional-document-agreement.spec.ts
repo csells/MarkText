@@ -285,25 +285,15 @@ describe('a plain edit in one\'s own draft reads as typed', () => {
     // The arm reads the split-off line as a paragraph until it resolves, its
     // acceptance as indented code: the draft's layout, not the edit's.
     ['in lines its arm reads as a paragraph, by Enter', 'Intro.\n\n{~~    indented 0\n~>\n     \n   indented 0\n    indented 1\n    indxnted 2\n~~}\n', '    indxnted', 0, 0, '\n\n'],
-    ['in a paragraph before an HTML block', 'Plain words here.\n\n{~~<div>\nold\n</div>\n~>x<divx>\nml 1\nhtml 2\n</div>\n~~}{++\n++}\n{++```js\nconst added = 1\n```\n++}\n', 'ml 1\nhtml', 4, 1, '']
+    ['in a paragraph before an HTML block', 'Plain words here.\n\n{~~<div>\nold\n</div>\n~>x<divx>\nml 1\nhtml 2\n</div>\n~~}{++\n++}\n{++```js\nconst added = 1\n```\n++}\n', 'ml 1\nhtml', 4, 1, ''],
+    // A `$$` that opens its arm's line stands alone there, as in the draft's
+    // acceptance, so its math block spans a blank line typed into it.
+    ['in a $$ block that opens its arm, by a blank line', 'Intro.\n\n{~~a~>$$\nx\ny{--d--}\n$$\n~~}\n\nEnd.\n', 'x\ny', 1, 0, '\n\n']
   ])('%s', (_name, source, anchor, offset, length, insert) => {
     const start = source.lastIndexOf(anchor) + offset
     const edit = { start, end: start + length, insert }
     const core = control()
     expect(core.trackedEdit(core.open(source), edit)).toEqual(edit)
-    expect(keyAgrees(source, edit)).toBe(true)
-  })
-
-  // A blank line typed into a `$$` block of one's own arm ends the block in
-  // the arm, so text after it would read as suggestions: not as typed.
-  it('keeps the full compile where the typing ends the arm\'s block', () => {
-    const source = 'Intro.\n\n{~~a~>$$\nx\ny{--d--}\n$$\n~~}\n\nEnd.\n'
-    const at = source.indexOf('x\ny') + 1
-    const edit = { start: at, end: at, insert: '\n\n' }
-    const core = control()
-    const planned = core.trackedEdit(core.open(source), edit)
-    expect(planned).toBeDefined()
-    expect(planned).not.toEqual(edit)
     expect(keyAgrees(source, edit)).toBe(true)
   })
 
