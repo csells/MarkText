@@ -164,17 +164,14 @@ describe('Core actor sparse native input results', () => {
   // tracked, so no tracked input is a no-op. One no narrower suggestion can
   // spell, as a `$$` typed in an Addition that pairs with the `$$` opening
   // the document, falls back to replacing the math block whole, which Accept
-  // All and Reject All resolve exactly.
+  // All and Reject All resolve exactly: the math's text byte for byte.
   it('suggests the math block whole when no narrower spelling reads as the tracked input', () => {
     const actor = createCoreActor()
     try {
       const source = '$$\n\n{++x\n\nw++}\n\n\ny\n$$~~}\n'
       const typed = source.slice(0, 8) + '$$' + source.slice(8)
-      // Each arm reads its `$$` alone on its line, as display math, and the
-      // proposed text escapes the marker spellings the typed text reads as text.
       const block = source.indexOf('$$~~}') + 2
-      const proposed = typed.slice(0, block + 2).replace('{++', '\\{++').replace('++}', '\\++}')
-      const replacement = `{~~${source.slice(0, block)}~>${proposed}~~}`
+      const replacement = `{~~${source.slice(0, block)}~>${typed.slice(0, block + 2)}~~}`
       const spelled = replacement + source.slice(block)
       const opened = actor.handle({ type: 'open', session: 1, sequence: 1, source })
       const result = actor.handle({
