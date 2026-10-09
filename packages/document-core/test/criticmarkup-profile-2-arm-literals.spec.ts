@@ -371,3 +371,16 @@ describe('L2b: tracked-change closers stand against an in-arm definition', () =>
       .toEqual({ start: 0, end: '{++[a]: /u\\++} x++}'.length })
   })
 })
+
+// Every text is a document (Profile 1 P1): a Substitution whose arms end in
+// list items, before an indented line, reads in every view (B19).
+describe('a Substitution ending in list items before an indented line', () => {
+  it.each([
+    '{~~old\n- item~>new\n- item~~}\n  continued\n',
+    '{~~{~~old para~>new para~~}\n- item {++two++}~>{~~old para~>new para~~}\n- item {++two++}~~}\n  continued'
+  ])('opens %j', source => {
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    for (const view of ['original', 'revised', 'markup'] as const) expect(() => core.project(revision, view)).not.toThrow()
+  })
+})
