@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
-import { inspectDocumentCore, planFromDocumentParse } from '../src/internal/documentCoreInspection.js'
+import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
 
 // Plan 0012 G35: keys pressed one after another beside and inside
 // suggestions, such as Backspace then Delete over the text just struck,
@@ -110,6 +110,8 @@ describe('key sequences read as the document parse', () => {
         .join('\n\n') + '\n'
       for (let trial = 0; trial < 6; trial += 1) {
         const core = createDocumentCore()
+        // Agreement is read without the search budget, as the reference searches.
+        searchWithoutBudget(core)
         const control = createDocumentCore()
         planFromDocumentParse(control)
         let revision = regional(core, source)
@@ -173,6 +175,8 @@ describe('key sequences in suggestion arms\' literal blocks read as the document
       const source = Array.from({ length: count }, () => armBlocks[Math.floor(random() * armBlocks.length)] ?? '').join('\n\n') + '\n'
       for (let trial = 0; trial < 5; trial += 1) {
         const core = createDocumentCore()
+        // Agreement is read without the search budget, as the reference searches.
+        searchWithoutBudget(core)
         const control = createDocumentCore()
         planFromDocumentParse(control)
         let revision = regional(core, source)

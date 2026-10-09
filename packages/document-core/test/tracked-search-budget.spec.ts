@@ -92,3 +92,30 @@ describe('a pool key whose spelling the budget decides', () => {
     expect(core.project(next, 'original').markdown).toBe(core.project(opened, 'original').markdown)
   })
 })
+
+// A dollar-heavy agreement key (132/3) the budget decides: a line-level pair
+// where the unbudgeted search takes a wider substitution. It adds no
+// diagnostic, keeps the Original reading, and resolves to the operation's
+// bytes; only its pending Revised view reads otherwise (coordinator sign-off,
+// 9 October 2026).
+describe('the dollar-heavy key 132/3 past its budget', () => {
+  const text = 'q> $$\n> q\n\n{++$\n\n$$\n$\nx\ny\n$$++}\n\n{++x\n\n$$\ny\n\nw++}\n\n{++$$\nx\ny\n$$++}\n\n{++x\n\n$$\ny\n\nw++}\n\n```\ncode $$\n```\n\ncosts $$5 and $3\n\n{++x\n\n$$\ny\n\nw++}\n\ncosts $$5 and $3\n\nReview {++new++} and {--old--} text.\n\ninline \n$a$ math\n\n{++$$\nx\ny\n$$++}\n\nReview {++new++} and {--old--} text.\n\n{~~a~>$$\nx\ny\n$$\n~~}\n\nPlain words here.\n\nReview {++new++} and {--old--} text.\n\n```\ncode $$\n```\n\nz\n$$\n\n$$\n\n{++x\n\n$$\ny\n\nw++}\n\n{~~a~>$$\nx\ny\n$$\n~~}\n\n$$\nx_0 + y\nx_1\n$$\n\n$$\n\n$$\nx_0 + y\nx_1\n$$\n\nReview {++new++} and {--old--} text.\n\nz{++$$++}\n$$\n\n$$\n\n{++$$\nx\ny\n$$++}\n\n- item $$\n- item\n\ncosts $$5 and $3\n\n$$\nx_0 + y\nx_1\n$$\n\nReview {++new++} and {--old--} text.\n\nx\n$$\n\nz\n$$\n\n$$\n\n$$\nx_0 + y\nx_1\n$$\n\n{~~a~>$$\nx\ny\n$$\n~~}\n\nPlain words here.\n\ninline $a$ math\n\n> $$\n> q\n\n$$\n\nPlain words here.\n\n{++$$\nx\ny\n$$++}\n\nReview {++new++} and {--old--} text.\n\ninline $a$ math\n'
+  const key = { start: 562, end: 562, insert: 'x' }
+
+  it('takes a spelling that adds no diagnostic and resolves exactly', () => {
+    const core = createDocumentCore()
+    const opened = core.open(text)
+    const spelled = core.trackedEdit(opened, key)
+    const unbudgeted = createDocumentCore()
+    searchWithoutBudget(unbudgeted)
+    expect(unbudgeted.trackedEdit(unbudgeted.open(text), key)).not.toEqual(spelled)
+    expect(spelled).toEqual({ start: 545, end: 562, insert: '{--costs $$5 and $3\n--}{++costs $$5 and $3\nx++}' })
+    if (spelled === undefined) return
+    const next = core.apply(opened, [spelled]).revision
+    expect(next.diagnostics.length).toBeLessThanOrEqual(opened.diagnostics.length)
+    expect(core.project(next, 'original').markdown).toBe(core.project(opened, 'original').markdown)
+    const typed = text.slice(0, key.start) + key.insert + text.slice(key.end)
+    expect(next.source.replace(spelled.insert, () => text.slice(spelled.start, spelled.end) + 'x')).toBe(typed)
+    expect(next.source.replace(spelled.insert, () => text.slice(spelled.start, spelled.end))).toBe(text)
+  })
+})

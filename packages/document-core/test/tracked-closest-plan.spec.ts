@@ -77,3 +77,23 @@ describe('a tracked key that changes no text', () => {
     }
   })
 })
+
+// `$$` typed between a suggestion's `{` and its `++` re-pairs the document's
+// opening `$$` around the Addition's markers: no record holds it, exact or
+// not (owner decision, 9 October 2026). It is applied as typed.
+describe('a tracked keystroke no record can hold', () => {
+  it('is applied as typed', () => {
+    const document = '$$\n\n{++x\n\n\n++}\n\n\ny\n$$~~}\n'
+    const core = createDocumentCore()
+    const opened = core.open(document)
+    const action = {
+      range: { start: 5, end: 5 },
+      selection: { ranges: [{ anchor: 5, focus: 5 }], primary: 0 },
+      inputType: 'insertText',
+      data: '$$',
+      options: { autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true }
+    } as const
+    const plan = core.planInput(opened, action, { tracked: true })
+    expect(core.inputEdits(opened, action, plan, true)).toEqual([{ start: 5, end: 5, insert: '$$' }])
+  })
+})

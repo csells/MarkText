@@ -16,7 +16,7 @@ import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit, withinHistory } from './trackedHistoryEditing.js'
-import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, markUnresolvedDraft, windowEndsDocument, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, withDocumentSearchBudget, spelledAsSource, trackedStructure, type TrackedStructure, type TrackedPart, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
+import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, markUnresolvedDraft, windowEndsDocument, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, withDocumentSearchBudget, withoutDocumentSearchBudget, documentSearchExhausted, spelledAsSource, recordedExactly, trackedStructure, type TrackedStructure, type TrackedPart, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import {
@@ -7869,10 +7869,12 @@ function createDocumentCoreWithExecutionBudget(
    * it and Reject All drops it; any other edit takes the spelling that Accept
    * All and Reject All read as the untracked edit.
    */
-  const closestTrackedEdit = (previous: DocumentRevision, edit: DocumentSourceEdit): DocumentSourceEdit | undefined =>
-    keyBudget(previous, () => unbudgetedClosestTrackedEdit(previous, edit))
+  const closestTrackedEdit = (previous: DocumentRevision, edit: DocumentSourceEdit, splitting = false): DocumentSourceEdit | undefined =>
+    keyBudget(previous, () => unbudgetedClosestTrackedEdit(previous, edit, splitting))
 
-  const unbudgetedClosestTrackedEdit = (previous: DocumentRevision, edit: DocumentSourceEdit): DocumentSourceEdit | undefined => {
+  // `splitting`: a key that splits a marker is weighed too, for a spelling
+  // that resolves to its bytes alone (see `recordedExactly`).
+  const unbudgetedClosestTrackedEdit = (previous: DocumentRevision, edit: DocumentSourceEdit, splitting = false): DocumentSourceEdit | undefined => {
     const markup = core.markupEdit(previous, edit)
     // An edit the markup compile cannot read is weighed against whole parses
     // of its candidates, as the reference weighs them.
@@ -7882,7 +7884,7 @@ function createDocumentCoreWithExecutionBudget(
     // in, is spelled as the source edit it is, where it writes no delimiter
     // apart; its spelling may leave no marker unpaired.
     const untracked = markup ??
-      (edit.start === edit.end && edit.insert.length === 0 || splitsMarker(previous.annotations, edit) ? undefined : Object.freeze([edit]))
+      (edit.start === edit.end && edit.insert.length === 0 || !splitting && splitsMarker(previous.annotations, edit) ? undefined : Object.freeze([edit]))
     if (untracked === undefined || untracked.length === 0) return undefined
     const around = rootsAround(previous, edit.start)
     if (edit.start === edit.end && edit.insert.length > 0 && withinHistory(around, edit)) {
@@ -7898,6 +7900,19 @@ function createDocumentCoreWithExecutionBudget(
     }
     const oracle = createTrackedOracle(core, previous, untracked, preview)
     if (oracle !== undefined && markup === undefined) spelledAsSource.add(oracle)
+    if (oracle !== undefined && splitting) {
+      recordedExactly.add(oracle)
+      // The keystroke struck or proposed where it was typed is its closest
+      // record; the search's spans grow to whole suggestions.
+      const old = core.sourceSlice(previous, edit)
+      const spellings = old.length === 0
+        ? [`{++${edit.insert}++}`]
+        : edit.insert.length === 0 ? [`{--${old}--}`] : [`{--${old}--}{++${edit.insert}++}`, `{~~${old}~>${edit.insert}~~}`]
+      for (const insert of spellings) {
+        const spelled = Object.freeze({ start: edit.start, end: edit.end, insert })
+        if (oracle.resolvesExactly([spelled])) return spelled
+      }
+    }
     return oracle === undefined ? undefined : withBestEffortSpelling(core, () => widenedTrackedSourceEdit(core, previous, oracle))
   }
 
@@ -8479,7 +8494,7 @@ function createDocumentCoreWithExecutionBudget(
     },
     inputEdits(previous: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, tracked: boolean) {
       return keyBudget(previous, () => {
-        const planned = ((): readonly DocumentSourceEdit[] | undefined => {
+        const planOnce = (): readonly DocumentSourceEdit[] | undefined => {
           currentStateOf(previous)
           action = commentedSpanSafeInput(previous, action, at => rootsAround(previous, at))
           const joinSyntax = 'kind' in action && action.command === 'joinParagraphBackward' ? core.project(previous, 'markup').syntax : undefined
@@ -8576,7 +8591,8 @@ function createDocumentCoreWithExecutionBudget(
           }
           return planNativeEdits(previous, plan.edits, tracked,
             !('kind' in action) && typedInputTypes.has(action.inputType))
-        })()
+        }
+        const planned = planOnce()
         if (planned !== undefined || !tracked || equivalenceDeferred(core)) return planned
         // Typing is never refused (owner decision, 6 October): an operation no
         // tracked plan holds takes the closest spelling of its whole edit.
@@ -8593,7 +8609,28 @@ function createDocumentCoreWithExecutionBudget(
           cursor = edit.end
         }
         const closest = closestTrackedEdit(previous, Object.freeze({ start: first.start, end: last.end, insert }))
-        return closest === undefined ? undefined : Object.freeze([closest])
+        if (closest !== undefined) return Object.freeze([closest])
+        // A keystroke the untracked edit refuses too, as one deleting a
+        // protective byte, changes nothing either way.
+        const untracked = core.inputEdits(previous, action, core.planInput(previous, action, { tracked: false }), false)
+        if (untracked === undefined || untracked.length === 0) return untracked
+        // A search the key's budget stopped is run once more without it, so no
+        // keystroke is applied as typed where a spelling exists.
+        if (documentSearchExhausted(core)) {
+          const full = withoutDocumentSearchBudget(core, () =>
+            planOnce() ?? (() => {
+              const spelled = closestTrackedEdit(previous, Object.freeze({ start: first.start, end: last.end, insert }))
+              return spelled === undefined ? undefined : Object.freeze([spelled])
+            })())
+          if (full !== undefined) return full
+        }
+        const recorded = closestTrackedEdit(previous, Object.freeze({ start: first.start, end: last.end, insert }), true)
+        if (recorded !== undefined) return Object.freeze([recorded])
+        // No record holds the keystroke at all, as `$$` typed inside an
+        // opener re-pairs the math around a suggestion's markers: it is
+        // applied as it is untracked, which undo restores and Reject All
+        // cannot remove (owner decision, 9 October 2026; vision principle 7).
+        return untracked
       })
     },
     planInput(previous: DocumentRevision, action: DocumentInputAction, options?: { readonly tracked?: boolean }) {
