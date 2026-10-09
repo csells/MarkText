@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision, type DocumentSourceEdit } from '../src/index.js'
-import { inspectRegionalLeaves, planFromGeneralCompile } from '../src/internal/documentCoreInspection.js'
+import { inspectRegionalLeaves, planFromGeneralCompile, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
 
 // A root suggestion that opens a block after a blank line starts a region:
 // nothing is open before it, its arms read from that same clean state as
@@ -107,6 +107,9 @@ describe('a root suggestion opening a block after a blank line', () => {
   it.each(Array.from({ length: seeds }, (_, index) => first + index))('reads keys around arms left open as the whole document does, seed %i', seed => {
     const random = lcg(seed * 6151)
     const core = createDocumentCore()
+    // The planners are compared with the reference on their own, as the
+    // reference searches spellings: without the search budget.
+    searchWithoutBudget(core)
     let revision = core.open(documentFrom(random))
     for (let key = 0; key < 12; key += 1) {
       const text = revision.source

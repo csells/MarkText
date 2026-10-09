@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision } from '../src/index.js'
-import { inspectDocumentCore, planFromDocumentParse } from '../src/internal/documentCoreInspection.js'
+import { inspectDocumentCore, planFromDocumentParse, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
 
 // Plan 0012 G35: Enter and a soft break are planned from the paragraphs
 // around the caret, and tracked breaks are proved by reparsing only those
@@ -124,6 +124,9 @@ describe.each([
         for (const key of ['insertParagraph', 'insertLineBreak', 'deleteContentBackward'] as const) {
           for (const tracked of [false, true]) {
             const core = createDocumentCore()
+            // The planners are compared with the reference on their own, as
+            // the reference searches spellings: without the search budget.
+            searchWithoutBudget(core)
             const revision = regional(core, source, at)
             const before = inspectDocumentCore(core).documentParses
             const actual = press(core, revision, caret, key, tracked)

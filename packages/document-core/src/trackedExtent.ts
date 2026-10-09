@@ -953,6 +953,10 @@ function searchWidenedSpelling(
   const budget = documentSearchBudgets.get(core)
   let budgetSpent = false
   let closestOnly = false
+  // While set, the closest spelling over a span narrower than the document
+  // leaves no marker unpaired that the document did not (owner decision,
+  // 8 October 2026: a budgeted outcome adds no diagnostic).
+  let addsNoDiagnostic = false
   let weighedClosest = 0
   // `bytes`: Accept All and Reject All need only splice exactly, however the
   // pending suggestions read.
@@ -989,7 +993,7 @@ function searchWidenedSpelling(
     // unpaired beyond those the untracked edit leaves is no spelling of it.
     // A key spelled as the source edit it is (see `spelledAsSource`) takes
     // no spelling that leaves a marker unpaired, however it resolves.
-    if (spelledAsSource.has(oracle)
+    if (spelledAsSource.has(oracle) || addsNoDiagnostic
       ? candidate.diagnostics.length > previous.diagnostics.length
       : !bytes && candidate.diagnostics.length > Math.max(previous.diagnostics.length, oracle.preview(untracked).diagnostics.length)) return undefined
     const authored = markupAnnotations(candidate.annotations).find(annotation =>
@@ -1135,7 +1139,12 @@ function searchWidenedSpelling(
     const whole = { start: 0, end: source.length }
     const spans: SourceRange[] = []
     const tried = new Set<string>([`${whole.start}:${whole.end}`])
-    for (const span of [base, lineAligned(base), ...candidates.filter(span => span.start <= base.start && base.end <= span.end)]) {
+    // A document one candidate's parse exceeds the budget for is spelled
+    // over its whole text at once, as few parses as that takes.
+    const narrower = source.length > DOCUMENT_SEARCH_UNITS
+      ? []
+      : [base, lineAligned(base), ...candidates.filter(span => span.start <= base.start && base.end <= span.end)]
+    for (const span of narrower) {
       const key = `${span.start}:${span.end}`
       if (tried.has(key)) continue
       tried.add(key)
@@ -1145,21 +1154,30 @@ function searchWidenedSpelling(
     // Reject All read as the operation over each span, narrowest first, then
     // those resolving to the operation's bytes; the whole document is always
     // weighed, last.
-    for (const bytes of [false, true]) {
-      weighedClosest = 0
-      for (const span of spans) {
-        for (const variant of ['pair', 'reversed', 'exact'] as const) {
-          if ((weighedClosest += 1) > CLOSEST_SPELLINGS_WEIGHED) break
-          const edit = bytes ? exactly(span, variant) : trimmed(span, variant, 'exact', true)
-          if (edit !== undefined) return edit
+    addsNoDiagnostic = true
+    try {
+      for (const bytes of [false, true]) {
+        weighedClosest = 0
+        for (const span of spans) {
+          for (const variant of ['pair', 'reversed', 'exact'] as const) {
+            if ((weighedClosest += 1) > CLOSEST_SPELLINGS_WEIGHED) break
+            const edit = bytes ? exactly(span, variant) : trimmed(span, variant, 'exact', true)
+            if (edit !== undefined) return edit
+          }
         }
       }
+    } finally {
+      addsNoDiagnostic = false
     }
-    for (const bytes of [false, true]) {
-      for (const variant of ['pair', 'reversed', 'exact'] as const) {
-        const edit = attempt(whole, 0, 0, variant, 'exact', true, bytes)
-        if (edit !== undefined) return edit
-      }
+    // Over the whole document, the lines both readings share at either end
+    // stay outside, as at the search's last stage.
+    for (const variant of ['pair', 'reversed', 'exact'] as const) {
+      const edit = exactly(whole, variant)
+      if (edit !== undefined) return edit
+    }
+    for (const variant of ['pair', 'reversed', 'exact'] as const) {
+      const edit = attempt(whole, 0, 0, variant, 'exact', true)
+      if (edit !== undefined) return edit
     }
     return undefined
   }
