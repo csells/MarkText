@@ -2936,6 +2936,24 @@ function createDocumentCoreWithExecutionBudget(
     }
   })
 
+  // A tracked compile reads its previous revision's Original and Revised
+  // projections between whole reads of its candidates, and each candidate read
+  // demotes the previous revision's parse. Projected from that parse first,
+  // they cost a few milliseconds where rehydrating each later is a whole parse.
+  let compilingFrom: DocumentRevision | undefined
+  const setAsideFor = (revision: DocumentRevision): void => {
+    if (revision === currentRevision) return
+    const current = currentRevision
+    if (
+      current !== undefined && compilingFrom === current &&
+      stateByRevision.get(current)?.productStore.withRetained(() => true) === true
+    ) {
+      projectRevision(current, 'original')
+      projectRevision(current, 'revised')
+    }
+    demoteCurrentProductStore()
+  }
+
   const demoteCurrentProductStore = <Result>(
     select?: (products: Profile1DocumentProducts) => Result
   ): Result | undefined => {
@@ -3129,7 +3147,7 @@ function createDocumentCoreWithExecutionBudget(
         get annotations(): readonly CriticMarkupAnnotation[] {
           if (memoizedAnnotations !== undefined) return memoizedAnnotations
           if (regionalInventory !== undefined) return annotations()
-          if (revision !== currentRevision) demoteCurrentProductStore()
+          setAsideFor(revision)
           return annotations(undefined, revision === currentRevision)
         },
         diagnostics
@@ -5002,7 +5020,7 @@ function createDocumentCoreWithExecutionBudget(
       }
       return cached
     }
-    if (revision !== currentRevision) demoteCurrentProductStore()
+    setAsideFor(revision)
 
     const result = withFacts(state, (facts): DocumentProjection => {
       if (projection === 'markup') {
@@ -5086,7 +5104,7 @@ function createDocumentCoreWithExecutionBudget(
     }
     const cached = cachedByComment.get(comment)
     if (cached !== undefined) return cached
-    if (revision !== currentRevision) demoteCurrentProductStore()
+    setAsideFor(revision)
 
     const result = withFacts(state, facts => {
       const nodeId = facts.nodeIdByAnnotation.get(comment)
@@ -5127,7 +5145,7 @@ function createDocumentCoreWithExecutionBudget(
       cachedByComment.set(comment, regional)
       return regional
     }
-    if (revision !== currentRevision) demoteCurrentProductStore()
+    setAsideFor(revision)
 
     const result = withFacts(state, (facts): CommentMarkupProjection => {
       const nodeId = facts.nodeIdByAnnotation.get(comment) ?? sameComment(facts, comment)
@@ -7708,11 +7726,22 @@ function createDocumentCoreWithExecutionBudget(
    */
   // A key compiled in this document spends one spelling-search budget (owner
   // decision, 8 October 2026); window cores and the reference compiles none.
-  const keyBudget = <T>(compile: () => T): T =>
-    windowCores.has(core) || plansFromDocumentParse(core) || searchesWithoutBudget(core) ? compile() : withDocumentSearchBudget(core, compile)
+  // Its previous revision's projections outlast the compile's candidate reads
+  // (see `setAsideFor`).
+  const keyBudget = <T>(previous: DocumentRevision, compile: () => T): T => {
+    const outer = compilingFrom
+    compilingFrom = previous
+    try {
+      return windowCores.has(core) || plansFromDocumentParse(core) || searchesWithoutBudget(core)
+        ? compile()
+        : withDocumentSearchBudget(core, compile)
+    } finally {
+      compilingFrom = outer
+    }
+  }
 
   const trackedEditParts = (previous: DocumentRevision, edit: DocumentSourceEdit): readonly DocumentSourceEdit[] | undefined =>
-    keyBudget(() => unbudgetedTrackedEditParts(previous, edit))
+    keyBudget(previous, () => unbudgetedTrackedEditParts(previous, edit))
 
   const unbudgetedTrackedEditParts = (previous: DocumentRevision, edit: DocumentSourceEdit): readonly DocumentSourceEdit[] | undefined => {
     const state = currentStateOf(previous)
@@ -7758,7 +7787,7 @@ function createDocumentCoreWithExecutionBudget(
    * All and Reject All read as the untracked edit.
    */
   const closestTrackedEdit = (previous: DocumentRevision, edit: DocumentSourceEdit): DocumentSourceEdit | undefined =>
-    keyBudget(() => unbudgetedClosestTrackedEdit(previous, edit))
+    keyBudget(previous, () => unbudgetedClosestTrackedEdit(previous, edit))
 
   const unbudgetedClosestTrackedEdit = (previous: DocumentRevision, edit: DocumentSourceEdit): DocumentSourceEdit | undefined => {
     const markup = core.markupEdit(previous, edit)
@@ -8366,7 +8395,7 @@ function createDocumentCoreWithExecutionBudget(
           markupProjectionOf(products, annotationsOf(products).rangeByNodeId, source.length).syntax))
     },
     inputEdits(previous: DocumentRevision, action: DocumentInputAction, plan: DocumentInputPlan, tracked: boolean) {
-      return keyBudget(() => {
+      return keyBudget(previous, () => {
         const planned = ((): readonly DocumentSourceEdit[] | undefined => {
           currentStateOf(previous)
           action = commentedSpanSafeInput(previous, action, at => rootsAround(previous, at))
@@ -8577,7 +8606,7 @@ function createDocumentCoreWithExecutionBudget(
       previous: DocumentRevision,
       edit: DocumentSourceEdit
     ): DocumentSourceEdit | undefined {
-      return keyBudget(() => {
+      return keyBudget(previous, () => {
         const parts = trackedEditParts(previous, edit)
         if (parts !== undefined) return joinedTrackedEdit(core, previous, edit.start, parts)
         // A detached lineage weighing parts of one operation spells the whole
