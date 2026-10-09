@@ -3369,10 +3369,10 @@ export function createMarkdownLaneState(
     let inlineCode = checkpoint.inlineCode
     let math = checkpoint.math
     let mathOwnedUntil = checkpoint.mathOwnedUntil
-    // A line that starts inside math is the math's text: no fence opens
-    // there, though the math closes later on the line.
+    // A line that starts inside display math is the math's text: no fence
+    // or container opens there, though the math closes later on the line.
     const lineStartsInMath = (start: number): boolean =>
-      (math !== undefined && math.openStart < start) || (mathOwnedUntil !== undefined && mathOwnedUntil > start)
+      (math?.block === true && math.openStart < start) || (mathOwnedUntil !== undefined && mathOwnedUntil > start)
     // The line holding an offset as this lane reads it, when the line began
     // before this text: text an earlier advance read, then this text, with no
     // CriticMarkup marker between them.
@@ -3800,7 +3800,7 @@ export function createMarkdownLaneState(
             break
           }
           const closeEnd = math.closeStart + math.delimiterLength
-          mathOwnedUntil = closeEnd
+          if (math.block === true && math.openStart < lineStart) mathOwnedUntil = closeEnd
           completedLiterals.push(Object.freeze({
             kind: 'math',
             start: math.openStart,
@@ -4289,7 +4289,7 @@ export function createMarkdownLaneState(
           source,
           completedBounds,
           checkpoint
-        ),
+        ) || lineStartsInMath(lineStart),
         lazyContinuationOpenFor(checkpoint),
         checkpoint.tableOpen === true,
         checkpoint.listItemsHoldingLists
@@ -4301,7 +4301,7 @@ export function createMarkdownLaneState(
         { start: 0, contentEnd: completedLine.length, end: completedLine.length },
         activeContainers,
         paragraphOpen,
-        false,
+        lineStartsInMath(lineStart),
         paragraphOpen || definitionLazyContinuation,
         tableOpen,
         { source, next: completedBounds.end },
