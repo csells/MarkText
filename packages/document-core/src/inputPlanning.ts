@@ -621,6 +621,29 @@ function proposedTextStart(edit: DocumentSourceEdit | undefined, old: string): R
   return undefined
 }
 
+function typedText(source: string, edits: readonly DocumentSourceEdit[]): string {
+  let text = source
+  for (const edit of [...edits].sort((left, right) => right.start - left.start)) {
+    text = text.slice(0, edit.start) + edit.insert + text.slice(edit.end)
+  }
+  return text
+}
+
+/**
+ * The offset in a proposed arm of an offset in the text as typed, which the
+ * arm spells with escapes before marker spellings the typed text reads as
+ * text; undefined where the two differ otherwise.
+ */
+function escapedOffset(proposed: string, typed: string, offset: number): number | undefined {
+  if (offset < 0) return undefined
+  let at = 0
+  for (let index = 0; index < offset; index += 1, at += 1) {
+    if (proposed[at] !== typed[index] && proposed[at] === '\\') at += 1
+    if (proposed[at] !== typed[index]) return undefined
+  }
+  return at
+}
+
 export function reconcileInput(
   core: DocumentCore, previous: DocumentRevision, policy: DocumentInputPlan, commit: DocumentCommit | null, action: DocumentInputAction
 ): DocumentInputResult {
@@ -659,8 +682,8 @@ export function reconcileInput(
     ? undefined
     : proposedTextStart(applied[0], core.sourceSlice(previous, applied[0]!))
   if (widened !== undefined && plannedCaret !== undefined) {
-    const offset = plannedCaret.anchor - widened.edit.start
-    if (offset >= 0 && offset <= widened.proposed.length) {
+    const offset = escapedOffset(widened.proposed, typedText(previous.source, policy.edits).slice(widened.edit.start), plannedCaret.anchor - widened.edit.start)
+    if (offset !== undefined && offset >= 0 && offset <= widened.proposed.length) {
       const caret = widened.edit.start + widened.at + offset
       return Object.freeze({ policy, ...(compilerReconciliation === undefined ? {} : { compilerReconciliation }), selection: copyDocumentSelection({ ranges: [{ anchor: caret, focus: caret }], primary: 0 }, next.sourceLength) })
     }
