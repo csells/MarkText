@@ -62,3 +62,15 @@ describe('a $$ line that continues a paragraph', () => {
     expect(windowed?.map(edit => [edit.start, edit.end])).toEqual([[block, block + math.length]])
   })
 })
+
+// A line that starts inside display math is the math's text: a fence run
+// there opens no fence, though the math closes later on the line, so the
+// text after the math reads its suggestions (B19).
+describe('a fence run on a line inside display math', () => {
+  it.each(['~~~', '```'])('opens no fence with %s', run => {
+    const source = `$$\nx\n${run}$$\n\nplain {++two++}\n`
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    expect(revision.annotations.map(annotation => annotation.kind)).toEqual(['addition'])
+  })
+})

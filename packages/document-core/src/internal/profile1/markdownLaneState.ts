@@ -177,6 +177,8 @@ export interface MarkdownCheckpoint {
   readonly fixedInline: MarkdownFixedInlineState | undefined
   /** End of an angle-delimited text region that cannot own a GFM autolink. */
   readonly extendedAutolinkSuppressedUntil?: number | undefined
+  /** End of a math literal the current line started inside, whose text the line is up to there. */
+  readonly mathOwnedUntil?: number | undefined
   readonly activeContainers: readonly ActiveBlockContainer[]
   /**
    * The containers the pending line entered with, kept once a block opened
@@ -329,6 +331,7 @@ export function shiftMarkdownCheckpoint(
         openStart: checkpoint.math.openStart + delta,
         closeStart: checkpoint.math.closeStart + delta
       }),
+    mathOwnedUntil: checkpoint.mathOwnedUntil === undefined ? undefined : checkpoint.mathOwnedUntil + delta,
     bracketPath: shiftBracketPath(checkpoint.bracketPath),
     pendingLinkLabel: shiftPendingLabel(checkpoint.pendingLinkLabel),
     fixedInline: checkpoint.fixedInline === undefined
@@ -3362,6 +3365,11 @@ export function createMarkdownLaneState(
     const completedLiterals: MarkdownLiteralRange[] = []
     let inlineCode = checkpoint.inlineCode
     let math = checkpoint.math
+    let mathOwnedUntil = checkpoint.mathOwnedUntil
+    // A line that starts inside math is the math's text: no fence opens
+    // there, though the math closes later on the line.
+    const lineStartsInMath = (start: number): boolean =>
+      (math !== undefined && math.openStart < start) || (mathOwnedUntil !== undefined && mathOwnedUntil > start)
     let bracketPath = checkpoint.bracketPath
     let pendingLinkLabel = checkpoint.pendingLinkLabel
     let fixedInline = checkpoint.fixedInline
@@ -3572,7 +3580,8 @@ export function createMarkdownLaneState(
         frontMatter === undefined &&
         indentedCode === undefined &&
         htmlBlock === undefined &&
-        definition === undefined
+        definition === undefined &&
+        !lineStartsInMath(lineStart)
       ) {
         const opening = findMarkdownFenceOpening(
           probeLine,
@@ -3776,6 +3785,7 @@ export function createMarkdownLaneState(
             break
           }
           const closeEnd = math.closeStart + math.delimiterLength
+          mathOwnedUntil = closeEnd
           completedLiterals.push(Object.freeze({
             kind: 'math',
             start: math.openStart,
@@ -4513,12 +4523,14 @@ export function createMarkdownLaneState(
           bracketPath = undefined
           pendingLinkLabel = undefined
         }
-        const opening = findMarkdownFenceOpening(
-          completedLine,
-          lineState.contentOffset,
-          lineState.indentation,
-          lineState.blank
-        )
+        const opening = lineStartsInMath(lineStart)
+          ? undefined
+          : findMarkdownFenceOpening(
+            completedLine,
+            lineState.contentOffset,
+            lineState.indentation,
+            lineState.blank
+          )
         if (opening !== undefined) {
           fence = Object.freeze({
             openStart: Math.max(
@@ -4673,6 +4685,7 @@ export function createMarkdownLaneState(
         pendingLinkLabel,
         fixedInline,
         extendedAutolinkSuppressedUntil,
+        mathOwnedUntil: mathOwnedUntil !== undefined && mathOwnedUntil > lineStart ? mathOwnedUntil : undefined,
         activeContainers,
         definitionLazyContinuation: definitionLazyContinuation ? true : undefined,
         tableOpen: tableOpen ? true : undefined,

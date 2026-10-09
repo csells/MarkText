@@ -156,9 +156,6 @@ function delimiterCellCount(source: string, span: RowSpan): number | undefined {
 }
 
 const BLOCK_START = /^[ \t]{0,3}(?:#{1,6}(?:[ \t]|$)|(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$|`{3,}|~{3,}|<[A-Za-z/!?])/u
-const FENCE = /^[ \t>]*(`{3,}|~{3,})/u
-// An arm boundary token beginning a line ends a fence its arm opened (L2c).
-const ARM_BOUNDARY_LINE = /^(?:[ \t]{0,3}>)*[ \t]*(?:~>|\+\+\}|--\}|~~\}|==\}|<<\})/u
 
 export function createTableCellContainment(
   source: string,
@@ -192,27 +189,14 @@ export function createTableCellContainment(
     start = end + (source.charCodeAt(end) === 13 && source.charCodeAt(end + 1) === 10 ? 2 : 1)
   }
   const cells: RowSpan[] = []
-  let fence: string | undefined
+  // No fence state is carried from line to line: a table-shaped run of
+  // lines inside fenced code reads its markers as code text whatever cells
+  // it is given, and a fence read from the raw lines alone would differ from
+  // the parser's (in arms, in containers, in paragraphs), so that the cells
+  // found for a block would depend on text far before it.
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]
     if (line === undefined) break
-    const text = source.slice(line.start, line.end)
-    const fenceMatch = FENCE.exec(text)
-    if (fence !== undefined) {
-      // A closing fence is the run alone on its line (CommonMark 4.5).
-      if (fenceMatch?.[1] !== undefined && fenceMatch[1][0] === fence[0] && fenceMatch[1].length >= fence.length &&
-          /^[ \t]*$/u.test(text.slice(fenceMatch[0].length))) {
-        fence = undefined
-        continue
-      }
-      if (!ARM_BOUNDARY_LINE.test(text)) continue
-      fence = undefined
-    }
-    // A backtick fence's info string holds no backtick (CommonMark 4.5).
-    if (fenceMatch?.[1] !== undefined && !(fenceMatch[1][0] === '`' && text.slice(fenceMatch[0].length).includes('`'))) {
-      fence = fenceMatch[1]
-      continue
-    }
     const header = rowSpan(source, line.start, line.end)
     const next = lines[index + 1]
     if (header.start >= header.end || next === undefined) continue
