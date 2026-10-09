@@ -3189,7 +3189,10 @@ export function createMarkdownLaneState(
     paragraphWasOpen: boolean,
     // The opener is in a table row, whose inline syntax ends with the row.
     tableRow: boolean,
-    doubleDollar: boolean = false
+    doubleDollar: boolean = false,
+    // The opener's line as the lane reads it, when that is not its raw line:
+    // an arm's first line holds the text before the arm opener, not the marker.
+    openerLineText?: string
   ): boolean => {
     const openerLineStart = rawLineStartAt(openerOffset)
     if (rawLineStartAt(closeStart) === openerLineStart) return true
@@ -3198,7 +3201,7 @@ export function createMarkdownLaneState(
       // A `$$` alone on a line that starts a block opens a math block, which
       // spans blank lines; one continuing a paragraph is paragraph text, since
       // a math block cannot interrupt a paragraph.
-      const text = source.slice(
+      const text = openerLineText ?? source.slice(
         openerLineStart,
         sourceLineContentEnd(source, openerLineStart, source.length, execution)
       )
@@ -3370,6 +3373,18 @@ export function createMarkdownLaneState(
     // there, though the math closes later on the line.
     const lineStartsInMath = (start: number): boolean =>
       (math !== undefined && math.openStart < start) || (mathOwnedUntil !== undefined && mathOwnedUntil > start)
+    // The line holding an offset as this lane reads it, when the line began
+    // before this text: text an earlier advance read, then this text, with no
+    // CriticMarkup marker between them.
+    const laneLineTextAt = (offset: number): string | undefined => {
+      if (rawLineStartAt(offset) >= textSourceStart) return undefined
+      for (let index = textSourceStart; index < offset; index += 1) {
+        const code = source.charCodeAt(index)
+        if (code === 10 || code === 13) return undefined
+      }
+      return materializeMarkdownLine(checkpoint.linePath) +
+        source.slice(textSourceStart, sourceLineContentEnd(source, offset, laneEnd, execution))
+    }
     let bracketPath = checkpoint.bracketPath
     let pendingLinkLabel = checkpoint.pendingLinkLabel
     let fixedInline = checkpoint.fixedInline
@@ -3995,6 +4010,7 @@ export function createMarkdownLaneState(
               }
               // Each `$` of the run may open: `$$` when exactly two follow,
               // otherwise a lone `$` before a non-space.
+              const openerLineText = laneLineTextAt(offset)
               for (let opener = offset; opener < runEnd; opener += 1) {
                 const delimiterLength =
                   opener + 1 < runEnd
@@ -4006,7 +4022,7 @@ export function createMarkdownLaneState(
                 const closeStart = delimiterLength === 0
                   ? undefined
                   : nextMathRunStart(delimiterLength, opener, opener + delimiterLength, laneEnd, start =>
-                    inlineLiteralCloserInParagraph(opener, start, laneEnd, activeContainers, paragraphOpen, tableOpen, delimiterLength === 2))
+                    inlineLiteralCloserInParagraph(opener, start, laneEnd, activeContainers, paragraphOpen, tableOpen, delimiterLength === 2, openerLineText))
                 if (
                   closeStart !== undefined &&
                   inlineLiteralCloserInParagraph(
@@ -4016,7 +4032,8 @@ export function createMarkdownLaneState(
                     activeContainers,
                     paragraphOpen,
                     tableOpen,
-                    delimiterLength === 2
+                    delimiterLength === 2,
+                    openerLineText
                   )
                 ) {
                   math = Object.freeze({ openStart: opener, delimiterLength, closeStart })

@@ -74,3 +74,21 @@ describe('a fence run on a line inside display math', () => {
     expect(revision.annotations.map(annotation => annotation.kind)).toEqual(['addition'])
   })
 })
+
+// A `$$` that begins a suggestion arm's first line stands alone on the line
+// the arm reads, as in the projection that lays the arm out, so a fence run
+// inside its math is math text there too, and no fence closer is planned
+// into the projection after the arm.
+describe('display math opening a suggestion arm', () => {
+  it.each([
+    '{~~$$\nx\n~~~y\n$$\n~>$$\nz\n$$\n~~}\n',
+    '{~~$$\nx\n~~~y\n$$~>$$\nz\n$$~~}\n',
+    '{++$$\n~~~y\n$$\n++}\n\nplain\n'
+  ])('reads a fence run in it as math text in %j', source => {
+    const core = createDocumentCore()
+    const markup = core.project(core.open(source), 'markup')
+    const kinds = markup.syntax.ast.root.children.map(node => node.kind)
+    expect(kinds).not.toContain('code-block')
+    expect(kinds).toContain('math-block')
+  })
+})
