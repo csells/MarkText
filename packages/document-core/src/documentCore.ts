@@ -2620,6 +2620,30 @@ function createDocumentCoreWithExecutionBudget(
   // Where a source spells its first `$$`, or -1: no `$$` line before a
   // window can reach into it when none comes before the window.
   const firstDoubleDollars = new WeakMap<CanonicalSourceView, number>()
+  /**
+   * Whether every `$$` before `offset` is settled there: the last before it
+   * closes a `$$` math literal outside every suggestion, and no literal runs
+   * across the offset. A `$$` line left open before it would have taken that
+   * literal's opener as its closer, and one inside a suggestion pairs only
+   * within its arm, so no `$$` before the offset pairs past it.
+   */
+  const dollarsSettledBefore = (state: RevisionState, offset: number): boolean =>
+    state.productStore.withRetained(products => {
+      const retained = products.retainedIntrinsic
+      if (retained === undefined) return false
+      let last: { readonly start: number, readonly end: number } | undefined
+      for (const literal of retained.markdownLiterals) {
+        if (literal.start < offset && offset < literal.end) return false
+        if (literal.kind === 'math' && literal.end <= offset && (last === undefined || literal.end > last.end)) last = literal
+      }
+      if (last === undefined || last.end - last.start < 4) return false
+      const settled = last
+      if (state.source.slice(settled.start, settled.start + 2) !== '$$' ||
+          state.source.slice(settled.end - 2, settled.end) !== '$$' ||
+          state.source.slice(settled.end, settled.end + 1) === '$') return false
+      if (retained.roots.some(root => Number(root.range.start) <= settled.start && settled.start < Number(root.range.end))) return false
+      return !state.source.slice(settled.end, offset).includes('$$')
+    }) === true
   const firstDoubleDollar = (source: CanonicalSourceView): number => {
     let first = firstDoubleDollars.get(source)
     if (first === undefined) {
@@ -7335,7 +7359,7 @@ function createDocumentCoreWithExecutionBudget(
       const edited = state.source.applyExact(stableSourceEdits(edits), 'Window math reach')
       if (editsMayRepairMath(state.source, edited, stableSourceEdits(edits), state.markdownOptions)) {
         const first = firstDoubleDollar(state.source)
-        if (first !== -1 && first < sourceStart) return undefined
+        if (first !== -1 && first < sourceStart && !dollarsSettledBefore(state, sourceStart)) return undefined
       }
     }
     // A key whose reading change the document reads beyond this window, as
