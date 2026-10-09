@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDocumentCore, type DocumentCore, type DocumentInputAction, type DocumentRevision, type DocumentSourceEdit } from '../src/index.js'
-import { planFromGeneralCompile } from '../src/internal/documentCoreInspection.js'
+import { planFromGeneralCompile, searchWithoutBudget } from '../src/internal/documentCoreInspection.js'
 
 // One input gives one output whatever path reads it: every tracked key a
 // core plans regionally, from a window or its regional planners, is the key
@@ -51,6 +51,8 @@ function trackedKeyDisagreements(seed: number, paragraphs: number, keys: number)
     }
   }
   const core = createDocumentCore()
+  // Agreement is read without the search budget, as the reference searches.
+  searchWithoutBudget(core)
   let revision: DocumentRevision = core.open(parts.join('\n\n') + '\n')
   const differing: string[] = []
   for (let key = 0; key < keys; key += 1) {
@@ -146,7 +148,9 @@ function keyAgrees(source: string, edit: DocumentSourceEdit): boolean {
       return `throws ${String(error)}`
     }
   }
-  return read(createDocumentCore()) === read(control())
+  const regional = createDocumentCore()
+  searchWithoutBudget(regional)
+  return read(regional) === read(control())
 }
 
 const range = (count: number, first: number): number[] => Array.from({ length: count }, (_, index) => first + index)
