@@ -8497,6 +8497,9 @@ function createDocumentCoreWithExecutionBudget(
         if (planned !== undefined || !tracked || equivalenceDeferred(core)) return planned
         // Typing is never refused (owner decision, 6 October): an operation no
         // tracked plan holds takes the closest spelling of its whole edit.
+        // An operation that changes no text, as Backspace the plan reads as
+        // only moving the caret, is planned as no edit, as it is untracked.
+        if (plan.edits.every(edit => core.sourceSlice(previous, edit) === edit.insert)) return Object.freeze([])
         const first = plan.edits[0]
         const last = plan.edits.at(-1)
         if (first === undefined || last === undefined) return undefined
