@@ -3794,13 +3794,12 @@ export function displayMathReachesPast(products: Profile1DocumentProducts, text:
 /**
  * Whether the dollar run at offset `at` of `text` may open display math,
  * which takes the first `$$` after it however far: the intrinsic pass reads
- * a run so only where its raw source line, past its block-quote and list
- * markers, is `$$` alone (`inlineLiteralCloserInParagraph`). A marker on the
- * line, as `{++$$`, `$$~>$$` or `$$~~}`, leaves it pairing within its
- * paragraph; the views read such a line as `$$` alone only in a suggestion's
- * fork region, which ends where the intrinsic pass ends the suggestion's
- * blocks. Stripping any prefix those markers could form errs toward
- * reading a run as an opener.
+ * a run so only where its line, past its block-quote and list markers, is
+ * `$$` alone (`inlineLiteralCloserInParagraph`). A marker on the line, as
+ * `{++$$`, `$$~>$$` or `$$~~}`, puts the run in a suggestion arm, which may
+ * read it as `$$` alone but pairs it only within the arm, so it reaches no
+ * further than the suggestion. Stripping any prefix those markers could form
+ * errs toward reading a run as an opener.
  */
 function opensDisplayMath(text: string, at: number): boolean {
   const lineStart = Math.max(text.lastIndexOf('\n', at - 1), text.lastIndexOf('\r', at - 1)) + 1

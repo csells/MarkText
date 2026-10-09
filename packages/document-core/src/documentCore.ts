@@ -2617,6 +2617,17 @@ function createDocumentCoreWithExecutionBudget(
   // Whether a source spells no `$` at all, carried from each source to the
   // next so the check below reads no text for documents without math.
   const dollarFreeSources = new WeakMap<CanonicalSourceView, boolean>()
+  // Where a source spells its first `$$`, or -1: no `$$` line before a
+  // window can reach into it when none comes before the window.
+  const firstDoubleDollars = new WeakMap<CanonicalSourceView, number>()
+  const firstDoubleDollar = (source: CanonicalSourceView): number => {
+    let first = firstDoubleDollars.get(source)
+    if (first === undefined) {
+      first = source.slice(0, source.length).indexOf('$$')
+      firstDoubleDollars.set(source, first)
+    }
+    return first
+  }
   const editsMayRepairMath = (
     previous: CanonicalSourceView,
     next: CanonicalSourceView,
@@ -7322,7 +7333,10 @@ function createDocumentCoreWithExecutionBudget(
     // into or out of the window: the document then reads the key.
     if (sourceStart > 0) {
       const edited = state.source.applyExact(stableSourceEdits(edits), 'Window math reach')
-      if (editsMayRepairMath(state.source, edited, stableSourceEdits(edits), state.markdownOptions)) return undefined
+      if (editsMayRepairMath(state.source, edited, stableSourceEdits(edits), state.markdownOptions)) {
+        const first = firstDoubleDollar(state.source)
+        if (first !== -1 && first < sourceStart) return undefined
+      }
     }
     // A key whose reading change the document reads beyond this window, as
     // typing that breaks a fence reads on to the document's end, is spelled
