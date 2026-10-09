@@ -317,6 +317,20 @@ describe('structural regional edits read as a fresh open', () => {
     }
     return arm
   }
+  // A list marker typed after a blank line inside display math opens no
+  // list, so the blocks after the math keep their reading (B19).
+  it.each([
+    ['$$\ny_0 - y\ny_1 - y\n$$\n\nPlain words here.\n\nMore.\n', 14, 15, '\n\n'],
+    ['{~~a~>$$\ny_1 - y\n$$~~}\n\nPlain words here.\n\nMore.\n', 12, 13, '\n\n'],
+    ['{~~a~>\n$$\ny_1 - y\n$$~~}\n\nPlain words here.\n\nMore.\n', 13, 14, '\n\n'],
+    ['Intro\n\n{++$$\ny_1 - y\n$$\n++}\n\nPlain words here.\n\nMore.\n', 16, 17, '\n\n'],
+    ['{~~$$\nx_{0}\n$$\n~>$$\ny_{0} + 1\ny_{1} + 1\n$$\n~~}\n\nPara here.\n', 26, 26, '\n']
+  ] as const)('display math line %#', (source, start, end, insert) => {
+    const core = createDocumentCore()
+    const revision = core.open(source)
+    const session: Session = { core, revision, markup: core.project(revision, 'markup'), regional: 0 }
+    step(session, start, end, insert, `${JSON.stringify(source)} [${start}, ${end}) ${JSON.stringify(insert)}`)
+  })
   it.each([...Array.from({ length: 24 }, (_, seed) => seed + 1), ...regressionSeeds])('seed %i', seed => {
     fuzz(seed, blocks, insertions)
   })

@@ -92,3 +92,26 @@ describe('display math opening a suggestion arm', () => {
     expect(kinds).toContain('math-block')
   })
 })
+
+// A line inside display math is the math's text: a list or quote marker
+// there opens no container, at the top level, in a container or in an arm,
+// as upstream reads a math block's lines whole.
+describe('a container marker on a line inside display math', () => {
+  it.each([
+    ['$$\na\n- y\n$$\n', 'a\n- y\n'],
+    ['$$\na\n\n> y\n$$\n', 'a\n\n> y\n'],
+    ['> $$\n> a\n>\n> - y\n> $$\n', 'a\n\n- y\n'],
+    ['- $$\n  a\n  + y\n  $$\n', 'a\n+ y\n'],
+    ['{~~a~>$$\ny_1\n\n- y\n$$~~}\n', 'y_1\n\n- y\n']
+  ])('is math text in %j', (source, content) => {
+    const core = createDocumentCore()
+    const markup = core.project(core.open(source), 'markup')
+    const math: unknown[] = []
+    const visit = (node: { kind: string, attributes?: unknown, children?: readonly unknown[] }): void => {
+      if (node.kind === 'math-block') math.push((node.attributes as { content?: string } | undefined)?.content)
+      for (const child of node.children ?? []) visit(child as typeof node)
+    }
+    visit(markup.syntax.ast.root)
+    expect(math).toContain(content)
+  })
+})
