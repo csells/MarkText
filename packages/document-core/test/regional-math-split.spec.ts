@@ -192,3 +192,26 @@ describe('a `$$` line a key opens over whole suggestions', () => {
       .toEqual(core.project(applied, 'markup').syntax.ast.root.children.map(block => block.kind))
   })
 })
+
+// A key that touches a dollar or backtick run reads as it would with no
+// `$$` before its window when every `$$` before the window closes a math
+// block before it: no `$$` line left open there can take one the key moves
+// (B19). Without that, each window the key tries leaves it to the document.
+describe('a dollar key after closed math blocks', () => {
+  it.each([
+    ['a dollar after a closed block', 0, '$'],
+    ['a backtick before inline math', 1, '`']
+  ])('%s parses the document at most once', (_name, variant, insert) => {
+    const blocks = Array.from({ length: 240 }, (_, index) => index % 40 === 5 ? math : paragraph)
+    blocks[200] = variant === 0 ? 'Costs $5 and more words.' : 'Inline $a+b$ and `code` here.'
+    const source = blocks.join('\n\n') + '\n'
+    const at = source.lastIndexOf(variant === 0 ? 'Costs $5' : 'Inline $a') + (variant === 0 ? 6 : 0)
+    const edit = { start: at, end: at, insert }
+    const core = createDocumentCore()
+    const opened = core.open(source)
+    const before = inspectDocumentCore(core).documentParses
+    const planned = core.trackedEdit(opened, edit)
+    expect(inspectDocumentCore(core).documentParses - before).toBeLessThanOrEqual(1)
+    expect(planned).toEqual(generalPlan(source, edit))
+  })
+})
