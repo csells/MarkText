@@ -159,7 +159,7 @@ it.each([
   ['Enter in an opener', '<div>\n', enter(5), '{~~<div>\n~><div>\n\n</div>\n~~}'],
   ['the Paragraph menu below a paragraph', 'hello\n', menu(5, false), 'hello\n{++\n<div>\n\n</div>\n++}'],
   ['the Paragraph menu in an empty paragraph', '', menu(0, true, 'end'), '{++<div>\n\n</div>\n++}'],
-  ['typing on the template gap', '<div>\n\n</div>\n', type(6, 'x'), '{~~<div>\n\n~><div>\nx\n~~}</div>\n']
+  ['typing on the template gap', '<div>\n\n</div>\n', type(6, 'x'), '{--<div>\n\n--}{++<div>\nx\n++}</div>\n']
 ] as const)('Track Changes suggests %s', (_name, source, action, expected) => {
   const core = createDocumentCore()
   const revision = core.open(source)

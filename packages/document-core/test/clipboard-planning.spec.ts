@@ -248,7 +248,7 @@ it('preserves selected old blocks when extending a tracked replacement through t
   const revision = core.open(source)
   const plan = core.planClipboard(revision, { kind: 'paste', selection: { ranges: [{ anchor: 3, focus: 10 }], primary: 0 }, markdown: '\n\n<ul>\n<li>a</li>\n</ul>', tracked: true })
   const next = core.apply(revision, plan.edits).revision
-  expect(next.source).toBe('foo\n\n{~~# old\n~><ul>\n<li>a</li>\n</ul>\n~~}')
+  expect(next.source).toBe('foo\n\n{--# old\n--}{++<ul>\n<li>a</li>\n</ul>\n++}')
   expect(next.diagnostics).toEqual([])
   expect(core.project(next, 'original').markdown).toBe(source)
   expect(core.project(next, 'revised').markdown).toBe('foo\n\n<ul>\n<li>a</li>\n</ul>\n')

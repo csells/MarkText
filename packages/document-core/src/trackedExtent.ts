@@ -890,9 +890,12 @@ function searchWidenedSpelling(
     }
     if (variant === 'pair' || variant === 'padded-pair' || variant === 'reversed') {
       // A literal opener in one arm could pair across the divider; separate
-      // annotations give each side its own closer, in either order.
-      if (old.length === 0 || next.length === 0) return undefined
-      return variant === 'reversed' ? `{++${next}++}{--${old}--}` : `{--${old}--}{++${next}++}`
+      // annotations give each side its own closer, in either order. With
+      // one side empty, the pair is the other side's suggestion alone.
+      if (old.length > 0 && next.length > 0) {
+        return variant === 'reversed' ? `{++${next}++}{--${old}--}` : `{--${old}--}{++${next}++}`
+      }
+      if (variant === 'reversed') return undefined
     }
     if (old.length === 0) return `{++${next}++}`
     // A retained `--}` would close a Deletion; a Substitution with an empty
@@ -990,7 +993,7 @@ function searchWidenedSpelling(
   const spellDerived = (): DocumentSourceEdit | undefined => {
     if (derived === undefined) return undefined
     const soon = candidates.slice(0, 3).some(span => span.start === derived.start && span.end === derived.end)
-    for (const variant of soon ? ['exact'] as const : ['exact', 'pair', 'reversed'] as const) {
+    for (const variant of soon ? ['pair'] as const : ['pair', 'exact', 'reversed'] as const) {
       const edit = attempt(derived, 0, 0, variant, 'exact')
       if (edit !== undefined) {
         derivedSpellings.add(edit)
@@ -1005,8 +1008,8 @@ function searchWidenedSpelling(
     const touched = lineAligned(base)
     const near = candidates.filter(span => touched.start <= span.start && span.end <= touched.end)
     for (const enclosing of [false, true]) {
-      for (const variant of ['exact', 'pair', 'reversed'] as const) {
-        for (const span of near.filter(candidate => encloses(candidate) === enclosing)) {
+      for (const span of near.filter(candidate => encloses(candidate) === enclosing)) {
+        for (const variant of ['pair', 'exact', 'reversed'] as const) {
           const edit = trimmed(span, variant, 'exact')
           if (edit !== undefined) return edit
         }
@@ -1017,16 +1020,18 @@ function searchWidenedSpelling(
   }
   for (const enclosing of [false, true]) {
     const spans = candidates.filter(span => encloses(span) === enclosing)
-    for (const variant of ['exact', 'pair', 'reversed'] as const) {
-      for (const span of spans) {
+    // Each span, shortest first, is spelled as a Deletion beside an Addition
+    // before a Substitution (owner decision, 8 October 2026).
+    for (const span of spans) {
+      for (const variant of ['pair', 'exact', 'reversed'] as const) {
         const edit = trimmed(span, variant, 'exact')
         if (edit !== undefined) return edit
       }
     }
     // Byte identity is impossible only where a delimiter would join the payload
     // (a final escape) or a block literal must end before its delimiter line.
-    for (const variant of ['exact', 'pair', 'reversed', 'escaped', 'padded', 'shifted'] as const) {
-      for (const span of spans) {
+    for (const span of spans) {
+      for (const variant of ['pair', 'exact', 'reversed', 'escaped', 'padded', 'shifted'] as const) {
         const edit = trimmed(span, variant, 'rendering')
         if (edit !== undefined) return edit
       }
@@ -1059,7 +1064,7 @@ function searchWidenedSpelling(
     }
     return trims.reverse().slice(0, 8)
   }
-  for (const variant of ['exact', 'pair', 'reversed'] as const) {
+  for (const variant of ['pair', 'exact', 'reversed'] as const) {
     for (const span of candidates) {
       const mapped = toTarget(span)
       const old = source.slice(span.start, span.end)

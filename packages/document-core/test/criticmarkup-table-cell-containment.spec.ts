@@ -87,7 +87,8 @@ describe('tracked authoring across cells', () => {
     const edits = core.trackedEdits(revision, [{ start, end, insert: '' }])
     if (edits === undefined) throw new Error('Tracked cross-cell deletion refused')
     const next = core.apply(revision, edits).revision
-    expect(next.annotations).toHaveLength(1)
+    // A Deletion beside an Addition (owner decision, 8 October 2026).
+    expect(next.annotations.map(annotation => annotation.kind)).toEqual(['deletion', 'addition'])
     expect(core.project(next, 'original').markdown).toBe(source)
     expect(core.project(next, 'revised').markdown).toBe(source.slice(0, start) + source.slice(end))
   })
