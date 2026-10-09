@@ -232,6 +232,17 @@ describe('Enter at a Substitution\'s old text start reads as the whole document 
   })
 })
 
+// An ordered list's items are no plain paragraph for the regional break
+// planner, whatever words they hold (generator keys from the gap shapes).
+describe('a tracked break in an ordered list item reads as the whole document plans it', () => {
+  it.each(['\n', '\n\n'])('typing %j after an item marker', insert => {
+    const pad = Array.from({ length: 6 }, (_, index) => `Plain paragraph ${index} here.`).join('\n\n')
+    const source = `${pad}\n\n1. step 0\n1. step 1\n1. step 2\n{++added\n\nblock++}\n\n${pad}\n`
+    const at = source.lastIndexOf('1.') + 2
+    expect(keyAgrees(source, { start: at, end: at, insert })).toBe(true)
+  })
+})
+
 describe('a dollar-heavy key reads as the whole document plans it', () => {
   it.each(dollarWindowKeys)('fuzz key %s', (_key, source, edit) => {
     expect(keyAgrees(source, edit)).toBe(true)
