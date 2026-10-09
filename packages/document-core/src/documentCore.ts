@@ -8676,19 +8676,22 @@ function createDocumentCoreWithExecutionBudget(
         // decision, 9 October 2026: always apply): one no compile reads as an
         // edit of the markup is applied as typed, breaking a suggestion's
         // markers into plain text where it must.
+        // A tracked command no plan holds is applied as its plan writes it, as
+        // a keystroke is: Core plans every tracked operation (B17).
         const keystroke = !('kind' in action)
+        const appliesAsTyped = keystroke || tracked
         const asTyped = (): readonly DocumentSourceEdit[] | undefined => {
-          if (!keystroke) return undefined
+          if (!appliesAsTyped) return undefined
           inspection.keystrokesAppliedAsTyped += 1
           return Object.freeze(plan.edits.map(edit => Object.freeze({ ...edit })))
         }
-        // A keystroke the compile refuses as an invalid edit of the markup is
+        // An operation the compile refuses as an invalid edit of the markup is
         // one no plan holds.
         const tryPlan = (): readonly DocumentSourceEdit[] | undefined => {
           try {
             return planOnce()
           } catch (error) {
-            if (keystroke && error instanceof RangeError) return undefined
+            if (appliesAsTyped && error instanceof RangeError) return undefined
             throw error
           }
         }
@@ -8747,7 +8750,7 @@ function createDocumentCoreWithExecutionBudget(
           // where one exists.
           recorded = withoutDocumentSearchBudget(core, () => closestTrackedEdit(previous, whole, true))
         } catch (error) {
-          if (!keystroke || !(error instanceof RangeError)) throw error
+          if (!appliesAsTyped || !(error instanceof RangeError)) throw error
         }
         // A record Reject All cannot undo is no record of the keystroke.
         if (recorded !== undefined && rejectsExactly([recorded])) return Object.freeze([recorded])
