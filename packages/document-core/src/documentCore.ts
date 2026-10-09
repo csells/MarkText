@@ -16,7 +16,7 @@ import { syntaxPathAt } from './syntaxPath.js'
 import { findBlockCommandTarget } from './blockCommandPlanning.js'
 import { createTrackedPendingArmEdits, createTrackedLiteralSourceEdit, createTrackedSourceEdit, protectNativeCriticText, retainedTrackedHistoryEdit } from './trackedAuthoring.js'
 import { joinedTrackedEdit, mergedTrackedDeletion, separateTrackedParts, trackedEditableEdits, trackedEditableSpans, trackedPartsSeparate, unchangedTrackedEdit, withinHistory } from './trackedHistoryEditing.js'
-import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, markUnresolvedDraft, windowEndsDocument, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, withDocumentSearchBudget, trackedStructure, type TrackedStructure, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
+import { OWN_DRAFT_SHORTCUT_UNITS, createTrackedOracle, widenedTrackedSourceEdit, withBestEffortSpelling, deferEquivalence, equivalenceDeferred, unresolvedDraftEdges, markUnresolvedDraft, windowEndsDocument, keepsTyping, markWindowCompileCore, literalHistoryInsertionPoint, projectionSignature, resolvedSuggestions, trackedAnnotatedViews, trackedMarkdownSignatures, trackedRootCounts, withDocumentSearchBudget, spelledAsSource, trackedStructure, type TrackedStructure, readingChange, DERIVED_SPELLING_UNITS, derivesSpelling, documentReadingChanges, typedKeys, trackedOperationEquivalent, trackedPreviewFacts, trackedRegionalReadings, withDeferredEquivalence, type TrackedRegionalReading } from './trackedExtent.js'
 import { createMarkupSourceEdits, createMarkupCompoundSourceEdits } from './markupEditing.js'
 import { markupAnnotations } from './markupEditOwnership.js'
 import {
@@ -2571,6 +2571,23 @@ function generalTrackedEdit(
   return planned !== undefined && edit.insert.length === 0
     ? mergedTrackedDeletion(activeCore, previous, edit, planned, preview) ?? planned
     : planned
+}
+
+/**
+ * Whether an edit writes inside a CriticMarkup delimiter (`{++`, `~>`,
+ * `--}` and the like), as typing between its characters does, at any depth.
+ */
+function splitsMarker(annotations: readonly CriticMarkupAnnotation[], edit: DocumentSourceEdit): boolean {
+  const touches = (start: number, end: number): boolean => start < end &&
+    (edit.start === edit.end ? start < edit.start && edit.start < end : edit.start < end && start < edit.end)
+  return annotations.some(annotation => {
+    let cursor = annotation.range.start
+    for (const arm of annotation.arms) {
+      if (touches(cursor, arm.range.start) || splitsMarker(arm.annotations, edit)) return true
+      cursor = arm.range.end
+    }
+    return touches(cursor, annotation.range.end)
+  })
 }
 
 function createDocumentCoreWithExecutionBudget(
@@ -5728,8 +5745,10 @@ function createDocumentCoreWithExecutionBudget(
 
   // `readers`: the candidate is one of a spelling search's, read from its
   // reader views where it is parsed whole (see `withSourceEditReaderPreview`).
-  const previewSourceEdits = (previous: DocumentRevision, edits: readonly DocumentSourceEdit[], readers = false): DocumentRevision => {
-    const regional = windowCores.has(core) && previous.sourceLength <= WINDOW_WHOLE_PREVIEW_UNITS
+  // `whole`: the candidate is parsed whole, as the general-compile reference
+  // reads every candidate.
+  const previewSourceEdits = (previous: DocumentRevision, edits: readonly DocumentSourceEdit[], readers = false, whole = false): DocumentRevision => {
+    const regional = whole || windowCores.has(core) && previous.sourceLength <= WINDOW_WHOLE_PREVIEW_UNITS
       ? undefined
       : regionalPreview(previous, edits)
     if (regional !== undefined) {
@@ -7742,9 +7761,17 @@ function createDocumentCoreWithExecutionBudget(
     keyBudget(() => unbudgetedClosestTrackedEdit(previous, edit))
 
   const unbudgetedClosestTrackedEdit = (previous: DocumentRevision, edit: DocumentSourceEdit): DocumentSourceEdit | undefined => {
-    const untracked = core.markupEdit(previous, edit)
+    const markup = core.markupEdit(previous, edit)
+    // An edit the markup compile cannot read is weighed against whole parses
+    // of its candidates, as the reference weighs them.
+    const preview = (edits: readonly DocumentSourceEdit[]) => previewSourceEdits(previous, edits, markup === undefined, markup === undefined)
+    // An edit the markup compile cannot read as an edit of the markup, as
+    // typing that pairs with a delimiter outside the suggestion it is typed
+    // in, is spelled as the source edit it is, where it writes no delimiter
+    // apart; its spelling may leave no marker unpaired.
+    const untracked = markup ??
+      (edit.start === edit.end && edit.insert.length === 0 || splitsMarker(previous.annotations, edit) ? undefined : Object.freeze([edit]))
     if (untracked === undefined || untracked.length === 0) return undefined
-    const preview = (edits: readonly DocumentSourceEdit[]) => previewSourceEdits(previous, edits)
     const around = rootsAround(previous, edit.start)
     if (edit.start === edit.end && edit.insert.length > 0 && withinHistory(around, edit)) {
       const outer = markupAnnotations(around)
@@ -7758,6 +7785,7 @@ function createDocumentCoreWithExecutionBudget(
       return undefined
     }
     const oracle = createTrackedOracle(core, previous, untracked, preview)
+    if (oracle !== undefined && markup === undefined) spelledAsSource.add(oracle)
     return oracle === undefined ? undefined : withBestEffortSpelling(core, () => widenedTrackedSourceEdit(core, previous, oracle))
   }
 
