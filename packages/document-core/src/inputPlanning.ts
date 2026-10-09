@@ -603,6 +603,24 @@ function positionBehind(edits: readonly DocumentSourceEdit[], position: number):
   return position + delta
 }
 
+/**
+ * Where the proposed text of a suggestion spelled over `old` starts in its
+ * insert, as a Deletion beside an Addition (either way round) or a
+ * Substitution; undefined for any other spelling.
+ */
+function proposedTextStart(edit: DocumentSourceEdit | undefined, old: string): Readonly<{ edit: DocumentSourceEdit, at: number, proposed: string }> | undefined {
+  if (edit === undefined || old.length === 0) return undefined
+  const { insert } = edit
+  const pair = `{--${old}--}{++`
+  if (insert.startsWith(pair) && insert.endsWith('++}')) return { edit, at: pair.length, proposed: insert.slice(pair.length, -3) }
+  const substitution = `{~~${old}~>`
+  if (insert.startsWith(substitution) && insert.endsWith('~~}')) return { edit, at: substitution.length, proposed: insert.slice(substitution.length, -3) }
+  const reversed = '--}'
+  const deletion = `{--${old}${reversed}`
+  if (insert.startsWith('{++') && insert.endsWith(deletion)) return { edit, at: 3, proposed: insert.slice(3, -deletion.length - 3) }
+  return undefined
+}
+
 export function reconcileInput(
   core: DocumentCore, previous: DocumentRevision, policy: DocumentInputPlan, commit: DocumentCommit | null, action: DocumentInputAction
 ): DocumentInputResult {
@@ -632,6 +650,21 @@ export function reconcileInput(
       return at >= 0 && at <= next.sourceLength
     })
     : compilerReconciliation !== undefined
+  // A tracked key spelled as a suggestion over the text around it (the old
+  // text beside or within the new) keeps its caret where the typing left
+  // it, inside the proposed text.
+  const widened = commit === null || unchanged || policy.trackedCaret === undefined || applied.length !== 1 ||
+    plannedCaret === undefined || plannedCaret.anchor !== plannedCaret.focus || policy.selection.kind === 'model-text' ||
+    policy.selection.kind === 'table-cell'
+    ? undefined
+    : proposedTextStart(applied[0], core.sourceSlice(previous, applied[0]!))
+  if (widened !== undefined && plannedCaret !== undefined) {
+    const offset = plannedCaret.anchor - widened.edit.start
+    if (offset >= 0 && offset <= widened.proposed.length) {
+      const caret = widened.edit.start + widened.at + offset
+      return Object.freeze({ policy, ...(compilerReconciliation === undefined ? {} : { compilerReconciliation }), selection: copyDocumentSelection({ ranges: [{ anchor: caret, focus: caret }], primary: 0 }, next.sourceLength) })
+    }
+  }
   const tracked = commit === null || unchanged || policy.trackedCaret?.fallback === true && mapped ? undefined : policy.trackedCaret
   if (tracked !== undefined && policy.selection.kind !== 'model-text' && policy.selection.kind !== 'table-cell') {
     const caret = tracked.side === 'before' ? positionAfter(applied, tracked.at, false) : positionBehind(applied, tracked.at)
