@@ -127,3 +127,50 @@ describe('the dollar-heavy key 132/3 past its budget', () => {
     expect(resolve('reject')).toBe(text)
   })
 })
+
+// Enter typed in a math Substitution's new text beside a separator a line
+// break already broke (input pool, the 9/10 shape): no spelling of it adds no
+// diagnostic, with or without the budget, so the budget's closest spelling
+// stands as a budget outcome where Accept All and Reject All resolve it to the
+// operation's bytes (coordinator ruling, 9 October 2026).
+describe('a key no diagnostic-free spelling holds, past its budget', () => {
+  const text = '{-- --}{++\n++}{~~   indented 0\n    indented 1\n    indented 2\n~>    indented 0\n   indented 1\n   indented 2\n~~}\n{--```\ngone\n```\n--}\n\nTex{--t--} {++\n\n++}{++\n\n++}{==marked *text*==}{>>see **this** {++and that++}<<} end.\n\n# Heading {++added++}\n\n{--```\ngone\n```\n--}\n\n{~~$$\nx_{0} + y\nx_{1} + y\nx_{2} + y\n$$~\n>$$\nx_{0}x + y\nx_{1} + y\nx_{2} + y\n$$~~}{--\n--}'
+  const enter = {
+    range: { start: 293, end: 293 },
+    selection: { ranges: [{ anchor: 293, focus: 293 }], primary: 0 },
+    inputType: 'insertParagraph',
+    data: null,
+    options: { autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true }
+  } as const
+
+  it('takes a spelling that resolves exactly', () => {
+    const plans = [false, true].map(unbudgeted => {
+      const core = createDocumentCore()
+      if (unbudgeted) searchWithoutBudget(core)
+      const opened = core.open(text)
+      const plan = core.planInput(opened, enter, { tracked: true })
+      const edits = core.inputEdits(opened, enter, plan, true) ?? []
+      const next = core.apply(opened, edits).revision
+      return { plan, edits, next, before: opened.diagnostics.length }
+    })
+    const [budgeted, unbudgeted] = plans
+    if (budgeted === undefined || unbudgeted === undefined) throw new Error('Expected both plans')
+    expect(budgeted.edits).not.toEqual(unbudgeted.edits)
+    for (const { next, before } of plans) expect(next.diagnostics.length).toBeGreaterThan(before)
+    const [spelled] = budgeted.edits
+    if (spelled === undefined) throw new Error('Expected a tracked plan')
+    let typed = text
+    for (const edit of [...budgeted.plan.edits].reverse()) typed = typed.slice(0, edit.start) + edit.insert + typed.slice(edit.end)
+    const next = budgeted.next
+    const authored = next.annotations.filter(annotation => annotation.range.start >= spelled.start &&
+      annotation.range.end <= spelled.start + spelled.insert.length)
+    const kept = { accept: { addition: 'content', substitution: 'new' }, reject: { deletion: 'content', substitution: 'old' } } as const
+    const resolve = (decision: 'accept' | 'reject'): string => [...authored].reverse().reduce((source, annotation) => {
+      const name = (kept[decision] as Record<string, string>)[annotation.kind]
+      const arm = annotation.arms.find(candidate => candidate.name === name)?.range
+      return source.slice(0, annotation.range.start) + (arm === undefined ? '' : next.source.slice(arm.start, arm.end)) + source.slice(annotation.range.end)
+    }, next.source)
+    expect(resolve('accept')).toBe(typed)
+    expect(resolve('reject')).toBe(text)
+  })
+})
