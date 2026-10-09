@@ -242,6 +242,7 @@ describe('key sequences in a long document cost no document parse', () => {
     { name: 'typing inside a Substitution old text', at: at('wording~>', 3), keys: [T] },
     { name: 'Enter inside a Substitution old text', at: at('wording~>', 3), keys: [E] },
     { name: 'Enter before and after a Substitution', at: at('{~~old'), keys: [E] },
+    { name: 'Enter at a Substitution old text start', at: at('old wording~>'), keys: [E] },
     { name: 'Backspace over a Substitution new text', at: at('wording~~}', 7), keys: [B, B, B, B, B, B, B, B, B, B, B, B, B, B] },
     { name: 'untracked Enter inside an Addition', at: at('evidence', 3), keys: [E, E], untracked: true },
     { name: 'untracked Enter at a Substitution text edge', at: at('~>better'), keys: [E], untracked: true },

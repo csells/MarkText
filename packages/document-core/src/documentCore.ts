@@ -6311,7 +6311,9 @@ function createDocumentCoreWithExecutionBudget(
         { kind: 'substitution', start: addition + edit.insert.length + 6, end: owner.range.end + planned.insert.length - (at - owner.range.start) }
       ]
     } else if (breaking) {
-      const into = at === owner.range.start || at === old.range.start
+      // A break at the old text's own start is the document compile's to
+      // place: it suggests a new paragraph after the Substitution there.
+      const into = at === owner.range.start
         ? proposed.range.start
         : at === owner.range.end || at === proposed.range.end
           ? proposed.range.end
