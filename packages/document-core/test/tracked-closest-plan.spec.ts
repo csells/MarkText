@@ -54,3 +54,26 @@ describe('a tracked key no narrower suggestion spells', () => {
     expect(caret).toEqual({ anchor: after, focus: after })
   })
 })
+
+// Backspace after the line break below a lone `$$` changes no text: the plan
+// only moves the caret. Tracked, as untracked, that is no edit (B17), not an
+// operation Core leaves unplanned.
+describe('a tracked key that changes no text', () => {
+  it('is planned as no edit, as it is untracked', () => {
+    const backspace = {
+      range: { start: 2, end: 3 },
+      selection: { ranges: [{ anchor: 3, focus: 3 }], primary: 0 },
+      inputType: 'deleteContentBackward',
+      data: null,
+      options: { autoPairBracket: true, autoPairMarkdownSyntax: true, autoPairQuote: true }
+    } as const
+    const document = '$$\n\n{++x\n\n\n++}\n\n\ny\n$$~~}\n'
+    for (const tracked of [false, true]) {
+      const core = createDocumentCore()
+      const opened = core.open(document)
+      const plan = core.planInput(opened, backspace, { tracked })
+      expect(plan.edits.every(edit => document.slice(edit.start, edit.end) === edit.insert)).toBe(true)
+      expect(core.inputEdits(opened, backspace, plan, tracked)).toEqual([])
+    }
+  })
+})
