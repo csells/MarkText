@@ -221,6 +221,17 @@ const dollarWindowKeys: readonly (readonly [string, string, DocumentSourceEdit])
   ['591/0', 'q$$\n\n$$\nx_0 + y\nx_1\n$$\n\n$$\nx_0 + y\nx_1\n$$\n\n```\ncode $$\n```\n\nReview {++new++} and {--old--} text.\n\n$$\nx_0 + y\nx_1\n$$\n\n> $$\n> q\n\n$$\nx_0 + y\nx_1\n$$\n\n> $$\n> q\n\n$$\nx_0 + y\nx_1\n$$\n\nReview {++new++} and {--old--} text.\n\nReview {++new++} and {--old--} text.\n\nPlain words here.\n\n{++x\n\n$$\ny\n\nw++}\n\n$$\nx_0 + y\nx_1\n$$\n\nPlain words here.\n\nReview {++new++} and {--old--} text.\n\nz\n$$\n\n$$\n\nPlain words here.\n\nz\n$$\n\n$$\n\ninline $a$ math\n\n{++x\n\n$$\ny\n\nw++}\n\n> $$\n> q\n\n$$\n\nReview {++new++} and {--old--} text.\n\n{++$$\nx\ny\n$$++}\n\n$$\nx_0 + y\nx_1\n$$\n\nx\n$$\n\n{~~$$\nx\ny\n$$~>$$\nx\n\n\ny\n$$~~}\n\n{~~a~>$$\nx\ny\n$$\n~~}\n', { start: 410, end: 410, insert: '$' }]
 ]
 
+// A tracked Enter at a Substitution's old text start is the document
+// compile's to place (generator key 141/1).
+describe('Enter at a Substitution\'s old text start reads as the whole document plans it', () => {
+  it.each(['Plain words.\n\n{~~old para~>new para~~}\n\nPlain words.', 'Lead {~~old para~>new para~~} tail.'])('in %j', middle => {
+    const pad = Array.from({ length: 30 }, () => 'Plain words here.').join('\n\n')
+    const source = `${pad}\n\n${middle}\n\n${pad}\n`
+    const at = source.indexOf('{~~old') + 3
+    for (const insert of ['\n\n', '\n']) expect(keyAgrees(source, { start: at, end: at, insert })).toBe(true)
+  })
+})
+
 describe('a dollar-heavy key reads as the whole document plans it', () => {
   it.each(dollarWindowKeys)('fuzz key %s', (_key, source, edit) => {
     expect(keyAgrees(source, edit)).toBe(true)
