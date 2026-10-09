@@ -76,6 +76,30 @@ Reconciled on 7 October against `candidate/next` `fdbffbfc7` (fork layer on top:
 - `[^a]: {++x++}` reads as a definition when footnotes are off.
 - Undo restores the selection from before the command.
 
+### Final-candidate runbook
+
+One ordered sequence on one frozen SHA. Every heavy step runs through `~/Library/Caches/marktext-lock/lane.sh <agent> "<purpose>" <max-seconds> -- <command>`; steps marked **LANE_IDLE** are timing evidence and run as `LANE_IDLE=1 lane.sh …` (the lane waits for AC and load below 6 after taking the lock, and exits 75 without running if the machine never settles). Pass/fail steps do not need LANE_IDLE. Any `slept` ledger row is void. The user's trial copy at `~/Applications/MarkText Candidates/90ecb15c1/` must not be touched; the new candidate goes in a new folder, `~/Applications/MarkText Candidates/<extras-sha>/`.
+
+1. **Freeze.** Owner: integrator.
+   - Freeze `candidate/next` and `candidate/next-extras` at the B14 tip, or at `a6bf96a36` (extras on it) if B14 does not land. No commit lands on either branch until step 6 is done; a failure in steps 2–5 is fixed on a new tip and the sequence restarts at step 2.
+   - Pass: both SHAs recorded here; under `packages/` extras differs from candidate/next only in `electron-builder.yml` and the fork test-data line.
+2. **Focused checks, then full E2E, on candidate/next.** Owner: integrator.
+   - `lane.sh integrator "final focused checks <sha>" 1800 -- env WT=<wt-next> GATES="typecheck lint muyalint muyalinttypes muyacircular muyae2etype prettier licenses inputpolicy parity salvage muyaspec doccore muyatest desktop" zsh gates.sh`.
+   - `lane.sh integrator "final desktop/Muya E2E <sha>" 4800 -- env TAG=<sha> zsh e2e-only.sh` (build:unpack, the unpacked desktop project, then Muya Chromium).
+   - Pass: every gate exits 0; desktop 0 failed; Muya all passed, exit 0.
+3. **Package once, from extras.** Owner: integrator.
+   - `lane.sh integrator "final package <extras-sha>" 1800 -- …` running `MARKTEXT_BUILD_COMMIT=$(git rev-parse HEAD) pnpm --filter marktext build:mac:arm64 -c.mac.identity=-` in the extras worktree.
+   - Record the DMG's `shasum -a 256`, `app.asar`'s, and an app-tree hash (`find MarkText.app -type f -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256`). Copy the DMG and app to `~/Applications/MarkText Candidates/<extras-sha>/`.
+   - Pass: build exit 0; hashes recorded; every later step names this package's hashes.
+4. **On that exact package.**
+   - a. **Installed-functional, editorial pass included (B11).** Owner: integrator. `lane.sh integrator "final installed-functional <extras-sha>" 1200 -- env MARKTEXT_E2E_HIDDEN_WINDOW=1 MARKTEXT_PACKAGED_APP=<app>/Contents/MacOS/marktext MARKTEXT_EXPECTED_COMMIT=<extras-sha> pnpm exec playwright test --project=installed-functional --max-failures=0`. Pass: all passed, exit 0.
+   - b. **Paired upstream comparison (B4, B6). LANE_IDLE.** Owner: idle-fixer. `LANE_IDLE=1 lane.sh idle-fixer "b4-b6 frozen compare <extras-sha>" 7200 -- ~/Library/Caches/marktext-idlefixer/frozen/frozen-compare.sh <app> <fresh-dir> 3`. Pass: in every pair, ours ≤ upstream on frame p95 (B6: fence-2000-inside and links-code-2000 against upstream's same scenario; B4: our fence-2000-arm-tracked, tracked, against upstream's fence-2000-inside).
+   - c. **Warm perf pass (B5 and every other ≤16.7 ms scenario) with raw runs (B10). LANE_IDLE.** Owner: V. Each workload of `criticmarkup-warm-session-performance.spec.ts`, Review sidebar open and hidden, three runs each, one lane job per run of at most 600 s, with `MARKTEXT_E2E_HIDDEN_WINDOW=1 MARKTEXT_WARM_PERFORMANCE=1 MARKTEXT_WARM_ORDINARY=1 MARKTEXT_WARM_ARMS=1 MARKTEXT_PACKAGED_APP=… MARKTEXT_EXPECTED_COMMIT=…` and `-g "performance <workload>$"`; then `packages/desktop/test/e2e/run-installed-core-performance.sh` for the raw runs. Pass: every qualifying natural-idle run's p95 ≤ 16.7 ms, apart from B4/B6, which 4b decides; the measurements file holds raw runs for this SHA.
+   - d. **Cold re-measure (B1, B2, B3b-root, B14). LANE_IDLE.** Owner: search-fixer, math-fixer for B3b-root and B14. Three rounds of fresh-process first keystrokes, each starting at load below 6, as in `~/Library/Caches/marktext-fixerN2/coldfinal.sh` (`LANE_IDLE=1 LANE_IDLE_WAIT=3600 lane.sh fixerN2 "cold-final-<r>" 1800 -- ln-coldfinal.sh <r> <base>,<candidate>`). Pass: each B1 key, ks-132-8 and B3b-root at 400 paragraphs ≤ its recorded value + 10%; B14's result recorded for the owner.
+   - e. **Verification gate trace (B9).** Owner: V. Trace the [verification gate](../architecture/criticmarkup-native-integration.md#verification-gate) on the frozen SHA; `git grep -n '@marktext/muyajs' -- packages ':!packages/muyajs'` and the build graph show no production import of `packages/muyajs`. Pass: the gate's four steps recorded here with the SHA.
+5. **Mac mini rehearsal on that exact DMG.** Owner: V. Install the step-3 DMG on the Mac mini and run the visible real-gesture rehearsal (`~/Library/Caches/marktext-verifierV/rehearsal/rehearse.sh <app> <evidence-dir>`), confirming the installed app's `app.asar` hash matches step 3. Pass: the full rehearsal with no `FAILURE.txt`.
+6. **PR description.** Owner: integrator, for the coordinator's review. Built from `specs/plans/upstream-pr-notes.md` on the frozen PR SHA (`rebase/criticmarkup-on-upstream-develop` advanced to candidate/next): what the PR does, known differences from upstream, the harness fixes that also apply upstream, the post-PR follow-ups, and `fix/packaging-native-modules` (`4672b3bdc`) as a separate, non-prerequisite PR (B8). No push without the owner's go.
+
 ### Post-PR follow-ups
 
 - Parser throughput: the cold first-keystroke limits accepted under "Accept as recorded limits" (B1, B2, B3b-root) are bounded by whole and regional parse throughput; reducing it is follow-up work after this PR.
