@@ -56,6 +56,11 @@ test('Return at the end of Source view, then saving there, writes one newline', 
     await page.keyboard.press(command('ArrowDown'))
     await page.keyboard.press('Enter')
     await save(app, filePath, source)
+    // The file already held these bytes, so wait for the save to drop the
+    // typed line break from the view before typing on.
+    await expect.poll(() => page.evaluate(() => (document.querySelector('.source-code .CodeMirror') as Element & {
+      CodeMirror: { getValue(): string }
+    }).CodeMirror.getValue())).toBe(source)
     // Typing continues in the saved document.
     await page.keyboard.type('More.')
     await save(app, filePath, 'Alpha beta gamma.\nMore.\n')
