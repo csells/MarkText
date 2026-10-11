@@ -77,6 +77,13 @@ const syntaxSpans = (
         end: last.text.start + syntax.end - last.syntax.start
       }
   }
+  /** A syntax position in this block's text, at either end of a segment. */
+  const nativePoint = (syntax: number): number | undefined => {
+    const segment = binding.segments.find(
+      (candidate) => candidate.syntax.start <= syntax && syntax <= candidate.syntax.end
+    )
+    return segment === undefined ? undefined : segment.text.start + syntax - segment.syntax.start
+  }
   const add = (range: SourceRange, open: string, close: string): void => {
     let previous: PresentationSpan | undefined
     for (const segment of binding.segments) {
@@ -133,37 +140,23 @@ const syntaxSpans = (
       addNative(sequence, `<span class="${revealed(sequence) ? 'mu-gray' : 'mu-hide'}">`)
     }
   }
-  // Upstream colours a one-line reference definition that its own pattern
-  // reads: `[`, the label, `]: ` with the destination, the title, and the
-  // rest. Core decides that the line is a definition and where its label,
-  // destination and title lie; this only checks that their text is what
-  // upstream's pattern accepts, and leaves any other plain.
+  // Upstream colours a reference definition written on one line in the form
+  // its own pattern reads: `[`, the label, `]: ` with the destination, the
+  // title, and the rest. Core reads whether a definition is written so
+  // (`oneLineForm`) and where its parts lie; any other stays plain.
   const referenceDefinition = (definition: MarkdownAstNode): void => {
+    if (definition.attributes.oneLineForm !== true) return
     // A definition's range can include its line ending, which no text holds.
     const range = nativeRange({
       start: definition.range.start,
       end: Math.min(definition.range.end, binding.segments.at(-1)?.syntax.end ?? definition.range.end)
     })
-    const labelRange = nativeRange({
+    const label = nativeRange({
       start: Number(definition.attributes.labelStart),
       end: Number(definition.attributes.labelEnd)
     })
-    const target = nativeRange({
-      start: Number(definition.attributes.destinationStart),
-      end: Number(definition.attributes.destinationSyntaxEnd)
-    })
-    if (range === undefined || labelRange === undefined || target === undefined) return
-    // The label as written, between the brackets Core found.
-    const label = binding.text.slice(labelRange.start, labelRange.end)
-    // The destination's syntax, with an opening `<` where it has one.
-    const destination = binding.text.charAt(target.start - 1) === '<'
-      ? { start: target.start - 1, end: target.end }
-      : target
-    const text = binding.text.slice(range.start, range.end)
-    const at = (offset: number): number => offset - range.start
-    const open = at(labelRange.start) - 1
-    const close = at(labelRange.end)
-    const backslashes = /\\*$/u.exec(label)?.[0].length ?? 0
+    const labelTextEnd = nativePoint(Number(definition.attributes.labelTextEnd))
+    const trailing = nativePoint(Number(definition.attributes.trailingSpaceStart))
     const titled = definition.attributes.titleStart !== undefined
     const title = titled
       ? nativeRange({
@@ -171,42 +164,23 @@ const syntaxSpans = (
         end: Number(definition.attributes.titleEnd)
       })
       : undefined
-    if (titled && title === undefined) return
-    const titleText = title === undefined ? '' : text.slice(at(title.start), at(title.end))
-    const delimiter = title === undefined ? '' : text.charAt(at(title.start) - 1)
-    const tail = title === undefined ? at(destination.end) : at(title.end) + 1
-    const accepted =
-      open <= 3 &&
-      !text.includes('\n') &&
-      text.charAt(open) === '[' &&
-      !label.includes(']') &&
-      backslashes % 2 === 0 &&
-      text.slice(close, close + 2) === ']:' &&
-      /^ *$/u.test(text.slice(close + 2, at(destination.start))) &&
-      /^<?[^\s>]+>?$/u.test(text.slice(at(destination.start), at(destination.end))) &&
-      (title === undefined ||
-        (/^["']$/u.test(delimiter) &&
-          text.charAt(at(title.end)) === delimiter &&
-          /^[^\n"'()]+$/u.test(titleText) &&
-          /^ +$/u.test(text.slice(at(destination.end), at(title.start) - 1)))) &&
-      /^ *$/u.test(text.slice(tail))
-    if (!accepted) return
-    const trailing = / *$/u.exec(text)?.[0].length ?? 0
+    if (range === undefined || label === undefined || labelTextEnd === undefined || trailing === undefined ||
+      (titled && title === undefined)) return
     const marker = '<span class="mu-reference-marker" spellcheck="false">'
-    addNative({ start: range.start, end: range.start + open + 1 }, '<span class="mu-reference-marker">')
-    addNative(
-      { start: range.start + open + 1, end: range.start + close - backslashes },
-      '<span class="mu-reference-label" spellcheck="false">'
-    )
-    for (let index = 0; index < backslashes; index += 1) {
-      const offset = range.start + close - backslashes + index
-      addNative({ start: offset, end: offset + 1 }, `<span class="${index % 2 === 0 ? 'mu-gray' : 'mu-backlash'}">`)
+    addNative({ start: range.start, end: label.start }, '<span class="mu-reference-marker">')
+    addNative({ start: label.start, end: labelTextEnd }, '<span class="mu-reference-label" spellcheck="false">')
+    // The backslashes ending the label, each escaping the next.
+    for (let offset = labelTextEnd; offset < label.end; offset += 1) {
+      addNative(
+        { start: offset, end: offset + 1 },
+        `<span class="${(offset - labelTextEnd) % 2 === 0 ? 'mu-gray' : 'mu-backlash'}">`
+      )
     }
     if (title === undefined) {
-      addNative({ start: range.start + close, end: range.end - trailing }, marker)
-      addNative({ start: range.end - trailing, end: range.end }, marker)
+      addNative({ start: label.end, end: trailing }, marker)
+      addNative({ start: trailing, end: range.end }, marker)
     } else {
-      addNative({ start: range.start + close, end: title.start }, marker)
+      addNative({ start: label.end, end: title.start }, marker)
       addNative(title, '<span class="mu-reference-title">')
       addNative({ start: title.end, end: range.end }, marker)
     }
@@ -382,30 +356,30 @@ const syntaxSpans = (
     const inlineLink =
       node.kind === 'link' && !reference && node.attributes.extendedAutolink !== true
     const tag = inlineLink ? 'span' : tags[node.kind]
-    if (inlineLink && node.children.length === 0) {
+    if (inlineLink && node.children.length === 0 && node.attributes.labelStart === node.attributes.labelEnd) {
       // Upstream always shows a link without text as its gray brackets
       // around a native anchor holding the destination.
       const range = nativeRange(node.range)
-      const opening = binding.text.slice(range?.start ?? 0, (range?.start ?? 0) + 3)
-      if (range !== undefined && opening === '[](') {
+      const target = nativeRange({ start: Number(node.attributes.targetStart), end: Number(node.attributes.targetEnd) })
+      if (range !== undefined && target !== undefined) {
         const destination = escapeHtml(String(node.attributes.semanticDestination ?? ''))
         const title = typeof node.attributes.semanticTitle === 'string'
           ? ` title="${escapeHtml(node.attributes.semanticTitle)}"`
           : ''
-        addNative({ start: range.start, end: range.start + 3 }, '<span class="mu-gray mu-remove">')
+        addNative({ start: range.start, end: target.start }, '<span class="mu-gray mu-remove">')
         spans.push({
-          range: { start: range.start + 3, end: range.end - 1 },
+          range: target,
           open: `<a class="mu-no-text-link mu-inline-rule" href="${destination}" target="_blank"${title}>`,
           close: '</a>'
         })
-        addNative({ start: range.end - 1, end: range.end }, '<span class="mu-gray mu-remove">')
+        addNative({ start: target.end, end: range.end }, '<span class="mu-gray mu-remove">')
       }
     }
     const content =
       node.kind === 'inline-code'
         ? { start: Number(node.attributes.contentStart), end: Number(node.attributes.contentEnd) }
         : node.kind === 'autolink'
-          ? { start: node.range.start + 1, end: node.range.end - 1 }
+          ? { start: Number(node.attributes.addressStart), end: Number(node.attributes.addressEnd) }
           : node.children.length > 0
             ? {
               start: node.children[0].range.start,
