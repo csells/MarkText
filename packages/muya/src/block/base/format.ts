@@ -683,6 +683,13 @@ class Format extends Content {
             CLASS_NAMES.MU_MATH_RENDER,
             CLASS_NAMES.MU_RUBY_RENDER,
         ]);
+        // A bound model owns every edit and its reading. Native input it did
+        // not claim reaches the view's text as written, unread, where the
+        // model reports it as a change it never made.
+        if (this.muya.editor.documentEditing) {
+            this.text = textContent;
+            return;
+        }
         // Also counts the caret right after the `$` that closed the formula, so
         // typing `$$x$$` does not pair that `$` into `$$x$$$`.
         const isInInlineMath = !!this._checkCursorInTokenType(
@@ -1399,6 +1406,9 @@ class Format extends Content {
         const { start, end } = this.getCursor() ?? {};
         // Let input handler to handle this case.
         if (!start || !end || start?.offset !== end?.offset)
+            return;
+        // A bound model reads the text; its beforeinput takes the Backspace.
+        if (this.muya.editor.documentEditing)
             return;
 
         this.muya.editor.history.markInputBoundary('deleteContentBackward', null);
