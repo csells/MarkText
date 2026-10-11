@@ -43,4 +43,13 @@ describe('syntax part ranges', () => {
     expect(spell(source, image?.['targetStart'], image?.['targetEnd'])).toBe('/p.png')
     expect(spell(source, autolink?.['addressStart'], autolink?.['addressEnd'])).toBe('https://h.test/x')
   })
+
+  it('records a full reference link\'s label after its text', () => {
+    const source = '[text][Ref] [c][] [s]\n\n[ref]: /u\n[c]: /c\n[s]: /s\n'
+    const [full, collapsed, shortcut] = parse(source, ['link']).map((node) => node.attributes)
+    expect(spell(source, full?.['referenceLabelStart'], full?.['referenceLabelEnd'])).toBe('Ref')
+    expect(spell(source, full?.['labelEnd'], full?.['referenceLabelStart'])).toBe('][')
+    expect(collapsed?.['referenceLabelStart']).toBeUndefined()
+    expect(shortcut?.['referenceLabelStart']).toBeUndefined()
+  })
 })
