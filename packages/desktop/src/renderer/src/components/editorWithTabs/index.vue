@@ -89,8 +89,6 @@ import {
   teardownCoreDocumentSessions
 } from '@/documentAuthority/coreDocumentSessionTeardown'
 import { retireClosedCoreDocumentSessions } from '@/documentAuthority/coreDocumentSessionRetirement'
-import { installLegacyMarkdownTestGuard } from '@/documentAuthority/legacyMarkdownTestGuard'
-import { LEGACY_MARKDOWN_GUARD_ENV } from '@shared/legacyMarkdownReach'
 import {
   handoffCoreDocumentView,
   type CoreDocumentViewState
@@ -152,7 +150,6 @@ const commentComposerFor = (documentId: string): CoreReviewComposerState => {
   return composer
 }
 const coreLaunchPolicy = resolveCoreDocumentLaunchPolicy(window.electron.process.env)
-if (window.electron.process.env[LEGACY_MARKDOWN_GUARD_ENV] === '1') installLegacyMarkdownTestGuard()
 interface CoreModelOwnerRegistration {
   control?: CoreModelTestControl
 }

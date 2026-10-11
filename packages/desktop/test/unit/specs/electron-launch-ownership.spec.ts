@@ -26,12 +26,16 @@ it.each(['window', 'document', 'markdown'] as const)(
       waitForSelector: vi.fn().mockRejectedValue(failure)
     }
     const process = { kill: vi.fn() }
+    // launchElectron wraps close to check the run's legacy Markdown reaches.
+    const close = vi.fn().mockResolvedValue(undefined)
     const app = {
       evaluate: vi.fn().mockResolvedValue(true),
       firstWindow:
         stage === 'window' ? vi.fn().mockRejectedValue(failure) : vi.fn().mockResolvedValue(page),
       process: () => process,
-      close: vi.fn().mockResolvedValue(undefined)
+      windows: () => [],
+      on: vi.fn(),
+      close
     }
     fixture.launch.mockResolvedValue(app)
     const operation =
@@ -44,25 +48,28 @@ it.each(['window', 'document', 'markdown'] as const)(
     await vi.runAllTimersAsync()
     await rejected
     expect(process.kill).toHaveBeenCalledOnce()
-    expect(app.close).toHaveBeenCalledOnce()
+    expect(close).toHaveBeenCalledOnce()
   }
 )
 
 it('leaves a successfully initialized application under the caller’s ownership', async() => {
   const page = { waitForLoadState: vi.fn().mockResolvedValue(undefined) }
   const process = { kill: vi.fn() }
+  const close = vi.fn()
   const app = {
     evaluate: vi.fn().mockResolvedValue(true),
     firstWindow: vi.fn().mockResolvedValue(page),
     process: () => process,
-    close: vi.fn()
+    windows: () => [],
+    on: vi.fn(),
+    close
   }
   fixture.launch.mockResolvedValue(app)
   const operation = launchElectron()
   await vi.runAllTimersAsync()
   expect(await operation).toEqual({ app, page })
   expect(process.kill).not.toHaveBeenCalled()
-  expect(app.close).not.toHaveBeenCalled()
+  expect(close).not.toHaveBeenCalled()
 })
 
 it.each([
@@ -77,7 +84,10 @@ it.each([
     const page = { waitForLoadState: vi.fn().mockResolvedValue(undefined) }
     fixture.launch.mockResolvedValue({
       evaluate: vi.fn().mockResolvedValue(true),
-      firstWindow: vi.fn().mockResolvedValue(page)
+      firstWindow: vi.fn().mockResolvedValue(page),
+      windows: () => [],
+      on: vi.fn(),
+      close: vi.fn()
     })
     const env = explicitControls
       ? { MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: '1' }
