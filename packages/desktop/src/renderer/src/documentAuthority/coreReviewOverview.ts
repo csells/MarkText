@@ -67,6 +67,18 @@ const regionReading = (
   sourceSlice: (range) => core.sourceSlice(revision, range)
 })
 
+/** A review item of one annotation; a highlight's carries its content arm. */
+const standaloneItem = (annotation: CriticMarkupAnnotation): CoreReviewItemLocator => {
+  const content = annotation.kind === 'highlight'
+    ? annotation.arms.find((arm) => arm.name === 'content')
+    : undefined
+  return Object.freeze({
+    kind: annotation.kind,
+    range: Object.freeze({ ...annotation.range }),
+    ...(content === undefined ? {} : { contentRange: Object.freeze({ ...content.range }) })
+  })
+}
+
 /** Review items in overview order: nested items precede the item holding them. */
 const reviewItemsOf = (reading: ReviewReading): readonly CoreReviewItemLocator[] => {
   const items: CoreReviewItemLocator[] = []
@@ -150,12 +162,7 @@ const reviewItemsOf = (reading: ReviewReading): readonly CoreReviewItemLocator[]
         }
       }
       const visible = next.kind === 'pair' ? next.highlight : next.annotation
-      items.push(
-        Object.freeze({
-          kind: visible.kind,
-          range: Object.freeze({ ...visible.range })
-        })
-      )
+      items.push(standaloneItem(visible))
     }
   }
   for (let index = 0; index < annotations.length; index += 1) {
@@ -189,12 +196,7 @@ const reviewItemsOf = (reading: ReviewReading): readonly CoreReviewItemLocator[]
       continue
     }
     appendVisibleNestedItems(annotation)
-    items.push(
-      Object.freeze({
-        kind: annotation.kind,
-        range: Object.freeze({ ...annotation.range })
-      })
-    )
+    items.push(standaloneItem(annotation))
   }
   return Object.freeze(items)
 }
@@ -385,7 +387,11 @@ const shiftedEntry = (entry: CoreReviewOverviewEntry, delta: number): CoreReview
           highlightRange: shiftedRange(item.highlightRange, delta),
           commentRange: shiftedRange(item.commentRange, delta)
         }
-        : { ...item, range: shiftedRange(item.range, delta) }
+        : {
+          ...item,
+          range: shiftedRange(item.range, delta),
+          ...(item.contentRange === undefined ? {} : { contentRange: shiftedRange(item.contentRange, delta) })
+        }
     )
   })
 }
@@ -503,7 +509,13 @@ export const createReviewOverviewTracker = (): ReviewOverviewTracker => {
             highlightRange: moved(shiftedRange(item.highlightRange, slot.delta)),
             commentRange: shiftedRange(item.commentRange, slot.delta + shift)
           }
-          : { ...item, range: moved(shiftedRange(item.range, slot.delta)) })
+          : {
+            ...item,
+            range: moved(shiftedRange(item.range, slot.delta)),
+            ...(item.contentRange === undefined
+              ? {}
+              : { contentRange: moved(shiftedRange(item.contentRange, slot.delta)) })
+          })
       })
     }
     for (let later = index + 1; later < slots.length; later += 1) {

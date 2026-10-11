@@ -2174,10 +2174,10 @@ const authorCoreReview = async (
 /** The standalone highlight the caret is in, which Add Comment comments on. */
 const coreReviewHighlightTarget = computed(() => {
   const item = coreReviewItem.value
-  // `{==` and `==}` are six source units; an empty highlight has no text to comment on.
-  return coreReviewTargeted.value && item?.kind === 'highlight' && item.range.end - item.range.start > 6
-    ? item
-    : undefined
+  if (!coreReviewTargeted.value || item === null || item === undefined || item.kind !== 'highlight') return undefined
+  // An empty highlight has no text to comment on.
+  const content = 'contentRange' in item ? item.contentRange : undefined
+  return content !== undefined && content.end > content.start ? item : undefined
 })
 
 /**
@@ -2188,7 +2188,8 @@ const commentOnCoreHighlight = async (
   item: NonNullable<CoreReviewItemReply['item']> | undefined = coreReviewHighlightTarget.value
 ): Promise<void> => {
   const adapter = corePlainTextAdapter
-  if (adapter === undefined || item?.kind !== 'highlight' || coreCommentOpen.value) return
+  const content = item?.kind === 'highlight' && 'contentRange' in item ? item.contentRange : undefined
+  if (adapter === undefined || item === undefined || content === undefined || coreCommentOpen.value) return
   await adapter.settled()
   const state = adapter.state()
   if (!('revision' in state) || coreCommentOpen.value) return
@@ -2197,7 +2198,7 @@ const commentOnCoreHighlight = async (
     revision: state.revision,
     text: '',
     form: 'comment',
-    selection: Object.freeze({ start: item.range.start + 3, end: item.range.end - 3 }),
+    selection: Object.freeze({ start: content.start, end: content.end }),
     entry: item
   }
   coreCommentError.value = ''
