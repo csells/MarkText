@@ -220,3 +220,29 @@ describe('sidebar Comment bodies', () => {
     )
   })
 })
+
+// Add Comment on a standalone highlight comments on its highlighted text,
+// which Core reads; an empty highlight has none (B9).
+it('gives each standalone highlight the content range Core reads', () => {
+  const source = 'A {==marked==} and {====} and {==x {==in==} y==}.\n'
+  const actor = createCoreActor()
+  try {
+    const opened = actor.handle({ type: 'open', session: 1, sequence: 1, source })
+    const reply = actor.handle({
+      type: 'review-item-at-barrier',
+      session: 1,
+      sequence: 2,
+      baseRevision: opened.revision,
+      direction: 'next',
+      from: 0,
+      includeOverview: true
+    }) as CoreReviewItemReply
+    const highlights = (reply.overview ?? []).map((entry) => entry.item)
+      .filter((item): item is Extract<typeof item, { kind: 'highlight' }> => item.kind === 'highlight')
+    expect(highlights.map((item) => item.contentRange === undefined
+      ? undefined
+      : source.slice(item.contentRange.start, item.contentRange.end))).toEqual(['marked', '', 'in', 'x {==in==} y'])
+  } finally {
+    actor.dispose()
+  }
+})

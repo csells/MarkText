@@ -64,6 +64,8 @@ export type CoreReviewItemLocator =
   | Readonly<{
     readonly kind: CriticMarkupKind
     readonly range: Readonly<{ readonly start: number; readonly end: number }>
+    /** A highlight's highlighted text, between its delimiters, as Core reads it. */
+    readonly contentRange?: Readonly<{ readonly start: number; readonly end: number }>
   }>
   | Readonly<{
     readonly kind: 'commented-span'
