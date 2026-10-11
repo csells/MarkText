@@ -829,8 +829,7 @@ function findReferenceLink(
   let referenceLabel = normalizedLabel
   let rawReferenceLabel = labelText(opener + 1, labelEnd)
   let referenceKind: ParsedReferenceLink['referenceKind'] = 'shortcut'
-  let referenceLabelStart: number | undefined
-  let referenceLabelEnd: number | undefined
+  let fullReferenceLabel: { readonly referenceLabelStart: number; readonly referenceLabelEnd: number } | undefined
   if (source.charCodeAt(constructEnd) === 91) {
     const referenceStart = constructEnd
     const referenceEnd = findBalancedLabelEnd(source, referenceStart, end)
@@ -850,8 +849,7 @@ function findReferenceLink(
     referenceKind = referenceEnd === constructEnd + 1 ? 'collapsed' : 'full'
     if (referenceKind === 'full') {
       rawReferenceLabel = labelText(constructEnd + 1, referenceEnd)
-      referenceLabelStart = constructEnd + 1
-      referenceLabelEnd = referenceEnd
+      fullReferenceLabel = { referenceLabelStart: constructEnd + 1, referenceLabelEnd: referenceEnd }
     }
     referenceLabel = referenceEnd === constructEnd + 1
       ? normalizedLabel
@@ -873,7 +871,7 @@ function findReferenceLink(
     referenceLabel,
     rawReferenceLabel,
     referenceKind,
-    ...(referenceLabelStart === undefined ? {} : { referenceLabelStart, referenceLabelEnd })
+    ...fullReferenceLabel
   })
 }
 
