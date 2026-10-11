@@ -1,6 +1,8 @@
 import { createApp, type App } from 'vue'
 import { createRouter, createWebHashHistory } from 'vue-router'
 import bootstrapRenderer from './bootstrap'
+import { installLegacyMarkdownTestGuard } from './documentAuthority/legacyMarkdownTestGuard'
+import { LEGACY_MARKDOWN_GUARD_ENV } from '@shared/legacyMarkdownReach'
 import axios from './axios'
 import pinia from './store'
 import './assets/symbolIcon'
@@ -25,6 +27,7 @@ import './assets/styles/printService.css'
 
 window.marktext = {}
 bootstrapRenderer()
+if (window.electron.process.env[LEGACY_MARKDOWN_GUARD_ENV] === '1') installLegacyMarkdownTestGuard()
 
 // -----------------------------------------------
 // Be careful when changing code before this line!
