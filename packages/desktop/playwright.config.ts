@@ -18,6 +18,7 @@ const installedSpecs = [
 export default defineConfig({
   testDir: './test/e2e',
   globalSetup: './test/e2e/globalSetup.ts',
+  globalTeardown: './test/e2e/globalTeardown.ts',
   workers: 1,
   testMatch: '**/*.spec.ts',
   projects: [

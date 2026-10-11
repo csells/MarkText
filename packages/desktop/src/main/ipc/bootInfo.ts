@@ -3,6 +3,7 @@ import fs from 'fs-extra'
 import { app, ipcMain } from 'electron'
 import { rgPath } from '@vscode/ripgrep'
 import { MARKDOWN_INCLUSIONS } from 'common/filesystem/paths'
+import { LEGACY_MARKDOWN_GUARD_ENV } from '@shared/legacyMarkdownReach'
 import type { BootInfo } from '@shared/types/ipc'
 
 const ENV_ALLOWLIST = [
@@ -13,6 +14,7 @@ const ENV_ALLOWLIST = [
   'MARKTEXT_VERSION',
   'MARKTEXT_VERSION_STRING',
   'MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS',
+  LEGACY_MARKDOWN_GUARD_ENV,
   'MARKTEXT_RIPGREP_PATH',
   'PATH',
   'HOME'

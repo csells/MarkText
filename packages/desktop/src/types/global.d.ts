@@ -214,6 +214,11 @@ declare global {
     rgPath: string
     // Set by the legacy editor store at runtime; consumed by muya internals.
     DIRNAME: string
+    // Present when the E2E harness launched the app; see legacyMarkdownTestGuard.ts.
+    __marktextLegacyMarkdownGuard?: {
+      readonly strict: true
+      reaches(): number
+    }
     __marktextDocumentCore?: {
       readonly mode: 'core'
       readonly documentId?: string

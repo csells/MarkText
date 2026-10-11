@@ -14,7 +14,8 @@ import {
   sendIpcToRenderer,
   waitForEditor,
   waitForMenuReady,
-  showReviewSidebar
+  showReviewSidebar,
+  watchLegacyMarkdownReaches
 } from './helpers'
 
 type OpenedEditor = {
@@ -48,6 +49,7 @@ const openFixture = async(filePath: string): Promise<OpenedEditor> => {
       env,
       timeout: 60_000
     })
+    watchLegacyMarkdownReaches(app)
     try {
       page = await app.firstWindow()
       await page.waitForLoadState('domcontentloaded')

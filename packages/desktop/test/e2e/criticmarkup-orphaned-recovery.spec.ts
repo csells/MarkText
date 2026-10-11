@@ -2,7 +2,7 @@ import { _electron as electron, expect, test, type ElectronApplication } from '@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { clickMenuById, expectEditorNotFrontmost, expectEditorWindowHidden, getElectronPath, placeCaretInEditor, waitForEditor, waitForMenuReady } from './helpers'
+import { clickMenuById, expectEditorNotFrontmost, expectEditorWindowHidden, getElectronPath, placeCaretInEditor, waitForEditor, waitForMenuReady, watchLegacyMarkdownReaches } from './helpers'
 import { defaultCoreLaunchEnvironment, expectDefaultCoreAuthority, expectInstalledArtifactCommit } from './installedArtifactProvenance'
 
 test('discovers interrupted backups on normal startup and preserves their bytes after recovery', async() => {
@@ -35,6 +35,7 @@ test('discovers interrupted backups on normal startup and preserves their bytes 
       args: [...(binary ? [] : [resolve(__dirname, '../..')]), '--user-data-dir', profile, filePath],
       env: defaultCoreLaunchEnvironment({ PERF_TESTING: 'true', MARKTEXT_E2E_HIDDEN_WINDOW: '1' })
     })
+    watchLegacyMarkdownReaches(app)
     const page = await app.firstWindow()
     await waitForEditor(page)
     await expectDefaultCoreAuthority(page)

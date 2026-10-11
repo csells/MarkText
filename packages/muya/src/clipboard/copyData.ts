@@ -6,6 +6,7 @@ import type { ISelection } from '../selection/types';
 import type { TState } from '../state/types';
 import type { Nullable } from '../types';
 import type Clipboard from './index';
+import { reachLegacyMarkdown } from '../state/legacyMarkdownGuard';
 import StateToMarkdown from '../state/stateToMarkdown';
 import { getClipBoardHtml, getSanitizeClipboardHtml } from '../utils/marked';
 import { CopyType } from './types';
@@ -67,6 +68,7 @@ function getTableSelectionClipboardData(
         return { html: '', text: state.children[0].children[0].text };
     }
 
+    reachLegacyMarkdown(clipboard.muya, 'StateToMarkdown');
     const text = new StateToMarkdown().generate([state]);
     const html = getClipBoardHtml(text, buildHtmlOptions(clipboard.muya.options));
 
@@ -384,6 +386,7 @@ export function getClipboardData(clipboard: Clipboard): IClipboardPayload {
 
     const copyState = collectCopyState(order);
 
+    reachLegacyMarkdown(clipboard.muya, 'StateToMarkdown');
     const text = new StateToMarkdown().generate(copyState);
     const html = getClipBoardHtml(text, options);
 

@@ -4,6 +4,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
+import { LEGACY_MARKDOWN_GUARD_ENV, LEGACY_MARKDOWN_REACH_PREFIX } from '../../src/shared/legacyMarkdownReach'
 import { frontmostApplicationProcessId } from './frontmostApplication'
 
 const projectRoot = path.resolve(__dirname, '../..')
@@ -68,6 +69,37 @@ export interface LaunchOptions {
   preferences?: Record<string, unknown>
 }
 
+/** The file collecting every legacy Markdown reach of this run; see globalSetup. */
+export const LEGACY_MARKDOWN_LOG_ENV = 'MARKTEXT_E2E_LEGACY_MARKDOWN_LOG'
+
+/**
+ * A bound Core document owns all Markdown parsing and serialization. With
+ * LEGACY_MARKDOWN_GUARD_ENV set, the renderer reports each reach of Muya's
+ * legacy parser or serializer on its console. Each reach is appended to the run's log, which
+ * global teardown checks, and fails the closing of the app that made it.
+ */
+export const watchLegacyMarkdownReaches = (app: ElectronApplication): void => {
+  const reaches: string[] = []
+  const watch = (page: Page): void => {
+    page.on('console', (message) => {
+      const text = message.text()
+      if (!text.startsWith(LEGACY_MARKDOWN_REACH_PREFIX)) return
+      reaches.push(text)
+      const log = process.env[LEGACY_MARKDOWN_LOG_ENV]
+      if (log) fs.appendFileSync(log, `${text}\n\n`)
+    })
+  }
+  for (const page of app.windows()) watch(page)
+  app.on('window', watch)
+  const close = app.close.bind(app)
+  app.close = async(): Promise<void> => {
+    await close()
+    if (reaches.length > 0) {
+      throw new Error(`A bound document reached Muya's legacy Markdown modules:\n\n${reaches.join('\n\n')}`)
+    }
+  }
+}
+
 const closeFailedLaunch = async(app: ElectronApplication): Promise<void> => {
   // Readiness can fail while a renderer is stuck. Do not depend on that
   // renderer acknowledging a graceful quit, or leave it owning a temp profile.
@@ -109,6 +141,7 @@ export const launchElectron = async(
   // checks use the normal launch policy unless the individual test opts in.
   env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS = '1'
   if (options.suppressErrorDialog) env.MARKTEXT_ERROR_INTERACTION = '1'
+  env[LEGACY_MARKDOWN_GUARD_ENV] = '1'
   if (packagedBinary) {
     delete env.MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS
   }
@@ -123,6 +156,7 @@ export const launchElectron = async(
     env,
     timeout: 30000
   })
+  watchLegacyMarkdownReaches(app)
   try {
     if (packagedBinary) expect(await app.evaluate(({ app }) => app.isPackaged)).toBe(true)
     if (options.suppressErrorDialog) await installRendererErrorCounter(app)

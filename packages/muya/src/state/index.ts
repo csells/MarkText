@@ -6,7 +6,7 @@ import * as json1 from 'ot-json1';
 import { deepClone } from '../utils';
 import logger from '../utils/logger';
 import { getTOC } from './getTOC';
-
+import { reachLegacyMarkdown } from './legacyMarkdownGuard';
 import { MarkdownToState } from './markdownToState';
 import StateToMarkdown from './stateToMarkdown';
 
@@ -129,6 +129,7 @@ class JSONState {
             multilineBlockquote,
         } = this._muya.options;
 
+        reachLegacyMarkdown(this._muya, 'MarkdownToState');
         return new MarkdownToState({
             footnote,
             texMathGfm,
@@ -275,6 +276,7 @@ class JSONState {
     // `getMarkdown` uses. Used by `Muya.getCursorOffset` to serialize a
     // sentinel-bearing state clone WITHOUT mutating the live `_state`.
     getMarkdownFromState(state: TState[]): string {
+        reachLegacyMarkdown(this._muya, 'StateToMarkdown');
         const mdGenerator = new StateToMarkdown({
             listIndentation: this._muya.options.listIndentation,
         });
