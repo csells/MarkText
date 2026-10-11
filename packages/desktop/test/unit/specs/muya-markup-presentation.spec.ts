@@ -454,6 +454,17 @@ describe('Muya Core Markup presentation', () => {
       ])
     })
 
+    it('splits a shown link tail at Core\'s target around a comment between its markers', () => {
+      // The comment's text is no part of the shown text, so `](` reads whole.
+      expect(markers(renderedWith('[text]{>>c<<}(https://example.com)', 3))).toEqual([
+        'mu-gray mu-remove|[',
+        'mu-gray mu-remove|](',
+        'mu-critic-comment-marker mu-remove|',
+        'mu-link-in-bracket mu-remove|https://example.com',
+        'mu-gray mu-remove|)'
+      ])
+    })
+
     it('presents reference links with their label as upstream does', () => {
       const source = '[text][label] [label][] [label]\n\n[label]: https://example.com'
       expect(markers(renderedWith(source, undefined))).toEqual([

@@ -421,29 +421,39 @@ const syntaxSpans = (
         `<${tag} class="mu-inline-rule${linkRange === undefined ? '' : linkClass}"${destination}${linkData}>`,
         `</${tag}>`
       )
-      const after = nativeRange({ start: content.end, end: node.range.end })
-      const rest = after === undefined ? '' : binding.text.slice(after.start, after.end)
       // Upstream splits the rest of a shown link into `](`, its destination
       // (with any title) and `)`, and the rest of a shown full reference link
-      // into `][`, its label and `]`. Hidden, those parts read alike, so they
-      // stay one element: a long document holds thousands of links.
-      if (shown === 'mu-gray' && inlineLink && rest.startsWith('](') && rest.endsWith(')')) {
-        add({ start: content.end, end: content.end + 2 }, marker, '</span>')
+      // into `][`, its label and `]`, when those markers read as written in
+      // the text. Hidden, those parts read alike, so they stay one element: a
+      // long document holds thousands of links.
+      const part = inlineLink
+        ? { start: node.attributes.targetStart, end: node.attributes.targetEnd }
+        : reference && node.attributes.referenceKind === 'full'
+          ? { start: node.attributes.referenceLabelStart, end: node.attributes.referenceLabelEnd }
+          : undefined
+      const opener =
+        part !== undefined && typeof part.start === 'number' && content.end === node.attributes.labelEnd
+          ? nativeRange({ start: content.end, end: part.start })
+          : undefined
+      const closer = part !== undefined && typeof part.end === 'number'
+        ? nativeRange({ start: part.end, end: node.range.end })
+        : undefined
+      if (
+        shown === 'mu-gray' &&
+        part !== undefined &&
+        opener !== undefined &&
+        opener.end - opener.start === 2 &&
+        (reference || (closer !== undefined && closer.end - closer.start === 1))
+      ) {
+        const start = Number(part.start)
+        const end = Number(part.end)
+        add({ start: content.end, end: start }, marker, '</span>')
         add(
-          { start: content.end + 2, end: node.range.end - 1 },
-          '<span class="mu-link-in-bracket mu-remove" spellcheck="false">',
+          { start, end },
+          inlineLink ? '<span class="mu-link-in-bracket mu-remove" spellcheck="false">' : '<span class="mu-reference-label">',
           '</span>'
         )
-        add({ start: node.range.end - 1, end: node.range.end }, marker, '</span>')
-      } else if (
-        shown === 'mu-gray' &&
-        reference &&
-        node.attributes.referenceKind === 'full' &&
-        rest.startsWith('][')
-      ) {
-        add({ start: content.end, end: content.end + 2 }, marker, '</span>')
-        add({ start: content.end + 2, end: node.range.end - 1 }, '<span class="mu-reference-label">', '</span>')
-        add({ start: node.range.end - 1, end: node.range.end }, marker, '</span>')
+        add({ start: end, end: node.range.end }, marker, '</span>')
       } else {
         add({ start: content.end, end: node.range.end }, marker, '</span>')
       }
