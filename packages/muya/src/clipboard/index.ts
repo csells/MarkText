@@ -77,7 +77,9 @@ class Clipboard {
             if (this.muya.editor.documentCompositionActive)
                 return;
 
-            if (this.selection.table.hasSelection) {
+            // With a bound model, a press within one cell selects no cells:
+            // the model takes its keys as text input.
+            if (this.muya.editor.documentEditing ? this.selection.table.hasRectangle : this.selection.table.hasSelection) {
                 if (!metaKey && (key === 'Backspace' || key === 'Delete')) {
                     event.preventDefault();
                     deleteTableSelection(this);

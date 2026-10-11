@@ -132,7 +132,7 @@ export function createDocumentTextDraft(
 /** Claims keys submitted by beforeinput or the modified-Enter command handler. */
 export function ownsDocumentTextKey(muya: Muya, event: KeyboardEvent): boolean {
     if (!muya.editor.documentEditing || event.isComposing
-        || muya.editor.selection.table.hasSelection) {
+        || muya.editor.selection.table.hasRectangle) {
         return false;
     }
     const selection = muya.editor.selection.getSelection();
@@ -353,8 +353,13 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
             composition.cancelled = true;
     };
     const applyInput = (event: InputEvent | KeyboardEvent, inputType: string, data: string | null) => {
-        if (muya.editor.selection.table.hasSelection)
+        // Selected cells take Backspace and Delete as a table operation; no
+        // text input edits them. A press within one cell selects none.
+        if (muya.editor.selection.table.hasRectangle) {
+            if (!isNativeTextField(event.target))
+                event.preventDefault();
             return;
+        }
         const input = inputSelection(muya, event, model);
         if (!input) {
             // A caret without a model position must not let the browser edit
@@ -366,8 +371,13 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
         const { range, domSelection, domRange } = input;
         const structural = inputType === 'insertParagraph' || inputType === 'insertLineBreak';
         const text = structural ? '\n' : data ?? '';
-        if (!structural && inputType.startsWith('insert') && data === null)
+        // Input whose text the browser does not state has nothing to submit,
+        // and the browser must not edit the model's rendered text either.
+        if (!structural && inputType.startsWith('insert') && data === null) {
+            if (!isNativeTextField(event.target))
+                event.preventDefault();
             return;
+        }
         const replacement = replacementRange(range, inputType, range.isCollapsed && inputType === 'deleteContentBackward' && !!model.backspaceRemovesGrapheme?.(domSelection.focus));
         if (replacement === undefined)
             return;
@@ -404,14 +414,18 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
         let nativeEnd: DocumentDOMPoint = domRange.focus;
         if (range.isCollapsed && inputType === 'deleteContentBackward') {
             const expanded = muya.editor.selection.getDOMPoint(start);
-            if (!expanded)
+            if (!expanded) {
+                event.preventDefault();
                 return;
+            }
             nativeStart = expanded;
         }
         else if (range.isCollapsed && inputType === 'deleteContentForward') {
             const expanded = muya.editor.selection.getDOMPoint(end);
-            if (!expanded)
+            if (!expanded) {
+                event.preventDefault();
                 return;
+            }
             nativeEnd = expanded;
         }
         const operation: DocumentTextInput = {
@@ -462,7 +476,7 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
     };
     const commandKey = (event: KeyboardEvent) => {
         if (composition || event.isComposing || event.key !== 'Enter'
-            || !(event.metaKey || event.ctrlKey || event.altKey) || muya.editor.selection.table.hasSelection) {
+            || !(event.metaKey || event.ctrlKey || event.altKey) || muya.editor.selection.table.hasRectangle) {
             return;
         }
         if (muya.ui.handleContentKeydown(event))
@@ -559,7 +573,9 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
                 event.preventDefault();
             return;
         }
-        const data = event.inputType === 'insertFromDrop'
+        // In editable content the browser states dropped text and a spelling
+        // correction's replacement in `dataTransfer`, not `data`.
+        const data = event.inputType === 'insertFromDrop' || event.inputType === 'insertReplacementText'
             ? event.data ?? event.dataTransfer?.getData('text/plain') ?? null
             : event.data;
         if (event.inputType === 'insertFromDrop' && drag) {

@@ -955,8 +955,10 @@ class Content extends TreeNode {
     };
 
     private _wrapSelectionWithAutoPair(event: KeyboardEvent) {
+        // A bound model pairs typed delimiters around a selection itself.
         if (
-            this.isComposed
+            this.muya.editor.documentEditing
+            || this.isComposed
             || event.defaultPrevented
             || event.ctrlKey
             || event.metaKey

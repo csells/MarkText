@@ -40,6 +40,15 @@ class TableRectSelection {
         return this._table != null && this._anchor != null && this._focus != null;
     }
 
+    /**
+     * Whether cells are selected as a rectangle: a drag past the pressed cell
+     * began one. A press within a cell selects none, though it holds an anchor
+     * until the button is released.
+     */
+    get hasRectangle(): boolean {
+        return this.hasSelection && this._isSelecting;
+    }
+
     /** Connected cell endpoints from the existing native rectangle, before an action. */
     getDOMSelection(): { kind: 'table'; ranges: IDOMSelection[]; primary: number } | null {
         if (!this.hasSelection)
