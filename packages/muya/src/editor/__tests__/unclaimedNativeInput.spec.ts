@@ -116,3 +116,22 @@ it('reads unclaimed native text as written, without pairing or converting it', (
     expect(block.text).toBe('# plain (');
     expect(block.blockName).toBe('paragraph.content');
 });
+
+// Muya's DOM holds text its model lacks only while a native composition's
+// text awaits the model's commit. A deletion there has no model position;
+// the browser must not make it either.
+it.each([
+    { inputType: 'deleteContentBackward', caret: 4 },
+    { inputType: 'deleteContentForward', caret: 3 },
+])('prevents a $inputType whose deleted range has no DOM point', ({ inputType, caret }) => {
+    const { muya, input } = boot('ab\n');
+    const paragraph = muya.domNode.querySelector('.mu-paragraph-content')!;
+    const text = textNodeOf(paragraph);
+    text.data = 'abXY';
+    caretIn(text, caret);
+    const event = withoutData(new InputEvent('beforeinput', { inputType, bubbles: true, cancelable: true }));
+    paragraph.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(input).not.toHaveBeenCalled();
+    expect(text.data).toBe('abXY');
+});
