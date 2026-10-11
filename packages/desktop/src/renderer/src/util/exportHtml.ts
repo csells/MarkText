@@ -9,6 +9,7 @@
 // / print. This helper reproduces that desktop-specific behaviour on top of the
 // engine output so the export result stays equivalent to the legacy engine.
 
+import type { MarkdownAstNode } from '@marktext/document-core'
 import type { Muya } from '@muyajs/core'
 import { MarkdownToHtml } from '@muyajs/core'
 import {
@@ -129,8 +130,32 @@ const createTableBody = (article: string): string =>
   </div>
 </td></tr></tbody>`
 
-// Match a standalone `[TOC]` line (mirrors legacy marked TOC block token).
-const TOC_REG = /^ {0,3}\[TOC\] *$/im
+/**
+ * The projection with each paragraph Core reads as the text `[TOC]` alone,
+ * the table-of-contents marker, holding `placeholder` instead, so the TOC
+ * goes where the document holds the marker and never where `[TOC]` is code.
+ */
+const withTocPlaceholders = (
+  projection: DocumentConsumerProjection,
+  placeholder: string
+): DocumentConsumerProjection => {
+  const mark = (node: MarkdownAstNode): MarkdownAstNode => {
+    const only = node.children.length === 1 ? node.children[0] : undefined
+    if (node.kind === 'paragraph' && only?.kind === 'text' && only.attributes.semanticText === '[TOC]') {
+      return { ...node, children: [{ ...only, attributes: { ...only.attributes, semanticText: placeholder } }] }
+    }
+    return node.children.length === 0 ? node : { ...node, children: node.children.map(mark) }
+  }
+  return { ...projection, ast: { ...projection.ast, root: mark(projection.ast.root) } }
+}
+
+/** A word no projection holds, standing for its TOC marker paragraphs. */
+const tocPlaceholderFor = (projection: DocumentConsumerProjection): string => {
+  for (;;) {
+    const placeholder = `marktexttoc${Math.random().toString(36).slice(2)}`
+    if (!projection.markdown.includes(placeholder)) return placeholder
+  }
+}
 
 // Match the `href="…"` of an <a> tag in the (already sanitized, double-quoted)
 // engine output, so relative local links are rewritten to absolute `file://`
@@ -167,7 +192,8 @@ const optionsWithHeaderFooterCss = (options: ExportStyledHtmlOptions): ExportSty
 const finalizeStyledHtml = (
   fullDoc: string,
   projectedArticle: string,
-  options: ExportStyledHtmlOptions
+  options: ExportStyledHtmlOptions,
+  tocPlaceholder: string
 ): string => {
   const { toc = '', header, footer, headerFooterStyled } = options
   const appendHeaderFooter = !!header || !!footer
@@ -179,17 +205,15 @@ const finalizeStyledHtml = (
   // moved out of the source folder (#1688).
   article = rewriteAnchorHrefs(article)
 
-  // Inject the TOC at the `[TOC]` marker (legacy behaviour: only appears when
-  // the document explicitly contains `[TOC]`). The marker is rendered as a
-  // paragraph by marked, so replace the rendered `<p>[TOC]</p>` first, falling
-  // back to a raw `[TOC]` if present.
-  if (toc) {
-    if (/<p>\s*\[TOC\]\s*<\/p>/i.test(article)) {
-      article = article.replace(/<p>\s*\[TOC\]\s*<\/p>/i, toc)
-    } else if (TOC_REG.test(article)) {
-      article = article.replace(TOC_REG, toc)
-    }
+  // Inject the TOC at the first `[TOC]` marker paragraph (legacy behaviour:
+  // only appears when the document explicitly contains `[TOC]`). A marker
+  // that renders without its own paragraph, as in a tight list item, and any
+  // later one keep their text.
+  const placeholderParagraph = `<p>${tocPlaceholder}</p>`
+  if (toc && article.includes(placeholderParagraph)) {
+    article = article.replace(placeholderParagraph, () => toc)
   }
+  article = article.split(tocPlaceholder).join('[TOC]')
 
   let bodyHtml: string
   if (!appendHeaderFooter) {
@@ -222,8 +246,9 @@ export const exportStyledHTMLFromProjection = async(
 ): Promise<string> => {
   const prepared = optionsWithHeaderFooterCss(options)
   const { title = '', extraCss = '', dir } = prepared
+  const tocPlaceholder = tocPlaceholderFor(projection)
   const shell = await MarkdownToHtml.fromHtml(
-    renderProjectedDocumentHtml(projection),
+    renderProjectedDocumentHtml(withTocPlaceholders(projection, tocPlaceholder)),
     muya
   ).generate({
     title,
@@ -233,6 +258,7 @@ export const exportStyledHTMLFromProjection = async(
   return finalizeStyledHtml(
     shell,
     /<article class="markdown-body">([\s\S]*)<\/article>/.exec(shell)?.[1] ?? shell,
-    prepared
+    prepared,
+    tocPlaceholder
   )
 }

@@ -197,6 +197,39 @@ describe('exportStyledHTMLFromProjection — [TOC] expansion and slug matching',
     expect(hrefs).not.toContain('use-bold-and-a-linkhttpx')
   })
 
+  // The marker is the paragraph Core reads as `[TOC]` alone: a `[TOC]` line in
+  // code, or one that renders without its own paragraph, keeps its text (B9).
+  it('places the toc at the marker paragraph and leaves [TOC] in code as text', async() => {
+    const toc = getHtmlToc(TOC, {})
+    const out = await exportStyledHTMLFromProjection(
+      NO_MUYA,
+      revisedProjectionOf('# Getting Started\n\n```\na\n[TOC]\nb\n```\n\n[TOC]\n'),
+      { toc }
+    )
+    expect(out.match(/toc-container/g)).toHaveLength(1)
+    expect(out).toMatch(/<code[^>]*>a\n\[TOC\]\nb\n<\/code>/)
+    expect(out.indexOf('toc-container')).toBeGreaterThan(out.indexOf('</pre>'))
+    // With no marker paragraph, the `[TOC]` line in code is not one.
+    const codeOnly = await exportStyledHTMLFromProjection(
+      NO_MUYA,
+      revisedProjectionOf('# Getting Started\n\n```\na\n[TOC]\nb\n```\n'),
+      { toc }
+    )
+    expect(codeOnly).not.toContain('toc-container')
+    expect(codeOnly).toMatch(/<code[^>]*>a\n\[TOC\]\nb\n<\/code>/)
+  })
+
+  it('keeps [TOC] text where it renders without a paragraph or after the first marker', async() => {
+    const toc = getHtmlToc(TOC, {})
+    const tight = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('# Getting Started\n\n- [TOC]\n'), { toc })
+    expect(tight).not.toContain('toc-container')
+    expect(tight).toContain('<li>[TOC]</li>')
+    const twice = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('[TOC]\n\n[TOC]\n'), { toc })
+    expect(twice.match(/toc-container/g)).toHaveLength(1)
+    expect(twice).toContain('<p>[TOC]</p>')
+    expect(twice).not.toMatch(/marktexttoc/)
+  })
+
   it('does not inject the toc when the document has no [TOC] marker', async() => {
     const toc = getHtmlToc(TOC, {})
     const out = await exportStyledHTMLFromProjection(NO_MUYA, revisedProjectionOf('# Getting Started\n\n## Installation\n'), {
