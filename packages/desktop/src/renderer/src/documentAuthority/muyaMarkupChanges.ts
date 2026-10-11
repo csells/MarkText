@@ -1,4 +1,5 @@
 import type {
+  CriticMarkupAnnotation,
   MarkdownAstNode,
   MarkupCoordinateSegment,
   MarkupRegionProjectionChange,
@@ -120,11 +121,19 @@ export const markupRegionCoordinates = (replacement: MarkupRegionReplacement): P
 }
 
 // Refuse missing Comment content rather than silently dropping its anchor.
-// Text plus the delimiters of balanced visible marks must cover the source.
+// Text plus the markers of balanced visible marks must cover the source; a
+// mark's markers are its annotation's source outside its arms, as Core reads it.
 const completeSourceCoverage = (replacement: MarkupRegionReplacement): boolean => {
+  const annotations = new Map<string, CriticMarkupAnnotation>()
+  const pending = [...replacement.annotations]
+  for (let annotation = pending.pop(); annotation !== undefined; annotation = pending.pop()) {
+    annotations.set(`${annotation.kind}:${annotation.range.start}:${annotation.range.end}`, annotation)
+    for (const arm of annotation.arms) pending.push(...arm.annotations)
+  }
   const covered: SourceRange[] = []
   const active: Array<{
     mark: Extract<MarkupRegionReplacement['events'][number], { kind: 'enter' }>['mark']
+    start: number
     end: number
   }> = []
   for (const event of replacement.events) {
@@ -133,20 +142,22 @@ const completeSourceCoverage = (replacement: MarkupRegionReplacement): boolean =
       covered.push(event.sourceRange)
       for (const owner of active) owner.end = event.sourceRange.end
     } else if (event.kind === 'enter') {
-      const range = event.mark.annotationRange
-      covered.push(
-        { start: range.start, end: range.start + 3 },
-        { start: range.end - 3, end: range.end }
-      )
-      active.push({ mark: event.mark, end: range.start + 3 })
+      const { mark } = event
+      const annotation = annotations.get(`${mark.kind}:${mark.annotationRange.start}:${mark.annotationRange.end}`)
+      const arm = mark.kind === 'substitution'
+        ? annotation?.arms.find((candidate) => candidate.name === mark.arm)
+        : annotation?.arms[0]
+      if (annotation === undefined || arm === undefined) return false
+      let cursor = annotation.range.start
+      for (const each of annotation.arms) {
+        covered.push({ start: cursor, end: each.range.start })
+        cursor = each.range.end
+      }
+      covered.push({ start: cursor, end: annotation.range.end })
+      active.push({ mark, start: arm.range.start, end: arm.range.start })
     } else {
       const owner = active.pop()
-      if (owner?.mark !== event.mark || owner.end === owner.mark.annotationRange.start + 3) {
-        return false
-      }
-      if (event.mark.kind === 'substitution' && event.mark.arm === 'old') {
-        covered.push({ start: owner.end, end: owner.end + 2 })
-      }
+      if (owner?.mark !== event.mark || owner.end === owner.start) return false
       for (const parent of active) parent.end = event.mark.annotationRange.end
     }
   }
