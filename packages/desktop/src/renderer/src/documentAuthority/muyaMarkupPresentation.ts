@@ -113,9 +113,8 @@ const syntaxSpans = (
       start: heading.range.start,
       end: Number(heading.attributes.contentStart)
     })
-    if (opening !== undefined) {
-      const hashes = binding.text.slice(opening.start, opening.end).lastIndexOf('#') + 1
-      const marker = { start: opening.start, end: opening.start + hashes }
+    const marker = nativeRange({ start: heading.range.start, end: Number(heading.attributes.markerEnd) })
+    if (opening !== undefined && marker !== undefined) {
       const gray = revealed(marker)
       addNative(marker, `<span class="${gray ? 'mu-gray' : 'mu-hide'} mu-remove">`)
       addNative(
@@ -123,41 +122,47 @@ const syntaxSpans = (
         `<span class="${gray ? 'mu-gray' : 'mu-header-tight-space'} mu-remove">`
       )
     }
-    const after = nativeRange({
-      start: Number(heading.attributes.contentEnd),
-      end: heading.range.end
-    })
-    const closing =
-      after === undefined ? null : /^\s+#+/u.exec(binding.text.slice(after.start, after.end))
-    if (after !== undefined && closing !== null) {
-      const sequence = { start: after.start, end: after.start + closing[0].length }
+    // Core's closing `#` run, with the spaces between it and the text; one
+    // that follows the opening run directly, with no text between, stays.
+    const closingStart = heading.attributes.closingStart
+    const contentEnd = Number(heading.attributes.contentEnd)
+    const sequence = typeof closingStart === 'number' && closingStart > contentEnd
+      ? nativeRange({ start: contentEnd, end: Number(heading.attributes.closingEnd) })
+      : undefined
+    if (sequence !== undefined) {
       addNative(sequence, `<span class="${revealed(sequence) ? 'mu-gray' : 'mu-hide'}">`)
     }
   }
   // Upstream colours a one-line reference definition that its own pattern
   // reads: `[`, the label, `]: ` with the destination, the title, and the
-  // rest. Core decides that the line is a definition; this only checks the
-  // spelling upstream's pattern accepts, and leaves any other plain.
+  // rest. Core decides that the line is a definition and where its label,
+  // destination and title lie; this only checks that their text is what
+  // upstream's pattern accepts, and leaves any other plain.
   const referenceDefinition = (definition: MarkdownAstNode): void => {
     // A definition's range can include its line ending, which no text holds.
     const range = nativeRange({
       start: definition.range.start,
       end: Math.min(definition.range.end, binding.segments.at(-1)?.syntax.end ?? definition.range.end)
     })
-    const label = definition.attributes.label
+    const labelRange = nativeRange({
+      start: Number(definition.attributes.labelStart),
+      end: Number(definition.attributes.labelEnd)
+    })
     const target = nativeRange({
       start: Number(definition.attributes.destinationStart),
       end: Number(definition.attributes.destinationSyntaxEnd)
     })
-    if (range === undefined || typeof label !== 'string' || target === undefined) return
+    if (range === undefined || labelRange === undefined || target === undefined) return
+    // The label as written, between the brackets Core found.
+    const label = binding.text.slice(labelRange.start, labelRange.end)
     // The destination's syntax, with an opening `<` where it has one.
     const destination = binding.text.charAt(target.start - 1) === '<'
       ? { start: target.start - 1, end: target.end }
       : target
     const text = binding.text.slice(range.start, range.end)
     const at = (offset: number): number => offset - range.start
-    const open = /^ */u.exec(text)?.[0].length ?? 0
-    const close = open + 1 + label.length
+    const open = at(labelRange.start) - 1
+    const close = at(labelRange.end)
     const backslashes = /\\*$/u.exec(label)?.[0].length ?? 0
     const titled = definition.attributes.titleStart !== undefined
     const title = titled
