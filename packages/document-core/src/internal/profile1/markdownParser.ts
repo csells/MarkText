@@ -1911,6 +1911,9 @@ function appendInlineRange(
           ...scanLinkTargetAttributes(source, literal.start + 1, literal.end - 1),
           labelStart: construct.labelStart,
           labelEnd: construct.labelEnd,
+          // The target between the parentheses.
+          targetStart: literal.start + 1,
+          targetEnd: literal.end - 1,
           ...(construct.kind === 'image' ? { imageSyntaxEnd: literal.end } : {})
         }
       ))
@@ -1957,6 +1960,9 @@ function appendInlineRange(
           ...scanLinkTargetAttributes(source, destinationStart, nodeEnd - 1),
           labelStart: construct.labelStart,
           labelEnd,
+          // The target between the parentheses.
+          targetStart: destinationStart,
+          targetEnd: nodeEnd - 1,
           ...(construct.kind === 'image' ? { imageSyntaxEnd: nodeEnd, ...size } : {})
         }
       ))
@@ -2228,20 +2234,23 @@ function appendInlineRange(
           ? inlineMathAttributes(source, literal)
           : literal.provider === 'inline-code'
             ? inlineCodeAttributes(source, offset, nodeEnd, markerLength)
-            : literal.provider === 'inline-html'
-              ? (() => {
-                const content = source.slice(offset, nodeEnd)
-                return Object.freeze({
-                  ...htmlTagAttributes(source, offset, nodeEnd),
-                  content,
-                  contentStart: offset,
-                  contentEnd: nodeEnd,
-                  ...(gfmTagFilterApplies(content)
-                    ? { gfmTagFilter: true }
-                    : {})
-                })
-              })()
-              : EMPTY_ATTRIBUTES
+            : literal.provider === 'autolink'
+              // The address between the angle brackets.
+              ? Object.freeze({ addressStart: offset + 1, addressEnd: nodeEnd - 1 })
+              : literal.provider === 'inline-html'
+                ? (() => {
+                  const content = source.slice(offset, nodeEnd)
+                  return Object.freeze({
+                    ...htmlTagAttributes(source, offset, nodeEnd),
+                    content,
+                    contentStart: offset,
+                    contentEnd: nodeEnd,
+                    ...(gfmTagFilterApplies(content)
+                      ? { gfmTagFilter: true }
+                      : {})
+                  })
+                })()
+                : EMPTY_ATTRIBUTES
       ))
       offset = nodeEnd
       textStart = offset
@@ -3102,10 +3111,55 @@ function isLinkWhitespace(codeUnit: number): boolean {
   return codeUnit === 32 || codeUnit === 9 || codeUnit === 10 || codeUnit === 13
 }
 
+/**
+ * Where a definition written on one line as `[label]: destination "title"`
+ * ends its text before trailing spaces, when it is written so: separated by
+ * spaces alone, its destination holding no space or `>`, and its title, if
+ * any, quoted and holding no quote, parenthesis or line break. Upstream
+ * MarkText highlights a definition's parts only in this form.
+ */
+function definitionOneLineForm(
+  source: string,
+  literal: MappedMarkdownLiteral,
+  opener: number,
+  closer: number,
+  target: Readonly<Record<string, number>>
+): number | undefined {
+  let lineEnd = literal.end
+  if (source.charCodeAt(lineEnd - 1) === 10) lineEnd -= 1
+  if (source.charCodeAt(lineEnd - 1) === 13) lineEnd -= 1
+  const text = source.slice(literal.start, lineEnd)
+  const at = (offset: number): number => offset - literal.start
+  const label = source.slice(opener + 1, closer)
+  const destinationEnd = target['destinationSyntaxEnd']
+  const destinationStart = target['destinationStart']
+  if (destinationEnd === undefined || destinationStart === undefined) return undefined
+  const destinationSyntaxStart = source.charCodeAt(destinationStart - 1) === 60 ? destinationStart - 1 : destinationStart
+  const titleStart = target['titleStart']
+  const titleEnd = target['titleEnd']
+  const delimiter = titleStart === undefined ? '' : text.charAt(at(titleStart) - 1)
+  const tail = titleEnd === undefined ? at(destinationEnd) : at(titleEnd) + 1
+  const backslashes = /\\*$/u.exec(label)?.[0].length ?? 0
+  const oneLine =
+    at(opener) <= 3 &&
+    !text.includes('\n') &&
+    !label.includes(']') &&
+    backslashes % 2 === 0 &&
+    /^ *$/u.test(text.slice(at(closer) + 2, at(destinationSyntaxStart))) &&
+    /^<?[^\s>]+>?$/u.test(text.slice(at(destinationSyntaxStart), at(destinationEnd))) &&
+    (titleStart === undefined || titleEnd === undefined ||
+      (/^["']$/u.test(delimiter) &&
+        text.charAt(at(titleEnd)) === delimiter &&
+        /^[^\n"'()]+$/u.test(text.slice(at(titleStart), at(titleEnd))) &&
+        /^ +$/u.test(text.slice(at(destinationEnd), at(titleStart) - 1)))) &&
+    /^ *$/u.test(text.slice(tail))
+  return oneLine ? lineEnd - (/ *$/u.exec(text)?.[0].length ?? 0) : undefined
+}
+
 function definitionAttributes(
   source: string,
   literal: MappedMarkdownLiteral
-): Record<string, string | number> {
+): Record<string, string | number | boolean> {
   for (let opener = literal.start; opener < literal.end; opener += 1) {
     if (
       source.charCodeAt(opener) !== 91 ||
@@ -3123,13 +3177,25 @@ function definitionAttributes(
         break
       }
       if (codeUnit === 93 && source.charCodeAt(closer + 1) === 58) {
+        const target = scanLinkTargetAttributes(source, closer + 2, literal.end)
+        const destinationStart = target['destinationStart']
+        let labelTextEnd = closer
+        while (labelTextEnd > opener + 1 && source.charCodeAt(labelTextEnd - 1) === 92) labelTextEnd -= 1
+        const oneLineEnd = definitionOneLineForm(source, literal, opener, closer, target)
         return {
           label: normalizeMarkdownReferenceLabel(source, opener + 1, closer),
-          // The label as written, between its brackets.
+          // The label as written, between its brackets, and where its text
+          // ends before the backslashes that end it.
           labelStart: opener + 1,
           labelEnd: closer,
+          labelTextEnd,
           definitionStart: literal.start,
-          ...scanLinkTargetAttributes(source, closer + 2, literal.end)
+          ...target,
+          // The destination with its angle brackets, where it has them.
+          ...(destinationStart === undefined
+            ? {}
+            : { destinationSyntaxStart: source.charCodeAt(destinationStart - 1) === 60 ? destinationStart - 1 : destinationStart }),
+          ...(oneLineEnd === undefined ? {} : { oneLineForm: true, trailingSpaceStart: oneLineEnd })
         }
       }
     }
