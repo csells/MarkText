@@ -12,6 +12,8 @@ export type { IIndexCursor } from './selection/offsetCursor';
 
 export type { IHistorySelection, IPublicCursorInput } from './selection/types';
 export type { ITocItem } from './state/getTOC';
+export { legacyMarkdownReaches, onLegacyMarkdownReach, setLegacyMarkdownStrict } from './state/legacyMarkdownGuard';
+export type { ILegacyMarkdownReach, LegacyMarkdownModule } from './state/legacyMarkdownGuard';
 export { MarkdownToHtml } from './state/markdownToHtml';
 export { renderToStaticHTML } from './state/renderToStaticHTML';
 export type { IRenderToStaticHTMLOptions } from './state/renderToStaticHTML';

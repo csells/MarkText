@@ -9,7 +9,8 @@ import {
   exitSourceMode,
   getElectronPath,
   waitForEditor,
-  waitForMenuReady
+  waitForMenuReady,
+  watchLegacyMarkdownReaches
 } from './helpers'
 
 // Core is the only Markdown parser for a document. Muya renders the Core
@@ -86,6 +87,7 @@ test.describe('Core-required Muya mounts', () => {
       env,
       timeout: 30_000
     })
+    watchLegacyMarkdownReaches(app)
     const page = await app.firstWindow()
     await page.evaluate(installMountProbe, TOKEN)
     await waitForEditor(page)

@@ -13,6 +13,7 @@ import { URL_REG } from '../config';
 import { createDocumentTextDraft } from '../editor/documentEditing';
 import { tokenizer } from '../inlineRenderer/lexer';
 import HtmlToMarkdown from '../state/htmlToMarkdown';
+import { reachLegacyMarkdown } from '../state/legacyMarkdownGuard';
 import { MarkdownToState } from '../state/markdownToState';
 import { isAnyListState, isParagraphState } from '../state/types';
 import { encodeImageSrc } from '../utils/image';
@@ -397,6 +398,7 @@ function applyParsedPaste(
         frontMatter,
     } = muya.options;
 
+    reachLegacyMarkdown(muya, 'MarkdownToState');
     const states = new MarkdownToState({
         footnote,
         texMathDollars,

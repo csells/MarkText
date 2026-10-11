@@ -17,7 +17,8 @@ import {
   getElectronPath,
   sendIpcToRenderer,
   waitForEditor,
-  waitForMenuReady
+  waitForMenuReady,
+  watchLegacyMarkdownReaches
 } from './helpers'
 import { expectInstalledArtifactCommit } from './installedArtifactProvenance'
 
@@ -63,6 +64,7 @@ for (const failure of [
           MARKTEXT_ERROR_INTERACTION: '1'
         }
       })
+      watchLegacyMarkdownReaches(app)
       const page = await app.firstWindow()
       await waitForEditor(page)
       await waitForMenuReady(app)
