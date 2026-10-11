@@ -699,6 +699,9 @@ interface ParsedReferenceLink {
   readonly referenceLabel: string
   readonly rawReferenceLabel: string
   readonly referenceKind: 'full' | 'collapsed' | 'shortcut'
+  /** A full reference's label, between the brackets after the text. */
+  readonly referenceLabelStart?: number
+  readonly referenceLabelEnd?: number
 }
 
 function findBalancedLabelEnd(
@@ -826,6 +829,8 @@ function findReferenceLink(
   let referenceLabel = normalizedLabel
   let rawReferenceLabel = labelText(opener + 1, labelEnd)
   let referenceKind: ParsedReferenceLink['referenceKind'] = 'shortcut'
+  let referenceLabelStart: number | undefined
+  let referenceLabelEnd: number | undefined
   if (source.charCodeAt(constructEnd) === 91) {
     const referenceStart = constructEnd
     const referenceEnd = findBalancedLabelEnd(source, referenceStart, end)
@@ -843,7 +848,11 @@ function findReferenceLink(
       return undefined
     }
     referenceKind = referenceEnd === constructEnd + 1 ? 'collapsed' : 'full'
-    if (referenceKind === 'full') rawReferenceLabel = labelText(constructEnd + 1, referenceEnd)
+    if (referenceKind === 'full') {
+      rawReferenceLabel = labelText(constructEnd + 1, referenceEnd)
+      referenceLabelStart = constructEnd + 1
+      referenceLabelEnd = referenceEnd
+    }
     referenceLabel = referenceEnd === constructEnd + 1
       ? normalizedLabel
       : normalizedLabelOf(constructEnd + 1, referenceEnd)
@@ -863,7 +872,8 @@ function findReferenceLink(
     end: constructEnd,
     referenceLabel,
     rawReferenceLabel,
-    referenceKind
+    referenceKind,
+    ...(referenceLabelStart === undefined ? {} : { referenceLabelStart, referenceLabelEnd })
   })
 }
 
@@ -2130,6 +2140,9 @@ function appendInlineRange(
           referenceKind: referenceLink.referenceKind,
           labelStart: referenceLink.labelStart,
           labelEnd: referenceLink.labelEnd,
+          ...(referenceLink.referenceLabelStart === undefined
+            ? {}
+            : { referenceLabelStart: referenceLink.referenceLabelStart, referenceLabelEnd: referenceLink.referenceLabelEnd }),
           ...(referenceLink.kind === 'image' ? { imageSyntaxEnd: referenceLink.end, ...size } : {})
         }
       ))
