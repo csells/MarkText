@@ -237,11 +237,11 @@ it('gives each standalone highlight the content range Core reads', () => {
       from: 0,
       includeOverview: true
     }) as CoreReviewItemReply
-    const highlights = (reply.overview ?? []).map((entry) => entry.item)
-      .filter((item): item is Extract<typeof item, { kind: 'highlight' }> => item.kind === 'highlight')
-    expect(highlights.map((item) => item.contentRange === undefined
-      ? undefined
-      : source.slice(item.contentRange.start, item.contentRange.end))).toEqual(['marked', '', 'in', 'x {==in==} y'])
+    const contents = (reply.overview ?? []).map((entry) => entry.item)
+      .flatMap((item) => item.kind === 'highlight' && 'contentRange' in item && item.contentRange !== undefined
+        ? [source.slice(item.contentRange.start, item.contentRange.end)]
+        : [])
+    expect(contents).toEqual(['marked', '', 'in', 'x {==in==} y'])
   } finally {
     actor.dispose()
   }
