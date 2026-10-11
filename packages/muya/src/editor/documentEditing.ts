@@ -248,8 +248,10 @@ function replacementRange(range: ISelection, inputType: string, backspaceGraphem
     else if (range.isCollapsed && inputType === 'deleteContentForward') {
         if (end.offset === last.text.length)
             return undefined;
-        const deleted = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(last.text.slice(end.offset))][0]!.segment;
-        end = { ...end, offset: end.offset + deleted.length };
+        // A caret past the model's text (its DOM holds text the model lacks)
+        // reaches past it, where no DOM point is found and the input is refused.
+        const deleted = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(last.text.slice(end.offset))][0]?.segment.length ?? 1;
+        end = { ...end, offset: end.offset + deleted };
     }
     return { start, end, first, last };
 }
@@ -412,6 +414,10 @@ export function attachDocumentEditing(muya: Muya, model: DocumentEditing): () =>
         }
         let nativeStart: DocumentDOMPoint = domRange.anchor;
         let nativeEnd: DocumentDOMPoint = domRange.focus;
+        // A collapsed deletion reaches one grapheme from the caret. Where that
+        // point has no DOM position, the DOM holds text the model lacks (only
+        // a native composition's text before the model commits it), so the
+        // deletion has no model range and the browser must not make it.
         if (range.isCollapsed && inputType === 'deleteContentBackward') {
             const expanded = muya.editor.selection.getDOMPoint(start);
             if (!expanded) {
