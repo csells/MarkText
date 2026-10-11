@@ -566,6 +566,16 @@ describe('Muya Core Markup presentation', () => {
       expect(rendered('[label]: https://example.com').textContent).toBe('[label]: https://example.com')
     })
 
+    // The label's place comes from Core as written, so a label Core folds or
+    // collapses for matching (`A  b` matches `a b`) colours as upstream does (B9).
+    it('colours a definition whose label Core normalizes, by the label as written', () => {
+      expect(shape(rendered('[A  b]: https://example.com'))).toEqual([
+        'mu-reference-marker|[',
+        'mu-reference-label|A  b',
+        'mu-reference-marker|]: https://example.com'
+      ])
+    })
+
     it('leaves plain the definitions upstream does not colour', () => {
       for (const source of [
         '[label]: https://example.com (paren title)',

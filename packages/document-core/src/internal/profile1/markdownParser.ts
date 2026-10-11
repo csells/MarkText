@@ -2429,6 +2429,7 @@ function parseAtxHeading(
   while (closingStart > offset && source.charCodeAt(closingStart - 1) === 35) {
     closingStart -= 1
   }
+  let closing: { start: number, end: number } | undefined
   if (
     closingStart < contentEnd &&
     (
@@ -2437,6 +2438,7 @@ function parseAtxHeading(
       source.charCodeAt(closingStart - 1) === 9
     )
   ) {
+    closing = { start: closingStart, end: contentEnd }
     contentEnd = closingStart - 1
     while (
       contentEnd > offset &&
@@ -2455,7 +2457,15 @@ function parseAtxHeading(
       boundaryPolicy
     )
     : []
-  return createNode('heading', start, end, children, { level, contentStart: offset, contentEnd: Math.max(offset, contentEnd) })
+  // The opening `#` run ends at `markerEnd`; a closing `#` run, where the
+  // line has one, spans `closingStart` to `closingEnd`.
+  return createNode('heading', start, end, children, {
+    level,
+    contentStart: offset,
+    contentEnd: Math.max(offset, contentEnd),
+    markerEnd: markerStart + level,
+    ...(closing === undefined ? {} : { closingStart: closing.start, closingEnd: closing.end })
+  })
 }
 
 // Code content is a line-level fact: container prefixes ('> ', list padding)
@@ -3115,6 +3125,9 @@ function definitionAttributes(
       if (codeUnit === 93 && source.charCodeAt(closer + 1) === 58) {
         return {
           label: normalizeMarkdownReferenceLabel(source, opener + 1, closer),
+          // The label as written, between its brackets.
+          labelStart: opener + 1,
+          labelEnd: closer,
           definitionStart: literal.start,
           ...scanLinkTargetAttributes(source, closer + 2, literal.end)
         }
