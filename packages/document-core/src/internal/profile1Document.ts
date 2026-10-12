@@ -242,11 +242,11 @@ interface MarkupEventTask {
 type MarkupTask = MarkupRangeTask | MarkupAppendTask | MarkupEventTask
 
 /**
- * The intrinsic-pass facts a later reopen can splice instead of re-scanning
- * text its edits never touched. Members alias the frozen arrays the
- * parse already produced — retention adds references, not copies. The bundle
- * is only usable while its guards hold; `parseIntrinsicProfile1` falls back
- * to the full pass otherwise.
+ * The intrinsic-pass facts a parse of an edited source can splice instead
+ * of re-scanning text its edits never touched. Members alias the frozen
+ * arrays the parse already produced — retention adds references, not
+ * copies. The bundle is only usable while its guards hold;
+ * `parseIntrinsicStage` falls back to the full pass otherwise.
  */
 export interface RetainedIntrinsicPass {
   readonly sourceLength: number
@@ -300,8 +300,8 @@ export interface RetainedPassSourceEdit {
 /**
  * A prior parse's retained facts plus the exact edits that produced the new
  * source from its text — the inputs an incremental intrinsic pass splices
- * from. Accepted and currently unused: the splice lands behind this
- * seam without another signature change.
+ * from. A parse given one splices where the retained facts' guards hold and
+ * runs the full pass otherwise.
  */
 export interface PreviousIntrinsicPass {
   readonly retained: RetainedIntrinsicPass
