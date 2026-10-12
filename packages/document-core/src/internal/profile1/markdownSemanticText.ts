@@ -89,27 +89,5 @@ export function normalizeMarkdownAutolinkDestination(source: string): string {
 }
 
 const encodeUriPreservingEscapes = (source: string): string => {
-  const scalarSource = replaceIsolatedSurrogates(source)
-  return encodeURI(scalarSource).replace(/%25([0-9A-Fa-f]{2})/gu, '%$1')
-}
-
-const replaceIsolatedSurrogates = (source: string): string => {
-  let normalized = ''
-  for (let offset = 0; offset < source.length; offset += 1) {
-    const codeUnit = source.charCodeAt(offset)
-    if (codeUnit >= 0xD800 && codeUnit <= 0xDBFF) {
-      const next = source.charCodeAt(offset + 1)
-      if (next >= 0xDC00 && next <= 0xDFFF) {
-        normalized += source.slice(offset, offset + 2)
-        offset += 1
-      } else {
-        normalized += '\uFFFD'
-      }
-    } else if (codeUnit >= 0xDC00 && codeUnit <= 0xDFFF) {
-      normalized += '\uFFFD'
-    } else {
-      normalized += source.charAt(offset)
-    }
-  }
-  return normalized
+  return encodeURI(source.toWellFormed()).replace(/%25([0-9A-Fa-f]{2})/gu, '%$1')
 }
