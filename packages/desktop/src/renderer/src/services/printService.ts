@@ -73,7 +73,7 @@ class MarkdownPrint {
         }
         await Promise.all([
           ...[...textByFont].map(([font, text]) => document.fonts.load(font, text)),
-          document.fonts.load('16px "Noto Music"', '𝅗𝅥𝅘𝅥𝅯'),
+          document.fonts.load('16px "Noto Music"', '𝅗𝅥𝅘𝅥𝅯'),
           document.fonts.load('16px "Noto Sans Math"', '⏜⏝')
         ])
         await document.fonts.ready

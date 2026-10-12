@@ -42,7 +42,9 @@ describe('MarkdownPrint — font readiness before native printing', () => {
     expect(ready).toBe(false)
     expect(load.mock.calls).toEqual([
       [expect.stringContaining('MathFace'), 'xy'],
-      [expect.stringContaining('NumberFace'), '2']
+      [expect.stringContaining('NumberFace'), '2'],
+      ['16px "Noto Music"', '𝅗𝅥𝅘𝅥𝅯'],
+      ['16px "Noto Sans Math"', '⏜⏝']
     ])
     finishLoading()
     await rendering
