@@ -72,13 +72,15 @@ describe('document projection search and count consumers', () => {
     )
 
     expect(tocProjectedDocument(projection)).toEqual([
-      { lvl: 1, content: 'Keep current', source: 'Keep current' },
+      { lvl: 1, content: 'Keep current', contentHtml: 'Keep current', source: 'Keep current' },
       {
         lvl: 2,
         content: 'Use bold and a link',
+        // The outline keeps inline styling and flattens links (#3110).
+        contentHtml: 'Use <strong>bold</strong> and a link',
         source: 'Use **bold** and [a link](https://example.com)'
       },
-      { lvl: 3, content: 'Drop  add fresh', source: 'Drop  add fresh' }
+      { lvl: 3, content: 'Drop  add fresh', contentHtml: 'Drop  add fresh', source: 'Drop  add fresh' }
     ])
   })
 

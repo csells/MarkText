@@ -61,6 +61,7 @@ export const semanticProjectionOf = (
     case 'hard-break':
       return leaf('\n')
     case 'inline-code':
+    case 'inline-diff':
       return leaf(stringAttribute(node, 'semanticContent') ?? stringAttribute(node, 'content') ?? '')
     case 'code-block':
     case 'html-block':

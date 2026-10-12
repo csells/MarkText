@@ -1525,6 +1525,9 @@ const configureCorePreferences = async (
   const lease = coreBoundLease
   if (!adapter || !lease || !editor.value) throw new Error('Core preference view is unavailable')
   editor.value.flush()
+  // A preference can change what the open find bar matches, as upstream's
+  // search refresh after a parse-affecting toggle (#5651) shows.
+  const search = coreSearchSnapshot
   const outcome = await adapter.configure(options, (applied) => {
     // The actor has accepted the interpretation. Update presentation options
     // without asking Muya to reparse its flattened pending source.
@@ -1534,11 +1537,30 @@ const configureCorePreferences = async (
       texMathDollars: options.texMathDollars,
       texMathGfm: options.texMathGfm,
       texMathSingleBackslash: options.texMathSingleBackslash,
-      texMathDoubleBackslash: options.texMathDoubleBackslash
+      texMathDoubleBackslash: options.texMathDoubleBackslash,
+      highlightSyntax: options.highlightSyntax,
+      inlineDiff: options.inlineDiff,
+      multilineBlockquote: options.multilineBlockquote
     })
     return reconcileCoreHistoryView(applied)
   })
   if (outcome === undefined) throw new Error('Core preferences were not applied')
+  if (search !== undefined && search.result.value !== '') await refreshCoreSearch(search)
+}
+const refreshCoreSearch = async (previous: ProjectedSearchSnapshot): Promise<void> => {
+  const inputEpoch = coreConsumerInputEpoch
+  const { lease, identity, projection } = await coreProjectionAtBarrier()
+  if (inputEpoch !== coreConsumerInputEpoch) return
+  const found = searchProjectedDocument(projection, previous.result.value, previous.options)
+  // The active match stays where it was, within the matches the new parse has.
+  const result = Object.freeze({
+    ...found,
+    index: found.matches.length === 0 ? -1 : Math.min(Math.max(previous.result.index, 0), found.matches.length - 1)
+  })
+  coreSearchSnapshot = Object.freeze({ identity, result, options: previous.options })
+  coreSearchProjectionEpoch = inputEpoch
+  coreSearchPresentation?.present(result)
+  editorStore.UPDATE_CORE_CONSUMER_SEARCH(lease.documentId, identity, toSearchMatches(result))
 }
 const captureDocumentSelection = (): DocumentSelection | undefined =>
   editor.value && coreAcknowledgedMarkupView

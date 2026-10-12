@@ -110,7 +110,10 @@ describe('Core Markdown preference changes', () => {
         texMathDollars: true,
         texMathGfm: true,
         texMathSingleBackslash: false,
-        texMathDoubleBackslash: false
+        texMathDoubleBackslash: false,
+        highlightSyntax: false,
+        inlineDiff: false,
+        multilineBlockquote: false
       })
     })
     const lease = manager.lease('enabled.md')

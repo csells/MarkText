@@ -822,10 +822,13 @@ export function createMuyaMarkupView(
           )
           : leaf('atx-heading', { level: Number(attrs.level) })
       case 'blockquote':
-        if (syntax.children.length === 1) {
+        if (syntax.children.length === 1 && syntax.attributes.fence === undefined) {
           markerLine(syntax, syntax.children[0], path, [...path, 'children', 0, 'text'], /^>/u)
         }
-        return { name: 'block-quote', children: children() }
+        // Upstream's state names a `>>>` fence so its own serializer keeps it.
+        return syntax.attributes.fence === '>>>'
+          ? { name: 'block-quote', meta: { style: 'fenced' }, children: children() }
+          : { name: 'block-quote', children: children() }
       case 'list':
         if (
           syntax.children.length === 1 &&

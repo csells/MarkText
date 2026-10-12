@@ -8,6 +8,7 @@ import type {
 import { buildRegexValue, matchString, wordCount, type ISearchQueryOptions } from '@muyajs/core'
 
 import { renderMarkdownProjectionToSafeHtml } from './markdownProjectionHtml'
+import { tocInlineHtmlOf } from './tocInlineHtml'
 import { projectedHeadingNodes, type ProjectedHeadingNode } from './projectedHeadings'
 import {
   searchableBlockKinds,
@@ -335,6 +336,7 @@ export function tocEntryOf(heading: ProjectedHeadingNode): ProjectedTocEntry {
   return Object.freeze({
     lvl: level,
     content: semanticTextOf(heading.node),
+    contentHtml: tocInlineHtmlOf(heading.node),
     ...(heading.source === undefined ? {} : { source: heading.source })
   })
 }

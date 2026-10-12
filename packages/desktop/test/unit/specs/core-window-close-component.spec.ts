@@ -138,6 +138,9 @@ it('retires the mounted Source input through close and restores its live actor, 
     texMathGfm: false,
     texMathSingleBackslash: false,
     texMathDoubleBackslash: false,
+    highlightSyntax: false,
+    inlineDiff: false,
+    multilineBlockquote: false,
     SET_MODE: vi.fn()
   })
   const electron = window.electron
@@ -390,6 +393,9 @@ it.each([false, true, 'overlap'] as const)(
       texMathGfm: false,
       texMathSingleBackslash: false,
       texMathDoubleBackslash: false,
+      highlightSyntax: false,
+      inlineDiff: false,
+      multilineBlockquote: false,
       SET_MODE: vi.fn()
     })
     const electron = window.electron
@@ -624,7 +630,10 @@ it.each([false, true])(
       texMathDollars: true,
       texMathGfm: false,
       texMathSingleBackslash: false,
-      texMathDoubleBackslash: false
+      texMathDoubleBackslash: false,
+      highlightSyntax: false,
+      inlineDiff: false,
+      multilineBlockquote: false
     })
     const layoutStore = store({ effectiveSideBarWidth: 0, showTabBar: true })
     const blank = Vue.defineComponent({ setup: () => () => Vue.h('span') })

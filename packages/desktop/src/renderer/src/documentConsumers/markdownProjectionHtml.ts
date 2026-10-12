@@ -282,6 +282,17 @@ export function renderMarkdownProjectionToSafeHtml(
         }</strong>`
       case 'strikethrough':
         return `<del>${children()}</del>`
+      case 'mark':
+        return `<mark>${children()}</mark>`
+      case 'inline-diff': {
+        const addition = node.attributes['diff'] === 'addition'
+        const tag = addition ? 'ins' : 'del'
+        return marked(
+          node,
+          `<${tag} class="idiff ${addition ? 'addition' : 'deletion'}">` +
+            `${escapeHtml(stringAttribute(node, 'semanticContent'))}</${tag}>`
+        )
+      }
       case 'subscript':
         return `<sub>${children()}</sub>`
       case 'superscript':
@@ -493,6 +504,14 @@ export function renderMarkupPassageExcerpt(passage: MarkupPassage): MarkupPassag
       // <del> would announce a formatting strike as a review deletion.
       case 'strikethrough':
         return wrap('s')
+      case 'mark':
+        return wrap('mark')
+      // Like a strike, an inline diff's <del> would read as a review deletion.
+      case 'inline-diff': {
+        const content = stringAttribute(node, 'semanticContent')
+        const variant = node.attributes['diff'] === 'addition' ? 'addition' : 'deletion'
+        return atom(node, `<span class="idiff ${variant}">${escapeHtml(content)}</span>`, content)
+      }
       case 'subscript':
         return wrap('sub')
       case 'superscript':

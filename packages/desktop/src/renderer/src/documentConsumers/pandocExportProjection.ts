@@ -357,6 +357,19 @@ const createAstConverter = (root: MarkdownAstNode, context: TrackingContext, mar
         case 'strikethrough':
           container(node, (content) => ({ t: 'Strikeout', c: content }))
           break
+        // pandoc's own `mark` extension reads `==…==` as this span.
+        case 'mark':
+          container(node, (content) => ({ t: 'Span', c: [['', ['mark'], []], content] }))
+          break
+        case 'inline-diff':
+          atom(node, {
+            t: 'Span',
+            c: [
+              ['', ['idiff', node.attributes['diff'] === 'addition' ? 'addition' : 'deletion'], []],
+              textTokens(stringAttribute(node, 'semanticContent') ?? '')
+            ]
+          })
+          break
         case 'subscript':
           container(node, (content) => ({ t: 'Subscript', c: content }))
           break

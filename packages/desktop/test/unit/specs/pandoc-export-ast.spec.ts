@@ -246,6 +246,29 @@ describe('Pandoc AST from Core for ordinary Markdown', () => {
     expect(inlines('x^2^\n', { subscriptAndSuperscript: false })).toEqual([str('x^2^')])
   })
 
+  // pandoc's reader has no extension for these upstream MarkText spellings;
+  // with their preferences on, Core's reading reaches the document instead.
+  it('writes ==highlight== as pandoc\'s mark span only when highlightSyntax is on', () => {
+    expect(inlines('a ==hi== b\n', { highlightSyntax: true })).toEqual([
+      str('a'), space, { t: 'Span', c: [attr('', ['mark']), [str('hi')]] }, space, str('b')
+    ])
+    expect(inlines('a ==hi== b\n')).toEqual(words('a ==hi== b'))
+  })
+
+  it('writes a GitLab inline diff as an idiff span with a literal body', () => {
+    expect(inlines('{+ add +} [-**x**-]\n', { inlineDiff: true })).toEqual([
+      { t: 'Span', c: [attr('', ['idiff', 'addition']), [space, str('add'), space]] },
+      space,
+      { t: 'Span', c: [attr('', ['idiff', 'deletion']), [str('**x**')]] }
+    ])
+  })
+
+  it('writes a >>> fence as one block quote when multilineBlockquote is on', () => {
+    expect(blocks('>>>\none\n\ntwo\n>>>\n', { multilineBlockquote: true })).toEqual([
+      { t: 'BlockQuote', c: [para(str('one')), para(str('two'))] }
+    ])
+  })
+
   it('writes emoji as pandoc\'s emoji span and leaves unknown names as text', () => {
     expect(inlines(':smile: :notanemoji:\n')).toEqual([
       { t: 'Span', c: [attr('', ['emoji'], [['data-emoji', 'smile']]), [str('😄')]] },

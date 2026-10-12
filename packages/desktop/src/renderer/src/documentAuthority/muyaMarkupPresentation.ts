@@ -336,6 +336,7 @@ const syntaxSpans = (
       strong: 'strong',
       emphasis: 'em',
       strikethrough: 'del',
+      mark: 'mark',
       subscript: 'sub',
       superscript: 'sup',
       'inline-code': 'code',
@@ -347,7 +348,10 @@ const syntaxSpans = (
     // its destination as data rather than a native editable anchor.
     const inlineLink =
       node.kind === 'link' && !reference && node.attributes.extendedAutolink !== true
-    const tag = inlineLink ? 'span' : tags[node.kind]
+    const diff = node.kind === 'inline-diff' ? node.attributes.diff : undefined
+    const tag = inlineLink
+      ? 'span'
+      : diff === undefined ? tags[node.kind] : diff === 'addition' ? 'ins' : 'del'
     if (inlineLink && node.children.length === 0 && node.attributes.labelStart === node.attributes.labelEnd) {
       // Upstream always shows a link without text as its gray brackets
       // around a native anchor holding the destination.
@@ -368,7 +372,7 @@ const syntaxSpans = (
       }
     }
     const content =
-      node.kind === 'inline-code'
+      node.kind === 'inline-code' || node.kind === 'inline-diff'
         ? { start: Number(node.attributes.contentStart), end: Number(node.attributes.contentEnd) }
         : node.kind === 'autolink'
           ? { start: Number(node.attributes.addressStart), end: Number(node.attributes.addressEnd) }
@@ -397,20 +401,22 @@ const syntaxSpans = (
       const linkRange =
         node.kind === 'link' || node.kind === 'autolink' ? nativeRange(node.range) : undefined
       const linkClass =
-        node.kind === 'autolink'
-          ? ' mu-auto-link'
-          : node.attributes.extendedAutolink === true
-            ? ' mu-auto-link-extension'
-            : reference
-              ? ' mu-reference-link'
-              : ' mu-link'
+        diff !== undefined
+          ? ` mu-inline-diff-${diff === 'addition' ? 'addition' : 'deletion'}`
+          : node.kind === 'autolink'
+            ? ' mu-auto-link'
+            : node.attributes.extendedAutolink === true
+              ? ' mu-auto-link-extension'
+              : reference
+                ? ' mu-reference-link'
+                : ' mu-link'
       const linkData =
         linkRange === undefined
           ? ''
           : ` data-start="${linkRange.start}" data-end="${linkRange.end}" data-raw="${escapeHTML(binding.text.slice(linkRange.start, linkRange.end))}"`
       add(
         content,
-        `<${tag} class="mu-inline-rule${linkRange === undefined ? '' : linkClass}"${destination}${linkData}>`,
+        `<${tag} class="mu-inline-rule${linkRange === undefined && diff === undefined ? '' : linkClass}"${destination}${linkData}>`,
         `</${tag}>`
       )
       // Upstream splits the rest of a shown link into `](`, its destination
