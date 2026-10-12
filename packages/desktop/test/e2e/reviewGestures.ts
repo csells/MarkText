@@ -9,13 +9,18 @@ export type AuthoringForm = typeof authoringForms[number]
 
 export const hiddenCoreEnv = { MARKTEXT_E2E_HIDDEN_WINDOW: '1', MARKTEXT_DOCUMENT_CORE_TEST_CONTROLS: undefined }
 
-/** The viewport point at `where` within the first rendered occurrence of `text`. */
+/**
+ * The viewport point at `where` within the first rendered occurrence of
+ * `text`. `startInset` aims a start that far inside its letter's left half
+ * instead of at its leftmost pixel; the caret still lands before the letter.
+ */
 export const textPoint = async(
   page: Page,
   text: string,
-  where: 'start' | 'end' | number
+  where: 'start' | 'end' | number,
+  startInset = 0.5
 ): Promise<{ x: number; y: number }> => {
-  const point = await page.evaluate(({ text, where }) => {
+  const point = await page.evaluate(({ text, where, startInset }) => {
     const root = document.querySelector('.editor-component')!
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
     let node: Node | null
@@ -28,15 +33,12 @@ export const textPoint = async(
       range.setStart(node, ch)
       range.setEnd(node, ch + 1)
       const rect = range.getBoundingClientRect()
-      // A block's drag handle, shown once the pointer hovers the block, overlaps
-      // its first letter's leftmost pixel, so a start is aimed a little inside
-      // the letter's left half, where the caret still lands before it.
-      const inset = where === 'start' ? Math.max(0.5, Math.min(3, rect.width / 2 - 0.5)) : 0.5
+      const inset = where === 'start' ? Math.max(0.5, Math.min(startInset, rect.width / 2 - 0.5)) : 0.5
       const x = offset > ch ? rect.right - 0.5 : rect.left + inset
       return { x, y: rect.top + rect.height / 2 }
     }
     return null
-  }, { text, where })
+  }, { text, where, startInset })
   if (!point) throw new Error(`Rendered text not found: ${text}`)
   return point
 }
@@ -55,8 +57,14 @@ export const drag = async(page: Page, from: { x: number; y: number }, to: { x: n
 export const nextFrame = (page: Page): Promise<void> =>
   page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
 
+/**
+ * Clicks `where` in `text`. A block's drag handle, shown once the pointer
+ * hovers the block, overlaps its first letter's leftmost pixel, so a start is
+ * clicked a little inside the letter, clear of the handle. Drags keep the
+ * leftmost pixel: inside an existing selection, a press there would drag it.
+ */
 export const clickText = async(page: Page, text: string, where: 'start' | 'end' | number): Promise<void> => {
-  const point = await textPoint(page, text, where)
+  const point = await textPoint(page, text, where, 3)
   await page.mouse.click(point.x, point.y)
   await nextFrame(page)
 }
