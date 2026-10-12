@@ -40,7 +40,6 @@ import type {
   CoreReviewOverviewEntry
 } from './coreProtocol'
 import { createMuyaMarkupView } from './muyaMarkupView'
-import { stringAttribute } from '../documentConsumers/astAttributes'
 import { searchableBlockKinds, semanticProjectionOf } from '../documentConsumers/semanticProjection'
 import { createReviewOverviewTracker } from './coreReviewOverview'
 import { createConsumerSummaryTracker } from './coreConsumerSummary'
@@ -65,13 +64,7 @@ const diagnosticsOf = (revision: DocumentRevision) =>
     diagnostics: Object.freeze(revision.diagnostics.slice(0, DIAGNOSTIC_SAMPLE_LIMIT))
   })
 
-// Unlike `semanticProjectionOf`'s default, an empty `semanticContent` falls
-// back to the span's `content`.
-const consumerInlineCodeText = (node: MarkdownAstNode): string =>
-  stringAttribute(node, 'semanticContent') || (stringAttribute(node, 'content') ?? '')
-
-const consumerSemanticTextOf = (node: MarkdownAstNode): string =>
-  semanticProjectionOf(node, undefined, consumerInlineCodeText).text
+const consumerSemanticTextOf = (node: MarkdownAstNode): string => semanticProjectionOf(node).text
 
 const nodeAtConsumerPath = (
   ast: MarkdownAst,
@@ -107,7 +100,7 @@ const projectedRangeForConsumerMatch = (
   }
   const block = nodeAtConsumerPath(projection.ast, match.path)
   if (block === undefined || !searchableBlockKinds.has(block.kind)) return undefined
-  const semantic = semanticProjectionOf(block, projection.markdown, consumerInlineCodeText)
+  const semantic = semanticProjectionOf(block, projection.markdown)
   if (semantic.text.slice(match.start, match.end) !== match.match) return undefined
   // Only a text leaf spelled directly can hold the whole match.
   const leaf = semantic.segments.find(
