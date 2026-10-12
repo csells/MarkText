@@ -18,7 +18,7 @@ import {
   isMarkdownFenceCloser
 } from './markdownFence.js'
 import type {
-  Profile1PhysicalTraversalRecorderV1
+  Profile1PhysicalTraversalRecorder
 } from './physicalTraversalAccounting.js'
 import { CRITIC_MARKERS } from './sourceTape.js'
 
@@ -31,7 +31,7 @@ interface MarkdownLinePath {
    * lazy prefix materialization still attributes its walk to the owning
    * engine.
    */
-  readonly recorder?: Profile1PhysicalTraversalRecorderV1
+  readonly recorder?: Profile1PhysicalTraversalRecorder
 }
 
 interface MarkdownBlockContainer {
@@ -2935,7 +2935,7 @@ export function createMarkdownLaneState(
   texMathDoubleBackslashEnabled: boolean = false,
   footnotesEnabled: boolean = true,
   hasCriticMarkupCandidate?: boolean,
-  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder?: Profile1PhysicalTraversalRecorder
 ): MarkdownLaneState {
   const lineBlockProbeCanPersist = hasCriticMarkupCandidate === undefined
     ? !CRITIC_MARKERS.some((marker) => source.includes(marker))
@@ -5413,7 +5413,7 @@ function parsePlainMarkdownLanePass(
   texMathSingleBackslashEnabled: boolean = false,
   texMathDoubleBackslashEnabled: boolean = false,
   footnotesEnabled: boolean = true,
-  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder?: Profile1PhysicalTraversalRecorder
 ): PlainMarkdownLaneParse {
   const parser = createMarkdownLaneState(
     source,
@@ -5523,7 +5523,7 @@ export function parseIntrinsicForkMarkdownLaneFacts(
   texMathSingleBackslashEnabled: boolean = false,
   texMathDoubleBackslashEnabled: boolean = false,
   footnotesEnabled: boolean = true,
-  physicalRecorder?: Profile1PhysicalTraversalRecorderV1
+  physicalRecorder?: Profile1PhysicalTraversalRecorder
 ): PlainMarkdownLaneParse {
   return parsePlainMarkdownLanePass(
     source,

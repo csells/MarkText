@@ -26,7 +26,7 @@ export interface Profile1PhysicalTraversalCounts {
  * reads, Comment displays) capture the recorder of the parse that created
  * them, so late work still attributes to the owning engine.
  */
-export interface Profile1PhysicalTraversalRecorderV1 {
+export interface Profile1PhysicalTraversalRecorder {
   readonly recordIntrinsicSourceTraversal: (
     markerBearing: boolean,
     sourceUnits: number
@@ -53,7 +53,7 @@ export interface Profile1PhysicalTraversalRecorderV1 {
 }
 
 export function createPhysicalTraversalRecorder():
-Profile1PhysicalTraversalRecorderV1 {
+Profile1PhysicalTraversalRecorder {
   let intrinsicSourceTraversals = 0
   let markerBearingIntrinsicTraversals = 0
   let intrinsicSourceUnits = 0
